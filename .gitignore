@@ -1,0 +1,27 @@
+# Build trees (any name you use for local test builds)
+build/
+build-*/
+build_*/
+out/
+cmake-build-*/
+CMakeUserPresets.json
+
+# Generated installers and packaging output
+dist/
+
+# Bundled Python runtime for Zeit (assembled by a script, never committed)
+runtime/
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# OS / misc
+Thumbs.db
+.DS_Store
+*.log
+__pycache__/
+*.py[cod]
