@@ -18,6 +18,7 @@
 
 #include "app.hpp"
 #include "platform.hpp"
+#include "selftest.hpp"
 #include "usage.hpp"
 
 namespace fs = std::filesystem;
@@ -52,6 +53,7 @@ int main(int argc, char** argv) {
     AppOptions opts;
     std::vector<std::string> inputs;
     bool measureStartup = false; // dev option: print startup timings and exit after the first frame
+    bool selftestZeit = false;   // dev option: run the Zeit path without a window
     for (size_t i = 0; i < args.size(); ++i) {
         const std::string& a = args[i];
         auto next = [&]() -> const char* { return i + 1 < args.size() ? args[++i].c_str() : nullptr; };
@@ -72,6 +74,14 @@ int main(int argc, char** argv) {
         } else if (a == "--threads") {
             const char* v = next();
             opts.ioThreads = v ? std::max(1, std::atoi(v)) : 0;
+        } else if (a == "--zeit-python") {
+            const char* v = next();
+            if (v) opts.zeitPython = v;
+        } else if (a == "--zeit-bridge") {
+            const char* v = next();
+            if (v) opts.zeitBridge = v;
+        } else if (a == "--selftest-zeit") {
+            selftestZeit = true;
         } else if (a == "--measure-startup") {
             measureStartup = true;
         } else if (a.rfind("--", 0) == 0) {
@@ -83,10 +93,20 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Developer override of the bundled Zeit runtime (also via environment).
+    if (opts.zeitPython.empty()) opts.zeitPython = platform::getEnv("TSV_ZEIT_PYTHON");
+    if (opts.zeitBridge.empty()) opts.zeitBridge = platform::getEnv("TSV_ZEIT_BRIDGE");
+
     StartupTimes st;
     configureBundledData();
     GDALAllRegister();
     CPLSetErrorHandler(CPLQuietErrorHandler);
+    if (selftestZeit) {
+        platform::attachParentConsole();
+        const int rc = runZeitSelfTest(inputs, opts.band, opts.zeitPython, opts.zeitBridge);
+        std::fflush(stdout);
+        return rc;
+    }
     st.gdalMs = ms();
 
     if (!glfwInit()) return 1;

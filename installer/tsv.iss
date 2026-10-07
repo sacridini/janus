@@ -1,12 +1,15 @@
 ; tsv installer (Inno Setup 6).
 ; Built by the CMake "installer" target:  cmake --build build --config Release --target installer
-; or by hand:  ISCC /DAppVersion=0.3.0 /DBuildDir=..\build\Release installer\tsv.iss
+; or by hand:  ISCC /DAppVersion=0.4.0 /DBuildDir=..\build\Release installer\tsv.iss
 
 #ifndef AppVersion
-  #define AppVersion "0.3.0"
+  #define AppVersion "0.4.0"
 #endif
 #ifndef BuildDir
   #define BuildDir "..\build\Release"
+#endif
+#ifndef RuntimeDir
+  #define RuntimeDir BuildDir + "\runtime"
 #endif
 
 [Setup]
@@ -47,6 +50,12 @@ Source: "{#BuildDir}\tsv.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\tsv.com"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\share\*"; DestDir: "{app}\share"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Private Python runtime with Zeit (never added to PATH)
+Source: "{#RuntimeDir}\*"; DestDir: "{app}\runtime"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[UninstallDelete]
+; bytecode caches written at run time
+Type: filesandordirs; Name: "{app}\runtime"
 
 [Icons]
 Name: "{autoprograms}\tsv"; Filename: "{app}\tsv.exe"
@@ -68,9 +77,32 @@ Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.tiff\shell\tsv"; Va
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.tiff\shell\tsv\command"; ValueType: string; ValueName: ""; ValueData: """{app}\tsv.exe"" ""%1"""; Tasks: contextmenu
 
 [Run]
+; Warm-up: the first load of ~10k freshly installed files is slow (antivirus
+; scans them, measured ~15 s); doing it here makes the first tool use fast (~1 s).
+Filename: "{app}\runtime\python\python.exe"; Parameters: "-c ""import zeit"""; StatusMsg: "Preparing Zeit..."; Flags: runhidden waituntilterminated
 Filename: "{app}\tsv.exe"; Description: "{cm:LaunchProgram,tsv}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+// The deepest file of the bundled Python runtime is ~105 characters below {app},
+// and Windows (without long paths enabled) stops at 260.
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if (CurPageID = wpSelectDir) and (Length(ExpandConstant('{app}')) > 140) then
+  begin
+    MsgBox('Please choose a shorter installation folder (at most 140 characters).', mbError, MB_OK);
+    Result := False;
+  end;
+end;
+
+// Also enforced for silent installs (/DIR=...), before anything is copied.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if Length(ExpandConstant('{app}')) > 140 then
+    Result := 'The installation folder is too long (more than 140 characters). Please choose a shorter one.';
+end;
+
 function EnvKey(Param: String): String;
 begin
   if IsAdminInstallMode then

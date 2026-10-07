@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <functional>
 
@@ -59,6 +60,9 @@ App::App(GLFWwindow* window) : window_(window) {}
 
 App::~App() {
     if (opening_.valid()) opening_.wait();
+    for (auto& j : jobs_) j->cancel(); // don't leave orphan processes behind
+    jobs_.clear();
+    zeit_.reset();
     closeSession();
     gpu_.shutdown();
 }
@@ -78,6 +82,9 @@ bool App::init(const AppOptions& opts, std::string& error) {
     GLint maxTex = 0;
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTex);
     settings_.maxTexSize = std::min<int>(maxTex, 16384);
+
+    resultsDir_ = (fs::u8path(appData) / "results").u8string();
+    fs::create_directories(fs::u8path(resultsDir_), ec);
 
     iniPath_ = (fs::u8path(appData) / "layout.ini").u8string();
     iniExisted_ = fs::exists(fs::u8path(iniPath_), ec);
@@ -161,12 +168,22 @@ void App::finishOpen() {
     approxLayers_ = -1;
     mapDirty_ = true;
 
+    zeitYears_.resize(T);
+    for (int t = 0; t < T; ++t) zeitYears_[t] = info->decimalYear(t);
+    roiZeitReq_ = 0;
+    roiZeitVersion_ = -1;
+    roiZeitResult_ = json();
+    pixelSent_.clear();
+    // Zeit (separate process) starts only now, never on the startup path.
+    startZeit();
+
     const std::string where = inputs.size() == 1 ? inputs[0] : fs::u8path(info->firstPath).parent_path().u8string();
     const std::string title = "tsv - " + where + " (" + info->description + ")";
     glfwSetWindowTitle(window_, title.c_str());
 }
 
 void App::closeSession() {
+    clearResults();
     if (roi_) roi_->cancel = true;
     roi_.reset();
     s_.reset();
@@ -248,6 +265,8 @@ void App::frame() {
         appliedCmap_ = cmap_[ModeValue];
     }
 
+    pumpZeit();
+
     handleShortcuts();
     uiMenu();
     uiDockspace();
@@ -256,6 +275,9 @@ void App::frame() {
     uiSeries();
     uiStats();
     uiMap();
+    if (zeit_ && zeit_->state() == ZeitClient::State::Ready)
+        for (const ZeitTool& t : zeit_->tools()) uiToolWindow(t);
+    uiTasks();
     uiPopups();
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
     frameMs_ = frameMs_ * 0.9 + ms * 0.1;
@@ -267,6 +289,8 @@ void App::pumpSeries() {
             if (v.request != r.id) return false;
             v.values = std::move(r.values);
             v.exact = true;
+            v.zeitVersion = -1;
+            v.zeitResult = json();
             v.stats = computeSeriesStats(years_, v.values);
             lastSeriesMs_ = r.ms;
             return true;
@@ -329,6 +353,8 @@ void App::updateRoiSeries() {
         roiP90_[t] = st.p90;
     }
     roiStats_ = computeSeriesStats(years_, roiMean_);
+    roiZeitVersion_ = -1;
+    roiZeitResult_ = json();
 }
 
 // (Subsampled) sample of the quantity shown by `mode`. t < 0 = all dates.
@@ -481,6 +507,7 @@ void App::uiMenu() {
         if (ImGui::MenuItem("Reset layout")) layoutPending_ = true;
         ImGui::EndMenu();
     }
+    uiToolsMenu();
     if (ImGui::BeginMenu("Help")) {
         if (ImGui::MenuItem("Shortcuts and usage")) openHelpPopup_ = true;
         ImGui::EndMenu();
@@ -590,6 +617,12 @@ void App::renderMap(int w, int h) {
                                     float(offset_.x + (x + sw) * scale_), float(offset_.y + (y + sh) * scale_)};
                 gpu_.drawTile(tex, r, p);
             });
+        }
+        for (const ResultLayer& L : results_) {
+            if (!L.visible || !L.tex) continue;
+            const float r[4] = {float(offset_.x + L.x0 * scale_), float(offset_.y + L.y0 * scale_),
+                                float(offset_.x + (L.x0 + L.w) * scale_), float(offset_.y + (L.y0 + L.h) * scale_)};
+            gpu_.drawOverlay(L.tex, r, L.lo, L.hi, L.cmap, L.opacity);
         }
     }
     gpu_.endMap();
@@ -716,12 +749,17 @@ void App::uiMap() {
         (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)))
         pins_.pop_back();
     if (hovered && io.MouseWheel != 0) {
-        const double fit = std::min(size.x / info.width, size.y / info.height);
-        const double ns = std::clamp(scale_ * std::pow(1.25, io.MouseWheel), fit * 0.05, 64.0);
-        const double f = ns / scale_;
-        offset_ = ImVec2(float(m.x - (m.x - offset_.x) * f), float(m.y - (m.y - offset_.y) * f));
-        scale_ = ns;
-        mapDirty_ = true;
+        // Zooming out stops at the image extent (whole image in view, centered).
+        const double fit = 0.98 * std::min(size.x / info.width, size.y / info.height);
+        const double ns = std::clamp(scale_ * std::pow(1.25, io.MouseWheel), fit, std::max(fit, 64.0));
+        if (ns <= fit * 1.0001) {
+            fitView(size);
+        } else {
+            const double f = ns / scale_;
+            offset_ = ImVec2(float(m.x - (m.x - offset_.x) * f), float(m.y - (m.y - offset_.y) * f));
+            scale_ = ns;
+            mapDirty_ = true;
+        }
         viewTouched_ = true;
     }
     if (inside && (ix != hover_.x || iy != hover_.y)) {
@@ -731,6 +769,9 @@ void App::uiMap() {
         hover_.exact = false;
         hover_.stats = computeSeriesStats(years_, hover_.values);
         hover_.request = 0;
+        hover_.zeitReq = 0;
+        hover_.zeitVersion = -1;
+        hover_.zeitResult = json();
         hover_.color = ImVec4(0.95f, 0.95f, 0.95f, 1);
         approxLayers_ = s_->overview.layersDone();
         hoverPending_ = true;
@@ -838,6 +879,25 @@ void App::uiMap() {
         dl->AddText(b0 + ImVec2(0, 12), IM_COL32(230, 230, 230, 255), lo);
         dl->AddText(b0 + ImVec2(bsz.x - ImGui::CalcTextSize(hi).x, 12), IM_COL32(230, 230, 230, 255), hi);
     }
+    const ResultLayer* topResult = nullptr;
+    for (const ResultLayer& L : results_)
+        if (L.visible) topResult = &L;
+    if (topResult) {
+        const ImVec2 b0 = origin + ImVec2(10, size.y - (mode_ != ModeRGB ? 78 : 34)), bsz(220, 10);
+        dl->AddText(b0 - ImVec2(0, 16), IM_COL32(230, 230, 230, 255), topResult->name.c_str());
+        const int n = 48;
+        for (int i = 0; i < n; ++i) {
+            const ImVec4 c = ImPlot::SampleColormap((i + 0.5f) / n, topResult->cmap);
+            dl->AddRectFilled(b0 + ImVec2(bsz.x * i / n, 0), b0 + ImVec2(bsz.x * (i + 1) / n, bsz.y),
+                              ImGui::ColorConvertFloat4ToU32(c));
+        }
+        dl->AddRect(b0, b0 + bsz, IM_COL32(0, 0, 0, 255));
+        char lo[32], hi[32];
+        std::snprintf(lo, sizeof(lo), "%.4g", topResult->lo);
+        std::snprintf(hi, sizeof(hi), "%.4g", topResult->hi);
+        dl->AddText(b0 + ImVec2(0, 12), IM_COL32(230, 230, 230, 255), lo);
+        dl->AddText(b0 + ImVec2(bsz.x - ImGui::CalcTextSize(hi).x, 12), IM_COL32(230, 230, 230, 255), hi);
+    }
     dl->PopClipRect();
 
     // --- Status bar ---
@@ -869,6 +929,12 @@ void App::uiMap() {
             std::snprintf(status + n, sizeof(status) - n, "  |  value %.6g %s", hover_.values[t_],
                           hover_.exact ? "" : "(approx.)");
         }
+    }
+    if (inside && topResult) {
+        const float v = topResult->valueAt(ix, iy);
+        const size_t len = std::strlen(status);
+        std::snprintf(status + len, sizeof(status) - len, "  |  %s %s", topResult->name.c_str(),
+                      std::isnan(v) ? "-" : (std::to_string(v).substr(0, 10)).c_str());
     }
     ImGui::TextUnformatted(status);
     ImGui::End();
@@ -982,6 +1048,8 @@ void App::uiLayer() {
         ImPlot::EndPlot();
     }
 
+    uiResultsSection();
+
     ImGui::SeparatorText("Detail");
     if (ImGui::Checkbox("Full resolution when zoomed in", &detail_)) mapDirty_ = true;
     ImGui::SetItemTooltip("Past the overview resolution, reads tiles of the visible area\n"
@@ -1073,7 +1141,7 @@ void App::uiSeries() {
             return v;
         };
         auto plotSeries = [&](const char* label, const std::vector<float>& vals, const SeriesStats& st, ImVec4 col,
-                              float weight, bool trend = true) {
+                              float weight, bool trend = true, const json* model = nullptr) {
             if (int(vals.size()) != T) return;
             std::vector<double> ys(T);
             for (int t = 0; t < T; ++t) ys[t] = transform(vals[t], st);
@@ -1111,6 +1179,7 @@ void App::uiSeries() {
                 ts.LineWeight = 1.2f;
                 ImPlot::PlotLine(label, tx, ty, 2, ts);
             }
+            if (model && !pixelTool_.empty()) drawZeitOverlays(label, *model, col, st);
         };
 
         if (!roiMean_.empty()) {
@@ -1128,19 +1197,19 @@ void App::uiSeries() {
                 ImPlot::PlotShaded(label, xs_.data(), a.data(), b.data(), T, spec);
             }
             // The trend of a partially computed ROI would be misleading: wait for every date.
-            plotSeries(label, roiMean_, roiStats_, yellow, 2.0f, roi_ && roi_->done == T);
+            plotSeries(label, roiMean_, roiStats_, yellow, 2.0f, roi_ && roi_->done == T, &roiZeitResult_);
         }
         for (const SeriesView& p : pins_) {
             char label[64];
             std::snprintf(label, sizeof(label), "Pin %d (%d, %d)%s###pin%d", p.id, p.x, p.y,
                           p.exact ? "" : " approx.", p.id);
-            plotSeries(label, p.values, p.stats, p.color, 1.5f);
+            plotSeries(label, p.values, p.stats, p.color, 1.5f, true, &p.zeitResult);
         }
         if (hover_.x >= 0) {
             char label[64];
             std::snprintf(label, sizeof(label), "Cursor (%d, %d)%s###cursor", hover_.x, hover_.y,
                           hover_.exact ? "" : " approx.");
-            plotSeries(label, hover_.values, hover_.stats, hover_.color, 2.0f);
+            plotSeries(label, hover_.values, hover_.stats, hover_.color, 2.0f, true, &hover_.zeitResult);
         }
 
         double tx = xs_[t_];
@@ -1172,13 +1241,16 @@ void App::uiStats() {
         ImVec4 color;
         int pin;                 // index into pins_ (-1 = not a pin)
         bool roi;
+        const json* model = nullptr; // rows from the Zeit tool on the chart
     };
     std::vector<Col> cols;
-    if (hover_.x >= 0) cols.push_back({hover_.exact ? "Cursor" : "Cursor*", &hover_.stats, hover_.color, -1, false});
+    if (hover_.x >= 0)
+        cols.push_back({hover_.exact ? "Cursor" : "Cursor*", &hover_.stats, hover_.color, -1, false, &hover_.zeitResult});
     for (size_t i = 0; i < pins_.size(); ++i)
         cols.push_back({"Pin " + std::to_string(pins_[i].id) + (pins_[i].exact ? "" : "*"), &pins_[i].stats,
-                        pins_[i].color, int(i), false});
-    if (!roiMean_.empty()) cols.push_back({"ROI mean", &roiStats_, ImVec4(1.0f, 0.82f, 0.24f, 1), -1, true});
+                        pins_[i].color, int(i), false, &pins_[i].zeitResult});
+    if (!roiMean_.empty())
+        cols.push_back({"ROI mean", &roiStats_, ImVec4(1.0f, 0.82f, 0.24f, 1), -1, true, &roiZeitResult_});
     if (cols.empty()) {
         ImGui::TextDisabled("Hover over the map, click to drop pins\nor Shift+drag for an ROI.");
         ImGui::End();
@@ -1256,6 +1328,37 @@ void App::uiStats() {
                 ImGui::TextUnformatted(row.f(*c.st).c_str());
             }
         }
+        // Rows from the Zeit tool fitted on the chart, in order of first appearance.
+        if (!pixelTool_.empty()) {
+            std::vector<std::string> names;
+            for (const Col& c : cols)
+                if (c.model && c.model->is_object())
+                    for (const json& r : c.model->value("rows", json::array()))
+                        if (r.is_array() && r.size() == 2 && r[0].is_string() &&
+                            std::find(names.begin(), names.end(), r[0].get<std::string>()) == names.end())
+                            names.push_back(r[0].get<std::string>());
+            const ZeitTool* tool = zeit_ ? zeit_->tool(pixelTool_) : nullptr;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1), "%s", tool ? tool->name.c_str() : pixelTool_.c_str());
+            for (const Col& c : cols) {
+                ImGui::TableNextColumn();
+                if (c.model && c.model->contains("error")) ImGui::TextDisabled("error");
+                else if (!c.model || !c.model->contains("rows")) ImGui::TextDisabled("...");
+            }
+            for (const std::string& n : names) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextDisabled("%s", n.c_str());
+                for (const Col& c : cols) {
+                    ImGui::TableNextColumn();
+                    if (!c.model || !c.model->is_object()) continue;
+                    for (const json& r : c.model->value("rows", json::array()))
+                        if (r.is_array() && r.size() == 2 && r[0] == n && r[1].is_string())
+                            ImGui::TextUnformatted(r[1].get<std::string>().c_str());
+                }
+            }
+        }
         ImGui::EndTable();
         // Remove after drawing: the pointers in `cols` point into pins_.
         if (removePin >= 0) pins_.erase(pins_.begin() + removePin);
@@ -1303,6 +1406,22 @@ void App::uiPerf() {
         if (roi_ && roi_->done == s_->info->T()) ImGui::Text("ROI: %.0f ms", roi_->ms.load());
         ImGui::Text("Queue: %d (background), %d (interactive)", s_->bgPool().pending(), s_->fgPool().pending());
     }
+    ImGui::SeparatorText("Zeit");
+    if (!zeit_ || zeit_->state() == ZeitClient::State::Off) {
+        ImGui::TextDisabled("Not started (starts when a series is opened)");
+    } else if (zeit_->state() == ZeitClient::State::Starting) {
+        ImGui::TextDisabled("Starting in the background...");
+    } else if (zeit_->state() == ZeitClient::State::Failed) {
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1), "%s", zeit_->error().c_str());
+        ImGui::PopTextWrapPos();
+    } else {
+        ImGui::Text("Zeit %s, Python %s", zeit_->zeitVersion().c_str(), zeit_->pythonVersion().c_str());
+        ImGui::Text("Process ready in %.0f ms (background)", zeit_->startupMs());
+        if (lastPixelFitMs_ > 0) ImGui::Text("Last pixel fit: %.1f ms", lastPixelFitMs_);
+        if (!zeit_->config().bundled) ImGui::TextDisabled("Developer runtime: %s", zeit_->config().python.c_str());
+    }
+
     ImGui::SeparatorText("Settings");
     ImGui::SetNextItemWidth(-1);
     ImGui::SliderInt("##budget", &budgetUi_, 128, 8192, "Overview: %d MB", ImGuiSliderFlags_Logarithmic);

@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <regex>
 
+#include <cpl_conv.h>
 #include <cpl_error.h>
 #include <gdal_priv.h>
 #include <ogr_spatialref.h>
@@ -89,6 +90,101 @@ std::string formatTime(const CubeInfo& info, double t) {
 double CubeInfo::yearsFromStart(int t) const {
     if (!timeIsDate) return double(t);
     return (layers[t].time - layers[0].time) / (365.2425 * 86400.0);
+}
+
+static bool isLeap(int y) { return (y % 4 == 0 && y % 100 != 0) || y % 400 == 0; }
+
+double CubeInfo::decimalYear(int t) const {
+    if (!timeIsDate) return double(t);
+    const int64_t days = int64_t(std::floor(layers[t].time / 86400.0));
+    int y;
+    unsigned m, d;
+    civilFromDays(days, y, m, d);
+    return y + double(days - daysFromCivil(y, 1, 1)) / (isLeap(y) ? 366.0 : 365.0);
+}
+
+double CubeInfo::xFromDecimalYear(double yr) const {
+    if (!timeIsDate) return yr;
+    const int y = int(std::floor(yr));
+    const double days = double(daysFromCivil(y, 1, 1)) + (yr - y) * (isLeap(y) ? 366.0 : 365.0);
+    return days * 86400.0;
+}
+
+static std::string xmlEscape(const std::string& s) {
+    std::string out;
+    for (char c : s) {
+        switch (c) {
+        case '&': out += "&amp;"; break;
+        case '<': out += "&lt;"; break;
+        case '>': out += "&gt;"; break;
+        case '"': out += "&quot;"; break;
+        default: out += c;
+        }
+    }
+    return out;
+}
+
+bool writeCubeVrt(const CubeInfo& info, const std::string& path, std::string& error) {
+    std::string srsWkt;
+    if (GDALDataset* ds = GDALDataset::Open(info.firstPath.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)) {
+        if (const OGRSpatialReference* srs = ds->GetSpatialRef()) {
+            char* wkt = nullptr;
+            srs->exportToWkt(&wkt);
+            if (wkt) srsWkt = wkt;
+            CPLFree(wkt);
+        }
+        GDALClose(ds);
+    }
+    char num[64];
+    std::string x = "<VRTDataset rasterXSize=\"" + std::to_string(info.width) + "\" rasterYSize=\"" +
+                    std::to_string(info.height) + "\">\n";
+    if (!srsWkt.empty()) x += "  <SRS>" + xmlEscape(srsWkt) + "</SRS>\n";
+    if (info.hasGeoTransform) {
+        char gt[256];
+        std::snprintf(gt, sizeof(gt), "%.17g, %.17g, %.17g, %.17g, %.17g, %.17g", info.geoTransform[0],
+                      info.geoTransform[1], info.geoTransform[2], info.geoTransform[3], info.geoTransform[4],
+                      info.geoTransform[5]);
+        x += std::string("  <GeoTransform>") + gt + "</GeoTransform>\n";
+    }
+    for (int t = 0; t < info.T(); ++t) {
+        const Layer& L = info.layers[t];
+        const bool scaled = L.scale != 1.0 || L.offset != 0.0;
+        const char* source = scaled || L.hasNoData ? "ComplexSource" : "SimpleSource";
+        x += "  <VRTRasterBand dataType=\"Float32\" band=\"" + std::to_string(t + 1) + "\">\n";
+        x += "    <Description>" + xmlEscape(L.label) + "</Description>\n";
+        x += "    <NoDataValue>nan</NoDataValue>\n";
+        x += std::string("    <") + source + ">\n";
+        x += "      <SourceFilename relativeToVRT=\"0\">" + xmlEscape(L.path) + "</SourceFilename>\n";
+        x += "      <SourceBand>" + std::to_string(L.band) + "</SourceBand>\n";
+        if (scaled) {
+            std::snprintf(num, sizeof(num), "%.17g", L.offset);
+            x += std::string("      <ScaleOffset>") + num + "</ScaleOffset>\n";
+            std::snprintf(num, sizeof(num), "%.17g", L.scale);
+            x += std::string("      <ScaleRatio>") + num + "</ScaleRatio>\n";
+        }
+        if (L.hasNoData) {
+            std::snprintf(num, sizeof(num), "%.17g", L.noData);
+            x += std::string("      <NODATA>") + num + "</NODATA>\n";
+        }
+        x += std::string("    </") + source + ">\n";
+        x += "  </VRTRasterBand>\n";
+    }
+    x += "</VRTDataset>\n";
+
+    FILE* f = nullptr;
+#ifdef _WIN32
+    _wfopen_s(&f, fs::u8path(path).wstring().c_str(), L"wb");
+#else
+    f = std::fopen(path.c_str(), "wb");
+#endif
+    if (!f) {
+        error = "could not write " + path;
+        return false;
+    }
+    const bool ok = std::fwrite(x.data(), 1, x.size(), f) == x.size();
+    std::fclose(f);
+    if (!ok) error = "could not write " + path;
+    return ok;
 }
 
 bool CubeInfo::pixelToGeo(double px, double py, double& gx, double& gy) const {

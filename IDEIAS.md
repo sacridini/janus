@@ -62,15 +62,27 @@ Windows sem Python nem conda, e chamável pela linha de comando
      pelo tsv) com os batches C++/OpenMP dele; o tsv só acompanha progresso;
   3. **resultados** voltam como GeoTIFFs no mesmo grid e viram camadas no mapa.
 - Modo desenvolvedor: apontar para um Python próprio com o Zeit editável.
+- Medido na 0.4.0: processo do Zeit pronto em ~1,2 s (em segundo plano, depois
+  do primeiro quadro); LandTrendr por pixel com ida e volta de 8–16 ms; recorte
+  de 512×512 px × 41 anos em ~5 s (incluindo ~1,5 s para o processo subir).
+- Runtime: 437 MB (instalador de 122,6 MB). O primeiro carregamento depois de
+  instalar levou 15 s (antivírus varrendo ~10 mil arquivos novos); por isso o
+  instalador faz um "aquecimento" (`import zeit`) no fim.
+- Limite de 260 caracteres de caminho do Windows: `site-packages` virou `sp`
+  (caminho relativo mais fundo: 108 caracteres) e o instalador recusa pastas
+  com mais de 140 caracteres, com mensagem, antes de copiar.
+- Testes sem tocar na tela (`--selftest-zeit`, `--measure-startup`): a interface
+  não é testada simulando mouse/teclado enquanto o usuário usa o computador.
 
 ## Roadmap
 
 | Fase | Versão | Conteúdo | Status |
 |---|---|---|---|
 | 0 | 0.3.0 | Migração para `tsv`, tudo em inglês, README, IDEIAS.md, abertura medida e otimizada | concluída |
-| 1 | 0.4.0 | Runtime Python embutido, servidor do Zeit, conexão assíncrona, menu de ferramentas, painel de tarefas, **LandTrendr** (pixel + cena) | próxima |
-| 2 | 0.5.0 | **Mann-Kendall** (variantes do Zeit) e **BFAST / BFAST Lite / BFAST Monitor** | planejada |
-| 3 | 0.6.0 | Cubo com várias bandas por data + máscara de qualidade; **fenologia** e **CCDC** | planejada |
+| 1 | 0.4.0 | Runtime Python embutido, ponte do Zeit, menu de ferramentas, tarefas, resultados como camadas, **LandTrendr** (pixel + raster), zoom limitado ao extent | concluída |
+| 2 | 0.5.0 | **Espaço de trabalho**: painel **Layers** sempre ativo (todas as camadas, inclusive o raster inicial, ligar/desligar), **várias séries abertas ao mesmo tempo** com o gráfico mostrando todas ou uma, **painéis destacáveis** para outros monitores, **árvore de arquivos** | próxima |
+| 3 | 0.6.0 | **Mann-Kendall** (variantes do Zeit) e **BFAST / BFAST Lite / BFAST Monitor** | planejada |
+| 4 | 0.7.0 | Cubo com várias bandas por data + máscara de qualidade; **fenologia** e **CCDC** | planejada |
 
 ## Ideias (backlog)
 
@@ -90,6 +102,23 @@ Windows sem Python nem conda, e chamável pela linha de comando
   (estimativa: 1ª abertura 3–10× mais rápida no HD; não medido).
 - NetCDF com dimensão de tempo; reprojeção; paletas por classe (color table).
 
+### Interface
+- **Painel Layers** (0.5.0): sempre visível, lista todas as camadas — as séries
+  abertas (inclusive a primeira) e os resultados das ferramentas —, cada uma com
+  ligar/desligar, ordem, opacidade e remover. Hoje os resultados ficam numa seção
+  do painel Layer e a série base não pode ser desligada.
+- **Várias séries ao mesmo tempo** (0.5.0): abrir outra série sem fechar a atual
+  (ex.: NDVI e NBR da mesma área). O gráfico mostra as séries de todas as camadas
+  ativas no pixel do cursor/pinos, ou só a da camada selecionada.
+- **Painéis destacáveis para outras telas** (0.5.0): arrastar o mapa para um
+  segundo monitor e deixar gráficos/estatísticas no principal (multi-viewports do
+  Dear ImGui, já suportado pelo branch docking que usamos).
+- **Árvore de arquivos** (0.5.0, painel/aba): navegar pelas pastas mostrando, por
+  padrão, só rasters (.tif, .tiff, .vrt, .nc, .img, .jp2...), com opção de mostrar
+  tudo. Clique abre a pasta/arquivo como série; seleção múltipla abre vários
+  arquivos. Para trocar de série rapidamente sem o diálogo do Windows.
+- ~~Zoom out limitado ao extent~~ — feito na 0.4.0.
+
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
 - Ferramentas de IA do Zeit como download opcional (PyTorch é pesado).
@@ -98,6 +127,30 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.4.0 — Fase 1: Zeit no tsv
+- **Runtime Python privado** (`runtime\`): Python 3.12 embeddable + Zeit 0.25.0
+  (wheel do PyPI, `--no-deps`) + dependências fixadas, sem PyTorch; montado por
+  `tools/build_zeit_runtime.py` (testes removidos: −102 MB).
+- **Ponte** `zeit_bridge/tsv_zeit_bridge.py` no repositório do tsv (o Zeit não foi
+  alterado): `serve` (lista de ferramentas + chamadas por pixel, JSON por linha)
+  e `job` (processo descartável por execução em raster, com progresso; cancelar
+  = encerrar o processo).
+- tsv: cliente com processos sem janela, herdando só os handles necessários e
+  com ambiente limpo; inicia o Zeit em segundo plano ao abrir uma série.
+- Menu **Tools** gerado da lista enviada pela ponte; janela da ferramenta com
+  formulário, checagem de aplicabilidade, ajuste no gráfico e execução no raster
+  (imagem inteira, área visível ou ROI).
+- **LandTrendr**: segmentos desenhados sobre as séries do cursor, pinos e ROI, com
+  as linhas do modelo na tabela de estatísticas; no raster, 7 mapas (ano, magnitude,
+  duração, pré/pós, taxa, DSNR) carregados como camadas por cima do mapa, com
+  paleta, faixa e opacidade próprias.
+- Painel **Tasks** (progresso, cancelar, abrir pasta, log do Zeit).
+- **Zoom out limitado ao extent** da imagem.
+- `--selftest-zeit` (caminho completo sem janela) e opções de desenvolvedor
+  `--zeit-python` / `--zeit-bridge`.
+- Instalador com o runtime (122,6 MB), aquecimento do Zeit e checagem de pasta
+  longa; testado instalando e rodando sem Python/conda/GDAL no PATH.
 
 ### 0.3.0 — Fase 0: tsv
 - Projeto migrado de `rs_gui` para **tsv** (repositório `sacridini/tsv`).

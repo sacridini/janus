@@ -32,11 +32,19 @@ Built with Dear ImGui (docking) + ImPlot + OpenGL 3.3 + GDAL, in C++17.
   nothing changes (a frame costs ~0.3 ms of CPU). The cube overview is cached on
   disk, so reopening a series takes a fraction of a second.
 - **Copy CSV** of the cursor, pins and ROI series.
+- **Zeit tools** ([Zeit](https://github.com/sacridini/zeit-cdts) change detection
+  and time-series algorithms), starting with **LandTrendr**: fitted live on the
+  cursor, pins and ROI series (segments drawn on the chart, ~10 ms per series),
+  or run on the whole image, the visible area or an ROI, with the results
+  (year of detection, magnitude, duration, rate, DSNR...) shown as map layers.
+  Zeit runs in a bundled, invisible Python runtime — nothing to install.
 
 ## Installation (Windows)
 
 Run `tsv-<version>-setup.exe`. It installs per user (no administrator prompt),
-bundles GDAL (no Python or conda needed), adds a Start menu entry and, optionally:
+bundles GDAL and a private Python runtime with Zeit (no Python or conda needed,
+nothing is added to your Python installations), adds a Start menu entry and,
+optionally:
 
 - adds `tsv` to `PATH`, so you can call it from any terminal;
 - adds **Open in tsv** to the right-click menu of folders and `.tif` files;
@@ -61,6 +69,13 @@ Options:
   --threads N         background reader threads (default: auto; HDD = 1)
   -h, --help          show this help
   --version           show the version
+
+Developer options:
+  --zeit-python EXE   Python with Zeit to use instead of the bundled runtime
+                      (or set TSV_ZEIT_PYTHON)
+  --zeit-bridge PY    bridge script to use (or set TSV_ZEIT_BRIDGE)
+  --measure-startup   print startup timings and exit after the first frame
+  --selftest-zeit IN  run the Zeit tools end to end on IN without a window
 ```
 
 Examples:
@@ -79,7 +94,7 @@ console launcher next to `tsv.exe`, the same trick Visual Studio uses with
 
 | Action | How |
 |---|---|
-| Pan / zoom | drag / mouse wheel, `Home` fits the map |
+| Pan / zoom | drag / mouse wheel (zooming out stops at the image extent), `Home` fits the map |
 | Pixel series | hover (exact once the mouse rests) |
 | Compare pixels | click to drop a pin |
 | Remove a pin | right click it, `Delete` (last one) or the **x** in the statistics table |
@@ -88,8 +103,36 @@ console launcher next to `tsv.exe`, the same trick Visual Studio uses with
 | Map mode, colormap, range | **Layer** panel (range is automatic 2–98%, or drag it) |
 | Chart options | style, values/anomaly/z-score, trend (OLS/Sen), Y = map range |
 | Export | **Copy CSV** in the Time series panel |
+| Zeit tools | **Tools** menu → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
+| Tool results | **Results** in the Layer panel: show/hide, colormap, range, opacity |
 
 Clicking a legend entry hides/shows that series together with its trend line.
+
+## Zeit tools
+
+The **Tools** menu lists the algorithms of [Zeit](https://github.com/sacridini/zeit-cdts)
+that tsv exposes (for now **LandTrendr**). Each tool window has:
+
+- **Parameters**, generated from the tool description sent by Zeit (hover a
+  field for help). Tools that do not fit the open series are disabled with the
+  reason (e.g. LandTrendr needs an annual series).
+- **On the chart**: fits the model to the cursor, pin and ROI series and draws it
+  over them (thicker line + square vertices, same color); the model's numbers are
+  added to the Statistics table.
+- **Run on the raster**: whole image, visible area or ROI. The run happens in a
+  separate process using every CPU core, with progress and cancel in
+  **Tools → Tasks**. Outputs are GeoTIFFs (default folder
+  `%LOCALAPPDATA%\tsv\results`) loaded as layers over the map; cells without an
+  event are transparent.
+
+How it works: Zeit runs in a separate Python process from a private runtime
+inside the installation (`runtime\`: embeddable Python 3.12 + Zeit from PyPI +
+numpy/scipy/rasterio/numba/dask/xarray, without PyTorch). It starts in the
+background once a series is open (~1 s), so it never delays startup. The bridge
+(`zeit_bridge/tsv_zeit_bridge.py`) only uses Zeit's public API: it describes the
+tools, converts parameters, reads/writes rasters in chunks and reports progress.
+tsv hands it the cube as a VRT (dates in order, nodata and scale applied).
+Logs: `%LOCALAPPDATA%\tsv\zeit.log`.
 
 ### Performance notes
 
@@ -121,13 +164,24 @@ The post-build step (`cmake/deploy_runtime.cmake`) copies `gdal.dll` and all of
 its dependencies, plus `proj.db` and `share/gdal`, next to the executable, so the
 build runs on double click and never picks up another GDAL from `PATH`.
 
-Installer (requires [Inno Setup 6](https://jrsoftware.org/isinfo.php)):
+Zeit runtime for local builds (downloads the embeddable Python and the pinned
+wheels from `zeit_bridge/requirements.txt`; the bridge script itself is copied
+on every build):
+
+```powershell
+cmake --build build --config Release --target zeit_runtime   # -> build\Release\runtime
+.\build\Release\tsv.exe --selftest-zeit <series>              # end-to-end check, no window
+```
+
+To work on Zeit itself, point tsv at your own environment:
+`tsv --zeit-python <env>\python.exe` (or `TSV_ZEIT_PYTHON`).
+
+Installer (requires [Inno Setup 6](https://jrsoftware.org/isinfo.php)); it
+assembles its own copy of the runtime in `build\package`:
 
 ```powershell
 cmake --build build --config Release --target installer   # -> dist\tsv-<version>-setup.exe
 ```
-
-Developer option: `tsv --measure-startup [input]` prints the startup timings and exits.
 
 ## Architecture
 
@@ -149,13 +203,18 @@ Developer option: `tsv --measure-startup [input]` prints the startup timings and
 | `src/session.*` | One open series: thread pools, exact series, ROI |
 | `src/stats.*` | OLS, Sen's slope, Mann-Kendall, percentiles |
 | `src/app.*` | User interface (ImGui/ImPlot) |
+| `src/app_zeit.cpp` | Tools menu, tool windows, tasks, result layers, models on the chart |
+| `src/zeit_client.*` | Bridge processes (JSON lines over pipes), pixel calls, raster jobs |
+| `src/results.*` | Result rasters loaded as map layers |
+| `src/selftest.cpp` | `--selftest-zeit`: the Zeit path end to end without a window |
+| `zeit_bridge/` | The Python bridge and the pinned runtime requirements |
+| `tools/build_zeit_runtime.py` | Assembles the private Python runtime |
 | `src/platform.*` | Windows: UTF-8 arguments, dialogs, app data folder, HDD detection |
 | `src/launcher.cpp` | `tsv.com` console launcher |
 
 ## Roadmap
 
 Planned work and the reasoning behind design decisions live in
-[IDEIAS.md](IDEIAS.md) (in Portuguese). Next up: running the
-[Zeit](https://github.com/sacridini/zeit-cdts) change-detection and time-series
-algorithms (LandTrendr, CCDC, BFAST, phenology, Mann-Kendall) directly from tsv,
-through a bundled, invisible Python runtime.
+[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: a Layers panel with several series
+open at once, detachable panels (second monitor) and a file browser; then
+Mann-Kendall and the BFAST family, and later CCDC and phenology.

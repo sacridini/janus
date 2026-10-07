@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -61,6 +62,8 @@ public:
     void beginMap(int w, int h, const float bg[4]);
     void drawCube(const GpuCube& c, const float rect[4], const DrawParams& p);
     void drawTile(GLuint tex, const float rect[4], const DrawParams& p);
+    // Single-band raster (e.g. a Zeit result) blended over the map with its own colormap.
+    void drawOverlay(GLuint tex, const float rect[4], float lo, float hi, int implotColormap, float alpha);
     void endMap();
     GLuint mapTexture() const { return fboColor_; }
 
@@ -72,6 +75,7 @@ private:
     GLuint vao_ = 0;
     GLuint progDisplay_ = 0, progStats_ = 0;
     GLuint cmapTex_ = 0, dummy2D_ = 0, dummyArray_ = 0;
+    std::map<int, GLuint> overlayCmaps_; // colormap textures for overlays, by ImPlot colormap
     GLuint fbo_ = 0, fboColor_ = 0;
     int fboW_ = 0, fboH_ = 0;
     GLuint statsFbo_ = 0;

@@ -128,6 +128,20 @@ std::string openFolderDialog() {
     return r.empty() ? std::string() : r[0];
 }
 
+std::string getEnv(const char* name) {
+    const std::wstring w = toWide(name);
+    const DWORD n = GetEnvironmentVariableW(w.c_str(), nullptr, 0);
+    if (n == 0) return {};
+    std::wstring v(n, L'\0');
+    GetEnvironmentVariableW(w.c_str(), v.data(), n);
+    v.resize(n - 1);
+    return toUtf8(v.c_str());
+}
+
+void openInExplorer(const std::string& path) {
+    ShellExecuteW(nullptr, L"open", toWide(path).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
 bool isOnRotationalDisk(const std::string& path) {
     wchar_t volPath[MAX_PATH];
     if (!GetVolumePathNameW(toWide(path).c_str(), volPath, MAX_PATH)) return false;
@@ -164,6 +178,11 @@ std::string appDataDir() {
 }
 std::vector<std::string> openFilesDialog() { return {}; }
 std::string openFolderDialog() { return {}; }
+void openInExplorer(const std::string&) {}
+std::string getEnv(const char* name) {
+    const char* v = std::getenv(name);
+    return v ? v : "";
+}
 bool isOnRotationalDisk(const std::string&) { return false; }
 
 #endif

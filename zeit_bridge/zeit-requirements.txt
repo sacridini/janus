@@ -1,0 +1,2 @@
+# Zeit version bundled with tsv (installed with --no-deps; see requirements.txt).
+zeit-cdts==0.25.0

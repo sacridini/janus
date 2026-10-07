@@ -42,7 +42,15 @@ struct CubeInfo {
     // Time in decimal years relative to the 1st layer (for trends).
     double yearsFromStart(int t) const;
     bool pixelToGeo(double px, double py, double& gx, double& gy) const;
+    // Decimal year of layer t (e.g. 2003.5); the index when there are no dates.
+    double decimalYear(int t) const;
+    // Inverse of decimalYear, in the chart's X units (Unix seconds or index).
+    double xFromDecimalYear(double y) const;
 };
+
+// Writes a VRT with one band per layer, in date order, with nodata and
+// scale/offset applied: the exact cube tsv shows, readable by other tools.
+bool writeCubeVrt(const CubeInfo& info, const std::string& path, std::string& error);
 
 // Interprets the inputs: a folder, a wildcard pattern (*, ?), a list of files
 // or a single file (multiband = 1 band per date). `band` is the band used when

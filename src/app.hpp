@@ -1,7 +1,9 @@
 #pragma once
 
 #include <array>
+#include <chrono>
 #include <future>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -9,8 +11,10 @@
 #include <imgui.h>
 
 #include "gpu.hpp"
+#include "results.hpp"
 #include "session.hpp"
 #include "stats.hpp"
+#include "zeit_client.hpp"
 
 struct GLFWwindow;
 
@@ -23,6 +27,10 @@ struct SeriesView {
     SeriesStats stats;
     uint64_t request = 0;
     ImVec4 color{1, 1, 1, 1};
+    // Model fitted by the Zeit tool shown on the chart (e.g. LandTrendr segments).
+    uint64_t zeitReq = 0;
+    int zeitVersion = -1;    // pixelVersion_ the result belongs to
+    json zeitResult;         // {"overlays": [...], "rows": [...]} or {"error": ...}
 };
 
 // Startup timings in ms since process start (shown in the Performance panel).
@@ -34,6 +42,8 @@ struct AppOptions {
     int band = 1;
     int64_t budgetMB = 1024;
     int ioThreads = 0;
+    std::string zeitPython;  // developer override of the bundled runtime
+    std::string zeitBridge;
 };
 
 class App {
@@ -73,6 +83,20 @@ private:
     std::vector<float> collectSample(int mode, int t, size_t maxN) const;
     std::string slopeUnit() const;
     void copyCsv();
+
+    // Zeit tools (app_zeit.cpp)
+    ZeitConfig zeitConfig() const;
+    void startZeit();
+    void pumpZeit();
+    void requestPixelFits();
+    std::string toolApplicability(const ZeitTool& tool) const;
+    void runTool(const ZeitTool& tool);
+    void uiToolsMenu();
+    void uiToolWindow(const ZeitTool& tool);
+    void uiTasks();
+    void uiResultsSection();
+    void clearResults();
+    void drawZeitOverlays(const char* label, const json& result, ImVec4 color, const SeriesStats& st);
 
     GLFWwindow* window_;
     AppOptions opts_;
@@ -157,4 +181,33 @@ private:
     double frameMs_ = 0;
     int budgetUi_ = 1024;
     StartupTimes startup_;
+
+    // Zeit
+    std::unique_ptr<ZeitClient> zeit_;
+    struct ToolUi {
+        bool open = false;
+        json params;             // current parameter values
+        int scope = 0;           // 0 whole image, 1 visible area, 2 ROI
+    };
+    std::map<std::string, ToolUi> toolUi_;
+    std::string resultsDir_;     // base folder for tool outputs
+    std::string pixelTool_;      // tool fitted on the chart ("" = none)
+    int pixelVersion_ = 0;       // bumped when the tool or its parameters change
+    std::vector<double> zeitYears_; // decimal year of each date
+    uint64_t roiZeitReq_ = 0;
+    int roiZeitVersion_ = -1;
+    json roiZeitResult_;
+    std::map<uint64_t, std::chrono::steady_clock::time_point> pixelSent_;
+    double lastPixelFitMs_ = 0;
+    std::vector<std::shared_ptr<ZeitJob>> jobs_;
+    std::map<const ZeitJob*, uint64_t> jobCube_; // cube id each job was started for
+    bool showTasks_ = false;
+    std::vector<ResultLayer> results_;
+    struct LoadedResult {
+        ResultLayer layer;
+        bool ok = false;
+        std::string error;
+    };
+    std::vector<std::future<LoadedResult>> resultLoads_;
+
 };
