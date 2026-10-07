@@ -36,7 +36,7 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
 
     ZeitConfig cfg;
     const fs::path rt = fs::u8path(platform::exeDir()) / "runtime";
-    cfg.python = python.empty() ? (rt / "python" / "python.exe").u8string() : python;
+    cfg.python = python.empty() ? bundledPython(rt.u8string()) : python;
     cfg.bridge = bridge.empty() ? (rt / "tsv_zeit_bridge.py").u8string() : bridge;
     cfg.bundled = python.empty();
     cfg.logPath = (fs::u8path(platform::appDataDir()) / "zeit.log").u8string();

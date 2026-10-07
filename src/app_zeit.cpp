@@ -61,7 +61,7 @@ std::string seriesName(const CubeInfo& info, const std::vector<std::string>& inp
 ZeitConfig App::zeitConfig() const {
     ZeitConfig c;
     const fs::path rt = fs::u8path(platform::exeDir()) / "runtime";
-    c.python = opts_.zeitPython.empty() ? (rt / "python" / "python.exe").u8string() : opts_.zeitPython;
+    c.python = opts_.zeitPython.empty() ? bundledPython(rt.u8string()) : opts_.zeitPython;
     c.bridge = opts_.zeitBridge.empty() ? (rt / "tsv_zeit_bridge.py").u8string() : opts_.zeitBridge;
     c.bundled = opts_.zeitPython.empty();
     c.logPath = (fs::u8path(platform::appDataDir()) / "zeit.log").u8string();

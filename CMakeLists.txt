@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(tsv VERSION 0.9.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
+project(tsv VERSION 0.10.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -82,6 +82,12 @@ target_include_directories(tsv PRIVATE ${glfw_SOURCE_DIR}/deps)
 target_compile_definitions(tsv PRIVATE TSV_VERSION="${PROJECT_VERSION}")
 target_link_libraries(tsv PRIVATE imgui GDAL::GDAL nlohmann_json::nlohmann_json)
 
+if(UNIX AND NOT APPLE)
+  # Libraries bundled next to the program (see cmake/package_linux.cmake) are
+  # found first; the build tree keeps working with the original ones.
+  set_target_properties(tsv PROPERTIES BUILD_RPATH "\$ORIGIN/lib")
+endif()
+
 if(MSVC)
   target_compile_options(tsv PRIVATE /utf-8 /W3)
   target_link_options(tsv PRIVATE /ENTRY:mainCRTStartup)
@@ -120,7 +126,7 @@ endif()
 # The bridge script is refreshed on every build, so editing it does not require
 # rebuilding the runtime.
 find_package(Python3 COMPONENTS Interpreter)
-if(WIN32 AND Python3_FOUND)
+if(Python3_FOUND)
   add_custom_target(zeit_runtime
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/build_zeit_runtime.py
             --out $<TARGET_FILE_DIR:tsv>/runtime --cache ${CMAKE_BINARY_DIR}/_downloads
@@ -135,6 +141,20 @@ add_custom_target(zeit_bridge
   COMMENT "Copying the Zeit bridge scripts"
   VERBATIM)
 add_dependencies(tsv zeit_bridge)
+
+# --- Linux package -------------------------------------------------------------
+# cmake --build build --target package_linux  ->  dist/tsv-<version>-linux-x86_64.tar.xz
+if(UNIX AND NOT APPLE AND Python3_FOUND)
+  add_custom_target(package_linux
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/build_zeit_runtime.py
+            --out ${CMAKE_BINARY_DIR}/package/runtime --cache ${CMAKE_BINARY_DIR}/_downloads
+    COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:tsv> -DVERSION=${PROJECT_VERSION} -DGDAL_LIB=$<TARGET_FILE:GDAL::GDAL>
+            -DRUNTIME=${CMAKE_BINARY_DIR}/package/runtime -DSRC=${CMAKE_CURRENT_SOURCE_DIR}
+            -DOUT=${CMAKE_BINARY_DIR}/package -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/package_linux.cmake
+    DEPENDS tsv
+    COMMENT "Building the portable Linux package"
+    VERBATIM)
+endif()
 
 # --- Installer (Inno Setup 6) ------------------------------------------------
 # cmake --build build --config Release --target installer  ->  dist/tsv-<version>-setup.exe

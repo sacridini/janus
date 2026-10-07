@@ -13,6 +13,20 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <winioctl.h>
+#else
+#include <fstream>
+#include <memory>
+#include <spawn.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#else
+#include <sys/sysmacros.h>
+#endif
+extern char** environ;
 #endif
 
 namespace fs = std::filesystem;
@@ -173,32 +187,180 @@ bool isOnRotationalDisk(const std::string& path) {
 }
 
 #else // ---------------------------------------------------------------------
+// Linux and macOS.
 
 void init() {}
 std::vector<std::string> commandLineArgs(int argc, char** argv) {
     return std::vector<std::string>(argv + 1, argv + argc);
 }
-void attachParentConsole() {}
-std::string exeDir() { return fs::canonical("/proc/self/exe").parent_path().string(); }
+void attachParentConsole() {} // a terminal program already has its console
+
+std::string exeDir() {
+#ifdef __APPLE__
+    char buf[4096];
+    uint32_t size = sizeof(buf);
+    if (_NSGetExecutablePath(buf, &size) == 0) return fs::canonical(buf).parent_path().string();
+    return fs::current_path().string();
+#else
+    return fs::canonical("/proc/self/exe").parent_path().string();
+#endif
+}
+
 std::string appDataDir() {
+    // macOS: ~/Library/Application Support/tsv; Linux: $XDG_DATA_HOME/tsv (~/.local/share/tsv).
     const char* home = std::getenv("HOME");
-    fs::path dir = fs::path(home ? home : "/tmp") / ".cache" / "tsv";
+    const fs::path h = home ? home : "/tmp";
+#ifdef __APPLE__
+    fs::path dir = h / "Library" / "Application Support" / "tsv";
+#else
+    const char* xdg = std::getenv("XDG_DATA_HOME");
+    fs::path dir = (xdg && *xdg ? fs::path(xdg) : h / ".local" / "share") / "tsv";
+#endif
     std::error_code ec;
     fs::create_directories(dir, ec);
     return dir.string();
 }
-std::vector<std::string> openFilesDialog() { return {}; }
-std::string openFolderDialog() { return {}; }
-void openInExplorer(const std::string&) {}
+
+static bool onPath(const char* program) {
+    const char* path = std::getenv("PATH");
+    if (!path) return false;
+    std::string p = path;
+    size_t start = 0;
+    while (start <= p.size()) {
+        const size_t end = p.find(':', start);
+        const std::string dir = p.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        if (!dir.empty() && access((fs::path(dir) / program).c_str(), X_OK) == 0) return true;
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return false;
+}
+
+// Runs a helper program (no shell: arguments are passed as they are) and
+// returns its standard output.
+static std::string runCapture(const std::vector<std::string>& args) {
+    int fds[2];
+    if (pipe(fds) != 0) return {};
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, fds[1], 1);
+    posix_spawn_file_actions_addclose(&fa, fds[0]);
+    std::vector<std::string> a = args;
+    std::vector<char*> av;
+    for (std::string& x : a) av.push_back(x.data());
+    av.push_back(nullptr);
+    pid_t pid = -1;
+    const int rc = posix_spawnp(&pid, av[0], &fa, nullptr, av.data(), environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(fds[1]);
+    std::string out;
+    if (rc == 0) {
+        char buf[4096];
+        ssize_t n;
+        while ((n = read(fds[0], buf, sizeof(buf))) > 0) out.append(buf, size_t(n));
+        int st = 0;
+        waitpid(pid, &st, 0);
+    }
+    close(fds[0]);
+    return out;
+}
+
+static std::vector<std::string> splitLines(const std::string& s) {
+    std::vector<std::string> out;
+    size_t start = 0;
+    while (start < s.size()) {
+        size_t end = s.find('\n', start);
+        if (end == std::string::npos) end = s.size();
+        std::string line = s.substr(start, end - start);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (!line.empty()) out.push_back(line);
+        start = end + 1;
+    }
+    return out;
+}
+
+// Native dialogs through the desktop's own helpers (no GUI toolkit linked into
+// tsv): zenity (GNOME) or kdialog (KDE) on Linux, AppleScript on macOS. Without
+// one of them the dialogs return nothing; the Files panel still works.
+static std::vector<std::string> runDialog(bool folders) {
+#ifdef __APPLE__
+    const std::string script = folders ? "POSIX path of (choose folder)"
+                                       : "set fs to choose file with multiple selections allowed\n"
+                                         "set out to \"\"\n"
+                                         "repeat with f in fs\nset out to out & POSIX path of f & linefeed\nend repeat\n"
+                                         "out";
+    return splitLines(runCapture({"osascript", "-e", script}));
+#else
+    if (onPath("zenity")) {
+        if (folders) return splitLines(runCapture({"zenity", "--file-selection", "--directory"}));
+        return splitLines(runCapture({"zenity", "--file-selection", "--multiple", "--separator=\n"}));
+    }
+    if (onPath("kdialog")) {
+        if (folders) return splitLines(runCapture({"kdialog", "--getexistingdirectory"}));
+        return splitLines(runCapture({"kdialog", "--getopenfilename", ".", "", "--multiple", "--separate-output"}));
+    }
+    return {};
+#endif
+}
+
+std::vector<std::string> openFilesDialog() { return runDialog(false); }
+std::string openFolderDialog() {
+    auto r = runDialog(true);
+    return r.empty() ? std::string() : r[0];
+}
+
+void openInExplorer(const std::string& path) {
+#ifdef __APPLE__
+    const char* opener = "open";
+#else
+    const char* opener = "xdg-open";
+#endif
+    std::vector<std::string> a = {opener, path};
+    std::vector<char*> av = {a[0].data(), a[1].data(), nullptr};
+    pid_t pid = -1;
+    if (posix_spawnp(&pid, opener, nullptr, nullptr, av.data(), environ) == 0) {
+        int st = 0;
+        waitpid(pid, &st, 0); // both return as soon as the file manager / app is launched
+    }
+}
+
 std::vector<std::string> rootFolders() {
     const char* home = std::getenv("HOME");
-    return {home ? home : "/", "/"};
+    std::vector<std::string> out = {home ? home : "/", "/"};
+#ifdef __APPLE__
+    out.push_back("/Volumes");
+#else
+    for (const char* m : {"/media", "/mnt"}) {
+        std::error_code ec;
+        if (fs::is_directory(m, ec) && !fs::is_empty(m, ec)) out.push_back(m);
+    }
+#endif
+    return out;
 }
+
 std::string getEnv(const char* name) {
     const char* v = std::getenv(name);
     return v ? v : "";
 }
-bool isOnRotationalDisk(const std::string&) { return false; }
+
+bool isOnRotationalDisk(const std::string& path) {
+#ifdef __APPLE__
+    (void)path; // Macs with Apple Silicon have SSDs; external HDDs are rare
+    return false;
+#else
+    // /sys/dev/block/MAJOR:MINOR is the device (or partition) holding the file;
+    // a partition's queue/ lives in its parent disk's folder.
+    struct stat st {};
+    if (stat(path.c_str(), &st) != 0) return false;
+    const std::string dev = "/sys/dev/block/" + std::to_string(major(st.st_dev)) + ":" + std::to_string(minor(st.st_dev));
+    for (const char* rel : {"/queue/rotational", "/../queue/rotational"}) {
+        std::ifstream f(dev + rel);
+        int r = 0;
+        if (f >> r) return r == 1;
+    }
+    return false;
+#endif
+}
 
 #endif
 

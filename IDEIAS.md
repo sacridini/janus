@@ -84,22 +84,22 @@ Windows sem Python nem conda, e chamável pela linha de comando
   não é testada simulando mouse/teclado enquanto o usuário usa o computador.
 
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
-- Objetivo: o tsv deve rodar nos três. Por enquanto implementamos e testamos só no
-  Windows, mas **nenhum código de sistema operacional entra no código comum**: fica
-  isolado (`src/platform.*` ou módulo próprio, com stub nos outros sistemas) e
-  listado aqui. Dependências novas devem ser multiplataforma (ou ter alternativa
-  conhecida).
-- Pontos que hoje dependem do Windows:
+- Objetivo: o tsv deve rodar nos três. **Nenhum código de sistema operacional
+  entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
+  listado aqui. Dependências novas devem ser multiplataforma.
+- Situação (0.10.0): **Windows** e **Linux x86_64** compilados e testados
+  (Linux no WSL, Ubuntu 24.04, com os mesmos autotestes); **macOS** tem o código
+  mas não foi compilado.
 
-| Onde | Depende de | Caminho nos outros sistemas |
-|---|---|---|
-| `src/platform.cpp` | diálogos (IFileOpenDialog), detecção de HD, pastas, Explorer, discos | já isolado; implementar com `nativefiledialog-extended`, `/sys/block/*/queue/rotational` (Linux), `xdg-open`/`open` |
-| `src/zeit_client.cpp` | processos e pipes Win32 | `posix_spawn` + pipes |
-| `src/launcher.cpp` (`tsv.com`) | truque do `.com` para o console | desnecessário: no Linux/macOS um binário só |
-| runtime do Zeit | Python *embeddable* (só Windows) | `python-build-standalone` (Linux x86_64/arm64, macOS arm64) |
-| `cmake/deploy_runtime.cmake` | `dumpbin` | o mesmo `file(GET_RUNTIME_DEPENDENCIES)` com `ldd`/`otool`; no macOS, bundle `.app` |
-| instalador | Inno Setup, `.rc`, ícone `.ico` | AppImage/.deb (Linux), `.app` + `.dmg` assinado (macOS), `.icns` |
-| OpenGL 3.3 core | no macOS exige `GLFW_OPENGL_FORWARD_COMPAT` (já definido) e o OpenGL está obsoleto lá | a camada de GPU está isolada em `src/gpu.cpp`; o ImGui tem backend Metal |
+| Onde | Windows | Linux | macOS |
+|---|---|---|---|
+| `src/platform.cpp` | IFileOpenDialog, IOCTL de seek penalty, Explorer | `zenity`/`kdialog`, `/sys/dev/block/*/queue/rotational`, `xdg-open`, `~/.local/share/tsv` | AppleScript, `open`, `~/Library/Application Support/tsv` (não testado) |
+| `ZeitProcess` (`src/zeit_client.cpp`) | CreateProcess + pipes, lista de handles herdados | `posix_spawn` + pipes (testado) | o mesmo (não testado) |
+| `tsv.com` (`src/launcher.cpp`) | truque do `.com` para o console | desnecessário: um binário só | idem |
+| runtime do Zeit | Python *embeddable* | `python-build-standalone` *stripped* + wheels manylinux, `strip --strip-debug` (638 MB) | receita `macos_arm64` (não testada) |
+| bibliotecas | `deploy_runtime.cmake` (dumpbin) | `package_linux.cmake`: `GET_RUNTIME_DEPENDENCIES`, RPATH `$ORIGIN/lib`; glibc, OpenGL e X11 vêm do sistema | bundle `.app` (a fazer) |
+| pacote | Inno Setup (122 MB) | `.tar.xz` portátil (172 MB) com `tsv.desktop`; AppImage/.deb depois | `.app` + `.dmg` assinado (a fazer) |
+| OpenGL 3.3 core | ok | ok (WSLg/Mesa) | exige `GLFW_OPENGL_FORWARD_COMPAT` (já definido); OpenGL obsoleto lá, o ImGui tem backend Metal |
 
 ## Roadmap
 
@@ -112,7 +112,8 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 4 | 0.7.0 | Cubo com várias bandas por data + máscara de qualidade; **fenologia** e **CCDC** | concluída |
 | 5 | 0.8.0 | **Ferramentas mais fáceis de usar**: estimativa de tempo antes de rodar (medida pelo Zeit numa amostra), ajuste do Zeit nas séries de **todas as camadas** | concluída |
 | 6 | 0.9.0 | Mais do Zeit: **suavização** (Whittaker/Savitzky-Golay) no gráfico, **TWDTW** (classificação por padrões tirados dos pinos) | concluída |
-| 7 | 0.10.0 | **Linux**: compilar e testar (GDAL do sistema/conda, runtime com `python-build-standalone`, AppImage); corrigir o que aparecer | próxima |
+| 7 | 0.10.0 | **Linux**: compilar e testar (ambiente conda-forge), processos POSIX para o Zeit, runtime com `python-build-standalone`, pacote `.tar.xz` portátil | concluída |
+| 8 | 0.11.0 | **ROI em todas as camadas** e **reprojeção** de camadas com CRS diferente (overview reprojetado com GDAL warp) | próxima |
 
 ## Ideias (backlog)
 
@@ -163,6 +164,26 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.10.0 — Fase 7: Linux
+- Compila no Linux com um ambiente conda-forge (`tsv-linux`: compilador, GDAL,
+  cabeçalhos X11/OpenGL), sem instalar nada no sistema. Só um ajuste no código
+  comum: `GetMetadata` do GDAL 3.13 devolve `CSLConstList`.
+- **`ZeitProcess` POSIX** (`posix_spawn`, pipes com close-on-exec, ambiente
+  filtrado como no Windows, stderr no log, SIGKILL para cancelar).
+- **`platform` no Linux/macOS**: diálogos via `zenity`/`kdialog` (macOS:
+  AppleScript), abrir pastas (`xdg-open`/`open`), detecção de HD por
+  `/sys/dev/block`, pasta de dados XDG.
+- **Runtime do Zeit no Linux**: `python-build-standalone` 3.12.10 (*stripped*,
+  sha256 do `SHA256SUMS` oficial) + wheels manylinux; `strip --strip-debug` nas
+  bibliotecas nativas tirou 153 MB (llvmlite e o módulo do Zeit vêm com
+  símbolos de depuração). 949 → 638 MB.
+- **Pacote portátil** `tsv-<versão>-linux-x86_64.tar.xz` (172 MB): 64
+  bibliotecas em `lib/`, RPATH `$ORIGIN/lib`, dados do PROJ/GDAL, runtime,
+  `tsv.desktop`. Testado num ambiente limpo (`env -i`, sem conda): `ldd` só
+  aponta glibc/OpenGL/X11 do sistema; `--selftest-ui` e `--selftest-zeit` (9
+  ferramentas) passam. No Linux o Zeit sobe em ~0,75 s e as tarefas rodam ~2×
+  mais rápido que no Windows na mesma máquina.
 
 ### 0.9.0 — Fase 6: classificação e suavização
 - **TWDTW** (Zeit, feito por um sub-agente): classificação de cada pixel pelo

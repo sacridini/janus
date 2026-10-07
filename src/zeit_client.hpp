@@ -93,11 +93,24 @@ public:
 
 private:
     void readLoop();
+#ifdef _WIN32
     void* process_ = nullptr;
     void* stdinWrite_ = nullptr;
     void* stdoutRead_ = nullptr;
+#else
+    bool reap(bool wait) const; // collects the exit status once
+    int pid_ = -1;
+    int stdinFd_ = -1, stdoutFd_ = -1;
+    mutable std::mutex waitM_;
+    mutable bool reaped_ = false;
+    mutable int status_ = 0;
+#endif
     std::thread reader_;
 };
+
+// python executable of the bundled runtime in `runtimeDir` (Windows embeddable
+// layout: python/python.exe; elsewhere a relocatable build: python/bin/python3).
+std::string bundledPython(const std::string& runtimeDir);
 
 // One raster run in its own process (cancel = terminate the process).
 struct ZeitJob {

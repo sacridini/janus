@@ -1,4 +1,5 @@
-# Pinned runtime for the Zeit bridge (Python 3.12, win_amd64 wheels only).
+# Pinned runtime for the Zeit bridge (Python 3.12; binary wheels for Windows x64,
+# Linux x86_64 and macOS arm64).
 # Zeit itself is installed with --no-deps from zeit-requirements.txt: its full
 # dependency list pulls PyTorch, transformers and Earth Engine (gigabytes),
 # which the tools exposed in tsv do not need.

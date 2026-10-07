@@ -67,7 +67,18 @@ optionally:
 - adds **Open in tsv** to the right-click menu of folders and `.tif` files;
 - creates a desktop shortcut.
 
-Installers are built from this repository (see [Building](#building-from-source)).
+## Installation (Linux x86_64)
+
+Extract `tsv-<version>-linux-x86_64.tar.xz` anywhere and run `tsv` from that
+folder (e.g. `~/apps/tsv-<version>/tsv serie.tif`, or link it into `~/.local/bin`).
+The archive is portable: it carries GDAL and its libraries, the PROJ/GDAL data
+and the private Python runtime with Zeit; only glibc, OpenGL and X11 come from
+the system (tested on Ubuntu 24.04). `tsv.desktop` and `tsv.png` are included
+for a menu entry. File dialogs use `zenity` or `kdialog` when installed; the
+Files panel works without them. Data and caches live in `~/.local/share/tsv`.
+
+Installers and packages are built from this repository (see
+[Building](#building-from-source)).
 
 ## Command line
 
@@ -212,10 +223,12 @@ Logs: `%LOCALAPPDATA%\tsv\zeit.log`.
 
 ## Building from source
 
-Requirements: Windows, Visual Studio 2022 (C++), CMake ≥ 3.21 and a GDAL
-installation with CMake config files, e.g. a conda-forge environment
-(`conda create -n geo -c conda-forge gdal`). GLFW, Dear ImGui and ImPlot are
-downloaded by CMake (`FetchContent`).
+Requirements: CMake ≥ 3.21, a C++17 compiler (Visual Studio 2022 on Windows,
+GCC or Clang elsewhere) and a GDAL installation with CMake config files, e.g. a
+conda-forge environment (`conda create -n geo -c conda-forge gdal`). GLFW, Dear
+ImGui, ImPlot and nlohmann/json are downloaded by CMake (`FetchContent`).
+
+### Windows
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="<conda-env>\Library"
@@ -246,6 +259,31 @@ assembles its own copy of the runtime in `build\package`:
 cmake --build build --config Release --target installer   # -> dist\tsv-<version>-setup.exe
 ```
 
+### Linux
+
+Everything (compiler, GDAL, X11/OpenGL headers) can come from one conda-forge
+environment, so nothing needs to be installed system-wide:
+
+```bash
+conda create -n tsv-linux -c conda-forge cmake ninja cxx-compiler c-compiler pkg-config gdal \
+    xorg-libx11 xorg-libxrandr xorg-libxinerama xorg-libxcursor xorg-libxi xorg-libxext libgl-devel
+conda activate tsv-linux
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DGLFW_BUILD_WAYLAND=OFF
+cmake --build build
+cmake --build build --target zeit_runtime     # -> build/runtime (python-build-standalone + Zeit)
+./build/tsv --selftest-zeit <series>
+cmake --build build --target package_linux    # -> dist/tsv-<version>-linux-x86_64.tar.xz
+```
+
+(`-DGLFW_BUILD_WAYLAND=OFF` skips GLFW's native Wayland backend, which needs
+`wayland-scanner`; on Wayland desktops tsv runs through XWayland.)
+
+### macOS (Apple Silicon)
+
+Not tested yet. The code has the macOS branches (process spawning, dialogs
+through AppleScript, OpenGL forward-compatible context) and the runtime builder
+has a recipe for `macos_arm64`; a `.app` bundle is still to be done.
+
 ## Architecture
 
 ```
@@ -270,19 +308,19 @@ cmake --build build --config Release --target installer   # -> dist\tsv-<version
 | `src/file_browser.*` | Lazily listed folder tree (rasters only by default) |
 | `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow in a hidden window, checked by reading map pixels |
 | `src/app_zeit.cpp` | Tools menu, tool windows, tasks, result layers, models on the chart |
-| `src/zeit_client.*` | Bridge processes (JSON lines over pipes), pixel calls, raster jobs |
+| `src/zeit_client.*` | Bridge processes (JSON lines over pipes; Win32 or POSIX), pixel calls, raster jobs, estimates |
 | `src/results.*` | Result rasters loaded as map layers |
 | `src/selftest.cpp` | `--selftest-zeit`: every applicable Zeit tool end to end (pixel + raster job) without a window |
 | `zeit_bridge/` | The Python bridge, one `tool_*.py` per Zeit tool family, the pinned runtime requirements |
-| `tools/build_zeit_runtime.py` | Assembles the private Python runtime |
-| `src/platform.*` | Windows: UTF-8 arguments, dialogs, app data folder, HDD detection |
+| `tools/build_zeit_runtime.py` | Assembles the private Python runtime (Windows, Linux, macOS) |
+| `cmake/package_linux.cmake` | Portable Linux package (bundled libraries, RPATH `$ORIGIN/lib`) |
+| `src/platform.*` | OS-specific: arguments, dialogs, data folder, opening folders, HDD detection (Windows, Linux, macOS) |
 | `src/launcher.cpp` | `tsv.com` console launcher |
 
 ## Roadmap
 
 Planned work and the reasoning behind design decisions live in
-[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: a Linux build (the OS-specific
-code is already isolated), then ROI on every layer and reprojection of layers
-with different CRSs. tsv targets Windows,
-Linux and macOS (Apple Silicon); it is developed on Windows for now, with the
-OS-specific code isolated (see the portability notes in IDEIAS.md).
+[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: ROI on every layer and
+reprojection of layers with different CRSs. tsv runs on Windows and Linux
+(x86_64); macOS (Apple Silicon) has the code paths but is not built yet. The
+OS-specific code is isolated (see the portability table in IDEIAS.md).

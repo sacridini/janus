@@ -394,7 +394,7 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
             L.band = b;
             L.meta = readBandMeta(rb);
             std::string t = rb->GetDescription();
-            if (char** md = rb->GetMetadata())
+            if (CSLConstList md = rb->GetMetadata())
                 for (int i = 0; md[i]; ++i) t += std::string(" ") + md[i];
             L.label = rb->GetDescription()[0] ? rb->GetDescription() : "band " + std::to_string(b);
             timeTexts.push_back(t);
