@@ -20,6 +20,8 @@ struct ResultLayer {
     float lo = 0, hi = 1;
     bool visible = true;
     float opacity = 1.0f;
+    // Class map (e.g. TWDTW): value k = classes[k - 1], drawn with a qualitative colormap.
+    std::vector<std::string> classes;
 
     float valueAt(int cubeX, int cubeY) const; // NaN outside or without value
 };

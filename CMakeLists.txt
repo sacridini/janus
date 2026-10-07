@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(tsv VERSION 0.8.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
+project(tsv VERSION 0.9.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

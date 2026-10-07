@@ -48,8 +48,9 @@ Built with Dear ImGui (docking) + ImPlot + OpenGL 3.3 + GDAL, in C++17.
 - **Zeit tools** ([Zeit](https://github.com/sacridini/zeit-cdts) change detection
   and time-series algorithms): **LandTrendr**, **Mann-Kendall** (with Sen's
   slope; Hamed-Rao, Yue-Wang and seasonal variants), **BFAST**, **BFAST Lite**,
-  **BFAST Monitor**, **phenology** (season start/peak/end, length, amplitude)
-  and **CCDC** (multiband). Each is fitted live on the cursor, pins and ROI series
+  **BFAST Monitor**, **phenology** (season start/peak/end, length, amplitude),
+  **CCDC** (multiband), **TWDTW classification** (classes from pins) and
+  **smoothing** (Whittaker, Savitzky-Golay; chart only). Each is fitted live on the cursor, pins and ROI series
   (segments, trend lines, break dates, seasons or CCDC models drawn on the chart),
   or run on the whole image, the visible area or an ROI, with the results
   (year of detection, magnitude, slope, p-value, break dates...) shown as map
@@ -146,6 +147,13 @@ that tsv exposes:
 | BFAST Monitor | regular, ≥ 2 dates per year | first break date in the monitoring period, magnitude, break yes/no |
 | Phenology | ≥ 6 dates per year | start, peak and end of season (day of year), length, peak value, amplitude, fit R², seasons — for a typical year (median), the latest season or a chosen year |
 | CCDC | one file per date with blue, green, red, NIR, SWIR1, SWIR2 [+ thermal]; a quality band is recommended | break count, largest break date and magnitude, NDVI change, first/last break, segments |
+| TWDTW classification | dates | class map (one class per pattern, with a legend), distance, margin to the 2nd class |
+| Smoothing | any | chart only: the smoothed series (Whittaker or Savitzky-Golay) |
+
+**TWDTW classes** come from the series itself: drop pins on places you know
+(forest, crop, pasture...), open the tool and *Add a pattern from* each pin (or
+the ROI mean), and name the classes. Patterns are matched on real dates, so they
+should cover the same period as the series.
 
 "Regular" means evenly spaced dates (monthly, 16-day...): a missing date must be
 a no-data band, not a skipped one. BFAST and BFAST Lite are slow (~2–3 ms per
@@ -273,7 +281,8 @@ cmake --build build --config Release --target installer   # -> dist\tsv-<version
 ## Roadmap
 
 Planned work and the reasoning behind design decisions live in
-[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: more of Zeit on the chart
-(smoothing, STL decomposition) and TWDTW classification. tsv targets Windows,
+[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: a Linux build (the OS-specific
+code is already isolated), then ROI on every layer and reprojection of layers
+with different CRSs. tsv targets Windows,
 Linux and macOS (Apple Silicon); it is developed on Windows for now, with the
 OS-specific code isolated (see the portability notes in IDEIAS.md).

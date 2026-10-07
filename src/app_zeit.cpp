@@ -26,10 +26,17 @@ int colormapByName(const std::string& name) {
     return ImPlotColormap_Viridis;
 }
 
+// Class k (1-based) gets the k-th colour of a qualitative colormap (enough
+// colours for every class: Dark has 8, Paired 12).
+void classRange(ResultLayer& r) {
+    if (int(r.classes.size()) > ImPlot::GetColormapSize(r.cmap)) r.cmap = ImPlotColormap_Paired;
+    r.lo = 0.5f;
+    r.hi = float(ImPlot::GetColormapSize(r.cmap)) + 0.5f;
+}
+
 std::string timestamp() {
     const std::time_t now = std::time(nullptr);
-    std::tm tm{};
-    localtime_s(&tm, &now);
+    const std::tm tm = platform::localTime(now);
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tm);
     return buf;
@@ -325,6 +332,7 @@ void App::pumpZeit() {
             L.path = o.value("path", "");
             L.unit = o.value("unit", "");
             L.cmap = colormapByName(o.value("colormap", "Viridis"));
+            L.classes = o.value("classes", std::vector<std::string>());
             L.x0 = win[0];
             L.y0 = win[1];
             L.w = int(win[2]) - L.x0;
@@ -357,6 +365,7 @@ void App::pumpZeit() {
         for (const SeriesLayer& Ly : layers_)
             if (Ly.session->info->id == r.layer.cubeId) oinfo = Ly.session->info.get();
         if (!oinfo || r.layer.x0 + r.layer.w > oinfo->width || r.layer.y0 + r.layer.h > oinfo->height) continue;
+        if (!r.layer.classes.empty()) classRange(r.layer);
         r.layer.tex = Gpu::createTileTexture(r.layer.tw, r.layer.th, r.layer.data.data());
         results_.push_back(std::move(r.layer));
         mapDirty_ = true;
@@ -578,6 +587,66 @@ void App::uiToolsMenu() {
     ImGui::EndMenu();
 }
 
+// Parameter of type "patterns" (e.g. TWDTW classes): reference series taken
+// from the pins or the ROI mean of the active layer, each with a class name.
+// Value: [{"name", "years", "days", "values"}, ...] (days: since 1970, or null).
+bool App::uiPatterns(const ZeitParam& p, json& v) {
+    if (!v.is_array()) v = json::array();
+    bool changed = false;
+    ImGui::TextUnformatted(p.label.c_str());
+    if (!p.help.empty()) ImGui::SetItemTooltip("%s", p.help.c_str());
+    int remove = -1;
+    for (size_t k = 0; k < v.size(); ++k) {
+        ImGui::PushID(int(k));
+        char name[64] = {};
+        std::snprintf(name, sizeof(name), "%s", v[k].value("name", "").c_str());
+        ImGui::SetNextItemWidth(160);
+        if (ImGui::InputText("##name", name, sizeof(name))) {
+            v[k]["name"] = std::string(name);
+            changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s, %d dates", v[k].value("from", "").c_str(), int(v[k].value("values", json::array()).size()));
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x")) remove = int(k);
+        ImGui::PopID();
+    }
+    if (remove >= 0) {
+        v.erase(size_t(remove));
+        changed = true;
+    }
+    if (v.empty()) ImGui::TextDisabled("No patterns yet: drop pins on known places, then add them here.");
+    auto add = [&](const std::string& from, const std::vector<float>& values) {
+        const CubeInfo& info = *s_->info;
+        json vals = json::array(), days = json::array();
+        for (float f : values) vals.push_back(std::isfinite(f) ? json(double(f)) : json());
+        for (int t = 0; t < info.T(); ++t) days.push_back(info.timeIsDate ? json(info.unixDay(t)) : json());
+        v.push_back({{"name", "Class " + std::to_string(v.size() + 1)},
+                     {"from", from},
+                     {"years", zeitYears_},
+                     {"days", info.timeIsDate ? days : json(nullptr)},
+                     {"values", vals}});
+        changed = true;
+    };
+    ImGui::SetNextItemWidth(-1);
+    if (s_ && ImGui::BeginCombo("##addpattern", "Add a pattern from...")) {
+        for (const SeriesView& pin : pins_) {
+            const std::string label = "Pin " + std::to_string(pin.id) + " (" + std::to_string(pin.x) + ", " +
+                                      std::to_string(pin.y) + ")" + (pin.exact ? "" : " - reading...");
+            ImGui::BeginDisabled(!pin.exact);
+            if (ImGui::Selectable(label.c_str())) add("pin " + std::to_string(pin.id), pin.values);
+            ImGui::EndDisabled();
+        }
+        const bool roiDone = roi_ && roi_->done == s_->info->T() && !roiMean_.empty();
+        ImGui::BeginDisabled(!roiDone);
+        if (ImGui::Selectable("ROI mean")) add("ROI", roiMean_);
+        ImGui::EndDisabled();
+        if (pins_.empty() && !roiDone) ImGui::TextDisabled("Click the map to drop pins first.");
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
 void App::uiToolWindow(const ZeitTool& tool) {
     ToolUi& ui = toolUi_[tool.id];
     if (!ui.open) return;
@@ -673,8 +742,10 @@ void App::uiToolWindow(const ZeitTool& tool) {
                     }
                 ImGui::EndCombo();
             }
+        } else if (p.type == "patterns") {
+            changed |= uiPatterns(p, v);
         }
-        if (!p.help.empty()) ImGui::SetItemTooltip("%s", p.help.c_str());
+        if (!p.help.empty() && p.type != "patterns") ImGui::SetItemTooltip("%s", p.help.c_str());
         ImGui::PopID();
     }
     ImGui::PopItemWidth();
@@ -805,7 +876,21 @@ void App::uiResultsOf(uint64_t cubeId) {
         ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - 18);
         if (ImGui::SmallButton("x")) remove = int(i);
         ImGui::SetItemTooltip("Remove this layer (the file stays on disk)");
-        if (r.visible) {
+        if (r.visible && !r.classes.empty()) {
+            // Legend of a class map.
+            ImGui::Indent();
+            const int n = ImPlot::GetColormapSize(r.cmap);
+            for (size_t k = 0; k < r.classes.size(); ++k) {
+                const ImVec4 c = ImPlot::GetColormapColor(int(k) % n, r.cmap);
+                ImGui::ColorButton(("##c" + std::to_string(k)).c_str(), c,
+                                   ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder, ImVec2(12, 12));
+                ImGui::SameLine();
+                ImGui::TextUnformatted(r.classes[k].c_str());
+            }
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::SliderFloat("##opacity", &r.opacity, 0.05f, 1.0f, "opacity %.2f")) mapDirty_ = true;
+            ImGui::Unindent();
+        } else if (r.visible) {
             ImGui::Indent();
             ImGui::SetNextItemWidth(-1);
             if (ImPlot::ColormapButton(ImPlot::GetColormapName(r.cmap), ImVec2(-1, 0), r.cmap))

@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include "platform.hpp"
 #include "gl.hpp" // glfwPostEmptyEvent: wake the UI loop when a message arrives
 
 #ifdef _WIN32
@@ -74,8 +75,7 @@ std::vector<wchar_t> childEnvironment(bool bundled) {
 void logLine(const std::string& path, const std::string& text) {
     std::ofstream f(fs::u8path(path), std::ios::app);
     const std::time_t now = std::time(nullptr);
-    std::tm tm{};
-    localtime_s(&tm, &now);
+    const std::tm tm = platform::localTime(now);
     char ts[32];
     std::strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &tm);
     f << "=== " << ts << " " << text << "\n";

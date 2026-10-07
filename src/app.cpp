@@ -987,8 +987,12 @@ void App::uiMap() {
     if (inside && topResult && fromActive(*topResultLayer, ix + 0.5, iy + 0.5, rx, ry)) {
         const float v = topResult->valueAt(rx, ry);
         const size_t len = std::strlen(status);
-        std::snprintf(status + len, sizeof(status) - len, "  |  %s %s", topResult->name.c_str(),
-                      std::isnan(v) ? "-" : (std::to_string(v).substr(0, 10)).c_str());
+        const int k = std::isnan(v) ? 0 : int(std::lround(v));
+        const std::string text = std::isnan(v) ? "-"
+                                 : !topResult->classes.empty() && k >= 1 && k <= int(topResult->classes.size())
+                                     ? topResult->classes[k - 1]
+                                     : std::to_string(v).substr(0, 10);
+        std::snprintf(status + len, sizeof(status) - len, "  |  %s %s", topResult->name.c_str(), text.c_str());
     }
     ImGui::TextUnformatted(status);
     ImGui::End();

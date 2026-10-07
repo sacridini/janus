@@ -111,7 +111,8 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 3 | 0.6.0 | **Mann-Kendall** (variantes do Zeit) e **BFAST / BFAST Lite / BFAST Monitor** | concluída |
 | 4 | 0.7.0 | Cubo com várias bandas por data + máscara de qualidade; **fenologia** e **CCDC** | concluída |
 | 5 | 0.8.0 | **Ferramentas mais fáceis de usar**: estimativa de tempo antes de rodar (medida pelo Zeit numa amostra), ajuste do Zeit nas séries de **todas as camadas** | concluída |
-| 6 | 0.9.0 | Mais do Zeit: **suavização** (Whittaker/Savitzky-Golay) e **STL** no gráfico, **TWDTW** (classificação por padrões) | próxima |
+| 6 | 0.9.0 | Mais do Zeit: **suavização** (Whittaker/Savitzky-Golay) no gráfico, **TWDTW** (classificação por padrões tirados dos pinos) | concluída |
+| 7 | 0.10.0 | **Linux**: compilar e testar (GDAL do sistema/conda, runtime com `python-build-standalone`, AppImage); corrigir o que aparecer | próxima |
 
 ## Ideias (backlog)
 
@@ -162,6 +163,25 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.9.0 — Fase 6: classificação e suavização
+- **TWDTW** (Zeit, feito por um sub-agente): classificação de cada pixel pelo
+  padrão mais parecido. Os **padrões vêm dos pinos** (ou da média da ROI) e
+  recebem nome de classe na janela da ferramenta (novo tipo de parâmetro
+  `patterns`). Mapas: classe (legenda com as cores no painel Layers, nome da
+  classe na barra de status), distância e margem para a 2ª classe. Datas em
+  dias absolutos (o padrão casa com o mesmo período, não com o dia do ano);
+  lacunas da série interpoladas. Em série sintética: 100% dos pixels certos.
+- **Suavização** (Zeit: Whittaker e Savitzky-Golay), só no gráfico (ferramenta
+  sem saídas raster). Ambas usam o índice das observações, não as datas.
+- Mapas de classes: saída com `classes_param` → o resultado traz os nomes; cada
+  classe ganha uma cor de paleta qualitativa (Dark, ou Paired com mais de 8).
+- `localtime_s` (só Windows) saiu do código comum: `platform::localTime`.
+- STL **não** entrou: o Zeit só tem STL dentro do BFAST (C++), sem API Python.
+  Expor isso seria mudança no Zeit.
+- Ideias do sub-agente para depois: TWDTW "por estação" (padrão de um ano casado
+  em todos os anos, como no pacote R) e corte por classe (`abort_threshold` por
+  pixel, hoje um escalar no Zeit).
 
 ### 0.8.0 — Fase 5: ferramentas mais fáceis de usar
 - **Estimativa de tempo** na janela de cada ferramenta, para o escopo escolhido

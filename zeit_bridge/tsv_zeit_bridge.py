@@ -53,6 +53,12 @@ A `tool_*.py` module defines `TOOLS`, a list of dicts:
   {output_id: 2D float array (rows, cols), NaN = no value} for every output id
   declared in the manifest.
 
+Parameters of type "patterns" are edited in tsv (reference series from pins or
+the ROI): a list of {"name", "from", "years": decimal years, "days": days since
+1970 or null, "values": floats or null} on the series' own dates. An output with
+"classes_param": "<param id>" is a class map: value k (1-based) is the k-th
+pattern; the job result lists the names as "classes".
+
 Manifest: id, name, category, description, requires {"time": "any"|"annual"|
 "regular", "min_dates": n, "min_per_year": n, "bands": [role, ...],
 "optional_bands": [role, ...]}, modes, params (id, label, type
@@ -342,7 +348,13 @@ def run_raster(entry, p, spec, progress):
             d.close()
         inp.close()
 
-    return {"outputs": [dict(o, path=paths[o["id"]]) for o in m["outputs"]], "window": [x0, y0, x1, y1]}
+    def output(o):
+        d = dict(o, path=paths[o["id"]])
+        if o.get("classes_param"):  # class map: value k = name of the k-th pattern
+            d["classes"] = [str(c.get("name", f"Class {k + 1}")) for k, c in enumerate(p[o["classes_param"]])]
+        return d
+
+    return {"outputs": [output(o) for o in m["outputs"]], "window": [x0, y0, x1, y1]}
 
 
 def rows_per_chunk(m, W):

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -22,5 +23,7 @@ std::vector<std::string> rootFolders();      // drives (C:\, D:\...) and the use
 // True if the file lives on a disk with a seek penalty (spinning HDD). Used to
 // limit parallel reads, which make an HDD's head jump back and forth.
 bool isOnRotationalDisk(const std::string& path);
+
+std::tm localTime(std::time_t t);           // thread-safe localtime
 
 } // namespace platform

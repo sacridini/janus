@@ -235,6 +235,7 @@ private:
     };
     void toolWindow(const ToolUi& ui, int win[4], const char** scopeName) const;
     void updateEstimate(const ZeitTool& tool, ToolUi& ui);
+    bool uiPatterns(const ZeitParam& p, json& v);
     std::map<std::string, ToolUi> toolUi_;
     // Band roles of the active layer for multiband tools (guessed, editable in
     // the tool window; kept while the layer's bands stay the same).

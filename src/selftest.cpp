@@ -84,6 +84,29 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
         std::printf("\n[%s]\n", tool.id.c_str());
         json params = json::object();
         for (const ZeitParam& p : tool.params) params[p.id] = p.def;
+        // "patterns" parameters (e.g. TWDTW classes): three pixels of the series,
+        // as a user would add pins.
+        for (const ZeitParam& p : tool.params) {
+            if (p.type != "patterns") continue;
+            json pats = json::array();
+            for (int k = 0; k < 3; ++k) {
+                const int x = info->width * (2 * k + 1) / 6, y = info->height / 2;
+                json vals = json::array(), days = json::array();
+                for (int t = 0; t < info->T(); ++t) {
+                    float f = NAN;
+                    reader.readPixel(t, x, y, f);
+                    vals.push_back(std::isfinite(f) ? json(double(f)) : json());
+                    days.push_back(info->timeIsDate ? json(info->unixDay(t)) : json());
+                }
+                pats.push_back({{"name", "Class " + std::to_string(k + 1) + " (" + std::to_string(x) + ", " +
+                                             std::to_string(y) + ")"},
+                                {"from", "selftest"},
+                                {"years", years},
+                                {"days", info->timeIsDate ? days : json(nullptr)},
+                                {"values", vals}});
+            }
+            params[p.id] = pats;
+        }
 
         if (tool.pixel) {
             const auto tp = Clock::now();
@@ -156,6 +179,14 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
                 for (float v : L.data) valid += std::isfinite(v);
                 std::printf("    %-28s %5.1f%% valid, range %.6g .. %.6g\n", o.value("name", "").c_str(),
                             100.0 * valid / L.data.size(), L.lo, L.hi);
+                const auto classes = o.value("classes", std::vector<std::string>());
+                if (!classes.empty()) {
+                    std::vector<size_t> count(classes.size() + 1, 0);
+                    for (float f : L.data)
+                        if (std::isfinite(f) && f >= 1 && f <= classes.size()) ++count[size_t(std::lround(f))];
+                    for (size_t k = 0; k < classes.size(); ++k)
+                        std::printf("      %-26s %5.1f%%\n", classes[k].c_str(), 100.0 * count[k + 1] / L.data.size());
+                }
             }
         }
         ++ran;

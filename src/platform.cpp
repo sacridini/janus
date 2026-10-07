@@ -203,3 +203,13 @@ bool isOnRotationalDisk(const std::string&) { return false; }
 #endif
 
 } // namespace platform
+
+std::tm platform::localTime(std::time_t t) {
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    return tm;
+}
