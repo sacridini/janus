@@ -110,8 +110,8 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 2 | 0.5.0 | **Espaço de trabalho**: painel **Layers** sempre ativo (todas as camadas, inclusive o raster inicial, ligar/desligar), **várias séries abertas ao mesmo tempo** com o gráfico mostrando todas ou uma, **painéis destacáveis** para outros monitores, **árvore de arquivos** | concluída |
 | 3 | 0.6.0 | **Mann-Kendall** (variantes do Zeit) e **BFAST / BFAST Lite / BFAST Monitor** | concluída |
 | 4 | 0.7.0 | Cubo com várias bandas por data + máscara de qualidade; **fenologia** e **CCDC** | concluída |
-| 5 | 0.8.0 | **Ferramentas mais fáceis de usar**: estimativa de tempo antes de rodar (custo por pixel medido), Zeit e ROI em **todas as camadas**, cancelar/repetir tarefas, abrir pasta de resultados | próxima |
-| 6 | 0.9.0 | Mais do Zeit: **suavização** (Whittaker/Savitzky-Golay) e **STL** no gráfico, **TWDTW** (classificação por padrões) | planejada |
+| 5 | 0.8.0 | **Ferramentas mais fáceis de usar**: estimativa de tempo antes de rodar (medida pelo Zeit numa amostra), ajuste do Zeit nas séries de **todas as camadas** | concluída |
+| 6 | 0.9.0 | Mais do Zeit: **suavização** (Whittaker/Savitzky-Golay) e **STL** no gráfico, **TWDTW** (classificação por padrões) | próxima |
 
 ## Ideias (backlog)
 
@@ -119,7 +119,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Mapa de **quebra**: ano e magnitude da maior queda por pixel (barato na GPU).
 - ~~Mapa de **tendência significativa**~~ — feito na 0.6.0 (Mann-Kendall do Zeit,
   mapa "Significant Sen's slope").
-- (0.8.0) **Estimativa de tempo** antes de rodar uma ferramenta lenta (BFAST ~2–3 ms/pixel:
+- ~~**Estimativa de tempo**~~ — feita na 0.8.0 (ver histórico). Ideia original: estimar antes de rodar uma ferramenta lenta (BFAST ~2–3 ms/pixel:
   uma cena Landsat inteira levaria horas). Ideia: o manifesto declara um custo por
   pixel medido e a janela mostra a estimativa para o escopo escolhido.
 - BFAST: desenhar o **modelo ajustado** (tendência + sazonalidade) no gráfico —
@@ -144,8 +144,8 @@ Windows sem Python nem conda, e chamável pela linha de comando
   arquivos~~ — feitos na 0.5.0 (detalhes no histórico).
 - Camadas com **CRS diferentes**: hoje só aparecem quando ativas; reprojetar o
   overview (GDAL warp) permitiria sobrepor qualquer par.
-- **ROI em todas as camadas** (hoje só na ativa) e **Zeit nas outras camadas**
-  (hoje o ajuste no gráfico usa só a ativa).
+- **ROI em todas as camadas** (hoje só na ativa). ~~Zeit nas outras camadas~~ —
+  feito na 0.8.0 (ferramentas de uma banda; as multibanda só na ativa).
 - Árvore de arquivos: mostrar as datas reconhecidas e quantos arquivos formam a
   série antes de abrir; favoritos.
 - Arrastar e soltar com Shift para **adicionar** como camada (hoje substitui).
@@ -162,6 +162,22 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.8.0 — Fase 5: ferramentas mais fáceis de usar
+- **Estimativa de tempo** na janela de cada ferramenta, para o escopo escolhido
+  (imagem inteira, área visível, ROI). A ponte (`estimate`) roda a ferramenta em
+  amostras do centro da série (8, 16 e, quando barato, 64 e 128 px de lado,
+  depois de uma chamada de aquecimento) e ajusta *custo fixo por bloco + custo
+  por pixel*: o LandTrendr gasta ~1 s por chamada qualquer que seja o tamanho
+  (até 200×200 px), então medir só por pixel errava 100×. Medido contra a
+  execução real (só o cálculo; leitura e início do processo à parte): BFAST
+  6,0 s vs 6,0 s, BFAST Lite 37,7 s vs 37,8 s, fenologia 49 s vs 38 s,
+  LandTrendr 1,1 s vs ~1,5 s.
+- **Zeit nas outras camadas**: com "All visible layers", a ferramenta do gráfico
+  também é ajustada no cursor e nos pinos das outras camadas visíveis (com as
+  datas de cada uma); números na tabela de estatísticas.
+- Leitura das entradas da ponte reorganizada (`Inputs`), usada pelas tarefas e
+  pela estimativa; `--selftest-zeit` compara estimativa e execução.
 
 ### 0.7.0 — Fase 4: várias bandas por data, fenologia e CCDC
 - **Cubo com várias bandas por data** (um arquivo por data, ex.: reflectância

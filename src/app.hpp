@@ -226,7 +226,15 @@ private:
         bool open = false;
         json params;             // current parameter values
         int scope = 0;           // 0 whole image, 1 visible area, 2 ROI
+        // Run-time estimate: the bridge times the tool on a sample of the image.
+        json estKey;             // inputs the estimate was asked for
+        uint64_t estReq = 0;
+        json estimate;           // the bridge's timing model (see estimateJobSeconds)
+        std::string estError;
+        std::chrono::steady_clock::time_point estChanged{};
     };
+    void toolWindow(const ToolUi& ui, int win[4], const char** scopeName) const;
+    void updateEstimate(const ZeitTool& tool, ToolUi& ui);
     std::map<std::string, ToolUi> toolUi_;
     // Band roles of the active layer for multiband tools (guessed, editable in
     // the tool window; kept while the layer's bands stay the same).

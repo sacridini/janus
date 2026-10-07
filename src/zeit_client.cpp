@@ -361,6 +361,22 @@ uint64_t ZeitClient::runPixel(const std::string& toolId, const json& params, con
     return proc_->writeLine(req.dump()) ? id : 0;
 }
 
+double estimateJobSeconds(const json& e, int width, int height) {
+    const double perPx = e.value("sec_per_px", -1.0), perChunk = e.value("sec_per_chunk", 0.0);
+    if (perPx < 0 || width <= 0 || height <= 0) return -1;
+    const double cells = e.value("chunk_cells", 4000000.0);
+    const int rows = std::clamp(int(cells / width), 8, 512); // as the bridge's rows_per_chunk
+    const int chunks = (height + rows - 1) / rows;
+    return chunks * perChunk + double(width) * height * perPx;
+}
+
+uint64_t ZeitClient::call(const std::string& method, const json& params) {
+    if (state_ != State::Ready || !proc_) return 0;
+    const uint64_t id = nextId_++;
+    const json req = {{"id", id}, {"method", method}, {"params", params}};
+    return proc_->writeLine(req.dump()) ? id : 0;
+}
+
 std::vector<PixelReply> ZeitClient::takeReplies() {
     std::lock_guard<std::mutex> lk(m_);
     std::vector<PixelReply> out;

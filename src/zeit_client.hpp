@@ -45,6 +45,10 @@ struct ZeitTool {
 
 struct CubeInfo;
 class CubeReader;
+
+// Computing time of a raster job from the bridge's "estimate" reply:
+// a fixed cost per chunk (full-width row bands) plus a cost per pixel.
+double estimateJobSeconds(const json& estimate, int width, int height);
 // Why `tool` cannot run on this series, from its manifest requirements ("" = it can).
 std::string toolApplicability(const ZeitTool& tool, const CubeInfo& info);
 
@@ -140,6 +144,9 @@ public:
     // `extra`: more fields of the request (dates, bands, QA: see zeitPixelExtras).
     uint64_t runPixel(const std::string& toolId, const json& params, const std::vector<double>& years,
                       const std::vector<float>& values, const json& extra = json::object());
+    // Any other request to the serve process (e.g. "estimate"); the reply
+    // arrives through takeReplies() with the returned id.
+    uint64_t call(const std::string& method, const json& params);
     std::vector<PixelReply> takeReplies();
 
     std::shared_ptr<ZeitJob> startJob(const json& spec, const std::string& specPath, const std::string& title);

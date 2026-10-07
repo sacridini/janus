@@ -166,7 +166,11 @@ Each tool window has:
 - **On the chart**: fits the model to the cursor, pin and ROI series and draws it
   over them in the same color (LandTrendr segments and vertices, Sen's line,
   vertical lines at break dates); the model's numbers are added to the
-  Statistics table.
+  Statistics table. With *All visible layers* on the chart, single-band tools
+  are also fitted to the other layers' cursor and pin series.
+- **Estimated run time** for the chosen scope, measured by Zeit on samples of
+  the series (a fixed cost per block plus a cost per pixel; reading the data is
+  not included).
 - **Run on the raster**: whole image, visible area or ROI. The run happens in a
   separate process using every CPU core, with progress and cancel in
   **Tools → Tasks**. Outputs are GeoTIFFs (default folder
@@ -269,8 +273,7 @@ cmake --build build --config Release --target installer   # -> dist\tsv-<version
 ## Roadmap
 
 Planned work and the reasoning behind design decisions live in
-[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: time estimates before slow
-tools, Zeit fits and ROI on every layer, and other Zeit tools (smoothing, STL,
-TWDTW). tsv targets Windows,
+[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: more of Zeit on the chart
+(smoothing, STL decomposition) and TWDTW classification. tsv targets Windows,
 Linux and macOS (Apple Silicon); it is developed on Windows for now, with the
 OS-specific code isolated (see the portability notes in IDEIAS.md).

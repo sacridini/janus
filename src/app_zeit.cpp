@@ -267,6 +267,15 @@ void App::pumpZeit() {
             pixelSent_.erase(it);
         }
         const json value = r.ok ? r.result : json{{"error", r.error}};
+        bool estimate = false;
+        for (auto& [id, ui] : toolUi_)
+            if (ui.estReq == r.id) {
+                ui.estReq = 0;
+                ui.estimate = r.ok ? r.result : json();
+                ui.estError = r.ok ? "" : r.error;
+                estimate = true;
+            }
+        if (estimate) continue;
         auto apply = [&](SeriesView& v) {
             if (v.zeitReq != r.id) return false;
             v.zeitResult = value;
@@ -277,6 +286,12 @@ void App::pumpZeit() {
         bool done = false;
         for (SeriesView& p : pins_)
             if ((done = apply(p))) break;
+        for (SeriesLayer& L : layers_) {
+            if (done) break;
+            if ((done = apply(L.hover))) break;
+            for (SeriesView& p : L.pins)
+                if ((done = apply(p))) break;
+        }
         if (!done && roiZeitReq_ == r.id) {
             roiZeitResult_ = value;
             roiZeitReq_ = 0;
@@ -392,6 +407,25 @@ void App::requestPixelFits() {
     };
     request(hover_);
     for (SeriesView& p : pins_) request(p);
+    // Other visible layers on the chart: the same tool on their own series and
+    // dates (single-band tools; multiband ones would need each layer's bands).
+    if (chartLayers_ == 1 && !multiband)
+        for (SeriesLayer& L : layers_) {
+            if (&L == activeLayer() || !L.visible) continue;
+            const CubeInfo& li = *L.session->info;
+            if (!::toolApplicability(*tool, li).empty()) continue;
+            std::vector<double> years(li.T());
+            for (int t = 0; t < li.T(); ++t) years[t] = li.decimalYear(t);
+            const json lextras = zeitPixelExtras(li, BandRoles{});
+            auto other = [&](SeriesView& v) {
+                if (v.x < 0 || !v.exact || v.zeitReq != 0 || v.zeitVersion == pixelVersion_) return;
+                v.zeitReq = zeit_->runPixel(pixelTool_, params, years, v.values, lextras);
+                v.zeitVersion = pixelVersion_;
+                if (v.zeitReq) pixelSent_[v.zeitReq] = now;
+            };
+            other(L.hover);
+            for (SeriesView& p : L.pins) other(p);
+        }
     // ROI fits use the mean of the shown series (single-band tools only).
     if (!multiband && roi_ && roi_->done == s_->info->T() && roiZeitReq_ == 0 && roiZeitVersion_ != pixelVersion_ &&
         !roiMean_.empty()) {
@@ -405,26 +439,74 @@ void App::requestPixelFits() {
 // Running a tool on the raster
 // ---------------------------------------------------------------------------
 
-void App::runTool(const ZeitTool& tool) {
-    if (!s_ || !zeit_) return;
+// Pixel window of the chosen scope: whole image, visible area or ROI.
+void App::toolWindow(const ToolUi& ui, int win[4], const char** scopeName) const {
     const CubeInfo& info = *s_->info;
-    ToolUi& ui = toolUi_[tool.id];
-
-    int win[4] = {0, 0, info.width, info.height};
-    const char* scopeName = "whole image";
+    win[0] = 0;
+    win[1] = 0;
+    win[2] = info.width;
+    win[3] = info.height;
+    *scopeName = "whole image";
     if (ui.scope == 1) {
         win[0] = std::clamp(int(std::floor(-offset_.x / scale_)), 0, info.width - 1);
         win[1] = std::clamp(int(std::floor(-offset_.y / scale_)), 0, info.height - 1);
         win[2] = std::clamp(int(std::ceil((canvasSize_.x - offset_.x) / scale_)), win[0] + 1, info.width);
         win[3] = std::clamp(int(std::ceil((canvasSize_.y - offset_.y) / scale_)), win[1] + 1, info.height);
-        scopeName = "visible area";
+        *scopeName = "visible area";
     } else if (ui.scope == 2 && roi_) {
         win[0] = roi_->x0;
         win[1] = roi_->y0;
         win[2] = roi_->x1;
         win[3] = roi_->y1;
-        scopeName = "ROI";
+        *scopeName = "ROI";
     }
+}
+
+// Asks the bridge to time the tool on a sample of the series (once the
+// parameters have been still for a moment).
+void App::updateEstimate(const ZeitTool& tool, ToolUi& ui) {
+    if (!s_ || !zeit_ || zeit_->state() != ZeitClient::State::Ready || ui.estReq != 0) return;
+    const json key = {{"cube", s_->info->id}, {"params", ui.params}, {"roles", activeBandRoles()}};
+    const auto now = std::chrono::steady_clock::now();
+    if (key == ui.estKey) return;
+    if (ui.estChanged == std::chrono::steady_clock::time_point{}) {
+        ui.estChanged = now;
+        return;
+    }
+    if (now - ui.estChanged < std::chrono::milliseconds(600)) return;
+    ui.estChanged = {};
+    ui.estKey = key;
+    ui.estimate = json();
+    json spec = {{"tool", tool.id}, {"params", ui.params}};
+    std::error_code ec;
+    const fs::path work = fs::u8path(platform::appDataDir()) / "work";
+    fs::create_directories(work, ec);
+    std::string err;
+    if (!zeitJobInputs(*s_->info, tool, activeBandRoles(), work.u8string(),
+                       seriesName(*s_->info, lastInputs_) + "_" + std::to_string(s_->info->id), spec, err)) {
+        ui.estError = err;
+        return;
+    }
+    spec["window"] = {0, 0, s_->info->width, s_->info->height};
+    ui.estReq = zeit_->call("estimate", spec);
+}
+
+static std::string formatDuration(double s) {
+    char buf[64];
+    if (s < 1) std::snprintf(buf, sizeof(buf), "under a second");
+    else if (s < 90) std::snprintf(buf, sizeof(buf), "~%.0f s", s);
+    else if (s < 5400) std::snprintf(buf, sizeof(buf), "~%.0f min", s / 60);
+    else std::snprintf(buf, sizeof(buf), "~%.1f h", s / 3600);
+    return buf;
+}
+
+void App::runTool(const ZeitTool& tool) {
+    if (!s_ || !zeit_) return;
+    const CubeInfo& info = *s_->info;
+    ToolUi& ui = toolUi_[tool.id];
+    int win[4];
+    const char* scopeName = nullptr;
+    toolWindow(ui, win, &scopeName);
 
     std::error_code ec;
     const std::string name = seriesName(info, lastInputs_);
@@ -633,6 +715,22 @@ void App::uiToolWindow(const ZeitTool& tool) {
         if (ImGui::SmallButton("Change...")) {
             const std::string dir = platform::openFolderDialog();
             if (!dir.empty()) resultsDir_ = dir;
+        }
+        if (why.empty()) {
+            updateEstimate(tool, ui);
+            int win[4];
+            const char* scopeName = nullptr;
+            toolWindow(ui, win, &scopeName);
+            const double px = double(win[2] - win[0]) * (win[3] - win[1]);
+            const double sec = ui.estimate.is_object() ? estimateJobSeconds(ui.estimate, win[2] - win[0], win[3] - win[1]) : -1;
+            if (sec >= 0)
+                ImGui::Text("Estimated: %s for %.3g M px", formatDuration(sec).c_str(), px / 1e6);
+            else if (!ui.estError.empty())
+                ImGui::TextDisabled("No estimate: %s", ui.estError.c_str());
+            else
+                ImGui::TextDisabled("Estimating the run time...");
+            ImGui::SetItemTooltip("Computing time measured on a sample of the series, using every core.\n"
+                                  "Reading the data adds to it, mostly on spinning disks.");
         }
         ImGui::BeginDisabled(!why.empty() || zeit_->state() != ZeitClient::State::Ready);
         if (ImGui::Button("Run", ImVec2(-1, 0))) runTool(tool);

@@ -14,6 +14,8 @@ serve
         -> {"id": 2, "method": "run_pixel", "params": {"tool": "...", "params": {...},
                                                          "years": [...], "values": [...]}}
         <- {"id": 2, "result": {"overlays": [...], "rows": [...]}}
+        -> {"id": 3, "method": "estimate", "params": {job spec without output_dir}}
+        <- {"id": 3, "result": {"sec_per_px": ..., "sec_per_chunk": ..., "chunk_cells": ...}}
 job SPEC.json
     One-shot raster run (whole image or a window). Prints JSON lines:
         {"progress": 0.42, "message": "..."} ... then {"result": {...}} or {"error": "..."}
@@ -236,30 +238,45 @@ def manifest():
 # Generic raster runner (used by every tool's chunk function)
 # ---------------------------------------------------------------------------
 
-def run_raster(entry, p, spec, progress):
-    import numpy as np
-    import rasterio
-    from rasterio.windows import Window
+class Inputs:
+    """The rasters of a job spec, read one window at a time: the shown series
+    (normalized difference and QA mask applied, as tsv shows it) plus, for
+    multiband tools, every band and the Fmask codes in ctx."""
 
-    m = entry["manifest"]
-    ctx = make_ctx(spec["years"], spec.get("days"))
-    ctx["shown"] = spec.get("shown")
-    nodata = spec.get("nodata")
-    x0, y0, x1, y1 = spec["window"]
-    out_dir = spec["output_dir"]
-    os.makedirs(out_dir, exist_ok=True)
-    W, H = x1 - x0, y1 - y0
+    def __init__(self, spec):
+        import rasterio
+        self.spec = spec
+        self.ctx = make_ctx(spec["years"], spec.get("days"))
+        self.ctx["shown"] = spec.get("shown")
+        self.nodata = spec.get("nodata")
+        paths = {"input": spec["input"]}
+        for key in ("nd_input", "qa_input"):
+            if spec.get(key):
+                paths[key] = spec[key]
+        for role, path in (spec.get("bands") or {}).items():
+            paths["band:" + role] = path
+        self.srcs = {}
+        try:
+            for k, v in paths.items():
+                self.srcs[k] = rasterio.open(v)
+            src = self.src = self.srcs["input"]
+            if src.count != len(self.ctx["years"]):
+                raise ValueError(f"input has {src.count} bands but {len(self.ctx['years'])} dates were given")
+            for k, s in self.srcs.items():
+                if s.count != src.count or s.width != src.width or s.height != src.height:
+                    raise ValueError(f"{k} does not match the input ({s.count} bands, {s.width} x {s.height})")
+        except Exception:
+            self.close()
+            raise
 
-    # Extra inputs, one VRT per source band (one band per date each).
-    extra = {}
-    for key in ("nd_input", "qa_input"):
-        if spec.get(key):
-            extra[key] = spec[key]
-    for role, path in (spec.get("bands") or {}).items():
-        extra["band:" + role] = path
-    srcs = {k: rasterio.open(v) for k, v in extra.items()}
+    def close(self):
+        for s in self.srcs.values():
+            s.close()
+        self.srcs = {}
 
-    def read(src, win, raw=False):
+    @staticmethod
+    def _read(src, win, raw=False):
+        import numpy as np
         a = src.read(window=win).astype(np.float64)
         if not raw:
             if src.nodata is not None and np.isfinite(src.nodata):
@@ -267,12 +284,39 @@ def run_raster(entry, p, spec, progress):
             a[~np.isfinite(a)] = np.nan
         return a
 
-    with rasterio.open(spec["input"]) as src:
-        if src.count != len(ctx["years"]):
-            raise ValueError(f"input has {src.count} bands but {len(ctx['years'])} dates were given")
-        for k, s in srcs.items():
-            if s.count != src.count or s.width != src.width or s.height != src.height:
-                raise ValueError(f"{k} does not match the input ({s.count} bands, {s.width} x {s.height})")
+    def read(self, win):
+        """Shown stack [T, h, w] for the window; updates ctx bands/fmask."""
+        import numpy as np
+        stack = self.src.read(window=win).astype(np.float64)
+        if self.nodata is not None:
+            stack[stack == float(self.nodata)] = np.nan
+        stack[~np.isfinite(stack)] = np.nan
+        qa = self._read(self.srcs["qa_input"], win, raw=True) if "qa_input" in self.srcs else None
+        if "nd_input" in self.srcs:
+            stack = norm_diff(stack, self._read(self.srcs["nd_input"], win))
+        if qa is not None:
+            stack[~qa_usable(self.spec.get("qa_rule"), qa)] = np.nan
+        bands = {k[5:]: self._read(s, win) for k, s in self.srcs.items() if k.startswith("band:")}
+        if bands:
+            band_ctx(self.ctx, bands, qa, self.spec.get("qa_rule"))
+        return stack
+
+
+def run_raster(entry, p, spec, progress):
+    import numpy as np
+    import rasterio
+    from rasterio.windows import Window
+
+    m = entry["manifest"]
+    x0, y0, x1, y1 = spec["window"]
+    out_dir = spec["output_dir"]
+    os.makedirs(out_dir, exist_ok=True)
+    W, H = x1 - x0, y1 - y0
+
+    inp = Inputs(spec)
+    dst = {}
+    try:
+        src = inp.src
         transform = src.window_transform(Window(x0, y0, W, H))
         profile = dict(driver="GTiff", width=W, height=H, count=1, crs=src.crs, transform=transform,
                        dtype="float32", nodata=float("nan"), compress="deflate", tiled=True,
@@ -281,40 +325,90 @@ def run_raster(entry, p, spec, progress):
         dst = {oid: rasterio.open(path, "w", **profile) for oid, path in paths.items()}
 
         # Full-width row bands: each strip of the source is read once (fast on HDDs).
-        cells = int(m.get("chunk_cells", 4_000_000))
-        rows_per_chunk = max(8, min(512, cells // max(1, W)))
+        rows = rows_per_chunk(m, W)
         done = 0
         t0 = time.time()
-        try:
-            for r in range(0, H, rows_per_chunk):
-                h = min(rows_per_chunk, H - r)
-                win = Window(x0, y0 + r, W, h)
-                stack = src.read(window=win).astype(np.float64)  # [T, h, W]
-                if nodata is not None:
-                    stack[stack == float(nodata)] = np.nan
-                stack[~np.isfinite(stack)] = np.nan
-                qa = read(srcs["qa_input"], win, raw=True) if "qa_input" in srcs else None
-                # The series tsv shows: normalized difference, then the QA mask.
-                if "nd_input" in srcs:
-                    stack = norm_diff(stack, read(srcs["nd_input"], win))
-                if qa is not None:
-                    stack[~qa_usable(spec.get("qa_rule"), qa)] = np.nan
-                if any(k.startswith("band:") for k in srcs):
-                    bands = {k[5:]: read(s, win) for k, s in srcs.items() if k.startswith("band:")}
-                    band_ctx(ctx, bands, qa, spec.get("qa_rule"))
-                res = entry["chunk"](p, stack, ctx)
-                for oid, d in dst.items():
-                    d.write(np.asarray(res[oid], dtype=np.float32), 1, window=Window(0, r, W, h))
-                done += h
-                el = time.time() - t0
-                progress(done / H, f"rows {done}/{H}, {el:.0f} s elapsed, ~{el / done * (H - done):.0f} s left")
-        finally:
-            for d in dst.values():
-                d.close()
-            for s in srcs.values():
-                s.close()
+        for r in range(0, H, rows):
+            h = min(rows, H - r)
+            stack = inp.read(Window(x0, y0 + r, W, h))  # [T, h, W]
+            res = entry["chunk"](p, stack, inp.ctx)
+            for oid, d in dst.items():
+                d.write(np.asarray(res[oid], dtype=np.float32), 1, window=Window(0, r, W, h))
+            done += h
+            el = time.time() - t0
+            progress(done / H, f"rows {done}/{H}, {el:.0f} s elapsed, ~{el / done * (H - done):.0f} s left")
+    finally:
+        for d in dst.values():
+            d.close()
+        inp.close()
 
     return {"outputs": [dict(o, path=paths[o["id"]]) for o in m["outputs"]], "window": [x0, y0, x1, y1]}
+
+
+def rows_per_chunk(m, W):
+    """Rows of each full-width band a job processes at once."""
+    cells = int(m.get("chunk_cells", 4_000_000))
+    return max(8, min(512, cells // max(1, W)))
+
+
+def estimate(entry, p, spec):
+    """Computing time of a job: a fixed cost per chunk (some tools spend most
+    of a small call starting threads or compiling) plus a cost per pixel,
+    fitted on growing samples from the middle of the window (after a warm-up
+    call). Reading the data is not included. Returns the model so the caller
+    can apply it to any window: seconds = chunks * sec_per_chunk + pixels *
+    sec_per_px, with chunks = ceil(rows / rows_per_chunk(W))."""
+    from rasterio.windows import Window
+
+    x0, y0, x1, y1 = spec["window"]
+    W, H = x1 - x0, y1 - y0
+    inp = Inputs(spec)
+    try:
+        def sample(n):
+            w, h = min(n, W), min(n, H)
+            win = Window(x0 + (W - w) // 2, y0 + (H - h) // 2, w, h)
+            stack = inp.read(win)
+            t = time.perf_counter()
+            entry["chunk"](p, stack, inp.ctx)
+            return time.perf_counter() - t, w * h
+
+        sample(2)  # warm-up
+
+        def fit(points):
+            """Least squares t = a + b * n (b >= 0)."""
+            if len(points) == 1:
+                t, n = points[0]
+                return 0.0, t / max(1, n)  # pessimistic: everything per pixel
+            ns = [n for _, n in points]
+            ts = [t for t, _ in points]
+            mn, mt = sum(ns) / len(ns), sum(ts) / len(ts)
+            sxx = sum((n - mn) ** 2 for n in ns)
+            b = max(0.0, sum((n - mn) * (t - mt) for t, n in points) / sxx) if sxx > 0 else 0.0
+            return max(0.0, mt - b * mn), b
+
+        # Samples of 8 and 16 px a side, then 64 and 128 while the time barely
+        # grows with the size (a large fixed cost per call, e.g. LandTrendr's
+        # ~1 s: only large samples show its per-pixel cost) or the next sample
+        # should be cheap anyway; about 4 s at most.
+        points = [sample(8)]
+        if points[0][0] < 1.5:
+            points.append(sample(16))
+        for side in (64, 128):
+            if len(points) < 2 or side > max(W, H) * 2:
+                break
+            (t0, n0), (t1, n1) = points[-2], points[-1]
+            spent = sum(t for t, _ in points)
+            flat = t1 < 1.5 * t0 and t1 < 1.5
+            cheap = t1 * side * side / n1 < 1.0  # even if all of it were per pixel
+            if spent > 4.0 or not (flat or cheap):
+                break
+            points.append(sample(side))
+        per_chunk, per_px = fit(points)
+        cells = int(entry["manifest"].get("chunk_cells", 4_000_000))
+        return {"sec_per_px": per_px, "sec_per_chunk": per_chunk, "chunk_cells": cells,
+                "samples": [[n, round(t, 4)] for t, n in points]}
+    finally:
+        inp.close()
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +443,10 @@ def serve():
                     qa = [nan if v is None else float(v) for v in qa] if qa else None
                     band_ctx(ctx, bands, qa, params.get("qa_rule"))
                 send({"id": req_id, "result": entry["pixel"](p, ctx)})
+            elif method == "estimate":
+                entry = tools()[params["tool"]]
+                p = defaults(entry["manifest"], params.get("params"))
+                send({"id": req_id, "result": estimate(entry, p, params)})
             elif method == "shutdown":
                 send({"id": req_id, "result": {}})
                 return

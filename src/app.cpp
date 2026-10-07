@@ -1356,6 +1356,7 @@ void App::uiSeries() {
                     spec.MarkerSize = 3.5f;
                     spec.MarkerFillColor = v.color;
                     ImPlot::PlotLine(label, lx.data(), ys.data(), int(ys.size()), spec);
+                    if (!pixelTool_.empty()) drawZeitOverlays(label, v.zeitResult, v.color, v.stats);
                 };
                 for (const SeriesView& p : L.pins) {
                     char label[128];
@@ -1417,10 +1418,10 @@ void App::uiStats() {
             if (&L == activeLayer() || !L.visible) continue;
             if (L.hover.x >= 0)
                 cols.push_back({"Cursor [" + L.name + "]" + (L.hover.exact ? "" : "*"), &L.hover.stats, L.hover.color,
-                                -1, false, nullptr, L.session->info.get()});
+                                -1, false, &L.hover.zeitResult, L.session->info.get()});
             for (const SeriesView& p : L.pins)
                 cols.push_back({"Pin " + std::to_string(p.id) + " [" + L.name + "]" + (p.exact ? "" : "*"), &p.stats,
-                                p.color, -1, false, nullptr, L.session->info.get()});
+                                p.color, -1, false, &p.zeitResult, L.session->info.get()});
         }
     if (cols.empty()) {
         ImGui::TextDisabled("Hover over the map, click to drop pins\nor Shift+drag for an ROI.");

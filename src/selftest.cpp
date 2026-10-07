@@ -114,6 +114,24 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
             json spec = {{"tool", tool.id}, {"params", params}};
             if (!zeitJobInputs(*info, tool, roles, work.u8string(), "cube", spec, err)) return fail("vrt: " + err);
             spec["window"] = {x0, y0, x1, y1};
+            // Run-time estimate (as shown in the tool window) before the real run.
+            double estimate = -1;
+            {
+                const auto te = Clock::now();
+                const uint64_t id = zeit.call("estimate", spec);
+                bool got = false;
+                while (!got && msSince(te) < 60000) {
+                    for (PixelReply& r : zeit.takeReplies())
+                        if (r.id == id) {
+                            got = true;
+                            if (!r.ok) return fail(tool.id + " estimate: " + r.error);
+                            estimate = estimateJobSeconds(r.result, x1 - x0, y1 - y0);
+                        }
+                    if (!got) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+                if (!got) return fail(tool.id + " estimate: no reply");
+                std::printf("  estimate: %.2f s of computing (asked in %.0f ms)\n", estimate, msSince(te));
+            }
             spec["output_dir"] = (work / tool.id).u8string();
             const auto tj = Clock::now();
             auto job = zeit.startJob(spec, (work / (tool.id + ".json")).u8string(), "selftest " + tool.id);
