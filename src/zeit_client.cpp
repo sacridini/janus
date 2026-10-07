@@ -295,6 +295,7 @@ static std::vector<ZeitTool> parseTools(const json& arr) {
         if (t.contains("requires")) {
             tool.requiresTime = t["requires"].value("time", "any");
             tool.minDates = t["requires"].value("min_dates", 0);
+            tool.minPerYear = t["requires"].value("min_per_year", 0);
         }
         for (const json& m : t.value("modes", json::array())) {
             if (m == "pixel") tool.pixel = true;

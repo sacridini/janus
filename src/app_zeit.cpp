@@ -69,7 +69,10 @@ void App::startZeit() {
 
 std::string App::toolApplicability(const ZeitTool& tool) const {
     if (!s_) return "no series is open";
-    const CubeInfo& info = *s_->info;
+    return ::toolApplicability(tool, *s_->info);
+}
+
+std::string toolApplicability(const ZeitTool& tool, const CubeInfo& info) {
     if (info.T() < tool.minDates)
         return "needs at least " + std::to_string(tool.minDates) + " dates (this series has " +
                std::to_string(info.T()) + ")";
@@ -78,6 +81,24 @@ std::string App::toolApplicability(const ZeitTool& tool) const {
         std::set<int> years;
         for (int t = 0; t < info.T(); ++t) years.insert(int(std::floor(info.decimalYear(t))));
         if (int(years.size()) != info.T()) return "needs an annual series (one date per year)";
+    }
+    if (tool.requiresTime == "regular" || tool.minPerYear > 0) {
+        if (!info.timeIsDate) return "needs dates (none were found in the file names or band descriptions)";
+        // Same rule as the bridge: observations per year from the median spacing.
+        std::vector<double> gaps;
+        for (int t = 1; t < info.T(); ++t) gaps.push_back(info.decimalYear(t) - info.decimalYear(t - 1));
+        std::vector<double> sorted = gaps;
+        std::sort(sorted.begin(), sorted.end());
+        const double med = sorted.empty() ? 0.0 : sorted[sorted.size() / 2];
+        if (med <= 0) return "needs increasing dates";
+        const int perYear = std::max(1, int(std::lround(1.0 / med)));
+        if (perYear < tool.minPerYear)
+            return "needs at least " + std::to_string(tool.minPerYear) + " observations per year (this series has " +
+                   std::to_string(perYear) + ")";
+        // Regular: months (28-31 days) or 16-day composites wrapping at the year end
+        // pass; a missing date must be a band of no-data, not a skipped band.
+        if (tool.requiresTime == "regular" && (sorted.front() < 0.4 * med || sorted.back() > 1.6 * med))
+            return "needs evenly spaced dates (missing dates must be no-data bands, not skipped)";
     }
     return {};
 }
@@ -534,6 +555,17 @@ void App::drawZeitOverlays(const char* label, const json& result, ImVec4 col, co
     const CubeInfo& info = *s_->info;
     for (const json& o : result.value("overlays", json::array())) {
         const json xs = o.value("x", json::array()), ys = o.value("y", json::array());
+        if (o.value("type", "") == "vlines") { // e.g. break dates: dashed-looking thin full-height lines
+            std::vector<double> x;
+            for (const json& v : xs)
+                if (v.is_number()) x.push_back(info.xFromDecimalYear(v.get<double>()));
+            if (x.empty()) continue;
+            ImPlotSpec spec;
+            spec.LineColor = ImVec4(col.x, col.y, col.z, 0.75f);
+            spec.LineWeight = 1.5f;
+            ImPlot::PlotInfLines(label, x.data(), int(x.size()), spec);
+            continue;
+        }
         const int n = int(std::min(xs.size(), ys.size()));
         if (n == 0) continue;
         std::vector<double> x(n), y(n);

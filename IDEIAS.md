@@ -61,6 +61,9 @@ Windows sem Python nem conda, e chamável pela linha de comando
   2. **ROI / área visível / cena**: o Zeit lê direto dos arquivos (via VRT gerado
      pelo tsv) com os batches C++/OpenMP dele; o tsv só acompanha progresso;
   3. **resultados** voltam como GeoTIFFs no mesmo grid e viram camadas no mapa.
+- **Uma ferramenta = um módulo** `zeit_bridge/tool_*.py` (manifesto + `pixel()` +
+  `chunk()`); a ponte cuida do protocolo, da leitura em faixas e da escrita dos
+  GeoTIFFs. Um módulo com erro não derruba os outros (o erro vai no manifesto).
 - Modo desenvolvedor: apontar para um Python próprio com o Zeit editável.
 - Medido na 0.4.0: processo do Zeit pronto em ~1,2 s (em segundo plano, depois
   do primeiro quadro); LandTrendr por pixel com ida e volta de 8–16 ms; recorte
@@ -99,14 +102,22 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 0 | 0.3.0 | Migração para `tsv`, tudo em inglês, README, IDEIAS.md, abertura medida e otimizada | concluída |
 | 1 | 0.4.0 | Runtime Python embutido, ponte do Zeit, menu de ferramentas, tarefas, resultados como camadas, **LandTrendr** (pixel + raster), zoom limitado ao extent | concluída |
 | 2 | 0.5.0 | **Espaço de trabalho**: painel **Layers** sempre ativo (todas as camadas, inclusive o raster inicial, ligar/desligar), **várias séries abertas ao mesmo tempo** com o gráfico mostrando todas ou uma, **painéis destacáveis** para outros monitores, **árvore de arquivos** | concluída |
-| 3 | 0.6.0 | **Mann-Kendall** (variantes do Zeit) e **BFAST / BFAST Lite / BFAST Monitor** | próxima |
-| 4 | 0.7.0 | Cubo com várias bandas por data + máscara de qualidade; **fenologia** e **CCDC** | planejada |
+| 3 | 0.6.0 | **Mann-Kendall** (variantes do Zeit) e **BFAST / BFAST Lite / BFAST Monitor** | concluída |
+| 4 | 0.7.0 | Cubo com várias bandas por data + máscara de qualidade; **fenologia** e **CCDC** | próxima |
 
 ## Ideias (backlog)
 
 ### Análise
 - Mapa de **quebra**: ano e magnitude da maior queda por pixel (barato na GPU).
-- Mapa de **tendência significativa** (p-valor do Mann-Kendall por pixel; esconder o que é ruído).
+- ~~Mapa de **tendência significativa**~~ — feito na 0.6.0 (Mann-Kendall do Zeit,
+  mapa "Significant Sen's slope").
+- **Estimativa de tempo** antes de rodar uma ferramenta lenta (BFAST ~2–3 ms/pixel:
+  uma cena Landsat inteira levaria horas). Ideia: o manifesto declara um custo por
+  pixel medido e a janela mostra a estimativa para o escopo escolhido.
+- BFAST: desenhar o **modelo ajustado** (tendência + sazonalidade) no gráfico —
+  o Zeit hoje devolve só as quebras.
+- BFAST Monitor: história estável (o R corta a parte instável da história; o
+  Zeit usa a história inteira, o que gera alarmes falsos após uma quebra antiga).
 - Mapa de **diferença** entre duas datas (Δ).
 - **Boxplot por data** da ROI e histograma dos valores da série.
 - **Suavização** opcional da série (média móvel, Savitzky-Golay).
@@ -140,6 +151,32 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.6.0 — Fase 3: tendência e quebras
+- **Mann-Kendall** (Zeit): original, Hamed-Rao, Yue-Wang (corrigem a
+  autocorrelação, comum em composições anuais) e sazonal (Hirsch & Slack, para
+  séries intra-anuais). No gráfico: linha de Sen. Mapas: inclinação de Sen só onde
+  a tendência é significativa, inclinação, p, Z, tau, classe, intercepto.
+- **BFAST**, **BFAST Lite** e **BFAST Monitor** (Zeit), feitos por um sub-agente
+  num módulo próprio. No gráfico: **linhas verticais** nas datas de quebra (novo
+  tipo de sobreposição `vlines`) e no início do monitoramento. Mapas: número de
+  quebras, data e magnitude da maior, primeira quebra / quebra no monitoramento.
+  Notas: os índices de quebra do Zeit são posições na série completa (o
+  comentário do cabeçalho diz o contrário); a magnitude do BFAST Lite é a
+  diferença das médias dos segmentos (o Zeit não a devolve); as versões de um
+  pixel do Zeit fixam `min_valid`, então o modo pixel chama o batch com 1 pixel.
+- Ponte dividida em núcleo + **módulos por ferramenta** (`tool_*.py`).
+- Requisitos novos no manifesto: série **regular** (datas igualmente espaçadas;
+  data faltante = banda sem dado) e **mínimo de observações por ano**; o tsv
+  desabilita a ferramenta com o motivo.
+- `--selftest-zeit` roda **todas** as ferramentas aplicáveis à série (pixel +
+  recorte de 256×256) e confere as saídas. Medido (20 núcleos): série anual
+  300×200×41 — LandTrendr 3,6 s, Mann-Kendall 1,4 s; série mensal 256×200×144 —
+  Mann-Kendall 1,9 s, BFAST Monitor 1,5 s, BFAST 37 s, BFAST Lite 86 s. Na série
+  sintética com queda em 2016-07, BFAST e BFAST Lite acham a quebra em 2016-06
+  (última observação antes da queda, convenção do R) em >99% dos pixels.
+- Os scripts da ponte são copiados por um alvo próprio do CMake (antes um
+  POST_BUILD que só rodava quando o executável era religado).
 
 ### 0.5.0 — Fase 2: espaço de trabalho
 - **Camadas**: várias séries abertas ao mesmo tempo (File → Add layer, `Ctrl+L`,

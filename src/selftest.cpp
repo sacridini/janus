@@ -48,10 +48,8 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, int band, const std:
     if (zeit.state() != ZeitClient::State::Ready) return fail("zeit: " + zeit.error());
     std::printf("zeit: %s (Python %s) ready in %.0f ms, %d tool(s)\n", zeit.zeitVersion().c_str(),
                 zeit.pythonVersion().c_str(), zeit.startupMs(), int(zeit.tools().size()));
-    const ZeitTool* lt = zeit.tool("landtrendr");
-    if (!lt) return fail("landtrendr is not in the manifest");
 
-    // Pixel fit at the center of the image.
+    // Series at the center of the image (pixel runs) and the cube as a VRT (jobs).
     std::vector<double> years(info->T());
     for (int t = 0; t < info->T(); ++t) years[t] = info->decimalYear(t);
     std::vector<float> series(info->T());
@@ -59,64 +57,83 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, int band, const std:
         CubeReader reader(info);
         for (int t = 0; t < info->T(); ++t) reader.readPixel(t, info->width / 2, info->height / 2, series[t]);
     }
-    json params = json::object();
-    for (const ZeitParam& p : lt->params) params[p.id] = p.def;
-    const auto tp = Clock::now();
-    const uint64_t id = zeit.runPixel("landtrendr", params, years, series);
-    PixelReply reply{};
-    bool got = false;
-    while (!got && msSince(tp) < 30000) {
-        for (PixelReply& r : zeit.takeReplies())
-            if (r.id == id) {
-                reply = r;
-                got = true;
-            }
-        if (!got) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    if (!got || !reply.ok) return fail("pixel fit: " + reply.error);
-    std::printf("pixel fit: %.1f ms,", msSince(tp));
-    for (const json& r : reply.result.value("rows", json::array()))
-        std::printf(" [%s: %s]", r[0].get<std::string>().c_str(), r[1].get<std::string>().c_str());
-    std::printf("\n");
-
-    // Raster job on a 512 x 512 window at the center.
     const fs::path work = fs::u8path(platform::appDataDir()) / "selftest";
     std::error_code ec;
     fs::remove_all(work, ec);
     fs::create_directories(work, ec);
     const std::string vrt = (work / "cube.vrt").u8string();
     if (!writeCubeVrt(*info, vrt, err)) return fail("vrt: " + err);
-    const int x0 = std::max(0, info->width / 2 - 256), y0 = std::max(0, info->height / 2 - 256);
-    const int x1 = std::min(info->width, x0 + 512), y1 = std::min(info->height, y0 + 512);
-    const json spec = {{"tool", "landtrendr"},  {"params", params},          {"input", vrt},
-                       {"years", years},        {"nodata", nullptr},         {"window", {x0, y0, x1, y1}},
-                       {"output_dir", (work / "out").u8string()}};
-    const auto tj = Clock::now();
-    auto job = zeit.startJob(spec, (work / "job.json").u8string(), "selftest");
-    while (job->state == ZeitJob::State::Running && msSince(tj) < 600000)
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    if (job->state != ZeitJob::State::Done) {
-        std::lock_guard<std::mutex> lk(job->m);
-        return fail("job: " + job->error);
-    }
-    std::printf("raster job (%d x %d px x %d dates): %.0f ms\n", x1 - x0, y1 - y0, info->T(), msSince(tj));
+    // 256 x 256 window at the center: enough to exercise chunking, quick for slow models.
+    const int x0 = std::max(0, info->width / 2 - 128), y0 = std::max(0, info->height / 2 - 128);
+    const int x1 = std::min(info->width, x0 + 256), y1 = std::min(info->height, y0 + 256);
 
-    json result;
-    {
-        std::lock_guard<std::mutex> lk(job->m);
-        result = job->result;
+    int ran = 0;
+    for (const ZeitTool& tool : zeit.tools()) {
+        const std::string why = toolApplicability(tool, *info);
+        if (!why.empty()) {
+            std::printf("\n[%s] skipped: %s\n", tool.id.c_str(), why.c_str());
+            continue;
+        }
+        std::printf("\n[%s]\n", tool.id.c_str());
+        json params = json::object();
+        for (const ZeitParam& p : tool.params) params[p.id] = p.def;
+
+        if (tool.pixel) {
+            const auto tp = Clock::now();
+            const uint64_t id = zeit.runPixel(tool.id, params, years, series);
+            PixelReply reply{};
+            bool got = false;
+            while (!got && msSince(tp) < 30000) {
+                for (PixelReply& r : zeit.takeReplies())
+                    if (r.id == id) {
+                        reply = r;
+                        got = true;
+                    }
+                if (!got) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            if (!got || !reply.ok) return fail(tool.id + " pixel run: " + reply.error);
+            std::printf("  pixel: %.1f ms, overlays:", msSince(tp));
+            for (const json& o : reply.result.value("overlays", json::array()))
+                std::printf(" %s(%s, %d)", o.value("type", "?").c_str(), o.value("label", "").c_str(),
+                            int(o.value("x", json::array()).size()));
+            std::printf("\n");
+            for (const json& r : reply.result.value("rows", json::array()))
+                std::printf("    %s: %s\n", r[0].get<std::string>().c_str(), r[1].get<std::string>().c_str());
+        }
+
+        if (tool.raster) {
+            const json spec = {{"tool", tool.id},  {"params", params},   {"input", vrt},
+                               {"years", years},   {"nodata", nullptr},  {"window", {x0, y0, x1, y1}},
+                               {"output_dir", (work / tool.id).u8string()}};
+            const auto tj = Clock::now();
+            auto job = zeit.startJob(spec, (work / (tool.id + ".json")).u8string(), "selftest " + tool.id);
+            while (job->state == ZeitJob::State::Running && msSince(tj) < 600000)
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            json result;
+            {
+                std::lock_guard<std::mutex> lk(job->m);
+                if (job->state != ZeitJob::State::Done) return fail(tool.id + " job: " + job->error);
+                result = job->result;
+            }
+            std::printf("  raster job (%d x %d px x %d dates): %.0f ms\n", x1 - x0, y1 - y0, info->T(), msSince(tj));
+            const json& outs = result["outputs"];
+            if (outs.size() != tool.outputs.size()) return fail(tool.id + ": job returned a different set of outputs");
+            for (const json& o : outs) {
+                ResultLayer L;
+                L.path = o.value("path", "");
+                L.unit = o.value("unit", "");
+                if (!loadResultRaster(L.path, 4096, L.data, L.tw, L.th, err)) return fail("load result: " + err);
+                autoResultRange(L);
+                size_t valid = 0;
+                for (float v : L.data) valid += std::isfinite(v);
+                std::printf("    %-28s %5.1f%% valid, range %.6g .. %.6g\n", o.value("name", "").c_str(),
+                            100.0 * valid / L.data.size(), L.lo, L.hi);
+            }
+        }
+        ++ran;
     }
-    const json& outs = result["outputs"];
-    if (outs.empty()) return fail("job returned no outputs");
-    ResultLayer L;
-    L.path = outs[0].value("path", "");
-    L.unit = outs[0].value("unit", "");
-    if (!loadResultRaster(L.path, 4096, L.data, L.tw, L.th, err)) return fail("load result: " + err);
-    autoResultRange(L);
-    size_t valid = 0;
-    for (float v : L.data) valid += std::isfinite(v);
-    std::printf("result '%s': %d x %d, %.1f%% with events, range %.6g .. %.6g\n",
-                outs[0].value("name", "").c_str(), L.tw, L.th, 100.0 * valid / L.data.size(), L.lo, L.hi);
+    if (ran == 0) return fail("no tool applies to this series");
+
     std::printf("OK (%.1f s total)\n", msSince(t0) / 1000.0);
     return 0;
 }

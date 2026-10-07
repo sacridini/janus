@@ -41,11 +41,13 @@ Built with Dear ImGui (docking) + ImPlot + OpenGL 3.3 + GDAL, in C++17.
 - **Detachable panels**: drag any panel out of the main window, e.g. the map on
   a second monitor and the charts on the first.
 - **Zeit tools** ([Zeit](https://github.com/sacridini/zeit-cdts) change detection
-  and time-series algorithms), starting with **LandTrendr**: fitted live on the
-  cursor, pins and ROI series (segments drawn on the chart, ~10 ms per series),
+  and time-series algorithms): **LandTrendr**, **Mann-Kendall** (with Sen's
+  slope; Hamed-Rao, Yue-Wang and seasonal variants), **BFAST**, **BFAST Lite**
+  and **BFAST Monitor**. Each is fitted live on the cursor, pins and ROI series
+  (segments, trend lines or break dates drawn on the chart, a few ms per series),
   or run on the whole image, the visible area or an ROI, with the results
-  (year of detection, magnitude, duration, rate, DSNR...) shown as map layers.
-  Zeit runs in a bundled, invisible Python runtime — nothing to install.
+  (year of detection, magnitude, slope, p-value, break dates...) shown as map
+  layers. Zeit runs in a bundled, invisible Python runtime — nothing to install.
 
 ## Installation (Windows)
 
@@ -124,14 +126,29 @@ Clicking a legend entry hides/shows that series together with its trend line.
 ## Zeit tools
 
 The **Tools** menu lists the algorithms of [Zeit](https://github.com/sacridini/zeit-cdts)
-that tsv exposes (for now **LandTrendr**). Each tool window has:
+that tsv exposes:
+
+| Tool | Series | Maps |
+|---|---|---|
+| LandTrendr | annual (one date per year) | year of detection, magnitude, duration, pre/post value, rate, DSNR of the chosen loss/gain event |
+| Mann-Kendall | any (seasonal variant: several dates per year) | significant Sen's slope, slope, p-value, Z, tau, trend class, intercept |
+| BFAST | regular, ≥ 2 dates per year | trend/season break counts, date and magnitude of the largest trend break |
+| BFAST Lite | regular, ≥ 2 dates per year | break count, date and magnitude of the largest break, first break date |
+| BFAST Monitor | regular, ≥ 2 dates per year | first break date in the monitoring period, magnitude, break yes/no |
+
+"Regular" means evenly spaced dates (monthly, 16-day...): a missing date must be
+a no-data band, not a skipped one. BFAST and BFAST Lite are slow (~2–3 ms per
+pixel on all cores): use the visible area or an ROI before a whole scene.
+
+Each tool window has:
 
 - **Parameters**, generated from the tool description sent by Zeit (hover a
   field for help). Tools that do not fit the open series are disabled with the
   reason (e.g. LandTrendr needs an annual series).
 - **On the chart**: fits the model to the cursor, pin and ROI series and draws it
-  over them (thicker line + square vertices, same color); the model's numbers are
-  added to the Statistics table.
+  over them in the same color (LandTrendr segments and vertices, Sen's line,
+  vertical lines at break dates); the model's numbers are added to the
+  Statistics table.
 - **Run on the raster**: whole image, visible area or ROI. The run happens in a
   separate process using every CPU core, with progress and cancel in
   **Tools → Tasks**. Outputs are GeoTIFFs (default folder
@@ -142,8 +159,11 @@ How it works: Zeit runs in a separate Python process from a private runtime
 inside the installation (`runtime\`: embeddable Python 3.12 + Zeit from PyPI +
 numpy/scipy/rasterio/numba/dask/xarray, without PyTorch). It starts in the
 background once a series is open (~1 s), so it never delays startup. The bridge
-(`zeit_bridge/tsv_zeit_bridge.py`) only uses Zeit's public API: it describes the
-tools, converts parameters, reads/writes rasters in chunks and reports progress.
+(`zeit_bridge/tsv_zeit_bridge.py`) handles the protocol and reads/writes rasters
+in chunks with progress; each tool is a small module next to it
+(`zeit_bridge/tool_*.py`) that describes its parameters and outputs and calls
+Zeit's API for one series or one block of pixels. Adding a tool to tsv means
+adding a module there — no C++ change.
 tsv hands it the cube as a VRT (dates in order, nodata and scale applied).
 Logs: `%LOCALAPPDATA%\tsv\zeit.log`.
 
@@ -179,7 +199,7 @@ build runs on double click and never picks up another GDAL from `PATH`.
 
 Zeit runtime for local builds (downloads the embeddable Python and the pinned
 wheels from `zeit_bridge/requirements.txt`; the bridge script itself is copied
-on every build):
+on every build, so editing a tool needs no runtime rebuild):
 
 ```powershell
 cmake --build build --config Release --target zeit_runtime   # -> build\Release\runtime
@@ -222,8 +242,8 @@ cmake --build build --config Release --target installer   # -> dist\tsv-<version
 | `src/app_zeit.cpp` | Tools menu, tool windows, tasks, result layers, models on the chart |
 | `src/zeit_client.*` | Bridge processes (JSON lines over pipes), pixel calls, raster jobs |
 | `src/results.*` | Result rasters loaded as map layers |
-| `src/selftest.cpp` | `--selftest-zeit`: the Zeit path end to end without a window |
-| `zeit_bridge/` | The Python bridge and the pinned runtime requirements |
+| `src/selftest.cpp` | `--selftest-zeit`: every applicable Zeit tool end to end (pixel + raster job) without a window |
+| `zeit_bridge/` | The Python bridge, one `tool_*.py` per Zeit tool family, the pinned runtime requirements |
 | `tools/build_zeit_runtime.py` | Assembles the private Python runtime |
 | `src/platform.*` | Windows: UTF-8 arguments, dialogs, app data folder, HDD detection |
 | `src/launcher.cpp` | `tsv.com` console launcher |
@@ -231,7 +251,7 @@ cmake --build build --config Release --target installer   # -> dist\tsv-<version
 ## Roadmap
 
 Planned work and the reasoning behind design decisions live in
-[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: Mann-Kendall and the BFAST family
-from Zeit, then multiband cubes with CCDC and phenology. tsv targets Windows,
+[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: multiband cubes (several indices
+and a QA mask per date) with CCDC and phenology from Zeit. tsv targets Windows,
 Linux and macOS (Apple Silicon); it is developed on Windows for now, with the
 OS-specific code isolated (see the portability notes in IDEIAS.md).

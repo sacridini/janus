@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(tsv VERSION 0.5.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
+project(tsv VERSION 0.6.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -127,11 +127,14 @@ if(WIN32 AND Python3_FOUND)
     COMMENT "Assembling the Zeit runtime (embeddable Python + Zeit)"
     VERBATIM)
 endif()
-add_custom_command(TARGET tsv POST_BUILD
+# A target (not a POST_BUILD step) so it also runs when only the .py files changed.
+file(GLOB ZEIT_BRIDGE_PY CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/zeit_bridge/*.py)
+add_custom_target(zeit_bridge
   COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:tsv>/runtime
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/zeit_bridge/tsv_zeit_bridge.py
-          $<TARGET_FILE_DIR:tsv>/runtime/tsv_zeit_bridge.py
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${ZEIT_BRIDGE_PY} $<TARGET_FILE_DIR:tsv>/runtime/
+  COMMENT "Copying the Zeit bridge scripts"
   VERBATIM)
+add_dependencies(tsv zeit_bridge)
 
 # --- Installer (Inno Setup 6) ------------------------------------------------
 # cmake --build build --config Release --target installer  ->  dist/tsv-<version>-setup.exe

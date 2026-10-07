@@ -31,12 +31,17 @@ struct ZeitOutput {
 
 struct ZeitTool {
     std::string id, name, category, description;
-    std::string requiresTime; // "annual", "any", ...
+    std::string requiresTime; // "any", "annual" (one date per year) or "regular" (evenly spaced)
     int minDates = 0;
+    int minPerYear = 0; // observations per year needed (e.g. 2 for seasonal models)
     bool pixel = false, raster = false;
     std::vector<ZeitParam> params;
     std::vector<ZeitOutput> outputs;
 };
+
+struct CubeInfo;
+// Why `tool` cannot run on this series, from its manifest requirements ("" = it can).
+std::string toolApplicability(const ZeitTool& tool, const CubeInfo& info);
 
 struct ZeitConfig {
     std::string python;   // python.exe of the runtime
