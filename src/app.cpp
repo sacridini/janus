@@ -47,6 +47,13 @@ std::string escapePercent(const std::string& s) {
 
 std::vector<double> toDouble(const std::vector<float>& v) { return std::vector<double>(v.begin(), v.end()); }
 
+// Marker shape per layer, so the series of different layers can be told apart.
+ImPlotMarker layerMarker(int i) {
+    static const ImPlotMarker m[] = {ImPlotMarker_Circle, ImPlotMarker_Square, ImPlotMarker_Diamond,
+                                     ImPlotMarker_Up,     ImPlotMarker_Down,   ImPlotMarker_Cross};
+    return m[i % 6];
+}
+
 int nearestIndex(const std::vector<double>& xs, double x) {
     auto it = std::lower_bound(xs.begin(), xs.end(), x);
     if (it == xs.end()) return int(xs.size()) - 1;
@@ -63,7 +70,7 @@ App::~App() {
     for (auto& j : jobs_) j->cancel(); // don't leave orphan processes behind
     jobs_.clear();
     zeit_.reset();
-    closeSession();
+    closeAll();
     gpu_.shutdown();
 }
 
@@ -86,7 +93,9 @@ bool App::init(const AppOptions& opts, std::string& error) {
     resultsDir_ = (fs::u8path(appData) / "results").u8string();
     fs::create_directories(fs::u8path(resultsDir_), ec);
 
-    iniPath_ = (fs::u8path(appData) / "layout.ini").u8string();
+    // New file name when the default layout changes (new panels), so the new
+    // layout is applied instead of an old saved one.
+    iniPath_ = (fs::u8path(appData) / "layout-0.5.ini").u8string();
     iniExisted_ = fs::exists(fs::u8path(iniPath_), ec);
     ImGui::GetIO().IniFilename = iniPath_.c_str();
     layoutPending_ = !iniExisted_;
@@ -98,6 +107,7 @@ bool App::init(const AppOptions& opts, std::string& error) {
     for (int m = 0; m < ModeCount; ++m) cmap_[m] = ImPlotColormap_Viridis;
     cmap_[ModeAnomaly] = cmap_[ModeSlope] = ImPlotColormap_BrBG;
     cmap_[ModeStd] = cmap_[ModeAmplitude] = ImPlotColormap_Plasma;
+    defaultCmap_ = cmap_;
     return true;
 }
 
@@ -105,9 +115,10 @@ bool App::init(const AppOptions& opts, std::string& error) {
 // Opening
 // ---------------------------------------------------------------------------
 
-void App::openInputs(const std::vector<std::string>& inputs) {
+void App::openInputs(const std::vector<std::string>& inputs, bool addLayer) {
     if (opening_.valid()) return; // one open at a time
     openingInputs_ = inputs;
+    openingAdd_ = addLayer && !layers_.empty();
     const int band = opts_.band;
     opening_ = std::async(std::launch::async, [inputs, band] {
         const auto t0 = std::chrono::steady_clock::now();
@@ -138,56 +149,36 @@ void App::finishOpen() {
         return;
     }
 
-    closeSession();
-    s_ = std::make_unique<Session>(info, settings_, [] { glfwPostEmptyEvent(); });
-    s_->openSeconds = r.seconds;
-    lastInputs_ = inputs;
-
+    if (!openingAdd_) closeAll();
+    SeriesLayer L;
+    L.session = std::make_unique<Session>(info, settings_, [] { glfwPostEmptyEvent(); });
+    L.session->openSeconds = r.seconds;
+    L.inputs = inputs;
+    L.name = layerName(*info, inputs);
     const int T = info->T();
-    xs_.resize(T);
-    years_.resize(T);
-    for (int t = 0; t < T; ++t) {
-        xs_[t] = info->layers[t].time;
-        years_[t] = info->yearsFromStart(t);
+    L.disp.rgb = {0, T / 2, T - 1};
+    L.disp.cmap = defaultCmap_;
+    L.years.resize(T);
+    for (int t = 0; t < T; ++t) L.years[t] = info->yearsFromStart(t);
+    // A new layer starts at the date nearest to the one currently shown.
+    if (const SeriesLayer* A = activeLayer(); A && A->session->info->timeIsDate && info->timeIsDate) {
+        const double now = A->session->info->layers[t_].time;
+        int best = 0;
+        for (int t = 1; t < T; ++t)
+            if (std::fabs(info->layers[t].time - now) < std::fabs(info->layers[best].time - now)) best = t;
+        L.disp.t = best;
     }
-    t_ = 0;
+    layers_.push_back(std::move(L));
+    if (layers_.size() == 1) {
+        fitRequested_ = true;
+        viewTouched_ = false;
+        nextPinId_ = 1;
+    }
     playing_ = false;
-    rgb_ = {0, T / 2, T - 1};
-    if (!modeAvailable(mode_)) mode_ = ModeValue;
-    for (auto& r : range_) r = Range{};
-    histKey_ = ~0ull;
-    hover_ = SeriesView{};
-    pins_.clear();
-    nextPinId_ = 1;
-    roi_.reset();
-    roiMean_.clear();
-    roiSeen_ = -1;
-    fitRequested_ = true;
-    viewTouched_ = false;
-    hoverPending_ = false;
-    approxLayers_ = -1;
-    mapDirty_ = true;
-
-    zeitYears_.resize(T);
-    for (int t = 0; t < T; ++t) zeitYears_[t] = info->decimalYear(t);
-    roiZeitReq_ = 0;
-    roiZeitVersion_ = -1;
-    roiZeitResult_ = json();
-    pixelSent_.clear();
+    setActive(int(layers_.size()) - 1);
+    files_.addRecent(inputs.size() == 1 ? inputs[0] : info->firstPath);
     // Zeit (separate process) starts only now, never on the startup path.
     startZeit();
-
-    const std::string where = inputs.size() == 1 ? inputs[0] : fs::u8path(info->firstPath).parent_path().u8string();
-    const std::string title = "tsv - " + where + " (" + info->description + ")";
-    glfwSetWindowTitle(window_, title.c_str());
-}
-
-void App::closeSession() {
-    clearResults();
-    if (roi_) roi_->cancel = true;
-    roi_.reset();
-    s_.reset();
-    glfwSetWindowTitle(window_, "tsv");
 }
 
 bool App::wantsContinuousFrames() const { return playing_ || roiDragging_ || hoverPending_; }
@@ -206,6 +197,7 @@ void App::setT(int t) {
     if (t != t_) {
         t_ = t;
         mapDirty_ = true;
+        syncLayerTimes();
     }
 }
 
@@ -221,10 +213,12 @@ void App::frame() {
         openInputs(drop);
     }
     if (opening_.valid() && opening_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) finishOpen();
+    for (SeriesLayer& L : layers_) // every layer keeps loading and uploading
+        if (L.session->pump(gpu_)) mapDirty_ = true;
     if (s_) {
         s_->overview.setFocus(t_);
-        if (s_->pump(gpu_)) mapDirty_ = true;
         pumpSeries();
+        pumpOtherSeries();
         // Cursor series: approximated (overview) right away; exact once the
         // mouse rests. On an HDD, while the overview builds, the exact one is
         // not read: the extra seeks would slow the build down a lot.
@@ -236,6 +230,7 @@ void App::frame() {
         if (hoverPending_ && ImGui::GetTime() - hoverSince_ >= 0.12) {
             hoverPending_ = false;
             if (!s_->deferRandomReads()) hover_.request = s_->requestSeries(hover_.x, hover_.y, true);
+            requestOtherSeries(true);
         }
         if (!s_->deferRandomReads()) {
             for (SeriesView& p : pins_) // pins created while the HDD overview was building
@@ -270,6 +265,8 @@ void App::frame() {
     handleShortcuts();
     uiMenu();
     uiDockspace();
+    uiLayers();
+    uiFiles();
     uiLayer();
     uiPerf();
     uiSeries();
@@ -478,6 +475,10 @@ void App::handleShortcuts() {
         auto dir = platform::openFolderDialog();
         if (!dir.empty()) openInputs({dir});
     }
+    if (s_ && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_L)) {
+        auto files = platform::openFilesDialog();
+        if (!files.empty()) openInputs(files, true);
+    }
     if (io.WantTextInput || !s_) return;
     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) setT(t_ - 1);
     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) setT(t_ + 1);
@@ -497,7 +498,17 @@ void App::uiMenu() {
             auto dir = platform::openFolderDialog();
             if (!dir.empty()) openInputs({dir});
         }
-        if (ImGui::MenuItem("Close", nullptr, false, s_ != nullptr)) closeSession();
+        if (ImGui::MenuItem("Add layer: file(s)...", "Ctrl+L", false, s_ != nullptr)) {
+            auto files = platform::openFilesDialog();
+            if (!files.empty()) openInputs(files, true);
+        }
+        if (ImGui::MenuItem("Add layer: folder...", nullptr, false, s_ != nullptr)) {
+            auto dir = platform::openFolderDialog();
+            if (!dir.empty()) openInputs({dir}, true);
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Close active layer", nullptr, false, s_ != nullptr)) removeLayer(active_);
+        if (ImGui::MenuItem("Close all", nullptr, false, !layers_.empty())) closeAll();
         ImGui::Separator();
         if (ImGui::MenuItem("Exit", "Alt+F4")) glfwSetWindowShouldClose(window_, 1);
         ImGui::EndMenu();
@@ -529,10 +540,14 @@ void App::uiDockspace() {
     ImGui::DockBuilderSetNodeSize(dock, vp->WorkSize);
     ImGuiID left, rest, bottom, center, bottomLeft, bottomRight, leftTop, leftBottom;
     ImGui::DockBuilderSplitNode(dock, ImGuiDir_Left, 0.21f, &left, &rest);
+    ImGuiID leftMid;
     ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.30f, &leftBottom, &leftTop);
+    ImGui::DockBuilderSplitNode(leftTop, ImGuiDir_Down, 0.62f, &leftMid, &leftTop);
     ImGui::DockBuilderSplitNode(rest, ImGuiDir_Down, 0.36f, &bottom, &center);
     ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Right, 0.34f, &bottomRight, &bottomLeft);
-    ImGui::DockBuilderDockWindow("Layer", leftTop);
+    ImGui::DockBuilderDockWindow("Layers", leftTop);
+    ImGui::DockBuilderDockWindow("Files", leftTop);
+    ImGui::DockBuilderDockWindow("Display", leftMid);
     ImGui::DockBuilderDockWindow("Performance", leftBottom);
     ImGui::DockBuilderDockWindow("Map", center);
     ImGui::DockBuilderDockWindow("Time series", bottomLeft);
@@ -591,38 +606,57 @@ void App::fitView(ImVec2 c) {
 void App::renderMap(int w, int h) {
     const float bg[4] = {0.10f, 0.10f, 0.115f, 1.0f};
     gpu_.beginMap(w, h, bg);
-    if (s_) {
-        const CubeInfo& info = *s_->info;
+    auto screenRect = [&](double x0, double y0, double x1, double y1, float r[4]) {
+        r[0] = float(offset_.x + x0 * scale_);
+        r[1] = float(offset_.y + y0 * scale_);
+        r[2] = float(offset_.x + x1 * scale_);
+        r[3] = float(offset_.y + y1 * scale_);
+    };
+    for (const SeriesLayer& L : layers_) {
+        if (!L.visible || !L.aligned) continue;
+        const bool isActive = &L == activeLayer();
+        const Session& S = *L.session;
+        const CubeInfo& info = *S.info;
+        // Display state: the live members for the active layer, the saved copy otherwise.
+        const int mode = isActive ? mode_ : L.disp.mode;
+        const int t = isActive ? t_ : L.disp.t;
+        const std::array<int, 3>& rgb = isActive ? rgb_ : L.disp.rgb;
+        const Range& range = isActive ? range_[mode] : L.disp.range[mode];
+        const int cmap = isActive ? cmap_[mode] : L.disp.cmap[mode];
         DrawParams p;
-        p.mode = mode_;
-        p.t = mode_ == ModeRGB ? rgb_[0] : t_;
-        p.tg = rgb_[1];
-        p.tb = rgb_[2];
-        p.lo = range_[mode_].lo;
-        p.hi = range_[mode_].hi;
-        const auto& loaded = s_->gpu.loaded;
-        bool ready = mode_ == ModeRGB ? loaded[rgb_[0]] && loaded[rgb_[1]] && loaded[rgb_[2]]
-                     : modeIsTimeDependent(mode_) ? loaded[t_] : true;
-        if (modeNeedsStats(mode_) && !s_->gpu.statsValid) ready = false;
-        if (ready) {
-            const float rect[4] = {offset_.x, offset_.y, float(offset_.x + info.width * scale_),
-                                   float(offset_.y + info.height * scale_)};
-            gpu_.drawCube(s_->gpu, rect, p);
-        }
-        if (mode_ == ModeValue && detailLevel_ >= 0) {
+        p.mode = mode;
+        p.t = mode == ModeRGB ? rgb[0] : t;
+        p.tg = rgb[1];
+        p.tb = rgb[2];
+        p.lo = range.lo;
+        p.hi = range.hi;
+        const auto& loaded = S.gpu.loaded;
+        bool ready = mode == ModeRGB ? loaded[rgb[0]] && loaded[rgb[1]] && loaded[rgb[2]]
+                     : modeIsTimeDependent(mode) ? loaded[t] : true;
+        if (modeNeedsStats(mode) && !S.gpu.statsValid) ready = false;
+        double x0, y0, x1, y1;
+        toActive(L, 0, 0, x0, y0);
+        toActive(L, info.width, info.height, x1, y1);
+        float rect[4];
+        screenRect(x0, y0, x1, y1, rect);
+        if (ready) gpu_.drawCube(S.gpu, rect, p, cmap, L.opacity);
+        if (isActive && mode_ == ModeValue && detailLevel_ >= 0) {
             const ViewRect v{-offset_.x / scale_, -offset_.y / scale_, (canvasSize_.x - offset_.x) / scale_,
                              (canvasSize_.y - offset_.y) / scale_, scale_};
             s_->tiles->forEachVisible(t_, v, [&](GLuint tex, double x, double y, double sw, double sh) {
-                const float r[4] = {float(offset_.x + x * scale_), float(offset_.y + y * scale_),
-                                    float(offset_.x + (x + sw) * scale_), float(offset_.y + (y + sh) * scale_)};
-                gpu_.drawTile(tex, r, p);
+                float r[4];
+                screenRect(x, y, x + sw, y + sh, r);
+                gpu_.drawTile(tex, r, p, cmap, L.opacity);
             });
         }
-        for (const ResultLayer& L : results_) {
-            if (!L.visible || !L.tex) continue;
-            const float r[4] = {float(offset_.x + L.x0 * scale_), float(offset_.y + L.y0 * scale_),
-                                float(offset_.x + (L.x0 + L.w) * scale_), float(offset_.y + (L.y0 + L.h) * scale_)};
-            gpu_.drawOverlay(L.tex, r, L.lo, L.hi, L.cmap, L.opacity);
+        for (const ResultLayer& R : results_) {
+            if (R.cubeId != info.id || !R.visible || !R.tex) continue;
+            double rx0, ry0, rx1, ry1;
+            toActive(L, R.x0, R.y0, rx0, ry0);
+            toActive(L, R.x0 + R.w, R.y0 + R.h, rx1, ry1);
+            float r[4];
+            screenRect(rx0, ry0, rx1, ry1, r);
+            gpu_.drawOverlay(R.tex, r, R.lo, R.hi, R.cmap, R.opacity * L.opacity);
         }
     }
     gpu_.endMap();
@@ -743,11 +777,11 @@ void App::uiMap() {
                 best = int(i);
             }
         }
-        if (best >= 0) pins_.erase(pins_.begin() + best);
+        if (best >= 0) removePinById(pins_[best].id);
     }
     if (hovered && !pins_.empty() &&
         (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)))
-        pins_.pop_back();
+        removePinById(pins_.back().id);
     if (hovered && io.MouseWheel != 0) {
         // Zooming out stops at the image extent (whole image in view, centered).
         const double fit = 0.98 * std::min(size.x / info.width, size.y / info.height);
@@ -772,6 +806,7 @@ void App::uiMap() {
         hover_.zeitReq = 0;
         hover_.zeitVersion = -1;
         hover_.zeitResult = json();
+        updateOtherHover(ix, iy);
         hover_.color = ImVec4(0.95f, 0.95f, 0.95f, 1);
         approxLayers_ = s_->overview.layersDone();
         hoverPending_ = true;
@@ -880,8 +915,15 @@ void App::uiMap() {
         dl->AddText(b0 + ImVec2(bsz.x - ImGui::CalcTextSize(hi).x, 12), IM_COL32(230, 230, 230, 255), hi);
     }
     const ResultLayer* topResult = nullptr;
-    for (const ResultLayer& L : results_)
-        if (L.visible) topResult = &L;
+    const SeriesLayer* topResultLayer = nullptr;
+    for (const SeriesLayer& L : layers_) {
+        if (!L.visible || !L.aligned) continue;
+        for (const ResultLayer& R : results_)
+            if (R.visible && R.cubeId == L.session->info->id) {
+                topResult = &R;
+                topResultLayer = &L;
+            }
+    }
     if (topResult) {
         const ImVec2 b0 = origin + ImVec2(10, size.y - (mode_ != ModeRGB ? 78 : 34)), bsz(220, 10);
         dl->AddText(b0 - ImVec2(0, 16), IM_COL32(230, 230, 230, 255), topResult->name.c_str());
@@ -930,8 +972,9 @@ void App::uiMap() {
                           hover_.exact ? "" : "(approx.)");
         }
     }
-    if (inside && topResult) {
-        const float v = topResult->valueAt(ix, iy);
+    int rx = -1, ry = -1;
+    if (inside && topResult && fromActive(*topResultLayer, ix + 0.5, iy + 0.5, rx, ry)) {
+        const float v = topResult->valueAt(rx, ry);
         const size_t len = std::strlen(status);
         std::snprintf(status + len, sizeof(status) - len, "  |  %s %s", topResult->name.c_str(),
                       std::isnan(v) ? "-" : (std::to_string(v).substr(0, 10)).c_str());
@@ -945,7 +988,7 @@ void App::uiMap() {
 // ---------------------------------------------------------------------------
 
 void App::uiLayer() {
-    if (!ImGui::Begin("Layer")) {
+    if (!ImGui::Begin("Display")) {
         ImGui::End();
         return;
     }
@@ -965,6 +1008,7 @@ void App::uiLayer() {
     const CubeInfo& info = *s_->info;
     const int T = info.T();
 
+    if (const SeriesLayer* L = activeLayer()) ImGui::TextColored(ImVec4(0.55f, 0.80f, 1.0f, 1), "%s", L->name.c_str());
     ImGui::SeparatorText("Series");
     ImGui::TextWrapped("%s", info.description.c_str());
     ImGui::Text("%d dates: %s to %s", T, info.layers.front().label.c_str(), info.layers.back().label.c_str());
@@ -1048,8 +1092,6 @@ void App::uiLayer() {
         ImPlot::EndPlot();
     }
 
-    uiResultsSection();
-
     ImGui::SeparatorText("Detail");
     if (ImGui::Checkbox("Full resolution when zoomed in", &detail_)) mapDirty_ = true;
     ImGui::SetItemTooltip("Past the overview resolution, reads tiles of the visible area\n"
@@ -1091,6 +1133,21 @@ void App::uiSeries() {
     ImGui::Checkbox("Y = map range", &yFromMap_);
     ImGui::EndDisabled();
     ImGui::SetItemTooltip("Locks the Y axis to the map's color range (compare without the axis jumping)");
+    if (layers_.size() > 1) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(150);
+        if (ImGui::Combo("##layers", &chartLayers_, "Active layer\0All visible layers\0")) {
+            for (SeriesLayer& L : layers_) L.hover = SeriesView{};
+            if (chartLayers_ == 1) {
+                if (hover_.x >= 0) updateOtherHover(hover_.x, hover_.y);
+                for (SeriesLayer& L : layers_) L.pins.clear();
+                for (const SeriesView& p : pins_) addOtherPins(p);
+                requestOtherSeries(true);
+            }
+        }
+        ImGui::SetItemTooltip("Series of the active layer only, or of every visible layer at the same\n"
+                              "place (different marker per layer; other layers use their own dates)");
+    }
     if (roi_) {
         ImGui::SameLine();
         ImGui::Checkbox("p10-p90 band", &showRoiBand_);
@@ -1100,7 +1157,7 @@ void App::uiSeries() {
     ImGui::SetItemTooltip("Copies the series (cursor, pins, ROI) to the clipboard");
     if (!pins_.empty()) {
         ImGui::SameLine();
-        if (ImGui::Button("Clear pins")) pins_.clear();
+        if (ImGui::Button("Clear pins")) clearPins();
     }
     if (roi_) {
         ImGui::SameLine();
@@ -1211,6 +1268,45 @@ void App::uiSeries() {
                           hover_.exact ? "" : " approx.");
             plotSeries(label, hover_.values, hover_.stats, hover_.color, 2.0f, true, &hover_.zeitResult);
         }
+        if (chartLayers_ == 1) {
+            // Other visible layers: their own dates on the same time axis, one marker shape per layer.
+            for (size_t li = 0; li < layers_.size(); ++li) {
+                const SeriesLayer& L = layers_[li];
+                if (&L == activeLayer() || !L.visible) continue;
+                const CubeInfo& li_info = *L.session->info;
+                if (li_info.timeIsDate != info.timeIsDate) continue;
+                std::vector<double> lx(li_info.T());
+                for (int t = 0; t < li_info.T(); ++t) lx[t] = li_info.layers[t].time;
+                auto plotOther = [&](const char* label, const SeriesView& v, float weight) {
+                    if (int(v.values.size()) != li_info.T()) return;
+                    std::vector<double> ys(v.values.size());
+                    for (size_t t = 0; t < ys.size(); ++t) {
+                        const double x = v.values[t];
+                        ys[t] = plotValues_ == 1 ? x - v.stats.mean
+                                : plotValues_ == 2 ? (v.stats.std > 0 ? (x - v.stats.mean) / v.stats.std : 0.0) : x;
+                    }
+                    ImPlotSpec spec;
+                    spec.LineColor = ImVec4(v.color.x, v.color.y, v.color.z, 0.85f);
+                    spec.LineWeight = weight;
+                    spec.Marker = layerMarker(int(li));
+                    spec.MarkerSize = 3.5f;
+                    spec.MarkerFillColor = v.color;
+                    ImPlot::PlotLine(label, lx.data(), ys.data(), int(ys.size()), spec);
+                };
+                for (const SeriesView& p : L.pins) {
+                    char label[128];
+                    std::snprintf(label, sizeof(label), "Pin %d [%s]%s###pin%d_%d", p.id, L.name.c_str(),
+                                  p.exact ? "" : " approx.", p.id, int(li));
+                    plotOther(label, p, 1.2f);
+                }
+                if (L.hover.x >= 0) {
+                    char label[128];
+                    std::snprintf(label, sizeof(label), "Cursor [%s]%s###cursor_%d", L.name.c_str(),
+                                  L.hover.exact ? "" : " approx.", int(li));
+                    plotOther(label, L.hover, 1.6f);
+                }
+            }
+        }
 
         double tx = xs_[t_];
         const ImVec4 orange(1.0f, 0.6f, 0.2f, 1);
@@ -1242,6 +1338,7 @@ void App::uiStats() {
         int pin;                 // index into pins_ (-1 = not a pin)
         bool roi;
         const json* model = nullptr; // rows from the Zeit tool on the chart
+        const CubeInfo* cube = nullptr; // whose dates argMin/argMax refer to (null = active)
     };
     std::vector<Col> cols;
     if (hover_.x >= 0)
@@ -1251,6 +1348,16 @@ void App::uiStats() {
                         pins_[i].color, int(i), false, &pins_[i].zeitResult});
     if (!roiMean_.empty())
         cols.push_back({"ROI mean", &roiStats_, ImVec4(1.0f, 0.82f, 0.24f, 1), -1, true, &roiZeitResult_});
+    if (chartLayers_ == 1)
+        for (const SeriesLayer& L : layers_) {
+            if (&L == activeLayer() || !L.visible) continue;
+            if (L.hover.x >= 0)
+                cols.push_back({"Cursor [" + L.name + "]" + (L.hover.exact ? "" : "*"), &L.hover.stats, L.hover.color,
+                                -1, false, nullptr, L.session->info.get()});
+            for (const SeriesView& p : L.pins)
+                cols.push_back({"Pin " + std::to_string(p.id) + " [" + L.name + "]" + (p.exact ? "" : "*"), &p.stats,
+                                p.color, -1, false, nullptr, L.session->info.get()});
+        }
     if (cols.empty()) {
         ImGui::TextDisabled("Hover over the map, click to drop pins\nor Shift+drag for an ROI.");
         ImGui::End();
@@ -1258,7 +1365,8 @@ void App::uiStats() {
     }
 
     const std::string unit = slopeUnit();
-    auto date = [&](int idx) { return idx >= 0 ? info.layers[idx].label : std::string("-"); };
+    const CubeInfo* curCube = &info; // the column being drawn (its own dates)
+    auto date = [&](int idx) { return idx >= 0 && idx < curCube->T() ? curCube->layers[idx].label : std::string("-"); };
     auto num = [](double v) {
         char b[32];
         std::snprintf(b, sizeof(b), "%.5g", v);
@@ -1325,6 +1433,7 @@ void App::uiStats() {
             ImGui::TextDisabled("%s", row.label);
             for (const Col& c : cols) {
                 ImGui::TableNextColumn();
+                curCube = c.cube ? c.cube : &info;
                 ImGui::TextUnformatted(row.f(*c.st).c_str());
             }
         }
@@ -1361,7 +1470,7 @@ void App::uiStats() {
         }
         ImGui::EndTable();
         // Remove after drawing: the pointers in `cols` point into pins_.
-        if (removePin >= 0) pins_.erase(pins_.begin() + removePin);
+        if (removePin >= 0) removePinById(pins_[removePin].id);
         if (removeRoi) clearRoi();
     }
     ImGui::End();
@@ -1427,10 +1536,14 @@ void App::uiPerf() {
     ImGui::SliderInt("##budget", &budgetUi_, 128, 8192, "Overview: %d MB", ImGuiSliderFlags_Logarithmic);
     ImGui::SetItemTooltip("GPU memory for the cube overview. Larger = more resolution\nwithout tiles, but slower to build.");
     if (budgetUi_ != opts_.budgetMB) {
-        if (ImGui::Button(s_ ? "Apply (reopens the series)" : "Apply", ImVec2(-1, 0))) {
+        if (ImGui::Button(s_ ? "Apply (reopens the active layer)" : "Apply", ImVec2(-1, 0))) {
             opts_.budgetMB = budgetUi_;
             settings_.overviewBudgetBytes = int64_t(budgetUi_) << 20;
-            if (s_) openInputs(std::vector<std::string>(lastInputs_));
+            if (s_ && !opening_.valid()) {
+                const std::vector<std::string> inputs = lastInputs_;
+                removeLayer(active_);
+                openInputs(inputs, true);
+            }
         }
     }
     if (ImGui::Button("Clear overview cache", ImVec2(-1, 0))) {

@@ -209,6 +209,8 @@ static bool isRasterExt(const fs::path& p) {
     return false;
 }
 
+bool isRasterPath(const std::string& path) { return isRasterExt(fs::u8path(path)); }
+
 static bool wildcardMatch(const char* pat, const char* s) {
     if (*pat == '\0') return *s == '\0';
     if (*pat == '*') return wildcardMatch(pat + 1, s) || (*s && wildcardMatch(pat, s + 1));

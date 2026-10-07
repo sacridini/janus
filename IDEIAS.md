@@ -74,14 +74,32 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Testes sem tocar na tela (`--selftest-zeit`, `--measure-startup`): a interface
   não é testada simulando mouse/teclado enquanto o usuário usa o computador.
 
+### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
+- Objetivo: o tsv deve rodar nos três. Por enquanto implementamos e testamos só no
+  Windows, mas **nenhum código de sistema operacional entra no código comum**: fica
+  isolado (`src/platform.*` ou módulo próprio, com stub nos outros sistemas) e
+  listado aqui. Dependências novas devem ser multiplataforma (ou ter alternativa
+  conhecida).
+- Pontos que hoje dependem do Windows:
+
+| Onde | Depende de | Caminho nos outros sistemas |
+|---|---|---|
+| `src/platform.cpp` | diálogos (IFileOpenDialog), detecção de HD, pastas, Explorer, discos | já isolado; implementar com `nativefiledialog-extended`, `/sys/block/*/queue/rotational` (Linux), `xdg-open`/`open` |
+| `src/zeit_client.cpp` | processos e pipes Win32 | `posix_spawn` + pipes |
+| `src/launcher.cpp` (`tsv.com`) | truque do `.com` para o console | desnecessário: no Linux/macOS um binário só |
+| runtime do Zeit | Python *embeddable* (só Windows) | `python-build-standalone` (Linux x86_64/arm64, macOS arm64) |
+| `cmake/deploy_runtime.cmake` | `dumpbin` | o mesmo `file(GET_RUNTIME_DEPENDENCIES)` com `ldd`/`otool`; no macOS, bundle `.app` |
+| instalador | Inno Setup, `.rc`, ícone `.ico` | AppImage/.deb (Linux), `.app` + `.dmg` assinado (macOS), `.icns` |
+| OpenGL 3.3 core | no macOS exige `GLFW_OPENGL_FORWARD_COMPAT` (já definido) e o OpenGL está obsoleto lá | a camada de GPU está isolada em `src/gpu.cpp`; o ImGui tem backend Metal |
+
 ## Roadmap
 
 | Fase | Versão | Conteúdo | Status |
 |---|---|---|---|
 | 0 | 0.3.0 | Migração para `tsv`, tudo em inglês, README, IDEIAS.md, abertura medida e otimizada | concluída |
 | 1 | 0.4.0 | Runtime Python embutido, ponte do Zeit, menu de ferramentas, tarefas, resultados como camadas, **LandTrendr** (pixel + raster), zoom limitado ao extent | concluída |
-| 2 | 0.5.0 | **Espaço de trabalho**: painel **Layers** sempre ativo (todas as camadas, inclusive o raster inicial, ligar/desligar), **várias séries abertas ao mesmo tempo** com o gráfico mostrando todas ou uma, **painéis destacáveis** para outros monitores, **árvore de arquivos** | próxima |
-| 3 | 0.6.0 | **Mann-Kendall** (variantes do Zeit) e **BFAST / BFAST Lite / BFAST Monitor** | planejada |
+| 2 | 0.5.0 | **Espaço de trabalho**: painel **Layers** sempre ativo (todas as camadas, inclusive o raster inicial, ligar/desligar), **várias séries abertas ao mesmo tempo** com o gráfico mostrando todas ou uma, **painéis destacáveis** para outros monitores, **árvore de arquivos** | concluída |
+| 3 | 0.6.0 | **Mann-Kendall** (variantes do Zeit) e **BFAST / BFAST Lite / BFAST Monitor** | próxima |
 | 4 | 0.7.0 | Cubo com várias bandas por data + máscara de qualidade; **fenologia** e **CCDC** | planejada |
 
 ## Ideias (backlog)
@@ -103,20 +121,15 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - NetCDF com dimensão de tempo; reprojeção; paletas por classe (color table).
 
 ### Interface
-- **Painel Layers** (0.5.0): sempre visível, lista todas as camadas — as séries
-  abertas (inclusive a primeira) e os resultados das ferramentas —, cada uma com
-  ligar/desligar, ordem, opacidade e remover. Hoje os resultados ficam numa seção
-  do painel Layer e a série base não pode ser desligada.
-- **Várias séries ao mesmo tempo** (0.5.0): abrir outra série sem fechar a atual
-  (ex.: NDVI e NBR da mesma área). O gráfico mostra as séries de todas as camadas
-  ativas no pixel do cursor/pinos, ou só a da camada selecionada.
-- **Painéis destacáveis para outras telas** (0.5.0): arrastar o mapa para um
-  segundo monitor e deixar gráficos/estatísticas no principal (multi-viewports do
-  Dear ImGui, já suportado pelo branch docking que usamos).
-- **Árvore de arquivos** (0.5.0, painel/aba): navegar pelas pastas mostrando, por
-  padrão, só rasters (.tif, .tiff, .vrt, .nc, .img, .jp2...), com opção de mostrar
-  tudo. Clique abre a pasta/arquivo como série; seleção múltipla abre vários
-  arquivos. Para trocar de série rapidamente sem o diálogo do Windows.
+- ~~Painel Layers, várias séries ao mesmo tempo, painéis destacáveis, árvore de
+  arquivos~~ — feitos na 0.5.0 (detalhes no histórico).
+- Camadas com **CRS diferentes**: hoje só aparecem quando ativas; reprojetar o
+  overview (GDAL warp) permitiria sobrepor qualquer par.
+- **ROI em todas as camadas** (hoje só na ativa) e **Zeit nas outras camadas**
+  (hoje o ajuste no gráfico usa só a ativa).
+- Árvore de arquivos: mostrar as datas reconhecidas e quantos arquivos formam a
+  série antes de abrir; favoritos.
+- Arrastar e soltar com Shift para **adicionar** como camada (hoje substitui).
 - ~~Zoom out limitado ao extent~~ — feito na 0.4.0.
 
 ### Produto
@@ -127,6 +140,28 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.5.0 — Fase 2: espaço de trabalho
+- **Camadas**: várias séries abertas ao mesmo tempo (File → Add layer, `Ctrl+L`,
+  painel Files). O mapa usa a grade da camada **ativa**; as outras são posicionadas
+  pelo georreferenciamento (mesmo CRS, sem rotação) — camadas incompatíveis
+  aparecem só quando ativas, com o motivo no painel. Cada camada guarda o próprio
+  modo, paleta, faixa e data; a data das outras acompanha a da ativa (a mais
+  próxima). Trocar a camada ativa preserva a vista geográfica e remapeia os pinos.
+- **Painel Layers** sempre visível: ligar/desligar (inclusive a primeira série),
+  ordem, opacidade, fechar; resultados do Zeit listados sob a sua série.
+- **Gráfico com várias camadas**: "Active layer" ou "All visible layers" (cursor e
+  pinos de cada camada, cada uma com o seu formato de marcador e as suas datas);
+  colunas correspondentes na tabela de estatísticas.
+- **Painel Files**: árvore de pastas listada em segundo plano, só rasters por
+  padrão, recentes, abrir/adicionar como camada, seleção múltipla.
+- **Painéis destacáveis** para outros monitores (multi-viewports do Dear ImGui).
+- Painel "Layer" renomeado para **Display** (configurações da camada ativa); novo
+  layout padrão (arquivo `layout-0.5.ini`).
+- `--selftest-ui A B`: percorre o fluxo de camadas numa **janela invisível** e
+  confere alinhamento, séries das duas camadas, pixels do mapa (camada visível,
+  oculta, todas ocultas), troca da ativa e fechamento — sem mexer no mouse.
+- Flag do OpenGL para macOS e seção de portabilidade neste arquivo.
 
 ### 0.4.0 — Fase 1: Zeit no tsv
 - **Runtime Python privado** (`runtime\`): Python 3.12 embeddable + Zeit 0.25.0

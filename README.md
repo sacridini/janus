@@ -32,6 +32,14 @@ Built with Dear ImGui (docking) + ImPlot + OpenGL 3.3 + GDAL, in C++17.
   nothing changes (a frame costs ~0.3 ms of CPU). The cube overview is cached on
   disk, so reopening a series takes a fraction of a second.
 - **Copy CSV** of the cursor, pins and ROI series.
+- **Layers**: open several series at once (e.g. NDVI and NBR of the same area,
+  or neighboring scenes). Layers are placed by their georeferencing, can be
+  shown/hidden (including the first one), reordered and faded; the chart shows
+  the series of the active layer or of every visible layer at the cursor/pins.
+- **Files panel**: a folder tree listing only rasters by default; double click
+  opens a series, right click adds it as a layer.
+- **Detachable panels**: drag any panel out of the main window, e.g. the map on
+  a second monitor and the charts on the first.
 - **Zeit tools** ([Zeit](https://github.com/sacridini/zeit-cdts) change detection
   and time-series algorithms), starting with **LandTrendr**: fitted live on the
   cursor, pins and ROI series (segments drawn on the chart, ~10 ms per series),
@@ -76,6 +84,7 @@ Developer options:
   --zeit-bridge PY    bridge script to use (or set TSV_ZEIT_BRIDGE)
   --measure-startup   print startup timings and exit after the first frame
   --selftest-zeit IN  run the Zeit tools end to end on IN without a window
+  --selftest-ui A B   drive the layers workflow (A, then B as a layer) in a hidden window
 ```
 
 Examples:
@@ -100,11 +109,15 @@ console launcher next to `tsv.exe`, the same trick Visual Studio uses with
 | Remove a pin | right click it, `Delete` (last one) or the **x** in the statistics table |
 | ROI | `Shift` + drag (mean and p10–p90 per date) |
 | Time | `←`/`→` previous/next date, `Space` play/pause, click or drag on the chart |
-| Map mode, colormap, range | **Layer** panel (range is automatic 2–98%, or drag it) |
+| Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or drag it) |
+| Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active |
+| Browse files | **Files** panel: double click opens, right click → Add as layer; Ctrl+click selects several files |
+| Chart of several layers | Time series panel → *All visible layers* (one marker shape per layer) |
+| Second monitor | drag a panel's tab out of the main window |
 | Chart options | style, values/anomaly/z-score, trend (OLS/Sen), Y = map range |
 | Export | **Copy CSV** in the Time series panel |
 | Zeit tools | **Tools** menu → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
-| Tool results | **Results** in the Layer panel: show/hide, colormap, range, opacity |
+| Tool results | listed under their layer in the **Layers** panel: show/hide, colormap, range, opacity |
 
 Clicking a legend entry hides/shows that series together with its trend line.
 
@@ -122,8 +135,8 @@ that tsv exposes (for now **LandTrendr**). Each tool window has:
 - **Run on the raster**: whole image, visible area or ROI. The run happens in a
   separate process using every CPU core, with progress and cancel in
   **Tools → Tasks**. Outputs are GeoTIFFs (default folder
-  `%LOCALAPPDATA%\tsv\results`) loaded as layers over the map; cells without an
-  event are transparent.
+  `%LOCALAPPDATA%\tsv\results`) loaded over the map and listed under their
+  series in the Layers panel; cells without an event are transparent.
 
 How it works: Zeit runs in a separate Python process from a private runtime
 inside the installation (`runtime\`: embeddable Python 3.12 + Zeit from PyPI +
@@ -203,6 +216,9 @@ cmake --build build --config Release --target installer   # -> dist\tsv-<version
 | `src/session.*` | One open series: thread pools, exact series, ROI |
 | `src/stats.*` | OLS, Sen's slope, Mann-Kendall, percentiles |
 | `src/app.*` | User interface (ImGui/ImPlot) |
+| `src/app_layers.cpp` | Several series as layers (alignment, active layer, other layers' series), Layers and Files panels |
+| `src/file_browser.*` | Lazily listed folder tree (rasters only by default) |
+| `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow in a hidden window, checked by reading map pixels |
 | `src/app_zeit.cpp` | Tools menu, tool windows, tasks, result layers, models on the chart |
 | `src/zeit_client.*` | Bridge processes (JSON lines over pipes), pixel calls, raster jobs |
 | `src/results.*` | Result rasters loaded as map layers |
@@ -215,6 +231,7 @@ cmake --build build --config Release --target installer   # -> dist\tsv-<version
 ## Roadmap
 
 Planned work and the reasoning behind design decisions live in
-[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: a Layers panel with several series
-open at once, detachable panels (second monitor) and a file browser; then
-Mann-Kendall and the BFAST family, and later CCDC and phenology.
+[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: Mann-Kendall and the BFAST family
+from Zeit, then multiband cubes with CCDC and phenology. tsv targets Windows,
+Linux and macOS (Apple Silicon); it is developed on Windows for now, with the
+OS-specific code isolated (see the portability notes in IDEIAS.md).

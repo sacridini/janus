@@ -17,6 +17,7 @@ std::vector<std::string> openFilesDialog();   // empty if cancelled
 std::string openFolderDialog();               // empty if cancelled
 void openInExplorer(const std::string& path); // folder or file, with the default app
 std::string getEnv(const char* name);         // UTF-8, empty if unset
+std::vector<std::string> rootFolders();      // drives (C:\, D:\...) and the user's home
 
 // True if the file lives on a disk with a seek penalty (spinning HDD). Used to
 // limit parallel reads, which make an HDD's head jump back and forth.

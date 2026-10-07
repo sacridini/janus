@@ -54,6 +54,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> inputs;
     bool measureStartup = false; // dev option: print startup timings and exit after the first frame
     bool selftestZeit = false;   // dev option: run the Zeit path without a window
+    bool selftestUi = false;     // dev option: drive the layers workflow in a hidden window
     for (size_t i = 0; i < args.size(); ++i) {
         const std::string& a = args[i];
         auto next = [&]() -> const char* { return i + 1 < args.size() ? args[++i].c_str() : nullptr; };
@@ -80,6 +81,8 @@ int main(int argc, char** argv) {
         } else if (a == "--zeit-bridge") {
             const char* v = next();
             if (v) opts.zeitBridge = v;
+        } else if (a == "--selftest-ui") {
+            selftestUi = true;
         } else if (a == "--selftest-zeit") {
             selftestZeit = true;
         } else if (a == "--measure-startup") {
@@ -101,6 +104,7 @@ int main(int argc, char** argv) {
     configureBundledData();
     GDALAllRegister();
     CPLSetErrorHandler(CPLQuietErrorHandler);
+    if (selftestUi) platform::attachParentConsole();
     if (selftestZeit) {
         platform::attachParentConsole();
         const int rc = runZeitSelfTest(inputs, opts.band, opts.zeitPython, opts.zeitBridge);
@@ -113,7 +117,11 @@ int main(int argc, char** argv) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#ifdef __APPLE__
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE); // required for a core profile on macOS
+#endif
     glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+    if (selftestUi) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // never shown, never takes focus
     GLFWwindow* window = glfwCreateWindow(1600, 950, "tsv", nullptr, nullptr);
     if (!window) return 1;
     glfwMakeContextCurrent(window);
@@ -126,7 +134,16 @@ int main(int argc, char** argv) {
     ImPlot::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    // Multi-viewports: panels can be dragged out of the main window into their
+    // own OS windows (e.g. the map on a second monitor, charts on the first).
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     ImGui::StyleColorsDark();
+    {
+        // Platform windows look like regular OS windows: no rounding, opaque.
+        ImGuiStyle& style = ImGui::GetStyle();
+        style.WindowRounding = 0.0f;
+        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
@@ -140,20 +157,32 @@ int main(int argc, char** argv) {
     }
     glfwSetDropCallback(window, dropCallback);
     st.uiMs = ms();
-    if (!inputs.empty()) app->openInputs(inputs);
+    if (!inputs.empty() && !selftestUi) app->openInputs(inputs);
+    int exitCode = 0;
     st.openMs = ms();
 
     bool firstFrame = true;
     while (!glfwWindowShouldClose(window)) {
         // Without animation, sleep until an event (mouse, keyboard or a
         // finished background job): the CPU stays idle when nothing changes.
-        if (app->wantsContinuousFrames() || firstFrame) glfwPollEvents();
+        if (app->wantsContinuousFrames() || firstFrame || selftestUi) glfwPollEvents();
         else glfwWaitEventsTimeout(0.5);
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         app->frame();
+        if (selftestUi) {
+            if (inputs.size() != 2) {
+                std::fprintf(stderr, "--selftest-ui needs two inputs\n");
+                exitCode = 2;
+                glfwSetWindowShouldClose(window, 1);
+            } else if (const int rc = app->selfTestStep({inputs[0]}, {inputs[1]}); rc >= 0) {
+                std::fflush(stdout);
+                exitCode = rc;
+                glfwSetWindowShouldClose(window, 1);
+            }
+        }
         ImGui::Render();
 
         int fbw, fbh;
@@ -162,6 +191,14 @@ int main(int argc, char** argv) {
         glClearColor(0.08f, 0.08f, 0.09f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        // Panels detached to other windows/monitors (they share this GL context's
+        // textures, so the map framebuffer can be shown there too).
+        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+            GLFWwindow* current = glfwGetCurrentContext();
+            ImGui::UpdatePlatformWindows();
+            ImGui::RenderPlatformWindowsDefault();
+            glfwMakeContextCurrent(current);
+        }
         glfwSwapBuffers(window);
 
         if (firstFrame) {
@@ -187,5 +224,5 @@ int main(int argc, char** argv) {
     ImGui::DestroyContext();
     glfwDestroyWindow(window);
     glfwTerminate();
-    return 0;
+    return exitCode;
 }

@@ -117,17 +117,24 @@ void App::pumpZeit() {
     for (auto& job : jobs_) {
         if (job->state != ZeitJob::State::Done || job->resultsLoaded) continue;
         job->resultsLoaded = true;
-        if (!s_ || jobCube_[job.get()] != s_->info->id) continue;
+        // Results belong to the layer the job ran on (skipped if it was closed).
+        const uint64_t cubeId = jobCube_[job.get()];
+        const SeriesLayer* owner = nullptr;
+        for (const SeriesLayer& Ly : layers_)
+            if (Ly.session->info->id == cubeId) owner = &Ly;
+        if (!owner) continue;
+        const CubeInfo& oinfo = *owner->session->info;
         json result;
         {
             std::lock_guard<std::mutex> lk(job->m);
             result = job->result;
         }
-        const json win = result.value("window", json::array({0, 0, s_->info->width, s_->info->height}));
+        const json win = result.value("window", json::array({0, 0, oinfo.width, oinfo.height}));
         const ZeitTool* tool = zeit_->tool(job->toolId);
         bool first = true;
         for (const json& o : result.value("outputs", json::array())) {
             ResultLayer L;
+            L.cubeId = cubeId;
             L.name = (tool ? tool->name : job->toolId) + ": " + o.value("name", "");
             L.path = o.value("path", "");
             L.unit = o.value("unit", "");
@@ -160,7 +167,10 @@ void App::pumpZeit() {
             openErrorPopup_ = true;
             continue;
         }
-        if (!s_ || r.layer.x0 + r.layer.w > s_->info->width || r.layer.y0 + r.layer.h > s_->info->height) continue;
+        const CubeInfo* oinfo = nullptr;
+        for (const SeriesLayer& Ly : layers_)
+            if (Ly.session->info->id == r.layer.cubeId) oinfo = Ly.session->info.get();
+        if (!oinfo || r.layer.x0 + r.layer.w > oinfo->width || r.layer.y0 + r.layer.h > oinfo->height) continue;
         r.layer.tex = Gpu::createTileTexture(r.layer.tw, r.layer.th, r.layer.data.data());
         results_.push_back(std::move(r.layer));
         mapDirty_ = true;
@@ -450,13 +460,12 @@ void App::uiTasks() {
     ImGui::End();
 }
 
-void App::uiResultsSection() {
-    if (results_.empty() && resultLoads_.empty()) return;
-    ImGui::SeparatorText("Results");
-    if (!resultLoads_.empty()) ImGui::TextDisabled("Loading %d layer(s)...", int(resultLoads_.size()));
+// Tool results of one series, listed under it in the Layers panel.
+void App::uiResultsOf(uint64_t cubeId) {
     int remove = -1;
     for (size_t i = 0; i < results_.size(); ++i) {
         ResultLayer& r = results_[i];
+        if (r.cubeId != cubeId) continue;
         ImGui::PushID(int(i));
         if (ImGui::Checkbox(r.name.c_str(), &r.visible)) mapDirty_ = true;
         ImGui::SetItemTooltip("%s", r.path.c_str());
@@ -503,11 +512,20 @@ void App::uiResultsSection() {
     }
 }
 
-void App::clearResults() {
-    for (ResultLayer& r : results_) glDeleteTextures(1, &r.tex);
-    results_.clear();
-    for (auto& f : resultLoads_) f.wait();
-    resultLoads_.clear();
+void App::clearResults(uint64_t cubeId) {
+    for (auto it = results_.begin(); it != results_.end();) {
+        if (cubeId == 0 || it->cubeId == cubeId) {
+            glDeleteTextures(1, &it->tex);
+            it = results_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    if (cubeId == 0) {
+        for (auto& f : resultLoads_) f.wait();
+        resultLoads_.clear();
+    }
+    mapDirty_ = true;
 }
 
 // Draws the model returned by a pixel run (same legend entry as the series).

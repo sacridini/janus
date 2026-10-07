@@ -59,6 +59,9 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, int b
 
 std::string formatTime(const CubeInfo& info, double t);
 
+// True for file names with a raster extension tsv lists by default.
+bool isRasterPath(const std::string& path);
+
 // Reader with its own GDAL handles. Not thread-safe: use threadReader().
 class CubeReader {
 public:

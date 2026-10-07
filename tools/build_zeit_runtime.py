@@ -67,15 +67,19 @@ def main():
     ap.add_argument("--zeit-wheel", help="install this local Zeit wheel instead of the PyPI pin")
     a = ap.parse_args()
 
-    out = Path(a.out).resolve()
+    final = Path(a.out).resolve()
+    # Built in a sibling staging folder and swapped in only at the end: a failed
+    # build (or a runtime in use by a running tsv) never leaves a half-deleted
+    # runtime behind.
+    out = final.parent / (final.name + ".new")
+    if out.exists():
+        shutil.rmtree(out)
     py = out / "python"
     # Short site-packages folder: keeps the deepest file path well under Windows'
     # 260-character limit even when tsv is installed in a long folder.
     site = py / "sp"
 
     # 1. Python embeddable (fresh copy every time: reproducible).
-    if py.exists():
-        shutil.rmtree(py)
     py.mkdir(parents=True)
     with zipfile.ZipFile(download_python(Path(a.cache))) as z:
         z.extractall(py)
@@ -118,7 +122,19 @@ def main():
     subprocess.run([str(pyexe), "-m", "compileall", "-q", "-j", "0", str(site)], check=False)
 
     size = sum(p.stat().st_size for p in out.rglob("*") if p.is_file())
-    print(f"runtime ready: {out} ({size / 2**20:.0f} MB) {info}")
+
+    # 5. Swap: rename the old runtime away first (fails cleanly if it is in use).
+    if final.exists():
+        old = final.parent / (final.name + ".old")
+        if old.exists():
+            shutil.rmtree(old, ignore_errors=True)
+        try:
+            final.rename(old)
+        except OSError as e:
+            raise SystemExit(f"{final} is in use (close tsv and try again); the new runtime is in {out}: {e}")
+        shutil.rmtree(old, ignore_errors=True)
+    out.rename(final)
+    print(f"runtime ready: {final} ({size / 2**20:.0f} MB) {info}")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@
 
 #include <imgui.h>
 
+#include "file_browser.hpp"
 #include "gpu.hpp"
 #include "results.hpp"
 #include "session.hpp"
@@ -51,15 +52,18 @@ public:
     explicit App(GLFWwindow* window);
     ~App();
     bool init(const AppOptions& opts, std::string& error);
-    void openInputs(const std::vector<std::string>& inputs);
+    // Opens a series; `addLayer` keeps the open ones and adds it as a new layer.
+    void openInputs(const std::vector<std::string>& inputs, bool addLayer = false);
     void frame();
     bool wantsContinuousFrames() const;
     void setStartupTimes(const StartupTimes& t) { startup_ = t; }
+    // --selftest-ui: one step per frame; -1 while running, then the exit code.
+    int selfTestStep(const std::vector<std::string>& a, const std::vector<std::string>& b);
 
     std::vector<std::string> pendingDrop; // filled by the drag-and-drop callback
 
 private:
-    void closeSession();
+    void closeAll();
     void finishOpen();
     void uiMenu();
     void uiDockspace();
@@ -94,15 +98,38 @@ private:
     void uiToolsMenu();
     void uiToolWindow(const ZeitTool& tool);
     void uiTasks();
-    void uiResultsSection();
-    void clearResults();
+    void uiResultsOf(uint64_t cubeId);
+    void clearResults(uint64_t cubeId = 0); // 0 = every layer
     void drawZeitOverlays(const char* label, const json& result, ImVec4 color, const SeriesStats& st);
+
+    // Layers (app_layers.cpp)
+    struct LayerDisplay;
+    struct SeriesLayer;
+    void saveDisplay(LayerDisplay& d) const;
+    void loadDisplay(const LayerDisplay& d);
+    void setActive(int i);
+    void removeLayer(int i);
+    void updateAlignment();
+    void syncLayerTimes();
+    bool toActive(const SeriesLayer& L, double lx, double ly, double& ax, double& ay) const;
+    bool fromActive(const SeriesLayer& L, double ax, double ay, int& lx, int& ly) const;
+    std::vector<float> approxSeriesOf(const Session& s, int x, int y) const;
+    void updateOtherHover(int ix, int iy);
+    void requestOtherSeries(bool hover);
+    void pumpOtherSeries();
+    void addOtherPins(const SeriesView& pin);
+    void removePinById(int id);
+    void clearPins();
+    void uiLayers();
+    void uiFiles();
+    const SeriesLayer* activeLayer() const;
+    std::string layerName(const CubeInfo& info, const std::vector<std::string>& inputs) const;
 
     GLFWwindow* window_;
     AppOptions opts_;
     SessionSettings settings_;
     Gpu gpu_;
-    std::unique_ptr<Session> s_;
+    Session* s_ = nullptr;       // session of the active layer (owned by layers_)
     std::vector<std::string> lastInputs_;
     // Opening runs in the background (reading metadata of many files on an
     // HDD or network share can take a while): the window never waits for it.
@@ -209,5 +236,44 @@ private:
         std::string error;
     };
     std::vector<std::future<LoadedResult>> resultLoads_;
+
+    // Layers: every open series. The active layer's display state lives in the
+    // members above (mode_, cmap_, range_...); the others keep theirs here.
+    // Map space = the active layer's pixel grid; other layers are placed
+    // through their geotransforms (same CRS, no rotation).
+    struct LayerDisplay {
+        int mode = ModeValue;
+        std::array<int, 3> rgb{0, 0, 0};
+        std::array<int, ModeCount> cmap{};
+        std::array<Range, ModeCount> range{};
+        bool perDateRange = false;
+        int t = 0;
+    };
+    struct SeriesLayer {
+        std::unique_ptr<Session> session;
+        std::vector<std::string> inputs;
+        std::string name;
+        bool visible = true;
+        float opacity = 1.0f;
+        LayerDisplay disp;
+        // this layer's pixels -> active layer's pixels: x' = ax + bx * x, y' = ay + by * y
+        double ax = 0, bx = 1, ay = 0, by = 1;
+        bool aligned = true;
+        std::string alignNote;
+        SeriesView hover;             // cursor series (non-active layers)
+        std::vector<SeriesView> pins; // same ids as pins_ (non-active layers)
+        std::vector<double> years;    // years since the 1st date (for trends)
+    };
+    std::vector<SeriesLayer> layers_;
+    int active_ = -1;
+    bool openingAdd_ = false;         // the pending open adds a layer
+    int chartLayers_ = 0;             // 0 = active layer only, 1 = all visible layers
+    std::array<int, ModeCount> defaultCmap_{};
+    FileBrowser files_;
+    struct {
+        int stage = 0;
+        double t0 = 0, since = 0;
+        unsigned char color[3] = {0, 0, 0};
+    } st_; // --selftest-ui state
 
 };

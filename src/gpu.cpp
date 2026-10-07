@@ -346,27 +346,49 @@ void Gpu::drawTile(GLuint tex, const float rect[4], const DrawParams& p) {
     drawQuad(rect, 1, p);
 }
 
-void Gpu::drawOverlay(GLuint tex, const float rect[4], float lo, float hi, int cmap, float alpha) {
+GLuint Gpu::colormapTexture(int cmap) {
     auto it = overlayCmaps_.find(cmap);
     if (it == overlayCmaps_.end()) {
         unsigned char px[256 * 4];
         sampleColormap(cmap, px);
         it = overlayCmaps_.emplace(cmap, makeColormapTexture(px)).first;
     }
+    return it->second;
+}
+
+void Gpu::beginLayer(int cmap, float alpha) {
     glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, it->second);
+    glBindTexture(GL_TEXTURE_2D, colormapTexture(cmap));
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glUniform1f(glGetUniformLocation(progDisplay_, "uAlpha"), alpha);
-    DrawParams p;
-    p.mode = ModeValue;
-    p.lo = lo;
-    p.hi = hi;
-    drawTile(tex, rect, p);
+}
+
+void Gpu::endLayer() {
     glUniform1f(glGetUniformLocation(progDisplay_, "uAlpha"), 1.0f);
     glDisable(GL_BLEND);
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, cmapTex_);
+}
+
+void Gpu::drawCube(const GpuCube& c, const float rect[4], const DrawParams& p, int cmap, float alpha) {
+    beginLayer(cmap, alpha);
+    drawCube(c, rect, p);
+    endLayer();
+}
+
+void Gpu::drawTile(GLuint tex, const float rect[4], const DrawParams& p, int cmap, float alpha) {
+    beginLayer(cmap, alpha);
+    drawTile(tex, rect, p);
+    endLayer();
+}
+
+void Gpu::drawOverlay(GLuint tex, const float rect[4], float lo, float hi, int cmap, float alpha) {
+    DrawParams p;
+    p.mode = ModeValue;
+    p.lo = lo;
+    p.hi = hi;
+    drawTile(tex, rect, p, cmap, alpha);
 }
 
 void Gpu::endMap() {

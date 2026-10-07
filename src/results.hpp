@@ -8,6 +8,7 @@
 // A single-band raster produced by a tool (e.g. LandTrendr's year of
 // detection), drawn over the map on the cube's pixel grid.
 struct ResultLayer {
+    uint64_t cubeId = 0;    // series (layer) the result belongs to
     std::string name;       // e.g. "LandTrendr: Year of detection"
     std::string path;
     std::string unit;

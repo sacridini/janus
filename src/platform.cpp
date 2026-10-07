@@ -128,6 +128,17 @@ std::string openFolderDialog() {
     return r.empty() ? std::string() : r[0];
 }
 
+std::vector<std::string> rootFolders() {
+    std::vector<std::string> out;
+    PWSTR p = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &p))) out.push_back(toUtf8(p));
+    CoTaskMemFree(p);
+    const DWORD mask = GetLogicalDrives();
+    for (int i = 0; i < 26; ++i)
+        if (mask & (1u << i)) out.push_back(std::string(1, char('A' + i)) + ":\\");
+    return out;
+}
+
 std::string getEnv(const char* name) {
     const std::wstring w = toWide(name);
     const DWORD n = GetEnvironmentVariableW(w.c_str(), nullptr, 0);
@@ -179,6 +190,10 @@ std::string appDataDir() {
 std::vector<std::string> openFilesDialog() { return {}; }
 std::string openFolderDialog() { return {}; }
 void openInExplorer(const std::string&) {}
+std::vector<std::string> rootFolders() {
+    const char* home = std::getenv("HOME");
+    return {home ? home : "/", "/"};
+}
 std::string getEnv(const char* name) {
     const char* v = std::getenv(name);
     return v ? v : "";

@@ -62,6 +62,9 @@ public:
     void beginMap(int w, int h, const float bg[4]);
     void drawCube(const GpuCube& c, const float rect[4], const DrawParams& p);
     void drawTile(GLuint tex, const float rect[4], const DrawParams& p);
+    // Same, with a colormap of their own and an opacity (layers drawn over each other).
+    void drawCube(const GpuCube& c, const float rect[4], const DrawParams& p, int implotColormap, float alpha);
+    void drawTile(GLuint tex, const float rect[4], const DrawParams& p, int implotColormap, float alpha);
     // Single-band raster (e.g. a Zeit result) blended over the map with its own colormap.
     void drawOverlay(GLuint tex, const float rect[4], float lo, float hi, int implotColormap, float alpha);
     void endMap();
@@ -71,6 +74,9 @@ public:
 
 private:
     void drawQuad(const float rect[4], int source, const DrawParams& p);
+    GLuint colormapTexture(int implotColormap);
+    void beginLayer(int implotColormap, float alpha);
+    void endLayer();
 
     GLuint vao_ = 0;
     GLuint progDisplay_ = 0, progStats_ = 0;
