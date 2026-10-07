@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -74,6 +75,11 @@ struct CubeInfo {
     int bandsPerDate = 1;
     std::vector<std::string> bandNames;
     BandSelection sel;
+    // Categorical data (classes, e.g. land cover) declared by the file: a
+    // colour table, category names or a raster attribute table on the band.
+    bool fileCategorical = false;
+    std::map<int, std::array<unsigned char, 4>> classColors; // value -> RGBA
+    std::map<int, std::string> classNames;                   // value -> name
 
     int T() const { return int(layers.size()); }
     // Time in decimal years relative to the 1st layer (for trends).

@@ -32,8 +32,9 @@ inline const char* kUsage =
     "  --zeit-bridge PY    bridge script to use (or set TSV_ZEIT_BRIDGE)\n"
     "  --measure-startup   print startup timings and exit after the first frame\n"
     "  --selftest-zeit IN  run the Zeit tools end to end on IN without a window\n"
-    "  --selftest-ui A B [C]  drive the layers workflow (A, then B as a layer; C: a\n"
-    "                      folder with several bands per date) in a hidden window\n";
+    "  --selftest-ui A B [C [D [E]]]  drive the layers workflow in a hidden window\n"
+    "                      (A, then B as a layer; C: several bands per date;\n"
+    "                      D, E: categorical, with and without a colour table)\n";
 
 // Options that take a value (the launcher validates them before opening the GUI).
 inline bool isValueOption(const char* a) {

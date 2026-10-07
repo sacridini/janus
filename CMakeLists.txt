@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(tsv VERSION 0.10.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
+project(tsv VERSION 0.11.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -54,6 +54,7 @@ target_link_libraries(imgui PUBLIC glfw OpenGL::GL)
 set(TSV_SOURCES
   src/main.cpp
   src/app.cpp
+  src/app_classes.cpp
   src/app_layers.cpp
   src/app_selftest.cpp
   src/app_zeit.cpp

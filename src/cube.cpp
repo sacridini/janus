@@ -10,6 +10,7 @@
 #include <cpl_conv.h>
 #include <cpl_error.h>
 #include <gdal_priv.h>
+#include <gdal_rat.h>
 #include <ogr_spatialref.h>
 
 namespace fs = std::filesystem;
@@ -341,6 +342,39 @@ static BandMeta readBandMeta(GDALRasterBand* b) {
     return m;
 }
 
+// Classes declared on a band (colour table, category names, attribute table).
+static void readClassInfo(GDALRasterBand* b, CubeInfo& info) {
+    if (const GDALColorTable* ct = b->GetColorTable()) {
+        info.fileCategorical = true;
+        for (int i = 0; i < ct->GetColorEntryCount() && i < 65536; ++i) {
+            const GDALColorEntry* e = ct->GetColorEntry(i);
+            info.classColors[i] = {(unsigned char)e->c1, (unsigned char)e->c2, (unsigned char)e->c3,
+                                   (unsigned char)(e->c4 ? e->c4 : 255)};
+        }
+    }
+    if (CSLConstList names = b->GetCategoryNames()) {
+        for (int i = 0; names[i]; ++i)
+            if (names[i][0]) info.classNames[i] = names[i];
+        if (!info.classNames.empty()) info.fileCategorical = true;
+    }
+    if (GDALRasterAttributeTable* rat = b->GetDefaultRAT()) {
+        const int value = rat->GetColOfUsage(GFU_MinMax) >= 0 ? rat->GetColOfUsage(GFU_MinMax) : rat->GetColOfUsage(GFU_Min);
+        const int name = rat->GetColOfUsage(GFU_Name);
+        const int r = rat->GetColOfUsage(GFU_Red), g = rat->GetColOfUsage(GFU_Green), bl = rat->GetColOfUsage(GFU_Blue);
+        for (int row = 0; row < rat->GetRowCount() && row < 65536; ++row) {
+            const int v = value >= 0 ? rat->GetValueAsInt(row, value) : row;
+            if (name >= 0) {
+                const char* n = rat->GetValueAsString(row, name);
+                if (n && n[0]) info.classNames[v] = n;
+            }
+            if (r >= 0 && g >= 0 && bl >= 0)
+                info.classColors[v] = {(unsigned char)rat->GetValueAsInt(row, r), (unsigned char)rat->GetValueAsInt(row, g),
+                                       (unsigned char)rat->GetValueAsInt(row, bl), 255};
+        }
+        if (name >= 0 || r >= 0) info.fileCategorical = true;
+    }
+}
+
 std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const BandSelection& sel,
                                    std::string& error) {
     static std::atomic<uint64_t> nextId{1};
@@ -393,6 +427,7 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
             L.path = files[0];
             L.band = b;
             L.meta = readBandMeta(rb);
+            if (b == 1) readClassInfo(rb, *info);
             std::string t = rb->GetDescription();
             if (CSLConstList md = rb->GetMetadata())
                 for (int i = 0; md[i]; ++i) t += std::string(" ") + md[i];
@@ -449,6 +484,7 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
             L.band = s.band;
             L.meta = readBandMeta(ds->GetRasterBand(s.band));
             if (s.ndBand > 0) L.ndMeta = readBandMeta(ds->GetRasterBand(s.ndBand));
+            else if (info->layers.empty()) readClassInfo(ds->GetRasterBand(s.band), *info);
             L.label = fs::u8path(f).stem().u8string();
             timeTexts.push_back(L.label);
             info->layers.push_back(L);

@@ -2,9 +2,11 @@
 // step per frame, without touching the mouse or keyboard. Opens A, adds B as a
 // layer, checks the georeferenced alignment, the series of both layers under a
 // cursor and a pin, reads back map pixels (layer drawn, layer hidden), switches
-// the active layer and closes one. With a third input C (one file per date,
-// several bands and a quality band), also opens C and reopens it in place as a
-// normalized difference with the QA mask.
+// the active layer and closes one. Optional inputs:
+//   C  one file per date with several bands and a quality band: opens it and
+//      reopens it in place as a normalized difference with the QA mask;
+//   D  categorical series with a colour table and class names (file colours);
+//   E  categorical series without them (detected from its values).
 #include "app.hpp"
 
 #include <chrono>
@@ -29,8 +31,9 @@ static void readMapPixel(GLuint tex, int w, int h, int x, int y, unsigned char r
     for (int c = 0; c < 4; ++c) rgba[c] = buf[(size_t(row) * w + x) * 4 + c];
 }
 
-int App::selfTestStep(const std::vector<std::string>& a, const std::vector<std::string>& b,
-                      const std::vector<std::string>& c) {
+int App::selfTestStep(const std::vector<std::string>& in) {
+    const std::vector<std::string> a = {in[0]}, b = {in[1]};
+    const std::vector<std::string> c = in.size() > 2 ? std::vector<std::string>{in[2]} : std::vector<std::string>{};
     auto fail = [&](const char* what) {
         std::printf("FAIL (stage %d): %s\n", st_.stage, what);
         return 1;
@@ -52,7 +55,10 @@ int App::selfTestStep(const std::vector<std::string>& a, const std::vector<std::
         next("open A");
         break;
     case 1:
-        if (layers_.size() == 1 && loaded(layers_[0])) next("A loaded");
+        if (layers_.size() == 1 && loaded(layers_[0]) && layers_[0].classes.state != LayerClasses::Undecided) {
+            if (layers_[0].classes.state != LayerClasses::Off) return fail("A (continuous) must not be categorical");
+            next("A loaded (continuous)");
+        }
         break;
     case 2:
         openInputs(b, true);
@@ -193,9 +199,86 @@ int App::selfTestStep(const std::vector<std::string>& a, const std::vector<std::
         if (nan == 0) return fail("cloudy dates should be masked by the QA band");
         if (fitRequested_ || !viewTouched_) return fail("the view should be kept");
         next("reopened in place: name, pin and view kept, values are NDVI, clouds masked");
+        if (in.size() < 4) {
+            std::printf("OK (%.1f s)\n", now() - st_.t0);
+            return 0;
+        }
+        break;
+    }
+    case 13:
+    case 16: {
+        const bool withTable = st_.stage == 13;
+        if (!withTable && in.size() < 5) {
+            std::printf("OK (%.1f s)\n", now() - st_.t0);
+            return 0;
+        }
+        openInputs({in[withTable ? 3 : 4]});
+        next(withTable ? "open D (categorical, colour table)" : "open E (categorical, plain values)");
+        break;
+    }
+    case 14:
+    case 17: {
+        if (opening_.valid() || layers_.size() != 1 || layers_[0].inputs.front() != in[st_.stage == 14 ? 3 : 4] ||
+            !loaded(layers_[0]) || layers_[0].classes.state == LayerClasses::Undecided)
+            break;
+        const LayerClasses& C = layers_[0].classes;
+        if (C.state != LayerClasses::On) {
+            const CubeInfo& ci = *layers_[0].session->info;
+            const Overview& ov = layers_[0].session->overview;
+            std::printf("    file categorical %d, %d colours, %d names; overview %dx%d, first values:", int(ci.fileCategorical),
+                        int(ci.classColors.size()), int(ci.classNames.size()), ov.w, ov.h);
+            for (int i = 0; i < 8 && i < ov.w * ov.h; ++i) std::printf(" %g", ov.layer(0)[i * 97 % (ov.w * ov.h)]);
+            std::printf("\n");
+            return fail("the series should be detected as categorical");
+        }
+        std::printf("    %s: %d classes:", layers_[0].session->info->description.c_str(), int(C.list.size()));
+        for (const ClassEntry& e : C.list)
+            std::printf(" %d=%s rgb(%d,%d,%d)", e.value, e.name.c_str(), int(e.color.x * 255 + 0.5f),
+                        int(e.color.y * 255 + 0.5f), int(e.color.z * 255 + 0.5f));
+        std::printf("\n");
+        std::vector<int> values;
+        for (const ClassEntry& e : C.list) values.push_back(e.value);
+        if (values != std::vector<int>{3, 15, 24, 33}) return fail("classes should be 3, 15, 24, 33");
+        for (size_t i = 0; i < C.list.size(); ++i)
+            for (size_t j = i + 1; j < C.list.size(); ++j)
+                if (C.list[i].color.x == C.list[j].color.x && C.list[i].color.y == C.list[j].color.y &&
+                    C.list[i].color.z == C.list[j].color.z)
+                    return fail("every class needs its own colour");
+        const ClassEntry* forest = C.find(3);
+        if (st_.stage == 14 && (forest->name != "Forest" || int(forest->color.x * 255 + 0.5f) != 31))
+            return fail("the file's class names and colours should be used");
+        if (!modeAvailable(ModeValue) || modeAvailable(ModeMean)) return fail("only the value mode makes sense");
+        next("classes detected");
+        break;
+    }
+    case 15:
+    case 18: {
+        // Map centre at the first date: forest, drawn in its class colour.
+        setT(0);
+        canvasSize_ = ImVec2(400, 300);
+        fitView(canvasSize_);
+        renderMap(400, 300);
+        unsigned char px[4];
+        readMapPixel(gpu_.mapTexture(), 400, 300, 200, 150, px);
+        const ClassEntry* forest = layers_[0].classes.find(3);
+        const int r = int(forest->color.x * 255 + 0.5f), g = int(forest->color.y * 255 + 0.5f),
+                  b2 = int(forest->color.z * 255 + 0.5f);
+        std::printf("    map centre: rgb(%d, %d, %d), forest colour rgb(%d, %d, %d)\n", px[0], px[1], px[2], r, g, b2);
+        if (std::abs(px[0] - r) > 2 || std::abs(px[1] - g) > 2 || std::abs(px[2] - b2) > 2)
+            return fail("the map should show the class colour");
+        // A pixel that changed class: its summary in the statistics.
+        hover_ = SeriesView{};
+        hover_.x = 20;
+        hover_.y = 40;
+        hover_.values = approxSeries(20, 40);
+        const auto rows = classSummary(layers_[0].classes, *s_->info, hover_.values, t_);
+        for (const auto& [k, v] : rows) std::printf("    %-18s %s\n", k.c_str(), v.c_str());
+        next("map in class colours, class summary");
+        break;
+    }
+    case 19:
         std::printf("OK (%.1f s)\n", now() - st_.t0);
         return 0;
-    }
     }
     return -1;
 }

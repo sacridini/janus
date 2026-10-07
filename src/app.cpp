@@ -194,6 +194,7 @@ bool App::wantsContinuousFrames() const { return playing_ || roiDragging_ || hov
 
 bool App::modeAvailable(int mode) const {
     if (!s_) return false;
+    if (activeClasses()) return mode == ModeValue; // means, trends... of class codes mean nothing
     return mode == ModeValue || mode == ModeRGB || s_->info->T() >= 2;
 }
 
@@ -228,6 +229,7 @@ void App::frame() {
         s_->overview.setFocus(t_);
         pumpSeries();
         pumpOtherSeries();
+        for (SeriesLayer& L : layers_) updateClasses(L);
         // Cursor series: approximated (overview) right away; exact once the
         // mouse rests. On an HDD, while the overview builds, the exact one is
         // not read: the extra seeks would slow the build down a lot.
@@ -641,6 +643,7 @@ void App::renderMap(int w, int h) {
         p.tb = rgb[2];
         p.lo = range.lo;
         p.hi = range.hi;
+        if (L.classes.state == LayerClasses::On && mode == ModeValue) p.classLut = L.classes.lut;
         const auto& loaded = S.gpu.loaded;
         bool ready = mode == ModeRGB ? loaded[rgb[0]] && loaded[rgb[1]] && loaded[rgb[2]]
                      : modeIsTimeDependent(mode) ? loaded[t] : true;
@@ -979,8 +982,12 @@ void App::uiMap() {
                 std::snprintf(status + n, sizeof(status) - n, "  |  %s %.6g%s", kModeNames[mode_], v[mode_],
                               mode_ == ModeSlope ? slopeUnit().c_str() : "");
         } else if (hover_.x == ix && hover_.y == iy && t_ < int(hover_.values.size())) {
-            std::snprintf(status + n, sizeof(status) - n, "  |  value %.6g %s", hover_.values[t_],
-                          hover_.exact ? "" : "(approx.)");
+            if (const LayerClasses* C = activeClasses())
+                std::snprintf(status + n, sizeof(status) - n, "  |  class %s %s", className(*C, hover_.values[t_]).c_str(),
+                              hover_.exact ? "" : "(approx.)");
+            else
+                std::snprintf(status + n, sizeof(status) - n, "  |  value %.6g %s", hover_.values[t_],
+                              hover_.exact ? "" : "(approx.)");
         }
     }
     int rx = -1, ry = -1;
@@ -1099,6 +1106,8 @@ void App::uiLayer() {
         }
         ImGui::EndCombo();
     }
+    uiClasses();
+    if (!activeClasses()) { // colormap, range and histogram: continuous data only
     if (modeNeedsStats(mode_)) {
         ImGui::TextDisabled(s_->gpu.statsValid ? "Computed on the GPU for every pixel (overview)."
                                                 : "Waiting for the complete overview...");
@@ -1159,6 +1168,7 @@ void App::uiLayer() {
         ImPlot::PlotInfLines("##lim", lim, 2, lines);
         ImPlot::EndPlot();
     }
+    } // continuous data
 
     ImGui::SeparatorText("Detail");
     if (ImGui::Checkbox("Full resolution when zoomed in", &detail_)) mapDirty_ = true;
@@ -1258,9 +1268,23 @@ void App::uiSeries() {
             ImPlot::SetupAxisLimits(ImAxis_Y1, r.lo - m, r.hi + m, ImPlotCond_Always);
         }
         ImPlot::SetupLegend(ImPlotLocation_NorthWest);
+        // Categorical: one tick per class, named; values as they are.
+        const LayerClasses* classes = activeClasses();
+        if (classes && !classes->list.empty() && classes->list.size() <= 40) {
+            std::vector<double> ticks;
+            std::vector<std::string> names;
+            for (const ClassEntry& c : classes->list) {
+                ticks.push_back(c.value);
+                names.push_back(c.name);
+            }
+            std::vector<const char*> labels;
+            for (const std::string& n : names) labels.push_back(n.c_str());
+            ImPlot::SetupAxisTicks(ImAxis_Y1, ticks.data(), int(ticks.size()), labels.data());
+        }
 
         // Displayed value: raw, anomaly or z-score (using the series' own statistics).
         auto transform = [&](double v, const SeriesStats& st) {
+            if (classes) return v;
             if (plotValues_ == 1) return v - st.mean;
             if (plotValues_ == 2) return st.std > 0 ? (v - st.mean) / st.std : 0.0;
             return v;
@@ -1274,6 +1298,13 @@ void App::uiSeries() {
             spec.LineColor = col;
             spec.LineWeight = weight;
             spec.MarkerFillColor = col;
+            if (classes) { // a class holds until the next date: steps, no trend
+                spec.Marker = ImPlotMarker_Circle;
+                spec.MarkerSize = 2.5f;
+                ImPlot::PlotStairs(label, xs_.data(), ys.data(), T, spec);
+                if (model && !pixelTool_.empty()) drawZeitOverlays(label, *model, col, st);
+                return;
+            }
             switch (plotStyle_) {
             case 0: ImPlot::PlotLine(label, xs_.data(), ys.data(), T, spec); break;
             case 1:
@@ -1307,7 +1338,7 @@ void App::uiSeries() {
             if (model && !pixelTool_.empty()) drawZeitOverlays(label, *model, col, st);
         };
 
-        if (!roiMean_.empty()) {
+        if (!roiMean_.empty() && !classes) {
             const ImVec4 yellow(1.0f, 0.82f, 0.24f, 1);
             const char* label = roi_ && roi_->sampled ? "ROI mean (subsampled)" : "ROI mean";
             if (showRoiBand_) {
@@ -1408,24 +1439,30 @@ void App::uiStats() {
         bool roi;
         const json* model = nullptr; // rows from the Zeit tool on the chart
         const CubeInfo* cube = nullptr; // whose dates argMin/argMax refer to (null = active)
+        const std::vector<float>* values = nullptr; // the series (categorical summaries)
+        const LayerClasses* classes = nullptr;      // set if the series is categorical
+        int t = -1;                                  // date shown for that series
     };
+    const LayerClasses* activeCls = activeClasses();
     std::vector<Col> cols;
     if (hover_.x >= 0)
-        cols.push_back({hover_.exact ? "Cursor" : "Cursor*", &hover_.stats, hover_.color, -1, false, &hover_.zeitResult});
+        cols.push_back({hover_.exact ? "Cursor" : "Cursor*", &hover_.stats, hover_.color, -1, false, &hover_.zeitResult,
+                        nullptr, &hover_.values, activeCls, t_});
     for (size_t i = 0; i < pins_.size(); ++i)
         cols.push_back({"Pin " + std::to_string(pins_[i].id) + (pins_[i].exact ? "" : "*"), &pins_[i].stats,
-                        pins_[i].color, int(i), false, &pins_[i].zeitResult});
+                        pins_[i].color, int(i), false, &pins_[i].zeitResult, nullptr, &pins_[i].values, activeCls, t_});
     if (!roiMean_.empty())
         cols.push_back({"ROI mean", &roiStats_, ImVec4(1.0f, 0.82f, 0.24f, 1), -1, true, &roiZeitResult_});
     if (chartLayers_ == 1)
         for (const SeriesLayer& L : layers_) {
             if (&L == activeLayer() || !L.visible) continue;
+            const LayerClasses* lc = L.classes.state == LayerClasses::On ? &L.classes : nullptr;
             if (L.hover.x >= 0)
                 cols.push_back({"Cursor [" + L.name + "]" + (L.hover.exact ? "" : "*"), &L.hover.stats, L.hover.color,
-                                -1, false, &L.hover.zeitResult, L.session->info.get()});
+                                -1, false, &L.hover.zeitResult, L.session->info.get(), &L.hover.values, lc, L.disp.t});
             for (const SeriesView& p : L.pins)
                 cols.push_back({"Pin " + std::to_string(p.id) + " [" + L.name + "]" + (p.exact ? "" : "*"), &p.stats,
-                                p.color, -1, false, &p.zeitResult, L.session->info.get()});
+                                p.color, -1, false, &p.zeitResult, L.session->info.get(), &p.values, lc, L.disp.t});
         }
     if (cols.empty()) {
         ImGui::TextDisabled("Hover over the map, click to drop pins\nor Shift+drag for an ROI.");
@@ -1457,13 +1494,6 @@ void App::uiStats() {
         {"OLS trend", [&](const SeriesStats& s) { return num(s.olsSlope) + unit; }},
         {"R\xC2\xB2 (OLS)", [&](const SeriesStats& s) { return num(s.r2); }},
         {"Sen's slope", [&](const SeriesStats& s) { return num(s.senSlope) + unit; }},
-        {"Mann-Kendall Z", [&](const SeriesStats& s) { return num(s.mkZ); }},
-        {"p-value (MK)", [&](const SeriesStats& s) { return num(s.mkP); }},
-        {"Trend (5%)", [](const SeriesStats& s) -> std::string {
-             if (s.n < 3) return "-";
-             if (s.mkP >= 0.05) return "not significant";
-             return s.mkZ > 0 ? "increasing" : "decreasing";
-         }},
     };
 
     const ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollX |
@@ -1496,14 +1526,32 @@ void App::uiStats() {
             ImGui::PopStyleColor();
             ImGui::PopID();
         }
-        for (const Row& row : rows) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextDisabled("%s", row.label);
-            for (const Col& c : cols) {
+        if (activeCls) {
+            // Categorical: class summaries (majority, changes...) instead of means and trends.
+            std::vector<std::vector<std::pair<std::string, std::string>>> summaries;
+            for (const Col& c : cols)
+                summaries.push_back(c.classes && c.values ? classSummary(*c.classes, c.cube ? *c.cube : info, *c.values, c.t)
+                                                          : std::vector<std::pair<std::string, std::string>>{});
+            const auto labels = classSummary(*activeCls, info, {}, -1);
+            for (size_t r = 0; r < labels.size(); ++r) {
+                ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                curCube = c.cube ? c.cube : &info;
-                ImGui::TextUnformatted(row.f(*c.st).c_str());
+                ImGui::TextDisabled("%s", labels[r].first.c_str());
+                for (size_t ci = 0; ci < cols.size(); ++ci) {
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(r < summaries[ci].size() ? summaries[ci][r].second.c_str() : "-");
+                }
+            }
+        } else {
+            for (const Row& row : rows) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextDisabled("%s", row.label);
+                for (const Col& c : cols) {
+                    ImGui::TableNextColumn();
+                    curCube = c.cube ? c.cube : &info;
+                    ImGui::TextUnformatted(row.f(*c.st).c_str());
+                }
             }
         }
         // Rows from the Zeit tool fitted on the chart, in order of first appearance.

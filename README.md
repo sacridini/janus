@@ -15,6 +15,13 @@ Built with Dear ImGui (docking) + ImPlot + OpenGL 3.3 + GDAL, in C++17.
 - **Opens** a folder of rasters (1 file = 1 date), a multiband file (1 band = 1
   date), a list of files or a wildcard pattern. Dates are parsed from file names
   or band descriptions (`YYYY-MM-DD`, `YYYYMMDD`, `YYYY_MM`, `YYYY`, `A2001001`, ...).
+- **Categorical series** (land cover, masks, classifications): detected when
+  the file has a colour table, category names or an attribute table, or when a
+  date has only a few whole values. Each class gets the file's colour (or one of
+  a qualitative palette) and name, editable in a legend; the chart shows the
+  class sequence as steps with class names on the axis, and the statistics show
+  the class at the date, the majority class, the number of changes and the last
+  change (e.g. *2006: Forest → Pasture*).
 - **Several bands per date** (e.g. one Landsat surface-reflectance file per
   date): show any band or a **normalized difference** of two (NDVI, NDMI, NBR...),
   and hide cloudy observations with a **quality band** (Fmask codes, Landsat
@@ -30,7 +37,8 @@ Built with Dear ImGui (docking) + ImPlot + OpenGL 3.3 + GDAL, in C++17.
 - **Chart**: lines, markers, stems or stairs; raw values, anomaly or z-score;
   OLS or Sen trend line per series; Y axis locked to the map range if you want.
 - **Statistics** per series: n, mean, median, std, CV, min/max (with date),
-  amplitude, OLS slope + R², Sen's slope, Mann-Kendall Z and p-value.
+  amplitude, OLS slope + R², Sen's slope (the Mann-Kendall test, with
+  autocorrelation corrections, is a Zeit tool).
 - **Full resolution on zoom**: past the overview resolution, tiles of the visible
   area are read in the background and cached on the GPU.
 - **Fast**: about 0.15 s from launch to the first frame; the app sleeps when
@@ -104,8 +112,9 @@ Developer options:
   --zeit-bridge PY    bridge script to use (or set TSV_ZEIT_BRIDGE)
   --measure-startup   print startup timings and exit after the first frame
   --selftest-zeit IN  run the Zeit tools end to end on IN without a window
-  --selftest-ui A B [C]  drive the layers workflow (A, then B as a layer; C: a
-                      folder with several bands per date) in a hidden window
+  --selftest-ui A B [C [D [E]]]  drive the layers workflow (A, then B as a layer;
+                      C: several bands per date; D, E: categorical series with
+                      and without a colour table) in a hidden window
 ```
 
 Examples:
@@ -131,6 +140,7 @@ console launcher next to `tsv.exe`, the same trick Visual Studio uses with
 | ROI | `Shift` + drag (mean and p10–p90 per date) |
 | Time | `←`/`→` previous/next date, `Space` play/pause, click or drag on the chart |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or drag it) |
+| Classes (categorical data) | **Display** panel → *Categorical (classes)*: legend with colours, names and shares (click a colour to change it, untick a class to hide it); detection can be switched off or forced |
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
 | Performance panel | **View → Performance** (hidden by default): timings, Zeit status, overview memory |
 | Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active |
@@ -302,9 +312,10 @@ has a recipe for `macos_arm64`; a `.app` bundle is still to be done.
 | `src/gpu.*` | Shaders: per-pixel temporal statistics and display; map framebuffer |
 | `src/tiles.*` | Detail tiles per zoom level; drops requests that left the screen |
 | `src/session.*` | One open series: thread pools, exact series, ROI |
-| `src/stats.*` | OLS, Sen's slope, Mann-Kendall, percentiles |
+| `src/stats.*` | OLS, Sen's slope, percentiles |
 | `src/app.*` | User interface (ImGui/ImPlot) |
 | `src/app_layers.cpp` | Several series as layers (alignment, active layer, other layers' series), Layers and Files panels |
+| `src/app_classes.cpp` | Categorical series: detection, class colours and names, legend, class statistics |
 | `src/file_browser.*` | Lazily listed folder tree (rasters only by default) |
 | `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow in a hidden window, checked by reading map pixels |
 | `src/app_zeit.cpp` | Tools menu, tool windows, tasks, result layers, models on the chart |
@@ -320,7 +331,8 @@ has a recipe for `macos_arm64`; a `.app` bundle is still to be done.
 ## Roadmap
 
 Planned work and the reasoning behind design decisions live in
-[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: ROI on every layer and
-reprojection of layers with different CRSs. tsv runs on Windows and Linux
+[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: reprojection of layers with
+different CRSs and ROI on every layer; then new views (space-time transect,
+year x day-of-year heatmap, swipe, area per class over time). tsv runs on Windows and Linux
 (x86_64); macOS (Apple Silicon) has the code paths but is not built yet. The
 OS-specific code is isolated (see the portability table in IDEIAS.md).

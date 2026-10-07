@@ -65,6 +65,8 @@ uniform sampler2D uTile;
 uniform ivec3 uLayers;
 uniform vec2 uRange;
 uniform float uAlpha;
+uniform int uClasses;           // 1 = categorical: colour from uClassLut, by class value
+uniform sampler2D uClassLut;
 
 float cubeAt(int t) { return uSource == 1 ? texture(uTile, vUV).r : texture(uCube, vec3(vUV, float(t))).r; }
 float norm(float v) { return clamp((v - uRange.x) / (uRange.y - uRange.x), 0.0, 1.0); }
@@ -77,6 +79,16 @@ void main() {
         return;
     }
     float v;
+    if (uClasses == 1 && uMode == 0) {
+        v = cubeAt(uLayers.x);
+        if (isnan(v)) discard;
+        int c = int(floor(v + 0.5));
+        vec4 col = (c >= 0 && c < textureSize(uClassLut, 0).x) ? texelFetch(uClassLut, ivec2(c, 0), 0)
+                                                                : vec4(0.5, 0.5, 0.5, 1.0);
+        if (col.a == 0.0) discard;
+        frag = vec4(col.rgb, uAlpha);
+        return;
+    }
     if (uMode == 0) v = cubeAt(uLayers.x);
     else {
         vec4 s0 = texture(uStats0, vUV), s1 = texture(uStats1, vUV);
@@ -198,6 +210,7 @@ bool Gpu::init(std::string& error) {
     glUniform1i(glGetUniformLocation(progDisplay_, "uStats1"), 2);
     glUniform1i(glGetUniformLocation(progDisplay_, "uCmap"), 3);
     glUniform1i(glGetUniformLocation(progDisplay_, "uTile"), 4);
+    glUniform1i(glGetUniformLocation(progDisplay_, "uClassLut"), 6);
     glUseProgram(progStats_);
     glUniform1i(glGetUniformLocation(progStats_, "uCube"), 0);
     glUniform1i(glGetUniformLocation(progStats_, "uTimes"), 1);
@@ -324,6 +337,11 @@ void Gpu::drawQuad(const float r[4], int source, const DrawParams& p) {
     glUniform3i(glGetUniformLocation(progDisplay_, "uLayers"), p.t, p.tg, p.tb);
     const float hi = p.hi > p.lo ? p.hi : p.lo + 1e-6f;
     glUniform2f(glGetUniformLocation(progDisplay_, "uRange"), p.lo, hi);
+    glUniform1i(glGetUniformLocation(progDisplay_, "uClasses"), p.classLut ? 1 : 0);
+    if (p.classLut) {
+        glActiveTexture(GL_TEXTURE6);
+        glBindTexture(GL_TEXTURE_2D, p.classLut);
+    }
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
@@ -396,6 +414,19 @@ void Gpu::endMap() {
     glUseProgram(0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glActiveTexture(GL_TEXTURE0);
+}
+
+GLuint Gpu::createClassLut(const unsigned char* rgba, GLuint tex) {
+    if (!tex) {
+        tex = makeTex2D(GL_RGBA8, kClassLutSize, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    } else {
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kClassLutSize, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    }
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    return tex;
 }
 
 GLuint Gpu::createTileTexture(int w, int h, const float* data) {

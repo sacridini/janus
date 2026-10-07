@@ -11,7 +11,6 @@ struct SeriesStats {
     int argMin = -1, argMax = -1;
     double olsSlope = 0, olsIntercept = 0, r2 = 0;
     double senSlope = 0, senIntercept = 0;
-    double mkS = 0, mkZ = 0, mkP = 1; // Mann-Kendall (two-sided)
 };
 
 SeriesStats computeSeriesStats(const std::vector<double>& x, const std::vector<float>& v);

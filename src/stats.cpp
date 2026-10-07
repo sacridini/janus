@@ -49,17 +49,14 @@ SeriesStats computeSeriesStats(const std::vector<double>& xAll, const std::vecto
         s.r2 = syy > 0 ? (sxy * sxy) / (sxx * syy) : 0.0;
     }
 
-    // Sen's slope + Mann-Kendall: O(n^2), trivial for series up to a few thousand.
+    // Sen's slope: O(n^2), trivial for series up to a few thousand. (The
+    // Mann-Kendall test, with autocorrelation corrections, is a Zeit tool.)
     if (n >= 3) {
         std::vector<double> slopes;
         slopes.reserve(size_t(n) * (n - 1) / 2);
-        double S = 0;
         for (int i = 0; i < n - 1; ++i)
-            for (int j = i + 1; j < n; ++j) {
-                const double d = v[j] - v[i];
-                S += (d > 0) - (d < 0);
-                if (x[j] != x[i]) slopes.push_back(d / (x[j] - x[i]));
-            }
+            for (int j = i + 1; j < n; ++j)
+                if (x[j] != x[i]) slopes.push_back((v[j] - v[i]) / (x[j] - x[i]));
         if (!slopes.empty()) {
             const size_t m = slopes.size() / 2;
             std::nth_element(slopes.begin(), slopes.begin() + m, slopes.end());
@@ -71,23 +68,6 @@ SeriesStats computeSeriesStats(const std::vector<double>& xAll, const std::vecto
             for (int i = 0; i < n; ++i) r[i] = v[i] - s.senSlope * x[i];
             std::nth_element(r.begin(), r.begin() + n / 2, r.end());
             s.senIntercept = r[n / 2];
-        }
-        // Variance of S with tie correction.
-        std::vector<double> sv = v;
-        std::sort(sv.begin(), sv.end());
-        double tieTerm = 0;
-        for (int i = 0; i < n;) {
-            int j = i;
-            while (j < n && sv[j] == sv[i]) ++j;
-            const double tp = j - i;
-            if (tp > 1) tieTerm += tp * (tp - 1) * (2 * tp + 5);
-            i = j;
-        }
-        const double var = (double(n) * (n - 1) * (2.0 * n + 5) - tieTerm) / 18.0;
-        s.mkS = S;
-        if (var > 0) {
-            s.mkZ = S > 0 ? (S - 1) / std::sqrt(var) : S < 0 ? (S + 1) / std::sqrt(var) : 0.0;
-            s.mkP = std::erfc(std::fabs(s.mkZ) / std::sqrt(2.0));
         }
     }
     return s;

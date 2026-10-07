@@ -59,8 +59,7 @@ public:
     bool wantsContinuousFrames() const;
     void setStartupTimes(const StartupTimes& t) { startup_ = t; }
     // --selftest-ui: one step per frame; -1 while running, then the exit code.
-    int selfTestStep(const std::vector<std::string>& a, const std::vector<std::string>& b,
-                     const std::vector<std::string>& c = {});
+    int selfTestStep(const std::vector<std::string>& inputs);
 
     std::vector<std::string> pendingDrop; // filled by the drag-and-drop callback
 
@@ -283,6 +282,32 @@ private:
         bool perDateRange = false;
         int t = 0;
     };
+    // Categorical series (see app_classes.cpp).
+    struct ClassEntry {
+        int value = 0;
+        std::string name;
+        ImVec4 color{1, 1, 1, 1};
+        size_t count = 0;          // pixels x dates (overview), for the share
+        bool visible = true;
+    };
+    struct LayerClasses {
+        enum State { Undecided, Off, On } state = Undecided;
+        bool complete = false;     // counted on every date
+        std::vector<ClassEntry> list; // sorted by value
+        GLuint lut = 0;
+        bool lutDirty = false;
+        const ClassEntry* find(int value) const;
+    };
+    void setClasses(SeriesLayer& L, const std::map<int, size_t>& counts);
+    bool countLayerClasses(const SeriesLayer& L, int maxClasses, std::map<int, size_t>& counts) const;
+    void updateClasses(SeriesLayer& L);
+    const LayerClasses* activeClasses() const;
+    static std::string className(const LayerClasses& C, float v);
+    void uiClasses();
+    std::vector<std::pair<std::string, std::string>> classSummary(const LayerClasses& C, const CubeInfo& info,
+                                                                  const std::vector<float>& v, int t) const;
+    std::string classError_;
+
     struct SeriesLayer {
         std::unique_ptr<Session> session;
         std::vector<std::string> inputs;
@@ -297,6 +322,7 @@ private:
         SeriesView hover;             // cursor series (non-active layers)
         std::vector<SeriesView> pins; // same ids as pins_ (non-active layers)
         std::vector<double> years;    // years since the 1st date (for trends)
+        LayerClasses classes;
     };
     std::vector<SeriesLayer> layers_;
     int active_ = -1;

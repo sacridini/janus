@@ -45,7 +45,12 @@ struct DrawParams {
     int mode = ModeValue;
     int t = 0, tg = 0, tb = 0;   // layers (tg/tb only in RGB mode)
     float lo = 0, hi = 1;        // stretch range
+    GLuint classLut = 0;         // categorical data: class value -> colour (see createClassLut)
 };
+
+// Class colours of categorical data: kClassLutSize texels, value v -> texel v
+// (alpha 0 = not a class of the series, drawn transparent).
+constexpr int kClassLutSize = 4096;
 
 // Programs, colormap and the framebuffer the map is drawn into.
 class Gpu {
@@ -71,6 +76,8 @@ public:
     GLuint mapTexture() const { return fboColor_; }
 
     static GLuint createTileTexture(int w, int h, const float* data);
+    // rgba: kClassLutSize RGBA8 texels. Pass `tex` to update an existing LUT.
+    static GLuint createClassLut(const unsigned char* rgba, GLuint tex = 0);
 
 private:
     void drawQuad(const float rect[4], int source, const DrawParams& p);

@@ -113,7 +113,9 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 5 | 0.8.0 | **Ferramentas mais fáceis de usar**: estimativa de tempo antes de rodar (medida pelo Zeit numa amostra), ajuste do Zeit nas séries de **todas as camadas** | concluída |
 | 6 | 0.9.0 | Mais do Zeit: **suavização** (Whittaker/Savitzky-Golay) no gráfico, **TWDTW** (classificação por padrões tirados dos pinos) | concluída |
 | 7 | 0.10.0 | **Linux**: compilar e testar (ambiente conda-forge), processos POSIX para o Zeit, runtime com `python-build-standalone`, pacote `.tar.xz` portátil | concluída |
-| 8 | 0.11.0 | **ROI em todas as camadas** e **reprojeção** de camadas com CRS diferente (overview reprojetado com GDAL warp) | próxima |
+| 8 | 0.11.0 | **Dados categóricos** (detecção, cores e nomes de classe, legenda, gráfico em degraus, estatísticas de classe); Mann-Kendall fora da tabela de estatísticas | concluída |
+| 9 | 0.12.0 | **Reprojeção** de camadas com CRS diferente (grade de warp na GPU) e **ROI em todas as camadas** | próxima |
+| 10 | 0.13.0 | **Novas visualizações**: transecto espaço-tempo (Hovmöller), mapa de calor ano × dia do ano, cortina (swipe) entre datas/camadas, área por classe ao longo do tempo e matriz de transição (categóricos) | planejada |
 
 ## Ideias (backlog)
 
@@ -142,6 +144,11 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - NetCDF com dimensão de tempo; reprojeção; paletas por classe (color table).
 
 ### Interface
+- **Visualizações sugeridas** (2026-10-08, ordem de prioridade): transecto
+  espaço-tempo (linha no mapa → imagem distância × data); mapa de calor ano ×
+  dia do ano/mês da série; cortina (swipe) entre duas datas ou camadas;
+  dispersão entre camadas/datas na ROI; para categóricos, área por classe ao
+  longo do tempo e matriz de transição entre duas datas. → fase 0.13.0.
 - ~~Painel Layers, várias séries ao mesmo tempo, painéis destacáveis, árvore de
   arquivos~~ — feitos na 0.5.0 (detalhes no histórico).
 - Camadas com **CRS diferentes**: hoje só aparecem quando ativas; reprojetar o
@@ -164,6 +171,29 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.11.0 — Fase 8: dados categóricos
+- **Detecção** ao abrir: tabela de cores, nomes de categoria ou tabela de
+  atributos (RAT) na banda → categórico; senão, se a primeira data lida tiver
+  só valores inteiros e no máximo 40 distintos. Séries contínuas (NDVI etc.)
+  ficam como estão. O painel Display liga/desliga à mão (até 256 classes).
+- **Cores e nomes**: os do arquivo quando existem; senão uma paleta qualitativa
+  (Tableau 20), sem repetir cor quando uma classe só aparece em datas
+  posteriores. Legenda editável (cor, nome, mostrar/ocultar a classe) com a
+  participação de cada classe. No shader, uma tabela (LUT) valor → cor de 4096
+  posições; a amostragem já era "nearest", então as bordas não misturam códigos.
+- **Gráfico** em degraus com os nomes das classes no eixo Y; sem tendência nem
+  média da ROI (média de códigos não faz sentido). **Estatísticas** de classe:
+  classe na data, classe majoritária (% das datas), classes vistas, número de
+  mudanças, última mudança ("2006: Forest → Pasture"). Status bar com o nome.
+- Só o modo "valor na data" para séries categóricas.
+- **Mann-Kendall saiu da tabela de estatísticas** (Z, p-valor e "tendência"):
+  o teste completo, com correções de autocorrelação, é a ferramenta do Zeit. A
+  inclinação de Sen continua (barata e útil no gráfico).
+- `--selftest-ui A B C D E`: D = série categórica com tabela de cores (uma
+  imagem por ano, como o MapBiomas), E = mesma série sem tabela; confere
+  detecção, nomes/cores, cor do pixel no mapa, cores distintas e o resumo.
+- Reprojeção e ROI em todas as camadas passaram para a 0.12.0.
 
 ### 0.10.0 — Fase 7: Linux
 - Compila no Linux com um ambiente conda-forge (`tsv-linux`: compilador, GDAL,
