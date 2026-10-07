@@ -42,8 +42,18 @@ uint64_t cacheKey(const CubeInfo& info, int w, int h) {
         const auto mtime = fs::last_write_time(p, ec).time_since_epoch().count();
         k = fnv1a(k, &size, sizeof(size));
         k = fnv1a(k, &mtime, sizeof(mtime));
-        double meta[3] = {L.hasNoData ? L.noData : 0.0, L.scale, L.offset};
+        double meta[3] = {L.meta.hasNoData ? L.meta.noData : 0.0, L.meta.scale, L.meta.offset};
         k = fnv1a(k, meta, sizeof(meta));
+    }
+    // Normalized difference and QA mask change the values (only hashed when in
+    // use, so caches of plain series stay valid).
+    if (info.sel.ndBand > 0 || info.sel.qaBand > 0) {
+        const int sel[4] = {info.sel.band, info.sel.ndBand, info.sel.qaBand, int(info.sel.qaRule)};
+        k = fnv1a(k, sel, sizeof(sel));
+        for (const Layer& L : info.layers) {
+            double meta[3] = {L.ndMeta.hasNoData ? L.ndMeta.noData : 0.0, L.ndMeta.scale, L.ndMeta.offset};
+            k = fnv1a(k, meta, sizeof(meta));
+        }
     }
     return k;
 }

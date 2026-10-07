@@ -20,7 +20,7 @@ static double msSince(Clock::time_point t0) {
     return std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
 }
 
-int runZeitSelfTest(const std::vector<std::string>& inputs, int band, const std::string& python,
+int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection& sel, const std::string& python,
                     const std::string& bridge) {
     auto fail = [](const std::string& what) {
         std::printf("FAIL: %s\n", what.c_str());
@@ -28,7 +28,7 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, int band, const std:
     };
     const auto t0 = Clock::now();
     std::string err;
-    auto info = openCube(inputs, band, err);
+    auto info = openCube(inputs, sel, err);
     if (!info) return fail("open: " + err);
     std::printf("series: %s, %d x %d, %d dates, %s .. %s (%.0f ms)\n", info->description.c_str(), info->width,
                 info->height, info->T(), info->layers.front().label.c_str(), info->layers.back().label.c_str(),
@@ -52,24 +52,31 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, int band, const std:
     // Series at the center of the image (pixel runs) and the cube as a VRT (jobs).
     std::vector<double> years(info->T());
     for (int t = 0; t < info->T(); ++t) years[t] = info->decimalYear(t);
+    // The pixel: centre of the image, or the first one with no gaps in the shown series near it.
+    CubeReader reader(info);
     std::vector<float> series(info->T());
-    {
-        CubeReader reader(info);
-        for (int t = 0; t < info->T(); ++t) reader.readPixel(t, info->width / 2, info->height / 2, series[t]);
+    const int px = info->width / 2, py = info->height / 2;
+    for (int t = 0; t < info->T(); ++t) reader.readPixel(t, px, py, series[t]);
+    const BandRoles roles = guessBandRoles(*info);
+    if (info->bandsPerDate > 1) {
+        std::printf("bands per date: %d (shown: %s), roles:", info->bandsPerDate, info->selectionText().c_str());
+        for (const auto& [role, b] : roles) std::printf(" %s=%d", role.c_str(), b);
+        std::printf("\n");
     }
+    const json extras = zeitPixelExtras(*info, roles);
     const fs::path work = fs::u8path(platform::appDataDir()) / "selftest";
     std::error_code ec;
     fs::remove_all(work, ec);
     fs::create_directories(work, ec);
-    const std::string vrt = (work / "cube.vrt").u8string();
-    if (!writeCubeVrt(*info, vrt, err)) return fail("vrt: " + err);
     // 256 x 256 window at the center: enough to exercise chunking, quick for slow models.
     const int x0 = std::max(0, info->width / 2 - 128), y0 = std::max(0, info->height / 2 - 128);
     const int x1 = std::min(info->width, x0 + 256), y1 = std::min(info->height, y0 + 256);
 
     int ran = 0;
     for (const ZeitTool& tool : zeit.tools()) {
-        const std::string why = toolApplicability(tool, *info);
+        std::string why = toolApplicability(tool, *info);
+        if (why.empty() && !tool.bands.empty() && !missingBandRoles(tool, roles).empty())
+            why = "unmapped bands: " + missingBandRoles(tool, roles);
         if (!why.empty()) {
             std::printf("\n[%s] skipped: %s\n", tool.id.c_str(), why.c_str());
             continue;
@@ -80,7 +87,9 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, int band, const std:
 
         if (tool.pixel) {
             const auto tp = Clock::now();
-            const uint64_t id = zeit.runPixel(tool.id, params, years, series);
+            json extra = extras;
+            if (!tool.bands.empty()) extra.update(zeitPixelBands(reader, *info, tool, roles, px, py));
+            const uint64_t id = zeit.runPixel(tool.id, params, years, series, extra);
             PixelReply reply{};
             bool got = false;
             while (!got && msSince(tp) < 30000) {
@@ -102,9 +111,10 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, int band, const std:
         }
 
         if (tool.raster) {
-            const json spec = {{"tool", tool.id},  {"params", params},   {"input", vrt},
-                               {"years", years},   {"nodata", nullptr},  {"window", {x0, y0, x1, y1}},
-                               {"output_dir", (work / tool.id).u8string()}};
+            json spec = {{"tool", tool.id}, {"params", params}};
+            if (!zeitJobInputs(*info, tool, roles, work.u8string(), "cube", spec, err)) return fail("vrt: " + err);
+            spec["window"] = {x0, y0, x1, y1};
+            spec["output_dir"] = (work / tool.id).u8string();
             const auto tj = Clock::now();
             auto job = zeit.startJob(spec, (work / (tool.id + ".json")).u8string(), "selftest " + tool.id);
             while (job->state == ZeitJob::State::Running && msSince(tj) < 600000)

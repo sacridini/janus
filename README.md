@@ -15,6 +15,11 @@ Built with Dear ImGui (docking) + ImPlot + OpenGL 3.3 + GDAL, in C++17.
 - **Opens** a folder of rasters (1 file = 1 date), a multiband file (1 band = 1
   date), a list of files or a wildcard pattern. Dates are parsed from file names
   or band descriptions (`YYYY-MM-DD`, `YYYYMMDD`, `YYYY_MM`, `YYYY`, `A2001001`, ...).
+- **Several bands per date** (e.g. one Landsat surface-reflectance file per
+  date): show any band or a **normalized difference** of two (NDVI, NDMI, NBR...),
+  and hide cloudy observations with a **quality band** (Fmask codes, Landsat
+  Collection 2 `QA_PIXEL` bits or a 0/1 mask; a band named Fmask or QA_PIXEL is
+  used automatically). Multiband tools such as CCDC read every band.
 - **Map modes**, all computed on the GPU: value at date, anomaly (value − mean),
   temporal mean, standard deviation, linear trend (OLS, per year), minimum,
   maximum, amplitude, trend R² and a multitemporal RGB of three dates.
@@ -42,9 +47,10 @@ Built with Dear ImGui (docking) + ImPlot + OpenGL 3.3 + GDAL, in C++17.
   a second monitor and the charts on the first.
 - **Zeit tools** ([Zeit](https://github.com/sacridini/zeit-cdts) change detection
   and time-series algorithms): **LandTrendr**, **Mann-Kendall** (with Sen's
-  slope; Hamed-Rao, Yue-Wang and seasonal variants), **BFAST**, **BFAST Lite**
-  and **BFAST Monitor**. Each is fitted live on the cursor, pins and ROI series
-  (segments, trend lines or break dates drawn on the chart, a few ms per series),
+  slope; Hamed-Rao, Yue-Wang and seasonal variants), **BFAST**, **BFAST Lite**,
+  **BFAST Monitor**, **phenology** (season start/peak/end, length, amplitude)
+  and **CCDC** (multiband). Each is fitted live on the cursor, pins and ROI series
+  (segments, trend lines, break dates, seasons or CCDC models drawn on the chart),
   or run on the whole image, the visible area or an ROI, with the results
   (year of detection, magnitude, slope, p-value, break dates...) shown as map
   layers. Zeit runs in a bundled, invisible Python runtime — nothing to install.
@@ -86,7 +92,8 @@ Developer options:
   --zeit-bridge PY    bridge script to use (or set TSV_ZEIT_BRIDGE)
   --measure-startup   print startup timings and exit after the first frame
   --selftest-zeit IN  run the Zeit tools end to end on IN without a window
-  --selftest-ui A B   drive the layers workflow (A, then B as a layer) in a hidden window
+  --selftest-ui A B [C]  drive the layers workflow (A, then B as a layer; C: a
+                      folder with several bands per date) in a hidden window
 ```
 
 Examples:
@@ -112,6 +119,8 @@ console launcher next to `tsv.exe`, the same trick Visual Studio uses with
 | ROI | `Shift` + drag (mean and p10–p90 per date) |
 | Time | `←`/`→` previous/next date, `Space` play/pause, click or drag on the chart |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or drag it) |
+| Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
+| Performance panel | **View → Performance** (hidden by default): timings, Zeit status, overview memory |
 | Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active |
 | Browse files | **Files** panel: double click opens, right click → Add as layer; Ctrl+click selects several files |
 | Chart of several layers | Time series panel → *All visible layers* (one marker shape per layer) |
@@ -135,10 +144,19 @@ that tsv exposes:
 | BFAST | regular, ≥ 2 dates per year | trend/season break counts, date and magnitude of the largest trend break |
 | BFAST Lite | regular, ≥ 2 dates per year | break count, date and magnitude of the largest break, first break date |
 | BFAST Monitor | regular, ≥ 2 dates per year | first break date in the monitoring period, magnitude, break yes/no |
+| Phenology | ≥ 6 dates per year | start, peak and end of season (day of year), length, peak value, amplitude, fit R², seasons — for a typical year (median), the latest season or a chosen year |
+| CCDC | one file per date with blue, green, red, NIR, SWIR1, SWIR2 [+ thermal]; a quality band is recommended | break count, largest break date and magnitude, NDVI change, first/last break, segments |
 
 "Regular" means evenly spaced dates (monthly, 16-day...): a missing date must be
 a no-data band, not a skipped one. BFAST and BFAST Lite are slow (~2–3 ms per
 pixel on all cores): use the visible area or an ROI before a whole scene.
+
+Multiband tools show a **Bands** section in their window: which band of each
+date plays each role (guessed from the band names, e.g. `NIR`, `SWIR1`; unnamed
+stacks of 6+ bands are taken as Blue, Green, Red, NIR, SWIR1, SWIR2). CCDC
+works on reflectance × 10000 internally; reflectance 0–1 and Landsat C2 Level-2
+digital numbers are detected and converted (parameter *Units*). Its model is
+drawn in the units of what the layer shows (a band or a normalized difference).
 
 Each tool window has:
 
@@ -229,7 +247,7 @@ cmake --build build --config Release --target installer   # -> dist\tsv-<version
 
 | File | Role |
 |---|---|
-| `src/cube.*` | Layer and date discovery; per-thread GDAL reader (nodata → NaN, scale/offset) |
+| `src/cube.*` | Layer, date and band discovery; per-thread GDAL reader (nodata → NaN, scale/offset, normalized difference, QA mask) |
 | `src/overview.*` | Reduced cube built in parallel, following the focused date; disk cache |
 | `src/gpu.*` | Shaders: per-pixel temporal statistics and display; map framebuffer |
 | `src/tiles.*` | Detail tiles per zoom level; drops requests that left the screen |
@@ -251,7 +269,8 @@ cmake --build build --config Release --target installer   # -> dist\tsv-<version
 ## Roadmap
 
 Planned work and the reasoning behind design decisions live in
-[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: multiband cubes (several indices
-and a QA mask per date) with CCDC and phenology from Zeit. tsv targets Windows,
+[IDEIAS.md](IDEIAS.md) (in Portuguese). Next: time estimates before slow
+tools, Zeit fits and ROI on every layer, and other Zeit tools (smoothing, STL,
+TWDTW). tsv targets Windows,
 Linux and macOS (Apple Silicon); it is developed on Windows for now, with the
 OS-specific code isolated (see the portability notes in IDEIAS.md).

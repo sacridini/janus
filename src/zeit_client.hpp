@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -34,14 +35,37 @@ struct ZeitTool {
     std::string requiresTime; // "any", "annual" (one date per year) or "regular" (evenly spaced)
     int minDates = 0;
     int minPerYear = 0; // observations per year needed (e.g. 2 for seasonal models)
+    // Multiband tools (e.g. CCDC): band roles they need / can use
+    // ("blue", "green", "red", "nir", "swir1", "swir2", "thermal").
+    std::vector<std::string> bands, optionalBands;
     bool pixel = false, raster = false;
     std::vector<ZeitParam> params;
     std::vector<ZeitOutput> outputs;
 };
 
 struct CubeInfo;
+class CubeReader;
 // Why `tool` cannot run on this series, from its manifest requirements ("" = it can).
 std::string toolApplicability(const ZeitTool& tool, const CubeInfo& info);
+
+// Band role -> band of each date (1-based) for multiband tools.
+using BandRoles = std::map<std::string, int>;
+// From the band names (e.g. "NIR", "SR_B5 (nir)", "swir1"); "Band N" names of 6+
+// bands are taken as Blue, Green, Red, NIR, SWIR1, SWIR2 [, thermal].
+BandRoles guessBandRoles(const CubeInfo& info);
+// Required roles of `tool` that are not mapped ("" = none).
+std::string missingBandRoles(const ZeitTool& tool, const BandRoles& roles);
+// Extra fields of a pixel run: dates (days since 1970) and what the series
+// shows in band roles. Multiband tools also need zeitPixelBands.
+json zeitPixelExtras(const CubeInfo& info, const BandRoles& roles);
+// Every mapped band and the raw QA codes of the pixel, one value per date.
+json zeitPixelBands(CubeReader& reader, const CubeInfo& info, const ZeitTool& tool, const BandRoles& roles, int x,
+                    int y);
+// Fills the inputs of a raster job (VRTs written to `dir`/`stem`*.vrt for the
+// shown band, the normalized-difference band, the QA band and the tool's
+// bands; dates).
+bool zeitJobInputs(const CubeInfo& info, const ZeitTool& tool, const BandRoles& roles, const std::string& dir,
+                   const std::string& stem, json& spec, std::string& error);
 
 struct ZeitConfig {
     std::string python;   // python.exe of the runtime
@@ -113,8 +137,9 @@ public:
     const ZeitTool* tool(const std::string& id) const;
 
     // Per-pixel run: `years` are decimal years, NaN values = missing.
+    // `extra`: more fields of the request (dates, bands, QA: see zeitPixelExtras).
     uint64_t runPixel(const std::string& toolId, const json& params, const std::vector<double>& years,
-                      const std::vector<float>& values);
+                      const std::vector<float>& values, const json& extra = json::object());
     std::vector<PixelReply> takeReplies();
 
     std::shared_ptr<ZeitJob> startJob(const json& spec, const std::string& specPath, const std::string& title);

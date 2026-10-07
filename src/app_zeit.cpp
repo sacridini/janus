@@ -73,6 +73,11 @@ std::string App::toolApplicability(const ZeitTool& tool) const {
 }
 
 std::string toolApplicability(const ZeitTool& tool, const CubeInfo& info) {
+    if (!tool.bands.empty() && info.bandsPerDate < int(tool.bands.size()))
+        return "needs one file per date with at least " + std::to_string(tool.bands.size()) +
+               " bands (e.g. Landsat surface reflectance: blue, green, red, NIR, SWIR1, SWIR2)";
+    if (!tool.bands.empty() && !info.timeIsDate)
+        return "needs dates (none were found in the file names or band descriptions)";
     if (info.T() < tool.minDates)
         return "needs at least " + std::to_string(tool.minDates) + " dates (this series has " +
                std::to_string(info.T()) + ")";
@@ -101,6 +106,151 @@ std::string toolApplicability(const ZeitTool& tool, const CubeInfo& info) {
             return "needs evenly spaced dates (missing dates must be no-data bands, not skipped)";
     }
     return {};
+}
+
+// ---------------------------------------------------------------------------
+// Multiband tools: band roles, pixel bands, job inputs
+// ---------------------------------------------------------------------------
+
+static const char* kRoles[] = {"blue", "green", "red", "nir", "swir1", "swir2", "thermal"};
+
+BandRoles guessBandRoles(const CubeInfo& info) {
+    BandRoles r;
+    auto lower = [](std::string s) {
+        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+        s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == ' ' || c == '_' || c == '-'; }), s.end());
+        return s;
+    };
+    // Keywords, most specific first; a band takes the first role it matches.
+    const std::vector<std::pair<const char*, std::vector<const char*>>> keys = {
+        {"swir1", {"swir1", "swir16", "swir161"}}, {"swir2", {"swir2", "swir22", "swir220"}},
+        {"thermal", {"thermal", "lwir", "tir", "stb10", "brightness"}}, {"nir", {"nir"}},
+        {"blue", {"blue"}}, {"green", {"green"}}, {"red", {"red"}}};
+    bool generic = true;
+    for (int b = 1; b <= int(info.bandNames.size()); ++b) {
+        const std::string n = lower(info.bandNames[b - 1]);
+        if (n.rfind("band", 0) != 0) generic = false;
+        if (n.find("rededge") != std::string::npos || n.find("qa") != std::string::npos ||
+            n.find("fmask") != std::string::npos)
+            continue;
+        for (const auto& [role, words] : keys) {
+            if (r.count(role)) continue;
+            bool hit = false;
+            for (const char* w : words) hit = hit || n.find(w) != std::string::npos;
+            if (hit) {
+                r[role] = b;
+                break;
+            }
+        }
+    }
+    // Unnamed stacks of surface reflectance are usually Blue..SWIR2 in order.
+    if (r.empty() && generic && info.bandsPerDate >= 6)
+        for (int k = 0; k < 6; ++k) r[kRoles[k]] = k + 1;
+    return r;
+}
+
+std::string missingBandRoles(const ZeitTool& tool, const BandRoles& roles) {
+    std::string out;
+    for (const std::string& role : tool.bands)
+        if (!roles.count(role)) out += (out.empty() ? "" : ", ") + role;
+    return out;
+}
+
+json zeitPixelExtras(const CubeInfo& info, const BandRoles& roles) {
+    json e = json::object();
+    if (info.timeIsDate) {
+        std::vector<int64_t> days(info.T());
+        for (int t = 0; t < info.T(); ++t) days[t] = info.unixDay(t);
+        e["days"] = days;
+    }
+    if (info.bandsPerDate > 1) {
+        auto roleOf = [&](int b) -> json {
+            for (const auto& [role, band] : roles)
+                if (band == b) return role;
+            return nullptr;
+        };
+        e["shown"] = {{"band", info.sel.ndBand > 0 ? json(nullptr) : roleOf(info.sel.band)},
+                      {"nd", info.sel.ndBand > 0 ? json::array({roleOf(info.sel.band), roleOf(info.sel.ndBand)})
+                                                 : json(nullptr)}};
+    }
+    return e;
+}
+
+json zeitPixelBands(CubeReader& reader, const CubeInfo& info, const ZeitTool& tool, const BandRoles& roles, int x,
+                    int y) {
+    json bands = json::object();
+    auto series = [&](int band, bool raw) {
+        json v = json::array();
+        for (int t = 0; t < info.T(); ++t) {
+            float f = NAN;
+            reader.readBandPixel(t, band, x, y, f, raw);
+            v.push_back(std::isfinite(f) ? json(double(f)) : json());
+        }
+        return v;
+    };
+    std::vector<std::string> wanted = tool.bands;
+    wanted.insert(wanted.end(), tool.optionalBands.begin(), tool.optionalBands.end());
+    for (const std::string& role : wanted)
+        if (auto it = roles.find(role); it != roles.end()) bands[role] = series(it->second, false);
+    json out = {{"bands", bands}};
+    if (info.sel.qaBand > 0) {
+        out["qa"] = series(info.sel.qaBand, true);
+        out["qa_rule"] = qaRuleId(info.sel.qaRule);
+    }
+    return out;
+}
+
+bool zeitJobInputs(const CubeInfo& info, const ZeitTool& tool, const BandRoles& roles, const std::string& dir,
+                   const std::string& stem, json& spec, std::string& error) {
+    const fs::path d = fs::u8path(dir);
+    auto vrt = [&](const std::string& suffix, int band, bool raw) -> std::string {
+        const std::string path = (d / (stem + suffix + ".vrt")).u8string();
+        return writeCubeVrt(info, path, error, band, raw) ? path : std::string();
+    };
+    const std::string input = vrt("", 0, false);
+    if (input.empty()) return false;
+    spec["input"] = input;
+    spec["nodata"] = nullptr;
+    std::vector<double> years(info.T());
+    for (int t = 0; t < info.T(); ++t) years[t] = info.decimalYear(t);
+    spec["years"] = years;
+    const json extras = zeitPixelExtras(info, roles);
+    for (auto it = extras.begin(); it != extras.end(); ++it) spec[it.key()] = it.value();
+    if (info.sel.ndBand > 0) {
+        const std::string nd = vrt("_b" + std::to_string(info.sel.ndBand), info.sel.ndBand, false);
+        if (nd.empty()) return false;
+        spec["nd_input"] = nd;
+    }
+    if (info.sel.qaBand > 0) {
+        const std::string qa = vrt("_qa", info.sel.qaBand, true);
+        if (qa.empty()) return false;
+        spec["qa_input"] = qa;
+        spec["qa_rule"] = qaRuleId(info.sel.qaRule);
+    }
+    std::vector<std::string> wanted = tool.bands;
+    wanted.insert(wanted.end(), tool.optionalBands.begin(), tool.optionalBands.end());
+    json bands = json::object();
+    for (const std::string& role : wanted) {
+        auto it = roles.find(role);
+        if (it == roles.end()) continue;
+        const std::string b = vrt("_" + role, it->second, false);
+        if (b.empty()) return false;
+        bands[role] = b;
+    }
+    if (!bands.empty()) spec["bands"] = bands;
+    return true;
+}
+
+const BandRoles& App::activeBandRoles() {
+    if (s_ && bandRolesFor_ != s_->info->id) {
+        bandRolesFor_ = s_->info->id;
+        if (s_->info->bandNames != bandRolesNames_) {
+            bandRoles_ = guessBandRoles(*s_->info);
+            bandRolesNames_ = s_->info->bandNames;
+        }
+        bandReader_.reset();
+    }
+    return bandRoles_;
 }
 
 // ---------------------------------------------------------------------------
@@ -203,18 +353,49 @@ void App::requestPixelFits() {
     const ZeitTool* tool = zeit_->tool(pixelTool_);
     if (!tool || !toolApplicability(*tool).empty()) return;
     const json& params = toolUi_[pixelTool_].params;
+    const BandRoles& roles = activeBandRoles();
+    const bool multiband = !tool->bands.empty();
+    if (multiband && !missingBandRoles(*tool, roles).empty()) return;
+    const json extras = zeitPixelExtras(*s_->info, roles);
     const auto now = std::chrono::steady_clock::now();
-    auto request = [&](SeriesView& v) {
-        if (v.x < 0 || !v.exact || v.zeitReq != 0 || v.zeitVersion == pixelVersion_) return;
-        v.zeitReq = zeit_->runPixel(pixelTool_, params, zeitYears_, v.values);
+    auto send = [&](SeriesView& v, const json& extra) {
+        v.zeitReq = zeit_->runPixel(pixelTool_, params, zeitYears_, v.values, extra);
         v.zeitVersion = pixelVersion_;
         if (v.zeitReq) pixelSent_[v.zeitReq] = now;
     };
+    auto request = [&](SeriesView& v) {
+        if (v.x < 0 || !v.exact || v.zeitReq != 0 || v.zeitVersion == pixelVersion_) return;
+        if (!multiband) return send(v, extras);
+        // Multiband: read every band of the pixel in the background first.
+        if (bandFetch_) {
+            if (bandFetch_->key != v.id || bandFetch_->f.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+                return;
+            json bands = bandFetch_->f.get();
+            const bool current = bandFetch_->x == v.x && bandFetch_->y == v.y && bandFetch_->version == pixelVersion_;
+            bandFetch_.reset();
+            if (!current) return; // the cursor moved on: fetched again next frame
+            bands.update(extras);
+            return send(v, bands);
+        }
+        if (!bandReader_) bandReader_ = std::make_shared<CubeReader>(s_->info);
+        auto reader = bandReader_;
+        auto info = s_->info;
+        const ZeitTool toolCopy = *tool;
+        const BandRoles rolesCopy = roles;
+        const int x = v.x, y = v.y;
+        bandFetch_ = BandFetch{v.id, x, y, pixelVersion_,
+                               std::async(std::launch::async, [reader, info, toolCopy, rolesCopy, x, y] {
+                                   json j = zeitPixelBands(*reader, *info, toolCopy, rolesCopy, x, y);
+                                   glfwPostEmptyEvent();
+                                   return j;
+                               })};
+    };
     request(hover_);
     for (SeriesView& p : pins_) request(p);
-    if (roi_ && roi_->done == s_->info->T() && roiZeitReq_ == 0 && roiZeitVersion_ != pixelVersion_ &&
+    // ROI fits use the mean of the shown series (single-band tools only).
+    if (!multiband && roi_ && roi_->done == s_->info->T() && roiZeitReq_ == 0 && roiZeitVersion_ != pixelVersion_ &&
         !roiMean_.empty()) {
-        roiZeitReq_ = zeit_->runPixel(pixelTool_, params, zeitYears_, roiMean_);
+        roiZeitReq_ = zeit_->runPixel(pixelTool_, params, zeitYears_, roiMean_, extras);
         roiZeitVersion_ = pixelVersion_;
         if (roiZeitReq_) pixelSent_[roiZeitReq_] = now;
     }
@@ -249,9 +430,10 @@ void App::runTool(const ZeitTool& tool) {
     const std::string name = seriesName(info, lastInputs_);
     const fs::path work = fs::u8path(platform::appDataDir()) / "work";
     fs::create_directories(work, ec);
-    const fs::path vrt = work / (name + "_" + std::to_string(info.id) + ".vrt");
+    json spec = {{"tool", tool.id}, {"params", ui.params}};
     std::string err;
-    if (!writeCubeVrt(info, vrt.u8string(), err)) {
+    if (!zeitJobInputs(info, tool, activeBandRoles(), work.u8string(), name + "_" + std::to_string(info.id), spec,
+                       err)) {
         error_ = err;
         openErrorPopup_ = true;
         return;
@@ -263,13 +445,8 @@ void App::runTool(const ZeitTool& tool) {
         openErrorPopup_ = true;
         return;
     }
-    const json spec = {{"tool", tool.id},
-                       {"params", ui.params},
-                       {"input", vrt.u8string()},
-                       {"years", zeitYears_},
-                       {"nodata", nullptr},
-                       {"window", {win[0], win[1], win[2], win[3]}},
-                       {"output_dir", out.u8string()}};
+    spec["window"] = {win[0], win[1], win[2], win[3]};
+    spec["output_dir"] = out.u8string();
     char title[160];
     std::snprintf(title, sizeof(title), "%s - %s (%d x %d px)", tool.name.c_str(), scopeName, win[2] - win[0],
                   win[3] - win[1]);
@@ -333,8 +510,45 @@ void App::uiToolWindow(const ZeitTool& tool) {
         return;
     }
     ImGui::TextWrapped("%s", tool.description.c_str());
-    const std::string why = toolApplicability(tool);
+    std::string why = toolApplicability(tool);
+    if (why.empty() && !tool.bands.empty()) {
+        const std::string missing = missingBandRoles(tool, activeBandRoles());
+        if (!missing.empty()) why = "choose the band of: " + missing;
+    }
     if (!why.empty()) ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1), "Not available for this series: %s", why.c_str());
+
+    if (!tool.bands.empty() && s_ && s_->info->bandsPerDate > 1) {
+        ImGui::SeparatorText("Bands");
+        const CubeInfo& info = *s_->info;
+        activeBandRoles();
+        std::vector<std::string> roles = tool.bands;
+        roles.insert(roles.end(), tool.optionalBands.begin(), tool.optionalBands.end());
+        ImGui::PushItemWidth(-200);
+        for (const std::string& role : roles) {
+            const bool optional = std::find(tool.bands.begin(), tool.bands.end(), role) == tool.bands.end();
+            auto it = bandRoles_.find(role);
+            const int cur = it == bandRoles_.end() ? 0 : it->second;
+            auto label = [&](int b) {
+                return b == 0 ? std::string(optional ? "(not used)" : "(choose)")
+                              : std::to_string(b) + ": " + info.bandNames[b - 1];
+            };
+            const std::string lbl = role + (optional ? " (optional)" : "");
+            if (ImGui::BeginCombo(lbl.c_str(), label(cur).c_str())) {
+                for (int b = 0; b <= info.bandsPerDate; ++b)
+                    if (ImGui::Selectable(label(b).c_str(), b == cur)) {
+                        if (b == 0) bandRoles_.erase(role);
+                        else bandRoles_[role] = b;
+                        if (pixelTool_ == tool.id) ++pixelVersion_;
+                    }
+                ImGui::EndCombo();
+            }
+        }
+        ImGui::PopItemWidth();
+        if (info.sel.qaBand > 0)
+            ImGui::TextDisabled("Quality: %s (%s)", info.bandNames[info.sel.qaBand - 1].c_str(), qaRuleLabel(info.sel.qaRule));
+        else
+            ImGui::TextDisabled("No quality band: set one in the Display panel to screen clouds.");
+    }
 
     ImGui::SeparatorText("Parameters");
     bool changed = false;

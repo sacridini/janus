@@ -110,6 +110,50 @@ double CubeInfo::xFromDecimalYear(double yr) const {
     return days * 86400.0;
 }
 
+int64_t CubeInfo::unixDay(int t) const { return int64_t(std::floor(layers[t].time / 86400.0)); }
+
+// ---------------------------------------------------------------------------
+// Bands per date
+// ---------------------------------------------------------------------------
+
+const char* qaRuleId(QaRule r) {
+    switch (r) {
+    case QaRule::Fmask: return "fmask";
+    case QaRule::LandsatC2: return "landsat_c2";
+    case QaRule::NonZero: return "nonzero";
+    default: return "none";
+    }
+}
+
+const char* qaRuleLabel(QaRule r) {
+    switch (r) {
+    case QaRule::Fmask: return "Fmask codes (0 clear, 1 water)";
+    case QaRule::LandsatC2: return "Landsat C2 QA_PIXEL bits";
+    case QaRule::NonZero: return "Mask (0 = invalid)";
+    default: return "None";
+    }
+}
+
+bool qaUsable(QaRule r, uint32_t code) {
+    switch (r) {
+    case QaRule::Fmask: return code == 0 || code == 1;
+    // Bits 0 fill, 1 dilated cloud, 3 cloud, 4 cloud shadow, 5 snow.
+    case QaRule::LandsatC2: return (code & 0x3Bu) == 0;
+    case QaRule::NonZero: return code != 0;
+    default: return true;
+    }
+}
+
+std::string CubeInfo::selectionText() const {
+    if (bandsPerDate <= 1) return "";
+    auto name = [&](int b) {
+        return b >= 1 && b <= int(bandNames.size()) ? bandNames[b - 1] : "band " + std::to_string(b);
+    };
+    std::string s = sel.ndBand > 0 ? "ND(" + name(sel.band) + ", " + name(sel.ndBand) + ")" : name(sel.band);
+    if (sel.qaBand > 0 && sel.qaRule != QaRule::None) s += ", QA " + name(sel.qaBand);
+    return s;
+}
+
 static std::string xmlEscape(const std::string& s) {
     std::string out;
     for (char c : s) {
@@ -124,7 +168,9 @@ static std::string xmlEscape(const std::string& s) {
     return out;
 }
 
-bool writeCubeVrt(const CubeInfo& info, const std::string& path, std::string& error) {
+static BandMeta readBandMeta(GDALRasterBand* b);
+
+bool writeCubeVrt(const CubeInfo& info, const std::string& path, std::string& error, int sourceBand, bool raw) {
     std::string srsWkt;
     if (GDALDataset* ds = GDALDataset::Open(info.firstPath.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)) {
         if (const OGRSpatialReference* srs = ds->GetSpatialRef()) {
@@ -148,22 +194,34 @@ bool writeCubeVrt(const CubeInfo& info, const std::string& path, std::string& er
     }
     for (int t = 0; t < info.T(); ++t) {
         const Layer& L = info.layers[t];
-        const bool scaled = L.scale != 1.0 || L.offset != 0.0;
-        const char* source = scaled || L.hasNoData ? "ComplexSource" : "SimpleSource";
+        int srcBand = L.band;
+        BandMeta m = L.meta;
+        if (sourceBand > 0 && sourceBand != L.band) {
+            srcBand = sourceBand;
+            if (sourceBand == info.sel.ndBand) {
+                m = L.ndMeta;
+            } else if (GDALDataset* ds = GDALDataset::Open(L.path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)) {
+                m = sourceBand <= ds->GetRasterCount() ? readBandMeta(ds->GetRasterBand(sourceBand)) : BandMeta{};
+                GDALClose(ds);
+            }
+        }
+        if (raw) m = BandMeta{};
+        const bool scaled = m.scale != 1.0 || m.offset != 0.0;
+        const char* source = scaled || m.hasNoData ? "ComplexSource" : "SimpleSource";
         x += "  <VRTRasterBand dataType=\"Float32\" band=\"" + std::to_string(t + 1) + "\">\n";
         x += "    <Description>" + xmlEscape(L.label) + "</Description>\n";
-        x += "    <NoDataValue>nan</NoDataValue>\n";
+        if (!raw) x += "    <NoDataValue>nan</NoDataValue>\n";
         x += std::string("    <") + source + ">\n";
         x += "      <SourceFilename relativeToVRT=\"0\">" + xmlEscape(L.path) + "</SourceFilename>\n";
-        x += "      <SourceBand>" + std::to_string(L.band) + "</SourceBand>\n";
+        x += "      <SourceBand>" + std::to_string(srcBand) + "</SourceBand>\n";
         if (scaled) {
-            std::snprintf(num, sizeof(num), "%.17g", L.offset);
+            std::snprintf(num, sizeof(num), "%.17g", m.offset);
             x += std::string("      <ScaleOffset>") + num + "</ScaleOffset>\n";
-            std::snprintf(num, sizeof(num), "%.17g", L.scale);
+            std::snprintf(num, sizeof(num), "%.17g", m.scale);
             x += std::string("      <ScaleRatio>") + num + "</ScaleRatio>\n";
         }
-        if (L.hasNoData) {
-            std::snprintf(num, sizeof(num), "%.17g", L.noData);
+        if (m.hasNoData) {
+            std::snprintf(num, sizeof(num), "%.17g", m.noData);
             x += std::string("      <NODATA>") + num + "</NODATA>\n";
         }
         x += std::string("    </") + source + ">\n";
@@ -271,17 +329,20 @@ static std::vector<std::string> expandInputs(const std::vector<std::string>& inp
     return files;
 }
 
-static void readBandMeta(GDALRasterBand* b, Layer& L) {
+static BandMeta readBandMeta(GDALRasterBand* b) {
+    BandMeta m;
     int ok = 0;
-    L.noData = b->GetNoDataValue(&ok);
-    L.hasNoData = ok != 0;
-    L.scale = b->GetScale(&ok);
-    if (!ok) L.scale = 1;
-    L.offset = b->GetOffset(&ok);
-    if (!ok) L.offset = 0;
+    m.noData = b->GetNoDataValue(&ok);
+    m.hasNoData = ok != 0;
+    m.scale = b->GetScale(&ok);
+    if (!ok) m.scale = 1;
+    m.offset = b->GetOffset(&ok);
+    if (!ok) m.offset = 0;
+    return m;
 }
 
-std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, int band, std::string& error) {
+std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const BandSelection& sel,
+                                   std::string& error) {
     static std::atomic<uint64_t> nextId{1};
     auto info = std::make_shared<CubeInfo>();
     info->id = nextId++;
@@ -331,7 +392,7 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, int b
             Layer L;
             L.path = files[0];
             L.band = b;
-            readBandMeta(rb, L);
+            L.meta = readBandMeta(rb);
             std::string t = rb->GetDescription();
             if (char** md = rb->GetMetadata())
                 for (int i = 0; md[i]; ++i) t += std::string(" ") + md[i];
@@ -342,6 +403,29 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, int b
         std::snprintf(desc, sizeof(desc), "1 file, %d bands (1 band = 1 date)", n);
         GDALClose(first);
     } else {
+        info->bandsPerDate = first->GetRasterCount();
+        for (int b = 1; b <= info->bandsPerDate; ++b) {
+            const char* d = first->GetRasterBand(b)->GetDescription();
+            info->bandNames.push_back(d && d[0] ? std::string(d) : "Band " + std::to_string(b));
+        }
+        info->sel = sel;
+        // A quality band recognised by name masks clouds from the start (the
+        // Display panel can turn it off).
+        if (!sel.chosen && sel.qaBand == 0)
+            for (int b = 1; b <= info->bandsPerDate; ++b) {
+                std::string n = info->bandNames[b - 1];
+                std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+                const QaRule r = n.find("fmask") != std::string::npos      ? QaRule::Fmask
+                                 : n.find("qa_pixel") != std::string::npos ? QaRule::LandsatC2
+                                                                           : QaRule::None;
+                if (r != QaRule::None) {
+                    info->sel.qaBand = b;
+                    info->sel.qaRule = r;
+                    break;
+                }
+            }
+        if (info->sel.qaBand <= 0) info->sel.qaRule = QaRule::None;
+        if (info->sel.qaRule == QaRule::None) info->sel.qaBand = 0;
         GDALClose(first);
         for (const std::string& f : files) {
             GDALDataset* ds = openDs(f);
@@ -353,21 +437,25 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, int b
                 GDALClose(ds);
                 return nullptr;
             }
-            if (band > ds->GetRasterCount()) {
-                error = f + ": has no band " + std::to_string(band) + ".";
+            const BandSelection& s = info->sel;
+            const int need = std::max({s.band, s.ndBand, s.qaBand});
+            if (need > ds->GetRasterCount()) {
+                error = f + ": has no band " + std::to_string(need) + ".";
                 GDALClose(ds);
                 return nullptr;
             }
             Layer L;
             L.path = f;
-            L.band = band;
-            readBandMeta(ds->GetRasterBand(band), L);
+            L.band = s.band;
+            L.meta = readBandMeta(ds->GetRasterBand(s.band));
+            if (s.ndBand > 0) L.ndMeta = readBandMeta(ds->GetRasterBand(s.ndBand));
             L.label = fs::u8path(f).stem().u8string();
             timeTexts.push_back(L.label);
             info->layers.push_back(L);
             GDALClose(ds);
         }
-        std::snprintf(desc, sizeof(desc), "%d files (band %d of each)", int(files.size()), band);
+        std::snprintf(desc, sizeof(desc), "%d files (%s of each)", int(files.size()),
+                      info->bandsPerDate > 1 ? info->selectionText().c_str() : "band 1");
     }
     info->description = desc;
 
@@ -404,38 +492,73 @@ CubeReader::~CubeReader() {
         if (ds) GDALClose(ds);
 }
 
-GDALRasterBand* CubeReader::band(int layer) {
+GDALRasterBand* CubeReader::band(int layer, int b) {
     const Layer& L = info_->layers[layer];
     auto it = ds_.find(L.path);
     if (it == ds_.end())
         it = ds_.emplace(L.path, GDALDataset::Open(L.path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)).first;
-    return it->second ? it->second->GetRasterBand(L.band) : nullptr;
+    if (!it->second) return nullptr;
+    if (b <= 0) b = L.band;
+    return b <= it->second->GetRasterCount() ? it->second->GetRasterBand(b) : nullptr;
 }
 
-static void postProcess(const Layer& L, float* v, size_t n) {
-    const float nd = float(L.noData);
-    const bool scaled = L.scale != 1.0 || L.offset != 0.0;
-    const float s = float(L.scale), o = float(L.offset);
+static void postProcess(const BandMeta& m, float* v, size_t n) {
+    const float nd = float(m.noData);
+    const bool scaled = m.scale != 1.0 || m.offset != 0.0;
+    const float s = float(m.scale), o = float(m.offset);
     for (size_t i = 0; i < n; ++i) {
-        if (L.hasNoData && (v[i] == nd || (std::isnan(nd) && std::isnan(v[i])))) v[i] = NAN;
+        if (m.hasNoData && (v[i] == nd || (std::isnan(nd) && std::isnan(v[i])))) v[i] = NAN;
         else if (std::isinf(v[i])) v[i] = NAN;
         else if (scaled) v[i] = v[i] * s + o;
     }
 }
 
-bool CubeReader::readWindow(int layer, int x, int y, int w, int h, float* buf, int bw, int bh) {
-    GDALRasterBand* b = band(layer);
-    if (!b) return false;
+bool CubeReader::readRaw(int layer, int b, int x, int y, int w, int h, float* buf, int bw, int bh) {
+    GDALRasterBand* rb = band(layer, b);
+    if (!rb) return false;
     GDALRasterIOExtraArg extra;
     INIT_RASTERIO_EXTRA_ARG(extra);
     extra.eResampleAlg = GRIORA_NearestNeighbour;
-    if (b->RasterIO(GF_Read, x, y, w, h, buf, bw, bh, GDT_Float32, 0, 0, &extra) != CE_None) return false;
-    postProcess(info_->layers[layer], buf, size_t(bw) * bh);
+    return rb->RasterIO(GF_Read, x, y, w, h, buf, bw, bh, GDT_Float32, 0, 0, &extra) == CE_None;
+}
+
+// The shown quantity: the band, or the normalized difference of two bands,
+// with unusable observations (QA band) as NaN.
+bool CubeReader::readWindow(int layer, int x, int y, int w, int h, float* buf, int bw, int bh) {
+    const Layer& L = info_->layers[layer];
+    const BandSelection& sel = info_->sel;
+    const size_t n = size_t(bw) * bh;
+    if (!readRaw(layer, L.band, x, y, w, h, buf, bw, bh)) return false;
+    postProcess(L.meta, buf, n);
+    if (sel.ndBand > 0) {
+        tmp_.resize(n);
+        if (!readRaw(layer, sel.ndBand, x, y, w, h, tmp_.data(), bw, bh)) return false;
+        postProcess(L.ndMeta, tmp_.data(), n);
+        for (size_t i = 0; i < n; ++i) {
+            const float a = buf[i], b = tmp_[i], s = a + b;
+            buf[i] = s != 0 ? (a - b) / s : NAN; // NaN in either input stays NaN
+        }
+    }
+    if (sel.qaBand > 0 && sel.qaRule != QaRule::None) {
+        tmp_.resize(n);
+        if (!readRaw(layer, sel.qaBand, x, y, w, h, tmp_.data(), bw, bh)) return false;
+        for (size_t i = 0; i < n; ++i) {
+            const float q = tmp_[i];
+            if (!(q >= 0) || !qaUsable(sel.qaRule, uint32_t(q))) buf[i] = NAN;
+        }
+    }
     return true;
 }
 
 bool CubeReader::readPixel(int layer, int x, int y, float& value) {
     return readWindow(layer, x, y, 1, 1, &value, 1, 1);
+}
+
+bool CubeReader::readBandPixel(int layer, int b, int x, int y, float& value, bool raw) {
+    GDALRasterBand* rb = band(layer, b);
+    if (!rb || !readRaw(layer, b, x, y, 1, 1, &value, 1, 1)) return false;
+    if (!raw) postProcess(readBandMeta(rb), &value, 1);
+    return true;
 }
 
 CubeReader& threadReader(const std::shared_ptr<const CubeInfo>& info) {

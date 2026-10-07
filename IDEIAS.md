@@ -41,6 +41,12 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Regra: nada novo entra no caminho até o primeiro quadro. O Zeit sobe depois,
   em segundo plano.
 
+### Linha de comando: só visualização rápida
+- `tsv arquivo/pasta` abre e mostra; opções só para isso (`--band`, memória,
+  threads) e para desenvolvimento/testes. Bandas por data, índice (diferença
+  normalizada), máscara de qualidade e ferramentas do Zeit ficam **na interface**,
+  sem comandos na CLI (decisão de 2026-10-08).
+
 ### Integração com o Zeit
 - **Processo separado** (servidor Python), não Python embutido nem ligação direta
   do C++ do Zeit:
@@ -103,7 +109,9 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 1 | 0.4.0 | Runtime Python embutido, ponte do Zeit, menu de ferramentas, tarefas, resultados como camadas, **LandTrendr** (pixel + raster), zoom limitado ao extent | concluída |
 | 2 | 0.5.0 | **Espaço de trabalho**: painel **Layers** sempre ativo (todas as camadas, inclusive o raster inicial, ligar/desligar), **várias séries abertas ao mesmo tempo** com o gráfico mostrando todas ou uma, **painéis destacáveis** para outros monitores, **árvore de arquivos** | concluída |
 | 3 | 0.6.0 | **Mann-Kendall** (variantes do Zeit) e **BFAST / BFAST Lite / BFAST Monitor** | concluída |
-| 4 | 0.7.0 | Cubo com várias bandas por data + máscara de qualidade; **fenologia** e **CCDC** | próxima |
+| 4 | 0.7.0 | Cubo com várias bandas por data + máscara de qualidade; **fenologia** e **CCDC** | concluída |
+| 5 | 0.8.0 | **Ferramentas mais fáceis de usar**: estimativa de tempo antes de rodar (custo por pixel medido), Zeit e ROI em **todas as camadas**, cancelar/repetir tarefas, abrir pasta de resultados | próxima |
+| 6 | 0.9.0 | Mais do Zeit: **suavização** (Whittaker/Savitzky-Golay) e **STL** no gráfico, **TWDTW** (classificação por padrões) | planejada |
 
 ## Ideias (backlog)
 
@@ -111,7 +119,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Mapa de **quebra**: ano e magnitude da maior queda por pixel (barato na GPU).
 - ~~Mapa de **tendência significativa**~~ — feito na 0.6.0 (Mann-Kendall do Zeit,
   mapa "Significant Sen's slope").
-- **Estimativa de tempo** antes de rodar uma ferramenta lenta (BFAST ~2–3 ms/pixel:
+- (0.8.0) **Estimativa de tempo** antes de rodar uma ferramenta lenta (BFAST ~2–3 ms/pixel:
   uma cena Landsat inteira levaria horas). Ideia: o manifesto declara um custo por
   pixel medido e a janela mostra a estimativa para o escopo escolhido.
 - BFAST: desenhar o **modelo ajustado** (tendência + sazonalidade) no gráfico —
@@ -141,6 +149,9 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Árvore de arquivos: mostrar as datas reconhecidas e quantos arquivos formam a
   série antes de abrir; favoritos.
 - Arrastar e soltar com Shift para **adicionar** como camada (hoje substitui).
+- **Ordem das abas laterais**: Layers/Files primeiro, depois Display; o painel
+  **Performance desligado por padrão**, ligado por View → Performance para quem
+  quiser (pedido em 2026-10-08; feito na 0.7.0).
 - ~~Zoom out limitado ao extent~~ — feito na 0.4.0.
 
 ### Produto
@@ -151,6 +162,38 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.7.0 — Fase 4: várias bandas por data, fenologia e CCDC
+- **Cubo com várias bandas por data** (um arquivo por data, ex.: reflectância
+  Landsat): painel Display → Bands escolhe a banda mostrada ou a **diferença
+  normalizada** de duas (NDVI, NDMI, NBR) e a **banda de qualidade** (códigos
+  Fmask, bits do `QA_PIXEL` do Landsat Coleção 2 ou máscara 0/1). Uma banda
+  chamada Fmask/QA_PIXEL é usada automaticamente. Aplicar reabre a camada **no
+  lugar** (posição, nome, pinos, vista e resultados mantidos). O cache do
+  overview só muda de chave quando há índice/máscara (caches antigos continuam
+  válidos).
+- **Fenologia** (Zeit, feita por um sub-agente): início/pico/fim da estação,
+  duração, pico, amplitude, R²; mapas para o ano típico (mediana), a estação
+  mais recente ou um ano escolhido; no gráfico, linhas no início/fim e marcador
+  no pico. Erro de SOS/EOS ~0–1 dia em dados sintéticos (curva Elmore).
+- **CCDC** (Zeit, feito por um sub-agente): primeira ferramenta multibanda. O
+  protocolo da ponte ganhou bandas por papel (blue…swir2, thermal), códigos
+  Fmask (convertidos da regra de qualidade), datas reais e o que a camada mostra
+  (`shown`); o tsv lê as bandas do pixel em segundo plano e escreve um VRT por
+  banda para as tarefas. O modelo de cada segmento é desenhado no gráfico na
+  unidade mostrada (banda ou índice). Em dados sintéticos com nuvens: quebra na
+  primeira observação limpa após a mudança em 100% dos pixels alterados, nenhuma
+  nos estáveis; ~0,1 ms/pixel em todos os núcleos.
+- Painel **Performance** desligado por padrão (View → Performance); abas da
+  esquerda: Layers/Files em cima, Display embaixo (layout `layout-0.7.ini`).
+- CLI continua só para visualização rápida (decisão registrada acima).
+- `--selftest-ui A B C`: abre uma pasta multibanda, confere a máscara automática
+  e reabre como NDVI no lugar. `--selftest-zeit` numa pasta multibanda roda as 7
+  ferramentas aplicáveis (incl. CCDC com bandas e QA).
+- Notas do Zeit para o futuro (relatadas pelos sub-agentes): a fenologia não
+  devolve a curva ajustada e tem constantes fixas para 23 obs/ano; o batch do
+  CCDC não devolve magnitude/probabilidade (a ferramenta as deriva dos
+  coeficientes); suavizadores não tratam NaN.
 
 ### 0.6.0 — Fase 3: tendência e quebras
 - **Mann-Kendall** (Zeit): original, Hamed-Rao, Yue-Wang (corrigem a

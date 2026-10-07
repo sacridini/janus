@@ -241,6 +241,59 @@ void App::setActive(int i) {
     glfwSetWindowTitle(window_, title.c_str());
 }
 
+void App::reopenLayer(int i, const BandSelection& sel) {
+    if (opening_.valid() || i < 0 || i >= int(layers_.size())) return;
+    openingSel_ = sel;
+    openingSel_->chosen = true;
+    openInputs(layers_[i].inputs, true);
+    openingSel_.reset();
+    openingReplace_ = i;
+}
+
+// The same files with another band selection: the layer keeps its place, name,
+// visibility, opacity, display mode, date, pins, view and tool results; the
+// value ranges go back to automatic since the values changed.
+void App::replaceLayerSession(int i, std::shared_ptr<CubeInfo> info, double seconds) {
+    SeriesLayer& L = layers_[i];
+    const bool wasActive = i == active_;
+    if (wasActive) saveDisplay(L.disp);
+    const uint64_t oldId = L.session->info->id;
+    const int T = info->T();
+    LayerDisplay d;
+    d.mode = L.disp.mode;
+    d.cmap = L.disp.cmap;
+    d.t = std::min(L.disp.t, T - 1);
+    d.rgb = {0, T / 2, T - 1};
+    const auto viewScale = scale_;
+    const ImVec2 viewOffset = offset_;
+    const bool touched = viewTouched_;
+    if (wasActive) {
+        clearRoi();
+        s_ = nullptr;
+        active_ = -1;
+    }
+    L.session = std::make_unique<Session>(info, settings_, [] { glfwPostEmptyEvent(); });
+    L.session->openSeconds = seconds;
+    L.disp = d;
+    L.years.resize(T);
+    for (int t = 0; t < T; ++t) L.years[t] = info->yearsFromStart(t);
+    for (ResultLayer& R : results_)
+        if (R.cubeId == oldId) R.cubeId = info->id;
+    if (wasActive) {
+        setActive(i);
+        scale_ = viewScale;
+        offset_ = viewOffset;
+        viewTouched_ = touched;
+        fitRequested_ = false;
+    } else {
+        for (SeriesLayer& O : layers_) O.pins.clear();
+        for (const SeriesView& p : pins_) addOtherPins(p);
+        updateAlignment();
+        syncLayerTimes();
+        mapDirty_ = true;
+    }
+}
+
 void App::removeLayer(int i) {
     if (i < 0 || i >= int(layers_.size())) return;
     clearResults(layers_[i].session->info->id);

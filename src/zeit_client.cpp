@@ -296,6 +296,8 @@ static std::vector<ZeitTool> parseTools(const json& arr) {
             tool.requiresTime = t["requires"].value("time", "any");
             tool.minDates = t["requires"].value("min_dates", 0);
             tool.minPerYear = t["requires"].value("min_per_year", 0);
+            tool.bands = t["requires"].value("bands", std::vector<std::string>());
+            tool.optionalBands = t["requires"].value("optional_bands", std::vector<std::string>());
         }
         for (const json& m : t.value("modes", json::array())) {
             if (m == "pixel") tool.pixel = true;
@@ -348,14 +350,14 @@ void ZeitClient::onLine(const std::string& line) {
 }
 
 uint64_t ZeitClient::runPixel(const std::string& toolId, const json& params, const std::vector<double>& years,
-                              const std::vector<float>& values) {
+                              const std::vector<float>& values, const json& extra) {
     if (state_ != State::Ready || !proc_) return 0;
     const uint64_t id = nextId_++;
     json vals = json::array();
     for (float v : values) vals.push_back(std::isfinite(v) ? json(double(v)) : json());
-    const json req = {{"id", id},
-                      {"method", "run_pixel"},
-                      {"params", {{"tool", toolId}, {"params", params}, {"years", years}, {"values", vals}}}};
+    json p = {{"tool", toolId}, {"params", params}, {"years", years}, {"values", vals}};
+    if (extra.is_object()) p.update(extra);
+    const json req = {{"id", id}, {"method", "run_pixel"}, {"params", p}};
     return proc_->writeLine(req.dump()) ? id : 0;
 }
 

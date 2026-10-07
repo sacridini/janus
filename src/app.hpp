@@ -5,6 +5,7 @@
 #include <future>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -40,7 +41,7 @@ struct StartupTimes {
 };
 
 struct AppOptions {
-    int band = 1;
+    BandSelection sel; // band(s) shown when each file is one date
     int64_t budgetMB = 1024;
     int ioThreads = 0;
     std::string zeitPython;  // developer override of the bundled runtime
@@ -58,7 +59,8 @@ public:
     bool wantsContinuousFrames() const;
     void setStartupTimes(const StartupTimes& t) { startup_ = t; }
     // --selftest-ui: one step per frame; -1 while running, then the exit code.
-    int selfTestStep(const std::vector<std::string>& a, const std::vector<std::string>& b);
+    int selfTestStep(const std::vector<std::string>& a, const std::vector<std::string>& b,
+                     const std::vector<std::string>& c = {});
 
     std::vector<std::string> pendingDrop; // filled by the drag-and-drop callback
 
@@ -109,6 +111,10 @@ private:
     void loadDisplay(const LayerDisplay& d);
     void setActive(int i);
     void removeLayer(int i);
+    // Reopens layer i's files with another band selection, in place.
+    void reopenLayer(int i, const BandSelection& sel);
+    void replaceLayerSession(int i, std::shared_ptr<CubeInfo> info, double seconds);
+    void uiBands();
     void updateAlignment();
     void syncLayerTimes();
     bool toActive(const SeriesLayer& L, double lx, double ly, double& ax, double& ay) const;
@@ -140,6 +146,11 @@ private:
     };
     std::future<OpenResult> opening_;
     std::vector<std::string> openingInputs_;
+    std::optional<BandSelection> openingSel_; // band selection of the pending open (default: options)
+    int openingReplace_ = -1;
+    bool showPerf_ = false;                   // Performance panel (View menu)                 // the pending open replaces this layer's session
+    BandSelection selUi_;                     // Display panel: bands being edited
+    uint64_t selUiFor_ = 0;                   // cube id selUi_ was loaded from
     std::vector<double> years_;  // time in years since the 1st date (for trends)
     std::string iniPath_;
     bool iniExisted_ = false;
@@ -217,6 +228,20 @@ private:
         int scope = 0;           // 0 whole image, 1 visible area, 2 ROI
     };
     std::map<std::string, ToolUi> toolUi_;
+    // Band roles of the active layer for multiband tools (guessed, editable in
+    // the tool window; kept while the layer's bands stay the same).
+    BandRoles bandRoles_;
+    std::vector<std::string> bandRolesNames_;
+    uint64_t bandRolesFor_ = 0;
+    const BandRoles& activeBandRoles();
+    // Pixel runs of multiband tools read every band of the pixel first, one
+    // pixel at a time, in the background.
+    std::shared_ptr<CubeReader> bandReader_;
+    struct BandFetch {
+        int key = 0, x = -1, y = -1, version = -1;
+        std::future<json> f;
+    };
+    std::optional<BandFetch> bandFetch_;
     std::string resultsDir_;     // base folder for tool outputs
     std::string pixelTool_;      // tool fitted on the chart ("" = none)
     int pixelVersion_ = 0;       // bumped when the tool or its parameters change

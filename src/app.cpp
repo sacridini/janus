@@ -8,6 +8,7 @@
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <utility>
 
 #include <imgui_internal.h>
 #include <implot.h>
@@ -95,7 +96,7 @@ bool App::init(const AppOptions& opts, std::string& error) {
 
     // New file name when the default layout changes (new panels), so the new
     // layout is applied instead of an old saved one.
-    iniPath_ = (fs::u8path(appData) / "layout-0.5.ini").u8string();
+    iniPath_ = (fs::u8path(appData) / "layout-0.7.ini").u8string();
     iniExisted_ = fs::exists(fs::u8path(iniPath_), ec);
     ImGui::GetIO().IniFilename = iniPath_.c_str();
     layoutPending_ = !iniExisted_;
@@ -119,11 +120,12 @@ void App::openInputs(const std::vector<std::string>& inputs, bool addLayer) {
     if (opening_.valid()) return; // one open at a time
     openingInputs_ = inputs;
     openingAdd_ = addLayer && !layers_.empty();
-    const int band = opts_.band;
-    opening_ = std::async(std::launch::async, [inputs, band] {
+    openingReplace_ = -1;
+    const BandSelection sel = openingSel_ ? *openingSel_ : opts_.sel;
+    opening_ = std::async(std::launch::async, [inputs, sel] {
         const auto t0 = std::chrono::steady_clock::now();
         OpenResult r;
-        r.info = openCube(inputs, band, r.error);
+        r.info = openCube(inputs, sel, r.error);
         r.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         glfwPostEmptyEvent(); // wake the UI loop
         return r;
@@ -149,6 +151,13 @@ void App::finishOpen() {
         return;
     }
 
+    if (openingReplace_ >= 0) {
+        const int i = std::exchange(openingReplace_, -1);
+        if (i < int(layers_.size())) {
+            replaceLayerSession(i, info, r.seconds);
+            return;
+        }
+    }
     if (!openingAdd_) closeAll();
     SeriesLayer L;
     L.session = std::make_unique<Session>(info, settings_, [] { glfwPostEmptyEvent(); });
@@ -515,6 +524,8 @@ void App::uiMenu() {
     }
     if (ImGui::BeginMenu("View")) {
         if (ImGui::MenuItem("Fit map to window", "Home", false, s_ != nullptr)) fitRequested_ = true;
+        ImGui::MenuItem("Performance", nullptr, &showPerf_);
+        ImGui::Separator();
         if (ImGui::MenuItem("Reset layout")) layoutPending_ = true;
         ImGui::EndMenu();
     }
@@ -538,17 +549,17 @@ void App::uiDockspace() {
     ImGui::DockBuilderRemoveNode(dock);
     ImGui::DockBuilderAddNode(dock, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dock, vp->WorkSize);
-    ImGuiID left, rest, bottom, center, bottomLeft, bottomRight, leftTop, leftBottom;
+    // Left column: Layers / Files on top, Display below (Performance, off by
+    // default, opens as a tab next to Display).
+    ImGuiID left, rest, bottom, center, bottomLeft, bottomRight, leftTop, leftMid;
     ImGui::DockBuilderSplitNode(dock, ImGuiDir_Left, 0.21f, &left, &rest);
-    ImGuiID leftMid;
-    ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.30f, &leftBottom, &leftTop);
-    ImGui::DockBuilderSplitNode(leftTop, ImGuiDir_Down, 0.62f, &leftMid, &leftTop);
+    ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.58f, &leftMid, &leftTop);
     ImGui::DockBuilderSplitNode(rest, ImGuiDir_Down, 0.36f, &bottom, &center);
     ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Right, 0.34f, &bottomRight, &bottomLeft);
     ImGui::DockBuilderDockWindow("Layers", leftTop);
     ImGui::DockBuilderDockWindow("Files", leftTop);
     ImGui::DockBuilderDockWindow("Display", leftMid);
-    ImGui::DockBuilderDockWindow("Performance", leftBottom);
+    ImGui::DockBuilderDockWindow("Performance", leftMid);
     ImGui::DockBuilderDockWindow("Map", center);
     ImGui::DockBuilderDockWindow("Time series", bottomLeft);
     ImGui::DockBuilderDockWindow("Statistics", bottomRight);
@@ -987,6 +998,58 @@ void App::uiMap() {
 // Panels
 // ---------------------------------------------------------------------------
 
+// One file per date with several bands: which band (or normalized difference
+// of two) the series shows, and the quality band that hides unusable dates.
+void App::uiBands() {
+    const CubeInfo& info = *s_->info;
+    if (info.bandsPerDate <= 1) return;
+    if (selUiFor_ != info.id) {
+        selUi_ = info.sel;
+        selUiFor_ = info.id;
+    }
+    ImGui::SeparatorText("Bands");
+    auto name = [&](int b) {
+        return std::to_string(b) + ": " +
+               (b >= 1 && b <= int(info.bandNames.size()) ? info.bandNames[b - 1] : std::string("?"));
+    };
+    auto bandCombo = [&](const char* id, int& b, const char* none) {
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo(id, b > 0 ? name(b).c_str() : none)) {
+            if (none && ImGui::Selectable(none, b == 0)) b = 0;
+            for (int k = 1; k <= info.bandsPerDate; ++k)
+                if (ImGui::Selectable(name(k).c_str(), k == b)) b = k;
+            ImGui::EndCombo();
+        }
+    };
+    ImGui::TextDisabled("Shown band (A)");
+    bandCombo("##band", selUi_.band, nullptr);
+    bool nd = selUi_.ndBand > 0;
+    if (ImGui::Checkbox("Normalized difference with B", &nd)) selUi_.ndBand = nd ? (selUi_.band == 1 ? 2 : 1) : 0;
+    ImGui::SetItemTooltip("Shows (A - B) / (A + B): A = NIR and B = Red gives NDVI,\nA = NIR and B = SWIR1 gives NDMI.");
+    if (nd) bandCombo("##ndband", selUi_.ndBand, nullptr);
+    ImGui::TextDisabled("Quality band");
+    bandCombo("##qaband", selUi_.qaBand, "None");
+    if (selUi_.qaBand > 0) {
+        if (selUi_.qaRule == QaRule::None) selUi_.qaRule = QaRule::Fmask;
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo("##qarule", qaRuleLabel(selUi_.qaRule))) {
+            for (QaRule r : {QaRule::Fmask, QaRule::LandsatC2, QaRule::NonZero})
+                if (ImGui::Selectable(qaRuleLabel(r), r == selUi_.qaRule)) selUi_.qaRule = r;
+            ImGui::EndCombo();
+        }
+        ImGui::SetItemTooltip("Dates whose quality code is not usable (cloud, shadow, snow, fill)\n"
+                              "become no-data in the map, the charts and the tools.");
+    } else {
+        selUi_.qaRule = QaRule::None;
+    }
+    if (selUi_ != info.sel) {
+        ImGui::BeginDisabled(opening_.valid());
+        if (ImGui::Button("Apply (reopens the layer)", ImVec2(-1, 0))) reopenLayer(active_, selUi_);
+        ImGui::EndDisabled();
+        if (ImGui::SmallButton("Revert")) selUi_ = info.sel;
+    }
+}
+
 void App::uiLayer() {
     if (!ImGui::Begin("Display")) {
         ImGui::End();
@@ -1017,6 +1080,7 @@ void App::uiLayer() {
                        info.crsAuthority.c_str());
     if (info.hasGeoTransform)
         ImGui::Text("Pixel: %.6g x %.6g", info.geoTransform[1], std::fabs(info.geoTransform[5]));
+    uiBands();
 
     ImGui::SeparatorText("Display");
     ImGui::SetNextItemWidth(-1);
@@ -1477,7 +1541,8 @@ void App::uiStats() {
 }
 
 void App::uiPerf() {
-    if (!ImGui::Begin("Performance")) {
+    if (!showPerf_) return;
+    if (!ImGui::Begin("Performance", &showPerf_)) {
         ImGui::End();
         return;
     }

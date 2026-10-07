@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
             return 0;
         } else if (a == "--band") {
             const char* v = next();
-            opts.band = v ? std::max(1, std::atoi(v)) : 1;
+            opts.sel.band = v ? std::max(1, std::atoi(v)) : 1;
         } else if (a == "--budget") {
             const char* v = next();
             opts.budgetMB = v ? std::max(64, std::atoi(v)) : opts.budgetMB;
@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
     if (selftestUi) platform::attachParentConsole();
     if (selftestZeit) {
         platform::attachParentConsole();
-        const int rc = runZeitSelfTest(inputs, opts.band, opts.zeitPython, opts.zeitBridge);
+        const int rc = runZeitSelfTest(inputs, opts.sel, opts.zeitPython, opts.zeitBridge);
         std::fflush(stdout);
         return rc;
     }
@@ -173,11 +173,14 @@ int main(int argc, char** argv) {
         ImGui::NewFrame();
         app->frame();
         if (selftestUi) {
-            if (inputs.size() != 2) {
-                std::fprintf(stderr, "--selftest-ui needs two inputs\n");
+            if (inputs.size() != 2 && inputs.size() != 3) {
+                std::fprintf(stderr, "--selftest-ui needs two or three inputs\n");
                 exitCode = 2;
                 glfwSetWindowShouldClose(window, 1);
-            } else if (const int rc = app->selfTestStep({inputs[0]}, {inputs[1]}); rc >= 0) {
+            } else if (const int rc = app->selfTestStep({inputs[0]}, {inputs[1]},
+                                                        inputs.size() > 2 ? std::vector<std::string>{inputs[2]}
+                                                                          : std::vector<std::string>{});
+                       rc >= 0) {
                 std::fflush(stdout);
                 exitCode = rc;
                 glfwSetWindowShouldClose(window, 1);

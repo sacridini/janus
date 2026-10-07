@@ -32,7 +32,17 @@ A `tool_*.py` module defines `TOOLS`, a list of dicts:
 
 - `p`: parameter values (defaults filled in), keyed by parameter id.
 - `ctx`: {"years": decimal year of each date, "per_year": observations per year
-  (rounded, >= 1), "start": first decimal year}.
+  (rounded, >= 1), "start": first decimal year, "ordinal": Python ordinal day of
+  each date (None when the series has no real dates)}.
+- Multiband tools (manifest "requires": {"bands": [role, ...]}, e.g. CCDC) also
+  get ctx["bands"] = {role: float64 array, NaN = missing} for every role tsv
+  mapped (the required ones plus any of "optional_bands"; [T] for pixel runs,
+  [T, rows, cols] for chunks) and ctx["fmask"] = int32 Fmask codes with the same
+  shape (0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 no observation),
+  converted from the series' quality band, or derived from missing values when
+  there is none. ctx["shown"] = {"band": role, "nd": [role A, role B]} says
+  what the shown series is in band roles (None when unknown), e.g. to draw a
+  multiband model in the shown units.
 - `pixel` receives ctx["values"] (floats, NaN = missing) and returns
   {"overlays": [...], "rows": [[label, text], ...]}. Overlay types, x in
   decimal years: {"type": "line"|"markers", "label", "x", "y"} and
@@ -42,9 +52,17 @@ A `tool_*.py` module defines `TOOLS`, a list of dicts:
   declared in the manifest.
 
 Manifest: id, name, category, description, requires {"time": "any"|"annual"|
-"regular", "min_dates": n, "min_per_year": n}, modes, params (id, label, type
+"regular", "min_dates": n, "min_per_year": n, "bands": [role, ...],
+"optional_bands": [role, ...]}, modes, params (id, label, type
 int|float|bool|enum, default, min, max, options, labels, help), outputs (id,
-name, colormap, unit).
+name, colormap, unit). Band roles: blue, green, red, nir, swir1, swir2, thermal.
+
+Series shown by tsv
+-------------------
+With one file per date and several bands, tsv may show a normalized difference
+of two bands and hide unusable dates with a quality band. Pixel runs receive the
+shown values; raster jobs get the pieces ("input", "nd_input", "qa_input",
+"qa_rule") and the bridge rebuilds the same values (shown_stack).
 """
 import glob
 import importlib
@@ -92,9 +110,79 @@ def per_year(years):
     return max(1, int(round(1.0 / med))) if med > 0 else 1
 
 
-def make_ctx(years):
+UNIX_EPOCH_ORDINAL = 719163  # date(1970, 1, 1).toordinal()
+
+
+def make_ctx(years, days=None):
+    """days: days since 1970-01-01 of each date (None without real dates)."""
     years = [float(y) for y in years]
-    return {"years": years, "per_year": per_year(years), "start": years[0] if years else 0.0}
+    ordinal = [int(d) + UNIX_EPOCH_ORDINAL for d in days] if days else None
+    return {"years": years, "per_year": per_year(years), "start": years[0] if years else 0.0,
+            "ordinal": ordinal}
+
+
+# ---------------------------------------------------------------------------
+# Quality band and normalized difference (same rules as tsv's reader)
+# ---------------------------------------------------------------------------
+
+def qa_usable(rule, qa):
+    """Bool array: observations the quality rule keeps (NaN codes = unusable)."""
+    import numpy as np
+    qa = np.asarray(qa, dtype=np.float64)
+    ok = np.isfinite(qa) & (qa >= 0)
+    code = np.where(ok, qa, 0).astype(np.int64)
+    if rule == "fmask":
+        keep = (code == 0) | (code == 1)
+    elif rule == "landsat_c2":  # bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow, 5 snow
+        keep = (code & 0x3B) == 0
+    elif rule == "nonzero":
+        keep = code != 0
+    else:
+        keep = np.ones(code.shape, bool)
+    return ok & keep
+
+
+def to_fmask(rule, qa, values_ok):
+    """Fmask codes from the quality band; without one, 0 where every band has a
+    value and 255 elsewhere. values_ok: bool array, all bands finite."""
+    import numpy as np
+    out = np.where(values_ok, 0, 255).astype(np.int32)
+    if qa is None or rule in (None, "none"):
+        return out
+    qa = np.asarray(qa, dtype=np.float64)
+    fin = np.isfinite(qa) & (qa >= 0)
+    code = np.where(fin, qa, 255).astype(np.int64)
+    if rule == "fmask":
+        f = code.astype(np.int32)
+    elif rule == "landsat_c2":
+        f = np.zeros(code.shape, np.int32)
+        f[(code & (1 << 7)) != 0] = 1                     # water
+        f[(code & (1 << 5)) != 0] = 3                     # snow
+        f[(code & (1 << 4)) != 0] = 2                     # cloud shadow
+        f[(code & ((1 << 1) | (1 << 3))) != 0] = 4        # dilated cloud, cloud
+        f[(code & 1) != 0] = 255                          # fill
+    else:  # nonzero mask
+        f = np.where(code != 0, 0, 4).astype(np.int32)
+    f[~fin] = 255
+    return np.where(values_ok, f, 255).astype(np.int32)
+
+
+def norm_diff(a, b):
+    import numpy as np
+    with np.errstate(invalid="ignore", divide="ignore"):
+        s = a + b
+        return np.where(s != 0, (a - b) / s, np.nan)
+
+
+def band_ctx(ctx, bands, qa, rule):
+    """Adds ctx["bands"] and ctx["fmask"] from {role: array} and the QA codes."""
+    import numpy as np
+    bands = {r: np.asarray(v, dtype=np.float64) for r, v in (bands or {}).items()}
+    ctx["bands"] = bands
+    if bands:
+        ok = np.logical_and.reduce([np.isfinite(v) for v in bands.values()])
+        ctx["fmask"] = to_fmask(rule, qa, ok)
+    return ctx
 
 
 # ---------------------------------------------------------------------------
@@ -154,16 +242,37 @@ def run_raster(entry, p, spec, progress):
     from rasterio.windows import Window
 
     m = entry["manifest"]
-    ctx = make_ctx(spec["years"])
+    ctx = make_ctx(spec["years"], spec.get("days"))
+    ctx["shown"] = spec.get("shown")
     nodata = spec.get("nodata")
     x0, y0, x1, y1 = spec["window"]
     out_dir = spec["output_dir"]
     os.makedirs(out_dir, exist_ok=True)
     W, H = x1 - x0, y1 - y0
 
+    # Extra inputs, one VRT per source band (one band per date each).
+    extra = {}
+    for key in ("nd_input", "qa_input"):
+        if spec.get(key):
+            extra[key] = spec[key]
+    for role, path in (spec.get("bands") or {}).items():
+        extra["band:" + role] = path
+    srcs = {k: rasterio.open(v) for k, v in extra.items()}
+
+    def read(src, win, raw=False):
+        a = src.read(window=win).astype(np.float64)
+        if not raw:
+            if src.nodata is not None and np.isfinite(src.nodata):
+                a[a == src.nodata] = np.nan
+            a[~np.isfinite(a)] = np.nan
+        return a
+
     with rasterio.open(spec["input"]) as src:
         if src.count != len(ctx["years"]):
             raise ValueError(f"input has {src.count} bands but {len(ctx['years'])} dates were given")
+        for k, s in srcs.items():
+            if s.count != src.count or s.width != src.width or s.height != src.height:
+                raise ValueError(f"{k} does not match the input ({s.count} bands, {s.width} x {s.height})")
         transform = src.window_transform(Window(x0, y0, W, H))
         profile = dict(driver="GTiff", width=W, height=H, count=1, crs=src.crs, transform=transform,
                        dtype="float32", nodata=float("nan"), compress="deflate", tiled=True,
@@ -179,10 +288,20 @@ def run_raster(entry, p, spec, progress):
         try:
             for r in range(0, H, rows_per_chunk):
                 h = min(rows_per_chunk, H - r)
-                stack = src.read(window=Window(x0, y0 + r, W, h)).astype(np.float64)  # [T, h, W]
+                win = Window(x0, y0 + r, W, h)
+                stack = src.read(window=win).astype(np.float64)  # [T, h, W]
                 if nodata is not None:
                     stack[stack == float(nodata)] = np.nan
                 stack[~np.isfinite(stack)] = np.nan
+                qa = read(srcs["qa_input"], win, raw=True) if "qa_input" in srcs else None
+                # The series tsv shows: normalized difference, then the QA mask.
+                if "nd_input" in srcs:
+                    stack = norm_diff(stack, read(srcs["nd_input"], win))
+                if qa is not None:
+                    stack[~qa_usable(spec.get("qa_rule"), qa)] = np.nan
+                if any(k.startswith("band:") for k in srcs):
+                    bands = {k[5:]: read(s, win) for k, s in srcs.items() if k.startswith("band:")}
+                    band_ctx(ctx, bands, qa, spec.get("qa_rule"))
                 res = entry["chunk"](p, stack, ctx)
                 for oid, d in dst.items():
                     d.write(np.asarray(res[oid], dtype=np.float32), 1, window=Window(0, r, W, h))
@@ -192,6 +311,8 @@ def run_raster(entry, p, spec, progress):
         finally:
             for d in dst.values():
                 d.close()
+            for s in srcs.values():
+                s.close()
 
     return {"outputs": [dict(o, path=paths[o["id"]]) for o in m["outputs"]], "window": [x0, y0, x1, y1]}
 
@@ -217,8 +338,16 @@ def serve():
             elif method == "run_pixel":
                 entry = tools()[params["tool"]]
                 p = defaults(entry["manifest"], params.get("params"))
-                ctx = make_ctx(params["years"])
+                ctx = make_ctx(params["years"], params.get("days"))
                 ctx["values"] = [float("nan") if v is None else float(v) for v in params["values"]]
+                ctx["shown"] = params.get("shown")
+                if params.get("bands"):
+                    nan = float("nan")
+                    bands = {r: [nan if v is None else float(v) for v in vals]
+                             for r, vals in params["bands"].items()}
+                    qa = params.get("qa")
+                    qa = [nan if v is None else float(v) for v in qa] if qa else None
+                    band_ctx(ctx, bands, qa, params.get("qa_rule"))
                 send({"id": req_id, "result": entry["pixel"](p, ctx)})
             elif method == "shutdown":
                 send({"id": req_id, "result": {}})

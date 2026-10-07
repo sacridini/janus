@@ -2,7 +2,9 @@
 // step per frame, without touching the mouse or keyboard. Opens A, adds B as a
 // layer, checks the georeferenced alignment, the series of both layers under a
 // cursor and a pin, reads back map pixels (layer drawn, layer hidden), switches
-// the active layer and closes one.
+// the active layer and closes one. With a third input C (one file per date,
+// several bands and a quality band), also opens C and reopens it in place as a
+// normalized difference with the QA mask.
 #include "app.hpp"
 
 #include <chrono>
@@ -27,7 +29,8 @@ static void readMapPixel(GLuint tex, int w, int h, int x, int y, unsigned char r
     for (int c = 0; c < 4; ++c) rgba[c] = buf[(size_t(row) * w + x) * 4 + c];
 }
 
-int App::selfTestStep(const std::vector<std::string>& a, const std::vector<std::string>& b) {
+int App::selfTestStep(const std::vector<std::string>& a, const std::vector<std::string>& b,
+                      const std::vector<std::string>& c) {
     auto fail = [&](const char* what) {
         std::printf("FAIL (stage %d): %s\n", st_.stage, what);
         return 1;
@@ -134,8 +137,65 @@ int App::selfTestStep(const std::vector<std::string>& a, const std::vector<std::
         removeLayer(1);
         if (layers_.size() != 1 || active_ != 0) return fail("closing B should leave A active");
         next("layer closed");
+        if (c.empty()) {
+            std::printf("OK (%.1f s)\n", now() - st_.t0);
+            return 0;
+        }
+        break;
+    case 9:
+        openInputs(c);
+        next("open C (bands per date)");
+        break;
+    case 10:
+        if (layers_.size() == 1 && loaded(layers_[0]) && layers_[0].session->info->bandsPerDate > 1) {
+            const CubeInfo& info = *s_->info;
+            std::printf("    %s; %d bands per date, shown: %s\n", info.description.c_str(), info.bandsPerDate,
+                        info.selectionText().c_str());
+            if (info.sel.qaBand == 0) return fail("the Fmask band should be used automatically");
+            addPin(info.width - 10, info.height / 2);
+            canvasSize_ = ImVec2(400, 300);
+            fitView(canvasSize_);
+            scale_ *= 2; // a view of our own, to check it is kept
+            viewTouched_ = true;
+            st_.since = now();
+            st_.color[0] = 0;
+            next("C loaded, quality band detected");
+        }
+        break;
+    case 11: {
+        if (!pins_.empty() && !pins_[0].exact) break;
+        BandSelection sel = s_->info->sel;
+        sel.band = 4;   // NIR
+        sel.ndBand = 3; // Red -> NDVI
+        reopenLayer(active_, sel);
+        next("reopen C as ND(NIR, Red)");
+        break;
+    }
+    case 12: {
+        const SeriesLayer& L = layers_[0];
+        if (opening_.valid() || L.session->info->sel.ndBand != 3 || !loaded(L) || pins_.empty() || !pins_[0].exact)
+            break;
+        const CubeInfo& info = *s_->info;
+        float lo = 1e9f, hi = -1e9f;
+        int nan = 0;
+        for (float v : pins_[0].values) {
+            if (!std::isfinite(v)) {
+                ++nan;
+                continue;
+            }
+            lo = std::min(lo, v);
+            hi = std::max(hi, v);
+        }
+        std::printf("    %s (%s); pin at (%d,%d): NDVI %.3f .. %.3f, %d of %d dates masked or missing\n",
+                    L.name.c_str(), info.description.c_str(), pins_[0].x, pins_[0].y, lo, hi, nan, info.T());
+        if (layers_.size() != 1 || active_ != 0) return fail("the reopened layer should stay in place and active");
+        if (lo < -1 || hi > 1) return fail("a normalized difference is within [-1, 1]");
+        if (nan == 0) return fail("cloudy dates should be masked by the QA band");
+        if (fitRequested_ || !viewTouched_) return fail("the view should be kept");
+        next("reopened in place: name, pin and view kept, values are NDVI, clouds masked");
         std::printf("OK (%.1f s)\n", now() - st_.t0);
         return 0;
+    }
     }
     return -1;
 }
