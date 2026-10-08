@@ -82,6 +82,7 @@ set(JANUS_SOURCES
   src/main.cpp
   src/app.cpp
   src/app_classes.cpp
+  src/app_fullres.cpp
   src/app_layers.cpp
   src/app_selftest.cpp
   src/app_zeit.cpp
@@ -90,6 +91,7 @@ set(JANUS_SOURCES
   src/selftest.cpp
   src/zeit_client.cpp
   src/cube.cpp
+  src/fullres_cache.cpp
   src/overview.cpp
   src/platform.cpp
   src/session.cpp

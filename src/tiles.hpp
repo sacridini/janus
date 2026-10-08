@@ -12,6 +12,7 @@
 #include "cube.hpp"
 #include "gpu.hpp"
 
+class FullResCache;
 class JobPool;
 
 // Visible map region in source pixels + scale (screen px per source px).
@@ -28,8 +29,9 @@ class TileManager {
 public:
     static constexpr int kTileSize = 256;
 
+    // Tiles are read from `fullRes` when it has the date, else from the source.
     TileManager(std::shared_ptr<const CubeInfo> info, double overviewFactor, JobPool& pool,
-                size_t maxGpuBytes);
+                size_t maxGpuBytes, std::shared_ptr<FullResCache> fullRes = nullptr);
     ~TileManager();
 
     // Main thread, for each map panel showing this layer. Returns the wanted level
@@ -69,6 +71,7 @@ private:
     void evict();
 
     std::shared_ptr<const CubeInfo> info_;
+    std::shared_ptr<FullResCache> fullRes_;
     double overviewFactor_;
     int maxLevel_;          // coarsest level that is still finer than the overview
     JobPool& pool_;

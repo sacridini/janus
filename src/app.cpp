@@ -86,6 +86,7 @@ bool App::init(const AppOptions& opts, std::string& error) {
     std::error_code ec;
     fs::create_directories(fs::u8path(settings_.cacheDir), ec);
     Overview::pruneCache(settings_.cacheDir, 20ull << 30);
+    registerFullResSettings(); // its budget (in the .ini) prunes the full-resolution caches
     settings_.overviewBudgetBytes = opts.budgetMB << 20;
     settings_.ioThreads = opts.ioThreads;
     settings_.maxTexSize = std::min<int>(gpu_.maxCubeSide(), 16384);
@@ -2035,6 +2036,7 @@ void App::uiPerf() {
         ImGui::Text("Exact series (%d dates): %.1f ms", s_->info->T(), lastSeriesMs_);
         if (roi_ && roi_->done == s_->info->T()) ImGui::Text("ROI: %.0f ms", roi_->ms.load());
         ImGui::Text("Queue: %d (background), %d (interactive)", s_->bgPool().pending(), s_->fgPool().pending());
+        uiFullRes();
     }
     ImGui::SeparatorText("Zeit");
     if (!zeit_ || zeit_->state() == ZeitClient::State::Off) {
@@ -2074,6 +2076,7 @@ void App::uiPerf() {
             if (e.path().extension() == ".januscube" && e.path().filename().u8string() != keep) fs::remove(e.path(), ec);
     }
     ImGui::SetItemTooltip("%s", settings_.cacheDir.c_str());
+    uiFullResSettings();
     ImGui::End();
 }
 

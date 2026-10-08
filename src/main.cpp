@@ -54,6 +54,7 @@ int main(int argc, char** argv) {
     bool measureStartup = false; // dev option: print startup timings and exit after the first frame
     bool selftestZeit = false;   // dev option: run the Zeit path without a window
     bool selftestUi = false;     // dev option: drive the layers workflow in a hidden window
+    bool measureCache = false;   // dev option: time the full-resolution cache in a hidden window
     for (size_t i = 0; i < args.size(); ++i) {
         const std::string& a = args[i];
         auto next = [&]() -> const char* { return i + 1 < args.size() ? args[++i].c_str() : nullptr; };
@@ -82,6 +83,8 @@ int main(int argc, char** argv) {
             if (v) opts.zeitBridge = v;
         } else if (a == "--selftest-ui") {
             selftestUi = true;
+        } else if (a == "--measure-cache") {
+            measureCache = selftestUi = true;
         } else if (a == "--selftest-zeit") {
             selftestZeit = true;
         } else if (a == "--measure-startup") {
@@ -169,7 +172,13 @@ int main(int argc, char** argv) {
         render::newFrame();
         ImGui::NewFrame();
         app->frame();
-        if (selftestUi) {
+        if (measureCache) {
+            if (const int rc = app->measureCacheStep(inputs); rc >= 0) {
+                std::fflush(stdout);
+                exitCode = rc;
+                glfwSetWindowShouldClose(window, 1);
+            }
+        } else if (selftestUi) {
             if (inputs.size() < 2 || inputs.size() > 5) {
                 std::fprintf(stderr, "--selftest-ui needs two to five inputs\n");
                 exitCode = 2;

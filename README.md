@@ -46,6 +46,10 @@ OpenGL 3.3 on Windows and Linux and through Metal on macOS.
   autocorrelation corrections, is a Zeit tool).
 - **Full resolution on zoom**: past the overview resolution, tiles of the visible
   area are read in the background and cached on the GPU.
+- **Full-resolution cache**: a lossless copy of the whole series in the cache
+  folder (an SSD), built in the background; exact series, pins, ROI and detail
+  tiles are then read from it, about 1 ms per series even when the files sit on
+  a spinning HDD. On by default for series on an HDD (see the performance notes).
 - **Fast**: about 0.15 s from launch to the first frame; the app sleeps when
   nothing changes (a frame costs ~0.3 ms of CPU). The cube overview is cached on
   disk, so reopening a series takes a fraction of a second.
@@ -142,6 +146,9 @@ Developer options:
                       (or set JANUS_ZEIT_PYTHON)
   --zeit-bridge PY    bridge script to use (or set JANUS_ZEIT_BRIDGE)
   --measure-startup   print startup timings and exit after the first frame
+  --measure-cache on|off IN  time exact series and ROI from the files, build the
+                      overview (and the full-resolution cache if on), time the
+                      reads again from the cache, in a hidden window
   --selftest-zeit IN  run the Zeit tools end to end on IN without a window
   --selftest-ui A B [C [D [E]]]  drive the layers workflow (A, then B as a layer;
                       C: several bands per date; D, E: categorical series with
@@ -173,7 +180,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or drag it) |
 | Classes (categorical data) | **Display** panel → *Categorical (classes)*: legend with colours, names and shares (click a colour to change it, untick a class to hide it); detection can be switched off or forced |
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
-| Performance panel | **View → Performance** (hidden by default): timings, Zeit status, overview memory |
+| Performance panel | **View → Performance** (hidden by default): timings, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**; when it is built and its budget under Settings) |
 | Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active |
 | Browse files | **Files** panel: double click opens, right click → Add as layer; Ctrl+click selects several files |
 | Chart of several layers | Time series panel → *All visible layers* (one marker shape per layer) |
@@ -265,6 +272,32 @@ Logs: `%LOCALAPPDATA%\Janus\zeit.log`.
   GeoTIFFs stored as 1-row strips must be read almost entirely, even for a
   reduced overview. Cloud-optimized GeoTIFFs (tiled, with internal overviews) or
   an SSD make the first open much faster.
+- **Full-resolution cache** (`.janusfull` files next to the overview cache):
+  every date in 64×64 blocks, each compressed losslessly (float bits as
+  integers, difference with the previous pixel, byte planes, zstd), so a series
+  reads one small block per date. Values are bit-for-bit those of the files
+  (after nodata, scale, normalized difference and quality mask). Measured on
+  Landsat NDVI composites on a 5400 rpm HDD (41 dates of 7441×7317 Float32, LZW,
+  1-row strips, 8.5 GB per tile):
+
+  | | from the files (HDD) | from the cache |
+  |---|---|---|
+  | exact series (41 dates) | 250–500 ms cold, ~5 ms once read | 0.7–1.0 ms |
+  | ROI 256×256 (41 dates) | ~2 s cold, ~1.3 s once read | ~21 ms |
+
+  Size: 6.3–6.7 GB per tile (1.37–1.41× smaller than raw floats; zstd alone
+  gives 1.17×). On an HDD the first open builds it in the same read as the
+  overview: the overview pass reads each date at full resolution, one thread
+  streams the file ahead while four decode and compress, and the overview is
+  taken from those rows (48.7 s for 38 dates, against 52 s for 41 dates of the
+  overview alone). When the overview already came from its cache, the cache is
+  built in a pass of its own (54 s per tile, bound by the disk). Each date is saved as it is
+  built and used right away; a stopped build resumes.
+- The cache is on by default for series on an HDD; **Performance → Settings**
+  turns it on for every series or leaves it to **Build it now** (per series),
+  and sets its budget (64 GB by default: the least recently opened series leave
+  first). The setting is kept in the layout file. With the files on an SSD it
+  matters less.
 
 ## Building from source
 
@@ -369,6 +402,8 @@ Machine); the rest of the data in `~/Library/Application Support/Janus`.
        │               │ disk cache (%LOCALAPPDATA%\Janus\cache)      │
        │               └─ instant approximate series                  ├─► statistics shader (1 pass)
        │                                                              └─► display shader (stretch, colormap, modes)
+       ├──► FullResCache: every date at full resolution on the local disk (built with the overview on an HDD)
+       │         └─ read first by the two below for the dates it has
        ├──► TileManager: full-resolution tiles of the visible area ──► LRU cache on the GPU
        └──► exact pixel series / ROI (interactive pool, cancellable)
 ```
@@ -377,6 +412,7 @@ Machine); the rest of the data in `~/Library/Application Support/Janus`.
 |---|---|
 | `src/cube.*` | Layer, date and band discovery; per-thread GDAL reader (nodata → NaN, scale/offset, normalized difference, QA mask) |
 | `src/overview.*` | Reduced cube built in parallel, following the focused date; disk cache |
+| `src/fullres_cache.*` | Full-resolution cache: lossless 64×64 blocks per date on the local disk, built with the overview (HDD), read for series, ROI and tiles |
 | `src/gpu.hpp` | Renderer-neutral GPU layer: cube, per-pixel temporal statistics, map drawing, textures (`GpuTex`) |
 | `src/gpu_gl.cpp`, `src/gpu_metal.mm` | Its OpenGL 3.3 (GLSL) and Metal (MSL, shared-memory buffers) backends |
 | `src/render_backend*` | Window and context, ImGui renderer backend, present (main window and detached panels): OpenGL or Metal |
@@ -387,7 +423,8 @@ Machine); the rest of the data in `~/Library/Application Support/Janus`.
 | `src/app_layers.cpp` | Several series as layers (alignment, active layer, other layers' series), Layers and Files panels |
 | `src/app_classes.cpp` | Categorical series: detection, class colours and names, legend, class statistics |
 | `src/file_browser.*` | Lazily listed folder tree (rasters only by default) |
-| `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow in a hidden window, checked by reading map pixels |
+| `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow in a hidden window, checked by reading map pixels; the full-resolution cache checked against the files |
+| `src/app_fullres.cpp` | Full-resolution cache in the Performance panel, its setting, `--measure-cache` |
 | `src/app_zeit.cpp` | Tools menu, tool windows, tasks, result layers, models on the chart |
 | `src/zeit_client.*` | Bridge processes (JSON lines over pipes; Win32 or POSIX), pixel calls, raster jobs, estimates |
 | `src/results.*` | Result rasters loaded as map layers |

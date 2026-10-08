@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -14,6 +15,10 @@
 #include "cube.hpp"
 
 class JobPool;
+
+// Hash of the files behind a cube (paths, sizes, dates, nodata/scale, band
+// selection) seeded with `salt`: the name of its caches.
+uint64_t cubeCacheKey(const CubeInfo& info, const void* salt, size_t saltBytes);
 
 // Page-aligned storage whose length is rounded up to whole pages: the Metal
 // renderer shares the overview with the GPU without copying it
@@ -57,6 +62,10 @@ public:
     // shares `data` with the GPU (see PageAllocator); GL keeps a second copy there.
     void start(std::shared_ptr<const CubeInfo> info, int64_t budgetBytes, int maxTexSize,
                JobPool& pool, const std::string& cacheDir);
+
+    // Set before start(): builds date t at full resolution in the same read and
+    // fills the overview layer (FullResCache::buildWithOverview; -1 = not handled).
+    std::function<int(int t, float* layer, int w, int h)> fullResBuild;
 
     std::vector<int> takeReadyLayers();   // main thread: dates ready for upload
     // The date the user is looking at: the next ones built are t, t+1, t+2...

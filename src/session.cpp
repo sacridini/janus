@@ -23,12 +23,27 @@ Session::Session(std::shared_ptr<CubeInfo> infoIn, const SessionSettings& s, std
     timesYears.resize(T);
     for (int t = 0; t < T; ++t) timesYears[t] = float(info->yearsFromStart(t));
 
+    // Full-resolution cache: opened before the overview starts, so that on an
+    // HDD the overview pass builds both in the same read of each date (one
+    // thread streams the file, several decode); then the dates the overview
+    // pass does not read (its own cache had them).
+    fullRes = std::make_shared<FullResCache>(info, s.cacheDir);
+    fullResDecodeThreads_ = rotational ? std::min(4, cores / 2) : 1;
+    fullResBudget_ = s.fullResBudgetBytes;
+    const bool wantFull = s.fullResMode == SessionSettings::FullResAll ||
+                          (s.fullResMode == SessionSettings::FullResHdd && rotational);
+    if (wantFull) fullRes->start(fullResDecodeThreads_, fullResBudget_);
+    overview.fullResBuild = [c = fullRes.get()](int t, float* layer, int w, int h) {
+        return c->buildWithOverview(t, layer, w, h);
+    };
     overview.start(info, s.overviewBudgetBytes, s.maxTexSize, *bg_, s.cacheDir);
+    if (wantFull) fullRes->submitBuild(*bg_);
     gpu.create(overview.w, overview.h, T, timesYears, overview.data.data(), overview.pageBytes());
-    tiles = std::make_unique<TileManager>(info, overview.factor, *fg_, s.tileBudgetBytes);
+    tiles = std::make_unique<TileManager>(info, overview.factor, *fg_, s.tileBudgetBytes, fullRes);
 }
 
 Session::~Session() {
+    fullRes->stop(); // the date being built is dropped instead of waited for
     fg_.reset();
     bg_.reset();
 }
@@ -60,11 +75,17 @@ uint64_t Session::requestSeries(int x, int y, bool cancellable) {
     fg_->submit(0, [this, id, x, y, cancellable] {
         if (cancellable && latestHover_.load() != id) return; // the mouse has already moved on
         const auto t0 = std::chrono::steady_clock::now();
-        SeriesResult r{id, x, y, std::vector<float>(size_t(info->T()), NAN), 0};
-        CubeReader& reader = threadReader(info);
-        for (int t = 0; t < info->T(); ++t) {
-            if (cancellable && latestHover_.load() != id) return;
-            reader.readPixel(t, x, y, r.values[t]);
+        const int T = info->T();
+        SeriesResult r{id, x, y, std::vector<float>(size_t(T), NAN), 0};
+        // Dates in the full-resolution cache first (one small block each), the
+        // rest from the source files.
+        std::vector<char> got(T, 0);
+        if (fullRes->readSeries(x, y, r.values.data(), got.data()) < T) {
+            CubeReader& reader = threadReader(info);
+            for (int t = 0; t < T; ++t) {
+                if (cancellable && latestHover_.load() != id) return;
+                if (!got[t]) reader.readPixel(t, x, y, r.values[t]);
+            }
         }
         r.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         std::lock_guard<std::mutex> lk(seriesM_);
@@ -99,8 +120,10 @@ std::shared_ptr<RoiData> Session::startRoi(int x0, int y0, int x1, int y1) {
         fg_->submit(5 + t, [this, roi, t] { // chronological: oldest date first
             if (!roi->cancel) {
                 std::vector<float> buf(size_t(roi->bw) * roi->bh);
-                if (threadReader(info).readWindow(t, roi->x0, roi->y0, roi->x1 - roi->x0, roi->y1 - roi->y0,
-                                                  buf.data(), roi->bw, roi->bh))
+                const int x = roi->x0, y = roi->y0, w = roi->x1 - roi->x0, h = roi->y1 - roi->y0;
+                const bool cached = fullRes->readWindow(t, x, y, w, h, buf.data(), roi->bw, roi->bh);
+                if (cached) roi->cachedDates++;
+                if (cached || threadReader(info).readWindow(t, x, y, w, h, buf.data(), roi->bw, roi->bh))
                     roi->perT[t] = computeSampleStats(buf);
             }
             if (roi->done.fetch_add(1) + 1 == info->T())
@@ -108,4 +131,10 @@ std::shared_ptr<RoiData> Session::startRoi(int x0, int y0, int x1, int y1) {
         });
     }
     return roi;
+}
+
+bool Session::buildFullRes() {
+    if (!fullRes->start(fullResDecodeThreads_, fullResBudget_)) return false;
+    fullRes->submitBuild(*bg_);
+    return true;
 }
