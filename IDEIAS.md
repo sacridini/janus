@@ -94,7 +94,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 
 | Onde | Windows | Linux | macOS |
 |---|---|---|---|
-| `src/platform.cpp` | IFileOpenDialog, IOCTL de seek penalty, Explorer | `zenity`/`kdialog`, `/sys/dev/block/*/queue/rotational`, `xdg-open`, `~/.local/share/tsv` | AppleScript, `open`, `~/Library/Application Support/tsv` (não testado) |
+| `src/platform.cpp` | IFileOpenDialog, IOCTL de seek penalty, Explorer | `zenity`/`kdialog`, `/sys/dev/block/*/queue/rotational`, `xdg-open`, `~/.local/share/tsv` | AppleScript, `open`, `~/Library/Application Support/tsv`, cache em `~/Library/Caches/tsv` (fora do Time Machine) (diálogos não testados) |
 | `ZeitProcess` (`src/zeit_client.cpp`) | CreateProcess + pipes, lista de handles herdados | `posix_spawn` + pipes (testado) | o mesmo (testado) |
 | `tsv.com` (`src/launcher.cpp`) | truque do `.com` para o console | desnecessário: um binário só | idem |
 | runtime do Zeit | Python *embeddable* | `python-build-standalone` *stripped* + wheels manylinux, `strip --strip-debug` (638 MB) | receita `macos_arm64`: wheels até `macosx_15_0`, `strip -S` seguido de `codesign --force --sign -` (o strip invalida a assinatura e o kernel mata o processo) (446 MB) |
@@ -102,6 +102,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | pacote | Inno Setup (122 MB) | `.tar.xz` portátil (172 MB) com `tsv.desktop`; AppImage/.deb depois | `.app` + `.dmg` assinado (a fazer) |
 | OpenGL 3.3 core | ok | ok (WSLg/Mesa) | exige `GLFW_OPENGL_FORWARD_COMPAT` (já definido); OpenGL obsoleto lá, o ImGui tem backend Metal |
 | gestos (`platform::takeGestures`) | roda = zoom | roda = zoom | `platform_mac.mm`: monitor local do `NSEvent`; pinça = zoom, rolagem com deltas precisos (trackpad, Magic Mouse) = mover; roda comum = zoom |
+| densidade da tela | 1 pixel por ponto | idem | Retina: 2 pixels por ponto; o mapa é desenhado em `FramebufferScale` do viewport onde está, e o nível dos tiles é escolhido por pixel de tela |
 
 ## Roadmap
 

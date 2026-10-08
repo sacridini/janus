@@ -13,6 +13,7 @@ void attachParentConsole();                   // for --help from a GUI app (Wind
 
 std::string exeDir();
 std::string appDataDir();                     // e.g. %LOCALAPPDATA%\tsv (created if needed)
+std::string cacheDir();                       // regenerable data: appDataDir()/cache; macOS: ~/Library/Caches/tsv
 
 std::vector<std::string> openFilesDialog();   // empty if cancelled
 std::string openFolderDialog();               // empty if cancelled

@@ -81,7 +81,7 @@ bool App::init(const AppOptions& opts, std::string& error) {
     if (!gpu_.init(error)) return false;
 
     const std::string appData = platform::appDataDir();
-    settings_.cacheDir = (fs::u8path(appData) / "cache").u8string();
+    settings_.cacheDir = platform::cacheDir();
     std::error_code ec;
     fs::create_directories(fs::u8path(settings_.cacheDir), ec);
     Overview::pruneCache(settings_.cacheDir, 20ull << 30);
@@ -618,14 +618,15 @@ void App::fitView(ImVec2 c) {
     mapDirty_ = true;
 }
 
-void App::renderMap(int w, int h) {
+void App::renderMap(int w, int h, float pixelScale) {
     const float bg[4] = {0.10f, 0.10f, 0.115f, 1.0f};
-    gpu_.beginMap(w, h, bg);
+    gpu_.beginMap(int(std::lround(w * pixelScale)), int(std::lround(h * pixelScale)), bg);
+    // Canvas points -> pixels of the map target.
     auto screenRect = [&](double x0, double y0, double x1, double y1, float r[4]) {
-        r[0] = float(offset_.x + x0 * scale_);
-        r[1] = float(offset_.y + y0 * scale_);
-        r[2] = float(offset_.x + x1 * scale_);
-        r[3] = float(offset_.y + y1 * scale_);
+        r[0] = float((offset_.x + x0 * scale_) * pixelScale);
+        r[1] = float((offset_.y + y0 * scale_) * pixelScale);
+        r[2] = float((offset_.x + x1 * scale_) * pixelScale);
+        r[3] = float((offset_.y + y1 * scale_) * pixelScale);
     };
     for (const SeriesLayer& L : layers_) {
         if (!L.visible || !L.aligned) continue;
@@ -658,7 +659,7 @@ void App::renderMap(int w, int h) {
         if (ready) gpu_.drawCube(S.gpu, rect, p, cmap, L.opacity);
         if (isActive && mode_ == ModeValue && detailLevel_ >= 0) {
             const ViewRect v{-offset_.x / scale_, -offset_.y / scale_, (canvasSize_.x - offset_.x) / scale_,
-                             (canvasSize_.y - offset_.y) / scale_, scale_};
+                             (canvasSize_.y - offset_.y) / scale_, scale_ * pixelScale};
             s_->tiles->forEachVisible(t_, v, [&](GLuint tex, double x, double y, double sw, double sh) {
                 float r[4];
                 screenRect(x, y, x + sw, y + sh, r);
@@ -842,11 +843,19 @@ void App::uiMap() {
         hoverSince_ = ImGui::GetTime();
     }
 
+    // Retina: the map is drawn at the density of the viewport it is on, and
+    // detail tiles are chosen by screen pixels, not points.
+    const float pixelScale = std::max(1.0f, ImGui::GetWindowViewport()->FramebufferScale.x);
+    if (pixelScale != mapPixelScale_) {
+        mapPixelScale_ = pixelScale;
+        mapDirty_ = true;
+    }
+
     // --- Detail tiles ("value" mode only) ---
     int level = -1;
     if (detail_ && mode_ == ModeValue && !s_->deferRandomReads()) {
         const ViewRect v{-offset_.x / scale_, -offset_.y / scale_, (size.x - offset_.x) / scale_,
-                         (size.y - offset_.y) / scale_, scale_};
+                         (size.y - offset_.y) / scale_, scale_ * pixelScale};
         level = s_->tiles->update(t_, v, playing_ ? (t_ + 1) % T : -1);
     }
     if (level != detailLevel_) {
@@ -855,7 +864,7 @@ void App::uiMap() {
     }
 
     if (mapDirty_) {
-        renderMap(int(size.x), int(size.y));
+        renderMap(int(size.x), int(size.y), pixelScale);
         mapDirty_ = false;
     }
 

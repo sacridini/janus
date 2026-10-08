@@ -366,6 +366,22 @@ bool isOnRotationalDisk(const std::string& path) {
 
 } // namespace platform
 
+std::string platform::cacheDir() {
+    std::error_code ec;
+#ifdef __APPLE__
+    // ~/Library/Caches: the system may purge it and Time Machine skips it. Up
+    // to 0.11 the cache lived in the data folder: drop that copy.
+    const fs::path old = fs::u8path(appDataDir()) / "cache";
+    if (fs::exists(old, ec)) fs::remove_all(old, ec);
+    const char* home = std::getenv("HOME");
+    const fs::path dir = fs::path(home ? home : "/tmp") / "Library" / "Caches" / "tsv";
+#else
+    const fs::path dir = fs::u8path(appDataDir()) / "cache";
+#endif
+    fs::create_directories(dir, ec);
+    return dir.u8string();
+}
+
 std::tm platform::localTime(std::time_t t) {
     std::tm tm{};
 #ifdef _WIN32

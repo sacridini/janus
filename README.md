@@ -221,7 +221,7 @@ Logs: `%LOCALAPPDATA%\tsv\zeit.log`.
 ### Performance notes
 
 - The first open of a cube builds a reduced overview of every date (in parallel
-  on SSDs) and caches it in `%LOCALAPPDATA%\tsv\cache`; later opens read that one
+  on SSDs) and caches it in `%LOCALAPPDATA%\tsv\cache` (macOS: `~/Library/Caches/tsv`); later opens read that one
   file. The **Performance** panel shows startup, build and read timings.
 - Spinning HDDs are detected and read with a single sequential reader (two
   readers were measured to be 4× slower). While the overview builds on an HDD,
@@ -307,6 +307,11 @@ The build links GDAL from the conda environment through an absolute RPATH, so
 it breaks if that environment is removed; a self-contained `.app` bundle is
 still to be done. The Zeit runtime re-signs (ad hoc) the native libraries it
 strips: on Apple Silicon a binary with an invalid signature is killed on load.
+
+On a Retina display the map is drawn at the density of the screen it is on
+(2 pixels per point), and full-resolution tiles are chosen by screen pixels.
+The overview cache lives in `~/Library/Caches/tsv` (purgeable, skipped by Time
+Machine); the rest of the data in `~/Library/Application Support/tsv`.
 
 ## Architecture
 

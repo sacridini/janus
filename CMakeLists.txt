@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(tsv VERSION 0.11.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
+project(tsv VERSION 0.12.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
 if(APPLE)
   enable_language(OBJC OBJCXX) # src/platform_mac.mm (OBJC too: GLFW's .m files stay Objective-C)
 endif()

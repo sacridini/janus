@@ -1,9 +1,9 @@
 ; tsv installer (Inno Setup 6).
 ; Built by the CMake "installer" target:  cmake --build build --config Release --target installer
-; or by hand:  ISCC /DAppVersion=0.11.0 /DBuildDir=..\build\Release installer\tsv.iss
+; or by hand:  ISCC /DAppVersion=0.12.0 /DBuildDir=..\build\Release installer\tsv.iss
 
 #ifndef AppVersion
-  #define AppVersion "0.11.0"
+  #define AppVersion "0.12.0"
 #endif
 #ifndef BuildDir
   #define BuildDir "..\build\Release"

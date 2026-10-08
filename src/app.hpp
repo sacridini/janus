@@ -77,7 +77,7 @@ private:
     void uiPopups();
     void handleShortcuts();
     void pumpSeries();
-    void renderMap(int w, int h);
+    void renderMap(int w, int h, float pixelScale = 1.0f); // w, h in canvas points
     void fitView(ImVec2 canvas);
     void setT(int t);
     void addPin(int x, int y);
@@ -191,6 +191,7 @@ private:
     bool fitRequested_ = true;
     ImVec2 canvasSize_{0, 0};
     bool mapDirty_ = true;
+    float mapPixelScale_ = 1.0f; // framebuffer pixels per point of the map's viewport
     bool roiDragging_ = false;
     ImVec2 roiStart_{0, 0}, roiEnd_{0, 0};
 
