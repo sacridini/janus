@@ -233,6 +233,8 @@ private:
     };
     std::vector<MapView> views_;
     int nextViewId_ = 2;
+    int focusedViewId_ = 0;      // map panel focused in the last frame (0 = none)
+    int closeViewId_ = 0;        // map panel to close (Ctrl+W, View menu)
     int mouseInPanel_ = -1, prevMouseInPanel_ = -1; // map panel under the mouse (0 = main)
     bool viewsStale_ = false;    // the main map was redrawn: so must the panels
     std::shared_ptr<RoiData> roi_;

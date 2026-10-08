@@ -496,6 +496,10 @@ void App::handleShortcuts() {
         auto files = platform::openFilesDialog();
         if (!files.empty()) openInputs(files, true);
     }
+    if (s_ && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_T)) newMapView();
+    // Closes the focused map panel, else the last one opened (the main map stays).
+    if (!views_.empty() && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_W))
+        closeViewId_ = focusedViewId_ ? focusedViewId_ : views_.back().id;
     if (io.WantTextInput || !s_) return;
     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) setT(t_ - 1);
     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) setT(t_ + 1);
@@ -532,7 +536,9 @@ void App::uiMenu() {
     }
     if (ImGui::BeginMenu("View")) {
         if (ImGui::MenuItem("Fit map to window", "H", false, s_ != nullptr)) fitRequested_ = true;
-        if (ImGui::MenuItem("New map view", nullptr, false, s_ != nullptr)) newMapView();
+        if (ImGui::MenuItem("New map view", "Ctrl+T", false, s_ != nullptr)) newMapView();
+        if (ImGui::MenuItem("Close map view", "Ctrl+W", false, !views_.empty()))
+            closeViewId_ = focusedViewId_ ? focusedViewId_ : views_.back().id;
         ImGui::MenuItem("Performance", nullptr, &showPerf_);
         ImGui::Separator();
         if (ImGui::MenuItem("Reset layout")) layoutPending_ = true;
@@ -607,7 +613,8 @@ void App::uiPopups() {
     if (ImGui::BeginPopupModal("Shortcuts and usage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted(
             "Open: Ctrl+O (files), Ctrl+Shift+O (folder), or drop onto the window\n"
-            "Command line: jn <folder | file.tif | pattern_*.tif ...> [--band N]\n\n"
+            "Command line: jn <folder | file.tif | pattern_*.tif ...> [--band N]\n"
+            "Map panels: Ctrl+T (new), Ctrl+W (close the focused one, else the last)\n\n"
             "Map\n"
             "  drag ................ pan\n"
             "  mouse wheel ......... zoom\n"
@@ -1206,6 +1213,7 @@ void App::newMapView() {
 }
 
 void App::uiMapViews() {
+    focusedViewId_ = 0;
     for (size_t i = 0; i < views_.size();) {
         MapView& v = views_[i];
         bool open = true;
@@ -1215,7 +1223,9 @@ void App::uiMapViews() {
         const bool shown = ImGui::Begin(name, &open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         ImGui::PopStyleVar();
         if (shown) uiMapView(v);
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) focusedViewId_ = v.id;
         ImGui::End();
+        if (v.id == closeViewId_) open = false;
         if (!open) {
             gpu_.releaseMap(v.id);
             views_.erase(views_.begin() + i);
@@ -1223,6 +1233,7 @@ void App::uiMapViews() {
             ++i;
         }
     }
+    closeViewId_ = 0;
     viewsStale_ = false;
     prevMouseInPanel_ = mouseInPanel_;
     mouseInPanel_ = -1;

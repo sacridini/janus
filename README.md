@@ -178,7 +178,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Browse files | **Files** panel: double click opens, right click → Add as layer; Ctrl+click selects several files |
 | Chart of several layers | Time series panel → *All visible layers* (one marker shape per layer) |
 | Second monitor | drag a panel's tab out of the main window |
-| Maps side by side | View → New map view: pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** |
+| Maps side by side | View → New map view (`Ctrl+T`): pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** or `Ctrl+W` (the focused panel, else the last one opened) |
 | Chart options | style, values/anomaly/z-score, trend (OLS/Sen), Y = map range |
 | Export | **Copy CSV** in the Time series panel |
 | Zeit tools | **Tools** menu → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
