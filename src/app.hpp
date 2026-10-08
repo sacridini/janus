@@ -102,7 +102,7 @@ private:
     void uiTasks();
     void uiResultsOf(uint64_t cubeId);
     void clearResults(uint64_t cubeId = 0); // 0 = every layer
-    void drawZeitOverlays(const char* label, const json& result, ImVec4 color, const SeriesStats& st);
+    void drawZeitOverlays(const char* label, const json& result, const SeriesStats& st);
 
     // Layers (app_layers.cpp)
     struct LayerDisplay;

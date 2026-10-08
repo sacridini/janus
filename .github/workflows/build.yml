@@ -1,0 +1,127 @@
+# Builds tsv on Windows, Linux and macOS, runs the self-tests and makes the
+# installers: tsv-<version>-setup.exe (Inno Setup), tsv-<version>-linux-x86_64.tar.xz
+# and tsv-<version>-macos-arm64.dmg. A tag v<version> publishes them as a GitHub
+# Release. GDAL (and the Linux compiler and X11/OpenGL headers) come from a
+# conda-forge environment, as in a local build (README, Building from source).
+name: build
+
+on:
+  push:
+    branches: [main, "ci/**"]
+    tags: ["v*"]
+    paths-ignore: ["**.md", "docs/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            packages: gdal numpy pip
+            configure: -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$CONDA_PREFIX/Library" -DPython3_EXECUTABLE="$CONDA_PREFIX/python.exe"
+            exe: build/Release/tsv.exe
+            package: installer
+          - os: ubuntu-24.04
+            packages: >-
+              cmake ninja cxx-compiler c-compiler pkg-config gdal numpy pip
+              xorg-libx11 xorg-libxrandr xorg-libxinerama xorg-libxcursor xorg-libxi xorg-libxext libgl-devel
+            configure: -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DPython3_EXECUTABLE="$CONDA_PREFIX/bin/python" -DGLFW_BUILD_WAYLAND=OFF
+            exe: build/tsv
+            package: package_linux
+          - os: macos-15
+            packages: gdal numpy pip
+            configure: -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DPython3_EXECUTABLE="$CONDA_PREFIX/bin/python"
+            exe: build/tsv
+            package: package_macos
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: tsv
+          create-args: -c conda-forge ${{ matrix.packages }}
+          init-shell: bash
+          cache-environment: true
+
+      - name: Configure
+        run: cmake -S . -B build ${{ matrix.configure }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Zeit runtime
+        run: cmake --build build --config Release --target zeit_runtime
+
+      - name: Test data
+        run: python tools/make_selftest_data.py "$RUNNER_TEMP/td"
+
+      - name: Self-test (Zeit tools, no window)
+        run: ${{ matrix.exe }} --selftest-zeit "$RUNNER_TEMP/td/serie"
+
+      # A hidden window needs a GPU context: Mesa (llvmpipe) under Xvfb on Linux.
+      # The Windows runners only have OpenGL 1.1 and the macOS ones no usable
+      # Metal device, so the UI self-test runs on Linux (and locally everywhere).
+      - name: Self-test (UI, Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglx-mesa0
+          LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1920x1080x24" \
+            ${{ matrix.exe }} --selftest-ui "$RUNNER_TEMP/td/A" "$RUNNER_TEMP/td/B" "$RUNNER_TEMP/td/C" "$RUNNER_TEMP/td/D" "$RUNNER_TEMP/td/E"
+
+      - name: Package
+        run: cmake --build build --config Release --target ${{ matrix.package }}
+
+      - name: Packaged program runs
+        run: |
+          case "$RUNNER_OS" in
+            Windows) ;; # the installer is checked by installing it below
+            Linux) tar -xJf dist/*.tar.xz -C "$RUNNER_TEMP" && "$RUNNER_TEMP"/tsv-*/tsv --selftest-zeit "$RUNNER_TEMP/td/serie" ;;
+            macOS) m=$(hdiutil attach -nobrowse -readonly dist/*.dmg | tail -1 | awk -F'\t' '{print $NF}')
+                   "$m/tsv.app/Contents/MacOS/tsv" --selftest-zeit "$RUNNER_TEMP/td/serie"; rc=$?
+                   hdiutil detach "$m"; exit $rc ;;
+          esac
+
+      - name: Installer installs and runs (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist\tsv-*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', "/DIR=$env:RUNNER_TEMP\tsv" -Wait
+          # tsv.exe is a GUI program: & would not wait for it.
+          $p = Start-Process "$env:RUNNER_TEMP\tsv\tsv.exe" -ArgumentList '--selftest-zeit', "$env:RUNNER_TEMP\td\serie" `
+                 -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$env:RUNNER_TEMP\installed.log"
+          Get-Content "$env:RUNNER_TEMP\installed.log" | Select-Object -Last 3
+          exit $p.ExitCode
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tsv-${{ runner.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

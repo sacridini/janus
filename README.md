@@ -86,8 +86,28 @@ the system (tested on Ubuntu 24.04). `tsv.desktop` and `tsv.png` are included
 for a menu entry. File dialogs use `zenity` or `kdialog` when installed; the
 Files panel works without them. Data and caches live in `~/.local/share/tsv`.
 
+## Installation (macOS, Apple Silicon)
+
+Open `tsv-<version>-macos-arm64.dmg` and drag **tsv** into **Applications**.
+The app carries GDAL and its libraries, the PROJ/GDAL data and the private
+Python runtime with Zeit (macOS 15 or later). Folders and rasters can be opened
+from the Finder (right click → Open With → tsv), by dropping them on the
+window or the Dock icon, or from a terminal after linking the program once:
+
+```
+ln -s /Applications/tsv.app/Contents/MacOS/tsv ~/.local/bin/tsv   # or /usr/local/bin
+```
+
+The app is not signed with an Apple Developer ID: the first time, macOS says it
+cannot verify the developer. Open it once with right click → Open (or allow it
+in System Settings → Privacy & Security), or clear the download's quarantine
+flag with `xattr -dr com.apple.quarantine /Applications/tsv.app`. Data lives in
+`~/Library/Application Support/tsv`, the overview cache in `~/Library/Caches/tsv`.
+
 Installers and packages are built from this repository (see
-[Building](#building-from-source)).
+[Building](#building-from-source)); every tagged version publishes the three of
+them on the [Releases](https://github.com/sacridini/tsv/releases) page (GitHub
+Actions, `.github/workflows/build.yml`).
 
 ## Command line
 
@@ -302,6 +322,7 @@ cmake --build build -j
 cmake --build build --target zeit_runtime     # -> build/runtime (python-build-standalone + Zeit)
 ./build/tsv --selftest-zeit <series>
 ln -s "$PWD/build/tsv" ~/.local/bin/tsv       # tsv from any terminal (runtime/ is found through the link)
+cmake --build build --target package_macos    # -> dist/tsv-<version>-macos-arm64.dmg (tsv.app)
 ```
 
 It renders through Metal (`TSV_RENDERER=METAL`, the default on macOS): the cube
@@ -315,9 +336,11 @@ in RAM, which on Apple Silicon is the same memory). With a 1 GB cube on an M4:
 1.2 GB footprint (OpenGL: 3.8 GB), loaded from the cache in 0.2 s.
 `-DTSV_RENDERER=GL` builds the OpenGL path instead, e.g. to compare both.
 
-The build links GDAL from the conda environment through an absolute RPATH, so
-it breaks if that environment is removed; a self-contained `.app` bundle is
-still to be done. The Zeit runtime re-signs (ad hoc) the native libraries it
+The build tree links GDAL from the conda environment through an absolute RPATH,
+so it breaks if that environment is removed; `package_macos` makes the
+self-contained app (`cmake/package_macos.cmake`: the library chain in
+`Contents/Frameworks`, data and runtime in `Contents/Resources`, ad hoc
+signature). The Zeit runtime re-signs (ad hoc) the native libraries it
 strips: on Apple Silicon a binary with an invalid signature is killed on load.
 
 On a Retina display the map is drawn at the density of the screen it is on
@@ -358,6 +381,9 @@ Machine); the rest of the data in `~/Library/Application Support/tsv`.
 | `zeit_bridge/` | The Python bridge, one `tool_*.py` per Zeit tool family, the pinned runtime requirements |
 | `tools/build_zeit_runtime.py` | Assembles the private Python runtime (Windows, Linux, macOS) |
 | `cmake/package_linux.cmake` | Portable Linux package (bundled libraries, RPATH `$ORIGIN/lib`) |
+| `cmake/package_macos.cmake` | macOS app and `.dmg` (bundled libraries, RPATH `@executable_path/../Frameworks`, ad hoc signature) |
+| `.github/workflows/build.yml` | CI: Windows, Linux and macOS builds, self-tests, installers; releases on `v*` tags |
+| `tools/make_selftest_data.py` | Synthetic inputs for `--selftest-ui` and `--selftest-zeit` |
 | `src/platform.*` | OS-specific: arguments, dialogs, data folder, opening folders, HDD detection (Windows, Linux, macOS) |
 | `src/launcher.cpp` | `tsv.com` console launcher |
 

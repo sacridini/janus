@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 
 #ifdef _WIN32
@@ -189,9 +190,14 @@ bool isOnRotationalDisk(const std::string& path) {
 #else // ---------------------------------------------------------------------
 // Linux and macOS.
 
-void init() {}
+#ifndef __APPLE__
+void init() {} // macOS: platform_mac.mm
+#endif
 std::vector<std::string> commandLineArgs(int argc, char** argv) {
-    return std::vector<std::string>(argv + 1, argv + argc);
+    std::vector<std::string> out;
+    for (int i = 1; i < argc; ++i)
+        if (std::strncmp(argv[i], "-psn_", 5) != 0) out.emplace_back(argv[i]); // process serial number (old macOS Finder)
+    return out;
 }
 void attachParentConsole() {} // a terminal program already has its console
 
@@ -392,6 +398,16 @@ std::tm platform::localTime(std::time_t t) {
     return tm;
 }
 
+std::string platform::resourceDir() {
+    const fs::path exe = fs::u8path(exeDir());
+#ifdef __APPLE__
+    if (exe.filename() == "MacOS" && exe.parent_path().filename() == "Contents")
+        return (exe.parent_path() / "Resources").u8string();
+#endif
+    return exe.u8string();
+}
+
 #ifndef __APPLE__
 platform::Gestures platform::takeGestures() { return {}; } // macOS: platform_mac.mm
+std::vector<std::string> platform::takeOpenRequests() { return {}; }
 #endif

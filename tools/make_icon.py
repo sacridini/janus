@@ -1,4 +1,5 @@
-"""Builds resources/tsv.ico: stacked layers (the time cube) plus a pixel series.
+"""Builds resources/tsv.ico, tsv.png and tsv.icns (macOS): stacked layers (the time
+cube) plus a pixel series.
 
 Usage: python tools/make_icon.py   (requires Pillow)
 """
@@ -34,6 +35,7 @@ def main():
     sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256]
     img.resize((256, 256), Image.LANCZOS).save(out, sizes=[(s, s) for s in sizes])
     img.resize((256, 256), Image.LANCZOS).save(out.with_suffix(".png"))
+    img.save(out.with_suffix(".icns"))  # every size up to 1024 (512@2x)
     print(f"ok: {out}")
 
 

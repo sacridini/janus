@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.21)
-project(tsv VERSION 0.14.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
+# macOS 15: the oldest the Zeit runtime's wheels support (rasterio: macosx_15_0).
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum macOS version")
+endif()
+project(tsv VERSION 0.15.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
 if(APPLE)
   enable_language(OBJC OBJCXX) # src/platform_mac.mm (OBJC too: GLFW's .m files stay Objective-C)
 endif()
@@ -93,7 +97,7 @@ set(TSV_SOURCES
   src/tiles.cpp)
 
 if(APPLE)
-  list(APPEND TSV_SOURCES src/platform_mac.mm) # trackpad gestures (Cocoa)
+  list(APPEND TSV_SOURCES src/platform_mac.mm) # trackpad gestures, Finder documents (Cocoa)
 endif()
 
 if(TSV_RENDERER STREQUAL "METAL")
@@ -178,6 +182,21 @@ add_custom_target(zeit_bridge
   COMMENT "Copying the Zeit bridge scripts"
   VERBATIM)
 add_dependencies(tsv zeit_bridge)
+
+# --- macOS app -----------------------------------------------------------------
+# cmake --build build --target package_macos  ->  dist/tsv-<version>-macos-arm64.dmg (tsv.app)
+if(APPLE AND Python3_FOUND)
+  add_custom_target(package_macos
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/build_zeit_runtime.py
+            --out ${CMAKE_BINARY_DIR}/package/runtime --cache ${CMAKE_BINARY_DIR}/_downloads
+    COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:tsv> -DVERSION=${PROJECT_VERSION} -DMIN_MACOS=${CMAKE_OSX_DEPLOYMENT_TARGET}
+            -DGDAL_LIB=$<TARGET_FILE:GDAL::GDAL> -DRUNTIME=${CMAKE_BINARY_DIR}/package/runtime
+            -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DOUT=${CMAKE_BINARY_DIR}/package
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/package_macos.cmake
+    DEPENDS tsv
+    COMMENT "Building the macOS app (.dmg)"
+    VERBATIM)
+endif()
 
 # --- Linux package -------------------------------------------------------------
 # cmake --build build --target package_linux  ->  dist/tsv-<version>-linux-x86_64.tar.xz

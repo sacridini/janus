@@ -1272,6 +1272,7 @@ void App::uiSeries() {
                           "  colored ........... pins (same number and color as on the map)\n"
                           "  yellow + band ..... ROI mean and p10-p90\n"
                           "  thin, same color .. each series' trend (OLS or Sen)\n"
+                          "  magenta ........... Zeit tool result (fit, segments, breaks)\n"
                           "  orange vertical ... current date (drag or click to change)\n\n"
                           "Click a legend entry to hide/show that series.\n"
                           "Pins: right click the pin on the map, Delete (last one)\n"
@@ -1326,7 +1327,7 @@ void App::uiSeries() {
                 spec.Marker = ImPlotMarker_Circle;
                 spec.MarkerSize = 2.5f;
                 ImPlot::PlotStairs(label, xs_.data(), ys.data(), T, spec);
-                if (model && !pixelTool_.empty()) drawZeitOverlays(label, *model, col, st);
+                if (model && !pixelTool_.empty()) drawZeitOverlays(label, *model, st);
                 return;
             }
             switch (plotStyle_) {
@@ -1359,7 +1360,7 @@ void App::uiSeries() {
                 ts.LineWeight = 1.2f;
                 ImPlot::PlotLine(label, tx, ty, 2, ts);
             }
-            if (model && !pixelTool_.empty()) drawZeitOverlays(label, *model, col, st);
+            if (model && !pixelTool_.empty()) drawZeitOverlays(label, *model, st);
         };
 
         if (!roiMean_.empty() && !classes) {
@@ -1415,7 +1416,7 @@ void App::uiSeries() {
                     spec.MarkerSize = 3.5f;
                     spec.MarkerFillColor = v.color;
                     ImPlot::PlotLine(label, lx.data(), ys.data(), int(ys.size()), spec);
-                    if (!pixelTool_.empty()) drawZeitOverlays(label, v.zeitResult, v.color, v.stats);
+                    if (!pixelTool_.empty()) drawZeitOverlays(label, v.zeitResult, v.stats);
                 };
                 for (const SeriesView& p : L.pins) {
                     char label[128];

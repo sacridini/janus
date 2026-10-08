@@ -61,7 +61,7 @@ std::string seriesName(const CubeInfo& info, const std::vector<std::string>& inp
 
 ZeitConfig App::zeitConfig() const {
     ZeitConfig c;
-    const fs::path rt = fs::u8path(platform::exeDir()) / "runtime";
+    const fs::path rt = fs::u8path(platform::resourceDir()) / "runtime";
     c.python = opts_.zeitPython.empty() ? bundledPython(rt.u8string()) : opts_.zeitPython;
     c.bridge = opts_.zeitBridge.empty() ? (rt / "tsv_zeit_bridge.py").u8string() : opts_.zeitBridge;
     c.bundled = opts_.zeitPython.empty();
@@ -947,10 +947,14 @@ void App::clearResults(uint64_t cubeId) {
     mapDirty_ = true;
 }
 
-// Draws the model returned by a pixel run (same legend entry as the series).
-void App::drawZeitOverlays(const char* label, const json& result, ImVec4 col, const SeriesStats& st) {
+// Draws the model returned by a pixel run (same legend entry as the series, so
+// hiding a series hides its model). Every model has the same colour, used by no
+// series, with a dark outline: a fit is never mistaken for data.
+void App::drawZeitOverlays(const char* label, const json& result, const SeriesStats& st) {
     if (!result.is_object() || !s_) return;
     const CubeInfo& info = *s_->info;
+    const ImVec4 col(0.95f, 0.15f, 0.95f, 1); // magenta
+    const ImVec4 outline(0.05f, 0.05f, 0.08f, 0.9f);
     for (const json& o : result.value("overlays", json::array())) {
         const json xs = o.value("x", json::array()), ys = o.value("y", json::array());
         if (o.value("type", "") == "vlines") { // e.g. break dates: dashed-looking thin full-height lines
@@ -959,7 +963,10 @@ void App::drawZeitOverlays(const char* label, const json& result, ImVec4 col, co
                 if (v.is_number()) x.push_back(info.xFromDecimalYear(v.get<double>()));
             if (x.empty()) continue;
             ImPlotSpec spec;
-            spec.LineColor = ImVec4(col.x, col.y, col.z, 0.75f);
+            spec.LineColor = outline;
+            spec.LineWeight = 3.5f;
+            ImPlot::PlotInfLines(label, x.data(), int(x.size()), spec);
+            spec.LineColor = ImVec4(col.x, col.y, col.z, 0.85f);
             spec.LineWeight = 1.5f;
             ImPlot::PlotInfLines(label, x.data(), int(x.size()), spec);
             continue;
@@ -973,7 +980,7 @@ void App::drawZeitOverlays(const char* label, const json& result, ImVec4 col, co
             y[i] = plotValues_ == 1 ? v - st.mean : plotValues_ == 2 ? (st.std > 0 ? (v - st.mean) / st.std : 0.0) : v;
         }
         ImPlotSpec spec;
-        spec.LineColor = ImVec4(col.x, col.y, col.z, 0.9f);
+        spec.LineColor = col;
         spec.LineWeight = 2.5f;
         if (o.value("type", "") == "markers") {
             spec.Marker = ImPlotMarker_Square;
@@ -982,6 +989,10 @@ void App::drawZeitOverlays(const char* label, const json& result, ImVec4 col, co
             spec.MarkerLineColor = ImVec4(0, 0, 0, 1);
             ImPlot::PlotScatter(label, x.data(), y.data(), n, spec);
         } else {
+            ImPlotSpec under = spec; // outline: the same line, wider and dark, below
+            under.LineColor = outline;
+            under.LineWeight = spec.LineWeight + 2.5f;
+            ImPlot::PlotLine(label, x.data(), y.data(), n, under);
             ImPlot::PlotLine(label, x.data(), y.data(), n, spec);
         }
     }

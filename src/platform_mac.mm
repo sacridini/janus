@@ -3,11 +3,20 @@
 #include "platform.hpp"
 
 #import <AppKit/AppKit.h>
+#import <objc/runtime.h>
 
 namespace {
 
 double g_pinch = 1.0;
 bool g_preciseScroll = false;
+std::vector<std::string> g_openRequests; // main thread only
+
+// -[NSApplicationDelegate application:openURLs:]: how the Finder hands over
+// documents (Open With, double click, a drop on the Dock icon).
+void openURLs(id, SEL, NSApplication*, NSArray<NSURL*>* urls) {
+    for (NSURL* u in urls)
+        if (u.isFileURL) g_openRequests.emplace_back(u.path.fileSystemRepresentation);
+}
 
 // A local monitor sees every event of the application before it is dispatched
 // (GLFW still gets the scroll events: the other panels keep scrolling).
@@ -26,6 +35,20 @@ void installMonitor() {
 }
 
 } // namespace
+
+void platform::init() {
+    // GLFW's application delegate does not answer application:openURLs:, so
+    // documents given at launch (delivered inside glfwInit) would be lost. Add
+    // it to the class before glfwInit creates the delegate.
+    if (Class c = NSClassFromString(@"GLFWApplicationDelegate"))
+        class_addMethod(c, @selector(application:openURLs:), (IMP)openURLs, "v@:@@");
+}
+
+std::vector<std::string> platform::takeOpenRequests() {
+    std::vector<std::string> out;
+    out.swap(g_openRequests);
+    return out;
+}
 
 platform::Gestures platform::takeGestures() {
     installMonitor(); // NSApp exists once GLFW is initialized

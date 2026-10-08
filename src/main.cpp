@@ -22,9 +22,9 @@
 
 namespace fs = std::filesystem;
 
-// PROJ/GDAL data bundled next to the .exe (same version as the DLLs).
+// PROJ/GDAL data bundled with the program (same version as the libraries).
 static void configureBundledData() {
-    const fs::path share = fs::u8path(platform::exeDir()) / "share";
+    const fs::path share = fs::u8path(platform::resourceDir()) / "share";
     std::error_code ec;
     if (fs::exists(share / "proj" / "proj.db", ec)) {
         const std::string proj = (share / "proj").u8string();
@@ -158,6 +158,8 @@ int main(int argc, char** argv) {
         // finished background job): the CPU stays idle when nothing changes.
         if (app->wantsContinuousFrames() || firstFrame || selftestUi) glfwPollEvents();
         else glfwWaitEventsTimeout(0.5);
+        // Documents from the Finder (macOS): opened like a drop on the window.
+        if (std::vector<std::string> docs = platform::takeOpenRequests(); !docs.empty()) app->pendingDrop = std::move(docs);
 
         render::newFrame();
         ImGui::NewFrame();

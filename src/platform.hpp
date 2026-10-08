@@ -12,6 +12,8 @@ std::vector<std::string> commandLineArgs(int argc, char** argv); // without argv
 void attachParentConsole();                   // for --help from a GUI app (Windows)
 
 std::string exeDir();
+// Bundled data (share/, runtime/): exeDir(), or Contents/Resources inside a macOS .app.
+std::string resourceDir();
 std::string appDataDir();                     // e.g. %LOCALAPPDATA%\tsv (created if needed)
 std::string cacheDir();                       // regenerable data: appDataDir()/cache; macOS: ~/Library/Caches/tsv
 
@@ -37,5 +39,10 @@ struct Gestures {
     bool preciseScroll = false;
 };
 Gestures takeGestures();
+
+// Files and folders the OS asked us to open while running or at launch (macOS:
+// Finder's "Open With", a double click, a drop on the Dock icon). Elsewhere
+// they come on the command line: always empty.
+std::vector<std::string> takeOpenRequests();
 
 } // namespace platform

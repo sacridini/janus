@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>                  <string>tsv</string>
+  <key>CFBundleDisplayName</key>           <string>tsv</string>
+  <key>CFBundleIdentifier</key>            <string>io.github.sacridini.tsv</string>
+  <key>CFBundleExecutable</key>            <string>tsv</string>
+  <key>CFBundleIconFile</key>              <string>tsv</string>
+  <key>CFBundlePackageType</key>           <string>APPL</string>
+  <key>CFBundleVersion</key>               <string>@VERSION@</string>
+  <key>CFBundleShortVersionString</key>    <string>@VERSION@</string>
+  <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
+  <key>LSMinimumSystemVersion</key>        <string>@MIN_MACOS@</string>
+  <key>LSApplicationCategoryType</key>     <string>public.app-category.graphics-design</string>
+  <key>NSHighResolutionCapable</key>       <true/>
+  <key>NSHumanReadableCopyright</key>      <string>Raster time series viewer</string>
+  <!-- "Open With tsv" for folders (1 file = 1 date) and rasters. -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>          <string>Folder of rasters</string>
+      <key>CFBundleTypeRole</key>          <string>Viewer</string>
+      <key>LSHandlerRank</key>             <string>Alternate</string>
+      <key>LSItemContentTypes</key>        <array><string>public.folder</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>          <string>Raster</string>
+      <key>CFBundleTypeRole</key>          <string>Viewer</string>
+      <key>LSHandlerRank</key>             <string>Alternate</string>
+      <key>LSItemContentTypes</key>        <array><string>public.tiff</string></array>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>tif</string><string>tiff</string><string>vrt</string><string>img</string><string>nc</string><string>jp2</string></array>
+    </dict>
+  </array>
+</dict>
+</plist>
