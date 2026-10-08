@@ -2,6 +2,7 @@
 #include "gpu.hpp"
 
 #include <cmath>
+#include <cstring>
 #include <map>
 #include <string>
 
@@ -496,6 +497,20 @@ void Gpu::readMapPixel(int x, int y, unsigned char rgba[4], int slot) {
     glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
     const int row = tg.h - 1 - y; // the framebuffer is bottom-up
     for (int c = 0; c < 4; ++c) rgba[c] = buf[(size_t(row) * tg.w + x) * 4 + c];
+}
+
+void Gpu::readMap(std::vector<unsigned char>& rgba, int& w, int& h, int slot) {
+    const Impl::Target& tg = impl_->targets.at(slot);
+    w = tg.w;
+    h = tg.h;
+    const size_t row = size_t(w) * 4;
+    std::vector<unsigned char> buf(row * h);
+    glBindTexture(GL_TEXTURE_2D, tg.tex);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
+    rgba.resize(row * h);
+    for (int y = 0; y < h; ++y) // the framebuffer is bottom-up
+        std::memcpy(rgba.data() + row * y, buf.data() + row * (h - 1 - y), row);
 }
 
 GpuTex Gpu::createClassLut(const unsigned char* rgba, GpuTex t) {

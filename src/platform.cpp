@@ -1,5 +1,6 @@
 #include "platform.hpp"
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -154,6 +155,40 @@ std::vector<std::string> openFilesDialog() { return runDialog(false); }
 std::string openFolderDialog() {
     auto r = runDialog(true);
     return r.empty() ? std::string() : r[0];
+}
+
+static std::string runSaveDialog(const std::string& title, const std::string& defaultName,
+                                 const std::string& filterName, const std::string& ext, const std::string& folder) {
+    std::string out;
+    IFileSaveDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&dlg)))) return out;
+    DWORD opts = 0;
+    dlg->GetOptions(&opts);
+    dlg->SetOptions(opts | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_OVERWRITEPROMPT);
+    const std::wstring name = toWide(filterName), spec = L"*." + toWide(ext), wext = toWide(ext);
+    COMDLG_FILTERSPEC filters[] = {{name.c_str(), spec.c_str()}, {L"All files", L"*.*"}};
+    dlg->SetFileTypes(2, filters);
+    dlg->SetDefaultExtension(wext.c_str());
+    dlg->SetTitle(toWide(title).c_str());
+    dlg->SetFileName(toWide(defaultName).c_str());
+    IShellItem* dir = nullptr;
+    if (!folder.empty() && SUCCEEDED(SHCreateItemFromParsingName(toWide(folder).c_str(), nullptr, IID_PPV_ARGS(&dir)))) {
+        dlg->SetFolder(dir);
+        dir->Release();
+    }
+    if (SUCCEEDED(dlg->Show(nullptr))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dlg->GetResult(&item))) {
+            PWSTR p = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p))) {
+                out = toUtf8(p);
+                CoTaskMemFree(p);
+            }
+            item->Release();
+        }
+    }
+    dlg->Release();
+    return out;
 }
 
 std::vector<std::string> rootFolders() {
@@ -330,6 +365,41 @@ std::string openFolderDialog() {
     return r.empty() ? std::string() : r[0];
 }
 
+#ifdef __APPLE__
+static std::string appleScriptString(const std::string& s) {
+    std::string out = "\"";
+    for (char c : s) {
+        if (c == '"' || c == '\\') out += '\\';
+        out += c;
+    }
+    return out + "\"";
+}
+#endif
+
+static std::string runSaveDialog(const std::string& title, const std::string& defaultName,
+                                 const std::string& filterName, const std::string& ext, const std::string& folder) {
+    std::error_code ec;
+    const bool hasFolder = !folder.empty() && fs::is_directory(folder, ec);
+    std::vector<std::string> r;
+#ifdef __APPLE__
+    (void)filterName;
+    (void)ext;
+    // "choose file name" asks itself before replacing a file.
+    std::string script = "POSIX path of (choose file name with prompt " + appleScriptString(title) +
+                         " default name " + appleScriptString(defaultName);
+    if (hasFolder) script += " default location (POSIX file " + appleScriptString(folder) + " as alias)";
+    r = splitLines(runCapture({"osascript", "-e", script + ")"}));
+#else
+    const std::string start = hasFolder ? (fs::path(folder) / defaultName).string() : defaultName;
+    if (onPath("zenity"))
+        r = splitLines(runCapture({"zenity", "--file-selection", "--save", "--confirm-overwrite", "--title=" + title,
+                                   "--filename=" + start, "--file-filter=" + filterName + " | *." + ext}));
+    else if (onPath("kdialog"))
+        r = splitLines(runCapture({"kdialog", "--title", title, "--getsavefilename", start, "*." + ext + "|" + filterName}));
+#endif
+    return r.empty() ? std::string() : r[0];
+}
+
 void openInExplorer(const std::string& path) {
 #ifdef __APPLE__
     const char* opener = "open";
@@ -405,6 +475,16 @@ std::string platform::cacheDir() {
     for (const auto& e : fs::directory_iterator(dir, ec))
         if (e.path().extension() == ".tsvcube") fs::rename(e.path(), fs::path(e.path()).replace_extension(".januscube"), ec);
     return dir.u8string();
+}
+
+std::string platform::saveFileDialog(const std::string& title, const std::string& defaultName,
+                                     const std::string& filterName, const std::string& ext, const std::string& folder) {
+    std::string path = runSaveDialog(title, defaultName, filterName, ext, folder);
+    if (path.empty()) return path;
+    std::string have = fs::u8path(path).extension().u8string();
+    for (char& c : have) c = char(std::tolower((unsigned char)c));
+    if (have != "." + ext && !(ext == "tif" && have == ".tiff")) path += "." + ext;
+    return path;
 }
 
 std::tm platform::localTime(std::time_t t) {
