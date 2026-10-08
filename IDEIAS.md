@@ -142,7 +142,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | — | 0.17.0 | **Janus**: o tsv passa a se chamar Janus (comando `jn`; repositório `sacridini/janus`); pastas de dados e cache migradas na primeira abertura, o instalador do Windows remove um tsv instalado | concluída |
 | 10 | — | **Novas visualizações**: **cortina (swipe)** entre datas/camadas e **transecto espaço-tempo (Hovmöller)** | em andamento |
 | 11 | — | **Exportação**: mapa visível como PNG (figuras), vista/camada e resultados do Zeit como GeoTIFF (para o QGIS) | em andamento |
-| 12 | — | **Mapas de diferença (Δ) e de quebra** (ano e magnitude da maior queda), calculados na GPU | em andamento |
+| 12 | 0.18.0 | **Mapas de diferença (Δ) e de quebra** (ano e magnitude da maior queda), calculados na GPU | concluída |
 | 13 | — | **Cache em resolução total** num SSD, em blocos com o tempo contíguo: série exata e ROI em ~1 ms mesmo com os dados num HD | em andamento |
 | 14 | — | Mais visualizações: mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas na ROI | planejada |
 
@@ -210,6 +210,28 @@ termina.
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.18.0 — Fase 12: mapas de diferença e de maior queda
+- Modo **Diferença (valor − referência)**: referência = uma data fixa (padrão:
+  a primeira) ou a data anterior (t−1), escolhida no painel Display; paleta
+  divergente (BrBG) com faixa automática simétrica em torno de 0; cada camada e
+  cada painel de mapa guarda a sua referência.
+- Modos **Maior queda: data / magnitude**: a maior queda entre observações
+  válidas consecutivas (NaN pulado), datada na observação mais baixa. Sai na
+  mesma passada das estatísticas: magnitude em `stats1.w`, data em `stats2`
+  (R32F, +22 MB por 5,5 Mpx). A tabela de estatísticas mostra os valores exatos
+  calculados na CPU. Desligados para séries categóricas.
+- A Δ em resolução total lê os tiles das **duas** datas
+  (`forEachVisible(t, t2)`): ficar no overview (4–8× mais grosso) esconderia
+  justamente as mudanças pequenas.
+- Medido (RTX 3060, 5,5 Mpx × 41): o shader leva ~26 ms; o gargalo era trazer
+  as estatísticas para a CPU (zerar o `std::vector` ~30 ms + `glGetTexImage`
+  ~45 ms). Com leitura via PBO para um array não inicializado: **~67 ms** no
+  total já com as estatísticas novas (antes ~87 ms; ~110 ms sem o PBO).
+- Os modos novos são os números 10–12 (os antigos não mudam; uma tabela define
+  a ordem no menu). O autoteste de UI compara GPU × CPU em todos os pixels
+  (~24 mil quedas, diferença máxima 0) e as cores do mapa.
+- Feita por um sub-agente num worktree, em paralelo com as fases 10, 11 e 13.
 
 ### Depois da 0.17.0 (sem versão própria)
 - `Ctrl+T` abre um painel de mapa; `Ctrl+W` fecha o painel em foco (senão o
