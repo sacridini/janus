@@ -211,6 +211,11 @@ termina.
 
 ## Histórico
 
+### 0.21.1 — ícone novo
+- O ícone do programa (Windows, macOS, Linux e instalador) passa a ser o da
+  identidade visual (`branding/icones`: a cabeça dupla em pixels); saiu o
+  `tools/make_icon.py`, que desenhava o antigo (camadas + série).
+
 ### 0.21.0 — Fase 13: cache em resolução total
 - Blocos de 64×64 **por data**, não blocos com todas as datas (como o backlog
   previa): um bloco com o tempo inteiro só existe depois de ler todas as datas
