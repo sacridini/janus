@@ -830,7 +830,7 @@ void App::uiMap() {
     };
     if (hovered && gestures_.pinch != 1.0) zoomAtCursor(gestures_.pinch);
     if (hovered && (io.MouseWheel != 0 || io.MouseWheelH != 0)) {
-        if (gestures_.preciseScroll) {
+        if (gestures_.touchScroll) {
             // Trackpad: two fingers pan. GLFW scales precise deltas by 0.1;
             // x10 gives back points, so the map follows the fingers.
             offset_ += ImVec2(io.MouseWheelH, io.MouseWheel) * 10.0f;

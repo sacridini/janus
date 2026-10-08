@@ -8,7 +8,7 @@
 namespace {
 
 double g_pinch = 1.0;
-bool g_preciseScroll = false;
+bool g_touchScroll = false;
 std::vector<std::string> g_openRequests; // main thread only
 
 // -[NSApplicationDelegate application:openURLs:]: how the Finder hands over
@@ -28,8 +28,10 @@ void installMonitor() {
                                           handler:^NSEvent*(NSEvent* e) {
                                               if (e.type == NSEventTypeMagnify)
                                                   g_pinch *= 1.0 + e.magnification;
-                                              else
-                                                  g_preciseScroll = e.hasPreciseScrollingDeltas;
+                                              else // a touch surface reports the gesture's phases (and its
+                                                   // inertia); a wheel never does, smooth or not
+                                                  g_touchScroll = e.phase != NSEventPhaseNone ||
+                                                                  e.momentumPhase != NSEventPhaseNone;
                                               return e;
                                           }];
 }
@@ -54,7 +56,7 @@ platform::Gestures platform::takeGestures() {
     installMonitor(); // NSApp exists once GLFW is initialized
     Gestures g;
     g.pinch = g_pinch;
-    g.preciseScroll = g_preciseScroll;
+    g.touchScroll = g_touchScroll;
     g_pinch = 1.0;
     return g;
 }
