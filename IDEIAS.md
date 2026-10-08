@@ -144,7 +144,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 11 | 0.19.0 | **Exportação**: mapa visível como PNG (figuras), vista/camada e resultados do Zeit como GeoTIFF (para o QGIS) | concluída |
 | 12 | 0.18.0 | **Mapas de diferença (Δ) e de quebra** (ano e magnitude da maior queda), calculados na GPU | concluída |
 | 13 | 0.21.0 | **Cache em resolução total** num SSD (blocos de 64×64 por data, compressão sem perda): série exata e ROI em ~1 ms mesmo com os dados num HD | concluída |
-| 15 | — | **Mapa de fundo (basemap)**: imagem de satélite/mapa da web por baixo das séries (Esri World Imagery, Sentinel-2 cloudless, OSM, URL XYZ própria), pelo driver WMS/TMS do GDAL, reprojetado pela grade de warp | em andamento |
+| 15 | 0.23.0 | **Mapa de fundo (basemap)**: imagem de satélite/mapa da web por baixo das séries (Esri World Imagery, Sentinel-2 cloudless, OSM, URL XYZ própria), pelo driver WMS/TMS do GDAL, reprojetado pela grade de warp | concluída |
 | 16 | — | **Configurações**: janela própria (File → Settings); **limite de núcleos** para o processamento do Janus e do Zeit (padrão: todos menos 2), **tema da interface** (escuro, claro, clássico, Janus) e as opções que hoje estão no painel Performance | em andamento |
 | 14 | — | Mais visualizações: mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas na ROI | planejada |
 
@@ -218,6 +218,39 @@ termina.
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.23.0 — Fase 15: mapa de fundo
+- Fontes: **Esri World Imagery** (até z18), **Sentinel-2 cloudless 2016**
+  (EOX; o único ano em CC BY 4.0, os de 2017 em diante são CC BY-NC-SA),
+  **OpenStreetMap** (2 conexões, User-Agent do Janus, cache de 7 dias, como
+  pede a política de uso) ou **URL XYZ própria** (`{z}/{x}/{y}`, `{-y}`, `{s}`,
+  zoom máximo, tiles de 256/512, atribuição digitada). Sem Google pronto.
+- Pelo driver WMS/TMS do GDAL (curl + cache em disco de 512 MB em
+  `cache/basemap`; sem dependência nova). Só os tiles da vista, no zoom da tela
+  mais uma prévia 3 níveis acima, num pool próprio, os mais novos e os do
+  centro primeiro, descartando os que saíram da tela; LRU de 128 MB na GPU;
+  tile que falta mostra o nível mais grosso já carregado; nada bloqueia.
+- Desenhado primeiro em tudo (mapa, painéis, cortina com a opção "Basemap
+  only", PNG e vista exportados), pela grade de warp da 0.22.0 até um quadro
+  em EPSG:3857 em volta da camada ativa. A opacidade esmaece os tiles em
+  direção ao fundo (níveis sobrepostos não se misturam duas vezes). Atribuição
+  sempre no canto inferior direito, também no PNG e na tag de copyright do
+  GeoTIFF.
+- Desligado por padrão: com "None" nada toca a rede nem o driver WMS; com uma
+  fonte salva, nada antes do 3º quadro. Sem série aberta (ou sem CRS) não há
+  mapa de fundo: o espaço do mapa é a grade da camada ativa.
+- Medido (vista de 1600×900, 80 tiles): Esri 1,5 s, EOX 2,4 s, OSM 3,8 s da
+  internet; ~55 ms do cache do GDAL; primeiro tile em 80–270 ms. Pedir a vista
+  custa 7 µs por quadro; render de 400×300 0,20 → 0,25 ms; primeiro quadro
+  igual (~150 ms).
+- Certificados: no Windows o curl do conda usa Schannel (repositório do
+  sistema). No Linux/macOS o curl do conda procura o `cacert.pem` no prefixo
+  de build, que não existe no pacote: o Janus aponta para o bundle do sistema
+  ou para o `share/ssl/cacert.pem` empacotado (`platform::caBundlePath`).
+- Autoteste sem rede: pirâmide `file://` local; pixels conferidos contra o
+  PROJ (3508 pixels, diferença 0), prévia no tile que falta, por baixo das
+  camadas, opacidade, painéis, cortina, exportação; nenhum dataset WMS aberto
+  com "None".
 
 ### 0.22.0 — Fase 9: reprojeção e ROI em todas as camadas
 - Camadas com outro CRS ou com grade rotacionada passam a ser desenhadas no
