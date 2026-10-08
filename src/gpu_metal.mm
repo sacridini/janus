@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+
+#include <unistd.h>
 #include <map>
 
 #include <implot.h>
@@ -210,16 +212,31 @@ id<MTLCommandQueue> tsvMetalQueue() {
 // ---------------------------------------------------------------------------
 
 GpuCube::~GpuCube() {
+    if (sharesHost) {
+        // The buffer outlives us in the command buffers still running, but the
+        // memory behind it is the Overview's, freed next: let the queue drain.
+        id<MTLCommandBuffer> cb = [tsvMetalQueue() commandBuffer];
+        [cb commit];
+        [cb waitUntilCompleted];
+    }
     for (uint64_t h : {cube, stats0, stats1, times}) release(h);
 }
 
-void GpuCube::create(int w_, int h_, int T_, const std::vector<float>& timesYears) {
+void GpuCube::create(int w_, int h_, int T_, const std::vector<float>& timesYears, float* host, size_t hostBytes) {
     w = w_;
     h = h_;
     T = T_;
     loaded.assign(T, false);
     const size_t plane = size_t(w) * h;
-    cube = retain(makeBuffer(plane * T * sizeof(float)));
+    // Unified memory: wrap the Overview's array instead of keeping a second copy
+    // (it must be page-aligned and whole pages long).
+    const size_t page = size_t(getpagesize());
+    id<MTLBuffer> cb = nil;
+    if (host && hostBytes >= plane * T * sizeof(float) && uintptr_t(host) % page == 0 && hostBytes % page == 0)
+        cb = [tsvMetalDevice() newBufferWithBytesNoCopy:host length:hostBytes options:MTLResourceStorageModeShared
+                                            deallocator:nil];
+    sharesHost = cb != nil;
+    cube = retain(cb ? cb : makeBuffer(plane * T * sizeof(float)));
     stats0 = retain(makeBuffer(plane * 4 * sizeof(float)));
     stats1 = retain(makeBuffer(plane * 4 * sizeof(float)));
     id<MTLBuffer> tb = makeBuffer(T * sizeof(float));
@@ -230,6 +247,10 @@ void GpuCube::create(int w_, int h_, int T_, const std::vector<float>& timesYear
 void GpuCube::uploadLayer(int t, const float* data) {
     // Shared memory: the GPU reads these bytes directly. Only dates not drawn
     // yet are written (loaded[t] is still false), so no frame in flight reads them.
+    if (sharesHost) { // already there: the buffer is the Overview's array
+        loaded[t] = true;
+        return;
+    }
     const size_t plane = size_t(w) * h;
     std::memcpy(static_cast<float*>(borrow<id<MTLBuffer>>(cube).contents) + plane * t, data, plane * sizeof(float));
     loaded[t] = true;
@@ -344,7 +365,7 @@ void Gpu::setColormap(int cmap) {
     else [d.cmapTex replaceRegion:MTLRegionMake2D(0, 0, 256, 1) mipmapLevel:0 withBytes:px bytesPerRow:256 * 4];
 }
 
-void Gpu::computeStats(GpuCube& c, std::vector<float>& s0, std::vector<float>& s1) {
+void Gpu::computeStats(GpuCube& c) {
     Impl& d = *impl_;
     id<MTLCommandBuffer> cb = [d.queue commandBuffer];
     id<MTLComputeCommandEncoder> ce = [cb computeCommandEncoder];
@@ -360,12 +381,9 @@ void Gpu::computeStats(GpuCube& c, std::vector<float>& s0, std::vector<float>& s
     [cb commit];
     [cb waitUntilCompleted];
 
-    // Shared memory: the results are already in CPU-visible memory.
-    const size_t n = size_t(c.w) * c.h * 4;
-    s0.resize(n);
-    s1.resize(n);
-    std::memcpy(s0.data(), borrow<id<MTLBuffer>>(c.stats0).contents, n * sizeof(float));
-    std::memcpy(s1.data(), borrow<id<MTLBuffer>>(c.stats1).contents, n * sizeof(float));
+    // Shared memory: the CPU reads the results where the kernel wrote them.
+    c.hostStats0 = static_cast<const float*>(borrow<id<MTLBuffer>>(c.stats0).contents);
+    c.hostStats1 = static_cast<const float*>(borrow<id<MTLBuffer>>(c.stats1).contents);
     c.statsValid = true;
 }
 

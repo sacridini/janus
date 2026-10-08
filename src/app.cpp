@@ -370,8 +370,8 @@ std::vector<float> App::collectSample(int mode, int t, size_t maxN) const {
     std::vector<float> out;
     const Overview& ov = s_->overview;
     const size_t px = size_t(ov.w) * ov.h;
-    const std::vector<float>& s0 = s_->stats0;
-    const std::vector<float>& s1 = s_->stats1;
+    const float* s0 = s_->gpu.hostStats0;
+    const float* s1 = s_->gpu.hostStats1;
 
     auto overLayers = [&](auto get) {
         std::vector<int> layers;
@@ -997,8 +997,8 @@ void App::uiMap() {
             const Overview& ov = s_->overview;
             const size_t p = size_t(std::min(ov.h - 1, int(double(iy) * ov.h / info.height))) * ov.w +
                              size_t(std::min(ov.w - 1, int(double(ix) * ov.w / info.width)));
-            const float* a = &s_->stats0[p * 4];
-            const float* b = &s_->stats1[p * 4];
+            const float* a = s_->gpu.hostStats0 + p * 4;
+            const float* b = s_->gpu.hostStats1 + p * 4;
             const float v[ModeCount] = {0, 0, a[0], a[1], a[2], b[0], b[1], b[1] - b[0], b[2], 0};
             if (mode_ == ModeAnomaly && hover_.x == ix && hover_.y == iy)
                 std::snprintf(status + n, sizeof(status) - n, "  |  anomaly %.6g", hover_.values[t_] - a[0]);
@@ -1677,7 +1677,7 @@ void App::uiPerf() {
     ImGui::SeparatorText("Settings");
     ImGui::SetNextItemWidth(-1);
     ImGui::SliderInt("##budget", &budgetUi_, 128, 8192, "Overview: %d MB", ImGuiSliderFlags_Logarithmic);
-    ImGui::SetItemTooltip("GPU memory for the cube overview. Larger = more resolution\nwithout tiles, but slower to build.");
+    ImGui::SetItemTooltip("Memory for the cube overview (on the GPU; on macOS shared\nwith the CPU). Larger = more resolution without tiles,\nbut slower to build.");
     if (budgetUi_ != opts_.budgetMB) {
         if (ImGui::Button(s_ ? "Apply (reopens the active layer)" : "Apply", ImVec2(-1, 0))) {
             opts_.budgetMB = budgetUi_;

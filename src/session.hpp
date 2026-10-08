@@ -65,9 +65,8 @@ public:
 
     std::shared_ptr<const CubeInfo> info;
     Overview overview;
-    GpuCube gpu;
+    GpuCube gpu; // after overview: destroyed first (Metal may read the overview's memory in place)
     std::unique_ptr<TileManager> tiles;
-    std::vector<float> stats0, stats1;  // CPU copy of the GPU statistics
     std::vector<float> timesYears;
     bool rotational = false;
     double statsMs = 0;

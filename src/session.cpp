@@ -24,7 +24,7 @@ Session::Session(std::shared_ptr<CubeInfo> infoIn, const SessionSettings& s, std
     for (int t = 0; t < T; ++t) timesYears[t] = float(info->yearsFromStart(t));
 
     overview.start(info, s.overviewBudgetBytes, s.maxTexSize, *bg_, s.cacheDir);
-    gpu.create(overview.w, overview.h, T, timesYears);
+    gpu.create(overview.w, overview.h, T, timesYears, overview.data.data(), overview.pageBytes());
     tiles = std::make_unique<TileManager>(info, overview.factor, *fg_, s.tileBudgetBytes);
 }
 
@@ -41,7 +41,7 @@ bool Session::pump(Gpu& g) {
     }
     if (overview.complete() && !gpu.statsValid && info->T() >= 2) {
         const auto t0 = std::chrono::steady_clock::now();
-        g.computeStats(gpu, stats0, stats1);
+        g.computeStats(gpu);
         statsMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         changed = true;
     }

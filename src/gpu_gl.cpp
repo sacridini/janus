@@ -177,7 +177,7 @@ GpuCube::~GpuCube() {
     glDeleteTextures(4, texs);
 }
 
-void GpuCube::create(int w_, int h_, int T_, const std::vector<float>& timesYears) {
+void GpuCube::create(int w_, int h_, int T_, const std::vector<float>& timesYears, float*, size_t) {
     w = w_;
     h = h_;
     T = T_;
@@ -312,7 +312,7 @@ void Gpu::setColormap(int cmap) {
     }
 }
 
-void Gpu::computeStats(GpuCube& c, std::vector<float>& s0, std::vector<float>& s1) {
+void Gpu::computeStats(GpuCube& c) {
     Impl& d = *impl_;
     glBindFramebuffer(GL_FRAMEBUFFER, d.statsFbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex(c.stats0), 0);
@@ -336,13 +336,15 @@ void Gpu::computeStats(GpuCube& c, std::vector<float>& s0, std::vector<float>& s
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glActiveTexture(GL_TEXTURE0);
 
-    s0.resize(size_t(c.w) * c.h * 4);
-    s1.resize(size_t(c.w) * c.h * 4);
+    const size_t n = size_t(c.w) * c.h * 4;
+    c.statsCopy.resize(2 * n);
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
     glBindTexture(GL_TEXTURE_2D, tex(c.stats0));
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, s0.data());
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, c.statsCopy.data());
     glBindTexture(GL_TEXTURE_2D, tex(c.stats1));
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, s1.data());
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, c.statsCopy.data() + n);
+    c.hostStats0 = c.statsCopy.data();
+    c.hostStats1 = c.statsCopy.data() + n;
     c.statsValid = true;
 }
 

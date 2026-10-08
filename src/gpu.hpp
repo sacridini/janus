@@ -36,12 +36,21 @@ struct GpuCube {
     uint64_t times = 0;         // T floats: years since the 1st date
     bool statsValid = false;
     std::vector<bool> loaded;
+    bool sharesHost = false;    // Metal: the cube buffer is the Overview's array itself
+    // CPU-visible statistics once computed, w*h float4 each (Metal: the shared
+    // buffers themselves; GL: read back into statsCopy).
+    const float* hostStats0 = nullptr;
+    const float* hostStats1 = nullptr;
+    std::vector<float> statsCopy;
 
     GpuCube() = default;
     GpuCube(const GpuCube&) = delete;
     GpuCube& operator=(const GpuCube&) = delete;
     ~GpuCube();
-    void create(int w, int h, int T, const std::vector<float>& timesYears);
+    // host: the Overview's page-aligned [t][y][x] array (hostBytes whole pages),
+    // which must outlive the cube. Metal reads it in place, so uploadLayer only
+    // marks the date; GL copies each date into its texture array.
+    void create(int w, int h, int T, const std::vector<float>& timesYears, float* host, size_t hostBytes);
     void uploadLayer(int t, const float* data);
     size_t bytes() const;
 };
@@ -74,7 +83,7 @@ public:
     void setColormap(int implotColormap);
     // Computes the temporal statistics (1 shader pass) and reads them back to
     // the CPU (used for the automatic range and the histogram).
-    void computeStats(GpuCube& c, std::vector<float>& s0, std::vector<float>& s1);
+    void computeStats(GpuCube& c);
 
     // Map: rectangles in pixels of the w x h target (x0, y0, x1, y1).
     void beginMap(int w, int h, const float bg[4]);

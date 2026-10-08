@@ -102,7 +102,7 @@ Inputs:
 
 Options:
   --band N            band used when each file is one date (default: 1)
-  --budget MB         GPU memory for the cube overview (default: 1024)
+  --budget MB         memory for the cube overview (default: 1024)
   --threads N         background reader threads (default: auto; HDD = 1)
   -h, --help          show this help
   --version           show the version
@@ -308,6 +308,11 @@ It renders through Metal (`TSV_RENDERER=METAL`, the default on macOS): the cube
 and its statistics live in shared-memory buffers that the shaders read directly,
 so uploading a date is a copy in RAM, and the shaders are compiled at startup
 (the command line tools have no offline Metal compiler; the system caches them).
+The cube buffer *is* the overview's page-aligned array (`newBufferWithBytesNoCopy`):
+nothing is uploaded and the cube exists once in RAM, so `--budget` is the
+memory the overview takes in total (with OpenGL it is taken on the GPU and again
+in RAM, which on Apple Silicon is the same memory). With a 1 GB cube on an M4:
+1.2 GB footprint (OpenGL: 3.8 GB), loaded from the cache in 0.2 s.
 `-DTSV_RENDERER=GL` builds the OpenGL path instead, e.g. to compare both.
 
 The build links GDAL from the conda environment through an absolute RPATH, so

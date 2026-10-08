@@ -2,15 +2,37 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <string>
 #include <vector>
 
 #include "cube.hpp"
 
 class JobPool;
+
+// Page-aligned storage whose length is rounded up to whole pages: the Metal
+// renderer shares the overview with the GPU without copying it
+// (newBufferWithBytesNoCopy needs both).
+template <class T>
+struct PageAllocator {
+    using value_type = T;
+    static constexpr size_t kPage = 16384; // Apple Silicon page (a multiple of 4 KiB pages)
+    static size_t roundUp(size_t bytes) { return (bytes + kPage - 1) / kPage * kPage; }
+
+    PageAllocator() = default;
+    template <class U>
+    PageAllocator(const PageAllocator<U>&) {}
+    T* allocate(size_t n) { return static_cast<T*>(::operator new(roundUp(n * sizeof(T)), std::align_val_t(kPage))); }
+    void deallocate(T* p, size_t) { ::operator delete(p, std::align_val_t(kPage)); }
+    template <class U>
+    bool operator==(const PageAllocator<U>&) const { return true; }
+    template <class U>
+    bool operator!=(const PageAllocator<U>&) const { return false; }
+};
 
 // The whole cube at reduced resolution, [t][y][x] float32 (NaN = nodata).
 // Kept in RAM (for instant series/statistics) and sent to the GPU as a texture
@@ -20,9 +42,12 @@ class Overview {
 public:
     int w = 0, h = 0, T = 0;
     double factor = 1;      // source pixels per overview pixel
-    std::vector<float> data;
+    std::vector<float, PageAllocator<float>> data;
+    // Bytes of the page-aligned block behind `data` (whole pages).
+    size_t pageBytes() const { return PageAllocator<float>::roundUp(data.capacity() * sizeof(float)); }
 
-    // `budgetBytes` accounts for T floats per pixel (cube) + 8 (statistics on the GPU).
+    // `budgetBytes` accounts for T floats per pixel (cube) + 8 (statistics). Metal
+    // shares `data` with the GPU (see PageAllocator); GL keeps a second copy there.
     void start(std::shared_ptr<const CubeInfo> info, int64_t budgetBytes, int maxTexSize,
                JobPool& pool, const std::string& cacheDir);
 

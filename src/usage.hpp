@@ -21,7 +21,7 @@ inline const char* kUsage =
     "\n"
     "Options:\n"
     "  --band N            band used when each file is one date (default: 1)\n"
-    "  --budget MB         GPU memory for the cube overview (default: 1024)\n"
+    "  --budget MB         memory for the cube overview (default: 1024)\n"
     "  --threads N         background reader threads (default: auto; HDD = 1)\n"
     "  -h, --help          show this help\n"
     "  --version           show the version\n"
