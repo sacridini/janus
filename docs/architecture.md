@@ -36,6 +36,7 @@
 | `src/app_zeit.cpp` | Tools menu, tool windows, tasks, result layers, models on the chart |
 | `src/zeit_client.*` | Bridge processes (JSON lines over pipes; Win32 or POSIX), pixel calls, raster jobs, estimates |
 | `src/results.*` | Result rasters loaded as map layers |
+| `src/reproject.*` | Layers in another CRS or on a rotated grid: exact PROJ transformation (cursor, pins, ROI, tiles, view) and the warp grid the shaders sample through |
 | `src/selftest.cpp` | `--selftest-zeit`: every applicable Zeit tool end to end (pixel + raster job) without a window |
 | `zeit_bridge/` | The Python bridge, one `tool_*.py` per Zeit tool family, the pinned runtime requirements |
 | `tools/build_zeit_runtime.py` | Assembles the private Python runtime (Windows, Linux, macOS) |

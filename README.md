@@ -35,8 +35,9 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
   RGB; changing date, colormap or stretch is instant.
 - **Pixel series as you hover**, pins to compare places, a region with its mean
   and p10–p90 band; OLS and Sen trends.
-- **Compare**: several series as layers, map panels side by side, a swipe
-  divider, and space-time transects (distance × date).
+- **Compare**: several series as layers, in any CRS (reprojected on the GPU),
+  map panels side by side, a swipe divider, and space-time transects
+  (distance × date).
 - **Categorical series** (land cover, classifications) with class colours,
   names and change summaries; **several bands per date** with normalized
   differences and cloud masks.

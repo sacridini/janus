@@ -57,6 +57,11 @@
   or neighboring scenes). Layers are placed by their georeferencing, can be
   shown/hidden (including the first one), reordered and faded; the chart shows
   the series of the active layer or of every visible layer at the cursor/pins.
+- **Layers in any CRS**: a layer in another projection (e.g. UTM 22S next to UTM
+  23S, or geographic EPSG:4326 over UTM) or on a rotated grid is reprojected
+  onto the active layer's grid on the GPU (nearest neighbour, values unchanged,
+  error < 0.02 px). Cursor, pins and ROI use the exact PROJ transformation. The
+  ROI applies to every visible layer.
 - **Map panels side by side** (View → New map view): each panel shows one layer,
   optionally at its own date and in its own display mode (e.g. NDVI next to NBR,
   or 2005 next to 2020 of the same series). All panels show the same area: pan
@@ -114,9 +119,10 @@ Developer options:
                       overview (and the full-resolution cache if on), time the
                       reads again from the cache, in a hidden window
   --selftest-zeit IN  run the Zeit tools end to end on IN without a window
-  --selftest-ui A B [C [D [E]]]  drive the layers workflow (A, then B as a layer;
-                      C: several bands per date; D, E: categorical series with
-                      and without a colour table) in a hidden window
+  --selftest-ui A B [C [D [E [F]]]]  drive the layers workflow in a hidden window
+                      (A, then B as a layer; C: several bands per date;
+                      D, E: categorical, with and without a colour table;
+                      F: B in another CRS, reprojected over it)
 ```
 
 Examples:
@@ -139,7 +145,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Pixel series | hover (exact once the mouse rests) |
 | Compare pixels | click to drop a pin |
 | Remove a pin | right click it (Mac: Control + click, or a two-finger click on the trackpad), `Delete` (last one) or the **x** in the statistics table |
-| ROI | `Shift` + drag (mean and p10–p90 per date) |
+| ROI | `Shift` + drag: rectangular ROI, mean and p10–p90 per date; with *All visible layers* on the chart, also on every visible layer (its own pixels under the rectangle, reprojected if needed) |
 | Time | `←`/`→` previous/next date, `Space` play/pause, click or drag on the chart |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or drag it) |
 | Change between dates | **Display** panel → *Difference (value - reference)*: pick the *Reference* (a date, or *Previous date (t-1)*); diverging colours centered at 0, follows the time bar |
@@ -147,7 +153,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Classes (categorical data) | **Display** panel → *Categorical (classes)*: legend with colours, names and shares (click a colour to change it, untick a class to hide it); detection can be switched off or forced |
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
 | Performance panel | **View → Performance** (hidden by default): timings, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**; when it is built and its budget under Settings) |
-| Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active |
+| Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active. Layers in another CRS show "reprojected from EPSG:…" (hover for the grid size and its error) |
 | Browse files | **Files** panel: double click opens, right click → Add as layer; Ctrl+click selects several files |
 | Chart of several layers | Time series panel → *All visible layers* (one marker shape per layer) |
 | Second monitor | drag a panel's tab out of the main window |

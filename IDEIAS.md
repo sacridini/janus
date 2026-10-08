@@ -137,7 +137,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 6 | 0.9.0 | Mais do Zeit: **suavização** (Whittaker/Savitzky-Golay) no gráfico, **TWDTW** (classificação por padrões tirados dos pinos) | concluída |
 | 7 | 0.10.0 | **Linux**: compilar e testar (ambiente conda-forge), processos POSIX para o Zeit, runtime com `python-build-standalone`, pacote `.tar.xz` portátil | concluída |
 | 8 | 0.11.0 | **Dados categóricos** (detecção, cores e nomes de classe, legenda, gráfico em degraus, estatísticas de classe); Mann-Kendall fora da tabela de estatísticas | concluída |
-| 9 | — | **Reprojeção** de camadas com CRS diferente (grade de warp na GPU) e **ROI em todas as camadas** | planejada (depois da 13) |
+| 9 | 0.22.0 | **Reprojeção** de camadas com CRS diferente (grade de warp na GPU) e **ROI em todas as camadas** | concluída |
 | — | 0.16.0 | **Mapas lado a lado**: painéis de mapa extras (View → New map view), cada um com uma camada e, se quiser, data e modo próprios; todos na mesma área (compartilham `scale_`/`offset_`, cada canvas centrado como o principal), cursor espelhado como cruz, pinos e ROI em todos. Um alvo de desenho por painel (`Gpu::beginMap(..., slot)`); `TileManager::tick()` uma vez por quadro, para que vários painéis pedindo tiles da mesma camada não descartem os pedidos uns dos outros | concluída |
 | — | 0.17.0 | **Janus**: o tsv passa a se chamar Janus (comando `jn`; repositório `sacridini/janus`); pastas de dados e cache migradas na primeira abertura, o instalador do Windows remove um tsv instalado | concluída |
 | 10 | 0.20.0 | **Novas visualizações**: **cortina (swipe)** entre datas/camadas e **transecto espaço-tempo (Hovmöller)** | concluída |
@@ -190,9 +190,8 @@ termina.
   transecto na fase 10; o resto na fase 14.
 - ~~Painel Layers, várias séries ao mesmo tempo, painéis destacáveis, árvore de
   arquivos~~ — feitos na 0.5.0 (detalhes no histórico).
-- Camadas com **CRS diferentes**: hoje só aparecem quando ativas; reprojetar o
-  overview (GDAL warp) permitiria sobrepor qualquer par.
-- **ROI em todas as camadas** (hoje só na ativa). ~~Zeit nas outras camadas~~ —
+- ~~Camadas com **CRS diferentes**~~ — feito na 0.22.0 (grade de warp na GPU).
+- ~~**ROI em todas as camadas**~~ — feito na 0.22.0. ~~Zeit nas outras camadas~~ —
   feito na 0.8.0 (ferramentas de uma banda; as multibanda só na ativa).
 - Árvore de arquivos: mostrar as datas reconhecidas e quantos arquivos formam a
   série antes de abrir; favoritos.
@@ -210,6 +209,34 @@ termina.
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.22.0 — Fase 9: reprojeção e ROI em todas as camadas
+- Camadas com outro CRS ou com grade rotacionada passam a ser desenhadas no
+  mapa: **grade de warp na GPU** (64 células no lado maior, dobrada até o erro
+  bilinear nos centros das células ficar < 0,05 px, no máximo 512), em RG32F
+  lida com `texelFetch` e interpolada no shader (GL e Metal) em precisão
+  total: a filtragem da GPU tem só ~8 bits nos pesos (~0,4 px de erro numa
+  cena). Mesmo CRS sem rotação continua no caminho afim.
+- Cursor, pinos, séries das outras camadas, ROI, pedidos de tiles, vista ao
+  trocar a camada ativa e transecto usam a transformação **exata** do PROJ
+  (OGR), criada uma vez por par de camadas (`src/reproject.*`).
+- Tiles de detalhe e resultados do Zeit de camadas reprojetadas também passam
+  pelo warp (painéis de mapa e cortina; no mapa principal as camadas não
+  ativas ficam no overview, como já era).
+- Medido numa cena Landsat (7441×7317, UTM 23S): erro de 0,002 px contra UTM
+  22S, 0,013 px contra EPSG:4326, 0,0005 px numa grade rotacionada 10°; grade
+  feita em ~1–2 ms; custo por quadro desprezível (0,03 → 0,08 ms num render de
+  400×300 com leitura de volta).
+- **ROI em cada camada visível** ("All visible layers"): os pixels com centro
+  dentro do retângulo (nas reprojetadas, polígono de 64 pontos aplicado como
+  máscara por scanline, lido pelo cache em resolução total quando existe),
+  com média e p10–p90 no gráfico e uma coluna por camada na tabela.
+- Autoteste com F = B em UTM 22S (gdalwarp, vizinho mais próximo, giro de
+  ~2,3°): séries idênticas às de B, ROI igual a 4e-5, 7500/7500 pixels do mapa
+  em resolução total iguais aos de B; o CI gera e passa F.
+- Limites: transformações só na thread principal; antimeridiano e polos podem
+  perder células da grade; Copy CSV não inclui as ROIs das outras camadas;
+  ROIs de camadas categóricas não vão para o gráfico.
 
 ### 0.21.1 — ícone novo
 - O ícone do programa (Windows, macOS, Linux e instalador) passa a ser o da
