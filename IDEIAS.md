@@ -140,7 +140,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 9 | — | **Reprojeção** de camadas com CRS diferente (grade de warp na GPU) e **ROI em todas as camadas** | planejada (depois da 13) |
 | — | 0.16.0 | **Mapas lado a lado**: painéis de mapa extras (View → New map view), cada um com uma camada e, se quiser, data e modo próprios; todos na mesma área (compartilham `scale_`/`offset_`, cada canvas centrado como o principal), cursor espelhado como cruz, pinos e ROI em todos. Um alvo de desenho por painel (`Gpu::beginMap(..., slot)`); `TileManager::tick()` uma vez por quadro, para que vários painéis pedindo tiles da mesma camada não descartem os pedidos uns dos outros | concluída |
 | — | 0.17.0 | **Janus**: o tsv passa a se chamar Janus (comando `jn`; repositório `sacridini/janus`); pastas de dados e cache migradas na primeira abertura, o instalador do Windows remove um tsv instalado | concluída |
-| 10 | — | **Novas visualizações**: **cortina (swipe)** entre datas/camadas e **transecto espaço-tempo (Hovmöller)** | em andamento |
+| 10 | 0.20.0 | **Novas visualizações**: **cortina (swipe)** entre datas/camadas e **transecto espaço-tempo (Hovmöller)** | concluída |
 | 11 | 0.19.0 | **Exportação**: mapa visível como PNG (figuras), vista/camada e resultados do Zeit como GeoTIFF (para o QGIS) | concluída |
 | 12 | 0.18.0 | **Mapas de diferença (Δ) e de quebra** (ano e magnitude da maior queda), calculados na GPU | concluída |
 | 13 | — | **Cache em resolução total** num SSD, em blocos com o tempo contíguo: série exata e ROI em ~1 ms mesmo com os dados num HD | em andamento |
@@ -210,6 +210,30 @@ termina.
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.20.0 — Fase 10: cortina e transecto espaço-tempo
+- **Cortina (swipe)**: View → Swipe ou `S`; divisória arrastável no mapa
+  principal (arrastá-la nunca move o mapa, nem cria pino ou ROI). À direita,
+  outra camada ou a mesma em outra data/modo, escolhida na barra acima do
+  mapa: a mesma barra dos painéis de mapa (`uiViewBar`). A comparação é um
+  `MapView` desenhado pelo `renderView` num alvo próprio da GPU (slot 1) e
+  recortado por coordenadas de textura; com Δ, pede os tiles das duas datas.
+- **Transecto (Hovmöller)**: `Ctrl` + arrastar (Mac: `Command`), ou `T` /
+  View → Draw transect, traça a linha. Painel **Transect**: distância desde A
+  (metros; haversine em EPSG:4xxx) × datas, nas cores da camada (classes nos
+  categóricos); valores ou anomalias (cada lugar menos a sua média). Hover
+  mostra distância, data e valor e marca o ponto no mapa; clique muda a data;
+  Copy CSV. Preenchido na hora pelo overview e depois em resolução total no
+  pool interativo (no HD, só depois do overview). A linha segue a camada ativa
+  pelas coordenadas geográficas.
+- A imagem do transecto é uma textura float desenhada como tile pelo próprio
+  renderizador do mapa: nada novo em GL/Metal.
+- Autoteste: os dois lados da cortina; o transecto contra o overview e contra
+  os valores exatos (16 datas em ~15 ms, erro máximo 5,7e-7); cores da imagem
+  e das classes.
+- Para depois: transecto na exportação PNG; transecto de várias camadas; linhas
+  proporcionais ao tempo real; a barra de status mostrar o valor do lado da
+  comparação.
 
 ### 0.19.0 — Fase 11: exportação
 - **Mapa em PNG** (File → Export map as PNG): renderizado fora da tela a 1×,

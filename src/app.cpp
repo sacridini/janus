@@ -44,9 +44,6 @@ const int kModeOrder[ModeCount] = {ModeValue, ModeAnomaly, ModeDiff,     ModeMea
 
 bool modeIsTimeDependent(int m) { return m == ModeValue || m == ModeAnomaly || m == ModeRGB || m == ModeDiff; }
 bool modeNeedsStats(int m) { return m != ModeValue && m != ModeRGB && m != ModeDiff; }
-// Reference date of the difference mode at date t: a fixed date, or the
-// previous one (ref < 0; -1 at the first date: no difference).
-int diffRefDate(int ref, int t, int T) { return ref < 0 ? t - 1 : std::min(ref, T - 1); }
 
 // Label of a value of `mode` on a colour bar: dates for the drop date.
 std::string rangeLabel(int mode, float v, const CubeInfo& info) {
@@ -85,6 +82,7 @@ int nearestIndex(const std::vector<double>& xs, double x) {
 } // namespace
 
 const char* modeName(int mode) { return kModeNames[mode]; }
+int diffRefDate(int ref, int t, int T) { return ref < 0 ? t - 1 : std::min(ref, T - 1); }
 
 App::App(GLFWwindow* window) : window_(window) {}
 
@@ -294,6 +292,7 @@ void App::frame() {
     }
 
     pumpZeit();
+    pumpTransect();
 
     handleShortcuts();
     uiMenu();
@@ -306,6 +305,7 @@ void App::frame() {
     uiStats();
     uiMap();
     uiMapViews();
+    uiTransect();
     if (zeit_ && zeit_->state() == ZeitClient::State::Ready)
         for (const ZeitTool& t : zeit_->tools()) uiToolWindow(t);
     uiTasks();
@@ -553,6 +553,7 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) playing_ = !playing_;
     if (ImGui::IsKeyPressed(ImGuiKey_H, false)) fitRequested_ = true;
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) roiDragging_ = false;
+    compareShortcuts();
 }
 
 void App::uiMenu() {
@@ -588,6 +589,7 @@ void App::uiMenu() {
         if (ImGui::MenuItem("New map view", "Ctrl+T", false, s_ != nullptr)) newMapView();
         if (ImGui::MenuItem("Close map view", "Ctrl+W", false, !views_.empty()))
             closeViewId_ = focusedViewId_ ? focusedViewId_ : views_.back().id;
+        uiCompareMenu();
         ImGui::MenuItem("Performance", nullptr, &showPerf_);
         ImGui::Separator();
         if (ImGui::MenuItem("Reset layout")) layoutPending_ = true;
@@ -639,6 +641,7 @@ void App::uiDockspace() {
     ImGui::DockBuilderDockWindow("Performance", leftMid);
     ImGui::DockBuilderDockWindow("Map", center);
     ImGui::DockBuilderDockWindow("Time series", bottomLeft);
+    ImGui::DockBuilderDockWindow("Transect", bottomLeft); // a tab next to the chart, when there is a transect
     ImGui::DockBuilderDockWindow("Statistics", bottomRight);
     ImGui::DockBuilderFinish(dock);
 }
@@ -673,6 +676,10 @@ void App::uiPopups() {
             "  right click on pin .. remove it (Mac: Control + click or a two-finger click;\n"
             "                        Delete removes the last one)\n"
             "  Shift + drag ........ rectangular ROI (mean and p10-p90 per date)\n"
+            "  Ctrl + drag ......... space-time transect along the line (Transect panel);\n"
+            "                        T, then drag, does the same (Mac: Command + drag)\n"
+            "  S ................... swipe: drag the divider to compare with another\n"
+            "                        layer, date or mode (picked in the bar above the map)\n"
             "  H ................... fit to window\n\n"
             "Time\n"
             "  left/right arrows ... previous / next date\n"
@@ -772,6 +779,9 @@ void App::mapInput(ImVec2 origin, ImVec2 size, int panel, int& ix, int& iy, bool
     iy = int(std::floor(sy));
     inside = hovered && ix >= 0 && iy >= 0 && ix < info.width && iy < info.height;
     if (hovered) mouseInPanel_ = panel;
+
+    // The swipe divider and a transect being drawn take the drag (no pan, pin or ROI).
+    if ((panel == 0 && swipeInput(origin, size)) || transectInput(panel, sx, sy)) return;
 
     // Removes the pin drawn under the cursor, if any.
     auto removePinAtCursor = [&] {
@@ -961,6 +971,7 @@ void App::drawMapMarks(ImDrawList* dl, ImVec2 origin, int panel, int ix, int iy,
             dl->AddText(toScreen(roi_->x0, roi_->y0) + ImVec2(4, 2), roiCol, buf);
         }
     }
+    drawTransectMarks(dl, origin);
 }
 
 void App::uiMap() {
@@ -1011,6 +1022,7 @@ void App::uiMap() {
     ImGui::SliderFloat("##fps", &fps_, 0.5f, 30.f, "%.1f dates/s", ImGuiSliderFlags_Logarithmic);
     ImGui::SameLine();
     ImGui::TextDisabled("%d/%d", t_ + 1, T);
+    uiSwipeBar();
 
     // --- Canvas ---
     const ImVec2 origin = ImGui::GetCursorScreenPos();
@@ -1067,6 +1079,7 @@ void App::uiMap() {
     dl->AddImage(ImTextureRef((ImTextureID)gpu_.mapTexture()), origin, origin + size, ImVec2(0, bottomUp ? 1.f : 0.f),
                  ImVec2(1, bottomUp ? 0.f : 1.f));
     dl->PushClipRect(origin, origin + size, true);
+    drawSwipe(dl, origin, size, pixelScale);
     drawMapMarks(dl, origin, 0, ix, iy, inside);
 
     // View title (date + mode) and color bar
@@ -1308,11 +1321,10 @@ void App::uiMapViews() {
     mouseInPanel_ = -1;
 }
 
-void App::uiMapView(MapView& v) {
-    if (!s_) {
-        ImGui::TextDisabled("No series open.");
-        return;
-    }
+void App::autoRangeOf(int mode, std::vector<float>& s, float& lo, float& hi) { autoRange(mode, s, lo, hi); }
+
+// The bar of a map panel (and of the swipe): layer, own date, own mode.
+App::SeriesLayer* App::uiViewBar(MapView& v) {
     SeriesLayer* L = nullptr;
     for (SeriesLayer& c : layers_)
         if (c.session->info->id == v.cube) L = &c;
@@ -1324,7 +1336,6 @@ void App::uiMapView(MapView& v) {
     const Session& S = *L->session;
     const CubeInfo& li = *S.info;
     const int T = li.T();
-    const bool isActive = L == activeLayer();
 
     // --- Toolbar: layer, date, display mode ---
     ImGui::SetNextItemWidth(170);
@@ -1370,26 +1381,39 @@ void App::uiMapView(MapView& v) {
             ImGui::EndCombo();
         }
     }
-    const int mode = v.ownMode ? v.mode : isActive ? mode_ : L->disp.mode;
-    const int t = v.ownDate ? v.t : isActive ? t_ : std::clamp(L->disp.t, 0, T - 1);
-    const int cmap = isActive ? cmap_[mode] : L->disp.cmap[mode];
-    const int diffRefSetting = isActive ? diffRef_ : L->disp.diffRef;
-    const int diffRef = diffRefDate(diffRefSetting, t, T);
-
     // Automatic range of an own mode (the layer's ranges are its own business).
-    if (v.ownMode && !(modeNeedsStats(mode) && !S.gpu.statsValid)) {
+    const int diffRefSetting = L == activeLayer() ? diffRef_ : L->disp.diffRef;
+    if (v.ownMode && !(modeNeedsStats(v.mode) && !S.gpu.statsValid)) {
         const uint64_t key = (uint64_t(S.overview.layersDone()) * 2 + (S.gpu.statsValid ? 1 : 0)) * 65536 +
                              uint64_t(diffRefSetting + 2);
         if (v.range.key != key) {
-            std::vector<float> smp = collectSample(S, mode, -1, 500000, diffRefSetting);
+            std::vector<float> smp = collectSample(S, v.mode, -1, 500000, diffRefSetting);
             if (!smp.empty()) {
-                autoRange(mode, smp, v.range.lo, v.range.hi);
+                autoRange(v.mode, smp, v.range.lo, v.range.hi);
                 v.range.key = key;
                 v.dirty = true;
             }
         }
     }
+    return L;
+}
+
+void App::uiMapView(MapView& v) {
+    if (!s_) {
+        ImGui::TextDisabled("No series open.");
+        return;
+    }
+    SeriesLayer* L = uiViewBar(v);
+    const Session& S = *L->session;
+    const CubeInfo& li = *S.info;
+    const int T = li.T();
+    const bool isActive = L == activeLayer();
+    const bool classes = L->classes.state == LayerClasses::On;
+    const int mode = v.ownMode ? v.mode : isActive ? mode_ : L->disp.mode;
+    const int t = v.ownDate ? v.t : isActive ? t_ : std::clamp(L->disp.t, 0, T - 1);
+    const int cmap = isActive ? cmap_[mode] : L->disp.cmap[mode];
     const Range& range = v.ownMode ? v.range : isActive ? range_[mode] : L->disp.range[mode];
+    const int diffRef = diffRefDate(isActive ? diffRef_ : L->disp.diffRef, t, T);
 
     // --- Canvas: the main map's view, centered on this panel ---
     const ImVec2 origin = ImGui::GetCursorScreenPos();
