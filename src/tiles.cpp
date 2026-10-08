@@ -4,13 +4,14 @@
 #include <chrono>
 #include <cmath>
 
+#include "fullres_cache.hpp"
 #include "gpu.hpp"
 #include "job_pool.hpp"
 
 TileManager::TileManager(std::shared_ptr<const CubeInfo> info, double overviewFactor, JobPool& pool,
-                         size_t maxGpuBytes)
-    : info_(std::move(info)), overviewFactor_(overviewFactor), pool_(pool), maxGpuBytes_(maxGpuBytes),
-      sh_(std::make_shared<Shared>()) {
+                         size_t maxGpuBytes, std::shared_ptr<FullResCache> fullRes)
+    : info_(std::move(info)), fullRes_(std::move(fullRes)), overviewFactor_(overviewFactor), pool_(pool),
+      maxGpuBytes_(maxGpuBytes), sh_(std::make_shared<Shared>()) {
     // Largest level L (2^L source px per texel) still finer than the overview.
     maxLevel_ = overviewFactor_ > 1.0001 ? int(std::ceil(std::log2(overviewFactor_))) - 1 : -1;
 }
@@ -75,7 +76,8 @@ void TileManager::request(int t, int level, const ViewRect& v, int priority) {
 
         auto sh = sh_;
         auto info = info_;
-        pool_.submit(priority, [sh, info, key, t, level, tx, ty] {
+        auto fullRes = fullRes_;
+        pool_.submit(priority, [sh, info, fullRes, key, t, level, tx, ty] {
             {
                 std::lock_guard<std::mutex> lk(sh->m);
                 auto it = sh->wanted.find(key);
@@ -97,7 +99,8 @@ void TileManager::request(int t, int level, const ViewRect& v, int priority) {
             r.sw = sw;
             r.sh = shh;
             r.data.resize(size_t(r.w) * r.h);
-            if (!threadReader(info).readWindow(t, x, y, sw, shh, r.data.data(), r.w, r.h))
+            if (!(fullRes && fullRes->readWindow(t, x, y, sw, shh, r.data.data(), r.w, r.h)) &&
+                !threadReader(info).readWindow(t, x, y, sw, shh, r.data.data(), r.w, r.h))
                 std::fill(r.data.begin(), r.data.end(), NAN);
             r.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             std::lock_guard<std::mutex> lk(sh->m);

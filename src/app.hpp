@@ -82,6 +82,8 @@ public:
     void setStartupTimes(const StartupTimes& t) { startup_ = t; }
     // --selftest-ui: one step per frame; -1 while running, then the exit code.
     int selfTestStep(const std::vector<std::string>& inputs);
+    // --measure-cache on|off IN: times the full-resolution cache (app_fullres.cpp).
+    int measureCacheStep(const std::vector<std::string>& inputs);
 
     std::vector<std::string> pendingDrop; // filled by the drag-and-drop callback
 
@@ -152,6 +154,12 @@ private:
     std::string exportName(const std::string& suffix) const;
     std::string askSavePath(const char* title, const std::string& name, const char* filter, const char* ext);
     const char* selfTestExports(); // nullptr = passed
+
+    // Full-resolution cache (app_fullres.cpp)
+    void registerFullResSettings();
+    void uiFullRes();
+    void uiFullResSettings();
+    int selfTestFullRes(); // --selftest-ui stages 30-32 (app_selftest.cpp)
 
     // Zeit tools (app_zeit.cpp)
     ZeitConfig zeitConfig() const;
@@ -506,6 +514,14 @@ private:
         int stage = 0;
         double t0 = 0, since = 0;
         unsigned char color[3] = {0, 0, 0};
+        int hits = 0;
     } st_; // --selftest-ui state
+    struct {
+        int stage = 0;
+        std::shared_ptr<CubeInfo> info;
+        std::vector<std::pair<int, int>> px;
+        std::array<int, 4> roi{};
+        double t0 = 0;
+    } measure_; // --measure-cache state
 
 };

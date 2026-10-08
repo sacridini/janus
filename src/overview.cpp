@@ -30,13 +30,11 @@ uint64_t fnv1a(uint64_t h, const void* p, size_t n) {
     return h;
 }
 
-// Cache key: changes if any file changes (size/mtime) or if the overview
-// resolution changes.
-uint64_t cacheKey(const CubeInfo& info, int w, int h) {
+} // namespace
+
+uint64_t cubeCacheKey(const CubeInfo& info, const void* salt, size_t saltBytes) {
     uint64_t k = 1469598103934665603ull;
-    k = fnv1a(k, kMagic, sizeof(kMagic));
-    k = fnv1a(k, &w, sizeof(w));
-    k = fnv1a(k, &h, sizeof(h));
+    k = fnv1a(k, salt, saltBytes);
     for (const Layer& L : info.layers) {
         k = fnv1a(k, L.path.data(), L.path.size());
         k = fnv1a(k, &L.band, sizeof(L.band));
@@ -60,6 +58,18 @@ uint64_t cacheKey(const CubeInfo& info, int w, int h) {
         }
     }
     return k;
+}
+
+namespace {
+
+// Cache key: changes if any file changes (size/mtime) or if the overview
+// resolution changes.
+uint64_t cacheKey(const CubeInfo& info, int w, int h) {
+    char salt[sizeof(kMagic) + 2 * sizeof(int)];
+    std::memcpy(salt, kMagic, sizeof(kMagic));
+    std::memcpy(salt + sizeof(kMagic), &w, sizeof(w));
+    std::memcpy(salt + sizeof(kMagic) + sizeof(w), &h, sizeof(h));
+    return cubeCacheKey(info, salt, sizeof(salt));
 }
 
 bool seekTo(FILE* f, uint64_t offset) {
@@ -191,8 +201,10 @@ void Overview::start(std::shared_ptr<const CubeInfo> info, int64_t budgetBytes, 
 }
 
 void Overview::decode(int t) {
-    CubeReader& r = threadReader(info_);
-    if (r.readWindow(t, 0, 0, info_->width, info_->height, data.data() + size_t(t) * w * h, w, h)) saveLayer(t);
+    float* out = data.data() + size_t(t) * w * h;
+    const int full = fullResBuild ? fullResBuild(t, out, w, h) : -1;
+    const bool ok = full >= 0 ? full > 0 : threadReader(info_).readWindow(t, 0, 0, info_->width, info_->height, out, w, h);
+    if (ok) saveLayer(t);
     else failed_++; // left out of the cache: retried on the next open
     markDone(t);
 }

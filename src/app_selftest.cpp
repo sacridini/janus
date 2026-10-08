@@ -11,6 +11,8 @@
 //   D  categorical series with a colour table and class names (file colours);
 //   E  categorical series without them (detected from its values).
 // With A and B open it also checks the swipe and the space-time transect.
+// Between the series and the map checks, the full-resolution cache of B must
+// give exactly the source values (stages 30-32).
 #include "app.hpp"
 
 #include <algorithm>
@@ -194,8 +196,13 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         if (A.hover.x != hover_.x + 100) return fail("A's cursor pixel should be B's + 100");
         if (std::fabs(hover_.values[0] - 2.0f) > 1e-4) return fail("B's first value should be 2.0");
         next("exact series of both layers under the cursor and the pin");
+        st_.stage = 30; // full-resolution cache, then back to 6
         break;
     }
+    case 30:
+    case 31:
+    case 32:
+        return selfTestFullRes();
     case 6: {
         canvasSize_ = ImVec2(400, 300);
         fitView(canvasSize_);
@@ -716,4 +723,122 @@ const char* App::selfTestCompare() {
     if (!tr_.on || std::fabs(ax - 110.5f) > 1e-3f || an != 191 || std::fabs(tr_.a.x - 10.5f) > 1e-3f || tr_.n != 281)
         return "the transect should follow the active layer";
     return nullptr;
+}
+
+// Stages 30-32: the full-resolution cache of B. 30: a cache built in a
+// temporary folder by the overview pass (full dates read once for both),
+// compared value by value (bits) with GDAL: the overview it fills, pixel
+// series (block corners and edges), windows and subsampled windows. Then B's
+// own cache, built through the session: 31 waits for it and asks for a series
+// and an ROI, 32 checks that both came from it and equal the source.
+int App::selfTestFullRes() {
+    auto fail = [&](const std::string& what) {
+        std::printf("FAIL (stage %d): %s\n", st_.stage, what.c_str());
+        return 1;
+    };
+    auto next = [&](const char* done) {
+        std::printf("[%5.1f s] %s\n", now() - st_.t0, done);
+        ++st_.stage;
+        st_.since = now();
+    };
+    const std::shared_ptr<const CubeInfo> info = s_->info;
+    const int W = info->width, H = info->height, T = info->T();
+    auto same = [](const float* a, const float* b, size_t n) { return std::memcmp(a, b, n * sizeof(float)) == 0; };
+    switch (st_.stage) {
+    case 30: {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path dir = fs::temp_directory_path(ec) / ("janus-selftest-" + std::to_string(uint64_t(now() * 1e6)));
+        fs::create_directories(dir, ec);
+        int series = 0, windows = 0;
+        uint64_t bytes = 0;
+        {
+            FullResCache c(info, dir.u8string());
+            if (!c.start(2, 1ull << 40)) return fail("could not start a full-resolution cache: " + c.error());
+            CubeReader r(info);
+            const int ow = 97, oh = 61; // subsampled like an overview, odd factors
+            std::vector<float> ov(size_t(ow) * oh), ref(ov.size());
+            for (int t = 0; t < T; ++t) {
+                if (c.buildWithOverview(t, ov.data(), ow, oh) != 1) return fail("the overview pass should build every date");
+                r.readWindow(t, 0, 0, W, H, ref.data(), ow, oh);
+                if (!same(ov.data(), ref.data(), ov.size())) return fail("the overview taken from full dates differs from GDAL's");
+            }
+            if (!c.complete() || c.datesWithOverview() != T) return fail("the cache should be complete");
+            bytes = c.bytes();
+            const int px[][2] = {{0, 0}, {W - 1, H - 1}, {63, 63}, {64, 64}, {63, 64}, {W - 1, 0}, {0, H - 1},
+                                 {128, 127}, {W / 2, H / 2}, {W - 2, 129}};
+            std::vector<float> a(T), b(T);
+            std::vector<char> got(T, 0);
+            for (const auto& p : px) {
+                if (c.readSeries(p[0], p[1], a.data(), got.data()) != T) return fail("every date should be cached");
+                for (int t = 0; t < T; ++t) r.readPixel(t, p[0], p[1], b[t]);
+                if (!same(a.data(), b.data(), size_t(T))) return fail("a series from the cache differs from the source");
+                ++series;
+            }
+            const int win[][6] = {{0, 0, W, H, W, H},          {10, 7, 200, 150, 200, 150}, {5, 3, W - 9, H - 5, 97, 61},
+                                  {63, 63, 2, 2, 2, 2},        {100, 50, 150, 120, 40, 33}, {0, 0, W, H, 256 / 4, 33},
+                                  {W - 70, H - 70, 70, 70, 70, 70}, {1, 1, W - 1, H - 1, W / 3, H / 7}};
+            for (const auto& w : win) {
+                std::vector<float> x(size_t(w[4]) * w[5]), y(x.size());
+                for (int t = 0; t < T; ++t) {
+                    if (!c.readWindow(t, w[0], w[1], w[2], w[3], x.data(), w[4], w[5])) return fail("window not cached");
+                    r.readWindow(t, w[0], w[1], w[2], w[3], y.data(), w[4], w[5]);
+                    if (!same(x.data(), y.data(), x.size())) {
+                        char msg[128];
+                        std::snprintf(msg, sizeof(msg), "window (%d, %d, %d x %d -> %d x %d) differs from the source",
+                                      w[0], w[1], w[2], w[3], w[4], w[5]);
+                        return fail(msg);
+                    }
+                }
+                ++windows;
+            }
+        }
+        fs::remove_all(dir, ec);
+        std::printf("    %d dates read once for the overview and the cache (%s, %.0f KB, raw %.0f KB); %d series and "
+                    "%d windows x %d dates equal to GDAL's\n",
+                    T, "lossless", bytes / 1024.0, double(W) * H * T * 4 / 1024, series, windows, T);
+        if (!s_->buildFullRes()) return fail("B's cache could not start: " + s_->fullRes->error());
+        showPerf_ = true; // its section of the Performance panel is drawn while the cache builds and is read
+        next("full-resolution cache (temporary) equal to the source");
+        break;
+    }
+    case 31: {
+        if (!s_->fullRes->complete()) break;
+        st_.hits = s_->fullRes->seriesHits();
+        hover_ = SeriesView{};
+        hover_.x = 77;
+        hover_.y = 131;
+        hover_.values = approxSeries(77, 131);
+        hover_.request = s_->requestSeries(77, 131, false);
+        clearRoi();
+        roi_ = s_->startRoi(13, 21, 163, 191);
+        roiSeen_ = -1;
+        next("B's own cache complete; series and ROI requested");
+        break;
+    }
+    case 32: {
+        if (!hover_.exact || !roi_ || roi_->done.load() < T) break;
+        CubeReader r(info);
+        std::vector<float> v(T);
+        for (int t = 0; t < T; ++t) r.readPixel(t, hover_.x, hover_.y, v[t]);
+        if (s_->fullRes->seriesHits() == st_.hits) return fail("the series should come from the cache");
+        if (!same(hover_.values.data(), v.data(), size_t(T))) return fail("the series differs from the source");
+        if (roi_->cachedDates.load() != T) return fail("the ROI should come from the cache");
+        for (int t = 0; t < T; ++t) {
+            std::vector<float> buf(size_t(roi_->bw) * roi_->bh);
+            r.readWindow(t, roi_->x0, roi_->y0, roi_->x1 - roi_->x0, roi_->y1 - roi_->y0, buf.data(), roi_->bw, roi_->bh);
+            const SampleStats a = computeSampleStats(buf), &b = roi_->perT[t];
+            if (a.n != b.n || a.mean != b.mean || a.p10 != b.p10 || a.p50 != b.p50 || a.p90 != b.p90)
+                return fail("the ROI statistics differ from the source's");
+        }
+        std::printf("    series from the cache in %.2f ms, ROI %d x %d x %d dates in %.1f ms\n",
+                    s_->fullRes->lastSeriesMs(), roi_->x1 - roi_->x0, roi_->y1 - roi_->y0, T, roi_->ms.load());
+        clearRoi();
+        showPerf_ = false;
+        next("series and ROI through B's cache equal the source");
+        st_.stage = 6;
+        break;
+    }
+    }
+    return -1;
 }

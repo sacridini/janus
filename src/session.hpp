@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "cube.hpp"
+#include "fullres_cache.hpp"
 #include "gpu.hpp"
 #include "job_pool.hpp"
 #include "overview.hpp"
@@ -22,6 +23,11 @@ struct SessionSettings {
     std::string cacheDir;
     int maxTexSize = 16384;
     int ioThreads = 0;          // 0 = automatic (HDD: 1, SSD: cores)
+    // Full-resolution cache (FullResCache): built for every series, for
+    // series on an HDD only, or never (then on demand: Session::buildFullRes).
+    enum FullRes { FullResOff = 0, FullResHdd = 1, FullResAll = 2 };
+    int fullResMode = FullResHdd;
+    uint64_t fullResBudgetBytes = 64ull << 30;
 };
 
 struct SeriesResult {
@@ -41,6 +47,7 @@ struct RoiData {
     std::atomic<bool> cancel{false};
     std::chrono::steady_clock::time_point t0;
     std::atomic<double> ms{0};
+    std::atomic<int> cachedDates{0}; // read from the full-resolution cache
 };
 
 // An open time series: data, GPU state and background work.
@@ -62,8 +69,12 @@ public:
     uint64_t requestSeries(int x, int y, bool cancellable);
     std::vector<SeriesResult> takeSeries();
     std::shared_ptr<RoiData> startRoi(int x0, int y0, int x1, int y1);
+    // Starts (or resumes) building the full-resolution cache now, whatever the
+    // setting. False if it cannot be built: see fullRes->error().
+    bool buildFullRes();
 
     std::shared_ptr<const CubeInfo> info;
+    std::shared_ptr<FullResCache> fullRes; // before the pools: their jobs use it
     Overview overview;
     GpuCube gpu; // after overview: destroyed first (Metal may read the overview's memory in place)
     std::unique_ptr<TileManager> tiles;
@@ -77,6 +88,8 @@ public:
 
 private:
     std::function<void()> wake_;
+    int fullResDecodeThreads_ = 1;
+    uint64_t fullResBudget_ = 0;
     std::mutex seriesM_;
     std::vector<SeriesResult> seriesResults_;
     std::atomic<uint64_t> nextSeriesId_{1};

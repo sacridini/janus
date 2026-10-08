@@ -143,7 +143,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 10 | 0.20.0 | **Novas visualizações**: **cortina (swipe)** entre datas/camadas e **transecto espaço-tempo (Hovmöller)** | concluída |
 | 11 | 0.19.0 | **Exportação**: mapa visível como PNG (figuras), vista/camada e resultados do Zeit como GeoTIFF (para o QGIS) | concluída |
 | 12 | 0.18.0 | **Mapas de diferença (Δ) e de quebra** (ano e magnitude da maior queda), calculados na GPU | concluída |
-| 13 | — | **Cache em resolução total** num SSD, em blocos com o tempo contíguo: série exata e ROI em ~1 ms mesmo com os dados num HD | em andamento |
+| 13 | 0.21.0 | **Cache em resolução total** num SSD (blocos de 64×64 por data, compressão sem perda): série exata e ROI em ~1 ms mesmo com os dados num HD | concluída |
 | 14 | — | Mais visualizações: mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas na ROI | planejada |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
@@ -210,6 +210,42 @@ termina.
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.21.0 — Fase 13: cache em resolução total
+- Blocos de 64×64 **por data**, não blocos com todas as datas (como o backlog
+  previa): um bloco com o tempo inteiro só existe depois de ler todas as datas
+  (cubo de ~9 GB na RAM ou uma segunda passada). Por data, o cache sai da
+  mesma leitura do overview, cada data vale assim que é gravada e a retomada é
+  data a data, como no cache do overview. Série = 41 leituras de ~11 KB:
+  **0,7–1,0 ms**.
+- Compressão sem perda: bits do float como inteiro, diferença com o pixel
+  anterior, zigzag, planos de bytes, zstd nível 1 pelo registro de compressores
+  do GDAL (`CPLGetCompressor`; sem dependência nova; zlib se o GDAL não tiver
+  zstd). Medido em blocos reais: 1,42× (zstd puro 1,17×, shuffle + zstd 1,31×,
+  deflate 1,43× mas ~10× mais lento, lz4 1,32×); **6,3–6,7 GB por cena** (8,9 GB
+  brutos). Valores bit a bit iguais aos do GDAL, inclusive em janelas
+  subamostradas (aritmética do vizinho mais próximo do `rasterio.cpp` do GDAL
+  3.11; 300 janelas reais, 0 diferenças).
+- No HD, na primeira abertura, a passada do overview lê as datas inteiras e
+  monta os dois caches: uma thread lê o arquivo em sequência na frente (4 MB
+  por vez) e 4 threads decodificam e comprimem a partir do cache do SO. Medido
+  a frio: 48,7 s para 38 datas (overview + cache, ~150 MB/s do disco) contra
+  52,1 s para 41 datas só do overview. O multi-thread do próprio GDAL (uma
+  tarefa por faixa de 1 linha) dava 79 s; só a thread de leitura, 68–71 s.
+  Com o overview já em cache, o cache total é montado numa passada própria em
+  segundo plano (~54 s por cena).
+- Medido: série exata **250–500 ms a frio do HD → 0,7–1,0 ms do cache**; ROI de
+  256×256 × 41 datas **~2 s → ~21 ms**. Série, pinos, ROI e tiles de detalhe
+  usam o cache nas datas que ele tem e o arquivo nas outras.
+- Configuração (painel Performance, guardada no `.ini`): sob demanda / séries
+  em HD (padrão) / todas; orçamento de 64 GB com poda pelo uso mais antigo,
+  sem apagar caches em uso, e checagem do espaço livre; botão "Build it now" /
+  "Resume" por série.
+- Limites: as leituras do cache só foram medidas logo depois de montá-lo
+  (arquivo ainda na RAM; após reiniciar, estimado 2–4 ms); durante a passada
+  própria no HD, pinos e tiles das datas que faltam ainda disputam o disco;
+  em COG, janelas subamostradas do cache usam o vizinho mais próximo em
+  resolução total (o GDAL usaria o overview do arquivo).
 
 ### 0.20.0 — Fase 10: cortina e transecto espaço-tempo
 - **Cortina (swipe)**: View → Swipe ou `S`; divisória arrastável no mapa
