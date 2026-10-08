@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
 project(tsv VERSION 0.11.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
+if(APPLE)
+  enable_language(OBJC OBJCXX) # src/platform_mac.mm (OBJC too: GLFW's .m files stay Objective-C)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -71,6 +74,10 @@ set(TSV_SOURCES
   src/stats.cpp
   src/tiles.cpp)
 
+if(APPLE)
+  list(APPEND TSV_SOURCES src/platform_mac.mm) # trackpad gestures (Cocoa)
+endif()
+
 if(WIN32)
   configure_file(resources/tsv.rc.in ${CMAKE_CURRENT_BINARY_DIR}/tsv.rc @ONLY)
   list(APPEND TSV_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/tsv.rc)
@@ -82,6 +89,9 @@ add_executable(tsv WIN32 ${TSV_SOURCES})
 target_include_directories(tsv PRIVATE ${glfw_SOURCE_DIR}/deps)
 target_compile_definitions(tsv PRIVATE TSV_VERSION="${PROJECT_VERSION}")
 target_link_libraries(tsv PRIVATE imgui GDAL::GDAL nlohmann_json::nlohmann_json)
+if(APPLE)
+  target_link_libraries(tsv PRIVATE "-framework AppKit")
+endif()
 
 if(UNIX AND NOT APPLE)
   # Libraries bundled next to the program (see cmake/package_linux.cmake) are

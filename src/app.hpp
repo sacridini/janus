@@ -12,6 +12,7 @@
 #include <imgui.h>
 
 #include "file_browser.hpp"
+#include "platform.hpp"
 #include "gpu.hpp"
 #include "results.hpp"
 #include "session.hpp"
@@ -215,6 +216,7 @@ private:
     double hoverSince_ = 0;
     int approxLayers_ = -1;      // overview layers used by the approximate series
     bool viewTouched_ = false;   // user already panned/zoomed (don't auto-fit)
+    platform::Gestures gestures_; // trackpad pinch and scroll kind of this frame
     double frameMs_ = 0;
     int budgetUi_ = 1024;
     StartupTimes startup_;

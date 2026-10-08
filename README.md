@@ -133,7 +133,7 @@ console launcher next to `tsv.exe`, the same trick Visual Studio uses with
 
 | Action | How |
 |---|---|
-| Pan / zoom | drag / mouse wheel (zooming out stops at the image extent), `Home` fits the map |
+| Pan / zoom | drag / mouse wheel (zooming out stops at the image extent), `Home` fits the map; trackpad: two fingers pan, pinch zooms |
 | Pixel series | hover (exact once the mouse rests) |
 | Compare pixels | click to drop a pin |
 | Remove a pin | right click it, `Delete` (last one) or the **x** in the statistics table |

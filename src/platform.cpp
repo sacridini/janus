@@ -375,3 +375,7 @@ std::tm platform::localTime(std::time_t t) {
 #endif
     return tm;
 }
+
+#ifndef __APPLE__
+platform::Gestures platform::takeGestures() { return {}; } // macOS: platform_mac.mm
+#endif

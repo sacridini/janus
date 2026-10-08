@@ -26,4 +26,15 @@ bool isOnRotationalDisk(const std::string& path);
 
 std::tm localTime(std::time_t t);           // thread-safe localtime
 
+// Trackpad gestures (call once per frame). GLFW reports neither pinches nor
+// whether a scroll came from a trackpad: on macOS (platform_mac.mm) pinch is the
+// zoom factor since the previous call (1 = none) and preciseScroll is true when
+// the latest scroll had precise deltas (trackpad, Magic Mouse), which pans the
+// map instead of zooming it. Elsewhere: no pinch, a scroll is a mouse wheel.
+struct Gestures {
+    double pinch = 1.0;
+    bool preciseScroll = false;
+};
+Gestures takeGestures();
+
 } // namespace platform

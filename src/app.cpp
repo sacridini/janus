@@ -217,6 +217,7 @@ void App::setT(int t) {
 
 void App::frame() {
     const auto frameStart = std::chrono::steady_clock::now();
+    gestures_ = platform::takeGestures();
     if (!pendingDrop.empty() && !opening_.valid()) {
         auto drop = std::move(pendingDrop);
         pendingDrop.clear();
@@ -591,6 +592,7 @@ void App::uiPopups() {
             "Map\n"
             "  drag ................ pan\n"
             "  mouse wheel ......... zoom\n"
+            "  trackpad ............ pinch: zoom, two fingers: pan\n"
             "  hover ............... pixel series (exact once the mouse rests)\n"
             "  click ............... drop a pin (compare pixels)\n"
             "  right click on pin .. remove it (Delete removes the last one)\n"
@@ -796,10 +798,11 @@ void App::uiMap() {
     if (hovered && !pins_.empty() &&
         (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)))
         removePinById(pins_.back().id);
-    if (hovered && io.MouseWheel != 0) {
-        // Zooming out stops at the image extent (whole image in view, centered).
+    // Zoom by a factor around the cursor; zooming out stops at the image extent
+    // (whole image in view, centered).
+    auto zoomAtCursor = [&](double factor) {
         const double fit = 0.98 * std::min(size.x / info.width, size.y / info.height);
-        const double ns = std::clamp(scale_ * std::pow(1.25, io.MouseWheel), fit, std::max(fit, 64.0));
+        const double ns = std::clamp(scale_ * factor, fit, std::max(fit, 64.0));
         if (ns <= fit * 1.0001) {
             fitView(size);
         } else {
@@ -809,6 +812,18 @@ void App::uiMap() {
             mapDirty_ = true;
         }
         viewTouched_ = true;
+    };
+    if (hovered && gestures_.pinch != 1.0) zoomAtCursor(gestures_.pinch);
+    if (hovered && (io.MouseWheel != 0 || io.MouseWheelH != 0)) {
+        if (gestures_.preciseScroll) {
+            // Trackpad: two fingers pan. GLFW scales precise deltas by 0.1;
+            // x10 gives back points, so the map follows the fingers.
+            offset_ += ImVec2(io.MouseWheelH, io.MouseWheel) * 10.0f;
+            mapDirty_ = true;
+            viewTouched_ = true;
+        } else if (io.MouseWheel != 0) {
+            zoomAtCursor(std::pow(1.25, io.MouseWheel));
+        }
     }
     if (inside && (ix != hover_.x || iy != hover_.y)) {
         hover_.x = ix;

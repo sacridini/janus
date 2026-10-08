@@ -101,6 +101,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | bibliotecas | `deploy_runtime.cmake` (dumpbin) | `package_linux.cmake`: `GET_RUNTIME_DEPENDENCIES`, RPATH `$ORIGIN/lib`; glibc, OpenGL e X11 vêm do sistema | bundle `.app` (a fazer) |
 | pacote | Inno Setup (122 MB) | `.tar.xz` portátil (172 MB) com `tsv.desktop`; AppImage/.deb depois | `.app` + `.dmg` assinado (a fazer) |
 | OpenGL 3.3 core | ok | ok (WSLg/Mesa) | exige `GLFW_OPENGL_FORWARD_COMPAT` (já definido); OpenGL obsoleto lá, o ImGui tem backend Metal |
+| gestos (`platform::takeGestures`) | roda = zoom | roda = zoom | `platform_mac.mm`: monitor local do `NSEvent`; pinça = zoom, rolagem com deltas precisos (trackpad, Magic Mouse) = mover; roda comum = zoom |
 
 ## Roadmap
 
