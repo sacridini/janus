@@ -28,7 +28,8 @@
   animation player.
 - **Pixel series**: approximate (from the overview) as soon as you hover, exact
   (full resolution) once the mouse rests. Click to drop pins and compare pixels;
-  Shift+drag a rectangle for an ROI (mean and p10–p90 per date).
+  Shift+drag a rectangle for an ROI (mean and p10–p90 per date, or a box plot
+  per date: p25–p75 box, median, whiskers to p10 and p90).
 - **Chart**: lines, markers, stems or stairs; raw values, anomaly or z-score;
   OLS or Sen trend line per series; Y axis locked to the map range if you want.
 - **Statistics** per series: n, mean, median, std, CV, min/max (with date),
@@ -94,9 +95,27 @@
   from the overview and then at full resolution. Hover a cell for its distance,
   date and value (marked on the map), click to go to that date; values or
   anomalies; Copy CSV.
+- **Analysis panel** (View → Analysis), three tabs:
+  - **Seasonal** (series with several dates a year): the cursor, a pin or the
+    ROI mean by day of the year, one line per year (colour = year, the current
+    date's year on top) with the mean of all years by month (± 1 standard
+    deviation), or a **year × day-of-year heatmap** in the layer's colours.
+  - **Classes** (categorical layers): the **share of each class at every date**
+    (stacked areas or lines) and the **transitions** between two dates (the
+    largest ones, the share of pixels that changed, the full matrix); Copy CSV
+    of both.
+  - **Scatter**: two layers, or two dates of one, pixel by pixel in the ROI (or
+    the whole image) as a density plot, with the 1:1 line, the least squares
+    line, r, R², the mean difference and its RMS.
+
+  Classes and scatter count the overview's pixels (what the map shows before
+  zooming in), so they are immediate on any series.
 - **Files panel**: a folder tree listing only rasters by default; double click
-  opens a series, right click adds it as a layer. Whatever is opened (from the
-  panel, File → Open, a drop or the command line), the tree goes to it.
+  opens a series, right click adds it as a layer or to **Favorites** (listed on
+  top, kept between sessions). A folder's tooltip says what it would open as
+  ("41 rasters, 1985 to 2025, yearly", from the file names). Whatever is opened
+  (from the panel, File → Open, a drop or the command line), the tree goes to
+  it. Dropping files with **Shift** held adds them as a layer.
 - **Detachable panels**: drag any panel out of the main window, e.g. the map on
   a second monitor and the charts on the first.
 - **Settings** (File → Settings, `Ctrl+,`): a dark, light, classic or Janus
@@ -170,7 +189,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Pixel series | hover (exact once the mouse rests) |
 | Compare pixels | click to drop a pin |
 | Remove a pin | right click it (Mac: Control + click, or a two-finger click on the trackpad), `Delete` (last one) or the **x** in the statistics table |
-| ROI | `Shift` + drag: rectangular ROI, mean and p10–p90 per date; with *All visible layers* on the chart, also on every visible layer (its own pixels under the rectangle, reprojected if needed) |
+| ROI | `Shift` + drag: rectangular ROI, mean and p10–p90 per date (or a box plot per date: the *ROI* list above the chart); with *All visible layers* on the chart, also on every visible layer (its own pixels under the rectangle, reprojected if needed) |
 | Time | `←`/`→` previous/next date, `Space` play/pause, click or drag on the chart |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or drag it) |
 | Change between dates | **Display** panel → *Difference (value - reference)*: pick the *Reference* (a date, or *Previous date (t-1)*); diverging colours centered at 0, follows the time bar |
@@ -181,7 +200,9 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus), font size, whether the Files panel follows what is opened, processing threads, overview memory, full-resolution cache (when it is built, its budget) and clearing the caches; kept between sessions (see [Settings](#settings)) |
 | Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active. Layers in another CRS show "reprojected from EPSG:…" (hover for the grid size and its error) |
 | Basemap | **Layers** panel → Basemap (below the layers): pick a source (None = nothing downloaded), tick to show/hide, opacity; *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. Kept between sessions; the map panels' and the swipe's layer list has *Basemap only* |
-| Browse files | **Files** panel: double click opens, right click → Add as layer; Ctrl+click selects several files. Opening a series expands the tree down to it (Settings → *Files panel follows what is opened*) |
+| Browse files | **Files** panel: double click opens, right click → Add as layer or Add to favorites; Ctrl+click selects several files; hover a folder for what it would open as. Opening a series expands the tree down to it (Settings → *Files panel follows what is opened*) |
+| Add by dropping | drop files or a folder on the window with `Shift` held: a new layer (without Shift the drop replaces the series) |
+| Seasonal views, classes over time, scatter | **View → Analysis** (see above) |
 | Chart of several layers | Time series panel → *All visible layers* (one marker shape per layer) |
 | Second monitor | drag a panel's tab out of the main window |
 | Maps side by side | View → New map view (`Ctrl+T`): pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** or `Ctrl+W` (the focused panel, else the last one opened) |

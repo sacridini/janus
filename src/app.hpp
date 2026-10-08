@@ -61,6 +61,8 @@ ImVec4 pinColor(int id);        // pin `id` (from 1) on the map and, made legibl
 // Reference date of the difference mode at date t: a fixed date, or the
 // previous one (ref < 0; -1 at the first date: no difference).
 int diffRefDate(int ref, int t, int T);
+// Index of the value nearest to x in the sorted xs (a date on a chart's axis).
+int nearestIndex(const std::vector<double>& xs, double x);
 
 // A file being written in the background (map PNG, GeoTIFF; see app_export.cpp).
 struct ExportJob {
@@ -95,6 +97,7 @@ public:
     int measureCacheStep(const std::vector<std::string>& inputs);
 
     std::vector<std::string> pendingDrop; // filled by the drag-and-drop callback
+    bool pendingDropAdd = false;          // dropped with Shift held: added as layers
 
 private:
     void closeAll();
@@ -104,6 +107,7 @@ private:
     void uiMap();
     void uiLayer();
     void uiSeries();
+    void drawRoiBoxes(const char* label, ImVec4 col, const std::function<double(double)>& f);
     void uiStats();
     void uiPerf();
     void uiPopups();
@@ -449,6 +453,52 @@ private:
     void drawTransectMarks(ImDrawList* dl, ImVec2 origin);
     void renderTransect(int w, int h);
     void uiTransect();
+
+    // Analysis panel (app_analysis.cpp): a series by day of the year, the
+    // classes over time and their transitions, a scatter of two layers/dates.
+    struct ClassTimeline {
+        uint64_t key = 0;                          // layer, dates and classes counted
+        std::vector<int> values;                   // class values (columns)
+        std::vector<std::vector<uint32_t>> counts; // [t][k] pixels of the overview
+        std::vector<uint32_t> valid;               // [t] pixels with a class
+        int next = 0;                              // next date to count (T: complete)
+    };
+    struct Transitions {
+        uint64_t key = 0;
+        int from = -1, to = -1;
+        bool done = false;
+        std::vector<int> values;   // class values
+        std::vector<uint32_t> m;   // [from class][to class] pixels
+        uint64_t both = 0;         // pixels with a class at both dates
+    };
+    struct ScatterData {
+        uint64_t key = 0, activeCube = 0;
+        std::vector<double> x, y;
+        int n = 0, step = 1;
+        double r = NAN, a = NAN, b = NAN, meanDiff = NAN, rmsd = NAN;
+    };
+    struct AnalysisUi {
+        std::string seasonalSource = "cursor"; // "cursor", "pin<id>", "roi"
+        int seasonalView = 0;                  // 0 years overlaid, 1 year x day heatmap
+        bool classStacked = true;
+        int transFrom = 0, transTo = -1;       // dates; -1 = the current date
+        uint64_t scatterCube[2] = {0, 0};      // X and Y layers (0 / unknown: the active one)
+        int scatterDate[2] = {-2, -1};         // a date, -1 the current one, -2 the one before
+        int scatterT[2] = {0, 0};              // the dates they resolve to
+        int selectTab = -1;                    // a tab to bring to the front (self-test)
+        ClassTimeline classes;
+        Transitions trans;
+        ScatterData scatter;
+    } an_;
+    bool showAnalysis_ = false;
+    void uiAnalysis();
+    void uiSeasonal();
+    void uiClassTimeline();
+    void uiScatter();
+    bool countClassTimeline(const SeriesLayer& L, ClassTimeline& c, double budgetMs);
+    void countTransitions(const SeriesLayer& L, int from, int to, Transitions& tr) const;
+    void computeScatter(ScatterData& sc, const SeriesLayer& X, int tx, const SeriesLayer& Y, int ty) const;
+    const char* selfTestAnalysis(int part); // nullptr = passed
     void copyTransectCsv();
     // View menu entries and keys of both (S, T, Esc).
     void uiCompareMenu();
@@ -456,9 +506,10 @@ private:
     const char* selfTestCompare();
     std::shared_ptr<RoiData> roi_;
     int roiSeen_ = -1;
-    std::vector<float> roiMean_, roiP10_, roiP90_;
+    std::vector<float> roiMean_, roiP10_, roiP90_, roiP25_, roiP50_, roiP75_;
     SeriesStats roiStats_;
-    bool showRoiBand_ = true;
+    int roiSpread_ = 1;          // ROI on the chart: 0 mean only, 1 + p10-p90 band, 2 + box plot per date
+    bool showRoiBand_ = true;    // roiSpread_ > 0 (the other layers' ROI: a band)
     int nextPinId_ = 1;
     bool pendingRoi_ = false;    // ROI requested on an HDD while the overview builds
     int pendingRoiRect_[4] = {0, 0, 0, 0};

@@ -146,7 +146,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 13 | 0.21.0 | **Cache em resolução total** num SSD (blocos de 64×64 por data, compressão sem perda): série exata e ROI em ~1 ms mesmo com os dados num HD | concluída |
 | 15 | 0.23.0 | **Mapa de fundo (basemap)**: imagem de satélite/mapa da web por baixo das séries (Esri World Imagery, Sentinel-2 cloudless, OSM, URL XYZ própria), pelo driver WMS/TMS do GDAL, reprojetado pela grade de warp | concluída |
 | 16 | 0.24.0 | **Configurações**: janela própria (File → Settings); **limite de núcleos** para o processamento do Janus e do Zeit (padrão: todos menos 2), **tema da interface** (escuro, claro, clássico, Janus) e as opções que estavam no painel Performance | concluída |
-| 14 | — | Mais visualizações: mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas na ROI | planejada |
+| 14 | 0.27.0 | Mais visualizações (painel **Analysis**): anos sobrepostos por dia do ano e mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas/datas na ROI; box plot da ROI por data | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -167,10 +167,11 @@ termina.
 - BFAST Monitor: história estável (o R corta a parte instável da história; o
   Zeit usa a história inteira, o que gera alarmes falsos após uma quebra antiga).
 - Mapa de **diferença** entre duas datas (Δ) → fase 12.
-- **Boxplot por data** da ROI e histograma dos valores da série.
+- ~~**Boxplot por data** da ROI~~ — feito na 0.27.0. Histograma dos valores da série.
 - **Suavização** opcional da série (média móvel, Savitzky-Golay).
-- Para séries intra-anuais: **um ano sobre o outro** (eixo = dia do ano),
-  climatologia (média ± desvio por mês).
+- ~~Para séries intra-anuais: **um ano sobre o outro** (eixo = dia do ano),
+  climatologia (média ± desvio por mês)~~ — feito na 0.27.0 (Analysis →
+  Seasonal).
 
 ### Dados e desempenho
 - **Cache em resolução total**, em blocos com o tempo contíguo (estilo Zarr) num
@@ -202,9 +203,9 @@ termina.
 - ~~Camadas com **CRS diferentes**~~ — feito na 0.22.0 (grade de warp na GPU).
 - ~~**ROI em todas as camadas**~~ — feito na 0.22.0. ~~Zeit nas outras camadas~~ —
   feito na 0.8.0 (ferramentas de uma banda; as multibanda só na ativa).
-- Árvore de arquivos: mostrar as datas reconhecidas e quantos arquivos formam a
-  série antes de abrir; favoritos.
-- Arrastar e soltar com Shift para **adicionar** como camada (hoje substitui).
+- ~~Árvore de arquivos: mostrar as datas reconhecidas e quantos arquivos formam a
+  série antes de abrir; favoritos~~ — feito na 0.27.0.
+- ~~Arrastar e soltar com Shift para **adicionar** como camada~~ — feito na 0.27.0.
 - **Ordem das abas laterais**: Layers/Files primeiro, depois Display; o painel
   **Performance desligado por padrão**, ligado por View → Performance para quem
   quiser (pedido em 2026-10-08; feito na 0.7.0).
@@ -219,6 +220,46 @@ termina.
   (0.25.0); faltam as larguras fixas dos widgets.
 
 ## Histórico
+
+### 0.27.0 — Fase 14: painel Analysis, box plot da ROI, favoritos
+- Feita sem pedido de recurso específico: o backlog autorizado em 2026-10-08
+  ("se tiver mais ideias no IDEIAS.md pode tentar implementar"). Escolhidos os
+  itens que dependem só do Janus (nada no Zeit): a fase 14 inteira, o box plot
+  da ROI, um ano sobre o outro e os dois itens da árvore de arquivos.
+- **Painel Analysis** (View → Analysis; abre como aba ao lado do gráfico):
+  - *Seasonal*: a série (cursor, pino ou média da ROI) por dia do ano, uma
+    linha por ano (cor = ano, escala ao lado; o ano da data atual por cima) e
+    a média de todos os anos por mês ± 1 desvio; ou o **mapa de calor ano ×
+    dia do ano** (colunas = observações por ano, da mediana do espaçamento,
+    entre 2 e 46), nas cores da camada, com a célula da data atual marcada.
+    Séries anuais mostram o motivo de não haver o que comparar.
+  - *Classes* (categóricos): a **participação de cada classe em cada data**
+    (áreas empilhadas ou linhas) e a **matriz de transição** entre duas datas
+    (as maiores mudanças, % de pixels que mudaram, tabela com cor proporcional),
+    Copy CSV das duas. Contadas no overview, algumas datas por quadro (8 ms),
+    para nunca travar a interface.
+  - *Scatter*: duas camadas (as alinhadas por transformação afim; outro CRS
+    fica de fora) ou duas datas, pixel a pixel na ROI ou na imagem toda (até
+    ~250 mil pixels, amostra regular), como densidade (`PlotHistogram2D`),
+    com a reta 1:1, mínimos quadrados, r, R², média e RMS de Y − X.
+- **Box plot da ROI por data** (lista *ROI* acima do gráfico: média, faixa
+  p10–p90 ou box plot): caixa p25–p75, mediana, bigodes até p10 e p90 (os
+  mesmos percentis da faixa); some junto com a legenda da ROI. O Copy CSV
+  ganhou p25, mediana e p75 (no fim das colunas, para não quebrar planilhas).
+- **Painel Files**: **favoritos** (clique direito numa pasta; no topo da
+  árvore; guardados no `.ini`) e, no tooltip de cada pasta listada, **o que
+  ela abriria**: "41 rasters, 1985 to 2025, yearly", com as datas lidas dos
+  nomes pela mesma regra do `openCube` (`describeSeriesFiles`).
+- **Soltar com Shift adiciona como camada** (sem Shift, substitui como antes).
+  Durante o arraste a janela pode não ter o teclado: o estado do Shift vem do
+  sistema (`platform::shiftHeld`: `GetAsyncKeyState` no Windows,
+  `NSEvent.modifierFlags` no macOS; no Linux, o do GLFW).
+- Autoteste de UI: calendário (dia do ano em anos bissextos e antes de 1970,
+  observações por ano, grade sazonal 3 × 12), prévia de pastas, dispersão de
+  A × B (B = A − 0,5: r = 1, inclinação 1, intercepto −0,5, exatos), classes
+  de D/E (floresta 11300, pasto 3900, urbano 4800, água 4000 pixels na 1ª
+  data; transição só floresta → pasto, 100 pixels) e o painel desenhado nas
+  três abas. Não verificado a olho: a janela de teste é invisível.
 
 ### 0.26.0 — jobs do Zeit mais rápidos
 - Medido onde vai o tempo de um job raster (série de 3000×3000 × 41 datas,

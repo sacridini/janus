@@ -37,9 +37,13 @@ static void configureBundledData() {
 
 static App* g_app = nullptr;
 
-static void dropCallback(GLFWwindow*, int count, const char** paths) {
+static void dropCallback(GLFWwindow* window, int count, const char** paths) {
     if (!g_app) return;
     g_app->pendingDrop.assign(paths, paths + count);
+    // Shift held: added as layers. While dragging, the window may not have the
+    // keyboard, so the OS is asked as well as GLFW.
+    g_app->pendingDropAdd = platform::shiftHeld() || glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+                            glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
 }
 
 int main(int argc, char** argv) {

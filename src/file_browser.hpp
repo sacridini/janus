@@ -23,6 +23,9 @@ public:
     Action draw();
     // Remembers the folder of a series that was opened (shown under "Recent").
     void addRecent(const std::string& path);
+    // Favourite folders (shown first; the App keeps them in the layout file).
+    const std::vector<std::string>& favorites() const { return favorites_; }
+    void addFavorite(const std::string& folder);
     // Expands the tree down to this folder, or to the folder of this file, and
     // scrolls to it (e.g. a series just opened). The folder is listed again, so
     // files written since it was first listed show up.
@@ -36,22 +39,29 @@ private:
         bool dir = false;
         uint64_t size = 0;
     };
+    struct Listing {
+        std::vector<Entry> entries;
+        std::string preview; // its rasters as a series (describeSeriesFiles)
+    };
     struct Node {
         Entry e;
         bool listed = false;
         std::string error;
+        std::string preview;
         std::vector<std::unique_ptr<Node>> children;
-        std::future<std::vector<Entry>> pending;
+        std::future<Listing> pending;
     };
 
     // `reveal`: the node is in the root the revealed path is under.
     void drawNode(Node& n, Action& act, bool reveal);
+    // A folder of the Favorites or Recent lists, with its context menu.
+    void drawShortcut(const std::string& dir, bool favorite, Action& act);
     void startListing(Node& n);
     bool visible(const Entry& e) const;
     static std::unique_ptr<Node> makeNode(const Entry& e);
 
     std::vector<std::unique_ptr<Node>> roots_;
-    std::vector<std::string> recent_;
+    std::vector<std::string> recent_, favorites_;
     std::set<std::string> selected_;
     // Being revealed (lower case, see reveal()): the folder to open and the
     // item to scroll to (that folder, or a file in it).

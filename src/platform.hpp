@@ -33,6 +33,9 @@ std::vector<std::string> rootFolders();      // drives (C:\, D:\...) and the use
 bool isOnRotationalDisk(const std::string& path);
 
 std::tm localTime(std::time_t t);           // thread-safe localtime
+// Shift is held now (asked of the OS: right for a drop from another window).
+// Linux: false (GLFW's own key state is used there).
+bool shiftHeld();
 
 // TLS certificates for libcurl (the basemap's tiles over https): the system's
 // CA bundle file. Empty on Windows, where curl (Schannel) uses the system's

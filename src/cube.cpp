@@ -71,6 +71,47 @@ static TimeGranularity parseDate(const std::string& s, double& unixSec) {
     return TimeGranularity::Index;
 }
 
+std::string describeSeriesFiles(const std::vector<std::string>& names) {
+    if (names.empty()) return "";
+    std::vector<double> times;
+    TimeGranularity gran = TimeGranularity::Year;
+    for (const std::string& n : names) {
+        double t = 0;
+        const TimeGranularity g = parseDate(fs::u8path(n).stem().u8string(), t);
+        if (g == TimeGranularity::Index) continue;
+        times.push_back(t);
+        gran = std::max(gran, g);
+    }
+    char buf[160];
+    const int n = int(names.size());
+    if (int(times.size()) < n) {
+        if (times.empty()) std::snprintf(buf, sizeof(buf), "%d rasters, no dates in the names (ordered by name)", n);
+        else std::snprintf(buf, sizeof(buf), "%d rasters, dates in %d of the names (ordered by name)", n, int(times.size()));
+        return buf;
+    }
+    std::sort(times.begin(), times.end());
+    CubeInfo fmt; // formatTime only needs these two
+    fmt.timeIsDate = true;
+    fmt.granularity = gran;
+    if (n == 1) {
+        std::snprintf(buf, sizeof(buf), "1 raster, %s", formatTime(fmt, times[0]).c_str());
+        return buf;
+    }
+    std::vector<double> gaps;
+    for (size_t i = 1; i < times.size(); ++i) gaps.push_back((times[i] - times[i - 1]) / 86400.0);
+    std::nth_element(gaps.begin(), gaps.begin() + gaps.size() / 2, gaps.end());
+    const double gap = gaps[gaps.size() / 2];
+    std::string every;
+    if (gap >= 360 && gap <= 370) every = "yearly";
+    else if (gap >= 28 && gap <= 31) every = "monthly";
+    else if (gap >= 0.5 && gap <= 1.5) every = "daily";
+    else if (gap > 0) every = "every ~" + std::to_string(int(std::lround(gap))) + " days";
+    else every = "several files share a date";
+    std::snprintf(buf, sizeof(buf), "%d rasters, %s to %s, %s", n, formatTime(fmt, times.front()).c_str(),
+                  formatTime(fmt, times.back()).c_str(), every.c_str());
+    return buf;
+}
+
 std::string formatTime(const CubeInfo& info, double t) {
     char buf[64];
     if (!info.timeIsDate) {

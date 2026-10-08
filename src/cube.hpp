@@ -116,6 +116,9 @@ std::string formatTime(const CubeInfo& info, double t);
 
 // True for file names with a raster extension Janus lists by default.
 bool isRasterPath(const std::string& path);
+// What files would open as, from their names alone (dates as openCube reads
+// them): "41 rasters, 1985 to 2025, yearly"; empty without files.
+std::string describeSeriesFiles(const std::vector<std::string>& names);
 
 // Reader with its own GDAL handles. Not thread-safe: use threadReader().
 class CubeReader {

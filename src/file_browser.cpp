@@ -7,6 +7,7 @@
 #include <utility>
 
 #include <imgui.h>
+#include <imgui_internal.h> // MarkIniSettingsDirty: the favourites are in the layout file
 
 #include "cube.hpp"
 #include "glfw.hpp" // glfwPostEmptyEvent: wake the UI when a listing finishes
@@ -75,6 +76,36 @@ void FileBrowser::reveal(const std::string& path) {
     revealed_.clear();
 }
 
+void FileBrowser::addFavorite(const std::string& folder) {
+    if (std::find(favorites_.begin(), favorites_.end(), folder) != favorites_.end()) return;
+    favorites_.push_back(folder);
+}
+
+void FileBrowser::drawShortcut(const std::string& dir, bool favorite, Action& act) {
+    ImGui::PushID(favorite ? "fav" : "recent");
+    ImGui::PushID(dir.c_str());
+    if (ImGui::Selectable(dir.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
+        ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        act = {Action::Open, {dir}};
+    ImGui::SetItemTooltip("Double click: open this folder as a series.\nRight click: more options.");
+    if (ImGui::BeginPopupContextItem()) {
+        if (ImGui::MenuItem("Open folder as series")) act = {Action::Open, {dir}};
+        if (ImGui::MenuItem("Add folder as layer")) act = {Action::AddLayer, {dir}};
+        if (ImGui::MenuItem("Reveal in tree")) reveal(dir);
+        if (favorite && ImGui::MenuItem("Remove from favorites")) {
+            favorites_.erase(std::remove(favorites_.begin(), favorites_.end(), dir), favorites_.end());
+            ImGui::MarkIniSettingsDirty();
+        }
+        if (!favorite && ImGui::MenuItem("Add to favorites")) {
+            addFavorite(dir);
+            ImGui::MarkIniSettingsDirty();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
+    ImGui::PopID();
+}
+
 bool FileBrowser::visible(const Entry& e) const {
     if (filter_[0] && lower(e.name).find(lower(filter_)) == std::string::npos && !e.dir) return false;
     return e.dir || showAll_ || isRasterPath(e.path);
@@ -83,7 +114,8 @@ bool FileBrowser::visible(const Entry& e) const {
 void FileBrowser::startListing(Node& n) {
     const std::string path = n.e.path;
     n.pending = std::async(std::launch::async, [path] {
-        std::vector<Entry> out;
+        Listing listing;
+        std::vector<Entry>& out = listing.entries;
         std::error_code ec;
         for (auto it = fs::directory_iterator(fs::u8path(path), fs::directory_options::skip_permission_denied, ec);
              !ec && it != fs::directory_iterator(); it.increment(ec)) {
@@ -100,8 +132,13 @@ void FileBrowser::startListing(Node& n) {
             if (a.dir != b.dir) return a.dir;
             return lower(a.name) < lower(b.name);
         });
+        // The folder as a series, before opening it: its rasters and their dates.
+        std::vector<std::string> rasters;
+        for (const Entry& e : out)
+            if (!e.dir && isRasterPath(e.path)) rasters.push_back(e.name);
+        listing.preview = describeSeriesFiles(rasters);
         glfwPostEmptyEvent();
-        return out;
+        return listing;
     });
 }
 
@@ -125,9 +162,14 @@ void FileBrowser::drawNode(Node& n, Action& act, bool reveal) {
                 n.children.clear();
             }
         }
+        if (n.listed) ImGui::SetItemTooltip("%s\n%s", n.e.path.c_str(), n.preview.empty() ? "no rasters" : n.preview.c_str());
         if (ImGui::BeginPopupContextItem()) {
             if (ImGui::MenuItem("Open folder as series")) act = {Action::Open, {n.e.path}};
             if (ImGui::MenuItem("Add folder as layer")) act = {Action::AddLayer, {n.e.path}};
+            if (ImGui::MenuItem("Add to favorites")) {
+                addFavorite(n.e.path);
+                ImGui::MarkIniSettingsDirty();
+            }
             if (ImGui::MenuItem("Show in Explorer")) platform::openInExplorer(n.e.path);
             ImGui::EndPopup();
         }
@@ -135,7 +177,9 @@ void FileBrowser::drawNode(Node& n, Action& act, bool reveal) {
             if (!n.listed && !n.pending.valid()) startListing(n);
             if (n.pending.valid()) {
                 if (n.pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-                    for (Entry& e : n.pending.get()) n.children.push_back(makeNode(e));
+                    Listing l = n.pending.get();
+                    for (Entry& e : l.entries) n.children.push_back(makeNode(e));
+                    n.preview = std::move(l.preview);
                     n.listed = true;
                 } else {
                     ImGui::TextDisabled("listing...");
@@ -159,6 +203,7 @@ void FileBrowser::drawNode(Node& n, Action& act, bool reveal) {
                     for (auto& c : n.children)
                         if (!c->e.dir && visible(c->e)) act.paths.push_back(c->e.path);
                 }
+                if (!n.preview.empty()) ImGui::SetItemTooltip("%s", n.preview.c_str());
             }
             ImGui::TreePop();
         }
@@ -216,21 +261,13 @@ FileBrowser::Action FileBrowser::draw() {
     }
     ImGui::Separator();
     ImGui::BeginChild("tree");
+    if (!favorites_.empty() && ImGui::TreeNodeEx("Favorites", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const std::vector<std::string> favs = favorites_; // the menu may remove one
+        for (const std::string& f : favs) drawShortcut(f, true, act);
+        ImGui::TreePop();
+    }
     if (!recent_.empty() && ImGui::TreeNodeEx("Recent", ImGuiTreeNodeFlags_DefaultOpen)) {
-        for (const std::string& r : recent_) {
-            ImGui::PushID(r.c_str());
-            if (ImGui::Selectable(r.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
-                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                act = {Action::Open, {r}};
-            ImGui::SetItemTooltip("Double click: open this folder as a series.\nRight click: more options.");
-            if (ImGui::BeginPopupContextItem()) {
-                if (ImGui::MenuItem("Open folder as series")) act = {Action::Open, {r}};
-                if (ImGui::MenuItem("Add folder as layer")) act = {Action::AddLayer, {r}};
-                if (ImGui::MenuItem("Reveal in tree")) reveal(r);
-                ImGui::EndPopup();
-            }
-            ImGui::PopID();
-        }
+        for (const std::string& r : recent_) drawShortcut(r, false, act);
         ImGui::TreePop();
     }
     // The revealed path opens under the root nearest to it only (the home

@@ -524,3 +524,9 @@ std::string platform::resourceDir() {
 platform::Gestures platform::takeGestures() { return {}; } // macOS: platform_mac.mm
 std::vector<std::string> platform::takeOpenRequests() { return {}; }
 #endif
+
+#ifdef _WIN32
+bool platform::shiftHeld() { return (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0; }
+#elif !defined(__APPLE__)
+bool platform::shiftHeld() { return false; } // macOS: platform_mac.mm
+#endif

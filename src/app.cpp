@@ -12,6 +12,7 @@
 
 #include <imgui_internal.h>
 #include <implot.h>
+#include <implot_internal.h> // ImPlot::GetItem: whether the ROI is hidden from the legend
 
 #include "glfw.hpp"
 #include "render_backend.hpp"
@@ -72,14 +73,14 @@ ImPlotMarker layerMarker(int i) {
     return m[i % 6];
 }
 
+} // namespace
+
 int nearestIndex(const std::vector<double>& xs, double x) {
     auto it = std::lower_bound(xs.begin(), xs.end(), x);
     if (it == xs.end()) return int(xs.size()) - 1;
     if (it == xs.begin()) return 0;
     return (x - *(it - 1) < *it - x) ? int(it - xs.begin()) - 1 : int(it - xs.begin());
 }
-
-} // namespace
 
 const char* modeName(int mode) { return kModeNames[mode]; }
 int diffRefDate(int ref, int t, int T) { return ref < 0 ? t - 1 : std::min(ref, T - 1); }
@@ -245,7 +246,7 @@ void App::frame() {
     if (!pendingDrop.empty() && !opening_.valid()) {
         auto drop = std::move(pendingDrop);
         pendingDrop.clear();
-        openInputs(drop);
+        openInputs(drop, std::exchange(pendingDropAdd, false) && !layers_.empty());
     }
     if (opening_.valid() && opening_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) finishOpen();
     for (SeriesLayer& L : layers_) // every layer keeps loading and uploading
@@ -314,6 +315,7 @@ void App::frame() {
     uiMap();
     uiMapViews();
     uiTransect();
+    uiAnalysis();
     if (zeit_ && zeit_->state() == ZeitClient::State::Ready)
         for (const ZeitTool& t : zeit_->tools()) uiToolWindow(t);
     uiTasks();
@@ -394,12 +396,18 @@ void App::updateRoiSeries() {
     roiMean_.assign(T, NAN);
     roiP10_.assign(T, NAN);
     roiP90_.assign(T, NAN);
+    roiP25_.assign(T, NAN);
+    roiP50_.assign(T, NAN);
+    roiP75_.assign(T, NAN);
     for (int t = 0; t < T; ++t) {
         const SampleStats& st = roi_->perT[t];
         if (st.n == 0) continue;
         roiMean_[t] = st.mean;
         roiP10_[t] = st.p10;
         roiP90_[t] = st.p90;
+        roiP25_[t] = st.p25;
+        roiP50_[t] = st.p50;
+        roiP75_[t] = st.p75;
     }
     roiStats_ = computeSeriesStats(years_, roiMean_);
     roiZeitVersion_ = -1;
@@ -610,6 +618,9 @@ void App::uiMenu() {
         if (ImGui::MenuItem("Close map view", "Ctrl+W", false, !views_.empty()))
             closeViewId_ = focusedViewId_ ? focusedViewId_ : views_.back().id;
         uiCompareMenu();
+        ImGui::MenuItem("Analysis", nullptr, &showAnalysis_);
+        ImGui::SetItemTooltip("Seasonal views of a series, classes over time and their transitions,\n"
+                              "a scatter of two layers or dates");
         ImGui::MenuItem("Performance", nullptr, &showPerf_);
         ImGui::Separator();
         if (ImGui::MenuItem("Reset layout")) layoutPending_ = true;
@@ -662,6 +673,7 @@ void App::uiDockspace() {
     ImGui::DockBuilderDockWindow("Map", center);
     ImGui::DockBuilderDockWindow("Time series", bottomLeft);
     ImGui::DockBuilderDockWindow("Transect", bottomLeft); // a tab next to the chart, when there is a transect
+    ImGui::DockBuilderDockWindow("Analysis", bottomLeft);
     ImGui::DockBuilderDockWindow("Statistics", bottomRight);
     ImGui::DockBuilderFinish(dock);
 }
@@ -1817,7 +1829,11 @@ void App::uiSeries() {
     }
     if (roi_) {
         ImGui::SameLine();
-        ImGui::Checkbox("p10-p90 band", &showRoiBand_);
+        ImGui::SetNextItemWidth(130);
+        if (ImGui::Combo("##roispread", &roiSpread_, "ROI: mean\0ROI: p10-p90\0ROI: box plot\0")) showRoiBand_ = roiSpread_ > 0;
+        ImGui::SetItemTooltip("Spread of the ROI's pixels at each date, around the mean:\n"
+                              "p10-p90: a band between the 10th and 90th percentiles\n"
+                              "Box plot: a box from p25 to p75 with the median, whiskers to p10 and p90");
     }
     ImGui::SameLine();
     if (ImGui::Button("Copy CSV")) copyCsv();
@@ -1932,7 +1948,7 @@ void App::uiSeries() {
         if (!roiMean_.empty() && !classes) {
             const ImVec4 yellow = theme::onPlot(ImVec4(1.0f, 0.82f, 0.24f, 1));
             const char* label = roi_ && roi_->sampled ? "ROI mean (subsampled)" : "ROI mean";
-            if (showRoiBand_) {
+            if (roiSpread_ > 0) { // the band; with boxes, invisible: it only makes the axis fit the whiskers
                 std::vector<double> a(T), b(T);
                 for (int t = 0; t < T; ++t) {
                     a[t] = transform(roiP10_[t], roiStats_);
@@ -1940,11 +1956,12 @@ void App::uiSeries() {
                 }
                 ImPlotSpec spec;
                 spec.FillColor = yellow;
-                spec.FillAlpha = 0.18f;
+                spec.FillAlpha = roiSpread_ == 1 ? 0.18f : 0.0f;
                 ImPlot::PlotShaded(label, xs_.data(), a.data(), b.data(), T, spec);
             }
             // The trend of a partially computed ROI would be misleading: wait for every date.
             plotSeries(label, roiMean_, roiStats_, yellow, 2.0f, roi_ && roi_->done == T, &roiZeitResult_);
+            if (roiSpread_ == 2) drawRoiBoxes(label, yellow, [&](double v) { return transform(v, roiStats_); });
         }
         for (const SeriesView& p : pins_) {
             char label[64];
@@ -2034,6 +2051,39 @@ void App::uiSeries() {
     }
     ImGui::PopID();
     ImGui::End();
+}
+
+// Inside the series chart: a box per date of the ROI (p25 to p75, the
+// median, whiskers to p10 and p90), hidden with the ROI's legend entry.
+void App::drawRoiBoxes(const char* label, ImVec4 col, const std::function<double(double)>& f) {
+    const int T = int(xs_.size());
+    if (int(roiP25_.size()) != T) return;
+    if (const ImPlotItem* item = ImPlot::GetItem(label); item && !item->Show) return;
+    double gap = 0;
+    for (int t = 1; t < T; ++t)
+        if (xs_[t] > xs_[t - 1]) gap = gap > 0 ? std::min(gap, xs_[t] - xs_[t - 1]) : xs_[t] - xs_[t - 1];
+    const double half = gap > 0 ? gap * 0.3 : 0.3;
+    const ImU32 line = ImGui::ColorConvertFloat4ToU32(col);
+    const ImU32 fill = ImGui::ColorConvertFloat4ToU32(ImVec4(col.x, col.y, col.z, 0.22f));
+    ImDrawList* dl = ImPlot::GetPlotDrawList();
+    ImPlot::PushPlotClipRect();
+    for (int t = 0; t < T; ++t) {
+        if (!std::isfinite(roiP25_[t])) continue;
+        const ImVec2 a = ImPlot::PlotToPixels(xs_[t] - half, f(roiP75_[t]));
+        const ImVec2 b = ImPlot::PlotToPixels(xs_[t] + half, f(roiP25_[t]));
+        const float x = 0.5f * (a.x + b.x), cap = std::max(2.0f, 0.25f * (b.x - a.x));
+        const float y10 = ImPlot::PlotToPixels(xs_[t], f(roiP10_[t])).y, y90 = ImPlot::PlotToPixels(xs_[t], f(roiP90_[t])).y;
+        const float med = ImPlot::PlotToPixels(xs_[t], f(roiP50_[t])).y;
+        dl->AddLine(ImVec2(x, a.y), ImVec2(x, y90), line);
+        dl->AddLine(ImVec2(x, b.y), ImVec2(x, y10), line);
+        dl->AddLine(ImVec2(x - cap, y90), ImVec2(x + cap, y90), line);
+        dl->AddLine(ImVec2(x - cap, y10), ImVec2(x + cap, y10), line);
+        const ImVec2 lo(std::min(a.x, b.x - 2), std::min(a.y, b.y)), hi(std::max(b.x, a.x + 2), std::max(a.y, b.y));
+        dl->AddRectFilled(lo, hi, fill);
+        dl->AddRect(lo, hi, line);
+        dl->AddLine(ImVec2(lo.x, med), ImVec2(hi.x, med), line, 2.0f);
+    }
+    ImPlot::PopPlotClipRect();
 }
 
 void App::uiStats() {
@@ -2303,7 +2353,7 @@ void App::copyCsv() {
     if (hover_.x >= 0) csv += ",cursor_" + std::to_string(hover_.x) + "_" + std::to_string(hover_.y);
     for (size_t i = 0; i < pins_.size(); ++i)
         csv += ",pin" + std::to_string(pins_[i].id) + "_" + std::to_string(pins_[i].x) + "_" + std::to_string(pins_[i].y);
-    if (!roiMean_.empty()) csv += ",roi_mean,roi_p10,roi_p90";
+    if (!roiMean_.empty()) csv += ",roi_mean,roi_p10,roi_p90,roi_p25,roi_median,roi_p75"; // new columns at the end
     csv += "\n";
     auto add = [&](float v) {
         char b[32];
@@ -2318,6 +2368,9 @@ void App::copyCsv() {
             add(roiMean_[t]);
             add(roiP10_[t]);
             add(roiP90_[t]);
+            add(roiP25_[t]);
+            add(roiP50_[t]);
+            add(roiP75_[t]);
         }
         csv += "\n";
     }

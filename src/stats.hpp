@@ -25,10 +25,23 @@ void largestDrop(const std::vector<float>& v, double& mag, int& at);
 // Statistics of a set of values (an ROI at one date).
 struct SampleStats {
     int n = 0;
-    float mean = 0, std = 0, p10 = 0, p50 = 0, p90 = 0;
+    float mean = 0, std = 0, p10 = 0, p25 = 0, p50 = 0, p75 = 0, p90 = 0;
 };
 SampleStats computeSampleStats(std::vector<float>& values); // reorders `values`
 
 // Percentiles of a subsampled sample (for the automatic stretch range).
 void samplePercentiles(const float* data, size_t n, size_t maxSamples, double qLo, double qHi,
                        float& lo, float& hi);
+
+// Calendar of Unix seconds (UTC): the year and the day of the year (1-366).
+void yearAndDay(double unixSeconds, int& year, int& dayOfYear);
+// Observations per year of dates in Unix seconds, from their median spacing (>= 1).
+int observationsPerYear(const std::vector<double>& unixSeconds);
+// A series laid out by year (rows, from the first year) and part of the year
+// (`bins` equal parts of 366 days): the mean of the values in each cell.
+struct SeasonalGrid {
+    int year0 = 0, years = 0, bins = 0;
+    std::vector<float> mean; // [year][bin], NaN = no observation
+    std::vector<int> n;      // [year][bin] observations
+};
+SeasonalGrid seasonalGrid(const std::vector<double>& unixSeconds, const std::vector<float>& values, int bins);

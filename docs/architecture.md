@@ -31,8 +31,9 @@
 | `src/app_layers.cpp` | Several series as layers (alignment, active layer, other layers' series), Layers and Files panels |
 | `src/app_classes.cpp` | Categorical series: detection, class colours and names, legend, class statistics |
 | `src/app_swipe.cpp` | Swipe: the comparison drawn like a map panel into its own target, divider, View menu entries and keys of swipe and transect |
+| `src/app_analysis.cpp` | Analysis panel: a series by day of the year (years overlaid, climatology, year × day heatmap), class shares over time and transitions (counted on the overview, a few dates per frame), scatter of two layers/dates (density, least squares) |
 | `src/app_transect.cpp` | Space-time transect: sampling along the line (overview, then full resolution in the background), the Transect panel (image drawn by the map renderer) |
-| `src/file_browser.*` | Lazily listed folder tree (rasters only by default); reveals (expands and scrolls to) the series opened |
+| `src/file_browser.*` | Lazily listed folder tree (rasters only by default); reveals (expands and scrolls to) the series opened; favourites; a folder's preview as a series (`describeSeriesFiles`) |
 | `src/app_export.cpp` | Export: map as PNG (offscreen render at 1–4×, marks and legend drawn on the CPU with ImGui's pixel font at 13 px, whatever the interface's size), values and the view as GeoTIFF, Zeit results; the options popup with its *Save to* path; background jobs, Exports window |
 | `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow, swipe, transect and the exports in a hidden window, checked by reading map pixels and the files written; the full-resolution cache checked against the files |
 | `src/app_fullres.cpp` | Full-resolution cache in the Performance panel, its settings widgets, `--measure-cache` |

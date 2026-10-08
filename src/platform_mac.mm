@@ -46,6 +46,8 @@ void platform::init() {
         class_addMethod(c, @selector(application:openURLs:), (IMP)openURLs, "v@:@@");
 }
 
+bool platform::shiftHeld() { return ([NSEvent modifierFlags] & NSEventModifierFlagShift) != 0; }
+
 std::vector<std::string> platform::takeOpenRequests() {
     std::vector<std::string> out;
     out.swap(g_openRequests);

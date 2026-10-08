@@ -359,9 +359,27 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         zeitLog_ = LogView{};
         st_.frames = 0;
         next("Log window follows its file");
-        st_.stage = 60; // Zeit's serve process follows the threads, then back to 8
+        st_.stage = 75;
         break;
     }
+    case 75: // Analysis: the calendar, the scatter of A and B; the panel drawn on every tab
+        if (const char* e = selfTestAnalysis(0)) return fail(e);
+        if (const char* e = selfTestAnalysis(1)) return fail(e);
+        showAnalysis_ = true;
+        an_.selectTab = 0;
+        st_.frames = 0;
+        next("Analysis: calendar, seasonal grid, scatter of A and B");
+        break;
+    case 76: // a frame per tab
+        if (++st_.frames <= 3) {
+            an_.selectTab = st_.frames < 3 ? st_.frames : -1;
+            break;
+        }
+        showAnalysis_ = false;
+        st_.frames = 0;
+        next("Analysis panel drawn (seasonal, classes, scatter)");
+        st_.stage = 60; // Zeit's serve process follows the threads, then back to 8
+        break;
     case 60:
     case 61:
     case 62:
@@ -501,6 +519,7 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         hover_.values = approxSeries(20, 40);
         const auto rows = classSummary(layers_[0].classes, *s_->info, hover_.values, t_);
         for (const auto& [k, v] : rows) std::printf("    %-18s %s\n", k.c_str(), v.c_str());
+        if (const char* e = selfTestAnalysis(2)) return fail(e);
         if (const char* err = selfTestCompare()) return fail(err);
         next("map in class colours, class summary, transect in class colours");
         break;
@@ -1714,4 +1733,100 @@ int App::selfTestBasemap() {
     }
     }
     return -1;
+}
+
+// The Analysis panel's numbers. 0: the calendar (years and days of the year,
+// observations per year, the seasonal grid); 1: the scatter of A (active) and
+// B at the same date, where B = A - 0.5; 2: the classes of D/E over time and
+// their transitions (the 10 x 10 forest block turns to pasture at the 5th
+// date). Returns the failure, or nullptr.
+const char* App::selfTestAnalysis(int part) {
+    if (part == 0) {
+        struct Day {
+            double t;
+            int year, day;
+        };
+        const Day days[] = {{951868800, 2000, 61}, {1009756800, 2001, 365}, {1104451200, 2004, 366},
+                            {-86400, 1969, 365}, {1262304000 + 43200, 2010, 1}};
+        for (const Day& d : days) {
+            int y = 0, k = 0;
+            yearAndDay(d.t, y, k);
+            if (y != d.year || k != d.day) return "yearAndDay: wrong year or day of the year";
+        }
+        // Monthly, 2009-2011, on the 15th: value = month + 100 x year index.
+        const int start[12] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+        const double jan1[3] = {1230768000, 1262304000, 1293840000};
+        std::vector<double> times;
+        std::vector<float> values;
+        for (int y = 0; y < 3; ++y)
+            for (int m = 0; m < 12; ++m) {
+                times.push_back(jan1[y] + (start[m] + 14) * 86400.0);
+                values.push_back(float(m + 1 + 100 * y));
+            }
+        if (observationsPerYear(times) != 12) return "observationsPerYear: a monthly series should give 12";
+        std::vector<double> annual = {jan1[0], jan1[1], jan1[2]};
+        if (observationsPerYear(annual) != 1) return "observationsPerYear: an annual series should give 1";
+        const SeasonalGrid g = seasonalGrid(times, values, 12);
+        if (g.year0 != 2009 || g.years != 3 || g.bins != 12) return "seasonalGrid: wrong years or bins";
+        for (int y = 0; y < 3; ++y)
+            for (int m = 0; m < 12; ++m)
+                if (g.mean[size_t(y) * 12 + m] != float(m + 1 + 100 * y) || g.n[size_t(y) * 12 + m] != 1)
+                    return "seasonalGrid: a month should land in its own cell";
+        std::printf("    calendar: days of the year, observations per year, seasonal grid 3 x 12 as expected\n");
+        // The Files panel's preview of a folder, from the names alone.
+        const std::string yearly = describeSeriesFiles({"v_2001.tif", "v_2000.tif", "v_2002.tif"});
+        const std::string monthly = describeSeriesFiles({"x_2010-01.tif", "x_2010-02.tif", "x_2010-03.tif"});
+        const std::string some = describeSeriesFiles({"a.tif", "b_2001.tif"});
+        std::printf("    folder previews: \"%s\" | \"%s\" | \"%s\"\n", yearly.c_str(), monthly.c_str(), some.c_str());
+        if (yearly != "3 rasters, 2000 to 2002, yearly" || monthly != "3 rasters, 2010-01 to 2010-03, monthly" ||
+            some != "2 rasters, dates in 1 of the names (ordered by name)" || !describeSeriesFiles({}).empty())
+            return "the preview of a folder's rasters is wrong";
+        return nullptr;
+    }
+    if (part == 1) {
+        if (layers_.size() < 2) return "the scatter needs A and B";
+        ScatterData sc;
+        computeScatter(sc, layers_[0], t_, layers_[1], t_);
+        std::printf("    scatter A x B at %s: %d pixels, r %.6f, B = %.4f + %.4f A, mean(B - A) %.4f\n",
+                    s_->info->layers[t_].label.c_str(), sc.n, sc.r, sc.a, sc.b, sc.meanDiff);
+        if (sc.n < 100 || !(sc.r > 0.999) || std::fabs(sc.b - 1) > 0.01 || std::fabs(sc.a + 0.5) > 0.02 ||
+            std::fabs(sc.meanDiff + 0.5) > 0.02)
+            return "the scatter of A and B should be the line B = A - 0.5";
+        return nullptr;
+    }
+    // Classes: 200 x 120 pixels; at the 1st date forest 11300, pasture 3900,
+    // urban 4800, water 4000; from the 5th date the block is pasture.
+    const SeriesLayer& L = layers_[0];
+    const Overview& ov = L.session->overview;
+    ClassTimeline c;
+    if (!countClassTimeline(L, c, 1e9)) return "the class timeline should be complete";
+    const int T = int(c.counts.size());
+    auto count = [&](int t, int value) -> double {
+        for (size_t k = 0; k < c.values.size(); ++k)
+            if (c.values[k] == value) return double(c.counts[t][k]);
+        return 0;
+    };
+    const bool full = ov.w == 200 && ov.h == 120;
+    const double px = double(ov.w) * ov.h;
+    auto near = [&](double got, double want) { return full ? got == want : std::fabs(got / px - want / 24000) < 0.01; };
+    std::printf("    classes at %s: forest %.0f, pasture %.0f, urban %.0f, water %.0f (overview %d x %d)\n",
+                s_->info->layers[0].label.c_str(), count(0, 3), count(0, 15), count(0, 24), count(0, 33), ov.w, ov.h);
+    if (!near(count(0, 3), 11300) || !near(count(0, 15), 3900) || !near(count(0, 24), 4800) ||
+        !near(count(0, 33), 4000) || !near(count(T - 1, 3), 11200) || !near(count(T - 1, 15), 4000))
+        return "the share of each class should follow the file";
+    Transitions tr;
+    countTransitions(L, 0, T - 1, tr);
+    const size_t K = tr.values.size();
+    uint64_t changed = 0, forestToPasture = 0;
+    for (size_t i = 0; i < K; ++i)
+        for (size_t j = 0; j < K; ++j) {
+            if (i != j) changed += tr.m[i * K + j];
+            if (tr.values[i] == 3 && tr.values[j] == 15) forestToPasture = tr.m[i * K + j];
+        }
+    std::printf("    transitions %s -> %s: %llu of %llu pixels changed, forest -> pasture %llu\n",
+                s_->info->layers[0].label.c_str(), s_->info->layers[T - 1].label.c_str(),
+                (unsigned long long)changed, (unsigned long long)tr.both, (unsigned long long)forestToPasture);
+    if (!tr.done || changed != forestToPasture || !near(double(forestToPasture), 100) || !near(double(tr.both), 24000))
+        return "the only transition should be the forest block turning to pasture";
+    return nullptr;
 }
