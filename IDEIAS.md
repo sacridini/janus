@@ -141,7 +141,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | — | 0.16.0 | **Mapas lado a lado**: painéis de mapa extras (View → New map view), cada um com uma camada e, se quiser, data e modo próprios; todos na mesma área (compartilham `scale_`/`offset_`, cada canvas centrado como o principal), cursor espelhado como cruz, pinos e ROI em todos. Um alvo de desenho por painel (`Gpu::beginMap(..., slot)`); `TileManager::tick()` uma vez por quadro, para que vários painéis pedindo tiles da mesma camada não descartem os pedidos uns dos outros | concluída |
 | — | 0.17.0 | **Janus**: o tsv passa a se chamar Janus (comando `jn`; repositório `sacridini/janus`); pastas de dados e cache migradas na primeira abertura, o instalador do Windows remove um tsv instalado | concluída |
 | 10 | — | **Novas visualizações**: **cortina (swipe)** entre datas/camadas e **transecto espaço-tempo (Hovmöller)** | em andamento |
-| 11 | — | **Exportação**: mapa visível como PNG (figuras), vista/camada e resultados do Zeit como GeoTIFF (para o QGIS) | em andamento |
+| 11 | 0.19.0 | **Exportação**: mapa visível como PNG (figuras), vista/camada e resultados do Zeit como GeoTIFF (para o QGIS) | concluída |
 | 12 | 0.18.0 | **Mapas de diferença (Δ) e de quebra** (ano e magnitude da maior queda), calculados na GPU | concluída |
 | 13 | — | **Cache em resolução total** num SSD, em blocos com o tempo contíguo: série exata e ROI em ~1 ms mesmo com os dados num HD | em andamento |
 | 14 | — | Mais visualizações: mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas na ROI | planejada |
@@ -210,6 +210,28 @@ termina.
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.19.0 — Fase 11: exportação
+- **Mapa em PNG** (File → Export map as PNG): renderizado fora da tela a 1×,
+  2× ou 4× a resolução da tela (não ampliado), com rótulo de data/modo, barra
+  de cores ou legenda de classes, pinos e ROI desenhados na CPU com a fonte do
+  ImGui assada no tamanho final. Fundo escuro, branco ou **transparente**: o
+  alfa sai de dois renders (sobre preto e sobre branco), sem mudar os shaders.
+- **GeoTIFF**: valores da camada ativa na data (o que `readWindow` devolve:
+  banda, índice, máscara), área visível ou imagem inteira, Float32, mesma
+  grade e CRS, nodata NaN; a **vista renderizada** em RGBA georreferenciado; e
+  os **resultados do Zeit** (clique direito no painel Layers → Save as GeoTIFF).
+- Tudo com GDAL (MEM + CreateCopy; sem dependência nova), em threads próprias
+  com progresso e cancelamento (janela File → Exports); cada arquivo é gravado
+  como `.part` e renomeado no fim. `Gpu::readMap` em GL e Metal; diálogo de
+  salvar nos três sistemas (`platform::saveFileDialog`).
+- Medido (7441×7317 Float32, SSD): valores da imagem inteira em 0,85 s (73 MB);
+  PNG 4× (6400×3600) com 80 ms na thread principal + 1,8 s em segundo plano.
+- O autoteste exporta de verdade e relê com o GDAL: PNG igual pixel a pixel ao
+  mapa, valores iguais à fonte, georreferência conferida.
+- Para depois: buscar os tiles do nível da escala exportada (hoje exporta o que
+  está carregado), estatísticas e todas as datas em GeoTIFF multibanda, tabela
+  de cores para séries categóricas, exportar os painéis de mapa.
 
 ### 0.18.0 — Fase 12: mapas de diferença e de maior queda
 - Modo **Diferença (valor − referência)**: referência = uma data fixa (padrão:
