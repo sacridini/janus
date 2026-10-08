@@ -7,11 +7,16 @@
 //      reopens it in place as a normalized difference with the QA mask;
 //   D  categorical series with a colour table and class names (file colours);
 //   E  categorical series without them (detected from its values).
+// With A and B open it also checks the swipe and the space-time transect.
 #include "app.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <thread>
+
+#include <implot.h>
 
 namespace {
 
@@ -130,7 +135,8 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         std::printf("    map center with both hidden: rgb(%d, %d, %d)\n", c[0], c[1], c[2]);
         if (c[0] > 40 || c[1] > 40 || c[2] > 40) return fail("with every layer hidden the map should be empty");
         layers_[0].visible = layers_[1].visible = true;
-        next("layer drawing and visibility");
+        if (const char* err = selfTestCompare()) return fail(err);
+        next("layer drawing and visibility, swipe, transect");
         break;
     }
     case 7: {
@@ -277,7 +283,8 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         hover_.values = approxSeries(20, 40);
         const auto rows = classSummary(layers_[0].classes, *s_->info, hover_.values, t_);
         for (const auto& [k, v] : rows) std::printf("    %-18s %s\n", k.c_str(), v.c_str());
-        next("map in class colours, class summary");
+        if (const char* err = selfTestCompare()) return fail(err);
+        next("map in class colours, class summary, transect in class colours");
         break;
     }
     case 19:
@@ -285,4 +292,136 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         return 0;
     }
     return -1;
+}
+
+// Swipe and transect, with A and B open (B active, both visible); with a
+// categorical series, the transect in class colours. Returns the failure, or
+// null. Both are left on, so the next frames draw them too.
+const char* App::selfTestCompare() {
+    if (const LayerClasses* C = activeClasses()) {
+        // D/E: pasture (15) left of column 40, forest (3) right of it, at the first date.
+        setT(0);
+        setTransect(ImVec2(10.5f, 60.5f), ImVec2(190.5f, 60.5f));
+        const double w0 = now();
+        while (transectRowsRead() < tr_.T) {
+            if (now() - w0 > 30) return "timeout reading the transect at full resolution";
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        updateTransectRows();
+        publishTransect();
+        renderTransect(tr_.n, tr_.T);
+        for (const auto& [i, cls] : {std::pair<int, int>{5, 15}, {100, 3}}) {
+            unsigned char px[4];
+            gpu_.readMapPixel(i, 0, px, kTransectSlot);
+            const ImVec4 c = C->find(cls)->color;
+            const int e[3] = {int(c.x * 255 + 0.5f), int(c.y * 255 + 0.5f), int(c.z * 255 + 0.5f)};
+            std::printf("    transect at column %d: class %g, rgb(%d, %d, %d), class colour rgb(%d, %d, %d)\n", tr_.px[i],
+                        tr_.values[i], px[0], px[1], px[2], e[0], e[1], e[2]);
+            if (tr_.values[i] != float(cls) || std::abs(px[0] - e[0]) > 2 || std::abs(px[1] - e[1]) > 2 ||
+                std::abs(px[2] - e[2]) > 2)
+                return "the transect should be drawn in class colours";
+        }
+        return nullptr;
+    }
+    const int W = 400, H = 300;
+    canvasSize_ = ImVec2(float(W), float(H));
+    fitView(canvasSize_);
+    auto same = [](const unsigned char* a, const unsigned char* b) { return a[0] == b[0] && a[1] == b[1] && a[2] == b[2]; };
+
+    // Swipe: A (the other layer) right of the divider, the main map left of it.
+    if (swipe_) toggleSwipe();
+    toggleSwipe();
+    if (!swipe_ || swipeView_.cube != layers_[0].session->info->id) return "the swipe should compare with the other layer";
+    swipeX_ = 0.5f;
+    const int t0 = t_;
+    renderMap(W, H);
+    renderSwipe(canvasSize_, 1.0f);
+    unsigned char left[4], right[4], main[4], aOnly[4];
+    gpu_.readMapPixel(190, 150, left);
+    gpu_.readMapPixel(210, 150, right, kSwipeSlot);
+    gpu_.readMapPixel(210, 150, main);
+    layers_[1].visible = false;
+    renderMap(W, H);
+    gpu_.readMapPixel(210, 150, aOnly);
+    layers_[1].visible = true;
+    std::printf("    swipe: left (main map) rgb(%d, %d, %d) | right (A) rgb(%d, %d, %d); there, the main map is\n"
+                "           rgb(%d, %d, %d) and A alone rgb(%d, %d, %d)\n",
+                left[0], left[1], left[2], right[0], right[1], right[2], main[0], main[1], main[2], aOnly[0], aOnly[1],
+                aOnly[2]);
+    if (!same(right, aOnly)) return "the right side of the swipe should show layer A";
+    if (same(right, main)) return "the right side of the swipe should differ from the main map";
+    // The same layer (B) at its own date: what the main map shows at that date.
+    const int T = s_->info->T();
+    swipeView_.cube = s_->info->id;
+    swipeView_.ownDate = true;
+    swipeView_.t = 0;
+    setT(T - 1);
+    renderMap(W, H);
+    renderSwipe(canvasSize_, 1.0f);
+    gpu_.readMapPixel(210, 150, right, kSwipeSlot);
+    gpu_.readMapPixel(210, 150, main);
+    setT(0);
+    renderMap(W, H);
+    gpu_.readMapPixel(210, 150, aOnly);
+    std::printf("    swipe: B at %s rgb(%d, %d, %d) next to B at %s rgb(%d, %d, %d)\n", s_->info->layers[0].label.c_str(),
+                right[0], right[1], right[2], s_->info->layers[T - 1].label.c_str(), main[0], main[1], main[2]);
+    if (!same(right, aOnly) || same(right, main)) return "the swipe should show the layer at its own date";
+    setT(t0);
+
+    // Transect along B's row 100, columns 10 to 290: exact values 2 + 0.01 (x - 50) + 0.1 t.
+    setTransect(ImVec2(10.5f, 100.5f), ImVec2(290.5f, 100.5f));
+    if (!tr_.on || tr_.n != 281 || tr_.T != T) return "the transect should have 281 samples x every date";
+    std::printf("    transect: %d samples x %d dates, %.0f %s, %d dates from the overview at once\n", tr_.n, tr_.T,
+                tr_.length, tr_.unit.c_str(), int(std::count(tr_.state.begin(), tr_.state.end(), 1)));
+    if (tr_.unit != "m" || std::fabs(tr_.length - 280 * 30) > 1e-6) return "the transect should be 8400 m long";
+    const Overview& ov = s_->overview;
+    for (int t = 0; t < T; ++t)
+        for (int i = 0; i < tr_.n; ++i) {
+            const int ox = std::min(ov.w - 1, int(double(tr_.px[i]) * ov.w / s_->info->width));
+            const int oy = std::min(ov.h - 1, int(double(tr_.py[i]) * ov.h / s_->info->height));
+            if (tr_.state[t] == 0 || tr_.values[size_t(t) * tr_.n + i] != ov.at(t, ox, oy))
+                return "the transect should be filled from the overview";
+        }
+    const double w0 = now();
+    while (transectRowsRead() < T) {
+        if (now() - w0 > 30) return "timeout reading the transect at full resolution";
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    updateTransectRows();
+    publishTransect();
+    double maxErr = 0;
+    for (int t = 0; t < T; ++t) {
+        if (tr_.state[t] != 2) return "every date should be read at full resolution";
+        for (int i = 0; i < tr_.n; ++i)
+            maxErr = std::max(maxErr, std::fabs(tr_.values[size_t(t) * tr_.n + i] - (2.0 + 0.01 * (tr_.px[i] - 50) + 0.1 * t)));
+    }
+    std::printf("    transect at full resolution in %.0f ms, max error %.2g\n", (now() - w0) * 1000, maxErr);
+    if (maxErr > 1e-4) return "wrong full-resolution transect values";
+    // The image: cell (i, t) in the map's colours.
+    const int i = 140, t = 5;
+    renderTransect(tr_.n * 2, T * 2);
+    unsigned char px[4];
+    gpu_.readMapPixel(2 * i + 1, 2 * t + 1, px, kTransectSlot);
+    int cmap;
+    float lo, hi;
+    transectColors(cmap, lo, hi);
+    const float v = tr_.values[size_t(t) * tr_.n + i];
+    const ImVec4 c = ImPlot::SampleColormap(std::clamp((v - lo) / (hi - lo), 0.0f, 1.0f), cmap);
+    const int e[3] = {int(c.x * 255 + 0.5f), int(c.y * 255 + 0.5f), int(c.z * 255 + 0.5f)};
+    std::printf("    transect image at (%d, %s): value %.3f -> rgb(%d, %d, %d), colormap rgb(%d, %d, %d)\n", tr_.px[i],
+                s_->info->layers[t].label.c_str(), v, px[0], px[1], px[2], e[0], e[1], e[2]);
+    if (std::abs(px[0] - e[0]) > 4 || std::abs(px[1] - e[1]) > 4 || std::abs(px[2] - e[2]) > 4)
+        return "the transect image should use the layer's colormap and range";
+    // Another active layer: the same line on its grid (A's pixels = B's + 100).
+    setActive(0);
+    pumpTransect();
+    const float ax = tr_.a.x;
+    const int an = tr_.n;
+    setActive(1);
+    pumpTransect();
+    std::printf("    transect: starts at x %.1f on A (%d samples, clipped to A), %.1f on B again (%d samples)\n", ax, an,
+                tr_.a.x, tr_.n);
+    if (!tr_.on || std::fabs(ax - 110.5f) > 1e-3f || an != 191 || std::fabs(tr_.a.x - 10.5f) > 1e-3f || tr_.n != 281)
+        return "the transect should follow the active layer";
+    return nullptr;
 }

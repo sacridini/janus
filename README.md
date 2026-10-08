@@ -60,6 +60,15 @@ OpenGL 3.3 on Windows and Linux and through Metal on macOS.
   or zoom in any of them moves every one; the cursor is mirrored as a cross, and
   pins and the ROI appear in all of them. Panels dock anywhere or go to another
   monitor; they share the loaded data (no extra memory).
+- **Swipe** (View → Swipe, `S`): a divider you drag across the map; left of it
+  the map as it is, right of it another layer, or the same one at another date
+  or in another display mode (picked in a bar above the map).
+- **Space-time transect** (Hovmöller): `Ctrl` + drag a line on the map (or `T`,
+  then drag); the **Transect** panel shows distance along the line against the
+  dates, in the layer's colours (class colours for categorical data), first
+  from the overview and then at full resolution. Hover a cell for its distance,
+  date and value (marked on the map), click to go to that date; values or
+  anomalies; Copy CSV.
 - **Files panel**: a folder tree listing only rasters by default; double click
   opens a series, right click adds it as a layer.
 - **Detachable panels**: drag any panel out of the main window, e.g. the map on
@@ -179,8 +188,10 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Chart of several layers | Time series panel → *All visible layers* (one marker shape per layer) |
 | Second monitor | drag a panel's tab out of the main window |
 | Maps side by side | View → New map view (`Ctrl+T`): pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** or `Ctrl+W` (the focused panel, else the last one opened) |
+| Swipe | View → Swipe (`S`): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode; **Swipe off** or `S` again closes it |
+| Space-time transect | `Ctrl` + drag a line on the map (Mac: `Command` + drag), or `T` / View → Draw transect, then drag; `Esc` cancels. **Transect** panel: distance from A (X) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel |
 | Chart options | style, values/anomaly/z-score, trend (OLS/Sen), Y = map range |
-| Export | **Copy CSV** in the Time series panel |
+| Export | **Copy CSV** in the Time series and Transect panels |
 | Zeit tools | **Tools** menu → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
 | Tool results | listed under their layer in the **Layers** panel: show/hide, colormap, range, opacity |
 
@@ -386,8 +397,10 @@ Machine); the rest of the data in `~/Library/Application Support/Janus`.
 | `src/app.*` | User interface (ImGui/ImPlot) |
 | `src/app_layers.cpp` | Several series as layers (alignment, active layer, other layers' series), Layers and Files panels |
 | `src/app_classes.cpp` | Categorical series: detection, class colours and names, legend, class statistics |
+| `src/app_swipe.cpp` | Swipe: the comparison drawn like a map panel into its own target, divider, View menu entries and keys of swipe and transect |
+| `src/app_transect.cpp` | Space-time transect: sampling along the line (overview, then full resolution in the background), the Transect panel (image drawn by the map renderer) |
 | `src/file_browser.*` | Lazily listed folder tree (rasters only by default) |
-| `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow in a hidden window, checked by reading map pixels |
+| `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow, swipe and transect in a hidden window, checked by reading map pixels |
 | `src/app_zeit.cpp` | Tools menu, tool windows, tasks, result layers, models on the chart |
 | `src/zeit_client.*` | Bridge processes (JSON lines over pipes; Win32 or POSIX), pixel calls, raster jobs, estimates |
 | `src/results.*` | Result rasters loaded as map layers |

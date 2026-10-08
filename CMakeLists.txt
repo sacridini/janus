@@ -84,6 +84,8 @@ set(JANUS_SOURCES
   src/app_classes.cpp
   src/app_layers.cpp
   src/app_selftest.cpp
+  src/app_swipe.cpp
+  src/app_transect.cpp
   src/app_zeit.cpp
   src/file_browser.cpp
   src/results.cpp

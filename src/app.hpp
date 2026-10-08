@@ -88,6 +88,8 @@ private:
     void newMapView();
     void uiMapViews();
     void uiMapView(MapView& v);
+    static const char* modeName(int mode);
+    static void autoRangeOf(int mode, std::vector<float>& sample, float& lo, float& hi);
     void renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift);
     void fitView(ImVec2 canvas);
     void setT(int t);
@@ -118,6 +120,8 @@ private:
     // Layers (app_layers.cpp)
     struct LayerDisplay;
     struct SeriesLayer;
+    // A map panel's bar (layer, own date, own mode) and its automatic range; returns its layer.
+    SeriesLayer* uiViewBar(MapView& v);
     void saveDisplay(LayerDisplay& d) const;
     void loadDisplay(const LayerDisplay& d);
     void setActive(int i);
@@ -237,6 +241,71 @@ private:
     int closeViewId_ = 0;        // map panel to close (Ctrl+W, View menu)
     int mouseInPanel_ = -1, prevMouseInPanel_ = -1; // map panel under the mouse (0 = main)
     bool viewsStale_ = false;    // the main map was redrawn: so must the panels
+
+    // Swipe (app_swipe.cpp): the main map left of a draggable divider, a
+    // comparison right of it (another layer, or the same one at another date or
+    // in another mode), drawn like a map panel into a target of its own.
+    static constexpr int kSwipeSlot = 1;      // GPU target ("Map" is 0, panels 2, 3...)
+    bool swipe_ = false;
+    float swipeX_ = 0.5f;                     // divider, fraction of the canvas width
+    bool swipeDragging_ = false;
+    MapView swipeView_;
+    void toggleSwipe();
+    void uiSwipeBar();
+    bool swipeInput(ImVec2 origin, ImVec2 size);
+    void renderSwipe(ImVec2 size, float pixelScale);
+    void drawSwipe(ImDrawList* dl, ImVec2 origin, ImVec2 size, float pixelScale);
+
+    // Space-time transect (app_transect.cpp): a line on the map; the Transect
+    // panel shows distance x date in the layer's colours (a Hovmoeller diagram).
+    static constexpr int kTransectSlot = -1;  // GPU target of the image
+    struct TransectExact;                     // full-resolution rows read in the background
+    struct Transect {
+        bool on = false;
+        uint64_t cube = 0;                    // layer (CubeInfo id) it was sampled on
+        ImVec2 a{0, 0}, b{0, 0};              // end points, active layer's pixels
+        bool geo = false;                     // georeferenced end points (kept across layers)
+        double ga[2] = {0, 0}, gb[2] = {0, 0};
+        int n = 0, T = 0;                     // samples, dates
+        std::vector<int> px, py;              // full-resolution pixel of each sample
+        double length = 0;                    // A -> B in `unit`
+        std::string unit;
+        std::vector<float> values;            // [t][i]: exact rows where read, else the overview
+        std::vector<char> state;              // per date: 0 no data yet, 1 overview, 2 full resolution
+        std::vector<float> shown;             // values or anomalies (the image)
+        std::shared_ptr<TransectExact> job;
+        bool pending = false;                 // HDD: the exact read waits for the overview
+        bool dirty = false;                   // rows changed since the image was made
+        double published = -1;                // when (ImGui time)
+        int kind = 0;                         // 0 values, 1 anomaly (- each sample's mean)
+        Range range;                          // used when the map has none for that mode
+        GpuTex tex = 0;                       // `shown` as a float texture
+        uint64_t version = 0, drawnKey = ~0ull;
+        bool fit = true;                      // reset the panel's axes
+        int hoverI = -1, hoverT = -1;         // cell hovered in the panel
+        bool docked = false;
+    } tr_;
+    bool transectMode_ = false;               // a drag on the map draws the line (T)
+    int transectPanel_ = -1;                  // map panel where the line is being drawn
+    bool transectCancel_ = false;             // Esc during the drag
+    ImVec2 transectStart_{0, 0}, transectEnd_{0, 0};
+    void setTransect(ImVec2 a, ImVec2 b);
+    void clearTransect();
+    void startTransectExact();
+    int transectRowsRead() const;             // dates read at full resolution so far
+    void pumpTransect();
+    bool updateTransectRows();                // true if a row changed
+    void publishTransect();                   // values -> image (anomaly, range, texture)
+    void transectColors(int& cmap, float& lo, float& hi) const;
+    bool transectInput(int panel, double sx, double sy);
+    void drawTransectMarks(ImDrawList* dl, ImVec2 origin);
+    void renderTransect(int w, int h);
+    void uiTransect();
+    void copyTransectCsv();
+    // View menu entries and keys of both (S, T, Esc).
+    void uiCompareMenu();
+    void compareShortcuts();
+    const char* selfTestCompare();
     std::shared_ptr<RoiData> roi_;
     int roiSeen_ = -1;
     std::vector<float> roiMean_, roiP10_, roiP90_;
