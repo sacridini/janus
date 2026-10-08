@@ -216,6 +216,10 @@ int main(int argc, char** argv) {
         }
     }
 
+    // io.IniFilename points into App: save the layout while it is alive, so
+    // DestroyContext does not write to a freed file name.
+    if (io.IniFilename) ImGui::SaveIniSettingsToDisk(io.IniFilename);
+    io.IniFilename = nullptr;
     g_app = nullptr;
     app.reset(); // release GL resources and threads before the context goes away
     ImGui_ImplOpenGL3_Shutdown();
