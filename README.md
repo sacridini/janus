@@ -49,7 +49,14 @@ OpenGL 3.3 on Windows and Linux and through Metal on macOS.
 - **Fast**: about 0.15 s from launch to the first frame; the app sleeps when
   nothing changes (a frame costs ~0.3 ms of CPU). The cube overview is cached on
   disk, so reopening a series takes a fraction of a second.
-- **Copy CSV** of the cursor, pins and ROI series.
+- **Export**: the map as a **PNG** figure (as shown, rendered at 1×, 2× or 4×
+  the screen resolution, with the date, a colour bar or class legend, pins and
+  the ROI if wanted, on the map's, a white or a transparent background); the
+  active layer's **values** at the date as a Float32 **GeoTIFF** (visible area
+  or whole image, full resolution, same grid and CRS, no data = NaN) and the
+  **rendered view** as an RGBA GeoTIFF, both ready for QGIS; **Zeit results** as
+  GeoTIFF. Files are written in the background (File → Exports shows progress);
+  **Copy CSV** of the cursor, pins and ROI series.
 - **Layers**: open several series at once (e.g. NDVI and NBR of the same area,
   or neighboring scenes). Layers are placed by their georeferencing, can be
   shown/hidden (including the first one), reordered and faded; the chart shows
@@ -180,7 +187,11 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Second monitor | drag a panel's tab out of the main window |
 | Maps side by side | View → New map view (`Ctrl+T`): pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** or `Ctrl+W` (the focused panel, else the last one opened) |
 | Chart options | style, values/anomaly/z-score, trend (OLS/Sen), Y = map range |
-| Export | **Copy CSV** in the Time series panel |
+| Map as a figure | File → Export map as PNG...: resolution (1×, 2×, 4×), background, date label, legend, pins and ROI |
+| Data for QGIS | File → Export values as GeoTIFF... (the active layer at the date: visible area or whole image) or Export rendered view as GeoTIFF... (RGBA as shown, georeferenced) |
+| Save a tool result | right click it in the **Layers** panel → Save as GeoTIFF..., or File → Export Zeit result as GeoTIFF |
+| Export progress | File → Exports (opens by itself with each export): progress, cancel, open the folder |
+| Series as text | **Copy CSV** in the Time series panel |
 | Zeit tools | **Tools** menu → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
 | Tool results | listed under their layer in the **Layers** panel: show/hide, colormap, range, opacity |
 
@@ -387,7 +398,8 @@ Machine); the rest of the data in `~/Library/Application Support/Janus`.
 | `src/app_layers.cpp` | Several series as layers (alignment, active layer, other layers' series), Layers and Files panels |
 | `src/app_classes.cpp` | Categorical series: detection, class colours and names, legend, class statistics |
 | `src/file_browser.*` | Lazily listed folder tree (rasters only by default) |
-| `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow in a hidden window, checked by reading map pixels |
+| `src/app_export.cpp` | Export: map as PNG (offscreen render at 1–4×, marks and legend drawn on the CPU with ImGui's font), values and the view as GeoTIFF, Zeit results; background jobs, Exports window |
+| `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow and the exports in a hidden window, checked by reading map pixels and the files written |
 | `src/app_zeit.cpp` | Tools menu, tool windows, tasks, result layers, models on the chart |
 | `src/zeit_client.*` | Bridge processes (JSON lines over pipes; Win32 or POSIX), pixel calls, raster jobs, estimates |
 | `src/results.*` | Result rasters loaded as map layers |
@@ -398,7 +410,7 @@ Machine); the rest of the data in `~/Library/Application Support/Janus`.
 | `cmake/package_macos.cmake` | macOS app and `.dmg` (bundled libraries, RPATH `@executable_path/../Frameworks`, ad hoc signature) |
 | `.github/workflows/build.yml` | CI: Windows, Linux and macOS builds, self-tests, installers; releases on `v*` tags |
 | `tools/make_selftest_data.py` | Synthetic inputs for `--selftest-ui` and `--selftest-zeit` |
-| `src/platform.*` | OS-specific: arguments, dialogs, data folder, opening folders, HDD detection (Windows, Linux, macOS) |
+| `src/platform.*` | OS-specific: arguments, open and save dialogs, data folder, opening folders, HDD detection (Windows, Linux, macOS) |
 | `src/launcher.cpp` | `jn.com` console launcher |
 
 ## Roadmap

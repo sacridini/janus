@@ -82,6 +82,7 @@ set(JANUS_SOURCES
   src/main.cpp
   src/app.cpp
   src/app_classes.cpp
+  src/app_export.cpp
   src/app_layers.cpp
   src/app_selftest.cpp
   src/app_zeit.cpp

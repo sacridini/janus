@@ -1,10 +1,12 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <future>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -49,6 +51,22 @@ struct AppOptions {
     std::string zeitBridge;
 };
 
+const char* modeName(int mode); // display mode (DisplayMode) as shown in the interface
+
+// A file being written in the background (map PNG, GeoTIFF; see app_export.cpp).
+struct ExportJob {
+    enum class State { Running, Done, Failed, Cancelled };
+    std::string title, path;
+    std::atomic<State> state{State::Running};
+    std::atomic<double> progress{0};
+    std::atomic<bool> cancel{false};
+    std::mutex m;
+    std::string error;       // under m
+    double seconds = 0;      // set before state leaves Running
+    std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+    std::future<void> done;  // last: destroyed first, waits for the thread
+};
+
 class App {
 public:
     explicit App(GLFWwindow* window);
@@ -77,7 +95,8 @@ private:
     void uiPopups();
     void handleShortcuts();
     void pumpSeries();
-    void renderMap(int w, int h, float pixelScale = 1.0f); // w, h in canvas points
+    // w, h in canvas points; slot: GPU target (0 = the main map); background: RGBA (default: the map's)
+    void renderMap(int w, int h, float pixelScale = 1.0f, int slot = 0, const float* background = nullptr);
     // Mouse and keys over a map canvas (pins, ROI, pan, zoom, the hovered pixel of
     // the active layer). `origin`: where the main canvas' (0, 0) is on screen for
     // this panel (panels share one view, centered alike); `size`: the main canvas.
@@ -100,6 +119,34 @@ private:
     std::vector<float> collectSample(const Session& S, int mode, int t, size_t maxN) const;
     std::string slopeUnit() const;
     void copyCsv();
+
+    // Export (app_export.cpp): the map as PNG, values and the rendered view as
+    // GeoTIFF, Zeit results. Rendering is on the GPU (main thread); reading the
+    // data and writing files in the background, listed in the Exports window.
+    struct PngOptions {
+        int scale = 1;           // x the on-screen resolution (rendered at it, not upscaled)
+        int background = 0;      // 0 the map's (dark), 1 white, 2 transparent
+        bool label = true;       // date and mode, top left
+        bool legend = true;      // colour bar or classes, bottom left
+        bool marks = false;      // pins and ROI
+    };
+    void uiExportMenu();         // File menu entries
+    void uiExport();             // options popup
+    void uiExports();            // progress window
+    void uiResultExportMenu(const ResultLayer& r, const char* label); // menu item: save it as GeoTIFF
+    bool exportScaleFits(int scale) const;
+    // The main map's view rendered offscreen at `scale` x its on-screen resolution,
+    // RGBA rows top-down; `transparent`: alpha = coverage (two renders), else over `bg`.
+    void renderExport(int scale, bool transparent, const float bg[4], std::vector<unsigned char>& rgba, int& w,
+                      int& h);
+    std::shared_ptr<ExportJob> exportPng(const std::string& path, const PngOptions& o);
+    std::shared_ptr<ExportJob> exportValues(const std::string& path, bool wholeImage);
+    std::shared_ptr<ExportJob> exportView(const std::string& path, int scale);
+    std::shared_ptr<ExportJob> exportResult(const ResultLayer& r, const std::string& path);
+    bool visibleWindow(int win[4]) const; // visible part of the active layer, in its pixels
+    std::string exportName(const std::string& suffix) const;
+    std::string askSavePath(const char* title, const std::string& name, const char* filter, const char* ext);
+    const char* selfTestExports(); // nullptr = passed
 
     // Zeit tools (app_zeit.cpp)
     ZeitConfig zeitConfig() const;
@@ -259,6 +306,16 @@ private:
     double frameMs_ = 0;
     int budgetUi_ = 1024;
     StartupTimes startup_;
+
+    // Export
+    std::vector<std::shared_ptr<ExportJob>> exports_;
+    bool showExports_ = false;
+    int exportKind_ = 0;         // options popup: 0 none, 1 PNG, 2 values, 3 rendered view
+    bool exportPopup_ = false;   // open it in this frame
+    PngOptions png_;
+    int viewScale_ = 1;
+    bool valuesWhole_ = false;   // whole image, else the visible area
+    std::string exportDir_;      // folder of the last export
 
     // Zeit
     std::unique_ptr<ZeitClient> zeit_;

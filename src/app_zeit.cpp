@@ -873,7 +873,11 @@ void App::uiResultsOf(uint64_t cubeId) {
         if (r.cubeId != cubeId) continue;
         ImGui::PushID(int(i));
         if (ImGui::Checkbox(r.name.c_str(), &r.visible)) mapDirty_ = true;
-        ImGui::SetItemTooltip("%s", r.path.c_str());
+        ImGui::SetItemTooltip("%s\nRight click: save as GeoTIFF", r.path.c_str());
+        if (ImGui::BeginPopupContextItem("result")) {
+            uiResultExportMenu(r, "Save as GeoTIFF...");
+            ImGui::EndPopup();
+        }
         ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - 18);
         if (ImGui::SmallButton("x")) remove = int(i);
         ImGui::SetItemTooltip("Remove this layer (the file stays on disk)");
