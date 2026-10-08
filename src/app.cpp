@@ -208,6 +208,7 @@ void App::finishOpen() {
     playing_ = false;
     setActive(int(layers_.size()) - 1);
     files_.addRecent(inputs.size() == 1 ? inputs[0] : info->firstPath);
+    if (revealOpened_) files_.reveal(inputs.size() == 1 ? inputs[0] : info->firstPath);
     // Zeit (separate process) starts only now, never on the startup path.
     startZeit();
 }
@@ -316,6 +317,7 @@ void App::frame() {
     if (zeit_ && zeit_->state() == ZeitClient::State::Ready)
         for (const ZeitTool& t : zeit_->tools()) uiToolWindow(t);
     uiTasks();
+    uiZeitLog();
     uiExports();
     uiPopups();
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();

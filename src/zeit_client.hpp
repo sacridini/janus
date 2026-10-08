@@ -74,7 +74,7 @@ bool zeitJobInputs(const CubeInfo& info, const ZeitTool& tool, const BandRoles& 
 struct ZeitConfig {
     std::string python;   // python.exe of the runtime
     std::string bridge;   // janus_zeit_bridge.py
-    std::string logPath;  // stderr of every bridge process goes here
+    std::string logPath;  // stderr of the serve process goes here (a raster job's: its own log)
     bool bundled = true;  // false = developer override (keep the user's environment)
     // CPU threads a bridge process may use (OMP_NUM_THREADS, NUMBA_NUM_THREADS,
     // BLAS and JANUS_THREADS in its environment); 0 = not limited.
@@ -121,6 +121,9 @@ struct ZeitJob {
     std::string title;
     std::string toolId;
     std::string outputDir;
+    // The job's own log, next to its spec (SPEC.log): what was run, the Python
+    // output (warnings, prints, tracebacks), progress, the result or the error.
+    std::string logPath;
     std::atomic<State> state{State::Running};
     std::atomic<double> progress{0};
     std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();

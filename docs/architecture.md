@@ -32,19 +32,19 @@
 | `src/app_classes.cpp` | Categorical series: detection, class colours and names, legend, class statistics |
 | `src/app_swipe.cpp` | Swipe: the comparison drawn like a map panel into its own target, divider, View menu entries and keys of swipe and transect |
 | `src/app_transect.cpp` | Space-time transect: sampling along the line (overview, then full resolution in the background), the Transect panel (image drawn by the map renderer) |
-| `src/file_browser.*` | Lazily listed folder tree (rasters only by default) |
-| `src/app_export.cpp` | Export: map as PNG (offscreen render at 1–4×, marks and legend drawn on the CPU with ImGui's font), values and the view as GeoTIFF, Zeit results; background jobs, Exports window |
+| `src/file_browser.*` | Lazily listed folder tree (rasters only by default); reveals (expands and scrolls to) the series opened |
+| `src/app_export.cpp` | Export: map as PNG (offscreen render at 1–4×, marks and legend drawn on the CPU with ImGui's pixel font at 13 px, whatever the interface's size), values and the view as GeoTIFF, Zeit results; the options popup with its *Save to* path; background jobs, Exports window |
 | `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow, swipe, transect and the exports in a hidden window, checked by reading map pixels and the files written; the full-resolution cache checked against the files |
 | `src/app_fullres.cpp` | Full-resolution cache in the Performance panel, its settings widgets, `--measure-cache` |
-| `src/app_settings.cpp` | Settings window (theme, processing threads, overview memory, caches), kept in the layout .ini; applies the threads to the open series and Zeit (the serve process is replaced once idle); its `--selftest-ui` checks (pools, contrast of every theme, Zeit restart) |
+| `src/app_settings.cpp` | Settings window (theme, font size, Files panel, processing threads, overview memory, caches), kept in the layout .ini with the last export folder; the font applied between frames (`App::applyFont`); applies the threads to the open series and Zeit (the serve process is replaced once idle); its `--selftest-ui` checks (pools, contrast of every theme, Zeit restart) |
 | `src/theme.*` | Interface themes (Dark, Light, Classic, Janus): ImGui and ImPlot colours, status colours, contrast (WCAG) and data colours made legible on the charts |
-| `src/app_zeit.cpp` | Tools menu, tool windows, tasks, result layers, models on the chart |
-| `src/zeit_client.*` | Bridge processes (JSON lines over pipes; Win32 or POSIX, thread limits in their environment), pixel calls, raster jobs, estimates |
+| `src/app_zeit.cpp` | Tools menu, tool windows, tasks, the Log window (a job's log or zeit.log, read as it grows), result layers, models on the chart |
+| `src/zeit_client.*` | Bridge processes (JSON lines over pipes; Win32 or POSIX, thread limits in their environment), pixel calls, raster jobs (each with its own log: stderr of the process and the protocol messages), estimates |
 | `src/results.*` | Result rasters loaded as map layers |
 | `src/reproject.*` | Layers in another CRS or on a rotated grid: exact PROJ transformation (cursor, pins, ROI, tiles, view) and the warp grid the shaders sample through |
 | `src/basemap.*` | Web basemap: XYZ tiles in EPSG:3857 read through GDAL's WMS driver (TMS service, curl, its disk cache) in a pool of its own, newest first, requests that left the screen dropped; an LRU of RGBA textures; drawn on the active layer's grid through a warp grid (`reproject.*`) |
 | `src/app_basemap.cpp` | The basemap in the interface: Layers panel section, setting (layout .ini), drawn first in every map target, attribution on the map |
-| `src/selftest.cpp` | `--selftest-zeit`: every applicable Zeit tool end to end (pixel + raster job) without a window |
+| `src/selftest.cpp` | `--selftest-zeit`: every applicable Zeit tool end to end (pixel + raster job and its log) without a window |
 | `zeit_bridge/` | The Python bridge, one `tool_*.py` per Zeit tool family, the pinned runtime requirements |
 | `tools/build_zeit_runtime.py` | Assembles the private Python runtime (Windows, Linux, macOS) |
 | `cmake/package_linux.cmake` | Portable Linux package (bundled libraries, RPATH `$ORIGIN/lib`) |

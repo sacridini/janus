@@ -51,7 +51,10 @@
   active layer's **values** at the date as a Float32 **GeoTIFF** (visible area
   or whole image, full resolution, same grid and CRS, no data = NaN) and the
   **rendered view** as an RGBA GeoTIFF, both ready for QGIS; **Zeit results** as
-  GeoTIFF. Files are written in the background (File → Exports shows progress);
+  GeoTIFF. The export window shows where the file goes (*Save to*: type a path,
+  or a name alone for the last export folder, or pick one with **Browse...**;
+  it warns before replacing a file). Files are written in the background
+  (File → Exports shows progress);
   **Copy CSV** of the cursor, pins and ROI series.
 - **Layers**: open several series at once (e.g. NDVI and NBR of the same area,
   or neighboring scenes). Layers are placed by their georeferencing, can be
@@ -92,11 +95,12 @@
   date and value (marked on the map), click to go to that date; values or
   anomalies; Copy CSV.
 - **Files panel**: a folder tree listing only rasters by default; double click
-  opens a series, right click adds it as a layer.
+  opens a series, right click adds it as a layer. Whatever is opened (from the
+  panel, File → Open, a drop or the command line), the tree goes to it.
 - **Detachable panels**: drag any panel out of the main window, e.g. the map on
   a second monitor and the charts on the first.
 - **Settings** (File → Settings, `Ctrl+,`): a dark, light, classic or Janus
-  colour theme, and how many CPU threads Janus and Zeit may use (all cores but
+  colour theme, the interface font size, and how many CPU threads Janus and Zeit may use (all cores but
   2 by default, so the computer stays responsive during long runs).
 - **Zeit tools** ([Zeit](https://github.com/sacridini/zeit-cdts) change detection
   and time-series algorithms): **LandTrendr**, **Mann-Kendall** (with Sen's
@@ -174,22 +178,23 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Classes (categorical data) | **Display** panel → *Categorical (classes)*: legend with colours, names and shares (click a colour to change it, untick a class to hide it); detection can be switched off or forced |
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
 | Performance panel | **View → Performance** (hidden by default): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**) |
-| Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus), processing threads, overview memory, full-resolution cache (when it is built, its budget) and clearing the caches; kept between sessions (see [Settings](#settings)) |
+| Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus), font size, whether the Files panel follows what is opened, processing threads, overview memory, full-resolution cache (when it is built, its budget) and clearing the caches; kept between sessions (see [Settings](#settings)) |
 | Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active. Layers in another CRS show "reprojected from EPSG:…" (hover for the grid size and its error) |
 | Basemap | **Layers** panel → Basemap (below the layers): pick a source (None = nothing downloaded), tick to show/hide, opacity; *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. Kept between sessions; the map panels' and the swipe's layer list has *Basemap only* |
-| Browse files | **Files** panel: double click opens, right click → Add as layer; Ctrl+click selects several files |
+| Browse files | **Files** panel: double click opens, right click → Add as layer; Ctrl+click selects several files. Opening a series expands the tree down to it (Settings → *Files panel follows what is opened*) |
 | Chart of several layers | Time series panel → *All visible layers* (one marker shape per layer) |
 | Second monitor | drag a panel's tab out of the main window |
 | Maps side by side | View → New map view (`Ctrl+T`): pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** or `Ctrl+W` (the focused panel, else the last one opened) |
 | Swipe | View → Swipe (`S`): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode, or *Basemap only*; **Swipe off** or `S` again closes it |
 | Space-time transect | `Ctrl` + drag a line on the map (Mac: `Command` + drag), or `T` / View → Draw transect, then drag; `Esc` cancels. **Transect** panel: distance from A (X) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel |
 | Chart options | style, values/anomaly/z-score, trend (OLS/Sen), Y = map range |
-| Map as a figure | File → Export map as PNG...: resolution (1×, 2×, 4×), background, date label, legend, pins and ROI |
+| Map as a figure | File → Export map as PNG...: resolution (1×, 2×, 4×), background, date label, legend, pins and ROI; *Save to*: the file (a path, a name alone for the last export folder, or **Browse...**), then **Export** (or `Enter`) |
 | Data for QGIS | File → Export values as GeoTIFF... (the active layer at the date: visible area or whole image) or Export rendered view as GeoTIFF... (RGBA as shown, georeferenced) |
 | Save a tool result | right click it in the **Layers** panel → Save as GeoTIFF..., or File → Export Zeit result as GeoTIFF |
 | Export progress | File → Exports (opens by itself with each export): progress, cancel, open the folder |
 | Series as text | **Copy CSV** in the Time series and Transect panels |
 | Zeit tools | **Tools** menu → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
+| Zeit logs | **Tools → Log** (or **Log** next to a task): the log of each raster run, followed live (what ran, Python's output, progress, outputs, the end), or `zeit.log`; Copy, open the file or its folder |
 | Tool results | listed under their layer in the **Layers** panel: show/hide, colormap, range, opacity |
 
 Clicking a legend entry hides/shows that series together with its trend line.
@@ -246,6 +251,12 @@ Each tool window has:
   **Tools → Tasks**. Outputs are GeoTIFFs (default folder
   `%LOCALAPPDATA%\Janus\results`) loaded over the map and listed under their
   series in the Layers panel; cells without an event are transparent.
+- **A log of every raster run**, `job.log` in the run's results folder (next to
+  `job.json` and the outputs): the tool, its parameters, window and threads,
+  then everything Python writes (warnings, prints, tracebacks), the progress
+  (every 10% or 5 s), each output and how it ended. **Tools → Log** shows it
+  while it grows (pick the run, or `zeit.log`, in the list), as does the
+  **Log** button of each task.
 
 How it works: Zeit runs in a separate Python process from a private runtime
 inside the installation (`runtime\`: embeddable Python 3.12 + Zeit from PyPI +
@@ -257,7 +268,9 @@ in chunks with progress; each tool is a small module next to it
 Zeit's API for one series or one block of pixels. Adding a tool to Janus means
 adding a module there — no C++ change.
 Janus hands it the cube as a VRT (dates in order, nodata and scale applied).
-Logs: `%LOCALAPPDATA%\Janus\zeit.log`.
+Logs: each raster run's `job.log` (above); `%LOCALAPPDATA%\Janus\zeit.log`
+for the process that fits the chart and estimates run times (its warnings and
+errors), with a line per raster run pointing to its log.
 
 ## Performance
 
@@ -315,6 +328,8 @@ once and is kept in the layout file, next to the other data of Janus
 | Setting | What it does |
 |---|---|
 | Theme | **Dark** (the default), **Light**, **Classic** (ImGui's original colours) or **Janus** (the program's colours: blue on navy panels, orange accents). Status text and chart series are adjusted to stay legible on each; the map, its colour bars and exported figures keep their colours |
+| Font size | Size of the interface text, 10 to 28 px (13 by default: ImGui's pixel font; other sizes use its scalable font). Widgets keep their widths; exported figures keep their text as at 13 px |
+| Files panel follows what is opened | On by default: opening a series, a file or a folder (from anywhere) expands the Files panel down to it and scrolls there; its folder is listed again, so new files show up |
 | Processing threads | How many CPU threads Janus and Zeit may use, shown as *N of M* logical cores; default: all but 2 (at least 1), so the computer stays responsive during long runs. Applies to the readers of the open series (they shrink or grow at once), the full-resolution cache, exports (GeoTIFF compression, PNG) and Zeit: raster jobs started from then on (as `OMP_NUM_THREADS`, `NUMBA_NUM_THREADS`, the BLAS limits and Zeit's `n_jobs`; jobs already running keep theirs) and the process that fits the chart and estimates run times (replaced in the background once idle) |
 | Overview memory | Memory for the cube overview (1024 MB by default); **Apply** reopens the active layer. `--budget` overrides it for one run |
 | Clear overview cache | Deletes the cached overviews except the active layer's |

@@ -394,10 +394,34 @@ std::string App::exportName(const std::string& suffix) const {
     return name + suffix;
 }
 
-std::string App::askSavePath(const char* title, const std::string& name, const char* filter, const char* ext) {
-    std::string path = platform::saveFileDialog(title, name, filter, ext, exportDir_);
-    if (!path.empty()) exportDir_ = fs::u8path(path).parent_path().u8string();
+std::string App::askSavePath(const char* title, const std::string& name, const char* filter, const char* ext,
+                             const std::string& folder) {
+    std::string path = platform::saveFileDialog(title, name, filter, ext, folder.empty() ? exportFolder() : folder);
+    if (!path.empty()) {
+        exportDir_ = fs::u8path(path).parent_path().u8string();
+        ImGui::MarkIniSettingsDirty();
+    }
     return path;
+}
+
+std::string App::exportFolder() const {
+    std::error_code ec;
+    if (!exportDir_.empty() && fs::is_directory(fs::u8path(exportDir_), ec)) return exportDir_;
+    return s_ ? fs::absolute(fs::u8path(s_->info->firstPath), ec).parent_path().u8string() : "";
+}
+
+std::string App::exportTarget(const char* ext) const {
+    std::string typed = exportPath_;
+    const size_t a = typed.find_first_not_of(" \t\""), b = typed.find_last_not_of(" \t\""); // as pasted from Explorer
+    if (a == std::string::npos) return "";
+    fs::path p = fs::u8path(typed.substr(a, b - a + 1));
+    if (p.is_relative()) p = fs::u8path(exportFolder()) / p;
+    p = p.lexically_normal();
+    if (!p.has_filename()) return "";
+    std::string have = p.extension().u8string();
+    for (char& c : have) c = char(std::tolower((unsigned char)c));
+    if (have != std::string(".") + ext && !(std::strcmp(ext, "tif") == 0 && have == ".tiff")) p += std::string(".") + ext;
+    return p.u8string();
 }
 
 // ---------------------------------------------------------------------------
@@ -411,7 +435,9 @@ std::shared_ptr<ExportJob> App::exportPng(const std::string& path, const PngOpti
     int w = 0, h = 0;
     renderExport(o.scale, transparent, o.background == 1 ? white : nullptr, *img, w, h);
 
-    // Marks, label and legend, as the map draws them, in points x ps.
+    // Marks, label and legend, as the map draws them, in points x ps. Figures
+    // keep their text whatever the interface's font size (Settings).
+    ImGui::PushFont(fontBitmap_, float(kDefaultFontSize));
     const float ps = mapPixelScale_ * float(o.scale);
     Canvas cv{w, h, img->data()};
     auto toPx = [&](double x, double y) {
@@ -491,6 +517,7 @@ std::shared_ptr<ExportJob> App::exportPng(const std::string& path, const PngOpti
         drawLegends(cv, legends, ps);
     }
     drawCredit(cv, basemapAttribution(), ps); // whenever the basemap is drawn
+    ImGui::PopFont();
     char title[160];
     std::snprintf(title, sizeof(title), "Map as PNG, %d x %d px", w, h);
     auto job = startJob(title, path, [img, w, h, transparent, path](ExportJob& j, std::string& error) {
@@ -585,7 +612,9 @@ std::shared_ptr<ExportJob> App::exportView(const std::string& path, int scale) {
     renderExport(scale, true, nullptr, *img, w, h);
     const std::string credit = basemapAttribution();
     Canvas cv{w, h, img->data()};
+    ImGui::PushFont(fontBitmap_, float(kDefaultFontSize)); // as the PNG's
     drawCredit(cv, credit, mapPixelScale_ * float(scale));
+    ImGui::PopFont();
     // Target pixel (px, py) -> active layer pixel ((px / ps - offset) / scale_).
     const CubeInfo& info = *s_->info;
     const double ps = double(mapPixelScale_) * scale, k = 1.0 / (scale_ * ps);
@@ -693,13 +722,20 @@ void App::uiResultExportMenu(const ResultLayer& r, const char* label) {
 }
 
 void App::uiExport() {
+    static const char* kTitles[] = {"", "Export map as PNG", "Export values as GeoTIFF",
+                                    "Export rendered view as GeoTIFF"};
+    static const char* kFilters[] = {"", "PNG image", "GeoTIFF", "GeoTIFF"};
+    static const char* kExts[] = {"", "png", "tif", "tif"};
+    static const char* kSuffixes[] = {"", ".png", ".tif", "_view.tif"};
+    const int kind = std::clamp(exportKind_, 0, 3);
     if (exportPopup_) {
         ImGui::OpenPopup("Export###export");
         exportPopup_ = false;
+        // Where it goes: the last export's folder (else the layer's), named after the layer and date.
+        const std::string path = s_ ? (fs::u8path(exportFolder()) / fs::u8path(exportName(kSuffixes[kind]))).u8string() : "";
+        std::snprintf(exportPath_, sizeof(exportPath_), "%s", path.c_str());
     }
-    static const char* kTitles[] = {"", "Export map as PNG", "Export values as GeoTIFF",
-                                    "Export rendered view as GeoTIFF"};
-    const std::string name = std::string(kTitles[std::clamp(exportKind_, 0, 3)]) + "###export";
+    const std::string name = std::string(kTitles[kind]) + "###export";
     if (!ImGui::BeginPopupModal(name.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
     if (!s_ || exportKind_ < 1 || exportKind_ > 3) {
         ImGui::CloseCurrentPopup();
@@ -765,25 +801,59 @@ void App::uiExport() {
         ImGui::TextDisabled("RGB + alpha (transparent where nothing is drawn), as shown,\n"
                             "georeferenced in the active layer's CRS.");
     }
+    // Where the file goes: typed (a name alone goes to the folder shown first)
+    // or chosen in the system's dialog.
+    ImGui::SeparatorText("Save to");
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 34);
+    const bool enter = ImGui::InputText("##saveto", exportPath_, sizeof(exportPath_), ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::SetItemTooltip("Full path of the file, or a name alone (saved in %s).", exportFolder().c_str());
+    ImGui::SameLine();
+    std::string target = exportTarget(kExts[kind]);
+    if (ImGui::Button("Browse...")) {
+        std::error_code ec;
+        const fs::path t = fs::u8path(target);
+        const bool known = !target.empty() && fs::is_directory(t.parent_path(), ec);
+        const std::string path = askSavePath(kTitles[kind], known ? t.filename().u8string() : exportName(kSuffixes[kind]),
+                                             kFilters[kind], kExts[kind], known ? t.parent_path().u8string() : "");
+        if (!path.empty()) {
+            std::snprintf(exportPath_, sizeof(exportPath_), "%s", path.c_str());
+            target = exportTarget(kExts[kind]);
+        }
+    }
+    {
+        std::error_code ec;
+        const fs::path t = fs::u8path(target);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetFontSize() * 40); // long paths
+        if (target.empty()) {
+            ImGui::TextColored(theme::warning(), "Type a file name, or choose one with Browse...");
+            canSave = false;
+        } else if (!fs::is_directory(t.parent_path(), ec)) {
+            ImGui::TextColored(theme::warning(), "The folder %s does not exist.", t.parent_path().u8string().c_str());
+            canSave = false;
+        } else if (fs::is_directory(t, ec)) {
+            ImGui::TextColored(theme::warning(), "%s is a folder: add a file name.", t.filename().u8string().c_str());
+            canSave = false;
+        } else if (fs::exists(t, ec)) {
+            ImGui::TextColored(theme::warning(), "%s exists and will be replaced.", t.filename().u8string().c_str());
+        } else {
+            ImGui::TextDisabled("Saved as %s", target.c_str());
+        }
+        ImGui::PopTextWrapPos();
+    }
     ImGui::Spacing();
     ImGui::BeginDisabled(!canSave);
-    if (ImGui::Button("Save...", ImVec2(120, 0))) save = true;
+    if (ImGui::Button("Export", ImVec2(120, 0)) || (enter && canSave)) save = true;
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
         ImGui::CloseCurrentPopup();
     if (save) {
         ImGui::CloseCurrentPopup();
-        if (exportKind_ == 1) {
-            const std::string path = askSavePath("Export map as PNG", exportName(".png"), "PNG image", "png");
-            if (!path.empty()) exportPng(path, png_);
-        } else if (exportKind_ == 2) {
-            const std::string path = askSavePath("Export values as GeoTIFF", exportName(".tif"), "GeoTIFF", "tif");
-            if (!path.empty()) exportValues(path, valuesWhole_);
-        } else {
-            const std::string path = askSavePath("Export rendered view as GeoTIFF", exportName("_view.tif"), "GeoTIFF", "tif");
-            if (!path.empty()) exportView(path, viewScale_);
-        }
+        exportDir_ = fs::u8path(target).parent_path().u8string();
+        ImGui::MarkIniSettingsDirty();
+        if (exportKind_ == 1) exportPng(target, png_);
+        else if (exportKind_ == 2) exportValues(target, valuesWhole_);
+        else exportView(target, viewScale_);
     }
     ImGui::EndPopup();
 }

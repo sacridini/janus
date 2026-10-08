@@ -9,7 +9,9 @@
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <set>
+#include <string_view>
 
 #include <implot.h>
 
@@ -618,6 +620,9 @@ void App::uiToolsMenu() {
     }
     ImGui::Separator();
     ImGui::MenuItem("Tasks", nullptr, &showTasks_);
+    ImGui::MenuItem("Log", nullptr, &showZeitLog_);
+    ImGui::SetItemTooltip("Each raster run's log (what ran, Python's output, progress, the result)\n"
+                          "and zeit.log");
     ImGui::EndMenu();
 }
 
@@ -872,12 +877,16 @@ void App::uiTasks() {
         const char* stName = st == ZeitJob::State::Running ? "running" : st == ZeitJob::State::Done ? "done"
                              : st == ZeitJob::State::Cancelled ? "cancelled" : "failed";
         std::snprintf(overlay, sizeof(overlay), "%s  %.0f%%  %.0f s", stName, j.progress * 100.0, el);
-        ImGui::ProgressBar(float(j.progress), ImVec2(-160, 0), overlay);
+        const float bw = ImGui::GetFontSize() * 4.5f, gap = ImGui::GetStyle().ItemSpacing.x; // follows the font size
+        ImGui::ProgressBar(float(j.progress), ImVec2(-(3 * bw + 2 * gap), 0), overlay);
+        ImGui::SameLine();
+        if (ImGui::Button("Log", ImVec2(bw, 0))) showZeitLog(j.logPath);
+        ImGui::SetItemTooltip("%s", j.logPath.c_str());
         ImGui::SameLine();
         if (st == ZeitJob::State::Running) {
             if (ImGui::Button("Cancel", ImVec2(-1, 0))) j.cancel();
         } else {
-            if (ImGui::Button("Folder", ImVec2(75, 0))) platform::openInExplorer(j.outputDir);
+            if (ImGui::Button("Folder", ImVec2(bw, 0))) platform::openInExplorer(j.outputDir);
             ImGui::SameLine();
             if (ImGui::Button("Remove", ImVec2(-1, 0))) remove = int(i);
         }
@@ -894,7 +903,116 @@ void App::uiTasks() {
         jobCube_.erase(jobs_[remove].get());
         jobs_.erase(jobs_.begin() + remove);
     }
-    if (zeit_ && ImGui::SmallButton("Open Zeit log")) platform::openInExplorer(zeit_->config().logPath);
+    if (ImGui::SmallButton("Zeit process log")) showZeitLog(zeitLogPath());
+    ImGui::SetItemTooltip("zeit.log: the process that fits the chart and estimates run times\n"
+                          "(warnings and errors of the pixel runs), and a line per job");
+    ImGui::End();
+}
+
+std::string App::zeitLogPath() const { return zeit_ ? zeit_->config().logPath : zeitConfig().logPath; }
+
+void App::showZeitLog(const std::string& path) {
+    zeitLog_.path = path;
+    showZeitLog_ = true;
+    ImGui::SetWindowFocus("Log");
+}
+
+void App::uiZeitLog() {
+    if (!showZeitLog_) return;
+    ImGui::SetNextWindowSize(ImVec2(720, 400), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Log", &showZeitLog_)) {
+        ImGui::End();
+        return;
+    }
+    LogView& v = zeitLog_;
+    // What can be shown: every job's log (newest first), then zeit.log.
+    std::vector<std::pair<std::string, std::string>> sources; // title, path
+    for (auto it = jobs_.rbegin(); it != jobs_.rend(); ++it)
+        if (!(*it)->logPath.empty()) sources.emplace_back((*it)->title, (*it)->logPath);
+    const std::string zlog = zeitLogPath();
+    sources.emplace_back("Zeit process (zeit.log)", zlog);
+    const std::string path = v.path.empty() ? sources.front().second : v.path;
+    std::string preview = fs::u8path(path).filename().u8string();
+    for (const auto& [title, p] : sources)
+        if (p == path) preview = title;
+
+    // The file, followed: its end at first, then what it gains (looked at 4 times a second).
+    const double now = ImGui::GetTime();
+    std::error_code ec;
+    if (path != v.shown || now - v.checked >= 0.25) {
+        v.checked = now;
+        const uintmax_t size = fs::exists(fs::u8path(path), ec) ? fs::file_size(fs::u8path(path), ec) : 0;
+        constexpr uintmax_t kKeep = 2u << 20; // bytes kept (the end of a long zeit.log)
+        if (path != v.shown || size < v.size) { // another file, or this one started again
+            v.shown = path;
+            v.text.clear();
+            v.lines.assign(1, 0);
+            v.size = size > kKeep ? size - kKeep : 0;
+            v.cut = v.size > 0;
+        }
+        if (size > v.size) {
+            std::ifstream f(fs::u8path(path), std::ios::binary);
+            f.seekg(std::streamoff(v.size));
+            std::string add(size_t(size - v.size), '\0');
+            f.read(add.data(), std::streamsize(add.size()));
+            add.resize(size_t(f.gcount()));
+            v.size += add.size();
+            add.erase(std::remove(add.begin(), add.end(), '\r'), add.end());
+            size_t from = v.text.size(); // lines: where each starts (the last may be the empty one after a '\n')
+            v.text += add;
+            if (v.text.size() > 2 * kKeep) { // keep the end only, from a line start
+                const size_t nl = v.text.find('\n', v.text.size() - kKeep);
+                v.text.erase(0, nl == std::string::npos ? v.text.size() - kKeep : nl + 1);
+                v.cut = true;
+                v.lines.assign(1, 0);
+                from = 0;
+            }
+            for (size_t k = from; k < v.text.size(); ++k)
+                if (v.text[k] == '\n') v.lines.push_back(k + 1);
+        }
+    }
+    const int nLines = v.lines.empty() ? 0 : int(v.lines.size()) - (v.lines.back() == v.text.size() ? 1 : 0);
+
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 26);
+    if (ImGui::BeginCombo("##source", preview.c_str())) {
+        for (const auto& [title, p] : sources) {
+            ImGui::PushID(p.c_str());
+            if (ImGui::Selectable(title.c_str(), p == path)) v.path = p;
+            ImGui::SetItemTooltip("%s", p.c_str());
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Copy")) ImGui::SetClipboardText(v.text.c_str());
+    ImGui::SetItemTooltip("Copies the log shown");
+    ImGui::SameLine();
+    if (ImGui::Button("Open file")) platform::openInExplorer(path);
+    ImGui::SameLine();
+    if (ImGui::Button("Folder")) platform::openInExplorer(fs::u8path(path).parent_path().u8string());
+    ImGui::TextDisabled("%s%s", path.c_str(), v.cut ? "  (its end)" : "");
+
+    ImGui::BeginChild("##text", ImVec2(0, 0), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+    if (v.text.empty()) ImGui::TextDisabled(fs::exists(fs::u8path(path), ec) ? "(empty)" : "(no log yet)");
+    // Tracebacks and errors in the error colour, warnings in the warning's,
+    // the lines Janus writes at a start ("=== date ...") in the accent.
+    ImGuiListClipper clipper;
+    clipper.Begin(nLines);
+    while (clipper.Step())
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+            const char* b = v.text.data() + v.lines[i];
+            const char* e = v.text.data() + (i + 1 < int(v.lines.size()) ? v.lines[i + 1] - 1 : v.text.size());
+            const std::string_view line(b, size_t(e - b));
+            auto has = [&](const char* s) { return line.find(s) != std::string_view::npos; };
+            const bool err = has("Traceback") || has("Error") || has("Exception") || has("error:") || has("] failed");
+            const bool warn = !err && (has("Warning") || has("warning:"));
+            if (err || warn || line.rfind("=== ", 0) == 0)
+                ImGui::PushStyleColor(ImGuiCol_Text, err ? theme::error() : warn ? theme::warning() : theme::accent());
+            ImGui::TextUnformatted(b, e);
+            if (err || warn || line.rfind("=== ", 0) == 0) ImGui::PopStyleColor();
+        }
+    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) ImGui::SetScrollHereY(1.0f); // follows the end, unless scrolled up
+    ImGui::EndChild();
     ImGui::End();
 }
 

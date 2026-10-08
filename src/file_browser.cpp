@@ -4,6 +4,7 @@
 #include <cctype>
 #include <chrono>
 #include <filesystem>
+#include <utility>
 
 #include <imgui.h>
 
@@ -28,6 +29,12 @@ std::string humanSize(uint64_t b) {
     return buf;
 }
 
+// The folder `dir` (lower case) is `p` or inside it.
+bool within(const std::string& dir, const std::string& p) {
+    if (p.empty() || dir.compare(0, p.size(), p) != 0) return false;
+    return dir.size() == p.size() || p.back() == '/' || p.back() == '\\' || dir[p.size()] == '/' ||
+           dir[p.size()] == '\\';
+}
 
 } // namespace
 
@@ -57,7 +64,16 @@ void FileBrowser::addRecent(const std::string& path) {
     if (recent_.size() > 8) recent_.resize(8);
 }
 
-void FileBrowser::reveal(const std::string& folder) { revealPath_ = lower(fs::u8path(folder).u8string()); }
+void FileBrowser::reveal(const std::string& path) {
+    std::error_code ec;
+    fs::path p = fs::absolute(fs::u8path(path), ec).lexically_normal(); // the tree's separators
+    if (!p.has_filename() && p.has_relative_path()) p = p.parent_path(); // "C:\data\" -> "C:\data"
+    const bool dir = fs::is_directory(p, ec);
+    revealItem_ = lower(p.u8string());
+    revealDir_ = dir ? revealItem_ : lower(p.parent_path().u8string());
+    revealRelist_ = true;
+    revealed_.clear();
+}
 
 bool FileBrowser::visible(const Entry& e) const {
     if (filter_[0] && lower(e.name).find(lower(filter_)) == std::string::npos && !e.dir) return false;
@@ -89,15 +105,26 @@ void FileBrowser::startListing(Node& n) {
     });
 }
 
-void FileBrowser::drawNode(Node& n, Action& act) {
+void FileBrowser::drawNode(Node& n, Action& act, bool reveal) {
     ImGui::PushID(n.e.path.c_str());
+    const std::string lp = lower(n.e.path);
     if (n.e.dir) {
-        // Auto-expand the folders on the way to the revealed path.
-        const std::string lp = lower(n.e.path);
-        if (!revealPath_.empty() && revealPath_.rfind(lp, 0) == 0) ImGui::SetNextItemOpen(true);
+        // Auto-expand the folders on the way to the revealed path, and scroll
+        // to its folder (then to the file, if it is one, drawn below).
+        const bool onPath = reveal && !revealDir_.empty() && within(revealDir_, lp);
+        const bool target = onPath && lp.size() == revealDir_.size();
+        if (onPath) ImGui::SetNextItemOpen(true);
         const bool open = ImGui::TreeNodeEx(n.e.name.c_str(), ImGuiTreeNodeFlags_OpenOnArrow |
                                                                   ImGuiTreeNodeFlags_OpenOnDoubleClick |
                                                                   ImGuiTreeNodeFlags_SpanAvailWidth);
+        if (target) {
+            ImGui::SetScrollHereY(0.25f);
+            revealed_ = lp;
+            if (std::exchange(revealRelist_, false) && n.listed) { // files written since it was listed
+                n.listed = false;
+                n.children.clear();
+            }
+        }
         if (ImGui::BeginPopupContextItem()) {
             if (ImGui::MenuItem("Open folder as series")) act = {Action::Open, {n.e.path}};
             if (ImGui::MenuItem("Add folder as layer")) act = {Action::AddLayer, {n.e.path}};
@@ -115,11 +142,15 @@ void FileBrowser::drawNode(Node& n, Action& act) {
                 }
             }
             int rasters = 0;
+            bool next = false; // a child on the way to the revealed path
             for (auto& c : n.children) {
                 if (!visible(c->e)) continue;
                 if (!c->e.dir) ++rasters;
-                drawNode(*c, act);
+                if (onPath && !target && c->e.dir && within(revealDir_, lower(c->e.path))) next = true;
+                drawNode(*c, act, onPath);
             }
+            // Revealed (its folder is listed), or the way there is gone: done.
+            if (onPath && n.listed && (target || !next)) revealDir_.clear(), revealItem_.clear();
             if (n.listed && n.children.empty()) ImGui::TextDisabled("(empty)");
             if (rasters > 1) {
                 if (ImGui::SmallButton("Open these files as a series")) {
@@ -130,13 +161,16 @@ void FileBrowser::drawNode(Node& n, Action& act) {
                 }
             }
             ImGui::TreePop();
-        } else if (!revealPath_.empty() && lp == revealPath_) {
-            revealPath_.clear();
         }
     } else {
         const bool sel = selected_.count(n.e.path) > 0;
         const std::string label = n.e.name + "##f";
-        if (ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowDoubleClick)) {
+        const bool clicked = ImGui::Selectable(label.c_str(), sel, ImGuiSelectableFlags_AllowDoubleClick);
+        if (reveal && !revealItem_.empty() && lp == revealItem_) {
+            ImGui::SetScrollHereY(0.25f);
+            revealed_ = lp;
+        }
+        if (clicked) {
             if (ImGui::GetIO().KeyCtrl) {
                 if (sel) selected_.erase(n.e.path);
                 else selected_.insert(n.e.path);
@@ -199,7 +233,15 @@ FileBrowser::Action FileBrowser::draw() {
         }
         ImGui::TreePop();
     }
-    for (auto& r : roots_) drawNode(*r, act);
+    // The revealed path opens under the root nearest to it only (the home
+    // folder rather than its drive). Under none (another drive, a share): done.
+    const Node* revealRoot = nullptr;
+    for (auto& r : roots_)
+        if (!revealDir_.empty() && within(revealDir_, lower(r->e.path)) &&
+            (!revealRoot || r->e.path.size() > revealRoot->e.path.size()))
+            revealRoot = r.get();
+    if (!revealRoot) revealDir_.clear(), revealItem_.clear();
+    for (auto& r : roots_) drawNode(*r, act, r.get() == revealRoot);
     ImGui::EndChild();
     return act;
 }

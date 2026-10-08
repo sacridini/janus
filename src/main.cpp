@@ -166,6 +166,7 @@ int main(int argc, char** argv) {
         // Documents from the Finder (macOS): opened like a drop on the window.
         if (std::vector<std::string> docs = platform::takeOpenRequests(); !docs.empty()) app->pendingDrop = std::move(docs);
 
+        app->applyFont();
         render::newFrame();
         ImGui::NewFrame();
         app->frame();

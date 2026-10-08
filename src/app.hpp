@@ -83,8 +83,11 @@ public:
     bool init(const AppOptions& opts, std::string& error);
     // Opens a series; `addLayer` keeps the open ones and adds it as a new layer.
     void openInputs(const std::vector<std::string>& inputs, bool addLayer = false);
+    // Before ImGui::NewFrame: the interface font and its size (Settings).
+    void applyFont();
     void frame();
     bool wantsContinuousFrames() const;
+    static constexpr int kDefaultFontSize = 13, kMinFontSize = 10, kMaxFontSize = 28;
     void setStartupTimes(const StartupTimes& t) { startup_ = t; }
     // --selftest-ui: one step per frame; -1 while running, then the exit code.
     int selfTestStep(const std::vector<std::string>& inputs);
@@ -158,7 +161,12 @@ private:
     std::shared_ptr<ExportJob> exportResult(const ResultLayer& r, const std::string& path);
     bool visibleWindow(int win[4]) const; // visible part of the active layer, in its pixels
     std::string exportName(const std::string& suffix) const;
-    std::string askSavePath(const char* title, const std::string& name, const char* filter, const char* ext);
+    // `folder`: where the dialog starts (empty: the last export's folder).
+    std::string askSavePath(const char* title, const std::string& name, const char* filter, const char* ext,
+                            const std::string& folder = "");
+    std::string exportFolder() const; // the last export's, else the active layer's
+    // The path typed in the export popup: absolute (from exportFolder()), with `ext`.
+    std::string exportTarget(const char* ext) const;
     const char* selfTestExports(); // nullptr = passed
 
     // Settings window (app_settings.cpp): theme, processing threads, memory and
@@ -176,6 +184,11 @@ private:
     bool showSettings_ = false, focusSettings_ = false;
     int theme_ = 0;                  // theme::Id
     int appliedTheme_ = -1;
+    int fontSize_ = kDefaultFontSize; // interface text, in points
+    int appliedFontSize_ = -1;
+    ImFont* fontBitmap_ = nullptr;   // ImGui's pixel font, at its 13 px
+    ImFont* fontVector_ = nullptr;   // ImGui's scalable font, at any other size
+    bool revealOpened_ = true;       // the Files panel goes to the series opened
     int overviewBudgetMB_ = 1024;    // Settings value (--budget overrides it for one run)
 
     // Full-resolution cache (app_fullres.cpp)
@@ -227,6 +240,11 @@ private:
     void uiToolsMenu();
     void uiToolWindow(const ZeitTool& tool);
     void uiTasks();
+    // Log window (Tools > Log): a raster job's log or zeit.log (the process
+    // that fits the chart), followed as the file grows.
+    void uiZeitLog();
+    void showZeitLog(const std::string& path);
+    std::string zeitLogPath() const; // zeit.log
     void uiResultsOf(uint64_t cubeId);
     void clearResults(uint64_t cubeId = 0); // 0 = every layer
     void drawZeitOverlays(const char* label, const json& result, const SeriesStats& st);
@@ -470,7 +488,8 @@ private:
     PngOptions png_;
     int viewScale_ = 1;
     bool valuesWhole_ = false;   // whole image, else the visible area
-    std::string exportDir_;      // folder of the last export
+    std::string exportDir_;      // folder of the last export (kept in the layout .ini)
+    char exportPath_[1024] = ""; // options popup: where the file goes (editable, or Browse...)
 
     // Zeit
     std::unique_ptr<ZeitClient> zeit_;
@@ -520,6 +539,16 @@ private:
     std::vector<std::shared_ptr<ZeitJob>> jobs_;
     std::map<const ZeitJob*, uint64_t> jobCube_; // cube id each job was started for
     bool showTasks_ = false;
+    bool showZeitLog_ = false;
+    struct LogView {
+        std::string path;          // the file shown ("": the newest job's, else zeit.log)
+        std::string shown;         // the file `text` comes from
+        std::string text;          // its end (up to a few MB), without '\r'
+        std::vector<size_t> lines; // where each line starts in text
+        uintmax_t size = 0;        // bytes of the file read so far
+        bool cut = false;          // the file's start is not in text
+        double checked = -1;       // ImGui time of the last look at the file
+    } zeitLog_;
     std::vector<ResultLayer> results_;
     struct LoadedResult {
         ResultLayer layer;
@@ -606,6 +635,8 @@ private:
         int64_t budget = 0;   // overview budget to restore
         int frames = 0;
         int threads = 0;      // processing threads setting to restore
+        int fontSize = 0;     // font size setting to restore
+        std::string reveal;   // the file the Files panel should go to
         double zeitT0 = 0;
     } st_; // --selftest-ui state
     struct {

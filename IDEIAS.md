@@ -215,9 +215,54 @@ termina.
 - Ferramentas de IA do Zeit como download opcional (PyTorch é pesado).
 - Releases no GitHub com o instalador anexado.
 - Linux (os stubs de `platform.cpp` existem; falta testar).
-- Escala de interface (DPI) e fonte TTF para telas 4K.
+- Escala de interface (DPI) para telas 4K: o tamanho da fonte já é ajustável
+  (0.25.0); faltam as larguras fixas dos widgets.
 
 ## Histórico
+
+### 0.25.0 — exportação com destino, tamanho da fonte, árvore que segue, logs do Zeit
+- **Exportar: onde salvar à vista** (pedido em 2026-10-08: o diálogo do sistema
+  só aparecia depois de "Save...", e não se via o destino). A janela de
+  exportação tem *Save to*: o caminho completo, editável (um nome sozinho vai
+  para a pasta da última exportação), **Browse...** abre o diálogo do sistema;
+  avisa se a pasta não existe ou se o arquivo será substituído. A pasta da
+  última exportação fica no `.ini` (antes só valia na sessão); sem ela, a da
+  camada ativa.
+- **Tamanho da fonte** em Settings (10–28 px, padrão 13). Em 13 px fica a
+  fonte em pixels do ImGui (o visual de antes); nos outros tamanhos, a fonte
+  escalável que vem no ImGui 1.92 (`AddFontDefaultVector`), nítida em qualquer
+  tamanho. Aplicada entre quadros, antes do `NewFrame`. Só a fonte muda: as
+  larguras fixas dos widgets continuam (o motivo de a escala ter ficado de fora
+  na fase 16). As figuras exportadas continuam com o texto a 13 px, como as
+  cores, que não mudam com o tema.
+- **Árvore de arquivos vai ao que é aberto** (opção em Settings, ligada por
+  padrão): de qualquer origem (painel, File → Open, arrastar, linha de
+  comando), expande até a pasta, rola até ela ou até o arquivo, e lista a
+  pasta de novo (arquivos novos aparecem). Só sob a raiz mais próxima (a pasta
+  do usuário, não também o `C:\`). Corrigido junto: o "Reveal in tree" do
+  Recent mantinha as pastas do caminho presas abertas.
+- **Log de cada execução do Zeit** (pedido em 2026-10-08): antes, o stderr de
+  todos os processos ia misturado para o `zeit.log`, e o progresso, as saídas e
+  os erros do protocolo não ficavam em lugar nenhum. Agora cada job raster tem
+  o seu `job.log` na pasta dos resultados (ao lado do `job.json`): cabeçalho
+  (ferramenta, parâmetros, janela, threads), o stderr do processo (o filho
+  escreve direto no arquivo, sem pipe novo), o progresso (a cada 10% ou 5 s:
+  o bridge manda até 4 por segundo, o que daria ~14 mil linhas por hora), cada
+  saída e o fim (concluído, cancelado ou falhou, com o código de saída). O
+  `zeit.log` continua com o processo do gráfico e ganha uma linha por job com o
+  caminho do log. Execuções por pixel não são registradas uma a uma (são
+  milhares, a cada movimento do cursor); os erros delas continuam no
+  `zeit.log`.
+- **Janela Log** (Tools → Log, opcional; ou o botão **Log** de cada tarefa):
+  escolhe o log de um job ou o `zeit.log`, lê só o que o arquivo ganhou (4
+  vezes por segundo, os últimos 2 MB de um arquivo grande), desenha só as
+  linhas visíveis (`ImGuiListClipper`), segue o fim a menos que se role para
+  cima, e colore tracebacks/erros, avisos e os cabeçalhos.
+- Autoteste de UI (etapas 70–74): a fonte nova vale no quadro seguinte e volta;
+  a árvore chega ao primeiro arquivo de A; o caminho digitado na exportação
+  (nome sozinho, extensão, `.tiff`, aspas coladas do Explorer); a janela Log
+  mostra as linhas de um arquivo e o que ele ganha. `--selftest-zeit` confere o
+  log de cada job (ferramenta, progresso, todas as saídas, o fim).
 
 ### 0.24.0 — Fase 16: configurações, threads de processamento e temas
 - Janela **Settings** (File → Settings, `Ctrl+,`): tema; threads de

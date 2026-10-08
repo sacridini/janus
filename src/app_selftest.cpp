@@ -19,11 +19,13 @@
 #include "app.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 
 #include <gdal_priv.h>
@@ -285,6 +287,78 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         if (pins_.empty() || pins_[0].x != pinBefore + 100) return fail("the pin should move to A's grid (+100)");
         if (const char* e = selfTestSettings()) return fail(e);
         next("active layer switched, pin remapped; settings: processing threads, themes");
+        st_.stage = 70; // font size and the Files panel, then Zeit's threads (60), then back to 8
+        break;
+    }
+    case 70: // another font size (applied before the next frame); the Files panel to A's first file
+        st_.fontSize = fontSize_;
+        fontSize_ = fontSize_ == 20 ? 16 : 20;
+        st_.reveal = s_->info->firstPath;
+        files_.reveal(st_.reveal);
+        next("font size changed, Files panel asked to reveal A's first file");
+        break;
+    case 71: {
+        if (st_.fontSize >= 0) {
+            const ImGuiStyle& style = ImGui::GetStyle();
+            std::printf("    font size %d: base %.0f px, %s font\n", fontSize_, style.FontSizeBase,
+                        ImGui::GetFont() == fontVector_ ? "scalable" : "pixel");
+            if (style.FontSizeBase != float(fontSize_) || ImGui::GetFont() != fontVector_)
+                return fail("the font size should apply at the next frame, with the scalable font");
+            fontSize_ = st_.fontSize;
+            st_.fontSize = -1;
+        }
+        // The panel, drawn here as well (the Files window may be a hidden tab).
+        ImGui::SetNextWindowSize(ImVec2(400, 600));
+        ImGui::Begin("Self-test files");
+        files_.draw();
+        ImGui::End();
+        if (files_.revealing()) break;
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        std::string want = fs::absolute(fs::u8path(st_.reveal), ec).lexically_normal().u8string();
+        std::transform(want.begin(), want.end(), want.begin(), [](unsigned char ch) { return char(std::tolower(ch)); });
+        std::printf("    Files panel at %s\n", files_.revealed().c_str());
+        if (files_.revealed() != want) return fail("the Files panel should reveal the opened file");
+        next("font size applied and restored; the Files panel went to the opened file");
+        break;
+    }
+    case 72: {
+        const bool pixel = fontSize_ == kDefaultFontSize;
+        if (ImGui::GetStyle().FontSizeBase != float(fontSize_) || ImGui::GetFont() != (pixel ? fontBitmap_ : fontVector_))
+            return fail("the font size setting should be restored");
+        st_.stage = 73;
+        break;
+    }
+    case 73: { // the Log window follows a file: its lines, then what it gains (Windows line ends dropped)
+        namespace fs = std::filesystem;
+        st_.reveal = (fs::temp_directory_path() / "janus-selftest-log.txt").u8string();
+        std::ofstream(fs::u8path(st_.reveal), std::ios::binary) << "=== start\r\nline 2\r\nTraceback (most recent call last):\r\n";
+        showZeitLog(st_.reveal);
+        st_.frames = 0;
+        next("Log window asked to show a file");
+        break;
+    }
+    case 74: {
+        namespace fs = std::filesystem;
+        const LogView& v = zeitLog_;
+        if (v.shown != st_.reveal) break; // drawn at the next frame
+        if (st_.frames == 0) {
+            if (v.text != "=== start\nline 2\nTraceback (most recent call last):\n" || v.lines.size() != 4)
+                return fail("the Log window should show the file's lines");
+            std::ofstream(fs::u8path(st_.reveal), std::ios::binary | std::ios::app) << "partial";
+            st_.frames = 1;
+            break;
+        }
+        if (v.text.size() < 8 || v.text.compare(v.text.size() - 7, 7, "partial") != 0) break; // looked at 4 times a second
+        if (v.lines.size() != 4 || v.text.compare(v.lines[3], std::string::npos, "partial") != 0)
+            return fail("the Log window should add what the file gains");
+        std::printf("    Log window: %zu lines, then the line added\n", v.lines.size());
+        std::error_code ec;
+        fs::remove(fs::u8path(st_.reveal), ec);
+        showZeitLog_ = false;
+        zeitLog_ = LogView{};
+        st_.frames = 0;
+        next("Log window follows its file");
         st_.stage = 60; // Zeit's serve process follows the threads, then back to 8
         break;
     }
@@ -454,7 +528,23 @@ const char* App::selfTestExports() {
             fs::remove_all(dir, e);
         }
     } cleanup{dir};
-    auto file = [&](const char* name) { return (dir / name).u8string(); };
+    auto file = [&](const char* name) { return (dir / name).lexically_normal().u8string(); };
+    {
+        // The popup's "Save to": a name alone goes to the export folder; the
+        // extension is added unless it is there (.tiff for tif, any case).
+        const std::string savedDir = exportDir_;
+        exportDir_ = dir.u8string();
+        auto target = [&](const std::string& typed, const char* ext) {
+            std::snprintf(exportPath_, sizeof(exportPath_), "%s", typed.c_str());
+            return exportTarget(ext);
+        };
+        const bool ok = target("map", "png") == file("map.png") && target("map.PNG", "png") == file("map.PNG") &&
+                        target(" \"" + file("v.tiff") + "\" ", "tif") == file("v.tiff") &&
+                        target("v.png", "tif") == file("v.png.tif") && target("", "png").empty();
+        exportDir_ = savedDir;
+        exportPath_[0] = 0;
+        if (!ok) return "the export path typed should resolve in the export folder, with its extension";
+    }
     auto wait = [&](const std::shared_ptr<ExportJob>& j, const char* what) {
         if (!j) return false;
         j->done.wait();

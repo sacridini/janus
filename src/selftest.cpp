@@ -5,6 +5,9 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
 #include <thread>
 
 #include "cube.hpp"
@@ -168,6 +171,23 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
                 result = job->result;
             }
             std::printf("  raster job (%d x %d px x %d dates): %.0f ms\n", x1 - x0, y1 - y0, info->T(), msSince(tj));
+            {
+                // Its log: what ran, the progress, every output and the end, once the process is gone.
+                const auto tw = Clock::now();
+                std::string log;
+                do {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    std::ifstream f(fs::u8path(job->logPath));
+                    log.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+                } while (log.find("] done (") == std::string::npos && msSince(tw) < 10000);
+                size_t outputs = 0, lines = 0;
+                for (size_t k = log.find("] output: "); k != std::string::npos; k = log.find("] output: ", k + 1)) ++outputs;
+                for (char ch : log) lines += ch == '\n';
+                std::printf("  log: %s (%zu lines)\n", job->logPath.c_str(), lines);
+                if (log.find("tool: " + tool.id) == std::string::npos || log.find("%  ") == std::string::npos ||
+                    outputs != tool.outputs.size() || log.find("] done (process exit code 0)") == std::string::npos)
+                    return fail(tool.id + ": the job's log should hold the tool, progress, every output and the end");
+            }
             const json& outs = result["outputs"];
             if (outs.size() != tool.outputs.size()) return fail(tool.id + ": job returned a different set of outputs");
             for (const json& o : outs) {

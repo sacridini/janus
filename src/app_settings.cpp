@@ -1,7 +1,8 @@
-// Settings window (File > Settings..., Ctrl+,): the interface theme, the
-// processing threads (Janus' pools and exports, Zeit's processes), the overview
-// memory and the caches. Every value is kept in the layout .ini
-// ([Janus][Settings]); --budget and --threads override theirs for one run.
+// Settings window (File > Settings..., Ctrl+,): the interface theme and font
+// size, the Files panel, the processing threads (Janus' pools and exports,
+// Zeit's processes), the overview memory and the caches. Every value is kept in
+// the layout .ini ([Janus][Settings], with the last export folder); --budget
+// and --threads override theirs for one run.
 #include "app.hpp"
 
 #include <algorithm>
@@ -42,6 +43,9 @@ void App::registerSettings() {
         else if (value("FullResBudgetGB=", v)) s.fullResBudgetBytes = uint64_t(std::clamp(v, 1, 1 << 20)) << 30;
         else if (value("OverviewBudgetMB=", v)) app.overviewBudgetMB_ = std::clamp(v, 64, 1 << 20);
         else if (value("Threads=", v)) s.threads = std::max(0, v); // 0: the default
+        else if (value("FontSize=", v)) app.fontSize_ = std::clamp(v, kMinFontSize, kMaxFontSize);
+        else if (value("RevealOpened=", v)) app.revealOpened_ = v != 0;
+        else if (std::strncmp(line, "ExportDir=", 10) == 0) app.exportDir_ = line + 10;
         else if (std::strncmp(line, "Theme=", 6) == 0)
             for (int i = 0; i < theme::Count; ++i)
                 if (std::strcmp(line + 6, theme::name(i)) == 0) app.theme_ = i;
@@ -59,9 +63,9 @@ void App::registerSettings() {
         const App& app = *static_cast<App*>(handler->UserData);
         const SessionSettings& s = app.settings_;
         buf->appendf("[Janus][Settings]\nFullResCache=%d\nFullResBudgetGB=%d\nOverviewBudgetMB=%d\nThreads=%d\n"
-                     "Theme=%s\n\n",
+                     "Theme=%s\nFontSize=%d\nRevealOpened=%d\nExportDir=%s\n\n",
                      s.fullResMode, int(s.fullResBudgetBytes >> 30), app.overviewBudgetMB_, s.threads,
-                     theme::name(app.theme_));
+                     theme::name(app.theme_), app.fontSize_, int(app.revealOpened_), app.exportDir_.c_str());
     };
     ImGui::AddSettingsHandler(&h);
 }
@@ -72,6 +76,20 @@ void App::applyTheme() {
     // The cursor's series: white on the dark themes, near black on the light one.
     hover_.color = theme::cursorSeries();
     for (SeriesLayer& L : layers_) L.hover.color = theme::cursorSeries();
+}
+
+// Both of ImGui's fonts are loaded once: the pixel one keeps the usual look at
+// 13 px, the scalable one stays sharp at the other sizes. Set between frames.
+void App::applyFont() {
+    ImGuiIO& io = ImGui::GetIO();
+    if (!fontBitmap_) {
+        fontBitmap_ = io.Fonts->AddFontDefaultBitmap();
+        fontVector_ = io.Fonts->AddFontDefaultVector();
+    }
+    if (fontSize_ == appliedFontSize_) return;
+    io.FontDefault = fontSize_ == kDefaultFontSize ? fontBitmap_ : fontVector_;
+    ImGui::GetStyle().FontSizeBase = float(fontSize_);
+    appliedFontSize_ = fontSize_;
 }
 
 void App::applyThreads() {
@@ -113,6 +131,24 @@ void App::uiSettings() {
                           "Classic: ImGui's original colours. Janus: the program's own colours\n"
                           "(blue on navy panels, orange accents).");
     ImGui::TextDisabled("The map, its colour bars and exported figures keep their colours.");
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::SliderInt("##font", &fontSize_, kMinFontSize, kMaxFontSize, "Font size: %d px",
+                         ImGuiSliderFlags_AlwaysClamp))
+        ImGui::MarkIniSettingsDirty(); // applied next frame
+    ImGui::SetItemTooltip("Size of the interface text (and of the labels on the map). 13 px: ImGui's\n"
+                          "pixel font; other sizes use its scalable font. Exported figures keep\n"
+                          "their text as at 13 px.");
+    if (fontSize_ != kDefaultFontSize) {
+        char label[64];
+        std::snprintf(label, sizeof(label), "Default font size (%d px)", kDefaultFontSize);
+        if (ImGui::Button(label, ImVec2(-1, 0))) {
+            fontSize_ = kDefaultFontSize;
+            ImGui::MarkIniSettingsDirty();
+        }
+    }
+    if (ImGui::Checkbox("Files panel follows what is opened", &revealOpened_)) ImGui::MarkIniSettingsDirty();
+    ImGui::SetItemTooltip("Opening a series, a file or a folder expands the Files panel down to it\n"
+                          "and scrolls there.");
 
     ImGui::SeparatorText("Processing");
     const int cores = logicalCores();

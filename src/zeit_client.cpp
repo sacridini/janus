@@ -1,6 +1,7 @@
 #include "zeit_client.hpp"
 
 #include <cmath>
+#include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -132,6 +133,16 @@ void logLine(const std::string& path, const std::string& text) {
     char ts[32];
     std::strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &tm);
     f << "=== " << ts << " " << text << "\n";
+}
+
+// A line of a job's log, after the seconds since the job started (one write:
+// the job's process appends its stderr to the same file).
+void jobLogLine(const ZeitJob& j, const std::string& text) {
+    const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - j.started).count();
+    char t[32];
+    std::snprintf(t, sizeof(t), "[%7.1f s] ", s);
+    std::ofstream f(fs::u8path(j.logPath), std::ios::app);
+    f << t + text + "\n";
 }
 
 } // namespace
@@ -564,22 +575,53 @@ std::shared_ptr<ZeitJob> ZeitClient::startJob(const json& spec, const std::strin
         std::ofstream f(fs::u8path(specPath), std::ios::binary);
         f << s.dump(2);
     }
+    // The job's log: what runs, then the process' stderr and the protocol
+    // messages, interleaved as they come. zeit.log points to it.
+    job->logPath = fs::u8path(specPath).replace_extension(".log").u8string();
+    cfg.logPath = job->logPath;
+    {
+        std::error_code ec;
+        fs::remove(fs::u8path(job->logPath), ec); // a spec path used again: a new log
+        std::string params = spec.value("params", json::object()).dump();
+        if (params.size() > 4000) params = params.substr(0, 4000) + "..."; // reference series (patterns)
+        logLine(job->logPath, "job: " + title);
+        std::ofstream f(fs::u8path(job->logPath), std::ios::app);
+        f << "tool: " << job->toolId << "\nparams: " << params << "\nwindow: " << spec.value("window", json()).dump()
+          << "\nthreads: " << (cfg.threads > 0 ? std::to_string(cfg.threads) : std::string("not limited"))
+          << "\nspec: " << specPath << "\noutput: " << job->outputDir << "\n";
+    }
     logLine(cfg_.logPath, "job: " + title + " (" + specPath + ")" +
-                              (cfg.threads > 0 ? ", " + std::to_string(cfg.threads) + " threads" : ""));
+                              (cfg.threads > 0 ? ", " + std::to_string(cfg.threads) + " threads" : "") +
+                              "; log: " + job->logPath);
     job->proc = std::make_unique<ZeitProcess>();
     ZeitJob* j = job.get(); // the process (and its callbacks) is owned by the job
-    job->proc->onLine = [j](const std::string& line) {
+    // Progress goes to the log every 5 s or 10% (the bridge sends up to 4 a second).
+    job->proc->onLine = [j, logged = -1.0, loggedAt = -1.0](const std::string& line) mutable {
         json msg = json::parse(line, nullptr, false);
         if (msg.is_discarded() || !msg.is_object()) return;
         if (msg.contains("progress")) {
-            j->progress = msg.value("progress", 0.0);
-            std::lock_guard<std::mutex> lk(j->m);
-            j->message = msg.value("message", "");
+            const double p = msg.value("progress", 0.0);
+            const std::string text = msg.value("message", "");
+            j->progress = p;
+            {
+                std::lock_guard<std::mutex> lk(j->m);
+                j->message = text;
+            }
+            const double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - j->started).count();
+            if (logged < 0 || p >= 1.0 || p - logged >= 0.1 || now - loggedAt >= 5) {
+                char pct[16];
+                std::snprintf(pct, sizeof(pct), "%3.0f%%  ", p * 100);
+                jobLogLine(*j, pct + text);
+                logged = p;
+                loggedAt = now;
+            }
         } else if (msg.contains("result")) {
             {
                 std::lock_guard<std::mutex> lk(j->m);
                 j->result = msg["result"];
             }
+            for (const json& o : msg["result"].value("outputs", json::array()))
+                jobLogLine(*j, "output: " + o.value("name", o.value("id", "")) + " -> " + o.value("path", ""));
             j->progress = 1.0;
             ZeitJob::State expected = ZeitJob::State::Running;
             j->state.compare_exchange_strong(expected, ZeitJob::State::Done);
@@ -588,19 +630,23 @@ std::shared_ptr<ZeitJob> ZeitClient::startJob(const json& spec, const std::strin
                 std::lock_guard<std::mutex> lk(j->m);
                 j->error = msg.value("error", "error");
             }
+            jobLogLine(*j, "error: " + msg.value("error", "error"));
             ZeitJob::State expected = ZeitJob::State::Running;
             j->state.compare_exchange_strong(expected, ZeitJob::State::Failed);
         }
         glfwPostEmptyEvent();
     };
-    const std::string logPath = cfg_.logPath;
-    job->proc->onExit = [j, logPath] {
+    job->proc->onExit = [j] {
         j->seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - j->started).count();
         ZeitJob::State expected = ZeitJob::State::Running;
+        const int code = j->proc->exitCode();
         if (j->state.compare_exchange_strong(expected, ZeitJob::State::Failed)) {
             std::lock_guard<std::mutex> lk(j->m);
-            j->error = "the job process exited (code " + std::to_string(j->proc->exitCode()) + "); see " + logPath;
+            j->error = "the job process exited (code " + std::to_string(code) + "); see " + j->logPath;
         }
+        const ZeitJob::State st = j->state;
+        const char* end = st == ZeitJob::State::Done ? "done" : st == ZeitJob::State::Cancelled ? "cancelled" : "failed";
+        jobLogLine(*j, std::string(end) + " (process exit code " + std::to_string(code) + ")");
         glfwPostEmptyEvent();
     };
     std::string err;
@@ -608,6 +654,7 @@ std::shared_ptr<ZeitJob> ZeitClient::startJob(const json& spec, const std::strin
         std::lock_guard<std::mutex> lk(job->m);
         job->error = err;
         job->state = ZeitJob::State::Failed;
+        jobLogLine(*job, "failed: " + err);
     }
     return job;
 }
