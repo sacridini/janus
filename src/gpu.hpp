@@ -60,12 +60,23 @@ struct GpuCube {
     size_t bytes() const;
 };
 
+// A layer in another CRS than the map's (reprojection): each point of the quad
+// goes to the layer's own coordinates through a grid made on the CPU
+// (createWarpGrid: the layer's uv at nodes over a map-space domain), which the
+// shader interpolates bilinearly; points outside the drawn texture are discarded.
+struct WarpParams {
+    GpuTex grid = 0;              // 0 = none: the quad maps straight onto the texture
+    float quad[4] = {0, 0, 1, 1}; // the quad in the grid's domain (0..1): x0, y0, w, h
+    float src[4] = {0, 0, 1, 1};  // the drawn texture (cube, tile) in the layer's uv: x0, y0, w, h
+};
+
 struct DrawParams {
     int mode = ModeValue;
     int t = 0, tg = 0, tb = 0;   // layers (tg/tb only in RGB mode; tg = reference date in ModeDiff)
     float lo = 0, hi = 1;        // stretch range
     GpuTex classLut = 0;         // categorical data: class value -> colour (see createClassLut)
     GpuTex tile2 = 0;            // ModeDiff on a detail tile: the reference date's tile
+    WarpParams warp;             // reprojected layer
 };
 
 // Class colours of categorical data: kClassLutSize texels, value v -> texel v
@@ -100,7 +111,8 @@ public:
     void drawCube(const GpuCube& c, const float rect[4], const DrawParams& p, int implotColormap, float alpha);
     void drawTile(GpuTex tex, const float rect[4], const DrawParams& p, int implotColormap, float alpha);
     // Single-band raster (e.g. a Zeit result) blended over the map with its own colormap.
-    void drawOverlay(GpuTex tex, const float rect[4], float lo, float hi, int implotColormap, float alpha);
+    void drawOverlay(GpuTex tex, const float rect[4], float lo, float hi, int implotColormap, float alpha,
+                     const WarpParams* warp = nullptr);
     void endMap();
     GpuTex mapTexture(int slot = 0) const;
     void releaseMap(int slot); // a closed panel's target
@@ -115,6 +127,8 @@ public:
     static GpuTex createTileTexture(int w, int h, const float* data);
     // rgba: kClassLutSize RGBA8 texels. Pass `tex` to update an existing LUT.
     static GpuTex createClassLut(const unsigned char* rgba, GpuTex tex = 0);
+    // rg: w x h pairs (RG32F), rows top-down: the warp grid of WarpParams.
+    static GpuTex createWarpGrid(int w, int h, const float* rg);
     static void deleteTexture(GpuTex tex);
 
     struct Impl;

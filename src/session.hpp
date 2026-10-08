@@ -42,6 +42,7 @@ struct RoiData {
     int x0, y0, x1, y1;         // source pixels, [x0, x1)
     int bw, bh;                 // size read (may be subsampled)
     bool sampled = false;
+    std::vector<char> mask;     // bw x bh: 0 = outside the polygon (empty: the whole rectangle)
     std::vector<SampleStats> perT;
     std::atomic<int> done{0};
     std::atomic<bool> cancel{false};
@@ -68,7 +69,9 @@ public:
     // cancellable call arrives before the read starts (mouse cursor).
     uint64_t requestSeries(int x, int y, bool cancellable);
     std::vector<SeriesResult> takeSeries();
-    std::shared_ptr<RoiData> startRoi(int x0, int y0, int x1, int y1);
+    // `polygon` (x, y pairs, pixels): only the pixels whose centres are inside
+    // it count (an ROI drawn on another layer's grid); empty = the whole rectangle.
+    std::shared_ptr<RoiData> startRoi(int x0, int y0, int x1, int y1, const std::vector<double>& polygon = {});
     // Starts (or resumes) building the full-resolution cache now, whatever the
     // setting. False if it cannot be built: see fullRes->error().
     bool buildFullRes();

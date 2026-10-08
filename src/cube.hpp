@@ -64,6 +64,7 @@ struct CubeInfo {
     std::string dataType;
     std::string driver;      // GDAL driver of the 1st layer (e.g. GTiff)
     std::string crsName, crsAuthority;
+    std::string crsWkt;      // WKT2 of the CRS ("" = none), for reprojection
     bool hasGeoTransform = false;
     std::array<double, 6> geoTransform{0, 1, 0, 0, 0, 1};
     bool timeIsDate = false;
@@ -85,6 +86,7 @@ struct CubeInfo {
     // Time in decimal years relative to the 1st layer (for trends).
     double yearsFromStart(int t) const;
     bool pixelToGeo(double px, double py, double& gx, double& gy) const;
+    bool geoToPixel(double gx, double gy, double& px, double& py) const;
     // Decimal year of layer t (e.g. 2003.5); the index when there are no dates.
     double decimalYear(int t) const;
     // Inverse of decimalYear, in the chart's X units (Unix seconds or index).

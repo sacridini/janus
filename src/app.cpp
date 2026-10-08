@@ -274,6 +274,7 @@ void App::frame() {
             }
         }
         updateRoiSeries();
+        updateOtherRois();
         if (playing_) {
             playAccum_ += ImGui::GetIO().DeltaTime;
             if (playAccum_ >= 1.0 / fps_) {
@@ -366,6 +367,9 @@ void App::clearRoi() {
     roi_.reset();
     pendingRoi_ = false;
     roiMean_.clear();
+    roiRect_ = false;
+    ++roiGen_;
+    clearOtherRois();
     mapDirty_ = true;
 }
 
@@ -676,7 +680,8 @@ void App::uiPopups() {
             "  click ............... drop a pin (compare pixels)\n"
             "  right click on pin .. remove it (Mac: Control + click or a two-finger click;\n"
             "                        Delete removes the last one)\n"
-            "  Shift + drag ........ rectangular ROI (mean and p10-p90 per date)\n"
+            "  Shift + drag ........ rectangular ROI (mean and p10-p90 per date; on every\n"
+            "                        visible layer with 'All visible layers' on the chart)\n"
             "  Ctrl + drag ......... space-time transect along the line (Transect panel);\n"
             "                        T, then drag, does the same (Mac: Command + drag)\n"
             "  S ................... swipe: drag the divider to compare with another\n"
@@ -739,12 +744,13 @@ void App::renderMap(int w, int h, float pixelScale, int slot, const float* backg
                      : modeIsTimeDependent(mode) ? loaded[t] : true;
         if (modeNeedsStats(mode) && !S.gpu.statsValid) ready = false;
         if (mode == ModeDiff && (p.tg < 0 || !loaded[p.tg])) ready = false;
-        double x0, y0, x1, y1;
-        toActive(L, 0, 0, x0, y0);
-        toActive(L, info.width, info.height, x1, y1);
+        double q[4];
         float rect[4];
-        screenRect(x0, y0, x1, y1, rect);
-        if (ready) gpu_.drawCube(S.gpu, rect, p, cmap, L.opacity);
+        if (ready && layerQuad(L, 0, 0, info.width, info.height, q, p.warp)) { // straight or reprojected
+            screenRect(q[0], q[1], q[2], q[3], rect);
+            gpu_.drawCube(S.gpu, rect, p, cmap, L.opacity);
+        }
+        p.warp = WarpParams{}; // the active layer's tiles: on the map's grid
         if (isActive && (mode_ == ModeValue || (mode_ == ModeDiff && ready)) && detailLevel_ >= 0) {
             const ViewRect v{-offset_.x / scale_, -offset_.y / scale_, (canvasSize_.x - offset_.x) / scale_,
                              (canvasSize_.y - offset_.y) / scale_, scale_ * pixelScale};
@@ -758,12 +764,11 @@ void App::renderMap(int w, int h, float pixelScale, int slot, const float* backg
         }
         for (const ResultLayer& R : results_) {
             if (R.cubeId != info.id || !R.visible || !R.tex) continue;
-            double rx0, ry0, rx1, ry1;
-            toActive(L, R.x0, R.y0, rx0, ry0);
-            toActive(L, R.x0 + R.w, R.y0 + R.h, rx1, ry1);
+            WarpParams warp;
+            if (!layerQuad(L, R.x0, R.y0, R.x0 + R.w, R.y0 + R.h, q, warp)) continue;
             float r[4];
-            screenRect(rx0, ry0, rx1, ry1, r);
-            gpu_.drawOverlay(R.tex, r, R.lo, R.hi, R.cmap, R.opacity * L.opacity);
+            screenRect(q[0], q[1], q[2], q[3], r);
+            gpu_.drawOverlay(R.tex, r, R.lo, R.hi, R.cmap, R.opacity * L.opacity, &warp);
         }
     }
     gpu_.endMap();
@@ -829,6 +834,7 @@ void App::mapInput(ImVec2 origin, ImVec2 size, int panel, int& ix, int& iy, bool
                 clearRoi();
                 const int r[4] = {int(std::floor(roiStart_.x)), int(std::floor(roiStart_.y)), int(std::ceil(roiEnd_.x)),
                                   int(std::ceil(roiEnd_.y))};
+                setRoiRect(r); // the other layers' ROIs (updateOtherRois)
                 if (s_->deferRandomReads()) { // HDD still building: start when done
                     std::copy(r, r + 4, pendingRoiRect_);
                     pendingRoi_ = true;
@@ -1436,9 +1442,8 @@ void App::uiMapView(MapView& v) {
     if (detail_ && (mode == ModeValue || (mode == ModeDiff && diffRef >= 0)) && !S.deferRandomReads()) {
         // This panel's area in the layer's own pixels.
         const ImVec2 o = offset_ + shift;
-        const ViewRect r{(-o.x / scale_ - L->ax) / L->bx, (-o.y / scale_ - L->ay) / L->by,
-                         ((size.x - o.x) / scale_ - L->ax) / L->bx, ((size.y - o.y) / scale_ - L->ay) / L->by,
-                         scale_ * L->bx * pixelScale};
+        const ViewRect r = layerView(*L, -o.x / scale_, -o.y / scale_, (size.x - o.x) / scale_, (size.y - o.y) / scale_,
+                                     scale_ * pixelScale);
         level = S.tiles->update(t, r, -1);
         if (mode == ModeDiff) S.tiles->update(diffRef, r, -1);
     }
@@ -1511,11 +1516,12 @@ void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
         r[2] = float((shift.x + offset_.x + x1 * scale_) * pixelScale);
         r[3] = float((shift.y + offset_.y + y1 * scale_) * pixelScale);
     };
-    auto layerRect = [&](double x0, double y0, double x1, double y1, float r[4]) {
-        double ax0, ay0, ax1, ay1;
-        toActive(*L, x0, y0, ax0, ay0);
-        toActive(*L, x1, y1, ax1, ay1);
-        screenRect(ax0, ay0, ax1, ay1, r);
+    // L's pixels -> where they are drawn (and how: reprojected layers through a warp).
+    auto layerRect = [&](double x0, double y0, double x1, double y1, float r[4], WarpParams& w) {
+        double q[4];
+        if (!layerQuad(*L, x0, y0, x1, y1, q, w)) return false;
+        screenRect(q[0], q[1], q[2], q[3], r);
+        return true;
     };
     const int T = li.T();
     const int mode = v.ownMode ? v.mode : isActive ? mode_ : L->disp.mode;
@@ -1538,17 +1544,15 @@ void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
     if (modeNeedsStats(mode) && !S.gpu.statsValid) ready = false;
     if (mode == ModeDiff && (p.tg < 0 || !loaded[p.tg])) ready = false;
     float rect[4];
-    layerRect(0, 0, li.width, li.height, rect);
-    if (ready) gpu_.drawCube(S.gpu, rect, p, cmap, 1.0f);
+    if (ready && layerRect(0, 0, li.width, li.height, rect, p.warp)) gpu_.drawCube(S.gpu, rect, p, cmap, 1.0f);
     if ((mode == ModeValue || (mode == ModeDiff && ready)) && v.detailLevel >= 0) {
         const ImVec2 o = offset_ + shift;
-        const ViewRect r{(-o.x / scale_ - L->ax) / L->bx, (-o.y / scale_ - L->ay) / L->by,
-                         ((w - o.x) / scale_ - L->ax) / L->bx, ((h - o.y) / scale_ - L->ay) / L->by,
-                         scale_ * L->bx * pixelScale};
+        const ViewRect r = layerView(*L, -o.x / scale_, -o.y / scale_, (w - o.x) / scale_, (h - o.y) / scale_,
+                                     scale_ * pixelScale);
         S.tiles->forEachVisible(t, mode == ModeDiff ? p.tg : -1, r,
                                 [&](GpuTex tex, GpuTex ref, double x, double y, double sw, double sh) {
             float tr[4];
-            layerRect(x, y, x + sw, y + sh, tr);
+            if (!layerRect(x, y, x + sw, y + sh, tr, p.warp)) return;
             p.tile2 = ref;
             gpu_.drawTile(tex, tr, p, cmap, 1.0f);
         });
@@ -1556,8 +1560,9 @@ void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
     for (const ResultLayer& R : results_) {
         if (R.cubeId != li.id || !R.visible || !R.tex) continue;
         float r[4];
-        layerRect(R.x0, R.y0, R.x0 + R.w, R.y0 + R.h, r);
-        gpu_.drawOverlay(R.tex, r, R.lo, R.hi, R.cmap, R.opacity);
+        WarpParams warp;
+        if (layerRect(R.x0, R.y0, R.x0 + R.w, R.y0 + R.h, r, warp))
+            gpu_.drawOverlay(R.tex, r, R.lo, R.hi, R.cmap, R.opacity, &warp);
     }
     gpu_.endMap();
 }
@@ -1936,6 +1941,29 @@ void App::uiSeries() {
                                   L.hover.exact ? "" : " approx.", int(li));
                     plotOther(label, L.hover, 1.6f);
                 }
+                if (!L.roiMean.empty() && L.classes.state != LayerClasses::On) { // the map's ROI on this layer
+                    char label[128];
+                    std::snprintf(label, sizeof(label), "ROI mean [%s]%s###roi_%d", L.name.c_str(),
+                                  L.roi && L.roi->sampled ? " (subsampled)" : "", int(li));
+                    SeriesView rv;
+                    rv.values = L.roiMean;
+                    rv.stats = L.roiStats;
+                    rv.color = ImVec4(1.0f, 0.82f, 0.24f, 1);
+                    if (showRoiBand_) {
+                        std::vector<double> a(L.roiP10.size()), b(L.roiP90.size());
+                        for (size_t t = 0; t < a.size(); ++t) {
+                            const double m = plotValues_ == 0 ? 0.0 : rv.stats.mean;
+                            const double s = plotValues_ == 2 && rv.stats.std > 0 ? rv.stats.std : 1.0;
+                            a[t] = (L.roiP10[t] - m) / s;
+                            b[t] = (L.roiP90[t] - m) / s;
+                        }
+                        ImPlotSpec band;
+                        band.FillColor = rv.color;
+                        band.FillAlpha = 0.12f;
+                        ImPlot::PlotShaded(label, lx.data(), a.data(), b.data(), int(a.size()), band);
+                    }
+                    plotOther(label, rv, 1.8f);
+                }
             }
         }
 
@@ -1994,6 +2022,10 @@ void App::uiStats() {
             for (const SeriesView& p : L.pins)
                 cols.push_back({"Pin " + std::to_string(p.id) + " [" + L.name + "]" + (p.exact ? "" : "*"), &p.stats,
                                 p.color, -1, false, &p.zeitResult, L.session->info.get(), &p.values, lc, L.disp.t});
+            if (!L.roiMean.empty() && !lc)
+                cols.push_back({"ROI mean [" + L.name + "]" + (L.roi && L.roi->done.load() < L.session->info->T() ? "*" : ""),
+                                &L.roiStats, ImVec4(1.0f, 0.82f, 0.24f, 1), -1, false, nullptr, L.session->info.get(),
+                                &L.roiMean});
         }
     if (cols.empty()) {
         ImGui::TextDisabled("Hover over the map, click to drop pins\nor Shift+drag for an ROI.");

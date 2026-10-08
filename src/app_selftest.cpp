@@ -10,6 +10,8 @@
 //      checks the difference and largest-drop maps (GPU against the CPU);
 //   D  categorical series with a colour table and class names (file colours);
 //   E  categorical series without them (detected from its values).
+//   F  B reprojected to another CRS (nearest): added as a layer over A and B,
+//      it must be drawn where B is, give B's series and B's ROI (stages 40-45).
 // With A and B open it also checks the swipe and the space-time transect.
 // Between the series and the map checks, the full-resolution cache of B must
 // give exactly the source values (stages 30-32).
@@ -21,8 +23,10 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 
 #include <gdal_priv.h>
+#include <ogr_spatialref.h>
 #include <thread>
 
 #include <implot.h>
@@ -243,8 +247,16 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         std::printf("[%5.1f s] exports: PNG and GeoTIFFs match the map and the source values\n", now() - st_.t0);
         if (const char* err = selfTestCompare()) return fail(err);
         next("layer drawing and visibility, exports, swipe, transect");
+        if (in.size() > 5) st_.stage = 40; // F: reprojection, then back to 7
         break;
     }
+    case 40:
+    case 41:
+    case 42:
+    case 43:
+    case 44:
+    case 45:
+        return selfTestReproject(in[5]);
     case 7: {
         const int pinBefore = pins_[0].x;
         setActive(0);
@@ -837,6 +849,331 @@ int App::selfTestFullRes() {
         showPerf_ = false;
         next("series and ROI through B's cache equal the source");
         st_.stage = 6;
+        break;
+    }
+    }
+    return -1;
+}
+
+// Stages 40-45: F = B reprojected from UTM 23S to UTM 22S (nearest, 15 m),
+// added over A and B. F is opened with a small overview budget (~1:2), so a
+// map panel of it zoomed in reads detail tiles. 40 adds F; 41 makes B active
+// again (F reprojected on its grid), checks the warp grid against PROJ and asks
+// for the cursor, pin and ROI series of every layer; 42 compares F's with B's;
+// 43 the main map (F's overview through the grid against the exact
+// transformation); 44 a map panel of F at full resolution against B's own
+// pixels, and the cost; 45 F active (B reprojected on its grid), then closed.
+int App::selfTestReproject(const std::string& f) {
+    auto fail = [&](const char* what) {
+        std::printf("FAIL (stage %d): %s\n", st_.stage, what);
+        return 1;
+    };
+    auto next = [&](const char* done) {
+        std::printf("[%5.1f s] %s\n", now() - st_.t0, done);
+        ++st_.stage;
+        st_.since = now();
+    };
+    auto rgbAt = [](const std::vector<unsigned char>& img, int w, int x, int y) { return &img[(size_t(y) * w + x) * 4]; };
+    const int W = 400, H = 300;
+    switch (st_.stage) {
+    case 40:
+        st_.budget = settings_.overviewBudgetBytes;
+        settings_.overviewBudgetBytes = 6 << 20; // F's overview at ~1:2: zoomed in, its tiles are drawn
+        openInputs({f}, true);
+        next("add F (B reprojected to UTM 22S) as a layer");
+        break;
+    case 41: {
+        if (opening_.valid() || layers_.size() != 3 || !layers_[2].session->overview.complete() ||
+            !layers_[2].session->gpu.statsValid)
+            break;
+        settings_.overviewBudgetBytes = st_.budget;
+        if (active_ != 2 || !layers_[1].reproj || !layers_[1].aligned) return fail("F should be active, B reprojected on its grid");
+        const int pinX = pins_.empty() ? -1 : pins_[0].x, pinY = pins_.empty() ? -1 : pins_[0].y;
+        setActive(1);
+        const SeriesLayer& F = layers_[2];
+        if (!F.aligned || !F.reproj || !F.reproj->tex) return fail("F should be reprojected onto B's grid");
+        const Reprojection& R = *F.reproj;
+        // The grid (what the shader interpolates) against the exact transformation.
+        double maxErr = 0, roundTrip = 0;
+        for (int k = 0; k < 4000; ++k) {
+            const double x = 300 * std::fmod(k * 0.6180339887, 1.0), y = 200 * std::fmod(k * 0.7548776662, 1.0);
+            double ex, ey, gx, gy, bx, by;
+            if (!R.toLayer(x, y, ex, ey) || !R.gridAt(x, y, gx, gy) || !R.toActive(ex, ey, bx, by))
+                return fail("points of B should transform to F and back");
+            maxErr = std::max(maxErr, std::hypot(gx - ex, gy - ey));
+            roundTrip = std::max(roundTrip, std::hypot(bx - x, by - y));
+        }
+        std::printf("    F on B's grid: %s, grid %d x %d over map x %.0f..%.0f y %.0f..%.0f, made in %.1f ms;\n"
+                    "    grid vs PROJ: %.2g F px at the cells' centres, %.2g at 4000 points; round trip %.2g px\n",
+                    R.crsText.c_str(), R.gridW, R.gridH, R.domain[0], R.domain[2], R.domain[1], R.domain[3], R.buildMs,
+                    R.gridError, maxErr, roundTrip);
+        std::printf("    F: %d x %d px, overview 1:%.2f; pin carried B (%d, %d) -> F -> B (%d, %d)\n",
+                    F.session->info->width, F.session->info->height, F.session->overview.factor, pinX, pinY,
+                    pins_.empty() ? -1 : pins_[0].x, pins_.empty() ? -1 : pins_[0].y);
+        if (maxErr > 0.01 || roundTrip > 1e-6) return fail("the warp grid should be within 0.01 px of PROJ");
+        // At the scale of a Landsat scene (UTM 23S, 7441 x 7317 px of 30 m): layers in
+        // UTM 22S, in geographic coordinates and on a grid rotated by 10 degrees.
+        {
+            auto wkt = [](int epsg) {
+                OGRSpatialReference s;
+                s.importFromEPSG(epsg);
+                char* w = nullptr;
+                const char* o[] = {"FORMAT=WKT2_2019", nullptr};
+                s.exportToWkt(&w, o);
+                std::string r = w ? w : "";
+                CPLFree(w);
+                return r;
+            };
+            auto cube = [](uint64_t id, int w, int h, std::array<double, 6> gt, std::string crs, const char* name) {
+                CubeInfo c;
+                c.id = id;
+                c.width = w;
+                c.height = h;
+                c.hasGeoTransform = true;
+                c.geoTransform = gt;
+                c.crsWkt = std::move(crs);
+                c.crsAuthority = name;
+                return c;
+            };
+            const double k = 3.14159265358979 / 180 * 10;
+            const CubeInfo scene = cube(~1ull, 7441, 7317, {400000, 30, 0, 7600000, 0, -30}, wkt(32723), "EPSG:32723");
+            const CubeInfo others[] = {
+                cube(~2ull, 12000, 12000, {950000, 30, 0, 7700000, 0, -30}, wkt(32722), "EPSG:32722"),
+                cube(~3ull, 14000, 14000, {-46.5, 0.00025, 0, -21.0, 0, -0.00025}, wkt(4326), "EPSG:4326"),
+                cube(~4ull, 10000, 10000, {380000, 30 * std::cos(k), 30 * std::sin(k), 7620000, 30 * std::sin(k), -30 * std::cos(k)},
+                     wkt(32723), "EPSG:32723, rotated 10 degrees"),
+                cube(~5ull, 36000, 18000, {-180, 0.01, 0, 90, 0, -0.01}, wkt(4326), "EPSG:4326, the whole world")};
+            for (const CubeInfo& o : others) {
+                std::string why;
+                const std::unique_ptr<Reprojection> S = Reprojection::create(scene, o, why);
+                if (!S) return fail(("a Landsat-sized layer could not be reprojected: " + why).c_str());
+                double err = 0;
+                for (int i = 0; i < 4000; ++i) {
+                    const double x = 7441 * std::fmod(i * 0.6180339887, 1.0), y = 7317 * std::fmod(i * 0.7548776662, 1.0);
+                    double ex, ey, gx, gy;
+                    if (S->toLayer(x, y, ex, ey) && S->gridAt(x, y, gx, gy)) err = std::max(err, std::hypot(gx - ex, gy - ey));
+                }
+                std::printf("    Landsat-sized scene, layer in %s: grid %d x %d over x %.0f..%.0f y %.0f..%.0f\n"
+                            "      in %.1f ms, error %.2g px (cells' centres), %.2g px (4000 points)\n",
+                            o.crsAuthority.c_str(), S->gridW, S->gridH, S->domain[0], S->domain[2], S->domain[1],
+                            S->domain[3], S->buildMs, S->gridError, err);
+                if (err > 0.05) return fail("the warp grid should be within 0.05 px at the scale of a scene");
+                if (S->domain[0] > 0 || S->domain[1] > 0 || S->domain[2] < 7441 || S->domain[3] < 7317)
+                    return fail("the grid should cover the scene (every layer covers it)");
+            }
+        }
+        if (pins_.empty() || pins_[0].x != 50 || pins_[0].y != 100) return fail("the pin should come back to B's (50, 100)");
+        if (F.session->overview.factor < 1.5) return fail("F's overview should be coarser than F (tiles)");
+        // Cursor (the pin is there too) and an ROI, on every visible layer.
+        chartLayers_ = 1;
+        hover_ = SeriesView{};
+        hover_.x = 50;
+        hover_.y = 100;
+        hover_.values = approxSeries(50, 100);
+        hover_.request = s_->requestSeries(50, 100, true);
+        updateOtherHover(50, 100);
+        requestOtherSeries(true);
+        clearRoi();
+        const int r[4] = {13, 21, 163, 191};
+        setRoiRect(r);
+        roi_ = s_->startRoi(r[0], r[1], r[2], r[3]);
+        roiSeen_ = -1;
+        next("B active again, F reprojected on its grid; cursor, pin and ROI on every layer");
+        break;
+    }
+    case 42: {
+        const SeriesLayer& A = layers_[0];
+        const SeriesLayer& F = layers_[2];
+        const int T = s_->info->T();
+        if (!hover_.exact || !F.hover.exact || pins_.empty() || !pins_[0].exact || F.pins.empty() || !F.pins[0].exact ||
+            roiSeen_ != T || !F.roi || F.roiSeen != F.session->info->T() || !A.roi || A.roiSeen != T)
+            break;
+        double ex, ey;
+        F.reproj->toLayer(50.5, 100.5, ex, ey);
+        std::printf("    cursor B (50, 100) -> F (%d, %d) (PROJ: %.3f, %.3f): %.4f at %s in both\n", F.hover.x, F.hover.y,
+                    ex, ey, F.hover.values[0], F.session->info->layers[0].label.c_str());
+        if (F.hover.x != int(ex) || F.hover.y != int(ey)) return fail("F's cursor pixel should be PROJ's");
+        if (F.hover.values != hover_.values) return fail("F's series under the cursor should be B's");
+        if (F.pins[0].values != pins_[0].values) return fail("F's series at the pin should be B's");
+        double dMean = 0, dP = 0, dA = 0;
+        int nB = 0, nF = 0;
+        for (int t = 0; t < T; ++t) {
+            dMean = std::max(dMean, double(std::fabs(F.roiMean[t] - roiMean_[t])));
+            dP = std::max({dP, double(std::fabs(F.roiP10[t] - roiP10_[t])), double(std::fabs(F.roiP90[t] - roiP90_[t]))});
+            dA = std::max(dA, double(std::fabs(A.roiMean[t] - roiMean_[t] - 0.5f))); // A = B + 0.5 there
+            nB = roi_->perT[t].n;
+            nF = F.roi->perT[t].n;
+            if (A.roi->perT[t].n != nB) return fail("A's ROI should have B's pixels (same grid lines)");
+        }
+        std::printf("    ROI 150 x 170 px of B: %d px on B, %d on A (|A - B - 0.5| %.2g), %d on F (15 m); F vs B:\n"
+                    "    mean within %.2g, p10/p90 within %.2g (B's mean %.4f .. %.4f)\n",
+                    nB, A.roi->perT[0].n, dA, nF, dMean, dP, roiMean_[0], roiMean_[T - 1]);
+        if (dA > 1e-4) return fail("A's ROI should be B's + 0.5");
+        if (nF < 3 * nB || nF > 5 * nB) return fail("F's ROI should have ~4 pixels per pixel of B");
+        if (dMean > 0.01 || dP > 0.02) return fail("F's ROI should agree with B's");
+        next("F's cursor and pin series equal B's; the ROI on A, B and F agrees");
+        break;
+    }
+    case 43: {
+        SeriesLayer& F = layers_[2];
+        const float lo = 1.4f, hi = 6.0f; // the same colours for B and F
+        mode_ = ModeValue;
+        range_[ModeValue] = Range{lo, hi, true, 0};
+        F.disp.mode = ModeValue;
+        F.disp.range[ModeValue] = Range{lo, hi, true, 0};
+        F.disp.cmap[ModeValue] = cmap_[ModeValue];
+        layers_[0].visible = layers_[1].visible = false; // F alone
+        canvasSize_ = ImVec2(float(W), float(H));
+        fitView(canvasSize_);
+        renderMap(W, H);
+        std::vector<unsigned char> img;
+        int w = 0, h = 0;
+        gpu_.readMap(img, w, h);
+        // Each sampled target pixel against F's overview texel PROJ puts there.
+        const Overview& ov = F.session->overview;
+        const CubeInfo& fi = *F.session->info;
+        int checked = 0, edge = 0, bad = 0;
+        for (int sy = 3; sy < H; sy += 5)
+            for (int sx = 3; sx < W; sx += 5) {
+                const double mx = (sx + 0.5 - offset_.x) / scale_, my = (sy + 0.5 - offset_.y) / scale_;
+                double lx, ly;
+                if (!F.reproj->toLayer(mx, my, lx, ly)) continue;
+                const double ox = lx / fi.width * ov.w, oy = ly / fi.height * ov.h;
+                if (!(ox >= 0 && oy >= 0 && ox < ov.w && oy < ov.h)) continue;
+                const double fx = ox - std::floor(ox), fy = oy - std::floor(oy);
+                if (fx < 0.02 || fx > 0.98 || fy < 0.02 || fy > 0.98) { // on a texel's edge: either side
+                    ++edge;
+                    continue;
+                }
+                const float v = ov.at(F.disp.t, int(ox), int(oy));
+                if (std::isnan(v)) continue;
+                const ImVec4 c = ImPlot::SampleColormap(std::clamp((v - lo) / (hi - lo), 0.0f, 1.0f), cmap_[ModeValue]);
+                const unsigned char* p = rgbAt(img, w, sx, sy);
+                const int e[3] = {int(c.x * 255 + 0.5f), int(c.y * 255 + 0.5f), int(c.z * 255 + 0.5f)};
+                if (std::abs(p[0] - e[0]) > 3 || std::abs(p[1] - e[1]) > 3 || std::abs(p[2] - e[2]) > 3) {
+                    if (++bad <= 3)
+                        std::printf("    (%d, %d): F's overview %.4g -> rgb(%d, %d, %d), map rgb(%d, %d, %d)\n", sx, sy, v,
+                                    e[0], e[1], e[2], p[0], p[1], p[2]);
+                }
+                ++checked;
+            }
+        std::printf("    main map, F alone (overview through the grid): %d pixels match PROJ's texel, %d wrong "
+                    "(%d on texel edges skipped)\n", checked - bad, bad, edge);
+        if (bad || checked < 2000) return fail("F's overview should be drawn where PROJ puts it");
+        st_.frames = 0; // next: zoomed in on B's pixels 100..199 x 50..124 (4 target pixels per pixel of B)
+        next("main map: F's overview through the warp grid where PROJ puts it");
+        break;
+    }
+    case 44: {
+        SeriesLayer& F = layers_[2];
+        // F's tiles, as its map panel asks for them each frame (the frame's own
+        // map may have fitted the view to its canvas in between: set it again).
+        canvasSize_ = ImVec2(float(W), float(H));
+        scale_ = 4;
+        offset_ = ImVec2(-100 * 4.0f, -50 * 4.0f);
+        const ViewRect v = layerView(F, -offset_.x / scale_, -offset_.y / scale_, (W - offset_.x) / scale_,
+                                     (H - offset_.y) / scale_, scale_);
+        const int level = F.session->tiles->update(F.disp.t, v, -1);
+        if (level != 0) return fail("F zoomed in should read full-resolution tiles");
+        if (++st_.frames < 3 || F.session->tiles->inflight() > 0) break;
+        MapView pv;
+        pv.id = 98;
+        pv.cube = F.session->info->id;
+        pv.detailLevel = level;
+        renderView(pv, W, H, 1.0f, ImVec2(0, 0));
+        std::vector<unsigned char> fImg, bImg, ovImg;
+        int w = 0, h = 0;
+        gpu_.readMap(fImg, w, h, pv.id);
+        layers_[1].visible = true; // B alone (its overview is B itself)
+        F.visible = false;
+        renderMap(W, H);
+        gpu_.readMap(bImg, w, h);
+        F.visible = true; // F's overview alone, for comparison
+        layers_[1].visible = false;
+        renderMap(W, H);
+        gpu_.readMap(ovImg, w, h);
+        int same = 0, diff = 0, ovDiff = 0;
+        for (int by = 50; by < 125; ++by)
+            for (int bx = 100; bx < 200; ++bx) {
+                const int sx = (bx - 100) * 4 + 2, sy = (by - 50) * 4 + 2;
+                const bool eq = std::memcmp(rgbAt(fImg, w, sx, sy), rgbAt(bImg, w, sx, sy), 3) == 0;
+                same += eq;
+                diff += !eq;
+                ovDiff += std::memcmp(rgbAt(ovImg, w, sx, sy), rgbAt(bImg, w, sx, sy), 3) != 0;
+            }
+        std::printf("    map panel of F at full resolution (%d tiles on the GPU): %d of %d pixels of B identical,\n"
+                    "    %d differ (F's overview alone: %d differ)\n",
+                    F.session->tiles->gpuTiles(), same, same + diff, diff, ovDiff);
+        if (diff) return fail("F drawn at full resolution should land on B's pixels");
+        // Cost: renders followed by a read back (which waits for the GPU).
+        auto ms = [&](const std::function<void()>& render, int slot) {
+            const double t0 = now();
+            unsigned char px[4];
+            for (int k = 0; k < 40; ++k) render();
+            gpu_.readMapPixel(0, 0, px, slot);
+            return (now() - t0) * 1000 / 40;
+        };
+        fitView(canvasSize_);
+        layers_[1].visible = true;
+        F.visible = false;
+        const double alone = ms([&] { renderMap(W, H); }, 0);
+        F.visible = true;
+        const double both = ms([&] { renderMap(W, H); }, 0);
+        scale_ = 4;
+        offset_ = ImVec2(-100 * 4.0f, -50 * 4.0f);
+        const double panel = ms([&] { renderView(pv, W, H, 1.0f, ImVec2(0, 0)); }, pv.id);
+        const double t0 = now();
+        for (int k = 0; k < 100; ++k) (void)layerView(F, 100, 50, 200, 125, 4.0);
+        const double viewUs = (now() - t0) * 1e6 / 100;
+        gpu_.releaseMap(pv.id);
+        std::printf("    cost per render (400 x 300, incl. a read back): B alone %.3f ms, B + F reprojected %.3f ms,\n"
+                    "    F's panel with its tiles %.3f ms; F's view in its pixels (tile requests) %.1f us\n",
+                    alone, both, panel, viewUs);
+        fitView(canvasSize_);
+        next("F at full resolution lands on B's pixels");
+        break;
+    }
+    case 45: {
+        SeriesLayer& F = layers_[2];
+        // F active: the view and the pin carried over through the same transformation.
+        layers_[0].visible = layers_[1].visible = true;
+        scale_ *= 3;
+        viewTouched_ = true;
+        const double mx = (canvasSize_.x * 0.5 - offset_.x) / scale_, my = (canvasSize_.y * 0.5 - offset_.y) / scale_;
+        double ex, ey, px, py;
+        F.reproj->toLayer(mx, my, ex, ey);
+        F.reproj->toLayer(50.5, 100.5, px, py);
+        // The transect left on by selfTestCompare (B's row 100, columns 10 to 290) follows too.
+        if (!tr_.on || tr_.cube != s_->info->id || std::fabs(tr_.a.x - 10.5f) > 0.01f || std::fabs(tr_.a.y - 100.5f) > 0.01f)
+            return fail("the transect should still be on B's row 100 (after F active and back)");
+        double ta[2], tb[2];
+        F.reproj->toLayer(tr_.a.x, tr_.a.y, ta[0], ta[1]);
+        F.reproj->toLayer(tr_.b.x, tr_.b.y, tb[0], tb[1]);
+        setActive(2);
+        pumpTransect();
+        std::printf("    transect on F: (%.2f, %.2f) - (%.2f, %.2f), PROJ (%.2f, %.2f) - (%.2f, %.2f), %d samples\n", tr_.a.x,
+                    tr_.a.y, tr_.b.x, tr_.b.y, ta[0], ta[1], tb[0], tb[1], tr_.n);
+        if (!tr_.on || std::hypot(tr_.a.x - ta[0], tr_.a.y - ta[1]) > 0.01 || std::hypot(tr_.b.x - tb[0], tr_.b.y - tb[1]) > 0.01)
+            return fail("the transect should follow F's grid");
+        const double nx = (canvasSize_.x * 0.5 - offset_.x) / scale_, ny = (canvasSize_.y * 0.5 - offset_.y) / scale_;
+        std::printf("    F active: view centre B (%.2f, %.2f) -> F (%.2f, %.2f) (PROJ %.2f, %.2f); pin at F (%d, %d);\n"
+                    "    B on F's grid: %s, grid %d x %d\n",
+                    mx, my, nx, ny, ex, ey, pins_.empty() ? -1 : pins_[0].x, pins_.empty() ? -1 : pins_[0].y,
+                    layers_[1].reproj ? layers_[1].reproj->crsText.c_str() : "-",
+                    layers_[1].reproj ? layers_[1].reproj->gridW : 0, layers_[1].reproj ? layers_[1].reproj->gridH : 0);
+        if (std::hypot(nx - ex, ny - ey) > 0.01) return fail("the view should stay on the same place");
+        if (pins_.empty() || pins_[0].x != int(px) || pins_[0].y != int(py)) return fail("the pin should move to F's grid");
+        if (!layers_[1].reproj || !layers_[1].aligned) return fail("B should be reprojected on F's grid");
+        setActive(1);
+        if (pins_.empty() || pins_[0].x != 50 || pins_[0].y != 100) return fail("the pin should come back to B's grid");
+        removeLayer(2);
+        range_[ModeValue].manual = false;
+        range_[ModeValue].key = ~0ull;
+        viewTouched_ = false;
+        clearRoi();
+        if (layers_.size() != 2 || active_ != 1) return fail("closing F should leave B active");
+        next("F active (B reprojected on its grid), back to B, F closed");
+        st_.stage = 7;
         break;
     }
     }

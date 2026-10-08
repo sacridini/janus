@@ -35,9 +35,10 @@ inline const char* kUsage =
     "                      overview (and the full-resolution cache if on), time the\n"
     "                      reads again from the cache, in a hidden window\n"
     "  --selftest-zeit IN  run the Zeit tools end to end on IN without a window\n"
-    "  --selftest-ui A B [C [D [E]]]  drive the layers workflow in a hidden window\n"
+    "  --selftest-ui A B [C [D [E [F]]]]  drive the layers workflow in a hidden window\n"
     "                      (A, then B as a layer; C: several bands per date;\n"
-    "                      D, E: categorical, with and without a colour table)\n";
+    "                      D, E: categorical, with and without a colour table;\n"
+    "                      F: B in another CRS, reprojected over it)\n";
 
 // Options that take a value (the launcher validates them before opening the GUI).
 inline bool isValueOption(const char* a) {

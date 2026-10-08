@@ -16,6 +16,7 @@
 #include "file_browser.hpp"
 #include "platform.hpp"
 #include "gpu.hpp"
+#include "reproject.hpp"
 #include "results.hpp"
 #include "session.hpp"
 #include "stats.hpp"
@@ -160,6 +161,7 @@ private:
     void uiFullRes();
     void uiFullResSettings();
     int selfTestFullRes(); // --selftest-ui stages 30-32 (app_selftest.cpp)
+    int selfTestReproject(const std::string& f); // stages 40-45: F, B reprojected (app_selftest.cpp)
 
     // Zeit tools (app_zeit.cpp)
     ZeitConfig zeitConfig() const;
@@ -192,6 +194,20 @@ private:
     void syncLayerTimes();
     bool toActive(const SeriesLayer& L, double lx, double ly, double& ax, double& ay) const;
     bool fromActive(const SeriesLayer& L, double ax, double ay, int& lx, int& ly) const;
+    // Same as fromActive without rounding or bounds (the layer's continuous pixel coordinates).
+    bool activeToLayer(const SeriesLayer& L, double ax, double ay, double& lx, double& ly) const;
+    // Where L's pixels [x0, x1) x [y0, y1) are drawn in map space (q: x0, y0, x1, y1
+    // in the active layer's pixels) and the warp that goes with it (none for a
+    // layer on the same CRS and grid lines). False if nothing of it can be drawn.
+    bool layerQuad(const SeriesLayer& L, double x0, double y0, double x1, double y1, double q[4], WarpParams& w) const;
+    // The map-space rectangle [x0, x1) x [y0, y1) in L's own pixels (what to read
+    // of it) and the zoom there: target pixels per L pixel, at `pxPerMapPx`.
+    ViewRect layerView(const SeriesLayer& L, double x0, double y0, double x1, double y1, double pxPerMapPx) const;
+    // ROI on the other layers (app_layers.cpp): each one's own pixels under the
+    // map's rectangle, with "All visible layers".
+    void setRoiRect(const int r[4]); // a new ROI rectangle (active pixels), for every layer
+    void updateOtherRois();
+    void clearOtherRois();
     std::vector<float> approxSeriesOf(const Session& s, int x, int y) const;
     void updateOtherHover(int ix, int iy);
     void requestOtherSeries(bool hover);
@@ -373,6 +389,9 @@ private:
     int nextPinId_ = 1;
     bool pendingRoi_ = false;    // ROI requested on an HDD while the overview builds
     int pendingRoiRect_[4] = {0, 0, 0, 0};
+    bool roiRect_ = false;       // the map has an ROI rectangle (roiRectXY_, active pixels)
+    int roiRectXY_[4] = {0, 0, 0, 0};
+    uint64_t roiGen_ = 1;        // changes with every new or cleared ROI
     // Chart
     int plotStyle_ = 1;          // 0 lines, 1 lines+markers, 2 markers, 3 stems, 4 stairs
     int plotValues_ = 0;         // 0 values, 1 anomaly (- series mean), 2 z-score
@@ -452,7 +471,7 @@ private:
     // Layers: every open series. The active layer's display state lives in the
     // members above (mode_, cmap_, range_...); the others keep theirs here.
     // Map space = the active layer's pixel grid; other layers are placed
-    // through their geotransforms (same CRS, no rotation).
+    // through their geotransforms (same CRS, no rotation) or reprojected.
     struct LayerDisplay {
         int mode = ModeValue;
         std::array<int, 3> rgb{0, 0, 0};
@@ -497,8 +516,17 @@ private:
         LayerDisplay disp;
         // this layer's pixels -> active layer's pixels: x' = ax + bx * x, y' = ay + by * y
         double ax = 0, bx = 1, ay = 0, by = 1;
-        bool aligned = true;
+        bool aligned = true;          // can be placed on the map (straight, or through reproj)
         std::string alignNote;
+        // Another CRS than the active layer's, or a rotated grid: placed through
+        // OGR/PROJ (exact on the CPU, a warp grid on the GPU) instead of ax..by.
+        std::unique_ptr<Reprojection> reproj;
+        // The map's ROI on this layer (non-active layers, "All visible layers").
+        std::shared_ptr<RoiData> roi; // null: not started, or the ROI misses the layer
+        uint64_t roiGen = 0;          // roiGen_ it belongs to
+        int roiSeen = -1;
+        std::vector<float> roiMean, roiP10, roiP90;
+        SeriesStats roiStats;
         SeriesView hover;             // cursor series (non-active layers)
         std::vector<SeriesView> pins; // same ids as pins_ (non-active layers)
         std::vector<double> years;    // years since the 1st date (for trends)
@@ -515,6 +543,8 @@ private:
         double t0 = 0, since = 0;
         unsigned char color[3] = {0, 0, 0};
         int hits = 0;
+        int64_t budget = 0;   // overview budget to restore
+        int frames = 0;
     } st_; // --selftest-ui state
     struct {
         int stage = 0;
