@@ -1,15 +1,19 @@
-# tsv — raster time series viewer
+# Janus — raster time series viewer
 
-**tsv** is a fast desktop viewer for raster time series and data cubes (one date
-per file, or one date per band). It keeps the whole cube on the GPU, computes
-per-pixel temporal statistics in a shader, and reads the exact series of any
-pixel in the background while you hover the map. It is meant to *explore* time
-series quickly, not to be a full GIS.
+**Janus** is a fast desktop viewer for raster time series and data cubes (one
+date per file, or one date per band); its command line is `jn`. It keeps the
+whole cube on the GPU, computes per-pixel temporal statistics in a shader, and
+reads the exact series of any pixel in the background while you hover the map.
+It is meant to *explore* time series quickly, not to be a full GIS.
+
+Janus was called **tsv** up to version 0.16. Its data folders (layout, Zeit
+results, overview cache) move to Janus's the first time it starts, and the
+Windows installer removes an installed tsv.
 
 Built with Dear ImGui (docking) + ImPlot + GDAL, in C++17; it draws through
 OpenGL 3.3 on Windows and Linux and through Metal on macOS.
 
-![tsv](docs/screenshot.jpg)
+![Janus](docs/screenshot.jpg)
 
 ## Features
 
@@ -73,52 +77,52 @@ OpenGL 3.3 on Windows and Linux and through Metal on macOS.
 
 ## Installation (Windows)
 
-Run `tsv-<version>-setup.exe`. It installs per user (no administrator prompt),
+Run `janus-<version>-setup.exe`. It installs per user (no administrator prompt),
 bundles GDAL and a private Python runtime with Zeit (no Python or conda needed,
 nothing is added to your Python installations), adds a Start menu entry and,
 optionally:
 
-- adds `tsv` to `PATH`, so you can call it from any terminal;
-- adds **Open in tsv** to the right-click menu of folders and `.tif` files;
+- adds Janus to `PATH`, so you can call it as `jn` from any terminal;
+- adds **Open in Janus** to the right-click menu of folders and `.tif` files;
 - creates a desktop shortcut.
 
 ## Installation (Linux x86_64)
 
-Extract `tsv-<version>-linux-x86_64.tar.xz` anywhere and run `tsv` from that
-folder (e.g. `~/apps/tsv-<version>/tsv serie.tif`, or link it into `~/.local/bin`).
+Extract `janus-<version>-linux-x86_64.tar.xz` anywhere and run `jn` from that
+folder (e.g. `~/apps/janus-<version>/jn serie.tif`, or link it into `~/.local/bin`).
 The archive is portable: it carries GDAL and its libraries, the PROJ/GDAL data
 and the private Python runtime with Zeit; only glibc, OpenGL and X11 come from
-the system (tested on Ubuntu 24.04). `tsv.desktop` and `tsv.png` are included
+the system (tested on Ubuntu 24.04). `janus.desktop` and `janus.png` are included
 for a menu entry. File dialogs use `zenity` or `kdialog` when installed; the
-Files panel works without them. Data and caches live in `~/.local/share/tsv`.
+Files panel works without them. Data and caches live in `~/.local/share/janus`.
 
 ## Installation (macOS, Apple Silicon)
 
-Open `tsv-<version>-macos-arm64.dmg` and drag **tsv** into **Applications**.
+Open `janus-<version>-macos-arm64.dmg` and drag **Janus** into **Applications**.
 The app carries GDAL and its libraries, the PROJ/GDAL data and the private
 Python runtime with Zeit (macOS 15 or later). Folders and rasters can be opened
-from the Finder (right click → Open With → tsv), by dropping them on the
+from the Finder (right click → Open With → Janus), by dropping them on the
 window or the Dock icon, or from a terminal after linking the program once:
 
 ```
-ln -s /Applications/tsv.app/Contents/MacOS/tsv ~/.local/bin/tsv   # or /usr/local/bin
+ln -s /Applications/Janus.app/Contents/MacOS/janus ~/.local/bin/jn   # or /usr/local/bin
 ```
 
 The app is not signed with an Apple Developer ID: the first time, macOS says it
 cannot verify the developer. Open it once with right click → Open (or allow it
 in System Settings → Privacy & Security), or clear the download's quarantine
-flag with `xattr -dr com.apple.quarantine /Applications/tsv.app`. Data lives in
-`~/Library/Application Support/tsv`, the overview cache in `~/Library/Caches/tsv`.
+flag with `xattr -dr com.apple.quarantine /Applications/Janus.app`. Data lives in
+`~/Library/Application Support/Janus`, the overview cache in `~/Library/Caches/Janus`.
 
 Installers and packages are built from this repository (see
 [Building](#building-from-source)); every tagged version publishes the three of
-them on the [Releases](https://github.com/sacridini/tsv/releases) page (GitHub
+them on the [Releases](https://github.com/sacridini/janus/releases) page (GitHub
 Actions, `.github/workflows/build.yml`).
 
 ## Command line
 
 ```
-tsv [options] [input ...]
+jn [options] [input ...]
 
 Inputs:
   folder\             every raster in the folder, 1 file = 1 date
@@ -135,8 +139,8 @@ Options:
 
 Developer options:
   --zeit-python EXE   Python with Zeit to use instead of the bundled runtime
-                      (or set TSV_ZEIT_PYTHON)
-  --zeit-bridge PY    bridge script to use (or set TSV_ZEIT_BRIDGE)
+                      (or set JANUS_ZEIT_PYTHON)
+  --zeit-bridge PY    bridge script to use (or set JANUS_ZEIT_BRIDGE)
   --measure-startup   print startup timings and exit after the first frame
   --selftest-zeit IN  run the Zeit tools end to end on IN without a window
   --selftest-ui A B [C [D [E]]]  drive the layers workflow (A, then B as a layer;
@@ -147,13 +151,13 @@ Developer options:
 Examples:
 
 ```
-tsv D:\data\ndvi_annual\
-tsv landsat_stack.tif
-tsv "S2_*_NDVI.tif" --band 1
+jn D:\data\ndvi_annual\
+jn landsat_stack.tif
+jn "S2_*_NDVI.tif" --band 1
 ```
 
-`tsv` opens the window and returns the prompt immediately (`tsv.com` is a small
-console launcher next to `tsv.exe`, the same trick Visual Studio uses with
+`jn` opens the window and returns the prompt immediately (on Windows `jn.com` is
+a small console launcher next to `janus.exe`, the same trick Visual Studio uses with
 `devenv.com`).
 
 ## Using the viewer
@@ -185,7 +189,7 @@ Clicking a legend entry hides/shows that series together with its trend line.
 ## Zeit tools
 
 The **Tools** menu lists the algorithms of [Zeit](https://github.com/sacridini/zeit-cdts)
-that tsv exposes:
+that Janus exposes:
 
 | Tool | Series | Maps |
 |---|---|---|
@@ -231,25 +235,25 @@ Each tool window has:
 - **Run on the raster**: whole image, visible area or ROI. The run happens in a
   separate process using every CPU core, with progress and cancel in
   **Tools → Tasks**. Outputs are GeoTIFFs (default folder
-  `%LOCALAPPDATA%\tsv\results`) loaded over the map and listed under their
+  `%LOCALAPPDATA%\Janus\results`) loaded over the map and listed under their
   series in the Layers panel; cells without an event are transparent.
 
 How it works: Zeit runs in a separate Python process from a private runtime
 inside the installation (`runtime\`: embeddable Python 3.12 + Zeit from PyPI +
 numpy/scipy/rasterio/numba/dask/xarray, without PyTorch). It starts in the
 background once a series is open (~1 s), so it never delays startup. The bridge
-(`zeit_bridge/tsv_zeit_bridge.py`) handles the protocol and reads/writes rasters
+(`zeit_bridge/janus_zeit_bridge.py`) handles the protocol and reads/writes rasters
 in chunks with progress; each tool is a small module next to it
 (`zeit_bridge/tool_*.py`) that describes its parameters and outputs and calls
-Zeit's API for one series or one block of pixels. Adding a tool to tsv means
+Zeit's API for one series or one block of pixels. Adding a tool to Janus means
 adding a module there — no C++ change.
-tsv hands it the cube as a VRT (dates in order, nodata and scale applied).
-Logs: `%LOCALAPPDATA%\tsv\zeit.log`.
+Janus hands it the cube as a VRT (dates in order, nodata and scale applied).
+Logs: `%LOCALAPPDATA%\Janus\zeit.log`.
 
 ### Performance notes
 
 - The first open of a cube builds a reduced overview of every date (in parallel
-  on SSDs) and caches it in `%LOCALAPPDATA%\tsv\cache` (macOS: `~/Library/Caches/tsv`); later opens read that one
+  on SSDs) and caches it in `%LOCALAPPDATA%\Janus\cache` (macOS: `~/Library/Caches/Janus`); later opens read that one
   file. The **Performance** panel shows startup, build and read timings.
 - Spinning HDDs are detected and read with a single sequential reader (two
   readers were measured to be 4× slower). While the overview builds on an HDD,
@@ -271,7 +275,7 @@ ImGui, ImPlot and nlohmann/json are downloaded by CMake (`FetchContent`).
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="<conda-env>\Library"
 cmake --build build --config Release
-.\build\Release\tsv.exe
+.\build\Release\janus.exe
 ```
 
 The post-build step (`cmake/deploy_runtime.cmake`) copies `gdal.dll` and all of
@@ -284,17 +288,17 @@ on every build, so editing a tool needs no runtime rebuild):
 
 ```powershell
 cmake --build build --config Release --target zeit_runtime   # -> build\Release\runtime
-.\build\Release\tsv.exe --selftest-zeit <series>              # end-to-end check, no window
+.\build\Release\janus.exe --selftest-zeit <series>              # end-to-end check, no window
 ```
 
-To work on Zeit itself, point tsv at your own environment:
-`tsv --zeit-python <env>\python.exe` (or `TSV_ZEIT_PYTHON`).
+To work on Zeit itself, point Janus at your own environment:
+`jn --zeit-python <env>\python.exe` (or `JANUS_ZEIT_PYTHON`).
 
 Installer (requires [Inno Setup 6](https://jrsoftware.org/isinfo.php)); it
 assembles its own copy of the runtime in `build\package`:
 
 ```powershell
-cmake --build build --config Release --target installer   # -> dist\tsv-<version>-setup.exe
+cmake --build build --config Release --target installer   # -> dist\janus-<version>-setup.exe
 ```
 
 ### Linux
@@ -303,18 +307,18 @@ Everything (compiler, GDAL, X11/OpenGL headers) can come from one conda-forge
 environment, so nothing needs to be installed system-wide:
 
 ```bash
-conda create -n tsv-linux -c conda-forge cmake ninja cxx-compiler c-compiler pkg-config gdal \
+conda create -n janus-linux -c conda-forge cmake ninja cxx-compiler c-compiler pkg-config gdal \
     xorg-libx11 xorg-libxrandr xorg-libxinerama xorg-libxcursor xorg-libxi xorg-libxext libgl-devel
-conda activate tsv-linux
+conda activate janus-linux
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DGLFW_BUILD_WAYLAND=OFF
 cmake --build build
 cmake --build build --target zeit_runtime     # -> build/runtime (python-build-standalone + Zeit)
-./build/tsv --selftest-zeit <series>
-cmake --build build --target package_linux    # -> dist/tsv-<version>-linux-x86_64.tar.xz
+./build/janus --selftest-zeit <series>
+cmake --build build --target package_linux    # -> dist/janus-<version>-linux-x86_64.tar.xz
 ```
 
 (`-DGLFW_BUILD_WAYLAND=OFF` skips GLFW's native Wayland backend, which needs
-`wayland-scanner`; on Wayland desktops tsv runs through XWayland.)
+`wayland-scanner`; on Wayland desktops Janus runs through XWayland.)
 
 ### macOS (Apple Silicon)
 
@@ -327,12 +331,12 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$HOME/minico
     -DPython3_EXECUTABLE="$HOME/miniconda3/envs/geo/bin/python3"
 cmake --build build -j
 cmake --build build --target zeit_runtime     # -> build/runtime (python-build-standalone + Zeit)
-./build/tsv --selftest-zeit <series>
-ln -s "$PWD/build/tsv" ~/.local/bin/tsv       # tsv from any terminal (runtime/ is found through the link)
-cmake --build build --target package_macos    # -> dist/tsv-<version>-macos-arm64.dmg (tsv.app)
+./build/janus --selftest-zeit <series>
+ln -s "$PWD/build/janus" ~/.local/bin/jn       # jn from any terminal (runtime/ is found through the link)
+cmake --build build --target package_macos    # -> dist/janus-<version>-macos-arm64.dmg (Janus.app)
 ```
 
-It renders through Metal (`TSV_RENDERER=METAL`, the default on macOS): the cube
+It renders through Metal (`JANUS_RENDERER=METAL`, the default on macOS): the cube
 and its statistics live in shared-memory buffers that the shaders read directly,
 so uploading a date is a copy in RAM, and the shaders are compiled at startup
 (the command line tools have no offline Metal compiler; the system caches them).
@@ -341,7 +345,7 @@ nothing is uploaded and the cube exists once in RAM, so `--budget` is the
 memory the overview takes in total (with OpenGL it is taken on the GPU and again
 in RAM, which on Apple Silicon is the same memory). With a 1 GB cube on an M4:
 1.2 GB footprint (OpenGL: 3.8 GB), loaded from the cache in 0.2 s.
-`-DTSV_RENDERER=GL` builds the OpenGL path instead, e.g. to compare both.
+`-DJANUS_RENDERER=GL` builds the OpenGL path instead, e.g. to compare both.
 
 The build tree links GDAL from the conda environment through an absolute RPATH,
 so it breaks if that environment is removed; `package_macos` makes the
@@ -352,14 +356,14 @@ strips: on Apple Silicon a binary with an invalid signature is killed on load.
 
 On a Retina display the map is drawn at the density of the screen it is on
 (2 pixels per point), and full-resolution tiles are chosen by screen pixels.
-The overview cache lives in `~/Library/Caches/tsv` (purgeable, skipped by Time
-Machine); the rest of the data in `~/Library/Application Support/tsv`.
+The overview cache lives in `~/Library/Caches/Janus` (purgeable, skipped by Time
+Machine); the rest of the data in `~/Library/Application Support/Janus`.
 
 ## Architecture
 
 ```
  files (GDAL) ──► Overview (CPU, [t][y][x] float32) ──► GpuCube (R32F texture array)
-       │               │ disk cache (%LOCALAPPDATA%\tsv\cache)        │
+       │               │ disk cache (%LOCALAPPDATA%\Janus\cache)      │
        │               └─ instant approximate series                  ├─► statistics shader (1 pass)
        │                                                              └─► display shader (stretch, colormap, modes)
        ├──► TileManager: full-resolution tiles of the visible area ──► LRU cache on the GPU
@@ -392,13 +396,13 @@ Machine); the rest of the data in `~/Library/Application Support/tsv`.
 | `.github/workflows/build.yml` | CI: Windows, Linux and macOS builds, self-tests, installers; releases on `v*` tags |
 | `tools/make_selftest_data.py` | Synthetic inputs for `--selftest-ui` and `--selftest-zeit` |
 | `src/platform.*` | OS-specific: arguments, dialogs, data folder, opening folders, HDD detection (Windows, Linux, macOS) |
-| `src/launcher.cpp` | `tsv.com` console launcher |
+| `src/launcher.cpp` | `jn.com` console launcher |
 
 ## Roadmap
 
 Planned work and the reasoning behind design decisions live in
 [IDEIAS.md](IDEIAS.md) (in Portuguese). Next: reprojection of layers with
 different CRSs and ROI on every layer; then new views (space-time transect,
-year x day-of-year heatmap, swipe, area per class over time). tsv runs on Windows, Linux
+year x day-of-year heatmap, swipe, area per class over time). Janus runs on Windows, Linux
 (x86_64) and macOS (Apple Silicon, from a source build; no `.app` bundle yet). The
 OS-specific code is isolated (see the portability table in IDEIAS.md).

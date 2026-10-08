@@ -5,5 +5,5 @@
 // drawn in a frame is finished before the ImGui pass that shows it.
 #import <Metal/Metal.h>
 
-id<MTLDevice> tsvMetalDevice();
-id<MTLCommandQueue> tsvMetalQueue();
+id<MTLDevice> janusMetalDevice();
+id<MTLCommandQueue> janusMetalQueue();

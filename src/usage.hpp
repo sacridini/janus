@@ -1,15 +1,15 @@
 #pragma once
 
-#ifndef TSV_VERSION
-#define TSV_VERSION "dev"
+#ifndef JANUS_VERSION
+#define JANUS_VERSION "dev"
 #endif
 
-// Shared by tsv.exe (GUI) and tsv.com (console launcher).
+// Shared by janus (the GUI) and jn.com (the Windows console launcher).
 inline const char* kUsage =
-    "tsv " TSV_VERSION " - raster time series viewer\n"
+    "Janus " JANUS_VERSION " - raster time series viewer\n"
     "\n"
     "Usage:\n"
-    "  tsv [options] [input ...]\n"
+    "  jn [options] [input ...]\n"
     "\n"
     "Inputs:\n"
     "  folder\\             every raster in the folder, 1 file = 1 date\n"
@@ -28,8 +28,8 @@ inline const char* kUsage =
     "\n"
     "Developer options:\n"
     "  --zeit-python EXE   Python with Zeit to use instead of the bundled runtime\n"
-    "                      (or set TSV_ZEIT_PYTHON)\n"
-    "  --zeit-bridge PY    bridge script to use (or set TSV_ZEIT_BRIDGE)\n"
+    "                      (or set JANUS_ZEIT_PYTHON)\n"
+    "  --zeit-bridge PY    bridge script to use (or set JANUS_ZEIT_BRIDGE)\n"
     "  --measure-startup   print startup timings and exit after the first frame\n"
     "  --selftest-zeit IN  run the Zeit tools end to end on IN without a window\n"
     "  --selftest-ui A B [C [D [E]]]  drive the layers workflow in a hidden window\n"

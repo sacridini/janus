@@ -14,8 +14,8 @@ void attachParentConsole();                   // for --help from a GUI app (Wind
 std::string exeDir();
 // Bundled data (share/, runtime/): exeDir(), or Contents/Resources inside a macOS .app.
 std::string resourceDir();
-std::string appDataDir();                     // e.g. %LOCALAPPDATA%\tsv (created if needed)
-std::string cacheDir();                       // regenerable data: appDataDir()/cache; macOS: ~/Library/Caches/tsv
+std::string appDataDir();                     // e.g. %LOCALAPPDATA%\Janus (created if needed)
+std::string cacheDir();                       // regenerable data: appDataDir()/cache; macOS: ~/Library/Caches/Janus
 
 std::vector<std::string> openFilesDialog();   // empty if cancelled
 std::string openFolderDialog();               // empty if cancelled

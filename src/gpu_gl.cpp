@@ -1,4 +1,4 @@
-// OpenGL 3.3 backend of gpu.hpp (Windows, Linux; macOS with TSV_RENDERER=GL).
+// OpenGL 3.3 backend of gpu.hpp (Windows, Linux; macOS with JANUS_RENDERER=GL).
 #include "gpu.hpp"
 
 #include <cmath>

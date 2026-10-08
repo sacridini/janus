@@ -1,6 +1,6 @@
-# Builds tsv on Windows, Linux and macOS, runs the self-tests and makes the
-# installers: tsv-<version>-setup.exe (Inno Setup), tsv-<version>-linux-x86_64.tar.xz
-# and tsv-<version>-macos-arm64.dmg. A tag v<version> publishes them as a GitHub
+# Builds Janus on Windows, Linux and macOS, runs the self-tests and makes the
+# installers: janus-<version>-setup.exe (Inno Setup), janus-<version>-linux-x86_64.tar.xz
+# and janus-<version>-macos-arm64.dmg. A tag v<version> publishes them as a GitHub
 # Release. GDAL (and the Linux compiler and X11/OpenGL headers) come from a
 # conda-forge environment, as in a local build (README, Building from source).
 name: build
@@ -25,19 +25,19 @@ jobs:
           - os: windows-2022
             packages: gdal numpy pip
             configure: -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$CONDA_PREFIX/Library" -DPython3_EXECUTABLE="$CONDA_PREFIX/python.exe"
-            exe: build/Release/tsv.exe
+            exe: build/Release/janus.exe
             package: installer
           - os: ubuntu-24.04
             packages: >-
               cmake ninja cxx-compiler c-compiler pkg-config gdal numpy pip
               xorg-libx11 xorg-libxrandr xorg-libxinerama xorg-libxcursor xorg-libxi xorg-libxext libgl-devel
             configure: -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DPython3_EXECUTABLE="$CONDA_PREFIX/bin/python" -DGLFW_BUILD_WAYLAND=OFF
-            exe: build/tsv
+            exe: build/janus
             package: package_linux
           - os: macos-15
             packages: gdal numpy pip
             configure: -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DPython3_EXECUTABLE="$CONDA_PREFIX/bin/python"
-            exe: build/tsv
+            exe: build/janus
             package: package_macos
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -49,7 +49,7 @@ jobs:
 
       - uses: mamba-org/setup-micromamba@v2
         with:
-          environment-name: tsv
+          environment-name: janus
           create-args: -c conda-forge ${{ matrix.packages }}
           init-shell: bash
           cache-environment: true
@@ -88,9 +88,9 @@ jobs:
           cd "$RUNNER_TEMP"
           case "$RUNNER_OS" in
             Windows) ;; # the installer is checked by installing it below
-            Linux) tar -xJf "$GITHUB_WORKSPACE"/dist/*.tar.xz && ./tsv-*/tsv --selftest-zeit td/serie ;;
+            Linux) tar -xJf "$GITHUB_WORKSPACE"/dist/*.tar.xz && ./janus-*/jn --selftest-zeit td/serie ;; # jn: the link
             macOS) m=$(hdiutil attach -nobrowse -readonly "$GITHUB_WORKSPACE"/dist/*.dmg | tail -1 | awk -F'\t' '{print $NF}')
-                   "$m/tsv.app/Contents/MacOS/tsv" --selftest-zeit td/serie; rc=$?
+                   "$m/Janus.app/Contents/MacOS/janus" --selftest-zeit td/serie; rc=$?
                    hdiutil detach "$m"; exit $rc ;;
           esac
 
@@ -98,10 +98,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $setup = Get-ChildItem dist\tsv-*-setup.exe | Select-Object -First 1
-          Start-Process $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', "/DIR=$env:RUNNER_TEMP\tsv" -Wait
-          # tsv.exe is a GUI program: & would not wait for it.
-          $p = Start-Process "$env:RUNNER_TEMP\tsv\tsv.exe" -ArgumentList '--selftest-zeit', 'td\serie' `
+          $setup = Get-ChildItem dist\janus-*-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', "/DIR=$env:RUNNER_TEMP\Janus" -Wait
+          & "$env:RUNNER_TEMP\Janus\jn.com" --version   # the command line (a console program)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # janus.exe is a GUI program: & would not wait for it.
+          $p = Start-Process "$env:RUNNER_TEMP\Janus\janus.exe" -ArgumentList '--selftest-zeit', 'td\serie' `
                  -WorkingDirectory $env:RUNNER_TEMP -Wait -PassThru -NoNewWindow `
                  -RedirectStandardOutput "$env:RUNNER_TEMP\installed.log"
           Get-Content "$env:RUNNER_TEMP\installed.log" | Select-Object -Last 3
@@ -109,7 +111,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tsv-${{ runner.os }}
+          name: janus-${{ runner.os }}
           path: dist/*
           if-no-files-found: error
 

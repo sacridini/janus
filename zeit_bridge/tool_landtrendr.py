@@ -1,4 +1,4 @@
-"""LandTrendr (Zeit) for tsv: per-pixel segmentation and change-event maps."""
+"""LandTrendr (Zeit) for Janus: per-pixel segmentation and change-event maps."""
 import numpy as np
 
 MANIFEST = {

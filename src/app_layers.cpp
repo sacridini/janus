@@ -237,7 +237,7 @@ void App::setActive(int i) {
     syncLayerTimes();
     mapDirty_ = true;
 
-    const std::string title = "tsv - " + L.name + " (" + info.description + ")" +
+    const std::string title = "Janus - " + L.name + " (" + info.description + ")" +
                               (layers_.size() > 1 ? "  [" + std::to_string(layers_.size()) + " layers]" : "");
     glfwSetWindowTitle(window_, title.c_str());
 }
@@ -308,7 +308,7 @@ void App::removeLayer(int i) {
         active_ = -1;
         pins_.clear();
         hover_ = SeriesView{};
-        glfwSetWindowTitle(window_, "tsv");
+        glfwSetWindowTitle(window_, "Janus");
         return;
     }
     if (wasActive) {
@@ -329,7 +329,7 @@ void App::closeAll() {
     active_ = -1;
     pins_.clear();
     hover_ = SeriesView{};
-    glfwSetWindowTitle(window_, "tsv");
+    glfwSetWindowTitle(window_, "Janus");
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Smoothing (Zeit) for tsv: Whittaker or Savitzky-Golay curve over the chart.
+"""Smoothing (Zeit) for Janus: Whittaker or Savitzky-Golay curve over the chart.
 
 Both smoothers in Zeit work on the observation index (equal steps), not on the
 real dates. Gaps (NaN, e.g. masked clouds):

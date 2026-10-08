@@ -7,7 +7,7 @@
 #include <vector>
 
 // Renderer-neutral GPU layer: OpenGL 3.3 (gpu_gl.cpp) or Metal (gpu_metal.mm),
-// chosen at build time (TSV_RENDERER). A GpuTex is a GL texture name or a
+// chosen at build time (JANUS_RENDERER). A GpuTex is a GL texture name or a
 // retained id<MTLTexture>; 0 = none. It is also the ImTextureID of that texture.
 using GpuTex = uint64_t;
 

@@ -1,4 +1,4 @@
-// `tsv --selftest-ui A B`: drives the layers workflow in a hidden window, one
+// `jn --selftest-ui A B`: drives the layers workflow in a hidden window, one
 // step per frame, without touching the mouse or keyboard. Opens A, adds B as a
 // layer, checks the georeferenced alignment, the series of both layers under a
 // cursor and a pin, reads back map pixels (layer drawn, layer hidden), switches

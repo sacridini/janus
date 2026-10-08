@@ -76,7 +76,7 @@ void Overview::start(std::shared_ptr<const CubeInfo> info, int64_t budgetBytes, 
 
     const uint64_t key = cacheKey(*info_, w, h);
     char name[32];
-    std::snprintf(name, sizeof(name), "%016llx.tsvcube", (unsigned long long)key);
+    std::snprintf(name, sizeof(name), "%016llx.januscube", (unsigned long long)key);
     cachePath_ = (fs::u8path(cacheDir) / name).u8string();
 
     std::error_code ec;
@@ -186,7 +186,7 @@ void Overview::pruneCache(const std::string& cacheDir, uint64_t maxBytes) {
     uint64_t total = 0;
     std::error_code ec;
     for (auto& e : fs::directory_iterator(fs::u8path(cacheDir), ec)) {
-        if (e.path().extension() != ".tsvcube") continue;
+        if (e.path().extension() != ".januscube") continue;
         entries.push_back({e.path(), e.last_write_time(ec), e.file_size(ec)});
         total += entries.back().size;
     }

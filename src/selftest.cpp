@@ -1,4 +1,4 @@
-// `tsv --selftest-zeit <inputs>`: exercises the whole Zeit path without a window
+// `jn --selftest-zeit <inputs>`: exercises the whole Zeit path without a window
 // (open series -> start bridge -> pixel fit -> VRT -> raster job -> load result)
 // and prints timings. Used to verify builds and installers non-interactively.
 #include <chrono>
@@ -37,7 +37,7 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
     ZeitConfig cfg;
     const fs::path rt = fs::u8path(platform::resourceDir()) / "runtime";
     cfg.python = python.empty() ? bundledPython(rt.u8string()) : python;
-    cfg.bridge = bridge.empty() ? (rt / "tsv_zeit_bridge.py").u8string() : bridge;
+    cfg.bridge = bridge.empty() ? (rt / "janus_zeit_bridge.py").u8string() : bridge;
     cfg.bundled = python.empty();
     cfg.logPath = (fs::u8path(platform::appDataDir()) / "zeit.log").u8string();
     ZeitClient zeit;

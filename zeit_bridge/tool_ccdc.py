@@ -1,9 +1,9 @@
-"""CCDC (Zeit) for tsv: continuous change detection on multiband surface reflectance.
+"""CCDC (Zeit) for Janus: continuous change detection on multiband surface reflectance.
 
 Zeit's CCDC is a port of the original MATLAB code (Zhu & Woodcock 2014). Like
 the original it works on Landsat-style surface reflectance x 10000 (Blue, Green,
 Red, NIR, SWIR1, SWIR2 [, brightness temperature in deg C x 100]), Fmask codes
-and Python ordinal days. tsv maps the bands of each date to these roles and
+and Python ordinal days. Janus maps the bands of each date to these roles and
 passes them in ctx["bands"] / ctx["fmask"]; this module converts the values to
 the x 10000 convention ("Reflectance units" parameter) and back for display.
 
@@ -48,7 +48,7 @@ MANIFEST = {
          "labels": UNIT_LABELS,
          "help": "CCDC's thresholds are defined on reflectance x 10000. Automatic: median <= 2 -> "
                  "reflectance 0-1; median >= 6500 -> Landsat Collection 2 Level-2 digital numbers "
-                 "(x 0.0000275 - 0.2); otherwise already x 10000. tsv applies the files' scale/offset "
+                 "(x 0.0000275 - 0.2); otherwise already x 10000. Janus applies the files' scale/offset "
                  "metadata first, when present."},
         {"id": "conseq_anom", "label": "Consecutive anomalies", "type": "int", "default": 6, "min": 3, "max": 20,
          "help": "Consecutive anomalous clear observations needed to flag a change (the original's 'conse')."},
@@ -147,7 +147,7 @@ def _thermal_from_c100(v, ref, mode):
 # ---------------------------------------------------------------------------
 
 def _decimal_year(ordinal):
-    """Python ordinal day -> decimal year (same convention as tsv: year + (day of year - 1) / days)."""
+    """Python ordinal day -> decimal year (same convention as Janus: year + (day of year - 1) / days)."""
     d = _dt.date.fromordinal(int(ordinal))
     n = 366 if (d.year % 4 == 0 and d.year % 100 != 0) or d.year % 400 == 0 else 365
     return d.year + (d.toordinal() - _dt.date(d.year, 1, 1).toordinal()) / n
@@ -203,7 +203,7 @@ def _inputs(p, ctx):
 # ---------------------------------------------------------------------------
 
 def _shown_curve(seg_coefs, roles, mode, shown, ctx, t):
-    """The model in the units of the series tsv shows (one band or a normalized difference)."""
+    """The model in the units of the series Janus shows (one band or a normalized difference)."""
     def band(role):
         if role not in roles:
             return None

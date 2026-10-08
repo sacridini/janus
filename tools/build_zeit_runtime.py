@@ -1,4 +1,4 @@
-"""Assembles the private Python runtime that runs Zeit for tsv.
+"""Assembles the private Python runtime that runs Zeit for Janus.
 
 The result is a self-contained folder (no installer, no registry, not on PATH):
 
@@ -8,7 +8,7 @@ The result is a self-contained folder (no installer, no registry, not on PATH):
                                   site-packages in python/sp (short: path limit)
                                 Linux / macOS: python-build-standalone
                                   ("install_only"), python/bin/python3
-      tsv_zeit_bridge.py      the bridge and tool_*.py (copied from zeit_bridge/)
+      janus_zeit_bridge.py      the bridge and tool_*.py (copied from zeit_bridge/)
       runtime.json            versions, for diagnostics
 
 Usage (any Python >= 3.9 with pip, used only to download wheels for the
@@ -113,7 +113,7 @@ def main():
 
     final = Path(a.out).resolve()
     # Built in a sibling staging folder and swapped in only at the end: a failed
-    # build (or a runtime in use by a running tsv) never leaves a half-deleted
+    # build (or a runtime in use by a running Janus) never leaves a half-deleted
     # runtime behind.
     out = final.parent / (final.name + ".new")
     if out.exists():
@@ -122,7 +122,7 @@ def main():
     archive = download_python(Path(a.cache), plat)
     if windows:
         # Short site-packages folder: keeps the deepest file path well under
-        # Windows' 260-character limit even when tsv is installed in a long folder.
+        # Windows' 260-character limit even when Janus is installed in a long folder.
         site = py / "sp"
         py.mkdir(parents=True)
         with zipfile.ZipFile(archive) as z:
@@ -198,7 +198,7 @@ def main():
         try:
             final.rename(old)
         except OSError as e:
-            raise SystemExit(f"{final} is in use (close tsv and try again); the new runtime is in {out}: {e}")
+            raise SystemExit(f"{final} is in use (close Janus and try again); the new runtime is in {out}: {e}")
         shutil.rmtree(old, ignore_errors=True)
     out.rename(final)
     print(f"runtime ready: {final} ({size / 2**20:.0f} MB) {info}")

@@ -607,7 +607,7 @@ void App::uiPopups() {
     if (ImGui::BeginPopupModal("Shortcuts and usage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted(
             "Open: Ctrl+O (files), Ctrl+Shift+O (folder), or drop onto the window\n"
-            "Command line: tsv <folder | file.tif | pattern_*.tif ...> [--band N]\n\n"
+            "Command line: jn <folder | file.tif | pattern_*.tif ...> [--band N]\n\n"
             "Map\n"
             "  drag ................ pan\n"
             "  mouse wheel ......... zoom\n"
@@ -922,7 +922,7 @@ void App::uiMap() {
     }
     if (!s_) {
         const char* msg = "Open a time series: File > Open (Ctrl+O), drop files/a folder onto the window\n"
-                          "or call it from the command line: tsv <folder | series.tif | files_*.tif>";
+                          "or call it from the command line: jn <folder | series.tif | files_*.tif>";
         const ImVec2 ts = ImGui::CalcTextSize(msg);
         const ImVec2 avail = ImGui::GetContentRegionAvail();
         ImGui::SetCursorPos(ImGui::GetCursorPos() + ImMax(ImVec2(0, 0), (avail - ts) * 0.5f));
@@ -2057,7 +2057,7 @@ void App::uiPerf() {
         std::error_code ec;
         const std::string keep = s_ ? fs::u8path(s_->overview.cachePath()).filename().u8string() : "";
         for (auto& e : fs::directory_iterator(fs::u8path(settings_.cacheDir), ec))
-            if (e.path().extension() == ".tsvcube" && e.path().filename().u8string() != keep) fs::remove(e.path(), ec);
+            if (e.path().extension() == ".januscube" && e.path().filename().u8string() != keep) fs::remove(e.path(), ec);
     }
     ImGui::SetItemTooltip("%s", settings_.cacheDir.c_str());
     ImGui::End();

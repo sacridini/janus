@@ -1,8 +1,8 @@
 """Synthetic inputs for the self-tests (small, a few MB in all).
 
 Usage: python tools/make_selftest_data.py <out>   (requires GDAL's Python bindings and numpy)
-Then:  tsv --selftest-ui <out>/A <out>/B <out>/C <out>/D <out>/E
-       tsv --selftest-zeit <out>/serie
+Then:  jn --selftest-ui <out>/A <out>/B <out>/C <out>/D <out>/E
+       jn --selftest-zeit <out>/serie
 
   A, B   continuous layers; B starts 100 px east of A and its first value at
          (50, 100) is 2.0 (what --selftest-ui checks)

@@ -32,6 +32,18 @@ extern char** environ;
 
 namespace fs = std::filesystem;
 
+namespace {
+
+// Janus was called tsv up to 0.16: its folder moves to the new name the first
+// time (one rename, same parent; nothing happens if the new folder exists).
+fs::path renamedFrom(const fs::path& old, const fs::path& dir) {
+    std::error_code ec;
+    if (!fs::exists(dir, ec) && fs::is_directory(old, ec)) fs::rename(old, dir, ec);
+    return dir;
+}
+
+} // namespace
+
 namespace platform {
 
 #ifdef _WIN32
@@ -86,9 +98,10 @@ std::string exeDir() {
 std::string appDataDir() {
     PWSTR p = nullptr;
     fs::path dir;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &p))) dir = fs::path(p) / "tsv";
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &p)))
+        dir = renamedFrom(fs::path(p) / "tsv", fs::path(p) / "Janus");
     CoTaskMemFree(p);
-    if (dir.empty()) dir = fs::temp_directory_path() / "tsv";
+    if (dir.empty()) dir = fs::temp_directory_path() / "Janus";
     std::error_code ec;
     fs::create_directories(dir, ec);
     return dir.u8string();
@@ -213,14 +226,16 @@ std::string exeDir() {
 }
 
 std::string appDataDir() {
-    // macOS: ~/Library/Application Support/tsv; Linux: $XDG_DATA_HOME/tsv (~/.local/share/tsv).
+    // macOS: ~/Library/Application Support/Janus; Linux: $XDG_DATA_HOME/janus (~/.local/share/janus).
     const char* home = std::getenv("HOME");
     const fs::path h = home ? home : "/tmp";
 #ifdef __APPLE__
-    fs::path dir = h / "Library" / "Application Support" / "tsv";
+    const fs::path base = h / "Library" / "Application Support";
+    fs::path dir = renamedFrom(base / "tsv", base / "Janus");
 #else
     const char* xdg = std::getenv("XDG_DATA_HOME");
-    fs::path dir = (xdg && *xdg ? fs::path(xdg) : h / ".local" / "share") / "tsv";
+    const fs::path base = xdg && *xdg ? fs::path(xdg) : h / ".local" / "share";
+    fs::path dir = renamedFrom(base / "tsv", base / "janus");
 #endif
     std::error_code ec;
     fs::create_directories(dir, ec);
@@ -286,7 +301,7 @@ static std::vector<std::string> splitLines(const std::string& s) {
 }
 
 // Native dialogs through the desktop's own helpers (no GUI toolkit linked into
-// tsv): zenity (GNOME) or kdialog (KDE) on Linux, AppleScript on macOS. Without
+// Janus): zenity (GNOME) or kdialog (KDE) on Linux, AppleScript on macOS. Without
 // one of them the dialogs return nothing; the Files panel still works.
 static std::vector<std::string> runDialog(bool folders) {
 #ifdef __APPLE__
@@ -380,11 +395,15 @@ std::string platform::cacheDir() {
     const fs::path old = fs::u8path(appDataDir()) / "cache";
     if (fs::exists(old, ec)) fs::remove_all(old, ec);
     const char* home = std::getenv("HOME");
-    const fs::path dir = fs::path(home ? home : "/tmp") / "Library" / "Caches" / "tsv";
+    const fs::path caches = fs::path(home ? home : "/tmp") / "Library" / "Caches";
+    const fs::path dir = renamedFrom(caches / "tsv", caches / "Janus");
 #else
     const fs::path dir = fs::u8path(appDataDir()) / "cache";
 #endif
     fs::create_directories(dir, ec);
+    // Overviews cached by tsv: the same data under the new extension.
+    for (const auto& e : fs::directory_iterator(dir, ec))
+        if (e.path().extension() == ".tsvcube") fs::rename(e.path(), fs::path(e.path()).replace_extension(".januscube"), ec);
     return dir.u8string();
 }
 

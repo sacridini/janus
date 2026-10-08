@@ -1,4 +1,4 @@
-"""Builds resources/tsv.ico, tsv.png and tsv.icns (macOS): stacked layers (the time
+"""Builds resources/janus.ico, janus.png and janus.icns (macOS): stacked layers (the time
 cube) plus a pixel series.
 
 Usage: python tools/make_icon.py   (requires Pillow)
@@ -31,7 +31,7 @@ def main():
     for x, y in pts[::2] + [pts[-1]]:
         d.ellipse([x - 34, y - 34, x + 34, y + 34], fill=(255, 196, 120, 255), outline=(22, 27, 38, 255), width=10)
 
-    out = Path(__file__).resolve().parent.parent / "resources" / "tsv.ico"
+    out = Path(__file__).resolve().parent.parent / "resources" / "janus.ico"
     sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256]
     img.resize((256, 256), Image.LANCZOS).save(out, sizes=[(s, s) for s in sizes])
     img.resize((256, 256), Image.LANCZOS).save(out.with_suffix(".png"))

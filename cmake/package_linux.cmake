@@ -1,13 +1,14 @@
-# Portable Linux package: dist/tsv-<version>-linux-x86_64.tar.xz
+# Portable Linux package: dist/janus-<version>-linux-x86_64.tar.xz
 #
-#   tsv-<version>/
-#     tsv                 the program (RPATH $ORIGIN/lib)
+#   janus-<version>/
+#     janus               the program (RPATH $ORIGIN/lib)
+#     jn                  link to it: the command line
 #     lib/                GDAL and its whole chain (PROJ, GEOS, libtiff, curl...)
 #                         plus the C++ runtime it was built with; system
 #                         libraries (glibc, OpenGL drivers, X11) come from the OS
 #     share/gdal, share/proj
 #     runtime/            private Python + Zeit (tools/build_zeit_runtime.py)
-#     tsv.desktop, tsv.png, README.md
+#     janus.desktop, janus.png, README.md
 #
 # Usage (script mode): cmake -DEXE=... -DVERSION=... -DGDAL_LIB=<libgdal.so> -DRUNTIME=... -DSRC=... -DOUT=... -P package_linux.cmake
 
@@ -17,7 +18,7 @@ cmake_policy(VERSION 3.21...4.4)
 get_filename_component(PREFIX "${GDAL_LIB}" DIRECTORY)
 get_filename_component(PREFIX "${PREFIX}" DIRECTORY)
 
-set(name "tsv-${VERSION}")
+set(name "janus-${VERSION}")
 set(stage "${OUT}/${name}")
 file(REMOVE_RECURSE "${stage}")
 file(MAKE_DIRECTORY "${stage}/lib")
@@ -48,14 +49,15 @@ endif()
 
 file(COPY "${EXE}" DESTINATION "${stage}")
 # Only the bundled libraries: drop the build machine's library paths.
-file(RPATH_SET FILE "${stage}/tsv" NEW_RPATH "$ORIGIN/lib")
+file(RPATH_SET FILE "${stage}/janus" NEW_RPATH "$ORIGIN/lib")
+file(CREATE_LINK janus "${stage}/jn" SYMBOLIC)
 file(COPY "${PREFIX}/share/proj/proj.db" DESTINATION "${stage}/share/proj")
 file(COPY "${PREFIX}/share/gdal" DESTINATION "${stage}/share")
 file(COPY "${RUNTIME}/" DESTINATION "${stage}/runtime")
-file(COPY "${SRC}/resources/tsv.png" "${SRC}/README.md" DESTINATION "${stage}")
-file(WRITE "${stage}/tsv.desktop"
-  "[Desktop Entry]\nType=Application\nName=tsv\nComment=Raster time series viewer\n"
-  "Exec=tsv %F\nIcon=tsv\nTerminal=false\nCategories=Science;Geography;Graphics;\n"
+file(COPY "${SRC}/resources/janus.png" "${SRC}/README.md" DESTINATION "${stage}")
+file(WRITE "${stage}/janus.desktop"
+  "[Desktop Entry]\nType=Application\nName=Janus\nComment=Raster time series viewer\n"
+  "Exec=janus %F\nIcon=janus\nTerminal=false\nCategories=Science;Geography;Graphics;\n"
   "MimeType=image/tiff;\n")
 
 file(MAKE_DIRECTORY "${SRC}/dist")

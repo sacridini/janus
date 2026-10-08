@@ -1,4 +1,4 @@
-"""BFAST family (Zeit) for tsv: classic BFAST, BFAST Lite and BFAST Monitor.
+"""BFAST family (Zeit) for Janus: classic BFAST, BFAST Lite and BFAST Monitor.
 
 All three fit trend + harmonic models on a regular series, so time is the
 synthetic `start + i / per_year` grid of R's `ts` (Zeit's convention). Break

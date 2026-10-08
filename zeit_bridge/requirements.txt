@@ -2,7 +2,7 @@
 # Linux x86_64 and macOS arm64).
 # Zeit itself is installed with --no-deps from zeit-requirements.txt: its full
 # dependency list pulls PyTorch, transformers and Earth Engine (gigabytes),
-# which the tools exposed in tsv do not need.
+# which the tools exposed in Janus do not need.
 numpy==2.5.3
 scipy==1.18.1
 rasterio==1.5.2

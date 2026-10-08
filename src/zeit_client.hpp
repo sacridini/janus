@@ -13,7 +13,7 @@
 
 #include <nlohmann/json.hpp>
 
-// Client side of the tsv <-> Zeit bridge (zeit_bridge/tsv_zeit_bridge.py).
+// Client side of the Janus <-> Zeit bridge (zeit_bridge/janus_zeit_bridge.py).
 // Zeit runs in a separate Python process: a crash or a slow import there never
 // blocks or takes down the viewer.
 
@@ -73,7 +73,7 @@ bool zeitJobInputs(const CubeInfo& info, const ZeitTool& tool, const BandRoles& 
 
 struct ZeitConfig {
     std::string python;   // python.exe of the runtime
-    std::string bridge;   // tsv_zeit_bridge.py
+    std::string bridge;   // janus_zeit_bridge.py
     std::string logPath;  // stderr of every bridge process goes here
     bool bundled = true;  // false = developer override (keep the user's environment)
 };

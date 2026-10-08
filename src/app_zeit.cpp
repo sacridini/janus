@@ -63,7 +63,7 @@ ZeitConfig App::zeitConfig() const {
     ZeitConfig c;
     const fs::path rt = fs::u8path(platform::resourceDir()) / "runtime";
     c.python = opts_.zeitPython.empty() ? bundledPython(rt.u8string()) : opts_.zeitPython;
-    c.bridge = opts_.zeitBridge.empty() ? (rt / "tsv_zeit_bridge.py").u8string() : opts_.zeitBridge;
+    c.bridge = opts_.zeitBridge.empty() ? (rt / "janus_zeit_bridge.py").u8string() : opts_.zeitBridge;
     c.bundled = opts_.zeitPython.empty();
     c.logPath = (fs::u8path(platform::appDataDir()) / "zeit.log").u8string();
     return c;

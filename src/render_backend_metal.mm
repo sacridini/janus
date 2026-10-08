@@ -35,7 +35,7 @@ GLFWwindow* createWindow(int w, int h, const char* title, bool visible, std::str
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
     if (!visible) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // never shown, never takes focus
-    id<MTLDevice> dev = tsvMetalDevice();
+    id<MTLDevice> dev = janusMetalDevice();
     if (!dev) {
         error = "no Metal device";
         return nullptr;
@@ -65,14 +65,14 @@ GLFWwindow* createWindow(int w, int h, const char* title, bool visible, std::str
     g_pass = [MTLRenderPassDescriptor new];
     g_pass.colorAttachments[0].loadAction = MTLLoadActionClear;
     g_pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-    (void)tsvMetalQueue(); // created now, not in the first frame
+    (void)janusMetalQueue(); // created now, not in the first frame
     return window;
 }
 
 bool initImGui(GLFWwindow* window) {
     // "Other": detached panels get GLFW windows without a GL context; the
     // Metal backend gives each one its own layer.
-    return ImGui_ImplGlfw_InitForOther(window, true) && ImGui_ImplMetal_Init(tsvMetalDevice());
+    return ImGui_ImplGlfw_InitForOther(window, true) && ImGui_ImplMetal_Init(janusMetalDevice());
 }
 
 void newFrame() {
@@ -98,7 +98,7 @@ void present(GLFWwindow* window, const float clear[4]) {
             if (drawable) {
                 g_pass.colorAttachments[0].texture = drawable.texture;
                 g_pass.colorAttachments[0].clearColor = MTLClearColorMake(clear[0], clear[1], clear[2], clear[3]);
-                id<MTLCommandBuffer> cb = [tsvMetalQueue() commandBuffer];
+                id<MTLCommandBuffer> cb = [janusMetalQueue() commandBuffer];
                 id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:g_pass];
                 ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cb, enc);
                 [enc endEncoding];
@@ -114,7 +114,7 @@ void present(GLFWwindow* window, const float clear[4]) {
             // Their command queues are not ordered with ours: the map drawn this
             // frame must be finished before one of them shows it.
             if (ImGui::GetPlatformIO().Viewports.Size > 1) {
-                id<MTLCommandBuffer> fence = [tsvMetalQueue() commandBuffer];
+                id<MTLCommandBuffer> fence = [janusMetalQueue() commandBuffer];
                 [fence commit];
                 [fence waitUntilCompleted];
             }

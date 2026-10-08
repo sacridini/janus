@@ -1,4 +1,4 @@
-# IDEIAS — tsv
+# IDEIAS — Janus
 
 Registro de ideias, decisões (com os números que as motivaram) e avanços do
 projeto. Atualizado a cada fase.
@@ -9,7 +9,7 @@ Um visualizador **especializado e muito rápido** para séries temporais raster 
 cubos de dados: abrir, navegar no tempo, inspecionar a série de qualquer pixel e
 rodar análises de mudança/tendência — sem ser um SIG completo. Instalável no
 Windows sem Python nem conda, e chamável pela linha de comando
-(`tsv serie.tif`).
+(`jn serie.tif`).
 
 ## Decisões (e por quê)
 
@@ -35,7 +35,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Ganho real no HD só mudando o layout dos dados (COG com overviews internos) ou SSD.
 
 ### Abertura rápida
-- Medição (`tsv --measure-startup`): GDAL 7 ms; janela + OpenGL ~137 ms;
+- Medição (`jn --measure-startup`): GDAL 7 ms; janela + OpenGL ~137 ms;
   primeiro quadro ~145 ms. Quase tudo é o driver criando a janela/contexto.
 - A leitura dos metadados da série roda em segundo plano: abrir um cubo de 41
   arquivos no HD não atrasa a janela (primeiro quadro de 287 → ~150 ms).
@@ -43,7 +43,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
   em segundo plano.
 
 ### Linha de comando: só visualização rápida
-- `tsv arquivo/pasta` abre e mostra; opções só para isso (`--band`, memória,
+- `jn arquivo/pasta` abre e mostra; opções só para isso (`--band`, memória,
   threads) e para desenvolvimento/testes. Bandas por data, índice (diferença
   normalizada), máscara de qualidade e ferramentas do Zeit ficam **na interface**,
   sem comandos na CLI (decisão de 2026-10-08).
@@ -53,20 +53,20 @@ Windows sem Python nem conda, e chamável pela linha de comando
   do C++ do Zeit:
   - usa o Zeit como ele é (C++ + Python), sem copiar lógica;
   - um erro no Zeit não derruba a interface;
-  - dois GDAL (o do tsv e o do rasterio) convivem sem conflito de DLL;
-  - o Zeit é GPL-2.0: rodando como processo separado, o tsv continua independente.
+  - dois GDAL (o do Janus e o do rasterio) convivem sem conflito de DLL;
+  - o Zeit é GPL-2.0: rodando como processo separado, o Janus continua independente.
 - **Runtime Python privado e invisível** dentro da instalação (`runtime\`), com
   o Zeit da wheel do PyPI e só as dependências necessárias (numpy, scipy,
   rasterio, dask, xarray). Sem PyTorch/Earth Engine (somariam GBs).
-- **Ponte no repositório do tsv** (não no Zeit), usando só a API pública do Zeit.
+- **Ponte no repositório do Janus** (não no Zeit), usando só a API pública do Zeit.
   O Zeit continua uma biblioteca pura.
 - **Menu gerado pelo servidor**: ele descreve as ferramentas (parâmetros, tipos,
-  padrões, ajuda, dados exigidos, saídas) e o tsv monta os formulários. Novo
-  algoritmo/parâmetro = editar Python, sem recompilar o tsv.
+  padrões, ajuda, dados exigidos, saídas) e o Janus monta os formulários. Novo
+  algoritmo/parâmetro = editar Python, sem recompilar o Janus.
 - Três níveis de execução:
   1. **pixel** (série já na memória → resultado em ~1 ms, modelo desenhado no gráfico);
   2. **ROI / área visível / cena**: o Zeit lê direto dos arquivos (via VRT gerado
-     pelo tsv) com os batches C++/OpenMP dele; o tsv só acompanha progresso;
+     pelo Janus) com os batches C++/OpenMP dele; o Janus só acompanha progresso;
   3. **resultados** voltam como GeoTIFFs no mesmo grid e viram camadas no mapa.
 - **Uma ferramenta = um módulo** `zeit_bridge/tool_*.py` (manifesto + `pixel()` +
   `chunk()`); a ponte cuida do protocolo, da leitura em faixas e da escrita dos
@@ -85,7 +85,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
   não é testada simulando mouse/teclado enquanto o usuário usa o computador.
 
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
-- Objetivo: o tsv deve rodar nos três. **Nenhum código de sistema operacional
+- Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
   listado aqui. Dependências novas devem ser multiplataforma.
 - Situação (0.11.0): **Windows** e **Linux x86_64** compilados e testados
@@ -95,14 +95,14 @@ Windows sem Python nem conda, e chamável pela linha de comando
 
 | Onde | Windows | Linux | macOS |
 |---|---|---|---|
-| `src/platform.cpp` | IFileOpenDialog, IOCTL de seek penalty, Explorer | `zenity`/`kdialog`, `/sys/dev/block/*/queue/rotational`, `xdg-open`, `~/.local/share/tsv` | AppleScript, `open`, `~/Library/Application Support/tsv`, cache em `~/Library/Caches/tsv` (fora do Time Machine) (diálogos não testados) |
+| `src/platform.cpp` | IFileOpenDialog, IOCTL de seek penalty, Explorer | `zenity`/`kdialog`, `/sys/dev/block/*/queue/rotational`, `xdg-open`, `~/.local/share/janus` | AppleScript, `open`, `~/Library/Application Support/Janus`, cache em `~/Library/Caches/Janus` (fora do Time Machine) (diálogos não testados) |
 | `ZeitProcess` (`src/zeit_client.cpp`) | CreateProcess + pipes, lista de handles herdados | `posix_spawn` + pipes (testado) | o mesmo (testado) |
-| `tsv.com` (`src/launcher.cpp`) | truque do `.com` para o console | desnecessário: um binário só | idem |
+| `jn.com` (`src/launcher.cpp`) | truque do `.com` para o console | desnecessário: um binário só | idem |
 | runtime do Zeit | Python *embeddable* | `python-build-standalone` *stripped* + wheels manylinux, `strip --strip-debug` (638 MB) | receita `macos_arm64`: wheels até `macosx_15_0`, `strip -S` seguido de `codesign --force --sign -` (o strip invalida a assinatura e o kernel mata o processo) (446 MB) |
 | bibliotecas | `deploy_runtime.cmake` (dumpbin) | `package_linux.cmake`: `GET_RUNTIME_DEPENDENCIES`, RPATH `$ORIGIN/lib`; glibc, OpenGL e X11 vêm do sistema | `package_macos.cmake`: `GET_RUNTIME_DEPENDENCIES` para `Contents/Frameworks` (as libs do conda já usam `@rpath` + `@loader_path/`), RPATH `@executable_path/../Frameworks`, dados e runtime em `Contents/Resources` (`platform::resourceDir`) |
-| pacote | Inno Setup (122 MB) | `.tar.xz` portátil (172 MB) com `tsv.desktop`; AppImage/.deb depois | `tsv.app` em `.dmg` (199 MB), assinatura ad hoc; Developer ID + notarização quando houver conta Apple Developer; "Abrir com" do Finder via `application:openURLs:` acrescentado ao delegate do GLFW |
+| pacote | Inno Setup (122 MB) | `.tar.xz` portátil (172 MB) com `janus.desktop`; AppImage/.deb depois | `Janus.app` em `.dmg` (199 MB), assinatura ad hoc; Developer ID + notarização quando houver conta Apple Developer; "Abrir com" do Finder via `application:openURLs:` acrescentado ao delegate do GLFW |
 | CI | GitHub Actions: build, `--selftest-zeit`, instalador instalado em silêncio e testado | build, autotestes de UI (Xvfb + Mesa) e do Zeit, pacote extraído e testado | build, `--selftest-zeit`, app do `.dmg` testado (os runners não têm Metal utilizável para o teste de UI) |
-| renderer (`gpu_*`, `render_backend_*`) | OpenGL 3.3 core | OpenGL 3.3 core (WSLg/Mesa) | **Metal** (`gpu_metal.mm`, `render_backend_metal.mm`): o buffer do cubo é o próprio array do `Overview` (alinhado à página, `newBufferWithBytesNoCopy`: nada é enviado, o cubo existe uma vez na RAM e o `--budget` é o total), estatísticas em buffers compartilhados lidos pela CPU sem cópia, MSL compilado na abertura, `CAMetalLayer` na resolução Retina; `-DTSV_RENDERER=GL` mantém o caminho OpenGL para comparar. Medido (cubo de 1 GB, M4, Release): pico de 1,2 GB com cache (GL: 3,8 GB; Metal com cópia: 2,2 GB), 2,0 GB a frio (GL: 3,8 GB), carga 0,2 s com cache e 0,6 s a frio (GL: 0,4 s e 0,8 s), primeiro quadro ~90 ms contra ~115 ms; pixels idênticos nos 10 modos |
+| renderer (`gpu_*`, `render_backend_*`) | OpenGL 3.3 core | OpenGL 3.3 core (WSLg/Mesa) | **Metal** (`gpu_metal.mm`, `render_backend_metal.mm`): o buffer do cubo é o próprio array do `Overview` (alinhado à página, `newBufferWithBytesNoCopy`: nada é enviado, o cubo existe uma vez na RAM e o `--budget` é o total), estatísticas em buffers compartilhados lidos pela CPU sem cópia, MSL compilado na abertura, `CAMetalLayer` na resolução Retina; `-DJANUS_RENDERER=GL` mantém o caminho OpenGL para comparar. Medido (cubo de 1 GB, M4, Release): pico de 1,2 GB com cache (GL: 3,8 GB; Metal com cópia: 2,2 GB), 2,0 GB a frio (GL: 3,8 GB), carga 0,2 s com cache e 0,6 s a frio (GL: 0,4 s e 0,8 s), primeiro quadro ~90 ms contra ~115 ms; pixels idênticos nos 10 modos |
 | gestos (`platform::takeGestures`) | roda = zoom | roda = zoom | `platform_mac.mm`: monitor local do `NSEvent`; pinça = zoom, rolagem com fases de gesto (trackpad, Magic Mouse) = mover; roda de mouse = zoom, mesmo com rolagem suave (deltas precisos, ex.: Logitech), que não tem fases |
 | densidade da tela | 1 pixel por ponto | idem | Retina: 2 pixels por ponto; o mapa é desenhado em `FramebufferScale` do viewport onde está, e o nível dos tiles é escolhido por pixel de tela |
 
@@ -121,6 +121,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 8 | 0.11.0 | **Dados categóricos** (detecção, cores e nomes de classe, legenda, gráfico em degraus, estatísticas de classe); Mann-Kendall fora da tabela de estatísticas | concluída |
 | 9 | 0.12.0 | **Reprojeção** de camadas com CRS diferente (grade de warp na GPU) e **ROI em todas as camadas** | próxima |
 | — | 0.16.0 | **Mapas lado a lado**: painéis de mapa extras (View → New map view), cada um com uma camada e, se quiser, data e modo próprios; todos na mesma área (compartilham `scale_`/`offset_`, cada canvas centrado como o principal), cursor espelhado como cruz, pinos e ROI em todos. Um alvo de desenho por painel (`Gpu::beginMap(..., slot)`); `TileManager::tick()` uma vez por quadro, para que vários painéis pedindo tiles da mesma camada não descartem os pedidos uns dos outros | concluída |
+| — | 0.17.0 | **Janus**: o tsv passa a se chamar Janus (comando `jn`; repositório `sacridini/janus`); pastas de dados e cache migradas na primeira abertura, o instalador do Windows remove um tsv instalado | concluída |
 | 10 | 0.13.0 | **Novas visualizações**: transecto espaço-tempo (Hovmöller), mapa de calor ano × dia do ano, cortina (swipe) entre datas/camadas, área por classe ao longo do tempo e matriz de transição (categóricos) | planejada |
 
 ## Ideias (backlog)
@@ -272,7 +273,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - **CCDC** (Zeit, feito por um sub-agente): primeira ferramenta multibanda. O
   protocolo da ponte ganhou bandas por papel (blue…swir2, thermal), códigos
   Fmask (convertidos da regra de qualidade), datas reais e o que a camada mostra
-  (`shown`); o tsv lê as bandas do pixel em segundo plano e escreve um VRT por
+  (`shown`); o Janus lê as bandas do pixel em segundo plano e escreve um VRT por
   banda para as tarefas. O modelo de cada segmento é desenhado no gráfico na
   unidade mostrada (banda ou índice). Em dados sintéticos com nuvens: quebra na
   primeira observação limpa após a mudança em 100% dos pixels alterados, nenhuma
@@ -303,7 +304,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
   pixel do Zeit fixam `min_valid`, então o modo pixel chama o batch com 1 pixel.
 - Ponte dividida em núcleo + **módulos por ferramenta** (`tool_*.py`).
 - Requisitos novos no manifesto: série **regular** (datas igualmente espaçadas;
-  data faltante = banda sem dado) e **mínimo de observações por ano**; o tsv
+  data faltante = banda sem dado) e **mínimo de observações por ano**; o Janus
   desabilita a ferramenta com o motivo.
 - `--selftest-zeit` roda **todas** as ferramentas aplicáveis à série (pixel +
   recorte de 256×256) e confere as saídas. Medido (20 núcleos): série anual
@@ -340,7 +341,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - **Runtime Python privado** (`runtime\`): Python 3.12 embeddable + Zeit 0.25.0
   (wheel do PyPI, `--no-deps`) + dependências fixadas, sem PyTorch; montado por
   `tools/build_zeit_runtime.py` (testes removidos: −102 MB).
-- **Ponte** `zeit_bridge/tsv_zeit_bridge.py` no repositório do tsv (o Zeit não foi
+- **Ponte** `zeit_bridge/tsv_zeit_bridge.py` (hoje `janus_zeit_bridge.py`) no repositório do tsv (o Zeit não foi
   alterado): `serve` (lista de ferramentas + chamadas por pixel, JSON por linha)
   e `job` (processo descartável por execução em raster, com progresso; cancelar
   = encerrar o processo).

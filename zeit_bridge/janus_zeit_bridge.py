@@ -1,6 +1,6 @@
-"""Bridge between tsv (C++ viewer) and Zeit (Python + C++ time-series library).
+"""Bridge between Janus (C++ viewer) and Zeit (Python + C++ time-series library).
 
-tsv runs this script with its private Python runtime, in a separate process.
+Janus runs this script with its private Python runtime, in a separate process.
 All algorithms come from Zeit's public API. This file is the protocol and the
 generic machinery; each tool lives in a `tool_*.py` module next to it.
 
@@ -8,7 +8,7 @@ Modes
 -----
 serve
     Persistent JSON-lines RPC on stdin/stdout: the tool manifest and per-pixel
-    runs (the series is sent by tsv, the result comes back in ~ms).
+    runs (the series is sent by Janus, the result comes back in ~ms).
         -> {"id": 1, "method": "hello"}
         <- {"id": 1, "result": {"protocol": 1, "zeit_version": "...", "tools": [...]}}
         -> {"id": 2, "method": "run_pixel", "params": {"tool": "...", "params": {...},
@@ -19,16 +19,16 @@ serve
 job SPEC.json
     One-shot raster run (whole image or a window). Prints JSON lines:
         {"progress": 0.42, "message": "..."} ... then {"result": {...}} or {"error": "..."}
-    tsv cancels a job by terminating the process.
+    Janus cancels a job by terminating the process.
 
 stdout carries only protocol messages; anything else (warnings, prints from
-libraries) goes to stderr, which tsv saves to a log file.
+libraries) goes to stderr, which Janus saves to a log file.
 
 Tool modules
 ------------
 A `tool_*.py` module defines `TOOLS`, a list of dicts:
 
-    {"manifest": {...},                       # sent to tsv as is (see below)
+    {"manifest": {...},                       # sent to Janus as is (see below)
      "pixel": pixel(p, ctx) -> dict,          # optional (manifest "modes": ["pixel", ...])
      "chunk": chunk(p, stack, ctx) -> dict}   # optional (manifest "modes": [..., "raster"])
 
@@ -37,7 +37,7 @@ A `tool_*.py` module defines `TOOLS`, a list of dicts:
   (rounded, >= 1), "start": first decimal year, "ordinal": Python ordinal day of
   each date (None when the series has no real dates)}.
 - Multiband tools (manifest "requires": {"bands": [role, ...]}, e.g. CCDC) also
-  get ctx["bands"] = {role: float64 array, NaN = missing} for every role tsv
+  get ctx["bands"] = {role: float64 array, NaN = missing} for every role Janus
   mapped (the required ones plus any of "optional_bands"; [T] for pixel runs,
   [T, rows, cols] for chunks) and ctx["fmask"] = int32 Fmask codes with the same
   shape (0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 no observation),
@@ -53,7 +53,7 @@ A `tool_*.py` module defines `TOOLS`, a list of dicts:
   {output_id: 2D float array (rows, cols), NaN = no value} for every output id
   declared in the manifest.
 
-Parameters of type "patterns" are edited in tsv (reference series from pins or
+Parameters of type "patterns" are edited in Janus (reference series from pins or
 the ROI): a list of {"name", "from", "years": decimal years, "days": days since
 1970 or null, "values": floats or null} on the series' own dates. An output with
 "classes_param": "<param id>" is a class map: value k (1-based) is the k-th
@@ -65,9 +65,9 @@ Manifest: id, name, category, description, requires {"time": "any"|"annual"|
 int|float|bool|enum, default, min, max, options, labels, help), outputs (id,
 name, colormap, unit). Band roles: blue, green, red, nir, swir1, swir2, thermal.
 
-Series shown by tsv
+Series shown by Janus
 -------------------
-With one file per date and several bands, tsv may show a normalized difference
+With one file per date and several bands, Janus may show a normalized difference
 of two bands and hide unusable dates with a quality band. Pixel runs receive the
 shown values; raster jobs get the pieces ("input", "nd_input", "qa_input",
 "qa_rule") and the bridge rebuilds the same values (shown_stack).
@@ -130,7 +130,7 @@ def make_ctx(years, days=None):
 
 
 # ---------------------------------------------------------------------------
-# Quality band and normalized difference (same rules as tsv's reader)
+# Quality band and normalized difference (same rules as Janus's reader)
 # ---------------------------------------------------------------------------
 
 def qa_usable(rule, qa):
@@ -246,7 +246,7 @@ def manifest():
 
 class Inputs:
     """The rasters of a job spec, read one window at a time: the shown series
-    (normalized difference and QA mask applied, as tsv shows it) plus, for
+    (normalized difference and QA mask applied, as Janus shows it) plus, for
     multiband tools, every band and the Fmask codes in ctx."""
 
     def __init__(self, spec):

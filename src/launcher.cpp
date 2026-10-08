@@ -1,7 +1,8 @@
-// tsv.com: console launcher (same idea as Visual Studio's devenv.com).
-// In a terminal, "tsv" resolves to .com before .exe (PATHEXT order):
+// jn.com: Janus's command line, a console launcher (same idea as Visual
+// Studio's devenv.com). In a terminal, "jn" finds jn.com (PATHEXT order):
 // --help/--version are printed to the console itself; anything else opens the
-// GUI (tsv.exe) with the same arguments and returns the prompt immediately.
+// GUI (janus.exe, next to it) with the same arguments and returns the prompt
+// immediately.
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -27,17 +28,17 @@ int wmain(int argc, wchar_t** argv) {
             return 0;
         }
         if (a == "--version") {
-            std::printf("tsv %s\n", TSV_VERSION);
+            std::printf("Janus %s\n", JANUS_VERSION);
             return 0;
         }
         if (isValueOption(a.c_str())) {
             if (i + 1 >= argc) {
-                std::fprintf(stderr, "tsv: %s needs a value\n", a.c_str());
+                std::fprintf(stderr, "jn: %s needs a value\n", a.c_str());
                 return 2;
             }
             ++i;
         } else if (a.rfind("--", 0) == 0) {
-            std::fprintf(stderr, "tsv: unknown option: %s\n\n%s", a.c_str(), kUsage);
+            std::fprintf(stderr, "jn: unknown option: %s\n\n%s", a.c_str(), kUsage);
             return 2;
         }
     }
@@ -45,7 +46,7 @@ int wmain(int argc, wchar_t** argv) {
     wchar_t self[MAX_PATH];
     GetModuleFileNameW(nullptr, self, MAX_PATH);
     std::wstring exe = self;
-    exe.replace(exe.size() - 4, 4, L".exe");
+    exe = exe.substr(0, exe.find_last_of(L"\\/") + 1) + L"janus.exe";
 
     // Forward the original command line, minus the program name.
     const wchar_t* rest = GetCommandLineW();
@@ -62,7 +63,7 @@ int wmain(int argc, wchar_t** argv) {
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
     if (!CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
-        std::fprintf(stderr, "tsv: could not start %s (error %lu)\n", toUtf8(exe.c_str()).c_str(), GetLastError());
+        std::fprintf(stderr, "jn: could not start %s (error %lu)\n", toUtf8(exe.c_str()).c_str(), GetLastError());
         return 1;
     }
     CloseHandle(pi.hThread);

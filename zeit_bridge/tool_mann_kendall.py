@@ -1,4 +1,4 @@
-"""Mann-Kendall trend test + Theil-Sen slope (Zeit) for tsv."""
+"""Mann-Kendall trend test + Theil-Sen slope (Zeit) for Janus."""
 import math
 
 import numpy as np

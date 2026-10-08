@@ -1,7 +1,7 @@
-"""TWDTW classification (Zeit) for tsv: each pixel gets the class of the most
+"""TWDTW classification (Zeit) for Janus: each pixel gets the class of the most
 similar reference series (pattern), with Time-Weighted Dynamic Time Warping.
 
-Patterns are made in tsv from pins or the ROI mean (parameter of type
+Patterns are made in Janus from pins or the ROI mean (parameter of type
 "patterns"). Zeit's TWDTW works on absolute dates in days: the time penalty is
 alpha / (1 + exp(-beta * (|day difference| - gamma))) and no point is matched
 to one more than max_time_warp days away. Series and patterns are therefore

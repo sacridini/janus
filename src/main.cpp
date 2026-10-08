@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
             return 0;
         } else if (a == "--version") {
             platform::attachParentConsole();
-            std::printf("tsv %s (GDAL %s)\n", TSV_VERSION, GDALVersionInfo("RELEASE_NAME"));
+            std::printf("Janus %s (GDAL %s)\n", JANUS_VERSION, GDALVersionInfo("RELEASE_NAME"));
             return 0;
         } else if (a == "--band") {
             const char* v = next();
@@ -96,8 +96,8 @@ int main(int argc, char** argv) {
     }
 
     // Developer override of the bundled Zeit runtime (also via environment).
-    if (opts.zeitPython.empty()) opts.zeitPython = platform::getEnv("TSV_ZEIT_PYTHON");
-    if (opts.zeitBridge.empty()) opts.zeitBridge = platform::getEnv("TSV_ZEIT_BRIDGE");
+    if (opts.zeitPython.empty()) opts.zeitPython = platform::getEnv("JANUS_ZEIT_PYTHON");
+    if (opts.zeitBridge.empty()) opts.zeitBridge = platform::getEnv("JANUS_ZEIT_BRIDGE");
 
     StartupTimes st;
     configureBundledData();
@@ -114,12 +114,12 @@ int main(int argc, char** argv) {
 
 #ifdef __APPLE__
     // Inside an .app, GLFW would make Contents/Resources the current folder:
-    // relative paths from the command line (tsv folder/) would then break.
+    // relative paths from the command line (jn folder/) would then break.
     glfwInitHint(GLFW_COCOA_CHDIR_RESOURCES, GLFW_FALSE);
 #endif
     if (!glfwInit()) return 1;
     std::string error;
-    GLFWwindow* window = render::createWindow(1600, 950, "tsv", !selftestUi, error);
+    GLFWwindow* window = render::createWindow(1600, 950, "Janus", !selftestUi, error);
     if (!window) {
         platform::attachParentConsole();
         std::fprintf(stderr, "Could not open the window (%s): %s\n", render::name(), error.c_str());

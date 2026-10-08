@@ -2,11 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key>                  <string>tsv</string>
-  <key>CFBundleDisplayName</key>           <string>tsv</string>
-  <key>CFBundleIdentifier</key>            <string>io.github.sacridini.tsv</string>
-  <key>CFBundleExecutable</key>            <string>tsv</string>
-  <key>CFBundleIconFile</key>              <string>tsv</string>
+  <key>CFBundleName</key>                  <string>Janus</string>
+  <key>CFBundleDisplayName</key>           <string>Janus</string>
+  <key>CFBundleIdentifier</key>            <string>io.github.sacridini.janus</string>
+  <key>CFBundleExecutable</key>            <string>janus</string>
+  <key>CFBundleIconFile</key>              <string>janus</string>
   <key>CFBundlePackageType</key>           <string>APPL</string>
   <key>CFBundleVersion</key>               <string>@VERSION@</string>
   <key>CFBundleShortVersionString</key>    <string>@VERSION@</string>
@@ -15,7 +15,7 @@
   <key>LSApplicationCategoryType</key>     <string>public.app-category.graphics-design</string>
   <key>NSHighResolutionCapable</key>       <true/>
   <key>NSHumanReadableCopyright</key>      <string>Raster time series viewer</string>
-  <!-- "Open With tsv" for folders (1 file = 1 date) and rasters. -->
+  <!-- "Open With Janus" for folders (1 file = 1 date) and rasters. -->
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>

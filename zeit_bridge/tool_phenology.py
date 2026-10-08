@@ -1,8 +1,8 @@
-"""Land surface phenology (Zeit) for tsv: season start/peak/end per pixel.
+"""Land surface phenology (Zeit) for Janus: season start/peak/end per pixel.
 
 Zeit's phenology (a port of phenofit) smooths the series (Whittaker or HANTS),
 splits it into growing seasons, fits a double-logistic-type curve to each
-season and derives the dates from the fitted curve. Time is in days: tsv's
+season and derives the dates from the fitted curve. Time is in days: Janus's
 decimal years are converted to "days since 1 January of the first year,
 1-indexed" (Zeit's convention) and back.
 
@@ -101,7 +101,7 @@ MANIFEST = {
 
 
 # ---------------------------------------------------------------------------
-# Time conversions (tsv decimal year = Y + (day of year - 1) / days in Y)
+# Time conversions (Janus decimal year = Y + (day of year - 1) / days in Y)
 # ---------------------------------------------------------------------------
 
 def _diy(y):

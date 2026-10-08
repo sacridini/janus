@@ -164,7 +164,7 @@ void release(uint64_t h) {
 }
 
 id<MTLTexture> makeTexture(MTLPixelFormat fmt, int w, int h, const void* data, size_t bytesPerRow) {
-    id<MTLDevice> dev = tsvMetalDevice();
+    id<MTLDevice> dev = janusMetalDevice();
     MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:fmt
                                                                                  width:NSUInteger(w)
                                                                                 height:NSUInteger(h)
@@ -178,7 +178,7 @@ id<MTLTexture> makeTexture(MTLPixelFormat fmt, int w, int h, const void* data, s
 }
 
 id<MTLBuffer> makeBuffer(size_t bytes) {
-    return [tsvMetalDevice() newBufferWithLength:std::max<size_t>(bytes, 16) options:MTLResourceStorageModeShared];
+    return [janusMetalDevice() newBufferWithLength:std::max<size_t>(bytes, 16) options:MTLResourceStorageModeShared];
 }
 
 void sampleColormap(int cmap, unsigned char* px) {
@@ -197,13 +197,13 @@ void sampleColormap(int cmap, unsigned char* px) {
 // Device and queue (shared with render_backend_metal.mm)
 // ---------------------------------------------------------------------------
 
-id<MTLDevice> tsvMetalDevice() {
+id<MTLDevice> janusMetalDevice() {
     static id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
     return dev;
 }
 
-id<MTLCommandQueue> tsvMetalQueue() {
-    static id<MTLCommandQueue> q = [tsvMetalDevice() newCommandQueue];
+id<MTLCommandQueue> janusMetalQueue() {
+    static id<MTLCommandQueue> q = [janusMetalDevice() newCommandQueue];
     return q;
 }
 
@@ -215,7 +215,7 @@ GpuCube::~GpuCube() {
     if (sharesHost) {
         // The buffer outlives us in the command buffers still running, but the
         // memory behind it is the Overview's, freed next: let the queue drain.
-        id<MTLCommandBuffer> cb = [tsvMetalQueue() commandBuffer];
+        id<MTLCommandBuffer> cb = [janusMetalQueue() commandBuffer];
         [cb commit];
         [cb waitUntilCompleted];
     }
@@ -233,7 +233,7 @@ void GpuCube::create(int w_, int h_, int T_, const std::vector<float>& timesYear
     const size_t page = size_t(getpagesize());
     id<MTLBuffer> cb = nil;
     if (host && hostBytes >= plane * T * sizeof(float) && uintptr_t(host) % page == 0 && hostBytes % page == 0)
-        cb = [tsvMetalDevice() newBufferWithBytesNoCopy:host length:hostBytes options:MTLResourceStorageModeShared
+        cb = [janusMetalDevice() newBufferWithBytesNoCopy:host length:hostBytes options:MTLResourceStorageModeShared
                                             deallocator:nil];
     sharesHost = cb != nil;
     cube = retain(cb ? cb : makeBuffer(plane * T * sizeof(float)));
@@ -294,8 +294,8 @@ Gpu::~Gpu() = default;
 
 bool Gpu::init(std::string& error) {
     Impl& d = *impl_;
-    d.dev = tsvMetalDevice();
-    d.queue = tsvMetalQueue();
+    d.dev = janusMetalDevice();
+    d.queue = janusMetalQueue();
     if (!d.dev || !d.queue) {
         error = "no Metal device";
         return false;

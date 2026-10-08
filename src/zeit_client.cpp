@@ -240,7 +240,7 @@ bool ZeitProcess::start(const ZeitConfig& cfg, const std::vector<std::string>& a
         close(out[0]);
         return false;
     }
-    signal(SIGPIPE, SIG_IGN); // a write after the child died must fail, not kill tsv
+    signal(SIGPIPE, SIG_IGN); // a write after the child died must fail, not kill Janus
     pid_ = pid;
     stdinFd_ = in[1];
     stdoutFd_ = out[0];
