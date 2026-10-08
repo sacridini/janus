@@ -148,7 +148,7 @@
         <p class="tag">Map</p>
         <h3>Statistics on the GPU</h3>
         <p>Value at date, anomaly, mean, standard deviation, linear trend, minimum, maximum, amplitude, trend R² and a multitemporal RGB. Changing the date, colormap or stretch is instant.</p>
-        <p class="spec">10 map modes · animation player</p>
+        <p class="spec">13 map modes · animation player</p>
       </article>
       <article>
         <p class="tag">Series</p>
@@ -171,20 +171,38 @@
       <article>
         <p class="tag">Layers</p>
         <h3>Side by side</h3>
-        <p>Open several series as layers placed by their georeferencing, and show them in map panels that pan and zoom together, each at its own date and mode.</p>
-        <p class="spec">2005 next to 2020 · NDVI next to NBR</p>
+        <p>Open several series as layers placed by their georeferencing, and show them in map panels that pan and zoom together, each at its own date and mode. Drag any panel to a second monitor.</p>
+        <p class="spec">Ctrl+T / Ctrl+W · 2005 next to 2020 · NDVI next to NBR</p>
       </article>
       <article>
         <p class="tag">Detail</p>
         <h3>Full resolution on zoom</h3>
-        <p>Past the overview resolution, tiles of the visible area are read in the background and cached on the GPU. The overview is cached on disk, so reopening takes a fraction of a second.</p>
+        <p>Past the overview resolution, tiles of the visible area are read in the background and cached on the GPU. The overview is cached on disk date by date, so reopening takes a fraction of a second and closing during the first open loses nothing.</p>
         <p class="spec">COG-friendly · HDD-aware reader</p>
+      </article>
+      <article>
+        <p class="tag">Change</p>
+        <h3>Difference and largest drop</h3>
+        <p>Map the difference from a reference date, or from the previous one, on a diverging scale. Or map when the largest drop happened and how deep it was, computed for every pixel on the GPU.</p>
+        <p class="spec">Δ to a date or t−1 · drop date · drop magnitude</p>
+      </article>
+      <article>
+        <p class="tag">Compare</p>
+        <h3>Swipe</h3>
+        <p>Drag a divider across the map to compare it with another layer, or with the same layer at another date or in another mode.</p>
+        <p class="spec">S to toggle · 1985 | 2025 · NDVI | NBR</p>
+      </article>
+      <article>
+        <p class="tag">Space-time</p>
+        <h3>Transect</h3>
+        <p>Draw a line on the map and see distance against time in one image: deforestation fronts and regrowth appear as shapes. Hover marks the place on the map, a click goes to that date.</p>
+        <p class="spec">Ctrl+drag · values or anomalies · CSV</p>
       </article>
       <article>
         <p class="tag">Export</p>
         <h3>Out to your tools</h3>
-        <p>Copy the cursor, pin and region series as CSV, and drag any panel to a second monitor: the map on one screen, the charts on the other.</p>
-        <p class="spec">Copy CSV · detachable panels</p>
+        <p>Save the map as a PNG for figures, at up to 4× the screen resolution, with legend and date. Save the values or the rendered view as a georeferenced GeoTIFF for QGIS, and the series as CSV.</p>
+        <p class="spec">PNG · GeoTIFF · Zeit results · CSV</p>
       </article>
     </div>
   </div>
@@ -304,7 +322,7 @@ jn "S2_*_NDVI.tif" --band 1
       </details>
       <details>
         <summary>Will a spinning hard disk be slow?</summary>
-        <p>Janus detects spinning disks and reads them with a single sequential reader, which was measured to be four times faster than two. The first open is bound by the disk; after that the cube comes from the overview cache.</p>
+        <p>Janus detects spinning disks and reads them with a single sequential reader, which was measured to be four times faster than two. The first open is bound by the disk; after that the cube comes from the overview cache. The cache is written date by date, so if you close Janus halfway, the next open reads only the dates still missing.</p>
       </details>
       <details>
         <summary>Why the name?</summary>
