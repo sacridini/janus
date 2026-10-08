@@ -87,16 +87,17 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Objetivo: o tsv deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
   listado aqui. Dependências novas devem ser multiplataforma.
-- Situação (0.10.0): **Windows** e **Linux x86_64** compilados e testados
-  (Linux no WSL, Ubuntu 24.04, com os mesmos autotestes); **macOS** tem o código
-  mas não foi compilado.
+- Situação (0.11.0): **Windows** e **Linux x86_64** compilados e testados
+  (Linux no WSL, Ubuntu 24.04, com os mesmos autotestes); **macOS** (Apple
+  Silicon, macOS 26) compilado da fonte com GDAL do conda, autotestes de UI e do
+  Zeit passando; falta o bundle `.app`.
 
 | Onde | Windows | Linux | macOS |
 |---|---|---|---|
 | `src/platform.cpp` | IFileOpenDialog, IOCTL de seek penalty, Explorer | `zenity`/`kdialog`, `/sys/dev/block/*/queue/rotational`, `xdg-open`, `~/.local/share/tsv` | AppleScript, `open`, `~/Library/Application Support/tsv` (não testado) |
-| `ZeitProcess` (`src/zeit_client.cpp`) | CreateProcess + pipes, lista de handles herdados | `posix_spawn` + pipes (testado) | o mesmo (não testado) |
+| `ZeitProcess` (`src/zeit_client.cpp`) | CreateProcess + pipes, lista de handles herdados | `posix_spawn` + pipes (testado) | o mesmo (testado) |
 | `tsv.com` (`src/launcher.cpp`) | truque do `.com` para o console | desnecessário: um binário só | idem |
-| runtime do Zeit | Python *embeddable* | `python-build-standalone` *stripped* + wheels manylinux, `strip --strip-debug` (638 MB) | receita `macos_arm64` (não testada) |
+| runtime do Zeit | Python *embeddable* | `python-build-standalone` *stripped* + wheels manylinux, `strip --strip-debug` (638 MB) | receita `macos_arm64`: wheels até `macosx_15_0`, `strip -S` seguido de `codesign --force --sign -` (o strip invalida a assinatura e o kernel mata o processo) (446 MB) |
 | bibliotecas | `deploy_runtime.cmake` (dumpbin) | `package_linux.cmake`: `GET_RUNTIME_DEPENDENCIES`, RPATH `$ORIGIN/lib`; glibc, OpenGL e X11 vêm do sistema | bundle `.app` (a fazer) |
 | pacote | Inno Setup (122 MB) | `.tar.xz` portátil (172 MB) com `tsv.desktop`; AppImage/.deb depois | `.app` + `.dmg` assinado (a fazer) |
 | OpenGL 3.3 core | ok | ok (WSLg/Mesa) | exige `GLFW_OPENGL_FORWARD_COMPAT` (já definido); OpenGL obsoleto lá, o ImGui tem backend Metal |

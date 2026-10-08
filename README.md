@@ -290,9 +290,23 @@ cmake --build build --target package_linux    # -> dist/tsv-<version>-linux-x86_
 
 ### macOS (Apple Silicon)
 
-Not tested yet. The code has the macOS branches (process spawning, dialogs
-through AppleScript, OpenGL forward-compatible context) and the runtime builder
-has a recipe for `macos_arm64`; a `.app` bundle is still to be done.
+Builds with the Xcode command line tools (AppleClang) and GDAL from a conda
+environment; tested on macOS 26, UI and Zeit self-tests pass:
+
+```bash
+conda create -n geo -c conda-forge gdal
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$HOME/miniconda3/envs/geo" \
+    -DPython3_EXECUTABLE="$HOME/miniconda3/envs/geo/bin/python3"
+cmake --build build -j
+cmake --build build --target zeit_runtime     # -> build/runtime (python-build-standalone + Zeit)
+./build/tsv --selftest-zeit <series>
+ln -s "$PWD/build/tsv" ~/.local/bin/tsv       # tsv from any terminal (runtime/ is found through the link)
+```
+
+The build links GDAL from the conda environment through an absolute RPATH, so
+it breaks if that environment is removed; a self-contained `.app` bundle is
+still to be done. The Zeit runtime re-signs (ad hoc) the native libraries it
+strips: on Apple Silicon a binary with an invalid signature is killed on load.
 
 ## Architecture
 
@@ -333,6 +347,6 @@ has a recipe for `macos_arm64`; a `.app` bundle is still to be done.
 Planned work and the reasoning behind design decisions live in
 [IDEIAS.md](IDEIAS.md) (in Portuguese). Next: reprojection of layers with
 different CRSs and ROI on every layer; then new views (space-time transect,
-year x day-of-year heatmap, swipe, area per class over time). tsv runs on Windows and Linux
-(x86_64); macOS (Apple Silicon) has the code paths but is not built yet. The
+year x day-of-year heatmap, swipe, area per class over time). tsv runs on Windows, Linux
+(x86_64) and macOS (Apple Silicon, from a source build; no `.app` bundle yet). The
 OS-specific code is isolated (see the portability table in IDEIAS.md).

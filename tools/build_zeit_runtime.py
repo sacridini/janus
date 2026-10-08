@@ -44,10 +44,10 @@ PLATFORMS = {
         "sha256": "8c59b9ac6bff2dc3934181d7bc82594f9f59a613afed8d72c9e89d7194e790ee",
         "wheels": ["manylinux_2_28_x86_64", "manylinux_2_17_x86_64", "manylinux2014_x86_64"],
     },
-    "macos_arm64": {  # not tested yet (no Mac at hand)
+    "macos_arm64": {
         "url": f"{PBS}/{PBS_TAG}/cpython-{PY_VERSION}+{PBS_TAG}-aarch64-apple-darwin-install_only_stripped.tar.gz",
         "sha256": "0be1fe0b35a4d3c382141764ef16ed3b8cc2b4620b657f678daa7b7f8df39699",
-        "wheels": ["macosx_14_0_arm64", "macosx_13_0_arm64", "macosx_12_0_arm64", "macosx_11_0_arm64"],
+        "wheels": ["macosx_15_0_arm64", "macosx_14_0_arm64", "macosx_13_0_arm64", "macosx_12_0_arm64", "macosx_11_0_arm64"],
     },
 }
 
@@ -166,6 +166,11 @@ def main():
         for f in site.rglob("*.so*"):
             if f.is_file() and not f.is_symlink():
                 subprocess.run(["strip", flag, str(f)], check=False, capture_output=True)
+                # On arm64 macOS, stripping invalidates the code signature and the
+                # kernel kills the process that loads the file: sign it again (ad hoc).
+                if target.startswith("macos"):
+                    subprocess.run(["codesign", "--force", "--sign", "-", str(f)],
+                                   check=False, capture_output=True)
         after = sum(f.stat().st_size for f in site.rglob("*.so*") if f.is_file())
         print(f"stripped debug information: {(before - after) / 2**20:.0f} MB")
 
