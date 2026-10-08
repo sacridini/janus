@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <future>
 #include <map>
 #include <memory>
@@ -13,6 +14,7 @@
 
 #include <imgui.h>
 
+#include "basemap.hpp"
 #include "file_browser.hpp"
 #include "platform.hpp"
 #include "gpu.hpp"
@@ -162,6 +164,39 @@ private:
     void uiFullResSettings();
     int selfTestFullRes(); // --selftest-ui stages 30-32 (app_selftest.cpp)
     int selfTestReproject(const std::string& f); // stages 40-45: F, B reprojected (app_selftest.cpp)
+    int selfTestBasemap();                       // stages 50-55: a local tile pyramid (app_selftest.cpp)
+
+    // Basemap (app_basemap.cpp): web imagery or a map under every layer, in
+    // Web Mercator, placed on the active layer's grid (basemap.hpp).
+    void registerBasemapSettings();
+    void pumpBasemap();               // once per frame: source, placement, uploads
+    void retireBasemap();             // GPU resources now, the rest in the background
+    bool basemapShown() const;        // on, a source picked and placed on the active layer
+    BasemapSource basemapSource() const; // the chosen preset, or the custom URL
+    bool basemapCustomOk(std::string* why = nullptr) const;
+    std::string basemapAttribution() const; // "" when not shown
+    // Into the current map target, first: `view` = map-space rectangle,
+    // `toTarget` = map space -> target pixels (x0, y0, x1, y1).
+    void drawBasemap(const double view[4], double pxPerMapPx, const float bg[4], float targetW, float targetH,
+                     const std::function<void(const double*, float*)>& toTarget);
+    void drawBasemapNote(ImDrawList* dl, ImVec2 origin, ImVec2 size); // attribution and state, bottom right
+    void uiBasemap();                 // Layers panel
+    void uiBasemapPerf();             // Performance panel
+    struct BasemapUi {                // the setting (layout .ini)
+        std::string source = "none";  // "none", a preset's id or "custom"
+        bool on = true;
+        float opacity = 1.0f;
+        std::string url;              // custom XYZ template
+        int maxZoom = 19;
+        int tileSize = 256;
+        std::string attribution;
+    } bm_;
+    char bmUrlEdit_[1024] = "";       // custom fields being edited
+    char bmAttrEdit_[256] = "";
+    std::unique_ptr<Basemap> basemap_;
+    std::string basemapWhy_;          // why it is not drawn (e.g. the active layer has no CRS)
+    uint64_t basemapFailedFor_ = 0;   // CubeInfo id it could not be placed on
+    std::vector<std::future<void>> retiredBasemaps_;
 
     // Zeit tools (app_zeit.cpp)
     ZeitConfig zeitConfig() const;
@@ -305,6 +340,7 @@ private:
         int mode = ModeValue;
         Range range;             // automatic range of an own mode
         bool docked = false;     // split next to the main map once
+        bool basemapOnly = false; // the basemap alone (no layer), e.g. as the swipe's comparison
         bool dirty = true;
         ImVec2 size{0, 0};
         float pixelScale = 1.0f;

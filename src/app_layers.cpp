@@ -635,6 +635,7 @@ void App::uiLayers() {
     }
     if (layers_.empty()) {
         ImGui::TextDisabled("No layers. Open a series (File, Files panel,\ndrag and drop or the command line).");
+        uiBasemap();
         ImGui::End();
         return;
     }
@@ -720,6 +721,7 @@ void App::uiLayers() {
     }
     if (activate >= 0) setActive(activate);
     if (remove >= 0) removeLayer(remove);
+    uiBasemap(); // drawn under every layer: last in the list
     ImGui::End();
 }
 

@@ -38,6 +38,8 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
 - **Compare**: several series as layers, in any CRS (reprojected on the GPU),
   map panels side by side, a swipe divider, and space-time transects
   (distance × date).
+- **Basemap** under the series: Esri World Imagery, Sentinel-2 cloudless,
+  OpenStreetMap or your own XYZ tiles; off until you pick one.
 - **Categorical series** (land cover, classifications) with class colours,
   names and change summaries; **several bands per date** with normalized
   differences and cloud masks.

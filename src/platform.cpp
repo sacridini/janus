@@ -497,6 +497,20 @@ std::tm platform::localTime(std::time_t t) {
     return tm;
 }
 
+std::string platform::caBundlePath() {
+#ifdef _WIN32
+    return "";
+#else
+    // Debian/Ubuntu/Arch, Fedora/RHEL, openSUSE, older RHEL, macOS and Alpine.
+    static const char* const kFiles[] = {"/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt",
+                                         "/etc/ssl/ca-bundle.pem", "/etc/pki/tls/cacert.pem", "/etc/ssl/cert.pem"};
+    std::error_code ec;
+    for (const char* f : kFiles)
+        if (fs::exists(f, ec)) return f;
+    return "";
+#endif
+}
+
 std::string platform::resourceDir() {
     const fs::path exe = fs::u8path(exeDir());
 #ifdef __APPLE__

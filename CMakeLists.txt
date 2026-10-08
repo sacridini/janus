@@ -81,6 +81,7 @@ endif()
 set(JANUS_SOURCES
   src/main.cpp
   src/app.cpp
+  src/app_basemap.cpp
   src/app_classes.cpp
   src/app_export.cpp
   src/app_fullres.cpp
@@ -93,6 +94,7 @@ set(JANUS_SOURCES
   src/results.cpp
   src/selftest.cpp
   src/zeit_client.cpp
+  src/basemap.cpp
   src/cube.cpp
   src/fullres_cache.cpp
   src/overview.cpp

@@ -19,8 +19,10 @@ class OGRCoordinateTransformation;
 class Reprojection {
 public:
     // Null if the two cannot be related (no georeferencing, unknown CRS, no
-    // transformation between the CRSs); `why` says why.
-    static std::unique_ptr<Reprojection> create(const CubeInfo& active, const CubeInfo& layer, std::string& why);
+    // transformation between the CRSs); `why` says why. The GPU grid covers the
+    // active layer and `margin` x its longer side around it.
+    static std::unique_ptr<Reprojection> create(const CubeInfo& active, const CubeInfo& layer, std::string& why,
+                                                double margin = 0.6);
     ~Reprojection();
     Reprojection(const Reprojection&) = delete;
     Reprojection& operator=(const Reprojection&) = delete;
@@ -59,7 +61,7 @@ public:
 
 private:
     Reprojection() = default;
-    void buildGrid(const CubeInfo& active, const CubeInfo& layer);
+    void buildGrid(const CubeInfo& active, double margin);
     double ga_[6]{}, gb_[6]{};       // geotransforms (pixel -> CRS)
     double ia_[6]{}, ib_[6]{};       // and their inverses
     int lw_ = 0, lh_ = 0;            // the layer's size

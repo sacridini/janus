@@ -91,8 +91,10 @@ void App::drawSwipe(ImDrawList* dl, ImVec2 origin, ImVec2 size, float pixelScale
     const int diffRef = diffRefDate(isActive ? diffRef_ : L->disp.diffRef, t, T);
 
     // Detail tiles of the comparison, as in a map panel (the layer's own pixels).
+    // The basemap's are those of the main map (the same view).
     int level = -1;
-    if (detail_ && (mode == ModeValue || (mode == ModeDiff && diffRef >= 0)) && !S.deferRandomReads()) {
+    if (detail_ && !v.basemapOnly && (mode == ModeValue || (mode == ModeDiff && diffRef >= 0)) &&
+        !S.deferRandomReads()) {
         const ViewRect r = layerView(*L, -offset_.x / scale_, -offset_.y / scale_, (size.x - offset_.x) / scale_,
                                      (size.y - offset_.y) / scale_, scale_ * pixelScale);
         level = S.tiles->update(t, r, -1);
@@ -120,7 +122,9 @@ void App::drawSwipe(ImDrawList* dl, ImVec2 origin, ImVec2 size, float pixelScale
 
     // What the right side shows, at the top right (below the overview progress bar).
     char title[200];
-    if (mode == ModeRGB)
+    if (v.basemapOnly)
+        std::snprintf(title, sizeof(title), "Basemap: %s", basemapSource().name.c_str());
+    else if (mode == ModeRGB)
         std::snprintf(title, sizeof(title), "%s  |  RGB", L->name.c_str());
     else if (mode == ModeValue || mode == ModeAnomaly)
         std::snprintf(title, sizeof(title), "%s  |  %s  |  %s", L->name.c_str(), li.layers[t].label.c_str(), modeName(mode));

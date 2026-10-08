@@ -12,7 +12,8 @@
 //   E  categorical series without them (detected from its values).
 //   F  B reprojected to another CRS (nearest): added as a layer over A and B,
 //      it must be drawn where B is, give B's series and B's ROI (stages 40-45).
-// With A and B open it also checks the swipe and the space-time transect.
+// With A and B open it also checks the swipe and the space-time transect, and
+// then the basemap from a local tile pyramid (stages 50-56, no network).
 // Between the series and the map checks, the full-resolution cache of B must
 // give exactly the source values (stages 30-32).
 #include "app.hpp"
@@ -27,8 +28,10 @@
 
 #include <gdal_priv.h>
 #include <ogr_spatialref.h>
+#include <sstream>
 #include <thread>
 
+#include <imgui_internal.h>
 #include <implot.h>
 
 namespace {
@@ -149,6 +152,8 @@ int App::selfTestStep(const std::vector<std::string>& in) {
     switch (st_.stage) {
     case 0:
         st_.t0 = st_.since = now();
+        ImGui::GetIO().IniFilename = nullptr; // the user's layout was read; the test's settings are not saved
+        bm_ = BasemapUi{};                    // no basemap, whatever the user's setting
         openInputs(a);
         next("open A");
         break;
@@ -247,7 +252,7 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         std::printf("[%5.1f s] exports: PNG and GeoTIFFs match the map and the source values\n", now() - st_.t0);
         if (const char* err = selfTestCompare()) return fail(err);
         next("layer drawing and visibility, exports, swipe, transect");
-        if (in.size() > 5) st_.stage = 40; // F: reprojection, then back to 7
+        st_.stage = in.size() > 5 ? 40 : 50; // F: reprojection (40-45); the basemap (50-56); then back to 7
         break;
     }
     case 40:
@@ -257,6 +262,14 @@ int App::selfTestStep(const std::vector<std::string>& in) {
     case 44:
     case 45:
         return selfTestReproject(in[5]);
+    case 50:
+    case 51:
+    case 52:
+    case 53:
+    case 54:
+    case 55:
+    case 56:
+        return selfTestBasemap();
     case 7: {
         const int pinBefore = pins_[0].x;
         setActive(0);
@@ -1173,6 +1186,427 @@ int App::selfTestReproject(const std::string& f) {
         clearRoi();
         if (layers_.size() != 2 || active_ != 1) return fail("closing F should leave B active");
         next("F active (B reprojected on its grid), back to B, F closed");
+        st_.stage = 50; // the basemap
+        break;
+    }
+    }
+    return -1;
+}
+
+// Stages 50-56: the basemap, from a tile pyramid written to a temporary folder
+// and read through GDAL's WMS driver as a file:// XYZ source (no network). So
+// far, with the basemap None, nothing may have been made nor any WMS dataset
+// opened. 50 checks that and a layer without a CRS, writes the pyramid (Web
+// Mercator cells of 32 pixels of the finest level, red and green by cell,
+// blue by zoom level; one tile of the finest level left out) and picks it; 51
+// waits for the tiles of a 400 x 300 view on B; 52 checks the map pixels away
+// from cell and tile edges against PROJ (B's pixels -> its CRS -> EPSG:3857
+// -> the cell's colour; the coarse preview where the tile is missing), that the
+// layers are drawn over it (opaque, then B at half opacity) and the basemap's
+// own opacity, and times it; 53 a map panel and the swipe showing the basemap
+// alone; 54 the attribution in the PNG and the view GeoTIFF; 55-56 back to
+// None: the Basemap goes and nothing is drawn.
+int App::selfTestBasemap() {
+    namespace fs = std::filesystem;
+    auto fail = [&](const std::string& what) {
+        std::printf("FAIL (stage %d): %s\n", st_.stage, what.c_str());
+        return 1;
+    };
+    auto next = [&](const char* done) {
+        std::printf("[%5.1f s] %s\n", now() - st_.t0, done);
+        ++st_.stage;
+        st_.since = now();
+        st_.frames = 0;
+    };
+    constexpr int W = 400, H = 300, kZ = 13;
+    constexpr double E = 20037508.342789244;
+    const double tileSpan = 2 * E / (1 << kZ), cell = tileSpan / 8; // 32 pixels of zoom 13
+    const fs::path dir = fs::temp_directory_path() / "janus-selftest-basemap";
+    const CubeInfo& info = *s_->info;
+    // The test's view: B fitted to 400 x 300, zoomed 1.5x about the centre.
+    auto setView = [&] {
+        canvasSize_ = ImVec2(float(W), float(H));
+        fitView(canvasSize_);
+        const ImVec2 c(W * 0.5f, H * 0.5f);
+        offset_ = ImVec2(c.x - (c.x - offset_.x) * 1.5f, c.y - (c.y - offset_.y) * 1.5f);
+        scale_ *= 1.5;
+        viewTouched_ = true;
+    };
+    auto view = [&](double v[4]) {
+        v[0] = -offset_.x / scale_;
+        v[1] = -offset_.y / scale_;
+        v[2] = (W - offset_.x) / scale_;
+        v[3] = (H - offset_.y) / scale_;
+    };
+    OGRSpatialReference sa, sm;
+    sa.importFromWkt(info.crsWkt.c_str());
+    sm.importFromEPSG(3857);
+    sa.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    sm.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    std::unique_ptr<OGRCoordinateTransformation, void (*)(OGRCoordinateTransformation*)> ct(
+        OGRCreateCoordinateTransformation(&sa, &sm), OGRCoordinateTransformation::DestroyCT);
+    if (!ct) return fail("no transformation from B's CRS to EPSG:3857");
+    // Canvas point (pixel units) -> Web Mercator, exactly (PROJ).
+    auto merc = [&](double cx, double cy, double& X, double& Y) {
+        info.pixelToGeo((cx - offset_.x) / scale_, (cy - offset_.y) / scale_, X, Y);
+        return ct->Transform(1, &X, &Y) == TRUE;
+    };
+    auto colour = [&](double X, double Y, int z, unsigned char c[3]) {
+        const long long a = (long long)std::floor((X + E) / cell), b = (long long)std::floor((E - Y) / cell);
+        c[0] = (unsigned char)(40 + 25 * (a % 8));
+        c[1] = (unsigned char)(40 + 25 * (b % 8));
+        c[2] = (unsigned char)(60 + 12 * z);
+    };
+    // The zoom 13 tile left out: under canvas point (100, 150) of the view.
+    auto missing = [&](int& tx, int& ty) {
+        setView();
+        double X, Y;
+        merc(100.5, 150.5, X, Y);
+        tx = int(std::floor((X + E) / tileSpan));
+        ty = int(std::floor((E - Y) / tileSpan));
+    };
+    auto render = [&](std::vector<unsigned char>& img) {
+        renderMap(W, H);
+        int w = 0, h = 0;
+        gpu_.readMap(img, w, h);
+    };
+    auto near = [](const unsigned char* a, const unsigned char* b, int tol) {
+        return std::abs(a[0] - b[0]) <= tol && std::abs(a[1] - b[1]) <= tol && std::abs(a[2] - b[2]) <= tol;
+    };
+    SeriesLayer& A = layers_[0];
+    SeriesLayer& B = layers_[1];
+    std::error_code ec;
+    switch (st_.stage) {
+    case 50: {
+        int n = 0, wms = 0;
+        GDALDataset** open = GDALDataset::GetOpenDatasets(&n);
+        for (int i = 0; i < n; ++i)
+            if (open[i]->GetDriver() && std::strcmp(open[i]->GetDriver()->GetDescription(), "WMS") == 0) ++wms;
+        std::printf("    basemap None so far: Basemap %s, %d WMS datasets opened, %d open now\n",
+                    basemap_ ? "made" : "not made", Basemap::datasetsOpened(), wms);
+        if (basemap_ || Basemap::datasetsOpened() || wms) return fail("with the basemap None nothing may be made or opened");
+        fs::remove_all(dir, ec);
+        fs::create_directories(dir, ec);
+        std::string url = dir.generic_u8string();
+        url = "file://" + std::string(url.rfind('/', 0) == 0 ? "" : "/") + url + "/{z}/{x}/{y}.png";
+        {
+            CubeInfo c = info; // no CRS: not placed, with the reason
+            c.crsWkt.clear();
+            c.id = ~0ull;
+            BasemapSource s;
+            s.url = url;
+            Basemap b(s, dir.u8string(), {});
+            std::string why;
+            if (b.setMap(c, why) || why.find("no CRS") == std::string::npos) return fail("a layer without a CRS: " + why);
+            std::printf("    a layer without a CRS: \"%s\"\n", why.c_str());
+        }
+        // The pyramid over B and what the map can show around it.
+        int mx, my;
+        missing(mx, my);
+        const double m = 1.6 * std::max(info.width, info.height);
+        double box[4] = {HUGE_VAL, HUGE_VAL, -HUGE_VAL, -HUGE_VAL};
+        for (double py : {-m, info.height + m})
+            for (double px : {-m, info.width + m}) {
+                double X, Y;
+                info.pixelToGeo(px, py, X, Y);
+                ct->Transform(1, &X, &Y);
+                box[0] = std::min(box[0], X);
+                box[1] = std::min(box[1], Y);
+                box[2] = std::max(box[2], X);
+                box[3] = std::max(box[3], Y);
+            }
+        GDALDriver* mem = GetGDALDriverManager()->GetDriverByName("MEM");
+        GDALDriver* png = GetGDALDriverManager()->GetDriverByName("PNG");
+        if (!mem || !png) return fail("GDAL has no MEM or PNG driver");
+        std::vector<unsigned char> px(256 * 256 * 3);
+        int tiles = 0;
+        const double t0 = now();
+        for (int z = 0; z <= kZ; ++z) {
+            const double s = 2 * E / (1 << z), res = s / 256;
+            const int x0 = int(std::floor((box[0] + E) / s)), x1 = int(std::floor((box[2] + E) / s));
+            const int y0 = int(std::floor((E - box[3]) / s)), y1 = int(std::floor((E - box[1]) / s));
+            for (int ty = y0; ty <= y1; ++ty)
+                for (int tx = x0; tx <= x1; ++tx) {
+                    if (z == kZ && tx == mx && ty == my) continue;
+                    for (int j = 0; j < 256; ++j)
+                        for (int i = 0; i < 256; ++i)
+                            colour(-E + (tx * 256 + i + 0.5) * res, E - (ty * 256 + j + 0.5) * res, z,
+                                   &px[size_t(j * 256 + i) * 3]);
+                    const fs::path f = dir / std::to_string(z) / std::to_string(tx) / (std::to_string(ty) + ".png");
+                    fs::create_directories(f.parent_path(), ec);
+                    GDALDataset* ds = mem->Create("", 256, 256, 3, GDT_Byte, nullptr);
+                    int bands[3] = {1, 2, 3};
+                    ds->RasterIO(GF_Write, 0, 0, 256, 256, px.data(), 256, 256, GDT_Byte, 3, bands, 3, 256 * 3, 1, nullptr);
+                    GDALDataset* out = png->CreateCopy(f.u8string().c_str(), ds, FALSE, nullptr, nullptr, nullptr);
+                    if (out) GDALClose(out);
+                    GDALClose(ds);
+                    if (!out) return fail("could not write the tile " + f.u8string());
+                    ++tiles;
+                }
+        }
+        std::printf("    %d tiles (zoom 0-%d) written in %.0f ms; zoom %d tile %d/%d left out\n", tiles, kZ,
+                    (now() - t0) * 1000, kZ, mx, my);
+        bm_ = BasemapUi{};
+        bm_.source = "custom";
+        bm_.url = url;
+        bm_.maxZoom = kZ;
+        bm_.attribution = "Janus self-test tiles";
+        bm_.opacity = 0.75f;
+        // The setting through its handler of the layout file: written, read back.
+        {
+            ImGuiContext* ctx = ImGui::GetCurrentContext();
+            ImGuiSettingsHandler* h = ImGui::FindSettingsHandler("JanusBasemap");
+            ImGuiTextBuffer text;
+            if (h) h->WriteAllFn(ctx, h, &text);
+            const BasemapUi want = bm_;
+            bm_ = BasemapUi{};
+            void* entry = h ? h->ReadOpenFn(ctx, h, "Settings") : nullptr;
+            std::istringstream lines(text.c_str());
+            std::string line;
+            std::getline(lines, line); // [JanusBasemap][Settings]
+            while (entry && std::getline(lines, line))
+                if (!line.empty()) h->ReadLineFn(ctx, h, entry, line.c_str());
+            if (bm_.source != want.source || bm_.url != want.url || bm_.maxZoom != want.maxZoom || !bm_.on ||
+                std::fabs(bm_.opacity - 0.75f) > 1e-6f || bm_.attribution != want.attribution)
+                return fail(std::string("the basemap setting should be read back as written:\n") + text.c_str());
+            bm_.opacity = 1.0f;
+        }
+        basemapFailedFor_ = 0;
+        next("local tile pyramid picked as a custom XYZ basemap (file://), setting written and read back");
+        break;
+    }
+    case 51: {
+        if (!basemap_ || !basemap_->hasMap()) {
+            if (!basemapWhy_.empty()) return fail("the basemap is not drawn: " + basemapWhy_);
+            break;
+        }
+        setView();
+        double v[4];
+        view(v);
+        const int z = basemap_->update(v, scale_);
+        if (st_.frames++ == 0) {
+            const Reprojection& R = *basemap_->map();
+            std::printf("    warp grid to Web Mercator: %d x %d nodes, error %.3g px, made in %.1f ms\n", R.gridW, R.gridH,
+                        R.gridError, R.buildMs);
+        }
+        if (basemap_->inflight() > 0) break;
+        std::printf("    zoom %d: %d tiles read in %.0f ms (first after %.0f ms), %.1f ms each\n", z, basemap_->loads(),
+                    (now() - st_.since) * 1000, basemap_->firstTileMs(), basemap_->avgLoadMs());
+        if (z != kZ) return fail("the view should ask for zoom 13");
+        if (basemap_->offline() || !basemap_->error().empty()) return fail("reading the tiles failed: " + basemap_->error());
+        next("tiles of the view read (GDAL WMS, file://)");
+        break;
+    }
+    case 52: {
+        setView();
+        int mx, my;
+        missing(mx, my);
+        std::vector<unsigned char> base, empty, none, both, bOnly, half, faded;
+        A.visible = B.visible = false;
+        render(base);
+        bm_.on = false;
+        render(empty);
+        // Every 5th pixel, away from cell and tile edges (bilinear sampling mixes
+        // neighbours there): the colour of PROJ's cell.
+        int checked = 0, bad = 0, fallback = 0, worst = 0;
+        for (int py = 2; py < H - 2; py += 5)
+            for (int px = 2; px < W - 2; px += 5) {
+                double X, Y;
+                if (!merc(px + 0.5, py + 0.5, X, Y)) continue;
+                const long long c0 = (long long)std::floor((X + E) / cell), r0 = (long long)std::floor((E - Y) / cell);
+                // Where the zoom 13 tile is missing, the coarse preview (zoom 10,
+                // 8x larger pixels) shows through.
+                const bool gap = int(std::floor((X + E) / tileSpan)) == mx && int(std::floor((E - Y) / tileSpan)) == my;
+                const double edge = gap ? 6.0 : 0.8; // screen pixels from a cell's edge (> half a texel)
+                bool interior = true;
+                for (const auto& [dx, dy] : {std::pair<double, double>{-edge, 0}, {edge, 0}, {0, -edge}, {0, edge}}) {
+                    double X2, Y2;
+                    interior = interior && merc(px + 0.5 + dx, py + 0.5 + dy, X2, Y2) &&
+                               (long long)std::floor((X2 + E) / cell) == c0 && (long long)std::floor((E - Y2) / cell) == r0;
+                }
+                if (!interior) continue; // cells are inside tiles: also away from tile edges
+                unsigned char want[3];
+                colour(X, Y, gap ? kZ - 3 : kZ, want);
+                const unsigned char* got = &base[(size_t(py) * W + px) * 4];
+                const int d = std::max({std::abs(got[0] - want[0]), std::abs(got[1] - want[1]), std::abs(got[2] - want[2])});
+                worst = std::max(worst, d);
+                ++checked;
+                fallback += gap;
+                if (d > 2 && ++bad <= 3)
+                    std::printf("    pixel (%d, %d): rgb(%d, %d, %d), PROJ's cell rgb(%d, %d, %d)\n", px, py, got[0], got[1],
+                                got[2], want[0], want[1], want[2]);
+            }
+        std::printf("    basemap alone: %d map pixels on PROJ's cell colour (%d from zoom 10 where the zoom 13 tile is\n"
+                    "    missing), %d differ, largest difference %d\n",
+                    checked, fallback, bad, worst);
+        if (bad || checked < 1500 || fallback < 50) return fail("the basemap should land where PROJ puts it");
+        // Under the layers: they cover it where they have data.
+        A.visible = B.visible = true;
+        render(none);
+        bm_.on = true;
+        render(both);
+        size_t covered = 0, wrong = 0;
+        for (size_t i = 0; i < size_t(W) * H; ++i) {
+            const bool layer = !near(&none[i * 4], &empty[i * 4], 0);
+            covered += layer;
+            wrong += !near(&both[i * 4], layer ? &none[i * 4] : &base[i * 4], 0);
+        }
+        std::printf("    under the layers: %zu of %d pixels show a layer, %zu differ\n", covered, W * H, wrong);
+        if (wrong || covered < size_t(W) * H / 4) return fail("the layers should be drawn over the basemap");
+        // B at half opacity (A hidden): half B, half the basemap.
+        A.visible = false;
+        bm_.on = false;
+        render(bOnly);
+        bm_.on = true;
+        B.opacity = 0.5f;
+        render(half);
+        B.opacity = 1.0f;
+        size_t inB = 0;
+        wrong = 0;
+        for (size_t i = 0; i < size_t(W) * H; ++i) {
+            if (near(&bOnly[i * 4], &empty[i * 4], 0)) continue;
+            ++inB;
+            unsigned char want[3];
+            for (int k = 0; k < 3; ++k) want[k] = (unsigned char)std::lround(0.5 * bOnly[i * 4 + k] + 0.5 * base[i * 4 + k]);
+            wrong += !near(&half[i * 4], want, 2);
+        }
+        // The basemap at half opacity, alone: half way to the background.
+        B.visible = false;
+        bm_.opacity = 0.5f;
+        render(faded);
+        bm_.opacity = 1.0f;
+        size_t wrongFade = 0;
+        for (size_t i = 0; i < size_t(W) * H; ++i) {
+            unsigned char want[3];
+            for (int k = 0; k < 3; ++k) want[k] = (unsigned char)std::lround(0.5 * base[i * 4 + k] + 0.5 * empty[i * 4 + k]);
+            wrongFade += !near(&faded[i * 4], want, 2);
+        }
+        A.visible = B.visible = true;
+        std::printf("    B at opacity 0.5 over it: %zu of %zu pixels off; basemap at opacity 0.5: %zu off\n", wrong, inB,
+                    wrongFade);
+        if (wrong || inB < size_t(W) * H / 4) return fail("a layer's opacity should show the basemap through");
+        if (wrongFade) return fail("the basemap's opacity should fade it towards the background");
+        // Costs: the per-frame request of a view whose tiles are all there, and a render.
+        double v[4];
+        view(v);
+        const double t0 = now();
+        for (int i = 0; i < 200; ++i) basemap_->update(v, scale_);
+        const double updateUs = (now() - t0) / 200 * 1e6;
+        auto renderMs = [&](bool on) {
+            bm_.on = on;
+            unsigned char px[4];
+            renderMap(W, H);
+            gpu_.readMapPixel(0, 0, px);
+            const double s = now();
+            for (int i = 0; i < 20; ++i) {
+                renderMap(W, H);
+                gpu_.readMapPixel(0, 0, px);
+            }
+            bm_.on = true;
+            return (now() - s) / 20 * 1000;
+        };
+        const double off = renderMs(false), on = renderMs(true);
+        std::printf("    per frame: request of the view %.1f us; render + readback %.3f ms without, %.3f ms with it\n",
+                    updateUs, off, on);
+        next("basemap on PROJ's place, under the layers, opacity of both");
+        break;
+    }
+    case 53: {
+        setView();
+        std::vector<unsigned char> base, bOnly, img;
+        A.visible = B.visible = false;
+        render(base);
+        A.visible = B.visible = true;
+        auto panel = [&](MapView& v) {
+            renderView(v, W, H, 1.0f, ImVec2(0, 0));
+            int w = 0, h = 0;
+            gpu_.readMap(img, w, h, v.id);
+            gpu_.releaseMap(v.id);
+        };
+        MapView v;
+        v.id = 98;
+        v.cube = B.session->info->id;
+        v.basemapOnly = true;
+        panel(v);
+        if (img != base) return fail("a map panel with the basemap only should draw the basemap alone");
+        v.basemapOnly = false;
+        panel(v);
+        A.visible = false;
+        render(bOnly);
+        A.visible = true;
+        if (img != bOnly) return fail("a map panel of B should draw B over the basemap, as the main map");
+        if (!swipe_) toggleSwipe();
+        const MapView keep = swipeView_;
+        swipeView_.basemapOnly = true;
+        renderSwipe(canvasSize_, 1.0f);
+        int w = 0, h = 0;
+        gpu_.readMap(img, w, h, kSwipeSlot);
+        swipeView_ = keep;
+        swipeView_.dirty = true;
+        if (img != base) return fail("the swipe's comparison should be able to show the basemap alone");
+        next("map panel and swipe: the basemap alone, a layer over it");
+        break;
+    }
+    case 54: {
+        setView();
+        std::vector<unsigned char> both;
+        render(both);
+        const fs::path out = dir / "export";
+        fs::create_directories(out, ec);
+        PngOptions o;
+        o.label = o.legend = false;
+        auto done = [](const std::shared_ptr<ExportJob>& j) {
+            if (!j) return false;
+            j->done.wait();
+            return j->state == ExportJob::State::Done;
+        };
+        const std::string pngPath = (out / "map.png").u8string(), tifPath = (out / "view.tif").u8string();
+        if (!done(exportPng(pngPath, o)) || !done(exportView(tifPath, 1))) return fail("the exports failed");
+        exports_.clear();
+        showExports_ = false;
+        GDALDataset* ds = GDALDataset::Open(pngPath.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY);
+        if (!ds || ds->GetRasterXSize() != W || ds->GetRasterYSize() != H) return fail("the PNG should be 400 x 300");
+        std::vector<unsigned char> img(size_t(W) * H * 3);
+        ds->RasterIO(GF_Read, 0, 0, W, H, img.data(), W, H, GDT_Byte, 3, nullptr, 3, W * 3, 1, nullptr);
+        GDALClose(ds);
+        size_t away = 0, credit = 0;
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x) {
+                const bool same = near(&img[(size_t(y) * W + x) * 3], &both[(size_t(y) * W + x) * 4], 0);
+                if (x < W - 200 || y < H - 30) away += !same;
+                else credit += !same;
+            }
+        ds = GDALDataset::Open(tifPath.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY);
+        const char* c = ds ? ds->GetMetadataItem("TIFFTAG_COPYRIGHT") : nullptr;
+        const std::string tag = c ? c : "";
+        if (ds) GDALClose(ds);
+        std::printf("    PNG: %zu pixels of the attribution box bottom right, %zu differ elsewhere; view GeoTIFF:\n"
+                    "    copyright \"%s\"\n",
+                    credit, away, tag.c_str());
+        if (away || credit < 100) return fail("the PNG should be the map with the attribution bottom right");
+        if (tag.find("Janus self-test tiles") == std::string::npos)
+            return fail("the view GeoTIFF should carry the attribution");
+        next("attribution in the PNG and the view GeoTIFF");
+        break;
+    }
+    case 55:
+        bm_.source = "none"; // the next frame retires the Basemap
+        next("basemap None again");
+        break;
+    case 56: {
+        setView();
+        std::vector<unsigned char> img, none;
+        render(img);
+        bm_.on = false;
+        render(none);
+        bm_.on = true;
+        if (basemap_ || basemapShown()) return fail("with the basemap None the Basemap should be gone");
+        if (img != none) return fail("with the basemap None nothing should be drawn under the layers");
+        retiredBasemaps_.clear(); // its datasets closed before the files go
+        fs::remove_all(dir, ec);
+        viewTouched_ = false;
+        mapDirty_ = true;
+        next("basemap gone, the map as before");
         st_.stage = 7;
         break;
     }

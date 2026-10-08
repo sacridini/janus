@@ -11,6 +11,9 @@
        │         └─ read first by the two below for the dates it has
        ├──► TileManager: full-resolution tiles of the visible area ──► LRU cache on the GPU
        └──► exact pixel series / ROI (interactive pool, cancellable)
+
+ XYZ tiles (GDAL WMS/TMS, curl) ──► Basemap: tiles of the view at the screen's zoom ──► LRU on the GPU,
+                                    drawn first, through a warp grid (active layer's grid -> EPSG:3857)
 ```
 
 | File | Role |
@@ -37,6 +40,8 @@
 | `src/zeit_client.*` | Bridge processes (JSON lines over pipes; Win32 or POSIX), pixel calls, raster jobs, estimates |
 | `src/results.*` | Result rasters loaded as map layers |
 | `src/reproject.*` | Layers in another CRS or on a rotated grid: exact PROJ transformation (cursor, pins, ROI, tiles, view) and the warp grid the shaders sample through |
+| `src/basemap.*` | Web basemap: XYZ tiles in EPSG:3857 read through GDAL's WMS driver (TMS service, curl, its disk cache) in a pool of its own, newest first, requests that left the screen dropped; an LRU of RGBA textures; drawn on the active layer's grid through a warp grid (`reproject.*`) |
+| `src/app_basemap.cpp` | The basemap in the interface: Layers panel section, setting (layout .ini), drawn first in every map target, attribution on the map |
 | `src/selftest.cpp` | `--selftest-zeit`: every applicable Zeit tool end to end (pixel + raster job) without a window |
 | `zeit_bridge/` | The Python bridge, one `tool_*.py` per Zeit tool family, the pinned runtime requirements |
 | `tools/build_zeit_runtime.py` | Assembles the private Python runtime (Windows, Linux, macOS) |

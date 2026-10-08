@@ -38,7 +38,8 @@ inline const char* kUsage =
     "  --selftest-ui A B [C [D [E [F]]]]  drive the layers workflow in a hidden window\n"
     "                      (A, then B as a layer; C: several bands per date;\n"
     "                      D, E: categorical, with and without a colour table;\n"
-    "                      F: B in another CRS, reprojected over it)\n";
+    "                      F: B in another CRS, reprojected over it; the\n"
+    "                      basemap is checked with local tiles, no network)\n";
 
 // Options that take a value (the launcher validates them before opening the GUI).
 inline bool isValueOption(const char* a) {

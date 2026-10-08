@@ -69,7 +69,7 @@ const char* kDisplayFrag = R"(#version 330 core
 in vec2 vUV;
 out vec4 frag;
 uniform int uMode;
-uniform int uSource;            // 0 = overview (array), 1 = detail tile
+uniform int uSource;            // 0 = overview (array), 1 = detail tile, 2 = RGBA image, 3 = uColor
 uniform sampler2DArray uCube;
 uniform sampler2D uStats0;
 uniform sampler2D uStats1;
@@ -86,6 +86,7 @@ uniform int uWarp;              // 1 = reprojected layer: uv through the grid (W
 uniform sampler2D uWarpGrid;    // the layer's uv at the nodes (RG32F)
 uniform vec4 uWarpQuad;         // the quad in the grid's domain: x0, y0, w, h
 uniform vec4 uWarpSrc;          // the drawn texture in the layer's uv: x0, y0, w, h
+uniform vec4 uColor;            // uSource 3: a plain colour (fillRect)
 
 vec2 uv;                        // where the cube / tile / statistics are read
 
@@ -108,10 +109,19 @@ vec2 warpedUV() {
 }
 
 void main() {
+    if (uSource == 3) {
+        frag = uColor;
+        return;
+    }
     uv = vUV;
     if (uWarp == 1) {
         uv = warpedUV();
         if (isnan(uv.x) || isnan(uv.y) || uv.x < 0.0 || uv.y < 0.0 || uv.x >= 1.0 || uv.y >= 1.0) discard;
+    }
+    if (uSource == 2) { // basemap tile: its colours, bilinear (the texture's filter)
+        vec4 c = texture(uTile, uv);
+        frag = vec4(c.rgb, c.a * uAlpha);
+        return;
     }
     if (uMode == 9) {
         float r = cubeAt(uLayers.x), g = cubeAt(uLayers.y), b = cubeAt(uLayers.z);
@@ -540,6 +550,29 @@ void Gpu::drawOverlay(GpuTex t, const float rect[4], float lo, float hi, int cma
     drawTile(t, rect, p, cmap, alpha);
 }
 
+void Gpu::drawImage(GpuTex t, const float rect[4], float alpha, const WarpParams* warp) {
+    Impl& d = *impl_;
+    DrawParams p;
+    if (warp) p.warp = *warp;
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, tex(t));
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glUniform1f(glGetUniformLocation(d.progDisplay, "uAlpha"), alpha);
+    d.drawQuad(rect, 2, p);
+    glUniform1f(glGetUniformLocation(d.progDisplay, "uAlpha"), 1.0f);
+    glDisable(GL_BLEND);
+}
+
+void Gpu::fillRect(const float rect[4], const float rgba[4]) {
+    Impl& d = *impl_;
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glUniform4fv(glGetUniformLocation(d.progDisplay, "uColor"), 1, rgba);
+    d.drawQuad(rect, 3, DrawParams{});
+    glDisable(GL_BLEND);
+}
+
 void Gpu::endMap() {
     glBindVertexArray(0);
     glUseProgram(0);
@@ -606,6 +639,13 @@ GpuTex Gpu::createTileTexture(int w, int h, const float* data) {
     setNearest(GL_TEXTURE_2D);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, w, h, 0, GL_RED, GL_FLOAT, data);
+    return t;
+}
+
+GpuTex Gpu::createImageTexture(int w, int h, const unsigned char* rgba) {
+    const GLuint t = makeTex2D(GL_RGBA8, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     return t;
 }
 

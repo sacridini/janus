@@ -34,6 +34,11 @@ bool isOnRotationalDisk(const std::string& path);
 
 std::tm localTime(std::time_t t);           // thread-safe localtime
 
+// TLS certificates for libcurl (the basemap's tiles over https): the system's
+// CA bundle file. Empty on Windows, where curl (Schannel) uses the system's
+// certificate store itself, or if none is found.
+std::string caBundlePath();
+
 // Trackpad gestures (call once per frame). GLFW reports neither pinches nor
 // whether a scroll came from a trackpad: on macOS (platform_mac.mm) pinch is the
 // zoom factor since the previous call (1 = none) and touchScroll is true when
