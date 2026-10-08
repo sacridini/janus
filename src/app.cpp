@@ -1036,7 +1036,7 @@ void App::uiMap() {
     if (!s_->overview.complete()) {
         char buf[96];
         std::snprintf(buf, sizeof(buf), "Building overview %d/%d%s", s_->overview.layersDone(), T,
-                      s_->overview.fromCache() ? " (cache)" : "");
+                      s_->overview.fromCache() ? " (cache)" : s_->overview.cachedLayers() ? " (resumed)" : "");
         const float frac = float(s_->overview.layersDone()) / T;
         const ImVec2 p0 = origin + ImVec2(size.x - 250, 10), p1 = p0 + ImVec2(240, 18);
         dl->AddRectFilled(p0, p1, IM_COL32(0, 0, 0, 160), 3);
@@ -2016,9 +2016,12 @@ void App::uiPerf() {
         ImGui::SeparatorText("Overview (GPU)");
         ImGui::Text("%d x %d x %d dates (1:%.1f)", ov.w, ov.h, ov.T, ov.factor);
         ImGui::Text("Memory: %.0f MB (cube + statistics)", s_->gpu.bytes() / MB);
-        if (ov.complete())
-            ImGui::Text(ov.fromCache() ? "Read from cache in %.2f s" : "Built in %.2f s (saved to cache)",
-                        ov.buildSeconds());
+        if (ov.complete() && ov.fromCache())
+            ImGui::Text("Read from cache in %.2f s", ov.buildSeconds());
+        else if (ov.complete() && ov.cachedLayers())
+            ImGui::Text("Built in %.2f s (%d dates resumed from cache)", ov.buildSeconds(), ov.cachedLayers());
+        else if (ov.complete())
+            ImGui::Text("Built in %.2f s (saved to cache)", ov.buildSeconds());
         else
             ImGui::Text("Loading %d/%d...", ov.layersDone(), ov.T);
         if (s_->deferRandomReads())

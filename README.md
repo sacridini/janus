@@ -254,7 +254,10 @@ Logs: `%LOCALAPPDATA%\Janus\zeit.log`.
 
 - The first open of a cube builds a reduced overview of every date (in parallel
   on SSDs) and caches it in `%LOCALAPPDATA%\Janus\cache` (macOS: `~/Library/Caches/Janus`); later opens read that one
-  file. The **Performance** panel shows startup, build and read timings.
+  file. Each date is saved as soon as it is built, so closing Janus in the
+  middle of a build loses nothing: the next open reads those dates from the cache
+  and builds only the missing ones. The **Performance** panel shows startup,
+  build and read timings.
 - Spinning HDDs are detected and read with a single sequential reader (two
   readers were measured to be 4× slower). While the overview builds on an HDD,
   pins, ROI and detail tiles wait, so the head is not pulled away.

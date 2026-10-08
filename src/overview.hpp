@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -36,10 +37,16 @@ struct PageAllocator {
 
 // The whole cube at reduced resolution, [t][y][x] float32 (NaN = nodata).
 // Kept in RAM (for instant series/statistics) and sent to the GPU as a texture
-// array. Built in parallel (1 job per date) and cached on disk: opening the
-// same cube again only reads one contiguous file.
+// array. Built in parallel (1 job per date) and cached on disk date by date:
+// opening the same cube again only reads one contiguous file, and a build that
+// was interrupted resumes with the dates still missing.
 class Overview {
 public:
+    Overview() = default;
+    ~Overview();
+    Overview(const Overview&) = delete;
+    Overview& operator=(const Overview&) = delete;
+
     int w = 0, h = 0, T = 0;
     double factor = 1;      // source pixels per overview pixel
     std::vector<float, PageAllocator<float>> data;
@@ -57,6 +64,7 @@ public:
     int layersDone() const { return done_.load(); }
     bool complete() const { return T > 0 && done_.load() == T; }
     bool fromCache() const { return fromCache_; }
+    int cachedLayers() const { return cachedLayers_; } // dates read from the cache
     double buildSeconds() const { return buildSeconds_.load(); }
     std::string cachePath() const { return cachePath_; }
     int failedLayers() const { return failed_.load(); }
@@ -72,11 +80,16 @@ private:
     int claimNext();
     int claimNextLocked();
     void decode(int t);
-    void writeCache();
+    bool loadLayer(int t); // from the cache being completed
+    void saveLayer(int t); // into it
 
     std::shared_ptr<const CubeInfo> info_;
     std::string cachePath_;
     bool fromCache_ = false;
+    int cachedLayers_ = 0;
+    std::mutex fileM_;
+    FILE* cache_ = nullptr;  // open while the missing dates are built
+    uint64_t dataOffset_ = 0;
     std::mutex m_;
     std::vector<int> ready_;
     std::vector<char> claimed_;
