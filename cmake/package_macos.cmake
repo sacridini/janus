@@ -6,8 +6,9 @@
 #     MacOS/janus         the program (RPATH @executable_path/../Frameworks)
 #     Frameworks/         GDAL and its whole chain (PROJ, GEOS, libtiff, curl...);
 #                         system libraries and frameworks come from macOS
-#     Resources/          janus.icns, share/gdal, share/proj, runtime/ (private
-#                         Python + Zeit, tools/build_zeit_runtime.py)
+#     Resources/          janus.icns, share/gdal, share/proj, share/ssl (CA
+#                         certificates for curl if /etc/ssl/cert.pem is missing),
+#                         runtime/ (private Python + Zeit, tools/build_zeit_runtime.py)
 #
 # Signed ad hoc (runs on the machine that installs it; another Mac's Gatekeeper
 # asks for confirmation the first time, see README).
@@ -59,6 +60,11 @@ run(install_name_tool -rpath "${PREFIX}/lib" "@executable_path/../Frameworks" "$
 
 file(COPY "${PREFIX}/share/proj/proj.db" DESTINATION "${app}/Resources/share/proj")
 file(COPY "${PREFIX}/share/gdal" DESTINATION "${app}/Resources/share")
+# conda's curl looks for its certificates at the build prefix: Janus points it
+# to the system's bundle (/etc/ssl/cert.pem), else to this copy.
+if(EXISTS "${PREFIX}/ssl/cacert.pem")
+  file(COPY "${PREFIX}/ssl/cacert.pem" DESTINATION "${app}/Resources/share/ssl")
+endif()
 file(COPY "${RUNTIME}/" DESTINATION "${app}/Resources/runtime")
 file(COPY_FILE "${SRC}/resources/janus.icns" "${app}/Resources/janus.icns")
 configure_file("${SRC}/resources/Info.plist.in" "${app}/Info.plist" @ONLY)

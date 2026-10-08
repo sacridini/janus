@@ -29,7 +29,7 @@ using namespace metal;
 struct DrawU {
     float4 rect;        // NDC: x0, y0(top), x1, y1(bottom)
     int mode;
-    int source;         // 0 = overview (cube buffer), 1 = detail tile (texture)
+    int source;         // 0 = overview (cube buffer), 1 = detail tile (texture), 2 = RGBA image, 3 = color
     int classes;        // 1 = categorical: colour from the class LUT, by class value
     int hasStats;
     int4 layers;
@@ -42,6 +42,7 @@ struct DrawU {
     float4 warpSrc;     // ... and the drawn texture in the layer's uv
     int warp;           // 1 = uv through the warp grid
     int pad3, pad4, pad5;
+    float4 color;       // source 3: a plain colour (fillRect)
 };
 
 struct VOut {
@@ -96,6 +97,7 @@ fragment float4 fmain(VOut in [[stage_in]], constant DrawU& u [[buffer(0)]],
                       texture2d<float> lut [[texture(2)]],
                       texture2d<float> tile2 [[texture(3)]],
                       texture2d<float> warpGrid [[texture(4)]]) {
+    if (u.source == 3) return u.color;
     float2 uv = in.uv;
     if (u.warp == 1) {
         uv = warpedUV(u, warpGrid, in.uv);
@@ -103,6 +105,10 @@ fragment float4 fmain(VOut in [[stage_in]], constant DrawU& u [[buffer(0)]],
             discard_fragment();
             return float4(0.0); // nothing below may index the buffers with this uv
         }
+    }
+    if (u.source == 2) { // basemap tile: its colours, bilinear
+        float4 c = tile.sample(kLinear, uv);
+        return float4(c.rgb, c.a * u.alpha);
     }
     const int px = clamp(int(uv.x * float(u.w)), 0, u.w - 1), py = clamp(int(uv.y * float(u.h)), 0, u.h - 1);
     const uint pix = uint(py) * uint(u.w) + uint(px);
@@ -184,7 +190,7 @@ kernel void stats(constant StatsU& u [[buffer(0)]], device const float* cube [[b
 }
 )";
 
-// Mirrors DrawU above (std140-like packing, 128 bytes; the float4s at 80 and 96).
+// Mirrors DrawU above (std140-like packing, 144 bytes; the float4s at 80, 96 and 128).
 struct DrawUniforms {
     float rect[4];
     int mode, source, classes, hasStats;
@@ -198,9 +204,12 @@ struct DrawUniforms {
     float warpSrc[4];
     int warp;
     int pad3, pad4, pad5;
+    float color[4];
 };
-static_assert(sizeof(DrawUniforms) == 128, "must match DrawU in the shader");
-static_assert(offsetof(DrawUniforms, warpQuad) == 80 && offsetof(DrawUniforms, warp) == 112, "float4 alignment");
+static_assert(sizeof(DrawUniforms) == 144, "must match DrawU in the shader");
+static_assert(offsetof(DrawUniforms, warpQuad) == 80 && offsetof(DrawUniforms, warp) == 112 &&
+                  offsetof(DrawUniforms, color) == 128,
+              "float4 alignment");
 
 struct StatsUniforms {
     int w, h, T, pad;
@@ -333,6 +342,7 @@ struct Gpu::Impl {
     int cubeW = 1, cubeH = 1;
     bool hasStats = false, blend = false;
     float alpha = 1.0f;
+    float fill[4] = {0, 0, 0, 0};               // fillRect's colour
 
     id<MTLTexture> colormapTexture(int implotColormap);
     void draw(const float rect[4], int source, const DrawParams& p);
@@ -504,6 +514,7 @@ void Gpu::Impl::draw(const float r[4], int source, const DrawParams& p) {
     u.warp = p.warp.grid ? 1 : 0;
     std::copy(p.warp.quad, p.warp.quad + 4, u.warpQuad);
     std::copy(p.warp.src, p.warp.src + 4, u.warpSrc);
+    std::copy(fill, fill + 4, u.color);
     [enc setRenderPipelineState:blend ? pipeBlend : pipeOpaque];
     [enc setVertexBytes:&u length:sizeof(u) atIndex:0];
     [enc setFragmentBytes:&u length:sizeof(u) atIndex:0];
@@ -576,6 +587,26 @@ void Gpu::drawOverlay(GpuTex t, const float rect[4], float lo, float hi, int cma
     drawTile(t, rect, p, cmap, alpha);
 }
 
+void Gpu::drawImage(GpuTex t, const float rect[4], float alpha, const WarpParams* warp) {
+    Impl& d = *impl_;
+    DrawParams p;
+    if (warp) p.warp = *warp;
+    [d.enc setFragmentTexture:borrow<id<MTLTexture>>(t) atIndex:1];
+    d.blend = true;
+    d.alpha = alpha;
+    d.draw(rect, 2, p);
+    d.alpha = 1.0f;
+    d.blend = false;
+}
+
+void Gpu::fillRect(const float rect[4], const float rgba[4]) {
+    Impl& d = *impl_;
+    std::copy(rgba, rgba + 4, d.fill);
+    d.blend = true;
+    d.draw(rect, 3, DrawParams{});
+    d.blend = false;
+}
+
 void Gpu::endMap() {
     Impl& d = *impl_;
     [d.enc endEncoding];
@@ -636,6 +667,10 @@ GpuTex Gpu::createClassLut(const unsigned char* rgba, GpuTex t) {
 
 GpuTex Gpu::createTileTexture(int w, int h, const float* data) {
     return retain(makeTexture(MTLPixelFormatR32Float, w, h, data, size_t(w) * sizeof(float)));
+}
+
+GpuTex Gpu::createImageTexture(int w, int h, const unsigned char* rgba) {
+    return retain(makeTexture(MTLPixelFormatRGBA8Unorm, w, h, rgba, size_t(w) * 4)); // sampled with kLinear
 }
 
 GpuTex Gpu::createWarpGrid(int w, int h, const float* rg) {

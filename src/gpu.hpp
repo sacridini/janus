@@ -113,6 +113,11 @@ public:
     // Single-band raster (e.g. a Zeit result) blended over the map with its own colormap.
     void drawOverlay(GpuTex tex, const float rect[4], float lo, float hi, int implotColormap, float alpha,
                      const WarpParams* warp = nullptr);
+    // An RGBA image (a basemap tile: createImageTexture) blended over the map by
+    // its own alpha x `alpha`, sampled bilinearly, through a warp if given.
+    void drawImage(GpuTex tex, const float rect[4], float alpha, const WarpParams* warp = nullptr);
+    // A rectangle of one colour blended over the map (rgba[3] = its opacity).
+    void fillRect(const float rect[4], const float rgba[4]);
     void endMap();
     GpuTex mapTexture(int slot = 0) const;
     void releaseMap(int slot); // a closed panel's target
@@ -125,6 +130,8 @@ public:
     void readMap(std::vector<unsigned char>& rgba, int& w, int& h, int slot = 0);
 
     static GpuTex createTileTexture(int w, int h, const float* data);
+    // rgba: w x h RGBA8 texels, rows top-down (drawImage).
+    static GpuTex createImageTexture(int w, int h, const unsigned char* rgba);
     // rgba: kClassLutSize RGBA8 texels. Pass `tex` to update an existing LUT.
     static GpuTex createClassLut(const unsigned char* rgba, GpuTex tex = 0);
     // rg: w x h pairs (RG32F), rows top-down: the warp grid of WarpParams.

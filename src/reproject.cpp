@@ -50,7 +50,8 @@ void edgePoints(double x0, double y0, double x1, double y1, int perEdge, std::ve
 
 } // namespace
 
-std::unique_ptr<Reprojection> Reprojection::create(const CubeInfo& a, const CubeInfo& b, std::string& why) {
+std::unique_ptr<Reprojection> Reprojection::create(const CubeInfo& a, const CubeInfo& b, std::string& why,
+                                                 double margin) {
     if (!a.hasGeoTransform || !b.hasGeoTransform) {
         why = "no georeferencing";
         return nullptr;
@@ -92,7 +93,7 @@ std::unique_ptr<Reprojection> Reprojection::create(const CubeInfo& a, const Cube
             }
         }
     }
-    r->buildGrid(a, b);
+    r->buildGrid(a, margin);
     return r;
 }
 
@@ -204,13 +205,13 @@ bool Reprojection::gridAt(double x, double y, double& lx, double& ly) const {
 }
 
 // The grid covers the part of the layer the map can show: the active layer
-// and, around it, what a fitted view of an elongated image leaves free (0.6 x
-// its longer side). 64 cells along the longer side; twice as many while the
+// and, around it, what a fitted view of an elongated image leaves free
+// (`margin` x its longer side: 0.6 for layers). 64 cells along the longer side; twice as many while the
 // bilinear interpolation, checked at every cell's centre against the exact
 // transformation, is off by more than 0.05 of the layer's pixels (up to 512).
-void Reprojection::buildGrid(const CubeInfo& a, const CubeInfo&) {
+void Reprojection::buildGrid(const CubeInfo& a, double margin) {
     const auto t0 = std::chrono::steady_clock::now();
-    const double m = 0.6 * std::max(a.width, a.height);
+    const double m = margin * std::max(a.width, a.height);
     const double around[4] = {-m, -m, a.width + m, a.height + m};
     // The layer's edges on the map, plus the points of a 17 x 17 lattice over
     // that area which fall inside the layer (its edges may not transform at all,

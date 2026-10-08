@@ -22,6 +22,9 @@ and the private Python runtime with Zeit; only glibc, OpenGL and X11 come from
 the system (tested on Ubuntu 24.04). `janus.desktop` and `janus.png` are included
 for a menu entry. File dialogs use `zenity` or `kdialog` when installed; the
 Files panel works without them. Data and caches live in `~/.local/share/janus`.
+The basemap's tiles are downloaded over https with the system's CA certificates
+(`/etc/ssl/certs/ca-certificates.crt` and the like; the archive carries a copy
+in `share/ssl` for systems without one; `CURL_CA_BUNDLE` overrides both).
 
 ## macOS (Apple Silicon)
 

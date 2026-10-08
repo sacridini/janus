@@ -110,7 +110,7 @@ std::string fileWkt(const std::string& path) {
 // MEM dataset and CreateCopy: PNG, or GTiff with a geotransform and a CRS.
 bool writeImage(const std::string& path, const char* driver, const std::vector<unsigned char>& rgba, int w, int h,
                 bool alpha, const double* gt, const std::string& wkt, char** options, ExportJob& job,
-                std::string& error) {
+                std::string& error, const std::string& copyright = "") {
     GDALDriver* mem = GetGDALDriverManager()->GetDriverByName("MEM");
     GDALDriver* drv = GetGDALDriverManager()->GetDriverByName(driver);
     if (!mem || !drv) {
@@ -130,6 +130,7 @@ bool writeImage(const std::string& path, const char* driver, const std::vector<u
     for (int b = 0; b < bands; ++b) src->GetRasterBand(b + 1)->SetColorInterpretation(ci[b]);
     if (gt) src->SetGeoTransform(const_cast<double*>(gt));
     if (!wkt.empty()) src->SetProjection(wkt.c_str());
+    if (!copyright.empty()) src->SetMetadataItem("TIFFTAG_COPYRIGHT", copyright.c_str());
     const std::string tmp = path + ".part";
     if (ok) {
         CPLErrorReset();
@@ -295,6 +296,31 @@ void drawLegends(Canvas& cv, const std::vector<Legend>& legends, float ps) {
         }
         bottom = y0 - pad - 8 * ps;
     }
+}
+
+// The basemap's attribution, bottom right on a dark box, in lines that fit
+// the image (sizes in points x ps, as on the map).
+void drawCredit(Canvas& cv, const std::string& text, float ps) {
+    if (text.empty()) return;
+    const float fs = ImGui::GetFontSize() * 0.85f * ps, line = fs + 2 * ps, pad = 3 * ps;
+    const float maxW = std::max(80 * ps, cv.w - 20 * ps);
+    std::vector<std::string> lines(1);
+    size_t i = 0;
+    while (i < text.size()) { // word by word
+        size_t j = text.find(' ', i);
+        j = j == std::string::npos ? text.size() : j + 1;
+        const std::string word = text.substr(i, j - i);
+        if (!lines.back().empty() && Canvas::textWidth((lines.back() + word).c_str(), fs) > maxW) lines.emplace_back();
+        lines.back() += word;
+        i = j;
+    }
+    float w = 0;
+    for (const std::string& l : lines) w = std::max(w, Canvas::textWidth(l.c_str(), fs));
+    const float x1 = cv.w - 5 * ps, y1 = cv.h - 5 * ps, x0 = x1 - w, y0 = y1 - line * lines.size();
+    cv.fillRect(x0 - pad, y0 - pad, x1 + pad, y1 + pad, IM_COL32(0, 0, 0, 140));
+    for (size_t k = 0; k < lines.size(); ++k)
+        cv.text(x1 - Canvas::textWidth(lines[k].c_str(), fs), y0 + line * k, lines[k].c_str(), fs,
+                IM_COL32(220, 220, 220, 255));
 }
 
 } // namespace
@@ -464,6 +490,7 @@ std::shared_ptr<ExportJob> App::exportPng(const std::string& path, const PngOpti
         }
         drawLegends(cv, legends, ps);
     }
+    drawCredit(cv, basemapAttribution(), ps); // whenever the basemap is drawn
     char title[160];
     std::snprintf(title, sizeof(title), "Map as PNG, %d x %d px", w, h);
     auto job = startJob(title, path, [img, w, h, transparent, path](ExportJob& j, std::string& error) {
@@ -555,6 +582,9 @@ std::shared_ptr<ExportJob> App::exportView(const std::string& path, int scale) {
     auto img = std::make_shared<std::vector<unsigned char>>();
     int w = 0, h = 0;
     renderExport(scale, true, nullptr, *img, w, h);
+    const std::string credit = basemapAttribution();
+    Canvas cv{w, h, img->data()};
+    drawCredit(cv, credit, mapPixelScale_ * float(scale));
     // Target pixel (px, py) -> active layer pixel ((px / ps - offset) / scale_).
     const CubeInfo& info = *s_->info;
     const double ps = double(mapPixelScale_) * scale, k = 1.0 / (scale_ * ps);
@@ -566,7 +596,7 @@ std::shared_ptr<ExportJob> App::exportView(const std::string& path, int scale) {
     const std::string src = info.layers[t_].path;
     char title[160];
     std::snprintf(title, sizeof(title), "Rendered view as GeoTIFF, %d x %d px (RGBA)", w, h);
-    auto job = startJob(title, path, [img, w, h, gt, geo, src, path](ExportJob& j, std::string& error) {
+    auto job = startJob(title, path, [img, w, h, gt, geo, src, path, credit](ExportJob& j, std::string& error) {
         char** opts = nullptr;
         opts = CSLSetNameValue(opts, "TILED", "YES");
         opts = CSLSetNameValue(opts, "COMPRESS", "DEFLATE");
@@ -574,7 +604,7 @@ std::shared_ptr<ExportJob> App::exportView(const std::string& path, int scale) {
         opts = CSLSetNameValue(opts, "ALPHA", "UNASSOCIATED");
         opts = CSLSetNameValue(opts, "BIGTIFF", "IF_SAFER");
         const bool ok = writeImage(path, "GTiff", *img, w, h, true, geo ? gt.data() : nullptr, geo ? fileWkt(src) : "",
-                                   opts, j, error);
+                                   opts, j, error, credit.empty() ? "" : "Basemap: " + credit);
         CSLDestroy(opts);
         return ok;
     });

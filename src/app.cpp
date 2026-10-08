@@ -93,6 +93,8 @@ App::~App() {
     for (auto& e : exports_) e->cancel = true; // their threads finish when exports_ goes
     zeit_.reset();
     closeAll();
+    retireBasemap();
+    retiredBasemaps_.clear(); // waits for their last requests
     gpu_.shutdown();
 }
 
@@ -107,6 +109,7 @@ bool App::init(const AppOptions& opts, std::string& error) {
     fs::create_directories(fs::u8path(settings_.cacheDir), ec);
     Overview::pruneCache(settings_.cacheDir, 20ull << 30);
     registerFullResSettings(); // its budget (in the .ini) prunes the full-resolution caches
+    registerBasemapSettings();
     settings_.overviewBudgetBytes = opts.budgetMB << 20;
     settings_.ioThreads = opts.ioThreads;
     settings_.maxTexSize = std::min<int>(gpu_.maxCubeSide(), 16384);
@@ -293,6 +296,7 @@ void App::frame() {
         appliedCmap_ = cmap_[ModeValue];
     }
 
+    pumpBasemap();
     pumpZeit();
     pumpTransect();
 
@@ -719,6 +723,12 @@ void App::renderMap(int w, int h, float pixelScale, int slot, const float* backg
         r[2] = float((offset_.x + x1 * scale_) * pixelScale);
         r[3] = float((offset_.y + y1 * scale_) * pixelScale);
     };
+    if (basemapShown()) { // under everything
+        const double view[4] = {-offset_.x / scale_, -offset_.y / scale_, (w - offset_.x) / scale_,
+                                (h - offset_.y) / scale_};
+        drawBasemap(view, scale_ * pixelScale, bg, std::round(w * pixelScale), std::round(h * pixelScale),
+                    [&](const double* q, float* r) { screenRect(q[0], q[1], q[2], q[3], r); });
+    }
     for (const SeriesLayer& L : layers_) {
         if (!L.visible || !L.aligned) continue;
         const bool isActive = &L == activeLayer();
@@ -1073,6 +1083,11 @@ void App::uiMap() {
         detailLevel_ = level;
         mapDirty_ = true;
     }
+    if (basemapShown()) {
+        const double view[4] = {-offset_.x / scale_, -offset_.y / scale_, (size.x - offset_.x) / scale_,
+                                (size.y - offset_.y) / scale_};
+        basemap_->update(view, scale_ * pixelScale);
+    }
 
     if (mapDirty_) {
         renderMap(int(size.x), int(size.y), pixelScale);
@@ -1088,6 +1103,7 @@ void App::uiMap() {
     dl->PushClipRect(origin, origin + size, true);
     drawSwipe(dl, origin, size, pixelScale);
     drawMapMarks(dl, origin, 0, ix, iy, inside);
+    drawBasemapNote(dl, origin, size);
 
     // View title (date + mode) and color bar
     char title[160];
@@ -1344,18 +1360,29 @@ App::SeriesLayer* App::uiViewBar(MapView& v) {
     const CubeInfo& li = *S.info;
     const int T = li.T();
 
-    // --- Toolbar: layer, date, display mode ---
+    // --- Toolbar: layer (or the basemap alone), date, display mode ---
+    const bool basemap = bm_.on && bm_.source != "none";
+    if (v.basemapOnly && !basemap) {
+        v.basemapOnly = false;
+        v.dirty = true;
+    }
     ImGui::SetNextItemWidth(170);
-    if (ImGui::BeginCombo("##layer", L->name.c_str())) {
+    if (ImGui::BeginCombo("##layer", v.basemapOnly ? "Basemap only" : L->name.c_str())) {
         for (SeriesLayer& c : layers_)
-            if (ImGui::Selectable(c.name.c_str(), &c == L)) {
+            if (ImGui::Selectable(c.name.c_str(), &c == L && !v.basemapOnly)) {
                 v.cube = c.session->info->id;
+                v.basemapOnly = false;
                 v.range.key = ~0ull;
                 v.dirty = true;
             }
+        if (basemap && ImGui::Selectable("Basemap only", v.basemapOnly)) {
+            v.basemapOnly = true;
+            v.dirty = true;
+        }
         ImGui::EndCombo();
     }
-    ImGui::SetItemTooltip("Layer shown in this panel");
+    ImGui::SetItemTooltip("Layer shown in this panel (or the basemap alone)");
+    if (v.basemapOnly) return L;
     ImGui::SameLine();
     if (ImGui::Checkbox("Own date", &v.ownDate)) v.dirty = true;
     ImGui::SetItemTooltip("Off: the layer's date (the main time bar)");
@@ -1439,7 +1466,13 @@ void App::uiMapView(MapView& v) {
         v.dirty = true;
     }
     int level = -1;
-    if (detail_ && (mode == ModeValue || (mode == ModeDiff && diffRef >= 0)) && !S.deferRandomReads()) {
+    if (basemapShown()) {
+        const ImVec2 o = offset_ + shift;
+        const double view[4] = {-o.x / scale_, -o.y / scale_, (size.x - o.x) / scale_, (size.y - o.y) / scale_};
+        basemap_->update(view, scale_ * pixelScale);
+    }
+    if (detail_ && !v.basemapOnly && (mode == ModeValue || (mode == ModeDiff && diffRef >= 0)) &&
+        !S.deferRandomReads()) {
         // This panel's area in the layer's own pixels.
         const ImVec2 o = offset_ + shift;
         const ViewRect r = layerView(*L, -o.x / scale_, -o.y / scale_, (size.x - o.x) / scale_, (size.y - o.y) / scale_,
@@ -1462,9 +1495,12 @@ void App::uiMapView(MapView& v) {
                  ImVec2(0, bottomUp ? 1.f : 0.f), ImVec2(1, bottomUp ? 0.f : 1.f));
     dl->PushClipRect(origin, origin + size, true);
     drawMapMarks(dl, origin + shift, v.id, ix, iy, inside);
+    drawBasemapNote(dl, origin, size);
 
     char title[200];
-    if (mode == ModeRGB)
+    if (v.basemapOnly)
+        std::snprintf(title, sizeof(title), "Basemap: %s", basemapSource().name.c_str());
+    else if (mode == ModeRGB)
         std::snprintf(title, sizeof(title), "%s  |  RGB", L->name.c_str());
     else if (mode == ModeDiff)
         std::snprintf(title, sizeof(title), "%s  |  %s - %s  |  Difference", L->name.c_str(), li.layers[t].label.c_str(),
@@ -1476,11 +1512,11 @@ void App::uiMapView(MapView& v) {
         std::snprintf(title, sizeof(title), "%s  |  %s", L->name.c_str(), kModeNames[mode]);
     dl->AddText(origin + ImVec2(11, 9), IM_COL32(0, 0, 0, 200), title);
     dl->AddText(origin + ImVec2(10, 8), IM_COL32(255, 255, 255, 255), title);
-    if (modeNeedsStats(mode) && !S.gpu.statsValid) {
+    if (modeNeedsStats(mode) && !S.gpu.statsValid && !v.basemapOnly) {
         const char* wait = "Computing statistics: waiting for the complete overview...";
         dl->AddText(origin + (size - ImGui::CalcTextSize(wait)) * 0.5f, IM_COL32(220, 220, 220, 255), wait);
     }
-    if (mode != ModeRGB && !classes) { // color bar
+    if (mode != ModeRGB && !classes && !v.basemapOnly) { // color bar
         const ImVec2 b0 = origin + ImVec2(10, size.y - 34), bsz(220, 10);
         const int n = 48;
         for (int i = 0; i < n; ++i) {
@@ -1499,16 +1535,6 @@ void App::uiMapView(MapView& v) {
 void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
     const float bg[4] = {0.10f, 0.10f, 0.115f, 1.0f};
     gpu_.beginMap(int(std::lround(w * pixelScale)), int(std::lround(h * pixelScale)), bg, v.id);
-    const SeriesLayer* L = nullptr;
-    for (const SeriesLayer& c : layers_)
-        if (c.session->info->id == v.cube) L = &c;
-    if (!L || !L->aligned) {
-        gpu_.endMap();
-        return;
-    }
-    const Session& S = *L->session;
-    const CubeInfo& li = *S.info;
-    const bool isActive = L == activeLayer();
     // Active layer's pixels -> pixels of this panel's target.
     auto screenRect = [&](double x0, double y0, double x1, double y1, float r[4]) {
         r[0] = float((shift.x + offset_.x + x0 * scale_) * pixelScale);
@@ -1516,6 +1542,22 @@ void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
         r[2] = float((shift.x + offset_.x + x1 * scale_) * pixelScale);
         r[3] = float((shift.y + offset_.y + y1 * scale_) * pixelScale);
     };
+    if (basemapShown()) {
+        const ImVec2 o = offset_ + shift;
+        const double view[4] = {-o.x / scale_, -o.y / scale_, (w - o.x) / scale_, (h - o.y) / scale_};
+        drawBasemap(view, scale_ * pixelScale, bg, std::round(w * pixelScale), std::round(h * pixelScale),
+                    [&](const double* q, float* r) { screenRect(q[0], q[1], q[2], q[3], r); });
+    }
+    const SeriesLayer* L = nullptr;
+    for (const SeriesLayer& c : layers_)
+        if (c.session->info->id == v.cube) L = &c;
+    if (!L || !L->aligned || v.basemapOnly) {
+        gpu_.endMap();
+        return;
+    }
+    const Session& S = *L->session;
+    const CubeInfo& li = *S.info;
+    const bool isActive = L == activeLayer();
     // L's pixels -> where they are drawn (and how: reprojected layers through a warp).
     auto layerRect = [&](double x0, double y0, double x1, double y1, float r[4], WarpParams& w) {
         double q[4];
@@ -2216,6 +2258,7 @@ void App::uiPerf() {
         ImGui::Text("Queue: %d (background), %d (interactive)", s_->bgPool().pending(), s_->fgPool().pending());
         uiFullRes();
     }
+    uiBasemapPerf();
     ImGui::SeparatorText("Zeit");
     if (!zeit_ || zeit_->state() == ZeitClient::State::Off) {
         ImGui::TextDisabled("Not started (starts when a series is opened)");

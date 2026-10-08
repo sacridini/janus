@@ -7,6 +7,8 @@
 #                         plus the C++ runtime it was built with; system
 #                         libraries (glibc, OpenGL drivers, X11) come from the OS
 #     share/gdal, share/proj
+#     share/ssl/cacert.pem  CA certificates for curl (basemap tiles over https)
+#                         where the system has no bundle (platform::caBundlePath)
 #     runtime/            private Python + Zeit (tools/build_zeit_runtime.py)
 #     janus.desktop, janus.png, README.md
 #
@@ -53,6 +55,11 @@ file(RPATH_SET FILE "${stage}/janus" NEW_RPATH "$ORIGIN/lib")
 file(CREATE_LINK janus "${stage}/jn" SYMBOLIC)
 file(COPY "${PREFIX}/share/proj/proj.db" DESTINATION "${stage}/share/proj")
 file(COPY "${PREFIX}/share/gdal" DESTINATION "${stage}/share")
+# conda's curl looks for its certificates at the build prefix, which a package
+# does not have: Janus points it to the system's bundle, else to this copy.
+if(EXISTS "${PREFIX}/ssl/cacert.pem")
+  file(COPY "${PREFIX}/ssl/cacert.pem" DESTINATION "${stage}/share/ssl")
+endif()
 file(COPY "${RUNTIME}/" DESTINATION "${stage}/runtime")
 file(COPY "${SRC}/resources/janus.png" "${SRC}/README.md" DESTINATION "${stage}")
 file(WRITE "${stage}/janus.desktop"

@@ -62,6 +62,20 @@
   onto the active layer's grid on the GPU (nearest neighbour, values unchanged,
   error < 0.02 px). Cursor, pins and ROI use the exact PROJ transformation. The
   ROI applies to every visible layer.
+- **Basemap** (Layers panel → Basemap): satellite imagery or a map under the
+  series, for context. Sources: **Esri World Imagery**, **Sentinel-2 cloudless
+  2016** by EOX (CC BY 4.0), **OpenStreetMap**, or your own **XYZ URL**
+  (`https://.../{z}/{x}/{y}.png?key=...`, e.g. Google Map Tiles API, MapTiler,
+  Planet: with your key and under the provider's terms). Off by default:
+  nothing is downloaded until you pick a source. Only the tiles in view, at the
+  screen's zoom level, are read in the background (coarser ones fill in while
+  they arrive) and kept in the cache folder; the map never waits for them. It
+  is drawn under every layer (lower a layer's opacity to see the ground), on the
+  map panels and the swipe (whose comparison can be the basemap alone), and in
+  the exports, always with the source's attribution (bottom right). Tiles are
+  in Web Mercator and placed on the active layer's grid like a layer in another
+  CRS, so the active layer needs a CRS. Offline, the map shows "Basemap
+  unavailable (offline)".
 - **Map panels side by side** (View → New map view): each panel shows one layer,
   optionally at its own date and in its own display mode (e.g. NDVI next to NBR,
   or 2005 next to 2020 of the same series). All panels show the same area: pan
@@ -122,7 +136,8 @@ Developer options:
   --selftest-ui A B [C [D [E [F]]]]  drive the layers workflow in a hidden window
                       (A, then B as a layer; C: several bands per date;
                       D, E: categorical, with and without a colour table;
-                      F: B in another CRS, reprojected over it)
+                      F: B in another CRS, reprojected over it; the
+                      basemap is checked with local tiles, no network)
 ```
 
 Examples:
@@ -154,11 +169,12 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
 | Performance panel | **View → Performance** (hidden by default): timings, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**; when it is built and its budget under Settings) |
 | Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active. Layers in another CRS show "reprojected from EPSG:…" (hover for the grid size and its error) |
+| Basemap | **Layers** panel → Basemap (below the layers): pick a source (None = nothing downloaded), tick to show/hide, opacity; *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. Kept between sessions; the map panels' and the swipe's layer list has *Basemap only* |
 | Browse files | **Files** panel: double click opens, right click → Add as layer; Ctrl+click selects several files |
 | Chart of several layers | Time series panel → *All visible layers* (one marker shape per layer) |
 | Second monitor | drag a panel's tab out of the main window |
 | Maps side by side | View → New map view (`Ctrl+T`): pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** or `Ctrl+W` (the focused panel, else the last one opened) |
-| Swipe | View → Swipe (`S`): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode; **Swipe off** or `S` again closes it |
+| Swipe | View → Swipe (`S`): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode, or *Basemap only*; **Swipe off** or `S` again closes it |
 | Space-time transect | `Ctrl` + drag a line on the map (Mac: `Command` + drag), or `T` / View → Draw transect, then drag; `Esc` cancels. **Transect** panel: distance from A (X) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel |
 | Chart options | style, values/anomaly/z-score, trend (OLS/Sen), Y = map range |
 | Map as a figure | File → Export map as PNG...: resolution (1×, 2×, 4×), background, date label, legend, pins and ROI |
