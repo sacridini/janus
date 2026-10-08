@@ -1,7 +1,8 @@
 // Full-resolution cache (FullResCache) in the interface: its section of the
 // Performance panel (state, size, read timings, build on demand), the setting
-// and budget (kept in the layout .ini), and `--measure-cache`, which times the
-// build and the reads with and without it.
+// and budget (in the Settings window, kept in the layout .ini by
+// app_settings.cpp), and `--measure-cache`, which times the build and the
+// reads with and without it.
 #include "app.hpp"
 
 #include <algorithm>
@@ -22,39 +23,6 @@ double nowMs() {
 
 } // namespace
 
-void App::registerFullResSettings() {
-    ImGuiSettingsHandler h;
-    h.TypeName = "Janus";
-    h.TypeHash = ImHashStr("Janus");
-    h.UserData = this;
-    h.ReadOpenFn = [](ImGuiContext*, ImGuiSettingsHandler*, const char* name) -> void* {
-        return std::strcmp(name, "Settings") == 0 ? reinterpret_cast<void*>(1) : nullptr;
-    };
-    h.ReadLineFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, void*, const char* line) {
-        SessionSettings& s = static_cast<App*>(handler->UserData)->settings_;
-        auto value = [line](const char* key, int& v) {
-            const size_t n = std::strlen(key);
-            if (std::strncmp(line, key, n) != 0) return false;
-            v = std::atoi(line + n);
-            return true;
-        };
-        int v = 0;
-        if (value("FullResCache=", v)) s.fullResMode = std::clamp(v, 0, 2);
-        else if (value("FullResBudgetGB=", v)) s.fullResBudgetBytes = uint64_t(std::clamp(v, 1, 1 << 20)) << 30;
-    };
-    // Once the budget is known: the oldest caches go (as the overview's at startup).
-    h.ApplyAllFn = [](ImGuiContext*, ImGuiSettingsHandler* handler) {
-        const SessionSettings& s = static_cast<App*>(handler->UserData)->settings_;
-        FullResCache::prune(s.cacheDir, s.fullResBudgetBytes);
-    };
-    h.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buf) {
-        const SessionSettings& s = static_cast<App*>(handler->UserData)->settings_;
-        buf->appendf("[Janus][Settings]\nFullResCache=%d\nFullResBudgetGB=%d\n\n", s.fullResMode,
-                     int(s.fullResBudgetBytes >> 30));
-    };
-    ImGui::AddSettingsHandler(&h);
-}
-
 void App::uiFullRes() {
     FullResCache& c = *s_->fullRes;
     const int T = s_->info->T();
@@ -63,7 +31,7 @@ void App::uiFullRes() {
     if (!c.started()) {
         if (!err.empty()) {
             ImGui::PushTextWrapPos(0);
-            ImGui::TextColored(ImVec4(1, 0.55f, 0.45f, 1), "Not built: %s", err.c_str());
+            ImGui::TextColored(theme::error(), "Not built: %s", err.c_str());
             ImGui::PopTextWrapPos();
         } else {
             ImGui::TextDisabled(s_->rotational ? "Off: exact series are read from the HDD"
@@ -87,7 +55,7 @@ void App::uiFullRes() {
         ImGui::ProgressBar(float(c.datesDone()) / std::max(1, T), ImVec2(-1, 0), label);
         if (!err.empty()) {
             ImGui::PushTextWrapPos(0);
-            ImGui::TextColored(ImVec4(1, 0.55f, 0.45f, 1), "%s", err.c_str());
+            ImGui::TextColored(theme::error(), "%s", err.c_str());
             ImGui::PopTextWrapPos();
         } else if (c.building()) {
             ImGui::TextDisabled("Building in the background; cached dates are used already");

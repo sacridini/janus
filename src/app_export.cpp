@@ -355,7 +355,7 @@ void App::renderExport(int scale, bool transparent, const float bg[4], std::vect
         gpu_.readMap(overWhite, w2, h2, kExportSlot);
         // In parallel: ~150 ms on one core for 4x a full HD map.
         const size_t n = rgba.size() / 4;
-        const unsigned threads = std::clamp(std::thread::hardware_concurrency(), 1u, 16u);
+        const unsigned threads = unsigned(std::clamp(settings_.processingThreads(), 1, 16));
         std::vector<std::thread> pool;
         for (unsigned k = 0; k < threads; ++k)
             pool.emplace_back([&, k] {
@@ -512,7 +512,8 @@ std::shared_ptr<ExportJob> App::exportValues(const std::string& path, bool whole
     char title[200];
     std::snprintf(title, sizeof(title), "%s at %s, %d x %d px (Float32)", activeLayer()->name.c_str(),
                   info->layers[t].label.c_str(), win[2] - win[0], win[3] - win[1]);
-    auto job = startJob(title, path, [info, t, win, path](ExportJob& j, std::string& error) {
+    const std::string threads = std::to_string(settings_.processingThreads()); // compression threads
+    auto job = startJob(title, path, [info, t, win, path, threads](ExportJob& j, std::string& error) {
         const int x0 = win[0], y0 = win[1], w = win[2] - win[0], h = win[3] - win[1];
         GDALDriver* drv = GetGDALDriverManager()->GetDriverByName("GTiff");
         if (!drv) {
@@ -524,7 +525,7 @@ std::shared_ptr<ExportJob> App::exportValues(const std::string& path, bool whole
         opts = CSLSetNameValue(opts, "COMPRESS", "DEFLATE");
         opts = CSLSetNameValue(opts, "PREDICTOR", "3");
         opts = CSLSetNameValue(opts, "BIGTIFF", "IF_SAFER");
-        opts = CSLSetNameValue(opts, "NUM_THREADS", "ALL_CPUS");
+        opts = CSLSetNameValue(opts, "NUM_THREADS", threads.c_str());
         const std::string tmp = path + ".part";
         CPLErrorReset();
         GDALDataset* out = drv->Create(tmp.c_str(), w, h, 1, GDT_Float32, opts);
@@ -734,7 +735,7 @@ void App::uiExport() {
         ImGui::Checkbox("Pins and ROI", &png_.marks);
     } else if (exportKind_ == 2) {
         const SeriesLayer* L = activeLayer();
-        ImGui::TextColored(ImVec4(0.55f, 0.80f, 1.0f, 1), "%s", L ? L->name.c_str() : "");
+        ImGui::TextColored(theme::accent(), "%s", L ? L->name.c_str() : "");
         const std::string what = info.selectionText();
         ImGui::Text("Date %s%s%s", info.layers[t_].label.c_str(), what.empty() ? "" : ", ", what.c_str());
         int win[4];
@@ -753,10 +754,10 @@ void App::uiExport() {
         ImGui::TextDisabled(info.hasGeoTransform ? "Georeferenced like the layer (same grid and CRS)."
                                                  : "The layer has no georeferencing: pixel coordinates only.");
         if (mode_ != ModeValue)
-            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.4f, 1), "The map shows %s; the file holds the values at the date.",
+            ImGui::TextColored(theme::warning(), "The map shows %s; the file holds the values at the date.",
                                modeName(mode_));
         if (s_->deferRandomReads()) { // as pins and tiles: the HDD's head stays on the overview
-            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.4f, 1), "Building the overview from an HDD: available once it ends.");
+            ImGui::TextColored(theme::warning(), "Building the overview from an HDD: available once it ends.");
             canSave = false;
         }
     } else {
@@ -820,7 +821,7 @@ void App::uiExports() {
         if (st == ExportJob::State::Failed) {
             std::lock_guard<std::mutex> lk(j.m);
             ImGui::PushTextWrapPos(0);
-            ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1), "%s", j.error.c_str());
+            ImGui::TextColored(theme::error(), "%s", j.error.c_str());
             ImGui::PopTextWrapPos();
         }
         ImGui::Separator();

@@ -76,6 +76,9 @@ struct ZeitConfig {
     std::string bridge;   // janus_zeit_bridge.py
     std::string logPath;  // stderr of every bridge process goes here
     bool bundled = true;  // false = developer override (keep the user's environment)
+    // CPU threads a bridge process may use (OMP_NUM_THREADS, NUMBA_NUM_THREADS,
+    // BLAS and JANUS_THREADS in its environment); 0 = not limited.
+    int threads = 0;
 };
 
 // A running child process with line-based stdout.
@@ -162,7 +165,12 @@ public:
     uint64_t call(const std::string& method, const json& params);
     std::vector<PixelReply> takeReplies();
 
+    // Raster jobs get jobThreads() in their environment and as "threads" in the spec.
     std::shared_ptr<ZeitJob> startJob(const json& spec, const std::string& specPath, const std::string& title);
+    // Threads of the jobs started from now on (default: the config's); the
+    // serve process keeps the ones it was started with (config().threads).
+    void setJobThreads(int n) { jobThreads_ = n; }
+    int jobThreads() const { return jobThreads_; }
 
     const ZeitConfig& config() const { return cfg_; }
 
@@ -178,6 +186,7 @@ private:
     std::vector<ZeitTool> tools_;
     std::vector<PixelReply> replies_;
     std::atomic<uint64_t> nextId_{10};
+    int jobThreads_ = 0;
     std::atomic<double> startupMs_{0};
     std::chrono::steady_clock::time_point t0_;
 };

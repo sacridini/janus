@@ -240,7 +240,7 @@ def bfast_pixel(p, ctx):
 
 def bfast_chunk(p, stack, ctx):
     _, h, w = stack.shape
-    out = _bfast_batch(p, _values_2d(stack), ctx, -1)
+    out = _bfast_batch(p, _values_2d(stack), ctx, ctx.get("n_jobs", -1))
     valid = out[6] == 1.0
     date, mag = _bfast_largest(out, ctx)
     has = np.isfinite(date)
@@ -289,7 +289,7 @@ def lite_pixel(p, ctx):
 def lite_chunk(p, stack, ctx):
     _, h, w = stack.shape
     values = _values_2d(stack)
-    out = _lite_batch(p, values, ctx, -1)
+    out = _lite_batch(p, values, ctx, ctx.get("n_jobs", -1))
     valid = out[4] == 1.0
     breaks = np.sort(out[5:].T, axis=1)  # [P, K], NaN last
     P = breaks.shape[0]
@@ -362,7 +362,7 @@ def monitor_pixel(p, ctx):
 
 def monitor_chunk(p, stack, ctx):
     _, h, w = stack.shape
-    out, _ = _monitor_batch(p, _values_2d(stack), ctx, -1)
+    out, _ = _monitor_batch(p, _values_2d(stack), ctx, ctx.get("n_jobs", -1))
     valid = out[6] == 1.0
     brk = valid & (out[5] == 1.0)
     res = {

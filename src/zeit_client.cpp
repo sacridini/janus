@@ -27,6 +27,12 @@ namespace fs = std::filesystem;
 
 namespace {
 
+// Thread limits of the numeric libraries in a bridge process (OpenMP in Zeit's
+// C++, numba, BLAS) and JANUS_THREADS for the bridge itself (n_jobs of Zeit's
+// batch functions, which may not follow OMP_NUM_THREADS).
+const char* const kThreadVars[] = {"OMP_NUM_THREADS", "NUMBA_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                                   "JANUS_THREADS"};
+
 #ifdef _WIN32
 std::wstring toWide(const std::string& s) {
     int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
@@ -55,8 +61,9 @@ std::wstring quoteArg(const std::wstring& a) {
 }
 
 // Environment for the child. For the bundled runtime, drop variables that would
-// point Python or GDAL/PROJ at another installation on this machine.
-std::vector<wchar_t> childEnvironment(bool bundled) {
+// point Python or GDAL/PROJ at another installation on this machine. threads >
+// 0: the thread limits (kThreadVars) replace any the user has.
+std::vector<wchar_t> childEnvironment(bool bundled, int threads) {
     static const wchar_t* drop[] = {L"PYTHONHOME", L"PYTHONPATH", L"PYTHONSTARTUP", L"GDAL_DATA", L"GDAL_DRIVER_PATH",
                                     L"PROJ_LIB", L"PROJ_DATA", L"CONDA_PREFIX"};
     std::vector<wchar_t> block;
@@ -71,17 +78,24 @@ std::vector<wchar_t> childEnvironment(bool bundled) {
         }
         if (_wcsnicmp(kv.c_str(), L"PYTHONUTF8=", 11) == 0 || _wcsnicmp(kv.c_str(), L"PYTHONNOUSERSITE=", 17) == 0)
             skip = true;
+        if (threads > 0) {
+            const std::wstring key = kv.substr(0, kv.find(L'='));
+            for (const char* v : kThreadVars)
+                if (_wcsicmp(key.c_str(), toWide(v).c_str()) == 0) skip = true;
+        }
         if (!skip) block.insert(block.end(), kv.c_str(), kv.c_str() + kv.size() + 1);
     }
     FreeEnvironmentStringsW(env);
-    for (const wchar_t* extra : {L"PYTHONUTF8=1", L"PYTHONNOUSERSITE=1"})
-        block.insert(block.end(), extra, extra + wcslen(extra) + 1);
+    std::vector<std::wstring> extra = {L"PYTHONUTF8=1", L"PYTHONNOUSERSITE=1"};
+    if (threads > 0)
+        for (const char* v : kThreadVars) extra.push_back(toWide(v) + L"=" + std::to_wstring(threads));
+    for (const std::wstring& e : extra) block.insert(block.end(), e.c_str(), e.c_str() + e.size() + 1);
     block.push_back(L'\0');
     return block;
 }
 #else
 // Same rules as the Windows version, as "KEY=value" strings.
-std::vector<std::string> childEnvironment(bool bundled) {
+std::vector<std::string> childEnvironment(bool bundled, int threads) {
     static const char* drop[] = {"PYTHONHOME=", "PYTHONPATH=", "PYTHONSTARTUP=", "GDAL_DATA=", "GDAL_DRIVER_PATH=",
                                  "PROJ_LIB=", "PROJ_DATA=", "CONDA_PREFIX=", "PYTHONUTF8=", "PYTHONNOUSERSITE="};
     std::vector<std::string> env;
@@ -92,10 +106,15 @@ std::vector<std::string> childEnvironment(bool bundled) {
             const bool alwaysDropped = std::strncmp(d, "PYTHONUTF8", 10) == 0 || std::strncmp(d, "PYTHONNOUSERSITE", 16) == 0;
             if ((bundled || alwaysDropped) && kv.rfind(d, 0) == 0) skip = true;
         }
+        if (threads > 0)
+            for (const char* v : kThreadVars)
+                if (kv.rfind(std::string(v) + "=", 0) == 0) skip = true;
         if (!skip) env.push_back(kv);
     }
     env.push_back("PYTHONUTF8=1");
     env.push_back("PYTHONNOUSERSITE=1");
+    if (threads > 0)
+        for (const char* v : kThreadVars) env.push_back(std::string(v) + "=" + std::to_string(threads));
     return env;
 }
 
@@ -182,7 +201,7 @@ bool ZeitProcess::start(const ZeitConfig& cfg, const std::vector<std::string>& a
 
     std::wstring cmd = quoteArg(toWide(cfg.python)) + L" -X utf8 " + quoteArg(toWide(cfg.bridge));
     for (const std::string& a : args) cmd += L" " + quoteArg(toWide(a));
-    std::vector<wchar_t> env = childEnvironment(cfg.bundled);
+    std::vector<wchar_t> env = childEnvironment(cfg.bundled, cfg.threads);
     PROCESS_INFORMATION pi{};
     const BOOL ok = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE,
                                    CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT,
@@ -223,7 +242,7 @@ bool ZeitProcess::start(const ZeitConfig& cfg, const std::vector<std::string>& a
     std::vector<char*> av;
     for (std::string& a : argv) av.push_back(a.data());
     av.push_back(nullptr);
-    std::vector<std::string> env = childEnvironment(cfg.bundled);
+    std::vector<std::string> env = childEnvironment(cfg.bundled, cfg.threads);
     std::vector<char*> ev;
     for (std::string& e : env) ev.push_back(e.data());
     ev.push_back(nullptr);
@@ -379,6 +398,7 @@ ZeitClient::~ZeitClient() {
 void ZeitClient::start(const ZeitConfig& cfg) {
     if (state_ != State::Off) return;
     cfg_ = cfg;
+    jobThreads_ = cfg.threads;
     t0_ = std::chrono::steady_clock::now();
     std::error_code ec;
     if (!fs::exists(fs::u8path(cfg.python), ec) || !fs::exists(fs::u8path(cfg.bridge), ec)) {
@@ -536,11 +556,16 @@ std::shared_ptr<ZeitJob> ZeitClient::startJob(const json& spec, const std::strin
     job->title = title;
     job->toolId = spec.value("tool", "");
     job->outputDir = spec.value("output_dir", "");
+    ZeitConfig cfg = cfg_;
+    cfg.threads = jobThreads_;
     {
+        json s = spec;
+        if (cfg.threads > 0) s["threads"] = cfg.threads;
         std::ofstream f(fs::u8path(specPath), std::ios::binary);
-        f << spec.dump(2);
+        f << s.dump(2);
     }
-    logLine(cfg_.logPath, "job: " + title + " (" + specPath + ")");
+    logLine(cfg_.logPath, "job: " + title + " (" + specPath + ")" +
+                              (cfg.threads > 0 ? ", " + std::to_string(cfg.threads) + " threads" : ""));
     job->proc = std::make_unique<ZeitProcess>();
     ZeitJob* j = job.get(); // the process (and its callbacks) is owned by the job
     job->proc->onLine = [j](const std::string& line) {
@@ -579,7 +604,7 @@ std::shared_ptr<ZeitJob> ZeitClient::startJob(const json& spec, const std::strin
         glfwPostEmptyEvent();
     };
     std::string err;
-    if (!job->proc->start(cfg_, {"job", specPath}, err)) {
+    if (!job->proc->start(cfg, {"job", specPath}, err)) {
         std::lock_guard<std::mutex> lk(job->m);
         job->error = err;
         job->state = ZeitJob::State::Failed;

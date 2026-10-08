@@ -6,18 +6,34 @@
 
 #include "platform.hpp"
 
+int logicalCores() { return int(std::max(1u, std::thread::hardware_concurrency())); }
+
+int defaultProcessingThreads() { return std::max(1, logicalCores() - 2); }
+
+int SessionSettings::processingThreads() const {
+    return threads > 0 ? std::min(threads, logicalCores()) : defaultProcessingThreads();
+}
+
+// Spinning HDD: 1 sequential reader, whatever the processing threads (a disk
+// decision). Measured cold (LZW, 1-row strips): 1 thread = 1.2-1.4 s/date,
+// already close to the physical floor (sweeping the file at ~140 MB/s); 2
+// threads = 5.0 s/date, because the head keeps jumping between files.
+static int bgThreadsFor(const SessionSettings& s, bool rotational) {
+    return s.ioThreads > 0 ? s.ioThreads : rotational ? 1 : std::min(s.processingThreads(), 12);
+}
+static int fgThreadsFor(const SessionSettings& s, bool rotational) {
+    return rotational ? 1 : std::min(s.processingThreads(), 4);
+}
+// Full-resolution cache on an HDD: one thread streams the file, these decode and compress.
+static int decodeThreadsFor(const SessionSettings& s, bool rotational) {
+    return rotational ? std::clamp(s.processingThreads() / 2, 1, 4) : 1;
+}
+
 Session::Session(std::shared_ptr<CubeInfo> infoIn, const SessionSettings& s, std::function<void()> wake)
     : info(std::move(infoIn)), wake_(std::move(wake)) {
     rotational = platform::isOnRotationalDisk(info->firstPath);
-    const int cores = int(std::max(2u, std::thread::hardware_concurrency()));
-    // Spinning HDD: 1 sequential reader. Measured cold (LZW, 1-row strips):
-    // 1 thread = 1.2-1.4 s/date, already close to the physical floor (sweeping
-    // the file at ~140 MB/s); 2 threads = 5.0 s/date, because the head keeps
-    // jumping between files.
-    const int bgThreads = s.ioThreads > 0 ? s.ioThreads : rotational ? 1 : std::min(cores, 12);
-    const int fgThreads = rotational ? 1 : 4;
-    bg_ = std::make_unique<JobPool>(bgThreads, wake_);
-    fg_ = std::make_unique<JobPool>(fgThreads, wake_);
+    bg_ = std::make_unique<JobPool>(bgThreadsFor(s, rotational), wake_);
+    fg_ = std::make_unique<JobPool>(fgThreadsFor(s, rotational), wake_);
 
     const int T = info->T();
     timesYears.resize(T);
@@ -28,7 +44,7 @@ Session::Session(std::shared_ptr<CubeInfo> infoIn, const SessionSettings& s, std
     // thread streams the file, several decode); then the dates the overview
     // pass does not read (its own cache had them).
     fullRes = std::make_shared<FullResCache>(info, s.cacheDir);
-    fullResDecodeThreads_ = rotational ? std::min(4, cores / 2) : 1;
+    fullResDecodeThreads_ = decodeThreadsFor(s, rotational);
     fullResBudget_ = s.fullResBudgetBytes;
     const bool wantFull = s.fullResMode == SessionSettings::FullResAll ||
                           (s.fullResMode == SessionSettings::FullResHdd && rotational);
@@ -160,6 +176,12 @@ std::shared_ptr<RoiData> Session::startRoi(int x0, int y0, int x1, int y1, const
         });
     }
     return roi;
+}
+
+void Session::setThreads(const SessionSettings& s) {
+    bg_->setThreads(bgThreadsFor(s, rotational));
+    fg_->setThreads(fgThreadsFor(s, rotational));
+    fullResDecodeThreads_ = decodeThreadsFor(s, rotational);
 }
 
 bool Session::buildFullRes() {

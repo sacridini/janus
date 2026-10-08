@@ -21,7 +21,7 @@ static double msSince(Clock::time_point t0) {
 }
 
 int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection& sel, const std::string& python,
-                    const std::string& bridge) {
+                    const std::string& bridge, int threads) {
     auto fail = [](const std::string& what) {
         std::printf("FAIL: %s\n", what.c_str());
         return 1;
@@ -40,14 +40,15 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
     cfg.bridge = bridge.empty() ? (rt / "janus_zeit_bridge.py").u8string() : bridge;
     cfg.bundled = python.empty();
     cfg.logPath = (fs::u8path(platform::appDataDir()) / "zeit.log").u8string();
+    cfg.threads = threads;
     ZeitClient zeit;
     zeit.start(cfg);
     const auto tz = Clock::now();
     while (zeit.state() == ZeitClient::State::Starting && msSince(tz) < 120000)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     if (zeit.state() != ZeitClient::State::Ready) return fail("zeit: " + zeit.error());
-    std::printf("zeit: %s (Python %s) ready in %.0f ms, %d tool(s)\n", zeit.zeitVersion().c_str(),
-                zeit.pythonVersion().c_str(), zeit.startupMs(), int(zeit.tools().size()));
+    std::printf("zeit: %s (Python %s) ready in %.0f ms, %d tool(s), %d threads\n", zeit.zeitVersion().c_str(),
+                zeit.pythonVersion().c_str(), zeit.startupMs(), int(zeit.tools().size()), threads);
 
     // Series at the center of the image (pixel runs) and the cube as a VRT (jobs).
     std::vector<double> years(info->T());

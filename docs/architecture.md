@@ -35,9 +35,11 @@
 | `src/file_browser.*` | Lazily listed folder tree (rasters only by default) |
 | `src/app_export.cpp` | Export: map as PNG (offscreen render at 1–4×, marks and legend drawn on the CPU with ImGui's font), values and the view as GeoTIFF, Zeit results; background jobs, Exports window |
 | `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow, swipe, transect and the exports in a hidden window, checked by reading map pixels and the files written; the full-resolution cache checked against the files |
-| `src/app_fullres.cpp` | Full-resolution cache in the Performance panel, its setting, `--measure-cache` |
+| `src/app_fullres.cpp` | Full-resolution cache in the Performance panel, its settings widgets, `--measure-cache` |
+| `src/app_settings.cpp` | Settings window (theme, processing threads, overview memory, caches), kept in the layout .ini; applies the threads to the open series and Zeit (the serve process is replaced once idle); its `--selftest-ui` checks (pools, contrast of every theme, Zeit restart) |
+| `src/theme.*` | Interface themes (Dark, Light, Classic, Janus): ImGui and ImPlot colours, status colours, contrast (WCAG) and data colours made legible on the charts |
 | `src/app_zeit.cpp` | Tools menu, tool windows, tasks, result layers, models on the chart |
-| `src/zeit_client.*` | Bridge processes (JSON lines over pipes; Win32 or POSIX), pixel calls, raster jobs, estimates |
+| `src/zeit_client.*` | Bridge processes (JSON lines over pipes; Win32 or POSIX, thread limits in their environment), pixel calls, raster jobs, estimates |
 | `src/results.*` | Result rasters loaded as map layers |
 | `src/reproject.*` | Layers in another CRS or on a rotated grid: exact PROJ transformation (cursor, pins, ROI, tiles, view) and the warp grid the shaders sample through |
 | `src/basemap.*` | Web basemap: XYZ tiles in EPSG:3857 read through GDAL's WMS driver (TMS service, curl, its disk cache) in a pool of its own, newest first, requests that left the screen dropped; an LRU of RGBA textures; drawn on the active layer's grid through a warp grid (`reproject.*`) |

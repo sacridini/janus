@@ -95,6 +95,9 @@
   opens a series, right click adds it as a layer.
 - **Detachable panels**: drag any panel out of the main window, e.g. the map on
   a second monitor and the charts on the first.
+- **Settings** (File → Settings, `Ctrl+,`): a dark, light, classic or Janus
+  colour theme, and how many CPU threads Janus and Zeit may use (all cores but
+  2 by default, so the computer stays responsive during long runs).
 - **Zeit tools** ([Zeit](https://github.com/sacridini/zeit-cdts) change detection
   and time-series algorithms): **LandTrendr**, **Mann-Kendall** (with Sen's
   slope; Hamed-Rao, Yue-Wang and seasonal variants), **BFAST**, **BFAST Lite**,
@@ -119,8 +122,11 @@ Inputs:
 
 Options:
   --band N            band used when each file is one date (default: 1)
-  --budget MB         memory for the cube overview (default: 1024)
-  --threads N         background reader threads (default: auto; HDD = 1)
+  --budget MB         memory for the cube overview, this run only
+                      (default: Settings, 1024)
+  --threads N         background reader threads, this run only (default: the
+                      processing threads in Settings, at most 12; HDD = 1);
+                      with --selftest-zeit, Zeit's threads
   -h, --help          show this help
   --version           show the version
 
@@ -167,7 +173,8 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Largest drop | **Display** panel → *Largest drop: date* or *magnitude*: the largest decrease between consecutive valid observations (no-data dates skipped), dated at the lower one; the colour bar shows dates. Exact values for the cursor and pins in the **Statistics** panel |
 | Classes (categorical data) | **Display** panel → *Categorical (classes)*: legend with colours, names and shares (click a colour to change it, untick a class to hide it); detection can be switched off or forced |
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
-| Performance panel | **View → Performance** (hidden by default): timings, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**; when it is built and its budget under Settings) |
+| Performance panel | **View → Performance** (hidden by default): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**) |
+| Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus), processing threads, overview memory, full-resolution cache (when it is built, its budget) and clearing the caches; kept between sessions (see [Settings](#settings)) |
 | Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active. Layers in another CRS show "reprojected from EPSG:…" (hover for the grid size and its error) |
 | Basemap | **Layers** panel → Basemap (below the layers): pick a source (None = nothing downloaded), tick to show/hide, opacity; *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. Kept between sessions; the map panels' and the swipe's layer list has *Basemap only* |
 | Browse files | **Files** panel: double click opens, right click → Add as layer; Ctrl+click selects several files |
@@ -234,7 +241,8 @@ Each tool window has:
   the series (a fixed cost per block plus a cost per pixel; reading the data is
   not included).
 - **Run on the raster**: whole image, visible area or ROI. The run happens in a
-  separate process using every CPU core, with progress and cancel in
+  separate process using the processing threads of [Settings](#settings)
+  (every logical core but 2 by default), with progress and cancel in
   **Tools → Tasks**. Outputs are GeoTIFFs (default folder
   `%LOCALAPPDATA%\Janus\results`) loaded over the map and listed under their
   series in the Layers panel; cells without an event are transparent.
@@ -287,8 +295,27 @@ Logs: `%LOCALAPPDATA%\Janus\zeit.log`.
   overview alone). When the overview already came from its cache, the cache is
   built in a pass of its own (54 s per tile, bound by the disk). Each date is saved as it is
   built and used right away; a stopped build resumes.
-- The cache is on by default for series on an HDD; **Performance → Settings**
+- The cache is on by default for series on an HDD; **File → Settings**
   turns it on for every series or leaves it to **Build it now** (per series),
   and sets its budget (64 GB by default: the least recently opened series leave
-  first). The setting is kept in the layout file. With the files on an SSD it
-  matters less.
+  first). With the files on an SSD it matters less.
+- **Threads**: on an SSD the background readers (overview, full-resolution
+  cache) use the processing threads of [Settings](#settings), at most 12, and
+  exact series, ROI, tiles and the transect up to 4. On an HDD both are one
+  reader whatever the setting (a disk decision); the full-resolution cache
+  built with the overview decodes on half the processing threads (1 to 4).
+  The Performance panel shows the counts in use.
+
+## Settings
+
+**File → Settings...** (`Ctrl+,`; Mac: `Command+,`). Everything applies at
+once and is kept in the layout file, next to the other data of Janus
+(`%LOCALAPPDATA%\Janus\layout-0.7.ini` on Windows).
+
+| Setting | What it does |
+|---|---|
+| Theme | **Dark** (the default), **Light**, **Classic** (ImGui's original colours) or **Janus** (the program's colours: blue on navy panels, orange accents). Status text and chart series are adjusted to stay legible on each; the map, its colour bars and exported figures keep their colours |
+| Processing threads | How many CPU threads Janus and Zeit may use, shown as *N of M* logical cores; default: all but 2 (at least 1), so the computer stays responsive during long runs. Applies to the readers of the open series (they shrink or grow at once), the full-resolution cache, exports (GeoTIFF compression, PNG) and Zeit: raster jobs started from then on (as `OMP_NUM_THREADS`, `NUMBA_NUM_THREADS`, the BLAS limits and Zeit's `n_jobs`; jobs already running keep theirs) and the process that fits the chart and estimates run times (replaced in the background once idle) |
+| Overview memory | Memory for the cube overview (1024 MB by default); **Apply** reopens the active layer. `--budget` overrides it for one run |
+| Clear overview cache | Deletes the cached overviews except the active layer's |
+| Full-resolution cache | When it is built (on demand, series on an HDD, every series), its budget, and clearing it (see [Performance](#performance)) |

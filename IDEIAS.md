@@ -145,7 +145,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 12 | 0.18.0 | **Mapas de diferença (Δ) e de quebra** (ano e magnitude da maior queda), calculados na GPU | concluída |
 | 13 | 0.21.0 | **Cache em resolução total** num SSD (blocos de 64×64 por data, compressão sem perda): série exata e ROI em ~1 ms mesmo com os dados num HD | concluída |
 | 15 | 0.23.0 | **Mapa de fundo (basemap)**: imagem de satélite/mapa da web por baixo das séries (Esri World Imagery, Sentinel-2 cloudless, OSM, URL XYZ própria), pelo driver WMS/TMS do GDAL, reprojetado pela grade de warp | concluída |
-| 16 | — | **Configurações**: janela própria (File → Settings); **limite de núcleos** para o processamento do Janus e do Zeit (padrão: todos menos 2), **tema da interface** (escuro, claro, clássico, Janus) e as opções que hoje estão no painel Performance | em andamento |
+| 16 | 0.24.0 | **Configurações**: janela própria (File → Settings); **limite de núcleos** para o processamento do Janus e do Zeit (padrão: todos menos 2), **tema da interface** (escuro, claro, clássico, Janus) e as opções que estavam no painel Performance | concluída |
 | 14 | — | Mais visualizações: mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas na ROI | planejada |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
@@ -218,6 +218,36 @@ termina.
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### 0.24.0 — Fase 16: configurações, threads de processamento e temas
+- Janela **Settings** (File → Settings, `Ctrl+,`): tema; threads de
+  processamento; memória do overview e caches (saíram do painel Performance,
+  que ficou só com as medições). Tudo guardado no `.ini`; `--budget` e
+  `--threads` valem só para a execução.
+- **Threads de processamento** (padrão: núcleos lógicos − 2, pedido em
+  2026-10-08: o processamento não deve ocupar todos os núcleos): leitores do
+  Janus em SSD (até 12; no HD continua 1, decisão de disco), pool interativo
+  (até 4), decodificadores do cache em resolução total, exportações (inclusive
+  o `NUM_THREADS` do GDAL). Os pools mudam de tamanho na hora
+  (`JobPool::setThreads`). `GDAL_NUM_THREADS` global ficou de fora de
+  propósito: ligaria a decodificação multi-thread em todo leitor (medido mais
+  lento no HD: 79 s contra 48,7 s).
+- **Zeit**: `OMP/NUMBA/MKL/OPENBLAS_NUM_THREADS` + `JANUS_THREADS` no ambiente
+  dos processos (Win32 e POSIX) e `n_jobs` nas ferramentas: o Zeit ignorava o
+  ambiente com `n_jobs=-1`, e o LandTrendr sobrescrevia `OMP_NUM_THREADS`.
+  Medido (20 núcleos, BFAST 256×256×96): pico de 19,1 núcleos antes → 18,15 no
+  padrão e 4,07 com limite 4; 21,6 s (sem limite) / 25,9 s (18) / 66,7 s (4).
+  O processo que ajusta o gráfico é trocado em segundo plano quando ocioso
+  (~2,2 s); jobs em andamento mantêm o seu limite.
+- **Temas**: Escuro (o de antes), Claro, Clássico e Janus (cores da identidade
+  visual). Cores fixas de texto e de séries do gráfico passaram a vir do tema
+  ou a ser ajustadas por contraste (texto ≥ 4,5:1, séries ≥ 3:1, conferido no
+  autoteste para os quatro temas). O mapa e as exportações não mudam com o
+  tema.
+- Escala da interface (fonte para 4K) ficou de fora: muitas larguras de
+  widgets são fixas em pixels e a exportação PNG usa a fonte da interface.
+- Feita em paralelo com a fase 15; no merge, as etapas do autoteste de threads
+  do Zeit passaram de 50–52 (também usadas pelo mapa de fundo) para 60–62.
 
 ### 0.23.0 — Fase 15: mapa de fundo
 - Fontes: **Esri World Imagery** (até z18), **Sentinel-2 cloudless 2016**

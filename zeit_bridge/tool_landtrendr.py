@@ -114,7 +114,8 @@ def chunk(p, stack, ctx):
     from zeit.raster import run_landtrendr_array
 
     years = np.array([int(round(y)) for y in ctx["years"]], dtype=np.int32)
-    vertices, rmse = run_landtrendr_array(years, stack, no_data_value=-1e30, return_rmse=True, **_kwargs(p))
+    vertices, rmse = run_landtrendr_array(years, stack, no_data_value=-1e30, return_rmse=True,
+                                          n_jobs=ctx.get("n_jobs", -1), **_kwargs(p))
     events = extract_events(vertices, event_type=p["event_type"], sort_by=p["sort_by"],
                             min_magnitude=float(p["min_magnitude"]), min_duration=int(p["min_duration"]),
                             pre_val_threshold=float(p["pre_val_threshold"]), rmse_map=rmse)
