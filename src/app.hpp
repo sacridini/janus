@@ -193,6 +193,7 @@ private:
     bool mapDirty_ = true;
     float mapPixelScale_ = 1.0f; // framebuffer pixels per point of the map's viewport
     bool roiDragging_ = false;
+    bool ctrlClick_ = false;     // macOS: this left click is a Control + click (remove a pin)
     ImVec2 roiStart_{0, 0}, roiEnd_{0, 0};
 
     // Series

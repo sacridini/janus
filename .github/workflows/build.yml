@@ -82,13 +82,15 @@ jobs:
       - name: Package
         run: cmake --build build --config Release --target ${{ matrix.package }}
 
+      # From another folder, with a relative input: as a user calls it from a terminal.
       - name: Packaged program runs
         run: |
+          cd "$RUNNER_TEMP"
           case "$RUNNER_OS" in
             Windows) ;; # the installer is checked by installing it below
-            Linux) tar -xJf dist/*.tar.xz -C "$RUNNER_TEMP" && "$RUNNER_TEMP"/tsv-*/tsv --selftest-zeit "$RUNNER_TEMP/td/serie" ;;
-            macOS) m=$(hdiutil attach -nobrowse -readonly dist/*.dmg | tail -1 | awk -F'\t' '{print $NF}')
-                   "$m/tsv.app/Contents/MacOS/tsv" --selftest-zeit "$RUNNER_TEMP/td/serie"; rc=$?
+            Linux) tar -xJf "$GITHUB_WORKSPACE"/dist/*.tar.xz && ./tsv-*/tsv --selftest-zeit td/serie ;;
+            macOS) m=$(hdiutil attach -nobrowse -readonly "$GITHUB_WORKSPACE"/dist/*.dmg | tail -1 | awk -F'\t' '{print $NF}')
+                   "$m/tsv.app/Contents/MacOS/tsv" --selftest-zeit td/serie; rc=$?
                    hdiutil detach "$m"; exit $rc ;;
           esac
 
@@ -99,8 +101,9 @@ jobs:
           $setup = Get-ChildItem dist\tsv-*-setup.exe | Select-Object -First 1
           Start-Process $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', "/DIR=$env:RUNNER_TEMP\tsv" -Wait
           # tsv.exe is a GUI program: & would not wait for it.
-          $p = Start-Process "$env:RUNNER_TEMP\tsv\tsv.exe" -ArgumentList '--selftest-zeit', "$env:RUNNER_TEMP\td\serie" `
-                 -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$env:RUNNER_TEMP\installed.log"
+          $p = Start-Process "$env:RUNNER_TEMP\tsv\tsv.exe" -ArgumentList '--selftest-zeit', 'td\serie' `
+                 -WorkingDirectory $env:RUNNER_TEMP -Wait -PassThru -NoNewWindow `
+                 -RedirectStandardOutput "$env:RUNNER_TEMP\installed.log"
           Get-Content "$env:RUNNER_TEMP\installed.log" | Select-Object -Last 3
           exit $p.ExitCode
 

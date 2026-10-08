@@ -112,6 +112,11 @@ int main(int argc, char** argv) {
     }
     st.gdalMs = ms();
 
+#ifdef __APPLE__
+    // Inside an .app, GLFW would make Contents/Resources the current folder:
+    // relative paths from the command line (tsv folder/) would then break.
+    glfwInitHint(GLFW_COCOA_CHDIR_RESOURCES, GLFW_FALSE);
+#endif
     if (!glfwInit()) return 1;
     std::string error;
     GLFWwindow* window = render::createWindow(1600, 950, "tsv", !selftestUi, error);

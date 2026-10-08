@@ -154,10 +154,10 @@ console launcher next to `tsv.exe`, the same trick Visual Studio uses with
 
 | Action | How |
 |---|---|
-| Pan / zoom | drag / mouse wheel (zooming out stops at the image extent), `Home` fits the map; trackpad: two fingers pan, pinch zooms |
+| Pan / zoom | drag / mouse wheel (zooming out stops at the image extent), `H` fits the map; trackpad: two fingers pan, pinch zooms |
 | Pixel series | hover (exact once the mouse rests) |
 | Compare pixels | click to drop a pin |
-| Remove a pin | right click it, `Delete` (last one) or the **x** in the statistics table |
+| Remove a pin | right click it (Mac: Control + click, or a two-finger click on the trackpad), `Delete` (last one) or the **x** in the statistics table |
 | ROI | `Shift` + drag (mean and p10–p90 per date) |
 | Time | `←`/`→` previous/next date, `Space` play/pause, click or drag on the chart |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or drag it) |

@@ -494,7 +494,7 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) setT(t_ - 1);
     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) setT(t_ + 1);
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) playing_ = !playing_;
-    if (ImGui::IsKeyPressed(ImGuiKey_Home, false)) fitRequested_ = true;
+    if (ImGui::IsKeyPressed(ImGuiKey_H, false)) fitRequested_ = true;
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) roiDragging_ = false;
 }
 
@@ -525,7 +525,7 @@ void App::uiMenu() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
-        if (ImGui::MenuItem("Fit map to window", "Home", false, s_ != nullptr)) fitRequested_ = true;
+        if (ImGui::MenuItem("Fit map to window", "H", false, s_ != nullptr)) fitRequested_ = true;
         ImGui::MenuItem("Performance", nullptr, &showPerf_);
         ImGui::Separator();
         if (ImGui::MenuItem("Reset layout")) layoutPending_ = true;
@@ -594,9 +594,10 @@ void App::uiPopups() {
             "  trackpad ............ pinch: zoom, two fingers: pan\n"
             "  hover ............... pixel series (exact once the mouse rests)\n"
             "  click ............... drop a pin (compare pixels)\n"
-            "  right click on pin .. remove it (Delete removes the last one)\n"
+            "  right click on pin .. remove it (Mac: Control + click or a two-finger click;\n"
+            "                        Delete removes the last one)\n"
             "  Shift + drag ........ rectangular ROI (mean and p10-p90 per date)\n"
-            "  Home ................ fit to window\n\n"
+            "  H ................... fit to window\n\n"
             "Time\n"
             "  left/right arrows ... previous / next date\n"
             "  space ............... play / pause\n"
@@ -750,10 +751,36 @@ void App::uiMap() {
     const int ix = int(std::floor(sx)), iy = int(std::floor(sy));
     const bool inside = hovered && ix >= 0 && iy >= 0 && ix < info.width && iy < info.height;
 
+    // Removes the pin drawn under the cursor, if any.
+    auto removePinAtCursor = [&] {
+        int best = -1;
+        float bestD = 12.0f * 12.0f;
+        for (size_t i = 0; i < pins_.size(); ++i) {
+            const ImVec2 c = origin + ImVec2(float(offset_.x + (pins_[i].x + 0.5) * scale_),
+                                             float(offset_.y + (pins_[i].y + 0.5) * scale_));
+            const ImVec2 d = c - io.MousePos;
+            if (d.x * d.x + d.y * d.y < bestD) {
+                bestD = d.x * d.x + d.y * d.y;
+                best = int(i);
+            }
+        }
+        if (best >= 0) removePinById(pins_[best].id);
+    };
+
     if (ImGui::IsItemActivated() && io.KeyShift) {
         roiDragging_ = true;
         roiStart_ = roiEnd_ = ImVec2(float(sx), float(sy));
     }
+#ifdef __APPLE__
+    // Control + click is the Mac's right click (GLFW reports a left click with
+    // Control; ImGui's Ctrl is the Command key there): remove a pin, add none.
+    if (ImGui::IsItemActivated() && !io.KeyShift &&
+        (glfwGetKey(window_, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+         glfwGetKey(window_, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS)) {
+        ctrlClick_ = true;
+        removePinAtCursor();
+    }
+#endif
     if (active) {
         if (roiDragging_) roiEnd_ = ImVec2(float(sx), float(sy));
         else if (ImGui::IsMouseDragging(ImGuiMouseButton_Left, 2.0f) && (io.MouseDelta.x || io.MouseDelta.y)) {
@@ -777,24 +804,12 @@ void App::uiMap() {
                     roiSeen_ = -1;
                 }
             }
-        } else if (io.MouseDragMaxDistanceSqr[0] < 16 && inside) {
+        } else if (io.MouseDragMaxDistanceSqr[0] < 16 && inside && !ctrlClick_) {
             addPin(ix, iy);
         }
+        ctrlClick_ = false;
     }
-    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) { // remove the nearest pin
-        int best = -1;
-        float bestD = 12.0f * 12.0f;
-        for (size_t i = 0; i < pins_.size(); ++i) {
-            const ImVec2 c = origin + ImVec2(float(offset_.x + (pins_[i].x + 0.5) * scale_),
-                                             float(offset_.y + (pins_[i].y + 0.5) * scale_));
-            const ImVec2 d = c - io.MousePos;
-            if (d.x * d.x + d.y * d.y < bestD) {
-                bestD = d.x * d.x + d.y * d.y;
-                best = int(i);
-            }
-        }
-        if (best >= 0) removePinById(pins_[best].id);
-    }
+    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) removePinAtCursor();
     if (hovered && !pins_.empty() &&
         (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)))
         removePinById(pins_.back().id);
