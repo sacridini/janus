@@ -82,12 +82,37 @@ uniform vec2 uRange;
 uniform float uAlpha;
 uniform int uClasses;           // 1 = categorical: colour from uClassLut, by class value
 uniform sampler2D uClassLut;
+uniform int uWarp;              // 1 = reprojected layer: uv through the grid (WarpParams)
+uniform sampler2D uWarpGrid;    // the layer's uv at the nodes (RG32F)
+uniform vec4 uWarpQuad;         // the quad in the grid's domain: x0, y0, w, h
+uniform vec4 uWarpSrc;          // the drawn texture in the layer's uv: x0, y0, w, h
 
-float cubeAt(int t) { return uSource == 1 ? texture(uTile, vUV).r : texture(uCube, vec3(vUV, float(t))).r; }
-float refAt(int t) { return uSource == 1 ? texture(uTile2, vUV).r : texture(uCube, vec3(vUV, float(t))).r; }
+vec2 uv;                        // where the cube / tile / statistics are read
+
+float cubeAt(int t) { return uSource == 1 ? texture(uTile, uv).r : texture(uCube, vec3(uv, float(t))).r; }
+float refAt(int t) { return uSource == 1 ? texture(uTile2, uv).r : texture(uCube, vec3(uv, float(t))).r; }
 float norm(float v) { return clamp((v - uRange.x) / (uRange.y - uRange.x), 0.0, 1.0); }
 
+// Bilinear between the 4 grid nodes around the point, in full float precision
+// (texture filtering weights have only ~8 bits), then into the drawn texture.
+vec2 warpedUV() {
+    vec2 w = uWarpQuad.xy + vUV * uWarpQuad.zw;
+    ivec2 n = textureSize(uWarpGrid, 0);
+    vec2 g = w * vec2(n - 1);
+    ivec2 i = clamp(ivec2(floor(g)), ivec2(0), n - 2);
+    vec2 f = g - vec2(i);
+    vec2 a = texelFetch(uWarpGrid, i, 0).rg, b = texelFetch(uWarpGrid, i + ivec2(1, 0), 0).rg;
+    vec2 c = texelFetch(uWarpGrid, i + ivec2(0, 1), 0).rg, d = texelFetch(uWarpGrid, i + ivec2(1, 1), 0).rg;
+    vec2 l = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    return (l - uWarpSrc.xy) / uWarpSrc.zw;
+}
+
 void main() {
+    uv = vUV;
+    if (uWarp == 1) {
+        uv = warpedUV();
+        if (isnan(uv.x) || isnan(uv.y) || uv.x < 0.0 || uv.y < 0.0 || uv.x >= 1.0 || uv.y >= 1.0) discard;
+    }
     if (uMode == 9) {
         float r = cubeAt(uLayers.x), g = cubeAt(uLayers.y), b = cubeAt(uLayers.z);
         if (isnan(r) || isnan(g) || isnan(b)) discard;
@@ -108,7 +133,7 @@ void main() {
     if (uMode == 0) v = cubeAt(uLayers.x);
     else if (uMode == 10) v = cubeAt(uLayers.x) - refAt(uLayers.y);
     else {
-        vec4 s0 = texture(uStats0, vUV), s1 = texture(uStats1, vUV);
+        vec4 s0 = texture(uStats0, uv), s1 = texture(uStats1, uv);
         if (uMode == 1) v = cubeAt(uLayers.x) - s0.x;
         else if (uMode == 2) v = s0.x;
         else if (uMode == 3) v = s0.y;
@@ -117,7 +142,7 @@ void main() {
         else if (uMode == 6) v = s1.y;
         else if (uMode == 7) v = s1.y - s1.x;
         else if (uMode == 8) v = s1.z;
-        else if (uMode == 11) v = texture(uStats2, vUV).r;
+        else if (uMode == 11) v = texture(uStats2, uv).r;
         else v = s1.w;
     }
     if (isnan(v)) discard;
@@ -262,6 +287,7 @@ bool Gpu::init(std::string& error) {
     glUniform1i(glGetUniformLocation(d.progDisplay, "uTile2"), 5);
     glUniform1i(glGetUniformLocation(d.progDisplay, "uStats2"), 7);
     glUniform1i(glGetUniformLocation(d.progDisplay, "uClassLut"), 6);
+    glUniform1i(glGetUniformLocation(d.progDisplay, "uWarpGrid"), 8);
     glUseProgram(d.progStats);
     glUniform1i(glGetUniformLocation(d.progStats, "uCube"), 0);
     glUniform1i(glGetUniformLocation(d.progStats, "uTimes"), 1);
@@ -436,6 +462,13 @@ void Gpu::Impl::drawQuad(const float r[4], int source, const DrawParams& p) {
         glActiveTexture(GL_TEXTURE5);
         glBindTexture(GL_TEXTURE_2D, tex(p.tile2));
     }
+    glUniform1i(glGetUniformLocation(progDisplay, "uWarp"), p.warp.grid ? 1 : 0);
+    if (p.warp.grid) {
+        glUniform4fv(glGetUniformLocation(progDisplay, "uWarpQuad"), 1, p.warp.quad);
+        glUniform4fv(glGetUniformLocation(progDisplay, "uWarpSrc"), 1, p.warp.src);
+        glActiveTexture(GL_TEXTURE8);
+        glBindTexture(GL_TEXTURE_2D, tex(p.warp.grid));
+    }
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
@@ -498,11 +531,12 @@ void Gpu::drawTile(GpuTex t, const float rect[4], const DrawParams& p, int cmap,
     impl_->endLayer();
 }
 
-void Gpu::drawOverlay(GpuTex t, const float rect[4], float lo, float hi, int cmap, float alpha) {
+void Gpu::drawOverlay(GpuTex t, const float rect[4], float lo, float hi, int cmap, float alpha, const WarpParams* warp) {
     DrawParams p;
     p.mode = ModeValue;
     p.lo = lo;
     p.hi = hi;
+    if (warp) p.warp = *warp;
     drawTile(t, rect, p, cmap, alpha);
 }
 
@@ -573,6 +607,10 @@ GpuTex Gpu::createTileTexture(int w, int h, const float* data) {
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, w, h, 0, GL_RED, GL_FLOAT, data);
     return t;
+}
+
+GpuTex Gpu::createWarpGrid(int w, int h, const float* rg) {
+    return makeTex2D(GL_RG32F, w, h, GL_RG, GL_FLOAT, rg); // read with texelFetch: no filtering
 }
 
 void Gpu::deleteTexture(GpuTex t) {

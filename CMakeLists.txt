@@ -97,6 +97,7 @@ set(JANUS_SOURCES
   src/fullres_cache.cpp
   src/overview.cpp
   src/platform.cpp
+  src/reproject.cpp
   src/session.cpp
   src/stats.cpp
   src/tiles.cpp)

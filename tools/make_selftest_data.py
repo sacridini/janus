@@ -1,7 +1,7 @@
 """Synthetic inputs for the self-tests (small, a few MB in all).
 
 Usage: python tools/make_selftest_data.py <out>   (requires GDAL's Python bindings and numpy)
-Then:  jn --selftest-ui <out>/A <out>/B <out>/C <out>/D <out>/E
+Then:  jn --selftest-ui <out>/A <out>/B <out>/C <out>/D <out>/E <out>/F
        jn --selftest-zeit <out>/serie
 
   A, B   continuous layers; B starts 100 px east of A and its first value at
@@ -10,6 +10,8 @@ Then:  jn --selftest-ui <out>/A <out>/B <out>/C <out>/D <out>/E
          on the right half of every third date
   D, E   categorical (classes 3, 15, 24, 33), with and without a colour table
          and class names
+  F      B reprojected from UTM 23S to UTM 22S (EPSG:32722; its grid turns ~2.3
+         degrees), nearest neighbour at 15 m: every value is one of B's
   serie  21 annual dates with a break in 2010 (every Zeit tool that applies)
 """
 import os
@@ -37,6 +39,13 @@ def layers(out):
             d = create(f"{out}/{name}/v_{y}.tif", 300, 200, 1, gdal.GDT_Float32, x0)
             d.GetRasterBand(1).WriteArray((base + 0.01 * (xx - ref) + 0.1 * i).astype("float32"))
             d = None
+
+
+def reprojected(out):
+    os.makedirs(f"{out}/F", exist_ok=True)
+    for y in range(2000, 2016):
+        gdal.Warp(f"{out}/F/v_{y}.tif", f"{out}/B/v_{y}.tif", dstSRS="EPSG:32722", xRes=15, yRes=15,
+                  resampleAlg="near", dstNodata=float("nan"), creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=3"])
 
 
 def bands(out):
@@ -99,7 +108,7 @@ def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     out = sys.argv[1]
-    for make in (layers, bands, classes, serie):
+    for make in (layers, reprojected, bands, classes, serie):
         make(out)
     print(f"ok: {out}")
 

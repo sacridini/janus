@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 
 #include <unistd.h>
@@ -37,6 +38,10 @@ struct DrawU {
     int pad0;
     int w, h;           // cube size (pixels per date)
     int pad1, pad2;
+    float4 warpQuad;    // reprojected layer (WarpParams): the quad in the grid's domain
+    float4 warpSrc;     // ... and the drawn texture in the layer's uv
+    int warp;           // 1 = uv through the warp grid
+    int pad3, pad4, pad5;
 };
 
 struct VOut {
@@ -67,6 +72,20 @@ static float refAt(constant DrawU& u, device const float* cube, texture2d<float>
 
 static float norm(constant DrawU& u, float v) { return clamp((v - u.range.x) / (u.range.y - u.range.x), 0.0, 1.0); }
 
+// Bilinear between the 4 grid nodes around the point, in full float precision
+// (as gpu_gl.cpp's warpedUV), then into the drawn texture.
+static float2 warpedUV(constant DrawU& u, texture2d<float> grid, float2 quv) {
+    float2 w = u.warpQuad.xy + quv * u.warpQuad.zw;
+    int2 n = int2(int(grid.get_width()), int(grid.get_height()));
+    float2 g = w * float2(n - 1);
+    int2 i = clamp(int2(floor(g)), int2(0), n - 2);
+    float2 f = g - float2(i);
+    float2 a = grid.read(uint2(i)).rg, b = grid.read(uint2(i + int2(1, 0))).rg;
+    float2 c = grid.read(uint2(i + int2(0, 1))).rg, d = grid.read(uint2(i + int2(1, 1))).rg;
+    float2 l = mix(mix(a, b, float2(f.x)), mix(c, d, float2(f.x)), float2(f.y));
+    return (l - u.warpSrc.xy) / u.warpSrc.zw;
+}
+
 fragment float4 fmain(VOut in [[stage_in]], constant DrawU& u [[buffer(0)]],
                       device const float* cube [[buffer(1)]],
                       device const float4* stats0 [[buffer(2)]],
@@ -75,30 +94,39 @@ fragment float4 fmain(VOut in [[stage_in]], constant DrawU& u [[buffer(0)]],
                       texture2d<float> cmap [[texture(0)]],
                       texture2d<float> tile [[texture(1)]],
                       texture2d<float> lut [[texture(2)]],
-                      texture2d<float> tile2 [[texture(3)]]) {
-    const int px = min(int(in.uv.x * float(u.w)), u.w - 1), py = min(int(in.uv.y * float(u.h)), u.h - 1);
+                      texture2d<float> tile2 [[texture(3)]],
+                      texture2d<float> warpGrid [[texture(4)]]) {
+    float2 uv = in.uv;
+    if (u.warp == 1) {
+        uv = warpedUV(u, warpGrid, in.uv);
+        if (isnan(uv.x) || isnan(uv.y) || uv.x < 0.0 || uv.y < 0.0 || uv.x >= 1.0 || uv.y >= 1.0) {
+            discard_fragment();
+            return float4(0.0); // nothing below may index the buffers with this uv
+        }
+    }
+    const int px = clamp(int(uv.x * float(u.w)), 0, u.w - 1), py = clamp(int(uv.y * float(u.h)), 0, u.h - 1);
     const uint pix = uint(py) * uint(u.w) + uint(px);
     if (u.mode == 9) {
-        float r = cubeAt(u, cube, tile, in.uv, pix, u.layers.x), g = cubeAt(u, cube, tile, in.uv, pix, u.layers.y),
-              b = cubeAt(u, cube, tile, in.uv, pix, u.layers.z);
+        float r = cubeAt(u, cube, tile, uv, pix, u.layers.x), g = cubeAt(u, cube, tile, uv, pix, u.layers.y),
+              b = cubeAt(u, cube, tile, uv, pix, u.layers.z);
         if (isnan(r) || isnan(g) || isnan(b)) discard_fragment();
         return float4(norm(u, r), norm(u, g), norm(u, b), u.alpha);
     }
     float v;
     if (u.classes == 1 && u.mode == 0) {
-        v = cubeAt(u, cube, tile, in.uv, pix, u.layers.x);
+        v = cubeAt(u, cube, tile, uv, pix, u.layers.x);
         if (isnan(v)) discard_fragment();
         int c = int(floor(v + 0.5));
         float4 col = (c >= 0 && c < int(lut.get_width())) ? lut.read(uint2(uint(c), 0)) : float4(0.5, 0.5, 0.5, 1.0);
         if (col.a == 0.0) discard_fragment();
         return float4(col.rgb, u.alpha);
     }
-    if (u.mode == 0) v = cubeAt(u, cube, tile, in.uv, pix, u.layers.x);
-    else if (u.mode == 10) v = cubeAt(u, cube, tile, in.uv, pix, u.layers.x) - refAt(u, cube, tile2, in.uv, pix, u.layers.y);
+    if (u.mode == 0) v = cubeAt(u, cube, tile, uv, pix, u.layers.x);
+    else if (u.mode == 10) v = cubeAt(u, cube, tile, uv, pix, u.layers.x) - refAt(u, cube, tile2, uv, pix, u.layers.y);
     else {
         const float nanv = as_type<float>(0x7fc00000u);
         float4 s0 = u.hasStats ? stats0[pix] : float4(nanv), s1 = u.hasStats ? stats1[pix] : float4(nanv);
-        if (u.mode == 1) v = cubeAt(u, cube, tile, in.uv, pix, u.layers.x) - s0.x;
+        if (u.mode == 1) v = cubeAt(u, cube, tile, uv, pix, u.layers.x) - s0.x;
         else if (u.mode == 2) v = s0.x;
         else if (u.mode == 3) v = s0.y;
         else if (u.mode == 4) v = s0.z;
@@ -156,7 +184,7 @@ kernel void stats(constant StatsU& u [[buffer(0)]], device const float* cube [[b
 }
 )";
 
-// Mirrors DrawU above (std140-like packing, 80 bytes).
+// Mirrors DrawU above (std140-like packing, 128 bytes; the float4s at 80 and 96).
 struct DrawUniforms {
     float rect[4];
     int mode, source, classes, hasStats;
@@ -166,8 +194,13 @@ struct DrawUniforms {
     int pad0;
     int w, h;
     int pad1, pad2;
+    float warpQuad[4];
+    float warpSrc[4];
+    int warp;
+    int pad3, pad4, pad5;
 };
-static_assert(sizeof(DrawUniforms) == 80, "must match DrawU in the shader");
+static_assert(sizeof(DrawUniforms) == 128, "must match DrawU in the shader");
+static_assert(offsetof(DrawUniforms, warpQuad) == 80 && offsetof(DrawUniforms, warp) == 112, "float4 alignment");
 
 struct StatsUniforms {
     int w, h, T, pad;
@@ -288,7 +321,7 @@ struct Gpu::Impl {
     id<MTLTexture> cmapTex;
     std::map<int, id<MTLTexture>> overlayCmaps; // colormap textures for overlays, by ImPlot colormap
     id<MTLBuffer> dummyBuf;                     // bound where no cube/statistics are
-    id<MTLTexture> dummyTile, dummyLut;
+    id<MTLTexture> dummyTile, dummyLut, dummyWarp;
     std::map<int, id<MTLTexture>> targets;      // map targets by panel slot (RGBA8, rows top-down)
     id<MTLTexture> target;                      // the one being drawn
     int targetW = 0, targetH = 0;
@@ -357,6 +390,8 @@ bool Gpu::init(std::string& error) {
     d.dummyTile = makeTexture(MTLPixelFormatR32Float, 1, 1, &nan1, 4);
     const unsigned char none[4] = {0, 0, 0, 0};
     d.dummyLut = makeTexture(MTLPixelFormatRGBA8Unorm, 1, 1, none, 4);
+    const float nan2[2] = {NAN, NAN};
+    d.dummyWarp = makeTexture(MTLPixelFormatRG32Float, 1, 1, nan2, 8);
     return true;
 }
 
@@ -442,6 +477,7 @@ void Gpu::beginMap(int w, int h, const float bg[4], int slot) {
     [d.enc setFragmentTexture:d.dummyTile atIndex:1];
     [d.enc setFragmentTexture:d.dummyLut atIndex:2];
     [d.enc setFragmentTexture:d.dummyTile atIndex:3];
+    [d.enc setFragmentTexture:d.dummyWarp atIndex:4];
     d.boundCube = nullptr;
     d.cubeW = d.cubeH = 1;
     d.hasStats = false;
@@ -465,11 +501,15 @@ void Gpu::Impl::draw(const float r[4], int source, const DrawParams& p) {
     u.alpha = alpha;
     u.w = cubeW;
     u.h = cubeH;
+    u.warp = p.warp.grid ? 1 : 0;
+    std::copy(p.warp.quad, p.warp.quad + 4, u.warpQuad);
+    std::copy(p.warp.src, p.warp.src + 4, u.warpSrc);
     [enc setRenderPipelineState:blend ? pipeBlend : pipeOpaque];
     [enc setVertexBytes:&u length:sizeof(u) atIndex:0];
     [enc setFragmentBytes:&u length:sizeof(u) atIndex:0];
     if (p.classLut) [enc setFragmentTexture:borrow<id<MTLTexture>>(p.classLut) atIndex:2];
     if (p.tile2) [enc setFragmentTexture:borrow<id<MTLTexture>>(p.tile2) atIndex:3];
+    [enc setFragmentTexture:p.warp.grid ? borrow<id<MTLTexture>>(p.warp.grid) : dummyWarp atIndex:4];
     [enc drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
@@ -527,11 +567,12 @@ void Gpu::drawTile(GpuTex t, const float rect[4], const DrawParams& p, int cmap,
     impl_->endLayer();
 }
 
-void Gpu::drawOverlay(GpuTex t, const float rect[4], float lo, float hi, int cmap, float alpha) {
+void Gpu::drawOverlay(GpuTex t, const float rect[4], float lo, float hi, int cmap, float alpha, const WarpParams* warp) {
     DrawParams p;
     p.mode = ModeValue;
     p.lo = lo;
     p.hi = hi;
+    if (warp) p.warp = *warp;
     drawTile(t, rect, p, cmap, alpha);
 }
 
@@ -595,6 +636,10 @@ GpuTex Gpu::createClassLut(const unsigned char* rgba, GpuTex t) {
 
 GpuTex Gpu::createTileTexture(int w, int h, const float* data) {
     return retain(makeTexture(MTLPixelFormatR32Float, w, h, data, size_t(w) * sizeof(float)));
+}
+
+GpuTex Gpu::createWarpGrid(int w, int h, const float* rg) {
+    return retain(makeTexture(MTLPixelFormatRG32Float, w, h, rg, size_t(w) * 2 * sizeof(float))); // read(): no filtering
 }
 
 void Gpu::deleteTexture(GpuTex t) { release(t); }

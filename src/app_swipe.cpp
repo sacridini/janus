@@ -93,9 +93,8 @@ void App::drawSwipe(ImDrawList* dl, ImVec2 origin, ImVec2 size, float pixelScale
     // Detail tiles of the comparison, as in a map panel (the layer's own pixels).
     int level = -1;
     if (detail_ && (mode == ModeValue || (mode == ModeDiff && diffRef >= 0)) && !S.deferRandomReads()) {
-        const ViewRect r{(-offset_.x / scale_ - L->ax) / L->bx, (-offset_.y / scale_ - L->ay) / L->by,
-                         ((size.x - offset_.x) / scale_ - L->ax) / L->bx, ((size.y - offset_.y) / scale_ - L->ay) / L->by,
-                         scale_ * L->bx * pixelScale};
+        const ViewRect r = layerView(*L, -offset_.x / scale_, -offset_.y / scale_, (size.x - offset_.x) / scale_,
+                                     (size.y - offset_.y) / scale_, scale_ * pixelScale);
         level = S.tiles->update(t, r, -1);
         if (mode == ModeDiff) S.tiles->update(diffRef, r, -1);
     }

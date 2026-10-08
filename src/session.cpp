@@ -101,7 +101,32 @@ std::vector<SeriesResult> Session::takeSeries() {
     return out;
 }
 
-std::shared_ptr<RoiData> Session::startRoi(int x0, int y0, int x1, int y1) {
+// Cells of the bw x bh buffer read for the window whose centres (in source
+// pixels) are inside the polygon (even-odd rule, one scanline per row).
+static std::vector<char> polygonMask(const std::vector<double>& poly, int x0, int y0, int w, int h, int bw, int bh) {
+    std::vector<char> mask(size_t(bw) * bh, 0);
+    const size_t n = poly.size() / 2;
+    std::vector<double> xs;
+    for (int j = 0; j < bh; ++j) {
+        const double sy = y0 + (j + 0.5) * h / bh;
+        xs.clear();
+        for (size_t k = 0; k < n; ++k) {
+            const double ax = poly[k * 2], ay = poly[k * 2 + 1];
+            const double bx = poly[(k + 1) % n * 2], by = poly[(k + 1) % n * 2 + 1];
+            if ((ay <= sy) != (by <= sy)) xs.push_back(ax + (sy - ay) * (bx - ax) / (by - ay));
+        }
+        std::sort(xs.begin(), xs.end());
+        for (size_t k = 0; k + 1 < xs.size(); k += 2) {
+            // Centres x0 + (i + 0.5) w / bw in [xs[k], xs[k + 1]).
+            const int i0 = std::max(0, int(std::ceil((xs[k] - x0) * bw / w - 0.5)));
+            const int i1 = std::min(bw, int(std::ceil((xs[k + 1] - x0) * bw / w - 0.5)));
+            for (int i = i0; i < i1; ++i) mask[size_t(j) * bw + i] = 1;
+        }
+    }
+    return mask;
+}
+
+std::shared_ptr<RoiData> Session::startRoi(int x0, int y0, int x1, int y1, const std::vector<double>& polygon) {
     auto roi = std::make_shared<RoiData>();
     roi->x0 = std::clamp(std::min(x0, x1), 0, info->width - 1);
     roi->y0 = std::clamp(std::min(y0, y1), 0, info->height - 1);
@@ -114,6 +139,7 @@ std::shared_ptr<RoiData> Session::startRoi(int x0, int y0, int x1, int y1) {
     roi->bw = std::max(1, int(w * s));
     roi->bh = std::max(1, int(h * s));
     roi->sampled = s < 1.0;
+    if (polygon.size() >= 6) roi->mask = polygonMask(polygon, roi->x0, roi->y0, w, h, roi->bw, roi->bh);
     roi->perT.resize(info->T());
     roi->t0 = std::chrono::steady_clock::now();
     for (int t = 0; t < info->T(); ++t) {
@@ -123,8 +149,11 @@ std::shared_ptr<RoiData> Session::startRoi(int x0, int y0, int x1, int y1) {
                 const int x = roi->x0, y = roi->y0, w = roi->x1 - roi->x0, h = roi->y1 - roi->y0;
                 const bool cached = fullRes->readWindow(t, x, y, w, h, buf.data(), roi->bw, roi->bh);
                 if (cached) roi->cachedDates++;
-                if (cached || threadReader(info).readWindow(t, x, y, w, h, buf.data(), roi->bw, roi->bh))
+                if (cached || threadReader(info).readWindow(t, x, y, w, h, buf.data(), roi->bw, roi->bh)) {
+                    for (size_t i = 0; i < roi->mask.size(); ++i)
+                        if (!roi->mask[i]) buf[i] = NAN;
                     roi->perT[t] = computeSampleStats(buf);
+                }
             }
             if (roi->done.fetch_add(1) + 1 == info->T())
                 roi->ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - roi->t0).count();

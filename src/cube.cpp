@@ -254,6 +254,16 @@ bool CubeInfo::pixelToGeo(double px, double py, double& gx, double& gy) const {
     return true;
 }
 
+bool CubeInfo::geoToPixel(double gx, double gy, double& px, double& py) const {
+    const auto& g = geoTransform;
+    const double det = g[1] * g[5] - g[2] * g[4];
+    if (!hasGeoTransform || det == 0) return false;
+    const double dx = gx - g[0], dy = gy - g[3];
+    px = (g[5] * dx - g[2] * dy) / det;
+    py = (g[1] * dy - g[4] * dx) / det;
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Layer discovery
 // ---------------------------------------------------------------------------
@@ -414,6 +424,10 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
         const char* a = srs->GetAuthorityName(nullptr);
         const char* c = srs->GetAuthorityCode(nullptr);
         if (a && c) info->crsAuthority = std::string(a) + ":" + c;
+        char* wkt = nullptr;
+        const char* opts[] = {"FORMAT=WKT2_2019", nullptr};
+        if (srs->exportToWkt(&wkt, opts) == OGRERR_NONE && wkt) info->crsWkt = wkt;
+        CPLFree(wkt);
     }
 
     std::vector<std::string> timeTexts; // where to extract each layer's date from
