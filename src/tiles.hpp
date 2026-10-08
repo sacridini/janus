@@ -32,8 +32,12 @@ public:
                 size_t maxGpuBytes);
     ~TileManager();
 
-    // Main thread, once per frame. Returns the wanted level (-1 = overview is enough).
+    // Main thread, for each map panel showing this layer. Returns the wanted level
+    // (-1 = overview is enough).
     int update(int t, const ViewRect& v, int prefetchT);
+    // Once per frame (Session::pump), whatever the number of map panels calling
+    // update(): requests not renewed for 2 frames are dropped before being read.
+    void tick();
     // Uploads the tiles that were read (up to `maxUploads`). True if anything changed.
     bool uploadReady(int maxUploads);
     // Calls f(tex, x, y, w, h) for the cached tiles of date t covering the

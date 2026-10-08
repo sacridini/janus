@@ -35,6 +35,7 @@ Session::~Session() {
 
 bool Session::pump(Gpu& g) {
     bool changed = false;
+    tiles->tick();
     for (int t : overview.takeReadyLayers()) {
         gpu.uploadLayer(t, overview.layer(t));
         changed = true;

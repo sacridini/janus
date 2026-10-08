@@ -50,6 +50,12 @@ OpenGL 3.3 on Windows and Linux and through Metal on macOS.
   or neighboring scenes). Layers are placed by their georeferencing, can be
   shown/hidden (including the first one), reordered and faded; the chart shows
   the series of the active layer or of every visible layer at the cursor/pins.
+- **Map panels side by side** (View → New map view): each panel shows one layer,
+  optionally at its own date and in its own display mode (e.g. NDVI next to NBR,
+  or 2005 next to 2020 of the same series). All panels show the same area: pan
+  or zoom in any of them moves every one; the cursor is mirrored as a cross, and
+  pins and the ROI appear in all of them. Panels dock anywhere or go to another
+  monitor; they share the loaded data (no extra memory).
 - **Files panel**: a folder tree listing only rasters by default; double click
   opens a series, right click adds it as a layer.
 - **Detachable panels**: drag any panel out of the main window, e.g. the map on
@@ -168,6 +174,7 @@ console launcher next to `tsv.exe`, the same trick Visual Studio uses with
 | Browse files | **Files** panel: double click opens, right click → Add as layer; Ctrl+click selects several files |
 | Chart of several layers | Time series panel → *All visible layers* (one marker shape per layer) |
 | Second monitor | drag a panel's tab out of the main window |
+| Maps side by side | View → New map view: pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** |
 | Chart options | style, values/anomaly/z-score, trend (OLS/Sen), Y = map range |
 | Export | **Copy CSV** in the Time series panel |
 | Zeit tools | **Tools** menu → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |

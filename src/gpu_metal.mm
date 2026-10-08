@@ -271,7 +271,8 @@ struct Gpu::Impl {
     std::map<int, id<MTLTexture>> overlayCmaps; // colormap textures for overlays, by ImPlot colormap
     id<MTLBuffer> dummyBuf;                     // bound where no cube/statistics are
     id<MTLTexture> dummyTile, dummyLut;
-    id<MTLTexture> target;                      // the map (RGBA8, rows top-down)
+    std::map<int, id<MTLTexture>> targets;      // map targets by panel slot (RGBA8, rows top-down)
+    id<MTLTexture> target;                      // the one being drawn
     int targetW = 0, targetH = 0;
     id<MTLCommandBuffer> cmd, lastMap;
     id<MTLRenderCommandEncoder> enc;
@@ -346,6 +347,7 @@ void Gpu::shutdown() {
     if (d.lastMap) [d.lastMap waitUntilCompleted];
     d.overlayCmaps.clear();
     d.cmapTex = nil;
+    d.targets.clear();
     d.target = nil;
     d.lastMap = nil;
 }
@@ -387,19 +389,21 @@ void Gpu::computeStats(GpuCube& c) {
     c.statsValid = true;
 }
 
-void Gpu::beginMap(int w, int h, const float bg[4]) {
+void Gpu::beginMap(int w, int h, const float bg[4], int slot) {
     Impl& d = *impl_;
-    if (w != d.targetW || h != d.targetH || !d.target) {
+    __strong id<MTLTexture>& tg = d.targets[slot];
+    if (!tg || int(tg.width) != w || int(tg.height) != h) {
         MTLTextureDescriptor* td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
                                                                                       width:NSUInteger(w)
                                                                                      height:NSUInteger(h)
                                                                                   mipmapped:NO];
         td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
         td.storageMode = MTLStorageModePrivate;
-        d.target = [d.dev newTextureWithDescriptor:td]; // the old one lives on while a frame in flight uses it
-        d.targetW = w;
-        d.targetH = h;
+        tg = [d.dev newTextureWithDescriptor:td]; // the old one lives on while a frame in flight uses it
     }
+    d.target = tg;
+    d.targetW = w;
+    d.targetH = h;
     MTLRenderPassDescriptor* rp = [MTLRenderPassDescriptor renderPassDescriptor];
     rp.colorAttachments[0].texture = d.target;
     rp.colorAttachments[0].loadAction = MTLLoadActionClear;
@@ -516,16 +520,21 @@ void Gpu::endMap() {
     d.cmd = nil;
 }
 
-GpuTex Gpu::mapTexture() const { return uint64_t(uintptr_t((__bridge void*)impl_->target)); }
+GpuTex Gpu::mapTexture(int slot) const {
+    const auto it = impl_->targets.find(slot);
+    return it == impl_->targets.end() ? 0 : uint64_t(uintptr_t((__bridge void*)it->second));
+}
+
+void Gpu::releaseMap(int slot) { impl_->targets.erase(slot); } // frames in flight keep their own reference
 
 bool Gpu::mapBottomUp() { return false; }
 
-void Gpu::readMapPixel(int x, int y, unsigned char rgba[4]) {
+void Gpu::readMapPixel(int x, int y, unsigned char rgba[4], int slot) {
     Impl& d = *impl_;
     id<MTLBuffer> out = makeBuffer(4);
     id<MTLCommandBuffer> cb = [d.queue commandBuffer];
     id<MTLBlitCommandEncoder> be = [cb blitCommandEncoder];
-    [be copyFromTexture:d.target sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(NSUInteger(x), NSUInteger(y), 0)
+    [be copyFromTexture:d.targets.at(slot) sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(NSUInteger(x), NSUInteger(y), 0)
              sourceSize:MTLSizeMake(1, 1, 1) toBuffer:out destinationOffset:0 destinationBytesPerRow:4
   destinationBytesPerImage:4];
     [be endEncoding];

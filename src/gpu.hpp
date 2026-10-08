@@ -85,8 +85,9 @@ public:
     // the CPU (used for the automatic range and the histogram).
     void computeStats(GpuCube& c);
 
-    // Map: rectangles in pixels of the w x h target (x0, y0, x1, y1).
-    void beginMap(int w, int h, const float bg[4]);
+    // Map: rectangles in pixels of the w x h target (x0, y0, x1, y1). Each map
+    // panel draws into a target of its own (`slot`; 0 = the main map).
+    void beginMap(int w, int h, const float bg[4], int slot = 0);
     void drawCube(const GpuCube& c, const float rect[4], const DrawParams& p);
     void drawTile(GpuTex tex, const float rect[4], const DrawParams& p);
     // Same, with a colormap of their own and an opacity (layers drawn over each other).
@@ -95,12 +96,13 @@ public:
     // Single-band raster (e.g. a Zeit result) blended over the map with its own colormap.
     void drawOverlay(GpuTex tex, const float rect[4], float lo, float hi, int implotColormap, float alpha);
     void endMap();
-    GpuTex mapTexture() const;
+    GpuTex mapTexture(int slot = 0) const;
+    void releaseMap(int slot); // a closed panel's target
     // Texture rows: GL framebuffers are bottom-up, Metal textures top-down
     // (decides the UVs the map is shown with).
     static bool mapBottomUp();
-    // Pixel (x, y from the top) of the last map drawn; waits for the GPU (tests only).
-    void readMapPixel(int x, int y, unsigned char rgba[4]);
+    // Pixel (x, y from the top) of a map target; waits for the GPU (tests only).
+    void readMapPixel(int x, int y, unsigned char rgba[4], int slot = 0);
 
     static GpuTex createTileTexture(int w, int h, const float* data);
     // rgba: kClassLutSize RGBA8 texels. Pass `tex` to update an existing LUT.

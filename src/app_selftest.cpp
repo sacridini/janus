@@ -110,6 +110,20 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         std::printf("    map center with B hidden:    rgb(%d, %d, %d)\n", c[0], c[1], c[2]);
         if (c[0] == st_.color[0] && c[1] == st_.color[1] && c[2] == st_.color[2])
             return fail("hiding the top layer did not change the map");
+        {
+            // A map panel showing A on the same view draws what the main map
+            // shows of A alone.
+            MapView v;
+            v.id = 99;
+            v.cube = layers_[0].session->info->id;
+            renderView(v, 400, 300, 1.0f, ImVec2(0, 0));
+            unsigned char pv[4];
+            gpu_.readMapPixel(200, 150, pv, v.id);
+            gpu_.releaseMap(v.id);
+            std::printf("    map panel showing A:         rgb(%d, %d, %d)\n", pv[0], pv[1], pv[2]);
+            if (pv[0] != c[0] || pv[1] != c[1] || pv[2] != c[2])
+                return fail("a map panel of A should draw what the main map shows of A");
+        }
         layers_[0].visible = false;
         renderMap(400, 300);
         gpu_.readMapPixel(200, 150, c);

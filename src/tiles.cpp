@@ -42,19 +42,21 @@ static void forTilesInView(const ViewRect& v, int level, int W, int H, F f) {
         for (int tx = tx0; tx <= tx1; ++tx) f(tx, ty);
 }
 
-int TileManager::update(int t, const ViewRect& v, int prefetchT) {
+void TileManager::tick() {
     ++frame_;
     sh_->frame = frame_;
-    if (maxLevel_ < 0 || v.scale * overviewFactor_ <= 1.0) return -1;
-    const int level = std::clamp(int(std::floor(std::log2(1.0 / v.scale))), 0, maxLevel_);
-    request(t, level, v, 1);
-    if (prefetchT >= 0) request(prefetchT, level, v, 3);
-
     if (frame_ % 120 == 0) { // prune old requests
         std::lock_guard<std::mutex> lk(sh_->m);
         for (auto it = sh_->wanted.begin(); it != sh_->wanted.end();)
             it = it->second + 120 < frame_ ? sh_->wanted.erase(it) : std::next(it);
     }
+}
+
+int TileManager::update(int t, const ViewRect& v, int prefetchT) {
+    if (maxLevel_ < 0 || v.scale * overviewFactor_ <= 1.0) return -1;
+    const int level = std::clamp(int(std::floor(std::log2(1.0 / v.scale))), 0, maxLevel_);
+    request(t, level, v, 1);
+    if (prefetchT >= 0) request(prefetchT, level, v, 3);
     return level;
 }
 

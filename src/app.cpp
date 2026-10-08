@@ -283,6 +283,7 @@ void App::frame() {
     uiSeries();
     uiStats();
     uiMap();
+    uiMapViews();
     if (zeit_ && zeit_->state() == ZeitClient::State::Ready)
         for (const ZeitTool& t : zeit_->tools()) uiToolWindow(t);
     uiTasks();
@@ -366,20 +367,20 @@ void App::updateRoiSeries() {
 }
 
 // (Subsampled) sample of the quantity shown by `mode`. t < 0 = all dates.
-std::vector<float> App::collectSample(int mode, int t, size_t maxN) const {
+std::vector<float> App::collectSample(const Session& S, int mode, int t, size_t maxN) const {
     std::vector<float> out;
-    const Overview& ov = s_->overview;
+    const Overview& ov = S.overview;
     const size_t px = size_t(ov.w) * ov.h;
-    const float* s0 = s_->gpu.hostStats0;
-    const float* s1 = s_->gpu.hostStats1;
+    const float* s0 = S.gpu.hostStats0;
+    const float* s1 = S.gpu.hostStats1;
 
     auto overLayers = [&](auto get) {
         std::vector<int> layers;
         if (t >= 0) {
-            if (s_->gpu.loaded[t]) layers.push_back(t);
+            if (S.gpu.loaded[t]) layers.push_back(t);
         } else {
             for (int i = 0; i < ov.T; ++i)
-                if (s_->gpu.loaded[i]) layers.push_back(i);
+                if (S.gpu.loaded[i]) layers.push_back(i);
         }
         if (layers.empty()) return;
         const size_t total = layers.size() * px;
@@ -393,7 +394,7 @@ std::vector<float> App::collectSample(int mode, int t, size_t maxN) const {
         }
     };
     auto overPixels = [&](auto get) {
-        if (!s_->gpu.statsValid) return;
+        if (!S.gpu.statsValid) return;
         const size_t step = std::max<size_t>(1, px / maxN);
         out.reserve(px / step + 1);
         for (size_t p = 0; p < px; p += step) {
@@ -406,7 +407,7 @@ std::vector<float> App::collectSample(int mode, int t, size_t maxN) const {
     case ModeValue:
     case ModeRGB: overLayers([&](int L, size_t p) { return ov.layer(L)[p]; }); break;
     case ModeAnomaly:
-        if (s_->gpu.statsValid) overLayers([&](int L, size_t p) { return ov.layer(L)[p] - s0[p * 4]; });
+        if (S.gpu.statsValid) overLayers([&](int L, size_t p) { return ov.layer(L)[p] - s0[p * 4]; });
         break;
     case ModeMean: overPixels([&](size_t p) { return s0[p * 4 + 0]; }); break;
     case ModeStd: overPixels([&](size_t p) { return s0[p * 4 + 1]; }); break;
@@ -420,6 +421,22 @@ std::vector<float> App::collectSample(int mode, int t, size_t maxN) const {
     return out;
 }
 
+// Automatic stretch of a sample of `mode`'s values: 2-98%, symmetric around 0
+// for anomalies and trends, 0-1 for R².
+static void autoRange(int mode, std::vector<float>& s, float& lo, float& hi) {
+    if (mode == ModeR2) {
+        lo = 0;
+        hi = 1;
+    } else if (mode == ModeAnomaly || mode == ModeSlope) {
+        for (float& v : s) v = std::fabs(v);
+        float a;
+        samplePercentiles(s.data(), s.size(), s.size(), 0.0, 0.98, a, hi);
+        lo = -hi;
+    } else {
+        samplePercentiles(s.data(), s.size(), s.size(), 0.02, 0.98, lo, hi);
+    }
+}
+
 void App::updateRangeAndHistogram() {
     if (modeNeedsStats(mode_) && !s_->gpu.statsValid) return;
     const uint64_t version = uint64_t(s_->overview.layersDone()) * 2 + (s_->gpu.statsValid ? 1 : 0);
@@ -429,20 +446,9 @@ void App::updateRangeAndHistogram() {
     const int rangeT = (perDateRange_ && timeDep) ? t_ : -1;
     const uint64_t rkey = version * 1000003ull + uint64_t(rangeT + 1) * 8 + (perDateRange_ ? 1 : 0);
     if (!r.manual && r.key != rkey) {
-        std::vector<float> s = collectSample(mode_, rangeT, 2000000);
+        std::vector<float> s = collectSample(*s_, mode_, rangeT, 2000000);
         if (!s.empty()) {
-            if (mode_ == ModeR2) {
-                r.lo = 0;
-                r.hi = 1;
-            } else if (mode_ == ModeAnomaly || mode_ == ModeSlope) {
-                for (float& v : s) v = std::fabs(v);
-                float lo, hi;
-                samplePercentiles(s.data(), s.size(), s.size(), 0.0, 0.98, lo, hi);
-                r.lo = -hi;
-                r.hi = hi;
-            } else {
-                samplePercentiles(s.data(), s.size(), s.size(), 0.02, 0.98, r.lo, r.hi);
-            }
+            autoRange(mode_, s, r.lo, r.hi);
             r.key = rkey;
             mapDirty_ = true;
         }
@@ -454,7 +460,7 @@ void App::updateRangeAndHistogram() {
         histKey_ = hkey;
         histX_.clear();
         histY_.clear();
-        std::vector<float> s = collectSample(mode_, histT, 400000);
+        std::vector<float> s = collectSample(*s_, mode_, histT, 400000);
         if (s.size() > 10) {
             float lo, hi;
             samplePercentiles(s.data(), s.size(), s.size(), 0.005, 0.995, lo, hi);
@@ -526,6 +532,7 @@ void App::uiMenu() {
     }
     if (ImGui::BeginMenu("View")) {
         if (ImGui::MenuItem("Fit map to window", "H", false, s_ != nullptr)) fitRequested_ = true;
+        if (ImGui::MenuItem("New map view", nullptr, false, s_ != nullptr)) newMapView();
         ImGui::MenuItem("Performance", nullptr, &showPerf_);
         ImGui::Separator();
         if (ImGui::MenuItem("Reset layout")) layoutPending_ = true;
@@ -545,6 +552,19 @@ void App::uiMenu() {
 
 void App::uiDockspace() {
     const ImGuiID dock = ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_None);
+    // A new map panel goes to the right of the main map (splitting its area).
+    for (MapView& v : views_) {
+        if (v.docked) continue;
+        v.docked = true;
+        const ImGuiWindow* map = ImGui::FindWindowByName("Map");
+        if (!map || !map->DockId) continue; // the main map floats: the panel opens floating
+        ImGuiID right = 0, left = 0;
+        ImGui::DockBuilderSplitNode(map->DockId, ImGuiDir_Right, 0.5f, &right, &left);
+        char name[48];
+        std::snprintf(name, sizeof(name), "Map %d###mapview%d", v.id, v.id);
+        ImGui::DockBuilderDockWindow(name, right);
+        ImGui::DockBuilderFinish(dock);
+    }
     if (!layoutPending_) return;
     layoutPending_ = false;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -680,77 +700,17 @@ void App::renderMap(int w, int h, float pixelScale) {
     gpu_.endMap();
 }
 
-void App::uiMap() {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
-    const bool open = ImGui::Begin("Map", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    ImGui::PopStyleVar();
-    if (!open) {
-        ImGui::End();
-        return;
-    }
-    if (!s_ && opening_.valid()) {
-        const std::string msg = "Opening " + (openingInputs_.size() == 1 ? openingInputs_[0]
-                                              : std::to_string(openingInputs_.size()) + " inputs") + "...";
-        const ImVec2 ts = ImGui::CalcTextSize(msg.c_str());
-        const ImVec2 avail = ImGui::GetContentRegionAvail();
-        ImGui::SetCursorPos(ImGui::GetCursorPos() + ImMax(ImVec2(0, 0), (avail - ts) * 0.5f));
-        ImGui::TextDisabled("%s", msg.c_str());
-        ImGui::End();
-        return;
-    }
-    if (!s_) {
-        const char* msg = "Open a time series: File > Open (Ctrl+O), drop files/a folder onto the window\n"
-                          "or call it from the command line: tsv <folder | series.tif | files_*.tif>";
-        const ImVec2 ts = ImGui::CalcTextSize(msg);
-        const ImVec2 avail = ImGui::GetContentRegionAvail();
-        ImGui::SetCursorPos(ImGui::GetCursorPos() + ImMax(ImVec2(0, 0), (avail - ts) * 0.5f));
-        ImGui::TextDisabled("%s", msg);
-        ImGui::End();
-        return;
-    }
-    const CubeInfo& info = *s_->info;
-    const int T = info.T();
+void App::mapInput(ImVec2 origin, ImVec2 size, int panel, int& ix, int& iy, bool& inside) {
     ImGuiIO& io = ImGui::GetIO();
-
-    // --- Time bar ---
-    if (ImGui::ArrowButton("##prev", ImGuiDir_Left)) setT(t_ - 1);
-    ImGui::SameLine();
-    if (ImGui::Button(playing_ ? "Pause" : " Play ", ImVec2(60, 0))) playing_ = !playing_;
-    ImGui::SameLine();
-    if (ImGui::ArrowButton("##next", ImGuiDir_Right)) setT(t_ + 1);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(std::max(120.0f, ImGui::GetContentRegionAvail().x - 250));
-    int t = t_;
-    const std::string fmt = escapePercent(info.layers[t_].label);
-    if (ImGui::SliderInt("##time", &t, 0, T - 1, fmt.c_str())) setT(t);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(130);
-    ImGui::SliderFloat("##fps", &fps_, 0.5f, 30.f, "%.1f dates/s", ImGuiSliderFlags_Logarithmic);
-    ImGui::SameLine();
-    ImGui::TextDisabled("%d/%d", t_ + 1, T);
-
-    // --- Canvas ---
-    const ImVec2 origin = ImGui::GetCursorScreenPos();
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float statusH = ImGui::GetTextLineHeightWithSpacing();
-    const ImVec2 size(std::max(avail.x, 64.0f), std::max(avail.y - statusH, 64.0f));
-    if (size.x != canvasSize_.x || size.y != canvasSize_.y) {
-        canvasSize_ = size;
-        mapDirty_ = true;
-        if (!viewTouched_) fitRequested_ = true; // e.g. the docking layout is still settling
-    }
-    if (fitRequested_) {
-        fitView(size);
-        fitRequested_ = false;
-    }
-
-    ImGui::InvisibleButton("##map", size, ImGuiButtonFlags_MouseButtonLeft);
+    const CubeInfo& info = *s_->info;
     const bool hovered = ImGui::IsItemHovered();
     const bool active = ImGui::IsItemActive();
     const ImVec2 m = io.MousePos - origin;
     const double sx = (m.x - offset_.x) / scale_, sy = (m.y - offset_.y) / scale_;
-    const int ix = int(std::floor(sx)), iy = int(std::floor(sy));
-    const bool inside = hovered && ix >= 0 && iy >= 0 && ix < info.width && iy < info.height;
+    ix = int(std::floor(sx));
+    iy = int(std::floor(sy));
+    inside = hovered && ix >= 0 && iy >= 0 && ix < info.width && iy < info.height;
+    if (hovered) mouseInPanel_ = panel;
 
     // Removes the pin drawn under the cursor, if any.
     auto removePinAtCursor = [&] {
@@ -893,43 +853,26 @@ void App::uiMap() {
         hoverPending_ = true;
         hoverSince_ = ImGui::GetTime();
     }
+}
 
-    // Retina: the map is drawn at the density of the viewport it is on, and
-    // detail tiles are chosen by screen pixels, not points.
-    const float pixelScale = std::max(1.0f, ImGui::GetWindowViewport()->FramebufferScale.x);
-    if (pixelScale != mapPixelScale_) {
-        mapPixelScale_ = pixelScale;
-        mapDirty_ = true;
-    }
-
-    // --- Detail tiles ("value" mode only) ---
-    int level = -1;
-    if (detail_ && mode_ == ModeValue && !s_->deferRandomReads()) {
-        const ViewRect v{-offset_.x / scale_, -offset_.y / scale_, (size.x - offset_.x) / scale_,
-                         (size.y - offset_.y) / scale_, scale_ * pixelScale};
-        level = s_->tiles->update(t_, v, playing_ ? (t_ + 1) % T : -1);
-    }
-    if (level != detailLevel_) {
-        detailLevel_ = level;
-        mapDirty_ = true;
-    }
-
-    if (mapDirty_) {
-        renderMap(int(size.x), int(size.y), pixelScale);
-        mapDirty_ = false;
-    }
-
-    // --- Drawing + overlays ---
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const bool bottomUp = Gpu::mapBottomUp();
-    dl->AddImage(ImTextureRef((ImTextureID)gpu_.mapTexture()), origin, origin + size, ImVec2(0, bottomUp ? 1.f : 0.f),
-                 ImVec2(1, bottomUp ? 0.f : 1.f));
-    dl->PushClipRect(origin, origin + size, true);
+void App::drawMapMarks(ImDrawList* dl, ImVec2 origin, int panel, int ix, int iy, bool inside) {
+    const int T = s_->info->T();
     auto toScreen = [&](double x, double y) {
         return origin + ImVec2(float(offset_.x + x * scale_), float(offset_.y + y * scale_));
     };
     if (inside && scale_ >= 6) // outline of the pixel under the cursor
         dl->AddRect(toScreen(ix, iy), toScreen(ix + 1, iy + 1), IM_COL32(255, 255, 255, 200));
+    if (!inside && prevMouseInPanel_ >= 0 && prevMouseInPanel_ != panel && hover_.x >= 0) {
+        // The cursor is over another panel: a cross at the same place here.
+        const ImVec2 c = toScreen(hover_.x + 0.5, hover_.y + 0.5);
+        for (const ImU32 col : {IM_COL32(0, 0, 0, 200), IM_COL32(255, 255, 255, 230)}) {
+            const float w = col == IM_COL32(0, 0, 0, 200) ? 3.0f : 1.0f;
+            dl->AddLine(c - ImVec2(9, 0), c - ImVec2(3, 0), col, w);
+            dl->AddLine(c + ImVec2(3, 0), c + ImVec2(9, 0), col, w);
+            dl->AddLine(c - ImVec2(0, 9), c - ImVec2(0, 3), col, w);
+            dl->AddLine(c + ImVec2(0, 3), c + ImVec2(0, 9), col, w);
+        }
+    }
     for (size_t i = 0; i < pins_.size(); ++i) {
         const ImVec2 c = toScreen(pins_[i].x + 0.5, pins_[i].y + 0.5);
         // Dark ring + white ring: visible over any colormap.
@@ -957,6 +900,110 @@ void App::uiMap() {
             dl->AddText(toScreen(roi_->x0, roi_->y0) + ImVec2(4, 2), roiCol, buf);
         }
     }
+}
+
+void App::uiMap() {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
+    const bool open = ImGui::Begin("Map", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+    if (!open) {
+        ImGui::End();
+        return;
+    }
+    if (!s_ && opening_.valid()) {
+        const std::string msg = "Opening " + (openingInputs_.size() == 1 ? openingInputs_[0]
+                                              : std::to_string(openingInputs_.size()) + " inputs") + "...";
+        const ImVec2 ts = ImGui::CalcTextSize(msg.c_str());
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        ImGui::SetCursorPos(ImGui::GetCursorPos() + ImMax(ImVec2(0, 0), (avail - ts) * 0.5f));
+        ImGui::TextDisabled("%s", msg.c_str());
+        ImGui::End();
+        return;
+    }
+    if (!s_) {
+        const char* msg = "Open a time series: File > Open (Ctrl+O), drop files/a folder onto the window\n"
+                          "or call it from the command line: tsv <folder | series.tif | files_*.tif>";
+        const ImVec2 ts = ImGui::CalcTextSize(msg);
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        ImGui::SetCursorPos(ImGui::GetCursorPos() + ImMax(ImVec2(0, 0), (avail - ts) * 0.5f));
+        ImGui::TextDisabled("%s", msg);
+        ImGui::End();
+        return;
+    }
+    const CubeInfo& info = *s_->info;
+    const int T = info.T();
+    ImGuiIO& io = ImGui::GetIO();
+
+    // --- Time bar ---
+    if (ImGui::ArrowButton("##prev", ImGuiDir_Left)) setT(t_ - 1);
+    ImGui::SameLine();
+    if (ImGui::Button(playing_ ? "Pause" : " Play ", ImVec2(60, 0))) playing_ = !playing_;
+    ImGui::SameLine();
+    if (ImGui::ArrowButton("##next", ImGuiDir_Right)) setT(t_ + 1);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(std::max(120.0f, ImGui::GetContentRegionAvail().x - 250));
+    int t = t_;
+    const std::string fmt = escapePercent(info.layers[t_].label);
+    if (ImGui::SliderInt("##time", &t, 0, T - 1, fmt.c_str())) setT(t);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(130);
+    ImGui::SliderFloat("##fps", &fps_, 0.5f, 30.f, "%.1f dates/s", ImGuiSliderFlags_Logarithmic);
+    ImGui::SameLine();
+    ImGui::TextDisabled("%d/%d", t_ + 1, T);
+
+    // --- Canvas ---
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float statusH = ImGui::GetTextLineHeightWithSpacing();
+    const ImVec2 size(std::max(avail.x, 64.0f), std::max(avail.y - statusH, 64.0f));
+    if (size.x != canvasSize_.x || size.y != canvasSize_.y) {
+        canvasSize_ = size;
+        mapDirty_ = true;
+        if (!viewTouched_) fitRequested_ = true; // e.g. the docking layout is still settling
+    }
+    if (fitRequested_) {
+        fitView(size);
+        fitRequested_ = false;
+    }
+
+    ImGui::InvisibleButton("##map", size, ImGuiButtonFlags_MouseButtonLeft);
+    int ix = -1, iy = -1;
+    bool inside = false;
+    mapInput(origin, size, 0, ix, iy, inside);
+
+    // Retina: the map is drawn at the density of the viewport it is on, and
+    // detail tiles are chosen by screen pixels, not points.
+    const float pixelScale = std::max(1.0f, ImGui::GetWindowViewport()->FramebufferScale.x);
+    if (pixelScale != mapPixelScale_) {
+        mapPixelScale_ = pixelScale;
+        mapDirty_ = true;
+    }
+
+    // --- Detail tiles ("value" mode only) ---
+    int level = -1;
+    if (detail_ && mode_ == ModeValue && !s_->deferRandomReads()) {
+        const ViewRect v{-offset_.x / scale_, -offset_.y / scale_, (size.x - offset_.x) / scale_,
+                         (size.y - offset_.y) / scale_, scale_ * pixelScale};
+        level = s_->tiles->update(t_, v, playing_ ? (t_ + 1) % T : -1);
+    }
+    if (level != detailLevel_) {
+        detailLevel_ = level;
+        mapDirty_ = true;
+    }
+
+    if (mapDirty_) {
+        renderMap(int(size.x), int(size.y), pixelScale);
+        mapDirty_ = false;
+        viewsStale_ = true; // what moved the main map moves the panels too
+    }
+
+    // --- Drawing + overlays ---
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const bool bottomUp = Gpu::mapBottomUp();
+    dl->AddImage(ImTextureRef((ImTextureID)gpu_.mapTexture()), origin, origin + size, ImVec2(0, bottomUp ? 1.f : 0.f),
+                 ImVec2(1, bottomUp ? 0.f : 1.f));
+    dl->PushClipRect(origin, origin + size, true);
+    drawMapMarks(dl, origin, 0, ix, iy, inside);
 
     // View title (date + mode) and color bar
     char title[160];
@@ -1135,6 +1182,270 @@ void App::uiBands() {
         ImGui::EndDisabled();
         if (ImGui::SmallButton("Revert")) selUi_ = info.sel;
     }
+}
+
+// --- Extra map panels -----------------------------------------------------------
+
+void App::newMapView() {
+    if (!s_) return;
+    MapView v;
+    v.id = nextViewId_++;
+    // Another layer than the active one if there is one (e.g. NBR next to NDVI),
+    // else the same series, at its own date (e.g. 2005 next to 2020).
+    for (const SeriesLayer& L : layers_)
+        if (&L != activeLayer()) {
+            v.cube = L.session->info->id;
+            break;
+        }
+    if (!v.cube) {
+        v.cube = s_->info->id;
+        v.ownDate = true;
+        v.t = std::max(0, t_ - 1);
+    }
+    views_.push_back(v);
+}
+
+void App::uiMapViews() {
+    for (size_t i = 0; i < views_.size();) {
+        MapView& v = views_[i];
+        bool open = true;
+        char name[48];
+        std::snprintf(name, sizeof(name), "Map %d###mapview%d", v.id, v.id);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
+        const bool shown = ImGui::Begin(name, &open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PopStyleVar();
+        if (shown) uiMapView(v);
+        ImGui::End();
+        if (!open) {
+            gpu_.releaseMap(v.id);
+            views_.erase(views_.begin() + i);
+        } else {
+            ++i;
+        }
+    }
+    viewsStale_ = false;
+    prevMouseInPanel_ = mouseInPanel_;
+    mouseInPanel_ = -1;
+}
+
+void App::uiMapView(MapView& v) {
+    if (!s_) {
+        ImGui::TextDisabled("No series open.");
+        return;
+    }
+    SeriesLayer* L = nullptr;
+    for (SeriesLayer& c : layers_)
+        if (c.session->info->id == v.cube) L = &c;
+    if (!L) { // its layer was closed: show the active one
+        L = &layers_[active_];
+        v.cube = L->session->info->id;
+        v.dirty = true;
+    }
+    const Session& S = *L->session;
+    const CubeInfo& li = *S.info;
+    const int T = li.T();
+    const bool isActive = L == activeLayer();
+
+    // --- Toolbar: layer, date, display mode ---
+    ImGui::SetNextItemWidth(170);
+    if (ImGui::BeginCombo("##layer", L->name.c_str())) {
+        for (SeriesLayer& c : layers_)
+            if (ImGui::Selectable(c.name.c_str(), &c == L)) {
+                v.cube = c.session->info->id;
+                v.range.key = ~0ull;
+                v.dirty = true;
+            }
+        ImGui::EndCombo();
+    }
+    ImGui::SetItemTooltip("Layer shown in this panel");
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Own date", &v.ownDate)) v.dirty = true;
+    ImGui::SetItemTooltip("Off: the layer's date (the main time bar)");
+    v.t = std::clamp(v.t, 0, T - 1);
+    if (v.ownDate) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(std::max(90.0f, ImGui::GetContentRegionAvail().x * 0.35f));
+        const std::string fmt = escapePercent(li.layers[v.t].label);
+        if (ImGui::SliderInt("##vt", &v.t, 0, T - 1, fmt.c_str())) v.dirty = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Own mode", &v.ownMode)) {
+        v.range.key = ~0ull;
+        v.dirty = true;
+    }
+    ImGui::SetItemTooltip("Off: the layer's display mode, colormap and range");
+    const bool classes = L->classes.state == LayerClasses::On;
+    auto available = [&](int m) { return classes ? m == ModeValue : m == ModeValue || m == ModeRGB || T >= 2; };
+    if (v.ownMode) {
+        if (!available(v.mode)) v.mode = ModeValue;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(std::max(90.0f, ImGui::GetContentRegionAvail().x));
+        if (ImGui::BeginCombo("##vmode", kModeNames[v.mode])) {
+            for (int m = 0; m < ModeCount; ++m)
+                if (m != ModeRGB && available(m) && ImGui::Selectable(kModeNames[m], m == v.mode)) {
+                    v.mode = m;
+                    v.range.key = ~0ull;
+                    v.dirty = true;
+                }
+            ImGui::EndCombo();
+        }
+    }
+    const int mode = v.ownMode ? v.mode : isActive ? mode_ : L->disp.mode;
+    const int t = v.ownDate ? v.t : isActive ? t_ : std::clamp(L->disp.t, 0, T - 1);
+    const int cmap = isActive ? cmap_[mode] : L->disp.cmap[mode];
+
+    // Automatic range of an own mode (the layer's ranges are its own business).
+    if (v.ownMode && !(modeNeedsStats(mode) && !S.gpu.statsValid)) {
+        const uint64_t key = uint64_t(S.overview.layersDone()) * 2 + (S.gpu.statsValid ? 1 : 0);
+        if (v.range.key != key) {
+            std::vector<float> smp = collectSample(S, mode, -1, 500000);
+            if (!smp.empty()) {
+                autoRange(mode, smp, v.range.lo, v.range.hi);
+                v.range.key = key;
+                v.dirty = true;
+            }
+        }
+    }
+    const Range& range = v.ownMode ? v.range : isActive ? range_[mode] : L->disp.range[mode];
+
+    // --- Canvas: the main map's view, centered on this panel ---
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImVec2 size = ImMax(ImGui::GetContentRegionAvail(), ImVec2(64, 64));
+    const ImVec2 mainSize = canvasSize_.x > 0 ? canvasSize_ : size;
+    const ImVec2 shift = (size - mainSize) * 0.5f;
+    ImGui::InvisibleButton("##mapv", size, ImGuiButtonFlags_MouseButtonLeft);
+    int ix = -1, iy = -1;
+    bool inside = false;
+    mapInput(origin + shift, mainSize, v.id, ix, iy, inside);
+
+    const float pixelScale = std::max(1.0f, ImGui::GetWindowViewport()->FramebufferScale.x);
+    if (pixelScale != v.pixelScale || size.x != v.size.x || size.y != v.size.y) {
+        v.pixelScale = pixelScale;
+        v.size = size;
+        v.dirty = true;
+    }
+    int level = -1;
+    if (detail_ && mode == ModeValue && !S.deferRandomReads()) {
+        // This panel's area in the layer's own pixels.
+        const ImVec2 o = offset_ + shift;
+        const ViewRect r{(-o.x / scale_ - L->ax) / L->bx, (-o.y / scale_ - L->ay) / L->by,
+                         ((size.x - o.x) / scale_ - L->ax) / L->bx, ((size.y - o.y) / scale_ - L->ay) / L->by,
+                         scale_ * L->bx * pixelScale};
+        level = S.tiles->update(t, r, -1);
+    }
+    if (level != v.detailLevel) {
+        v.detailLevel = level;
+        v.dirty = true;
+    }
+    if (v.dirty || viewsStale_ || mapDirty_) {
+        renderView(v, int(size.x), int(size.y), pixelScale, shift);
+        v.dirty = false;
+    }
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const bool bottomUp = Gpu::mapBottomUp();
+    dl->AddImage(ImTextureRef((ImTextureID)gpu_.mapTexture(v.id)), origin, origin + size,
+                 ImVec2(0, bottomUp ? 1.f : 0.f), ImVec2(1, bottomUp ? 0.f : 1.f));
+    dl->PushClipRect(origin, origin + size, true);
+    drawMapMarks(dl, origin + shift, v.id, ix, iy, inside);
+
+    char title[200];
+    if (mode == ModeRGB)
+        std::snprintf(title, sizeof(title), "%s  |  RGB", L->name.c_str());
+    else if (modeIsTimeDependent(mode))
+        std::snprintf(title, sizeof(title), "%s  |  %s  |  %s", L->name.c_str(), li.layers[t].label.c_str(),
+                      kModeNames[mode]);
+    else
+        std::snprintf(title, sizeof(title), "%s  |  %s", L->name.c_str(), kModeNames[mode]);
+    dl->AddText(origin + ImVec2(11, 9), IM_COL32(0, 0, 0, 200), title);
+    dl->AddText(origin + ImVec2(10, 8), IM_COL32(255, 255, 255, 255), title);
+    if (modeNeedsStats(mode) && !S.gpu.statsValid) {
+        const char* wait = "Computing statistics: waiting for the complete overview...";
+        dl->AddText(origin + (size - ImGui::CalcTextSize(wait)) * 0.5f, IM_COL32(220, 220, 220, 255), wait);
+    }
+    if (mode != ModeRGB && !classes) { // color bar
+        const ImVec2 b0 = origin + ImVec2(10, size.y - 34), bsz(220, 10);
+        const int n = 48;
+        for (int i = 0; i < n; ++i) {
+            const ImVec4 c = ImPlot::SampleColormap((i + 0.5f) / n, cmap);
+            dl->AddRectFilled(b0 + ImVec2(bsz.x * i / n, 0), b0 + ImVec2(bsz.x * (i + 1) / n, bsz.y),
+                              ImGui::ColorConvertFloat4ToU32(c));
+        }
+        dl->AddRect(b0, b0 + bsz, IM_COL32(0, 0, 0, 255));
+        char lo[32], hi[32];
+        std::snprintf(lo, sizeof(lo), "%.4g", range.lo);
+        std::snprintf(hi, sizeof(hi), "%.4g", range.hi);
+        dl->AddText(b0 + ImVec2(0, 12), IM_COL32(230, 230, 230, 255), lo);
+        dl->AddText(b0 + ImVec2(bsz.x - ImGui::CalcTextSize(hi).x, 12), IM_COL32(230, 230, 230, 255), hi);
+    }
+    dl->PopClipRect();
+}
+
+void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
+    const float bg[4] = {0.10f, 0.10f, 0.115f, 1.0f};
+    gpu_.beginMap(int(std::lround(w * pixelScale)), int(std::lround(h * pixelScale)), bg, v.id);
+    const SeriesLayer* L = nullptr;
+    for (const SeriesLayer& c : layers_)
+        if (c.session->info->id == v.cube) L = &c;
+    if (!L || !L->aligned) {
+        gpu_.endMap();
+        return;
+    }
+    const Session& S = *L->session;
+    const CubeInfo& li = *S.info;
+    const bool isActive = L == activeLayer();
+    // Active layer's pixels -> pixels of this panel's target.
+    auto screenRect = [&](double x0, double y0, double x1, double y1, float r[4]) {
+        r[0] = float((shift.x + offset_.x + x0 * scale_) * pixelScale);
+        r[1] = float((shift.y + offset_.y + y0 * scale_) * pixelScale);
+        r[2] = float((shift.x + offset_.x + x1 * scale_) * pixelScale);
+        r[3] = float((shift.y + offset_.y + y1 * scale_) * pixelScale);
+    };
+    auto layerRect = [&](double x0, double y0, double x1, double y1, float r[4]) {
+        double ax0, ay0, ax1, ay1;
+        toActive(*L, x0, y0, ax0, ay0);
+        toActive(*L, x1, y1, ax1, ay1);
+        screenRect(ax0, ay0, ax1, ay1, r);
+    };
+    const int T = li.T();
+    const int mode = v.ownMode ? v.mode : isActive ? mode_ : L->disp.mode;
+    const int t = v.ownDate ? std::clamp(v.t, 0, T - 1) : isActive ? t_ : std::clamp(L->disp.t, 0, T - 1);
+    const std::array<int, 3>& rgb = isActive ? rgb_ : L->disp.rgb;
+    const Range& range = v.ownMode ? v.range : isActive ? range_[mode] : L->disp.range[mode];
+    const int cmap = isActive ? cmap_[mode] : L->disp.cmap[mode];
+    DrawParams p;
+    p.mode = mode;
+    p.t = mode == ModeRGB ? rgb[0] : t;
+    p.tg = rgb[1];
+    p.tb = rgb[2];
+    p.lo = range.lo;
+    p.hi = range.hi;
+    if (L->classes.state == LayerClasses::On && mode == ModeValue) p.classLut = L->classes.lut;
+    const auto& loaded = S.gpu.loaded;
+    bool ready = mode == ModeRGB ? loaded[rgb[0]] && loaded[rgb[1]] && loaded[rgb[2]]
+                 : modeIsTimeDependent(mode) ? loaded[t] : true;
+    if (modeNeedsStats(mode) && !S.gpu.statsValid) ready = false;
+    float rect[4];
+    layerRect(0, 0, li.width, li.height, rect);
+    if (ready) gpu_.drawCube(S.gpu, rect, p, cmap, 1.0f);
+    if (mode == ModeValue && v.detailLevel >= 0) {
+        const ImVec2 o = offset_ + shift;
+        const ViewRect r{(-o.x / scale_ - L->ax) / L->bx, (-o.y / scale_ - L->ay) / L->by,
+                         ((w - o.x) / scale_ - L->ax) / L->bx, ((h - o.y) / scale_ - L->ay) / L->by,
+                         scale_ * L->bx * pixelScale};
+        S.tiles->forEachVisible(t, r, [&](GpuTex tex, double x, double y, double sw, double sh) {
+            float tr[4];
+            layerRect(x, y, x + sw, y + sh, tr);
+            gpu_.drawTile(tex, tr, p, cmap, 1.0f);
+        });
+    }
+    for (const ResultLayer& R : results_) {
+        if (R.cubeId != li.id || !R.visible || !R.tex) continue;
+        float r[4];
+        layerRect(R.x0, R.y0, R.x0 + R.w, R.y0 + R.h, r);
+        gpu_.drawOverlay(R.tex, r, R.lo, R.hi, R.cmap, R.opacity);
+    }
+    gpu_.endMap();
 }
 
 void App::uiLayer() {

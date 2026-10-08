@@ -78,6 +78,17 @@ private:
     void handleShortcuts();
     void pumpSeries();
     void renderMap(int w, int h, float pixelScale = 1.0f); // w, h in canvas points
+    // Mouse and keys over a map canvas (pins, ROI, pan, zoom, the hovered pixel of
+    // the active layer). `origin`: where the main canvas' (0, 0) is on screen for
+    // this panel (panels share one view, centered alike); `size`: the main canvas.
+    void mapInput(ImVec2 origin, ImVec2 size, int panel, int& ix, int& iy, bool& inside);
+    // Pins, ROI, the hovered pixel (or a cross where another panel's cursor is).
+    void drawMapMarks(ImDrawList* dl, ImVec2 origin, int panel, int ix, int iy, bool inside);
+    struct MapView;
+    void newMapView();
+    void uiMapViews();
+    void uiMapView(MapView& v);
+    void renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift);
     void fitView(ImVec2 canvas);
     void setT(int t);
     void addPin(int x, int y);
@@ -86,7 +97,7 @@ private:
     std::vector<float> approxSeries(int x, int y) const;
     bool modeAvailable(int mode) const;
     void updateRangeAndHistogram();
-    std::vector<float> collectSample(int mode, int t, size_t maxN) const;
+    std::vector<float> collectSample(const Session& S, int mode, int t, size_t maxN) const;
     std::string slopeUnit() const;
     void copyCsv();
 
@@ -203,6 +214,27 @@ private:
     std::vector<double> xs_;     // X axis (Unix seconds or index)
     SeriesView hover_;
     std::vector<SeriesView> pins_;
+    // Extra map panels (View > New map view), next to the main map: one layer
+    // each, with its own date and display mode if wanted, always on the same
+    // area (they share scale_ and offset_, each canvas centered like the main one).
+    struct MapView {
+        int id = 0;              // window "Map <id>" and GPU target slot
+        uint64_t cube = 0;       // CubeInfo id of the layer shown
+        bool ownDate = false;    // else the layer's date
+        int t = 0;
+        bool ownMode = false;    // else the layer's display mode
+        int mode = ModeValue;
+        Range range;             // automatic range of an own mode
+        bool docked = false;     // split next to the main map once
+        bool dirty = true;
+        ImVec2 size{0, 0};
+        float pixelScale = 1.0f;
+        int detailLevel = -1;
+    };
+    std::vector<MapView> views_;
+    int nextViewId_ = 2;
+    int mouseInPanel_ = -1, prevMouseInPanel_ = -1; // map panel under the mouse (0 = main)
+    bool viewsStale_ = false;    // the main map was redrawn: so must the panels
     std::shared_ptr<RoiData> roi_;
     int roiSeen_ = -1;
     std::vector<float> roiMean_, roiP10_, roiP90_;

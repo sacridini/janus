@@ -211,7 +211,12 @@ struct Gpu::Impl {
     GLuint progDisplay = 0, progStats = 0;
     GLuint cmapTex = 0, dummy2D = 0, dummyArray = 0;
     std::map<int, GLuint> overlayCmaps; // colormap textures for overlays, by ImPlot colormap
-    GLuint fbo = 0, fboColor = 0;
+    struct Target {
+        GLuint tex = 0;
+        int w = 0, h = 0;
+    };
+    std::map<int, Target> targets;      // map targets, by panel slot
+    GLuint fbo = 0, fboColor = 0;       // fboColor: the target being drawn
     int fboW = 0, fboH = 0;
     GLuint statsFbo = 0;
     const GpuCube* boundCube = nullptr;
@@ -261,8 +266,10 @@ void Gpu::shutdown() {
     glDeleteProgram(d.progDisplay);
     glDeleteProgram(d.progStats);
     glDeleteVertexArrays(1, &d.vao);
-    GLuint texs[] = {d.cmapTex, d.dummy2D, d.dummyArray, d.fboColor};
-    glDeleteTextures(4, texs);
+    GLuint texs[] = {d.cmapTex, d.dummy2D, d.dummyArray};
+    glDeleteTextures(3, texs);
+    for (auto& [_, t] : d.targets) glDeleteTextures(1, &t.tex);
+    d.targets.clear();
     for (auto& [_, t] : d.overlayCmaps) glDeleteTextures(1, &t);
     d.overlayCmaps.clear();
     glDeleteFramebuffers(1, &d.fbo);
@@ -348,17 +355,20 @@ void Gpu::computeStats(GpuCube& c) {
     c.statsValid = true;
 }
 
-void Gpu::beginMap(int w, int h, const float bg[4]) {
+void Gpu::beginMap(int w, int h, const float bg[4], int slot) {
     Impl& d = *impl_;
-    if (w != d.fboW || h != d.fboH) {
-        if (d.fboColor) glDeleteTextures(1, &d.fboColor);
-        d.fboColor = makeTex2D(GL_RGBA8, w, h, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glBindFramebuffer(GL_FRAMEBUFFER, d.fbo);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, d.fboColor, 0);
-        d.fboW = w;
-        d.fboH = h;
+    Impl::Target& tg = d.targets[slot];
+    if (w != tg.w || h != tg.h || !tg.tex) {
+        if (tg.tex) glDeleteTextures(1, &tg.tex);
+        tg.tex = makeTex2D(GL_RGBA8, w, h, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        tg.w = w;
+        tg.h = h;
     }
+    d.fboColor = tg.tex;
+    d.fboW = w;
+    d.fboH = h;
     glBindFramebuffer(GL_FRAMEBUFFER, d.fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, d.fboColor, 0);
     const GLenum buf = GL_COLOR_ATTACHMENT0;
     glDrawBuffers(1, &buf);
     glViewport(0, 0, w, h);
@@ -463,18 +473,29 @@ void Gpu::endMap() {
     glActiveTexture(GL_TEXTURE0);
 }
 
-GpuTex Gpu::mapTexture() const { return impl_->fboColor; }
+GpuTex Gpu::mapTexture(int slot) const {
+    const auto it = impl_->targets.find(slot);
+    return it == impl_->targets.end() ? 0 : it->second.tex;
+}
+
+void Gpu::releaseMap(int slot) {
+    Impl& d = *impl_;
+    const auto it = d.targets.find(slot);
+    if (it == d.targets.end()) return;
+    glDeleteTextures(1, &it->second.tex);
+    d.targets.erase(it);
+}
 
 bool Gpu::mapBottomUp() { return true; }
 
-void Gpu::readMapPixel(int x, int y, unsigned char rgba[4]) {
-    const Impl& d = *impl_;
-    std::vector<unsigned char> buf(size_t(d.fboW) * d.fboH * 4);
-    glBindTexture(GL_TEXTURE_2D, d.fboColor);
+void Gpu::readMapPixel(int x, int y, unsigned char rgba[4], int slot) {
+    const Impl::Target& tg = impl_->targets.at(slot);
+    std::vector<unsigned char> buf(size_t(tg.w) * tg.h * 4);
+    glBindTexture(GL_TEXTURE_2D, tg.tex);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
-    const int row = d.fboH - 1 - y; // the framebuffer is bottom-up
-    for (int c = 0; c < 4; ++c) rgba[c] = buf[(size_t(row) * d.fboW + x) * 4 + c];
+    const int row = tg.h - 1 - y; // the framebuffer is bottom-up
+    for (int c = 0; c < 4; ++c) rgba[c] = buf[(size_t(row) * tg.w + x) * 4 + c];
 }
 
 GpuTex Gpu::createClassLut(const unsigned char* rgba, GpuTex t) {
