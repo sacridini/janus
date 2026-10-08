@@ -144,6 +144,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 11 | 0.19.0 | **Exportação**: mapa visível como PNG (figuras), vista/camada e resultados do Zeit como GeoTIFF (para o QGIS) | concluída |
 | 12 | 0.18.0 | **Mapas de diferença (Δ) e de quebra** (ano e magnitude da maior queda), calculados na GPU | concluída |
 | 13 | 0.21.0 | **Cache em resolução total** num SSD (blocos de 64×64 por data, compressão sem perda): série exata e ROI em ~1 ms mesmo com os dados num HD | concluída |
+| 15 | — | **Mapa de fundo (basemap)**: imagem de satélite/mapa da web por baixo das séries (Esri World Imagery, Sentinel-2 cloudless, OSM, URL XYZ própria), pelo driver WMS/TMS do GDAL, reprojetado pela grade de warp | em andamento |
 | 14 | — | Mais visualizações: mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas na ROI | planejada |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
@@ -179,6 +180,13 @@ termina.
   tamanho do overview alinhado aos níveis do COG.
 - **Exportação** (hoje só "Copy CSV"): mapa visível em PNG, vista e resultados
   em GeoTIFF → fase 11.
+- **Mapa de fundo** (pedido em 2026-10-08) → fase 15. Sem dependência nova: o
+  GDAL embutido tem o driver WMS/TMS e a `libcurl` já vai no instalador.
+  Testado: recorte de ~22×22 km da Esri World Imagery em 1024×1024 px em ~2,3 s
+  da internet e ~1,2 s do cache em disco do GDAL. Os tiles estão em EPSG:3857 e
+  passam pela grade de warp da 0.22.0. Desligado por padrão; atribuição no
+  mapa e no PNG exportado. Google Satellite só por URL própria com chave
+  (os termos proíbem usar os tiles direto).
 - NetCDF com dimensão de tempo; reprojeção; paletas por classe (color table).
 
 ### Interface
