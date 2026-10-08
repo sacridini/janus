@@ -1,0 +1,47 @@
+# Architecture
+
+[README](../README.md) · [Install](install.md) · [Usage](usage.md) · [Building](building.md) · [Architecture](architecture.md)
+
+```
+ files (GDAL) ──► Overview (CPU, [t][y][x] float32) ──► GpuCube (R32F texture array)
+       │               │ disk cache (%LOCALAPPDATA%\Janus\cache)      │
+       │               └─ instant approximate series                  ├─► statistics shader (1 pass)
+       │                                                              └─► display shader (stretch, colormap, modes)
+       ├──► FullResCache: every date at full resolution on the local disk (built with the overview on an HDD)
+       │         └─ read first by the two below for the dates it has
+       ├──► TileManager: full-resolution tiles of the visible area ──► LRU cache on the GPU
+       └──► exact pixel series / ROI (interactive pool, cancellable)
+```
+
+| File | Role |
+|---|---|
+| `src/cube.*` | Layer, date and band discovery; per-thread GDAL reader (nodata → NaN, scale/offset, normalized difference, QA mask) |
+| `src/overview.*` | Reduced cube built in parallel, following the focused date; disk cache |
+| `src/fullres_cache.*` | Full-resolution cache: lossless 64×64 blocks per date on the local disk, built with the overview (HDD), read for series, ROI and tiles |
+| `src/gpu.hpp` | Renderer-neutral GPU layer: cube, per-pixel temporal statistics, map drawing, textures (`GpuTex`) |
+| `src/gpu_gl.cpp`, `src/gpu_metal.mm` | Its OpenGL 3.3 (GLSL) and Metal (MSL, shared-memory buffers) backends |
+| `src/render_backend*` | Window and context, ImGui renderer backend, present (main window and detached panels): OpenGL or Metal |
+| `src/tiles.*` | Detail tiles per zoom level; drops requests that left the screen |
+| `src/session.*` | One open series: thread pools, exact series, ROI |
+| `src/stats.*` | OLS, Sen's slope, percentiles |
+| `src/app.*` | User interface (ImGui/ImPlot) |
+| `src/app_layers.cpp` | Several series as layers (alignment, active layer, other layers' series), Layers and Files panels |
+| `src/app_classes.cpp` | Categorical series: detection, class colours and names, legend, class statistics |
+| `src/app_swipe.cpp` | Swipe: the comparison drawn like a map panel into its own target, divider, View menu entries and keys of swipe and transect |
+| `src/app_transect.cpp` | Space-time transect: sampling along the line (overview, then full resolution in the background), the Transect panel (image drawn by the map renderer) |
+| `src/file_browser.*` | Lazily listed folder tree (rasters only by default) |
+| `src/app_export.cpp` | Export: map as PNG (offscreen render at 1–4×, marks and legend drawn on the CPU with ImGui's font), values and the view as GeoTIFF, Zeit results; background jobs, Exports window |
+| `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow, swipe, transect and the exports in a hidden window, checked by reading map pixels and the files written; the full-resolution cache checked against the files |
+| `src/app_fullres.cpp` | Full-resolution cache in the Performance panel, its setting, `--measure-cache` |
+| `src/app_zeit.cpp` | Tools menu, tool windows, tasks, result layers, models on the chart |
+| `src/zeit_client.*` | Bridge processes (JSON lines over pipes; Win32 or POSIX), pixel calls, raster jobs, estimates |
+| `src/results.*` | Result rasters loaded as map layers |
+| `src/selftest.cpp` | `--selftest-zeit`: every applicable Zeit tool end to end (pixel + raster job) without a window |
+| `zeit_bridge/` | The Python bridge, one `tool_*.py` per Zeit tool family, the pinned runtime requirements |
+| `tools/build_zeit_runtime.py` | Assembles the private Python runtime (Windows, Linux, macOS) |
+| `cmake/package_linux.cmake` | Portable Linux package (bundled libraries, RPATH `$ORIGIN/lib`) |
+| `cmake/package_macos.cmake` | macOS app and `.dmg` (bundled libraries, RPATH `@executable_path/../Frameworks`, ad hoc signature) |
+| `.github/workflows/build.yml` | CI: Windows, Linux and macOS builds, self-tests, installers; releases on `v*` tags |
+| `tools/make_selftest_data.py` | Synthetic inputs for `--selftest-ui` and `--selftest-zeit` |
+| `src/platform.*` | OS-specific: arguments, open and save dialogs, data folder, opening folders, HDD detection (Windows, Linux, macOS) |
+| `src/launcher.cpp` | `jn.com` console launcher |
