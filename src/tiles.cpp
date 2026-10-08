@@ -162,3 +162,19 @@ void TileManager::forEachVisible(int t, const ViewRect& v,
         });
     }
 }
+
+void TileManager::forEachVisible(int t, int t2, const ViewRect& v,
+                                 const std::function<void(GpuTex, GpuTex, double, double, double, double)>& f) {
+    if (t2 < 0) {
+        forEachVisible(t, v, [&](GpuTex tex, double x, double y, double w, double h) { f(tex, 0, x, y, w, h); });
+        return;
+    }
+    for (int level = maxLevel_; level >= 0; --level) {
+        forTilesInView(v, level, info_->width, info_->height, [&](int tx, int ty) {
+            auto a = gpu_.find(makeKey(t, level, tx, ty)), b = gpu_.find(makeKey(t2, level, tx, ty));
+            if (a == gpu_.end() || b == gpu_.end()) return;
+            a->second.lastUsed = b->second.lastUsed = frame_;
+            f(a->second.tex, b->second.tex, a->second.x, a->second.y, a->second.sw, a->second.sh);
+        });
+    }
+}

@@ -97,7 +97,8 @@ private:
     std::vector<float> approxSeries(int x, int y) const;
     bool modeAvailable(int mode) const;
     void updateRangeAndHistogram();
-    std::vector<float> collectSample(const Session& S, int mode, int t, size_t maxN) const;
+    // diffRef: reference date of the difference mode (see diffRef_).
+    std::vector<float> collectSample(const Session& S, int mode, int t, size_t maxN, int diffRef = 0) const;
     std::string slopeUnit() const;
     void copyCsv();
 
@@ -179,6 +180,7 @@ private:
     // Display
     int mode_ = ModeValue;
     std::array<int, 3> rgb_{0, 0, 0};
+    int diffRef_ = 0;            // reference date of the difference mode (-1 = previous date)
     std::array<int, ModeCount> cmap_{};
     int appliedCmap_ = -1;
     struct Range {
@@ -318,6 +320,7 @@ private:
     struct LayerDisplay {
         int mode = ModeValue;
         std::array<int, 3> rgb{0, 0, 0};
+        int diffRef = 0;
         std::array<int, ModeCount> cmap{};
         std::array<Range, ModeCount> range{};
         bool perDateRange = false;

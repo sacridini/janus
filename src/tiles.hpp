@@ -44,6 +44,10 @@ public:
     // view, from coarsest to finest.
     void forEachVisible(int t, const ViewRect& v,
                         const std::function<void(GpuTex, double, double, double, double)>& f);
+    // Same with a second date t2 (the reference of a difference): only where the
+    // tiles of both dates are cached; f(tex, tex2, x, y, w, h). t2 < 0: tex2 = 0.
+    void forEachVisible(int t, int t2, const ViewRect& v,
+                        const std::function<void(GpuTex, GpuTex, double, double, double, double)>& f);
 
     size_t gpuBytes() const { return gpuBytes_; }
     int gpuTiles() const { return int(gpu_.size()); }

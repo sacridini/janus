@@ -22,6 +22,9 @@ enum DisplayMode {
     ModeAmplitude,   // max - min
     ModeR2,
     ModeRGB,         // composite of 3 dates
+    ModeDiff,        // value(t) - value(reference date), reference in DrawParams::tg
+    ModeDropDate,    // largest drop between consecutive valid observations: date index
+    ModeDropMag,     // ... and its magnitude (previous - next > 0)
     ModeCount
 };
 
@@ -32,7 +35,8 @@ struct GpuCube {
     int w = 0, h = 0, T = 0;
     uint64_t cube = 0;          // backend handles (see gpu_gl.cpp / gpu_metal.mm)
     uint64_t stats0 = 0;        // mean, std, slope, valid count
-    uint64_t stats1 = 0;        // min, max, R², -
+    uint64_t stats1 = 0;        // min, max, R², largest drop
+    uint64_t stats2 = 0;        // date index of the largest drop (1 float per pixel)
     uint64_t times = 0;         // T floats: years since the 1st date
     bool statsValid = false;
     std::vector<bool> loaded;
@@ -41,7 +45,8 @@ struct GpuCube {
     // buffers themselves; GL: read back into statsCopy).
     const float* hostStats0 = nullptr;
     const float* hostStats1 = nullptr;
-    std::vector<float> statsCopy;
+    const float* hostStats2 = nullptr; // w*h floats
+    std::unique_ptr<float[]> statsCopy;
 
     GpuCube() = default;
     GpuCube(const GpuCube&) = delete;
@@ -57,9 +62,10 @@ struct GpuCube {
 
 struct DrawParams {
     int mode = ModeValue;
-    int t = 0, tg = 0, tb = 0;   // layers (tg/tb only in RGB mode)
+    int t = 0, tg = 0, tb = 0;   // layers (tg/tb only in RGB mode; tg = reference date in ModeDiff)
     float lo = 0, hi = 1;        // stretch range
     GpuTex classLut = 0;         // categorical data: class value -> colour (see createClassLut)
+    GpuTex tile2 = 0;            // ModeDiff on a detail tile: the reference date's tile
 };
 
 // Class colours of categorical data: kClassLutSize texels, value v -> texel v
