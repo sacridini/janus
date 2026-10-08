@@ -4,14 +4,18 @@
 // cursor and a pin, reads back map pixels (layer drawn, layer hidden), switches
 // the active layer and closes one. Optional inputs:
 //   C  one file per date with several bands and a quality band: opens it and
-//      reopens it in place as a normalized difference with the QA mask;
+//      reopens it in place as a normalized difference with the QA mask, then
+//      checks the difference and largest-drop maps (GPU against the CPU);
 //   D  categorical series with a colour table and class names (file colours);
 //   E  categorical series without them (detected from its values).
 #include "app.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+
+#include <implot.h>
 
 namespace {
 
@@ -37,6 +41,96 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         return L.session->overview.complete() && (L.session->info->T() < 2 || L.session->gpu.statsValid);
     };
     if (st_.stage > 0 && now() - st_.since > 120) return fail("timeout");
+
+    // Difference and largest-drop maps of the active layer (statistics computed):
+    // the GPU statistics against the CPU rule for every overview pixel, then map
+    // pixels against the colour expected from the CPU value. nullptr = passed.
+    auto checkChangeMaps = [&]() -> const char* {
+        const Overview& ov = s_->overview;
+        const CubeInfo& info = *s_->info;
+        const int T = info.T();
+        const float* s1 = s_->gpu.hostStats1;
+        const float* s2 = s_->gpu.hostStats2;
+        int drops = 0, gappy = 0, ties = 0;
+        double maxErr = 0;
+        std::vector<float> v(T);
+        for (size_t p = 0; p < size_t(ov.w) * ov.h; ++p) {
+            bool gap = false;
+            for (int t = 0; t < T; ++t) {
+                v[t] = ov.layer(t)[p];
+                gap |= std::isnan(v[t]);
+            }
+            double mag;
+            int at;
+            largestDrop(v, mag, at);
+            const float gMag = s1[p * 4 + 3], gAt = s2[p];
+            if (std::isnan(mag) != std::isnan(gMag) || (at < 0) != std::isnan(gAt)) return "drop: NaN where the CPU has none";
+            if (std::isnan(mag)) continue;
+            maxErr = std::max(maxErr, std::fabs(mag - gMag));
+            if (std::fabs(mag - gMag) > 1e-5) return "drop magnitude differs from the CPU";
+            if (at >= 0 && int(gAt) != at) {
+                if (++ties > 3) return "drop date differs from the CPU"; // only a near tie may differ
+                continue;
+            }
+            drops += at >= 0;
+            gappy += at >= 0 && gap;
+        }
+        std::printf("    largest drop: %d pixels with a drop (%d with masked dates), max |GPU - CPU| %.2g, %d near ties\n",
+                    drops, gappy, maxErr, ties);
+        if (drops == 0 || gappy == 0) return "the test data should have drops, some across masked dates";
+
+        // Map pixels: the colour of the CPU value, or the background where there is none.
+        canvasSize_ = ImVec2(400, 300);
+        fitView(canvasSize_);
+        auto expect = [&](int mode, float lo, float hi, int ix, int iy, float value) -> bool {
+            mode_ = mode;
+            range_[mode] = Range{lo, hi, true, 0};
+            renderMap(400, 300);
+            unsigned char px[4];
+            const int cx = int(offset_.x + (ix + 0.5) * scale_), cy = int(offset_.y + (iy + 0.5) * scale_);
+            gpu_.readMapPixel(cx, cy, px);
+            int e[3] = {26, 26, 29}; // background (renderMap's clear colour)
+            if (!std::isnan(value)) {
+                const ImVec4 c = ImPlot::SampleColormap(std::clamp((value - lo) / (hi - lo), 0.0f, 1.0f), cmap_[mode]);
+                e[0] = int(c.x * 255 + 0.5f);
+                e[1] = int(c.y * 255 + 0.5f);
+                e[2] = int(c.z * 255 + 0.5f);
+            }
+            const bool ok = std::abs(px[0] - e[0]) <= 3 && std::abs(px[1] - e[1]) <= 3 && std::abs(px[2] - e[2]) <= 3;
+            if (!ok)
+                std::printf("    mode %d at (%d,%d): value %.4g, map rgb(%d, %d, %d), expected rgb(%d, %d, %d)\n",
+                            mode, ix, iy, value, px[0], px[1], px[2], e[0], e[1], e[2]);
+            return ok;
+        };
+        const int savedT = t_, savedRef = diffRef_;
+        const int pts[][2] = {{10, 10}, {60, 70}, {150, 30}, {180, 100}, {120, 60}};
+        int checked = 0;
+        for (const auto& q : pts) {
+            const int ix = q[0] * info.width / 200, iy = q[1] * info.height / 120;
+            const std::vector<float> sv = approxSeries(ix, iy);
+            double mag;
+            int at;
+            largestDrop(sv, mag, at);
+            if (!expect(ModeDropMag, 0, 0.05f, ix, iy, float(mag))) return "largest drop magnitude: wrong colour on the map";
+            if (!expect(ModeDropDate, 0, float(T - 1), ix, iy, at >= 0 ? float(at) : NAN))
+                return "largest drop date: wrong colour on the map";
+            // Difference: fixed reference (first date), then the previous date.
+            for (int ref : {0, -1})
+                for (int t : {1, 2, 3, T - 1}) {
+                    diffRef_ = ref;
+                    t_ = t;
+                    const int r = ref < 0 ? t - 1 : ref;
+                    if (!expect(ModeDiff, -0.05f, 0.05f, ix, iy, sv[t] - sv[r])) return "difference: wrong colour on the map";
+                    checked += !std::isnan(sv[t] - sv[r]);
+                }
+        }
+        std::printf("    map pixels of the drop and difference modes match the CPU (%d finite differences)\n", checked);
+        t_ = savedT;
+        diffRef_ = savedRef;
+        mode_ = ModeValue;
+        mapDirty_ = true;
+        return nullptr;
+    };
 
     switch (st_.stage) {
     case 0:
@@ -202,6 +296,7 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         if (lo < -1 || hi > 1) return fail("a normalized difference is within [-1, 1]");
         if (nan == 0) return fail("cloudy dates should be masked by the QA band");
         if (fitRequested_ || !viewTouched_) return fail("the view should be kept");
+        if (const char* e = checkChangeMaps()) return fail(e);
         next("reopened in place: name, pin and view kept, values are NDVI, clouds masked");
         if (in.size() < 4) {
             std::printf("OK (%.1f s)\n", now() - st_.t0);

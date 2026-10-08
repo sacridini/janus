@@ -33,19 +33,24 @@ OpenGL 3.3 on Windows and Linux and through Metal on macOS.
   Collection 2 `QA_PIXEL` bits or a 0/1 mask; a band named Fmask or QA_PIXEL is
   used automatically). Multiband tools such as CCDC read every band.
 - **Map modes**, all computed on the GPU: value at date, anomaly (value − mean),
+  **difference** (value − a reference date: a fixed date or the previous one),
   temporal mean, standard deviation, linear trend (OLS, per year), minimum,
-  maximum, amplitude, trend R² and a multitemporal RGB of three dates.
-  Changing date, colormap or stretch is instant; there is an animation player.
+  maximum, amplitude, trend R², **largest drop** (date and magnitude of the
+  largest decrease between consecutive valid observations) and a multitemporal
+  RGB of three dates. Changing date, colormap or stretch is instant; there is an
+  animation player.
 - **Pixel series**: approximate (from the overview) as soon as you hover, exact
   (full resolution) once the mouse rests. Click to drop pins and compare pixels;
   Shift+drag a rectangle for an ROI (mean and p10–p90 per date).
 - **Chart**: lines, markers, stems or stairs; raw values, anomaly or z-score;
   OLS or Sen trend line per series; Y axis locked to the map range if you want.
 - **Statistics** per series: n, mean, median, std, CV, min/max (with date),
-  amplitude, OLS slope + R², Sen's slope (the Mann-Kendall test, with
+  amplitude, OLS slope + R², Sen's slope, largest drop (with date) and, in the
+  difference mode, the difference shown on the map (the Mann-Kendall test, with
   autocorrelation corrections, is a Zeit tool).
 - **Full resolution on zoom**: past the overview resolution, tiles of the visible
-  area are read in the background and cached on the GPU.
+  area are read in the background and cached on the GPU (value and difference
+  modes; the difference reads the tiles of both dates).
 - **Fast**: about 0.15 s from launch to the first frame; the app sleeps when
   nothing changes (a frame costs ~0.3 ms of CPU). The cube overview is cached on
   disk, so reopening a series takes a fraction of a second.
@@ -171,6 +176,8 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | ROI | `Shift` + drag (mean and p10–p90 per date) |
 | Time | `←`/`→` previous/next date, `Space` play/pause, click or drag on the chart |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or drag it) |
+| Change between dates | **Display** panel → *Difference (value - reference)*: pick the *Reference* (a date, or *Previous date (t-1)*); diverging colours centered at 0, follows the time bar |
+| Largest drop | **Display** panel → *Largest drop: date* or *magnitude*: the largest decrease between consecutive valid observations (no-data dates skipped), dated at the lower one; the colour bar shows dates. Exact values for the cursor and pins in the **Statistics** panel |
 | Classes (categorical data) | **Display** panel → *Categorical (classes)*: legend with colours, names and shares (click a colour to change it, untick a class to hide it); detection can be switched off or forced |
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
 | Performance panel | **View → Performance** (hidden by default): timings, Zeit status, overview memory |

@@ -15,6 +15,7 @@ SeriesStats computeSeriesStats(const std::vector<double>& xAll, const std::vecto
     }
     const int n = int(v.size());
     s.n = n;
+    largestDrop(vAll, s.dropMag, s.argDrop);
     if (n == 0) return s;
 
     double sum = 0, sx = 0;
@@ -71,6 +72,22 @@ SeriesStats computeSeriesStats(const std::vector<double>& xAll, const std::vecto
         }
     }
     return s;
+}
+
+void largestDrop(const std::vector<float>& v, double& mag, int& at) {
+    mag = 0;
+    at = -1;
+    int n = 0;
+    float last = 0;
+    for (size_t i = 0; i < v.size(); ++i) {
+        if (std::isnan(v[i])) continue;
+        if (n++ > 0 && double(last) - v[i] > mag) {
+            mag = double(last) - v[i];
+            at = int(i);
+        }
+        last = v[i];
+    }
+    if (n < 2) mag = NAN;
 }
 
 SampleStats computeSampleStats(std::vector<float>& v) {

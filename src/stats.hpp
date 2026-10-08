@@ -11,9 +11,16 @@ struct SeriesStats {
     int argMin = -1, argMax = -1;
     double olsSlope = 0, olsIntercept = 0, r2 = 0;
     double senSlope = 0, senIntercept = 0;
+    // Largest decrease between consecutive valid observations (previous - next,
+    // > 0) and the date index of the later one; 0 and -1 if it never decreases,
+    // NaN with fewer than 2 observations. Same rule as the GPU statistics.
+    double dropMag = 0;
+    int argDrop = -1;
 };
 
 SeriesStats computeSeriesStats(const std::vector<double>& x, const std::vector<float>& v);
+// The largest drop alone (see SeriesStats::dropMag).
+void largestDrop(const std::vector<float>& v, double& mag, int& at);
 
 // Statistics of a set of values (an ROI at one date).
 struct SampleStats {

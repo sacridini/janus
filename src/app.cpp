@@ -33,10 +33,29 @@ const char* kModeNames[ModeCount] = {
     "Amplitude (max - min)",
     "Trend R²",
     "Multitemporal RGB (3 dates)",
+    "Difference (value - reference)",
+    "Largest drop: date",
+    "Largest drop: magnitude",
 };
+// Order of the modes in the menus (the enum's numbers are fixed by the shaders).
+const int kModeOrder[ModeCount] = {ModeValue, ModeAnomaly, ModeDiff,     ModeMean,     ModeStd,
+                                   ModeSlope, ModeMin,     ModeMax,      ModeAmplitude, ModeR2,
+                                   ModeDropDate, ModeDropMag, ModeRGB};
 
-bool modeIsTimeDependent(int m) { return m == ModeValue || m == ModeAnomaly || m == ModeRGB; }
-bool modeNeedsStats(int m) { return m != ModeValue && m != ModeRGB; }
+bool modeIsTimeDependent(int m) { return m == ModeValue || m == ModeAnomaly || m == ModeRGB || m == ModeDiff; }
+bool modeNeedsStats(int m) { return m != ModeValue && m != ModeRGB && m != ModeDiff; }
+// Reference date of the difference mode at date t: a fixed date, or the
+// previous one (ref < 0; -1 at the first date: no difference).
+int diffRefDate(int ref, int t, int T) { return ref < 0 ? t - 1 : std::min(ref, T - 1); }
+
+// Label of a value of `mode` on a colour bar: dates for the drop date.
+std::string rangeLabel(int mode, float v, const CubeInfo& info) {
+    if (mode == ModeDropDate)
+        return info.layers[std::clamp(int(std::lround(v)), 0, info.T() - 1)].label;
+    char b[32];
+    std::snprintf(b, sizeof(b), "%.4g", v);
+    return b;
+}
 
 std::string escapePercent(const std::string& s) {
     std::string out;
@@ -106,8 +125,8 @@ bool App::init(const AppOptions& opts, std::string& error) {
                            {0.62f, 0.80f, 0.36f, 1}, {0.22f, 0.56f, 0.22f, 1}, {0.04f, 0.30f, 0.10f, 1}};
     ImPlot::AddColormap("NDVI", ndvi, 6, false);
     for (int m = 0; m < ModeCount; ++m) cmap_[m] = ImPlotColormap_Viridis;
-    cmap_[ModeAnomaly] = cmap_[ModeSlope] = ImPlotColormap_BrBG;
-    cmap_[ModeStd] = cmap_[ModeAmplitude] = ImPlotColormap_Plasma;
+    cmap_[ModeAnomaly] = cmap_[ModeSlope] = cmap_[ModeDiff] = ImPlotColormap_BrBG;
+    cmap_[ModeStd] = cmap_[ModeAmplitude] = cmap_[ModeDropMag] = ImPlotColormap_Plasma;
     defaultCmap_ = cmap_;
     return true;
 }
@@ -367,7 +386,7 @@ void App::updateRoiSeries() {
 }
 
 // (Subsampled) sample of the quantity shown by `mode`. t < 0 = all dates.
-std::vector<float> App::collectSample(const Session& S, int mode, int t, size_t maxN) const {
+std::vector<float> App::collectSample(const Session& S, int mode, int t, size_t maxN, int diffRef) const {
     std::vector<float> out;
     const Overview& ov = S.overview;
     const size_t px = size_t(ov.w) * ov.h;
@@ -416,18 +435,36 @@ std::vector<float> App::collectSample(const Session& S, int mode, int t, size_t 
     case ModeMax: overPixels([&](size_t p) { return s1[p * 4 + 1]; }); break;
     case ModeAmplitude: overPixels([&](size_t p) { return s1[p * 4 + 1] - s1[p * 4 + 0]; }); break;
     case ModeR2: overPixels([&](size_t p) { return s1[p * 4 + 2]; }); break;
+    case ModeDiff:
+        // Every date against its reference; a date against itself (all zeros)
+        // only counts when it is the date asked for.
+        overLayers([&](int L, size_t p) {
+            const int r = diffRefDate(diffRef, L, ov.T);
+            return r >= 0 && S.gpu.loaded[r] && (r != L || t >= 0) ? ov.layer(L)[p] - ov.layer(r)[p] : NAN;
+        });
+        break;
+    case ModeDropDate: overPixels([&](size_t p) { return S.gpu.hostStats2[p]; }); break;
+    case ModeDropMag: overPixels([&](size_t p) { return s1[p * 4 + 3]; }); break;
     default: break;
     }
     return out;
 }
 
 // Automatic stretch of a sample of `mode`'s values: 2-98%, symmetric around 0
-// for anomalies and trends, 0-1 for R².
+// for anomalies, differences and trends, 0-1 for R², every date for the drop
+// date, from 0 for the drop magnitude.
 static void autoRange(int mode, std::vector<float>& s, float& lo, float& hi) {
     if (mode == ModeR2) {
         lo = 0;
         hi = 1;
-    } else if (mode == ModeAnomaly || mode == ModeSlope) {
+    } else if (mode == ModeDropDate) {
+        samplePercentiles(s.data(), s.size(), s.size(), 0.0, 1.0, lo, hi);
+    } else if (mode == ModeDropMag) {
+        float a;
+        samplePercentiles(s.data(), s.size(), s.size(), 0.0, 0.98, a, hi);
+        lo = 0;
+        if (!(hi > lo)) hi = 1e-6f;
+    } else if (mode == ModeAnomaly || mode == ModeSlope || mode == ModeDiff) {
         for (float& v : s) v = std::fabs(v);
         float a;
         samplePercentiles(s.data(), s.size(), s.size(), 0.0, 0.98, a, hi);
@@ -444,9 +481,10 @@ void App::updateRangeAndHistogram() {
 
     Range& r = range_[mode_];
     const int rangeT = (perDateRange_ && timeDep) ? t_ : -1;
-    const uint64_t rkey = version * 1000003ull + uint64_t(rangeT + 1) * 8 + (perDateRange_ ? 1 : 0);
+    const uint64_t refKey = mode_ == ModeDiff ? uint64_t(diffRef_ + 2) * 7919 : 0; // the reference changes the values
+    const uint64_t rkey = version * 1000003ull + uint64_t(rangeT + 1) * 8 + (perDateRange_ ? 1 : 0) + refKey * 65536;
     if (!r.manual && r.key != rkey) {
-        std::vector<float> s = collectSample(*s_, mode_, rangeT, 2000000);
+        std::vector<float> s = collectSample(*s_, mode_, rangeT, 2000000, diffRef_);
         if (!s.empty()) {
             autoRange(mode_, s, r.lo, r.hi);
             r.key = rkey;
@@ -455,16 +493,21 @@ void App::updateRangeAndHistogram() {
     }
 
     const int histT = timeDep ? (mode_ == ModeRGB ? rgb_[0] : t_) : -1;
-    const uint64_t hkey = version * 1000003ull + uint64_t(histT + 1) * 16 + uint64_t(mode_);
+    const uint64_t hkey = version * 1000003ull + uint64_t(histT + 1) * 16 + uint64_t(mode_) + refKey * 65536;
     if (hkey != histKey_) {
         histKey_ = hkey;
         histX_.clear();
         histY_.clear();
-        std::vector<float> s = collectSample(*s_, mode_, histT, 400000);
+        std::vector<float> s = collectSample(*s_, mode_, histT, 400000, diffRef_);
         if (s.size() > 10) {
             float lo, hi;
             samplePercentiles(s.data(), s.size(), s.size(), 0.005, 0.995, lo, hi);
-            const int bins = 64;
+            int bins = 64;
+            if (mode_ == ModeDropDate && s_->info->T() <= 128) { // one bar per date
+                bins = s_->info->T();
+                lo = -0.5f;
+                hi = bins - 0.5f;
+            }
             histBarW_ = (hi - lo) / bins;
             histX_.resize(bins);
             histY_.assign(bins, 0);
@@ -672,6 +715,7 @@ void App::renderMap(int w, int h, float pixelScale) {
         p.t = mode == ModeRGB ? rgb[0] : t;
         p.tg = rgb[1];
         p.tb = rgb[2];
+        if (mode == ModeDiff) p.tg = diffRefDate(isActive ? diffRef_ : L.disp.diffRef, t, info.T());
         p.lo = range.lo;
         p.hi = range.hi;
         if (L.classes.state == LayerClasses::On && mode == ModeValue) p.classLut = L.classes.lut;
@@ -679,18 +723,21 @@ void App::renderMap(int w, int h, float pixelScale) {
         bool ready = mode == ModeRGB ? loaded[rgb[0]] && loaded[rgb[1]] && loaded[rgb[2]]
                      : modeIsTimeDependent(mode) ? loaded[t] : true;
         if (modeNeedsStats(mode) && !S.gpu.statsValid) ready = false;
+        if (mode == ModeDiff && (p.tg < 0 || !loaded[p.tg])) ready = false;
         double x0, y0, x1, y1;
         toActive(L, 0, 0, x0, y0);
         toActive(L, info.width, info.height, x1, y1);
         float rect[4];
         screenRect(x0, y0, x1, y1, rect);
         if (ready) gpu_.drawCube(S.gpu, rect, p, cmap, L.opacity);
-        if (isActive && mode_ == ModeValue && detailLevel_ >= 0) {
+        if (isActive && (mode_ == ModeValue || (mode_ == ModeDiff && ready)) && detailLevel_ >= 0) {
             const ViewRect v{-offset_.x / scale_, -offset_.y / scale_, (canvasSize_.x - offset_.x) / scale_,
                              (canvasSize_.y - offset_.y) / scale_, scale_ * pixelScale};
-            s_->tiles->forEachVisible(t_, v, [&](GpuTex tex, double x, double y, double sw, double sh) {
+            s_->tiles->forEachVisible(t_, mode_ == ModeDiff ? p.tg : -1, v,
+                                      [&](GpuTex tex, GpuTex ref, double x, double y, double sw, double sh) {
                 float r[4];
                 screenRect(x, y, x + sw, y + sh, r);
+                p.tile2 = ref;
                 gpu_.drawTile(tex, r, p, cmap, L.opacity);
             });
         }
@@ -986,12 +1033,15 @@ void App::uiMap() {
         mapDirty_ = true;
     }
 
-    // --- Detail tiles ("value" mode only) ---
+    // --- Detail tiles ("value" and "difference" modes: the difference reads
+    // the tiles of both dates) ---
     int level = -1;
-    if (detail_ && mode_ == ModeValue && !s_->deferRandomReads()) {
+    const int diffRef = diffRefDate(diffRef_, t_, T);
+    if (detail_ && (mode_ == ModeValue || (mode_ == ModeDiff && diffRef >= 0)) && !s_->deferRandomReads()) {
         const ViewRect v{-offset_.x / scale_, -offset_.y / scale_, (size.x - offset_.x) / scale_,
                          (size.y - offset_.y) / scale_, scale_ * pixelScale};
         level = s_->tiles->update(t_, v, playing_ ? (t_ + 1) % T : -1);
+        if (mode_ == ModeDiff) s_->tiles->update(diffRef, v, -1);
     }
     if (level != detailLevel_) {
         detailLevel_ = level;
@@ -1017,6 +1067,9 @@ void App::uiMap() {
     if (mode_ == ModeRGB)
         std::snprintf(title, sizeof(title), "RGB: %s / %s / %s", info.layers[rgb_[0]].label.c_str(),
                       info.layers[rgb_[1]].label.c_str(), info.layers[rgb_[2]].label.c_str());
+    else if (mode_ == ModeDiff)
+        std::snprintf(title, sizeof(title), "%s - %s  |  Difference", info.layers[t_].label.c_str(),
+                      diffRef >= 0 ? info.layers[diffRef].label.c_str() : "(none)");
     else if (modeIsTimeDependent(mode_))
         std::snprintf(title, sizeof(title), "%s  |  %s", info.layers[t_].label.c_str(), kModeNames[mode_]);
     else
@@ -1027,7 +1080,10 @@ void App::uiMap() {
     std::string wait;
     if (modeNeedsStats(mode_) && !s_->gpu.statsValid)
         wait = "Computing statistics: waiting for the complete overview...";
-    else if (modeIsTimeDependent(mode_) && !s_->gpu.loaded[mode_ == ModeRGB ? rgb_[0] : t_])
+    else if (mode_ == ModeDiff && diffRef < 0)
+        wait = "The first date has no previous date";
+    else if (modeIsTimeDependent(mode_) &&
+             (!s_->gpu.loaded[mode_ == ModeRGB ? rgb_[0] : t_] || (mode_ == ModeDiff && !s_->gpu.loaded[diffRef])))
         wait = "Loading this date...";
     if (!wait.empty()) {
         const ImVec2 ts = ImGui::CalcTextSize(wait.c_str());
@@ -1052,11 +1108,9 @@ void App::uiMap() {
                               ImGui::ColorConvertFloat4ToU32(c));
         }
         dl->AddRect(b0, b0 + bsz, IM_COL32(0, 0, 0, 255));
-        char lo[32], hi[32];
-        std::snprintf(lo, sizeof(lo), "%.4g", range_[mode_].lo);
-        std::snprintf(hi, sizeof(hi), "%.4g", range_[mode_].hi);
-        dl->AddText(b0 + ImVec2(0, 12), IM_COL32(230, 230, 230, 255), lo);
-        dl->AddText(b0 + ImVec2(bsz.x - ImGui::CalcTextSize(hi).x, 12), IM_COL32(230, 230, 230, 255), hi);
+        const std::string lo = rangeLabel(mode_, range_[mode_].lo, info), hi = rangeLabel(mode_, range_[mode_].hi, info);
+        dl->AddText(b0 + ImVec2(0, 12), IM_COL32(230, 230, 230, 255), lo.c_str());
+        dl->AddText(b0 + ImVec2(bsz.x - ImGui::CalcTextSize(hi.c_str()).x, 12), IM_COL32(230, 230, 230, 255), hi.c_str());
     }
     const ResultLayer* topResult = nullptr;
     const SeriesLayer* topResultLayer = nullptr;
@@ -1105,12 +1159,20 @@ void App::uiMap() {
                              size_t(std::min(ov.w - 1, int(double(ix) * ov.w / info.width)));
             const float* a = s_->gpu.hostStats0 + p * 4;
             const float* b = s_->gpu.hostStats1 + p * 4;
-            const float v[ModeCount] = {0, 0, a[0], a[1], a[2], b[0], b[1], b[1] - b[0], b[2], 0};
+            const float v[ModeCount] = {0, 0, a[0], a[1], a[2], b[0], b[1], b[1] - b[0], b[2], 0, 0, 0, b[3]};
+            const float dropT = s_->gpu.hostStats2[p];
             if (mode_ == ModeAnomaly && hover_.x == ix && hover_.y == iy)
                 std::snprintf(status + n, sizeof(status) - n, "  |  anomaly %.6g", hover_.values[t_] - a[0]);
+            else if (mode_ == ModeDropDate)
+                std::snprintf(status + n, sizeof(status) - n, "  |  largest drop %s (%.4g)",
+                              std::isnan(dropT) ? "none" : info.layers[int(dropT)].label.c_str(), b[3]);
             else if (mode_ != ModeAnomaly)
                 std::snprintf(status + n, sizeof(status) - n, "  |  %s %.6g%s", kModeNames[mode_], v[mode_],
                               mode_ == ModeSlope ? slopeUnit().c_str() : "");
+        } else if (mode_ == ModeDiff && hover_.x == ix && hover_.y == iy && t_ < int(hover_.values.size())) {
+            if (diffRef >= 0)
+                std::snprintf(status + n, sizeof(status) - n, "  |  difference %.6g %s",
+                              hover_.values[t_] - hover_.values[diffRef], hover_.exact ? "" : "(approx.)");
         } else if (hover_.x == ix && hover_.y == iy && t_ < int(hover_.values.size())) {
             if (const LayerClasses* C = activeClasses())
                 std::snprintf(status + n, sizeof(status) - n, "  |  class %s %s", className(*C, hover_.values[t_]).c_str(),
@@ -1291,8 +1353,8 @@ void App::uiMapView(MapView& v) {
         if (!available(v.mode)) v.mode = ModeValue;
         ImGui::SameLine();
         ImGui::SetNextItemWidth(std::max(90.0f, ImGui::GetContentRegionAvail().x));
-        if (ImGui::BeginCombo("##vmode", kModeNames[v.mode])) {
-            for (int m = 0; m < ModeCount; ++m)
+        if (ImGui::BeginCombo("##vmode", kModeNames[v.mode], ImGuiComboFlags_HeightLargest)) {
+            for (int m : kModeOrder)
                 if (m != ModeRGB && available(m) && ImGui::Selectable(kModeNames[m], m == v.mode)) {
                     v.mode = m;
                     v.range.key = ~0ull;
@@ -1304,12 +1366,15 @@ void App::uiMapView(MapView& v) {
     const int mode = v.ownMode ? v.mode : isActive ? mode_ : L->disp.mode;
     const int t = v.ownDate ? v.t : isActive ? t_ : std::clamp(L->disp.t, 0, T - 1);
     const int cmap = isActive ? cmap_[mode] : L->disp.cmap[mode];
+    const int diffRefSetting = isActive ? diffRef_ : L->disp.diffRef;
+    const int diffRef = diffRefDate(diffRefSetting, t, T);
 
     // Automatic range of an own mode (the layer's ranges are its own business).
     if (v.ownMode && !(modeNeedsStats(mode) && !S.gpu.statsValid)) {
-        const uint64_t key = uint64_t(S.overview.layersDone()) * 2 + (S.gpu.statsValid ? 1 : 0);
+        const uint64_t key = (uint64_t(S.overview.layersDone()) * 2 + (S.gpu.statsValid ? 1 : 0)) * 65536 +
+                             uint64_t(diffRefSetting + 2);
         if (v.range.key != key) {
-            std::vector<float> smp = collectSample(S, mode, -1, 500000);
+            std::vector<float> smp = collectSample(S, mode, -1, 500000, diffRefSetting);
             if (!smp.empty()) {
                 autoRange(mode, smp, v.range.lo, v.range.hi);
                 v.range.key = key;
@@ -1336,13 +1401,14 @@ void App::uiMapView(MapView& v) {
         v.dirty = true;
     }
     int level = -1;
-    if (detail_ && mode == ModeValue && !S.deferRandomReads()) {
+    if (detail_ && (mode == ModeValue || (mode == ModeDiff && diffRef >= 0)) && !S.deferRandomReads()) {
         // This panel's area in the layer's own pixels.
         const ImVec2 o = offset_ + shift;
         const ViewRect r{(-o.x / scale_ - L->ax) / L->bx, (-o.y / scale_ - L->ay) / L->by,
                          ((size.x - o.x) / scale_ - L->ax) / L->bx, ((size.y - o.y) / scale_ - L->ay) / L->by,
                          scale_ * L->bx * pixelScale};
         level = S.tiles->update(t, r, -1);
+        if (mode == ModeDiff) S.tiles->update(diffRef, r, -1);
     }
     if (level != v.detailLevel) {
         v.detailLevel = level;
@@ -1363,6 +1429,9 @@ void App::uiMapView(MapView& v) {
     char title[200];
     if (mode == ModeRGB)
         std::snprintf(title, sizeof(title), "%s  |  RGB", L->name.c_str());
+    else if (mode == ModeDiff)
+        std::snprintf(title, sizeof(title), "%s  |  %s - %s  |  Difference", L->name.c_str(), li.layers[t].label.c_str(),
+                      diffRef >= 0 ? li.layers[diffRef].label.c_str() : "(none)");
     else if (modeIsTimeDependent(mode))
         std::snprintf(title, sizeof(title), "%s  |  %s  |  %s", L->name.c_str(), li.layers[t].label.c_str(),
                       kModeNames[mode]);
@@ -1383,11 +1452,9 @@ void App::uiMapView(MapView& v) {
                               ImGui::ColorConvertFloat4ToU32(c));
         }
         dl->AddRect(b0, b0 + bsz, IM_COL32(0, 0, 0, 255));
-        char lo[32], hi[32];
-        std::snprintf(lo, sizeof(lo), "%.4g", range.lo);
-        std::snprintf(hi, sizeof(hi), "%.4g", range.hi);
-        dl->AddText(b0 + ImVec2(0, 12), IM_COL32(230, 230, 230, 255), lo);
-        dl->AddText(b0 + ImVec2(bsz.x - ImGui::CalcTextSize(hi).x, 12), IM_COL32(230, 230, 230, 255), hi);
+        const std::string lo = rangeLabel(mode, range.lo, li), hi = rangeLabel(mode, range.hi, li);
+        dl->AddText(b0 + ImVec2(0, 12), IM_COL32(230, 230, 230, 255), lo.c_str());
+        dl->AddText(b0 + ImVec2(bsz.x - ImGui::CalcTextSize(hi.c_str()).x, 12), IM_COL32(230, 230, 230, 255), hi.c_str());
     }
     dl->PopClipRect();
 }
@@ -1429,6 +1496,7 @@ void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
     p.t = mode == ModeRGB ? rgb[0] : t;
     p.tg = rgb[1];
     p.tb = rgb[2];
+    if (mode == ModeDiff) p.tg = diffRefDate(isActive ? diffRef_ : L->disp.diffRef, t, T);
     p.lo = range.lo;
     p.hi = range.hi;
     if (L->classes.state == LayerClasses::On && mode == ModeValue) p.classLut = L->classes.lut;
@@ -1436,17 +1504,20 @@ void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
     bool ready = mode == ModeRGB ? loaded[rgb[0]] && loaded[rgb[1]] && loaded[rgb[2]]
                  : modeIsTimeDependent(mode) ? loaded[t] : true;
     if (modeNeedsStats(mode) && !S.gpu.statsValid) ready = false;
+    if (mode == ModeDiff && (p.tg < 0 || !loaded[p.tg])) ready = false;
     float rect[4];
     layerRect(0, 0, li.width, li.height, rect);
     if (ready) gpu_.drawCube(S.gpu, rect, p, cmap, 1.0f);
-    if (mode == ModeValue && v.detailLevel >= 0) {
+    if ((mode == ModeValue || (mode == ModeDiff && ready)) && v.detailLevel >= 0) {
         const ImVec2 o = offset_ + shift;
         const ViewRect r{(-o.x / scale_ - L->ax) / L->bx, (-o.y / scale_ - L->ay) / L->by,
                          ((w - o.x) / scale_ - L->ax) / L->bx, ((h - o.y) / scale_ - L->ay) / L->by,
                          scale_ * L->bx * pixelScale};
-        S.tiles->forEachVisible(t, r, [&](GpuTex tex, double x, double y, double sw, double sh) {
+        S.tiles->forEachVisible(t, mode == ModeDiff ? p.tg : -1, r,
+                                [&](GpuTex tex, GpuTex ref, double x, double y, double sw, double sh) {
             float tr[4];
             layerRect(x, y, x + sw, y + sh, tr);
+            p.tile2 = ref;
             gpu_.drawTile(tex, tr, p, cmap, 1.0f);
         });
     }
@@ -1494,7 +1565,7 @@ void App::uiLayer() {
     ImGui::SeparatorText("Display");
     ImGui::SetNextItemWidth(-1);
     if (ImGui::BeginCombo("##mode", kModeNames[mode_], ImGuiComboFlags_HeightLargest)) {
-        for (int m = 0; m < ModeCount; ++m) {
+        for (int m : kModeOrder) {
             ImGui::BeginDisabled(!modeAvailable(m));
             if (ImGui::Selectable(kModeNames[m], m == mode_)) {
                 mode_ = m;
@@ -1510,6 +1581,30 @@ void App::uiLayer() {
         ImGui::TextDisabled(s_->gpu.statsValid ? "Computed on the GPU for every pixel (overview)."
                                                 : "Waiting for the complete overview...");
         if (mode_ == ModeSlope) ImGui::TextDisabled("Unit: value%s", slopeUnit().c_str());
+        if (mode_ == ModeDropDate || mode_ == ModeDropMag)
+            ImGui::TextDisabled("Largest decrease between consecutive valid\n"
+                                "observations; dated at the lower one.");
+    }
+    if (mode_ == ModeDiff) {
+        const int ref = std::min(diffRef_, T - 1);
+        const std::string cur = ref < 0 ? "Previous date (t-1)" : info.layers[ref].label;
+        ImGui::SetNextItemWidth(-70);
+        if (ImGui::BeginCombo("Reference", cur.c_str(), ImGuiComboFlags_HeightLarge)) {
+            auto choose = [&](int r, const std::string& label) {
+                ImGui::PushID(r);
+                if (ImGui::Selectable(label.c_str(), r == ref)) {
+                    diffRef_ = r;
+                    range_[ModeDiff].key = ~0ull;
+                    mapDirty_ = true;
+                }
+                ImGui::PopID();
+            };
+            choose(-1, "Previous date (t-1)");
+            for (int t = 0; t < T; ++t) choose(t, info.layers[t].label);
+            ImGui::EndCombo();
+        }
+        ImGui::SetItemTooltip("The map shows value(date) - value(reference): a fixed date,\n"
+                              "or the previous date of the series");
     }
 
     if (mode_ == ModeRGB) {
@@ -1547,7 +1642,7 @@ void App::uiLayer() {
         r.manual = false;
         r.key = ~0ull;
     }
-    ImGui::SetItemTooltip("Automatic range: 2-98%% percentiles (symmetric for anomaly and trend)");
+    ImGui::SetItemTooltip("Automatic range: 2-98%% percentiles (symmetric for anomaly, difference and trend)");
     if (modeIsTimeDependent(mode_)) {
         if (ImGui::Checkbox("Per-date range", &perDateRange_)) r.key = ~0ull;
         ImGui::SetItemTooltip("Off: same range for every date (colors comparable through time)");
@@ -1555,6 +1650,10 @@ void App::uiLayer() {
 
     if (!histX_.empty() && ImPlot::BeginPlot("##hist", ImVec2(-1, 130), ImPlotFlags_CanvasOnly)) {
         ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit | ImPlotAxisFlags_NoTickLabels);
+        if (mode_ == ModeDropDate) // date indices: label them with the dates
+            ImPlot::SetupAxisFormat(ImAxis_X1, [](double v, char* buf, int size, void* data) {
+                return std::snprintf(buf, size, "%s", rangeLabel(ModeDropDate, float(v), *(const CubeInfo*)data).c_str());
+            }, (void*)&info);
         ImPlotSpec bars;
         bars.FillColor = ImVec4(0.45f, 0.62f, 0.90f, 1);
         bars.LineColor = ImVec4(0, 0, 0, 0);
@@ -1571,7 +1670,8 @@ void App::uiLayer() {
     ImGui::SeparatorText("Detail");
     if (ImGui::Checkbox("Full resolution when zoomed in", &detail_)) mapDirty_ = true;
     ImGui::SetItemTooltip("Past the overview resolution, reads tiles of the visible area\n"
-                          "in the background ('Value at date' mode only).");
+                          "in the background ('Value at date' and 'Difference' modes;\n"
+                          "the difference reads the tiles of both dates).");
     ImGui::End();
 }
 
@@ -1893,6 +1993,9 @@ void App::uiStats() {
         {"OLS trend", [&](const SeriesStats& s) { return num(s.olsSlope) + unit; }},
         {"R\xC2\xB2 (OLS)", [&](const SeriesStats& s) { return num(s.r2); }},
         {"Sen's slope", [&](const SeriesStats& s) { return num(s.senSlope) + unit; }},
+        {"Largest drop", [&](const SeriesStats& s) {
+             return s.argDrop >= 0 ? num(s.dropMag) + " (" + date(s.argDrop) + ")" : std::string(s.n >= 2 ? "none" : "-");
+         }},
     };
 
     const ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollX |
@@ -1950,6 +2053,18 @@ void App::uiStats() {
                     ImGui::TableNextColumn();
                     curCube = c.cube ? c.cube : &info;
                     ImGui::TextUnformatted(row.f(*c.st).c_str());
+                }
+            }
+            if (mode_ == ModeDiff) { // what the map shows, from each series (active layer)
+                const int ref = diffRefDate(diffRef_, t_, info.T());
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextDisabled("Difference vs %s", ref >= 0 ? info.layers[ref].label.c_str() : "-");
+                for (const Col& c : cols) {
+                    ImGui::TableNextColumn();
+                    const std::vector<float>* v = c.values ? c.values : c.roi ? &roiMean_ : nullptr;
+                    const bool ok = !c.cube && v && ref >= 0 && t_ < int(v->size()) && !std::isnan((*v)[t_] - (*v)[ref]);
+                    ImGui::TextUnformatted(ok ? num((*v)[t_] - (*v)[ref]).c_str() : "-");
                 }
             }
         }

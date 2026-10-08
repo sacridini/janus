@@ -54,6 +54,7 @@ std::string App::layerName(const CubeInfo& info, const std::vector<std::string>&
 void App::saveDisplay(LayerDisplay& d) const {
     d.mode = mode_;
     d.rgb = rgb_;
+    d.diffRef = diffRef_;
     d.cmap = cmap_;
     d.range = range_;
     d.perDateRange = perDateRange_;
@@ -63,6 +64,7 @@ void App::saveDisplay(LayerDisplay& d) const {
 void App::loadDisplay(const LayerDisplay& d) {
     mode_ = d.mode;
     rgb_ = d.rgb;
+    diffRef_ = d.diffRef;
     cmap_ = d.cmap;
     range_ = d.range;
     perDateRange_ = d.perDateRange;
@@ -265,6 +267,7 @@ void App::replaceLayerSession(int i, std::shared_ptr<CubeInfo> info, double seco
     d.cmap = L.disp.cmap;
     d.t = std::min(L.disp.t, T - 1);
     d.rgb = {0, T / 2, T - 1};
+    d.diffRef = std::min(L.disp.diffRef, T - 1);
     const auto viewScale = scale_;
     const ImVec2 viewOffset = offset_;
     const bool touched = viewTouched_;

@@ -60,15 +60,22 @@ static float cubeAt(constant DrawU& u, device const float* cube, texture2d<float
     return cube[uint(t) * uint(u.w) * uint(u.h) + pix];
 }
 
+static float refAt(constant DrawU& u, device const float* cube, texture2d<float> tile2, float2 uv, uint pix, int t) {
+    if (u.source == 1) return tile2.sample(kNearest, uv).r;
+    return cube[uint(t) * uint(u.w) * uint(u.h) + pix];
+}
+
 static float norm(constant DrawU& u, float v) { return clamp((v - u.range.x) / (u.range.y - u.range.x), 0.0, 1.0); }
 
 fragment float4 fmain(VOut in [[stage_in]], constant DrawU& u [[buffer(0)]],
                       device const float* cube [[buffer(1)]],
                       device const float4* stats0 [[buffer(2)]],
                       device const float4* stats1 [[buffer(3)]],
+                      device const float* stats2 [[buffer(4)]],
                       texture2d<float> cmap [[texture(0)]],
                       texture2d<float> tile [[texture(1)]],
-                      texture2d<float> lut [[texture(2)]]) {
+                      texture2d<float> lut [[texture(2)]],
+                      texture2d<float> tile2 [[texture(3)]]) {
     const int px = min(int(in.uv.x * float(u.w)), u.w - 1), py = min(int(in.uv.y * float(u.h)), u.h - 1);
     const uint pix = uint(py) * uint(u.w) + uint(px);
     if (u.mode == 9) {
@@ -87,6 +94,7 @@ fragment float4 fmain(VOut in [[stage_in]], constant DrawU& u [[buffer(0)]],
         return float4(col.rgb, u.alpha);
     }
     if (u.mode == 0) v = cubeAt(u, cube, tile, in.uv, pix, u.layers.x);
+    else if (u.mode == 10) v = cubeAt(u, cube, tile, in.uv, pix, u.layers.x) - refAt(u, cube, tile2, in.uv, pix, u.layers.y);
     else {
         const float nanv = as_type<float>(0x7fc00000u);
         float4 s0 = u.hasStats ? stats0[pix] : float4(nanv), s1 = u.hasStats ? stats1[pix] : float4(nanv);
@@ -97,7 +105,9 @@ fragment float4 fmain(VOut in [[stage_in]], constant DrawU& u [[buffer(0)]],
         else if (u.mode == 5) v = s1.x;
         else if (u.mode == 6) v = s1.y;
         else if (u.mode == 7) v = s1.y - s1.x;
-        else v = s1.z;
+        else if (u.mode == 8) v = s1.z;
+        else if (u.mode == 11) v = u.hasStats ? float(stats2[pix]) : nanv;
+        else v = s1.w;
     }
     if (isnan(v)) discard_fragment();
     return float4(cmap.sample(kLinear, float2(norm(u, v) * (255.0 / 256.0) + 0.5 / 256.0, 0.5)).rgb, u.alpha);
@@ -108,21 +118,27 @@ struct StatsU {
 };
 
 // Per-pixel temporal statistics, in two passes (mean, then centered sums:
-// numerically stable). Neighbouring threads read neighbouring pixels.
+// numerically stable). Neighbouring threads read neighbouring pixels. The
+// largest drop is the largest decrease between consecutive valid observations
+// (NaN skipped), dated at the later one; 0 and no date if it never decreases.
 kernel void stats(constant StatsU& u [[buffer(0)]], device const float* cube [[buffer(1)]],
                   device const float* times [[buffer(2)]], device float4* o0 [[buffer(3)]],
-                  device float4* o1 [[buffer(4)]], uint2 gid [[thread_position_in_grid]]) {
+                  device float4* o1 [[buffer(4)]], device float* o2 [[buffer(5)]],
+                  uint2 gid [[thread_position_in_grid]]) {
     if (gid.x >= uint(u.w) || gid.y >= uint(u.h)) return;
     const uint pix = gid.y * uint(u.w) + gid.x, plane = uint(u.w) * uint(u.h);
     const float nanv = as_type<float>(0x7fc00000u);
     float n = 0.0, sv = 0.0, sx = 0.0, mn = 3.0e38, mx = -3.0e38;
+    float last = 0.0, drop = 0.0, dropT = nanv;
     for (int t = 0; t < u.T; ++t) {
         float v = cube[uint(t) * plane + pix];
         if (isnan(v)) continue;
+        if (n > 0.0 && last - v > drop) { drop = last - v; dropT = float(t); }
+        last = v;
         n += 1.0; sv += v; sx += times[t];
         mn = min(mn, v); mx = max(mx, v);
     }
-    if (n < 1.0) { o0[pix] = float4(nanv, nanv, nanv, 0.0); o1[pix] = float4(nanv); return; }
+    if (n < 1.0) { o0[pix] = float4(nanv, nanv, nanv, 0.0); o1[pix] = float4(nanv); o2[pix] = nanv; return; }
     float mv = sv / n, mxx = sx / n;
     float sxx = 0.0, sxy = 0.0, syy = 0.0;
     for (int t = 0; t < u.T; ++t) {
@@ -135,7 +151,8 @@ kernel void stats(constant StatsU& u [[buffer(0)]], device const float* cube [[b
     float slope = sxx > 0.0 ? sxy / sxx : nanv;
     float r2 = (sxx > 0.0 && syy > 0.0) ? (sxy * sxy) / (sxx * syy) : nanv;
     o0[pix] = float4(mv, sd, slope, n);
-    o1[pix] = float4(mn, mx, r2, 0.0);
+    o1[pix] = float4(mn, mx, r2, n > 1.0 ? drop : nanv);
+    o2[pix] = dropT;
 }
 )";
 
@@ -219,7 +236,7 @@ GpuCube::~GpuCube() {
         [cb commit];
         [cb waitUntilCompleted];
     }
-    for (uint64_t h : {cube, stats0, stats1, times}) release(h);
+    for (uint64_t h : {cube, stats0, stats1, stats2, times}) release(h);
 }
 
 void GpuCube::create(int w_, int h_, int T_, const std::vector<float>& timesYears, float* host, size_t hostBytes) {
@@ -239,6 +256,7 @@ void GpuCube::create(int w_, int h_, int T_, const std::vector<float>& timesYear
     cube = retain(cb ? cb : makeBuffer(plane * T * sizeof(float)));
     stats0 = retain(makeBuffer(plane * 4 * sizeof(float)));
     stats1 = retain(makeBuffer(plane * 4 * sizeof(float)));
+    stats2 = retain(makeBuffer(plane * sizeof(float)));
     id<MTLBuffer> tb = makeBuffer(T * sizeof(float));
     std::memcpy(tb.contents, timesYears.data(), T * sizeof(float));
     times = retain(tb);
@@ -256,7 +274,7 @@ void GpuCube::uploadLayer(int t, const float* data) {
     loaded[t] = true;
 }
 
-size_t GpuCube::bytes() const { return size_t(w) * h * (T + 8) * 4; }
+size_t GpuCube::bytes() const { return size_t(w) * h * (T + 9) * 4; }
 
 // ---------------------------------------------------------------------------
 // Gpu
@@ -378,6 +396,7 @@ void Gpu::computeStats(GpuCube& c) {
     [ce setBuffer:borrow<id<MTLBuffer>>(c.times) offset:0 atIndex:2];
     [ce setBuffer:borrow<id<MTLBuffer>>(c.stats0) offset:0 atIndex:3];
     [ce setBuffer:borrow<id<MTLBuffer>>(c.stats1) offset:0 atIndex:4];
+    [ce setBuffer:borrow<id<MTLBuffer>>(c.stats2) offset:0 atIndex:5];
     [ce dispatchThreads:MTLSizeMake(NSUInteger(c.w), NSUInteger(c.h), 1) threadsPerThreadgroup:MTLSizeMake(16, 16, 1)];
     [ce endEncoding];
     [cb commit];
@@ -386,6 +405,7 @@ void Gpu::computeStats(GpuCube& c) {
     // Shared memory: the CPU reads the results where the kernel wrote them.
     c.hostStats0 = static_cast<const float*>(borrow<id<MTLBuffer>>(c.stats0).contents);
     c.hostStats1 = static_cast<const float*>(borrow<id<MTLBuffer>>(c.stats1).contents);
+    c.hostStats2 = static_cast<const float*>(borrow<id<MTLBuffer>>(c.stats2).contents);
     c.statsValid = true;
 }
 
@@ -417,9 +437,11 @@ void Gpu::beginMap(int w, int h, const float bg[4], int slot) {
     [d.enc setFragmentBuffer:d.dummyBuf offset:0 atIndex:1];
     [d.enc setFragmentBuffer:d.dummyBuf offset:0 atIndex:2];
     [d.enc setFragmentBuffer:d.dummyBuf offset:0 atIndex:3];
+    [d.enc setFragmentBuffer:d.dummyBuf offset:0 atIndex:4];
     [d.enc setFragmentTexture:d.cmapTex atIndex:0];
     [d.enc setFragmentTexture:d.dummyTile atIndex:1];
     [d.enc setFragmentTexture:d.dummyLut atIndex:2];
+    [d.enc setFragmentTexture:d.dummyTile atIndex:3];
     d.boundCube = nullptr;
     d.cubeW = d.cubeH = 1;
     d.hasStats = false;
@@ -447,6 +469,7 @@ void Gpu::Impl::draw(const float r[4], int source, const DrawParams& p) {
     [enc setVertexBytes:&u length:sizeof(u) atIndex:0];
     [enc setFragmentBytes:&u length:sizeof(u) atIndex:0];
     if (p.classLut) [enc setFragmentTexture:borrow<id<MTLTexture>>(p.classLut) atIndex:2];
+    if (p.tile2) [enc setFragmentTexture:borrow<id<MTLTexture>>(p.tile2) atIndex:3];
     [enc drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
@@ -456,6 +479,7 @@ void Gpu::drawCube(const GpuCube& c, const float rect[4], const DrawParams& p) {
         [d.enc setFragmentBuffer:borrow<id<MTLBuffer>>(c.cube) offset:0 atIndex:1];
         [d.enc setFragmentBuffer:c.statsValid ? borrow<id<MTLBuffer>>(c.stats0) : d.dummyBuf offset:0 atIndex:2];
         [d.enc setFragmentBuffer:c.statsValid ? borrow<id<MTLBuffer>>(c.stats1) : d.dummyBuf offset:0 atIndex:3];
+        [d.enc setFragmentBuffer:c.statsValid ? borrow<id<MTLBuffer>>(c.stats2) : d.dummyBuf offset:0 atIndex:4];
         d.boundCube = &c;
         d.cubeW = c.w;
         d.cubeH = c.h;
