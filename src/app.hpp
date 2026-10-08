@@ -192,6 +192,9 @@ private:
     ImVec2 canvasSize_{0, 0};
     bool mapDirty_ = true;
     float mapPixelScale_ = 1.0f; // framebuffer pixels per point of the map's viewport
+    bool zooming_ = false;       // mouse wheel zoom on its way to zoomTarget_
+    double zoomTarget_ = 1;
+    ImVec2 zoomAnchor_{0, 0};    // canvas point that stays put while zooming
     bool roiDragging_ = false;
     bool ctrlClick_ = false;     // macOS: this left click is a Control + click (remove a pin)
     ImVec2 roiStart_{0, 0}, roiEnd_{0, 0};

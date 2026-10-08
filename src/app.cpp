@@ -189,7 +189,7 @@ void App::finishOpen() {
     startZeit();
 }
 
-bool App::wantsContinuousFrames() const { return playing_ || roiDragging_ || hoverPending_; }
+bool App::wantsContinuousFrames() const { return playing_ || roiDragging_ || hoverPending_ || zooming_; }
 
 bool App::modeAvailable(int mode) const {
     if (!s_) return false;
@@ -616,6 +616,7 @@ void App::fitView(ImVec2 c) {
     scale_ = 0.98 * std::min(c.x / W, c.y / H);
     offset_ = ImVec2(float((c.x - W * scale_) * 0.5), float((c.y - H * scale_) * 0.5));
     mapDirty_ = true;
+    zooming_ = false;
 }
 
 void App::renderMap(int w, int h, float pixelScale) {
@@ -828,7 +829,10 @@ void App::uiMap() {
         }
         viewTouched_ = true;
     };
-    if (hovered && gestures_.pinch != 1.0) zoomAtCursor(gestures_.pinch);
+    if (hovered && gestures_.pinch != 1.0) {
+        zooming_ = false; // the fingers take over from a wheel zoom in progress
+        zoomAtCursor(gestures_.pinch);
+    }
     if (hovered && (io.MouseWheel != 0 || io.MouseWheelH != 0)) {
         if (gestures_.touchScroll) {
             // Trackpad: two fingers pan. GLFW scales precise deltas by 0.1;
@@ -837,7 +841,40 @@ void App::uiMap() {
             mapDirty_ = true;
             viewTouched_ = true;
         } else if (io.MouseWheel != 0) {
-            zoomAtCursor(std::pow(1.25, io.MouseWheel));
+            // Wheel: a target scale reached over a few frames (below), so a
+            // wheel that sends few, large steps (lines) still zooms smoothly.
+            const double fit = 0.98 * std::min(size.x / info.width, size.y / info.height);
+            const double from = zooming_ ? zoomTarget_ : scale_;
+            zoomTarget_ = std::clamp(from * std::pow(1.25, io.MouseWheel), fit, std::max(fit, 64.0));
+            zoomAnchor_ = m;
+            zooming_ = true;
+            viewTouched_ = true;
+        }
+    }
+    if (zooming_) {
+        const double fit = 0.98 * std::min(size.x / info.width, size.y / info.height);
+        // Exponential approach, time constant 60 ms (frame-rate independent). The
+        // first frame after idling reports the whole sleep: at most 1/30 s counts.
+        const double dt = std::clamp(double(io.DeltaTime), 1e-4, 1.0 / 30);
+        const double a = 1.0 - std::exp(-dt / 0.06);
+        double ns = scale_ * std::pow(zoomTarget_ / scale_, a);
+        if (std::fabs(std::log(zoomTarget_ / ns)) < 2e-3) ns = zoomTarget_;
+        ImVec2 anchor = zoomAnchor_;
+        if (zoomTarget_ <= fit * 1.0001) {
+            // Zooming out to the whole image: the anchor that ends centered
+            // (fitView's offset), so the view does not jump at the end.
+            const double k = fit / scale_;
+            const ImVec2 end(float((size.x - info.width * fit) * 0.5), float((size.y - info.height * fit) * 0.5));
+            if (std::fabs(1.0 - k) > 1e-6)
+                anchor = ImVec2(float((end.x - offset_.x * k) / (1.0 - k)), float((end.y - offset_.y * k) / (1.0 - k)));
+        }
+        const double f = ns / scale_;
+        offset_ = ImVec2(float(anchor.x - (anchor.x - offset_.x) * f), float(anchor.y - (anchor.y - offset_.y) * f));
+        scale_ = ns;
+        mapDirty_ = true;
+        if (ns == zoomTarget_) {
+            zooming_ = false;
+            if (zoomTarget_ <= fit * 1.0001) fitView(size);
         }
     }
     if (inside && (ix != hover_.x || iy != hover_.y)) {
