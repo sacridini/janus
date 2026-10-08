@@ -14,6 +14,7 @@
 
 #include <implot.h>
 
+#include "glfw.hpp"
 #include "platform.hpp"
 
 namespace fs = std::filesystem;

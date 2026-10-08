@@ -6,18 +6,17 @@
 #include <string>
 #include <vector>
 
-#include "gl.hpp"
+#include "glfw.hpp"
 
 #include <cpl_conv.h>
 #include <gdal_priv.h>
 #include <imgui.h>
-#include <imgui_impl_glfw.h>
-#include <imgui_impl_opengl3.h>
 #include <implot.h>
 #include <ogr_srs_api.h>
 
 #include "app.hpp"
 #include "platform.hpp"
+#include "render_backend.hpp"
 #include "selftest.hpp"
 #include "usage.hpp"
 
@@ -114,19 +113,13 @@ int main(int argc, char** argv) {
     st.gdalMs = ms();
 
     if (!glfwInit()) return 1;
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-#ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE); // required for a core profile on macOS
-#endif
-    glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
-    if (selftestUi) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // never shown, never takes focus
-    GLFWwindow* window = glfwCreateWindow(1600, 950, "tsv", nullptr, nullptr);
-    if (!window) return 1;
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);
-    if (!gladLoadGL(glfwGetProcAddress)) return 1;
+    std::string error;
+    GLFWwindow* window = render::createWindow(1600, 950, "tsv", !selftestUi, error);
+    if (!window) {
+        platform::attachParentConsole();
+        std::fprintf(stderr, "Could not open the window (%s): %s\n", render::name(), error.c_str());
+        return 1;
+    }
     st.windowMs = ms();
 
     IMGUI_CHECKVERSION();
@@ -144,12 +137,10 @@ int main(int argc, char** argv) {
         style.WindowRounding = 0.0f;
         style.Colors[ImGuiCol_WindowBg].w = 1.0f;
     }
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 330");
+    render::initImGui(window);
 
     auto app = std::make_unique<App>(window);
     g_app = app.get();
-    std::string error;
     if (!app->init(opts, error)) {
         platform::attachParentConsole();
         std::fprintf(stderr, "Could not initialize the GPU: %s\n", error.c_str());
@@ -168,8 +159,7 @@ int main(int argc, char** argv) {
         if (app->wantsContinuousFrames() || firstFrame || selftestUi) glfwPollEvents();
         else glfwWaitEventsTimeout(0.5);
 
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
+        render::newFrame();
         ImGui::NewFrame();
         app->frame();
         if (selftestUi) {
@@ -185,21 +175,8 @@ int main(int argc, char** argv) {
         }
         ImGui::Render();
 
-        int fbw, fbh;
-        glfwGetFramebufferSize(window, &fbw, &fbh);
-        glViewport(0, 0, fbw, fbh);
-        glClearColor(0.08f, 0.08f, 0.09f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        // Panels detached to other windows/monitors (they share this GL context's
-        // textures, so the map framebuffer can be shown there too).
-        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-            GLFWwindow* current = glfwGetCurrentContext();
-            ImGui::UpdatePlatformWindows();
-            ImGui::RenderPlatformWindowsDefault();
-            glfwMakeContextCurrent(current);
-        }
-        glfwSwapBuffers(window);
+        const float clear[4] = {0.08f, 0.08f, 0.09f, 1.0f};
+        render::present(window, clear);
 
         if (firstFrame) {
             firstFrame = false;
@@ -207,9 +184,9 @@ int main(int argc, char** argv) {
             app->setStartupTimes(st);
             if (measureStartup) {
                 platform::attachParentConsole();
-                std::printf("startup (ms since process start): gdal %.0f | window+GL %.0f | ui %.0f | "
+                std::printf("startup (ms since process start): gdal %.0f | window+%s %.0f | ui %.0f | "
                             "open inputs %.0f | first frame %.0f\n",
-                            st.gdalMs, st.windowMs, st.uiMs, st.openMs, st.firstFrameMs);
+                            st.gdalMs, render::name(), st.windowMs, st.uiMs, st.openMs, st.firstFrameMs);
                 std::fflush(stdout);
                 glfwSetWindowShouldClose(window, 1);
             }
@@ -221,9 +198,8 @@ int main(int argc, char** argv) {
     if (io.IniFilename) ImGui::SaveIniSettingsToDisk(io.IniFilename);
     io.IniFilename = nullptr;
     g_app = nullptr;
-    app.reset(); // release GL resources and threads before the context goes away
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
+    app.reset(); // release GPU resources and threads before the context goes away
+    render::shutdownImGui();
     ImPlot::DestroyContext();
     ImGui::DestroyContext();
     glfwDestroyWindow(window);

@@ -16,7 +16,7 @@ TileManager::TileManager(std::shared_ptr<const CubeInfo> info, double overviewFa
 }
 
 TileManager::~TileManager() {
-    for (auto& [_, tile] : gpu_) glDeleteTextures(1, &tile.tex);
+    for (auto& [_, tile] : gpu_) Gpu::deleteTexture(tile.tex);
     std::lock_guard<std::mutex> lk(sh_->m);
     sh_->wanted.clear(); // pending jobs will drop themselves
 }
@@ -143,14 +143,14 @@ void TileManager::evict() {
     for (auto& [used, key] : order) {
         if (gpuBytes_ <= maxGpuBytes_ * 9 / 10 || used >= frame_) break;
         Tile& tile = gpu_[key];
-        glDeleteTextures(1, &tile.tex);
+        Gpu::deleteTexture(tile.tex);
         gpuBytes_ -= size_t(tile.w) * tile.h * 4;
         gpu_.erase(key);
     }
 }
 
 void TileManager::forEachVisible(int t, const ViewRect& v,
-                                 const std::function<void(GLuint, double, double, double, double)>& f) {
+                                 const std::function<void(GpuTex, double, double, double, double)>& f) {
     for (int level = maxLevel_; level >= 0; --level) {
         forTilesInView(v, level, info_->width, info_->height, [&](int tx, int ty) {
             auto it = gpu_.find(makeKey(t, level, tx, ty));

@@ -13,7 +13,8 @@
 #include <imgui_internal.h>
 #include <implot.h>
 
-#include "gl.hpp"
+#include "glfw.hpp"
+#include "render_backend.hpp"
 #include "platform.hpp"
 
 namespace fs = std::filesystem;
@@ -87,9 +88,8 @@ bool App::init(const AppOptions& opts, std::string& error) {
     Overview::pruneCache(settings_.cacheDir, 20ull << 30);
     settings_.overviewBudgetBytes = opts.budgetMB << 20;
     settings_.ioThreads = opts.ioThreads;
-    GLint maxTex = 0;
-    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTex);
-    settings_.maxTexSize = std::min<int>(maxTex, 16384);
+    settings_.maxTexSize = std::min<int>(gpu_.maxCubeSide(), 16384);
+    settings_.overviewBudgetBytes = std::min<int64_t>(settings_.overviewBudgetBytes, gpu_.maxCubeBytes());
 
     resultsDir_ = (fs::u8path(appData) / "results").u8string();
     fs::create_directories(fs::u8path(resultsDir_), ec);
@@ -142,8 +142,7 @@ void App::finishOpen() {
         openErrorPopup_ = true;
         return;
     }
-    GLint maxLayers = 0;
-    glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &maxLayers);
+    const int maxLayers = gpu_.maxDates();
     if (info->T() > maxLayers) {
         error_ = "The series has " + std::to_string(info->T()) + " dates; the GPU supports up to " +
                  std::to_string(maxLayers) + " layers per texture.";
@@ -660,7 +659,7 @@ void App::renderMap(int w, int h, float pixelScale) {
         if (isActive && mode_ == ModeValue && detailLevel_ >= 0) {
             const ViewRect v{-offset_.x / scale_, -offset_.y / scale_, (canvasSize_.x - offset_.x) / scale_,
                              (canvasSize_.y - offset_.y) / scale_, scale_ * pixelScale};
-            s_->tiles->forEachVisible(t_, v, [&](GLuint tex, double x, double y, double sw, double sh) {
+            s_->tiles->forEachVisible(t_, v, [&](GpuTex tex, double x, double y, double sw, double sh) {
                 float r[4];
                 screenRect(x, y, x + sw, y + sh, r);
                 gpu_.drawTile(tex, r, p, cmap, L.opacity);
@@ -870,8 +869,9 @@ void App::uiMap() {
 
     // --- Drawing + overlays ---
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddImage(ImTextureRef((ImTextureID)(intptr_t)gpu_.mapTexture()), origin, origin + size, ImVec2(0, 1),
-                 ImVec2(1, 0));
+    const bool bottomUp = Gpu::mapBottomUp();
+    dl->AddImage(ImTextureRef((ImTextureID)gpu_.mapTexture()), origin, origin + size, ImVec2(0, bottomUp ? 1.f : 0.f),
+                 ImVec2(1, bottomUp ? 0.f : 1.f));
     dl->PushClipRect(origin, origin + size, true);
     auto toScreen = [&](double x, double y) {
         return origin + ImVec2(float(offset_.x + x * scale_), float(offset_.y + y * scale_));
@@ -1628,9 +1628,10 @@ void App::uiPerf() {
     ImGui::SetItemTooltip("The app only redraws when something changes (mouse, keyboard, new data).\n"
                           "Idle, the CPU sleeps; while animating it runs at %.0f frames/s.", io.Framerate);
     ImGui::Text("Startup: window %.0f ms, first frame %.0f ms", startup_.windowMs, startup_.firstFrameMs);
-    ImGui::SetItemTooltip("Since process start: GDAL %.0f ms, window + OpenGL %.0f ms, UI %.0f ms,\n"
+    ImGui::SetItemTooltip("Since process start: GDAL %.0f ms, window + %s %.0f ms, UI %.0f ms,\n"
                           "opening inputs %.0f ms, first frame %.0f ms",
-                          startup_.gdalMs, startup_.windowMs, startup_.uiMs, startup_.openMs, startup_.firstFrameMs);
+                          startup_.gdalMs, render::name(), startup_.windowMs, startup_.uiMs, startup_.openMs,
+                          startup_.firstFrameMs);
     if (s_) {
         const Overview& ov = s_->overview;
         const double MB = 1024.0 * 1024.0;

@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include "gl.hpp"
+#include "gpu.hpp"
 
 // A single-band raster produced by a tool (e.g. LandTrendr's year of
 // detection), drawn over the map on the cube's pixel grid.
@@ -16,7 +16,7 @@ struct ResultLayer {
     int x0 = 0, y0 = 0, w = 0, h = 0; // window in cube pixels
     int tw = 0, th = 0;     // size of the (possibly downsampled) copy below
     std::vector<float> data; // tw x th, NaN = no value
-    GLuint tex = 0;
+    GpuTex tex = 0;
     float lo = 0, hi = 1;
     bool visible = true;
     float opacity = 1.0f;

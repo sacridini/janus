@@ -297,7 +297,7 @@ private:
         enum State { Undecided, Off, On } state = Undecided;
         bool complete = false;     // counted on every date
         std::vector<ClassEntry> list; // sorted by value
-        GLuint lut = 0;
+        GpuTex lut = 0;
         bool lutDirty = false;
         const ClassEntry* find(int value) const;
     };

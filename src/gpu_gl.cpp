@@ -1,9 +1,13 @@
+// OpenGL 3.3 backend of gpu.hpp (Windows, Linux; macOS with TSV_RENDERER=GL).
 #include "gpu.hpp"
 
 #include <cmath>
+#include <map>
 #include <string>
 
 #include <implot.h>
+
+#include "gl.hpp"
 
 namespace {
 
@@ -162,12 +166,14 @@ GLuint makeTex2D(GLint internal, int w, int h, GLenum fmt, GLenum type, const vo
 
 } // namespace
 
+static GLuint tex(uint64_t h) { return GLuint(h); }
+
 // ---------------------------------------------------------------------------
 // GpuCube
 // ---------------------------------------------------------------------------
 
 GpuCube::~GpuCube() {
-    GLuint texs[] = {cube, stats0, stats1, times};
+    GLuint texs[] = {tex(cube), tex(stats0), tex(stats1), tex(times)};
     glDeleteTextures(4, texs);
 }
 
@@ -176,17 +182,19 @@ void GpuCube::create(int w_, int h_, int T_, const std::vector<float>& timesYear
     h = h_;
     T = T_;
     loaded.assign(T, false);
-    glGenTextures(1, &cube);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, cube);
+    GLuint c;
+    glGenTextures(1, &c);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, c);
     setNearest(GL_TEXTURE_2D_ARRAY);
     glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_R32F, w, h, T, 0, GL_RED, GL_FLOAT, nullptr);
+    cube = c;
     times = makeTex2D(GL_R32F, T, 1, GL_RED, GL_FLOAT, timesYears.data());
     stats0 = makeTex2D(GL_RGBA32F, w, h, GL_RGBA, GL_FLOAT, nullptr);
     stats1 = makeTex2D(GL_RGBA32F, w, h, GL_RGBA, GL_FLOAT, nullptr);
 }
 
 void GpuCube::uploadLayer(int t, const float* data) {
-    glBindTexture(GL_TEXTURE_2D_ARRAY, cube);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, tex(cube));
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, t, w, h, 1, GL_RED, GL_FLOAT, data);
     loaded[t] = true;
@@ -198,47 +206,82 @@ size_t GpuCube::bytes() const { return size_t(w) * h * (T + 8) * 4; }
 // Gpu
 // ---------------------------------------------------------------------------
 
-bool Gpu::init(std::string& error) {
-    progDisplay_ = link(kVertex, kDisplayFrag, error);
-    progStats_ = link(kVertex, kStatsFrag, error);
-    if (!progDisplay_ || !progStats_) return false;
-    glGenVertexArrays(1, &vao_);
+struct Gpu::Impl {
+    GLuint vao = 0;
+    GLuint progDisplay = 0, progStats = 0;
+    GLuint cmapTex = 0, dummy2D = 0, dummyArray = 0;
+    std::map<int, GLuint> overlayCmaps; // colormap textures for overlays, by ImPlot colormap
+    GLuint fbo = 0, fboColor = 0;
+    int fboW = 0, fboH = 0;
+    GLuint statsFbo = 0;
+    const GpuCube* boundCube = nullptr;
 
-    glUseProgram(progDisplay_);
-    glUniform1i(glGetUniformLocation(progDisplay_, "uCube"), 0);
-    glUniform1i(glGetUniformLocation(progDisplay_, "uStats0"), 1);
-    glUniform1i(glGetUniformLocation(progDisplay_, "uStats1"), 2);
-    glUniform1i(glGetUniformLocation(progDisplay_, "uCmap"), 3);
-    glUniform1i(glGetUniformLocation(progDisplay_, "uTile"), 4);
-    glUniform1i(glGetUniformLocation(progDisplay_, "uClassLut"), 6);
-    glUseProgram(progStats_);
-    glUniform1i(glGetUniformLocation(progStats_, "uCube"), 0);
-    glUniform1i(glGetUniformLocation(progStats_, "uTimes"), 1);
+    void drawQuad(const float rect[4], int source, const DrawParams& p);
+    GLuint colormapTexture(int implotColormap);
+    void beginLayer(int implotColormap, float alpha);
+    void endLayer();
+};
+
+Gpu::Gpu() : impl_(std::make_unique<Impl>()) {}
+Gpu::~Gpu() = default;
+
+bool Gpu::init(std::string& error) {
+    Impl& d = *impl_;
+    d.progDisplay = link(kVertex, kDisplayFrag, error);
+    d.progStats = link(kVertex, kStatsFrag, error);
+    if (!d.progDisplay || !d.progStats) return false;
+    glGenVertexArrays(1, &d.vao);
+
+    glUseProgram(d.progDisplay);
+    glUniform1i(glGetUniformLocation(d.progDisplay, "uCube"), 0);
+    glUniform1i(glGetUniformLocation(d.progDisplay, "uStats0"), 1);
+    glUniform1i(glGetUniformLocation(d.progDisplay, "uStats1"), 2);
+    glUniform1i(glGetUniformLocation(d.progDisplay, "uCmap"), 3);
+    glUniform1i(glGetUniformLocation(d.progDisplay, "uTile"), 4);
+    glUniform1i(glGetUniformLocation(d.progDisplay, "uClassLut"), 6);
+    glUseProgram(d.progStats);
+    glUniform1i(glGetUniformLocation(d.progStats, "uCube"), 0);
+    glUniform1i(glGetUniformLocation(d.progStats, "uTimes"), 1);
     glUseProgram(0);
 
     const float nan4[4] = {NAN, NAN, NAN, NAN};
-    dummy2D_ = makeTex2D(GL_RGBA32F, 1, 1, GL_RGBA, GL_FLOAT, nan4);
-    glGenTextures(1, &dummyArray_);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, dummyArray_);
+    d.dummy2D = makeTex2D(GL_RGBA32F, 1, 1, GL_RGBA, GL_FLOAT, nan4);
+    glGenTextures(1, &d.dummyArray);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, d.dummyArray);
     setNearest(GL_TEXTURE_2D_ARRAY);
     glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_R32F, 1, 1, 1, 0, GL_RED, GL_FLOAT, nan4);
 
-    glGenFramebuffers(1, &fbo_);
-    glGenFramebuffers(1, &statsFbo_);
+    glGenFramebuffers(1, &d.fbo);
+    glGenFramebuffers(1, &d.statsFbo);
     return true;
 }
 
 void Gpu::shutdown() {
-    glDeleteProgram(progDisplay_);
-    glDeleteProgram(progStats_);
-    glDeleteVertexArrays(1, &vao_);
-    GLuint texs[] = {cmapTex_, dummy2D_, dummyArray_, fboColor_};
+    Impl& d = *impl_;
+    glDeleteProgram(d.progDisplay);
+    glDeleteProgram(d.progStats);
+    glDeleteVertexArrays(1, &d.vao);
+    GLuint texs[] = {d.cmapTex, d.dummy2D, d.dummyArray, d.fboColor};
     glDeleteTextures(4, texs);
-    for (auto& [_, t] : overlayCmaps_) glDeleteTextures(1, &t);
-    overlayCmaps_.clear();
-    glDeleteFramebuffers(1, &fbo_);
-    glDeleteFramebuffers(1, &statsFbo_);
+    for (auto& [_, t] : d.overlayCmaps) glDeleteTextures(1, &t);
+    d.overlayCmaps.clear();
+    glDeleteFramebuffers(1, &d.fbo);
+    glDeleteFramebuffers(1, &d.statsFbo);
 }
+
+int Gpu::maxCubeSide() const {
+    GLint maxTex = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTex);
+    return maxTex;
+}
+
+int Gpu::maxDates() const {
+    GLint maxLayers = 0;
+    glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &maxLayers);
+    return maxLayers;
+}
+
+int64_t Gpu::maxCubeBytes() const { return INT64_MAX; } // bounded by the texture limits above
 
 static void sampleColormap(int cmap, unsigned char* px) {
     for (int i = 0; i < 256; ++i) {
@@ -258,35 +301,35 @@ static GLuint makeColormapTexture(const unsigned char* px) {
 }
 
 void Gpu::setColormap(int cmap) {
+    Impl& d = *impl_;
     unsigned char px[256 * 4];
     sampleColormap(cmap, px);
-    if (!cmapTex_) {
-        cmapTex_ = makeTex2D(GL_RGBA8, 256, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    if (!d.cmapTex) {
+        d.cmapTex = makeColormapTexture(px);
     } else {
-        glBindTexture(GL_TEXTURE_2D, cmapTex_);
+        glBindTexture(GL_TEXTURE_2D, d.cmapTex);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
     }
 }
 
 void Gpu::computeStats(GpuCube& c, std::vector<float>& s0, std::vector<float>& s1) {
-    glBindFramebuffer(GL_FRAMEBUFFER, statsFbo_);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, c.stats0, 0);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, c.stats1, 0);
+    Impl& d = *impl_;
+    glBindFramebuffer(GL_FRAMEBUFFER, d.statsFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex(c.stats0), 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, tex(c.stats1), 0);
     const GLenum bufs[2] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
     glDrawBuffers(2, bufs);
     glViewport(0, 0, c.w, c.h);
     glDisable(GL_BLEND);
     glDisable(GL_SCISSOR_TEST);
-    glUseProgram(progStats_);
-    glUniform1i(glGetUniformLocation(progStats_, "uT"), c.T);
-    glUniform4f(glGetUniformLocation(progStats_, "uRect"), -1, -1, 1, 1);
+    glUseProgram(d.progStats);
+    glUniform1i(glGetUniformLocation(d.progStats, "uT"), c.T);
+    glUniform4f(glGetUniformLocation(d.progStats, "uRect"), -1, -1, 1, 1);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, c.cube);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, tex(c.cube));
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, c.times);
-    glBindVertexArray(vao_);
+    glBindTexture(GL_TEXTURE_2D, tex(c.times));
+    glBindVertexArray(d.vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);
     glUseProgram(0);
@@ -296,23 +339,24 @@ void Gpu::computeStats(GpuCube& c, std::vector<float>& s0, std::vector<float>& s
     s0.resize(size_t(c.w) * c.h * 4);
     s1.resize(size_t(c.w) * c.h * 4);
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
-    glBindTexture(GL_TEXTURE_2D, c.stats0);
+    glBindTexture(GL_TEXTURE_2D, tex(c.stats0));
     glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, s0.data());
-    glBindTexture(GL_TEXTURE_2D, c.stats1);
+    glBindTexture(GL_TEXTURE_2D, tex(c.stats1));
     glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, s1.data());
     c.statsValid = true;
 }
 
 void Gpu::beginMap(int w, int h, const float bg[4]) {
-    if (w != fboW_ || h != fboH_) {
-        if (fboColor_) glDeleteTextures(1, &fboColor_);
-        fboColor_ = makeTex2D(GL_RGBA8, w, h, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fboColor_, 0);
-        fboW_ = w;
-        fboH_ = h;
+    Impl& d = *impl_;
+    if (w != d.fboW || h != d.fboH) {
+        if (d.fboColor) glDeleteTextures(1, &d.fboColor);
+        d.fboColor = makeTex2D(GL_RGBA8, w, h, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glBindFramebuffer(GL_FRAMEBUFFER, d.fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, d.fboColor, 0);
+        d.fboW = w;
+        d.fboH = h;
     }
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+    glBindFramebuffer(GL_FRAMEBUFFER, d.fbo);
     const GLenum buf = GL_COLOR_ATTACHMENT0;
     glDrawBuffers(1, &buf);
     glViewport(0, 0, w, h);
@@ -320,93 +364,94 @@ void Gpu::beginMap(int w, int h, const float bg[4]) {
     glDisable(GL_SCISSOR_TEST);
     glClearColor(bg[0], bg[1], bg[2], bg[3]);
     glClear(GL_COLOR_BUFFER_BIT);
-    glUseProgram(progDisplay_);
-    glUniform1f(glGetUniformLocation(progDisplay_, "uAlpha"), 1.0f);
-    glBindVertexArray(vao_);
+    glUseProgram(d.progDisplay);
+    glUniform1f(glGetUniformLocation(d.progDisplay, "uAlpha"), 1.0f);
+    glBindVertexArray(d.vao);
     glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, cmapTex_);
-    boundCube_ = nullptr;
+    glBindTexture(GL_TEXTURE_2D, d.cmapTex);
+    d.boundCube = nullptr;
 }
 
-void Gpu::drawQuad(const float r[4], int source, const DrawParams& p) {
-    const float ndc[4] = {r[0] / fboW_ * 2.f - 1.f, 1.f - r[1] / fboH_ * 2.f,
-                          r[2] / fboW_ * 2.f - 1.f, 1.f - r[3] / fboH_ * 2.f};
-    glUniform4fv(glGetUniformLocation(progDisplay_, "uRect"), 1, ndc);
-    glUniform1i(glGetUniformLocation(progDisplay_, "uMode"), p.mode);
-    glUniform1i(glGetUniformLocation(progDisplay_, "uSource"), source);
-    glUniform3i(glGetUniformLocation(progDisplay_, "uLayers"), p.t, p.tg, p.tb);
+void Gpu::Impl::drawQuad(const float r[4], int source, const DrawParams& p) {
+    const float ndc[4] = {r[0] / fboW * 2.f - 1.f, 1.f - r[1] / fboH * 2.f,
+                          r[2] / fboW * 2.f - 1.f, 1.f - r[3] / fboH * 2.f};
+    glUniform4fv(glGetUniformLocation(progDisplay, "uRect"), 1, ndc);
+    glUniform1i(glGetUniformLocation(progDisplay, "uMode"), p.mode);
+    glUniform1i(glGetUniformLocation(progDisplay, "uSource"), source);
+    glUniform3i(glGetUniformLocation(progDisplay, "uLayers"), p.t, p.tg, p.tb);
     const float hi = p.hi > p.lo ? p.hi : p.lo + 1e-6f;
-    glUniform2f(glGetUniformLocation(progDisplay_, "uRange"), p.lo, hi);
-    glUniform1i(glGetUniformLocation(progDisplay_, "uClasses"), p.classLut ? 1 : 0);
+    glUniform2f(glGetUniformLocation(progDisplay, "uRange"), p.lo, hi);
+    glUniform1i(glGetUniformLocation(progDisplay, "uClasses"), p.classLut ? 1 : 0);
     if (p.classLut) {
         glActiveTexture(GL_TEXTURE6);
-        glBindTexture(GL_TEXTURE_2D, p.classLut);
+        glBindTexture(GL_TEXTURE_2D, tex(p.classLut));
     }
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
 void Gpu::drawCube(const GpuCube& c, const float rect[4], const DrawParams& p) {
-    if (boundCube_ != &c) {
+    Impl& d = *impl_;
+    if (d.boundCube != &c) {
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D_ARRAY, c.cube);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, tex(c.cube));
         glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, c.statsValid ? c.stats0 : dummy2D_);
+        glBindTexture(GL_TEXTURE_2D, c.statsValid ? tex(c.stats0) : d.dummy2D);
         glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, c.statsValid ? c.stats1 : dummy2D_);
-        boundCube_ = &c;
+        glBindTexture(GL_TEXTURE_2D, c.statsValid ? tex(c.stats1) : d.dummy2D);
+        d.boundCube = &c;
     }
-    drawQuad(rect, 0, p);
+    d.drawQuad(rect, 0, p);
 }
 
-void Gpu::drawTile(GLuint tex, const float rect[4], const DrawParams& p) {
+void Gpu::drawTile(GpuTex t, const float rect[4], const DrawParams& p) {
     glActiveTexture(GL_TEXTURE4);
-    glBindTexture(GL_TEXTURE_2D, tex);
-    drawQuad(rect, 1, p);
+    glBindTexture(GL_TEXTURE_2D, tex(t));
+    impl_->drawQuad(rect, 1, p);
 }
 
-GLuint Gpu::colormapTexture(int cmap) {
-    auto it = overlayCmaps_.find(cmap);
-    if (it == overlayCmaps_.end()) {
+GLuint Gpu::Impl::colormapTexture(int cmap) {
+    auto it = overlayCmaps.find(cmap);
+    if (it == overlayCmaps.end()) {
         unsigned char px[256 * 4];
         sampleColormap(cmap, px);
-        it = overlayCmaps_.emplace(cmap, makeColormapTexture(px)).first;
+        it = overlayCmaps.emplace(cmap, makeColormapTexture(px)).first;
     }
     return it->second;
 }
 
-void Gpu::beginLayer(int cmap, float alpha) {
+void Gpu::Impl::beginLayer(int cmap, float alpha) {
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, colormapTexture(cmap));
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glUniform1f(glGetUniformLocation(progDisplay_, "uAlpha"), alpha);
+    glUniform1f(glGetUniformLocation(progDisplay, "uAlpha"), alpha);
 }
 
-void Gpu::endLayer() {
-    glUniform1f(glGetUniformLocation(progDisplay_, "uAlpha"), 1.0f);
+void Gpu::Impl::endLayer() {
+    glUniform1f(glGetUniformLocation(progDisplay, "uAlpha"), 1.0f);
     glDisable(GL_BLEND);
     glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, cmapTex_);
+    glBindTexture(GL_TEXTURE_2D, cmapTex);
 }
 
 void Gpu::drawCube(const GpuCube& c, const float rect[4], const DrawParams& p, int cmap, float alpha) {
-    beginLayer(cmap, alpha);
+    impl_->beginLayer(cmap, alpha);
     drawCube(c, rect, p);
-    endLayer();
+    impl_->endLayer();
 }
 
-void Gpu::drawTile(GLuint tex, const float rect[4], const DrawParams& p, int cmap, float alpha) {
-    beginLayer(cmap, alpha);
-    drawTile(tex, rect, p);
-    endLayer();
+void Gpu::drawTile(GpuTex t, const float rect[4], const DrawParams& p, int cmap, float alpha) {
+    impl_->beginLayer(cmap, alpha);
+    drawTile(t, rect, p);
+    impl_->endLayer();
 }
 
-void Gpu::drawOverlay(GLuint tex, const float rect[4], float lo, float hi, int cmap, float alpha) {
+void Gpu::drawOverlay(GpuTex t, const float rect[4], float lo, float hi, int cmap, float alpha) {
     DrawParams p;
     p.mode = ModeValue;
     p.lo = lo;
     p.hi = hi;
-    drawTile(tex, rect, p, cmap, alpha);
+    drawTile(t, rect, p, cmap, alpha);
 }
 
 void Gpu::endMap() {
@@ -416,20 +461,34 @@ void Gpu::endMap() {
     glActiveTexture(GL_TEXTURE0);
 }
 
-GLuint Gpu::createClassLut(const unsigned char* rgba, GLuint tex) {
-    if (!tex) {
-        tex = makeTex2D(GL_RGBA8, kClassLutSize, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-    } else {
-        glBindTexture(GL_TEXTURE_2D, tex);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kClassLutSize, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-    }
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    return tex;
+GpuTex Gpu::mapTexture() const { return impl_->fboColor; }
+
+bool Gpu::mapBottomUp() { return true; }
+
+void Gpu::readMapPixel(int x, int y, unsigned char rgba[4]) {
+    const Impl& d = *impl_;
+    std::vector<unsigned char> buf(size_t(d.fboW) * d.fboH * 4);
+    glBindTexture(GL_TEXTURE_2D, d.fboColor);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
+    const int row = d.fboH - 1 - y; // the framebuffer is bottom-up
+    for (int c = 0; c < 4; ++c) rgba[c] = buf[(size_t(row) * d.fboW + x) * 4 + c];
 }
 
-GLuint Gpu::createTileTexture(int w, int h, const float* data) {
+GpuTex Gpu::createClassLut(const unsigned char* rgba, GpuTex t) {
+    if (!t) {
+        t = makeTex2D(GL_RGBA8, kClassLutSize, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    } else {
+        glBindTexture(GL_TEXTURE_2D, tex(t));
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kClassLutSize, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    }
+    glBindTexture(GL_TEXTURE_2D, tex(t));
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    return t;
+}
+
+GpuTex Gpu::createTileTexture(int w, int h, const float* data) {
     GLuint t;
     glGenTextures(1, &t);
     glBindTexture(GL_TEXTURE_2D, t);
@@ -437,4 +496,9 @@ GLuint Gpu::createTileTexture(int w, int h, const float* data) {
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, w, h, 0, GL_RED, GL_FLOAT, data);
     return t;
+}
+
+void Gpu::deleteTexture(GpuTex t) {
+    const GLuint name = tex(t);
+    if (name) glDeleteTextures(1, &name);
 }

@@ -13,6 +13,7 @@
 
 #include <implot.h>
 
+#include "glfw.hpp"
 #include "platform.hpp"
 
 namespace fs = std::filesystem;
@@ -924,7 +925,7 @@ void App::uiResultsOf(uint64_t cubeId) {
         ImGui::PopID();
     }
     if (remove >= 0) {
-        glDeleteTextures(1, &results_[remove].tex);
+        Gpu::deleteTexture(results_[remove].tex);
         results_.erase(results_.begin() + remove);
         mapDirty_ = true;
     }
@@ -933,7 +934,7 @@ void App::uiResultsOf(uint64_t cubeId) {
 void App::clearResults(uint64_t cubeId) {
     for (auto it = results_.begin(); it != results_.end();) {
         if (cubeId == 0 || it->cubeId == cubeId) {
-            glDeleteTextures(1, &it->tex);
+            Gpu::deleteTexture(it->tex);
             it = results_.erase(it);
         } else {
             ++it;

@@ -21,16 +21,6 @@ double now() {
 
 } // namespace
 
-// Map pixel color at (x, y) of a w x h render (y from the top).
-static void readMapPixel(GLuint tex, int w, int h, int x, int y, unsigned char rgba[4]) {
-    std::vector<unsigned char> buf(size_t(w) * h * 4);
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
-    const int row = h - 1 - y; // the framebuffer is bottom-up
-    for (int c = 0; c < 4; ++c) rgba[c] = buf[(size_t(row) * w + x) * 4 + c];
-}
-
 int App::selfTestStep(const std::vector<std::string>& in) {
     const std::vector<std::string> a = {in[0]}, b = {in[1]};
     const std::vector<std::string> c = in.size() > 2 ? std::vector<std::string>{in[2]} : std::vector<std::string>{};
@@ -109,20 +99,20 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         fitView(canvasSize_);
         renderMap(400, 300);
         unsigned char c[4];
-        readMapPixel(gpu_.mapTexture(), 400, 300, 200, 150, c);
+        gpu_.readMapPixel(200, 150, c);
         std::printf("    map center with both layers: rgb(%d, %d, %d)\n", c[0], c[1], c[2]);
         st_.color[0] = c[0];
         st_.color[1] = c[1];
         st_.color[2] = c[2];
         layers_[1].visible = false; // hide the active layer: A must show through
         renderMap(400, 300);
-        readMapPixel(gpu_.mapTexture(), 400, 300, 200, 150, c);
+        gpu_.readMapPixel(200, 150, c);
         std::printf("    map center with B hidden:    rgb(%d, %d, %d)\n", c[0], c[1], c[2]);
         if (c[0] == st_.color[0] && c[1] == st_.color[1] && c[2] == st_.color[2])
             return fail("hiding the top layer did not change the map");
         layers_[0].visible = false;
         renderMap(400, 300);
-        readMapPixel(gpu_.mapTexture(), 400, 300, 200, 150, c);
+        gpu_.readMapPixel(200, 150, c);
         std::printf("    map center with both hidden: rgb(%d, %d, %d)\n", c[0], c[1], c[2]);
         if (c[0] > 40 || c[1] > 40 || c[2] > 40) return fail("with every layer hidden the map should be empty");
         layers_[0].visible = layers_[1].visible = true;
@@ -259,7 +249,7 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         fitView(canvasSize_);
         renderMap(400, 300);
         unsigned char px[4];
-        readMapPixel(gpu_.mapTexture(), 400, 300, 200, 150, px);
+        gpu_.readMapPixel(200, 150, px);
         const ClassEntry* forest = layers_[0].classes.find(3);
         const int r = int(forest->color.x * 255 + 0.5f), g = int(forest->color.y * 255 + 0.5f),
                   b2 = int(forest->color.z * 255 + 0.5f);

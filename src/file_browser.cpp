@@ -8,7 +8,7 @@
 #include <imgui.h>
 
 #include "cube.hpp"
-#include "gl.hpp" // glfwPostEmptyEvent: wake the UI when a listing finishes
+#include "glfw.hpp" // glfwPostEmptyEvent: wake the UI when a listing finishes
 #include "platform.hpp"
 
 namespace fs = std::filesystem;

@@ -1,11 +1,24 @@
 cmake_minimum_required(VERSION 3.21)
-project(tsv VERSION 0.12.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
+project(tsv VERSION 0.13.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
 if(APPLE)
   enable_language(OBJC OBJCXX) # src/platform_mac.mm (OBJC too: GLFW's .m files stay Objective-C)
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Renderer: Metal on macOS (OpenGL is deprecated there), OpenGL 3.3 elsewhere.
+# -DTSV_RENDERER=GL also builds the OpenGL path on macOS.
+if(APPLE)
+  set(TSV_RENDERER METAL CACHE STRING "Renderer: METAL or GL")
+else()
+  set(TSV_RENDERER GL CACHE STRING "Renderer: GL")
+endif()
+set_property(CACHE TSV_RENDERER PROPERTY STRINGS METAL GL)
+if(TSV_RENDERER STREQUAL "METAL" AND NOT APPLE)
+  message(FATAL_ERROR "TSV_RENDERER=METAL needs macOS")
+endif()
+message(STATUS "Renderer: ${TSV_RENDERER}")
 
 include(FetchContent)
 
@@ -38,7 +51,6 @@ FetchContent_Declare(nlohmann_json
 
 FetchContent_MakeAvailable(glfw imgui implot nlohmann_json)
 
-find_package(OpenGL REQUIRED)
 find_package(GDAL CONFIG REQUIRED)
 
 add_library(imgui STATIC
@@ -47,11 +59,19 @@ add_library(imgui STATIC
   ${imgui_SOURCE_DIR}/imgui_tables.cpp
   ${imgui_SOURCE_DIR}/imgui_widgets.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-  ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
   ${implot_SOURCE_DIR}/implot.cpp
   ${implot_SOURCE_DIR}/implot_items.cpp)
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${implot_SOURCE_DIR})
-target_link_libraries(imgui PUBLIC glfw OpenGL::GL)
+target_link_libraries(imgui PUBLIC glfw)
+if(TSV_RENDERER STREQUAL "METAL")
+  target_sources(imgui PRIVATE ${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm)
+  set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm PROPERTIES COMPILE_OPTIONS -fobjc-arc)
+  target_link_libraries(imgui PUBLIC "-framework Metal" "-framework QuartzCore")
+else()
+  find_package(OpenGL REQUIRED)
+  target_sources(imgui PRIVATE ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp)
+  target_link_libraries(imgui PUBLIC OpenGL::GL)
+endif()
 
 # --- App ---------------------------------------------------------------------
 set(TSV_SOURCES
@@ -66,8 +86,6 @@ set(TSV_SOURCES
   src/selftest.cpp
   src/zeit_client.cpp
   src/cube.cpp
-  src/gl_impl.cpp
-  src/gpu.cpp
   src/overview.cpp
   src/platform.cpp
   src/session.cpp
@@ -76,6 +94,14 @@ set(TSV_SOURCES
 
 if(APPLE)
   list(APPEND TSV_SOURCES src/platform_mac.mm) # trackpad gestures (Cocoa)
+endif()
+
+if(TSV_RENDERER STREQUAL "METAL")
+  set(TSV_METAL_SOURCES src/gpu_metal.mm src/render_backend_metal.mm)
+  set_source_files_properties(${TSV_METAL_SOURCES} PROPERTIES COMPILE_OPTIONS -fobjc-arc)
+  list(APPEND TSV_SOURCES ${TSV_METAL_SOURCES})
+else()
+  list(APPEND TSV_SOURCES src/gl_impl.cpp src/gpu_gl.cpp src/render_backend_gl.cpp)
 endif()
 
 if(WIN32)

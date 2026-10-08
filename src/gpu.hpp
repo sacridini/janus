@@ -1,11 +1,15 @@
 #pragma once
 
 #include <cstddef>
-#include <map>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "gl.hpp"
+// Renderer-neutral GPU layer: OpenGL 3.3 (gpu_gl.cpp) or Metal (gpu_metal.mm),
+// chosen at build time (TSV_RENDERER). A GpuTex is a GL texture name or a
+// retained id<MTLTexture>; 0 = none. It is also the ImTextureID of that texture.
+using GpuTex = uint64_t;
 
 enum DisplayMode {
     ModeValue = 0,   // value at date t
@@ -21,14 +25,15 @@ enum DisplayMode {
     ModeCount
 };
 
-// Cube (overview) on the GPU: R32F texture array (1 layer per date) +
-// per-pixel temporal statistics computed in a shader.
+// Cube (overview) on the GPU + per-pixel temporal statistics computed in a
+// shader. GL: R32F texture array (1 layer per date) and RGBA32F statistics
+// textures. Metal: shared-memory buffers ([t][y][x] floats; float4 per pixel).
 struct GpuCube {
     int w = 0, h = 0, T = 0;
-    GLuint cube = 0;            // GL_TEXTURE_2D_ARRAY R32F
-    GLuint stats0 = 0;          // RGBA32F: mean, std, slope, valid count
-    GLuint stats1 = 0;          // RGBA32F: min, max, R², -
-    GLuint times = 0;           // T x 1 R32F: years since the 1st date
+    uint64_t cube = 0;          // backend handles (see gpu_gl.cpp / gpu_metal.mm)
+    uint64_t stats0 = 0;        // mean, std, slope, valid count
+    uint64_t stats1 = 0;        // min, max, R², -
+    uint64_t times = 0;         // T floats: years since the 1st date
     bool statsValid = false;
     std::vector<bool> loaded;
 
@@ -45,7 +50,7 @@ struct DrawParams {
     int mode = ModeValue;
     int t = 0, tg = 0, tb = 0;   // layers (tg/tb only in RGB mode)
     float lo = 0, hi = 1;        // stretch range
-    GLuint classLut = 0;         // categorical data: class value -> colour (see createClassLut)
+    GpuTex classLut = 0;         // categorical data: class value -> colour (see createClassLut)
 };
 
 // Class colours of categorical data: kClassLutSize texels, value v -> texel v
@@ -55,42 +60,46 @@ constexpr int kClassLutSize = 4096;
 // Programs, colormap and the framebuffer the map is drawn into.
 class Gpu {
 public:
+    Gpu();
+    ~Gpu();
     bool init(std::string& error);
     void shutdown();
+
+    // Limits of the backend: longest side of the overview, dates per cube and
+    // bytes of one cube (the overview budget is capped to it).
+    int maxCubeSide() const;
+    int maxDates() const;
+    int64_t maxCubeBytes() const;
 
     void setColormap(int implotColormap);
     // Computes the temporal statistics (1 shader pass) and reads them back to
     // the CPU (used for the automatic range and the histogram).
     void computeStats(GpuCube& c, std::vector<float>& s0, std::vector<float>& s1);
 
-    // Map: rectangles in canvas pixels (x0, y0, x1, y1).
+    // Map: rectangles in pixels of the w x h target (x0, y0, x1, y1).
     void beginMap(int w, int h, const float bg[4]);
     void drawCube(const GpuCube& c, const float rect[4], const DrawParams& p);
-    void drawTile(GLuint tex, const float rect[4], const DrawParams& p);
+    void drawTile(GpuTex tex, const float rect[4], const DrawParams& p);
     // Same, with a colormap of their own and an opacity (layers drawn over each other).
     void drawCube(const GpuCube& c, const float rect[4], const DrawParams& p, int implotColormap, float alpha);
-    void drawTile(GLuint tex, const float rect[4], const DrawParams& p, int implotColormap, float alpha);
+    void drawTile(GpuTex tex, const float rect[4], const DrawParams& p, int implotColormap, float alpha);
     // Single-band raster (e.g. a Zeit result) blended over the map with its own colormap.
-    void drawOverlay(GLuint tex, const float rect[4], float lo, float hi, int implotColormap, float alpha);
+    void drawOverlay(GpuTex tex, const float rect[4], float lo, float hi, int implotColormap, float alpha);
     void endMap();
-    GLuint mapTexture() const { return fboColor_; }
+    GpuTex mapTexture() const;
+    // Texture rows: GL framebuffers are bottom-up, Metal textures top-down
+    // (decides the UVs the map is shown with).
+    static bool mapBottomUp();
+    // Pixel (x, y from the top) of the last map drawn; waits for the GPU (tests only).
+    void readMapPixel(int x, int y, unsigned char rgba[4]);
 
-    static GLuint createTileTexture(int w, int h, const float* data);
+    static GpuTex createTileTexture(int w, int h, const float* data);
     // rgba: kClassLutSize RGBA8 texels. Pass `tex` to update an existing LUT.
-    static GLuint createClassLut(const unsigned char* rgba, GLuint tex = 0);
+    static GpuTex createClassLut(const unsigned char* rgba, GpuTex tex = 0);
+    static void deleteTexture(GpuTex tex);
+
+    struct Impl;
 
 private:
-    void drawQuad(const float rect[4], int source, const DrawParams& p);
-    GLuint colormapTexture(int implotColormap);
-    void beginLayer(int implotColormap, float alpha);
-    void endLayer();
-
-    GLuint vao_ = 0;
-    GLuint progDisplay_ = 0, progStats_ = 0;
-    GLuint cmapTex_ = 0, dummy2D_ = 0, dummyArray_ = 0;
-    std::map<int, GLuint> overlayCmaps_; // colormap textures for overlays, by ImPlot colormap
-    GLuint fbo_ = 0, fboColor_ = 0;
-    int fboW_ = 0, fboH_ = 0;
-    GLuint statsFbo_ = 0;
-    const GpuCube* boundCube_ = nullptr;
+    std::unique_ptr<Impl> impl_;
 };

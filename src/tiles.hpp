@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "cube.hpp"
-#include "gl.hpp"
+#include "gpu.hpp"
 
 class JobPool;
 
@@ -39,7 +39,7 @@ public:
     // Calls f(tex, x, y, w, h) for the cached tiles of date t covering the
     // view, from coarsest to finest.
     void forEachVisible(int t, const ViewRect& v,
-                        const std::function<void(GLuint, double, double, double, double)>& f);
+                        const std::function<void(GpuTex, double, double, double, double)>& f);
 
     size_t gpuBytes() const { return gpuBytes_; }
     int gpuTiles() const { return int(gpu_.size()); }
@@ -48,7 +48,7 @@ public:
 
 private:
     struct Tile {
-        GLuint tex = 0;
+        GpuTex tex = 0;
         int w = 0, h = 0;
         double x, y, sw, sh;  // rectangle in the source
         uint64_t lastUsed = 0;

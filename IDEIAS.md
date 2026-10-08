@@ -18,8 +18,9 @@ Windows sem Python nem conda, e chamável pela linha de comando
   ~90 ms (uma vez); um quadro custa 0,2–0,4 ms de CPU.
 - O gargalo é disco/descompressão, que Vulkan não resolve. Reescrever texto,
   widgets, docking e gráficos custaria meses sem ganho perceptível.
-- O ImGui tem backend Vulkan, e o código de GPU está isolado em `gpu.cpp`: se um
-  dia houver gargalo medido de GPU, a troca é localizada.
+- O ImGui tem backends Vulkan e Metal, e o código de GPU está isolado atrás de
+  `gpu.hpp` e `render_backend.hpp`: no macOS ele já roda em Metal (OpenGL é
+  obsoleto lá); Windows e Linux continuam em OpenGL 3.3.
 
 ### Leitura em HD mecânico
 - Medido a frio (GeoTIFF LZW em faixas de 1 linha, ~200 MB/data):
@@ -100,7 +101,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | runtime do Zeit | Python *embeddable* | `python-build-standalone` *stripped* + wheels manylinux, `strip --strip-debug` (638 MB) | receita `macos_arm64`: wheels até `macosx_15_0`, `strip -S` seguido de `codesign --force --sign -` (o strip invalida a assinatura e o kernel mata o processo) (446 MB) |
 | bibliotecas | `deploy_runtime.cmake` (dumpbin) | `package_linux.cmake`: `GET_RUNTIME_DEPENDENCIES`, RPATH `$ORIGIN/lib`; glibc, OpenGL e X11 vêm do sistema | bundle `.app` (a fazer) |
 | pacote | Inno Setup (122 MB) | `.tar.xz` portátil (172 MB) com `tsv.desktop`; AppImage/.deb depois | `.app` + `.dmg` assinado (a fazer) |
-| OpenGL 3.3 core | ok | ok (WSLg/Mesa) | exige `GLFW_OPENGL_FORWARD_COMPAT` (já definido); OpenGL obsoleto lá, o ImGui tem backend Metal |
+| renderer (`gpu_*`, `render_backend_*`) | OpenGL 3.3 core | OpenGL 3.3 core (WSLg/Mesa) | **Metal** (`gpu_metal.mm`, `render_backend_metal.mm`): cubo e estatísticas em buffers de memória compartilhada lidos direto pelos shaders (enviar uma data = `memcpy`), MSL compilado na abertura, `CAMetalLayer` na resolução Retina; `-DTSV_RENDERER=GL` mantém o caminho OpenGL para comparar. Medido (cubo de 1 GB, M4): 2,2 GB de footprint contra 3,0 GB no GL, carga 0,7 s contra 1,1 s a frio, primeiro quadro ~90 ms contra ~115 ms; pixels idênticos nos 10 modos |
 | gestos (`platform::takeGestures`) | roda = zoom | roda = zoom | `platform_mac.mm`: monitor local do `NSEvent`; pinça = zoom, rolagem com deltas precisos (trackpad, Magic Mouse) = mover; roda comum = zoom |
 | densidade da tela | 1 pixel por ponto | idem | Retina: 2 pixels por ponto; o mapa é desenhado em `FramebufferScale` do viewport onde está, e o nível dos tiles é escolhido por pixel de tela |
 

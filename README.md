@@ -6,7 +6,8 @@ per-pixel temporal statistics in a shader, and reads the exact series of any
 pixel in the background while you hover the map. It is meant to *explore* time
 series quickly, not to be a full GIS.
 
-Built with Dear ImGui (docking) + ImPlot + OpenGL 3.3 + GDAL, in C++17.
+Built with Dear ImGui (docking) + ImPlot + GDAL, in C++17; it draws through
+OpenGL 3.3 on Windows and Linux and through Metal on macOS.
 
 ![tsv](docs/screenshot.jpg)
 
@@ -303,6 +304,12 @@ cmake --build build --target zeit_runtime     # -> build/runtime (python-build-s
 ln -s "$PWD/build/tsv" ~/.local/bin/tsv       # tsv from any terminal (runtime/ is found through the link)
 ```
 
+It renders through Metal (`TSV_RENDERER=METAL`, the default on macOS): the cube
+and its statistics live in shared-memory buffers that the shaders read directly,
+so uploading a date is a copy in RAM, and the shaders are compiled at startup
+(the command line tools have no offline Metal compiler; the system caches them).
+`-DTSV_RENDERER=GL` builds the OpenGL path instead, e.g. to compare both.
+
 The build links GDAL from the conda environment through an absolute RPATH, so
 it breaks if that environment is removed; a self-contained `.app` bundle is
 still to be done. The Zeit runtime re-signs (ad hoc) the native libraries it
@@ -328,7 +335,9 @@ Machine); the rest of the data in `~/Library/Application Support/tsv`.
 |---|---|
 | `src/cube.*` | Layer, date and band discovery; per-thread GDAL reader (nodata → NaN, scale/offset, normalized difference, QA mask) |
 | `src/overview.*` | Reduced cube built in parallel, following the focused date; disk cache |
-| `src/gpu.*` | Shaders: per-pixel temporal statistics and display; map framebuffer |
+| `src/gpu.hpp` | Renderer-neutral GPU layer: cube, per-pixel temporal statistics, map drawing, textures (`GpuTex`) |
+| `src/gpu_gl.cpp`, `src/gpu_metal.mm` | Its OpenGL 3.3 (GLSL) and Metal (MSL, shared-memory buffers) backends |
+| `src/render_backend*` | Window and context, ImGui renderer backend, present (main window and detached panels): OpenGL or Metal |
 | `src/tiles.*` | Detail tiles per zoom level; drops requests that left the screen |
 | `src/session.*` | One open series: thread pools, exact series, ROI |
 | `src/stats.*` | OLS, Sen's slope, percentiles |
