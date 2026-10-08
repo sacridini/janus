@@ -221,6 +221,15 @@ termina.
 
 ## Histórico
 
+### 0.27.1 — Basemap só quando pedido
+- O basemap não liga mais sozinho: o liga/desliga deixou de ser guardado no
+  `.ini` (a fonte, a opacidade e a URL própria continuam), então cada sessão
+  começa sem ele, e abrir outra série também o esconde (adicionar uma camada
+  não). Aparece só ao marcar a caixa ou escolher uma fonte. Uma linha `On=` de
+  versões anteriores é ignorada.
+- Autoteste: a configuração volta desligada; abrir C com o basemap marcado o
+  desliga.
+
 ### 0.27.0 — Fase 14: painel Analysis, box plot da ROI, favoritos
 - Feita sem pedido de recurso específico: o backlog autorizado em 2026-10-08
   ("se tiver mais ideias no IDEIAS.md pode tentar implementar"). Escolhidos os

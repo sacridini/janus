@@ -181,7 +181,13 @@ void App::finishOpen() {
             return;
         }
     }
-    if (!openingAdd_) closeAll();
+    if (!openingAdd_) {
+        closeAll();
+        if (bm_.on) {
+            bm_.on = false; // a new series starts without the basemap until ticked
+            mapDirty_ = true;
+        }
+    }
     SeriesLayer L;
     L.session = std::make_unique<Session>(info, settings_, [] { glfwPostEmptyEvent(); });
     L.session->openSeconds = r.seconds;

@@ -220,7 +220,7 @@ private:
     void uiBasemapPerf();             // Performance panel
     struct BasemapUi {                // the setting (layout .ini)
         std::string source = "none";  // "none", a preset's id or "custom"
-        bool on = true;
+        bool on = false;              // not kept: hidden in each session and each series opened until ticked
         float opacity = 1.0f;
         std::string url;              // custom XYZ template
         int maxZoom = 19;

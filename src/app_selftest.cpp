@@ -394,6 +394,7 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         }
         break;
     case 9:
+        bm_.on = true; // ticked: opening another series hides it again
         openInputs(c);
         next("open C (bands per date)");
         break;
@@ -403,6 +404,7 @@ int App::selfTestStep(const std::vector<std::string>& in) {
             std::printf("    %s; %d bands per date, shown: %s\n", info.description.c_str(), info.bandsPerDate,
                         info.selectionText().c_str());
             if (info.sel.qaBand == 0) return fail("the Fmask band should be used automatically");
+            if (bm_.on) return fail("opening another series should hide the basemap");
             addPin(info.width - 10, info.height / 2);
             canvasSize_ = ImVec2(400, 300);
             fitView(canvasSize_);
@@ -1487,10 +1489,12 @@ int App::selfTestBasemap() {
             std::getline(lines, line); // [JanusBasemap][Settings]
             while (entry && std::getline(lines, line))
                 if (!line.empty()) h->ReadLineFn(ctx, h, entry, line.c_str());
-            if (bm_.source != want.source || bm_.url != want.url || bm_.maxZoom != want.maxZoom || !bm_.on ||
+            if (bm_.source != want.source || bm_.url != want.url || bm_.maxZoom != want.maxZoom || bm_.on ||
                 std::fabs(bm_.opacity - 0.75f) > 1e-6f || bm_.attribution != want.attribution)
-                return fail(std::string("the basemap setting should be read back as written:\n") + text.c_str());
+                return fail(std::string("the basemap setting should be read back as written, hidden:\n") +
+                            text.c_str());
             bm_.opacity = 1.0f;
+            bm_.on = true; // as when ticked
         }
         basemapFailedFor_ = 0;
         next("local tile pyramid picked as a custom XYZ basemap (file://), setting written and read back");

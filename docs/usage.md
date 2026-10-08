@@ -71,7 +71,9 @@
   2016** by EOX (CC BY 4.0), **OpenStreetMap**, or your own **XYZ URL**
   (`https://.../{z}/{x}/{y}.png?key=...`, e.g. Google Map Tiles API, MapTiler,
   Planet: with your key and under the provider's terms). Off by default:
-  nothing is downloaded until you pick a source. Only the tiles in view, at the
+  nothing is downloaded until you pick a source, and each session and each
+  series opened start with it hidden (the source is remembered; adding a layer
+  keeps it) until you tick it. Only the tiles in view, at the
   screen's zoom level, are read in the background (coarser ones fill in while
   they arrive) and kept in the cache folder; the map never waits for them. It
   is drawn under every layer (lower a layer's opacity to see the ground), on the
@@ -199,7 +201,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Performance panel | **View → Performance** (hidden by default): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**) |
 | Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus), font size, whether the Files panel follows what is opened, processing threads, overview memory, full-resolution cache (when it is built, its budget) and clearing the caches; kept between sessions (see [Settings](#settings)) |
 | Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active. Layers in another CRS show "reprojected from EPSG:…" (hover for the grid size and its error) |
-| Basemap | **Layers** panel → Basemap (below the layers): pick a source (None = nothing downloaded), tick to show/hide, opacity; *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. Kept between sessions; the map panels' and the swipe's layer list has *Basemap only* |
+| Basemap | **Layers** panel → Basemap (below the layers): pick a source (None = nothing downloaded), tick to show/hide, opacity; *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. The source and its settings are kept between sessions, but it starts hidden, as does every series opened (tick to show); the map panels' and the swipe's layer list has *Basemap only* |
 | Browse files | **Files** panel: double click opens, right click → Add as layer or Add to favorites; Ctrl+click selects several files; hover a folder for what it would open as. Opening a series expands the tree down to it (Settings → *Files panel follows what is opened*) |
 | Add by dropping | drop files or a folder on the window with `Shift` held: a new layer (without Shift the drop replaces the series) |
 | Seasonal views, classes over time, scatter | **View → Analysis** (see above) |

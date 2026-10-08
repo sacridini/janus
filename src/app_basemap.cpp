@@ -1,5 +1,7 @@
 // Basemap in the interface: its section of the Layers panel (source, on/off,
-// opacity, a custom XYZ URL), the setting (kept in the layout .ini), the
+// opacity, a custom XYZ URL), the setting (kept in the layout .ini, but not
+// on/off: each session and each series opened start without it, drawn only
+// when asked for), the
 // Basemap object's life (made after the first frame, only once a source is
 // picked and a series is open; a source change retires the old one in the
 // background, since a request may still be running), drawing it first in
@@ -51,7 +53,6 @@ void App::registerBasemapSettings() {
             return std::strncmp(line, key, n) == 0 ? line + n : nullptr;
         };
         if (const char* v = value("Source=")) b.source = v;
-        else if (const char* v = value("On=")) b.on = std::atoi(v) != 0;
         else if (const char* v = value("Opacity=")) b.opacity = std::clamp(float(std::atof(v)), 0.05f, 1.0f);
         else if (const char* v = value("Url=")) {
             b.url = v;
@@ -66,9 +67,9 @@ void App::registerBasemapSettings() {
     };
     h.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buf) {
         const BasemapUi& b = static_cast<App*>(handler->UserData)->bm_;
-        buf->appendf("[JanusBasemap][Settings]\nSource=%s\nOn=%d\nOpacity=%.2f\nUrl=%s\nMaxZoom=%d\nTileSize=%d\n"
+        buf->appendf("[JanusBasemap][Settings]\nSource=%s\nOpacity=%.2f\nUrl=%s\nMaxZoom=%d\nTileSize=%d\n"
                      "Attribution=%s\n\n",
-                     b.source.c_str(), int(b.on), b.opacity, b.url.c_str(), b.maxZoom, b.tileSize,
+                     b.source.c_str(), b.opacity, b.url.c_str(), b.maxZoom, b.tileSize,
                      b.attribution.c_str());
     };
     ImGui::AddSettingsHandler(&h);
