@@ -25,3 +25,6 @@ Thumbs.db
 *.log
 __pycache__/
 *.py[cod]
+
+# Claude Code worktrees and local settings
+.claude/
