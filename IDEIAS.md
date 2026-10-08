@@ -220,6 +220,36 @@ termina.
 
 ## Histórico
 
+### 0.26.0 — jobs do Zeit mais rápidos
+- Medido onde vai o tempo de um job raster (série de 3000×3000 × 41 datas,
+  Float32 LZW em faixas de 1 linha, SSD, 18 threads): Mann-Kendall 22,0 s =
+  leitura 21% + cálculo 43% + **escrita 35%**; LandTrendr 24,1 s = 20% + 70% +
+  10%. A ponte fazia tudo em fila, e os 7 GeoTIFFs de saída eram comprimidos
+  (DEFLATE) numa thread só.
+- Agora: compressão nas threads do job (`NUM_THREADS` do GTiff; `ALL_CPUS`
+  sem limite) e a próxima faixa lida numa thread enquanto a ferramenta calcula
+  a atual (o GDAL lê sem o GIL; disco e CPU trabalham juntos). A leitura vai
+  direto para float64 (`out_dtype`), sem a cópia float32 no caminho.
+  Escrever em segundo plano também foi testado e não ganhou nada (ficou de
+  fora).
+- Medido alternando a versão antiga e a nova (a máquina variou ~2× ao longo do
+  dia, então só a comparação lado a lado vale): **Mann-Kendall 1,75–1,95×**
+  (22,0 → 11,3 s; noutra rodada 43 → 24,5 s), **LandTrendr 1,2–1,25×**
+  (24,1 → 20,1 s; 49 → 39 s). Saídas idênticas bit a bit (14 mapas; CCDC em
+  12 faixas com bandas e Fmask: 7 mapas, 0 diferenças). Num HD a leitura pesa
+  mais e passa a ficar escondida atrás do cálculo (não medido).
+- Memória: duas faixas ao mesmo tempo no máximo (a que calcula e a próxima).
+  Pico medido 3,07 → 3,50 GB na série de teste; numa cena de 7441 px de
+  largura, uma faixa de 512 linhas × 41 datas em float64 tem ~1,25 GB (a cópia
+  float32 que saiu economiza ~0,6 GB).
+- O contexto de cada faixa (bandas e Fmask das ferramentas multibanda) agora
+  vem com ela (`Inputs.read` devolve `(stack, ctx)`): com a leitura adiantada,
+  o `ctx` compartilhado seria sobrescrito antes de a ferramenta usá-lo.
+- Ainda dá para ganhar mais nos jobs com os dados num HD: o job relê os
+  arquivos originais mesmo quando o cache em resolução total (no SSD) já tem
+  tudo. O Python não lê esse formato; o Janus teria que entregar os dados ao
+  processo do Zeit. Fica para depois.
+
 ### 0.25.0 — exportação com destino, tamanho da fonte, árvore que segue, logs do Zeit
 - **Exportar: onde salvar à vista** (pedido em 2026-10-08: o diálogo do sistema
   só aparecia depois de "Save...", e não se via o destino). A janela de

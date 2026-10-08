@@ -84,6 +84,7 @@ import os
 import sys
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 
 PROTOCOL = 1
 
@@ -298,7 +299,7 @@ class Inputs:
     @staticmethod
     def _read(src, win, raw=False):
         import numpy as np
-        a = src.read(window=win).astype(np.float64)
+        a = src.read(window=win, out_dtype=np.float64)  # converted by GDAL: no float32 copy on the way
         if not raw:
             if src.nodata is not None and np.isfinite(src.nodata):
                 a[a == src.nodata] = np.nan
@@ -306,9 +307,11 @@ class Inputs:
         return a
 
     def read(self, win):
-        """Shown stack [T, h, w] for the window; updates ctx bands/fmask."""
+        """Shown stack [T, h, w] for the window, and the ctx of that window
+        (its own bands/fmask for multiband tools): run_raster reads the next
+        window while the tool computes the current one."""
         import numpy as np
-        stack = self.src.read(window=win).astype(np.float64)
+        stack = self.src.read(window=win, out_dtype=np.float64)
         if self.nodata is not None:
             stack[stack == float(self.nodata)] = np.nan
         stack[~np.isfinite(stack)] = np.nan
@@ -317,10 +320,11 @@ class Inputs:
             stack = norm_diff(stack, self._read(self.srcs["nd_input"], win))
         if qa is not None:
             stack[~qa_usable(self.spec.get("qa_rule"), qa)] = np.nan
+        ctx = dict(self.ctx)
         bands = {k[5:]: self._read(s, win) for k, s in self.srcs.items() if k.startswith("band:")}
         if bands:
-            band_ctx(self.ctx, bands, qa, self.spec.get("qa_rule"))
-        return stack
+            band_ctx(ctx, bands, qa, self.spec.get("qa_rule"))
+        return stack, ctx
 
 
 def run_raster(entry, p, spec, progress):
@@ -339,25 +343,40 @@ def run_raster(entry, p, spec, progress):
     try:
         src = inp.src
         transform = src.window_transform(Window(x0, y0, W, H))
+        # The outputs' blocks are compressed on the job's threads (one thread
+        # took a third of a Mann-Kendall run).
+        n = threads(spec)
         profile = dict(driver="GTiff", width=W, height=H, count=1, crs=src.crs, transform=transform,
                        dtype="float32", nodata=float("nan"), compress="deflate", tiled=True,
-                       blockxsize=256, blockysize=256, BIGTIFF="IF_SAFER")
+                       blockxsize=256, blockysize=256, BIGTIFF="IF_SAFER",
+                       num_threads=str(n) if n > 0 else "ALL_CPUS")
         paths = {o["id"]: os.path.join(out_dir, f"{m['id']}_{o['id']}.tif") for o in m["outputs"]}
         dst = {oid: rasterio.open(path, "w", **profile) for oid, path in paths.items()}
 
-        # Full-width row bands: each strip of the source is read once (fast on HDDs).
+        # Full-width row bands: each strip of the source is read once (fast on
+        # HDDs). The next band is read in a thread while the tool computes this
+        # one (GDAL reads without the GIL; the disk and the CPU work at once).
         rows = rows_per_chunk(m, W)
+        bands = [(r, min(rows, H - r)) for r in range(0, H, rows)]
         done = 0
         t0 = time.time()
-        for r in range(0, H, rows):
-            h = min(rows, H - r)
-            stack = inp.read(Window(x0, y0 + r, W, h))  # [T, h, W]
-            res = entry["chunk"](p, stack, inp.ctx)
-            for oid, d in dst.items():
-                d.write(np.asarray(res[oid], dtype=np.float32), 1, window=Window(0, r, W, h))
-            done += h
-            el = time.time() - t0
-            progress(done / H, f"rows {done}/{H}, {el:.0f} s elapsed, ~{el / done * (H - done):.0f} s left")
+        with ThreadPoolExecutor(1) as reader:  # waits for a read still running before the finally
+            def read(k):
+                r, h = bands[k]
+                return reader.submit(inp.read, Window(x0, y0 + r, W, h))  # ([T, h, W], ctx)
+
+            nxt = read(0)
+            for k, (r, h) in enumerate(bands):
+                stack, ctx = nxt.result()
+                if k + 1 < len(bands):
+                    nxt = read(k + 1)
+                res = entry["chunk"](p, stack, ctx)
+                del stack, ctx  # before the next band arrives: two stacks at most
+                for oid, d in dst.items():
+                    d.write(np.asarray(res[oid], dtype=np.float32), 1, window=Window(0, r, W, h))
+                done += h
+                el = time.time() - t0
+                progress(done / H, f"rows {done}/{H}, {el:.0f} s elapsed, ~{el / done * (H - done):.0f} s left")
     finally:
         for d in dst.values():
             d.close()
@@ -394,9 +413,9 @@ def estimate(entry, p, spec):
         def sample(n):
             w, h = min(n, W), min(n, H)
             win = Window(x0 + (W - w) // 2, y0 + (H - h) // 2, w, h)
-            stack = inp.read(win)
+            stack, ctx = inp.read(win)
             t = time.perf_counter()
-            entry["chunk"](p, stack, inp.ctx)
+            entry["chunk"](p, stack, ctx)
             return time.perf_counter() - t, w * h
 
         sample(2)  # warm-up

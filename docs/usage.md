@@ -263,7 +263,10 @@ inside the installation (`runtime\`: embeddable Python 3.12 + Zeit from PyPI +
 numpy/scipy/rasterio/numba/dask/xarray, without PyTorch). It starts in the
 background once a series is open (~1 s), so it never delays startup. The bridge
 (`zeit_bridge/janus_zeit_bridge.py`) handles the protocol and reads/writes rasters
-in chunks with progress; each tool is a small module next to it
+in chunks with progress (the next chunk is read while the tool computes the
+current one, and the outputs are compressed on the processing threads: a
+Mann-Kendall run takes about half the time it did in 0.25, a LandTrendr run
+about 80%); each tool is a small module next to it
 (`zeit_bridge/tool_*.py`) that describes its parameters and outputs and calls
 Zeit's API for one series or one block of pixels. Adding a tool to Janus means
 adding a module there — no C++ change.
