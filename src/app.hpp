@@ -20,6 +20,7 @@
 #include "results.hpp"
 #include "session.hpp"
 #include "stats.hpp"
+#include "theme.hpp"
 #include "zeit_client.hpp"
 
 struct GLFWwindow;
@@ -46,13 +47,15 @@ struct StartupTimes {
 
 struct AppOptions {
     BandSelection sel; // band(s) shown when each file is one date
-    int64_t budgetMB = 1024;
-    int ioThreads = 0;
+    int64_t budgetMB = 0; // --budget, this run only (0: the Settings value)
+    int ioThreads = 0;    // --threads: background readers, this run only (0: from the processing threads)
     std::string zeitPython;  // developer override of the bundled runtime
     std::string zeitBridge;
 };
 
 const char* modeName(int mode); // display mode (DisplayMode) as shown in the interface
+constexpr int kPinColorCount = 8;
+ImVec4 pinColor(int id);        // pin `id` (from 1) on the map and, made legible, on the chart
 // Reference date of the difference mode at date t: a fixed date, or the
 // previous one (ref < 0; -1 at the first date: no difference).
 int diffRefDate(int ref, int t, int T);
@@ -156,8 +159,24 @@ private:
     std::string askSavePath(const char* title, const std::string& name, const char* filter, const char* ext);
     const char* selfTestExports(); // nullptr = passed
 
+    // Settings window (app_settings.cpp): theme, processing threads, memory and
+    // caches, kept in the layout .ini.
+    void registerSettings();
+    void uiSettings();
+    void applyTheme();               // theme_ to ImGui, ImPlot and the cursor series
+    void applyThreads();             // settings_.threads to the open series and Zeit
+    void applyOverviewBudget();      // for the series opened from now on
+    int overviewBudgetMB() const { return opts_.budgetMB > 0 ? int(opts_.budgetMB) : overviewBudgetMB_; }
+    void clearOverviewCache();
+    const char* selfTestSettings();  // nullptr = passed
+    int selfTestZeitThreads();       // --selftest-ui stages 50-52
+    void openSettings() { showSettings_ = focusSettings_ = true; }
+    bool showSettings_ = false, focusSettings_ = false;
+    int theme_ = 0;                  // theme::Id
+    int appliedTheme_ = -1;
+    int overviewBudgetMB_ = 1024;    // Settings value (--budget overrides it for one run)
+
     // Full-resolution cache (app_fullres.cpp)
-    void registerFullResSettings();
     void uiFullRes();
     void uiFullResSettings();
     int selfTestFullRes(); // --selftest-ui stages 30-32 (app_selftest.cpp)
@@ -419,6 +438,11 @@ private:
 
     // Zeit
     std::unique_ptr<ZeitClient> zeit_;
+    // Serve process started with a new processing threads setting: replaces
+    // zeit_ once it is ready and zeit_ has no request pending (pumpZeit).
+    std::unique_ptr<ZeitClient> zeitNext_;
+    std::vector<std::future<void>> zeitRetired_; // replaced serve processes shutting down
+    std::chrono::steady_clock::time_point threadsChanged_{}; // last change of the processing threads
     struct ToolUi {
         bool open = false;
         json params;             // current parameter values
@@ -545,6 +569,8 @@ private:
         int hits = 0;
         int64_t budget = 0;   // overview budget to restore
         int frames = 0;
+        int threads = 0;      // processing threads setting to restore
+        double zeitT0 = 0;
     } st_; // --selftest-ui state
     struct {
         int stage = 0;

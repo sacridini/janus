@@ -264,9 +264,15 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         std::printf("    pin x: %d in B's grid -> %d in A's grid; B in A's grid: x' = %.1f + %.1f x\n", pinBefore,
                     pins_.empty() ? -1 : pins_[0].x, layers_[1].ax, layers_[1].bx);
         if (pins_.empty() || pins_[0].x != pinBefore + 100) return fail("the pin should move to A's grid (+100)");
-        next("active layer switched, pin remapped");
+        if (const char* e = selfTestSettings()) return fail(e);
+        next("active layer switched, pin remapped; settings: processing threads, themes");
+        st_.stage = 50; // Zeit's serve process follows the threads, then back to 8
         break;
     }
+    case 50:
+    case 51:
+    case 52:
+        return selfTestZeitThreads();
     case 8:
         removeLayer(1);
         if (layers_.size() != 1 || active_ != 0) return fail("closing B should leave A active");

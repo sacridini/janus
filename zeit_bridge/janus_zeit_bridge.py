@@ -35,7 +35,11 @@ A `tool_*.py` module defines `TOOLS`, a list of dicts:
 - `p`: parameter values (defaults filled in), keyed by parameter id.
 - `ctx`: {"years": decimal year of each date, "per_year": observations per year
   (rounded, >= 1), "start": first decimal year, "ordinal": Python ordinal day of
-  each date (None when the series has no real dates)}.
+  each date (None when the series has no real dates), "n_jobs": CPU threads a
+  chunk may use, to pass as Zeit's n_jobs (-1 = not limited)}. Janus sets the
+  limit in Settings: it reaches the bridge as JANUS_THREADS (with
+  OMP_NUM_THREADS, NUMBA_NUM_THREADS and the BLAS ones) and as "threads" in a
+  job spec.
 - Multiband tools (manifest "requires": {"bands": [role, ...]}, e.g. CCDC) also
   get ctx["bands"] = {role: float64 array, NaN = missing} for every role Janus
   mapped (the required ones plus any of "optional_bands"; [T] for pixel runs,
@@ -121,12 +125,23 @@ def per_year(years):
 UNIX_EPOCH_ORDINAL = 719163  # date(1970, 1, 1).toordinal()
 
 
-def make_ctx(years, days=None):
+def threads(spec=None):
+    """CPU threads Janus allows (Settings): the job spec's "threads", else
+    JANUS_THREADS from the environment; -1 = not limited (Zeit's default)."""
+    n = (spec or {}).get("threads") or os.environ.get("JANUS_THREADS") or -1
+    try:
+        n = int(n)
+    except ValueError:
+        n = -1
+    return n if n > 0 else -1
+
+
+def make_ctx(years, days=None, n_jobs=-1):
     """days: days since 1970-01-01 of each date (None without real dates)."""
     years = [float(y) for y in years]
     ordinal = [int(d) + UNIX_EPOCH_ORDINAL for d in days] if days else None
     return {"years": years, "per_year": per_year(years), "start": years[0] if years else 0.0,
-            "ordinal": ordinal}
+            "ordinal": ordinal, "n_jobs": n_jobs}
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +267,7 @@ class Inputs:
     def __init__(self, spec):
         import rasterio
         self.spec = spec
-        self.ctx = make_ctx(spec["years"], spec.get("days"))
+        self.ctx = make_ctx(spec["years"], spec.get("days"), threads(spec))
         self.ctx["shown"] = spec.get("shown")
         self.nodata = spec.get("nodata")
         paths = {"input": spec["input"]}

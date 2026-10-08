@@ -86,6 +86,7 @@ set(JANUS_SOURCES
   src/app_fullres.cpp
   src/app_layers.cpp
   src/app_selftest.cpp
+  src/app_settings.cpp
   src/app_swipe.cpp
   src/app_transect.cpp
   src/app_zeit.cpp
@@ -100,6 +101,7 @@ set(JANUS_SOURCES
   src/reproject.cpp
   src/session.cpp
   src/stats.cpp
+  src/theme.cpp
   src/tiles.cpp)
 
 if(APPLE)

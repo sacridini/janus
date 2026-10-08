@@ -462,7 +462,7 @@ void App::updateOtherHover(int ix, int iy) {
         L.hover.y = ly;
         L.hover.values = approxSeriesOf(*L.session, lx, ly);
         L.hover.stats = computeSeriesStats(L.years, L.hover.values);
-        L.hover.color = ImVec4(0.95f, 0.95f, 0.95f, 1);
+        L.hover.color = theme::cursorSeries();
     }
 }
 
@@ -661,7 +661,7 @@ void App::uiLayers() {
         ImGui::SetItemTooltip(L.visible ? "Hide this layer" : "Show this layer");
         ImGui::SameLine();
         const bool isActive = i == active_;
-        ImGui::PushStyleColor(ImGuiCol_Text, isActive ? ImVec4(0.55f, 0.80f, 1.0f, 1) : ImGui::GetStyleColorVec4(ImGuiCol_Text));
+        ImGui::PushStyleColor(ImGuiCol_Text, isActive ? theme::accent() : ImGui::GetStyleColorVec4(ImGuiCol_Text));
         const std::string label = (isActive ? "> " : "  ") + L.name;
         if (ImGui::Selectable(label.c_str(), isActive, 0, ImVec2(ImGui::GetContentRegionAvail().x - 76, 0)) && !isActive)
             activate = i;
@@ -689,7 +689,7 @@ void App::uiLayers() {
             if (!L.session->overview.complete())
                 ImGui::TextDisabled("loading %d/%d", L.session->overview.layersDone(), info.T());
         }
-        if (!L.alignNote.empty()) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.4f, 1), "%s", L.alignNote.c_str());
+        if (!L.alignNote.empty()) ImGui::TextColored(theme::warning(), "%s", L.alignNote.c_str());
         if (L.reproj && !isActive) {
             const Reprojection& R = *L.reproj;
             if (R.sameCrs) ImGui::TextDisabled("rotated grid, placed on the map's");

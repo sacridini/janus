@@ -66,6 +66,7 @@ ZeitConfig App::zeitConfig() const {
     c.bridge = opts_.zeitBridge.empty() ? (rt / "janus_zeit_bridge.py").u8string() : opts_.zeitBridge;
     c.bundled = opts_.zeitPython.empty();
     c.logPath = (fs::u8path(platform::appDataDir()) / "zeit.log").u8string();
+    c.threads = settings_.processingThreads();
     return c;
 }
 
@@ -267,6 +268,38 @@ const BandRoles& App::activeBandRoles() {
 
 void App::pumpZeit() {
     if (!zeit_) return;
+    // Another processing threads setting: the serve process (pixel fits,
+    // estimates) is replaced by one started with it, once that one is ready
+    // and this one has no request pending. Raster jobs follow at once
+    // (setJobThreads); running jobs keep theirs.
+    // A process takes ~0.1 s to exit (up to 2 s while still starting): not on the UI thread.
+    auto retire = [this](std::unique_ptr<ZeitClient>& z) {
+        if (z) zeitRetired_.push_back(std::async(std::launch::async, [old = std::move(z)]() mutable { old.reset(); }));
+    };
+    const int threads = settings_.processingThreads();
+    const bool settled = std::chrono::steady_clock::now() - threadsChanged_ > std::chrono::seconds(1); // slider let go
+    if (zeit_->state() == ZeitClient::State::Ready && zeit_->config().threads != threads) {
+        if ((!zeitNext_ || zeitNext_->config().threads != threads) && settled) {
+            retire(zeitNext_);
+            zeitNext_ = std::make_unique<ZeitClient>();
+            zeitNext_->start(zeitConfig());
+        }
+        bool idle = pixelSent_.empty();
+        for (const auto& [id, ui] : toolUi_) idle = idle && ui.estReq == 0;
+        if (idle && zeitNext_ && zeitNext_->config().threads == threads &&
+            zeitNext_->state() == ZeitClient::State::Ready) {
+            retire(zeit_);
+            zeit_ = std::move(zeitNext_);
+            for (auto& [id, ui] : toolUi_) ui.estKey = json(); // estimated again with the new limit
+        }
+    } else if (zeitNext_ && zeit_->config().threads == threads) {
+        retire(zeitNext_); // back to the serve process' own value
+    }
+    zeitRetired_.erase(std::remove_if(zeitRetired_.begin(), zeitRetired_.end(),
+                                      [](const std::future<void>& f) {
+                                          return f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+                                      }),
+                       zeitRetired_.end());
     const auto now = std::chrono::steady_clock::now();
     for (PixelReply& r : zeit_->takeReplies()) {
         auto it = pixelSent_.find(r.id);
@@ -667,7 +700,7 @@ void App::uiToolWindow(const ZeitTool& tool) {
         const std::string missing = missingBandRoles(tool, activeBandRoles());
         if (!missing.empty()) why = "choose the band of: " + missing;
     }
-    if (!why.empty()) ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1), "Not available for this series: %s", why.c_str());
+    if (!why.empty()) ImGui::TextColored(theme::error(), "Not available for this series: %s", why.c_str());
 
     if (!tool.bands.empty() && s_ && s_->info->bandsPerDate > 1) {
         ImGui::SeparatorText("Bands");
@@ -851,7 +884,7 @@ void App::uiTasks() {
         if (!msg.empty() && st == ZeitJob::State::Running) ImGui::TextDisabled("%s", msg.c_str());
         if (!err.empty()) {
             ImGui::PushTextWrapPos(0);
-            ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1), "%s", err.c_str());
+            ImGui::TextColored(theme::error(), "%s", err.c_str());
             ImGui::PopTextWrapPos();
         }
         ImGui::Separator();
@@ -957,7 +990,7 @@ void App::clearResults(uint64_t cubeId) {
 void App::drawZeitOverlays(const char* label, const json& result, const SeriesStats& st) {
     if (!result.is_object() || !s_) return;
     const CubeInfo& info = *s_->info;
-    const ImVec4 col(0.95f, 0.15f, 0.95f, 1); // magenta
+    const ImVec4 col = theme::onPlot(ImVec4(0.95f, 0.15f, 0.95f, 1)); // magenta
     const ImVec4 outline(0.05f, 0.05f, 0.08f, 0.9f);
     for (const json& o : result.value("overlays", json::array())) {
         const json xs = o.value("x", json::array()), ys = o.value("y", json::array());

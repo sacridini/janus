@@ -102,7 +102,7 @@ def chunk(p, stack, ctx):
     T, rows, cols = stack.shape
     method, alpha, lag, period = _args(p, ctx)
     values = np.ascontiguousarray(stack.reshape(T, rows * cols).T)
-    out = fit_mann_kendall_batch(values, method, alpha, lag, period, int(p["min_valid"]), -1)
+    out = fit_mann_kendall_batch(values, method, alpha, lag, period, int(p["min_valid"]), ctx.get("n_jobs", -1))
     out = np.asarray(out, dtype=np.float32).reshape(len(ROWS), rows, cols)
     r = {name: out[i] for i, name in enumerate(ROWS)}
     sig = r["slope"].copy()

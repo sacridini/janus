@@ -195,7 +195,7 @@ def chunk(p, stack, ctx):
         batch = np.ascontiguousarray(filled[ok][None, :, :])  # [1, P_ok, T]
         for k, (_, pd, pv, _) in enumerate(pats):
             d = np.asarray(fit_twdtw_batch(batch, dates, np.ascontiguousarray(pv), np.ascontiguousarray(pd),
-                                           tp, math.inf, -1))[0]
+                                           tp, math.inf, ctx.get("n_jobs", -1)))[0]
             dist[k, ok] = d / T
     cls, best, margin = _classify(dist, float(p["max_distance"]))
     cls[~ok] = np.nan

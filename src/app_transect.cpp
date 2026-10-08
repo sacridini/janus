@@ -352,7 +352,7 @@ void App::uiTransect() {
     const int n = tr.n, T = tr.T;
 
     // --- Bar ---
-    if (const SeriesLayer* L = activeLayer()) ImGui::TextColored(ImVec4(0.55f, 0.80f, 1.0f, 1), "%s", L->name.c_str());
+    if (const SeriesLayer* L = activeLayer()) ImGui::TextColored(theme::accent(), "%s", L->name.c_str());
     ImGui::SameLine();
     int exact = 0;
     for (char s : tr.state) exact += s == 2;

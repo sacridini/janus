@@ -17,12 +17,19 @@
 #include "stats.hpp"
 #include "tiles.hpp"
 
+int logicalCores();
+int defaultProcessingThreads(); // every logical core but 2 (at least 1)
+
 struct SessionSettings {
     int64_t overviewBudgetBytes = 1024ll << 20;
     size_t tileBudgetBytes = 384ull << 20;
     std::string cacheDir;
     int maxTexSize = 16384;
-    int ioThreads = 0;          // 0 = automatic (HDD: 1, SSD: cores)
+    int ioThreads = 0;          // background readers (--threads); 0 = automatic (HDD: 1, SSD: processing threads)
+    // CPU threads Janus and Zeit may use (Settings); 0 = the default, every
+    // logical core but 2.
+    int threads = 0;
+    int processingThreads() const;
     // Full-resolution cache (FullResCache): built for every series, for
     // series on an HDD only, or never (then on demand: Session::buildFullRes).
     enum FullRes { FullResOff = 0, FullResHdd = 1, FullResAll = 2 };
@@ -75,6 +82,9 @@ public:
     // Starts (or resumes) building the full-resolution cache now, whatever the
     // setting. False if it cannot be built: see fullRes->error().
     bool buildFullRes();
+    // A new processing threads setting: the pools grow or shrink now (jobs
+    // running keep going), a full-resolution build started later uses it.
+    void setThreads(const SessionSettings& s);
 
     std::shared_ptr<const CubeInfo> info;
     std::shared_ptr<FullResCache> fullRes; // before the pools: their jobs use it

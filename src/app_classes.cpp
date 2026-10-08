@@ -197,7 +197,7 @@ void App::uiClasses() {
     }
     ImGui::SetItemTooltip("Each value is a class with its own colour (land cover, masks, classifications).\n"
                           "Detected from the file's colour table or category names, or from a few whole values.");
-    if (!classError_.empty() && C.state != LayerClasses::On) ImGui::TextColored(ImVec4(1, 0.55f, 0.45f, 1), "%s", classError_.c_str());
+    if (!classError_.empty() && C.state != LayerClasses::On) ImGui::TextColored(theme::error(), "%s", classError_.c_str());
     if (C.state != LayerClasses::On) return;
     classError_.clear();
 

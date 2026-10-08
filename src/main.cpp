@@ -18,6 +18,7 @@
 #include "platform.hpp"
 #include "render_backend.hpp"
 #include "selftest.hpp"
+#include "theme.hpp"
 #include "usage.hpp"
 
 namespace fs = std::filesystem;
@@ -69,7 +70,7 @@ int main(int argc, char** argv) {
         } else if (a == "--band") {
             const char* v = next();
             opts.sel.band = v ? std::max(1, std::atoi(v)) : 1;
-        } else if (a == "--budget") {
+        } else if (a == "--budget") { // this run only: Settings keeps its own value
             const char* v = next();
             opts.budgetMB = v ? std::max(64, std::atoi(v)) : opts.budgetMB;
         } else if (a == "--threads") {
@@ -109,7 +110,9 @@ int main(int argc, char** argv) {
     if (selftestUi) platform::attachParentConsole();
     if (selftestZeit) {
         platform::attachParentConsole();
-        const int rc = runZeitSelfTest(inputs, opts.sel, opts.zeitPython, opts.zeitBridge);
+        // --threads N: Zeit's threads (else the default of the Settings value).
+        const int rc = runZeitSelfTest(inputs, opts.sel, opts.zeitPython, opts.zeitBridge,
+                                       opts.ioThreads > 0 ? opts.ioThreads : defaultProcessingThreads());
         std::fflush(stdout);
         return rc;
     }
@@ -138,13 +141,7 @@ int main(int argc, char** argv) {
     // Multi-viewports: panels can be dragged out of the main window into their
     // own OS windows (e.g. the map on a second monitor, charts on the first).
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-    ImGui::StyleColorsDark();
-    {
-        // Platform windows look like regular OS windows: no rounding, opaque.
-        ImGuiStyle& style = ImGui::GetStyle();
-        style.WindowRounding = 0.0f;
-        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-    }
+    theme::apply(theme::Dark); // the one in Settings once the layout file is read
     render::initImGui(window);
 
     auto app = std::make_unique<App>(window);
@@ -191,7 +188,8 @@ int main(int argc, char** argv) {
         }
         ImGui::Render();
 
-        const float clear[4] = {0.08f, 0.08f, 0.09f, 1.0f};
+        float clear[4];
+        theme::clearColor(clear);
         render::present(window, clear);
 
         if (firstFrame) {

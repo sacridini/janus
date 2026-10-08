@@ -91,6 +91,7 @@ App::~App() {
     for (auto& j : jobs_) j->cancel(); // don't leave orphan processes behind
     jobs_.clear();
     for (auto& e : exports_) e->cancel = true; // their threads finish when exports_ goes
+    zeitNext_.reset();
     zeit_.reset();
     closeAll();
     gpu_.shutdown();
@@ -98,7 +99,6 @@ App::~App() {
 
 bool App::init(const AppOptions& opts, std::string& error) {
     opts_ = opts;
-    budgetUi_ = int(opts.budgetMB);
     if (!gpu_.init(error)) return false;
 
     const std::string appData = platform::appDataDir();
@@ -106,11 +106,10 @@ bool App::init(const AppOptions& opts, std::string& error) {
     std::error_code ec;
     fs::create_directories(fs::u8path(settings_.cacheDir), ec);
     Overview::pruneCache(settings_.cacheDir, 20ull << 30);
-    registerFullResSettings(); // its budget (in the .ini) prunes the full-resolution caches
-    settings_.overviewBudgetBytes = opts.budgetMB << 20;
+    registerSettings(); // read with the layout file at the first frame (and the full-resolution caches pruned)
     settings_.ioThreads = opts.ioThreads;
     settings_.maxTexSize = std::min<int>(gpu_.maxCubeSide(), 16384);
-    settings_.overviewBudgetBytes = std::min<int64_t>(settings_.overviewBudgetBytes, gpu_.maxCubeBytes());
+    applyOverviewBudget();
 
     resultsDir_ = (fs::u8path(appData) / "results").u8string();
     fs::create_directories(fs::u8path(resultsDir_), ec);
@@ -237,6 +236,7 @@ void App::setT(int t) {
 
 void App::frame() {
     const auto frameStart = std::chrono::steady_clock::now();
+    if (appliedTheme_ != theme_) applyTheme(); // also the one read from the layout file
     gestures_ = platform::takeGestures();
     if (!pendingDrop.empty() && !opening_.valid()) {
         auto drop = std::move(pendingDrop);
@@ -303,6 +303,7 @@ void App::frame() {
     uiFiles();
     uiLayer();
     uiPerf();
+    uiSettings();
     uiSeries();
     uiStats();
     uiMap();
@@ -353,13 +354,18 @@ void App::addPin(int x, int y) {
     p.stats = computeSeriesStats(years_, p.values);
     p.request = s_->deferRandomReads() ? 0 : s_->requestSeries(x, y, false);
     p.id = nextPinId_++;
+    p.color = pinColor(p.id);
+    pins_.push_back(std::move(p));
+}
+
+ImVec4 pinColor(int id) {
     // Vivid colors that contrast with the map colormaps and the dark
-    // background; no yellow (ROI) and no orange (current-date line).
-    static const ImVec4 kPinColors[] = {
+    // background; no yellow (ROI) and no orange (current-date line). On the
+    // chart of a light theme they are darkened (theme::onPlot).
+    static const ImVec4 kPinColors[kPinColorCount] = {
         {1.00f, 0.36f, 0.42f, 1}, {0.25f, 0.80f, 1.00f, 1}, {0.76f, 0.52f, 1.00f, 1}, {0.55f, 0.95f, 0.40f, 1},
         {1.00f, 0.55f, 0.85f, 1}, {0.30f, 1.00f, 0.80f, 1}, {1.00f, 0.66f, 0.52f, 1}, {0.56f, 0.70f, 1.00f, 1}};
-    p.color = kPinColors[(p.id - 1) % IM_ARRAYSIZE(kPinColors)];
-    pins_.push_back(std::move(p));
+    return kPinColors[(id - 1) % kPinColorCount];
 }
 
 void App::clearRoi() {
@@ -549,6 +555,7 @@ void App::handleShortcuts() {
         if (!files.empty()) openInputs(files, true);
     }
     if (s_ && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_T)) newMapView();
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) openSettings();
     // Closes the focused map panel, else the last one opened (the main map stays).
     if (!views_.empty() && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_W))
         closeViewId_ = focusedViewId_ ? focusedViewId_ : views_.back().id;
@@ -585,6 +592,8 @@ void App::uiMenu() {
         ImGui::Separator();
         if (ImGui::MenuItem("Close active layer", nullptr, false, s_ != nullptr)) removeLayer(active_);
         if (ImGui::MenuItem("Close all", nullptr, false, !layers_.empty())) closeAll();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Settings...", "Ctrl+,")) openSettings();
         ImGui::Separator();
         if (ImGui::MenuItem("Exit", "Alt+F4")) glfwSetWindowShouldClose(window_, 1);
         ImGui::EndMenu();
@@ -671,7 +680,8 @@ void App::uiPopups() {
         ImGui::TextUnformatted(
             "Open: Ctrl+O (files), Ctrl+Shift+O (folder), or drop onto the window\n"
             "Command line: jn <folder | file.tif | pattern_*.tif ...> [--band N]\n"
-            "Map panels: Ctrl+T (new), Ctrl+W (close the focused one, else the last)\n\n"
+            "Map panels: Ctrl+T (new), Ctrl+W (close the focused one, else the last)\n"
+            "Settings: Ctrl+, (theme, processing threads, memory and caches)\n\n"
             "Map\n"
             "  drag ................ pan\n"
             "  mouse wheel ......... zoom\n"
@@ -926,7 +936,7 @@ void App::mapInput(ImVec2 origin, ImVec2 size, int panel, int& ix, int& iy, bool
         hover_.zeitVersion = -1;
         hover_.zeitResult = json();
         updateOtherHover(ix, iy);
-        hover_.color = ImVec4(0.95f, 0.95f, 0.95f, 1);
+        hover_.color = theme::cursorSeries();
         approxLayers_ = s_->overview.layersDone();
         hoverPending_ = true;
         hoverSince_ = ImGui::GetTime();
@@ -1588,7 +1598,7 @@ void App::uiLayer() {
     const CubeInfo& info = *s_->info;
     const int T = info.T();
 
-    if (const SeriesLayer* L = activeLayer()) ImGui::TextColored(ImVec4(0.55f, 0.80f, 1.0f, 1), "%s", L->name.c_str());
+    if (const SeriesLayer* L = activeLayer()) ImGui::TextColored(theme::accent(), "%s", L->name.c_str());
     ImGui::SeparatorText("Series");
     ImGui::TextWrapped("%s", info.description.c_str());
     ImGui::Text("%d dates: %s to %s", T, info.layers.front().label.c_str(), info.layers.back().label.c_str());
@@ -1692,11 +1702,11 @@ void App::uiLayer() {
                 return std::snprintf(buf, size, "%s", rangeLabel(ModeDropDate, float(v), *(const CubeInfo*)data).c_str());
             }, (void*)&info);
         ImPlotSpec bars;
-        bars.FillColor = ImVec4(0.45f, 0.62f, 0.90f, 1);
+        bars.FillColor = theme::onPlot(ImVec4(0.45f, 0.62f, 0.90f, 1));
         bars.LineColor = ImVec4(0, 0, 0, 0);
         ImPlot::PlotBars("##h", histX_.data(), histY_.data(), int(histX_.size()), histBarW_, bars);
         ImPlotSpec lines;
-        lines.LineColor = ImVec4(1.0f, 0.6f, 0.2f, 1);
+        lines.LineColor = theme::onPlot(ImVec4(1.0f, 0.6f, 0.2f, 1));
         lines.LineWeight = 1.5f;
         const double lim[2] = {r.lo, r.hi};
         ImPlot::PlotInfLines("##lim", lim, 2, lines);
@@ -1830,6 +1840,7 @@ void App::uiSeries() {
             if (int(vals.size()) != T) return;
             std::vector<double> ys(T);
             for (int t = 0; t < T; ++t) ys[t] = transform(vals[t], st);
+            col = theme::onPlot(col);
             ImPlotSpec spec;
             spec.LineColor = col;
             spec.LineWeight = weight;
@@ -1875,7 +1886,7 @@ void App::uiSeries() {
         };
 
         if (!roiMean_.empty() && !classes) {
-            const ImVec4 yellow(1.0f, 0.82f, 0.24f, 1);
+            const ImVec4 yellow = theme::onPlot(ImVec4(1.0f, 0.82f, 0.24f, 1));
             const char* label = roi_ && roi_->sampled ? "ROI mean (subsampled)" : "ROI mean";
             if (showRoiBand_) {
                 std::vector<double> a(T), b(T);
@@ -1920,12 +1931,13 @@ void App::uiSeries() {
                         ys[t] = plotValues_ == 1 ? x - v.stats.mean
                                 : plotValues_ == 2 ? (v.stats.std > 0 ? (x - v.stats.mean) / v.stats.std : 0.0) : x;
                     }
+                    const ImVec4 col = theme::onPlot(v.color);
                     ImPlotSpec spec;
-                    spec.LineColor = ImVec4(v.color.x, v.color.y, v.color.z, 0.85f);
+                    spec.LineColor = ImVec4(col.x, col.y, col.z, 0.85f);
                     spec.LineWeight = weight;
                     spec.Marker = layerMarker(int(li));
                     spec.MarkerSize = 3.5f;
-                    spec.MarkerFillColor = v.color;
+                    spec.MarkerFillColor = col;
                     ImPlot::PlotLine(label, lx.data(), ys.data(), int(ys.size()), spec);
                     if (!pixelTool_.empty()) drawZeitOverlays(label, v.zeitResult, v.stats);
                 };
@@ -1948,7 +1960,7 @@ void App::uiSeries() {
                     SeriesView rv;
                     rv.values = L.roiMean;
                     rv.stats = L.roiStats;
-                    rv.color = ImVec4(1.0f, 0.82f, 0.24f, 1);
+                    rv.color = ImVec4(1.0f, 0.82f, 0.24f, 1); // plotOther makes it legible
                     if (showRoiBand_) {
                         std::vector<double> a(L.roiP10.size()), b(L.roiP90.size());
                         for (size_t t = 0; t < a.size(); ++t) {
@@ -1958,7 +1970,7 @@ void App::uiSeries() {
                             b[t] = (L.roiP90[t] - m) / s;
                         }
                         ImPlotSpec band;
-                        band.FillColor = rv.color;
+                        band.FillColor = theme::onPlot(rv.color);
                         band.FillAlpha = 0.12f;
                         ImPlot::PlotShaded(label, lx.data(), a.data(), b.data(), int(a.size()), band);
                     }
@@ -1968,7 +1980,7 @@ void App::uiSeries() {
         }
 
         double tx = xs_[t_];
-        const ImVec4 orange(1.0f, 0.6f, 0.2f, 1);
+        const ImVec4 orange = theme::onPlot(ImVec4(1.0f, 0.6f, 0.2f, 1));
         if (ImPlot::DragLineX(0, &tx, orange, 1.5f, ImPlotDragToolFlags_NoFit)) setT(nearestIndex(xs_, tx));
         ImPlot::TagX(xs_[t_], orange, "%s", info.layers[t_].label.c_str());
         if (ImPlot::IsPlotHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
@@ -2087,7 +2099,7 @@ void App::uiStats() {
                 ImGui::SetItemTooltip(c.roi ? "Remove the ROI" : "Remove this pin");
                 ImGui::SameLine(0, ImGui::GetStyle().ItemInnerSpacing.x);
             }
-            ImGui::PushStyleColor(ImGuiCol_Text, c.color);
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::onWindow(c.color, ImGuiCol_TableHeaderBg));
             ImGui::TableHeader(c.name.c_str());
             ImGui::PopStyleColor();
             ImGui::PopID();
@@ -2144,7 +2156,7 @@ void App::uiStats() {
             const ZeitTool* tool = zeit_ ? zeit_->tool(pixelTool_) : nullptr;
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1), "%s", tool ? tool->name.c_str() : pixelTool_.c_str());
+            ImGui::TextColored(theme::accent(), "%s", tool ? tool->name.c_str() : pixelTool_.c_str());
             for (const Col& c : cols) {
                 ImGui::TableNextColumn();
                 if (c.model && c.model->contains("error")) ImGui::TextDisabled("error");
@@ -2205,7 +2217,7 @@ void App::uiPerf() {
             ImGui::Text("Loading %d/%d...", ov.layersDone(), ov.T);
         if (s_->deferRandomReads())
             ImGui::TextDisabled("Pins, ROI and detail wait for the build (HDD)");
-        if (ov.failedLayers()) ImGui::TextColored(ImVec4(1, 0.5f, 0.4f, 1), "%d dates failed", ov.failedLayers());
+        if (ov.failedLayers()) ImGui::TextColored(theme::error(), "%d dates failed", ov.failedLayers());
         if (s_->gpu.statsValid) ImGui::Text("Temporal statistics: %.1f ms", s_->statsMs);
         ImGui::SeparatorText("On-demand reads");
         ImGui::Text("Tiles: %d on GPU (%.0f MB), %d reading", s_->tiles->gpuTiles(), s_->tiles->gpuBytes() / MB,
@@ -2223,7 +2235,7 @@ void App::uiPerf() {
         ImGui::TextDisabled("Starting in the background...");
     } else if (zeit_->state() == ZeitClient::State::Failed) {
         ImGui::PushTextWrapPos(0);
-        ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1), "%s", zeit_->error().c_str());
+        ImGui::TextColored(theme::error(), "%s", zeit_->error().c_str());
         ImGui::PopTextWrapPos();
     } else {
         ImGui::Text("Zeit %s, Python %s", zeit_->zeitVersion().c_str(), zeit_->pythonVersion().c_str());
@@ -2232,29 +2244,10 @@ void App::uiPerf() {
         if (!zeit_->config().bundled) ImGui::TextDisabled("Developer runtime: %s", zeit_->config().python.c_str());
     }
 
-    ImGui::SeparatorText("Settings");
-    ImGui::SetNextItemWidth(-1);
-    ImGui::SliderInt("##budget", &budgetUi_, 128, 8192, "Overview: %d MB", ImGuiSliderFlags_Logarithmic);
-    ImGui::SetItemTooltip("Memory for the cube overview (on the GPU; on macOS shared\nwith the CPU). Larger = more resolution without tiles,\nbut slower to build.");
-    if (budgetUi_ != opts_.budgetMB) {
-        if (ImGui::Button(s_ ? "Apply (reopens the active layer)" : "Apply", ImVec2(-1, 0))) {
-            opts_.budgetMB = budgetUi_;
-            settings_.overviewBudgetBytes = int64_t(budgetUi_) << 20;
-            if (s_ && !opening_.valid()) {
-                const std::vector<std::string> inputs = lastInputs_;
-                removeLayer(active_);
-                openInputs(inputs, true);
-            }
-        }
-    }
-    if (ImGui::Button("Clear overview cache", ImVec2(-1, 0))) {
-        std::error_code ec;
-        const std::string keep = s_ ? fs::u8path(s_->overview.cachePath()).filename().u8string() : "";
-        for (auto& e : fs::directory_iterator(fs::u8path(settings_.cacheDir), ec))
-            if (e.path().extension() == ".januscube" && e.path().filename().u8string() != keep) fs::remove(e.path(), ec);
-    }
-    ImGui::SetItemTooltip("%s", settings_.cacheDir.c_str());
-    uiFullResSettings();
+    ImGui::Separator();
+    ImGui::Text("Processing threads: %d of %d", settings_.processingThreads(), logicalCores());
+    if (ImGui::Button("Settings...", ImVec2(-1, 0))) openSettings();
+    ImGui::SetItemTooltip("Processing threads, overview memory, full-resolution cache (Ctrl+,)");
     ImGui::End();
 }
 

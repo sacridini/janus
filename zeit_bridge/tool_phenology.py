@@ -301,7 +301,7 @@ def chunk(p, stack, ctx):
     days = _to_days(ctx["years"], base)
     S = _max_seasons(ctx)
     values = np.ascontiguousarray(stack.reshape(T, -1).T)
-    out, v, w = _fit(p, values, days, S, -1)
+    out, v, w = _fit(p, values, days, S, ctx.get("n_jobs", -1))
     t = _season_table(p, out, v, w, days, base)
     fitted = t["fitted"]
     P = fitted.shape[0]

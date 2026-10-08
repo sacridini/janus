@@ -296,7 +296,7 @@ def chunk(p, stack, ctx):
                                   chi2_prob_threshold=float(p["chi2_prob_threshold"]),
                                   tmax_cg_prob_threshold=float(p["tmax_cg_prob_threshold"]),
                                   num_c=int(p["num_c"]), thermal_band=6 if "thermal" in roles else None,
-                                  n_jobs=-1)
+                                  n_jobs=ctx.get("n_jobs", -1))
     P = h * w
     counts = np.asarray(counts).reshape(P)
     segs = np.asarray(segs).reshape(P, S, 3 + B * 9)
