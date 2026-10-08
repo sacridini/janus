@@ -33,6 +33,24 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Mantido: HD detectado → 1 leitor sequencial; pinos, ROI e tiles esperam o
   overview terminar no HD.
 - Ganho real no HD só mudando o layout dos dados (COG com overviews internos) ou SSD.
+- Medido de novo em 2026-10-08 (série 215_066, 41 datas de 7441×7317, Float32
+  LZW em faixas de 1 linha, HD Seagate ST4000DM004 de 5400 rpm): o Gerenciador
+  de Tarefas mostra só ~61 MB/s e ~66% de uso, mas o leitor pede 1 de cada ~3
+  faixas (overview 1:3,15) e o disco passa por cima das outras: 61 × 3 ≈ 180
+  MB/s, o teto do disco. ~45 s a frio; ~28 s com os arquivos já na RAM (aí o
+  limite é a CPU de 1 leitor).
+- **COG medido** (mesma série convertida, DEFLATE + preditor, blocos 512,
+  overviews NEAREST): pixels idênticos; 8,5 → 9,0 GB; 4,4 min para converter.
+  O Janus pede 1,6 GB em vez de 2,6 GB e leva 11 s em vez de 28 s (arquivos na
+  RAM). Ganho menor que o estimado porque o overview do Janus (1:3,15) cai
+  entre os níveis do COG (1:2 e 1:4) e o GDAL lê o 1:2. Usar o nível 1:4 (≈400
+  MB por série, poucos segundos) exigiria um overview de menos resolução.
+  Decisão: os dados ficam como estão; nada de conversão por enquanto.
+- **Cache do overview gravado data a data** (índice das datas prontas depois do
+  cabeçalho): fechar o Janus no meio da leitura não perde nada; a próxima
+  abertura lê o que já existe e só busca no HD as datas que faltam (testado:
+  morto aos 15 s com 14/41 datas; reaberto, leu só as 27 restantes em ~28 s).
+  Caches do formato anterior (completos, sem índice) continuam válidos.
 
 ### Abertura rápida
 - Medição (`jn --measure-startup`): GDAL 7 ms; janela + OpenGL ~137 ms;
@@ -119,15 +137,24 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 6 | 0.9.0 | Mais do Zeit: **suavização** (Whittaker/Savitzky-Golay) no gráfico, **TWDTW** (classificação por padrões tirados dos pinos) | concluída |
 | 7 | 0.10.0 | **Linux**: compilar e testar (ambiente conda-forge), processos POSIX para o Zeit, runtime com `python-build-standalone`, pacote `.tar.xz` portátil | concluída |
 | 8 | 0.11.0 | **Dados categóricos** (detecção, cores e nomes de classe, legenda, gráfico em degraus, estatísticas de classe); Mann-Kendall fora da tabela de estatísticas | concluída |
-| 9 | 0.12.0 | **Reprojeção** de camadas com CRS diferente (grade de warp na GPU) e **ROI em todas as camadas** | próxima |
+| 9 | — | **Reprojeção** de camadas com CRS diferente (grade de warp na GPU) e **ROI em todas as camadas** | planejada (depois da 13) |
 | — | 0.16.0 | **Mapas lado a lado**: painéis de mapa extras (View → New map view), cada um com uma camada e, se quiser, data e modo próprios; todos na mesma área (compartilham `scale_`/`offset_`, cada canvas centrado como o principal), cursor espelhado como cruz, pinos e ROI em todos. Um alvo de desenho por painel (`Gpu::beginMap(..., slot)`); `TileManager::tick()` uma vez por quadro, para que vários painéis pedindo tiles da mesma camada não descartem os pedidos uns dos outros | concluída |
 | — | 0.17.0 | **Janus**: o tsv passa a se chamar Janus (comando `jn`; repositório `sacridini/janus`); pastas de dados e cache migradas na primeira abertura, o instalador do Windows remove um tsv instalado | concluída |
-| 10 | 0.13.0 | **Novas visualizações**: transecto espaço-tempo (Hovmöller), mapa de calor ano × dia do ano, cortina (swipe) entre datas/camadas, área por classe ao longo do tempo e matriz de transição (categóricos) | planejada |
+| 10 | — | **Novas visualizações**: **cortina (swipe)** entre datas/camadas e **transecto espaço-tempo (Hovmöller)** | em andamento |
+| 11 | — | **Exportação**: mapa visível como PNG (figuras), vista/camada e resultados do Zeit como GeoTIFF (para o QGIS) | em andamento |
+| 12 | — | **Mapas de diferença (Δ) e de quebra** (ano e magnitude da maior queda), calculados na GPU | em andamento |
+| 13 | — | **Cache em resolução total** num SSD, em blocos com o tempo contíguo: série exata e ROI em ~1 ms mesmo com os dados num HD | em andamento |
+| 14 | — | Mais visualizações: mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas na ROI | planejada |
+
+Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
+fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
+fase), depois a 9, que mexe em quase tudo. A versão é atribuída quando a fase
+termina.
 
 ## Ideias (backlog)
 
 ### Análise
-- Mapa de **quebra**: ano e magnitude da maior queda por pixel (barato na GPU).
+- Mapa de **quebra**: ano e magnitude da maior queda por pixel (barato na GPU) → fase 12.
 - ~~Mapa de **tendência significativa**~~ — feito na 0.6.0 (Mann-Kendall do Zeit,
   mapa "Significant Sen's slope").
 - ~~**Estimativa de tempo**~~ — feita na 0.8.0 (ver histórico). Ideia original: estimar antes de rodar uma ferramenta lenta (BFAST ~2–3 ms/pixel:
@@ -137,7 +164,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
   o Zeit hoje devolve só as quebras.
 - BFAST Monitor: história estável (o R corta a parte instável da história; o
   Zeit usa a história inteira, o que gera alarmes falsos após uma quebra antiga).
-- Mapa de **diferença** entre duas datas (Δ).
+- Mapa de **diferença** entre duas datas (Δ) → fase 12.
 - **Boxplot por data** da ROI e histograma dos valores da série.
 - **Suavização** opcional da série (média móvel, Savitzky-Golay).
 - Para séries intra-anuais: **um ano sobre o outro** (eixo = dia do ano),
@@ -145,9 +172,13 @@ Windows sem Python nem conda, e chamável pela linha de comando
 
 ### Dados e desempenho
 - **Cache em resolução total**, em blocos com o tempo contíguo (estilo Zarr) num
-  SSD: série exata e ROI em ~1 ms mesmo com os dados num HD.
-- Ferramenta "**otimizar dados**": converter para COG com overviews internos
-  (estimativa: 1ª abertura 3–10× mais rápida no HD; não medido).
+  SSD: série exata e ROI em ~1 ms mesmo com os dados num HD → fase 13.
+- Ferramenta "**otimizar dados**": converter para COG com overviews internos.
+  Medido em 2026-10-08: ~2,5× mais rápido com os arquivos na RAM (ver
+  "Leitura em HD mecânico"); deixado de lado por ora. Se voltar: escolher o
+  tamanho do overview alinhado aos níveis do COG.
+- **Exportação** (hoje só "Copy CSV"): mapa visível em PNG, vista e resultados
+  em GeoTIFF → fase 11.
 - NetCDF com dimensão de tempo; reprojeção; paletas por classe (color table).
 
 ### Interface
@@ -155,7 +186,8 @@ Windows sem Python nem conda, e chamável pela linha de comando
   espaço-tempo (linha no mapa → imagem distância × data); mapa de calor ano ×
   dia do ano/mês da série; cortina (swipe) entre duas datas ou camadas;
   dispersão entre camadas/datas na ROI; para categóricos, área por classe ao
-  longo do tempo e matriz de transição entre duas datas. → fase 0.13.0.
+  longo do tempo e matriz de transição entre duas datas. → cortina e
+  transecto na fase 10; o resto na fase 14.
 - ~~Painel Layers, várias séries ao mesmo tempo, painéis destacáveis, árvore de
   arquivos~~ — feitos na 0.5.0 (detalhes no histórico).
 - Camadas com **CRS diferentes**: hoje só aparecem quando ativas; reprojetar o
@@ -178,6 +210,12 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Escala de interface (DPI) e fonte TTF para telas 4K.
 
 ## Histórico
+
+### Depois da 0.17.0 (sem versão própria)
+- `Ctrl+T` abre um painel de mapa; `Ctrl+W` fecha o painel em foco (senão o
+  último aberto); o mapa principal nunca fecha.
+- Cache do overview gravado data a data, com retomada (ver "Leitura em HD
+  mecânico").
 
 ### 0.11.0 — Fase 8: dados categóricos
 - **Detecção** ao abrir: tabela de cores, nomes de categoria ou tabela de
