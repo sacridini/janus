@@ -84,12 +84,15 @@ int nearestIndex(const std::vector<double>& xs, double x) {
 
 } // namespace
 
+const char* modeName(int mode) { return kModeNames[mode]; }
+
 App::App(GLFWwindow* window) : window_(window) {}
 
 App::~App() {
     if (opening_.valid()) opening_.wait();
     for (auto& j : jobs_) j->cancel(); // don't leave orphan processes behind
     jobs_.clear();
+    for (auto& e : exports_) e->cancel = true; // their threads finish when exports_ goes
     zeit_.reset();
     closeAll();
     gpu_.shutdown();
@@ -306,6 +309,7 @@ void App::frame() {
     if (zeit_ && zeit_->state() == ZeitClient::State::Ready)
         for (const ZeitTool& t : zeit_->tools()) uiToolWindow(t);
     uiTasks();
+    uiExports();
     uiPopups();
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
     frameMs_ = frameMs_ * 0.9 + ms * 0.1;
@@ -571,6 +575,8 @@ void App::uiMenu() {
             if (!dir.empty()) openInputs({dir}, true);
         }
         ImGui::Separator();
+        uiExportMenu();
+        ImGui::Separator();
         if (ImGui::MenuItem("Close active layer", nullptr, false, s_ != nullptr)) removeLayer(active_);
         if (ImGui::MenuItem("Close all", nullptr, false, !layers_.empty())) closeAll();
         ImGui::Separator();
@@ -689,9 +695,10 @@ void App::fitView(ImVec2 c) {
     zooming_ = false;
 }
 
-void App::renderMap(int w, int h, float pixelScale) {
-    const float bg[4] = {0.10f, 0.10f, 0.115f, 1.0f};
-    gpu_.beginMap(int(std::lround(w * pixelScale)), int(std::lround(h * pixelScale)), bg);
+void App::renderMap(int w, int h, float pixelScale, int slot, const float* background) {
+    static const float kBg[4] = {0.10f, 0.10f, 0.115f, 1.0f};
+    const float* bg = background ? background : kBg;
+    gpu_.beginMap(int(std::lround(w * pixelScale)), int(std::lround(h * pixelScale)), bg, slot);
     // Canvas points -> pixels of the map target.
     auto screenRect = [&](double x0, double y0, double x1, double y1, float r[4]) {
         r[0] = float((offset_.x + x0 * scale_) * pixelScale);

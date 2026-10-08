@@ -567,6 +567,25 @@ void Gpu::readMapPixel(int x, int y, unsigned char rgba[4], int slot) {
     std::memcpy(rgba, out.contents, 4);
 }
 
+void Gpu::readMap(std::vector<unsigned char>& rgba, int& w, int& h, int slot) {
+    Impl& d = *impl_;
+    id<MTLTexture> tg = d.targets.at(slot);
+    w = int(tg.width);
+    h = int(tg.height);
+    const size_t row = size_t(w) * 4;
+    id<MTLBuffer> out = makeBuffer(row * h);
+    id<MTLCommandBuffer> cb = [d.queue commandBuffer];
+    id<MTLBlitCommandEncoder> be = [cb blitCommandEncoder];
+    [be copyFromTexture:tg sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+             sourceSize:MTLSizeMake(NSUInteger(w), NSUInteger(h), 1) toBuffer:out destinationOffset:0
+ destinationBytesPerRow:row destinationBytesPerImage:row * h];
+    [be endEncoding];
+    [cb commit];
+    [cb waitUntilCompleted];
+    rgba.resize(row * h); // the texture is top-down already
+    std::memcpy(rgba.data(), out.contents, row * h);
+}
+
 GpuTex Gpu::createClassLut(const unsigned char* rgba, GpuTex t) {
     if (!t) return retain(makeTexture(MTLPixelFormatRGBA8Unorm, kClassLutSize, 1, rgba, kClassLutSize * 4));
     [borrow<id<MTLTexture>>(t) replaceRegion:MTLRegionMake2D(0, 0, kClassLutSize, 1) mipmapLevel:0 withBytes:rgba

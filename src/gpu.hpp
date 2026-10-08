@@ -109,6 +109,8 @@ public:
     static bool mapBottomUp();
     // Pixel (x, y from the top) of a map target; waits for the GPU (tests only).
     void readMapPixel(int x, int y, unsigned char rgba[4], int slot = 0);
+    // A whole map target as RGBA8, rows top-down (exports); waits for the GPU.
+    void readMap(std::vector<unsigned char>& rgba, int& w, int& h, int slot = 0);
 
     static GpuTex createTileTexture(int w, int h, const float* data);
     // rgba: kClassLutSize RGBA8 texels. Pass `tex` to update an existing LUT.

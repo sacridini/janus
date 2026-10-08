@@ -2,7 +2,9 @@
 // step per frame, without touching the mouse or keyboard. Opens A, adds B as a
 // layer, checks the georeferenced alignment, the series of both layers under a
 // cursor and a pin, reads back map pixels (layer drawn, layer hidden), switches
-// the active layer and closes one. Optional inputs:
+// the active layer and closes one; with both layers shown it also exports the
+// map (PNG) and the values and the view (GeoTIFF) and checks the files (see
+// selfTestExports). Optional inputs:
 //   C  one file per date with several bands and a quality band: opens it and
 //      reopens it in place as a normalized difference with the QA mask, then
 //      checks the difference and largest-drop maps (GPU against the CPU);
@@ -14,6 +16,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <filesystem>
+
+#include <gdal_priv.h>
 
 #include <implot.h>
 
@@ -225,6 +231,8 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         if (c[0] > 40 || c[1] > 40 || c[2] > 40) return fail("with every layer hidden the map should be empty");
         layers_[0].visible = layers_[1].visible = true;
         next("layer drawing and visibility");
+        if (const char* e = selfTestExports()) return fail(e);
+        std::printf("[%5.1f s] exports: PNG and GeoTIFFs match the map and the source values\n", now() - st_.t0);
         break;
     }
     case 7: {
@@ -380,4 +388,196 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         return 0;
     }
     return -1;
+}
+
+// Exports, in stage 6 (both layers on a 400 x 300 view, B active): files written
+// by the same background jobs as the File menu, read back with GDAL and compared
+// with the map's pixels and the source values. Returns nullptr when they pass.
+const char* App::selfTestExports() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path dir = fs::temp_directory_path() /
+                         ("janus-selftest-export-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(dir, ec);
+    struct Cleanup {
+        fs::path dir;
+        ~Cleanup() {
+            std::error_code e;
+            fs::remove_all(dir, e);
+        }
+    } cleanup{dir};
+    auto file = [&](const char* name) { return (dir / name).u8string(); };
+    auto wait = [&](const std::shared_ptr<ExportJob>& j, const char* what) {
+        if (!j) return false;
+        j->done.wait();
+        std::lock_guard<std::mutex> lk(j->m);
+        std::printf("    %-40s %6.0f ms %8.1f KB %s\n", what, j->seconds * 1000,
+                    double(fs::file_size(fs::u8path(j->path), ec)) / 1024, j->error.c_str());
+        return j->state == ExportJob::State::Done;
+    };
+    struct Image {
+        int w = 0, h = 0, bands = 0;
+        std::vector<unsigned char> px; // pixel-interleaved
+        double gt[6] = {0, 1, 0, 0, 0, 1};
+    };
+    auto readImage = [](const std::string& path, Image& im) {
+        GDALDataset* ds = GDALDataset::Open(path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY);
+        if (!ds) return false;
+        im.w = ds->GetRasterXSize();
+        im.h = ds->GetRasterYSize();
+        im.bands = ds->GetRasterCount();
+        im.px.resize(size_t(im.w) * im.h * im.bands);
+        ds->GetGeoTransform(im.gt);
+        const bool ok = ds->RasterIO(GF_Read, 0, 0, im.w, im.h, im.px.data(), im.w, im.h, GDT_Byte, im.bands, nullptr,
+                                     im.bands, GSpacing(im.w) * im.bands, 1, nullptr) == CE_None;
+        GDALClose(ds);
+        return ok;
+    };
+    // Float32 values of a GeoTIFF == the layer's values at date t_ in the window.
+    auto checkValues = [&](const std::string& path, const int win[4]) -> const char* {
+        const CubeInfo& info = *s_->info;
+        GDALDataset* ds = GDALDataset::Open(path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY);
+        if (!ds) return "the GeoTIFF cannot be opened";
+        const int w = win[2] - win[0], h = win[3] - win[1];
+        double gt[6];
+        int hasNd = 0;
+        const double nd = ds->GetRasterBand(1)->GetNoDataValue(&hasNd);
+        const bool sized = ds->GetRasterXSize() == w && ds->GetRasterYSize() == h && ds->GetRasterCount() == 1 &&
+                           ds->GetRasterBand(1)->GetRasterDataType() == GDT_Float32;
+        const bool geo = ds->GetGeoTransform(gt) == CE_None;
+        const std::string wkt = ds->GetProjectionRef() ? ds->GetProjectionRef() : "";
+        std::vector<float> got(size_t(w) * h), want(size_t(w) * h);
+        bool read = sized && ds->GetRasterBand(1)->RasterIO(GF_Read, 0, 0, w, h, got.data(), w, h, GDT_Float32, 0, 0,
+                                                            nullptr) == CE_None;
+        GDALClose(ds);
+        if (!read) return "the GeoTIFF should be Float32, the size of the window";
+        if (!hasNd || !std::isnan(nd)) return "the GeoTIFF's no data should be NaN";
+        const auto& g = info.geoTransform;
+        const double x0 = g[0] + win[0] * g[1] + win[1] * g[2], y0 = g[3] + win[0] * g[4] + win[1] * g[5];
+        std::printf("      %d x %d px at (%d, %d), origin %.3f %.3f, pixel %.3f, CRS %s\n", w, h, win[0], win[1], gt[0],
+                    gt[3], gt[1], wkt.empty() ? "none" : wkt.substr(0, 24).c_str());
+        if (info.hasGeoTransform && (!geo || std::fabs(gt[0] - x0) > 1e-6 || std::fabs(gt[3] - y0) > 1e-6 ||
+                                     gt[1] != g[1] || gt[5] != g[5]))
+            return "the GeoTIFF should be on the layer's grid";
+        if (!info.crsName.empty() && wkt.empty()) return "the GeoTIFF should carry the layer's CRS";
+        CubeReader reader(s_->info);
+        if (!reader.readWindow(t_, win[0], win[1], w, h, want.data(), w, h)) return "the source cannot be read";
+        size_t diff = 0, nan = 0;
+        for (size_t i = 0; i < got.size(); ++i) {
+            nan += std::isnan(want[i]);
+            if (!(got[i] == want[i] || (std::isnan(got[i]) && std::isnan(want[i])))) ++diff;
+        }
+        if (diff) return "the GeoTIFF should hold the layer's values";
+        std::printf("      values identical to the source (%zu no data)\n", nan);
+        return nullptr;
+    };
+
+    mapPixelScale_ = 1.0f;
+    canvasSize_ = ImVec2(400, 300);
+    fitView(canvasSize_);
+    renderMap(400, 300);
+    std::vector<unsigned char> screen;
+    int sw = 0, sh = 0;
+    gpu_.readMap(screen, sw, sh);
+    unsigned char c[4];
+    gpu_.readMapPixel(200, 150, c);
+    if (sw != 400 || sh != 300 || std::memcmp(c, &screen[(size_t(150) * 400 + 200) * 4], 4) != 0)
+        return "readMap should agree with readMapPixel";
+
+    // PNG at 1x, the map's background, no label or legend: the map's pixels.
+    PngOptions o;
+    o.label = o.legend = false;
+    Image im;
+    if (!wait(exportPng(file("map.png"), o), "map as PNG, 1x") || !readImage(file("map.png"), im))
+        return "the PNG export failed";
+    if (im.w != 400 || im.h != 300 || im.bands != 3) return "the PNG should be 400 x 300, RGB";
+    size_t diff = 0;
+    for (size_t i = 0; i < size_t(im.w) * im.h; ++i)
+        for (int k = 0; k < 3; ++k) diff += im.px[i * 3 + k] != screen[i * 4 + k];
+    if (diff) return "the PNG should hold the map's pixels";
+
+    // 2x with label, legend and pins: rendered at 800 x 600 (not enlarged), marks over it.
+    o.scale = 2;
+    o.label = o.legend = o.marks = true;
+    std::vector<unsigned char> hi;
+    int hw = 0, hh = 0;
+    renderExport(2, false, nullptr, hi, hw, hh);
+    if (!wait(exportPng(file("map2x.png"), o), "map as PNG, 2x, label, legend, pins") ||
+        !readImage(file("map2x.png"), im))
+        return "the 2x PNG export failed";
+    if (im.w != 800 || im.h != 600 || hw != 800 || hh != 600) return "the 2x PNG should be 800 x 600";
+    auto same = [&](int x, int y) {
+        const size_t i = size_t(y) * im.w + x;
+        return im.px[i * 3] == hi[i * 4] && im.px[i * 3 + 1] == hi[i * 4 + 1] && im.px[i * 3 + 2] == hi[i * 4 + 2];
+    };
+    if (!same(600, 150)) return "the 2x PNG should hold the 2x render away from the marks";
+    if (same(24, 20)) return "the 2x PNG should have the label";
+    if (same(30, 600 - 30)) return "the 2x PNG should have the legend";
+
+    // Transparent background: alpha 0 exactly where the map shows its background.
+    o = PngOptions{};
+    o.background = 2;
+    o.label = o.legend = false;
+    if (!wait(exportPng(file("map_alpha.png"), o), "map as PNG, transparent") || !readImage(file("map_alpha.png"), im))
+        return "the transparent PNG export failed";
+    if (im.bands != 4) return "the transparent PNG should be RGBA";
+    size_t clear = 0, opaque = 0;
+    const unsigned char* bg = nullptr;
+    for (size_t i = 0; i < size_t(im.w) * im.h; ++i) {
+        const unsigned char* p = &im.px[i * 4];
+        const unsigned char* s = &screen[i * 4];
+        if (p[3] == 0) {
+            if (!bg) bg = s;
+            if (std::memcmp(bg, s, 3) != 0) return "transparent pixels should be the map's background";
+            ++clear;
+        } else if (p[3] == 255) {
+            if (std::memcmp(p, s, 3) != 0) return "opaque pixels should keep the map's colours";
+            ++opaque;
+        } else {
+            return "opaque layers should give alpha 0 or 255";
+        }
+    }
+    std::printf("      %zu transparent, %zu opaque pixels\n", clear, opaque);
+    if (!clear || !opaque) return "the transparent PNG should have both";
+
+    // Values of the active layer (B) at the date: whole image, then the visible area zoomed in.
+    const CubeInfo& info = *s_->info;
+    int win[4] = {0, 0, info.width, info.height};
+    if (!wait(exportValues(file("values.tif"), true), "values as GeoTIFF, whole image")) return "the values export failed";
+    if (const char* e = checkValues(file("values.tif"), win)) return e;
+    offset_ = ImVec2(200 - (200 - offset_.x) * 4, 150 - (150 - offset_.y) * 4); // zoom x4 around the centre
+    scale_ *= 4;
+    if (!visibleWindow(win)) return "the zoomed view should show part of the layer";
+    if (!wait(exportValues(file("visible.tif"), false), "values as GeoTIFF, visible area")) return "the values export failed";
+    if (const char* e = checkValues(file("visible.tif"), win)) return e;
+    if (win[2] - win[0] >= info.width) return "the visible area should be smaller than the image";
+    fitView(canvasSize_);
+
+    // Rendered view: RGBA as shown, on a grid derived from the view.
+    if (!wait(exportView(file("view.tif"), 1), "rendered view as GeoTIFF, 1x") || !readImage(file("view.tif"), im))
+        return "the view export failed";
+    if (im.w != 400 || im.h != 300 || im.bands != 4) return "the view GeoTIFF should be 400 x 300, RGBA";
+    for (size_t i = 0; i < size_t(im.w) * im.h; ++i)
+        if (im.px[i * 4 + 3] == 255 && std::memcmp(&im.px[i * 4], &screen[i * 4], 3) != 0)
+            return "the view GeoTIFF should hold the map's colours";
+    double gx = 0, gy = 0;
+    info.pixelToGeo((200.5 - offset_.x) / scale_, (150.5 - offset_.y) / scale_, gx, gy);
+    const double vx = im.gt[0] + 200.5 * im.gt[1] + 150.5 * im.gt[2], vy = im.gt[3] + 200.5 * im.gt[4] + 150.5 * im.gt[5];
+    std::printf("      view pixel %.4f (layer pixel / zoom), centre at %.3f %.3f (layer: %.3f %.3f)\n", im.gt[1], vx, vy,
+                gx, gy);
+    if (std::fabs(vx - gx) > 1e-6 * std::max(1.0, std::fabs(gx)) || std::fabs(vy - gy) > 1e-6 * std::max(1.0, std::fabs(gy)))
+        return "the view GeoTIFF should be georeferenced like the map";
+
+    // A Zeit result is a GeoTIFF already: saved as a copy.
+    ResultLayer r;
+    r.name = "Test result";
+    r.path = layers_[0].session->info->layers[0].path;
+    if (!wait(exportResult(r, file("result.tif")), "result as GeoTIFF (copy)")) return "the result export failed";
+    if (fs::file_size(fs::u8path(r.path), ec) != fs::file_size(fs::u8path(file("result.tif")), ec))
+        return "the saved result should be a copy of the file";
+
+    exports_.clear();
+    showExports_ = false;
+    mapDirty_ = true;
+    return nullptr;
 }

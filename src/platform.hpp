@@ -19,6 +19,11 @@ std::string cacheDir();                       // regenerable data: appDataDir()/
 
 std::vector<std::string> openFilesDialog();   // empty if cancelled
 std::string openFolderDialog();               // empty if cancelled
+// Asks where to save a file: `ext` without the dot (e.g. "png"), added when the
+// name typed has another one; `folder` = where the dialog starts (may be empty).
+// The OS dialog confirms overwriting. Empty if cancelled.
+std::string saveFileDialog(const std::string& title, const std::string& defaultName, const std::string& filterName,
+                           const std::string& ext, const std::string& folder);
 void openInExplorer(const std::string& path); // folder or file, with the default app
 std::string getEnv(const char* name);         // UTF-8, empty if unset
 std::vector<std::string> rootFolders();      // drives (C:\, D:\...) and the user's home
