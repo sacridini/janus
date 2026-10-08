@@ -251,6 +251,10 @@ termina.
   PROJ (3508 pixels, diferença 0), prévia no tile que falta, por baixo das
   camadas, opacidade, painéis, cortina, exportação; nenhum dataset WMS aberto
   com "None".
+- CI: o teste da maior queda (fase 12) falhou uma vez no Linux (Xvfb + Mesa)
+  com "drop magnitude differs from the CPU" e passou ao rodar de novo; não
+  reproduziu no WSL (GPU e llvmpipe, 6 rodadas) nem no Windows. Causa não
+  achada: o teste agora imprime o pixel, os dois valores e a série se falhar.
 
 ### 0.22.0 — Fase 9: reprojeção e ROI em todas as camadas
 - Camadas com outro CRS ou com grade rotacionada passam a ser desenhadas no

@@ -84,7 +84,13 @@ int App::selfTestStep(const std::vector<std::string>& in) {
             if (std::isnan(mag) != std::isnan(gMag) || (at < 0) != std::isnan(gAt)) return "drop: NaN where the CPU has none";
             if (std::isnan(mag)) continue;
             maxErr = std::max(maxErr, std::fabs(mag - gMag));
-            if (std::fabs(mag - gMag) > 1e-5) return "drop magnitude differs from the CPU";
+            if (std::fabs(mag - gMag) > 1e-5) {
+                std::printf("    pixel %zu (%d, %d): CPU %.7g at %d, GPU %.7g at %g; series:", p, int(p % ov.w),
+                            int(p / ov.w), mag, at, gMag, gAt);
+                for (int t = 0; t < T; ++t) std::printf(" %.7g", v[t]);
+                std::printf("\n");
+                return "drop magnitude differs from the CPU";
+            }
             if (at >= 0 && int(gAt) != at) {
                 if (++ties > 3) return "drop date differs from the CPU"; // only a near tie may differ
                 continue;
