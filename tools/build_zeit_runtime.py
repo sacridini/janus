@@ -8,7 +8,7 @@ The result is a self-contained folder (no installer, no registry, not on PATH):
                                   site-packages in python/sp (short: path limit)
                                 Linux / macOS: python-build-standalone
                                   ("install_only"), python/bin/python3
-      janus_zeit_bridge.py      the bridge and tool_*.py (copied from zeit_bridge/)
+      janus_zeit_bridge.py      the bridge, zeit_common.py and tool_*.py (copied from zeit_bridge/)
       runtime.json            versions, for diagnostics
 
 Usage (any Python >= 3.9 with pip, used only to download wheels for the

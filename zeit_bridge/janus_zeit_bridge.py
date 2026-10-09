@@ -30,7 +30,12 @@ A `tool_*.py` module defines `TOOLS`, a list of dicts:
 
     {"manifest": {...},                       # sent to Janus as is (see below)
      "pixel": pixel(p, ctx) -> dict,          # optional (manifest "modes": ["pixel", ...])
-     "chunk": chunk(p, stack, ctx) -> dict}   # optional (manifest "modes": [..., "raster"])
+     "chunk": chunk(p, stack, ctx) -> dict,   # optional (manifest "modes": [..., "raster"])
+     "warmup": warmup()}                      # optional: compiles what the first run would
+                                              # (e.g. numba kernels), in the background after hello
+
+zeit_common.py, shared by the tools, turns Janus's series and chunks into the
+inputs of Zeit's API (dated xarray cubes) and its results back into arrays.
 
 - `p`: parameter values (defaults filled in), keyed by parameter id.
 - `ctx`: {"years": decimal year of each date, "per_year": observations per year
@@ -82,6 +87,7 @@ import json
 import math
 import os
 import sys
+import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -461,8 +467,19 @@ def estimate(entry, p, spec):
 # Entry points
 # ---------------------------------------------------------------------------
 
+def warm_up():
+    """Runs the tools' warmup hooks (one at a time, errors only logged)."""
+    for entry in tools().values():
+        if entry.get("warmup"):
+            try:
+                entry["warmup"]()
+            except Exception:
+                traceback.print_exc()
+
+
 def serve():
     send({"event": "starting", "protocol": PROTOCOL})
+    warming = None
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -475,6 +492,9 @@ def serve():
             params = req.get("params") or {}
             if method == "hello":
                 send({"id": req_id, "result": manifest()})
+                if warming is None:  # while Janus is idle: the first pixel run does not wait
+                    warming = threading.Thread(target=warm_up, name="warmup", daemon=True)
+                    warming.start()
             elif method == "run_pixel":
                 entry = tools()[params["tool"]]
                 p = defaults(entry["manifest"], params.get("params"))

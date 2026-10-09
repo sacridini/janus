@@ -10,6 +10,8 @@ numba==0.68.0
 llvmlite==0.50.0
 dask==2026.8.0
 xarray==2026.9.0
+rioxarray==0.23.0
+pyproj==3.8.0
 click==8.5.0
 cloudpickle==3.1.2
 fsspec==2026.9.0

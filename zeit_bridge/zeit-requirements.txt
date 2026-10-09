@@ -1,2 +1,2 @@
 # Zeit version bundled with Janus (installed with --no-deps; see requirements.txt).
-zeit-cdts==0.25.0
+zeit-cdts==0.52.1

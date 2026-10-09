@@ -1,5 +1,8 @@
-"""LandTrendr (Zeit) for Janus: per-pixel segmentation and change-event maps."""
+"""LandTrendr (zeit.landtrendr) for Janus: per-pixel segmentation and change-event maps
+(zeit.extract_events). The years are those of the series' dates."""
 import numpy as np
+
+import zeit_common as zc
 
 MANIFEST = {
     "id": "landtrendr",
@@ -14,7 +17,7 @@ MANIFEST = {
     "params": [
         {"id": "event_type", "label": "Event", "type": "enum", "default": "loss",
          "options": ["loss", "gain"], "labels": ["Loss (index drop)", "Gain (index rise)"],
-         "help": "Direction of change of interest. Orients the segmentation (Zeit's modifier) "
+         "help": "Direction of change of interest. Orients the segmentation (Zeit's direction) "
                  "and selects which segments become events."},
         {"id": "max_segments", "label": "Max segments", "type": "int", "default": 6, "min": 1, "max": 10,
          "help": "Maximum number of segments in the fitted trajectory."},
@@ -57,6 +60,7 @@ MANIFEST = {
 
 def _kwargs(p):
     return dict(
+        direction=p["event_type"],
         max_segments=int(p["max_segments"]),
         pval_threshold=float(p["pval_threshold"]),
         recovery_threshold=float(p["recovery_threshold"]),
@@ -64,42 +68,44 @@ def _kwargs(p):
         best_model_proportion=float(p["best_model_proportion"]),
         vertex_count_overshoot=int(p["vertex_count_overshoot"]),
         min_observations_needed=int(p["min_observations_needed"]),
-        modifier=-1.0 if p["event_type"] == "loss" else 1.0,
     )
 
 
-def pixel(p, ctx):
-    from zeit.landtrendr import run_landtrendr
+def _run(p, stack, ctx):
+    """zeit.landtrendr and zeit.extract_events on a [T, rows, cols] chunk: (vertices, events)."""
+    import zeit
+    lt = zeit.landtrendr(zc.cube(stack, ctx), nodata=None, n_jobs=ctx.get("n_jobs", -1), **_kwargs(p))
+    events = zeit.extract_events(lt, event_type=p["event_type"], sort_by=p["sort_by"],
+                                 min_magnitude=float(p["min_magnitude"]), min_duration=int(p["min_duration"]),
+                                 pre_val_threshold=float(p["pre_val_threshold"]))
+    return lt, events
 
-    years = [int(round(y)) for y in ctx["years"]]
+
+def pixel(p, ctx):
     vals = np.array(ctx["values"], dtype=np.float64)
     if np.isfinite(vals).sum() < 2:
         return {"overlays": [], "rows": [["Vertices", "-"]]}
-    vertices = run_landtrendr(years, vals, **_kwargs(p))
-    vx = [float(v["year"]) for v in vertices]
-    vy = [float(v["value"]) if np.isfinite(v["value"]) else None for v in vertices]
+    lt, ev = _run(p, zc.pixel_stack(ctx), ctx)
+    n = int(lt["n_vertices"].values[0, 0])
+    vyears = lt["vertex_year"].values[:n, 0, 0].astype(int)
+    vvals = lt["vertex_value"].values[:n, 0, 0].astype(np.float64)
+    vx = [float(y) for y in vyears]
+    vy = [float(v) if np.isfinite(v) else None for v in vvals]
 
-    # Segments as events, in the direction of interest.
+    # Segments in the direction of interest (the event the maps would show is below).
     loss = p["event_type"] == "loss"
-    events = []
-    for a, b in zip(vertices[:-1], vertices[1:]):
-        dur = b["year"] - a["year"]
-        if dur <= 0:
-            continue
-        mag = (a["value"] - b["value"]) if loss else (b["value"] - a["value"])
-        if mag > 0:
-            events.append((mag, a["year"], b["year"], a["value"], b["value"]))
-    events.sort(reverse=True)
-
-    rows = [["Vertices", str(len(vertices))], ["Segments", str(max(0, len(vertices) - 1))]]
-    if events:
-        mag, y0, y1, v0, v1 = events[0]
-        rows += [[f"Greatest {p['event_type']}", f"{mag:.5g} ({y0}-{y1})"],
-                 ["  pre / post", f"{v0:.5g} / {v1:.5g}"],
-                 ["  rate", f"{mag / (y1 - y0):.5g}/yr"],
-                 [f"{p['event_type'].capitalize()} events", str(len(events))]]
+    n_events = sum(1 for a, b in zip(vvals[:-1], vvals[1:]) if ((a - b) if loss else (b - a)) > 0)
+    rows = [["Vertices", str(n)], ["Segments", str(max(0, n - 1))],
+            [f"{p['event_type'].capitalize()} segments", str(n_events)]]
+    e = {k: zc.grid(ev, k)[0, 0] for k in ("yod", "magnitude", "duration", "pre_val", "post_val", "rate", "dsnr")}
+    if e["yod"] > 0:
+        y0, dur = int(e["yod"]), int(e["duration"])
+        rows += [[f"Mapped event ({p['sort_by']})", f"{e['magnitude']:.5g} ({y0}-{y0 + dur})"],
+                 ["  pre / post", f"{e['pre_val']:.5g} / {e['post_val']:.5g}"],
+                 ["  rate", f"{e['rate']:.5g}/yr"],
+                 ["  DSNR", f"{e['dsnr']:.4g}" if np.isfinite(e["dsnr"]) else "-"]]
     else:
-        rows += [[f"{p['event_type'].capitalize()} events", "0"]]
+        rows += [["Mapped event", "none"]]
     return {
         "overlays": [
             {"type": "line", "label": "LandTrendr fit", "x": vx, "y": vy},
@@ -110,22 +116,25 @@ def pixel(p, ctx):
 
 
 def chunk(p, stack, ctx):
-    from zeit.metrics import extract_events
-    from zeit.raster import run_landtrendr_array
-
-    years = np.array([int(round(y)) for y in ctx["years"]], dtype=np.int32)
-    vertices, rmse = run_landtrendr_array(years, stack, no_data_value=-1e30, return_rmse=True,
-                                          n_jobs=ctx.get("n_jobs", -1), **_kwargs(p))
-    events = extract_events(vertices, event_type=p["event_type"], sort_by=p["sort_by"],
-                            min_magnitude=float(p["min_magnitude"]), min_duration=int(p["min_duration"]),
-                            pre_val_threshold=float(p["pre_val_threshold"]), rmse_map=rmse)
-    none = events["yod"] == 0  # no event in this pixel
+    _, events = _run(p, stack, ctx)
+    none = events["yod"].values == 0  # no event in this pixel
     out = {}
     for o in MANIFEST["outputs"]:
-        a = events[o["id"]].astype(np.float32)
+        a = zc.grid(events, o["id"])
         a[none] = np.nan
         out[o["id"]] = a
-    return out
+    return zc.chunk_outputs(out, stack.shape[1:])
 
 
-TOOLS = [{"manifest": MANIFEST, "pixel": pixel, "chunk": chunk}]
+def warmup():
+    """A pixel run on a made-up series: compiles zeit.extract_events' numba kernel
+    (a few seconds, once per process) before the first real one."""
+    p = {q["id"]: q["default"] for q in MANIFEST["params"]}
+    years = list(range(2000, 2012))
+    days = (np.array([f"{y}-07-01" for y in years], dtype="datetime64[D]").astype(np.int64)
+            + zc.UNIX_EPOCH_ORDINAL)
+    pixel(p, {"years": years, "ordinal": [int(d) for d in days], "n_jobs": 1,
+              "values": [0.8] * 6 + [0.4] * 6})
+
+
+TOOLS = [{"manifest": MANIFEST, "pixel": pixel, "chunk": chunk, "warmup": warmup}]

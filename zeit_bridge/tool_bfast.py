@@ -1,13 +1,17 @@
-"""BFAST family (Zeit) for Janus: classic BFAST, BFAST Lite and BFAST Monitor.
+"""BFAST family for Janus: classic BFAST (zeit.bfast), BFAST Lite (zeit.bfast_lite)
+and BFAST Monitor (zeit.bfast_monitor).
 
-All three fit trend + harmonic models on a regular series, so time is the
-synthetic `start + i / per_year` grid of R's `ts` (Zeit's convention). Break
-indices returned by Zeit are positions in the full series; they are mapped
-back to the real dates in ctx["years"] for display and for the output maps.
+All three fit trend + harmonic models on a regular series (Zeit puts it on the
+regular time axis of R's `ts`, from the dates). A break's date is the date of
+the first observation after it and its magnitude the model after the break
+minus the model before it on that date (Zeit's convention, as in
+zeit.extract_events).
 """
 import math
 
 import numpy as np
+
+import zeit_common as zc
 
 _ORDER = {"id": "order", "label": "Harmonic order", "type": "int", "default": 3, "min": 1, "max": 6,
           "help": "Number of sine/cosine pairs in the seasonal model (capped at observations per year)."}
@@ -56,8 +60,8 @@ BFAST_LITE = {
     "description": (
         "Single-pass multiple-break detection (Masiliunas et al. 2021), as implemented in Zeit. "
         "Fits one segmented trend + harmonic model and picks the number of breaks by LWZ. "
-        "Faster than classic BFAST. Magnitude = difference of the mean value after and before "
-        "the break (segment means)."),
+        "Faster than classic BFAST. Magnitude = the model after the break minus the model before "
+        "it, on the first observation after the break."),
     "requires": dict(_REQUIRES, min_dates=20),
     "modes": ["pixel", "raster"],
     "params": [
@@ -120,91 +124,54 @@ BFAST_MONITOR = {
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _fmt_year(y):
-    """Decimal year -> 'YYYY-MM' (approximate, for the info rows)."""
-    yr = int(math.floor(y + 1e-9))
-    month = min(12, int((y - yr) * 12 + 1e-6) + 1)
-    return f"{yr}-{month:02d}"
-
-
-def _years_at(years, idx):
-    """Dates for break indices (into the full series); NaN/out of range -> NaN."""
-    years = np.asarray(years, dtype=np.float64)
-    idx = np.asarray(idx, dtype=np.float64)
-    out = np.full(idx.shape, np.nan)
-    ok = np.isfinite(idx) & (idx >= 0) & (idx <= len(years) - 1)
-    out[ok] = years[idx[ok].astype(np.int64)]
-    return out
-
-
-def _break_indices(vals):
-    """Finite break indices of one pixel, as sorted ints."""
-    return sorted(int(v) for v in vals if np.isfinite(v))
-
-
-def _values_2d(stack):
-    """[T, rows, cols] -> contiguous [pixels, T] float64."""
-    T = stack.shape[0]
-    return np.ascontiguousarray(stack.reshape(T, -1).T, dtype=np.float64)
-
-
-def _segment_jumps(values, breaks):
-    """Jump at each break = mean(next segment) - mean(previous segment).
-
-    values: [P, T] (NaN = missing); breaks: [P, K] break indices (last index
-    of the segment before the break), NaN-padded and ascending. Returns [P, K]
-    (NaN where there is no break or a segment has no valid value).
-    """
-    P, T = values.shape
-    K = breaks.shape[1]
-    ok = np.isfinite(values)
-    S = np.zeros((P, T + 1))
-    C = np.zeros((P, T + 1))
-    np.cumsum(np.where(ok, values, 0.0), axis=1, out=S[:, 1:])
-    np.cumsum(ok, axis=1, out=C[:, 1:])
-    rows = np.arange(P)
-
-    def seg_mean(a, b):  # inclusive [a, b] per pixel
-        s = S[rows, b + 1] - S[rows, a]
-        c = C[rows, b + 1] - C[rows, a]
-        with np.errstate(invalid="ignore", divide="ignore"):
-            return np.where(c > 0, s / np.maximum(c, 1), np.nan)
-
-    has = np.isfinite(breaks)
-    bi = np.where(has, breaks, 0).astype(np.int64)
-    bi = np.clip(bi, 0, T - 2)
-    jumps = np.full((P, K), np.nan)
-    for k in range(K):
-        prev_end = bi[:, k - 1] if k > 0 else np.full(P, -1)
-        nxt = bi[:, k + 1] if k + 1 < K else np.full(P, T - 1)
-        nxt = np.where(has[:, k + 1], nxt, T - 1) if k + 1 < K else nxt
-        left = seg_mean(prev_end + 1, bi[:, k])
-        right = seg_mean(bi[:, k] + 1, nxt)
-        jumps[:, k] = np.where(has[:, k], right - left, np.nan)
-    return jumps
-
-
 def _not_enough(name, n_valid, need):
     return {"overlays": [], "rows": [[name, f"not enough data ({n_valid} valid, need {need})"]]}
+
+
+def _stack(ds, prefix, n):
+    """Variables prefix1..prefixn of a result -> [n, rows, cols] (dates as decimal years)."""
+    return np.stack([zc.grid(ds, f"{prefix}{k}") for k in range(1, n + 1)])
+
+
+def _largest(mags, dates):
+    """Date and (signed) magnitude of the largest jump per pixel: mags, dates [K, rows, cols]."""
+    score = np.where(np.isfinite(mags) & np.isfinite(dates), np.abs(mags), -1.0)
+    k = np.argmax(score, axis=0)[None]
+    has = np.take_along_axis(score, k, axis=0)[0] >= 0
+    return (np.where(has, np.take_along_axis(dates, k, axis=0)[0], np.nan),
+            np.where(has, np.take_along_axis(mags, k, axis=0)[0], np.nan))
+
+
+def _first_after(vals, years, idx):
+    """Date of the first valid observation after index idx (the last one before a break)."""
+    for t in range(int(idx) + 1, len(vals)):
+        if np.isfinite(vals[t]):
+            return float(years[t])
+    return float("nan")
 
 
 # ---------------------------------------------------------------------------
 # BFAST (classic)
 # ---------------------------------------------------------------------------
 
-def _bfast_batch(p, values, ctx, n_jobs):
-    from zeit._core.bfast import fit_bfast_batch
-    return fit_bfast_batch(values, float(ctx["start"]), int(ctx["per_year"]), order=int(p["order"]),
-                           h=float(p["h"]), max_breaks_trend=int(p["max_breaks_trend"]),
-                           max_breaks_season=int(p["max_breaks_season"]), max_iter=int(p["max_iter"]),
-                           level=float(p["level"]), min_valid=int(p["min_valid"]), n_jobs=n_jobs)
+def _bfast(p, stack, ctx):
+    import zeit
+    return zeit.bfast(zc.cube(stack, ctx), order=int(p["order"]), h=float(p["h"]),
+                      max_breaks_trend=int(p["max_breaks_trend"]), max_breaks_season=int(p["max_breaks_season"]),
+                      max_iter=int(p["max_iter"]), level=float(p["level"]), min_valid=int(p["min_valid"]),
+                      nodata=None, n_jobs=ctx.get("n_jobs", -1))
 
 
-def _bfast_largest(out, ctx):
-    """(date, magnitude) of the largest trend jump; date from Zeit's synthetic time."""
-    t = out[3]
-    row = np.where(np.isfinite(t), np.round((t - ctx["start"]) * ctx["per_year"]), np.nan)
-    return _years_at(ctx["years"], row), out[2]
+def _bfast_maps(p, ds):
+    K = int(p["max_breaks_trend"])
+    date, mag = _largest(_stack(ds, "trend_magnitude_", K), _stack(ds, "trend_break_date_", K))
+    valid = zc.grid(ds, "valid") == 1.0
+    return {
+        "n_trend_breaks": np.where(valid, zc.grid(ds, "n_trend_breaks"), np.nan),
+        "n_season_breaks": np.where(valid, zc.grid(ds, "n_season_breaks"), np.nan),
+        "break_date": np.where(valid, date, np.nan),
+        "magnitude": np.where(valid, mag, np.nan),
+    }
 
 
 def bfast_pixel(p, ctx):
@@ -213,23 +180,25 @@ def bfast_pixel(p, ctx):
     need = max(int(p["min_valid"]), 2 * ctx["per_year"] + 1)
     if n_valid < need or len(vals) <= 2 * ctx["per_year"]:
         return _not_enough("BFAST", n_valid, need)
-    out = _bfast_batch(p, vals[None, :], ctx, 1)[:, 0]
-    if out[6] != 1.0:
+    ds = _bfast(p, zc.pixel_stack(ctx), ctx)
+    if zc.grid(ds, "valid")[0, 0] != 1.0:
         return _not_enough("BFAST", n_valid, need)
-    mbt = int(p["max_breaks_trend"])
-    trend = _break_indices(out[7:7 + mbt])
-    season = _break_indices(out[7 + mbt:])
-    years = ctx["years"]
-    tx = [float(years[i]) for i in trend]
-    sx = [float(years[i]) for i in season]
-    date, mag = _bfast_largest(out[:, None], ctx)
-    rows = [["Trend breaks", str(len(trend))],
-            ["  dates", ", ".join(_fmt_year(x) for x in tx) or "-"],
-            ["Season breaks", str(len(season))],
-            ["  dates", ", ".join(_fmt_year(x) for x in sx) or "-"]]
-    if trend and np.isfinite(date[0]):
-        rows.append(["Largest trend jump", f"{float(mag[0]):.5g} at {_fmt_year(float(date[0]))}"])
-    rows.append(["Iterations", str(int(out[4]))])
+    K, Ks = int(p["max_breaks_trend"]), int(p["max_breaks_season"])
+    trend = sorted((float(x), float(j)) for x, j in zip(_stack(ds, "trend_break_date_", K)[:, 0, 0],
+                                                        _stack(ds, "trend_magnitude_", K)[:, 0, 0])
+                   if np.isfinite(x))
+    tx = [x for x, _ in trend]
+    sidx = _stack(ds, "season_breakpoint_idx_", Ks)[:, 0, 0]
+    sx = sorted(x for x in (_first_after(vals, ctx["years"], i) for i in sidx if np.isfinite(i)) if np.isfinite(x))
+    rows = [["Trend breaks", str(len(tx))]]
+    for x, j in trend:
+        rows.append([f"  {zc.fmt_year(x)}", f"jump {j:.5g}" if np.isfinite(j) else "-"])
+    rows += [["Season breaks", str(len(sx))],
+             ["  dates", ", ".join(zc.fmt_year(x) for x in sx) or "-"]]
+    m = _bfast_maps(p, ds)
+    if np.isfinite(m["break_date"][0, 0]):
+        rows.append(["Largest trend jump", f"{m['magnitude'][0, 0]:.5g} at {zc.fmt_year(m['break_date'][0, 0])}"])
+    rows.append(["Iterations", str(int(zc.grid(ds, "n_iter")[0, 0]))])
     overlays = []
     if tx:
         overlays.append({"type": "vlines", "label": "BFAST trend breaks", "x": tx})
@@ -239,29 +208,33 @@ def bfast_pixel(p, ctx):
 
 
 def bfast_chunk(p, stack, ctx):
-    _, h, w = stack.shape
-    out = _bfast_batch(p, _values_2d(stack), ctx, ctx.get("n_jobs", -1))
-    valid = out[6] == 1.0
-    date, mag = _bfast_largest(out, ctx)
-    has = np.isfinite(date)
-    res = {
-        "n_trend_breaks": np.where(valid, out[0], np.nan),
-        "n_season_breaks": np.where(valid, out[1], np.nan),
-        "break_date": np.where(valid & has, date, np.nan),
-        "magnitude": np.where(valid & has, mag, np.nan),
-    }
-    return {k: v.reshape(h, w).astype(np.float32) for k, v in res.items()}
+    return zc.chunk_outputs(_bfast_maps(p, _bfast(p, stack, ctx)), stack.shape[1:])
 
 
 # ---------------------------------------------------------------------------
 # BFAST Lite
 # ---------------------------------------------------------------------------
 
-def _lite_batch(p, values, ctx, n_jobs):
-    from zeit._core.bfastlite import fit_bfast_lite_batch
-    return fit_bfast_lite_batch(values, float(ctx["start"]), int(ctx["per_year"]), order=int(p["order"]),
-                                h=float(p["h"]), max_breaks_output=int(p["max_breaks"]),
-                                min_valid=int(p["min_valid"]), n_jobs=n_jobs)
+def _lite(p, stack, ctx):
+    import zeit
+    return zeit.bfast_lite(zc.cube(stack, ctx), order=int(p["order"]), h=float(p["h"]),
+                           max_breaks=int(p["max_breaks"]), min_valid=int(p["min_valid"]), nodata=None,
+                           n_jobs=ctx.get("n_jobs", -1))
+
+
+def _lite_maps(p, ds):
+    K = int(p["max_breaks"])
+    dates = _stack(ds, "break_date_", K)
+    date, mag = _largest(_stack(ds, "magnitude_", K), dates)
+    has = np.isfinite(dates).any(axis=0)
+    first = np.where(has, np.min(np.where(np.isfinite(dates), dates, np.inf), axis=0), np.nan)
+    valid = zc.grid(ds, "valid") == 1.0
+    return {
+        "n_breaks": np.where(valid, zc.grid(ds, "n_breaks"), np.nan),
+        "break_date": np.where(valid, date, np.nan),
+        "magnitude": np.where(valid, mag, np.nan),
+        "first_break": np.where(valid, first, np.nan),
+    }
 
 
 def lite_pixel(p, ctx):
@@ -270,41 +243,24 @@ def lite_pixel(p, ctx):
     need = int(p["min_valid"])
     if n_valid < need:
         return _not_enough("BFAST Lite", n_valid, need)
-    out = _lite_batch(p, vals[None, :], ctx, 1)
-    if out[4, 0] != 1.0:
+    ds = _lite(p, zc.pixel_stack(ctx), ctx)
+    if zc.grid(ds, "valid")[0, 0] != 1.0:
         return _not_enough("BFAST Lite", n_valid, need)
-    idx = _break_indices(out[5:, 0])
-    years = ctx["years"]
-    bx = [float(years[i]) for i in idx]
-    rows = [["Breaks", str(len(idx))]]
-    if idx:
-        jumps = _segment_jumps(vals[None, :], np.array([idx], dtype=np.float64))[0]
-        for x, j in zip(bx, jumps):
-            rows.append([f"  {_fmt_year(x)}", f"jump {j:.5g}" if np.isfinite(j) else "-"])
-    rows += [["LWZ", f"{float(out[2, 0]):.5g}"], ["Valid observations", str(n_valid)]]
+    K = int(p["max_breaks"])
+    breaks = sorted((float(x), float(j)) for x, j in zip(_stack(ds, "break_date_", K)[:, 0, 0],
+                                                         _stack(ds, "magnitude_", K)[:, 0, 0])
+                    if np.isfinite(x))
+    rows = [["Breaks", str(len(breaks))]]
+    for x, j in breaks:
+        rows.append([f"  {zc.fmt_year(x)}", f"jump {j:.5g}" if np.isfinite(j) else "-"])
+    rows += [["LWZ", f"{zc.grid(ds, 'lwz')[0, 0]:.5g}"], ["Valid observations", str(n_valid)]]
+    bx = [x for x, _ in breaks]
     overlays = [{"type": "vlines", "label": "BFAST Lite breaks", "x": bx}] if bx else []
     return {"overlays": overlays, "rows": rows}
 
 
 def lite_chunk(p, stack, ctx):
-    _, h, w = stack.shape
-    values = _values_2d(stack)
-    out = _lite_batch(p, values, ctx, ctx.get("n_jobs", -1))
-    valid = out[4] == 1.0
-    breaks = np.sort(out[5:].T, axis=1)  # [P, K], NaN last
-    P = breaks.shape[0]
-    jumps = _segment_jumps(values, breaks)
-    absj = np.where(np.isfinite(jumps), np.abs(jumps), -1.0)
-    k = np.argmax(absj, axis=1)
-    rows = np.arange(P)
-    has = absj[rows, k] >= 0
-    res = {
-        "n_breaks": np.where(valid, out[0], np.nan),
-        "break_date": np.where(valid & has, _years_at(ctx["years"], breaks[rows, k]), np.nan),
-        "magnitude": np.where(valid & has, jumps[rows, k], np.nan),
-        "first_break": np.where(valid, _years_at(ctx["years"], breaks[:, 0]), np.nan),
-    }
-    return {k: v.reshape(h, w).astype(np.float32) for k, v in res.items()}
+    return zc.chunk_outputs(_lite_maps(p, _lite(p, stack, ctx)), stack.shape[1:])
 
 
 # ---------------------------------------------------------------------------
@@ -324,53 +280,55 @@ def _monitor_index(p, ctx):
     return min(max(i, 1), max(1, T - int(ctx["per_year"])))
 
 
-def _monitor_batch(p, values, ctx, n_jobs):
-    from zeit._core.bfastmonitor import fit_bfast_monitor_batch
+def _monitor(p, stack, ctx):
+    import zeit
     i = _monitor_index(p, ctx)
-    # Zeit splits history/monitoring on its synthetic time grid; put the split
-    # halfway between observations i-1 and i so rounding cannot move it.
-    synth = float(ctx["start"]) + (i - 0.5) / int(ctx["per_year"])
-    out = fit_bfast_monitor_batch(values, float(ctx["start"]), synth, int(ctx["per_year"]),
-                                  order=int(p["order"]), h=float(p["h"]), period=int(float(p["period"])),
-                                  alpha=float(p["alpha"]), min_valid=int(p["min_valid"]), n_jobs=n_jobs)
-    return out, i
+    # History = observations before i: on a regular time axis that starts at the
+    # first date with one step per observation, the monitoring starts halfway
+    # between observations i-1 and i, so rounding cannot move it.
+    start, freq = float(ctx["start"]), int(ctx["per_year"])
+    ds = zeit.bfast_monitor(zc.cube(stack, ctx), start + (i - 0.5) / freq, start_time=start, frequency=freq,
+                            order=int(p["order"]), h=float(p["h"]), period=int(float(p["period"])),
+                            alpha=float(p["alpha"]), min_valid=int(p["min_valid"]), nodata=None,
+                            n_jobs=ctx.get("n_jobs", -1))
+    return ds, i
+
+
+def _monitor_maps(ds):
+    valid = zc.grid(ds, "valid") == 1.0
+    has = zc.grid(ds, "has_break")
+    return {
+        "break_date": np.where(valid & (has == 1.0), zc.grid(ds, "break_date"), np.nan),
+        "magnitude": np.where(valid, zc.grid(ds, "magnitude"), np.nan),
+        "has_break": np.where(valid, has, np.nan),
+    }
 
 
 def monitor_pixel(p, ctx):
-    vals = np.array(ctx["values"], dtype=np.float64)
-    out, i = _monitor_batch(p, vals[None, :], ctx, 1)
-    out = out[:, 0]
-    years = ctx["years"]
-    start_x = float(years[i])
-    n_hist = int(np.isfinite(vals[:i]).sum())
+    ds, i = _monitor(p, zc.pixel_stack(ctx), ctx)
+    start_x = float(ctx["years"][i])
+    n_hist = int(np.isfinite(np.asarray(ctx["values"], dtype=np.float64)[:i]).sum())
     overlays = [{"type": "vlines", "label": "Monitoring start", "x": [start_x]}]
-    rows = [["Monitoring from", _fmt_year(start_x)], ["History obs.", str(n_hist)]]
-    if out[6] != 1.0:
+    rows = [["Monitoring from", zc.fmt_year(start_x)], ["History obs.", str(n_hist)]]
+    if zc.grid(ds, "valid")[0, 0] != 1.0:
         rows.append(["BFAST Monitor", f"not enough history data (need {int(p['min_valid'])} valid "
                                       f"and more than the model terms)"])
         return {"overlays": overlays, "rows": rows}
-    date = _years_at(years, out[1:2])[0]
-    if out[5] == 1.0 and np.isfinite(date):
-        overlays.append({"type": "vlines", "label": "BFAST Monitor break", "x": [float(date)]})
-        rows.append(["Break", _fmt_year(float(date))])
+    m = {k: v[0, 0] for k, v in _monitor_maps(ds).items()}
+    if np.isfinite(m["break_date"]):
+        overlays.append({"type": "vlines", "label": "BFAST Monitor break", "x": [float(m["break_date"])]})
+        rows.append(["Break", zc.fmt_year(float(m["break_date"]))])
     else:
         rows.append(["Break", "none"])
-    rows += [["Magnitude (median residual)", f"{float(out[2]):.5g}" if np.isfinite(out[2]) else "-"],
-             ["History residual sigma", f"{float(out[3]):.5g}" if np.isfinite(out[3]) else "-"]]
+    sigma = zc.grid(ds, "sigma")[0, 0]
+    rows += [["Magnitude (median residual)", f"{m['magnitude']:.5g}" if np.isfinite(m["magnitude"]) else "-"],
+             ["History residual sigma", f"{sigma:.5g}" if np.isfinite(sigma) else "-"]]
     return {"overlays": overlays, "rows": rows}
 
 
 def monitor_chunk(p, stack, ctx):
-    _, h, w = stack.shape
-    out, _ = _monitor_batch(p, _values_2d(stack), ctx, ctx.get("n_jobs", -1))
-    valid = out[6] == 1.0
-    brk = valid & (out[5] == 1.0)
-    res = {
-        "break_date": np.where(brk, _years_at(ctx["years"], out[1]), np.nan),
-        "magnitude": np.where(valid, out[2], np.nan),
-        "has_break": np.where(valid, out[5], np.nan),
-    }
-    return {k: v.reshape(h, w).astype(np.float32) for k, v in res.items()}
+    ds, _ = _monitor(p, stack, ctx)
+    return zc.chunk_outputs(_monitor_maps(ds), stack.shape[1:])
 
 
 TOOLS = [

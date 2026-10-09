@@ -241,8 +241,17 @@ that Janus exposes:
 
 **TWDTW classes** come from the series itself: drop pins on places you know
 (forest, crop, pasture...), open the tool and *Add a pattern from* each pin (or
-the ROI mean), and name the classes. Patterns are matched on real dates, so they
-should cover the same period as the series.
+the ROI mean), and name the classes. The distance is that of the R package
+twdtw: a pattern may match any stretch of the series, and dates without a value
+are left out of each pixel's series. By default time is measured between the
+dates (*Time measured*), so patterns should cover the same period as the
+series, and dates more than a year apart are never matched (*Max time apart*);
+measured between days of the year, a pattern of one season matches that season
+in any year.
+
+A break's date (BFAST, BFAST Lite, BFAST Monitor) is that of the first
+observation after it, and its magnitude the model after the break minus the
+model before it on that date, as in Zeit's `extract_events`.
 
 "Regular" means evenly spaced dates (monthly, 16-day...): a missing date must be
 a no-data band, not a skipped one. BFAST and BFAST Lite are slow (~2–3 ms per
@@ -283,7 +292,7 @@ Each tool window has:
 
 How it works: Zeit runs in a separate Python process from a private runtime
 inside the installation (`runtime\`: embeddable Python 3.12 + Zeit from PyPI +
-numpy/scipy/rasterio/numba/dask/xarray, without PyTorch). It starts in the
+numpy/scipy/rasterio/numba/dask/xarray/rioxarray, without PyTorch). It starts in the
 background once a series is open (~1 s), so it never delays startup. The bridge
 (`zeit_bridge/janus_zeit_bridge.py`) handles the protocol and reads/writes rasters
 in chunks with progress (the next chunk is read while the tool computes the

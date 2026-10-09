@@ -221,6 +221,30 @@ termina.
 
 ## Histórico
 
+### 0.28.0 — Zeit 0.52.1, só pela API pública
+- O Zeit 0.25 → 0.52.1 quebrava a ponte: `import zeit` passou a exigir rioxarray e
+  pyproj; `zeit.ccdc`, `zeit.landtrendr` e `zeit.smooth` viraram funções (os
+  módulos agora são privados); e o motor do BFAST Lite mudou as linhas da saída,
+  então a ponte lia quebras falsas sem erro nenhum.
+- Toda ferramenta chama agora a API pública: `zeit.landtrendr` +
+  `zeit.extract_events`, `zeit.ccdc`, `zeit.bfast`/`bfast_lite`/`bfast_monitor`,
+  `zeit.mann_kendall`, `zeit.phenology` (por estação), `zeit.twdtw` e
+  `zeit.smooth`; nenhum `zeit._core`. `zeit_common.py` passa a série ou o bloco
+  como cubo xarray com as datas reais (um pixel é um bloco 1 × 1) e devolve os
+  resultados como arrays.
+- O que muda nos resultados (convenções do Zeit): LandTrendr não conta segmento
+  plano como evento; quebras do BFAST na primeira observação depois delas, com a
+  magnitude do modelo; Smoothing (Whittaker) usa o espaçamento real das datas
+  (parâmetro `lmbda`); TWDTW com a distância do pacote R twdtw (`steepness`,
+  `midpoint`, `cycle`, `max_elapsed`; o padrão mede o tempo entre as datas e não
+  casa datas a mais de 365 dias, para os padrões de série inteira dos pins).
+  CCDC e Mann-Kendall dão os mesmos números.
+- Contornos: `zeit.phenology` não acha estação numa série com NaN (as lacunas
+  continuam interpoladas com peso 0); o kernel numba de `extract_events` compila
+  a cada processo (~3 s), então a ponte aquece as ferramentas em segundo plano
+  depois do `hello` (gancho `warmup`).
+- Runtime: rioxarray 0.23.0 e pyproj 3.8.0.
+
 ### 0.27.1 — Basemap só quando pedido
 - O basemap não liga mais sozinho: o liga/desliga deixou de ser guardado no
   `.ini` (a fonte, a opacidade e a URL própria continuam), então cada sessão

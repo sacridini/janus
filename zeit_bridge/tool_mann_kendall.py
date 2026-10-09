@@ -1,7 +1,9 @@
-"""Mann-Kendall trend test + Theil-Sen slope (Zeit) for Janus."""
+"""Mann-Kendall trend test + Theil-Sen slope (zeit.mann_kendall) for Janus."""
 import math
 
 import numpy as np
+
+import zeit_common as zc
 
 METHODS = ["hamed_rao", "original", "yue_wang", "seasonal"]
 
@@ -43,17 +45,18 @@ MANIFEST = {
     ],
 }
 
-# Row order of Zeit's batch output (zeit/trend.py MK_METRIC_NAMES).
-ROWS = ["trend", "h", "p", "z", "tau", "s", "var_s", "slope", "intercept"]
+def _period(p, ctx):
+    return max(1, int(p["period"]) or int(ctx["per_year"]))
 
 
-def _args(p, ctx):
-    from zeit._core.mannkendall import MKMethod
-
-    code = {"original": MKMethod.ORIGINAL, "hamed_rao": MKMethod.HAMED_RAO,
-            "yue_wang": MKMethod.YUE_WANG, "seasonal": MKMethod.SEASONAL}[p["method"]]
-    period = int(p["period"]) or int(ctx["per_year"])
-    return int(code), float(p["alpha"]), int(p["lag"]), max(1, period)
+def _run(p, stack, ctx):
+    """zeit.mann_kendall on a [T, rows, cols] chunk -> {variable: (rows, cols)}."""
+    import zeit
+    lag = int(p["lag"])
+    ds = zeit.mann_kendall(zc.cube(stack, ctx), method=p["method"], alpha=float(p["alpha"]),
+                           lag=None if lag < 0 else lag, period=_period(p, ctx), min_valid=int(p["min_valid"]),
+                           nodata=None, n_jobs=ctx.get("n_jobs", -1))
+    return {name: zc.grid(ds, name) for name in ds.data_vars}
 
 
 def _unit(p, ctx):
@@ -63,14 +66,14 @@ def _unit(p, ctx):
 
 
 def pixel(p, ctx):
-    from zeit._core.mannkendall import mk_test_single
-
     values = [float(v) for v in ctx["values"]]
     n_valid = sum(1 for v in values if math.isfinite(v))
     if n_valid < max(3, int(p["min_valid"])):
         return {"overlays": [], "rows": [["Mann-Kendall", f"not enough data ({n_valid} valid)"]]}
-    method, alpha, lag, period = _args(p, ctx)
-    trend, h, pv, z, tau, s, var_s, slope, intercept = mk_test_single(values, method, alpha, lag, period)
+    r = {k: float(v[0, 0]) for k, v in _run(p, zc.pixel_stack(ctx), ctx).items()}
+    trend, h, pv, z, tau = r["trend"], r["h"], r["p"], r["z"], r["tau"]
+    s, var_s, slope, intercept = r["s"], r["var_s"], r["slope"], r["intercept"]
+    alpha, period = float(p["alpha"]), _period(p, ctx)
 
     def fmt(x):
         return f"{x:.5g}" if x is not None and math.isfinite(x) else "-"
@@ -78,7 +81,7 @@ def pixel(p, ctx):
     unit = _unit(p, ctx)
     rows = [
         ["Trend", "increasing" if trend > 0 else "decreasing" if trend < 0 else "no trend"],
-        [f"Significant (alpha {alpha:g})", "yes" if h else "no"],
+        [f"Significant (alpha {alpha:g})", "yes" if h > 0.5 else "no"],
         ["p-value", fmt(pv)],
         ["Z", fmt(z)],
         ["Kendall's tau", fmt(tau)],
@@ -97,18 +100,11 @@ def pixel(p, ctx):
 
 
 def chunk(p, stack, ctx):
-    from zeit._core.mannkendall import fit_mann_kendall_batch
-
-    T, rows, cols = stack.shape
-    method, alpha, lag, period = _args(p, ctx)
-    values = np.ascontiguousarray(stack.reshape(T, rows * cols).T)
-    out = fit_mann_kendall_batch(values, method, alpha, lag, period, int(p["min_valid"]), ctx.get("n_jobs", -1))
-    out = np.asarray(out, dtype=np.float32).reshape(len(ROWS), rows, cols)
-    r = {name: out[i] for i, name in enumerate(ROWS)}
-    sig = r["slope"].copy()
-    sig[~(r["h"] > 0.5)] = np.nan  # only where the trend is significant
-    return {"sig_slope": sig, "slope": r["slope"], "p": r["p"], "z": r["z"], "tau": r["tau"],
-            "trend": r["trend"], "intercept": r["intercept"]}
+    r = _run(p, stack, ctx)
+    sig = np.where(r["h"] > 0.5, r["slope"], np.nan)  # only where the trend is significant
+    res = {"sig_slope": sig, "slope": r["slope"], "p": r["p"], "z": r["z"], "tau": r["tau"],
+           "trend": r["trend"], "intercept": r["intercept"]}
+    return zc.chunk_outputs(res, stack.shape[1:])
 
 
 TOOLS = [{"manifest": MANIFEST, "pixel": pixel, "chunk": chunk}]

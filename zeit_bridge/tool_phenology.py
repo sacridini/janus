@@ -1,10 +1,11 @@
-"""Land surface phenology (Zeit) for Janus: season start/peak/end per pixel.
+"""Land surface phenology (zeit.phenology) for Janus: season start/peak/end per pixel.
 
 Zeit's phenology (a port of phenofit) smooths the series (Whittaker or HANTS),
 splits it into growing seasons, fits a double-logistic-type curve to each
-season and derives the dates from the fitted curve. Time is in days: Janus's
-decimal years are converted to "days since 1 January of the first year,
-1-indexed" (Zeit's convention) and back.
+season and derives the dates from the fitted curve. It runs per season
+(annual=False), whose dates are "days since 1 January of the first year,
+1-indexed" (Zeit's convention); Janus's decimal years are converted to them and
+back.
 
 Maps are per season, so a multi-year series is summarized: the median over all
 seasons (a per-pixel "typical year"), the most recent season or the season that
@@ -19,28 +20,22 @@ import warnings
 
 import numpy as np
 
+import zeit_common as zc
+
 CURVES = ["beck", "elmore", "gu", "zhang", "ag", "klos", "dl"]
 CURVE_LABELS = ["Beck (double logistic)", "Elmore (double logistic + greendown)", "Gu", "Zhang (logistic)",
                 "AG (asymmetric Gaussian)", "Klosterman", "DL (double logistic, simple)"]
 
-# Zeit's 21 output rows (src/phenology.cpp, zeit/xarray_api.py run_phenology).
-M = {name: i for i, name in enumerate([
-    "trs2_sos", "trs2_eos", "trs5_sos", "trs5_eos", "trs6_sos", "trs6_eos",
-    "der_sos", "der_pos", "der_eos",
-    "gu_ud", "gu_sd", "gu_dd", "gu_rd",
-    "zhang_greenup", "zhang_maturity", "zhang_senescence", "zhang_dormancy",
-    "los", "pop", "r2", "rmse"])}
-
-# Start / end of season of each extraction method (rows of M). Zeit computes
-# every method at once (its extraction_method argument is unused); the choice
-# here only selects which dates are reported.
+# Start / end of season of each extraction method (variables of zeit.phenology's
+# result). Zeit computes every method at once; the choice here only selects
+# which dates are reported.
 METHODS = {
-    "trs5": ("trs5_sos", "trs5_eos"),
-    "trs2": ("trs2_sos", "trs2_eos"),
-    "trs6": ("trs6_sos", "trs6_eos"),
-    "der": ("der_sos", "der_eos"),
-    "zhang": ("zhang_greenup", "zhang_dormancy"),
-    "gu": ("gu_ud", "gu_rd"),
+    "trs5": ("TRS5.sos", "TRS5.eos"),
+    "trs2": ("TRS2.sos", "TRS2.eos"),
+    "trs6": ("TRS6.sos", "TRS6.eos"),
+    "der": ("DER.sos", "DER.eos"),
+    "zhang": ("Greenup", "Dormancy"),
+    "gu": ("UD", "RD"),
 }
 
 MANIFEST = {
@@ -162,9 +157,9 @@ def _max_seasons(ctx):
 def _prepare(values):
     """[P, T] with NaN -> gap-filled values and weights (0 at gaps).
 
-    Zeit's smoothers do not skip NaN, so gaps are filled by linear
-    interpolation in time and given weight 0 (they do not pull the smoothing
-    or the curve fit)."""
+    Zeit's phenology finds no season in a series with NaN, so gaps are filled
+    by linear interpolation in time and given weight 0 (they do not pull the
+    smoothing or the curve fit)."""
     v = np.array(values, dtype=np.float64, copy=True)
     ok = np.isfinite(v)
     w = ok.astype(np.float64)
@@ -176,28 +171,32 @@ def _prepare(values):
     return v, w, ok.any(axis=1)
 
 
-def _fit(p, values, days, S, n_jobs):
-    from zeit._core.phenology import CurveType, fit_phenology_batch
+def _fit(p, stack, ctx, S):
+    """zeit.phenology per season on a [T, rows, cols] chunk: ({metric: [P, S]} in Zeit
+    day numbers, gap-filled values [P, T], weights [P, T])."""
+    import zeit
 
-    curve = {"beck": CurveType.BECK, "elmore": CurveType.ELMORE, "gu": CurveType.GU, "zhang": CurveType.ZHANG,
-             "ag": CurveType.AG, "klos": CurveType.KLOS, "dl": CurveType.DL}[p["curve"]]
-    v, w, has_data = _prepare(values)
-    out = fit_phenology_batch(
-        np.ascontiguousarray(v), np.ascontiguousarray(days), int(curve), extraction_method=0, max_seasons=S,
-        whittaker_lambda=float(p["lambda"]), apply_whittaker=p["smoothing"] == "whittaker",
-        apply_hants=p["smoothing"] == "hants", hants_frequencies=int(p["hants_frequencies"]),
-        min_season_length=int(p["min_season_length"]), min_amplitude=float(p["min_amplitude"]),
-        min_pixel_amplitude=float(p["min_pixel_amplitude"]), n_jobs=n_jobs,
-        weights_array=np.ascontiguousarray(w))
-    out = np.asarray(out)  # [21, P, S]
-    out[:, ~has_data, :] = np.nan
+    T, h, wd = stack.shape
+    v, w, has_data = _prepare(stack.reshape(T, -1).T)
+    ds = zeit.phenology(zc.cube(v.T.reshape(T, h, wd), ctx), curve=p["curve"], weights=w.T.reshape(T, h, wd),
+                        annual=False, max_seasons=S, whittaker_lambda=float(p["lambda"]),
+                        apply_whittaker=p["smoothing"] == "whittaker", apply_hants=p["smoothing"] == "hants",
+                        hants_frequencies=int(p["hants_frequencies"]),
+                        min_season_length=int(p["min_season_length"]), min_amplitude=float(p["min_amplitude"]),
+                        min_pixel_amplitude=float(p["min_pixel_amplitude"]), nodata=None,
+                        n_jobs=ctx.get("n_jobs", -1))
+    out = {}
+    for name in ds.data_vars:
+        a = zc.grid(ds, name).reshape(S, -1).T  # (season, y, x) -> [P, S]
+        a[~has_data] = np.nan
+        out[name] = a
     return out, v, w
 
 
 def _season_table(p, out, v, w, days, base):
     """Per-season arrays [P, S] in Zeit day numbers + peak value / amplitude."""
     k_sos, k_eos = METHODS[p["method"]]
-    sos, eos, pos = out[M[k_sos]], out[M[k_eos]], out[M["pop"]]
+    sos, eos, pos = out[k_sos], out[k_eos], out["POP"]
     fitted = np.isfinite(pos)
     # Peak value and amplitude from the observations (Zeit returns only
     # dates): peak = highest observation in [SOS, EOS]; amplitude = peak minus
@@ -220,7 +219,7 @@ def _season_table(p, out, v, w, days, base):
             peak[f, s] = pk
             amp[f, s] = pk - low
     return {"sos": sos, "pos": pos, "eos": eos, "los": eos - sos, "peak": peak, "amplitude": amp,
-            "r2": out[M["r2"]], "fitted": fitted}
+            "r2": out["R2"], "fitted": fitted}
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +237,7 @@ def pixel(p, ctx):
     if years[-1] - years[0] < 1.0:
         return {"overlays": [], "rows": [["Phenology", "needs at least one year of data"]]}
     S = _max_seasons(ctx)
-    out, v, w = _fit(p, vals[None, :], days, S, 1)
+    out, v, w = _fit(p, zc.pixel_stack(ctx), dict(ctx, n_jobs=1), S)
     t = _season_table(p, out, v, w, days, base)
     idx = [s for s in range(S) if t["fitted"][0, s]]
     if not idx:
@@ -300,8 +299,8 @@ def chunk(p, stack, ctx):
     base = _base_year(ctx)
     days = _to_days(ctx["years"], base)
     S = _max_seasons(ctx)
-    values = np.ascontiguousarray(stack.reshape(T, -1).T)
-    out, v, w = _fit(p, values, days, S, ctx.get("n_jobs", -1))
+    values = stack.reshape(T, -1).T
+    out, v, w = _fit(p, stack, ctx, S)
     t = _season_table(p, out, v, w, days, base)
     fitted = t["fitted"]
     P = fitted.shape[0]
