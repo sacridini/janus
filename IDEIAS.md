@@ -307,7 +307,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 17 | 0.29.0 | **Embeddings** (TESSERA, AlphaEarth): PCA → RGB em C++ (SIMD, iteração de subespaço), **PCA local da ROI**, **similaridade a um pino** (mapa e gráfico ano a ano), **mudança entre anos**, perfil latente; **baixar embeddings da área visível** pelo Zeit (como o basemap, sobre qualquer série), com barra de progresso no mapa | concluída |
 | — | 0.30.0 | **Exportação conferida e com atalhos**: o popup de opções passa a abrir (nunca era desenhado), embeddings como GeoTIFF em resolução total, todas as saídas de uma rodada do Zeit numa pasta, reset do layout (`Ctrl+Shift+R`); faixa Int8 dos embeddings de todos os anos | concluída |
 | 18 | 0.31.0 | Mais do Zeit: **CODED** (degradação florestal) e **NDFI** (desmistura espectral, a série vira camada), **Tmask** (nuvens que a banda de qualidade perdeu), **SOM** (agrupamento de trajetórias, série típica no gráfico) e **concordância** entre mapas de mudança | concluída |
-| 19 | — | **Hiperespectral** (EnMAP primeiro; PRISMA, EMIT, ENVI em geral): eixo espectral em nm, espectros do cursor, pinos e ROI, RGB por comprimento de onda, bandas e índices por nm em séries de cenas, similaridade espectral e PCA (ver "Hiperespectral" em Decisões) | em andamento (etapas 1–3 feitas) |
+| 19 | 0.32.0 | **Hiperespectral** (EnMAP primeiro; PRISMA, EMIT, ENVI em geral): eixo espectral em nm, espectros do cursor, pinos e ROI, RGB por comprimento de onda, bandas e índices por nm em séries de cenas, similaridade espectral e PCA (ver "Hiperespectral" em Decisões) | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -335,6 +335,11 @@ termina.
   Seasonal).
 
 ### Dados e desempenho
+- **Hiperespectral, depois da fase 19**: as máscaras de qualidade do EnMAP
+  (`QL_QUALITY_CLOUD`, `…_CLOUDSHADOW`, `…_HAZE`: arquivos à parte, não uma
+  banda do mesmo arquivo como o Fmask) numa série de cenas; o zigue-zague da
+  sobreposição VNIR/SWIR (≈ 950–995 nm) no gráfico; outros produtos (PRISMA
+  em HDF5, EMIT em NetCDF) testados com uma cena real.
 - **Cache em resolução total**, em blocos com o tempo contíguo (estilo Zarr) num
   SSD: série exata e ROI em ~1 ms mesmo com os dados num HD → fase 13.
 - Ferramenta "**otimizar dados**": converter para COG com overviews internos.
@@ -399,6 +404,24 @@ termina.
   (0.25.0); faltam as larguras fixas dos widgets.
 
 ## Histórico
+
+### 0.32.0 — Fase 19: hiperespectral
+- Pedida em 2026-10-10, depois de olhar o EnMAP e a EnMAP-Box: hiperespectral
+  em geral, com o EnMAP como primeiro caso, sem replicar a EnMAP-Box (ver
+  "Hiperespectral" em Decisões, com as medidas de cada etapa).
+- Um arquivo cujas bandas têm comprimento de onda (ENVI, o domínio IMAGERY do
+  GDAL ou o `METADATA.XML` de um produto EnMAP) abre como espectro: eixo em
+  nm, quebrado onde faltam bandas, cor verdadeira e outras composições, a
+  pasta de um produto (ou a do zip extraído) abre só a imagem espectral.
+- Índices por comprimento de onda (NDVI, NDRE, NDWI, NDMI, NBR, NDSI, PRI):
+  numa cena, como um mapa à parte; numa série de cenas (que abre em NDVI),
+  na seção Bands.
+- Componentes principais (cena ou ROI) e similaridade espectral (cosseno)
+  pelo código dos embeddings; dimensões sem dados lidas como 0.
+- Também nesta versão: a contagem de vetores saturados do autoteste de
+  embeddings (dois por pixel na mudança entre anos) e o aviso de GeoTIFF
+  comprimido pixel-interleaved.
+- Autoteste: entrada G do `--selftest-ui` (estágios 90–100), também no CI.
 
 ### 0.31.1 — Temas Studio e Graphite, atalhos novos
 - Dois temas de interface: **Studio** (cinza médio, texto escuro, gráficos com
