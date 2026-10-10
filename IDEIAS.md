@@ -292,6 +292,15 @@ termina.
 
 ## Histórico
 
+### 0.31.1 — Temas Studio e Graphite, atalhos novos
+- Dois temas de interface: **Studio** (cinza médio, texto escuro, gráficos com
+  fundo escuro) e **Graphite** (cinza escuro, destaque amarelo).
+- Atalhos pedidos em 2026-10-10: `F` ajusta o mapa à janela (era `H`); `S` liga
+  e desliga o fundo de satélite (Esri World Imagery, ou a fonte de imagem já
+  escolhida; None e OpenStreetMap viram Esri); a cortina passou de `S` para
+  `C`; `P` toca/pausa a série (era a barra de espaço); a barra de espaço mostra
+  e esconde a camada ativa.
+
 ### 0.31.0 — Fase 18: CODED, NDFI, Tmask, SOM e concordância
 - Pedida em 2026-10-10, depois de um levantamento do que o Zeit tem e o Janus
   não usava (ver "Mais do Zeit" no backlog). Tudo pela API pública do Zeit

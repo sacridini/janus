@@ -237,6 +237,7 @@ private:
                      const std::function<void(const double*, float*)>& toTarget);
     void drawBasemapNote(ImDrawList* dl, ImVec2 origin, ImVec2 size); // attribution and state, bottom right
     void uiBasemap();                 // Layers panel
+    void toggleSatelliteBasemap();    // S key
     void uiBasemapPerf();             // Performance panel
     struct BasemapUi {                // the setting (layout .ini)
         std::string source = "none";  // "none", a preset's id or "custom"

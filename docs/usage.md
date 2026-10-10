@@ -90,7 +90,7 @@
   or zoom in any of them moves every one; the cursor is mirrored as a cross, and
   pins and the ROI appear in all of them. Panels dock anywhere or go to another
   monitor; they share the loaded data (no extra memory).
-- **Swipe** (View → Swipe, `S`): a divider you drag across the map; left of it
+- **Swipe** (View → Swipe, `C`): a divider you drag across the map; left of it
   the map as it is, right of it another layer, or the same one at another date
   or in another display mode (picked in a bar above the map).
 - **Space-time transect** (Hovmöller): `Ctrl` + drag a line on the map (or `T`,
@@ -193,12 +193,12 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 
 | Action | How |
 |---|---|
-| Pan / zoom | drag / mouse wheel (zooming out stops at the image extent), `H` fits the map; trackpad: two fingers pan, pinch zooms |
+| Pan / zoom | drag / mouse wheel (zooming out stops at the image extent), `F` fits the map; trackpad: two fingers pan, pinch zooms |
 | Pixel series | hover (exact once the mouse rests) |
 | Compare pixels | click to drop a pin |
 | Remove a pin | right click it (Mac: Control + click, or a two-finger click on the trackpad), `Delete` (last one) or the **x** in the statistics table |
 | ROI | `Shift` + drag: rectangular ROI, mean and p10–p90 per date (or a box plot per date: the *ROI* list above the chart); with *All visible layers* on the chart, also on every visible layer (its own pixels under the rectangle, reprojected if needed) |
-| Time | `←`/`→` previous/next date, `Space` play/pause, click or drag on the chart |
+| Time | `←`/`→` previous/next date, `P` play/pause, click or drag on the chart |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or drag it) |
 | Change between dates | **Display** panel → *Difference (value - reference)*: pick the *Reference* (a date, or *Previous date (t-1)*); diverging colours centered at 0, follows the time bar |
 | Largest drop | **Display** panel → *Largest drop: date* or *magnitude*: the largest decrease between consecutive valid observations (no-data dates skipped), dated at the lower one; the colour bar shows dates. Exact values for the cursor and pins in the **Statistics** panel |
@@ -206,16 +206,16 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
 | Reset layout | **View → Reset layout** (`Ctrl+Shift+R`, Mac: `Command+Shift+R`): every panel docked where it was at the first start, the floating windows (Exports, Tasks, Log, Settings) back to their first size and place, map panels to the right of the main map; the panels open stay open |
 | Performance panel | **View → Performance** (hidden by default): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**) |
-| Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus), font size, whether the Files panel follows what is opened, processing threads, overview memory, full-resolution cache (when it is built, its budget) and clearing the caches; kept between sessions (see [Settings](#settings)) |
-| Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active. Layers in another CRS show "reprojected from EPSG:…" (hover for the grid size and its error) |
-| Basemap | **Layers** panel → Basemap (below the layers): pick a source (None = nothing downloaded), tick to show/hide, opacity; *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. The source and its settings are kept between sessions, but it starts hidden, as does every series opened (tick to show); the map panels' and the swipe's layer list has *Basemap only* |
+| Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus, Studio, Graphite), font size, whether the Files panel follows what is opened, processing threads, overview memory, full-resolution cache (when it is built, its budget) and clearing the caches; kept between sessions (see [Settings](#settings)) |
+| Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide (`Space`: the active layer), order, opacity, close; click a name to make it active. Layers in another CRS show "reprojected from EPSG:…" (hover for the grid size and its error) |
+| Basemap | **Layers** panel → Basemap (below the layers): pick a source (None = nothing downloaded), tick to show/hide, opacity; `S` shows or hides satellite imagery (Esri World Imagery, or the imagery source picked); *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. The source and its settings are kept between sessions, but it starts hidden, as does every series opened (tick to show); the map panels' and the swipe's layer list has *Basemap only* |
 | Browse files | **Files** panel: double click opens, right click → Add as layer or Add to favorites; Ctrl+click selects several files; hover a folder for what it would open as. Opening a series expands the tree down to it (Settings → *Files panel follows what is opened*) |
 | Add by dropping | drop files or a folder on the window with `Shift` held: a new layer (without Shift the drop replaces the series) |
 | Seasonal views, classes over time, scatter | **View → Analysis** (see above) |
 | Chart of several layers | Time series panel → *All visible layers* (one marker shape per layer) |
 | Second monitor | drag a panel's tab out of the main window |
 | Maps side by side | View → New map view (`Ctrl+T`): pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** or `Ctrl+W` (the focused panel, else the last one opened) |
-| Swipe | View → Swipe (`S`): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode, or *Basemap only*; **Swipe off** or `S` again closes it |
+| Swipe | View → Swipe (`C`): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode, or *Basemap only*; **Swipe off** or `C` again closes it |
 | Space-time transect | `Ctrl` + drag a line on the map (Mac: `Command` + drag), or `T` / View → Draw transect, then drag; `Esc` cancels. **Transect** panel: distance from A (X) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel |
 | Chart options | style, values/anomaly/z-score, trend (OLS/Sen), Y = map range |
 | Map as a figure | File → Export map as PNG... (`Ctrl+E`): resolution (1×, 2×, 4×), background, date label, legend, pins and ROI; *Save to*: the file (a path, a name alone for the last export folder, or **Browse...**), then **Export** (or `Enter`) |
@@ -489,7 +489,7 @@ once and is kept in the layout file, next to the other data of Janus
 
 | Setting | What it does |
 |---|---|
-| Theme | **Dark** (the default), **Light**, **Classic** (ImGui's original colours) or **Janus** (the program's colours: blue on navy panels, orange accents). Status text and chart series are adjusted to stay legible on each; the map, its colour bars and exported figures keep their colours |
+| Theme | **Dark** (the default), **Light**, **Classic** (ImGui's original colours), **Janus** (the program's colours: blue on navy panels, orange accents), **Studio** (mid grey with dark text and dark chart displays) or **Graphite** (dark grey with a yellow accent). Status text and chart series are adjusted to stay legible on each; the map, its colour bars and exported figures keep their colours |
 | Font size | Size of the interface text, 10 to 28 px (13 by default: ImGui's pixel font; other sizes use its scalable font). Widgets keep their widths; exported figures keep their text as at 13 px |
 | Files panel follows what is opened | On by default: opening a series, a file or a folder (from anywhere) expands the Files panel down to it and scrolls there; its folder is listed again, so new files show up |
 | Processing threads | How many CPU threads Janus and Zeit may use, shown as *N of M* logical cores; default: all but 2 (at least 1), so the computer stays responsive during long runs. Applies to the readers of the open series (they shrink or grow at once), the full-resolution cache, exports (GeoTIFF compression, PNG) and Zeit: raster jobs started from then on (as `OMP_NUM_THREADS`, `NUMBA_NUM_THREADS`, the BLAS limits and Zeit's `n_jobs`; jobs already running keep theirs) and the process that fits the chart and estimates run times (replaced in the background once idle) |

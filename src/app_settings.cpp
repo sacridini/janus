@@ -132,7 +132,8 @@ void App::uiSettings() {
     if (ImGui::Combo("##theme", &theme_, names, theme::Count)) ImGui::MarkIniSettingsDirty(); // applied next frame
     ImGui::SetItemTooltip("Dark: ImGui's dark colours (the default). Light: dark text on light panels.\n"
                           "Classic: ImGui's original colours. Janus: the program's own colours\n"
-                          "(blue on navy panels, orange accents).");
+                          "(blue on navy panels, orange accents). Studio: mid grey with dark text\n"
+                          "and dark chart displays. Graphite: dark grey with a yellow accent.");
     ImGui::TextDisabled("The map, its colour bars and exported figures keep their colours.");
     ImGui::SetNextItemWidth(-1);
     if (ImGui::SliderInt("##font", &fontSize_, kMinFontSize, kMaxFontSize, "Font size: %d px",

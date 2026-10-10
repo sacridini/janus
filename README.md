@@ -88,8 +88,9 @@ on the window. Then:
 |---|---|
 | Hover | the pixel's series (exact once the mouse rests) |
 | Click / `Shift` + drag | drop a pin / draw a region |
-| `←` `→` / `Space` | previous or next date / play |
-| `Ctrl` + drag / `S` | space-time transect / swipe |
+| `←` `→` / `P` | previous or next date / play |
+| `Ctrl` + drag / `C` | space-time transect / swipe |
+| `S` / `Space` / `F` | satellite basemap / show or hide the active layer / fit the map |
 | `Ctrl+T` / `Ctrl+W` | open / close a map panel |
 
 Everything else is in [docs/usage.md](docs/usage.md) and under **Help →

@@ -101,6 +101,21 @@ bool App::basemapShown() const { return bm_.on && bm_.source != "none" && basema
 
 std::string App::basemapAttribution() const { return basemapShown() ? basemap_->source().attribution : ""; }
 
+// S: satellite imagery under the layers, or hidden again. The source picked is
+// kept if it is imagery (Esri, EOX, custom); None or OpenStreetMap become Esri.
+void App::toggleSatelliteBasemap() {
+    const bool imagery = bm_.source != "none" && bm_.source != "osm";
+    if (bm_.on && imagery) {
+        bm_.on = false;
+    } else {
+        if (!imagery) bm_.source = "esri";
+        bm_.on = true;
+        basemapFailedFor_ = 0;
+    }
+    mapDirty_ = true;
+    ImGui::MarkIniSettingsDirty();
+}
+
 void App::retireBasemap() {
     if (!basemap_) return;
     basemap_->releaseGpu(); // textures go on this thread; the rest may wait for a request

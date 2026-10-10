@@ -600,8 +600,13 @@ void App::handleShortcuts() {
     if (io.WantTextInput || !s_) return;
     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) setT(t_ - 1);
     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) setT(t_ + 1);
-    if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) playing_ = !playing_;
-    if (ImGui::IsKeyPressed(ImGuiKey_H, false)) fitRequested_ = true;
+    if (ImGui::IsKeyChordPressed(ImGuiKey_P)) playing_ = !playing_;
+    if (ImGui::IsKeyChordPressed(ImGuiKey_Space)) { // shows / hides the active layer
+        layers_[active_].visible = !layers_[active_].visible;
+        mapDirty_ = true;
+    }
+    if (ImGui::IsKeyChordPressed(ImGuiKey_F)) fitRequested_ = true;
+    if (ImGui::IsKeyChordPressed(ImGuiKey_S)) toggleSatelliteBasemap();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) roiDragging_ = false;
     compareShortcuts();
 }
@@ -637,7 +642,7 @@ void App::uiMenu() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
-        if (ImGui::MenuItem("Fit map to window", "H", false, s_ != nullptr)) fitRequested_ = true;
+        if (ImGui::MenuItem("Fit map to window", "F", false, s_ != nullptr)) fitRequested_ = true;
         if (ImGui::MenuItem("New map view", "Ctrl+T", false, s_ != nullptr)) newMapView();
         if (ImGui::MenuItem("Close map view", "Ctrl+W", false, !views_.empty()))
             closeViewId_ = focusedViewId_ ? focusedViewId_ : views_.back().id;
@@ -757,12 +762,15 @@ void App::uiPopups() {
             "                        visible layer with 'All visible layers' on the chart)\n"
             "  Ctrl + drag ......... space-time transect along the line (Transect panel);\n"
             "                        T, then drag, does the same (Mac: Command + drag)\n"
-            "  S ................... swipe: drag the divider to compare with another\n"
+            "  C ................... swipe: drag the divider to compare with another\n"
             "                        layer, date or mode (picked in the bar above the map)\n"
-            "  H ................... fit to window\n\n"
+            "  S ................... satellite basemap on / off (Esri World Imagery, or the\n"
+            "                        imagery source picked in the Layers panel)\n"
+            "  space ............... show / hide the active layer\n"
+            "  F ................... fit to window\n\n"
             "Time\n"
             "  left/right arrows ... previous / next date\n"
-            "  space ............... play / pause\n"
+            "  P ................... play / pause\n"
             "  click on the chart .. go to that date");
         if (ImGui::Button("Close", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();

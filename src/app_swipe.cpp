@@ -43,7 +43,7 @@ void App::uiSwipeBar() {
     if (!swipe_ || !s_) return;
     ImGui::PushID("swipe");
     if (ImGui::Button("Swipe off")) toggleSwipe();
-    ImGui::SetItemTooltip("Swipe (S): the map left of the divider, this comparison right of it");
+    ImGui::SetItemTooltip("Swipe (C): the map left of the divider, this comparison right of it");
     if (swipe_) {
         ImGui::SameLine();
         uiViewBar(swipeView_);
@@ -142,7 +142,7 @@ void App::drawSwipe(ImDrawList* dl, ImVec2 origin, ImVec2 size, float pixelScale
 
 void App::uiCompareMenu() {
     ImGui::Separator();
-    if (ImGui::MenuItem("Swipe", "S", swipe_, s_ != nullptr)) toggleSwipe();
+    if (ImGui::MenuItem("Swipe", "C", swipe_, s_ != nullptr)) toggleSwipe();
     if (ImGui::MenuItem("Draw transect", "T or Ctrl+drag", transectMode_, s_ != nullptr)) transectMode_ = !transectMode_;
     if (ImGui::MenuItem("Clear transect", nullptr, false, tr_.on)) clearTransect();
     ImGui::Separator();
@@ -150,7 +150,7 @@ void App::uiCompareMenu() {
 
 // Keys alone, without modifiers (Ctrl+T is a new map panel).
 void App::compareShortcuts() {
-    if (ImGui::IsKeyChordPressed(ImGuiKey_S)) toggleSwipe();
+    if (ImGui::IsKeyChordPressed(ImGuiKey_C)) toggleSwipe();
     if (ImGui::IsKeyChordPressed(ImGuiKey_T)) transectMode_ = !transectMode_;
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         transectMode_ = false;

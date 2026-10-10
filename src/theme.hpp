@@ -8,7 +8,7 @@
 // marks stay the same on every theme (and in exported figures).
 namespace theme {
 
-enum Id { Dark = 0, Light, Classic, Janus, Count };
+enum Id { Dark = 0, Light, Classic, Janus, Studio, Graphite, Count };
 const char* name(int id);
 // Sets ImGui's and ImPlot's colours (and Janus' fixed style: square, opaque
 // windows, so detached panels look like OS windows).
