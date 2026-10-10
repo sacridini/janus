@@ -1,7 +1,7 @@
 """Synthetic inputs for the self-tests (small, a few MB in all).
 
 Usage: python tools/make_selftest_data.py <out>   (requires GDAL's Python bindings and numpy)
-Then:  jn --selftest-ui <out>/A <out>/B <out>/C <out>/D <out>/E <out>/F
+Then:  jn --selftest-ui <out>/A <out>/B <out>/C <out>/D <out>/E <out>/F <out>/G
        jn --selftest-zeit <out>/serie
        jn --selftest-zeit <out>/landsat
 
@@ -13,6 +13,9 @@ Then:  jn --selftest-ui <out>/A <out>/B <out>/C <out>/D <out>/E <out>/F
          and class names
   F      B reprojected from UTM 23S to UTM 22S (EPSG:32722; its grid turns ~2.3
          degrees), nearest neighbour at 15 m: every value is one of B's
+  G      spectra (hyperspectral): an ENVI file with wavelengths in its header
+         and an EnMAP product folder in GeoTIFF (wavelengths in METADATA.XML),
+         with a gap without bands and all-no-data water absorption bands
   serie  21 annual dates with a break in 2010 (every Zeit tool that applies)
   landsat  monthly Blue..SWIR2 + Fmask, 2016-2021: forest degraded in 2019 and
          cleared in 2020, clouds Fmask misses (CCDC, NDFI, CODED, Tmask...)
@@ -144,11 +147,66 @@ def landsat(out):
             k += 1
 
 
+def spectra(out):
+    # Reflectance x 10000 (Int16, gain 0.0001): rises past the red edge with x,
+    # plus a step with y. Bands every 20 nm (VNIR) and 30 nm (SWIR), none from
+    # 1780 to 1930 nm, the ones from 1340 to 1390 nm all no-data.
+    W, H = 120, 80
+    nm = [float(v) for v in range(420, 1001, 20)] + [float(v) for v in range(1030, 2441, 30) if not 1780 <= v <= 1930]
+    yy, xx = np.mgrid[0:H, 0:W].astype("float64")
+    cube = []
+    for v in nm:
+        r = 0.03 + 0.4 * (xx / (W - 1)) / (1 + np.exp(-(v - 720) / 25)) + 0.001 * (yy % 10)
+        b = np.round(r * 10000).astype("int16")
+        if 1340 <= v <= 1390:
+            b[:] = -32768
+        cube.append(b)
+    n = len(nm)
+
+    # ENVI, as EnMAP's own delivery, wavelengths in the header (written longest first: Janus sorts them).
+    os.makedirs(f"{out}/G/envi", exist_ok=True)
+    np.stack(cube[::-1]).astype("<i2").tofile(f"{out}/G/envi/spectrum.bsq")
+    with open(f"{out}/G/envi/spectrum.hdr", "w") as f:
+        f.write("ENVI\n")
+        f.write(f"samples = {W}\nlines = {H}\nbands = {n}\nheader offset = 0\nfile type = ENVI Standard\n")
+        f.write("data type = 2\ninterleave = bsq\nbyte order = 0\n")
+        f.write("map info = {UTM, 1, 1, 500000, 7500000, 30, 30, 23, South, WGS-84}\n")
+        f.write("wavelength units = Nanometers\n")
+        f.write("wavelength = {" + ", ".join(f"{v:g}" for v in nm[::-1]) + "}\n")
+        f.write("data ignore value = -32768\n")
+        f.write("data gain values = {" + ", ".join(["0.0001"] * n) + "}\n")
+
+    # An EnMAP product folder in GeoTIFF: no wavelengths in the image, they are
+    # in METADATA.XML (a bandID outside <bandCharacterisation> must be ignored);
+    # a quality layer beside it must not be opened.
+    name = "ENMAP01-____L2A-DT0000000001_20220810T112429Z_001_V010506_20260529T083936Z"
+    d = f"{out}/G/{name}"
+    os.makedirs(d, exist_ok=True)
+    t = create(f"{d}/{name}-SPECTRAL_IMAGE.TIF", W, H, n, gdal.GDT_Int16)
+    for i in range(n):
+        band = t.GetRasterBand(i + 1)
+        band.WriteArray(cube[i])
+        band.SetNoDataValue(-32768)
+        band.SetScale(0.0001)
+    t = None
+    q = create(f"{d}/{name}-QL_QUALITY_CLOUD.TIF", W, H, 1, gdal.GDT_Byte)
+    q.GetRasterBand(1).Fill(0)
+    q = None
+    with open(f"{d}/{name}-METADATA.XML", "w") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n<level_X>\n')
+        f.write('  <quality><bandID number="1"><wavelengthCenterOfBand>9999</wavelengthCenterOfBand></bandID></quality>\n')
+        f.write("  <specific>\n    <bandCharacterisation>\n")
+        for i, v in enumerate(nm):
+            f.write(f'      <bandID number="{i + 1}">\n        <wavelengthCenterOfBand>{v:g}</wavelengthCenterOfBand>\n')
+            f.write("        <FWHMOfBand>7</FWHMOfBand>\n      </bandID>\n")
+        f.write("    </bandCharacterisation>\n  </specific>\n</level_X>\n")
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     out = sys.argv[1]
-    for make in (layers, reprojected, bands, classes, serie, landsat):
+    for make in (layers, reprojected, bands, classes, serie, landsat, spectra):
         make(out)
     print(f"ok: {out}")
 

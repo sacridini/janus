@@ -83,6 +83,9 @@ int nearestIndex(const std::vector<double>& xs, double x) {
 }
 
 const char* modeName(int mode) { return kModeNames[mode]; }
+const char* modeName(int mode, const CubeInfo& info) {
+    return mode == ModeRGB && info.spectral ? "RGB composite (3 bands)" : kModeNames[mode];
+}
 int diffRefDate(int ref, int t, int T) { return ref < 0 ? t - 1 : std::min(ref, T - 1); }
 
 App::App(GLFWwindow* window) : window_(window) {}
@@ -203,14 +206,14 @@ void App::finishOpen() {
     L.disp.cmap = defaultCmap_;
     L.years.resize(T);
     for (int t = 0; t < T; ++t) L.years[t] = info->yearsFromStart(t);
-    // A new layer starts at the date nearest to the one currently shown.
-    if (const SeriesLayer* A = activeLayer(); A && A->session->info->timeIsDate && info->timeIsDate) {
-        const double now = A->session->info->layers[t_].time;
-        int best = 0;
-        for (int t = 1; t < T; ++t)
-            if (std::fabs(info->layers[t].time - now) < std::fabs(info->layers[best].time - now)) best = t;
-        L.disp.t = best;
+    // A spectrum opens in true colour (if it covers the visible), at the near infrared.
+    if (info->spectral) {
+        if (spectralCompositeLayers(*info, spectralComposites()[0], L.disp.rgb)) L.disp.mode = ModeRGB;
+        L.disp.t = info->nearestLayer(860);
     }
+    // A new layer starts at the date (or wavelength) nearest to the one currently shown.
+    if (const SeriesLayer* A = activeLayer(); A && matchableAxis(*A->session->info, *info))
+        L.disp.t = info->nearestLayer(A->session->info->layers[t_].time);
     layers_.push_back(std::move(L));
     initEmbeddingLayer(layers_.back());
     if (layers_.size() == 1) {
@@ -1117,7 +1120,7 @@ void App::uiMap() {
     if (ImGui::SliderInt("##time", &t, 0, T - 1, fmt.c_str())) setT(t);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(130);
-    ImGui::SliderFloat("##fps", &fps_, 0.5f, 30.f, "%.1f dates/s", ImGuiSliderFlags_Logarithmic);
+    ImGui::SliderFloat("##fps", &fps_, 0.5f, 30.f, info.spectral ? "%.1f bands/s" : "%.1f dates/s", ImGuiSliderFlags_Logarithmic);
     ImGui::SameLine();
     ImGui::TextDisabled("%d/%d", t_ + 1, T);
     uiSwipeBar();
@@ -1196,9 +1199,9 @@ void App::uiMap() {
         std::snprintf(title, sizeof(title), "%s - %s  |  Difference", info.layers[t_].label.c_str(),
                       diffRef >= 0 ? info.layers[diffRef].label.c_str() : "(none)");
     else if (modeIsTimeDependent(mode_))
-        std::snprintf(title, sizeof(title), "%s  |  %s", info.layers[t_].label.c_str(), kModeNames[mode_]);
+        std::snprintf(title, sizeof(title), "%s  |  %s", info.layers[t_].label.c_str(), modeName(mode_, info));
     else
-        std::snprintf(title, sizeof(title), "%s  |  %d dates", kModeNames[mode_], T);
+        std::snprintf(title, sizeof(title), "%s  |  %d %s", kModeNames[mode_], T, info.spectral ? "bands" : "dates");
     std::string embTitle, embWait;
     int embCmap = -1;
     float embLo = 0, embHi = 1;
@@ -1743,7 +1746,8 @@ void App::uiLayer() {
     if (const SeriesLayer* L = activeLayer()) ImGui::TextColored(theme::accent(), "%s", L->name.c_str());
     ImGui::SeparatorText("Series");
     ImGui::TextWrapped("%s", info.description.c_str());
-    ImGui::Text("%d dates: %s to %s", T, info.layers.front().label.c_str(), info.layers.back().label.c_str());
+    ImGui::Text("%d %s: %s to %s", T, info.spectral ? "bands" : "dates", info.layers.front().label.c_str(),
+                info.layers.back().label.c_str());
     ImGui::Text("%d x %d px, %s", info.width, info.height, info.dataType.c_str());
     ImGui::TextWrapped("CRS: %s %s", info.crsName.empty() ? "(no CRS)" : info.crsName.c_str(),
                        info.crsAuthority.c_str());
@@ -1761,10 +1765,10 @@ void App::uiLayer() {
         ImGui::TextDisabled("The settings below apply to its 'Band values' view.");
     }
     ImGui::SetNextItemWidth(-1);
-    if (ImGui::BeginCombo("##mode", kModeNames[mode_], ImGuiComboFlags_HeightLargest)) {
+    if (ImGui::BeginCombo("##mode", modeName(mode_, info), ImGuiComboFlags_HeightLargest)) {
         for (int m : kModeOrder) {
             ImGui::BeginDisabled(!modeAvailable(m));
-            if (ImGui::Selectable(kModeNames[m], m == mode_)) {
+            if (ImGui::Selectable(modeName(m, info), m == mode_)) {
                 mode_ = m;
                 mapDirty_ = true;
             }
@@ -1805,6 +1809,27 @@ void App::uiLayer() {
     }
 
     if (mode_ == ModeRGB) {
+        if (info.spectral) { // composites by wavelength; the sliders below fine-tune them
+            const char* current = "Composite...";
+            std::array<int, 3> rgb{};
+            for (const SpectralComposite& c : spectralComposites())
+                if (spectralCompositeLayers(info, c, rgb) && rgb == rgb_) current = c.name;
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::BeginCombo("##composite", current)) {
+                for (const SpectralComposite& c : spectralComposites()) {
+                    const bool covered = spectralCompositeLayers(info, c, rgb);
+                    ImGui::BeginDisabled(!covered);
+                    if (ImGui::Selectable(c.name, current == c.name) && covered) {
+                        rgb_ = rgb;
+                        mapDirty_ = true;
+                    }
+                    ImGui::EndDisabled();
+                    if (!covered) ImGui::SetItemTooltip("Outside this spectrum (no band within 40 nm)");
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SetItemTooltip("Bands nearest to each wavelength as red, green and blue");
+        }
         const char* names[3] = {"R", "G", "B"};
         for (int c = 0; c < 3; ++c) {
             ImGui::SetNextItemWidth(-30);
@@ -1956,7 +1981,7 @@ void App::uiSeries() {
     ImGui::PushID(int(info.id));
     if (ImPlot::BeginPlot("##series", ImVec2(-1, -1), ImPlotFlags_NoTitle)) {
         const bool lockY = yFromMap_ && plotValues_ == 0;
-        ImPlot::SetupAxes(info.timeIsDate ? nullptr : "date (index)",
+        ImPlot::SetupAxes(info.timeIsDate ? nullptr : info.spectral ? "wavelength (nm)" : "date (index)",
                           plotValues_ == 1 ? "anomaly" : plotValues_ == 2 ? "z-score" : nullptr,
                           ImPlotAxisFlags_None, lockY ? ImPlotAxisFlags_None : ImPlotAxisFlags_AutoFit);
         if (info.timeIsDate) ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Time);
@@ -1989,6 +2014,8 @@ void App::uiSeries() {
             if (plotValues_ == 2) return st.std > 0 ? (v - st.mean) / st.std : 0.0;
             return v;
         };
+        // A spectrum is drawn in pieces: no line across the gaps without bands.
+        const std::vector<std::pair<int, int>> runs = info.plotRuns();
         auto plotSeries = [&](const char* label, const std::vector<float>& vals, const SeriesStats& st, ImVec4 col,
                               float weight, bool trend = true, const json* model = nullptr) {
             if (int(vals.size()) != T) return;
@@ -2007,11 +2034,13 @@ void App::uiSeries() {
                 return;
             }
             switch (plotStyle_) {
-            case 0: ImPlot::PlotLine(label, xs_.data(), ys.data(), T, spec); break;
+            case 0:
+                for (const auto& [b, e] : runs) ImPlot::PlotLine(label, xs_.data() + b, ys.data() + b, e - b, spec);
+                break;
             case 1:
                 spec.Marker = ImPlotMarker_Circle;
                 spec.MarkerSize = 2.5f;
-                ImPlot::PlotLine(label, xs_.data(), ys.data(), T, spec);
+                for (const auto& [b, e] : runs) ImPlot::PlotLine(label, xs_.data() + b, ys.data() + b, e - b, spec);
                 break;
             case 2:
                 spec.Marker = ImPlotMarker_Circle;
@@ -2025,7 +2054,7 @@ void App::uiSeries() {
                 break;
             default: ImPlot::PlotStairs(label, xs_.data(), ys.data(), T, spec); break;
             }
-            if (trend && trendKind_ != 0 && st.n >= 2) {
+            if (trend && trendKind_ != 0 && st.n >= 2 && !info.spectral) {
                 // Same label = same legend entry (hidden together with the series).
                 const double a = trendKind_ == 1 ? st.olsIntercept : st.senIntercept;
                 const double b = trendKind_ == 1 ? st.olsSlope : st.senSlope;
@@ -2051,7 +2080,8 @@ void App::uiSeries() {
                 ImPlotSpec spec;
                 spec.FillColor = yellow;
                 spec.FillAlpha = roiSpread_ == 1 ? 0.18f : 0.0f;
-                ImPlot::PlotShaded(label, xs_.data(), a.data(), b.data(), T, spec);
+                for (const auto& [rb, re] : runs)
+                    ImPlot::PlotShaded(label, xs_.data() + rb, a.data() + rb, b.data() + rb, re - rb, spec);
             }
             // The trend of a partially computed ROI would be misleading: wait for every date.
             plotSeries(label, roiMean_, roiStats_, yellow, 2.0f, roi_ && roi_->done == T, &roiZeitResult_);
@@ -2076,7 +2106,8 @@ void App::uiSeries() {
                 const SeriesLayer& L = layers_[li];
                 if (&L == activeLayer() || !L.visible) continue;
                 const CubeInfo& li_info = *L.session->info;
-                if (li_info.timeIsDate != info.timeIsDate) continue;
+                if (!sameAxis(li_info, info)) continue;
+                const std::vector<std::pair<int, int>> lruns = li_info.plotRuns();
                 std::vector<double> lx(li_info.T());
                 for (int t = 0; t < li_info.T(); ++t) lx[t] = li_info.layers[t].time;
                 auto plotOther = [&](const char* label, const SeriesView& v, float weight) {
@@ -2094,7 +2125,7 @@ void App::uiSeries() {
                     spec.Marker = layerMarker(int(li));
                     spec.MarkerSize = 3.5f;
                     spec.MarkerFillColor = col;
-                    ImPlot::PlotLine(label, lx.data(), ys.data(), int(ys.size()), spec);
+                    for (const auto& [b, e] : lruns) ImPlot::PlotLine(label, lx.data() + b, ys.data() + b, e - b, spec);
                     if (!pixelTool_.empty()) drawZeitOverlays(label, v.zeitResult, v.stats);
                 };
                 for (const SeriesView& p : L.pins) {
@@ -2128,7 +2159,8 @@ void App::uiSeries() {
                         ImPlotSpec band;
                         band.FillColor = theme::onPlot(rv.color);
                         band.FillAlpha = 0.12f;
-                        ImPlot::PlotShaded(label, lx.data(), a.data(), b.data(), int(a.size()), band);
+                        for (const auto& [rb, re] : lruns)
+                            ImPlot::PlotShaded(label, lx.data() + rb, a.data() + rb, b.data() + rb, re - rb, band);
                     }
                     plotOther(label, rv, 1.8f);
                 }
@@ -2444,7 +2476,7 @@ void App::uiPerf() {
 void App::copyCsv() {
     if (!s_) return;
     const CubeInfo& info = *s_->info;
-    std::string csv = "date";
+    std::string csv = info.spectral ? "wavelength_nm" : "date";
     if (hover_.x >= 0) csv += ",cursor_" + std::to_string(hover_.x) + "_" + std::to_string(hover_.y);
     for (size_t i = 0; i < pins_.size(); ++i)
         csv += ",pin" + std::to_string(pins_[i].id) + "_" + std::to_string(pins_[i].x) + "_" + std::to_string(pins_[i].y);
@@ -2456,7 +2488,13 @@ void App::copyCsv() {
         csv += std::isnan(v) ? std::string(",") : std::string(b);
     };
     for (int t = 0; t < info.T(); ++t) {
-        csv += info.layers[t].label;
+        if (info.spectral) {
+            char nm[32];
+            std::snprintf(nm, sizeof(nm), "%g", info.layers[t].time);
+            csv += nm;
+        } else {
+            csv += info.layers[t].label;
+        }
         if (hover_.x >= 0) add(hover_.values[t]);
         for (const SeriesView& p : pins_) add(p.values[t]);
         if (!roiMean_.empty()) {

@@ -28,13 +28,6 @@ bool sameCrs(const CubeInfo& a, const CubeInfo& b) {
     return a.crsName == b.crsName;
 }
 
-int nearestTime(const std::vector<Layer>& layers, double time) {
-    int best = 0;
-    for (int i = 1; i < int(layers.size()); ++i)
-        if (std::fabs(layers[i].time - time) < std::fabs(layers[best].time - time)) best = i;
-    return best;
-}
-
 } // namespace
 
 const App::SeriesLayer* App::activeLayer() const {
@@ -218,8 +211,7 @@ void App::syncLayerTimes() {
     for (SeriesLayer& L : layers_) {
         if (&L == A) continue;
         const CubeInfo& b = *L.session->info;
-        const int t = (a.timeIsDate && b.timeIsDate) ? nearestTime(b.layers, a.layers[t_].time)
-                                                     : std::min(t_, b.T() - 1);
+        const int t = matchableAxis(a, b) ? b.nearestLayer(a.layers[t_].time) : std::min(t_, b.T() - 1);
         if (t != L.disp.t) {
             L.disp.t = t;
             mapDirty_ = true;
@@ -361,6 +353,7 @@ void App::replaceLayerSession(int i, std::shared_ptr<CubeInfo> info, double seco
     d.cmap = L.disp.cmap;
     d.t = std::min(L.disp.t, T - 1);
     d.rgb = {0, T / 2, T - 1};
+    if (info->spectral) spectralCompositeLayers(*info, spectralComposites()[0], d.rgb);
     d.diffRef = std::min(L.disp.diffRef, T - 1);
     const auto viewScale = scale_;
     const ImVec2 viewOffset = offset_;

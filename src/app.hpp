@@ -57,6 +57,7 @@ struct AppOptions {
 };
 
 const char* modeName(int mode); // display mode (DisplayMode) as shown in the interface
+const char* modeName(int mode, const CubeInfo& info); // same, "RGB composite (3 bands)" on a spectrum
 constexpr int kPinColorCount = 8;
 ImVec4 pinColor(int id);        // pin `id` (from 1) on the map and, made legible, on the chart
 // Reference date of the difference mode at date t: a fixed date, or the
@@ -221,6 +222,7 @@ private:
     int selfTestFullRes(); // --selftest-ui stages 30-32 (app_selftest.cpp)
     int selfTestReproject(const std::string& f); // stages 40-45: F, B reprojected (app_selftest.cpp)
     int selfTestBasemap();                       // stages 50-55: a local tile pyramid (app_selftest.cpp)
+    int selfTestSpectra(const std::string& g);   // stages 90-93: G, hyperspectral (app_selftest.cpp)
 
     // Basemap (app_basemap.cpp): web imagery or a map under every layer, in
     // Web Mercator, placed on the active layer's grid (basemap.hpp).

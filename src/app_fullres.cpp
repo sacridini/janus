@@ -129,8 +129,9 @@ int App::measureCacheStep(const std::vector<std::string>& in) {
             return 1;
         }
         const int W = m.info->width, H = m.info->height, T = m.info->T();
-        std::printf("%s: %d x %d x %d dates (%s), cache %s\n", inputs[0].c_str(), W, H, T, m.info->dataType.c_str(),
-                    on ? "on" : "off");
+        std::printf("%s: %d x %d x %d %s (%s), cache %s\n  %s\n", inputs[0].c_str(), W, H, T,
+                    m.info->spectral ? "bands" : "dates", m.info->dataType.c_str(), on ? "on" : "off",
+                    m.info->description.c_str());
         std::mt19937 rng(7);
         for (int i = 0; i < 5; ++i)
             m.px.push_back({int(rng() % unsigned(W)), int(rng() % unsigned(H))});

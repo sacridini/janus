@@ -127,7 +127,7 @@ void App::updateClasses(SeriesLayer& L) {
         const bool few = countClasses(ov.layer(firstLoaded), size_t(ov.w) * ov.h, 1,
                                       info.fileCategorical ? kMaxClasses : kMaxDetectedClasses, counts);
         // Declared by the file: classes even if a date has many values (up to kMaxClasses).
-        if ((info.fileCategorical || few) && !counts.empty()) {
+        if ((info.fileCategorical || few) && !counts.empty() && !info.spectral) { // reflectances, never classes
             C.state = LayerClasses::On;
             setClasses(L, counts);
             if (&L == activeLayer()) mode_ = ModeValue;

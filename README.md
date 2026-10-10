@@ -48,6 +48,9 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
   Tmask cloud screening and more from [Zeit](https://github.com/sacridini/zeit-cdts),
   fitted live on the chart or run on the image, plus the agreement of several
   change maps. A private Python runtime ships with Janus.
+- **Spectra** (hyperspectral, e.g. EnMAP): a file whose bands have
+  wavelengths opens with the chart in nanometres, the spectrum of the cursor,
+  pins and region, and true-colour, colour-infrared and SWIR composites.
 - **Embeddings** of foundation models (AlphaEarth, TESSERA): downloaded for the
   visible area over any series, shown through their principal components (also
   local to a region, refitted as you move it), the similarity to the cursor or

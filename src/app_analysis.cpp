@@ -392,7 +392,7 @@ void App::uiClassTimeline() {
     const float avail = ImGui::GetContentRegionAvail().x;
     const float chartW = std::max(avail * 0.55f, avail - ImGui::GetFontSize() * 34);
     if (ImPlot::BeginPlot("##shares", ImVec2(chartW, -1), ImPlotFlags_NoTitle)) {
-        ImPlot::SetupAxes(info.timeIsDate ? nullptr : "date (index)", "% of the pixels", ImPlotAxisFlags_AutoFit,
+        ImPlot::SetupAxes(info.timeIsDate ? nullptr : info.spectral ? "wavelength (nm)" : "date (index)", "% of the pixels", ImPlotAxisFlags_AutoFit,
                           an_.classStacked ? ImPlotAxisFlags_None : ImPlotAxisFlags_AutoFit);
         if (info.timeIsDate) ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Time);
         if (an_.classStacked) ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 100, ImPlotCond_Always);

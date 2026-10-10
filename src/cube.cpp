@@ -73,6 +73,15 @@ static TimeGranularity parseDate(const std::string& s, double& unixSec) {
 
 std::string describeSeriesFiles(const std::vector<std::string>& names) {
     if (names.empty()) return "";
+    for (const std::string& n : names)
+        if (isEnmapSpectralImage(n)) {
+            double t = 0;
+            CubeInfo fmt;
+            fmt.timeIsDate = true;
+            fmt.granularity = TimeGranularity::Day;
+            const bool dated = parseDate(fs::u8path(n).stem().u8string(), t) != TimeGranularity::Index;
+            return "EnMAP scene" + (dated ? ", " + formatTime(fmt, t) : std::string()) + " (opens its spectrum)";
+        }
     std::vector<double> times;
     TimeGranularity gran = TimeGranularity::Year;
     for (const std::string& n : names) {
@@ -114,6 +123,10 @@ std::string describeSeriesFiles(const std::vector<std::string>& names) {
 
 std::string formatTime(const CubeInfo& info, double t) {
     char buf[64];
+    if (info.spectral) {
+        std::snprintf(buf, sizeof(buf), "%.1f nm", t);
+        return buf;
+    }
     if (!info.timeIsDate) {
         std::snprintf(buf, sizeof(buf), "%d", int(std::lround(t)) + 1);
         return buf;
@@ -153,6 +166,130 @@ double CubeInfo::xFromDecimalYear(double yr) const {
 }
 
 int64_t CubeInfo::unixDay(int t) const { return int64_t(std::floor(layers[t].time / 86400.0)); }
+
+int CubeInfo::nearestLayer(double time) const {
+    int best = 0;
+    for (int i = 1; i < T(); ++i)
+        if (std::fabs(layers[i].time - time) < std::fabs(layers[best].time - time)) best = i;
+    return best;
+}
+
+std::vector<std::pair<int, int>> CubeInfo::plotRuns() const {
+    if (!spectral || T() < 3) return {{0, T()}};
+    // A step over 3 times the median spacing is a gap without bands.
+    std::vector<double> steps;
+    for (int t = 1; t < T(); ++t) steps.push_back(layers[t].time - layers[t - 1].time);
+    std::vector<double> sorted = steps;
+    std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
+    const double limit = 3 * sorted[sorted.size() / 2];
+    std::vector<std::pair<int, int>> runs;
+    int begin = 0;
+    for (int t = 1; t < T(); ++t)
+        if (steps[t - 1] > limit) {
+            runs.push_back({begin, t});
+            begin = t;
+        }
+    runs.push_back({begin, T()});
+    return runs;
+}
+
+bool sameAxis(const CubeInfo& a, const CubeInfo& b) { return a.timeIsDate == b.timeIsDate && a.spectral == b.spectral; }
+
+bool matchableAxis(const CubeInfo& a, const CubeInfo& b) {
+    return (a.timeIsDate && b.timeIsDate) || (a.spectral && b.spectral);
+}
+
+const std::vector<SpectralComposite>& spectralComposites() {
+    static const std::vector<SpectralComposite> c = {
+        {"True colour (640, 550, 470 nm)", {640, 550, 470}},
+        {"Colour infrared (860, 650, 550 nm)", {860, 650, 550}},
+        {"SWIR (2200, 860, 650 nm)", {2200, 860, 650}},
+        {"Agriculture (1650, 860, 470 nm)", {1650, 860, 470}},
+    };
+    return c;
+}
+
+bool spectralCompositeLayers(const CubeInfo& info, const SpectralComposite& c, std::array<int, 3>& rgb) {
+    if (!info.spectral) return false;
+    for (int k = 0; k < 3; ++k) {
+        rgb[k] = info.nearestLayer(c.nm[k]);
+        if (std::fabs(info.layers[rgb[k]].time - c.nm[k]) > 40) return false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Wavelengths
+// ---------------------------------------------------------------------------
+
+// Factor to nanometres of a unit name ("nm", "Micrometers"...); 0 if unknown.
+static double toNanometres(std::string u) {
+    std::transform(u.begin(), u.end(), u.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+    if (u == "nm" || u.rfind("nanomet", 0) == 0) return 1;
+    if (u == "um" || u == "\xC2\xB5m" || u.rfind("micromet", 0) == 0 || u.rfind("micron", 0) == 0) return 1000;
+    return 0;
+}
+
+// EnMAP's product metadata next to its spectral image (the GeoTIFF delivery
+// has no wavelengths of its own): <bandCharacterisation> <bandID number="n">
+// <wavelengthCenterOfBand>.
+static std::vector<double> enmapWavelengths(const std::string& path, int bands) {
+    const fs::path p = fs::u8path(path);
+    std::string name = p.filename().u8string(), upper = name;
+    std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c) { return char(std::toupper(c)); });
+    const size_t at = upper.rfind("SPECTRAL_IMAGE");
+    if (at == std::string::npos) return {};
+    // Through GDAL: product paths easily pass Windows' 260 characters.
+    const std::string meta = (p.parent_path() / fs::u8path(name.substr(0, at) + "METADATA.XML")).u8string();
+    GByte* buf = nullptr;
+    vsi_l_offset size = 0;
+    if (!VSIIngestFile(nullptr, meta.c_str(), &buf, &size, 64 << 20)) return {};
+    const std::string xml(reinterpret_cast<const char*>(buf), size_t(size));
+    VSIFree(buf);
+    const size_t begin = xml.find("<bandCharacterisation>"), end = xml.find("</bandCharacterisation>");
+    if (begin == std::string::npos || end == std::string::npos) return {};
+    std::vector<double> nm(size_t(bands), 0.0);
+    const std::string idTag = "<bandID number=\"", wlTag = "<wavelengthCenterOfBand>";
+    for (size_t i = xml.find(idTag, begin); i < end; i = xml.find(idTag, i + 1)) {
+        const int b = std::atoi(xml.c_str() + i + idTag.size());
+        const size_t w = xml.find(wlTag, i);
+        if (b >= 1 && b <= bands && w < end) nm[size_t(b - 1)] = std::atof(xml.c_str() + w + wlTag.size());
+    }
+    return nm;
+}
+
+// The wavelength (nm) of every band of a file, from the band metadata (ENVI's
+// "wavelength" and "wavelength_units"), GDAL's IMAGERY domain
+// (CENTRAL_WAVELENGTH_UM) or EnMAP's METADATA.XML; empty unless each band has
+// one, at least 3 and all different.
+static std::vector<double> bandWavelengths(GDALDataset* ds, const std::string& path) {
+    const int n = ds->GetRasterCount();
+    if (n < 3) return {};
+    const char* dsUnits = ds->GetMetadataItem("wavelength_units");
+    std::vector<double> nm(size_t(n), 0.0);
+    bool all = true;
+    for (int b = 1; b <= n && all; ++b) {
+        GDALRasterBand* rb = ds->GetRasterBand(b);
+        double v = 0;
+        if (const char* w = rb->GetMetadataItem("wavelength")) {
+            const char* u = rb->GetMetadataItem("wavelength_units");
+            v = std::atof(w);
+            double f = toNanometres(u ? u : dsUnits ? dsUnits : "");
+            if (f == 0) f = v < 30 ? 1000 : 1; // no unit: micrometres are small numbers
+            v *= f;
+        } else if (const char* um = rb->GetMetadataItem("CENTRAL_WAVELENGTH_UM", "IMAGERY")) {
+            v = std::atof(um) * 1000;
+        }
+        nm[size_t(b - 1)] = v;
+        all = v > 0;
+    }
+    if (!all) nm = enmapWavelengths(path, n);
+    if (nm.empty() || std::any_of(nm.begin(), nm.end(), [](double v) { return !(v > 0); })) return {};
+    std::vector<double> sorted = nm;
+    std::sort(sorted.begin(), sorted.end());
+    if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) return {}; // e.g. one band at several dates
+    return nm;
+}
 
 // ---------------------------------------------------------------------------
 // Bands per date
@@ -311,7 +448,7 @@ bool CubeInfo::geoToPixel(double gx, double gy, double& px, double& py) const {
 
 static bool isRasterExt(const fs::path& p) {
     static const char* exts[] = {".tif", ".tiff", ".vrt", ".img", ".jp2", ".nc", ".hdf",
-                                 ".h5", ".dat", ".bil", ".asc", ".envi", ".grd"};
+                                 ".h5", ".dat", ".bil", ".bsq", ".bip", ".asc", ".envi", ".grd"};
     std::string e = p.extension().u8string();
     std::transform(e.begin(), e.end(), e.begin(), [](unsigned char c) { return char(std::tolower(c)); });
     for (const char* x : exts)
@@ -320,6 +457,12 @@ static bool isRasterExt(const fs::path& p) {
 }
 
 bool isRasterPath(const std::string& path) { return isRasterExt(fs::u8path(path)); }
+
+bool isEnmapSpectralImage(const std::string& path) {
+    std::string n = fs::u8path(path).filename().u8string();
+    std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return char(std::toupper(c)); });
+    return n.rfind("ENMAP", 0) == 0 && n.find("SPECTRAL_IMAGE") != std::string::npos && isRasterExt(fs::u8path(path));
+}
 
 static bool wildcardMatch(const char* pat, const char* s) {
     if (*pat == '\0') return *s == '\0';
@@ -363,6 +506,19 @@ static std::vector<std::string> expandInputs(const std::vector<std::string>& inp
             std::vector<std::string> dir;
             for (auto& e : fs::directory_iterator(p, ec))
                 if (e.is_regular_file() && isRasterExt(e.path())) dir.push_back(e.path().u8string());
+            // An EnMAP product folder: its spectral image, not the quality layers beside it.
+            const auto spectral = std::find_if(dir.begin(), dir.end(), [](const std::string& f) { return isEnmapSpectralImage(f); });
+            if (spectral != dir.end()) dir = {*spectral};
+            // No rasters, but one EnMAP product in a subfolder: where its zip extracts to.
+            if (dir.empty()) {
+                std::vector<std::string> products;
+                for (auto& sub : fs::directory_iterator(p, ec))
+                    if (sub.is_directory())
+                        for (auto& e : fs::directory_iterator(sub.path(), ec))
+                            if (e.is_regular_file() && isEnmapSpectralImage(e.path().u8string()))
+                                products.push_back(e.path().u8string());
+                if (products.size() == 1) dir = products;
+            }
             std::sort(dir.begin(), dir.end(), naturalLess);
             files.insert(files.end(), dir.begin(), dir.end());
         } else if (in.find_first_of("*?") != std::string::npos) {
@@ -538,24 +694,36 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
                       packedDates > 1 ? "s" : "", packedDims);
         GDALClose(first);
     } else if (files.size() == 1) {
-        // One file: each band is one date.
+        // One file: each band is one date, or one wavelength of a spectrum.
         const int n = first->GetRasterCount();
+        const std::vector<double> nm = bandWavelengths(first, files[0]);
+        info->spectral = !nm.empty();
         for (int b = 1; b <= n; ++b) {
             GDALRasterBand* rb = first->GetRasterBand(b);
             Layer L;
             L.path = files[0];
             L.band = b;
             L.meta = readBandMeta(rb);
-            if (b == 1) readClassInfo(rb, *info);
+            if (b == 1 && !info->spectral) readClassInfo(rb, *info);
             std::string t = rb->GetDescription();
             if (CSLConstList md = rb->GetMetadata())
                 for (int i = 0; md[i]; ++i) t += std::string(" ") + md[i];
             L.label = rb->GetDescription()[0] ? rb->GetDescription() : "band " + std::to_string(b);
+            if (info->spectral) L.time = nm[size_t(b - 1)];
             timeTexts.push_back(t);
             info->layers.push_back(L);
         }
-        std::snprintf(desc, sizeof(desc), "1 file, %d bands (1 band = 1 date)", n);
         GDALClose(first);
+        if (info->spectral) {
+            std::stable_sort(info->layers.begin(), info->layers.end(),
+                             [](const Layer& a, const Layer& b) { return a.time < b.time; });
+            for (Layer& L : info->layers) L.label = formatTime(*info, L.time);
+            std::snprintf(desc, sizeof(desc), "1 file, %d bands, %.0f to %.0f nm (spectrum)", n,
+                          info->layers.front().time, info->layers.back().time);
+            info->description = desc;
+            return info;
+        }
+        std::snprintf(desc, sizeof(desc), "1 file, %d bands (1 band = 1 date)", n);
     } else {
         info->bandsPerDate = first->GetRasterCount();
         for (int b = 1; b <= info->bandsPerDate; ++b) {

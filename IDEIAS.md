@@ -152,6 +152,78 @@ Windows sem Python nem conda, e chamável pela linha de comando
   cursor e os pinos ("esse pasto foi ficando parecido com a floresta?") e o
   perfil latente (as D dimensões) do cursor e dos pinos.
 
+### Hiperespectral: EnMAP e outros (fase 19, pedida em 2026-10-10)
+- **Hiperespectral em geral, com o EnMAP como primeiro caso**, não só EnMAP: o
+  que é próprio do EnMAP é ler o `METADATA.XML` do L2A (comprimentos de onda,
+  FWHM, bandas ruins); o resto vale para PRISMA, EMIT, DESIS, Tanager e qualquer
+  ENVI com `wavelength` no cabeçalho, quase tudo lido pelo GDAL.
+- **Não replicar a EnMAP-Box** (plugin do QGIS: bibliotecas espectrais,
+  classificação e regressão, desmistura, correção atmosférica). O Janus fica na
+  visualização rápida e em análises leves; o diferencial é **espectro e tempo**
+  juntos, que a EnMAP-Box não tem como foco.
+- **Cabe no modelo que já existe**: o cubo é pixel × eixo e o gráfico mostra a
+  curva do pixel; com o eixo em comprimento de onda, o gráfico vira espectro.
+  - Uma cena: o eixo é espectral (224 bandas de 400 a 2450 nm no EnMAP, 30 m).
+  - Uma série de cenas: já abre como "várias bandas por data" (fase 4); falta
+    escolher a banda e os índices **por nm** em vez de número de banda.
+- **Fases**:
+  1. Eixo espectral: ler comprimentos de onda e bandas ruins (ENVI, metadados
+     do GDAL, `METADATA.XML` do EnMAP); gráfico em nm com espectros do cursor,
+     dos pinos e da ROI (média e p10–p90); composições RGB por comprimento de
+     onda (cor verdadeira, falsa-cor).
+  2. Bandas e índices por nm em séries de cenas; índices de bandas estreitas.
+  3. Similaridade espectral (ângulo espectral, como o SAM) e PCA, reaproveitando
+     o código dos embeddings (fase 17): um vetor de 224 valores por pixel é o
+     mesmo problema que os 64 do AlphaEarth.
+- **Riscos**: tamanho (224 × ~1000 × 1000 em int16 ≈ 450 MB por cena: medir o
+  overview e o cache em resolução total com uma cena real); as **bandas de
+  absorção de água** (~1400 e ~1900 nm) fora do gráfico e das estatísticas,
+  senão estragam a escala; a **sobreposição VNIR/SWIR** no gráfico.
+- **Etapa 1 feita (2026-10-10)**:
+  - A cena de exemplo de Groningen (L2A, 2022-08-10) vem em **ENVI** (BSQ +
+    HDR, Int16, ganho 0,0001, nodata −32768), 1335 × 1288 × 224, UTM 32N.
+    O GDAL 3.11 já dá o comprimento de onda de cada banda (`wavelength` +
+    `wavelength_units` no domínio padrão; `CENTRAL_WAVELENGTH_UM` no IMAGERY,
+    arredondado a 1 nm). O HDR não tem `bbl`: as 6 bandas de 1331 a 1391 nm
+    vêm inteiras em nodata e não há bandas entre 1760 e 1939 nm.
+  - Na entrega em GeoTIFF os comprimentos de onda só estão no
+    `METADATA.XML` (`<bandCharacterisation>`); lido pelo `VSIIngestFile` do
+    GDAL, porque os caminhos de um produto passam fácil dos 260 caracteres
+    do Windows (o `std::ifstream` falhava).
+  - Um arquivo só, com comprimento de onda em todas as bandas (≥ 3, todos
+    diferentes) → `CubeInfo::spectral`: `Layer::time` em nm, em ordem; rótulos
+    "650.2 nm". Abrir a pasta de um produto EnMAP abre só a imagem espectral.
+  - Gráfico em nm, quebrado onde o passo passa de 3× a mediana (`plotRuns`);
+    abre em cor verdadeira (modo RGB, 640/550/470 nm) na banda de 860 nm;
+    composições por comprimento de onda no painel Display; camadas
+    espectrais seguem a banda da ativa; ferramentas do Zeit desabilitadas;
+    nunca categórico.
+  - Medido na cena real (cache desligado): espectro exato de um pixel em
+    1–5 ms, ROI de 256 × 256 × 224 em 186 ms; overview de 1095 × 1057.
+  - Autoteste `--selftest-ui ... G` (estágios 90–93): um ENVI escrito do maior
+    para o menor comprimento de onda e uma pasta de produto EnMAP em GeoTIFF
+    com `METADATA.XML` (com um `bandID` fora de `<bandCharacterisation>` que
+    deve ser ignorado) e uma camada de qualidade ao lado.
+  - GeoTIFF **pixel-interleaved** (o padrão do `gdal_translate` com várias
+    bandas) é ~70× mais lento: cada banda lida descomprime blocos com as 224.
+    Medido (cena de Groningen, DEFLATE, blocos 256): overview 51,5 s e ROI de
+    256² em 49,7 s; com `INTERLEAVE=BAND`, 0,7 s e 0,33 s. Avisar ou sugerir
+    a conversão ao abrir um arquivo assim.
+  - Falta: a sobreposição VNIR/SWIR (≈ 950–995 nm, os dois detectores
+    alternados) faz um zigue-zague pequeno no gráfico; as máscaras de
+    qualidade do EnMAP (`QL_QUALITY_CLOUD` etc.) ainda não são usadas.
+- **Dados para testar** (verificado em 2026-10-10):
+  - Exemplos do enmap.org, sem cadastro, em L1B, L1C e L2A: Tirol (Áustria,
+    2022-06-12, L2A 387 MB), Groningen (Países Baixos, 2022-08-10, 261 MB) e
+    Nevada (EUA, 2023-07-07, 367 MB). Ex.:
+    `https://www.enmap.org/data/example_data/Groningen_Netherlands_L2A.zip`.
+  - A EnMAP-Box traz um recorte L2A de Potsdam (`enmap_potsdam.tif`, 2022-07-24)
+    e a cena inteira.
+  - Arquivo completo: gratuito (licença da DLR, uso comercial e não comercial,
+    sem revenda), mas com **cadastro** (e-mail institucional ou exceção pedida à
+    DLR); EOWEB GeoPortal ou o STAC do DLR Geoservice (coleção
+    `ENMAP_HSI_L2A`, ARD), com autenticação.
+
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
@@ -200,6 +272,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 17 | 0.29.0 | **Embeddings** (TESSERA, AlphaEarth): PCA → RGB em C++ (SIMD, iteração de subespaço), **PCA local da ROI**, **similaridade a um pino** (mapa e gráfico ano a ano), **mudança entre anos**, perfil latente; **baixar embeddings da área visível** pelo Zeit (como o basemap, sobre qualquer série), com barra de progresso no mapa | concluída |
 | — | 0.30.0 | **Exportação conferida e com atalhos**: o popup de opções passa a abrir (nunca era desenhado), embeddings como GeoTIFF em resolução total, todas as saídas de uma rodada do Zeit numa pasta, reset do layout (`Ctrl+Shift+R`); faixa Int8 dos embeddings de todos os anos | concluída |
 | 18 | 0.31.0 | Mais do Zeit: **CODED** (degradação florestal) e **NDFI** (desmistura espectral, a série vira camada), **Tmask** (nuvens que a banda de qualidade perdeu), **SOM** (agrupamento de trajetórias, série típica no gráfico) e **concordância** entre mapas de mudança | concluída |
+| 19 | — | **Hiperespectral** (EnMAP primeiro; PRISMA, EMIT, ENVI em geral): eixo espectral em nm, espectros do cursor, pinos e ROI, RGB por comprimento de onda, bandas e índices por nm em séries de cenas, similaridade espectral e PCA (ver "Hiperespectral" em Decisões) | em andamento (etapa 1 feita) |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a

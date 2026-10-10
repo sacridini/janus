@@ -18,7 +18,7 @@
 
 | File | Role |
 |---|---|
-| `src/cube.*` | Layer, date and band discovery; per-thread GDAL reader (nodata → NaN, scale/offset, normalized difference, QA mask) |
+| `src/cube.*` | Layer, date and band discovery; spectra (wavelengths from the band metadata or EnMAP's METADATA.XML, the chart's pieces, RGB composites by wavelength); per-thread GDAL reader (nodata → NaN, scale/offset, normalized difference, QA mask) |
 | `src/overview.*` | Reduced cube built in parallel, following the focused date; disk cache |
 | `src/fullres_cache.*` | Full-resolution cache: lossless 64×64 blocks per date on the local disk, built with the overview (HDD), read for series, ROI and tiles |
 | `src/gpu.hpp` | Renderer-neutral GPU layer: cube, per-pixel temporal statistics, map drawing, textures (`GpuTex`) |
@@ -35,7 +35,7 @@
 | `src/app_transect.cpp` | Space-time transect: sampling along the line (overview, then full resolution in the background), the Transect panel (image drawn by the map renderer) |
 | `src/file_browser.*` | Lazily listed folder tree (rasters only by default); reveals (expands and scrolls to) the series opened; favourites; a folder's preview as a series (`describeSeriesFiles`) |
 | `src/app_export.cpp` | Export: map as PNG (offscreen render at 1–4×, marks and legend drawn on the CPU with ImGui's pixel font at 13 px, whatever the interface's size), values and the view as GeoTIFF, Zeit results, embedding views (full resolution, `computeEmbeddingExport`); the options popup with its *Save to* path; background jobs, Exports window |
-| `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow, swipe, transect and the exports in a hidden window, checked by reading map pixels and the files written; the full-resolution cache checked against the files |
+| `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow, swipe, transect, spectra (ENVI, an EnMAP product) and the exports in a hidden window, checked by reading map pixels and the files written; the full-resolution cache checked against the files |
 | `src/app_fullres.cpp` | Full-resolution cache in the Performance panel, its settings widgets, `--measure-cache` |
 | `src/app_settings.cpp` | Settings window (theme, font size, Files panel, processing threads, overview memory, caches), kept in the layout .ini with the last export folder; the font applied between frames (`App::applyFont`); applies the threads to the open series and Zeit (the serve process is replaced once idle); its `--selftest-ui` checks (pools, contrast of every theme, Zeit restart) |
 | `src/theme.*` | Interface themes (Dark, Light, Classic, Janus, Studio, Graphite): ImGui and ImPlot colours, status colours, contrast (WCAG) and data colours made legible on the charts |

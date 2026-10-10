@@ -207,8 +207,8 @@ int main(int argc, char** argv) {
                 glfwSetWindowShouldClose(window, 1);
             }
         } else if (selftestUi) {
-            if (inputs.size() < 2 || inputs.size() > 6) {
-                std::fprintf(stderr, "--selftest-ui needs two to six inputs\n");
+            if (inputs.size() < 2 || inputs.size() > 7) {
+                std::fprintf(stderr, "--selftest-ui needs two to seven inputs\n");
                 exitCode = 2;
                 glfwSetWindowShouldClose(window, 1);
             } else if (const int rc = app->selfTestStep(inputs); rc >= 0) {

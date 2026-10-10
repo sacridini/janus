@@ -41,11 +41,12 @@ inline const char* kUsage =
     "  --selftest-embeddings  check the embedding kernels and PCA, with timings\n"
     "  --selftest-embeddings-ui DIR [OUT]  a series of embeddings in every view, in a\n"
     "                      hidden window; PNGs of each in OUT\n"
-    "  --selftest-ui A B [C [D [E [F]]]]  drive the layers workflow in a hidden window\n"
+    "  --selftest-ui A B [C [D [E [F [G]]]]]  drive the layers workflow in a hidden window\n"
     "                      (A, then B as a layer; C: several bands per date;\n"
     "                      D, E: categorical, with and without a colour table;\n"
-    "                      F: B in another CRS, reprojected over it; the\n"
-    "                      basemap is checked with local tiles, no network)\n";
+    "                      F: B in another CRS, reprojected over it; G: spectra,\n"
+    "                      ENVI and an EnMAP product; the basemap is checked\n"
+    "                      with local tiles, no network)\n";
 
 // Options that take a value (the launcher validates them before opening the GUI).
 inline bool isValueOption(const char* a) {

@@ -765,6 +765,114 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         break;
     }
     case 19:
+        if (in.size() < 7) {
+            std::printf("OK (%.1f s)\n", now() - st_.t0);
+            return 0;
+        }
+        st_.stage = 90; // G: spectra (90-93)
+        st_.since = now();
+        break;
+    case 90:
+    case 91:
+    case 92:
+    case 93:
+        return selfTestSpectra(in[6]);
+    }
+    return -1;
+}
+
+// Stages 90-93: G = two synthetic spectra (tools/make_selftest_data.py). 90
+// opens the ENVI file (wavelengths in its header, longest first); 91 checks the
+// axis (sorted wavelengths in nm, the chart broken at the gap without bands),
+// the true-colour start, the values of every band and that the Zeit tools do
+// not apply; 92 opens G, which has no rasters but an EnMAP product folder
+// (GeoTIFF without wavelengths, METADATA.XML beside it, a quality layer that
+// must not be opened), as its zip extracts; 93 checks that the same spectrum
+// comes out.
+int App::selfTestSpectra(const std::string& g) {
+    namespace fs = std::filesystem;
+    auto fail = [&](const char* what) {
+        std::printf("FAIL (stage %d): %s\n", st_.stage, what);
+        return 1;
+    };
+    auto next = [&](const char* done) {
+        std::printf("[%5.1f s] %s\n", now() - st_.t0, done);
+        ++st_.stage;
+        st_.since = now();
+    };
+    // The generator's wavelengths and reflectance.
+    std::vector<double> nm;
+    for (int v = 420; v <= 1000; v += 20) nm.push_back(v);
+    for (int v = 1030; v <= 2440; v += 30)
+        if (v < 1780 || v > 1930) nm.push_back(v);
+    const int W = 120, T = int(nm.size());
+    auto expected = [&](int t, int x, int y) -> double {
+        if (nm[t] >= 1340 && nm[t] <= 1390) return NAN;
+        const double r = 0.03 + 0.4 * (double(x) / (W - 1)) / (1 + std::exp(-(nm[t] - 720) / 25)) + 0.001 * (y % 10);
+        return std::round(r * 10000) * 0.0001;
+    };
+    auto ready = [&]() {
+        return !opening_.valid() && layers_.size() == 1 && s_ && s_->overview.complete() && s_->gpu.statsValid &&
+               layers_[0].classes.state != LayerClasses::Undecided;
+    };
+    // The axis and the values of the open spectrum; nullptr = passed.
+    auto checkSpectrum = [&]() -> const char* {
+        const CubeInfo& info = *s_->info;
+        std::printf("    %s: %s, %s to %s, %d piece(s) on the chart\n", fs::u8path(info.firstPath).filename().u8string().c_str(),
+                    info.description.c_str(), info.layers.front().label.c_str(), info.layers.back().label.c_str(),
+                    int(info.plotRuns().size()));
+        if (!info.spectral || info.timeIsDate) return "the file should open as a spectrum";
+        if (info.T() != T) return "one layer per band expected";
+        for (int t = 0; t < T; ++t)
+            if (std::fabs(info.layers[t].time - nm[t]) > 1e-6) return "wavelengths should be read in nm and sorted";
+        if (info.layers[0].label != "420.0 nm") return "layers should be labelled by wavelength";
+        const auto runs = info.plotRuns();
+        if (runs.size() != 2 || info.layers[runs[1].first].time != 1960) return "the chart should break at 1750-1960 nm";
+        if (layers_[0].classes.state != LayerClasses::Off) return "reflectances are not classes";
+        if (::toolApplicability(ZeitTool{}, info).empty()) return "the Zeit tools work along time, not on a spectrum";
+        std::array<int, 3> rgb{};
+        if (!spectralCompositeLayers(info, spectralComposites()[0], rgb) || mode_ != ModeRGB || rgb_ != rgb)
+            return "a spectrum should open in true colour";
+        if (info.layers[t_].time != 860) return "a spectrum should open at the near infrared (860 nm)";
+        int finite = 0, missing = 0;
+        for (const auto& q : {std::array<int, 2>{5, 7}, {60, 33}, {119, 79}, {90, 2}}) {
+            const std::vector<float> v = approxSeries(q[0], q[1]);
+            for (int t = 0; t < T; ++t) {
+                const double e = expected(t, q[0], q[1]);
+                if (std::isnan(e) != std::isnan(v[t]) || (!std::isnan(e) && std::fabs(e - v[t]) > 1e-5)) {
+                    std::printf("    pixel (%d, %d) at %s: %g, expected %g\n", q[0], q[1], info.layers[t].label.c_str(),
+                                v[t], e);
+                    return "the spectrum's values differ from the file";
+                }
+                finite += !std::isnan(e);
+                missing += std::isnan(e);
+            }
+        }
+        std::printf("    %d values as written, %d no-data (water absorption)\n", finite, missing);
+        canvasSize_ = ImVec2(400, 300);
+        fitView(canvasSize_);
+        renderMap(400, 300);
+        return nullptr;
+    };
+    switch (st_.stage) {
+    case 90:
+        openInputs({(fs::u8path(g) / "envi" / "spectrum.bsq").u8string()});
+        next("open G (ENVI spectrum)");
+        break;
+    case 91:
+        if (!ready()) break;
+        if (const char* e = checkSpectrum()) return fail(e);
+        next("ENVI spectrum: wavelengths, chart gaps, true colour, values");
+        break;
+    case 92: // G itself: no rasters, the product in a subfolder (as its zip extracts)
+        openInputs({g});
+        next("open G, whose subfolder is an EnMAP product (GeoTIFF + METADATA.XML)");
+        break;
+    case 93:
+        if (!ready()) break;
+        if (!isEnmapSpectralImage(s_->info->firstPath)) return fail("the folder should open its spectral image alone");
+        if (const char* e = checkSpectrum()) return fail(e);
+        next("EnMAP product: wavelengths from METADATA.XML, quality layers left out");
         std::printf("OK (%.1f s)\n", now() - st_.t0);
         return 0;
     }

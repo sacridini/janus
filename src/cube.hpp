@@ -52,7 +52,7 @@ struct Layer {
     // The date's bands are bandBase + 1 .. bandBase + bandsPerDate of the file
     // (0, except embeddings of several years in one file: see openCube).
     int bandBase = 0;
-    double time = 0;     // Unix seconds (if CubeInfo::timeIsDate) or index
+    double time = 0;     // Unix seconds (if CubeInfo::timeIsDate), nm (if CubeInfo::spectral) or index
     std::string label;   // displayed text (formatted date or name)
     BandMeta meta;       // of `band`
     BandMeta ndMeta;     // of the normalized-difference band, if any
@@ -71,6 +71,9 @@ struct CubeInfo {
     bool hasGeoTransform = false;
     std::array<double, 6> geoTransform{0, 1, 0, 0, 0, 1};
     bool timeIsDate = false;
+    // One file whose bands are wavelengths (hyperspectral, e.g. EnMAP): the
+    // axis is the spectrum, layers[t].time in nm, increasing.
+    bool spectral = false;
     TimeGranularity granularity = TimeGranularity::Index;
     std::string description; // e.g. "41 files (band 1 of each)"
     std::string firstPath;
@@ -101,7 +104,27 @@ struct CubeInfo {
     int64_t unixDay(int t) const;
     // Short text for the shown quantity, e.g. "Band 4" or "ND(nir, red), QA fmask".
     std::string selectionText() const;
+    // Layer whose time (date or wavelength) is nearest to `time`.
+    int nearestLayer(double time) const;
+    // Ranges [begin, end) of layers to draw as one line: a spectrum is broken
+    // where bands are missing (e.g. water absorption); otherwise one range.
+    std::vector<std::pair<int, int>> plotRuns() const;
 };
+
+// Same kind of axis (dates, wavelengths or indices): a chart can share it.
+bool sameAxis(const CubeInfo& a, const CubeInfo& b);
+// Both dated or both spectral: the same time / wavelength can be matched.
+bool matchableAxis(const CubeInfo& a, const CubeInfo& b);
+
+// RGB composites of a spectrum by wavelength (nm).
+struct SpectralComposite {
+    const char* name;
+    double nm[3]; // R, G, B
+};
+const std::vector<SpectralComposite>& spectralComposites();
+// The layers nearest to the composite's wavelengths; false if one is not
+// covered by the spectrum (no band within 40 nm).
+bool spectralCompositeLayers(const CubeInfo& info, const SpectralComposite& c, std::array<int, 3>& rgb);
 
 // Writes a VRT with one band per layer, in date order, with nodata and
 // scale/offset applied, readable by other tools. `sourceBand` = 0 writes the
@@ -122,6 +145,9 @@ std::string formatTime(const CubeInfo& info, double t);
 
 // True for file names with a raster extension Janus lists by default.
 bool isRasterPath(const std::string& path);
+// An EnMAP product's spectral image (ENMAP01-...-SPECTRAL_IMAGE.TIF/.BSQ...):
+// opening its folder opens it alone.
+bool isEnmapSpectralImage(const std::string& path);
 // What files would open as, from their names alone (dates as openCube reads
 // them): "41 rasters, 1985 to 2025, yearly"; empty without files.
 std::string describeSeriesFiles(const std::vector<std::string>& names);

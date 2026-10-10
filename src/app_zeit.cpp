@@ -88,6 +88,7 @@ std::string toolApplicability(const ZeitTool& tool, const CubeInfo& info) {
     if (tool.layerInput) return {}; // runs on result maps, whatever the series
     if (embeddingMeta(info).is) // as Zeit itself, which refuses such cubes
         return "a layer of embeddings has no physical unit nor seasonal signal (see the Embeddings panel)";
+    if (info.spectral) return "a spectrum (one band per wavelength), not a series in time";
     if (!tool.bands.empty() && info.bandsPerDate < int(tool.bands.size())) {
         std::string list;
         for (const std::string& b : tool.bands) list += (list.empty() ? "" : ", ") + b;

@@ -7,6 +7,8 @@
 - **Opens** a folder of rasters (1 file = 1 date), a multiband file (1 band = 1
   date), a list of files or a wildcard pattern. Dates are parsed from file names
   or band descriptions (`YYYY-MM-DD`, `YYYYMMDD`, `YYYY_MM`, `YYYY`, `A2001001`, ...).
+  A file whose bands have wavelengths (hyperspectral, e.g. EnMAP) opens as a
+  **spectrum** (see [Spectra](#spectra-hyperspectral)).
 - **Categorical series** (land cover, masks, classifications): detected when
   the file has a colour table, category names or an attribute table, or when a
   date has only a few whole values. Each class gets the file's colour (or one of
@@ -170,11 +172,12 @@ Developer options:
                       overview (and the full-resolution cache if on), time the
                       reads again from the cache, in a hidden window
   --selftest-zeit IN  run the Zeit tools end to end on IN without a window
-  --selftest-ui A B [C [D [E [F]]]]  drive the layers workflow in a hidden window
+  --selftest-ui A B [C [D [E [F [G]]]]]  drive the layers workflow in a hidden window
                       (A, then B as a layer; C: several bands per date;
                       D, E: categorical, with and without a colour table;
-                      F: B in another CRS, reprojected over it; the
-                      basemap is checked with local tiles, no network)
+                      F: B in another CRS, reprojected over it; G: spectra,
+                      ENVI and an EnMAP product; the basemap is checked
+                      with local tiles, no network)
 ```
 
 Examples:
@@ -361,6 +364,36 @@ Janus hands it the cube as a VRT (dates in order, nodata and scale applied).
 Logs: each raster run's `job.log` (above); `%LOCALAPPDATA%\Janus\zeit.log`
 for the process that fits the chart and estimates run times (its warnings and
 errors), with a line per raster run pointing to its log.
+
+## Spectra (hyperspectral)
+
+A file whose bands carry their wavelength opens as a **spectrum** instead of a
+series in time: the chart's axis is the wavelength (nm), the time bar moves
+through the bands and each layer is labelled by its wavelength (*650.2 nm*).
+It works for any such file; EnMAP is the first case tested.
+
+- **Wavelengths** are read from the band metadata (ENVI's `wavelength` and
+  `wavelength units`, nm or µm), from GDAL's `CENTRAL_WAVELENGTH_UM`, or from
+  the `METADATA.XML` of an EnMAP product (its GeoTIFF delivery has none of its
+  own). Bands are sorted by wavelength.
+- **EnMAP**: open the product folder, the folder its zip extracts to (the
+  product in a subfolder) or its `…-SPECTRAL_IMAGE` file: the spectral image
+  is opened alone, not the quality layers beside it. Example
+  scenes (L2A, no registration):
+  [enmap.org/data_tools/exampledata](https://enmap.org/data_tools/exampledata);
+  the whole archive is free with a DLR account.
+- **On the map**: a spectrum opens in **true colour** (bands nearest to 640,
+  550 and 470 nm) in the *RGB composite* mode; the composite list above the
+  R, G, B sliders also has colour infrared, SWIR and agriculture. *Value* mode
+  shows one band, the time bar choosing which (it starts at 860 nm).
+- **On the chart**: the spectrum of the cursor, the pins and the ROI (mean and
+  p10–p90 per band). Bands without data (e.g. the water absorption bands, all
+  no-data in EnMAP L2A) leave a gap, and so does a stretch of the spectrum
+  without bands (EnMAP L2A has none from ~1760 to ~1940 nm). Other spectra open
+  as layers are drawn on the same axis and follow the band shown.
+- **CSV** (copy the chart): a `wavelength_nm` column instead of `date`.
+- The Zeit tools work along time and are disabled on a spectrum. A series of
+  scenes (one file per date) opens as a series with several bands per date.
 
 ## Embeddings
 
