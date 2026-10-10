@@ -85,11 +85,14 @@ std::string App::toolApplicability(const ZeitTool& tool) const {
 }
 
 std::string toolApplicability(const ZeitTool& tool, const CubeInfo& info) {
+    if (tool.layerInput) return {}; // runs on result maps, whatever the series
     if (embeddingMeta(info).is) // as Zeit itself, which refuses such cubes
         return "a layer of embeddings has no physical unit nor seasonal signal (see the Embeddings panel)";
-    if (!tool.bands.empty() && info.bandsPerDate < int(tool.bands.size()))
-        return "needs one file per date with at least " + std::to_string(tool.bands.size()) +
-               " bands (e.g. Landsat surface reflectance: blue, green, red, NIR, SWIR1, SWIR2)";
+    if (!tool.bands.empty() && info.bandsPerDate < int(tool.bands.size())) {
+        std::string list;
+        for (const std::string& b : tool.bands) list += (list.empty() ? "" : ", ") + b;
+        return "needs one file per date with several bands: " + list + " (e.g. Landsat surface reflectance)";
+    }
     if (!tool.bands.empty() && !info.timeIsDate)
         return "needs dates (none were found in the file names or band descriptions)";
     if (info.T() < tool.minDates)
@@ -228,6 +231,10 @@ bool zeitJobInputs(const CubeInfo& info, const ZeitTool& tool, const BandRoles& 
     std::vector<double> years(info.T());
     for (int t = 0; t < info.T(); ++t) years[t] = info.decimalYear(t);
     spec["years"] = years;
+    // Janus's date labels: the band descriptions of series outputs (read back as the dates).
+    std::vector<std::string> labels(info.T());
+    for (int t = 0; t < info.T(); ++t) labels[t] = info.layers[t].label;
+    spec["labels"] = labels;
     const json extras = zeitPixelExtras(info, roles);
     for (auto it = extras.begin(); it != extras.end(); ++it) spec[it.key()] = it.value();
     if (info.sel.ndBand > 0) {
@@ -365,6 +372,10 @@ void App::pumpZeit() {
         const ZeitTool* tool = zeit_->tool(job->toolId);
         bool first = true;
         for (const json& o : result.value("outputs", json::array())) {
+            if (o.value("series", false)) { // e.g. the NDFI of every date: a new layer, opened below
+                seriesToOpen_.push_back(o.value("path", ""));
+                continue;
+            }
             ResultLayer L;
             L.cubeId = cubeId;
             L.name = (tool ? tool->name : job->toolId) + ": " + o.value("name", "");
@@ -372,6 +383,12 @@ void App::pumpZeit() {
             L.unit = o.value("unit", "");
             L.cmap = colormapByName(o.value("colormap", "Viridis"));
             L.classes = o.value("classes", std::vector<std::string>());
+            for (const json& cs : o.value("class_series", json::array())) {
+                ResultLayer::ClassSeries c;
+                for (const json& v : cs.value("x", json::array())) c.x.push_back(v.is_number() ? v.get<double>() : NAN);
+                for (const json& v : cs.value("y", json::array())) c.y.push_back(v.is_number() ? v.get<double>() : NAN);
+                L.classSeries.push_back(std::move(c));
+            }
             L.x0 = win[0];
             L.y0 = win[1];
             L.w = int(win[2]) - L.x0;
@@ -408,6 +425,14 @@ void App::pumpZeit() {
         r.layer.tex = Gpu::createTileTexture(r.layer.tw, r.layer.th, r.layer.data.data());
         results_.push_back(std::move(r.layer));
         mapDirty_ = true;
+    }
+    // Series outputs (e.g. NDFI, a screened series) join as layers, one open at a time; the
+    // series being studied stays active.
+    if (!seriesToOpen_.empty() && !opening_.valid() && !layers_.empty()) {
+        const std::string path = seriesToOpen_.front();
+        seriesToOpen_.erase(seriesToOpen_.begin());
+        openingKeepActive_ = true;
+        openInputs({path}, true);
     }
 }
 
@@ -562,8 +587,34 @@ void App::runTool(const ZeitTool& tool) {
     fs::create_directories(work, ec);
     json spec = {{"tool", tool.id}, {"params", ui.params}};
     std::string err;
-    if (!zeitJobInputs(info, tool, activeBandRoles(), work.u8string(), name + "_" + std::to_string(info.id), spec,
-                       err)) {
+    uint64_t cubeId = info.id;
+    std::string mapsScope;
+    if (tool.layerInput) {
+        // On result maps: the outputs are on the first one's grid and belong to its series.
+        const ResultLayer* first = nullptr;
+        for (const ZeitParam& p : tool.params)
+            if (p.type == "layers" && ui.params.value(p.id, json::array()).size() > 0) {
+                const std::string path = ui.params[p.id][0].value("path", "");
+                for (const ResultLayer& r : results_)
+                    if (r.path == path) first = &r;
+            }
+        if (!first) {
+            error_ = "Choose the maps to run on first.";
+            openErrorPopup_ = true;
+            return;
+        }
+        cubeId = first->cubeId;
+        win[0] = first->x0;
+        win[1] = first->y0;
+        win[2] = first->x0 + first->w;
+        win[3] = first->y0 + first->h;
+        size_t n = 0;
+        for (const ZeitParam& p : tool.params)
+            if (p.type == "layers") n += ui.params.value(p.id, json::array()).size();
+        mapsScope = std::to_string(n) + " maps";
+        scopeName = mapsScope.c_str();
+    } else if (!zeitJobInputs(info, tool, activeBandRoles(), work.u8string(), name + "_" + std::to_string(info.id),
+                              spec, err)) {
         error_ = err;
         openErrorPopup_ = true;
         return;
@@ -581,7 +632,7 @@ void App::runTool(const ZeitTool& tool) {
     std::snprintf(title, sizeof(title), "%s - %s (%d x %d px)", tool.name.c_str(), scopeName, win[2] - win[0],
                   win[3] - win[1]);
     auto job = zeit_->startJob(spec, (out / "job.json").u8string(), title);
-    jobCube_[job.get()] = info.id;
+    jobCube_[job.get()] = cubeId;
     jobs_.push_back(job);
     showTasks_ = true;
 }
@@ -689,6 +740,86 @@ bool App::uiPatterns(const ZeitParam& p, json& v) {
     return changed;
 }
 
+// Parameter of type "layers" (e.g. the maps the agreement compares): result maps
+// of any series, of the parameter's unit, in the order they were checked (the
+// first one is the grid). Value: [{"name", "path"}, ...].
+bool App::uiLayersParam(const ZeitParam& p, json& v) {
+    if (!v.is_array()) v = json::array();
+    bool changed = false;
+    auto present = [&](const std::string& path) {
+        for (const ResultLayer& r : results_)
+            if (r.path == path) return true;
+        return false;
+    };
+    for (size_t k = v.size(); k-- > 0;) // maps removed from the Layers panel
+        if (!present(v[k].value("path", ""))) {
+            v.erase(k);
+            changed = true;
+        }
+    ImGui::TextUnformatted(p.label.c_str());
+    if (!p.help.empty()) ImGui::SetItemTooltip("%s", p.help.c_str());
+    int shown = 0;
+    for (size_t i = 0; i < results_.size(); ++i) {
+        const ResultLayer& r = results_[i];
+        if (!p.unit.empty() && r.unit != p.unit) continue;
+        std::string series;
+        for (const SeriesLayer& L : layers_)
+            if (L.session->info->id == r.cubeId) series = L.name;
+        int at = -1;
+        for (size_t k = 0; k < v.size(); ++k)
+            if (v[k].value("path", "") == r.path) at = int(k);
+        bool on = at >= 0;
+        ImGui::PushID(int(i));
+        const std::string label = r.name + "  [" + series + "]" + (at == 0 ? "  (grid)" : "") + "###map";
+        if (ImGui::Checkbox(label.c_str(), &on)) {
+            if (on) v.push_back({{"name", r.name}, {"path", r.path}});
+            else v.erase(size_t(at));
+            changed = true;
+        }
+        ImGui::SetItemTooltip("%s", r.path.c_str());
+        ImGui::PopID();
+        ++shown;
+    }
+    if (shown == 0)
+        ImGui::TextDisabled(p.unit == "year" ? "No map of dates yet: run LandTrendr, CCDC, BFAST or CODED first."
+                                             : "No map of this kind yet: run a tool first.");
+    return changed;
+}
+
+void App::drawClassSeries(const SeriesStats& st) {
+    if (!s_ || hover_.x < 0) return;
+    const CubeInfo& info = *s_->info;
+    for (auto it = results_.rbegin(); it != results_.rend(); ++it) { // the topmost first
+        const ResultLayer& r = *it;
+        if (r.cubeId != info.id || !r.visible || r.classSeries.empty()) continue;
+        const float v = r.valueAt(hover_.x, hover_.y);
+        const int k = std::isnan(v) ? 0 : int(std::lround(v));
+        if (k < 1 || k > int(r.classSeries.size())) continue;
+        const ResultLayer::ClassSeries& c = r.classSeries[k - 1];
+        const int n = int(std::min(c.x.size(), c.y.size()));
+        if (n == 0) continue;
+        std::vector<double> x(n), y(n);
+        for (int i = 0; i < n; ++i) {
+            x[i] = info.xFromDecimalYear(c.x[i]);
+            y[i] = plotValues_ == 1 ? c.y[i] - st.mean
+                   : plotValues_ == 2 ? (st.std > 0 ? (c.y[i] - st.mean) / st.std : 0.0) : c.y[i];
+        }
+        const std::string name = k <= int(r.classes.size()) ? r.classes[k - 1] : "class " + std::to_string(k);
+        const std::string label = name + ": typical series###classseries";
+        // The class colour, dashed-looking over a dark outline: a model, not data.
+        const ImVec4 col = theme::onPlot(ImPlot::GetColormapColor((k - 1) % ImPlot::GetColormapSize(r.cmap), r.cmap));
+        ImPlotSpec under;
+        under.LineColor = ImVec4(0.05f, 0.05f, 0.08f, 0.9f);
+        under.LineWeight = 5.0f;
+        ImPlot::PlotLine(label.c_str(), x.data(), y.data(), n, under);
+        ImPlotSpec spec;
+        spec.LineColor = col;
+        spec.LineWeight = 2.5f;
+        ImPlot::PlotLine(label.c_str(), x.data(), y.data(), n, spec);
+        return; // one map's only
+    }
+}
+
 void App::uiToolWindow(const ZeitTool& tool) {
     ToolUi& ui = toolUi_[tool.id];
     if (!ui.open) return;
@@ -786,8 +917,10 @@ void App::uiToolWindow(const ZeitTool& tool) {
             }
         } else if (p.type == "patterns") {
             changed |= uiPatterns(p, v);
+        } else if (p.type == "layers") {
+            changed |= uiLayersParam(p, v);
         }
-        if (!p.help.empty() && p.type != "patterns") ImGui::SetItemTooltip("%s", p.help.c_str());
+        if (!p.help.empty() && p.type != "patterns" && p.type != "layers") ImGui::SetItemTooltip("%s", p.help.c_str());
         ImGui::PopID();
     }
     ImGui::PopItemWidth();
@@ -810,7 +943,23 @@ void App::uiToolWindow(const ZeitTool& tool) {
                             "and its numbers are added to the Statistics table.");
     }
 
-    if (tool.raster && s_) {
+    if (tool.raster && s_ && tool.layerInput) {
+        ImGui::SeparatorText("Run");
+        size_t maps = 0;
+        for (const ZeitParam& p : tool.params)
+            if (p.type == "layers") maps = std::max(maps, ui.params.value(p.id, json::array()).size());
+        ImGui::TextDisabled("On the grid of the first map checked; the results go under its series.");
+        ImGui::TextDisabled("Output: %s", resultsDir_.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Change...")) {
+            const std::string dir = platform::openFolderDialog();
+            if (!dir.empty()) resultsDir_ = dir;
+        }
+        ImGui::BeginDisabled(maps < 2 || zeit_->state() != ZeitClient::State::Ready);
+        if (ImGui::Button("Run", ImVec2(-1, 0))) runTool(tool);
+        ImGui::EndDisabled();
+        if (maps < 2) ImGui::TextDisabled("Check at least two maps above.");
+    } else if (tool.raster && s_) {
         ImGui::SeparatorText("Run on the raster");
         const char* scopes[] = {"Whole image", "Visible area", "ROI"};
         if (ui.scope == 2 && !roi_) ui.scope = 0;

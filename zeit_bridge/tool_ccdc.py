@@ -20,13 +20,12 @@ import numpy as np
 
 import zeit_common as zc
 
-ROLES = ["blue", "green", "red", "nir", "swir1", "swir2"]
+ROLES = zc.LANDSAT_ROLES
 DETECT = [1, 2, 3, 4, 5]  # Green..SWIR2 (Zeit's default detection bands with >= 6 bands)
 UNIX_EPOCH_ORDINAL = 719163
 
-UNITS = ["auto", "x10000", "unit", "landsat_c2"]
-UNIT_LABELS = ["Automatic (from the values)", "Reflectance x 10000", "Reflectance 0-1",
-               "Landsat C2 L2 digital numbers"]
+UNITS = zc.UNITS
+UNIT_LABELS = zc.UNIT_LABELS
 
 MANIFEST = {
     "id": "ccdc",
@@ -44,12 +43,7 @@ MANIFEST = {
                  "bands": list(ROLES), "optional_bands": ["thermal"]},
     "modes": ["pixel", "raster"],
     "params": [
-        {"id": "units", "label": "Reflectance units", "type": "enum", "default": "auto", "options": UNITS,
-         "labels": UNIT_LABELS,
-         "help": "CCDC's thresholds are defined on reflectance x 10000. Automatic: median <= 2 -> "
-                 "reflectance 0-1; median >= 6500 -> Landsat Collection 2 Level-2 digital numbers "
-                 "(x 0.0000275 - 0.2); otherwise already x 10000. Janus applies the files' scale/offset "
-                 "metadata first, when present."},
+        zc.units_param("CCDC's thresholds are defined on reflectance x 10000."),
         {"id": "conseq_anom", "label": "Consecutive anomalies", "type": "int", "default": 6, "min": 3, "max": 20,
          "help": "Consecutive anomalous clear observations needed to flag a change (the original's 'conse')."},
         {"id": "chi2_prob_threshold", "label": "Change probability", "type": "float", "default": 0.99,
@@ -81,38 +75,9 @@ MANIFEST = {
 # Units
 # ---------------------------------------------------------------------------
 
-def _units(p, ctx, optical):
-    """Unit mode of the optical bands; 'auto' is decided once per job (ctx persists across chunks)."""
-    if p["units"] != "auto":
-        return p["units"]
-    if "_ccdc_units" in ctx:
-        return ctx["_ccdc_units"]
-    v = np.concatenate([np.ravel(a) for a in optical])
-    v = v[np.isfinite(v)]
-    if v.size > 200_000:
-        v = v[:: v.size // 200_000]
-    mode = "x10000"
-    if v.size:
-        med = float(np.median(v))
-        mode = "unit" if med <= 2.0 else "landsat_c2" if med >= 6500.0 else "x10000"
-    ctx["_ccdc_units"] = mode
-    return mode
-
-
-def _to_x10000(v, mode):
-    if mode == "unit":
-        return v * 10000.0
-    if mode == "landsat_c2":
-        return (v * 2.75e-5 - 0.2) * 10000.0
-    return v
-
-
-def _from_x10000(v, mode):
-    if mode == "unit":
-        return v / 10000.0
-    if mode == "landsat_c2":
-        return (v / 10000.0 + 0.2) / 2.75e-5
-    return v
+_units = zc.reflectance_units
+_to_x10000 = zc.to_x10000
+_from_x10000 = zc.from_x10000
 
 
 def _thermal_to_c100(v, mode):

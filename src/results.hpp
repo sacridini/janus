@@ -22,6 +22,12 @@ struct ResultLayer {
     float opacity = 1.0f;
     // Class map (e.g. TWDTW): value k = classes[k - 1], drawn with a qualitative colormap.
     std::vector<std::string> classes;
+    // Typical series of each class (e.g. a SOM's prototypes), drawn on the chart for the
+    // class under the cursor: x in decimal years.
+    struct ClassSeries {
+        std::vector<double> x, y;
+    };
+    std::vector<ClassSeries> classSeries;
 
     float valueAt(int cubeX, int cubeY) const; // NaN outside or without value
 };

@@ -526,6 +526,95 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         fs::remove_all(dir, ec);
         st_.frames = 0;
         next("Save all outputs: both outputs of the run copied, named after the layer");
+        break; // 81
+    }
+    case 81: { // a finished Zeit run with a series output (as NDFI's) and a class map with typical series (SOM's)
+        namespace fs = std::filesystem;
+        static fs::path dir;
+        static size_t layersBefore = 0;
+        static int activeBefore = 0;
+        const CubeInfo& info = *s_->info;
+        std::error_code ec;
+        if (st_.frames == 0) {
+            dir = fs::temp_directory_path(ec) /
+                  ("janus-selftest-series-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+            fs::create_directories(dir, ec);
+            GDALDriver* drv = GetGDALDriverManager()->GetDriverByName("GTiff");
+            auto create = [&](const fs::path& p, int bands) {
+                GDALDataset* ds = drv->Create(p.u8string().c_str(), info.width, info.height, bands, GDT_Float32, nullptr);
+                if (!ds) return ds;
+                double gt[6];
+                std::copy(info.geoTransform.begin(), info.geoTransform.end(), gt);
+                ds->SetGeoTransform(gt);
+                if (!info.crsWkt.empty()) ds->SetProjection(info.crsWkt.c_str());
+                return ds;
+            };
+            std::vector<float> v(size_t(info.width) * info.height);
+            GDALDataset* series = create(dir / "tool_series.tif", 3); // 3 dates in the band descriptions
+            GDALDataset* cls = create(dir / "tool_cluster.tif", 1);   // class 1 west, 2 east
+            if (!series || !cls) return fail("could not write the run's files");
+            for (int b = 1; b <= 3; ++b) {
+                std::fill(v.begin(), v.end(), float(b));
+                (void)series->GetRasterBand(b)->RasterIO(GF_Write, 0, 0, info.width, info.height, v.data(), info.width,
+                                                         info.height, GDT_Float32, 0, 0);
+                series->GetRasterBand(b)->SetDescription(("200" + std::to_string(b) + "-06-15").c_str());
+            }
+            for (int y = 0; y < info.height; ++y)
+                for (int x = 0; x < info.width; ++x) v[size_t(y) * info.width + x] = x < info.width / 2 ? 1.f : 2.f;
+            (void)cls->GetRasterBand(1)->RasterIO(GF_Write, 0, 0, info.width, info.height, v.data(), info.width,
+                                                  info.height, GDT_Float32, 0, 0);
+            GDALClose(series);
+            GDALClose(cls);
+            auto job = std::make_shared<ZeitJob>();
+            job->title = "selftest run";
+            job->toolId = "selftest";
+            job->result = {{"window", {0, 0, info.width, info.height}},
+                           {"outputs",
+                            {{{"id", "series"}, {"name", "Series"}, {"series", true}, {"path", (dir / "tool_series.tif").u8string()}},
+                             {{"id", "cluster"}, {"name", "Cluster"}, {"colormap", "Paired"}, {"unit", "class"},
+                              {"path", (dir / "tool_cluster.tif").u8string()}, {"classes", {"West", "East"}},
+                              {"class_series", {{{"x", {2001.0, 2002.0}}, {"y", {0.1, 0.2}}},
+                                                {{"x", {2001.0, 2002.0}}, {"y", {0.8, 0.9}}}}}}}}};
+            job->state = ZeitJob::State::Done;
+            jobCube_[job.get()] = info.id;
+            jobs_.push_back(job);
+            layersBefore = layers_.size();
+            activeBefore = active_;
+            st_.frames = 1;
+            break;
+        }
+        const ResultLayer* cluster = nullptr;
+        for (const ResultLayer& r : results_)
+            if (r.name.find("Cluster") != std::string::npos && r.path.find(dir.filename().u8string()) != std::string::npos)
+                cluster = &r;
+        if (!zeit_ || opening_.valid() || !resultLoads_.empty() || !cluster || layers_.size() == layersBefore)
+            return -1; // pumpZeit loads the map and opens the series (Zeit started with the first series)
+        const SeriesLayer& added = layers_.back();
+        std::printf("    series output: layer \"%s\", %d dates (%s .. %s), active layer %s\n", added.name.c_str(),
+                    added.session->info->T(), added.session->info->layers.front().label.c_str(),
+                    added.session->info->layers.back().label.c_str(), active_ == activeBefore ? "kept" : "CHANGED");
+        std::printf("    class map: %zu classes, %zu typical series, west %g east %g\n", cluster->classes.size(),
+                    cluster->classSeries.size(), cluster->valueAt(0, info.height / 2),
+                    cluster->valueAt(info.width - 1, info.height / 2));
+        if (layers_.size() != layersBefore + 1 || added.session->info->T() != 3 || !added.session->info->timeIsDate ||
+            added.session->info->layers.front().label != "2001-06-15")
+            return fail("the series output should open as a new layer with its 3 dates");
+        if (active_ != activeBefore) return fail("the series output should not take the active layer");
+        if (cluster->classes.size() != 2 || cluster->classSeries.size() != 2 || cluster->classSeries[1].y.size() != 2 ||
+            cluster->valueAt(0, info.height / 2) != 1.f || cluster->valueAt(info.width - 1, info.height / 2) != 2.f)
+            return fail("the class map should load with its classes and their typical series");
+        removeLayer(int(layers_.size()) - 1);
+        for (auto it = results_.begin(); it != results_.end(); ++it)
+            if (&*it == cluster) {
+                Gpu::deleteTexture(it->tex);
+                results_.erase(it);
+                break;
+            }
+        jobCube_.erase(jobs_.back().get());
+        jobs_.pop_back();
+        fs::remove_all(dir, ec);
+        st_.frames = 0;
+        next("Zeit run: a series output added as a layer (active one kept), a class map with typical series");
         st_.stage = 60; // Zeit's serve process follows the threads, then back to 8
         break;
     }

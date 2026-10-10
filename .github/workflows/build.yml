@@ -69,6 +69,10 @@ jobs:
       - name: Self-test (Zeit tools, no window)
         run: ${{ matrix.exe }} --selftest-zeit "$RUNNER_TEMP/td/serie"
 
+      # Monthly Landsat-style bands: CCDC, CODED, NDFI and Tmask, series outputs, the agreement.
+      - name: Self-test (multiband Zeit tools, no window)
+        run: ${{ matrix.exe }} --selftest-zeit "$RUNNER_TEMP/td/landsat"
+
       - name: Self-test (embedding kernels and PCA, no window)
         run: ${{ matrix.exe }} --selftest-embeddings
 

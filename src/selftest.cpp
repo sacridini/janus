@@ -76,9 +76,19 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
     const int x0 = std::max(0, info->width / 2 - 128), y0 = std::max(0, info->height / 2 - 128);
     const int x1 = std::min(info->width, x0 + 256), y1 = std::min(info->height, y0 + 256);
 
+    // Tools on the series first; then those on result maps (the agreement of the maps of
+    // dates the first ones made).
+    std::vector<const ZeitTool*> order;
+    for (const ZeitTool& tool : zeit.tools())
+        if (!tool.layerInput) order.push_back(&tool);
+    for (const ZeitTool& tool : zeit.tools())
+        if (tool.layerInput) order.push_back(&tool);
+    json dateMaps = json::array(); // {"name", "path"} of every output in years
     int ran = 0;
-    for (const ZeitTool& tool : zeit.tools()) {
+    for (const ZeitTool* toolp : order) {
+        const ZeitTool& tool = *toolp;
         std::string why = toolApplicability(tool, *info);
+        if (tool.layerInput && dateMaps.size() < 2) why = "fewer than two maps of dates were made";
         if (why.empty() && !tool.bands.empty() && !missingBandRoles(tool, roles).empty())
             why = "unmapped bands: " + missingBandRoles(tool, roles);
         if (!why.empty()) {
@@ -111,6 +121,8 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
             }
             params[p.id] = pats;
         }
+        for (const ZeitParam& p : tool.params)
+            if (p.type == "layers") params[p.id] = dateMaps;
 
         if (tool.pixel) {
             const auto tp = Clock::now();
@@ -139,7 +151,8 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
 
         if (tool.raster) {
             json spec = {{"tool", tool.id}, {"params", params}};
-            if (!zeitJobInputs(*info, tool, roles, work.u8string(), "cube", spec, err)) return fail("vrt: " + err);
+            if (!tool.layerInput && !zeitJobInputs(*info, tool, roles, work.u8string(), "cube", spec, err))
+                return fail("vrt: " + err);
             spec["window"] = {x0, y0, x1, y1};
             // Run-time estimate (as shown in the tool window) before the real run.
             double estimate = -1;
@@ -185,12 +198,25 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
                 for (char ch : log) lines += ch == '\n';
                 std::printf("  log: %s (%zu lines)\n", job->logPath.c_str(), lines);
                 if (log.find("tool: " + tool.id) == std::string::npos || log.find("%  ") == std::string::npos ||
-                    outputs != tool.outputs.size() || log.find("] done (process exit code 0)") == std::string::npos)
+                    outputs != activeOutputs(tool, params).size() ||
+                    log.find("] done (process exit code 0)") == std::string::npos)
                     return fail(tool.id + ": the job's log should hold the tool, progress, every output and the end");
             }
             const json& outs = result["outputs"];
-            if (outs.size() != tool.outputs.size()) return fail(tool.id + ": job returned a different set of outputs");
+            if (outs.size() != activeOutputs(tool, params).size())
+                return fail(tool.id + ": job returned a different set of outputs");
             for (const json& o : outs) {
+                if (o.value("series", false)) {
+                    // A series output opens as a series of the same dates (what Janus adds as a layer).
+                    auto s = openCube({o.value("path", "")}, BandSelection{}, err);
+                    if (!s) return fail(tool.id + ": series output: " + err);
+                    if (s->T() != info->T() || s->timeIsDate != info->timeIsDate ||
+                        (info->timeIsDate && s->layers.front().label != info->layers.front().label))
+                        return fail(tool.id + ": series output " + o.value("id", "") + " has other dates");
+                    std::printf("    %-28s series: %s, %s .. %s\n", o.value("name", "").c_str(), s->description.c_str(),
+                                s->layers.front().label.c_str(), s->layers.back().label.c_str());
+                    continue;
+                }
                 ResultLayer L;
                 L.path = o.value("path", "");
                 L.unit = o.value("unit", "");
@@ -200,6 +226,10 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
                 for (float v : L.data) valid += std::isfinite(v);
                 std::printf("    %-28s %5.1f%% valid, range %.6g .. %.6g\n", o.value("name", "").c_str(),
                             100.0 * valid / L.data.size(), L.lo, L.hi);
+                if (L.unit == "year" && valid > 0)
+                    dateMaps.push_back({{"name", tool.name + ": " + o.value("name", "")}, {"path", L.path}});
+                const size_t typical = o.value("class_series", json::array()).size();
+                if (typical) std::printf("      typical series of %zu classes\n", typical);
                 const auto classes = o.value("classes", std::vector<std::string>());
                 if (!classes.empty()) {
                     std::vector<size_t> count(classes.size() + 1, 0);

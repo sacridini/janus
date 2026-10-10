@@ -44,9 +44,10 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
   names and change summaries; **several bands per date** with normalized
   differences and cloud masks.
 - **Change detection built in**: LandTrendr, Mann-Kendall, BFAST, CCDC,
-  phenology, TWDTW and more from [Zeit](https://github.com/sacridini/zeit-cdts),
-  fitted live on the chart or run on the image. A private Python runtime ships
-  with Janus.
+  CODED (forest degradation, with the NDFI), phenology, TWDTW, SOM clustering,
+  Tmask cloud screening and more from [Zeit](https://github.com/sacridini/zeit-cdts),
+  fitted live on the chart or run on the image, plus the agreement of several
+  change maps. A private Python runtime ships with Janus.
 - **Embeddings** of foundation models (AlphaEarth, TESSERA): downloaded for the
   visible area over any series, shown through their principal components (also
   local to a region, refitted as you move it), the similarity to the cursor or

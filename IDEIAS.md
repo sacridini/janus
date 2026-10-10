@@ -199,6 +199,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 14 | 0.27.0 | Mais visualizações (painel **Analysis**): anos sobrepostos por dia do ano e mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas/datas na ROI; box plot da ROI por data | concluída |
 | 17 | 0.29.0 | **Embeddings** (TESSERA, AlphaEarth): PCA → RGB em C++ (SIMD, iteração de subespaço), **PCA local da ROI**, **similaridade a um pino** (mapa e gráfico ano a ano), **mudança entre anos**, perfil latente; **baixar embeddings da área visível** pelo Zeit (como o basemap, sobre qualquer série), com barra de progresso no mapa | concluída |
 | — | 0.30.0 | **Exportação conferida e com atalhos**: o popup de opções passa a abrir (nunca era desenhado), embeddings como GeoTIFF em resolução total, todas as saídas de uma rodada do Zeit numa pasta, reset do layout (`Ctrl+Shift+R`); faixa Int8 dos embeddings de todos os anos | concluída |
+| 18 | 0.31.0 | Mais do Zeit: **CODED** (degradação florestal) e **NDFI** (desmistura espectral, a série vira camada), **Tmask** (nuvens que a banda de qualidade perdeu), **SOM** (agrupamento de trajetórias, série típica no gráfico) e **concordância** entre mapas de mudança | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -263,6 +264,24 @@ termina.
   quiser (pedido em 2026-10-08; feito na 0.7.0).
 - ~~Zoom out limitado ao extent~~ — feito na 0.4.0.
 
+### Mais do Zeit (levantamento de 2026-10-10)
+- Feitos na 0.31.0: CODED + NDFI, Tmask, SOM, concordância.
+- **Classificação a partir de pinos** (`zeit.classify`, Random Forest; ótima nos
+  embeddings): pede o scikit-learn no runtime, evitado de propósito na fase 17.
+  O modo "ajustar e aplicar" da ponte (o do SOM) já serve.
+- **Imagem sintética do CCDC** (`predict_synthetic_image`): o `tool_ccdc`
+  teria de guardar os coeficientes (hoje grava só os mapas-resumo).
+- Ganhos pequenos: `desawtooth` como opção da suavização, filtros de maioria e
+  de área mínima (`apply_majority_filter`, `apply_mmu_filter`) nos mapas de
+  classe, as regras de qualidade do Zeit (`qc_sentinel2_scl`, `qc_modis_*`).
+- **SNIC** no cubo (segmentos de trajetórias parecidas): puxa para SIG; depois.
+- Decisões grandes: **séries por STAC** (compostos anuais da área visível, como
+  os embeddings; dependências pesadas e downloads longos) e **interpretação
+  visual + acurácia** (`stratified_sample`, rotular os pontos no Janus,
+  `accuracy`, Olofsson et al. 2014: o Janus já é quase um TimeSync).
+- Fora: `zeit.ai` (PyTorch), `zeit.plot` (é o próprio Janus), `compute_indices`
+  (índices novos ficam melhores na GPU), `harmonize`/`regularize` (só com STAC).
+
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
 - Ferramentas de IA do Zeit como download opcional (PyTorch é pesado).
@@ -272,6 +291,56 @@ termina.
   (0.25.0); faltam as larguras fixas dos widgets.
 
 ## Histórico
+
+### 0.31.0 — Fase 18: CODED, NDFI, Tmask, SOM e concordância
+- Pedida em 2026-10-10, depois de um levantamento do que o Zeit tem e o Janus
+  não usava (ver "Mais do Zeit" no backlog). Tudo pela API pública do Zeit
+  0.52.1 (`zeit.unmix`, `zeit.coded`, `zeit.tmask`, `zeit.som`,
+  `zeit.agreement`), sem dependência nova no runtime: o CODED sem pontos de
+  treino separa floresta pelo NDFI (0,5), o que dispensa o scikit-learn.
+- **Ponte**, três capacidades novas (o C++ continua genérico):
+  - **saídas de série** (`"series": true`): um GeoTIFF com uma banda por data,
+    as datas nas descrições das bandas com o rótulo do Janus (mesma
+    granularidade), Int16 com escala quando cabe (NDFI: 1e-4); o Janus abre
+    como camada nova sem tirar a ativa, como os embeddings;
+  - **ajuste antes das faixas** (`fit`): o modelo é ajustado numa amostra de
+    64 linhas espalhadas pela janela e chega às faixas em `ctx["model"]`; o que
+    ele devolve em `model["outputs"]` vai para o resultado (os nomes das
+    classes e as **séries típicas**, que o gráfico desenha para a classe sob o
+    cursor, na cor dela). A estimativa inclui o ajuste (`sec_fixed`, medido com
+    16 linhas para não segurar o processo do gráfico);
+  - **ferramentas sobre resultados** (`"input": "layers"`): um parâmetro do tipo
+    `layers` lista mapas já mostrados (filtrados pela unidade, ex. `year`), de
+    qualquer série; a ponte põe todos na grade do primeiro (`WarpedVRT`,
+    vizinho mais próximo).
+  - Saídas que dependem de um parâmetro (`"when"`), ex. as frações do NDFI.
+- **Bug** da 0.7.0: as unidades "automáticas" do CCDC eram decididas de novo em
+  cada faixa (o `ctx` de cada janela é uma cópia), não uma vez por rodada como
+  dizia o comentário; agora um `ctx["cache"]` compartilhado guarda a decisão.
+  As unidades de refletância passaram para o `zeit_common` (CCDC, NDFI, CODED,
+  Tmask).
+- **CODED**: estratos (floresta, não floresta, degradação, desmatamento,
+  distúrbio) com um colormap próprio (`Strata`), datas da primeira e da última
+  mudança, variação do NDFI, NDFI médio do treino. No gráfico: linhas nas
+  mudanças e, quando a camada mostra uma diferença normalizada, o NDFI de cada
+  observação e a média do treino.
+- **Tmask**: o modelo cobre a série inteira, então depois de uma mudança brusca
+  e duradoura (desmatamento) as observações podem ser marcadas como nuvem —
+  medido na série sintética: 22 de 72 no pixel desmatado. Dito na ajuda.
+- **SOM**: neurônios que nenhum pixel da amostra escolheu ficam de fora (os
+  clusters são numerados sem buracos); lacunas interpoladas no tempo (ou o
+  pixel fica sem cluster); no máximo 12 clusters (as cores qualitativas).
+- **Concordância**: a data conta pelo ano civil (como o ano de detecção do
+  LandTrendr); consenso, quantos mapas concordam (e a fração), quantos têm
+  mudança, espalhamento dos anos.
+- **Autotestes**: `make_selftest_data.py` ganhou `landsat` (mensal 2016–2021,
+  azul..SWIR2 + Fmask, degradação em 2019, corte raso em 2020 e névoa que o
+  Fmask não pega), rodado também no CI com `--selftest-zeit`, que agora confere
+  as saídas de série (abrem com as mesmas datas) e roda a concordância nos
+  mapas de datas que as outras ferramentas fizeram. Nele o CODED acha a
+  degradação em 2019-06 (NDFI depois 0,87: floresta) e o desmatamento em
+  2020-04. O `--selftest-ui` simula uma rodada terminada: a série vira camada
+  sem trocar a ativa, o mapa de classes carrega com as séries típicas.
 
 ### 0.30.0 — Exportação conferida, atalhos, reset do layout
 - Pedida em 2026-10-10: um atalho para voltar a interface ao estado padrão, e

@@ -3,6 +3,7 @@
 Usage: python tools/make_selftest_data.py <out>   (requires GDAL's Python bindings and numpy)
 Then:  jn --selftest-ui <out>/A <out>/B <out>/C <out>/D <out>/E <out>/F
        jn --selftest-zeit <out>/serie
+       jn --selftest-zeit <out>/landsat
 
   A, B   continuous layers; B starts 100 px east of A and its first value at
          (50, 100) is 2.0 (what --selftest-ui checks)
@@ -13,6 +14,8 @@ Then:  jn --selftest-ui <out>/A <out>/B <out>/C <out>/D <out>/E <out>/F
   F      B reprojected from UTM 23S to UTM 22S (EPSG:32722; its grid turns ~2.3
          degrees), nearest neighbour at 15 m: every value is one of B's
   serie  21 annual dates with a break in 2010 (every Zeit tool that applies)
+  landsat  monthly Blue..SWIR2 + Fmask, 2016-2021: forest degraded in 2019 and
+         cleared in 2020, clouds Fmask misses (CCDC, NDFI, CODED, Tmask...)
 """
 import os
 import sys
@@ -104,11 +107,48 @@ def serie(out):
         d = None
 
 
+def landsat(out):
+    """Monthly surface reflectance x 10000 (Blue..SWIR2) with Fmask, 2016-2021: forest, a
+    degraded patch from mid 2019 (canopy opened, recovering), a cleared one from 2020 at
+    the centre, clouds Fmask flags and a few it misses (bright, coded clear)."""
+    W, H = 48, 36
+    os.makedirs(f"{out}/landsat", exist_ok=True)
+    names = ["Blue", "Green", "Red", "NIR", "SWIR1", "SWIR2", "Fmask"]
+    forest = np.array([250, 550, 300, 3300, 1450, 550], "float32")
+    opened = np.array([350, 650, 450, 2900, 2000, 1000], "float32")  # logged: NPV, soil and shade
+    pasture = np.array([550, 900, 1150, 2600, 3000, 2000], "float32")
+    rng = np.random.default_rng(1)
+    k = 0
+    for y in range(2016, 2022):
+        for m in range(1, 13):
+            t = y + (m - 0.5) / 12
+            refl = np.broadcast_to(forest[:, None, None], (6, H, W)).copy()
+            refl[3] += 250 * np.sin(2 * np.pi * (t - 2016))  # seasonal NIR
+            if t >= 2019.45:  # degradation: a strong opening that recovers over two years
+                f = max(0.0, 1 - (t - 2019.45) / 2.5)
+                refl[:, 2:10, 2:16] = (forest * (1 - f) + opened * f)[:, None, None]
+            if t >= 2020.2:  # clearing at the centre
+                refl[:, 12:28, 18:40] = pasture[:, None, None]
+            refl += rng.normal(0, 40, refl.shape)
+            q = np.zeros((H, W), "float32")
+            if k % 5 == 2:  # a cloud Fmask finds
+                q[20:, :20] = 4
+                refl[:, 20:, :20] += 4000
+            if k % 11 == 6:  # haze Fmask misses: brighter in green, coded clear
+                refl[:3, :, 24:] += 900
+            d = create(f"{out}/landsat/LC08_{y}{m:02d}15_SR.tif", W, H, 7, gdal.GDT_Float32, 610000, 7410000)
+            for b in range(7):
+                d.GetRasterBand(b + 1).WriteArray(q if b == 6 else refl[b].astype("float32"))
+                d.GetRasterBand(b + 1).SetDescription(names[b])
+            d = None
+            k += 1
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     out = sys.argv[1]
-    for make in (layers, reprojected, bands, classes, serie):
+    for make in (layers, reprojected, bands, classes, serie, landsat):
         make(out)
     print(f"ok: {out}")
 

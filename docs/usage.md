@@ -129,12 +129,16 @@
   and time-series algorithms): **LandTrendr**, **Mann-Kendall** (with Sen's
   slope; Hamed-Rao, Yue-Wang and seasonal variants), **BFAST**, **BFAST Lite**,
   **BFAST Monitor**, **phenology** (season start/peak/end, length, amplitude),
-  **CCDC** (multiband), **TWDTW classification** (classes from pins) and
-  **smoothing** (Whittaker, Savitzky-Golay; chart only). Each is fitted live on the cursor, pins and ROI series
+  **CCDC** (multiband), **CODED** (forest degradation, multiband), the
+  **NDFI** (spectral unmixing), **Tmask** (clouds the quality band missed),
+  **TWDTW classification** (classes from pins), **SOM clustering** (typical
+  trajectories), the **agreement** of several change maps and **smoothing**
+  (Whittaker, Savitzky-Golay; chart only). Each is fitted live on the cursor, pins and ROI series
   (segments, trend lines, break dates, seasons or CCDC models drawn on the chart),
   or run on the whole image, the visible area or an ROI, with the results
   (year of detection, magnitude, slope, p-value, break dates...) shown as map
-  layers. Zeit runs in a bundled, invisible Python runtime — nothing to install.
+  layers; the NDFI and the series screened by Tmask open as new layers. Zeit
+  runs in a bundled, invisible Python runtime — nothing to install.
 
 ## Command line
 
@@ -244,7 +248,12 @@ that Janus exposes:
 | BFAST Monitor | regular, ≥ 2 dates per year | first break date in the monitoring period, magnitude, break yes/no |
 | Phenology | ≥ 6 dates per year | start, peak and end of season (day of year), length, peak value, amplitude, fit R², seasons — for a typical year (median), the latest season or a chosen year |
 | CCDC | one file per date with blue, green, red, NIR, SWIR1, SWIR2 [+ thermal]; a quality band is recommended | break count, largest break date and magnitude, NDVI change, first/last break, segments |
+| CODED (degradation) | one file per date with blue, green, red, NIR, SWIR1, SWIR2, ≥ 2 dates per year; a quality band is recommended | strata (forest, non-forest, degradation, deforestation, disturbance), first and last change dates, NDFI change, changes, mean NDFI of the training period |
+| NDFI (spectral unmixing) | one file per date with blue, green, red, NIR, SWIR1, SWIR2 | the NDFI of every date as a **new layer** (and, if asked, the GV, NPV, soil and shade fractions), mean and lowest NDFI, observations used |
+| Tmask (cloud screening) | one file per date with green and SWIR1, ≥ 2 dates per year | observations flagged and their share; the series shown without them as a **new layer** |
 | TWDTW classification | dates | class map (one class per pattern, with a legend), distance, margin to the 2nd class |
+| SOM clustering | any | cluster map (the typical series of the cluster under the cursor is drawn on the chart), distance to it |
+| Agreement of change maps | maps of dates from other tools (any series) | consensus year, how many maps agree (and their share), maps with a change, spread of the years |
 | Smoothing | any | chart only: the smoothed series (Whittaker or Savitzky-Golay) |
 
 **TWDTW classes** come from the series itself: drop pins on places you know
@@ -257,6 +266,40 @@ series, and dates more than a year apart are never matched (*Max time apart*);
 measured between days of the year, a pattern of one season matches that season
 in any year.
 
+**CODED** (Bullock et al. 2020) monitors forests with the NDFI of every
+observation: a model of the NDFI over a training period (by default the first 3
+years; *Monitoring start* moves it), then *Consecutive observations* more than
+*Threshold* RMSEs below it are a change. After a change, the land is forest
+again (degradation: selective logging, understory fire) when the new model's
+mean NDFI is at least *Forest NDFI* (0.5), otherwise deforestation. On the
+chart: vertical lines at the changes, and, when the layer shows a normalized
+difference, the NDFI of each observation and the training mean. The **NDFI**
+tool gives the index itself (Souza et al. 2005: near 1 in closed forest, below
+0 on soil and pasture) as a series of the same dates, a new layer on which
+LandTrendr, BFAST or the agreement can run.
+
+**Tmask** (Zhu & Woodcock 2014) flags the observations whose green is too bright
+(cloud) or whose SWIR is too dark (shadow) for a robust harmonic model of the
+pixel's own series: haze and thin clouds a quality band misses. The flagged
+dates are marked on the chart; a raster run writes the series shown without
+them as a new layer. The model spans the whole series, so after a sudden
+lasting change (a clearing) observations may be flagged too: look at such
+pixels on the chart.
+
+**SOM clustering** trains a Self-Organizing Map on a sample of the area (rows
+spread over it, *Training sample* pixels) and gives every pixel the nearest
+neuron: pixels with alike trajectories share a cluster, and neighbouring
+clusters are alike. Each pixel needs a value on every date: gaps are filled
+linearly in time (or the pixel is left out). Hover the cluster map: the chart
+draws the typical series of the cluster under the cursor, in its colour.
+
+The **agreement** runs on maps Janus already shows, not on the series: check two
+or more results whose values are dates (LandTrendr's year of detection; CCDC,
+BFAST or CODED dates), from any layer. A date counts by its calendar year, and
+maps agree when their years are at most *Tolerance* apart; the consensus year is
+the one most maps agree with. The outputs are on the grid of the first map
+checked (the others are put on it), under its series.
+
 A break's date (BFAST, BFAST Lite, BFAST Monitor) is that of the first
 observation after it, and its magnitude the model after the break minus the
 model before it on that date, as in Zeit's `extract_events`.
@@ -267,10 +310,11 @@ pixel on all cores): use the visible area or an ROI before a whole scene.
 
 Multiband tools show a **Bands** section in their window: which band of each
 date plays each role (guessed from the band names, e.g. `NIR`, `SWIR1`; unnamed
-stacks of 6+ bands are taken as Blue, Green, Red, NIR, SWIR1, SWIR2). CCDC
-works on reflectance × 10000 internally; reflectance 0–1 and Landsat C2 Level-2
-digital numbers are detected and converted (parameter *Units*). Its model is
-drawn in the units of what the layer shows (a band or a normalized difference).
+stacks of 6+ bands are taken as Blue, Green, Red, NIR, SWIR1, SWIR2). CCDC,
+CODED, the NDFI and Tmask work on reflectance × 10000 internally; reflectance
+0–1 and Landsat C2 Level-2 digital numbers are detected and converted
+(parameter *Units*, decided once per run). CCDC's model is drawn in the units
+of what the layer shows (a band or a normalized difference).
 
 Each tool window has:
 
@@ -283,14 +327,17 @@ Each tool window has:
   Statistics table. With *All visible layers* on the chart, single-band tools
   are also fitted to the other layers' cursor and pin series.
 - **Estimated run time** for the chosen scope, measured by Zeit on samples of
-  the series (a fixed cost per block plus a cost per pixel; reading the data is
-  not included).
+  the series (a fixed cost per block plus a cost per pixel, and the fit of
+  tools that learn from a sample, such as the SOM; reading the data is not
+  included).
 - **Run on the raster**: whole image, visible area or ROI. The run happens in a
   separate process using the processing threads of [Settings](#settings)
   (every logical core but 2 by default), with progress and cancel in
   **Tools → Tasks**. Outputs are GeoTIFFs (default folder
   `%LOCALAPPDATA%\Janus\results`) loaded over the map and listed under their
-  series in the Layers panel; cells without an event are transparent.
+  series in the Layers panel; cells without an event are transparent. Series
+  outputs (the NDFI, a screened series) are one file with a band per date,
+  added as a layer over the others (the active layer stays).
 - **A log of every raster run**, `job.log` in the run's results folder (next to
   `job.json` and the outputs): the tool, its parameters, window and threads,
   then everything Python writes (warnings, prints, tracebacks), the progress

@@ -129,6 +129,10 @@ bool App::init(const AppOptions& opts, std::string& error) {
     const ImVec4 ndvi[] = {{0.55f, 0.33f, 0.14f, 1}, {0.80f, 0.66f, 0.42f, 1}, {0.96f, 0.91f, 0.60f, 1},
                            {0.62f, 0.80f, 0.36f, 1}, {0.22f, 0.56f, 0.22f, 1}, {0.04f, 0.30f, 0.10f, 1}};
     ImPlot::AddColormap("NDVI", ndvi, 6, false);
+    // Classes of CODED's strata: forest, non-forest, degradation, deforestation, disturbance.
+    const ImVec4 strata[] = {{0.10f, 0.45f, 0.18f, 1}, {0.85f, 0.76f, 0.50f, 1}, {0.96f, 0.55f, 0.10f, 1},
+                             {0.84f, 0.12f, 0.12f, 1}, {0.55f, 0.35f, 0.75f, 1}};
+    ImPlot::AddColormap("Strata", strata, 5, true);
     for (int m = 0; m < ModeCount; ++m) cmap_[m] = ImPlotColormap_Viridis;
     cmap_[ModeAnomaly] = cmap_[ModeSlope] = cmap_[ModeDiff] = ImPlotColormap_BrBG;
     cmap_[ModeStd] = cmap_[ModeAmplitude] = cmap_[ModeDropMag] = ImPlotColormap_Plasma;
@@ -160,6 +164,7 @@ void App::openInputs(const std::vector<std::string>& inputs, bool addLayer) {
 void App::finishOpen() {
     OpenResult r = opening_.get();
     const std::vector<std::string> inputs = std::move(openingInputs_);
+    const bool keepActive = std::exchange(openingKeepActive_, false); // this open's only, even if it fails
     auto info = r.info;
     if (!info) {
         error_ = r.error;
@@ -214,7 +219,7 @@ void App::finishOpen() {
         nextPinId_ = 1;
     }
     playing_ = false;
-    if (std::exchange(openingKeepActive_, false) && openingAdd_ && active_ >= 0 && active_ < int(layers_.size()) - 1) {
+    if (keepActive && openingAdd_ && active_ >= 0 && active_ < int(layers_.size()) - 1) {
         updateAlignment(); // added on top (e.g. downloaded embeddings); the layer being studied stays active
         syncLayerTimes();
         mapDirty_ = true;
@@ -2055,6 +2060,7 @@ void App::uiSeries() {
             std::snprintf(label, sizeof(label), "Cursor (%d, %d)%s###cursor", hover_.x, hover_.y,
                           hover_.exact ? "" : " approx.");
             plotSeries(label, hover_.values, hover_.stats, hover_.color, 2.0f, true, &hover_.zeitResult);
+            if (!classes) drawClassSeries(hover_.stats);
         }
         if (chartLayers_ == 1) {
             // Other visible layers: their own dates on the same time axis, one marker shape per layer.

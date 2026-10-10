@@ -272,6 +272,8 @@ private:
     void uiResultsOf(uint64_t cubeId);
     void clearResults(uint64_t cubeId = 0); // 0 = every layer
     void drawZeitOverlays(const char* label, const json& result, const SeriesStats& st);
+    // Typical series of the class under the cursor in visible class maps that have them (SOM).
+    void drawClassSeries(const SeriesStats& st);
 
     // Layers (app_layers.cpp)
     struct LayerDisplay;
@@ -589,6 +591,7 @@ private:
     void toolWindow(const ToolUi& ui, int win[4], const char** scopeName) const;
     void updateEstimate(const ZeitTool& tool, ToolUi& ui);
     bool uiPatterns(const ZeitParam& p, json& v);
+    bool uiLayersParam(const ZeitParam& p, json& v); // "layers": result maps a tool runs on
     std::map<std::string, ToolUi> toolUi_;
     // Band roles of the active layer for multiband tools (guessed, editable in
     // the tool window; kept while the layer's bands stay the same).
@@ -615,6 +618,7 @@ private:
     double lastPixelFitMs_ = 0;
     std::vector<std::shared_ptr<ZeitJob>> jobs_;
     std::map<const ZeitJob*, uint64_t> jobCube_; // cube id each job was started for
+    std::vector<std::string> seriesToOpen_; // series outputs of finished jobs (e.g. NDFI), opened as layers
     bool showTasks_ = false;
     bool showZeitLog_ = false;
     struct LogView {

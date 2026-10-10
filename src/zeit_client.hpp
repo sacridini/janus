@@ -20,18 +20,23 @@
 using json = nlohmann::json;
 
 struct ZeitParam {
-    std::string id, label, type, help; // type: int | float | bool | enum
+    std::string id, label, type, help; // type: int | float | bool | enum | patterns | layers
     json def;
     double min = 0, max = 0;
     std::vector<std::string> options, labels;
+    std::string unit; // "layers": only result maps of this unit (e.g. "year")
 };
 
 struct ZeitOutput {
     std::string id, name, colormap, unit;
+    std::string when;    // written only when this bool parameter is on ("" = always)
+    bool series = false; // a series of the run's dates, opened as a new layer
 };
 
 struct ZeitTool {
     std::string id, name, category, description;
+    // Runs on result maps chosen in a "layers" parameter (e.g. agreement), not on the series.
+    bool layerInput = false;
     std::string requiresTime; // "any", "annual" (one date per year) or "regular" (evenly spaced)
     int minDates = 0;
     int minPerYear = 0; // observations per year needed (e.g. 2 for seasonal models)
@@ -46,9 +51,11 @@ struct ZeitTool {
 struct CubeInfo;
 class CubeReader;
 
-// Computing time of a raster job from the bridge's "estimate" reply:
-// a fixed cost per chunk (full-width row bands) plus a cost per pixel.
+// Computing time of a raster job from the bridge's "estimate" reply: a fixed
+// cost (a tool's fit), a cost per chunk (full-width row bands) and per pixel.
 double estimateJobSeconds(const json& estimate, int width, int height);
+// The outputs a run of `tool` with `params` writes (see ZeitOutput::when).
+std::vector<const ZeitOutput*> activeOutputs(const ZeitTool& tool, const json& params);
 // Why `tool` cannot run on this series, from its manifest requirements ("" = it can).
 std::string toolApplicability(const ZeitTool& tool, const CubeInfo& info);
 

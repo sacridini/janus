@@ -492,11 +492,16 @@ static std::vector<ZeitTool> parseTools(const json& arr) {
             zp.max = p.value("max", 0.0);
             zp.options = p.value("options", std::vector<std::string>());
             zp.labels = p.value("labels", zp.options);
+            zp.unit = p.value("unit", "");
             tool.params.push_back(zp);
         }
-        for (const json& o : t.value("outputs", json::array()))
-            tool.outputs.push_back({o.value("id", ""), o.value("name", ""), o.value("colormap", "Viridis"),
-                                    o.value("unit", "")});
+        tool.layerInput = t.value("input", "series") == "layers";
+        for (const json& o : t.value("outputs", json::array())) {
+            ZeitOutput zo{o.value("id", ""), o.value("name", ""), o.value("colormap", "Viridis"), o.value("unit", "")};
+            zo.when = o.value("when", "");
+            zo.series = o.value("series", false);
+            tool.outputs.push_back(zo);
+        }
         out.push_back(tool);
     }
     return out;
@@ -545,7 +550,16 @@ double estimateJobSeconds(const json& e, int width, int height) {
     const double cells = e.value("chunk_cells", 4000000.0);
     const int rows = std::clamp(int(cells / width), 8, 512); // as the bridge's rows_per_chunk
     const int chunks = (height + rows - 1) / rows;
-    return chunks * perChunk + double(width) * height * perPx;
+    return e.value("sec_fixed", 0.0) + chunks * perChunk + double(width) * height * perPx;
+}
+
+std::vector<const ZeitOutput*> activeOutputs(const ZeitTool& tool, const json& params) {
+    std::vector<const ZeitOutput*> out;
+    for (const ZeitOutput& o : tool.outputs) {
+        const json v = o.when.empty() || !params.is_object() ? json(true) : params.value(o.when, json(false));
+        if (v.is_boolean() && v.get<bool>()) out.push_back(&o);
+    }
+    return out;
 }
 
 uint64_t ZeitClient::call(const std::string& method, const json& params) {

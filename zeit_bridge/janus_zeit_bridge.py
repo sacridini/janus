@@ -31,6 +31,10 @@ A `tool_*.py` module defines `TOOLS`, a list of dicts:
     {"manifest": {...},                       # sent to Janus as is (see below)
      "pixel": pixel(p, ctx) -> dict,          # optional (manifest "modes": ["pixel", ...])
      "chunk": chunk(p, stack, ctx) -> dict,   # optional (manifest "modes": [..., "raster"])
+     "fit": fit(p, stack, ctx) -> model,      # optional: a model of the whole window (e.g. a
+                                              # SOM), fitted before the chunks on the pixels of
+                                              # rows spread over it (stack [T, 1, N]); the
+                                              # chunks get it in ctx["model"]
      "warmup": warmup()}                      # optional: compiles what the first run would
                                               # (e.g. numba kernels), in the background after hello
 
@@ -60,19 +64,31 @@ inputs of Zeit's API (dated xarray cubes) and its results back into arrays.
   {"type": "vlines", "label", "x"} (e.g. break dates).
 - `chunk` receives stack: float64 [T, rows, cols] (NaN = missing) and returns
   {output_id: 2D float array (rows, cols), NaN = no value} for every output id
-  declared in the manifest.
+  the run writes ([T, rows, cols] for a series output).
 
 Parameters of type "patterns" are edited in Janus (reference series from pins or
 the ROI): a list of {"name", "from", "years": decimal years, "days": days since
 1970 or null, "values": floats or null} on the series' own dates. An output with
 "classes_param": "<param id>" is a class map: value k (1-based) is the k-th
-pattern; the job result lists the names as "classes".
+pattern; the job result lists the names as "classes". A class map may also
+declare its "classes" in the manifest, or get them from the fit
+(model["outputs"][output id] is merged into the result's output, e.g. its
+"classes" and "class_series": [{"x": decimal years, "y": values}, ...], the
+typical series of each class, which Janus draws for the class under the cursor).
 
-Manifest: id, name, category, description, requires {"time": "any"|"annual"|
-"regular", "min_dates": n, "min_per_year": n, "bands": [role, ...],
-"optional_bands": [role, ...]}, modes, params (id, label, type
-int|float|bool|enum, default, min, max, options, labels, help), outputs (id,
-name, colormap, unit). Band roles: blue, green, red, nir, swir1, swir2, thermal.
+Parameters of type "layers" are maps Janus shows, chosen in the tool window
+("unit": only maps of that unit, e.g. "year"): a list of {"name", "path"}. A tool
+with "input": "layers" runs on them instead of the series (run_layers).
+
+Manifest: id, name, category, description, input ("series", the default, or
+"layers"), requires {"time": "any"|"annual"|"regular", "min_dates": n,
+"min_per_year": n, "bands": [role, ...], "optional_bands": [role, ...]}, modes,
+params (id, label, type int|float|bool|enum|patterns|layers, default, min, max,
+options, labels, help, unit), outputs (id, name, colormap, unit, classes;
+"series": true for a series of the run's dates, opened in Janus as a new layer;
+"dtype": "int16" with "scale" to store it in 2 bytes; "when": a bool parameter
+that must be on for it to be written). Band roles: blue, green, red, nir, swir1,
+swir2, thermal.
 
 Series shown by Janus
 -------------------
@@ -276,6 +292,9 @@ class Inputs:
         self.spec = spec
         self.ctx = make_ctx(spec["years"], spec.get("days"), threads(spec))
         self.ctx["shown"] = spec.get("shown")
+        # Each window gets a copy of ctx; this dict is shared by all of them, for what a
+        # tool decides once per job (e.g. the reflectance units).
+        self.ctx["cache"] = {}
         self.nodata = spec.get("nodata")
         paths = {"input": spec["input"]}
         for key in ("nd_input", "qa_input"):
@@ -333,9 +352,127 @@ class Inputs:
         return stack, ctx
 
 
-def run_raster(entry, p, spec, progress):
+def active_outputs(m, p):
+    """The manifest's outputs this run writes (an output with "when": param id only if that
+    bool parameter is on)."""
+    return [o for o in m["outputs"] if not o.get("when") or p.get(o["when"])]
+
+
+def date_labels(spec):
+    """One label per date for the band descriptions of a series output, which Janus reads
+    back as the dates: Janus's own labels (same granularity: "2005", "2005-03" or
+    "2005-03-14"), else ISO dates, else the decimal years."""
+    import datetime as dt
+    if spec.get("labels") and len(spec["labels"]) == len(spec["years"]):
+        return [str(s) for s in spec["labels"]]
+    if spec.get("days"):
+        return [(dt.date(1970, 1, 1) + dt.timedelta(days=int(d))).isoformat() for d in spec["days"]]
+    return [f"{y:.4f}" for y in spec["years"]]
+
+
+class Outputs:
+    """The GeoTIFFs of a run, written one full-width row band at a time. A map is one band
+    (rows, cols); a series output ("series": true) has one band per date [T, rows, cols],
+    the dates in the band descriptions, and opens in Janus as a new layer. "dtype": "int16"
+    with "scale" stores value / scale (nodata -32768, the scale in the band metadata that
+    Janus and any GIS apply); the default is float32 with NaN."""
+
+    def __init__(self, m, outputs, out_dir, crs, transform, W, H, spec, labels=None):
+        import rasterio
+        # The outputs' blocks are compressed on the job's threads (one thread
+        # took a third of a Mann-Kendall run).
+        n = threads(spec)
+        base = dict(driver="GTiff", width=W, height=H, count=1, crs=crs, transform=transform,
+                    dtype="float32", nodata=float("nan"), compress="deflate", tiled=True,
+                    blockxsize=256, blockysize=256, BIGTIFF="IF_SAFER",
+                    num_threads=str(n) if n > 0 else "ALL_CPUS")
+        self.W = W
+        self.outs = {o["id"]: o for o in outputs}
+        self.paths = {o["id"]: os.path.join(out_dir, f"{m['id']}_{o['id']}.tif") for o in outputs}
+        self.dst = {}
+        try:
+            for o in outputs:
+                prof = dict(base)
+                count = 1
+                if o.get("series"):
+                    count = len(labels)
+                    prof.update(count=count, interleave="band")  # Janus reads a date at a time
+                if o.get("dtype") == "int16":
+                    prof.update(dtype="int16", nodata=-32768, predictor=2)
+                d = self.dst[o["id"]] = rasterio.open(self.paths[o["id"]], "w", **prof)
+                if o.get("series"):
+                    for b, label in enumerate(labels, start=1):
+                        d.set_band_description(b, label)
+                if o.get("dtype") == "int16":
+                    d.scales = [float(o.get("scale", 1.0))] * count
+                    d.offsets = [0.0] * count
+        except Exception:
+            self.close()
+            raise
+
+    def write(self, res, r, h):
+        import numpy as np
+        from rasterio.windows import Window
+        win = Window(0, r, self.W, h)
+        for oid, d in self.dst.items():
+            o = self.outs[oid]
+            a = np.asarray(res[oid], dtype=np.float64)
+            if o.get("dtype") == "int16":
+                q = np.round(a / float(o.get("scale", 1.0)))
+                a = np.where(np.isfinite(q), np.clip(q, -32767, 32767), -32768).astype(np.int16)
+            else:
+                a = a.astype(np.float32)
+            if o.get("series"):
+                d.write(a.reshape(d.count, h, self.W), window=win)
+            else:
+                d.write(a.reshape(h, self.W), 1, window=win)
+
+    def close(self):
+        for d in self.dst.values():
+            d.close()
+        self.dst = {}
+
+    def describe(self, p, model=None):
+        """The result's outputs: the manifest's, with their path, the class names of a
+        class map and what the tool's fit adds (model["outputs"][id], e.g. its classes)."""
+        extra = (model or {}).get("outputs", {}) if isinstance(model, dict) else {}
+        out = []
+        for oid, o in self.outs.items():
+            d = dict(o, path=self.paths[oid])
+            if o.get("classes_param"):  # class map: value k = name of the k-th pattern
+                d["classes"] = [str(c.get("name", f"Class {k + 1}")) for k, c in enumerate(p[o["classes_param"]])]
+            d.update(extra.get(oid, {}))
+            out.append(d)
+        return out
+
+
+FIT_ROWS = 64  # rows of the window a tool's fit samples (spread over it)
+
+
+def sample_rows(inp, window, n_rows=FIT_ROWS, progress=None):
+    """Every pixel of n_rows full-width rows spread over the window, as one [T, 1, N]
+    stack and its ctx (with the bands and Fmask codes of multiband tools): what a tool
+    fits its model on before the chunks (e.g. a SOM)."""
     import numpy as np
-    import rasterio
+    from rasterio.windows import Window
+    x0, y0, x1, y1 = window
+    W, H = x1 - x0, y1 - y0
+    rows = sorted({int(round(r)) for r in np.linspace(y0, y1 - 1, max(1, min(H, n_rows)))})
+    stacks, ctxs = [], []
+    for k, r in enumerate(rows):
+        s, c = inp.read(Window(x0, r, W, 1))
+        stacks.append(s)
+        ctxs.append(c)
+        if progress:
+            progress((k + 1) / len(rows))
+    ctx = ctxs[0]
+    if ctx.get("bands"):
+        ctx["bands"] = {role: np.concatenate([c["bands"][role] for c in ctxs], axis=2) for role in ctx["bands"]}
+        ctx["fmask"] = np.concatenate([c["fmask"] for c in ctxs], axis=2)
+    return np.concatenate(stacks, axis=2), ctx
+
+
+def run_raster(entry, p, spec, progress):
     from rasterio.windows import Window
 
     m = entry["manifest"]
@@ -345,19 +482,21 @@ def run_raster(entry, p, spec, progress):
     W, H = x1 - x0, y1 - y0
 
     inp = Inputs(spec)
-    dst = {}
+    outs = None
     try:
+        # A tool with a model of the whole window (e.g. a SOM) fits it first, on a
+        # sample of the window's rows; every chunk then gets it in ctx["model"].
+        base = 0.0
+        if entry.get("fit"):
+            base = 0.1
+            stack, ctx = sample_rows(inp, (x0, y0, x1, y1),
+                                     progress=lambda f: progress(base * 0.5 * f, "reading a sample of the image"))
+            progress(base * 0.5, f"fitting on a sample of {stack.shape[2]} pixels")
+            inp.ctx["model"] = entry["fit"](p, stack, ctx)
+            del stack, ctx
         src = inp.src
-        transform = src.window_transform(Window(x0, y0, W, H))
-        # The outputs' blocks are compressed on the job's threads (one thread
-        # took a third of a Mann-Kendall run).
-        n = threads(spec)
-        profile = dict(driver="GTiff", width=W, height=H, count=1, crs=src.crs, transform=transform,
-                       dtype="float32", nodata=float("nan"), compress="deflate", tiled=True,
-                       blockxsize=256, blockysize=256, BIGTIFF="IF_SAFER",
-                       num_threads=str(n) if n > 0 else "ALL_CPUS")
-        paths = {o["id"]: os.path.join(out_dir, f"{m['id']}_{o['id']}.tif") for o in m["outputs"]}
-        dst = {oid: rasterio.open(path, "w", **profile) for oid, path in paths.items()}
+        outs = Outputs(m, active_outputs(m, p), out_dir, src.crs, src.window_transform(Window(x0, y0, W, H)),
+                       W, H, spec, labels=date_labels(spec))
 
         # Full-width row bands: each strip of the source is read once (fast on
         # HDDs). The next band is read in a thread while the tool computes this
@@ -378,23 +517,65 @@ def run_raster(entry, p, spec, progress):
                     nxt = read(k + 1)
                 res = entry["chunk"](p, stack, ctx)
                 del stack, ctx  # before the next band arrives: two stacks at most
-                for oid, d in dst.items():
-                    d.write(np.asarray(res[oid], dtype=np.float32), 1, window=Window(0, r, W, h))
+                outs.write(res, r, h)
                 done += h
                 el = time.time() - t0
-                progress(done / H, f"rows {done}/{H}, {el:.0f} s elapsed, ~{el / done * (H - done):.0f} s left")
+                progress(base + (1 - base) * done / H,
+                         f"rows {done}/{H}, {el:.0f} s elapsed, ~{el / done * (H - done):.0f} s left")
     finally:
-        for d in dst.values():
-            d.close()
+        if outs:
+            outs.close()
         inp.close()
 
-    def output(o):
-        d = dict(o, path=paths[o["id"]])
-        if o.get("classes_param"):  # class map: value k = name of the k-th pattern
-            d["classes"] = [str(c.get("name", f"Class {k + 1}")) for k, c in enumerate(p[o["classes_param"]])]
-        return d
+    return {"outputs": outs.describe(p, inp.ctx.get("model")), "window": [x0, y0, x1, y1]}
 
-    return {"outputs": [output(o) for o in m["outputs"]], "window": [x0, y0, x1, y1]}
+
+def run_layers(entry, p, spec, progress):
+    """A tool over maps Janus already shows (manifest "input": "layers"), e.g. the agreement
+    of several change maps, instead of the series. Its parameter of type "layers" lists
+    them ({"name", "path"}); the outputs are on the first one's grid, and the others are
+    put on it (nearest neighbour) whatever their CRS or extent. chunk(p, stack, ctx) gets
+    stack: float64 [n maps, rows, cols] (NaN = no value) and ctx["names"]."""
+    import numpy as np
+    import rasterio
+    from rasterio.enums import Resampling
+    from rasterio.vrt import WarpedVRT
+    from rasterio.windows import Window
+
+    m = entry["manifest"]
+    lp = next(q for q in m["params"] if q["type"] == "layers")
+    maps = [x for x in (p.get(lp["id"]) or []) if x.get("path")]
+    if len(maps) < 2:
+        raise ValueError(f"choose at least two maps in '{lp['label']}'")
+    out_dir = spec["output_dir"]
+    os.makedirs(out_dir, exist_ok=True)
+    srcs, readers, outs = [], [], None
+    try:
+        for x in maps:
+            srcs.append(rasterio.open(x["path"]))
+        ref = srcs[0]
+        readers = [ref] + [WarpedVRT(s, crs=ref.crs, transform=ref.transform, width=ref.width, height=ref.height,
+                                     resampling=Resampling.nearest, nodata=np.nan, dtype="float32")
+                           for s in srcs[1:]]
+        W, H = ref.width, ref.height
+        outs = Outputs(m, active_outputs(m, p), out_dir, ref.crs, ref.transform, W, H, spec)
+        ctx = {"names": [str(x.get("name", f"map {k + 1}")) for k, x in enumerate(maps)], "n_jobs": threads(spec)}
+        rows = rows_per_chunk(m, W)
+        for r in range(0, H, rows):
+            h = min(rows, H - r)
+            stack = np.stack([rd.read(1, window=Window(0, r, W, h), out_dtype=np.float64, masked=True).filled(np.nan)
+                              for rd in readers])
+            outs.write(entry["chunk"](p, stack, ctx), r, h)
+            progress((r + h) / H, f"rows {r + h}/{H}")
+    finally:
+        if outs:
+            outs.close()
+        for rd in readers[1:]:
+            rd.close()
+        for s in srcs:
+            s.close()
+    window = spec.get("window") or [0, 0, W, H]
+    return {"outputs": outs.describe(p), "window": window}
 
 
 def rows_per_chunk(m, W):
@@ -408,14 +589,25 @@ def estimate(entry, p, spec):
     of a small call starting threads or compiling) plus a cost per pixel,
     fitted on growing samples from the middle of the window (after a warm-up
     call). Reading the data is not included. Returns the model so the caller
-    can apply it to any window: seconds = chunks * sec_per_chunk + pixels *
-    sec_per_px, with chunks = ceil(rows / rows_per_chunk(W))."""
+    can apply it to any window: seconds = sec_fixed + chunks * sec_per_chunk +
+    pixels * sec_per_px, with chunks = ceil(rows / rows_per_chunk(W)); sec_fixed
+    is a tool's fit (sampling the window and fitting its model, e.g. a SOM)."""
     from rasterio.windows import Window
 
+    if entry["manifest"].get("input") == "layers":  # a few array operations per pixel
+        return {"sec_per_px": 5e-8, "sec_per_chunk": 0.0, "sec_fixed": 0.0, "chunk_cells": 4_000_000}
     x0, y0, x1, y1 = spec["window"]
     W, H = x1 - x0, y1 - y0
     inp = Inputs(spec)
     try:
+        fixed = 0.0
+        if entry.get("fit"):  # fewer rows than a run reads: the serve process waits meanwhile
+            t = time.perf_counter()
+            stack, ctx = sample_rows(inp, spec["window"], n_rows=16)
+            inp.ctx["model"] = entry["fit"](p, stack, ctx)
+            fixed = time.perf_counter() - t
+            del stack, ctx
+
         def sample(n):
             w, h = min(n, W), min(n, H)
             win = Window(x0 + (W - w) // 2, y0 + (H - h) // 2, w, h)
@@ -457,7 +649,7 @@ def estimate(entry, p, spec):
             points.append(sample(side))
         per_chunk, per_px = fit(points)
         cells = int(entry["manifest"].get("chunk_cells", 4_000_000))
-        return {"sec_per_px": per_px, "sec_per_chunk": per_chunk, "chunk_cells": cells,
+        return {"sec_per_px": per_px, "sec_per_chunk": per_chunk, "sec_fixed": fixed, "chunk_cells": cells,
                 "samples": [[n, round(t, 4)] for t, n in points]}
     finally:
         inp.close()
@@ -542,7 +734,8 @@ def job(spec_path):
         entry = tools()[spec["tool"]]
         p = defaults(entry["manifest"], spec.get("params"))
         progress(0.0, "starting")
-        send({"result": run_raster(entry, p, spec, progress)})
+        run = run_layers if entry["manifest"].get("input") == "layers" else run_raster
+        send({"result": run(entry, p, spec, progress)})
     except Exception as e:
         traceback.print_exc()
         send({"error": f"{type(e).__name__}: {e}"})

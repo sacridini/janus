@@ -1,9 +1,9 @@
 ; Janus installer (Inno Setup 6).
 ; Built by the CMake "installer" target:  cmake --build build --config Release --target installer
-; or by hand:  ISCC /DAppVersion=0.30.0 /DBuildDir=..\build\Release installer\janus.iss
+; or by hand:  ISCC /DAppVersion=0.31.0 /DBuildDir=..\build\Release installer\janus.iss
 
 #ifndef AppVersion
-  #define AppVersion "0.30.0"
+  #define AppVersion "0.31.0"
 #endif
 #ifndef BuildDir
   #define BuildDir "..\build\Release"
