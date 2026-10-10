@@ -52,7 +52,9 @@
   active layer's **values** at the date as a Float32 **GeoTIFF** (visible area
   or whole image, full resolution, same grid and CRS, no data = NaN) and the
   **rendered view** as an RGBA GeoTIFF, both ready for QGIS; **Zeit results** as
-  GeoTIFF. The export window shows where the file goes (*Save to*: type a path,
+  GeoTIFF (e.g. each LandTrendr output: year of detection, magnitude,
+  duration...); the **embedding view** shown (principal components,
+  similarity, change) as a Float32 GeoTIFF at full resolution. The export window shows where the file goes (*Save to*: type a path,
   or a name alone for the last export folder, or pick one with **Browse...**;
   it warns before replacing a file). Files are written in the background
   (File → Exports shows progress);
@@ -198,6 +200,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Largest drop | **Display** panel → *Largest drop: date* or *magnitude*: the largest decrease between consecutive valid observations (no-data dates skipped), dated at the lower one; the colour bar shows dates. Exact values for the cursor and pins in the **Statistics** panel |
 | Classes (categorical data) | **Display** panel → *Categorical (classes)*: legend with colours, names and shares (click a colour to change it, untick a class to hide it); detection can be switched off or forced |
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
+| Reset layout | **View → Reset layout** (`Ctrl+Shift+R`, Mac: `Command+Shift+R`): every panel docked where it was at the first start, the floating windows (Exports, Tasks, Log, Settings) back to their first size and place, map panels to the right of the main map; the panels open stay open |
 | Performance panel | **View → Performance** (hidden by default): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**) |
 | Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus), font size, whether the Files panel follows what is opened, processing threads, overview memory, full-resolution cache (when it is built, its budget) and clearing the caches; kept between sessions (see [Settings](#settings)) |
 | Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide, order, opacity, close; click a name to make it active. Layers in another CRS show "reprojected from EPSG:…" (hover for the grid size and its error) |
@@ -211,10 +214,13 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Swipe | View → Swipe (`S`): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode, or *Basemap only*; **Swipe off** or `S` again closes it |
 | Space-time transect | `Ctrl` + drag a line on the map (Mac: `Command` + drag), or `T` / View → Draw transect, then drag; `Esc` cancels. **Transect** panel: distance from A (X) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel |
 | Chart options | style, values/anomaly/z-score, trend (OLS/Sen), Y = map range |
-| Map as a figure | File → Export map as PNG...: resolution (1×, 2×, 4×), background, date label, legend, pins and ROI; *Save to*: the file (a path, a name alone for the last export folder, or **Browse...**), then **Export** (or `Enter`) |
-| Data for QGIS | File → Export values as GeoTIFF... (the active layer at the date: visible area or whole image) or Export rendered view as GeoTIFF... (RGBA as shown, georeferenced) |
-| Save a tool result | right click it in the **Layers** panel → Save as GeoTIFF..., or File → Export Zeit result as GeoTIFF |
-| Export progress | File → Exports (opens by itself with each export): progress, cancel, open the folder |
+| Map as a figure | File → Export map as PNG... (`Ctrl+E`): resolution (1×, 2×, 4×), background, date label, legend, pins and ROI; *Save to*: the file (a path, a name alone for the last export folder, or **Browse...**), then **Export** (or `Enter`) |
+| Data for QGIS | File → Export values as GeoTIFF... (`Ctrl+Shift+E`; the active layer at the date: visible area or whole image) or Export rendered view as GeoTIFF... (`Ctrl+Shift+V`; RGBA as shown, georeferenced) |
+| Save a tool result | right click it in the **Layers** panel → Save as GeoTIFF..., or File → Export Zeit result as GeoTIFF; `Ctrl+S` saves the result drawn on top. A copy of the result: Float32, full resolution, the series' grid and CRS, no data = NaN, named `<layer>_<tool>_<output>.tif` |
+| Save every output of a run | right click a result → Save all outputs of this run... (`Ctrl+Shift+S` for the run of the result on top): all of them (e.g. LandTrendr's year of detection, magnitude, duration, rate, DSNR, values before and after) into a folder at once; the popup lists the files and warns before replacing one |
+| Save embeddings | File → Export embeddings as GeoTIFF... (`Ctrl+Shift+M`; when a layer is drawn as embeddings): the view shown, visible area or whole layer, at full resolution; see [Embeddings](#embeddings) |
+| Export progress | File → Exports (`Ctrl+J`; opens by itself with each export): progress, cancel, open the folder |
+| Shortcuts on a Mac | `Command` instead of `Ctrl` (e.g. `Command+E`, `Command+Shift+S`) |
 | Series as text | **Copy CSV** in the Time series and Transect panels |
 | Zeit tools | **Tools** menu → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
 | Zeit logs | **Tools → Log** (or **Log** next to a task): the log of each raster run, followed live (what ran, Python's output, progress, outputs, the end), or `zeit.log`; Copy, open the file or its folder |
@@ -359,8 +365,20 @@ The panel also plots the *latent profile*: the D values of the cursor's and the
 pins' vectors. The status bar shows the components or the similarity under the
 cursor.
 
+**Saving a view** (File → Export embeddings as GeoTIFF...): the view shown, over
+the visible area or the whole layer, as a Float32 GeoTIFF on the layer's own
+grid and CRS (no data = NaN), computed again at full resolution from the
+vectors in the files (not from the reduced copy on screen). *Principal
+components*: one band per fitted component (six), the scores along each one
+(not stretched), named with their share of the variance; *Similarity*: one band,
+the cosine similarity to the reference shown; *Change*: one band, the cosine
+distance between the two years. The model, year, reference and licence go in
+the file's metadata.
+
 **How it is computed.** Every year is kept in memory at reduced resolution as
-Int8 with a scale per dimension (within the overview memory of Settings). The
+Int8 with a scale per dimension (within the overview memory of Settings), its
+range taken from a sample of every year (0.1 to 99.9 %, widened by 5 %): every
+year fits it, not just one. The
 PCA takes up to 65 536 vectors: the covariance in parallel with SIMD kernels
 (AVX2 + FMA when the CPU has them, else SSE2; NEON on Apple Silicon), then the
 leading eigenvectors by subspace iteration. Measured (2026-10-10, 18 threads,

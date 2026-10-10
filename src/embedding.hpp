@@ -147,6 +147,28 @@ void renderChange(const EmbeddingStore& s, int t, int t0, JobPool& pool, std::ve
 // pLo / pHi percentiles of the finite values (a sample of them).
 void percentileRange(const std::vector<float>& v, float pLo, float pHi, float& lo, float& hi);
 
+// A view at full resolution, for a file: read from the source files (not from
+// the reduced store) over a window of the layer's pixels.
+struct EmbeddingExport {
+    enum Kind { Pca, Similarity, Change };
+    std::shared_ptr<const CubeInfo> info;
+    Kind kind = Pca;
+    int t = 0, t0 = -1;                        // the year; Change: the year compared with
+    std::shared_ptr<const PcaBasis> basis;     // Pca: every component of it, one band each
+    std::vector<float> ref;                    // Similarity: the reference vector (D values)
+    int win[4] = {0, 0, 0, 0};                 // x0, y0, x1, y1 in the layer's pixels
+    std::string title;                         // what the file holds, for the Exports window
+    std::vector<std::string> bandNames;        // one per band
+    std::vector<std::pair<std::string, std::string>> metadata;
+    int bands() const { return kind == Pca ? (basis ? basis->k : 0) : 1; }
+};
+// Computes e block row by block row, in parallel: rows(y, n, data) gets n rows
+// from row y of the window (data: band after band, each n x width; NaN where a
+// vector is missing) and returns false to stop. False with `error` set on
+// failure (empty when stopped).
+bool computeEmbeddingExport(const EmbeddingExport& e, int threads,
+                            const std::function<bool(int, int, const float*)>& rows, std::string& error);
+
 // Background computations of one embedding layer: one worker thread that runs
 // the newest request of each slot ("basis", "image") and posts the results; the
 // heavy loops inside run on the pool's threads.

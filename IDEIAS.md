@@ -198,6 +198,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 16 | 0.24.0 | **Configurações**: janela própria (File → Settings); **limite de núcleos** para o processamento do Janus e do Zeit (padrão: todos menos 2), **tema da interface** (escuro, claro, clássico, Janus) e as opções que estavam no painel Performance | concluída |
 | 14 | 0.27.0 | Mais visualizações (painel **Analysis**): anos sobrepostos por dia do ano e mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas/datas na ROI; box plot da ROI por data | concluída |
 | 17 | 0.29.0 | **Embeddings** (TESSERA, AlphaEarth): PCA → RGB em C++ (SIMD, iteração de subespaço), **PCA local da ROI**, **similaridade a um pino** (mapa e gráfico ano a ano), **mudança entre anos**, perfil latente; **baixar embeddings da área visível** pelo Zeit (como o basemap, sobre qualquer série), com barra de progresso no mapa | concluída |
+| — | 0.30.0 | **Exportação conferida e com atalhos**: o popup de opções passa a abrir (nunca era desenhado), embeddings como GeoTIFF em resolução total, todas as saídas de uma rodada do Zeit numa pasta, reset do layout (`Ctrl+Shift+R`); faixa Int8 dos embeddings de todos os anos | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -271,6 +272,44 @@ termina.
   (0.25.0); faltam as larguras fixas dos widgets.
 
 ## Histórico
+
+### 0.30.0 — Exportação conferida, atalhos, reset do layout
+- Pedida em 2026-10-10: um atalho para voltar a interface ao estado padrão, e
+  garantir que as saídas (LandTrendr, embeddings) podem ser salvas como raster
+  novo, com atalhos para salvar e exportar.
+- **Bug**: `uiExport()` (o popup de opções de File → Export map as PNG / values
+  / rendered view) existia desde a 0.19.0 mas nunca era chamado: os itens do
+  menu não abriam nada. Os autotestes chamavam `exportPng` & cia. direto; agora
+  o `--selftest-ui` digita os atalhos (eventos de tecla no ImGui) e confere que
+  cada popup abre — falha sem a correção.
+- **Embeddings como GeoTIFF** (File → Export embeddings, `Ctrl+Shift+M`): a
+  visualização mostrada, área visível ou camada inteira, Float32 na grade e no
+  CRS da camada; recalculada **em resolução total dos arquivos** (não do store
+  Int8): PCA = os 6 escores (sem esticamento, nome com a variância), similaridade
+  de cosseno à referência, distância de cosseno entre os anos; modelo, ano,
+  licença e atribuição nos metadados. Conferido contra a imagem da tela no
+  AlphaEarth 2017–2024 (PCs a ≤ 0,0012, similaridade e mudança a ≤ 0,0005).
+- **Store**: a faixa Int8 de cada dimensão saía de blocos do ano do meio; em
+  2024, 60% dos vetores do AlphaEarth tinham uma dimensão cortada (1,6% dos
+  valores). Agora vem de uma amostra de todos os anos (cada ano em outros
+  lugares da imagem, 65 536 vetores no total): 4% dos vetores com alguma
+  dimensão no limite; leitura inicial 0,11 → 0,26 s nesses 8 anos.
+- **Saídas do Zeit**: Save all outputs of this run (clique direito num
+  resultado, File → Export Zeit result, `Ctrl+Shift+S`): todas as saídas da
+  rodada (as 7 do LandTrendr) numa pasta, avisando o que seria substituído;
+  nomes `<camada>_<ferramenta>_<saída>.tif`. `Ctrl+S` salva o resultado de
+  cima.
+- **Atalhos**: `Ctrl+E` PNG, `Ctrl+Shift+E` valores, `Ctrl+Shift+V` vista,
+  `Ctrl+Shift+M` embeddings, `Ctrl+J` janela Exports (Command no Mac); nada com
+  `Ctrl+Alt` (AltGr nos teclados ABNT/europeus). Não disparam com um popup de
+  opções aberto.
+- **Reset do layout** (View → Reset layout, `Ctrl+Shift+R`): os painéis voltam
+  ao layout inicial, as janelas flutuantes (Exports, Tasks, Log, Settings) ao
+  tamanho e lugar da primeira vez (`ImGui::ClearWindowSettings`, também de
+  outro monitor), os mapas extras à direita do principal; os painéis abertos
+  continuam abertos. Testado no `--selftest-ui` (painel desencaixado e janela
+  movida, depois o reset).
+- `--selftest-embeddings-ui` não grava mais o layout do usuário.
 
 ### 0.29.0 — Fase 17: embeddings (AlphaEarth, TESSERA)
 - Pedida em 2026-10-10: ver embeddings de modelos de fundação muito rápido,

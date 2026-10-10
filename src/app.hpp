@@ -26,6 +26,7 @@
 #include "zeit_client.hpp"
 
 struct GLFWwindow;
+struct EmbeddingExport;
 
 // A series shown in the chart (cursor or pin).
 struct SeriesView {
@@ -107,6 +108,7 @@ private:
     void finishOpen();
     void uiMenu();
     void uiDockspace();
+    void dockDefaultLayout(unsigned dock); // ImGuiID of the dock space
     void uiMap();
     void uiLayer();
     void uiSeries();
@@ -115,6 +117,7 @@ private:
     void uiPerf();
     void uiPopups();
     void handleShortcuts();
+    void resetLayout();          // panels docked as at the first start, floating windows as when first opened
     void pumpSeries();
     // w, h in canvas points; slot: GPU target (0 = the main map); background: RGBA (default: the map's)
     void renderMap(int w, int h, float pixelScale = 1.0f, int slot = 0, const float* background = nullptr);
@@ -157,6 +160,17 @@ private:
     void uiExport();             // options popup
     void uiExports();            // progress window
     void uiResultExportMenu(const ResultLayer& r, const char* label); // menu item: save it as GeoTIFF
+    void exportShortcuts();      // Ctrl+E, Ctrl+Shift+E/V/M, Ctrl+S, Ctrl+Shift+S, Ctrl+J
+    // Zeit results: the one drawn on top (else the active layer's last, else the
+    // last), the outputs of its run (the results in the same folder), a file name
+    // made of the layer's name and the output's.
+    const ResultLayer* topResult() const;
+    std::vector<const ResultLayer*> runOutputs(const ResultLayer& r) const;
+    std::string resultFileName(const ResultLayer& r) const;
+    void saveResult(const ResultLayer& r); // asks where (system dialog), then copies it
+    void openSaveRun(const ResultLayer& r); // the "Save all outputs" popup, for r's run
+    std::vector<std::shared_ptr<ExportJob>> exportRun(const ResultLayer& r, const std::string& folder);
+    void uiSaveRun();
     bool exportScaleFits(int scale) const;
     // The main map's view rendered offscreen at `scale` x its on-screen resolution,
     // RGBA rows top-down; `transparent`: alpha = coverage (two renders), else over `bg`.
@@ -166,6 +180,9 @@ private:
     std::shared_ptr<ExportJob> exportValues(const std::string& path, bool wholeImage);
     std::shared_ptr<ExportJob> exportView(const std::string& path, int scale);
     std::shared_ptr<ExportJob> exportResult(const ResultLayer& r, const std::string& path);
+    // The embedding view shown (principal components, similarity, change) at full
+    // resolution, as Float32 GeoTIFF bands (app_embeddings.cpp sets it up).
+    std::shared_ptr<ExportJob> exportEmbeddings(const std::string& path, const EmbeddingExport& e);
     bool visibleWindow(int win[4]) const; // visible part of the active layer, in its pixels
     std::string exportName(const std::string& suffix) const;
     // `folder`: where the dialog starts (empty: the last export's folder).
@@ -538,13 +555,18 @@ private:
     // Export
     std::vector<std::shared_ptr<ExportJob>> exports_;
     bool showExports_ = false;
-    int exportKind_ = 0;         // options popup: 0 none, 1 PNG, 2 values, 3 rendered view
+    int exportKind_ = 0;         // options popup: 0 none, 1 PNG, 2 values, 3 rendered view, 4 embeddings
     bool exportPopup_ = false;   // open it in this frame
     PngOptions png_;
     int viewScale_ = 1;
     bool valuesWhole_ = false;   // whole image, else the visible area
     std::string exportDir_;      // folder of the last export (kept in the layout .ini)
     char exportPath_[1024] = ""; // options popup: where the file goes (editable, or Browse...)
+    struct SaveRunUi {
+        bool open = false;       // open the popup in this frame
+        std::string of;          // path of one output of the run (results are removed by index)
+        char folder[1024] = "";
+    } saveRun_;
 
     // Zeit
     std::unique_ptr<ZeitClient> zeit_;
@@ -698,6 +720,10 @@ private:
     std::string embeddingStatusAt(int ix, int iy) const;
     void drawEmbeddingNotes(ImDrawList* dl, ImVec2 origin, ImVec2 size);
     bool embeddingBounds(int scope, double ll[4], double& wM, double& hM, std::string& why) const;
+    // The view of embeddingLayer() for a file, over the visible area or the whole
+    // layer; false with `why` when it cannot be written yet (or is not shown).
+    bool embeddingExportSpec(bool wholeLayer, EmbeddingExport& e, std::string& why);
+    bool embeddingVisibleWindow(const SeriesLayer& L, int win[4]) const; // in L's pixels
     void startEmbeddingDownload();
     void pumpEmbeddingDownloads();
     void uiEmbeddingDownload(bool inLayers);
@@ -728,6 +754,8 @@ private:
         int hits = 0;
         int64_t budget = 0;   // overview budget to restore
         int frames = 0;
+        std::vector<std::shared_ptr<ExportJob>> jobs;
+        bool swipeBefore = false;
         int threads = 0;      // processing threads setting to restore
         int fontSize = 0;     // font size setting to restore
         std::string reveal;   // the file the Files panel should go to

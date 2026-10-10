@@ -16,6 +16,7 @@
 
 #include <imgui_internal.h>
 #include <implot.h>
+#include <gdal_priv.h>
 #include <ogr_spatialref.h>
 
 #include "embedding.hpp"
@@ -199,6 +200,103 @@ bool App::embeddingRoi(const SeriesLayer& L, int rect[4]) const {
     rect[2] = std::clamp(int(std::ceil(x1 / S.fx)), 0, S.w);
     rect[3] = std::clamp(int(std::ceil(y1 / S.fy)), 0, S.h);
     return rect[2] > rect[0] && rect[3] > rect[1];
+}
+
+// The map's visible area on L: the bounding box of points along the canvas'
+// edges (curved when L is in another CRS).
+bool App::embeddingVisibleWindow(const SeriesLayer& L, int win[4]) const {
+    if (&L == activeLayer()) return visibleWindow(win);
+    if (!s_ || scale_ <= 0) return false;
+    const CubeInfo& info = *L.session->info;
+    double x0 = 1e300, y0 = 1e300, x1 = -1e300, y1 = -1e300;
+    const int n = 16;
+    for (int i = 0; i <= n; ++i)
+        for (int edge = 0; edge < 4; ++edge) {
+            const double f = double(i) / n;
+            const double cx = edge < 2 ? f * canvasSize_.x : edge == 2 ? 0.0 : canvasSize_.x;
+            const double cy = edge < 2 ? (edge == 0 ? 0.0 : canvasSize_.y) : f * canvasSize_.y;
+            double lx, ly;
+            if (!activeToLayer(L, (cx - offset_.x) / scale_, (cy - offset_.y) / scale_, lx, ly)) continue;
+            x0 = std::min(x0, lx);
+            y0 = std::min(y0, ly);
+            x1 = std::max(x1, lx);
+            y1 = std::max(y1, ly);
+        }
+    if (x1 < x0) return false;
+    win[0] = int(std::clamp(std::floor(x0), 0.0, double(info.width)));
+    win[1] = int(std::clamp(std::floor(y0), 0.0, double(info.height)));
+    win[2] = int(std::clamp(std::ceil(x1), 0.0, double(info.width)));
+    win[3] = int(std::clamp(std::ceil(y1), 0.0, double(info.height)));
+    return win[2] > win[0] && win[3] > win[1];
+}
+
+bool App::embeddingExportSpec(bool wholeLayer, EmbeddingExport& e, std::string& why) {
+    SeriesLayer* L = embeddingLayer();
+    if (!L || !embeddingView(*L)) {
+        why = "No layer is drawn as embeddings (Embeddings panel).";
+        return false;
+    }
+    const EmbeddingLayer& E = *L->emb;
+    const CubeInfo& info = *L->session->info;
+    const int t = layerDate(*L);
+    e = EmbeddingExport{};
+    e.info = L->session->info;
+    e.t = t;
+    if (wholeLayer) {
+        e.win[2] = info.width;
+        e.win[3] = info.height;
+    } else if (!embeddingVisibleWindow(*L, e.win)) {
+        why = "The layer of embeddings is not in view.";
+        return false;
+    }
+    const std::string& year = info.layers[t].label;
+    char size[64];
+    std::snprintf(size, sizeof(size), "%d x %d px", e.win[2] - e.win[0], e.win[3] - e.win[1]);
+    e.metadata = {{"JANUS_EMBEDDING_MODEL", E.meta.label()}, {"JANUS_DATE", year}};
+    if (!E.meta.attribution.empty()) e.metadata.emplace_back("JANUS_EMBEDDING_ATTRIBUTION", E.meta.attribution);
+    if (!E.meta.license.empty()) e.metadata.emplace_back("JANUS_EMBEDDING_LICENSE", E.meta.license);
+    if (E.view == EmbeddingLayer::Pca) {
+        if (!E.basis) {
+            why = "The principal components are still being fitted.";
+            return false;
+        }
+        e.kind = EmbeddingExport::Pca;
+        e.basis = E.basis;
+        const PcaBasis& B = *E.basis;
+        for (int c = 0; c < B.k; ++c) {
+            char name[64];
+            std::snprintf(name, sizeof(name), "PC%d (%.1f%% of the variance)", c + 1,
+                          B.total > 0 ? 100 * B.eig[c] / B.total : 0.0);
+            e.bandNames.push_back(name);
+        }
+        const std::string what = std::string("principal components") + (E.basisLocal ? " of the ROI" : "");
+        e.metadata.emplace_back("JANUS_EMBEDDING_VIEW", what);
+        e.metadata.emplace_back("JANUS_PCA_SAMPLES", std::to_string(B.samples) + " vectors of " +
+                                                         std::to_string(B.years) + " years");
+        e.title = L->name + ": " + what + " " + year + ", " + size + " (" + std::to_string(B.k) + " bands, Float32)";
+    } else if (E.view == EmbeddingLayer::Similarity) {
+        if (E.ref.empty()) {
+            why = "No reference vector yet: hover over the map, drop the reference pin or draw an ROI.";
+            return false;
+        }
+        e.kind = EmbeddingExport::Similarity;
+        e.ref = E.ref;
+        e.bandNames = {"cosine similarity to " + E.refText};
+        e.metadata.emplace_back("JANUS_EMBEDDING_VIEW", e.bandNames[0]);
+        e.title = L->name + ": similarity " + year + ", " + size + " (Float32)";
+    } else {
+        const int t0 = E.changeBase < 0 ? t - 1 : E.changeBase;
+        if (t0 < 0 || t0 >= info.T() || t0 == t) {
+            why = "No year to compare this one with.";
+            return false;
+        }
+        e.kind = EmbeddingExport::Change;
+        e.t0 = t0;
+        e.bandNames = {"cosine distance " + year + " - " + info.layers[t0].label};
+        e.metadata.emplace_back("JANUS_EMBEDDING_VIEW", e.bandNames[0]);
+        e.title = L->name + ": change " + year + " - " + info.layers[t0].label + ", " + size + " (Float32)";
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1009,19 +1107,129 @@ int App::selfTestEmbeddingStep(const std::vector<std::string>& in) {
         st_.since = clock();
         st_.frames = 0;
     };
-    static std::shared_ptr<ExportJob> png;
+    // Each view as a PNG figure and as a GeoTIFF of its values (the whole layer,
+    // at full resolution), checked against the image shown.
+    static std::shared_ptr<ExportJob> png, tif;
+    static EmbeddingExport spec;
     auto exportTo = [&](const char* name) {
         PngOptions o;
         o.label = o.legend = true;
         o.marks = true;
         png = exportPng((out / name).u8string(), o);
+        std::string why;
+        if (embeddingExportSpec(true, spec, why))
+            tif = exportEmbeddings((out / fs::u8path(name).replace_extension(".tif")).u8string(), spec);
+        else
+            std::printf("    no GeoTIFF: %s\n", why.c_str());
+    };
+    // The GeoTIFF's grid, then its values at the source pixel of every store pixel
+    // of a grid: the image's (similarity, change) or the scores of the store's
+    // vector (principal components), within the store's Int8 steps.
+    auto checkTif = [&](const std::string& path) -> std::string {
+        const SeriesLayer* EL = embeddingLayer();
+        if (!EL || !EL->emb->store) return "no layer of embeddings";
+        const EmbeddingLayer* E = EL->emb.get();
+        const EmbeddingStore* S = E->store.get();
+        GDALDataset* ds = GDALDataset::Open(path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY);
+        if (!ds) return "could not open " + path;
+        const CubeInfo& info = *spec.info;
+        const int K = spec.bands();
+        double gt[6];
+        const bool geo = ds->GetGeoTransform(gt) == CE_None;
+        std::string err;
+        if (ds->GetRasterXSize() != info.width || ds->GetRasterYSize() != info.height || ds->GetRasterCount() != K)
+            err = "the GeoTIFF should have the layer's size and one band per value";
+        else if (info.hasGeoTransform && (!geo || std::fabs(gt[0] - info.geoTransform[0]) > 1e-9 ||
+                                          std::fabs(gt[3] - info.geoTransform[3]) > 1e-9 ||
+                                          std::fabs(gt[1] - info.geoTransform[1]) > 1e-12))
+            err = "the GeoTIFF should be on the layer's grid";
+        std::vector<float> band(size_t(info.width) * info.height);
+        std::vector<float> v(S->D);
+        double worst = 0, bound = 0;
+        size_t n = 0, clipped = 0;
+        // A vector beyond the store's range is clipped there (Int8): the image is off, not the file.
+        auto saturated = [&](int t, size_t p) {
+            const int8_t* q = S->vec(t, p);
+            return S->valid(t, p) && std::any_of(q, q + S->D, [](int8_t c) { return c == 127 || c == -127; });
+        };
+        for (int k = 0; k < K && err.empty(); ++k) {
+            if (ds->GetRasterBand(k + 1)->RasterIO(GF_Read, 0, 0, info.width, info.height, band.data(), info.width,
+                                                   info.height, GDT_Float32, 0, 0, nullptr) != CE_None) {
+                err = "could not read " + path;
+                break;
+            }
+            for (int j = 0; j < 16 && err.empty(); ++j)
+                for (int i = 0; i < 16 && err.empty(); ++i) {
+                    const int sx = (S->w - 1) * i / 15, sy = (S->h - 1) * j / 15;
+                    const size_t p = size_t(sy) * S->w + sx;
+                    if (saturated(spec.t, p) || (spec.kind == EmbeddingExport::Change && saturated(spec.t0, p))) {
+                        clipped += k == 0;
+                        continue;
+                    }
+                    const int x = std::min(info.width - 1, int((sx + 0.5) * S->fx));
+                    const int y = std::min(info.height - 1, int((sy + 0.5) * S->fy));
+                    const float got = band[size_t(y) * info.width + x];
+                    float want = NAN, tol = 0.02f;
+                    if (spec.kind == EmbeddingExport::Pca) {
+                        if (!S->valid(spec.t, p)) continue;
+                        const PcaBasis& B = *spec.basis;
+                        S->dequant(spec.t, p, v.data());
+                        double sc = 0, step = 0;
+                        for (int d = 0; d < S->D; ++d) {
+                            const double c = B.comps[size_t(k) * S->D + d];
+                            sc += (v[d] - B.mean[d]) * c;
+                            step += std::fabs(c) * S->scale[d] * 0.5;
+                        }
+                        want = float(sc);
+                        tol = float(step) + 1e-4f;
+                    } else {
+                        want = E->img[spec.t].values[p];
+                    }
+                    if (std::isfinite(want) != std::isfinite(got)) {
+                        err = "the GeoTIFF's missing values should be the image's";
+                        continue;
+                    }
+                    if (!std::isfinite(want)) continue;
+                    worst = std::max(worst, double(std::fabs(got - want)));
+                    bound = std::max(bound, double(tol));
+                    if (std::fabs(got - want) > tol) {
+                        char b[160];
+                        std::snprintf(b, sizeof(b), "band %d at (%d, %d): %.5f in the GeoTIFF, %.5f shown", k + 1, x, y,
+                                      got, want);
+                        err = b;
+                        continue;
+                    }
+                    ++n;
+                }
+        }
+        GDALClose(ds);
+        if (err.empty() && n == 0) err = "no value of the GeoTIFF could be compared";
+        if (err.empty() && clipped > 256 / 10) err = "the store's ranges should hold the vectors of every year";
+        if (err.empty())
+            std::printf("    %s: %d x %d px, %d band(s), %zu values within %.4f of the image (at most %.4f); "
+                        "%zu clipped vectors left out\n", fs::u8path(path).filename().u8string().c_str(), info.width,
+                        info.height, K, n, worst, bound, clipped);
+        return err;
     };
     auto exported = [&]() -> int { // -1 waiting, 0 done, 1 failed
-        if (!png) return 0;
-        const ExportJob::State s = png->state;
-        if (s == ExportJob::State::Running) return -1;
-        const bool ok = s == ExportJob::State::Done;
+        for (auto* j : {&png, &tif})
+            if (*j && (*j)->state == ExportJob::State::Running) return -1;
+        bool ok = true;
+        for (auto* j : {&png, &tif})
+            if (*j && (*j)->state != ExportJob::State::Done) {
+                std::lock_guard<std::mutex> lk((*j)->m);
+                std::printf("    %s: %s\n", (*j)->title.c_str(), (*j)->error.c_str());
+                ok = false;
+            }
+        if (ok && tif) {
+            const std::string err = checkTif(tif->path);
+            if (!err.empty()) {
+                std::printf("    %s\n", err.c_str());
+                ok = false;
+            }
+        }
         png.reset();
+        tif.reset();
         return ok ? 0 : 1;
     };
     // Distinct colours over a grid of the map: the image is not flat.
@@ -1049,6 +1257,7 @@ int App::selfTestEmbeddingStep(const std::vector<std::string>& in) {
     switch (st_.stage) {
     case 0: {
         st_.t0 = st_.since = clock();
+        ImGui::GetIO().IniFilename = nullptr; // the user's layout was read; the test's is not saved
         std::error_code ec;
         fs::create_directories(out, ec);
         openInputs({in[0]});
@@ -1129,7 +1338,7 @@ int App::selfTestEmbeddingStep(const std::vector<std::string>& in) {
         return -1;
     }
     case 2: {
-        if (const int r = exported(); r != 0) return r < 0 ? -1 : fail("PNG export");
+        if (const int r = exported(); r != 0) return r < 0 ? -1 : fail("export");
         // ROI: the central ninth of the image; local PCA.
         const CubeInfo& info = *s_->info;
         const int r[4] = {info.width / 3, info.height / 3, 2 * info.width / 3, 2 * info.height / 3};
@@ -1149,7 +1358,7 @@ int App::selfTestEmbeddingStep(const std::vector<std::string>& in) {
         return -1;
     }
     case 4: {
-        if (const int r = exported(); r != 0) return r < 0 ? -1 : fail("PNG export");
+        if (const int r = exported(); r != 0) return r < 0 ? -1 : fail("export");
         E->view = EmbeddingLayer::Similarity;
         E->refKind = 1;
         const CubeInfo& info = *s_->info;
@@ -1174,7 +1383,7 @@ int App::selfTestEmbeddingStep(const std::vector<std::string>& in) {
         return -1;
     }
     case 6: {
-        if (const int r = exported(); r != 0) return r < 0 ? -1 : fail("PNG export");
+        if (const int r = exported(); r != 0) return r < 0 ? -1 : fail("export");
         if (L->session->info->T() < 2) { // one year: no change to show
             next("similarity.png");
             st_.stage = 8;
@@ -1203,7 +1412,7 @@ int App::selfTestEmbeddingStep(const std::vector<std::string>& in) {
         return -1;
     }
     case 8: {
-        if (const int r = exported(); r != 0) return r < 0 ? -1 : fail("PNG export");
+        if (const int r = exported(); r != 0) return r < 0 ? -1 : fail("export");
         // Every year in the principal components, as when playing: time per image.
         E->view = EmbeddingLayer::Pca;
         E->scope = 0;
@@ -1245,6 +1454,24 @@ int App::selfTestEmbeddingStep(const std::vector<std::string>& in) {
         double ms = 0;
         for (const auto& i : E->img) ms += i.ms;
         std::printf("    every year in principal components: %.1f ms per image\n", ms / E->img.size());
+        st_.stage = 10;
+        st_.frames = 0;
+        return -1;
+    }
+    case 10: { // Ctrl+Shift+M (File > Export embeddings as GeoTIFF...): its options popup, named after the view
+        ImGuiIO& io = ImGui::GetIO();
+        const bool down = st_.frames == 1;
+        io.AddKeyEvent(ImGuiMod_Ctrl, down);
+        io.AddKeyEvent(ImGuiMod_Shift, down);
+        io.AddKeyEvent(ImGuiKey_M, down);
+        if (down) return -1;
+        const std::string path = exportPath_;
+        std::printf("    Ctrl+Shift+M: export popup open: %s, saving to %s\n", ImGui::IsPopupOpen("Export###export") ? "yes" : "no",
+                    path.c_str());
+        if (!ImGui::IsPopupOpen("Export###export")) return fail("the embeddings export popup should open");
+        if (path.size() < 8 || path.compare(path.size() - 8, 8, "_pca.tif") != 0)
+            return fail("the embeddings export popup should propose <layer>_<year>_pca.tif");
+        ImGui::ClosePopupToLevel(0, false);
         std::printf("OK (%.1f s); images in %s\n", clock() - st_.t0, out.u8string().c_str());
         return 0;
     }

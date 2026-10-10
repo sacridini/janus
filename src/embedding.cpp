@@ -403,40 +403,48 @@ void EmbeddingStore::start(std::shared_ptr<const CubeInfo> inf, int64_t budgetBy
     });
 }
 
-// Each dimension's range from the 0.1 and 99.9 percentiles of a small read of
-// the middle year, widened by 5%: the Int8 steps cover what matters.
+// Each dimension's range from the 0.1 and 99.9 percentiles of a sample of
+// every year (blocks spread over the image, each year at other places),
+// widened by 5%: the Int8 steps cover every year, not just one. (From one year
+// alone, 60% of another year's AlphaEarth vectors had a dimension clipped.)
 bool EmbeddingStore::computeRanges() {
-    const Layer& L = info->layers[T / 2];
-    GDALDataset* ds = GDALDataset::Open(L.path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY);
-    auto fail = [&](const std::string& why) {
-        std::lock_guard<std::mutex> lk(m_);
-        error_ = why;
-        if (ds) GDALClose(ds);
-        return false;
-    };
-    if (!ds) return fail(L.path + ": " + CPLGetLastErrorMsg());
-    if (ds->GetRasterCount() < L.bandBase + D) return fail(L.path + ": fewer bands than the first year");
-    const std::vector<BandInfo> bi = bandInfo(ds, D, L.bandBase);
-    BlockReader rd(ds, bi, L.bandBase);
     std::vector<float> buf; // sampled vectors, pixel after pixel
     std::vector<float> v(D);
-    const int nbx = (rd.W + rd.bw - 1) / rd.bw, nby = (rd.H + rd.bh - 1) / rd.bh;
-    const int gx = std::min(nbx, 4), gy = std::min(nby, 4);
-    for (int j = 0; j < gy; ++j)
-        for (int i = 0; i < gx; ++i) {
-            const int bx = int((i + 0.5) * nbx / gx), by = int((j + 0.5) * nby / gy);
+    const int cells = std::max(16, T);                      // blocks read in all
+    const int g = int(std::ceil(std::sqrt(double(cells)))); // on a g x g grid over the image
+    const double perCell = 65536.0 / cells;                 // vectors from each
+    for (int t = 0; t < T; ++t) {
+        const Layer& L = info->layers[t];
+        GDALDataset* ds = GDALDataset::Open(L.path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY);
+        auto fail = [&](const std::string& why) {
+            std::lock_guard<std::mutex> lk(m_);
+            error_ = why;
+            if (ds) GDALClose(ds);
+            return false;
+        };
+        if (!ds) return fail(L.path + ": " + CPLGetLastErrorMsg());
+        if (ds->GetRasterCount() < L.bandBase + D) return fail(L.path + ": fewer bands than the first year");
+        const std::vector<BandInfo> bi = bandInfo(ds, D, L.bandBase);
+        BlockReader rd(ds, bi, L.bandBase);
+        const int nbx = (rd.W + rd.bw - 1) / rd.bw, nby = (rd.H + rd.bh - 1) / rd.bh;
+        std::vector<std::pair<int, int>> seen; // blocks of this year already read (small images)
+        for (int k = t; k < cells; k += T) {   // this year's cells: t, t + T...
+            const int bx = std::min(nbx - 1, int((k % g + 0.5) * nbx / g));
+            const int by = std::min(nby - 1, int((k / g + 0.5) * nby / g));
+            if (std::find(seen.begin(), seen.end(), std::make_pair(bx, by)) != seen.end()) continue;
+            seen.emplace_back(bx, by);
             const int x0 = bx * rd.bw, y0 = by * rd.bh;
             const int w = std::min(rd.bw, rd.W - x0), h = std::min(rd.bh, rd.H - y0);
             if (!rd.read(x0, y0, w, h)) return fail(L.path + ": " + CPLGetLastErrorMsg());
-            const int step = std::max(1, int(std::sqrt(double(w) * h / 4096.0)));
+            const int step = std::max(1, int(std::sqrt(double(w) * h / perCell)));
             for (int y = y0; y < y0 + h; y += step)
                 for (int x = x0; x < x0 + w; x += step) {
                     rd.vector(x, y, v.data());
                     buf.insert(buf.end(), v.begin(), v.end());
                 }
         }
-    GDALClose(ds);
-    ds = nullptr;
+        GDALClose(ds);
+    }
     const size_t sw = buf.size() / std::max(D, 1), sh = 1;
     scale.assign(D, 1.0f);
     offset.assign(D, 0.0f);
@@ -813,6 +821,127 @@ void percentileRange(const std::vector<float>& v, float pLo, float pHi, float& l
     lo = f[i0];
     std::nth_element(f.begin(), f.begin() + i1, f.end());
     hi = std::max(f[i1], lo + 1e-6f);
+}
+
+// ---------------------------------------------------------------------------
+// Full resolution
+// ---------------------------------------------------------------------------
+
+bool computeEmbeddingExport(const EmbeddingExport& e, int threads,
+                            const std::function<bool(int, int, const float*)>& rows, std::string& error) {
+    const CubeInfo& info = *e.info;
+    const int D = info.bandsPerDate, K = e.bands();
+    const int x0 = e.win[0], y0 = e.win[1], w = e.win[2] - e.win[0], h = e.win[3] - e.win[1];
+    if (w <= 0 || h <= 0 || K <= 0) {
+        error = "nothing to write";
+        return false;
+    }
+    if ((e.kind == EmbeddingExport::Pca && int(e.basis->mean.size()) != D) ||
+        (e.kind == EmbeddingExport::Similarity && int(e.ref.size()) != D)) {
+        error = "the view does not match the layer's dimensions";
+        return false;
+    }
+    // One file per year (two for the change), read in their own type a block row at a time.
+    const int years[2] = {e.t, e.t0}, nYears = e.kind == EmbeddingExport::Change ? 2 : 1;
+    GDALDataset* ds[2] = {nullptr, nullptr};
+    std::vector<BandInfo> bi[2];
+    std::unique_ptr<BlockReader> rd[2];
+    auto close = [&] {
+        for (int k = 0; k < 2; ++k) {
+            rd[k].reset();
+            if (ds[k]) GDALClose(ds[k]);
+            ds[k] = nullptr;
+        }
+    };
+    for (int k = 0; k < nYears; ++k) {
+        if (years[k] < 0 || years[k] >= info.T()) {
+            error = "no such year";
+            close();
+            return false;
+        }
+        const Layer& L = info.layers[years[k]];
+        ds[k] = GDALDataset::Open(L.path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY);
+        if (!ds[k] || ds[k]->GetRasterCount() < L.bandBase + D || ds[k]->GetRasterXSize() < e.win[2] ||
+            ds[k]->GetRasterYSize() < e.win[3]) {
+            error = L.path + ": " + (ds[k] ? std::string("not the layer's grid or bands") : CPLGetLastErrorMsg());
+            close();
+            return false;
+        }
+        bi[k] = bandInfo(ds[k], D, L.bandBase);
+        rd[k] = std::make_unique<BlockReader>(ds[k], bi[k], L.bandBase);
+    }
+    // Per output band: value = bias + sum_d W[d] v[d] (principal components: the
+    // centred projection; similarity: the unit reference), then / |v| (similarity).
+    std::vector<float> W(size_t(K) * D, 0.0f), bias(K, 0.0f);
+    if (e.kind == EmbeddingExport::Pca) {
+        for (int c = 0; c < K; ++c)
+            for (int d = 0; d < D; ++d) {
+                W[size_t(c) * D + d] = e.basis->comps[size_t(c) * D + d];
+                bias[c] -= e.basis->mean[d] * W[size_t(c) * D + d];
+            }
+    } else if (e.kind == EmbeddingExport::Similarity) {
+        double rn = 0;
+        for (float v : e.ref) rn += double(v) * v;
+        rn = std::sqrt(rn);
+        for (int d = 0; d < D; ++d) W[d] = rn > 0 ? float(e.ref[d] / rn) : 0.0f;
+    }
+    JobPool pool(std::max(1, threads));
+    std::vector<float> out;
+    const int bh = rd[0]->bh;
+    bool ok = true;
+    for (int y = y0; y < y0 + h && ok;) {
+        const int n = std::min(bh - y % bh, y0 + h - y); // whole blocks of the file
+        for (int k = 0; k < nYears && ok; ++k)
+            if (!rd[k]->read(x0, y, w, n)) {
+                error = info.layers[years[k]].path + ": " + CPLGetLastErrorMsg();
+                ok = false;
+            }
+        if (!ok) break;
+        const size_t plane = size_t(w) * n;
+        out.assign(plane * K, NAN);
+        parallelFor(pool, plane, 4096, [&](size_t b, size_t end) {
+            std::vector<float> a(D), c(D);
+            for (size_t i = b; i < end; ++i) {
+                const int px = x0 + int(i % w), py = y + int(i / w);
+                rd[0]->vector(px, py, a.data());
+                double na = 0;
+                bool valid = true;
+                for (int d = 0; d < D && valid; ++d) {
+                    valid = std::isfinite(a[d]);
+                    na += double(a[d]) * a[d];
+                }
+                if (!valid) continue;
+                if (e.kind == EmbeddingExport::Change) {
+                    rd[1]->vector(px, py, c.data());
+                    double nc = 0, dot = 0;
+                    for (int d = 0; d < D && valid; ++d) {
+                        valid = std::isfinite(c[d]);
+                        nc += double(c[d]) * c[d];
+                        dot += double(a[d]) * c[d];
+                    }
+                    if (valid && na > 0 && nc > 0) out[i] = float(1.0 - dot / std::sqrt(na * nc));
+                    continue;
+                }
+                for (int k = 0; k < K; ++k) {
+                    double s = bias[k];
+                    const float* wk = W.data() + size_t(k) * D;
+                    for (int d = 0; d < D; ++d) s += double(wk[d]) * a[d];
+                    if (e.kind == EmbeddingExport::Similarity) {
+                        if (na > 0) out[i] = float(s / std::sqrt(na));
+                    } else {
+                        out[size_t(k) * plane + i] = float(s);
+                    }
+                }
+            }
+        });
+        if (!rows(y - y0, n, out.data())) {
+            error.clear();
+            ok = false;
+        }
+        y += n;
+    }
+    close();
+    return ok;
 }
 
 // ---------------------------------------------------------------------------

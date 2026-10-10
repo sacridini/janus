@@ -1027,9 +1027,11 @@ void App::uiResultsOf(uint64_t cubeId) {
         if (r.cubeId != cubeId) continue;
         ImGui::PushID(int(i));
         if (ImGui::Checkbox(r.name.c_str(), &r.visible)) mapDirty_ = true;
-        ImGui::SetItemTooltip("%s\nRight click: save as GeoTIFF", r.path.c_str());
+        ImGui::SetItemTooltip("%s\nRight click: save it, or every output of its run, as GeoTIFF", r.path.c_str());
         if (ImGui::BeginPopupContextItem("result")) {
             uiResultExportMenu(r, "Save as GeoTIFF...");
+            const size_t n = runOutputs(r).size();
+            if (ImGui::MenuItem(("Save all " + std::to_string(n) + " outputs of this run...").c_str())) openSaveRun(r);
             ImGui::EndPopup();
         }
         ImGui::SameLine(ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX() - 18);

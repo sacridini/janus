@@ -336,6 +336,8 @@ void App::frame() {
     uiTasks();
     uiZeitLog();
     uiExports();
+    uiExport();
+    uiSaveRun();
     uiPopups();
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
     frameMs_ = frameMs_ * 0.9 + ms * 0.1;
@@ -585,6 +587,8 @@ void App::handleShortcuts() {
     }
     if (s_ && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_T)) newMapView();
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) openSettings();
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_R)) resetLayout();
+    exportShortcuts();
     // Closes the focused map panel, else the last one opened (the main map stays).
     if (!views_.empty() && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_W))
         closeViewId_ = focusedViewId_ ? focusedViewId_ : views_.back().id;
@@ -641,7 +645,9 @@ void App::uiMenu() {
                               "similarity, change between years; their download for the visible area");
         ImGui::MenuItem("Performance", nullptr, &showPerf_);
         ImGui::Separator();
-        if (ImGui::MenuItem("Reset layout")) layoutPending_ = true;
+        if (ImGui::MenuItem("Reset layout", "Ctrl+Shift+R")) resetLayout();
+        ImGui::SetItemTooltip("Every panel back where it was at the first start, floating windows\n"
+                              "(Exports, Tasks, Log, Settings) back to their first size and place");
         ImGui::EndMenu();
     }
     uiToolsMenu();
@@ -656,8 +662,17 @@ void App::uiMenu() {
     ImGui::EndMainMenuBar();
 }
 
+void App::resetLayout() {
+    // Windows outside the dock space forget their place, size and dock: they come
+    // back as when first opened.
+    for (const char* name : {"Exports", "Tasks", "Log", "Settings"}) ImGui::ClearWindowSettings(name);
+    for (MapView& v : views_) v.docked = false; // to the right of the main map again
+    layoutPending_ = true;
+}
+
 void App::uiDockspace() {
     const ImGuiID dock = ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_None);
+    if (layoutPending_) dockDefaultLayout(dock);
     // A new map panel goes to the right of the main map (splitting its area).
     for (MapView& v : views_) {
         if (v.docked) continue;
@@ -671,7 +686,9 @@ void App::uiDockspace() {
         ImGui::DockBuilderDockWindow(name, right);
         ImGui::DockBuilderFinish(dock);
     }
-    if (!layoutPending_) return;
+}
+
+void App::dockDefaultLayout(unsigned dock) {
     layoutPending_ = false;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::DockBuilderRemoveNode(dock);
@@ -718,7 +735,11 @@ void App::uiPopups() {
             "Open: Ctrl+O (files), Ctrl+Shift+O (folder), or drop onto the window\n"
             "Command line: jn <folder | file.tif | pattern_*.tif ...> [--band N]\n"
             "Map panels: Ctrl+T (new), Ctrl+W (close the focused one, else the last)\n"
-            "Settings: Ctrl+, (theme, processing threads, memory and caches)\n\n"
+            "Settings: Ctrl+, (theme, processing threads, memory and caches)\n"
+            "Reset layout: Ctrl+Shift+R (panels and windows back to their first place)\n"
+            "Export: Ctrl+E map as PNG, Ctrl+Shift+E values, Ctrl+Shift+V rendered view,\n"
+            "        Ctrl+Shift+M embeddings (GeoTIFF); Ctrl+J the Exports window\n"
+            "Zeit result on top: Ctrl+S save it, Ctrl+Shift+S save every output of its run\n\n"
             "Map\n"
             "  drag ................ pan\n"
             "  mouse wheel ......... zoom\n"

@@ -24,6 +24,7 @@
 #include <imgui_internal.h>
 #include <implot.h>
 
+#include "embedding.hpp"
 #include "glfw.hpp"
 #include "platform.hpp"
 
@@ -511,11 +512,8 @@ std::shared_ptr<ExportJob> App::exportPng(const std::string& path, const PngOpti
             }
             legends.push_back(std::move(L));
         }
-        const ResultLayer* top = nullptr; // as on the map: the last visible result of a visible layer
-        for (const SeriesLayer& Ly : layers_)
-            if (Ly.visible && Ly.aligned)
-                for (const ResultLayer& R : results_)
-                    if (R.visible && R.cubeId == Ly.session->info->id) top = &R;
+        const ResultLayer* top = topResult(); // as on the map
+        if (top && !top->visible) top = nullptr;
         if (top) {
             Legend L;
             L.caption = top->name;
@@ -660,6 +658,76 @@ std::shared_ptr<ExportJob> App::exportView(const std::string& path, int scale) {
     return job;
 }
 
+std::shared_ptr<ExportJob> App::exportEmbeddings(const std::string& path, const EmbeddingExport& spec) {
+    auto e = std::make_shared<EmbeddingExport>(spec);
+    const int threads = settings_.processingThreads();
+    auto job = startJob(e->title, path, [e, path, threads](ExportJob& j, std::string& error) {
+        const CubeInfo& info = *e->info;
+        const int x0 = e->win[0], y0 = e->win[1], w = e->win[2] - e->win[0], h = e->win[3] - e->win[1];
+        const int K = e->bands();
+        GDALDriver* drv = GetGDALDriverManager()->GetDriverByName("GTiff");
+        if (!drv) {
+            error = "GDAL has no GTiff driver";
+            return false;
+        }
+        const std::string nThreads = std::to_string(threads);
+        char** opts = nullptr;
+        opts = CSLSetNameValue(opts, "TILED", "YES");
+        opts = CSLSetNameValue(opts, "COMPRESS", "DEFLATE");
+        opts = CSLSetNameValue(opts, "PREDICTOR", "3");
+        opts = CSLSetNameValue(opts, "INTERLEAVE", "BAND");
+        opts = CSLSetNameValue(opts, "BIGTIFF", "IF_SAFER");
+        opts = CSLSetNameValue(opts, "NUM_THREADS", nThreads.c_str());
+        const std::string tmp = path + ".part";
+        CPLErrorReset();
+        GDALDataset* out = drv->Create(tmp.c_str(), w, h, K, GDT_Float32, opts);
+        CSLDestroy(opts);
+        if (!out) {
+            error = gdalError("could not create the file");
+            return false;
+        }
+        if (info.hasGeoTransform) { // the layer's own grid and CRS
+            const auto& g = info.geoTransform;
+            double gt[6] = {g[0] + x0 * g[1] + y0 * g[2], g[1], g[2], g[3] + x0 * g[4] + y0 * g[5], g[4], g[5]};
+            out->SetGeoTransform(gt);
+        }
+        const std::string wkt = fileWkt(info.layers[e->t].path);
+        if (!wkt.empty()) out->SetProjection(wkt.c_str());
+        for (int b = 0; b < K; ++b) {
+            GDALRasterBand* band = out->GetRasterBand(b + 1);
+            band->SetNoDataValue(NAN);
+            if (b < int(e->bandNames.size())) band->SetDescription(e->bandNames[b].c_str());
+        }
+        for (const auto& [key, value] : e->metadata) out->SetMetadataItem(key.c_str(), value.c_str());
+        std::error_code ec;
+        out->SetMetadataItem("JANUS_SOURCE", fs::absolute(fs::u8path(info.layers[e->t].path), ec).u8string().c_str());
+
+        std::vector<int> bandList(K);
+        for (int b = 0; b < K; ++b) bandList[b] = b + 1;
+        bool writeOk = true;
+        bool ok = computeEmbeddingExport(*e, threads, [&](int r, int n, const float* data) {
+            if (out->RasterIO(GF_Write, 0, r, w, n, const_cast<float*>(data), w, n, GDT_Float32, K, bandList.data(), 0,
+                              0, GSpacing(w) * n * sizeof(float), nullptr) != CE_None) {
+                writeOk = false;
+                return false;
+            }
+            setProgress(j, double(r + n) / h);
+            return !j.cancel.load();
+        }, error);
+        if (!writeOk) error = gdalError("could not write the file");
+        CPLErrorReset();
+        GDALClose(out);
+        if (ok && CPLGetLastErrorType() >= CE_Failure) {
+            error = gdalError("could not write the file");
+            ok = false;
+        }
+        return finishFile(tmp, path, ok && !j.cancel, error);
+    });
+    exports_.push_back(job);
+    showExports_ = true;
+    return job;
+}
+
 std::shared_ptr<ExportJob> App::exportResult(const ResultLayer& r, const std::string& path) {
     // Results are GeoTIFFs already (Float32, georeferenced, nodata NaN, written by
     // the bridge at full resolution): a copy, in chunks for the progress.
@@ -708,19 +776,33 @@ std::shared_ptr<ExportJob> App::exportResult(const ResultLayer& r, const std::st
 // ---------------------------------------------------------------------------
 
 void App::uiExportMenu() {
-    if (ImGui::MenuItem("Export map as PNG...", nullptr, false, s_ != nullptr)) {
+    if (ImGui::MenuItem("Export map as PNG...", "Ctrl+E", false, s_ != nullptr)) {
         exportKind_ = 1;
         exportPopup_ = true;
     }
-    if (ImGui::MenuItem("Export values as GeoTIFF...", nullptr, false, s_ != nullptr)) {
+    if (ImGui::MenuItem("Export values as GeoTIFF...", "Ctrl+Shift+E", false, s_ != nullptr)) {
         exportKind_ = 2;
         exportPopup_ = true;
     }
-    if (ImGui::MenuItem("Export rendered view as GeoTIFF...", nullptr, false, s_ && s_->info->hasGeoTransform)) {
+    if (ImGui::MenuItem("Export rendered view as GeoTIFF...", "Ctrl+Shift+V", false, s_ && s_->info->hasGeoTransform)) {
         exportKind_ = 3;
         exportPopup_ = true;
     }
+    const SeriesLayer* emb = embeddingLayer();
+    if (ImGui::MenuItem("Export embeddings as GeoTIFF...", "Ctrl+Shift+M", false, emb && embeddingView(*emb))) {
+        exportKind_ = 4;
+        exportPopup_ = true;
+    }
+    ImGui::SetItemTooltip("The embedding view shown (principal components, similarity or change)\n"
+                          "at full resolution, read again from the files");
     if (ImGui::BeginMenu("Export Zeit result as GeoTIFF", !results_.empty())) {
+        const ResultLayer* top = topResult();
+        if (top && ImGui::MenuItem(("Save " + top->name + "...").c_str(), "Ctrl+S")) saveResult(*top);
+        ImGui::SetItemTooltip("The result drawn on top of the map");
+        if (top && ImGui::MenuItem("Save all outputs of its run...", "Ctrl+Shift+S")) openSaveRun(*top);
+        ImGui::SetItemTooltip("Every output of the run of the result on top (e.g. all of LandTrendr's)\n"
+                              "into a folder at once");
+        ImGui::Separator();
         for (const ResultLayer& r : results_) {
             ImGui::PushID(&r);
             uiResultExportMenu(r, r.name.c_str());
@@ -728,33 +810,167 @@ void App::uiExportMenu() {
         }
         ImGui::EndMenu();
     }
-    ImGui::MenuItem("Exports", nullptr, &showExports_);
+    ImGui::MenuItem("Exports", "Ctrl+J", &showExports_);
 }
 
 void App::uiResultExportMenu(const ResultLayer& r, const char* label) {
-    if (!ImGui::MenuItem(label)) return;
-    const std::string name = sanitize(fs::u8path(r.path).stem().u8string()) + ".tif";
-    const std::string path = askSavePath("Save the result as GeoTIFF", name, "GeoTIFF", "tif");
+    if (ImGui::MenuItem(label)) saveResult(r);
+}
+
+void App::exportShortcuts() {
+    if (ImGui::GetTopMostPopupModal()) return; // an options popup is open: one at a time
+    auto open = [&](int kind) {
+        exportKind_ = kind;
+        exportPopup_ = true;
+    };
+    if (s_ && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_E)) open(1);
+    if (s_ && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_E)) open(2);
+    if (s_ && s_->info->hasGeoTransform && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V)) open(3);
+    const SeriesLayer* emb = embeddingLayer();
+    if (emb && embeddingView(*emb) && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_M)) open(4);
+    if (const ResultLayer* top = topResult()) {
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) saveResult(*top);
+        else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S)) openSaveRun(*top);
+    }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_J)) showExports_ = !showExports_;
+}
+
+// ---------------------------------------------------------------------------
+// Zeit results
+// ---------------------------------------------------------------------------
+
+const ResultLayer* App::topResult() const {
+    const ResultLayer* top = nullptr; // as on the map: the last visible result of a visible layer
+    for (const SeriesLayer& L : layers_)
+        if (L.visible && L.aligned)
+            for (const ResultLayer& R : results_)
+                if (R.visible && R.cubeId == L.session->info->id) top = &R;
+    if (!top && s_) // nothing shown: the active layer's last
+        for (const ResultLayer& R : results_)
+            if (R.cubeId == s_->info->id) top = &R;
+    return top ? top : results_.empty() ? nullptr : &results_.back();
+}
+
+std::vector<const ResultLayer*> App::runOutputs(const ResultLayer& r) const {
+    const fs::path run = fs::u8path(r.path).parent_path();
+    std::vector<const ResultLayer*> out;
+    for (const ResultLayer& R : results_)
+        if (R.cubeId == r.cubeId && fs::u8path(R.path).parent_path() == run) out.push_back(&R);
+    return out;
+}
+
+std::string App::resultFileName(const ResultLayer& r) const {
+    std::string layer;
+    for (const SeriesLayer& L : layers_)
+        if (L.session->info->id == r.cubeId) layer = sanitize(L.name) + "_";
+    return layer + sanitize(fs::u8path(r.path).stem().u8string()) + ".tif"; // e.g. ndvi_landtrendr_yod.tif
+}
+
+void App::saveResult(const ResultLayer& r) {
+    const std::string path = askSavePath("Save the result as GeoTIFF", resultFileName(r), "GeoTIFF", "tif");
     if (!path.empty()) exportResult(r, path);
+}
+
+void App::openSaveRun(const ResultLayer& r) {
+    saveRun_.open = true;
+    saveRun_.of = r.path;
+    std::snprintf(saveRun_.folder, sizeof(saveRun_.folder), "%s", exportFolder().c_str());
+}
+
+std::vector<std::shared_ptr<ExportJob>> App::exportRun(const ResultLayer& r, const std::string& folder) {
+    std::vector<std::shared_ptr<ExportJob>> jobs;
+    for (const ResultLayer* R : runOutputs(r))
+        jobs.push_back(exportResult(*R, (fs::u8path(folder) / fs::u8path(resultFileName(*R))).u8string()));
+    exportDir_ = folder;
+    ImGui::MarkIniSettingsDirty();
+    return jobs;
+}
+
+void App::uiSaveRun() {
+    if (saveRun_.open) {
+        ImGui::OpenPopup("Save all outputs###saverun");
+        saveRun_.open = false;
+    }
+    if (!ImGui::BeginPopupModal("Save all outputs###saverun", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    const ResultLayer* r = nullptr; // still there?
+    for (const ResultLayer& R : results_)
+        if (R.path == saveRun_.of) r = &R;
+    if (!r) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    const std::vector<const ResultLayer*> outs = runOutputs(*r);
+    const std::string tool = r->name.substr(0, r->name.find(':'));
+    ImGui::TextColored(theme::accent(), "%s: %d output%s", tool.c_str(), int(outs.size()), outs.size() == 1 ? "" : "s");
+    ImGui::TextDisabled("Run %s", fs::u8path(r->path).parent_path().filename().u8string().c_str());
+    ImGui::SeparatorText("Save to the folder");
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 34);
+    ImGui::InputText("##folder", saveRun_.folder, sizeof(saveRun_.folder));
+    ImGui::SameLine();
+    if (ImGui::Button("Browse...")) {
+        const std::string dir = platform::openFolderDialog();
+        if (!dir.empty()) std::snprintf(saveRun_.folder, sizeof(saveRun_.folder), "%s", dir.c_str());
+    }
+    std::string folder = saveRun_.folder;
+    const size_t a = folder.find_first_not_of(" \t\""), b = folder.find_last_not_of(" \t\""); // as pasted from Explorer
+    folder = a == std::string::npos ? "" : folder.substr(a, b - a + 1);
+    std::error_code ec;
+    const bool ok = !folder.empty() && fs::is_directory(fs::u8path(folder), ec);
+    // Each file as written: Float32 GeoTIFF copies, named after the layer and the output.
+    for (const ResultLayer* R : outs) {
+        const std::string name = resultFileName(*R);
+        const bool exists = ok && fs::exists(fs::u8path(folder) / fs::u8path(name), ec);
+        ImGui::BulletText("%s", name.c_str());
+        ImGui::SetItemTooltip("%s", R->name.c_str());
+        if (exists) {
+            ImGui::SameLine();
+            ImGui::TextColored(theme::warning(), "(replaces the file there)");
+        }
+    }
+    if (!ok)
+        ImGui::TextColored(theme::warning(), folder.empty() ? "Type a folder, or choose one with Browse..."
+                                                            : "This folder does not exist.");
+    ImGui::Spacing();
+    ImGui::BeginDisabled(!ok);
+    const bool save = ImGui::Button("Save all", ImVec2(120, 0));
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        ImGui::CloseCurrentPopup();
+    if (save) {
+        exportRun(*r, folder);
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
 }
 
 void App::uiExport() {
     static const char* kTitles[] = {"", "Export map as PNG", "Export values as GeoTIFF",
-                                    "Export rendered view as GeoTIFF"};
-    static const char* kFilters[] = {"", "PNG image", "GeoTIFF", "GeoTIFF"};
-    static const char* kExts[] = {"", "png", "tif", "tif"};
-    static const char* kSuffixes[] = {"", ".png", ".tif", "_view.tif"};
-    const int kind = std::clamp(exportKind_, 0, 3);
+                                    "Export rendered view as GeoTIFF", "Export embeddings as GeoTIFF"};
+    static const char* kFilters[] = {"", "PNG image", "GeoTIFF", "GeoTIFF", "GeoTIFF"};
+    static const char* kExts[] = {"", "png", "tif", "tif", "tif"};
+    static const char* kSuffixes[] = {"", ".png", ".tif", "_view.tif", ""};
+    const int kind = std::clamp(exportKind_, 0, 4);
+    // Named after the layer and date; embeddings after their layer (maybe not the active one) and view.
+    auto defaultName = [&]() -> std::string {
+        const SeriesLayer* L = kind == 4 ? embeddingLayer() : nullptr;
+        EmbeddingExport e;
+        std::string why;
+        if (!L || !embeddingExportSpec(true, e, why)) return exportName(kind == 4 ? ".tif" : kSuffixes[kind]);
+        static const char* kViews[] = {"_pca.tif", "_similarity.tif", "_change.tif"};
+        return sanitize(L->name) + "_" + sanitize(L->session->info->layers[e.t].label) + kViews[e.kind];
+    };
     if (exportPopup_) {
         ImGui::OpenPopup("Export###export");
         exportPopup_ = false;
-        // Where it goes: the last export's folder (else the layer's), named after the layer and date.
-        const std::string path = s_ ? (fs::u8path(exportFolder()) / fs::u8path(exportName(kSuffixes[kind]))).u8string() : "";
+        // Where it goes: the last export's folder (else the layer's).
+        const std::string path = s_ ? (fs::u8path(exportFolder()) / fs::u8path(defaultName())).u8string() : "";
         std::snprintf(exportPath_, sizeof(exportPath_), "%s", path.c_str());
     }
     const std::string name = std::string(kTitles[kind]) + "###export";
     if (!ImGui::BeginPopupModal(name.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    if (!s_ || exportKind_ < 1 || exportKind_ > 3) {
+    if (!s_ || exportKind_ < 1 || exportKind_ > 4) {
         ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
         return;
@@ -778,6 +994,7 @@ void App::uiExport() {
             ImGui::TextDisabled("Data drawn as on screen: overview or the detail tiles already read.");
     };
     bool save = false, canSave = true;
+    EmbeddingExport emb;
     if (exportKind_ == 1) {
         scaleChoice(png_.scale);
         ImGui::Spacing();
@@ -813,10 +1030,40 @@ void App::uiExport() {
             ImGui::TextColored(theme::warning(), "Building the overview from an HDD: available once it ends.");
             canSave = false;
         }
-    } else {
+    } else if (exportKind_ == 3) {
         scaleChoice(viewScale_);
         ImGui::TextDisabled("RGB + alpha (transparent where nothing is drawn), as shown,\n"
                             "georeferenced in the active layer's CRS.");
+    } else {
+        const SeriesLayer* L = embeddingLayer();
+        ImGui::TextColored(theme::accent(), "%s", L ? L->name.c_str() : "");
+        int win[4];
+        const bool visible = L && embeddingVisibleWindow(*L, win);
+        const CubeInfo* li = L ? L->session->info.get() : nullptr;
+        char label[96];
+        std::snprintf(label, sizeof(label), "Visible area  (%d x %d px)", visible ? win[2] - win[0] : 0,
+                      visible ? win[3] - win[1] : 0);
+        ImGui::BeginDisabled(!visible);
+        if (ImGui::RadioButton(label, !valuesWhole_)) valuesWhole_ = false;
+        ImGui::EndDisabled();
+        if (!visible) valuesWhole_ = true;
+        std::snprintf(label, sizeof(label), "Whole layer  (%d x %d px)", li ? li->width : 0, li ? li->height : 0);
+        if (ImGui::RadioButton(label, valuesWhole_)) valuesWhole_ = true;
+        std::string why;
+        if (embeddingExportSpec(valuesWhole_, emb, why)) {
+            for (const std::string& b : emb.bandNames) ImGui::BulletText("%s", b.c_str());
+            const double px = double(emb.win[2] - emb.win[0]) * (emb.win[3] - emb.win[1]);
+            ImGui::TextDisabled("Full resolution, Float32, no data = NaN, %.0f MB before compression.",
+                                px * emb.bands() * 4 / 1e6);
+            ImGui::TextDisabled(emb.kind == EmbeddingExport::Pca
+                                    ? "Scores along each component (not stretched), from the vectors in the files."
+                                    : "Computed again from the vectors in the files, not from the reduced copy shown.");
+            ImGui::TextDisabled(li && li->hasGeoTransform ? "Georeferenced like the layer of embeddings (its grid and CRS)."
+                                                          : "The layer has no georeferencing: pixel coordinates only.");
+        } else {
+            ImGui::TextColored(theme::warning(), "%s", why.c_str());
+            canSave = false;
+        }
     }
     // Where the file goes: typed (a name alone goes to the folder shown first)
     // or chosen in the system's dialog.
@@ -830,7 +1077,7 @@ void App::uiExport() {
         std::error_code ec;
         const fs::path t = fs::u8path(target);
         const bool known = !target.empty() && fs::is_directory(t.parent_path(), ec);
-        const std::string path = askSavePath(kTitles[kind], known ? t.filename().u8string() : exportName(kSuffixes[kind]),
+        const std::string path = askSavePath(kTitles[kind], known ? t.filename().u8string() : defaultName(),
                                              kFilters[kind], kExts[kind], known ? t.parent_path().u8string() : "");
         if (!path.empty()) {
             std::snprintf(exportPath_, sizeof(exportPath_), "%s", path.c_str());
@@ -870,7 +1117,8 @@ void App::uiExport() {
         ImGui::MarkIniSettingsDirty();
         if (exportKind_ == 1) exportPng(target, png_);
         else if (exportKind_ == 2) exportValues(target, valuesWhole_);
-        else exportView(target, viewScale_);
+        else if (exportKind_ == 3) exportView(target, viewScale_);
+        else exportEmbeddings(target, emb);
     }
     ImGui::EndPopup();
 }

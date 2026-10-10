@@ -378,8 +378,157 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         showAnalysis_ = false;
         st_.frames = 0;
         next("Analysis panel drawn (seasonal, classes, scatter)");
+        st_.stage = 77;
+        break;
+    case 77: // the layout scrambled: a panel undocked, the Exports window far away and resized
+        showExports_ = true;
+        if (++st_.frames < 2) break; // the Exports window exists
+        ImGui::DockBuilderDockWindow("Display", 0);
+        ImGui::SetWindowPos("Exports", ImVec2(4000, 3000));
+        ImGui::SetWindowSize("Exports", ImVec2(150, 90));
+        st_.frames = 0;
+        next("layout scrambled: Display undocked, Exports moved and resized");
+        break;
+    case 78: {
+        const ImGuiWindow* d = ImGui::FindWindowByName("Display");
+        if (st_.frames == 0) {
+            if (d && d->DockNode) return fail("Display should be floating before the reset");
+            resetLayout(); // what Ctrl+Shift+R does
+        }
+        if (++st_.frames < 3) break;
+        const ImGuiWindow* ex = ImGui::FindWindowByName("Exports");
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        auto inDockSpace = [](const char* name) {
+            const ImGuiWindow* w = ImGui::FindWindowByName(name);
+            return w && w->DockNode && ImGui::DockNodeGetRootNode(w->DockNode)->IsDockSpace() ? w->DockNode->ID : 0u;
+        };
+        const ImGuiID display = inDockSpace("Display"), layers = inDockSpace("Layers"), map = inDockSpace("Map");
+        std::printf("    after the reset: Display in node %08X, Layers %08X, Map %08X; Exports at %.0f, %.0f, %.0f x %.0f\n",
+                    display, layers, map, ex ? ex->Pos.x - vp->Pos.x : -1, ex ? ex->Pos.y - vp->Pos.y : -1,
+                    ex ? ex->SizeFull.x : -1, ex ? ex->SizeFull.y : -1);
+        if (!display || !layers || !map || display == layers || display == map)
+            return fail("the reset should dock Display, Layers and Map apart in the dock space");
+        if (!ex || ex->Pos.x - vp->Pos.x != 60 || ex->Pos.y - vp->Pos.y != 60 || ex->SizeFull.x != 600 ||
+            ex->SizeFull.y != 260)
+            return fail("the reset should put the Exports window back at its first place and size");
+        showExports_ = false;
+        st_.frames = 0;
+        next("layout reset: panels docked as at the first start, Exports at its first place");
+        st_.stage = 79;
+        break;
+    }
+    case 79: { // the export shortcuts, as typed: each options popup opens, with a file name in the export folder
+        struct Key {
+            ImGuiKeyChord chord;
+            int kind;
+            const char* ext;
+        };
+        static const Key keys[] = {{ImGuiMod_Ctrl | ImGuiKey_E, 1, ".png"},
+                                   {ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_E, 2, ".tif"},
+                                   {ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V, 3, "_view.tif"}};
+        ImGuiIO& io = ImGui::GetIO();
+        auto press = [&](ImGuiKeyChord chord, bool down) {
+            if (chord & ImGuiMod_Ctrl) io.AddKeyEvent(ImGuiMod_Ctrl, down);
+            if (chord & ImGuiMod_Shift) io.AddKeyEvent(ImGuiMod_Shift, down);
+            io.AddKeyEvent(ImGuiKey(chord & ~ImGuiMod_Mask_), down);
+        };
+        const int k = st_.frames / 2;
+        if (k >= 3) {
+            if (ImGui::GetTopMostPopupModal()) break; // the last one closing
+            st_.frames = 0;
+            next("export shortcuts: Ctrl+E, Ctrl+Shift+E, Ctrl+Shift+V open their popups");
+            st_.stage = 80;
+            break;
+        }
+        if (st_.frames++ % 2 == 0) { // keys down; read at the next frame
+            if (ImGui::GetTopMostPopupModal()) {
+                --st_.frames; // the previous popup still closing
+                break;
+            }
+            exportKind_ = 0;
+            st_.swipeBefore = swipe_;
+            press(keys[k].chord, true);
+            break;
+        }
+        press(keys[k].chord, false);
+        const std::string path = exportPath_;
+        const bool open = ImGui::IsPopupOpen("Export###export") && exportKind_ == keys[k].kind;
+        std::printf("    %s: popup %d %s, saving to %s\n", ImGui::GetKeyChordName(keys[k].chord), keys[k].kind,
+                    open ? "open" : "NOT open", path.c_str());
+        if (!open) return fail("the export shortcut should open its options popup");
+        const size_t n = std::strlen(keys[k].ext);
+        if (path.size() < n || path.compare(path.size() - n, n, keys[k].ext) != 0)
+            return fail("the export popup should propose a file name with the format's extension");
+        if (swipe_ != st_.swipeBefore) return fail("an export shortcut should not toggle the swipe");
+        ImGui::ClosePopupToLevel(0, false);
+        break;
+    }
+    case 80: { // a Zeit run of two outputs: Ctrl+Shift+S opens "Save all outputs", which copies both
+        namespace fs = std::filesystem;
+        ImGuiIO& io = ImGui::GetIO();
+        static fs::path dir;
+        if (st_.frames == 0) {
+            std::error_code ec;
+            dir = fs::temp_directory_path(ec) /
+                  ("janus-selftest-run-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+            fs::create_directories(dir / "run", ec);
+            fs::create_directories(dir / "saved", ec);
+            const CubeInfo& info = *s_->info;
+            for (int i = 0; i < 2; ++i) {
+                const fs::path f = dir / "run" / (std::string("tool_") + "ab"[i] + ".tif");
+                fs::copy_file(fs::u8path(info.layers[i].path), f, ec);
+                ResultLayer r;
+                r.cubeId = info.id;
+                r.name = std::string("Test tool: output ") + "ab"[i];
+                r.path = f.u8string();
+                r.visible = false; // not drawn (no texture)
+                results_.push_back(std::move(r));
+            }
+            st_.swipeBefore = swipe_;
+            io.AddKeyEvent(ImGuiMod_Ctrl, true);
+            io.AddKeyEvent(ImGuiMod_Shift, true);
+            io.AddKeyEvent(ImGuiKey_S, true);
+            ++st_.frames;
+            break;
+        }
+        if (st_.frames == 1) {
+            io.AddKeyEvent(ImGuiKey_S, false);
+            io.AddKeyEvent(ImGuiMod_Shift, false);
+            io.AddKeyEvent(ImGuiMod_Ctrl, false);
+            const bool open = ImGui::IsPopupOpen("Save all outputs###saverun");
+            const ResultLayer& r = results_.back();
+            std::printf("    Ctrl+Shift+S: Save all outputs %s, %zu outputs in the run\n", open ? "open" : "NOT open",
+                        runOutputs(r).size());
+            if (!open) return fail("Ctrl+Shift+S should open the Save all outputs popup");
+            if (runOutputs(r).size() != 2) return fail("the run should have both outputs");
+            if (swipe_ != st_.swipeBefore) return fail("Ctrl+Shift+S should not toggle the swipe");
+            ImGui::ClosePopupToLevel(0, false);
+            st_.jobs = exportRun(r, (dir / "saved").u8string()); // what Save all does
+            ++st_.frames;
+            break;
+        }
+        for (const auto& j : st_.jobs)
+            if (j->state == ExportJob::State::Running) return -1;
+        std::error_code ec;
+        for (int i = 0; i < 2; ++i) {
+            const ResultLayer& r = results_[results_.size() - 2 + i];
+            const fs::path f = dir / "saved" / fs::u8path(resultFileName(r));
+            std::printf("    saved %s (%s)\n", f.filename().u8string().c_str(),
+                        fs::exists(f, ec) ? "same size as the output" : "missing");
+            if (st_.jobs[i]->state != ExportJob::State::Done || !fs::exists(f, ec) ||
+                fs::file_size(f, ec) != fs::file_size(fs::u8path(r.path), ec))
+                return fail("Save all should copy every output of the run into the folder");
+        }
+        results_.resize(results_.size() - 2);
+        st_.jobs.clear();
+        exports_.clear();
+        showExports_ = false;
+        fs::remove_all(dir, ec);
+        st_.frames = 0;
+        next("Save all outputs: both outputs of the run copied, named after the layer");
         st_.stage = 60; // Zeit's serve process follows the threads, then back to 8
         break;
+    }
     case 60:
     case 61:
     case 62:
