@@ -73,6 +73,9 @@ public:
     int w = 0, h = 0, T = 0, D = 0;
     double fx = 1, fy = 1;                 // source pixels per store pixel (x, y)
     std::vector<float> scale, offset;      // per dimension
+    // Dimensions without data in the whole sample (a spectrum's water absorption
+    // bands): read as 0, so they neither count nor make a vector invalid.
+    std::vector<uint8_t> skip;
     std::atomic<bool> rangesReady{false};
 
     bool yearReady(int t) const { return t >= 0 && t < T && ready_[t].load(); }
@@ -156,6 +159,7 @@ struct EmbeddingExport {
     int t = 0, t0 = -1;                        // the year; Change: the year compared with
     std::shared_ptr<const PcaBasis> basis;     // Pca: every component of it, one band each
     std::vector<float> ref;                    // Similarity: the reference vector (D values)
+    std::vector<uint8_t> skip;                 // the store's dimensions without data, read as 0
     int win[4] = {0, 0, 0, 0};                 // x0, y0, x1, y1 in the layer's pixels
     std::string title;                         // what the file holds, for the Exports window
     std::vector<std::string> bandNames;        // one per band

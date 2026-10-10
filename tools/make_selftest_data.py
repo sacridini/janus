@@ -15,7 +15,8 @@ Then:  jn --selftest-ui <out>/A <out>/B <out>/C <out>/D <out>/E <out>/F <out>/G
          degrees), nearest neighbour at 15 m: every value is one of B's
   G      spectra (hyperspectral): an ENVI file with wavelengths in its header
          and an EnMAP product folder in GeoTIFF (wavelengths in METADATA.XML),
-         with a gap without bands and all-no-data water absorption bands
+         with a gap without bands and all-no-data water absorption bands;
+         G/series: three EnMAP products of 2022-2024, a series of scenes
   serie  21 annual dates with a break in 2010 (every Zeit tool that applies)
   landsat  monthly Blue..SWIR2 + Fmask, 2016-2021: forest degraded in 2019 and
          cleared in 2020, clouds Fmask misses (CCDC, NDFI, CODED, Tmask...)
@@ -176,11 +177,21 @@ def spectra(out):
         f.write("data ignore value = -32768\n")
         f.write("data gain values = {" + ", ".join(["0.0001"] * n) + "}\n")
 
+    enmap_product(f"{out}/G", "20220810", cube, nm)
+    # A series of scenes: three products, each year 0.01 brighter in every band.
+    for k, date in enumerate(("20220810", "20230705", "20240620")):
+        later = [np.where(b == -32768, b, b + 100 * k).astype("int16") for b in cube]
+        enmap_product(f"{out}/G/series", date, later, nm)
+
+
+def enmap_product(parent, date, cube, nm):
     # An EnMAP product folder in GeoTIFF: no wavelengths in the image, they are
     # in METADATA.XML (a bandID outside <bandCharacterisation> must be ignored);
     # a quality layer beside it must not be opened.
-    name = "ENMAP01-____L2A-DT0000000001_20220810T112429Z_001_V010506_20260529T083936Z"
-    d = f"{out}/G/{name}"
+    H, W = cube[0].shape
+    n = len(nm)
+    name = f"ENMAP01-____L2A-DT0000000001_{date}T112429Z_001_V010506_20260529T083936Z"
+    d = f"{parent}/{name}"
     os.makedirs(d, exist_ok=True)
     t = create(f"{d}/{name}-SPECTRAL_IMAGE.TIF", W, H, n, gdal.GDT_Int16)
     for i in range(n):

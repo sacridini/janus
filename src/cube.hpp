@@ -74,6 +74,9 @@ struct CubeInfo {
     // One file whose bands are wavelengths (hyperspectral, e.g. EnMAP): the
     // axis is the spectrum, layers[t].time in nm, increasing.
     bool spectral = false;
+    // Each band's wavelength (nm), in the file's band order, when the bands carry
+    // one: of the spectrum's file, or of every date's file (one file per date).
+    std::vector<double> bandNm;
     TimeGranularity granularity = TimeGranularity::Index;
     std::string description; // e.g. "41 files (band 1 of each)"
     std::string firstPath;
@@ -125,6 +128,18 @@ const std::vector<SpectralComposite>& spectralComposites();
 // The layers nearest to the composite's wavelengths; false if one is not
 // covered by the spectrum (no band within 40 nm).
 bool spectralCompositeLayers(const CubeInfo& info, const SpectralComposite& c, std::array<int, 3>& rgb);
+
+// Normalized differences (a - b) / (a + b) by wavelength (nm).
+struct SpectralIndex {
+    const char* name; // e.g. "NDVI"
+    const char* what; // e.g. "vegetation (NIR, red)"
+    double a, b;
+    double tolerance; // the nearest band must be this close (nm)
+};
+const std::vector<SpectralIndex>& spectralIndices();
+// The bands (1-based, in the file's order) nearest to the index's wavelengths;
+// false if the bands do not cover it.
+bool spectralIndexBands(const std::vector<double>& bandNm, const SpectralIndex& s, int& a, int& b);
 
 // Writes a VRT with one band per layer, in date order, with nodata and
 // scale/offset applied, readable by other tools. `sourceBand` = 0 writes the

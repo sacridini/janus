@@ -31,6 +31,10 @@ namespace fs = std::filesystem;
 struct App::EmbeddingLayer {
     enum View { Band = 0, Pca, Similarity, Change, ViewCount };
     EmbeddingMeta meta;
+    // A spectrum (hyperspectral): its bands are one vector per pixel, a single
+    // "year" (info); the layer's own time bar goes through the bands.
+    bool spectral = false;
+    std::shared_ptr<const CubeInfo> info;       // what the store reads: the layer's series or that "year"
     std::shared_ptr<EmbeddingStore> store;
     int view = Pca;
     // Principal components
@@ -144,18 +148,46 @@ const int kResolutions[] = {10, 20, 30, 60, 100};
 // ---------------------------------------------------------------------------
 
 void App::initEmbeddingLayer(SeriesLayer& L) {
-    const EmbeddingMeta meta = embeddingMeta(*L.session->info);
-    if (!meta.is) {
+    const CubeInfo& series = *L.session->info;
+    const EmbeddingMeta meta = embeddingMeta(series);
+    if (!meta.is && !series.spectral) {
         L.emb.reset();
         return;
     }
     L.emb = std::make_shared<EmbeddingLayer>();
     L.emb->meta = meta;
-    L.emb->refYear = L.session->info->T() - 1;
-    showEmbeddings_ = true; // the panel comes up with the first layer of embeddings
+    if (series.spectral) {
+        // The file's bands, in its order, as one vector: principal components and
+        // spectral similarity, shown when picked in the panel (the bands until then).
+        auto one = std::make_shared<CubeInfo>(series);
+        one->spectral = false;
+        one->bandsPerDate = int(series.bandNm.size());
+        Layer y;
+        y.path = series.firstPath;
+        y.label = "spectrum";
+        one->layers = {y};
+        L.emb->spectral = true;
+        L.emb->info = one;
+        L.emb->view = EmbeddingLayer::Band;
+    } else {
+        L.emb->info = L.session->info;
+        showEmbeddings_ = true; // the panel comes up with the first layer of embeddings
+    }
+    L.emb->refYear = L.emb->info->T() - 1;
+}
+
+void App::showSpectralAnalysis() {
+    showEmbeddings_ = true;
+    if (active_ < 0 || active_ >= int(layers_.size())) return;
+    EmbeddingLayer* E = layers_[active_].emb.get();
+    if (E && E->spectral && E->view == EmbeddingLayer::Band) {
+        E->view = EmbeddingLayer::Pca;
+        mapDirty_ = true;
+    }
 }
 
 int App::layerDate(const SeriesLayer& L) const {
+    if (L.emb && L.emb->spectral) return 0; // its one "year"
     const int T = L.session->info->T();
     return std::clamp(&L == activeLayer() ? t_ : L.disp.t, 0, T - 1);
 }
@@ -207,7 +239,7 @@ bool App::embeddingRoi(const SeriesLayer& L, int rect[4]) const {
 bool App::embeddingVisibleWindow(const SeriesLayer& L, int win[4]) const {
     if (&L == activeLayer()) return visibleWindow(win);
     if (!s_ || scale_ <= 0) return false;
-    const CubeInfo& info = *L.session->info;
+    const CubeInfo& info = *L.emb->info;
     double x0 = 1e300, y0 = 1e300, x1 = -1e300, y1 = -1e300;
     const int n = 16;
     for (int i = 0; i <= n; ++i)
@@ -237,11 +269,12 @@ bool App::embeddingExportSpec(bool wholeLayer, EmbeddingExport& e, std::string& 
         return false;
     }
     const EmbeddingLayer& E = *L->emb;
-    const CubeInfo& info = *L->session->info;
+    const CubeInfo& info = *L->emb->info;
     const int t = layerDate(*L);
     e = EmbeddingExport{};
-    e.info = L->session->info;
+    e.info = L->emb->info;
     e.t = t;
+    if (E.store) e.skip = E.store->skip;
     if (wholeLayer) {
         e.win[2] = info.width;
         e.win[3] = info.height;
@@ -252,7 +285,8 @@ bool App::embeddingExportSpec(bool wholeLayer, EmbeddingExport& e, std::string& 
     const std::string& year = info.layers[t].label;
     char size[64];
     std::snprintf(size, sizeof(size), "%d x %d px", e.win[2] - e.win[0], e.win[3] - e.win[1]);
-    e.metadata = {{"JANUS_EMBEDDING_MODEL", E.meta.label()}, {"JANUS_DATE", year}};
+    const std::string model = E.spectral ? "spectrum of " + std::to_string(info.bandsPerDate) + " bands" : E.meta.label();
+    e.metadata = {{"JANUS_EMBEDDING_MODEL", model}, {"JANUS_DATE", year}};
     if (!E.meta.attribution.empty()) e.metadata.emplace_back("JANUS_EMBEDDING_ATTRIBUTION", E.meta.attribution);
     if (!E.meta.license.empty()) e.metadata.emplace_back("JANUS_EMBEDDING_LICENSE", E.meta.license);
     if (E.view == EmbeddingLayer::Pca) {
@@ -309,6 +343,8 @@ void App::updateEmbeddingRef(SeriesLayer& L, int t) {
     const int year = E.refFixedYear ? std::clamp(E.refYear, 0, S.T - 1) : t;
     if (!S.yearReady(year)) return;
     char what[96];
+    // "(2023)" after what the reference is; nothing for a spectrum's one "year".
+    const std::string when = E.spectral ? "" : " (" + L.emb->info->layers[year].label + ")";
     auto setVector = [&](size_t p, const char* text) {
         if (!S.valid(year, p)) return;
         const uint64_t key = mix(mix(mix(1, p), uint64_t(year)), uint64_t(E.refKind));
@@ -320,13 +356,13 @@ void App::updateEmbeddingRef(SeriesLayer& L, int t) {
     };
     if (E.refKind == 0 && hover_.x >= 0) {
         size_t p;
-        std::snprintf(what, sizeof(what), "the cursor (%s)", L.session->info->layers[year].label.c_str());
+        std::snprintf(what, sizeof(what), "the cursor%s", when.c_str());
         if (embeddingPixel(L, hover_.x + 0.5, hover_.y + 0.5, p)) setVector(p, what);
     } else if (E.refKind == 1) {
         for (const SeriesView& pin : pins_)
             if (pin.id == E.refPin) {
                 size_t p;
-                std::snprintf(what, sizeof(what), "pin %d (%s)", pin.id, L.session->info->layers[year].label.c_str());
+                std::snprintf(what, sizeof(what), "pin %d%s", pin.id, when.c_str());
                 if (embeddingPixel(L, pin.x + 0.5, pin.y + 0.5, p)) setVector(p, what);
             }
     } else if (E.refKind == 2) {
@@ -350,7 +386,7 @@ void App::updateEmbeddingRef(SeriesLayer& L, int t) {
         E.ref.resize(S.D);
         for (int d = 0; d < S.D; ++d) E.ref[d] = float(sum[d] / n);
         E.refKey = key;
-        std::snprintf(what, sizeof(what), "the ROI mean (%s)", L.session->info->layers[year].label.c_str());
+        std::snprintf(what, sizeof(what), "the ROI mean%s", when.c_str());
         E.refText = what;
     }
 }
@@ -377,12 +413,13 @@ void App::pumpEmbeddings() {
     for (SeriesLayer& L : layers_) {
         if (!L.emb) continue;
         EmbeddingLayer& E = *L.emb;
-        const CubeInfo& info = *L.session->info;
+        const CubeInfo& info = *L.emb->info;
         const int T = info.T();
         const int threads = settings_.processingThreads();
         if (!E.store) {
+            if (E.spectral && E.view == EmbeddingLayer::Band) continue; // read once a view needs it
             E.store = std::make_shared<EmbeddingStore>();
-            E.store->start(L.session->info, int64_t(overviewBudgetMB()) << 20, threads, [] { glfwPostEmptyEvent(); });
+            E.store->start(L.emb->info, int64_t(overviewBudgetMB()) << 20, threads, [] { glfwPostEmptyEvent(); });
             E.engine = std::make_unique<EmbeddingEngine>(threads, [] { glfwPostEmptyEvent(); });
             E.threads = threads;
             E.img.assign(T, {});
@@ -507,10 +544,11 @@ void App::pumpEmbeddings() {
 void App::drawEmbedding(const SeriesLayer& L, int t, float alpha,
                         const std::function<void(const double*, float*)>& toTarget) {
     const EmbeddingLayer& E = *L.emb;
+    if (E.spectral) t = 0; // the spectrum's one "year", whatever band the time bar shows
     if (t < 0 || t >= int(E.img.size())) return;
     const EmbeddingLayer::Img& I = E.img[t];
     if (!I.tex) return;
-    const CubeInfo& info = *L.session->info;
+    const CubeInfo& info = *L.emb->info;
     double q[4];
     WarpParams warp;
     if (!layerQuad(L, 0, 0, info.width, info.height, q, warp)) return;
@@ -532,16 +570,18 @@ bool App::embeddingMapInfo(std::string& title, int& cmap, float& lo, float& hi, 
     const SeriesLayer* L = activeLayer();
     if (!L || !embeddingView(*L)) return false;
     const EmbeddingLayer& E = *L->emb;
-    const CubeInfo& info = *L->session->info;
-    const int t = t_;
+    const CubeInfo& info = *L->emb->info;
+    const int t = layerDate(*L);
     cmap = -1;
     char b[200];
+    const char* what = E.spectral ? "Spectrum" : "Embeddings";
+    const std::string head = E.spectral ? L->name : info.layers[t].label; // a spectrum has no date to show
     if (E.view == EmbeddingLayer::Pca) {
-        std::snprintf(b, sizeof(b), "%s  |  Embeddings: PC%d, PC%d, PC%d%s", info.layers[t].label.c_str(),
+        std::snprintf(b, sizeof(b), "%s  |  %s: PC%d, PC%d, PC%d%s", head.c_str(), what,
                       E.comps[0] + 1, E.comps[1] + 1, E.comps[2] + 1, E.basisLocal ? " of the ROI" : "");
     } else if (E.view == EmbeddingLayer::Similarity) {
-        std::snprintf(b, sizeof(b), "%s  |  Cosine similarity to %s", info.layers[t].label.c_str(),
-                      E.refText.empty() ? "(no reference)" : E.refText.c_str());
+        std::snprintf(b, sizeof(b), "%s  |  %s similarity to %s", head.c_str(),
+                      E.spectral ? "Spectral (cosine)" : "Cosine", E.refText.empty() ? "(no reference)" : E.refText.c_str());
         cmap = E.cmap[EmbeddingLayer::Similarity];
     } else {
         const int t0 = E.changeBase < 0 ? t - 1 : E.changeBase;
@@ -558,8 +598,10 @@ bool App::embeddingMapInfo(std::string& title, int& cmap, float& lo, float& hi, 
         hi = own ? R.hi : I.hi;
     }
     const EmbeddingStore* S = E.store.get();
-    if (!S || !S->rangesReady) wait = S && S->failed() ? "Embeddings: " + S->error() : "Reading the embeddings...";
-    else if (!S->yearReady(t)) wait = "Reading this year...";
+    if (!S || !S->rangesReady)
+        wait = S && S->failed() ? std::string(what) + ": " + S->error()
+                                : E.spectral ? "Reading the spectrum..." : "Reading the embeddings...";
+    else if (!S->yearReady(t)) wait = E.spectral ? "Reading the spectrum..." : "Reading this year...";
     else if (E.view == EmbeddingLayer::Similarity && E.ref.empty())
         wait = E.refKind == 0   ? "Hover over the map: the similarity to the vector under the cursor"
                : E.refKind == 1 ? "Drop the pin chosen as reference (Embeddings panel)"
@@ -577,12 +619,13 @@ std::string App::embeddingStatusAt(int ix, int iy) const {
     const EmbeddingLayer& E = *L->emb;
     const EmbeddingStore& S = *E.store;
     size_t p;
-    if (!embeddingPixel(*L, ix + 0.5, iy + 0.5, p) || !S.yearReady(t_)) return "";
-    if (!S.valid(t_, p)) return "  |  no embedding";
+    const int t = layerDate(*L);
+    if (!embeddingPixel(*L, ix + 0.5, iy + 0.5, p) || !S.yearReady(t)) return "";
+    if (!S.valid(t, p)) return E.spectral ? "  |  no spectrum" : "  |  no embedding";
     char b[160];
     if (E.view == EmbeddingLayer::Pca && E.basis) {
         std::vector<float> v(S.D);
-        S.dequant(t_, p, v.data());
+        S.dequant(t, p, v.data());
         float pc[3] = {0, 0, 0};
         for (int c = 0; c < 3; ++c)
             for (int d = 0; d < S.D; ++d)
@@ -591,7 +634,7 @@ std::string App::embeddingStatusAt(int ix, int iy) const {
                       E.comps[2] + 1, pc[2]);
         return b;
     }
-    const EmbeddingLayer::Img& I = E.img[t_];
+    const EmbeddingLayer::Img& I = E.img[t];
     if (I.values.size() != S.pixels() || std::isnan(I.values[p])) return "";
     std::snprintf(b, sizeof(b), "  |  %s %.4f", E.view == EmbeddingLayer::Similarity ? "similarity" : "change",
                   I.values[p]);
@@ -865,17 +908,25 @@ void App::uiEmbeddings() {
         return;
     }
     EmbeddingLayer& E = *L->emb;
-    const CubeInfo& info = *L->session->info;
+    const CubeInfo& info = *L->emb->info;
     const int T = info.T();
     const int t = layerDate(*L);
     ImGui::TextColored(theme::accent(), "%s", L->name.c_str());
-    ImGui::TextWrapped("%s, %s to %s", E.meta.label().c_str(), info.layers.front().label.c_str(),
-                       info.layers.back().label.c_str());
+    if (E.spectral) {
+        const CubeInfo& series = *L->session->info;
+        ImGui::TextWrapped("Spectrum of %d bands, %.0f to %.0f nm: each pixel's bands as one vector", info.bandsPerDate,
+                           series.layers.front().time, series.layers.back().time);
+    } else {
+        ImGui::TextWrapped("%s, %s to %s", E.meta.label().c_str(), info.layers.front().label.c_str(),
+                           info.layers.back().label.c_str());
+    }
     if (!E.meta.attribution.empty() || !E.meta.license.empty())
         ImGui::SetItemTooltip("%s\nLicence: %s", E.meta.attribution.c_str(), E.meta.license.c_str());
     if (&*L != activeLayer()) ImGui::TextDisabled("(not the active layer: drawn on top of it)");
     if (const EmbeddingStore* S = E.store.get()) {
         if (S->failed()) ImGui::TextColored(theme::error(), "%s", S->error().c_str());
+        else if (!S->complete() && E.spectral)
+            ImGui::TextDisabled("reading the spectrum (%d x %d px)", S->w, S->h);
         else if (!S->complete())
             ImGui::TextDisabled("reading %d/%d years (%d x %d px)", S->yearsDone(), S->T, S->w, S->h);
         else
@@ -885,15 +936,22 @@ void App::uiEmbeddings() {
 
     ImGui::SeparatorText("View");
     for (int v = EmbeddingLayer::Pca; v < EmbeddingLayer::ViewCount; ++v)
-        if (ImGui::RadioButton(kViewNames[v], &E.view, v)) mapDirty_ = true;
-    if (ImGui::RadioButton(kViewNames[EmbeddingLayer::Band], &E.view, EmbeddingLayer::Band)) mapDirty_ = true;
-    ImGui::SetItemTooltip("One dimension as a band, with every mode of the Display panel");
+        if ((!E.spectral || v != EmbeddingLayer::Change) && ImGui::RadioButton(kViewNames[v], &E.view, v)) mapDirty_ = true;
+    if (ImGui::RadioButton(E.spectral ? "Bands (Display panel)" : kViewNames[EmbeddingLayer::Band], &E.view,
+                           EmbeddingLayer::Band))
+        mapDirty_ = true;
+    ImGui::SetItemTooltip(E.spectral ? "The spectrum's bands and composites, as without this panel"
+                                     : "One dimension as a band, with every mode of the Display panel");
 
     if (E.view == EmbeddingLayer::Pca) {
         ImGui::SeparatorText("Principal components");
-        if (ImGui::RadioButton("Every pixel and year", &E.scope, 0)) mapDirty_ = true;
-        ImGui::SetItemTooltip("One PCA for every year: a colour means the same thing in each year,\n"
-                              "so playing the series shows real change.");
+        if (ImGui::RadioButton(E.spectral ? "Every pixel" : "Every pixel and year", &E.scope, 0)) mapDirty_ = true;
+        if (E.spectral)
+            ImGui::SetItemTooltip("PCA of the whole scene's spectra (a sample of 65536), the first three as RGB:\n"
+                                  "the main ways the spectra differ, whatever bands they lie in.");
+        else
+            ImGui::SetItemTooltip("One PCA for every year: a colour means the same thing in each year,\n"
+                                  "so playing the series shows real change.");
         ImGui::SameLine();
         int roi[4];
         const bool hasRoi = embeddingRoi(*L, roi);
@@ -957,10 +1015,15 @@ void App::uiEmbeddings() {
                 E.refKey = 0;
             }
         }
-        if (ImGui::Checkbox("Fixed year", &E.refFixedYear)) E.refKey = 0;
+        if (E.spectral) {
+            ImGui::TextDisabled("cosine of the angle between spectra: brightness does not count");
+            ImGui::SetItemTooltip("1 = the same spectral shape; the spectral angle (SAM) is acos of it.");
+        } else if (ImGui::Checkbox("Fixed year", &E.refFixedYear)) {
+            E.refKey = 0;
+        }
         ImGui::SetItemTooltip("Off: the reference is taken in the year shown. On: always in this year\n"
                               "(e.g. how much each place looks, year after year, like the forest of 2017).");
-        if (E.refFixedYear) {
+        if (E.refFixedYear && !E.spectral) {
             ImGui::SameLine();
             ImGui::SetNextItemWidth(-1);
             if (ImGui::SliderInt("##refyear", &E.refYear, 0, T - 1, info.layers[std::clamp(E.refYear, 0, T - 1)].label.c_str()))
@@ -1030,7 +1093,7 @@ void App::uiEmbeddings() {
         for (const SeriesView& pin : pins_)
             if (embeddingPixel(*L, pin.x + 0.5, pin.y + 0.5, p))
                 probes.push_back({"pin " + std::to_string(pin.id), p, pin.color});
-        if (!E.ref.empty() && E.view == EmbeddingLayer::Similarity) {
+        if (!E.ref.empty() && E.view == EmbeddingLayer::Similarity && !E.spectral) {
             ImGui::SeparatorText("Similarity over the years");
             if (ImPlot::BeginPlot("##embsim", ImVec2(-1, 170))) {
                 ImPlot::SetupAxes(nullptr, "cosine", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
@@ -1062,7 +1125,7 @@ void App::uiEmbeddings() {
                 ImPlot::EndPlot();
             }
         }
-        if (S->yearReady(t) && !probes.empty()) {
+        if (S->yearReady(t) && !probes.empty() && !E.spectral) { // a spectrum's is on the chart
             ImGui::SeparatorText("Latent profile");
             ImGui::SetItemTooltip("The %d values of each vector in %s (they have no physical meaning:\n"
                                   "compare their shapes)", S->D, info.layers[t].label.c_str());
@@ -1086,6 +1149,79 @@ void App::uiEmbeddings() {
     ImGui::Spacing();
     if (ImGui::CollapsingHeader("Download embeddings")) uiEmbeddingDownload(false);
     ImGui::End();
+}
+
+// ---------------------------------------------------------------------------
+// --selftest-ui, stages 98-100: a spectrum's principal components and similarity
+// ---------------------------------------------------------------------------
+
+// The active layer is G's ENVI spectrum, its analysis asked for; expected(t, x, y)
+// is band t's reflectance (wavelength order; NaN where none). Called each frame:
+// -1 waiting, 0 passed, 1 failed (printed).
+int App::selfTestSpectralViews(const std::function<double(int, int, int)>& expected, int T) {
+    const SeriesLayer* L = activeLayer();
+    if (!L || !L->emb || !L->emb->spectral) {
+        std::printf("    the spectrum should have its analysis layer\n");
+        return 1;
+    }
+    EmbeddingLayer& E = *L->emb;
+    const EmbeddingStore* S = E.store.get();
+    if (!S || !S->complete() || !E.basis || E.img.empty() || !E.img[0].tex) return -1;
+    if (st_.frames == 0) { // principal components of the scene
+        const int skipped = int(std::count(S->skip.begin(), S->skip.end(), uint8_t(1)));
+        size_t valid = 0;
+        for (size_t p = 0; p < S->pixels(); ++p) valid += S->valid(0, p);
+        const PcaBasis& B = *E.basis;
+        std::printf("    store %d x %d, %d dimensions (%d without data), %zu of %zu pixels valid; PC1-3 %.1f%% %.1f%% %.1f%%\n",
+                    S->w, S->h, S->D, skipped, valid, S->pixels(), 100 * B.eig[0] / B.total, 100 * B.eig[1] / B.total,
+                    100 * B.eig[2] / B.total);
+        if (S->D != T || skipped != 2) {
+            std::printf("    the store should read every band, the 2 without data as 0\n");
+            return 1;
+        }
+        if (valid != S->pixels()) {
+            std::printf("    bands without data must not make the spectra invalid\n");
+            return 1;
+        }
+        if (!E.img[0].rgba || B.eig[0] < 0.5 * B.total) {
+            std::printf("    the principal components should be an RGB image, PC1 the reflectance gradient\n");
+            return 1;
+        }
+        E.view = EmbeddingLayer::Similarity; // to the spectrum under the cursor
+        E.refKind = 0;
+        E.refKey = 0;
+        hover_ = SeriesView{};
+        hover_.x = 60;
+        hover_.y = 33;
+        mapDirty_ = true;
+        st_.frames = 1;
+        return -1;
+    }
+    const EmbeddingLayer::Img& I = E.img[0];
+    if (E.ref.empty() || I.rgba || I.values.size() != S->pixels()) return -1;
+    auto cosine = [&](int x0, int y0, int x1, int y1) {
+        double ab = 0, aa = 0, bb = 0;
+        for (int t = 0; t < T; ++t) {
+            const double a = expected(t, x0, y0), b = expected(t, x1, y1);
+            if (std::isnan(a) || std::isnan(b)) continue;
+            ab += a * b;
+            aa += a * a;
+            bb += b * b;
+        }
+        return ab / std::sqrt(aa * bb);
+    };
+    double worst = 0;
+    for (const auto& q : {std::array<int, 2>{60, 33}, {5, 7}, {119, 79}, {90, 2}}) {
+        const double want = cosine(60, 33, q[0], q[1]), got = I.values[size_t(q[1]) * S->w + q[0]];
+        worst = std::max(worst, std::fabs(got - want));
+        if (std::fabs(got - want) > 0.005) {
+            std::printf("    similarity at (%d, %d): %.5f, expected %.5f from the file\n", q[0], q[1], got, want);
+            return 1;
+        }
+    }
+    std::printf("    spectral similarity to the cursor: max |map - file| %.2g (Int8 store); %s\n", worst, E.refText.c_str());
+    E.view = EmbeddingLayer::Band;
+    return 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -1387,7 +1523,7 @@ int App::selfTestEmbeddingStep(const std::vector<std::string>& in) {
     }
     case 6: {
         if (const int r = exported(); r != 0) return r < 0 ? -1 : fail("export");
-        if (L->session->info->T() < 2) { // one year: no change to show
+        if (L->emb->info->T() < 2) { // one year: no change to show
             next("similarity.png");
             st_.stage = 8;
             return -1;
@@ -1408,7 +1544,7 @@ int App::selfTestEmbeddingStep(const std::vector<std::string>& in) {
                 ++n;
             }
         std::printf("    change %s: %zu pixels, range %.3f .. %.3f, image %.1f ms\n",
-                    L->session->info->layers[lt].label.c_str(), n, E->img[lt].lo, E->img[lt].hi, E->img[lt].ms);
+                    L->emb->info->layers[lt].label.c_str(), n, E->img[lt].lo, E->img[lt].hi, E->img[lt].ms);
         if (n == 0) return fail("no change values");
         exportTo("change.png");
         next("change from the previous year");

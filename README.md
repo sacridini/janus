@@ -50,7 +50,9 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
   change maps. A private Python runtime ships with Janus.
 - **Spectra** (hyperspectral, e.g. EnMAP): a file whose bands have
   wavelengths opens with the chart in nanometres, the spectrum of the cursor,
-  pins and region, and true-colour, colour-infrared and SWIR composites.
+  pins and region, and true-colour, colour-infrared and SWIR composites;
+  index maps (NDVI, red edge, PRI...), principal components and spectral
+  similarity, and series of scenes by wavelength.
 - **Embeddings** of foundation models (AlphaEarth, TESSERA): downloaded for the
   visible area over any series, shown through their principal components (also
   local to a region, refitted as you move it), the similarity to the cursor or

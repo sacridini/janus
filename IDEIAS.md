@@ -207,11 +207,46 @@ Windows sem Python nem conda, e chamável pela linha de comando
   - GeoTIFF **pixel-interleaved** (o padrão do `gdal_translate` com várias
     bandas) é ~70× mais lento: cada banda lida descomprime blocos com as 224.
     Medido (cena de Groningen, DEFLATE, blocos 256): overview 51,5 s e ROI de
-    256² em 49,7 s; com `INTERLEAVE=BAND`, 0,7 s e 0,33 s. Avisar ou sugerir
-    a conversão ao abrir um arquivo assim.
+    256² em 49,7 s; com `INTERLEAVE=BAND`, 0,7 s e 0,33 s. A descrição da
+    série avisa (comprimido, pixel-interleaved, ≥ 16 bandas) e dá o comando.
+- **Etapa 2 feita (2026-10-11)**:
+  - Arquivos com comprimento de onda (`CubeInfo::bandNm`, na ordem do
+    arquivo): numa série de cenas (um arquivo por data) as bandas levam o nm
+    no nome e a série abre em NDVI (a banda 1 do EnMAP é 418 nm); lista
+    "Index by wavelength" na seção Bands.
+  - Índices (`spectralIndices`): NDVI, NDRE, NDWI, NDMI, NBR, NDSI, PRI, cada
+    um com uma tolerância (50–60 nm nos largos, que aceitam uma banda de
+    Landsat ou Sentinel-2; 15 no NDRE; 6 no PRI, de bandas estreitas).
+  - Numa cena só: "Index map" no painel Display abre o mesmo arquivo como
+    um mapa (uma data, a diferença normalizada de duas bandas, pelo mesmo
+    caminho dos embeddings empacotados), datado pelo nome do produto,
+    adicionado como camada ("NDVI - <camada>").
+  - Uma pasta com vários produtos EnMAP em subpastas abre como série de
+    cenas.
+- **Etapa 3 feita (2026-10-11)**: o espectro de cada pixel como um vetor,
+  pelo código dos embeddings (fase 17), sem duplicar nada.
+  - A camada espectral ganha um `EmbeddingLayer` com `spectral` e um `info`
+    próprio: um "ano" só, com todas as bandas do arquivo como dimensões. O
+    armazenamento só é lido quando uma vista é escolhida (abrir uma cena não
+    lê o arquivo duas vezes).
+  - Dimensões sem nenhum dado na amostra (as bandas de absorção de água do
+    EnMAP) são lidas como 0 (`EmbeddingStore::skip`, também na exportação):
+    não contam no PCA nem no cosseno e não invalidam o pixel. Antes, um NaN
+    numa dimensão invalidava o vetor: todos os pixels do EnMAP seriam
+    inválidos.
+  - Vistas: componentes principais (cena ou ROI) e similaridade (cosseno =
+    SAM sem o arco-cosseno; o brilho não conta) ao cursor, a um pino ou à
+    média da ROI; sem "mudança entre anos", "ano fixo" nem perfil latente (o
+    espectro já está no gráfico). Botão "Principal components, similarity"
+    no painel Display.
+  - Autoteste G, estágios 94–100: NDVI de uma cena (uma data, valores),
+    a série de três produtos (datas, nomes com nm, NDVI), o PCA do espectro
+    (2 dimensões sem dados, todos os pixels válidos) e a similaridade contra
+    o cosseno calculado do arquivo (erro ≤ 0,0012, da quantização Int8).
   - Falta: a sobreposição VNIR/SWIR (≈ 950–995 nm, os dois detectores
     alternados) faz um zigue-zague pequeno no gráfico; as máscaras de
-    qualidade do EnMAP (`QL_QUALITY_CLOUD` etc.) ainda não são usadas.
+    qualidade do EnMAP (`QL_QUALITY_CLOUD` etc., arquivos à parte) ainda não
+    são usadas.
 - **Dados para testar** (verificado em 2026-10-10):
   - Exemplos do enmap.org, sem cadastro, em L1B, L1C e L2A: Tirol (Áustria,
     2022-06-12, L2A 387 MB), Groningen (Países Baixos, 2022-08-10, 261 MB) e
@@ -272,7 +307,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 17 | 0.29.0 | **Embeddings** (TESSERA, AlphaEarth): PCA → RGB em C++ (SIMD, iteração de subespaço), **PCA local da ROI**, **similaridade a um pino** (mapa e gráfico ano a ano), **mudança entre anos**, perfil latente; **baixar embeddings da área visível** pelo Zeit (como o basemap, sobre qualquer série), com barra de progresso no mapa | concluída |
 | — | 0.30.0 | **Exportação conferida e com atalhos**: o popup de opções passa a abrir (nunca era desenhado), embeddings como GeoTIFF em resolução total, todas as saídas de uma rodada do Zeit numa pasta, reset do layout (`Ctrl+Shift+R`); faixa Int8 dos embeddings de todos os anos | concluída |
 | 18 | 0.31.0 | Mais do Zeit: **CODED** (degradação florestal) e **NDFI** (desmistura espectral, a série vira camada), **Tmask** (nuvens que a banda de qualidade perdeu), **SOM** (agrupamento de trajetórias, série típica no gráfico) e **concordância** entre mapas de mudança | concluída |
-| 19 | — | **Hiperespectral** (EnMAP primeiro; PRISMA, EMIT, ENVI em geral): eixo espectral em nm, espectros do cursor, pinos e ROI, RGB por comprimento de onda, bandas e índices por nm em séries de cenas, similaridade espectral e PCA (ver "Hiperespectral" em Decisões) | em andamento (etapa 1 feita) |
+| 19 | — | **Hiperespectral** (EnMAP primeiro; PRISMA, EMIT, ENVI em geral): eixo espectral em nm, espectros do cursor, pinos e ROI, RGB por comprimento de onda, bandas e índices por nm em séries de cenas, similaridade espectral e PCA (ver "Hiperespectral" em Decisões) | em andamento (etapas 1–3 feitas) |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a

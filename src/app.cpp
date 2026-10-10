@@ -168,6 +168,7 @@ void App::finishOpen() {
     OpenResult r = opening_.get();
     const std::vector<std::string> inputs = std::move(openingInputs_);
     const bool keepActive = std::exchange(openingKeepActive_, false); // this open's only, even if it fails
+    const std::string name = std::exchange(openingName_, std::string());
     auto info = r.info;
     if (!info) {
         error_ = r.error;
@@ -200,7 +201,7 @@ void App::finishOpen() {
     L.session = std::make_unique<Session>(info, settings_, [] { glfwPostEmptyEvent(); });
     L.session->openSeconds = r.seconds;
     L.inputs = inputs;
-    L.name = layerName(*info, inputs);
+    L.name = name.empty() ? layerName(*info, inputs) : name;
     const int T = info->T();
     L.disp.rgb = {0, T / 2, T - 1};
     L.disp.cmap = defaultCmap_;
@@ -1349,12 +1350,44 @@ void App::uiMap() {
 // of two) the series shows, and the quality band that hides unusable dates.
 void App::uiBands() {
     const CubeInfo& info = *s_->info;
+    if (info.spectral) {
+        uiSpectralIndex();
+        ImGui::SeparatorText("Analysis");
+        if (ImGui::Button("Principal components, similarity", ImVec2(-1, 0))) showSpectralAnalysis();
+        ImGui::SetItemTooltip("Each pixel's spectrum as one vector (Embeddings panel): its principal\n"
+                              "components as RGB, of the scene or of an ROI, or its similarity to the\n"
+                              "spectrum of the cursor, a pin or the ROI");
+        return;
+    }
     if (info.bandsPerDate <= 1) return;
     if (selUiFor_ != info.id) {
         selUi_ = info.sel;
         selUiFor_ = info.id;
     }
     ImGui::SeparatorText("Bands");
+    if (!info.bandNm.empty()) { // bands with wavelengths: indices by name
+        const char* current = "Index by wavelength...";
+        for (const SpectralIndex& s : spectralIndices()) {
+            int a = 0, b = 0;
+            if (spectralIndexBands(info.bandNm, s, a, b) && selUi_.band == a && selUi_.ndBand == b) current = s.name;
+        }
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo("##index", current)) {
+            for (const SpectralIndex& s : spectralIndices()) {
+                int a = 0, b = 0;
+                const bool covered = spectralIndexBands(info.bandNm, s, a, b);
+                ImGui::BeginDisabled(!covered);
+                const std::string label = std::string(s.name) + "  " + s.what;
+                if (ImGui::Selectable(label.c_str(), current == s.name) && covered) {
+                    selUi_.band = a;
+                    selUi_.ndBand = b;
+                }
+                ImGui::EndDisabled();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SetItemTooltip("Picks A and B below: the bands nearest to the index's wavelengths");
+    }
     auto name = [&](int b) {
         return std::to_string(b) + ": " +
                (b >= 1 && b <= int(info.bandNames.size()) ? info.bandNames[b - 1] : std::string("?"));
@@ -1395,6 +1428,53 @@ void App::uiBands() {
         ImGui::EndDisabled();
         if (ImGui::SmallButton("Revert")) selUi_ = info.sel;
     }
+}
+
+bool App::addSpectralIndexLayer(const SpectralIndex& s) {
+    int a = 0, b = 0;
+    if (!s_ || !s_->info->spectral || opening_.valid() || !spectralIndexBands(s_->info->bandNm, s, a, b)) return false;
+    BandSelection sel;
+    sel.band = a;
+    sel.ndBand = b;
+    sel.chosen = true;
+    openingSel_ = sel;
+    openingName_ = std::string(s.name) + " - " + activeLayer()->name;
+    openInputs({s_->info->firstPath}, true);
+    openingSel_.reset();
+    return true;
+}
+
+// A spectrum: an index of its bands as a map, added as a layer above it.
+void App::uiSpectralIndex() {
+    const CubeInfo& info = *s_->info;
+    ImGui::SeparatorText("Index map");
+    std::vector<const SpectralIndex*> covered;
+    for (const SpectralIndex& s : spectralIndices()) {
+        int a = 0, b = 0;
+        if (spectralIndexBands(info.bandNm, s, a, b)) covered.push_back(&s);
+    }
+    if (covered.empty()) {
+        ImGui::TextDisabled("No index fits these wavelengths.");
+        return;
+    }
+    spectralIndex_ = std::clamp(spectralIndex_, 0, int(covered.size()) - 1);
+    const SpectralIndex& s = *covered[size_t(spectralIndex_)];
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::BeginCombo("##spindex", (std::string(s.name) + "  " + s.what).c_str())) {
+        for (int i = 0; i < int(covered.size()); ++i)
+            if (ImGui::Selectable((std::string(covered[size_t(i)]->name) + "  " + covered[size_t(i)]->what).c_str(),
+                                  i == spectralIndex_))
+                spectralIndex_ = i;
+        ImGui::EndCombo();
+    }
+    int a = 0, b = 0;
+    spectralIndexBands(info.bandNm, s, a, b);
+    ImGui::BeginDisabled(opening_.valid());
+    if (ImGui::Button("Add as a layer", ImVec2(-1, 0))) addSpectralIndexLayer(s);
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("(A - B) / (A + B) with A = %.1f nm and B = %.1f nm (the nearest bands),\n"
+                          "as a map of its own on top of the spectrum",
+                          info.bandNm[size_t(a - 1)], info.bandNm[size_t(b - 1)]);
 }
 
 // --- Extra map panels -----------------------------------------------------------

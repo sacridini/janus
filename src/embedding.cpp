@@ -261,10 +261,12 @@ namespace {
 struct BandInfo {
     bool hasNoData = false;
     double noData = 0, scale = 1, offset = 0;
+    bool skip = false; // a dimension without data anywhere: read as 0 (EmbeddingStore::skip)
 };
 
-std::vector<BandInfo> bandInfo(GDALDataset* ds, int D, int base) {
+std::vector<BandInfo> bandInfo(GDALDataset* ds, int D, int base, const std::vector<uint8_t>& skip = {}) {
     std::vector<BandInfo> out(D);
+    for (int b = 0; b < D && size_t(b) < skip.size(); ++b) out[b].skip = skip[size_t(b)] != 0;
     for (int b = 0; b < D; ++b) {
         GDALRasterBand* rb = ds->GetRasterBand(base + b + 1);
         int ok = 0;
@@ -287,6 +289,10 @@ template <class T>
 void convertVector(const T* v, const std::vector<BandInfo>& bi, float* out) {
     for (size_t b = 0; b < bi.size(); ++b) {
         const BandInfo& m = bi[b];
+        if (m.skip) {
+            out[b] = 0;
+            continue;
+        }
         const double x = double(v[b]);
         out[b] = !std::isfinite(x) || (m.hasNoData && x == m.noData) ? NAN : float(x * m.scale + m.offset);
     }
@@ -448,12 +454,14 @@ bool EmbeddingStore::computeRanges() {
     const size_t sw = buf.size() / std::max(D, 1), sh = 1;
     scale.assign(D, 1.0f);
     offset.assign(D, 0.0f);
+    skip.assign(D, 0);
     std::vector<float> col;
     for (int b = 0; b < D; ++b) {
         col.clear();
         for (size_t p = 0; p < size_t(sw) * sh; ++p)
             if (std::isfinite(buf[p * D + b])) col.push_back(buf[p * D + b]);
         float lo = -1, hi = 1;
+        skip[size_t(b)] = col.empty(); // e.g. a spectrum's water absorption bands, no-data everywhere
         if (!col.empty()) {
             const size_t i0 = size_t(0.001 * (col.size() - 1)), i1 = size_t(0.999 * (col.size() - 1));
             std::nth_element(col.begin(), col.begin() + i0, col.end());
@@ -479,7 +487,7 @@ void EmbeddingStore::readYear(int t) {
         if (ds) GDALClose(ds);
         return;
     }
-    const std::vector<BandInfo> bi = bandInfo(ds, D, L.bandBase);
+    const std::vector<BandInfo> bi = bandInfo(ds, D, L.bandBase, skip);
     BlockReader rd(ds, bi, L.bandBase);
     // The source pixel nearest to each store pixel's centre.
     std::vector<int> srcX(w), srcY(h);
@@ -867,7 +875,7 @@ bool computeEmbeddingExport(const EmbeddingExport& e, int threads,
             close();
             return false;
         }
-        bi[k] = bandInfo(ds[k], D, L.bandBase);
+        bi[k] = bandInfo(ds[k], D, L.bandBase, e.skip);
         rd[k] = std::make_unique<BlockReader>(ds[k], bi[k], L.bandBase);
     }
     // Per output band: value = bias + sum_d W[d] v[d] (principal components: the

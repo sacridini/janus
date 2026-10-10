@@ -776,19 +776,28 @@ int App::selfTestStep(const std::vector<std::string>& in) {
     case 91:
     case 92:
     case 93:
+    case 94:
+    case 95:
+    case 96:
+    case 97:
+    case 98:
+    case 99:
+    case 100:
         return selfTestSpectra(in[6]);
     }
     return -1;
 }
 
-// Stages 90-93: G = two synthetic spectra (tools/make_selftest_data.py). 90
+// Stages 90-100: G = synthetic spectra (tools/make_selftest_data.py). 90
 // opens the ENVI file (wavelengths in its header, longest first); 91 checks the
 // axis (sorted wavelengths in nm, the chart broken at the gap without bands),
 // the true-colour start, the values of every band and that the Zeit tools do
 // not apply; 92 opens G, which has no rasters but an EnMAP product folder
 // (GeoTIFF without wavelengths, METADATA.XML beside it, a quality layer that
 // must not be opened), as its zip extracts; 93 checks that the same spectrum
-// comes out.
+// comes out; 94-95 add its NDVI as a layer (one dated map); 96-97 open G/series,
+// three products as a series of scenes in NDVI; 98-100 reopen the ENVI spectrum
+// and check its principal components and spectral similarity.
 int App::selfTestSpectra(const std::string& g) {
     namespace fs = std::filesystem;
     auto fail = [&](const char* what) {
@@ -873,8 +882,83 @@ int App::selfTestSpectra(const std::string& g) {
         if (!isEnmapSpectralImage(s_->info->firstPath)) return fail("the folder should open its spectral image alone");
         if (const char* e = checkSpectrum()) return fail(e);
         next("EnMAP product: wavelengths from METADATA.XML, quality layers left out");
+        break;
+    case 94:
+        if (!addSpectralIndexLayer(spectralIndices()[0])) return fail("NDVI should be offered on the spectrum");
+        next("add NDVI of the EnMAP scene as a layer");
+        break;
+    case 95: {
+        if (opening_.valid() || layers_.size() != 2 || !s_ || !s_->overview.complete()) break;
+        const CubeInfo& info = *s_->info;
+        int a = 0, b = 0;
+        spectralIndexBands(info.bandNm, spectralIndices()[0], a, b);
+        std::printf("    %s: %s, %s, %d date(s)\n", activeLayer()->name.c_str(), info.description.c_str(),
+                    info.layers[0].label.c_str(), info.T());
+        if (info.spectral || info.T() != 1 || info.sel.band != a || info.sel.ndBand != b)
+            return fail("the index should be one map of two bands");
+        if (nm[size_t(a - 1)] != 860 || std::fabs(nm[size_t(b - 1)] - 650) != 10)
+            return fail("NDVI should use 860 and 640 or 660 nm");
+        if (!info.timeIsDate || info.layers[0].label != "2022-08-10") return fail("the index should take the scene's date");
+        if (activeLayer()->name.rfind("NDVI - ", 0) != 0) return fail("the index layer should be named after it");
+        for (const auto& q : {std::array<int, 2>{5, 7}, {60, 33}, {119, 79}}) {
+            const double A = expected(a - 1, q[0], q[1]), B = expected(b - 1, q[0], q[1]);
+            const std::vector<float> v = approxSeries(q[0], q[1]);
+            if (v.size() != 1 || std::fabs(v[0] - (A - B) / (A + B)) > 1e-5) {
+                std::printf("    (%d, %d): %g, expected %g\n", q[0], q[1], v.empty() ? NAN : v[0], (A - B) / (A + B));
+                return fail("the index's values differ");
+            }
+        }
+        next("NDVI of a scene: one map, dated, values of (NIR - red) / (NIR + red)");
+        break;
+    }
+    case 96:
+        openInputs({(fs::u8path(g) / "series").u8string()});
+        next("open G/series (three EnMAP products, a series of scenes)");
+        break;
+    case 97: {
+        if (opening_.valid() || layers_.size() != 1 || !s_ || !s_->overview.complete()) break;
+        const CubeInfo& info = *s_->info;
+        int a = 0, b = 0;
+        spectralIndexBands(info.bandNm, spectralIndices()[0], a, b);
+        std::printf("    %s; band names \"%s\"...; %s to %s\n", info.description.c_str(), info.bandNames[0].c_str(),
+                    info.layers.front().label.c_str(), info.layers.back().label.c_str());
+        if (info.spectral || info.T() != 3 || !info.timeIsDate || info.bandsPerDate != T || int(info.bandNm.size()) != T)
+            return fail("three dates of every band expected");
+        if (info.layers[1].label != "2023-07-05") return fail("the dates should come from the product names");
+        if (info.bandNames[0].find("420.0 nm") == std::string::npos) return fail("band names should give the wavelength");
+        if (info.sel.band != a || info.sel.ndBand != b) return fail("a series with wavelengths should open in NDVI");
+        for (const auto& q : {std::array<int, 2>{5, 7}, {60, 33}}) {
+            const std::vector<float> v = approxSeries(q[0], q[1]);
+            for (int k = 0; k < 3; ++k) {
+                const double A = expected(a - 1, q[0], q[1]) + 0.01 * k, B = expected(b - 1, q[0], q[1]) + 0.01 * k;
+                if (v.size() != 3 || std::fabs(v[size_t(k)] - (A - B) / (A + B)) > 1e-5) {
+                    std::printf("    (%d, %d) at %d: %g, expected %g\n", q[0], q[1], k, v.size() == 3 ? v[size_t(k)] : NAN,
+                                (A - B) / (A + B));
+                    return fail("the series' NDVI differs");
+                }
+            }
+        }
+        next("series of scenes: dates from the names, wavelengths in the band names, NDVI");
+        break;
+    }
+    case 98:
+        openInputs({(fs::u8path(g) / "envi" / "spectrum.bsq").u8string()});
+        next("open G's ENVI spectrum again");
+        break;
+    case 99:
+        if (!ready()) break;
+        showSpectralAnalysis();
+        st_.frames = 0;
+        next("its principal components and similarity (Embeddings panel)");
+        break;
+    case 100: {
+        const int r = selfTestSpectralViews(expected, T);
+        if (r < 0) break;
+        if (r > 0) return fail("spectral principal components or similarity");
+        next("spectrum: principal components (bands without data left out), similarity as in the file");
         std::printf("OK (%.1f s)\n", now() - st_.t0);
         return 0;
+    }
     }
     return -1;
 }

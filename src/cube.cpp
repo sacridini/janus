@@ -218,6 +218,31 @@ bool spectralCompositeLayers(const CubeInfo& info, const SpectralComposite& c, s
     return true;
 }
 
+const std::vector<SpectralIndex>& spectralIndices() {
+    // Broad indices accept a multispectral sensor's band (e.g. Landsat's SWIR1 at
+    // 1609 nm for 1650); PRI needs the narrow bands it is defined on.
+    static const std::vector<SpectralIndex> s = {
+        {"NDVI", "vegetation (NIR 860, red 650 nm)", 860, 650, 50},
+        {"NDRE", "red edge, chlorophyll (790, 720 nm)", 790, 720, 15},
+        {"NDWI", "open water (green 560, NIR 860 nm)", 560, 860, 50},
+        {"NDMI", "vegetation moisture (NIR 860, SWIR 1650 nm)", 860, 1650, 60},
+        {"NBR", "burn severity (NIR 860, SWIR 2200 nm)", 860, 2200, 60},
+        {"NDSI", "snow (green 560, SWIR 1650 nm)", 560, 1650, 60},
+        {"PRI", "photosynthesis, light use (531, 570 nm)", 531, 570, 6},
+    };
+    return s;
+}
+
+bool spectralIndexBands(const std::vector<double>& bandNm, const SpectralIndex& s, int& a, int& b) {
+    auto nearest = [&](double nm, int& band) {
+        band = 0;
+        for (int i = 0; i < int(bandNm.size()); ++i)
+            if (band == 0 || std::fabs(bandNm[i] - nm) < std::fabs(bandNm[band - 1] - nm)) band = i + 1;
+        return band > 0 && std::fabs(bandNm[band - 1] - nm) <= s.tolerance;
+    };
+    return nearest(s.a, a) && nearest(s.b, b) && a != b;
+}
+
 // ---------------------------------------------------------------------------
 // Wavelengths
 // ---------------------------------------------------------------------------
@@ -289,6 +314,23 @@ static std::vector<double> bandWavelengths(GDALDataset* ds, const std::string& p
     std::sort(sorted.begin(), sorted.end());
     if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) return {}; // e.g. one band at several dates
     return nm;
+}
+
+// The bands' descriptions ("Band N" without one), with the wavelength when
+// they have one and the description does not say it.
+static std::vector<std::string> bandNamesWithNm(GDALDataset* ds, const std::vector<double>& nm) {
+    std::vector<std::string> names;
+    for (int b = 1; b <= ds->GetRasterCount(); ++b) {
+        const char* d = ds->GetRasterBand(b)->GetDescription();
+        std::string n = d && d[0] ? std::string(d) : "Band " + std::to_string(b);
+        if (size_t(b) <= nm.size() && n.find("nm") == std::string::npos) {
+            char w[32];
+            std::snprintf(w, sizeof(w), " (%.1f nm)", nm[size_t(b - 1)]);
+            n += w;
+        }
+        names.push_back(n);
+    }
+    return names;
 }
 
 // ---------------------------------------------------------------------------
@@ -509,7 +551,8 @@ static std::vector<std::string> expandInputs(const std::vector<std::string>& inp
             // An EnMAP product folder: its spectral image, not the quality layers beside it.
             const auto spectral = std::find_if(dir.begin(), dir.end(), [](const std::string& f) { return isEnmapSpectralImage(f); });
             if (spectral != dir.end()) dir = {*spectral};
-            // No rasters, but one EnMAP product in a subfolder: where its zip extracts to.
+            // No rasters, but EnMAP products in subfolders: where a zip extracts to
+            // (one product: its spectrum; several: a series of scenes).
             if (dir.empty()) {
                 std::vector<std::string> products;
                 for (auto& sub : fs::directory_iterator(p, ec))
@@ -517,7 +560,7 @@ static std::vector<std::string> expandInputs(const std::vector<std::string>& inp
                         for (auto& e : fs::directory_iterator(sub.path(), ec))
                             if (e.is_regular_file() && isEnmapSpectralImage(e.path().u8string()))
                                 products.push_back(e.path().u8string());
-                if (products.size() == 1) dir = products;
+                dir = products;
             }
             std::sort(dir.begin(), dir.end(), naturalLess);
             files.insert(files.end(), dir.begin(), dir.end());
@@ -697,7 +740,39 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
         // One file: each band is one date, or one wavelength of a spectrum.
         const int n = first->GetRasterCount();
         const std::vector<double> nm = bandWavelengths(first, files[0]);
+        info->bandNm = nm;
         info->spectral = !nm.empty();
+        // An index of a spectrum (picked in the Display panel): one map, the
+        // normalized difference of two of its bands, dated by the file's name.
+        if (info->spectral && sel.chosen && sel.ndBand > 0) {
+            info->spectral = false;
+            info->bandsPerDate = n;
+            info->bandNames = bandNamesWithNm(first, nm);
+            info->sel = sel;
+            info->sel.band = std::clamp(sel.band, 1, n);
+            info->sel.ndBand = std::clamp(sel.ndBand, 1, n);
+            info->sel.qaBand = 0;
+            info->sel.qaRule = QaRule::None;
+            Layer L;
+            L.path = files[0];
+            L.band = info->sel.band;
+            L.meta = readBandMeta(first->GetRasterBand(L.band));
+            L.ndMeta = readBandMeta(first->GetRasterBand(info->sel.ndBand));
+            L.label = fs::u8path(files[0]).stem().u8string();
+            timeTexts.push_back(L.label);
+            info->layers.push_back(L);
+            GDALClose(first);
+            std::snprintf(desc, sizeof(desc), "1 file, %s of a spectrum of %d bands", info->selectionText().c_str(), n);
+            info->description = desc;
+            double t = 0; // the scene's date, if its name has one
+            if (const TimeGranularity g = parseDate(timeTexts[0], t); g != TimeGranularity::Index) {
+                info->layers[0].time = t;
+                info->timeIsDate = true;
+                info->granularity = g;
+                info->layers[0].label = formatTime(*info, t);
+            }
+            return info;
+        }
         for (int b = 1; b <= n; ++b) {
             GDALRasterBand* rb = first->GetRasterBand(b);
             Layer L;
@@ -713,24 +788,38 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
             timeTexts.push_back(t);
             info->layers.push_back(L);
         }
+        // Compressed with every band in each block: each band read decompresses
+        // all of them (~70x slower on a 224-band EnMAP scene).
+        const char* il = first->GetMetadataItem("INTERLEAVE", "IMAGE_STRUCTURE");
+        const char* comp = first->GetMetadataItem("COMPRESSION", "IMAGE_STRUCTURE");
+        const bool slowLayout = il && EQUAL(il, "PIXEL") && comp && n >= 16;
         GDALClose(first);
         if (info->spectral) {
             std::stable_sort(info->layers.begin(), info->layers.end(),
                              [](const Layer& a, const Layer& b) { return a.time < b.time; });
             for (Layer& L : info->layers) L.label = formatTime(*info, L.time);
-            std::snprintf(desc, sizeof(desc), "1 file, %d bands, %.0f to %.0f nm (spectrum)", n,
-                          info->layers.front().time, info->layers.back().time);
+            std::snprintf(desc, sizeof(desc), "1 file, %d bands, %.0f to %.0f nm (spectrum)%s", n,
+                          info->layers.front().time, info->layers.back().time,
+                          slowLayout ? ". Slow to read: compressed pixel-interleaved (gdal_translate "
+                                       "-co INTERLEAVE=BAND makes it fast)"
+                                     : "");
             info->description = desc;
             return info;
         }
         std::snprintf(desc, sizeof(desc), "1 file, %d bands (1 band = 1 date)", n);
     } else {
         info->bandsPerDate = first->GetRasterCount();
-        for (int b = 1; b <= info->bandsPerDate; ++b) {
-            const char* d = first->GetRasterBand(b)->GetDescription();
-            info->bandNames.push_back(d && d[0] ? std::string(d) : "Band " + std::to_string(b));
-        }
+        info->bandNm = bandWavelengths(first, files[0]);
+        info->bandNames = bandNamesWithNm(first, info->bandNm);
         info->sel = sel;
+        // Bands with wavelengths (e.g. a series of EnMAP scenes): NDVI rather than
+        // the first band (418 nm on EnMAP), unless a band was asked for.
+        int ndviA = 0, ndviB = 0;
+        if (!sel.chosen && sel.band == 1 && sel.ndBand == 0 &&
+            spectralIndexBands(info->bandNm, spectralIndices()[0], ndviA, ndviB)) {
+            info->sel.band = ndviA;
+            info->sel.ndBand = ndviB;
+        }
         // A quality band recognised by name masks clouds from the start (the
         // Display panel can turn it off).
         if (!sel.chosen && sel.qaBand == 0)

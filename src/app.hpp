@@ -222,7 +222,9 @@ private:
     int selfTestFullRes(); // --selftest-ui stages 30-32 (app_selftest.cpp)
     int selfTestReproject(const std::string& f); // stages 40-45: F, B reprojected (app_selftest.cpp)
     int selfTestBasemap();                       // stages 50-55: a local tile pyramid (app_selftest.cpp)
-    int selfTestSpectra(const std::string& g);   // stages 90-93: G, hyperspectral (app_selftest.cpp)
+    int selfTestSpectra(const std::string& g);   // stages 90-100: G, hyperspectral (app_selftest.cpp)
+    // Stage 100: G's spectrum in principal components and similarity (app_embeddings.cpp).
+    int selfTestSpectralViews(const std::function<double(int, int, int)>& expected, int T);
 
     // Basemap (app_basemap.cpp): web imagery or a map under every layer, in
     // Web Mercator, placed on the active layer's grid (basemap.hpp).
@@ -292,6 +294,9 @@ private:
     void reopenLayer(int i, const BandSelection& sel);
     void replaceLayerSession(int i, std::shared_ptr<CubeInfo> info, double seconds);
     void uiBands();
+    void uiSpectralIndex(); // a spectrum: an index of its bands added as a layer
+    bool addSpectralIndexLayer(const SpectralIndex& s); // over the active spectrum; false if it cannot
+    int spectralIndex_ = 0; // its choice among the indices the spectrum covers
     void updateAlignment();
     void syncLayerTimes();
     bool toActive(const SeriesLayer& L, double lx, double ly, double& ax, double& ay) const;
@@ -338,6 +343,7 @@ private:
     std::future<OpenResult> opening_;
     std::vector<std::string> openingInputs_;
     std::optional<BandSelection> openingSel_; // band selection of the pending open (default: options)
+    std::string openingName_;                 // name of the layer it adds ("" = from its files)
     int openingReplace_ = -1;
     bool showPerf_ = false;                   // Performance panel (View menu)                 // the pending open replaces this layer's session
     BandSelection selUi_;                     // Display panel: bands being edited
@@ -713,6 +719,7 @@ private:
     // drawn through their principal components, the similarity to a reference
     // or the change between years; their download through Zeit.
     void initEmbeddingLayer(SeriesLayer& L);
+    void showSpectralAnalysis();                 // the Embeddings panel, the active spectrum in principal components
     int layerDate(const SeriesLayer& L) const;   // the date a layer shows
     SeriesLayer* embeddingLayer();               // the active layer if it holds embeddings, else the top one
     bool embeddingView(const SeriesLayer& L) const; // drawn as embeddings (not as one band)

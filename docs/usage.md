@@ -392,8 +392,27 @@ It works for any such file; EnMAP is the first case tested.
   without bands (EnMAP L2A has none from ~1760 to ~1940 nm). Other spectra open
   as layers are drawn on the same axis and follow the band shown.
 - **CSV** (copy the chart): a `wavelength_nm` column instead of `date`.
-- The Zeit tools work along time and are disabled on a spectrum. A series of
-  scenes (one file per date) opens as a series with several bands per date.
+- **Index map** (Display panel → *Index map*): NDVI, NDRE (red edge), NDWI,
+  NDMI, NBR, NDSI or PRI from the bands nearest to their wavelengths, added as
+  a layer of its own above the spectrum (dated by the scene's name, e.g. an
+  EnMAP product's acquisition date).
+- **Principal components and similarity** (Display panel → *Principal
+  components, similarity*, or the Embeddings panel): each pixel's spectrum is
+  one vector, as embeddings are. *Principal components (RGB)*: the first three
+  of the whole scene, or of an ROI (*ROI (local)*), as red, green and blue.
+  *Similarity to a reference*: the cosine of the angle between each spectrum
+  and the cursor's, a pin's or the ROI mean (1 = the same shape, brightness
+  does not count; the spectral angle of SAM is its arc cosine). Bands without
+  data anywhere are left out; the view can be exported as a GeoTIFF at full
+  resolution (Ctrl+Shift+M).
+- **A series of scenes** (one file per date, e.g. a folder holding several
+  EnMAP products): dates from the names, each band named with its wavelength,
+  and the *Index by wavelength* list in the Bands section. It opens in NDVI.
+- **Slow files**: a compressed GeoTIFF with every band in each block
+  (pixel-interleaved, `gdal_translate`'s default) is read band by band about 70
+  times slower; the series description says so. `gdal_translate -co
+  INTERLEAVE=BAND` makes it fast.
+- The Zeit tools work along time and are disabled on a spectrum.
 
 ## Embeddings
 
