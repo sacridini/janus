@@ -1162,8 +1162,10 @@ int App::selfTestEmbeddingStep(const std::vector<std::string>& in) {
                 for (int i = 0; i < 16 && err.empty(); ++i) {
                     const int sx = (S->w - 1) * i / 15, sy = (S->h - 1) * j / 15;
                     const size_t p = size_t(sy) * S->w + sx;
-                    if (saturated(spec.t, p) || (spec.kind == EmbeddingExport::Change && saturated(spec.t0, p))) {
-                        clipped += k == 0;
+                    const bool change = spec.kind == EmbeddingExport::Change;
+                    const int sat = int(saturated(spec.t, p)) + int(change && saturated(spec.t0, p));
+                    if (sat > 0) { // a change reads two vectors per pixel: each counts
+                        clipped += k == 0 ? sat : 0;
                         continue;
                     }
                     const int x = std::min(info.width - 1, int((sx + 0.5) * S->fx));
@@ -1204,7 +1206,8 @@ int App::selfTestEmbeddingStep(const std::vector<std::string>& in) {
         }
         GDALClose(ds);
         if (err.empty() && n == 0) err = "no value of the GeoTIFF could be compared";
-        if (err.empty() && clipped > 256 / 10) err = "the store's ranges should hold the vectors of every year";
+        const size_t vectors = 256 * (spec.kind == EmbeddingExport::Change ? 2 : 1); // looked at
+        if (err.empty() && clipped > vectors / 10) err = "the store's ranges should hold the vectors of every year";
         if (err.empty())
             std::printf("    %s: %d x %d px, %d band(s), %zu values within %.4f of the image (at most %.4f); "
                         "%zu clipped vectors left out\n", fs::u8path(path).filename().u8string().c_str(), info.width,
