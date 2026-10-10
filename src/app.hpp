@@ -95,6 +95,9 @@ public:
     int selfTestStep(const std::vector<std::string>& inputs);
     // --measure-cache on|off IN: times the full-resolution cache (app_fullres.cpp).
     int measureCacheStep(const std::vector<std::string>& inputs);
+    // --selftest-embeddings-ui DIR [OUT]: a series of embeddings in every view,
+    // checked and saved as PNGs (app_embeddings.cpp).
+    int selfTestEmbeddingStep(const std::vector<std::string>& inputs);
 
     std::vector<std::string> pendingDrop; // filled by the drag-and-drop callback
     bool pendingDropAdd = false;          // dropped with Shift held: added as layers
@@ -256,6 +259,7 @@ private:
     // Layers (app_layers.cpp)
     struct LayerDisplay;
     struct SeriesLayer;
+    struct EmbeddingLayer; // app_embeddings.cpp
     // A map panel's bar (layer, own date, own mode) and its automatic range; returns its layer.
     SeriesLayer* uiViewBar(MapView& v);
     void saveDisplay(LayerDisplay& d) const;
@@ -671,9 +675,48 @@ private:
         std::vector<SeriesView> pins; // same ids as pins_ (non-active layers)
         std::vector<double> years;    // years since the 1st date (for trends)
         LayerClasses classes;
+        std::shared_ptr<EmbeddingLayer> emb; // a layer of embeddings (app_embeddings.cpp)
     };
     std::vector<SeriesLayer> layers_;
     int active_ = -1;
+
+    // Embeddings (app_embeddings.cpp): layers of foundation-model embeddings
+    // drawn through their principal components, the similarity to a reference
+    // or the change between years; their download through Zeit.
+    void initEmbeddingLayer(SeriesLayer& L);
+    int layerDate(const SeriesLayer& L) const;   // the date a layer shows
+    SeriesLayer* embeddingLayer();               // the active layer if it holds embeddings, else the top one
+    bool embeddingView(const SeriesLayer& L) const; // drawn as embeddings (not as one band)
+    bool embeddingPixel(const SeriesLayer& L, double ax, double ay, size_t& p) const;
+    bool embeddingRoi(const SeriesLayer& L, int rect[4]) const;
+    void updateEmbeddingRef(SeriesLayer& L, int t);
+    uint64_t embeddingKey(const SeriesLayer& L, int t) const;
+    void pumpEmbeddings();
+    void drawEmbedding(const SeriesLayer& L, int t, float alpha,
+                       const std::function<void(const double*, float*)>& toTarget);
+    bool embeddingMapInfo(std::string& title, int& cmap, float& lo, float& hi, std::string& wait) const;
+    std::string embeddingStatusAt(int ix, int iy) const;
+    void drawEmbeddingNotes(ImDrawList* dl, ImVec2 origin, ImVec2 size);
+    bool embeddingBounds(int scope, double ll[4], double& wM, double& hM, std::string& why) const;
+    void startEmbeddingDownload();
+    void pumpEmbeddingDownloads();
+    void uiEmbeddingDownload(bool inLayers);
+    void uiEmbeddings();
+    bool showEmbeddings_ = false;
+    struct {
+        int source = 0;            // kSources
+        int y0 = 2017, y1 = 2024;
+        int res = 0;               // kResolutions
+        int area = 0;              // 0 visible area, 1 ROI
+    } embUi_;
+    struct EmbDownload {
+        std::shared_ptr<ZeitJob> job;
+        std::string title, folder;
+        bool opened = false;
+        double endedAt = -1;       // ImGui time
+    };
+    std::vector<EmbDownload> embDownloads_;
+    bool openingKeepActive_ = false; // the pending open adds a layer without making it active
     bool openingAdd_ = false;         // the pending open adds a layer
     int chartLayers_ = 0;             // 0 = active layer only, 1 = all visible layers
     std::array<int, ModeCount> defaultCmap_{};

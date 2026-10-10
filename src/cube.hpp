@@ -48,7 +48,10 @@ struct BandSelection {
 // of a multiband file.
 struct Layer {
     std::string path;
-    int band = 1;
+    int band = 1;        // the shown band of the file (absolute)
+    // The date's bands are bandBase + 1 .. bandBase + bandsPerDate of the file
+    // (0, except embeddings of several years in one file: see openCube).
+    int bandBase = 0;
     double time = 0;     // Unix seconds (if CubeInfo::timeIsDate) or index
     std::string label;   // displayed text (formatted date or name)
     BandMeta meta;       // of `band`
@@ -81,6 +84,9 @@ struct CubeInfo {
     bool fileCategorical = false;
     std::map<int, std::array<unsigned char, 4>> classColors; // value -> RGBA
     std::map<int, std::string> classNames;                   // value -> name
+    // Zeit's ZEIT_EMBEDDING tag of the first file (JSON: source, model...): a
+    // layer of foundation-model embeddings (see embedding.hpp).
+    std::string embeddingTag;
 
     int T() const { return int(layers.size()); }
     // Time in decimal years relative to the 1st layer (for trends).

@@ -118,7 +118,7 @@ void main() {
         uv = warpedUV();
         if (isnan(uv.x) || isnan(uv.y) || uv.x < 0.0 || uv.y < 0.0 || uv.x >= 1.0 || uv.y >= 1.0) discard;
     }
-    if (uSource == 2) { // basemap tile: its colours, bilinear (the texture's filter)
+    if (uSource == 2) { // basemap tile, embedding image: its colours (the texture's filter)
         vec4 c = texture(uTile, uv);
         frag = vec4(c.rgb, c.a * uAlpha);
         return;
@@ -550,12 +550,15 @@ void Gpu::drawOverlay(GpuTex t, const float rect[4], float lo, float hi, int cma
     drawTile(t, rect, p, cmap, alpha);
 }
 
-void Gpu::drawImage(GpuTex t, const float rect[4], float alpha, const WarpParams* warp) {
+void Gpu::drawImage(GpuTex t, const float rect[4], float alpha, const WarpParams* warp, bool nearest) {
     Impl& d = *impl_;
     DrawParams p;
     if (warp) p.warp = *warp;
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, tex(t));
+    const GLint filter = nearest ? GL_NEAREST : GL_LINEAR; // the texture's own filter (the shader samples it)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glUniform1f(glGetUniformLocation(d.progDisplay, "uAlpha"), alpha);

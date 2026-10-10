@@ -15,6 +15,7 @@
 #include <ogr_srs_api.h>
 
 #include "app.hpp"
+#include "embedding.hpp"
 #include "platform.hpp"
 #include "render_backend.hpp"
 #include "selftest.hpp"
@@ -58,6 +59,8 @@ int main(int argc, char** argv) {
     std::vector<std::string> inputs;
     bool measureStartup = false; // dev option: print startup timings and exit after the first frame
     bool selftestZeit = false;   // dev option: run the Zeit path without a window
+    bool selftestEmb = false;    // dev option: embedding kernels and PCA, with timings
+    bool selftestEmbUi = false;  // dev option: a series of embeddings in every view, hidden window
     bool selftestUi = false;     // dev option: drive the layers workflow in a hidden window
     bool measureCache = false;   // dev option: time the full-resolution cache in a hidden window
     for (size_t i = 0; i < args.size(); ++i) {
@@ -92,6 +95,10 @@ int main(int argc, char** argv) {
             measureCache = selftestUi = true;
         } else if (a == "--selftest-zeit") {
             selftestZeit = true;
+        } else if (a == "--selftest-embeddings") {
+            selftestEmb = true;
+        } else if (a == "--selftest-embeddings-ui") {
+            selftestEmbUi = selftestUi = true;
         } else if (a == "--measure-startup") {
             measureStartup = true;
         } else if (a.rfind("--", 0) == 0) {
@@ -112,6 +119,15 @@ int main(int argc, char** argv) {
     GDALAllRegister();
     CPLSetErrorHandler(CPLQuietErrorHandler);
     if (selftestUi) platform::attachParentConsole();
+    if (selftestEmb) {
+        platform::attachParentConsole();
+        std::string report;
+        const char* err = embeddingSelfTest(report, opts.ioThreads > 0 ? opts.ioThreads : defaultProcessingThreads());
+        std::fputs(report.c_str(), stdout);
+        std::printf("%s\n", err ? (std::string("FAIL: ") + err).c_str() : "OK");
+        std::fflush(stdout);
+        return err ? 1 : 0;
+    }
     if (selftestZeit) {
         platform::attachParentConsole();
         // --threads N: Zeit's threads (else the default of the Settings value).
@@ -176,6 +192,16 @@ int main(int argc, char** argv) {
         app->frame();
         if (measureCache) {
             if (const int rc = app->measureCacheStep(inputs); rc >= 0) {
+                std::fflush(stdout);
+                exitCode = rc;
+                glfwSetWindowShouldClose(window, 1);
+            }
+        } else if (selftestEmbUi) {
+            if (inputs.empty()) {
+                std::fprintf(stderr, "--selftest-embeddings-ui needs a folder of embeddings\n");
+                exitCode = 2;
+                glfwSetWindowShouldClose(window, 1);
+            } else if (const int rc = app->selfTestEmbeddingStep(inputs); rc >= 0) {
                 std::fflush(stdout);
                 exitCode = rc;
                 glfwSetWindowShouldClose(window, 1);

@@ -76,6 +76,7 @@ struct DrawParams {
     float lo = 0, hi = 1;        // stretch range
     GpuTex classLut = 0;         // categorical data: class value -> colour (see createClassLut)
     GpuTex tile2 = 0;            // ModeDiff on a detail tile: the reference date's tile
+    bool nearest = false;        // drawImage: nearest neighbour instead of bilinear (embedding pixels)
     WarpParams warp;             // reprojected layer
 };
 
@@ -114,8 +115,10 @@ public:
     void drawOverlay(GpuTex tex, const float rect[4], float lo, float hi, int implotColormap, float alpha,
                      const WarpParams* warp = nullptr);
     // An RGBA image (a basemap tile: createImageTexture) blended over the map by
-    // its own alpha x `alpha`, sampled bilinearly, through a warp if given.
-    void drawImage(GpuTex tex, const float rect[4], float alpha, const WarpParams* warp = nullptr);
+    // its own alpha x `alpha`, sampled bilinearly (or `nearest`: each texel a
+    // square, e.g. embedding colours), through a warp if given.
+    void drawImage(GpuTex tex, const float rect[4], float alpha, const WarpParams* warp = nullptr,
+                   bool nearest = false);
     // A rectangle of one colour blended over the map (rgba[3] = its opacity).
     void fillRect(const float rect[4], const float rgba[4]);
     void endMap();

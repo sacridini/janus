@@ -47,6 +47,10 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
   phenology, TWDTW and more from [Zeit](https://github.com/sacridini/zeit-cdts),
   fitted live on the chart or run on the image. A private Python runtime ships
   with Janus.
+- **Embeddings** of foundation models (AlphaEarth, TESSERA): downloaded for the
+  visible area over any series, shown through their principal components (also
+  local to a region, refitted as you move it), the similarity to the cursor or
+  a pin, and the change between years; computed in C++ with SIMD.
 - **Export**: maps as PNG figures, values and views as georeferenced GeoTIFFs,
   series as CSV.
 - **Fast on any disk**: about 0.15 s to the first frame, a disk cache of the

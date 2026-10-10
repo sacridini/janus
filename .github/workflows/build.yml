@@ -69,6 +69,9 @@ jobs:
       - name: Self-test (Zeit tools, no window)
         run: ${{ matrix.exe }} --selftest-zeit "$RUNNER_TEMP/td/serie"
 
+      - name: Self-test (embedding kernels and PCA, no window)
+        run: ${{ matrix.exe }} --selftest-embeddings
+
       # A hidden window needs a GPU context: Mesa (llvmpipe) under Xvfb on Linux.
       # The Windows runners only have OpenGL 1.1 and the macOS ones no usable
       # Metal device, so the UI self-test runs on Linux (and locally everywhere).

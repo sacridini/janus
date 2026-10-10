@@ -1,0 +1,7 @@
+# Installed with --no-deps (see build_zeit_runtime.py): TESSERA is found and opened
+# through geotessera.registry and geotessera.store, which need geopandas and shapely
+# but none of geotessera's other dependencies (matplotlib, scikit-learn,
+# scikit-image, folium, contextily, icechunk...), nor geopandas' pyogrio (its own
+# GDAL). The rest (zarr, obstore, pyarrow...) is pinned in requirements.txt.
+geotessera==0.11.0
+geopandas==1.2.0

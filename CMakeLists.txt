@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum macOS version")
 endif()
-project(janus VERSION 0.28.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
+project(janus VERSION 0.29.0 DESCRIPTION "Raster time series viewer" LANGUAGES C CXX)
 if(APPLE)
   enable_language(OBJC OBJCXX) # src/platform_mac.mm (OBJC too: GLFW's .m files stay Objective-C)
 endif()
@@ -84,6 +84,7 @@ set(JANUS_SOURCES
   src/app_basemap.cpp
   src/app_analysis.cpp
   src/app_classes.cpp
+  src/app_embeddings.cpp
   src/app_export.cpp
   src/app_fullres.cpp
   src/app_layers.cpp
@@ -98,6 +99,8 @@ set(JANUS_SOURCES
   src/zeit_client.cpp
   src/basemap.cpp
   src/cube.cpp
+  src/embedding.cpp
+  src/embedding_simd.cpp
   src/fullres_cache.cpp
   src/overview.cpp
   src/platform.cpp

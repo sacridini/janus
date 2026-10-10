@@ -163,7 +163,8 @@ bool dateByteRange(const CubeInfo& info, int t, uint64_t& begin, uint64_t& end) 
     bool ok = std::strcmp(ds->GetDriverName(), "GTiff") == 0;
     begin = UINT64_MAX;
     end = 0;
-    for (int b : {L.band, info.sel.ndBand, info.sel.qaBand}) {
+    for (int b : {L.band, info.sel.ndBand > 0 ? info.sel.ndBand + L.bandBase : 0,
+                  info.sel.qaBand > 0 ? info.sel.qaBand + L.bandBase : 0}) {
         if (!ok || b <= 0 || b > ds->GetRasterCount()) continue;
         GDALRasterBand* rb = ds->GetRasterBand(b);
         int bw = 0, bh = 0;

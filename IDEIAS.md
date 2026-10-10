@@ -102,6 +102,56 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Testes sem tocar na tela (`--selftest-zeit`, `--measure-startup`): a interface
   não é testada simulando mouse/teclado enquanto o usuário usa o computador.
 
+### Embeddings de modelos de fundação (fase 17, pedida em 2026-10-10)
+- **O que são**: um vetor por pixel e por ano (TESSERA: 128 dimensões, Sentinel-1
+  e -2; AlphaEarth: 64, norma 1), sem unidade física nem sinal sazonal. No Janus
+  cabem no modelo que já existe: **um arquivo por ano com D bandas**. As
+  ferramentas temporais do Zeit (LandTrendr, BFAST...) não se aplicam (o Zeit as
+  recusa), e o Janus as desabilita nessas camadas.
+- **Baixar pelo Zeit** (`zeit.load_embeddings`), como o basemap: na seção
+  Embeddings do painel Layers, "Add for the visible area" sobre qualquer série
+  (ex.: uma série Landsat do LandTrendr); um job do Zeit grava um GeoTIFF por ano
+  e a camada entra sozinha quando termina, reprojetada pela grade de warp se o
+  CRS for outro. **Barra de progresso no mapa** (fase e estimativa), sem travar
+  a interface; também em Tools → Tasks. Grade nativa de 10 m ou mais grossa
+  (média, como recomenda o Zeit para escalas maiores), com o tamanho estimado
+  antes de baixar e um limite.
+  - Medido (2026-10-10, 1 km² na Serra da Tiririca, 2023): AlphaEarth 16 s na
+    primeira vez (índice de 78 MB), TESSERA 8 s; ambos em UTM a 10 m.
+  - Runtime: o `geotessera` puxa geopandas, matplotlib, scikit-learn,
+    scikit-image, folium, icechunk... Instalado com `--no-deps` mais só o que
+    `geotessera.registry`/`store` importam (geopandas e shapely sem pyogrio,
+    zarr, obstore, numcodecs, pyarrow, requests): basta para os dois.
+  - Arquivo: Int16 com escala/offset por banda (os metadados que qualquer SIG
+    lê), nodata −32768, pixel-interleaved (o vetor de um pixel é contíguo),
+    blocos de 256, DEFLATE com preditor; a etiqueta `ZEIT_EMBEDDING` do Zeit
+    vai junto e identifica a camada.
+- **PCA → RGB em C++**, não no Zeit: o PCA local da ROI tem de responder
+  enquanto se arrasta o retângulo, sem ida e volta ao Python.
+  - Os dados de todos os anos ficam num **store próprio em Int8** (escala por
+    banda) na resolução do overview, [ano][pixel][dimensão]: o vetor de um pixel
+    é contíguo para os produtos internos.
+  - Covariância de uma amostra (≤ 65 536 vetores) num kernel SIMD (AVX2+FMA
+    com escolha em tempo de execução, SSE2/NEON como base) em várias threads;
+    os 3 primeiros autovetores por **iteração de subespaço** (potência em bloco
+    com Rayleigh-Ritz) na matriz D × D. Formar a covariância custa N·D²/2 e
+    iterar direto nos dados custaria N·D·2 por iteração e por vetor: com D ≤
+    128, formar é mais barato.
+  - **Um PCA para todos os anos** (amostra de todos): as cores querem dizer o
+    mesmo em cada ano e a animação mostra mudança de verdade. Sinal de cada
+    componente fixado (a maior carga positiva) para a cor não piscar; esticado
+    entre os percentis 2 e 98 de cada componente.
+  - **PCA local**: a mesma conta só com os pixels da ROI, aplicada ao mapa
+    inteiro (o que está fora satura).
+  - Projeção: escala e média dobradas nos pesos, então cada pixel é 3 produtos
+    internos de Int8 com floats, direto numa imagem RGBA desenhada como o
+    basemap (`drawImage`, sem shader novo, GL e Metal).
+- **Similaridade de cosseno a um pino** (mapa) e **mudança entre anos**
+  (distância de cosseno ao ano anterior, como o `zeit.embedding_change`), com
+  colormap; no painel Embeddings, a similaridade ao longo dos anos para o
+  cursor e os pinos ("esse pasto foi ficando parecido com a floresta?") e o
+  perfil latente (as D dimensões) do cursor e dos pinos.
+
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
@@ -147,6 +197,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 15 | 0.23.0 | **Mapa de fundo (basemap)**: imagem de satélite/mapa da web por baixo das séries (Esri World Imagery, Sentinel-2 cloudless, OSM, URL XYZ própria), pelo driver WMS/TMS do GDAL, reprojetado pela grade de warp | concluída |
 | 16 | 0.24.0 | **Configurações**: janela própria (File → Settings); **limite de núcleos** para o processamento do Janus e do Zeit (padrão: todos menos 2), **tema da interface** (escuro, claro, clássico, Janus) e as opções que estavam no painel Performance | concluída |
 | 14 | 0.27.0 | Mais visualizações (painel **Analysis**): anos sobrepostos por dia do ano e mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas/datas na ROI; box plot da ROI por data | concluída |
+| 17 | 0.29.0 | **Embeddings** (TESSERA, AlphaEarth): PCA → RGB em C++ (SIMD, iteração de subespaço), **PCA local da ROI**, **similaridade a um pino** (mapa e gráfico ano a ano), **mudança entre anos**, perfil latente; **baixar embeddings da área visível** pelo Zeit (como o basemap, sobre qualquer série), com barra de progresso no mapa | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -220,6 +271,67 @@ termina.
   (0.25.0); faltam as larguras fixas dos widgets.
 
 ## Histórico
+
+### 0.29.0 — Fase 17: embeddings (AlphaEarth, TESSERA)
+- Pedida em 2026-10-10: ver embeddings de modelos de fundação muito rápido,
+  baixados pelo Zeit, com PCA como RGB em C++ otimizado, PCA local da ROI,
+  similaridade a um pino, perfil latente, suporte aos formatos (GeoTIFF de
+  64/128 bandas) e, sobre qualquer série (ex.: a do LandTrendr), "adicionar
+  embeddings da área visível" como o basemap, com barra de progresso.
+- **Camada de embeddings**: reconhecida pela etiqueta `ZEIT_EMBEDDING` do Zeit
+  ou pelas bandas `A00`...; pasta com um GeoTIFF por ano, GeoTIFF único de um
+  ano, ou o arquivo único do `zeit.save_raster` com todos os anos (bandas
+  `<data>_A00`; cada data passa a ter uma base de bandas no arquivo,
+  `Layer::bandBase`). As ferramentas temporais do Zeit ficam desabilitadas
+  nelas.
+- **Store** (`embedding.*`): todos os anos na resolução que cabe na memória do
+  overview, Int8 com escala por dimensão (faixa dos percentis 0,1–99,9 de uma
+  grade de blocos do ano do meio, +5%), validade e norma de cada vetor. Lido
+  **bloco a bloco** em resolução total, no tipo do arquivo, todas as bandas
+  numa chamada: com reamostragem ou conversão de tipo o GDAL lê banda a banda
+  arquivos pixel-interleaved e descomprime cada bloco uma vez por banda — os 8
+  anos de TESSERA (128 bandas) levavam 31 s; agora 4 s (AlphaEarth, 64: 1 s).
+- **PCA**: média por somas inteiras dos códigos Int8; covariância em blocos de
+  256 vetores transpostos com micro-kernel 2 × 4 (AVX2+FMA; SSE2; NEON;
+  escalar como referência), acumulada em double; os 6 primeiros autovetores
+  por iteração de subespaço (bloco de k + 6, Rayleigh-Ritz, Jacobi no bloco),
+  sinal fixado pela maior carga; esticamento pelos percentis da amostra.
+  Medido (18 threads, AVX2): 65 536 vetores de 128 dimensões em ~10 ms
+  (covariância 4 ms; 19 ms sem SIMD; autovetores 0,4–2 ms em 5–17 iterações);
+  imagem de 1 Mpx em ~4 ms (perto da banda de memória: 128 MB lidos).
+  Conferido contra um PCA ingênuo em double na mesma amostra (autovalores e
+  variância total iguais) e contra o numpy nos dados em float (TESSERA 24,7 /
+  13,5 / 9,2 % contra 23,6 / 13,9 / 9,4 % no Int8: a amostra).
+  - Corrida achada no teste: a chave da base dizia só "completo ou não", e uma
+    base de parte dos anos podia ficar valendo; agora a chave inclui os anos
+    lidos (refaz a cada ano que chega, ~6 ms).
+- **Imagens** no motor de fundo (a requisição mais nova de cada tipo vence):
+  PCA → RGBA (escala, média e esticamento dobrados nos pesos: 3 produtos
+  internos Int8 × float por pixel), similaridade de cosseno (cursor ao vivo,
+  pino ou média da ROI; ano mostrado ou fixo), mudança (1 − cosseno com o ano
+  anterior ou um ano fixo). Desenhadas como imagem (`drawImage`, agora com
+  amostragem nearest também no Metal) ou mapa float com colormap, pelo warp
+  quando a camada está em outro CRS. Durante a animação o ano seguinte é
+  calculado antes.
+- **Painel Embeddings**: visualização, escopo do PCA, componentes, esticamento,
+  variância explicada, referência, faixas; similaridade ao longo dos anos do
+  cursor e dos pinos; perfil latente.
+- **Download** (Layers → Embeddings, ou no painel): fonte, anos, célula (10 m
+  ou média em 20–100 m), área visível ou ROI, tamanho estimado e limite (8
+  GB). Job do Zeit (`task_embeddings.py`): Int16 com escala por banda,
+  pixel-interleaved, blocos de 256, DEFLATE; progresso por faixa de linhas. A
+  camada entra por cima sem tirar a série ativa. Teste de ponta a ponta: série
+  de 30 m em SIRGAS 2000 / UTM 23S, AlphaEarth 2023–2024 de 1,2 × 1 km baixado
+  em ~13 s e reprojetado de EPSG:32723.
+  - TESSERA chega a |v| = 17,6 (1e-7 dos valores acima de 16): faixa do Int16
+    ±32.
+- Runtime: zarr, obstore, numcodecs, pyarrow, requests, shapely; `geotessera` e
+  `geopandas` sem dependências (`embeddings-requirements.txt`).
+- Autotestes: `--selftest-embeddings` (kernels contra os escalares, espectro
+  conhecido, tempos) e `--selftest-embeddings-ui PASTA [SAÍDA]` (store, PCA
+  global e da ROI, similaridade a um pino = 1 nele, mudança em [0, 2], PNGs de
+  cada visualização; com uma série que não é de embeddings, baixa os da área
+  visível e os testa sobre ela).
 
 ### 0.28.0 — Zeit 0.52.1, só pela API pública
 - O Zeit 0.25 → 0.52.1 quebrava a ponte: `import zeit` passou a exigir rioxarray e

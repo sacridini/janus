@@ -535,6 +535,10 @@ def job(spec_path):
             send({"progress": round(float(frac), 4), "message": message})
 
     try:
+        if spec["tool"] == "embeddings":  # a download, not a tool over the cube (task_embeddings.py)
+            import task_embeddings
+            send({"result": task_embeddings.run(spec, progress)})
+            return
         entry = tools()[spec["tool"]]
         p = defaults(entry["manifest"], spec.get("params"))
         progress(0.0, "starting")

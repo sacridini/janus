@@ -219,6 +219,8 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Zeit tools | **Tools** menu → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
 | Zeit logs | **Tools → Log** (or **Log** next to a task): the log of each raster run, followed live (what ran, Python's output, progress, outputs, the end), or `zeit.log`; Copy, open the file or its folder |
 | Tool results | listed under their layer in the **Layers** panel: show/hide, colormap, range, opacity |
+| Embeddings | **View → Embeddings**: principal components as RGB (of every year, or *local* to the ROI), similarity to the cursor, a pin or the ROI, change between years; see [Embeddings](#embeddings) |
+| Add embeddings of the visible area | **Layers** panel → Embeddings (above the basemap): AlphaEarth or TESSERA, years, cell size, visible area or ROI, then **Add embeddings**; progress on the map, the layer comes on top when it is ready |
 
 Clicking a legend entry hides/shows that series together with its trend line.
 
@@ -306,6 +308,66 @@ Janus hands it the cube as a VRT (dates in order, nodata and scale applied).
 Logs: each raster run's `job.log` (above); `%LOCALAPPDATA%\Janus\zeit.log`
 for the process that fits the chart and estimates run times (its warnings and
 errors), with a line per raster run pointing to its log.
+
+## Embeddings
+
+Foundation models summarise each 10 m pixel and year as a vector:
+AlphaEarth Foundations (Google DeepMind; 64 dimensions, from
+optical, radar, lidar and climate data) and [TESSERA](https://geotessera.org)
+(128, from Sentinel-1 and -2 time series). The values have no physical unit;
+what matters is how vectors compare: similar places have similar vectors.
+
+**Opening.** A folder with one GeoTIFF per year and one band per dimension (what
+Janus downloads, or `zeit.save_raster` per year), a single GeoTIFF of one year
+with 16 or more bands, or `zeit.save_raster`'s file of every year (bands
+`<date>_A00`...). Janus recognises them by Zeit's `ZEIT_EMBEDDING` tag or by
+their band names (`A00`, `A01`...), and opens the **Embeddings** panel. Zeit's
+change detection tools are disabled on them (an embedding has no seasonal
+signal), as Zeit itself refuses them.
+
+**Adding them over any series.** In the **Layers** panel, *Embeddings*: pick the
+source, the years and the cell size (10 m native; coarser cells are the mean of
+the 10 m vectors), the visible area or the ROI, and **Add embeddings**. The size
+is estimated first (Int16, D values per pixel and year) and very large areas are
+refused. Zeit downloads in the background (a bar on the map tells the year and
+the time left; **Tools → Tasks** has its log) and writes one GeoTIFF per year
+under `%LOCALAPPDATA%\Janus\results\embeddings`; the layer is added on top,
+reprojected if the series is in another CRS, while the series you were studying
+stays active. The first AlphaEarth download fetches its file index (78 MB, once
+a month).
+
+**Views** (Embeddings panel):
+
+- *Principal components (RGB)*: three components (PC1-3 by default; any of the
+  first six) stretched between the 2 and 98 % percentiles. One PCA for every
+  year, so a colour means the same in each year and playing the series shows
+  real change. *ROI (local)*: the PCA of the ROI's pixels only, applied to the
+  whole map: the colours spread over the differences inside the ROI (e.g. the
+  states of a forest that the whole scene's PCA spends on water vs. city). It
+  is fitted again as you move the ROI (a few milliseconds).
+- *Similarity to a reference*: the cosine similarity of every pixel to the
+  vector under the cursor (live, as the mouse moves), a pin, or the ROI's mean
+  vector, in the year shown or a fixed year. The panel charts the similarity of
+  the cursor and the pins over the years ("did this pasture come to look like
+  the forest?").
+- *Change between years*: 1 − cosine similarity of each pixel's vectors in the
+  year shown and the previous year (or a fixed year).
+- *Band values*: one dimension as an ordinary band, with every mode of the
+  Display panel.
+
+The panel also plots the *latent profile*: the D values of the cursor's and the
+pins' vectors. The status bar shows the components or the similarity under the
+cursor.
+
+**How it is computed.** Every year is kept in memory at reduced resolution as
+Int8 with a scale per dimension (within the overview memory of Settings). The
+PCA takes up to 65 536 vectors: the covariance in parallel with SIMD kernels
+(AVX2 + FMA when the CPU has them, else SSE2; NEON on Apple Silicon), then the
+leading eigenvectors by subspace iteration. Measured (2026-10-10, 18 threads,
+AVX2): a PCA of 128 dimensions in ~10 ms (covariance 4 ms, 19 ms without SIMD),
+an image of a year of 1 Mpx in ~4 ms; reading 8 years of TESSERA (622 × 453 px,
+480 MB of GeoTIFFs) in ~4 s. `jn --selftest-embeddings` prints these timings on
+any computer.
 
 ## Performance
 

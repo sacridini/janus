@@ -721,6 +721,7 @@ void App::uiLayers() {
     }
     if (activate >= 0) setActive(activate);
     if (remove >= 0) removeLayer(remove);
+    uiEmbeddingDownload(true); // embeddings of the visible area, added on top
     uiBasemap(); // drawn under every layer: last in the list
     ImGui::End();
 }

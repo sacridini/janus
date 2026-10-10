@@ -145,6 +145,8 @@ def main():
     # 2. Dependencies (pinned) + Zeit without its heavy optional dependencies.
     site.mkdir(parents=True, exist_ok=True)
     pip_install(site, plat, ["-r", str(BRIDGE / "requirements.txt")])
+    # Embeddings: geotessera and geopandas without their heavy dependencies.
+    pip_install(site, plat, ["--no-deps", "-r", str(BRIDGE / "embeddings-requirements.txt")])
     if a.zeit_wheel:
         pip_install(site, plat, ["--no-deps", a.zeit_wheel])
     else:

@@ -207,13 +207,20 @@ void App::finishOpen() {
         L.disp.t = best;
     }
     layers_.push_back(std::move(L));
+    initEmbeddingLayer(layers_.back());
     if (layers_.size() == 1) {
         fitRequested_ = true;
         viewTouched_ = false;
         nextPinId_ = 1;
     }
     playing_ = false;
-    setActive(int(layers_.size()) - 1);
+    if (std::exchange(openingKeepActive_, false) && openingAdd_ && active_ >= 0 && active_ < int(layers_.size()) - 1) {
+        updateAlignment(); // added on top (e.g. downloaded embeddings); the layer being studied stays active
+        syncLayerTimes();
+        mapDirty_ = true;
+    } else {
+        setActive(int(layers_.size()) - 1);
+    }
     files_.addRecent(inputs.size() == 1 ? inputs[0] : info->firstPath);
     if (revealOpened_) files_.reveal(inputs.size() == 1 ? inputs[0] : info->firstPath);
     // Zeit (separate process) starts only now, never on the startup path.
@@ -306,6 +313,7 @@ void App::frame() {
 
     pumpBasemap();
     pumpZeit();
+    pumpEmbeddings();
     pumpTransect();
 
     handleShortcuts();
@@ -322,6 +330,7 @@ void App::frame() {
     uiMapViews();
     uiTransect();
     uiAnalysis();
+    uiEmbeddings();
     if (zeit_ && zeit_->state() == ZeitClient::State::Ready)
         for (const ZeitTool& t : zeit_->tools()) uiToolWindow(t);
     uiTasks();
@@ -627,6 +636,9 @@ void App::uiMenu() {
         ImGui::MenuItem("Analysis", nullptr, &showAnalysis_);
         ImGui::SetItemTooltip("Seasonal views of a series, classes over time and their transitions,\n"
                               "a scatter of two layers or dates");
+        ImGui::MenuItem("Embeddings", nullptr, &showEmbeddings_);
+        ImGui::SetItemTooltip("Foundation-model embeddings (AlphaEarth, TESSERA): principal components,\n"
+                              "similarity, change between years; their download for the visible area");
         ImGui::MenuItem("Performance", nullptr, &showPerf_);
         ImGui::Separator();
         if (ImGui::MenuItem("Reset layout")) layoutPending_ = true;
@@ -676,6 +688,7 @@ void App::uiDockspace() {
     ImGui::DockBuilderDockWindow("Files", leftTop);
     ImGui::DockBuilderDockWindow("Display", leftMid);
     ImGui::DockBuilderDockWindow("Performance", leftMid);
+    ImGui::DockBuilderDockWindow("Embeddings", leftMid);
     ImGui::DockBuilderDockWindow("Map", center);
     ImGui::DockBuilderDockWindow("Time series", bottomLeft);
     ImGui::DockBuilderDockWindow("Transect", bottomLeft); // a tab next to the chart, when there is a transect
@@ -770,6 +783,10 @@ void App::renderMap(int w, int h, float pixelScale, int slot, const float* backg
         const std::array<int, 3>& rgb = isActive ? rgb_ : L.disp.rgb;
         const Range& range = isActive ? range_[mode] : L.disp.range[mode];
         const int cmap = isActive ? cmap_[mode] : L.disp.cmap[mode];
+        double q[4];
+        if (embeddingView(L)) { // principal components, similarity or change: an image of its own
+            drawEmbedding(L, t, L.opacity, [&](const double* g, float* r) { screenRect(g[0], g[1], g[2], g[3], r); });
+        } else {
         DrawParams p;
         p.mode = mode;
         p.t = mode == ModeRGB ? rgb[0] : t;
@@ -784,7 +801,6 @@ void App::renderMap(int w, int h, float pixelScale, int slot, const float* backg
                      : modeIsTimeDependent(mode) ? loaded[t] : true;
         if (modeNeedsStats(mode) && !S.gpu.statsValid) ready = false;
         if (mode == ModeDiff && (p.tg < 0 || !loaded[p.tg])) ready = false;
-        double q[4];
         float rect[4];
         if (ready && layerQuad(L, 0, 0, info.width, info.height, q, p.warp)) { // straight or reprojected
             screenRect(q[0], q[1], q[2], q[3], rect);
@@ -802,6 +818,7 @@ void App::renderMap(int w, int h, float pixelScale, int slot, const float* backg
                 gpu_.drawTile(tex, r, p, cmap, L.opacity);
             });
         }
+        } // not embeddings
         for (const ResultLayer& R : results_) {
             if (R.cubeId != info.id || !R.visible || !R.tex) continue;
             WarpParams warp;
@@ -1134,6 +1151,7 @@ void App::uiMap() {
     drawSwipe(dl, origin, size, pixelScale);
     drawMapMarks(dl, origin, 0, ix, iy, inside);
     drawBasemapNote(dl, origin, size);
+    drawEmbeddingNotes(dl, origin, size);
 
     // View title (date + mode) and color bar
     char title[160];
@@ -1147,11 +1165,18 @@ void App::uiMap() {
         std::snprintf(title, sizeof(title), "%s  |  %s", info.layers[t_].label.c_str(), kModeNames[mode_]);
     else
         std::snprintf(title, sizeof(title), "%s  |  %d dates", kModeNames[mode_], T);
+    std::string embTitle, embWait;
+    int embCmap = -1;
+    float embLo = 0, embHi = 1;
+    const bool embShown = embeddingMapInfo(embTitle, embCmap, embLo, embHi, embWait);
+    if (embShown) std::snprintf(title, sizeof(title), "%s", embTitle.c_str());
     dl->AddText(origin + ImVec2(11, 9), IM_COL32(0, 0, 0, 200), title);
     dl->AddText(origin + ImVec2(10, 8), IM_COL32(255, 255, 255, 255), title);
 
     std::string wait;
-    if (modeNeedsStats(mode_) && !s_->gpu.statsValid)
+    if (embShown)
+        wait = embWait;
+    else if (modeNeedsStats(mode_) && !s_->gpu.statsValid)
         wait = "Computing statistics: waiting for the complete overview...";
     else if (mode_ == ModeDiff && diffRef < 0)
         wait = "The first date has no previous date";
@@ -1172,16 +1197,22 @@ void App::uiMap() {
         dl->AddRectFilled(p0, ImVec2(p0.x + 240 * frac, p1.y), IM_COL32(70, 130, 220, 220), 3);
         dl->AddText(p0 + ImVec2(6, 2), IM_COL32(255, 255, 255, 255), buf);
     }
-    if (mode_ != ModeRGB) {
+    const bool colourBar = embShown ? embCmap >= 0 : mode_ != ModeRGB;
+    if (colourBar) {
         const ImVec2 b0 = origin + ImVec2(10, size.y - 34), bsz(220, 10);
         const int n = 48;
+        const int barCmap = embShown ? embCmap : cmap_[mode_];
         for (int i = 0; i < n; ++i) {
-            const ImVec4 c = ImPlot::SampleColormap((i + 0.5f) / n, cmap_[mode_]);
+            const ImVec4 c = ImPlot::SampleColormap((i + 0.5f) / n, barCmap);
             dl->AddRectFilled(b0 + ImVec2(bsz.x * i / n, 0), b0 + ImVec2(bsz.x * (i + 1) / n, bsz.y),
                               ImGui::ColorConvertFloat4ToU32(c));
         }
         dl->AddRect(b0, b0 + bsz, IM_COL32(0, 0, 0, 255));
-        const std::string lo = rangeLabel(mode_, range_[mode_].lo, info), hi = rangeLabel(mode_, range_[mode_].hi, info);
+        char elo[32], ehi[32];
+        std::snprintf(elo, sizeof(elo), "%.3f", embLo);
+        std::snprintf(ehi, sizeof(ehi), "%.3f", embHi);
+        const std::string lo = embShown ? elo : rangeLabel(mode_, range_[mode_].lo, info),
+                          hi = embShown ? ehi : rangeLabel(mode_, range_[mode_].hi, info);
         dl->AddText(b0 + ImVec2(0, 12), IM_COL32(230, 230, 230, 255), lo.c_str());
         dl->AddText(b0 + ImVec2(bsz.x - ImGui::CalcTextSize(hi.c_str()).x, 12), IM_COL32(230, 230, 230, 255), hi.c_str());
     }
@@ -1196,7 +1227,7 @@ void App::uiMap() {
             }
     }
     if (topResult) {
-        const ImVec2 b0 = origin + ImVec2(10, size.y - (mode_ != ModeRGB ? 78 : 34)), bsz(220, 10);
+        const ImVec2 b0 = origin + ImVec2(10, size.y - (colourBar ? 78 : 34)), bsz(220, 10);
         dl->AddText(b0 - ImVec2(0, 16), IM_COL32(230, 230, 230, 255), topResult->name.c_str());
         const int n = 48;
         for (int i = 0; i < n; ++i) {
@@ -1225,7 +1256,10 @@ void App::uiMap() {
         double gx, gy;
         if (info.pixelToGeo(ix + 0.5, iy + 0.5, gx, gy))
             n += std::snprintf(status + n, sizeof(status) - n, "  |  x %.6f  y %.6f", gx, gy);
-        if (modeNeedsStats(mode_) && s_->gpu.statsValid) {
+        if (embShown) {
+            const std::string e = embeddingStatusAt(ix, iy);
+            std::snprintf(status + n, sizeof(status) - n, "%s", e.c_str());
+        } else if (modeNeedsStats(mode_) && s_->gpu.statsValid) {
             // Displayed quantity (mean, trend...) at the overview pixel under the cursor.
             const Overview& ov = s_->overview;
             const size_t p = size_t(std::min(ov.h - 1, int(double(iy) * ov.h / info.height))) * ov.w +
@@ -1601,6 +1635,18 @@ void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
     const std::array<int, 3>& rgb = isActive ? rgb_ : L->disp.rgb;
     const Range& range = v.ownMode ? v.range : isActive ? range_[mode] : L->disp.range[mode];
     const int cmap = isActive ? cmap_[mode] : L->disp.cmap[mode];
+    if (embeddingView(*L)) {
+        drawEmbedding(*L, t, 1.0f, [&](const double* g, float* r) { screenRect(g[0], g[1], g[2], g[3], r); });
+        for (const ResultLayer& R : results_) {
+            if (R.cubeId != li.id || !R.visible || !R.tex) continue;
+            float r[4];
+            WarpParams warp;
+            if (layerRect(R.x0, R.y0, R.x0 + R.w, R.y0 + R.h, r, warp))
+                gpu_.drawOverlay(R.tex, r, R.lo, R.hi, R.cmap, R.opacity, &warp);
+        }
+        gpu_.endMap();
+        return;
+    }
     DrawParams p;
     p.mode = mode;
     p.t = mode == ModeRGB ? rgb[0] : t;
@@ -1672,6 +1718,14 @@ void App::uiLayer() {
     uiBands();
 
     ImGui::SeparatorText("Display");
+    if (const SeriesLayer* A = activeLayer(); A && embeddingView(*A)) {
+        ImGui::TextColored(theme::accent(), "Shown as embeddings: see the Embeddings panel.");
+        if (ImGui::Button("Embeddings panel", ImVec2(-1, 0))) {
+            showEmbeddings_ = true;
+            ImGui::SetWindowFocus("Embeddings");
+        }
+        ImGui::TextDisabled("The settings below apply to its 'Band values' view.");
+    }
     ImGui::SetNextItemWidth(-1);
     if (ImGui::BeginCombo("##mode", kModeNames[mode_], ImGuiComboFlags_HeightLargest)) {
         for (int m : kModeOrder) {

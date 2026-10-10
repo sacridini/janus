@@ -238,12 +238,12 @@ bool writeCubeVrt(const CubeInfo& info, const std::string& path, std::string& er
         const Layer& L = info.layers[t];
         int srcBand = L.band;
         BandMeta m = L.meta;
-        if (sourceBand > 0 && sourceBand != L.band) {
-            srcBand = sourceBand;
+        if (sourceBand > 0 && sourceBand + L.bandBase != L.band) { // sourceBand: a band of the date
+            srcBand = sourceBand + L.bandBase;
             if (sourceBand == info.sel.ndBand) {
                 m = L.ndMeta;
             } else if (GDALDataset* ds = GDALDataset::Open(L.path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)) {
-                m = sourceBand <= ds->GetRasterCount() ? readBandMeta(ds->GetRasterBand(sourceBand)) : BandMeta{};
+                m = srcBand <= ds->GetRasterCount() ? readBandMeta(ds->GetRasterBand(srcBand)) : BandMeta{};
                 GDALClose(ds);
             }
         }
@@ -473,7 +473,71 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
 
     std::vector<std::string> timeTexts; // where to extract each layer's date from
     char desc[256];
-    if (files.size() == 1) {
+    // One file of embeddings: a year with D bands, or zeit.save_raster's every
+    // year in one file (bands "<date>_<dimension>", date after date).
+    int packedDates = 0, packedDims = 0;
+    std::vector<std::string> packedPrefix, packedNames;
+    if (files.size() == 1 && first->GetRasterCount() >= 16) {
+        const int n = first->GetRasterCount();
+        const char* tag = first->GetMetadataItem("ZEIT_EMBEDDING");
+        auto isDim = [](const std::string& s) {
+            return s.size() >= 2 && s[0] == 'A' && std::all_of(s.begin() + 1, s.end(), [](char c) { return c >= '0' && c <= '9'; });
+        };
+        std::vector<std::string> prefix(n), name(n);
+        bool dims = true, prefixed = true;
+        for (int b = 1; b <= n; ++b) {
+            const std::string d = first->GetRasterBand(b)->GetDescription();
+            const size_t u = d.rfind('_');
+            name[b - 1] = u == std::string::npos ? d : d.substr(u + 1);
+            prefix[b - 1] = u == std::string::npos ? "" : d.substr(0, u);
+            dims = dims && isDim(d);
+            prefixed = prefixed && u != std::string::npos && isDim(name[b - 1]);
+        }
+        if (prefixed) { // dates in blocks of D bands with the same dimension names
+            int D = 1;
+            while (D < n && prefix[D] == prefix[0]) ++D;
+            bool ok = n % D == 0;
+            for (int b = 0; ok && b < n; ++b) ok = prefix[b] == prefix[b / D * D] && name[b] == name[b % D];
+            if (ok && D >= 16) {
+                packedDates = n / D;
+                packedDims = D;
+                for (int g = 0; g < packedDates; ++g) packedPrefix.push_back(prefix[size_t(g) * D]);
+                packedNames.assign(name.begin(), name.begin() + D);
+            }
+        } else if (dims || tag) { // one year
+            packedDates = 1;
+            packedDims = n;
+            for (int b = 1; b <= n; ++b) {
+                const char* d = first->GetRasterBand(b)->GetDescription();
+                packedNames.push_back(d && d[0] ? std::string(d) : "Band " + std::to_string(b));
+            }
+            packedPrefix.push_back(fs::u8path(files[0]).stem().u8string());
+        }
+        if (packedDates > 0 && tag) info->embeddingTag = tag;
+    }
+    if (packedDates > 0) {
+        info->bandsPerDate = packedDims;
+        info->bandNames = packedNames;
+        info->sel = sel;
+        info->sel.ndBand = std::min(info->sel.ndBand, packedDims);
+        info->sel.qaBand = 0;
+        info->sel.qaRule = QaRule::None;
+        info->sel.band = std::clamp(info->sel.band, 1, packedDims);
+        for (int g = 0; g < packedDates; ++g) {
+            Layer L;
+            L.path = files[0];
+            L.bandBase = g * packedDims;
+            L.band = L.bandBase + info->sel.band;
+            L.meta = readBandMeta(first->GetRasterBand(L.band));
+            if (info->sel.ndBand > 0) L.ndMeta = readBandMeta(first->GetRasterBand(L.bandBase + info->sel.ndBand));
+            L.label = packedPrefix[g];
+            timeTexts.push_back(packedPrefix[g]);
+            info->layers.push_back(L);
+        }
+        std::snprintf(desc, sizeof(desc), "1 file, %d date%s x %d bands (embeddings)", packedDates,
+                      packedDates > 1 ? "s" : "", packedDims);
+        GDALClose(first);
+    } else if (files.size() == 1) {
         // One file: each band is one date.
         const int n = first->GetRasterCount();
         for (int b = 1; b <= n; ++b) {
@@ -516,6 +580,7 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
             }
         if (info->sel.qaBand <= 0) info->sel.qaRule = QaRule::None;
         if (info->sel.qaRule == QaRule::None) info->sel.qaBand = 0;
+        if (const char* tag = first->GetMetadataItem("ZEIT_EMBEDDING")) info->embeddingTag = tag;
         GDALClose(first);
         for (const std::string& f : files) {
             GDALDataset* ds = openDs(f);
@@ -589,7 +654,7 @@ GDALRasterBand* CubeReader::band(int layer, int b) {
     if (it == ds_.end())
         it = ds_.emplace(L.path, GDALDataset::Open(L.path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)).first;
     if (!it->second) return nullptr;
-    if (b <= 0) b = L.band;
+    b = b <= 0 ? L.band : b + L.bandBase; // b: a band of the date (1..bandsPerDate)
     return b <= it->second->GetRasterCount() ? it->second->GetRasterBand(b) : nullptr;
 }
 
@@ -619,7 +684,7 @@ bool CubeReader::readWindow(int layer, int x, int y, int w, int h, float* buf, i
     const Layer& L = info_->layers[layer];
     const BandSelection& sel = info_->sel;
     const size_t n = size_t(bw) * bh;
-    if (!readRaw(layer, L.band, x, y, w, h, buf, bw, bh)) return false;
+    if (!readRaw(layer, 0, x, y, w, h, buf, bw, bh)) return false; // 0: the shown band
     postProcess(L.meta, buf, n);
     if (sel.ndBand > 0) {
         tmp_.resize(n);

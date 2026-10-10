@@ -2,6 +2,7 @@
 // per-pixel models drawn on the chart. The algorithms run in Zeit, in a
 // separate Python process (see zeit_client.hpp and zeit_bridge/).
 #define IMGUI_DEFINE_MATH_OPERATORS
+#include "embedding.hpp"
 #include "app.hpp"
 
 #include <algorithm>
@@ -84,6 +85,8 @@ std::string App::toolApplicability(const ZeitTool& tool) const {
 }
 
 std::string toolApplicability(const ZeitTool& tool, const CubeInfo& info) {
+    if (embeddingMeta(info).is) // as Zeit itself, which refuses such cubes
+        return "a layer of embeddings has no physical unit nor seasonal signal (see the Embeddings panel)";
     if (!tool.bands.empty() && info.bandsPerDate < int(tool.bands.size()))
         return "needs one file per date with at least " + std::to_string(tool.bands.size()) +
                " bands (e.g. Landsat surface reflectance: blue, green, red, NIR, SWIR1, SWIR2)";

@@ -39,6 +39,9 @@
 | `src/app_fullres.cpp` | Full-resolution cache in the Performance panel, its settings widgets, `--measure-cache` |
 | `src/app_settings.cpp` | Settings window (theme, font size, Files panel, processing threads, overview memory, caches), kept in the layout .ini with the last export folder; the font applied between frames (`App::applyFont`); applies the threads to the open series and Zeit (the serve process is replaced once idle); its `--selftest-ui` checks (pools, contrast of every theme, Zeit restart) |
 | `src/theme.*` | Interface themes (Dark, Light, Classic, Janus): ImGui and ImPlot colours, status colours, contrast (WCAG) and data colours made legible on the charts |
+| `src/embedding.*` | Embeddings: recognising a layer of them, the store (every year at reduced resolution, Int8 with a scale per dimension, read block by block), PCA (covariance with the SIMD kernels, subspace iteration), images of the principal components, similarity and change, the background engine (the newest request of each kind wins) |
+| `src/embedding_simd.cpp` | SIMD kernels chosen at run time: AVX2 + FMA, SSE2, NEON or scalar (covariance, Int8 projections, dot products) |
+| `src/app_embeddings.cpp` | Embeddings in the interface: drawing (an RGBA or float image per year), the Embeddings panel and its charts, the download for the visible area (a Zeit job, progress on the map), `--selftest-embeddings-ui` |
 | `src/app_zeit.cpp` | Tools menu, tool windows, tasks, the Log window (a job's log or zeit.log, read as it grows), result layers, models on the chart |
 | `src/zeit_client.*` | Bridge processes (JSON lines over pipes; Win32 or POSIX, thread limits in their environment), pixel calls, raster jobs (each with its own log: stderr of the process and the protocol messages), estimates |
 | `src/results.*` | Result rasters loaded as map layers |
@@ -46,7 +49,7 @@
 | `src/basemap.*` | Web basemap: XYZ tiles in EPSG:3857 read through GDAL's WMS driver (TMS service, curl, its disk cache) in a pool of its own, newest first, requests that left the screen dropped; an LRU of RGBA textures; drawn on the active layer's grid through a warp grid (`reproject.*`) |
 | `src/app_basemap.cpp` | The basemap in the interface: Layers panel section, setting (layout .ini), drawn first in every map target, attribution on the map |
 | `src/selftest.cpp` | `--selftest-zeit`: every applicable Zeit tool end to end (pixel + raster job and its log) without a window |
-| `zeit_bridge/` | The Python bridge (protocol; raster jobs in full-width row bands, the next one read in a thread while the tool computes, outputs compressed on the job's threads), one `tool_*.py` per Zeit tool family calling Zeit's public API (`zeit_common.py`: series and chunks as dated xarray cubes, results back as arrays), the pinned runtime requirements |
+| `zeit_bridge/` | The Python bridge (protocol; raster jobs in full-width row bands, the next one read in a thread while the tool computes, outputs compressed on the job's threads), one `tool_*.py` per Zeit tool family calling Zeit's public API, `task_embeddings.py` (the download of embeddings) (`zeit_common.py`: series and chunks as dated xarray cubes, results back as arrays), the pinned runtime requirements |
 | `tools/build_zeit_runtime.py` | Assembles the private Python runtime (Windows, Linux, macOS) |
 | `cmake/package_linux.cmake` | Portable Linux package (bundled libraries, RPATH `$ORIGIN/lib`) |
 | `cmake/package_macos.cmake` | macOS app and `.dmg` (bundled libraries, RPATH `@executable_path/../Frameworks`, ad hoc signature) |

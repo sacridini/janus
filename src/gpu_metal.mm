@@ -35,7 +35,7 @@ struct DrawU {
     int4 layers;
     float2 range;
     float alpha;
-    int pad0;
+    int nearest;        // source 2: nearest neighbour instead of bilinear
     int w, h;           // cube size (pixels per date)
     int pad1, pad2;
     float4 warpQuad;    // reprojected layer (WarpParams): the quad in the grid's domain
@@ -106,8 +106,8 @@ fragment float4 fmain(VOut in [[stage_in]], constant DrawU& u [[buffer(0)]],
             return float4(0.0); // nothing below may index the buffers with this uv
         }
     }
-    if (u.source == 2) { // basemap tile: its colours, bilinear
-        float4 c = tile.sample(kLinear, uv);
+    if (u.source == 2) { // basemap tile, embedding image: its colours (bilinear or nearest)
+        float4 c = u.nearest == 1 ? tile.sample(kNearest, uv) : tile.sample(kLinear, uv);
         return float4(c.rgb, c.a * u.alpha);
     }
     const int px = clamp(int(uv.x * float(u.w)), 0, u.w - 1), py = clamp(int(uv.y * float(u.h)), 0, u.h - 1);
@@ -197,7 +197,7 @@ struct DrawUniforms {
     int layers[4];
     float range[2];
     float alpha;
-    int pad0;
+    int nearest;
     int w, h;
     int pad1, pad2;
     float warpQuad[4];
@@ -509,6 +509,7 @@ void Gpu::Impl::draw(const float r[4], int source, const DrawParams& p) {
     u.range[0] = p.lo;
     u.range[1] = p.hi > p.lo ? p.hi : p.lo + 1e-6f;
     u.alpha = alpha;
+    u.nearest = p.nearest ? 1 : 0;
     u.w = cubeW;
     u.h = cubeH;
     u.warp = p.warp.grid ? 1 : 0;
@@ -587,10 +588,11 @@ void Gpu::drawOverlay(GpuTex t, const float rect[4], float lo, float hi, int cma
     drawTile(t, rect, p, cmap, alpha);
 }
 
-void Gpu::drawImage(GpuTex t, const float rect[4], float alpha, const WarpParams* warp) {
+void Gpu::drawImage(GpuTex t, const float rect[4], float alpha, const WarpParams* warp, bool nearest) {
     Impl& d = *impl_;
     DrawParams p;
     if (warp) p.warp = *warp;
+    p.nearest = nearest;
     [d.enc setFragmentTexture:borrow<id<MTLTexture>>(t) atIndex:1];
     d.blend = true;
     d.alpha = alpha;

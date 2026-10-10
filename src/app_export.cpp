@@ -463,9 +463,16 @@ std::shared_ptr<ExportJob> App::exportPng(const std::string& path, const PngOpti
         }
     }
     const CubeInfo& info = *s_->info;
+    // The active layer drawn as embeddings: its own title and colour bar.
+    std::string embTitle, embWait;
+    int embCmap = -1;
+    float embLo = 0, embHi = 1;
+    const bool emb = embeddingMapInfo(embTitle, embCmap, embLo, embHi, embWait);
     if (o.label) {
         char title[200];
-        if (mode_ == ModeRGB)
+        if (emb)
+            std::snprintf(title, sizeof(title), "%s", embTitle.c_str());
+        else if (mode_ == ModeRGB)
             std::snprintf(title, sizeof(title), "RGB: %s / %s / %s", info.layers[rgb_[0]].label.c_str(),
                           info.layers[rgb_[1]].label.c_str(), info.layers[rgb_[2]].label.c_str());
         else if (mode_ == ModeValue || mode_ == ModeAnomaly)
@@ -480,7 +487,17 @@ std::shared_ptr<ExportJob> App::exportPng(const std::string& path, const PngOpti
     if (o.legend) {
         std::vector<Legend> legends; // bottom up: the active layer, then the result drawn on top
         const SeriesLayer* A = activeLayer();
-        if (A && A->visible && mode_ != ModeRGB) {
+        if (A && A->visible && emb) {
+            if (embCmap >= 0) { // similarity, change: a colour bar; principal components: none
+                Legend L;
+                L.caption = A->name + (A->emb && embTitle.find("Change") != std::string::npos ? " - change (cosine distance)"
+                                                                                              : " - cosine similarity");
+                L.cmap = embCmap;
+                L.lo = embLo;
+                L.hi = embHi;
+                legends.push_back(std::move(L));
+            }
+        } else if (A && A->visible && mode_ != ModeRGB) {
             Legend L;
             L.caption = A->name;
             if (const LayerClasses* C = activeClasses()) {
