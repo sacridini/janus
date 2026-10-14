@@ -2081,6 +2081,8 @@ void App::uiSeries() {
     ImGui::SameLine();
     if (ImGui::Button("Copy CSV")) copyCsv();
     ImGui::SetItemTooltip("Copies the series (cursor, pins, ROI) to the clipboard");
+    ImGui::SameLine();
+    uiCopyPython();
     if (!pins_.empty()) {
         ImGui::SameLine();
         if (ImGui::Button("Clear pins")) clearPins();

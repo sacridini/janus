@@ -315,4 +315,119 @@ def chunk(p, stack, ctx):
     return zc.chunk_outputs(res, (h, w))
 
 
-TOOLS = [{"manifest": MANIFEST, "pixel": pixel, "chunk": chunk}]
+# ---------------------------------------------------------------------------
+# Synthetic image: the image the models predict for a date
+# ---------------------------------------------------------------------------
+
+SYNTHETIC = {
+    "id": "ccdc_synthetic",
+    "name": "CCDC synthetic image",
+    "category": "Change detection",
+    "description": (
+        "The image CCDC's harmonic models predict for one date (zeit.predict_synthetic_image): every "
+        "band, in the series' units, and the quantity the series shows (e.g. NDVI), free of clouds, "
+        "gaps and noise. Each pixel uses the segment that covers the date (before the first, the "
+        "first; after the last, the last). Runs CCDC first, with the parameters below."),
+    "requires": MANIFEST["requires"],
+    "modes": ["pixel", "raster"],
+    "map_date": True,
+    "params": [
+        {"id": "date", "label": "Date", "type": "float", "default": 0.0, "min": 0.0, "max": 2200.0,
+         "unit": "decimal year",
+         "help": "Decimal year to predict (e.g. 2019.5 = early July 2019); 0: the date shown on the map."},
+    ] + MANIFEST["params"],
+    "outputs": [{"id": "shown", "name": "Synthetic (shown series)", "colormap": "Viridis"}] +
+               [{"id": r, "name": f"Synthetic {r}", "colormap": "Greys"} for r in ROLES],
+    "chunk_cells": MANIFEST["chunk_cells"],
+}
+
+
+def _target_ordinal(p, ctx):
+    """The date to predict as a Python ordinal day: the parameter, else the map's date."""
+    y = float(p["date"]) or float(ctx.get("map_year") or 0.0)
+    if not y:
+        y = float(ctx["years"][-1])
+    year = int(math.floor(y))
+    first = _dt.date(year, 1, 1).toordinal()
+    days = _dt.date(year + 1, 1, 1).toordinal() - first
+    return first + int(round((y - year) * days)), y
+
+
+def _synthetic(sg, target):
+    """Per pixel the coefficients of the segment covering `target` (ordinal) -> values x 10000 [P, B]."""
+    P, S = sg["start"].shape
+    used = sg["used"]
+    covers = used & (sg["start"] <= target) & (sg["end"] >= target)
+    after_last = used & (sg["start"] <= target)  # the last segment that started before the date
+    k = np.where(covers.any(axis=1), np.argmax(covers, axis=1),
+                 np.where(after_last.any(axis=1), S - 1 - np.argmax(after_last[:, ::-1], axis=1), 0))
+    r = np.arange(P)
+    coefs = sg["coefs"][r, k]                                   # [P, B, 8]
+    v = np.einsum("pbk,k->pb", coefs, _terms(np.array([target]))[0])
+    v[sg["counts"] == 0] = np.nan
+    return v, k
+
+
+def _synthetic_units(v, roles, mode, ctx):
+    """x 10000 (deg C x 100 for the thermal band) -> the series' units, per role {role: [P]}."""
+    out = {}
+    for b, role in enumerate(roles):
+        if role == "thermal":
+            out[role] = _thermal_from_c100(v[:, b], np.asarray(ctx["bands"]["thermal"]), mode)
+        else:
+            out[role] = _from_x10000(v[:, b], mode)
+    return out
+
+
+def _shown_value(by_role, ctx):
+    shown = ctx.get("shown") or {}
+    nd = shown.get("nd")
+    if nd and len(nd) == 2 and nd[0] in by_role and nd[1] in by_role:
+        a, b = by_role[nd[0]], by_role[nd[1]]
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(a + b != 0, (a - b) / (a + b), np.nan)
+    band = shown.get("band")
+    if band in by_role:
+        return by_role[band]
+    return None
+
+
+def synthetic_pixel(p, ctx):
+    res = pixel(p, ctx)  # CCDC's segments and breaks on the chart
+    roles, missing = _roles(ctx)
+    if missing or not ctx.get("ordinal") or not any(r[0] == "Segments" for r in res["rows"]):
+        return res
+    vals, qa, roles, mode = _prepare(p, ctx)
+    sg = _segments(p, ctx, vals[:, :, None, None], qa[:, None, None])
+    target, year = _target_ordinal(p, ctx)
+    v, k = _synthetic(sg, target)
+    by_role = _synthetic_units(v, roles, mode, ctx)
+    rows = [["Synthetic image of", f"{_dt.date.fromordinal(target).isoformat()} (segment {int(k[0]) + 1})"]]
+    rows += [[f"  {r}", f"{by_role[r][0]:.5g}"] for r in roles]
+    s = _shown_value(by_role, ctx)
+    overlays = [{"type": "vlines", "label": "Synthetic date", "x": [year]}]
+    if s is not None and np.isfinite(s[0]):
+        rows.append(["  shown series", f"{s[0]:.5g}"])
+        overlays.append({"type": "markers", "label": "Synthetic value", "x": [year], "y": [float(s[0])]})
+    res["rows"] = rows + res["rows"]
+    res["overlays"] = res["overlays"] + overlays
+    return res
+
+
+def synthetic_chunk(p, stack, ctx):
+    T, h, w = stack.shape
+    roles, missing = _roles(ctx)
+    if missing or not ctx.get("ordinal"):
+        raise ValueError("CCDC needs the bands " + ", ".join(ROLES) + " mapped and real dates")
+    vals, qa, roles, mode = _prepare(p, ctx)
+    sg = _segments(p, ctx, vals, qa)
+    v, _ = _synthetic(sg, _target_ordinal(p, ctx)[0])
+    by_role = _synthetic_units(v, roles, mode, ctx)
+    s = _shown_value(by_role, ctx)
+    res = {r: by_role[r] for r in ROLES}
+    res["shown"] = s if s is not None else np.full(h * w, np.nan)
+    return zc.chunk_outputs(res, (h, w))
+
+
+TOOLS = [{"manifest": MANIFEST, "pixel": pixel, "chunk": chunk},
+         {"manifest": SYNTHETIC, "pixel": synthetic_pixel, "chunk": synthetic_chunk}]

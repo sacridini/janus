@@ -57,11 +57,17 @@ inputs of Zeit's API (dated xarray cubes) and its results back into arrays.
   converted from the series' quality band, or derived from missing values when
   there is none. ctx["shown"] = {"band": role, "nd": [role A, role B]} says
   what the shown series is in band roles (None when unknown), e.g. to draw a
-  multiband model in the shown units.
+  multiband model in the shown units. ctx["map_year"]: the decimal year of the
+  date shown on the map (a tool with "map_date": true in its manifest is fitted
+  again on the chart when it changes, e.g. CCDC's synthetic image).
 - `pixel` receives ctx["values"] (floats, NaN = missing) and returns
   {"overlays": [...], "rows": [[label, text], ...]}. Overlay types, x in
-  decimal years: {"type": "line"|"markers", "label", "x", "y"} and
-  {"type": "vlines", "label", "x"} (e.g. break dates).
+  decimal years: {"type": "line"|"markers", "label", "x", "y"} (optional
+  "weight": line width, "alpha": opacity, e.g. a model's trend drawn lighter
+  under it) and {"type": "vlines", "label", "x"} (e.g. break dates).
+- A pixel run's result also gets "python": {"code", "inputs"}, the Zeit calls
+  the tool made, recorded as they ran (run_recording), as code for "Copy
+  Python" in Janus: nothing for a tool to do.
 - `chunk` receives stack: float64 [T, rows, cols] (NaN = missing) and returns
   {output_id: 2D float array (rows, cols), NaN = no value} for every output id
   the run writes ([T, rows, cols] for a series output).
@@ -213,6 +219,99 @@ def to_fmask(rule, qa, values_ok):
     return np.where(values_ok, f, 255).astype(np.int32)
 
 
+# ---------------------------------------------------------------------------
+# "Copy Python" in Janus: the Zeit calls a pixel run makes, as code
+# ---------------------------------------------------------------------------
+
+def run_recording(fn):
+    """Runs fn() with Zeit's public functions recording their top-level calls on
+    this thread (the tools call zeit.<name>, looked up at call time). Returns
+    (fn's result, [(name, args, kwargs, result)])."""
+    import threading
+
+    import zeit
+    calls, depth = [], [0]
+    me = threading.current_thread()
+    originals = {}
+
+    def wrap(name, f):
+        def recorded(*args, **kwargs):
+            if threading.current_thread() is not me:
+                return f(*args, **kwargs)
+            depth[0] += 1
+            try:
+                out = f(*args, **kwargs)
+            finally:
+                depth[0] -= 1
+            if depth[0] == 0:  # a call of the tool's, not one inside Zeit
+                calls.append((name, args, kwargs, out))
+            return out
+        return recorded
+
+    # What the module holds now: dir() would also list its lazy entries, and
+    # getattr would import them (zeit.ai pulls in torch).
+    for name, f in list(vars(zeit).items()):
+        if name.startswith("_") or not callable(f) or isinstance(f, type) or type(f).__name__ == "module":
+            continue
+        originals[name] = f
+        setattr(zeit, name, wrap(name, f))
+    try:
+        return fn(), calls
+    finally:
+        for name, f in originals.items():
+            setattr(zeit, name, f)
+
+
+def calls_code(calls):
+    """The recorded calls as Python: the series is `series` (a DataArray (time,
+    y, x)), a multiband cube `bands_cube` (time, band, y, x), Fmask codes
+    `fmask`; earlier results are named resultN; other arrays by their argument."""
+    import numpy as np
+    try:
+        import xarray as xr
+    except ImportError:  # never without Zeit, but the code must not fail here
+        xr = None
+    names, lines, inputs = {}, [], []
+
+    def lit(v, key=None):
+        if id(v) in names:
+            return names[id(v)]
+        if v is None or isinstance(v, (bool, int, str)):
+            return repr(v)
+        if isinstance(v, (float, np.floating)):
+            return repr(float(v))
+        if isinstance(v, np.integer):
+            return repr(int(v))
+        if isinstance(v, np.datetime64):
+            return f'np.datetime64("{np.datetime_as_string(v, unit="D")}")'
+        if isinstance(v, (list, tuple)):
+            inner = ", ".join(lit(x) for x in v)
+            return f"[{inner}]" if isinstance(v, list) else f"({inner}{',' if len(v) == 1 else ''})"
+        if isinstance(v, dict):
+            return "{" + ", ".join(f"{lit(k)}: {lit(x)}" for k, x in v.items()) + "}"
+        if xr is not None and isinstance(v, xr.DataArray):
+            name = "bands_cube" if "band" in v.dims else "fmask" if key == "qa" else \
+                "series" if "series" not in inputs else (key or "array")
+        elif isinstance(v, np.ndarray):
+            if v.ndim == 1 and v.size <= 400:
+                return "np.array(" + repr([float(x) if np.isfinite(x) else float("nan") for x in v.astype(float)]) \
+                    .replace("nan", 'float("nan")') + ")"
+            name = "fmask" if key == "qa" else (key or "array")
+        else:
+            return repr(v)
+        if name not in inputs:
+            inputs.append(name)
+        names[id(v)] = name
+        return name
+
+    for k, (name, args, kwargs, out) in enumerate(calls):
+        parts = [lit(a) for a in args] + [f"{key}={lit(v, key)}" for key, v in kwargs.items()]
+        var = f"result{k + 1}"
+        names[id(out)] = var
+        lines.append(f"{var} = zeit.{name}(" + ", ".join(parts) + ")")
+    return {"code": "\n".join(lines), "inputs": inputs}
+
+
 def norm_diff(a, b):
     import numpy as np
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -292,6 +391,7 @@ class Inputs:
         self.spec = spec
         self.ctx = make_ctx(spec["years"], spec.get("days"), threads(spec))
         self.ctx["shown"] = spec.get("shown")
+        self.ctx["map_year"] = spec.get("map_year")
         # Each window gets a copy of ctx; this dict is shared by all of them, for what a
         # tool decides once per job (e.g. the reflectance units).
         self.ctx["cache"] = {}
@@ -693,6 +793,7 @@ def serve():
                 ctx = make_ctx(params["years"], params.get("days"))
                 ctx["values"] = [float("nan") if v is None else float(v) for v in params["values"]]
                 ctx["shown"] = params.get("shown")
+                ctx["map_year"] = params.get("map_year")
                 if params.get("bands"):
                     nan = float("nan")
                     bands = {r: [nan if v is None else float(v) for v in vals]
@@ -700,7 +801,13 @@ def serve():
                     qa = params.get("qa")
                     qa = [nan if v is None else float(v) for v in qa] if qa else None
                     band_ctx(ctx, bands, qa, params.get("qa_rule"))
-                send({"id": req_id, "result": entry["pixel"](p, ctx)})
+                result, calls = run_recording(lambda: entry["pixel"](p, ctx))
+                if calls and isinstance(result, dict):
+                    try:
+                        result["python"] = calls_code(calls)  # "Copy Python" in Janus
+                    except Exception:  # the fit itself stands without its code
+                        traceback.print_exc()
+                send({"id": req_id, "result": result})
             elif method == "estimate":
                 entry = tools()[params["tool"]]
                 p = defaults(entry["manifest"], params.get("params"))

@@ -147,6 +147,44 @@ int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection&
             std::printf("\n");
             for (const json& r : reply.result.value("rows", json::array()))
                 std::printf("    %s: %s\n", r[0].get<std::string>().c_str(), r[1].get<std::string>().c_str());
+            // "Copy Python": the Zeit calls the run made, as code.
+            const std::string code = reply.result.value("python", json::object()).value("code", "");
+            if (code.find("zeit.") == std::string::npos) return fail(tool.id + ": the pixel run should return its Zeit calls");
+            std::printf("  python: %s\n", code.substr(0, code.find('(')).c_str());
+            // The BFAST family draws its fitted model (least squares between the breaks):
+            // placed at the series' dates, it explains more than the mean does (R2 > 0;
+            // not much more where BFAST finds no break in a series that has one).
+            if (tool.id.rfind("bfast", 0) == 0) {
+                double se = 0, ss = 0, mean = 0;
+                int n = 0, m = 0;
+                for (float v : series)
+                    if (std::isfinite(v)) mean += v, ++m;
+                mean /= std::max(1, m);
+                for (const json& o : reply.result.value("overlays", json::array())) {
+                    const std::string label = o.value("label", "");
+                    if (o.value("type", "") != "line" || label.find("trend") != std::string::npos ||
+                        label.find("projected") != std::string::npos)
+                        continue;
+                    const json xs = o["x"], ys = o["y"];
+                    for (int t = 0; t < info->T(); ++t) {
+                        if (!std::isfinite(series[t])) continue;
+                        for (size_t k = 0; k + 1 < xs.size(); ++k) // the model at the date (between two samples)
+                            if (xs[k].get<double>() <= years[t] && years[t] <= xs[k + 1].get<double>() &&
+                                ys[k].is_number() && ys[k + 1].is_number()) {
+                                const double x0 = xs[k], x1 = xs[k + 1], f = x1 > x0 ? (years[t] - x0) / (x1 - x0) : 0;
+                                const double y = ys[k].get<double>() * (1 - f) + ys[k + 1].get<double>() * f;
+                                se += (y - series[t]) * (y - series[t]);
+                                ss += (series[t] - mean) * (series[t] - mean);
+                                ++n;
+                                break;
+                            }
+                    }
+                }
+                if (n < 10) return fail(tool.id + ": the fitted model should be drawn over the series");
+                const double r2 = 1 - se / std::max(ss, 1e-12);
+                std::printf("  model on the chart: %d observations under it, R2 %.3f\n", n, r2);
+                if (r2 < 0.05) return fail(tool.id + ": the fitted model does not follow the series");
+            }
         }
 
         if (tool.raster) {

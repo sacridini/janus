@@ -44,6 +44,8 @@ struct ZeitTool {
     // ("blue", "green", "red", "nir", "swir1", "swir2", "thermal").
     std::vector<std::string> bands, optionalBands;
     bool pixel = false, raster = false;
+    // Uses the date shown on the map (ctx "map_year"): the chart's fit follows it.
+    bool mapDate = false;
     std::vector<ZeitParam> params;
     std::vector<ZeitOutput> outputs;
 };

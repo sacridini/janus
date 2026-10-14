@@ -156,6 +156,11 @@ private:
     std::vector<float> collectSample(const Session& S, int mode, int t, size_t maxN, int diffRef = 0) const;
     std::string slopeUnit() const;
     void copyCsv();
+    // "Copy Python" (app_python.cpp): which = 0 the cursor, a pin's id, -1 the ROI.
+    std::string pythonSnippet(int which);
+    void uiCopyPython();
+    std::string pythonCopied_;   // the last code copied (self-test)
+    int selfTestPython();        // --selftest-ui stages 150-154
 
     // Export (app_export.cpp): the map as PNG, values and the rendered view as
     // GeoTIFF, Zeit results. Rendering is on the GPU (main thread); reading the
@@ -788,6 +793,7 @@ private:
     std::string resultsDir_;     // base folder for tool outputs
     std::string pixelTool_;      // tool fitted on the chart ("" = none)
     int pixelVersion_ = 0;       // bumped when the tool or its parameters change
+    int pixelMapT_ = -1;         // the map's date of a tool fitted on it (ZeitTool::mapDate)
     std::vector<double> zeitYears_; // decimal year of each date
     uint64_t roiZeitReq_ = 0;
     int roiZeitVersion_ = -1;

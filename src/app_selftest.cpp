@@ -814,6 +814,12 @@ int App::selfTestStep(const std::vector<std::string>& in) {
     case 144:
     case 145:
         return selfTestComposite(in);
+    case 150:
+    case 151:
+    case 152:
+    case 153:
+    case 154:
+        return selfTestPython();
     }
     return -1;
 }

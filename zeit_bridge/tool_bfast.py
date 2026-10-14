@@ -151,6 +151,113 @@ def _first_after(vals, years, idx):
 
 
 # ---------------------------------------------------------------------------
+# Fitted models on the chart. Zeit returns the breaks, not the models: they are
+# fitted again here by least squares, as the final model of each method is
+# (piecewise linear trend + harmonic season), on Zeit's regular time axis
+# (start + index / frequency, as R's ts) and drawn at the series' dates.
+# ---------------------------------------------------------------------------
+
+def _axis(ctx):
+    """Regular time of each observation (Zeit's ts axis) and the harmonic order cap."""
+    T = len(ctx["years"])
+    return float(ctx["start"]) + np.arange(T) / float(ctx["per_year"])
+
+
+def _harmonics(u, order):
+    cols = []
+    for k in range(1, order + 1):
+        cols += [np.sin(2 * np.pi * k * u), np.cos(2 * np.pi * k * u)]
+    return np.stack(cols, axis=-1) if cols else np.zeros(u.shape + (0,))
+
+
+def _order(p, ctx):
+    return max(1, min(int(p["order"]), int(ctx["per_year"]) // 2 or 1))
+
+
+def _boundaries(n, starts):
+    """Segments [a, b) of indices 0..n from the indices where segments start."""
+    cuts = sorted({int(s) for s in starts if 0 < int(s) < n})
+    edges = [0] + cuts + [n]
+    return [(edges[k], edges[k + 1]) for k in range(len(edges) - 1)]
+
+
+def _index_of_date(years, d):
+    """Index of the first observation on or after decimal year d."""
+    return next((t for t, y in enumerate(years) if y >= d - 1e-9), len(years))
+
+
+def _dense(a, b, ctx, per_obs=6):
+    """Fractional indices across [a, b - 1] and their dates (interpolated between observations)."""
+    years = np.asarray(ctx["years"], dtype=np.float64)
+    if b - a < 2:
+        s = np.array([float(a)])
+    else:
+        s = np.linspace(a, b - 1, min(600, (b - 1 - a) * per_obs + 1))
+    x = np.interp(s, np.arange(len(years)), years)
+    u = float(ctx["start"]) + s / float(ctx["per_year"])
+    return s, u, x
+
+
+def _line(label, x, y, **style):
+    o = {"type": "line", "label": label, "x": [float(v) for v in x],
+         "y": [float(v) if np.isfinite(v) else None for v in y]}
+    o.update(style)
+    return o
+
+
+def _segment_model(vals, u, a, b, order):
+    """Trend + harmonic fitted on the valid observations in [a, b); None if too few."""
+    idx = np.arange(a, b)
+    ok = np.isfinite(vals[a:b])
+    X = np.column_stack([np.ones(b - a), u[a:b], _harmonics(u[a:b], order)])
+    if ok.sum() < X.shape[1] + 1:
+        X = X[:, :2]  # a short segment: its trend alone
+        if ok.sum() < 3:
+            return None
+    beta, *_ = np.linalg.lstsq(X[ok], vals[idx[ok]], rcond=None)
+    return beta
+
+
+def _eval(beta, u, order):
+    X = np.column_stack([np.ones_like(u), u, _harmonics(u, order)])[:, :len(beta)]
+    return X @ beta, X[:, :2] @ beta[:2]
+
+
+def bfast_model_overlays(vals, ctx, order, trend_starts, season_starts):
+    """BFAST: a trend per trend segment and a season per season segment, fitted
+    together; the model (trend + season) and the trend, broken at trend breaks."""
+    T = len(vals)
+    u = _axis(ctx)
+    tseg = _boundaries(T, trend_starts)
+    sseg = _boundaries(T, season_starts)
+
+    def design(uu, ss):
+        cols = []
+        for a, b in tseg:
+            m = ((ss >= a) & (ss < b)).astype(np.float64)
+            cols += [m, m * uu]
+        H = _harmonics(uu, order)
+        for a, b in sseg:
+            m = (ss >= a) & (ss < b)
+            cols += [H[:, k] * m for k in range(H.shape[1])]
+        return np.column_stack(cols), 2 * len(tseg)
+
+    s_obs = np.arange(T, dtype=np.float64)
+    X, nt = design(u, s_obs)
+    ok = np.isfinite(vals)
+    if ok.sum() < X.shape[1] + 1:
+        return []
+    beta, *_ = np.linalg.lstsq(X[ok], vals[ok], rcond=None)
+    out = []
+    for k, (a, b) in enumerate(tseg):
+        s, uu, x = _dense(a, b, ctx)
+        D, _ = design(uu, np.minimum(s, b - 1e-6))
+        out.append(_line("BFAST model", x, D @ beta))
+        out.append(_line("BFAST trend", x, D[:, :nt] @ beta[:nt], weight=1.5, alpha=0.7))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # BFAST (classic)
 # ---------------------------------------------------------------------------
 
@@ -199,7 +306,9 @@ def bfast_pixel(p, ctx):
     if np.isfinite(m["break_date"][0, 0]):
         rows.append(["Largest trend jump", f"{m['magnitude'][0, 0]:.5g} at {zc.fmt_year(m['break_date'][0, 0])}"])
     rows.append(["Iterations", str(int(zc.grid(ds, "n_iter")[0, 0]))])
-    overlays = []
+    years = list(ctx["years"])
+    overlays = bfast_model_overlays(vals, ctx, _order(p, ctx), [_index_of_date(years, x) for x in tx],
+                                    [int(i) + 1 for i in sidx if np.isfinite(i)])
     if tx:
         overlays.append({"type": "vlines", "label": "BFAST trend breaks", "x": tx})
     if sx:
@@ -255,7 +364,16 @@ def lite_pixel(p, ctx):
         rows.append([f"  {zc.fmt_year(x)}", f"jump {j:.5g}" if np.isfinite(j) else "-"])
     rows += [["LWZ", f"{zc.grid(ds, 'lwz')[0, 0]:.5g}"], ["Valid observations", str(n_valid)]]
     bx = [x for x, _ in breaks]
-    overlays = [{"type": "vlines", "label": "BFAST Lite breaks", "x": bx}] if bx else []
+    # The model: trend + harmonic, every coefficient breaking at once (bfastlite's).
+    u, order, overlays = _axis(ctx), _order(p, ctx), []
+    for a, b in _boundaries(len(vals), [_index_of_date(list(ctx["years"]), x) for x in bx]):
+        beta = _segment_model(vals, u, a, b, order)
+        if beta is not None:
+            _, uu, x = _dense(a, b, ctx)
+            model, trend = _eval(beta, uu, order)
+            overlays += [_line("BFAST Lite model", x, model), _line("BFAST Lite trend", x, trend, weight=1.5, alpha=0.7)]
+    if bx:
+        overlays.append({"type": "vlines", "label": "BFAST Lite breaks", "x": bx})
     return {"overlays": overlays, "rows": rows}
 
 
@@ -314,6 +432,16 @@ def monitor_pixel(p, ctx):
         rows.append(["BFAST Monitor", f"not enough history data (need {int(p['min_valid'])} valid "
                                       f"and more than the model terms)"])
         return {"overlays": overlays, "rows": rows}
+    # The history's model, and where it goes over the monitoring period (what the
+    # observations are compared with).
+    vals = np.asarray(ctx["values"], dtype=np.float64)
+    u, order = _axis(ctx), _order(p, ctx)
+    beta = _segment_model(vals, u, 0, i, order)
+    if beta is not None:
+        _, uu, x = _dense(0, i, ctx)
+        overlays.append(_line("History model", x, _eval(beta, uu, order)[0]))
+        _, uu, x = _dense(i - 1, len(vals), ctx)
+        overlays.append(_line("Model projected", x, _eval(beta, uu, order)[0], weight=1.5, alpha=0.7))
     m = {k: v[0, 0] for k, v in _monitor_maps(ds).items()}
     if np.isfinite(m["break_date"]):
         overlays.append({"type": "vlines", "label": "BFAST Monitor break", "x": [float(m["break_date"])]})

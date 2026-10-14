@@ -496,6 +496,7 @@ static std::vector<ZeitTool> parseTools(const json& arr) {
             tool.params.push_back(zp);
         }
         tool.layerInput = t.value("input", "series") == "layers";
+        tool.mapDate = t.value("map_date", false);
         for (const json& o : t.value("outputs", json::array())) {
             ZeitOutput zo{o.value("id", ""), o.value("name", ""), o.value("colormap", "Viridis"), o.value("unit", "")};
             zo.when = o.value("when", "");

@@ -66,7 +66,8 @@
   or a name alone for the last export folder, or pick one with **Browse...**;
   it warns before replacing a file). Files are written in the background
   (File → Exports shows progress);
-  **Copy CSV** of the cursor, pins and ROI series.
+  **Copy CSV** of the cursor, pins and ROI series; **Copy Python**: code that
+  reproduces a series, its statistics and the Zeit tool on the chart.
 - **Layers**: open several series at once (e.g. NDVI and NBR of the same area,
   or neighboring scenes). Layers are placed by their georeferencing, can be
   shown/hidden (including the first one), reordered and faded; the chart shows
@@ -232,6 +233,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Classes (categorical data) | **Display** panel → *Categorical (classes)*: legend with colours, names and shares (click a colour to change it, untick a class to hide it); detection can be switched off or forced |
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
 | RGB of three bands | **Display** panel → RGB composite (one file per date with several bands): *Three bands of each date as RGB*, a preset (true colour, colour infrared, SWIR, agriculture, land/water: bands found by their names or wavelengths) or any three bands, the map's date or a fixed one, the stretch of each channel (2–98% of the first image, kept for every date; *Stretch to this image*). The chart, the cursor and the tools keep the series' band or index; zoomed in, the visible area is read again at full resolution; map panels, the swipe, PNGs and animations show it too |
+| Python of a series | Time series panel → **Copy Python** → the cursor, a pin or the ROI: code (numpy, rasterio) that reads the same series from the files (band, normalized difference, quality mask; the ROI's pixels inside it), prints its statistics and, with a Zeit tool on the chart, makes the same Zeit calls with the same parameters (as the tool made them: recorded, not rewritten) |
 | Reset layout | **View → Reset layout** (`Ctrl+Shift+R`, Mac: `Command+Shift+R`): every panel docked where it was at the first start, the floating windows (Exports, Tasks, Log, Settings) back to their first size and place, map panels to the right of the main map; the panels open stay open |
 | Performance panel | **View → Performance** (hidden by default): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**) |
 | Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus, Studio, Graphite), font size, whether the Files panel follows what is opened, processing threads, overview memory, full-resolution cache (when it is built, its budget) and clearing the caches; kept between sessions (see [Settings](#settings)) |
@@ -276,6 +278,7 @@ that Janus exposes:
 | BFAST Monitor | regular, ≥ 2 dates per year | first break date in the monitoring period, magnitude, break yes/no |
 | Phenology | ≥ 6 dates per year | start, peak and end of season (day of year), length, peak value, amplitude, fit R², seasons — for a typical year (median), the latest season or a chosen year |
 | CCDC | one file per date with blue, green, red, NIR, SWIR1, SWIR2 [+ thermal]; a quality band is recommended | break count, largest break date and magnitude, NDVI change, first/last break, segments |
+| CCDC synthetic image | as CCDC | the image CCDC's models predict for a date (*Date*, a decimal year; 0 = the date on the map): every band in the series' units and the quantity shown (e.g. NDVI), without clouds or gaps |
 | CODED (degradation) | one file per date with blue, green, red, NIR, SWIR1, SWIR2, ≥ 2 dates per year; a quality band is recommended | strata (forest, non-forest, degradation, deforestation, disturbance), first and last change dates, NDFI change, changes, mean NDFI of the training period |
 | NDFI (spectral unmixing) | one file per date with blue, green, red, NIR, SWIR1, SWIR2 | the NDFI of every date as a **new layer** (and, if asked, the GV, NPV, soil and shade fractions), mean and lowest NDFI, observations used |
 | Tmask (cloud screening) | one file per date with green and SWIR1, ≥ 2 dates per year | observations flagged and their share; the series shown without them as a **new layer** |
@@ -331,6 +334,18 @@ checked (the others are put on it), under its series.
 A break's date (BFAST, BFAST Lite, BFAST Monitor) is that of the first
 observation after it, and its magnitude the model after the break minus the
 model before it on that date, as in Zeit's `extract_events`.
+
+On the chart, the BFAST family draws its **fitted model** with the breaks:
+BFAST, the piecewise linear trend (a segment between trend breaks) plus the
+harmonic season (its own between season breaks), and the trend alone, lighter;
+BFAST Lite, trend + season refitted between its breaks; BFAST Monitor, the
+history's model and, lighter, where it goes over the monitoring period (what
+the observations are compared with). Zeit returns the breaks, not the models:
+Janus fits them again by least squares, on Zeit's regular time axis.
+
+The **CCDC synthetic image** follows the map: with *Date* 0 its chart marker
+(the predicted value, on the CCDC segments) moves with the date shown, and a
+raster run predicts the map's date (named in the task's title).
 
 "Regular" means evenly spaced dates (monthly, 16-day...): a missing date must be
 a no-data band, not a skipped one. BFAST and BFAST Lite are slow (~2–3 ms per

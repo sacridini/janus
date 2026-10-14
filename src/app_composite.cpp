@@ -566,8 +566,8 @@ int App::selfTestComposite(const std::vector<std::string>& in) {
         layers_[active_].comp->on = false;
         mapDirty_ = true;
         next("composite off");
-        std::printf("OK (%.1f s)\n", now() - st_.t0);
-        return 0;
+        st_.stage = 150; // "Copy Python" (app_python.cpp), which prints OK
+        return -1;
     }
     return -1;
 }

@@ -445,7 +445,13 @@ void App::requestPixelFits() {
     const BandRoles& roles = activeBandRoles();
     const bool multiband = !tool->bands.empty();
     if (multiband && !missingBandRoles(*tool, roles).empty()) return;
-    const json extras = zeitPixelExtras(*s_->info, roles);
+    // A tool on the map's date (e.g. CCDC's synthetic image) is fitted again when it changes.
+    if (tool->mapDate && pixelMapT_ != t_) {
+        pixelMapT_ = t_;
+        ++pixelVersion_;
+    }
+    json extras = zeitPixelExtras(*s_->info, roles);
+    extras["map_year"] = s_->info->decimalYear(t_);
     const auto now = std::chrono::steady_clock::now();
     auto send = [&](SeriesView& v, const json& extra) {
         v.zeitReq = zeit_->runPixel(pixelTool_, params, zeitYears_, v.values, extra);
@@ -490,7 +496,8 @@ void App::requestPixelFits() {
             if (!::toolApplicability(*tool, li).empty()) continue;
             std::vector<double> years(li.T());
             for (int t = 0; t < li.T(); ++t) years[t] = li.decimalYear(t);
-            const json lextras = zeitPixelExtras(li, BandRoles{});
+            json lextras = zeitPixelExtras(li, BandRoles{});
+            lextras["map_year"] = li.decimalYear(layerDate(L));
             auto other = [&](SeriesView& v) {
                 if (v.x < 0 || !v.exact || v.zeitReq != 0 || v.zeitVersion == pixelVersion_) return;
                 v.zeitReq = zeit_->runPixel(pixelTool_, params, years, v.values, lextras);
@@ -629,9 +636,12 @@ void App::runTool(const ZeitTool& tool) {
     }
     spec["window"] = {win[0], win[1], win[2], win[3]};
     spec["output_dir"] = out.u8string();
-    char title[160];
-    std::snprintf(title, sizeof(title), "%s - %s (%d x %d px)", tool.name.c_str(), scopeName, win[2] - win[0],
-                  win[3] - win[1]);
+    spec["map_year"] = info.decimalYear(t_);
+    char title[200];
+    const double date = ui.params.value("date", 0.0);
+    std::snprintf(title, sizeof(title), "%s%s%s - %s (%d x %d px)", tool.name.c_str(), tool.mapDate ? " at " : "",
+                  !tool.mapDate ? "" : date > 0 ? std::to_string(date).substr(0, 9).c_str() : info.layers[t_].label.c_str(),
+                  scopeName, win[2] - win[0], win[3] - win[1]);
     auto job = zeit_->startJob(spec, (out / "job.json").u8string(), title);
     jobCube_[job.get()] = cubeId;
     jobs_.push_back(job);
@@ -1291,7 +1301,8 @@ void App::drawZeitOverlays(const char* label, const json& result, const SeriesSt
         }
         ImPlotSpec spec;
         spec.LineColor = col;
-        spec.LineWeight = 2.5f;
+        spec.LineColor.w = o.value("alpha", 1.0f);    // e.g. a model's trend under the model itself
+        spec.LineWeight = o.value("weight", 2.5f);
         if (o.value("type", "") == "markers") {
             spec.Marker = ImPlotMarker_Square;
             spec.MarkerSize = 4.0f;
@@ -1301,6 +1312,7 @@ void App::drawZeitOverlays(const char* label, const json& result, const SeriesSt
         } else {
             ImPlotSpec under = spec; // outline: the same line, wider and dark, below
             under.LineColor = outline;
+            under.LineColor.w *= spec.LineColor.w;
             under.LineWeight = spec.LineWeight + 2.5f;
             ImPlot::PlotLine(label, x.data(), y.data(), n, under);
             ImPlot::PlotLine(label, x.data(), y.data(), n, spec);
