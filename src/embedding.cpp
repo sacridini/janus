@@ -562,7 +562,7 @@ bool EmbeddingStore::pixelOf(double lx, double ly, size_t& p) const {
 // ---------------------------------------------------------------------------
 
 std::vector<std::pair<int, uint32_t>> sampleVectors(const EmbeddingStore& s, const int* rect, size_t maxN,
-                                                    bool allYears, int t) {
+                                                    bool allYears, int t, const std::vector<char>* mask) {
     std::vector<int> years;
     for (int y = 0; y < s.T; ++y)
         if ((allYears || y == t) && s.yearReady(y)) years.push_back(y);
@@ -575,6 +575,7 @@ std::vector<std::pair<int, uint32_t>> sampleVectors(const EmbeddingStore& s, con
     }
     std::vector<std::pair<int, uint32_t>> out;
     const size_t area = size_t(std::max(0, x1 - x0)) * std::max(0, y1 - y0);
+    if (mask && mask->size() != area) mask = nullptr;
     const size_t total = area * years.size();
     if (total == 0 || maxN == 0) return out;
     auto at = [&](size_t i) {
@@ -582,10 +583,13 @@ std::vector<std::pair<int, uint32_t>> sampleVectors(const EmbeddingStore& s, con
         const size_t a = i % area;
         return std::pair<int, uint32_t>(y, uint32_t((y0 + a / (x1 - x0)) * s.w + x0 + a % (x1 - x0)));
     };
+    auto usable = [&](size_t i, const std::pair<int, uint32_t>& yp) {
+        return (!mask || (*mask)[i % area]) && s.valid(yp.first, yp.second);
+    };
     if (total <= maxN) { // every valid vector
         for (size_t i = 0; i < total; ++i) {
             const auto yp = at(i);
-            if (s.valid(yp.first, yp.second)) out.push_back(yp);
+            if (usable(i, yp)) out.push_back(yp);
         }
         return out;
     }
@@ -597,7 +601,7 @@ std::vector<std::pair<int, uint32_t>> sampleVectors(const EmbeddingStore& s, con
         size_t i = size_t((k + std::uniform_real_distribution<double>(0, 1)(rng)) * step);
         for (int tries = 0; tries < 8 && i < total; ++tries, i += std::max<size_t>(1, size_t(step / 8))) {
             const auto yp = at(i);
-            if (s.valid(yp.first, yp.second)) {
+            if (usable(i, yp)) {
                 out.push_back(yp);
                 break;
             }

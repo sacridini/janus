@@ -532,7 +532,7 @@ void App::toolWindow(const ToolUi& ui, int win[4], const char** scopeName) const
         win[1] = roi_->y0;
         win[2] = roi_->x1;
         win[3] = roi_->y1;
-        *scopeName = "ROI";
+        *scopeName = roiPoly_.empty() ? "ROI" : "ROI's bounding box";
     }
 }
 

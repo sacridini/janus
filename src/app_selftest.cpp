@@ -784,6 +784,16 @@ int App::selfTestStep(const std::vector<std::string>& in) {
     case 99:
     case 100:
         return selfTestSpectra(in[6]);
+    case 110:
+    case 111:
+    case 112:
+    case 113:
+    case 114:
+    case 115:
+        return selfTestRoiPolygon(in);
+    case 120:
+        std::printf("OK (%.1f s)\n", now() - st_.t0);
+        return 0;
     }
     return -1;
 }
@@ -956,8 +966,8 @@ int App::selfTestSpectra(const std::string& g) {
         if (r < 0) break;
         if (r > 0) return fail("spectral principal components or similarity");
         next("spectrum: principal components (bands without data left out), similarity as in the file");
-        std::printf("OK (%.1f s)\n", now() - st_.t0);
-        return 0;
+        st_.stage = 110; // the polygonal ROI (110-115), then vector layers (120-...)
+        break;
     }
     }
     return -1;

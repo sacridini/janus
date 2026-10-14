@@ -192,6 +192,25 @@ struct Canvas {
         fillRect(x0 - t / 2, y0 + t / 2, x0 + t / 2, y1 - t / 2, col);
         fillRect(x1 - t / 2, y0 + t / 2, x1 + t / 2, y1 - t / 2, col);
     }
+    // Segment of thickness t, antialiased (coverage from the distance to it).
+    void line(float x0, float y0, float x1, float y1, ImU32 col, float t) {
+        const float ext = t / 2 + 1, dx = x1 - x0, dy = y1 - y0, len2 = dx * dx + dy * dy;
+        const int xa = int(std::floor(std::min(x0, x1) - ext)), xb = int(std::ceil(std::max(x0, x1) + ext));
+        const int ya = int(std::floor(std::min(y0, y1) - ext)), yb = int(std::ceil(std::max(y0, y1) + ext));
+        for (int y = std::max(ya, 0); y <= std::min(yb, h - 1); ++y)
+            for (int x = std::max(xa, 0); x <= std::min(xb, w - 1); ++x) {
+                const float px = x + 0.5f - x0, py = y + 0.5f - y0;
+                const float k = len2 > 0 ? std::clamp((px * dx + py * dy) / len2, 0.f, 1.f) : 0.f;
+                const float d = std::hypot(px - k * dx, py - k * dy);
+                blend(x, y, col, std::clamp(t / 2 + 0.5f - d, 0.f, 1.f));
+            }
+    }
+    // Closed outline through pts (x, y pairs); joints drawn twice look the same at these widths.
+    void polyline(const std::vector<float>& pts, ImU32 col, float t, bool closed = true) {
+        const size_t n = pts.size() / 2;
+        for (size_t i = 0; i + (closed ? 0 : 1) < n; ++i)
+            line(pts[i * 2], pts[i * 2 + 1], pts[(i + 1) % n * 2], pts[(i + 1) % n * 2 + 1], col, t);
+    }
     // Disc (thickness 0) or ring of radius r, antialiased.
     void circle(float cx, float cy, float r, ImU32 col, float t = 0) {
         const float ext = r + t / 2 + 1;
@@ -446,9 +465,19 @@ std::shared_ptr<ExportJob> App::exportPng(const std::string& path, const PngOpti
     };
     const float fs = ImGui::GetFontSize() * ps;
     if (o.marks) {
-        if (roi_) {
+        if (roi_ && roiPoly_.empty()) {
             const ImVec2 a = toPx(roi_->x0, roi_->y0), b = toPx(roi_->x1, roi_->y1);
             cv.rect(a.x, a.y, b.x, b.y, IM_COL32(255, 210, 60, 255), 2 * ps);
+        } else if (roi_) {
+            for (const Ring& r : simplifyPolygon(roiPoly_, 0.25 / scale_)) { // a quarter of a screen point
+                std::vector<float> pts;
+                for (size_t i = 0; i + 1 < r.size(); i += 2) {
+                    const ImVec2 q = toPx(r[i], r[i + 1]);
+                    pts.push_back(q.x);
+                    pts.push_back(q.y);
+                }
+                cv.polyline(pts, IM_COL32(255, 210, 60, 255), 2 * ps);
+            }
         }
         for (const SeriesView& p : pins_) {
             const ImVec2 c = toPx(p.x + 0.5, p.y + 0.5);

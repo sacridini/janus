@@ -295,7 +295,8 @@ void App::frame() {
             for (SeriesView& p : pins_) // pins created while the HDD overview was building
                 if (!p.exact && p.request == 0) p.request = s_->requestSeries(p.x, p.y, false);
             if (pendingRoi_) {
-                roi_ = s_->startRoi(pendingRoiRect_[0], pendingRoiRect_[1], pendingRoiRect_[2], pendingRoiRect_[3]);
+                roi_ = s_->startRoi(pendingRoiRect_[0], pendingRoiRect_[1], pendingRoiRect_[2], pendingRoiRect_[3],
+                                    roiPoly_);
                 roiSeen_ = -1;
                 pendingRoi_ = false;
             }
@@ -408,6 +409,7 @@ void App::clearRoi() {
     pendingRoi_ = false;
     roiMean_.clear();
     roiRect_ = false;
+    roiPoly_.clear();
     ++roiGen_;
     clearOtherRois();
     mapDirty_ = true;
@@ -612,6 +614,7 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyChordPressed(ImGuiKey_F)) fitRequested_ = true;
     if (ImGui::IsKeyChordPressed(ImGuiKey_S)) toggleSatelliteBasemap();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) roiDragging_ = false;
+    roiShortcuts();
     compareShortcuts();
 }
 
@@ -764,6 +767,8 @@ void App::uiPopups() {
             "                        Delete removes the last one)\n"
             "  Shift + drag ........ rectangular ROI (mean and p10-p90 per date; on every\n"
             "                        visible layer with 'All visible layers' on the chart)\n"
+            "  R ................... polygonal ROI: click its vertices (close on the first one,\n"
+            "                        with a double click or Enter) or drag a freehand outline\n"
             "  Ctrl + drag ......... space-time transect along the line (Transect panel);\n"
             "                        T, then drag, does the same (Mac: Command + drag)\n"
             "  C ................... swipe: drag the divider to compare with another\n"
@@ -881,8 +886,8 @@ void App::mapInput(ImVec2 origin, ImVec2 size, int panel, int& ix, int& iy, bool
     inside = hovered && ix >= 0 && iy >= 0 && ix < info.width && iy < info.height;
     if (hovered) mouseInPanel_ = panel;
 
-    // The swipe divider and a transect being drawn take the drag (no pan, pin or ROI).
-    if ((panel == 0 && swipeInput(origin, size)) || transectInput(panel, sx, sy)) return;
+    // The swipe divider, a transect or a polygon being drawn take the drag (no pan, pin or ROI).
+    if ((panel == 0 && swipeInput(origin, size)) || transectInput(panel, sx, sy) || polygonInput(panel, sx, sy)) return;
 
     // Removes the pin drawn under the cursor, if any.
     auto removePinAtCursor = [&] {
@@ -926,17 +931,10 @@ void App::mapInput(ImVec2 origin, ImVec2 size, int panel, int& ix, int& iy, bool
         if (roiDragging_) {
             roiDragging_ = false;
             if (std::fabs(roiEnd_.x - roiStart_.x) >= 1 && std::fabs(roiEnd_.y - roiStart_.y) >= 1) {
-                clearRoi();
-                const int r[4] = {int(std::floor(roiStart_.x)), int(std::floor(roiStart_.y)), int(std::ceil(roiEnd_.x)),
-                                  int(std::ceil(roiEnd_.y))};
-                setRoiRect(r); // the other layers' ROIs (updateOtherRois)
-                if (s_->deferRandomReads()) { // HDD still building: start when done
-                    std::copy(r, r + 4, pendingRoiRect_);
-                    pendingRoi_ = true;
-                } else {
-                    roi_ = s_->startRoi(r[0], r[1], r[2], r[3]);
-                    roiSeen_ = -1;
-                }
+                const float x0 = std::min(roiStart_.x, roiEnd_.x), y0 = std::min(roiStart_.y, roiEnd_.y);
+                const float x1 = std::max(roiStart_.x, roiEnd_.x), y1 = std::max(roiStart_.y, roiEnd_.y);
+                const int r[4] = {int(std::floor(x0)), int(std::floor(y0)), int(std::ceil(x1)), int(std::ceil(y1))};
+                setRoiShape(r, {});
             }
         } else if (io.MouseDragMaxDistanceSqr[0] < 16 && inside && !ctrlClick_) {
             addPin(ix, iy);
@@ -944,7 +942,7 @@ void App::mapInput(ImVec2 origin, ImVec2 size, int panel, int& ix, int& iy, bool
         ctrlClick_ = false;
     }
     if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) removePinAtCursor();
-    if (hovered && !pins_.empty() &&
+    if (hovered && !pins_.empty() && !polyMode_ &&
         (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)))
         removePinById(pins_.back().id);
     // Zoom by a factor around the cursor; zooming out stops at the image extent
@@ -1029,7 +1027,6 @@ void App::mapInput(ImVec2 origin, ImVec2 size, int panel, int& ix, int& iy, bool
 }
 
 void App::drawMapMarks(ImDrawList* dl, ImVec2 origin, int panel, int ix, int iy, bool inside) {
-    const int T = s_->info->T();
     auto toScreen = [&](double x, double y) {
         return origin + ImVec2(float(offset_.x + x * scale_), float(offset_.y + y * scale_));
     };
@@ -1058,21 +1055,7 @@ void App::drawMapMarks(ImDrawList* dl, ImVec2 origin, int panel, int ix, int iy,
         dl->AddRectFilled(tp - ImVec2(3, 1), tp + ts + ImVec2(3, 1), IM_COL32(0, 0, 0, 190), 3.0f);
         dl->AddText(tp, ImGui::ColorConvertFloat4ToU32(pins_[i].color), num);
     }
-    const ImU32 roiCol = IM_COL32(255, 210, 60, 255);
-    if (roiDragging_) dl->AddRect(toScreen(roiStart_.x, roiStart_.y), toScreen(roiEnd_.x, roiEnd_.y), roiCol, 0.0f, ImDrawFlags_None, 2.0f);
-    else if (pendingRoi_) {
-        const ImVec2 a = toScreen(pendingRoiRect_[0], pendingRoiRect_[1]);
-        dl->AddRect(a, toScreen(pendingRoiRect_[2], pendingRoiRect_[3]), roiCol, 0.0f, ImDrawFlags_None, 1.0f);
-        dl->AddText(a + ImVec2(4, 2), roiCol, "ROI: waiting for the overview (HDD)");
-    }
-    else if (roi_) {
-        dl->AddRect(toScreen(roi_->x0, roi_->y0), toScreen(roi_->x1, roi_->y1), roiCol, 0.0f, ImDrawFlags_None, 2.0f);
-        if (roi_->done < T) {
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "ROI %d/%d", roi_->done.load(), T);
-            dl->AddText(toScreen(roi_->x0, roi_->y0) + ImVec2(4, 2), roiCol, buf);
-        }
-    }
+    drawRoiMarks(dl, origin);
     drawTransectMarks(dl, origin);
 }
 

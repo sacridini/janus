@@ -551,8 +551,8 @@ void App::clearOtherRois() {
     }
 }
 
-// With "All visible layers", each visible layer gets the map's rectangle in
-// its own pixels: those whose centres are inside it (the rectangle as a
+// With "All visible layers", each visible layer gets the map's ROI in its own
+// pixels: those whose centres are inside it (a polygon, or the rectangle as a
 // polygon through 16 points per edge for a reprojected layer), read like the
 // active layer's ROI (full-resolution cache when there is one).
 void App::updateOtherRois() {
@@ -567,19 +567,12 @@ void App::updateOtherRois() {
             L.roiSeen = -1;
             L.roiMean.clear();
             const double x0 = roiRectXY_[0], y0 = roiRectXY_[1], x1 = roiRectXY_[2], y1 = roiRectXY_[3];
-            std::vector<double> poly;
+            const Polygon poly = roiOnLayer(L); // empty: the rectangle, straight on this layer
             double b[4];
-            if (L.reproj) {
-                poly = L.reproj->polygon(x0, y0, x1, y1, 16);
-                if (poly.size() < 6) continue;
-                b[0] = b[1] = HUGE_VAL;
-                b[2] = b[3] = -HUGE_VAL;
-                for (size_t i = 0; i + 1 < poly.size(); i += 2) {
-                    b[0] = std::min(b[0], poly[i]);
-                    b[1] = std::min(b[1], poly[i + 1]);
-                    b[2] = std::max(b[2], poly[i]);
-                    b[3] = std::max(b[3], poly[i + 1]);
-                }
+            if (!poly.empty()) {
+                if (!polygonBounds(poly, b)) continue;
+            } else if (L.reproj || !roiPoly_.empty()) {
+                continue; // nothing of it transforms onto this layer
             } else {
                 double ax0, ay0, ax1, ay1;
                 activeToLayer(L, x0, y0, ax0, ay0);

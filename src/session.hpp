@@ -11,6 +11,7 @@
 
 #include "cube.hpp"
 #include "fullres_cache.hpp"
+#include "geom.hpp"
 #include "gpu.hpp"
 #include "job_pool.hpp"
 #include "overview.hpp"
@@ -44,7 +45,8 @@ struct SeriesResult {
     double ms;
 };
 
-// Statistics of a rectangular ROI, date by date (computed in parallel).
+// Statistics of an ROI, date by date (computed in parallel): a rectangle, or
+// the pixels of its bounding box whose centres are inside a polygon.
 struct RoiData {
     int x0, y0, x1, y1;         // source pixels, [x0, x1)
     int bw, bh;                 // size read (may be subsampled)
@@ -76,9 +78,10 @@ public:
     // cancellable call arrives before the read starts (mouse cursor).
     uint64_t requestSeries(int x, int y, bool cancellable);
     std::vector<SeriesResult> takeSeries();
-    // `polygon` (x, y pairs, pixels): only the pixels whose centres are inside
-    // it count (an ROI drawn on another layer's grid); empty = the whole rectangle.
-    std::shared_ptr<RoiData> startRoi(int x0, int y0, int x1, int y1, const std::vector<double>& polygon = {});
+    // `polygon` (rings in pixels, even-odd): only the pixels whose centres are
+    // inside it count (a polygonal ROI, or a rectangle drawn on another layer's
+    // grid); empty = the whole rectangle.
+    std::shared_ptr<RoiData> startRoi(int x0, int y0, int x1, int y1, const Polygon& polygon = {});
     // Starts (or resumes) building the full-resolution cache now, whatever the
     // setting. False if it cannot be built: see fullRes->error().
     bool buildFullRes();

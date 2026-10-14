@@ -16,6 +16,7 @@
 
 #include "basemap.hpp"
 #include "file_browser.hpp"
+#include "geom.hpp"
 #include "platform.hpp"
 #include "gpu.hpp"
 #include "reproject.hpp"
@@ -545,9 +546,33 @@ private:
     int nextPinId_ = 1;
     bool pendingRoi_ = false;    // ROI requested on an HDD while the overview builds
     int pendingRoiRect_[4] = {0, 0, 0, 0};
-    bool roiRect_ = false;       // the map has an ROI rectangle (roiRectXY_, active pixels)
+    bool roiRect_ = false;       // the map has an ROI (roiRectXY_: its bounding box, active pixels)
     int roiRectXY_[4] = {0, 0, 0, 0};
+    Polygon roiPoly_;            // a polygonal ROI (active pixels; empty: the rectangle roiRectXY_)
     uint64_t roiGen_ = 1;        // changes with every new or cleared ROI
+
+    // Polygonal ROI (app_roi.cpp): R, then clicks add vertices and a drag draws
+    // a freehand outline (lasso); Enter, a double click or the first vertex
+    // closes it. Its statistics are those of the pixels whose centres are inside.
+    bool polyMode_ = false;
+    std::vector<ImVec2> polyDraft_; // vertices so far (active pixels)
+    int polyPanel_ = -1;         // map panel where the left button went down in polygon mode
+    ImVec2 polyPress_{0, 0};     // where (active pixels)
+    bool polyLasso_ = false;     // and moved since: this stroke is freehand
+    bool polyDouble_ = false;    // a double click: closes the polygon
+    // A new ROI: `r` its bounding box (active pixels), `poly` its outline (empty:
+    // the rectangle); the active layer's statistics start (or wait for the HDD).
+    void setRoiShape(const int r[4], const Polygon& poly);
+    bool setRoiPolygon(const Polygon& poly); // false if it encloses no pixel's centre
+    bool roiContains(double x, double y) const; // active pixels; the whole map without an ROI
+    // The map's ROI on layer L, in its own pixels (reprojected or scaled); empty
+    // for a rectangle on a layer on the same grid lines.
+    Polygon roiOnLayer(const SeriesLayer& L) const;
+    bool polygonInput(int panel, double sx, double sy);
+    void finishPolygon();
+    void roiShortcuts();        // R, Enter, Backspace, Esc
+    void drawRoiMarks(ImDrawList* dl, ImVec2 origin);
+    int selfTestRoiPolygon(const std::vector<std::string>& in); // --selftest-ui stages 110-115
     // Chart
     int plotStyle_ = 1;          // 0 lines, 1 lines+markers, 2 markers, 3 stems, 4 stairs
     int plotValues_ = 0;         // 0 values, 1 anomaly (- series mean), 2 z-score
@@ -724,7 +749,9 @@ private:
     SeriesLayer* embeddingLayer();               // the active layer if it holds embeddings, else the top one
     bool embeddingView(const SeriesLayer& L) const; // drawn as embeddings (not as one band)
     bool embeddingPixel(const SeriesLayer& L, double ax, double ay, size_t& p) const;
-    bool embeddingRoi(const SeriesLayer& L, int rect[4]) const;
+    // The map's ROI on L's store (x0, y0, x1, y1) and, for a polygon or another
+    // CRS, `mask`: one cell per store pixel of rect, 1 where its centre is inside.
+    bool embeddingRoi(const SeriesLayer& L, int rect[4], std::vector<char>* mask = nullptr) const;
     void updateEmbeddingRef(SeriesLayer& L, int t);
     uint64_t embeddingKey(const SeriesLayer& L, int t) const;
     void pumpEmbeddings();

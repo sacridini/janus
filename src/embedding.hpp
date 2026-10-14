@@ -130,10 +130,11 @@ struct PcaBasis {
 };
 
 // Up to maxN valid (year, pixel) pairs: every year (allYears) or year t, inside
-// rect (store pixels x0, y0, x1, y1; nullptr = everywhere), evenly spread, with
-// a fixed seed (the same request gives the same sample).
+// rect (store pixels x0, y0, x1, y1, within the store; nullptr = everywhere)
+// and, with `mask` (one cell per pixel of rect, row by row), where it is not 0;
+// evenly spread, with a fixed seed (the same request gives the same sample).
 std::vector<std::pair<int, uint32_t>> sampleVectors(const EmbeddingStore& s, const int* rect, size_t maxN,
-                                                    bool allYears, int t);
+                                                    bool allYears, int t, const std::vector<char>* mask = nullptr);
 // PCA of the sample: covariance in parallel with the SIMD kernel, then topEigen.
 // `shown` and `stretchPct` set the drawn components and their percentile stretch.
 PcaBasis fitPca(const EmbeddingStore& s, const std::vector<std::pair<int, uint32_t>>& sample, int k,

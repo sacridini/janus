@@ -87,6 +87,7 @@ set(JANUS_SOURCES
   src/app_embeddings.cpp
   src/app_export.cpp
   src/app_fullres.cpp
+  src/app_roi.cpp
   src/app_layers.cpp
   src/app_selftest.cpp
   src/app_settings.cpp
@@ -102,6 +103,7 @@ set(JANUS_SOURCES
   src/embedding.cpp
   src/embedding_simd.cpp
   src/fullres_cache.cpp
+  src/geom.cpp
   src/overview.cpp
   src/platform.cpp
   src/reproject.cpp

@@ -145,6 +145,11 @@ void App::uiCompareMenu() {
     if (ImGui::MenuItem("Swipe", "C", swipe_, s_ != nullptr)) toggleSwipe();
     if (ImGui::MenuItem("Draw transect", "T or Ctrl+drag", transectMode_, s_ != nullptr)) transectMode_ = !transectMode_;
     if (ImGui::MenuItem("Clear transect", nullptr, false, tr_.on)) clearTransect();
+    if (ImGui::MenuItem("Draw ROI polygon", "R", polyMode_, s_ != nullptr)) {
+        polyMode_ = !polyMode_;
+        polyDraft_.clear();
+    }
+    if (ImGui::MenuItem("Clear ROI", nullptr, false, roiRect_ || roi_ || pendingRoi_)) clearRoi();
     ImGui::Separator();
 }
 

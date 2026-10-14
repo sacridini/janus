@@ -212,9 +212,29 @@ bool App::embeddingPixel(const SeriesLayer& L, double ax, double ay, size_t& p) 
 }
 
 // The map's ROI on L, in store pixels (x0, y0, x1, y1).
-bool App::embeddingRoi(const SeriesLayer& L, int rect[4]) const {
+bool App::embeddingRoi(const SeriesLayer& L, int rect[4], std::vector<char>* mask) const {
     if (!roiRect_ || !L.emb || !L.emb->store || L.emb->store->w == 0) return false;
     const EmbeddingStore& S = *L.emb->store;
+    if (mask) mask->clear();
+    if (Polygon poly = roiOnLayer(L); !poly.empty()) { // a polygon, or a rectangle in another CRS
+        transformPolygon(poly, [&](double& x, double& y) {
+            x /= S.fx;
+            y /= S.fy;
+            return true;
+        });
+        double b[4];
+        if (!polygonBounds(poly, b)) return false;
+        rect[0] = std::clamp(int(std::floor(b[0])), 0, S.w);
+        rect[1] = std::clamp(int(std::floor(b[1])), 0, S.h);
+        rect[2] = std::clamp(int(std::ceil(b[2])), 0, S.w);
+        rect[3] = std::clamp(int(std::ceil(b[3])), 0, S.h);
+        if (rect[2] <= rect[0] || rect[3] <= rect[1]) return false;
+        if (mask) {
+            const int w = rect[2] - rect[0], h = rect[3] - rect[1];
+            *mask = polygonMask(poly, rect[0], rect[1], w, h, w, h);
+        }
+        return true;
+    }
     double x0 = 1e300, y0 = 1e300, x1 = -1e300, y1 = -1e300;
     const double cx[2] = {double(roiRectXY_[0]), double(roiRectXY_[2])};
     const double cy[2] = {double(roiRectXY_[1]), double(roiRectXY_[3])};
@@ -367,8 +387,9 @@ void App::updateEmbeddingRef(SeriesLayer& L, int t) {
             }
     } else if (E.refKind == 2) {
         int r[4];
-        if (!embeddingRoi(L, r)) return;
-        const uint64_t key = mix(mix(mix(mix(mix(2, r[0]), r[1]), r[2]), r[3]), uint64_t(year));
+        std::vector<char> mask;
+        if (!embeddingRoi(L, r, &mask)) return;
+        const uint64_t key = mix(mix(mix(mix(mix(mix(2, r[0]), r[1]), r[2]), r[3]), uint64_t(year)), roiGen_);
         if (key == E.refKey) return;
         std::vector<double> sum(S.D, 0.0);
         std::vector<float> v(S.D);
@@ -377,6 +398,7 @@ void App::updateEmbeddingRef(SeriesLayer& L, int t) {
         for (int y = r[1]; y < r[3]; y += step)
             for (int x = r[0]; x < r[2]; x += step) {
                 const size_t p = size_t(y) * S.w + x;
+                if (!mask.empty() && !mask[size_t(y - r[1]) * (r[2] - r[0]) + (x - r[0])]) continue;
                 if (!S.valid(year, p)) continue;
                 S.dequant(year, p, v.data());
                 for (int d = 0; d < S.D; ++d) sum[d] += v[d];
@@ -477,19 +499,23 @@ void App::pumpEmbeddings() {
         // of the ROI (local PCA).
         if (E.view == EmbeddingLayer::Pca) {
             int rect[4] = {0, 0, 0, 0};
-            const bool local = E.scope == 1 && embeddingRoi(L, rect);
+            auto mask = std::make_shared<std::vector<char>>();
+            const bool local = E.scope == 1 && embeddingRoi(L, rect, mask.get());
             uint64_t want = mix(mix(mix(21, local), uint64_t(S.yearsDone())), uint64_t(E.comps[0] + 8 * E.comps[1] + 64 * E.comps[2]));
             want = mixF(want, E.stretch);
-            if (local)
+            if (local) {
                 for (int v : rect) want = mix(want, uint64_t(v));
+                if (!mask->empty()) want = mix(want, roiGen_); // the same box, another polygon
+            }
             if (want != E.basisHave && want != E.basisSent) {
                 E.basisSent = want;
                 auto store = E.store;
                 EmbeddingLayer* e = &E;
                 const std::array<int, 3> comps = E.comps;
                 const float stretch = E.stretch;
-                E.engine->submit("basis", [e, store, rect, local, comps, stretch, want] {
-                    const auto sample = sampleVectors(*store, local ? rect : nullptr, 65536, true, 0);
+                E.engine->submit("basis", [e, store, rect, mask, local, comps, stretch, want] {
+                    const auto sample = sampleVectors(*store, local ? rect : nullptr, 65536, true, 0,
+                                                      local && !mask->empty() ? mask.get() : nullptr);
                     auto B = std::make_shared<PcaBasis>(fitPca(*store, sample, 6, comps, stretch, e->engine->pool()));
                     B->years = store->yearsDone();
                     std::lock_guard<std::mutex> lk(e->m);
@@ -958,8 +984,9 @@ void App::uiEmbeddings() {
         if (ImGui::RadioButton("ROI (local)", &E.scope, 1)) mapDirty_ = true;
         ImGui::SetItemTooltip("PCA of the ROI's pixels only (every year), applied to the whole map: the\n"
                               "colours spread over the differences inside the ROI (outside it, they saturate).\n"
-                              "Draw or move the ROI with Shift + drag: it is fitted again at once.");
-        if (E.scope == 1 && !hasRoi) ImGui::TextColored(theme::warning(), "Draw an ROI: Shift + drag on the map");
+                              "Draw the ROI again (Shift + drag, or R for a polygon): it is fitted again at once.");
+        if (E.scope == 1 && !hasRoi)
+            ImGui::TextColored(theme::warning(), "Draw an ROI: Shift + drag on the map, or R for a polygon");
         const int k = E.basis ? E.basis->k : 6;
         const char* names[3] = {"R", "G", "B"};
         for (int c = 0; c < 3; ++c) {

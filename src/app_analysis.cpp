@@ -589,6 +589,7 @@ void App::computeScatter(ScatterData& sc, const SeriesLayer& X, int tx, const Se
     for (int y = y0; y < y1; y += step)
         for (int x = x0; x < x1; x += step) {
             float a, b;
+            if (!roiPoly_.empty() && !pointInPolygon(roiPoly_, x + 0.5, y + 0.5)) continue; // a polygonal ROI
             if (sample(X, tx, x + 0.5, y + 0.5, a) && sample(Y, ty, x + 0.5, y + 0.5, b)) {
                 sc.x.push_back(a);
                 sc.y.push_back(b);
