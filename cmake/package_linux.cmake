@@ -55,9 +55,9 @@ if(unresolved)
 endif()
 
 foreach(plugin IN LISTS plugins)
-  get_filename_component(name "${plugin}" NAME)
-  file(COPY_FILE "${plugin}" "${stage}/lib/gdalplugins/${name}")
-  file(RPATH_SET FILE "${stage}/lib/gdalplugins/${name}" NEW_RPATH "$ORIGIN/..")
+  get_filename_component(plugin_name "${plugin}" NAME)
+  file(COPY_FILE "${plugin}" "${stage}/lib/gdalplugins/${plugin_name}")
+  file(RPATH_SET FILE "${stage}/lib/gdalplugins/${plugin_name}" NEW_RPATH "$ORIGIN/..")
 endforeach()
 
 file(COPY "${EXE}" DESTINATION "${stage}")
