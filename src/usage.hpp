@@ -6,7 +6,7 @@
 
 // Shared by janus (the GUI) and jn.com (the Windows console launcher).
 inline const char* kUsage =
-    "Janus " JANUS_VERSION " - raster time series viewer\n"
+    "Janus " JANUS_VERSION " - raster time series analysis\n"
     "\n"
     "Usage:\n"
     "  jn [options] [input ...]\n"

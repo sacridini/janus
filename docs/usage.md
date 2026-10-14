@@ -233,7 +233,7 @@ jn NETCDF:"cmip6.nc":tas --band 3     (the 3rd level of a variable with levels)
 a small console launcher next to `janus.exe`, the same trick Visual Studio uses with
 `devenv.com`).
 
-## Using the viewer
+## Using the window
 
 | Action | How |
 |---|---|

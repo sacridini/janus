@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <b>A fast desktop viewer for raster time series and data cubes.</b>
+  <b>Explore, analyse and validate raster time series and data cubes.</b>
 </p>
 
 <p align="center">
@@ -24,9 +24,13 @@
 
 ![Janus: map, time series and statistics of an annual NDVI cube](docs/screenshot.jpg)
 
-Janus opens a folder of rasters as a data cube, keeps the whole cube on the GPU
-and shows the time series of any pixel as you move the mouse. It is made to
-explore time series quickly, not to be a full GIS. Its command line is `jn`.
+Janus opens a folder of rasters, a multiband stack, a NetCDF or Zarr, or
+cloud-optimized GeoTIFFs as a data cube, keeps it on the GPU and shows the time
+series of any pixel as you move the mouse. It detects change with LandTrendr,
+CCDC, BFAST, CODED and the other tools of [Zeit](https://github.com/sacridini/zeit-cdts),
+fitted live on the chart or run over the image, and validates the maps they make,
+down to their error-adjusted areas. Zeit runs in a Python runtime bundled with
+Janus: nothing else to install. Its command line is `jn`.
 
 ## Features
 

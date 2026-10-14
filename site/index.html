@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Janus · Raster time series viewer</title>
-<meta name="description" content="Janus is a fast desktop viewer for raster time series and data cubes. It keeps the whole cube on the GPU and reads the exact series of any pixel while you hover. Windows, macOS and Linux.">
+<title>Janus · Raster time series analysis</title>
+<meta name="description" content="Janus is a desktop app to explore, analyse and validate raster time series and data cubes: the series of any pixel as you hover, change detection with LandTrendr, CCDC, BFAST and CODED, and map validation with error-adjusted areas. Windows, macOS and Linux.">
 <meta name="theme-color" content="#0F0F0F">
 <link rel="icon" href="favicon.svg?v=3" type="image/svg+xml">
 <link rel="icon" href="favicon.ico?v=3" sizes="any">
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=3">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Janus · Raster time series viewer">
-<meta property="og:description" content="A fast desktop viewer for raster time series and data cubes, with change detection built in.">
+<meta property="og:title" content="Janus · Raster time series analysis">
+<meta property="og:description" content="Explore, analyse and validate raster time series: the series of any pixel, change detection with LandTrendr, CCDC, BFAST and CODED, and the accuracy and area of the maps they make.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -49,8 +49,8 @@
       <img class="hero-mark" src="assets/img/janus-simbolo.svg?v=3" alt="" width="240" height="240">
       <img class="hero-name" src="assets/img/janus-nome.svg?v=3" alt="Janus" width="478" height="240">
     </h1>
-    <p class="eyebrow">Raster time series viewer · <span data-version>Windows · macOS · Linux</span></p>
-      <p class="lede">Janus opens a folder of rasters as a data cube, keeps the whole cube on the GPU and shows the series of any pixel as you move the mouse. It is built to explore time series quickly, not to be a full GIS.</p>
+    <p class="eyebrow">Raster time series analysis · <span data-version>Windows · macOS · Linux</span></p>
+      <p class="lede">Janus opens a folder of rasters, a multiband stack, a NetCDF or a cloud-optimized GeoTIFF as a data cube and shows the series of any pixel as you move the mouse. It detects change with LandTrendr, CCDC, BFAST, CODED and the other Zeit tools, on the chart and over the image, and validates the maps they make, down to their error-adjusted areas.</p>
       <div class="cta">
         <a class="btn btn-primary" data-dl="auto" href="https://github.com/sacridini/janus/releases/latest">Download</a>
         <a class="btn btn-ghost" href="https://github.com/sacridini/janus">View on GitHub</a>
@@ -207,7 +207,7 @@
         <p class="tag">Analysis</p>
         <h3>Change detection built in</h3>
         <p>Fit LandTrendr, BFAST, CCDC and other <a href="#tools">Zeit tools</a> live on the cursor and pins, or run them on the image, with the results added as map layers.</p>
-        <p class="spec">9 tools · no Python to install</p>
+        <p class="spec">14 tools · no Python to install</p>
       </article>
       <article>
         <p class="tag">Validation</p>
@@ -345,7 +345,7 @@ jn "S2_*_NDVI.tif" --band 1
     <div class="qa">
       <details>
         <summary>Is Janus a GIS?</summary>
-        <p>No. It is a viewer for exploring time series quickly: open, move through time, inspect any pixel and run change and trend analyses. For editing vectors, reprojecting or making maps, keep using your GIS.</p>
+        <p>No. It is made for time: open a series, move through it, inspect any pixel, detect change with the Zeit tools and validate the maps they make. For editing vectors or laying out maps, keep using your GIS: Janus hands it GeoTIFFs, PNGs, CSVs and GeoPackages.</p>
       </details>
       <details>
         <summary>Which files can it open?</summary>
