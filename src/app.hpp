@@ -263,6 +263,14 @@ private:
     bool showSettings_ = false, focusSettings_ = false;
     int theme_ = 0;                  // theme::Id
     int appliedTheme_ = -1;
+    // Transparency (Settings): the panels' backgrounds (the desktop shows through
+    // the transparent framebuffer, text and data stay opaque) and the whole
+    // window's opacity (every OS window: the main one and the detached panels).
+    float panelOpacity_ = 1.0f, appliedPanelOpacity_ = -1.0f;
+    float windowOpacity_ = 1.0f;
+    std::map<void*, float> windowOpacityApplied_; // GLFWwindow -> the opacity it was given
+    void applyWindowOpacity();                     // once per frame, cheap when nothing changed
+    void mapBackground(float rgba[4]) const;       // the map's empty background on screen
     int fontSize_ = kDefaultFontSize; // interface text, in points
     int appliedFontSize_ = -1;
     ImFont* fontBitmap_ = nullptr;   // ImGui's pixel font, at its 13 px

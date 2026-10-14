@@ -141,8 +141,9 @@
   it. Dropping files with **Shift** held adds them as a layer.
 - **Detachable panels**: drag any panel out of the main window, e.g. the map on
   a second monitor and the charts on the first.
-- **Settings** (File → Settings, `Ctrl+,`): a dark, light, classic or Janus
-  colour theme, the interface font size, and how many CPU threads Janus and Zeit may use (all cores but
+- **Settings** (File → Settings, `Ctrl+,`): a colour theme (dark, light,
+  classic, Janus, Studio, Graphite or Matrix), translucent panels or a
+  translucent window (the desktop shows through), the interface font size, and how many CPU threads Janus and Zeit may use (all cores but
   2 by default, so the computer stays responsive during long runs).
 - **Zeit tools** ([Zeit](https://github.com/sacridini/zeit-cdts) change detection
   and time-series algorithms): **LandTrendr**, **Mann-Kendall** (with Sen's
@@ -662,7 +663,9 @@ once and is kept in the layout file, next to the other data of Janus
 
 | Setting | What it does |
 |---|---|
-| Theme | **Dark** (the default), **Light**, **Classic** (ImGui's original colours), **Janus** (the program's colours: blue on navy panels, orange accents), **Studio** (mid grey with dark text and dark chart displays) or **Graphite** (dark grey with a yellow accent). Status text and chart series are adjusted to stay legible on each; the map, its colour bars and exported figures keep their colours |
+| Theme | **Dark** (the default), **Light**, **Classic** (ImGui's original colours), **Janus** (the program's colours: blue on navy panels, orange accents), **Studio** (mid grey with dark text and dark chart displays) **Graphite** (dark grey with a yellow accent) or **Matrix** (phosphor green on black). Status text and chart series are adjusted to stay legible on each; the map, its colour bars and exported figures keep their colours |
+| Panels' background | How opaque the panels' backgrounds are, 10 to 100% (100% by default): below 100% the desktop (or whatever is behind the window) shows through the panels, the menus and the map's empty area, while text, chart lines, controls and the map's data stay opaque; in every window, the detached panels' included. Contrast is kept on the theme's own colours |
+| Whole window | The opacity of the whole window, 20 to 100% (the system's window transparency: text and map included), and of every detached panel |
 | Font size | Size of the interface text, 10 to 28 px (13 by default: ImGui's pixel font; other sizes use its scalable font). Widgets keep their widths; exported figures keep their text as at 13 px |
 | Files panel follows what is opened | On by default: opening a series, a file or a folder (from anywhere) expands the Files panel down to it and scrolls there; its folder is listed again, so new files show up |
 | Processing threads | How many CPU threads Janus and Zeit may use, shown as *N of M* logical cores; default: all but 2 (at least 1), so the computer stays responsive during long runs. Applies to the readers of the open series (they shrink or grow at once), the full-resolution cache, exports (GeoTIFF compression, PNG) and Zeit: raster jobs started from then on (as `OMP_NUM_THREADS`, `NUMBA_NUM_THREADS`, the BLAS limits and Zeit's `n_jobs`; jobs already running keep theirs) and the process that fits the chart and estimates run times (replaced in the background once idle) |

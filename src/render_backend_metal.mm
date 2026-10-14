@@ -34,6 +34,8 @@ const char* name() { return "Metal"; }
 GLFWwindow* createWindow(int w, int h, const char* title, bool visible, std::string& error) {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+    // A non-opaque window and layer: translucent panels (Settings) show the desktop.
+    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
     if (!visible) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // never shown, never takes focus
     id<MTLDevice> dev = janusMetalDevice();
     if (!dev) {
@@ -50,6 +52,7 @@ GLFWwindow* createWindow(int w, int h, const char* title, bool visible, std::str
     g_layer.device = dev;
     g_layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     g_layer.framebufferOnly = YES;
+    g_layer.opaque = NO; // its alpha is composited (premultiplied), as the GL window's
     g_layer.displaySyncEnabled = YES; // vsync
     g_layer.contentsScale = nswin.backingScaleFactor;
     nswin.contentView.layer = g_layer;

@@ -8,19 +8,23 @@
 // marks stay the same on every theme (and in exported figures).
 namespace theme {
 
-enum Id { Dark = 0, Light, Classic, Janus, Studio, Graphite, Count };
+enum Id { Dark = 0, Light, Classic, Janus, Studio, Graphite, Matrix, Count };
 const char* name(int id);
-// Sets ImGui's and ImPlot's colours (and Janus' fixed style: square, opaque
-// windows, so detached panels look like OS windows).
-void apply(int id);
+// Sets ImGui's and ImPlot's colours (and Janus' fixed style: square windows,
+// so detached panels look like OS windows). `panelOpacity` < 1: the panels'
+// backgrounds (and where no panel is) let the desktop show through the
+// window's transparent framebuffer; text, lines and controls stay opaque.
+void apply(int id, float panelOpacity = 1.0f);
 int current();
+float panelOpacity();
 
 // Status text on the window background.
 ImVec4 accent();       // active layer, tool in use
 ImVec4 warning();
 ImVec4 error();
 ImVec4 cursorSeries(); // the cursor's series on the chart (white on dark themes)
-// Where no panel is (behind the dock space).
+// Where no panel is (behind the dock space): premultiplied by the panels'
+// opacity, as the system composites a transparent window.
 void clearColor(float rgba[4]);
 
 // WCAG contrast ratio of two colours (alpha ignored), 1 to 21.

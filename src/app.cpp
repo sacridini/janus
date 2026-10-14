@@ -267,7 +267,8 @@ void App::setT(int t) {
 
 void App::frame() {
     const auto frameStart = std::chrono::steady_clock::now();
-    if (appliedTheme_ != theme_) applyTheme(); // also the one read from the layout file
+    if (appliedTheme_ != theme_ || appliedPanelOpacity_ != panelOpacity_) applyTheme(); // also the layout file's
+    applyWindowOpacity();
     gestures_ = platform::takeGestures();
     if (!pendingDrop.empty() && !opening_.valid() && !animRun_) {
         auto drop = std::move(pendingDrop);
@@ -1197,7 +1198,9 @@ void App::uiMap() {
     }
 
     if (mapDirty_) {
-        renderMap(int(size.x), int(size.y), pixelScale);
+        float bg[4];
+        mapBackground(bg);
+        renderMap(int(size.x), int(size.y), pixelScale, 0, bg);
         mapDirty_ = false;
         viewsStale_ = true; // what moved the main map moves the panels too
     }
@@ -1754,7 +1757,8 @@ void App::uiMapView(MapView& v) {
 }
 
 void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
-    const float bg[4] = {0.10f, 0.10f, 0.115f, 1.0f};
+    float bg[4];
+    mapBackground(bg);
     gpu_.beginMap(int(std::lround(w * pixelScale)), int(std::lround(h * pixelScale)), bg, v.id);
     // Active layer's pixels -> pixels of this panel's target.
     auto screenRect = [&](double x0, double y0, double x1, double y1, float r[4]) {

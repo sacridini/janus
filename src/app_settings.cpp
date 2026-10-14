@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -18,6 +19,8 @@
 
 #include <imgui_internal.h>
 #include <implot.h>
+
+#include "glfw.hpp"
 
 namespace fs = std::filesystem;
 
@@ -47,6 +50,8 @@ void App::registerSettings() {
         else if (value("RevealOpened=", v)) app.revealOpened_ = v != 0;
         else if (std::strncmp(line, "ExportDir=", 10) == 0) app.exportDir_ = line + 10;
         else if (std::strncmp(line, "Ffmpeg=", 7) == 0) app.ffmpegPath_ = line + 7;
+        else if (value("PanelOpacity=", v)) app.panelOpacity_ = std::clamp(v, 10, 100) / 100.0f;
+        else if (value("WindowOpacity=", v)) app.windowOpacity_ = std::clamp(v, 20, 100) / 100.0f;
         else if (std::strncmp(line, "Favorite=", 9) == 0 && line[9]) app.files_.addFavorite(line + 9);
         else if (std::strncmp(line, "Theme=", 6) == 0)
             for (int i = 0; i < theme::Count; ++i)
@@ -65,10 +70,12 @@ void App::registerSettings() {
         const App& app = *static_cast<App*>(handler->UserData);
         const SessionSettings& s = app.settings_;
         buf->appendf("[Janus][Settings]\nFullResCache=%d\nFullResBudgetGB=%d\nOverviewBudgetMB=%d\nThreads=%d\n"
-                     "Theme=%s\nFontSize=%d\nRevealOpened=%d\nExportDir=%s\nFfmpeg=%s\n",
+                     "Theme=%s\nFontSize=%d\nRevealOpened=%d\nExportDir=%s\nFfmpeg=%s\nPanelOpacity=%d\n"
+                     "WindowOpacity=%d\n",
                      s.fullResMode, int(s.fullResBudgetBytes >> 30), app.overviewBudgetMB_, s.threads,
                      theme::name(app.theme_), app.fontSize_, int(app.revealOpened_), app.exportDir_.c_str(),
-                     app.ffmpegPath_.c_str());
+                     app.ffmpegPath_.c_str(), int(std::lround(app.panelOpacity_ * 100)),
+                     int(std::lround(app.windowOpacity_ * 100)));
         for (const std::string& f : app.files_.favorites()) buf->appendf("Favorite=%s\n", f.c_str()); // one line each
         buf->append("\n");
     };
@@ -76,11 +83,42 @@ void App::registerSettings() {
 }
 
 void App::applyTheme() {
-    theme::apply(theme_);
+    theme::apply(theme_, panelOpacity_);
     appliedTheme_ = theme_;
+    appliedPanelOpacity_ = panelOpacity_;
     // The cursor's series: white on the dark themes, near black on the light one.
     hover_.color = theme::cursorSeries();
     for (SeriesLayer& L : layers_) L.hover.color = theme::cursorSeries();
+}
+
+// The whole window's opacity, on every OS window: the main one and the panels
+// detached to windows of their own (given it once each, and again when it changes).
+void App::applyWindowOpacity() {
+    auto give = [&](GLFWwindow* w) {
+        if (!w) return;
+        float& applied = windowOpacityApplied_.try_emplace(w, -1.0f).first->second;
+        if (applied == windowOpacity_) return;
+        glfwSetWindowOpacity(w, windowOpacity_);
+        applied = windowOpacity_;
+    };
+    give(window_);
+    const ImGuiPlatformIO& pio = ImGui::GetPlatformIO();
+    for (int i = 1; i < pio.Viewports.Size; ++i) give(static_cast<GLFWwindow*>(pio.Viewports[i]->PlatformHandle));
+    // Windows of panels docked back: their handles go (a new window may reuse one).
+    for (auto it = windowOpacityApplied_.begin(); it != windowOpacityApplied_.end();) {
+        bool alive = it->first == window_;
+        for (int i = 1; i < pio.Viewports.Size && !alive; ++i) alive = pio.Viewports[i]->PlatformHandle == it->first;
+        it = alive ? std::next(it) : windowOpacityApplied_.erase(it);
+    }
+}
+
+// The map's background where no layer is drawn: translucent with the panels.
+void App::mapBackground(float rgba[4]) const {
+    const float o = theme::panelOpacity();
+    rgba[0] = 0.10f;
+    rgba[1] = 0.10f;
+    rgba[2] = 0.115f;
+    rgba[3] = o;
 }
 
 // Both of ImGui's fonts are loaded once: the pixel one keeps the usual look at
@@ -135,8 +173,28 @@ void App::uiSettings() {
     ImGui::SetItemTooltip("Dark: ImGui's dark colours (the default). Light: dark text on light panels.\n"
                           "Classic: ImGui's original colours. Janus: the program's own colours\n"
                           "(blue on navy panels, orange accents). Studio: mid grey with dark text\n"
-                          "and dark chart displays. Graphite: dark grey with a yellow accent.");
+                          "and dark chart displays. Graphite: dark grey with a yellow accent.\n"
+                          "Matrix: phosphor green on black.");
     ImGui::TextDisabled("The map, its colour bars and exported figures keep their colours.");
+    // Transparency: what is behind the window shows through.
+    int panel = int(std::lround(panelOpacity_ * 100)), window = int(std::lround(windowOpacity_ * 100));
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::SliderInt("##panelopacity", &panel, 10, 100, "panels' background: %d%% opaque")) {
+        panelOpacity_ = panel / 100.0f; // applied next frame
+        ImGui::MarkIniSettingsDirty();
+    }
+    ImGui::SetItemTooltip("Lower it to see the desktop behind the panels: their backgrounds and the map's\n"
+                          "empty area become translucent; text, chart lines, controls and the map's data stay\n"
+                          "opaque. In every window, the detached panels' included.");
+    if (panelOpacity_ < 1.0f && !glfwGetWindowAttrib(window_, GLFW_TRANSPARENT_FRAMEBUFFER))
+        ImGui::TextColored(theme::warning(), "This system draws the window opaque (no transparent framebuffer).");
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::SliderInt("##windowopacity", &window, 20, 100, "whole window: %d%% opaque")) {
+        windowOpacity_ = window / 100.0f;
+        ImGui::MarkIniSettingsDirty();
+    }
+    ImGui::SetItemTooltip("The opacity of the whole window, text and map included (the system's window\n"
+                          "transparency), and of every detached panel.");
     ImGui::SetNextItemWidth(-1);
     if (ImGui::SliderInt("##font", &fontSize_, kMinFontSize, kMaxFontSize, "Font size: %d px",
                          ImGuiSliderFlags_AlwaysClamp))
@@ -298,6 +356,56 @@ const char* App::selfTestSettings() {
         if (minHeader < 4.5f) return failed("a theme has table headers below 4.5:1");
         if (id == theme::Dark && changed) return failed("the dark theme must draw the data colours unchanged");
     }
+
+    // Transparency: translucent panel backgrounds with opaque text, the contrast
+    // judged on the theme's own colours, the map's empty area translucent and its
+    // data opaque; the whole window's opacity on the OS window.
+    theme_ = theme::Matrix;
+    applyTheme();
+    const ImVec4 opaqueBg = theme::background();
+    float clear1[4];
+    theme::clearColor(clear1);
+    panelOpacity_ = 0.4f;
+    applyTheme();
+    float clear[4], bg[4];
+    theme::clearColor(clear);
+    mapBackground(bg);
+    const ImVec4 win = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg), text = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+    const ImVec4 now = theme::background();
+    const bool styleOk = std::fabs(win.w - 0.4f) < 1e-4f && text.w == 1.0f && now.x == opaqueBg.x &&
+                         now.y == opaqueBg.y && now.z == opaqueBg.z && std::fabs(clear[3] - 0.4f) < 1e-4f &&
+                         std::fabs(clear[1] - clear1[1] * 0.4f) < 1e-4f && std::fabs(bg[3] - 0.4f) < 1e-4f;
+    std::printf("    panels at 40%%: window background alpha %.2f, text %.2f, clear colour premultiplied (%.3f, %.2f), "
+                "framebuffer with alpha: %s\n",
+                win.w, text.w, clear[1], clear[3], glfwGetWindowAttrib(window_, GLFW_TRANSPARENT_FRAMEBUFFER) ? "yes" : "no");
+    if (!styleOk) {
+        panelOpacity_ = 1.0f;
+        return failed("translucent panels: backgrounds at the opacity, text opaque, contrast on the opaque theme");
+    }
+    if (s_) { // the map: its empty area at the panels' opacity, the data opaque
+        canvasSize_ = ImVec2(400, 300);
+        fitView(canvasSize_);
+        renderMap(400, 300, 1.0f, 0, bg);
+        unsigned char empty[4], data[4];
+        gpu_.readMapPixel(2, 2, empty);       // the corner, outside the image fitted at 98%
+        gpu_.readMapPixel(200, 150, data);
+        std::printf("    map at 40%%: empty area alpha %d, data alpha %d\n", empty[3], data[3]);
+        mapDirty_ = true;
+        if (std::abs(empty[3] - 102) > 2 || data[3] != 255) {
+            panelOpacity_ = 1.0f;
+            return failed("the map's empty area should take the panels' opacity, its data stay opaque");
+        }
+    }
+    panelOpacity_ = 1.0f;
+    windowOpacity_ = 0.6f;
+    applyWindowOpacity();
+    const float got = glfwGetWindowOpacity(window_);
+    windowOpacity_ = 1.0f;
+    applyWindowOpacity();
+    std::printf("    window opacity 60%%: the OS window reports %.2f, back to %.2f\n", got, glfwGetWindowOpacity(window_));
+#ifdef _WIN32
+    if (std::fabs(got - 0.6f) > 0.01f) return failed("the window's opacity should reach the OS window");
+#endif
     restore();
     return nullptr;
 }

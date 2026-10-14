@@ -19,6 +19,10 @@ GLFWwindow* createWindow(int w, int h, const char* title, bool visible, std::str
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE); // required for a core profile on macOS
 #endif
     glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+    // An alpha channel the system composites (premultiplied): translucent panels
+    // (Settings) show the desktop. Opaque as long as everything is drawn opaque;
+    // the hint stays for the detached panels' windows, created later.
+    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
     if (!visible) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // never shown, never takes focus
     GLFWwindow* window = glfwCreateWindow(w, h, title, nullptr, nullptr);
     if (!window) {

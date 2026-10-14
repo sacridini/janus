@@ -198,6 +198,85 @@ void graphiteColors(ImVec4* c) {
     c[ImGuiCol_DragDropTarget] = yellow;
 }
 
+// Matrix: phosphor green on black, the controls in dark greens, the charts on
+// black with a green grid (the default font is already monospaced).
+void matrixColors(ImVec4* c) {
+    ImGui::StyleColorsDark();
+    const ImVec4 green = rgb(0x00FF41), mid = rgb(0x00B32D), win = rgb(0x000000);
+    c[ImGuiCol_Text] = green;
+    c[ImGuiCol_TextDisabled] = rgb(0x22A047);
+    c[ImGuiCol_WindowBg] = win;
+    c[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_PopupBg] = rgb(0x020A04);
+    c[ImGuiCol_Border] = rgb(0x0B4F1F);
+    c[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_FrameBg] = rgb(0x03180A);
+    c[ImGuiCol_FrameBgHovered] = rgb(0x06301A);
+    c[ImGuiCol_FrameBgActive] = rgb(0x0A4424);
+    c[ImGuiCol_TitleBg] = rgb(0x010802);
+    c[ImGuiCol_TitleBgActive] = rgb(0x03200B);
+    c[ImGuiCol_TitleBgCollapsed] = rgb(0x010802);
+    c[ImGuiCol_MenuBarBg] = rgb(0x020E05);
+    c[ImGuiCol_ScrollbarBg] = rgb(0x010502);
+    c[ImGuiCol_ScrollbarGrab] = rgb(0x0B4F1F);
+    c[ImGuiCol_ScrollbarGrabHovered] = rgb(0x107A2E);
+    c[ImGuiCol_ScrollbarGrabActive] = mid;
+    c[ImGuiCol_CheckMark] = green;
+    c[ImGuiCol_SliderGrab] = mid;
+    c[ImGuiCol_SliderGrabActive] = green;
+    c[ImGuiCol_Button] = rgb(0x05260E);
+    c[ImGuiCol_ButtonHovered] = rgb(0x0A4A1C);
+    c[ImGuiCol_ButtonActive] = rgb(0x107A2E);
+    c[ImGuiCol_Header] = rgb(0x05260E);
+    c[ImGuiCol_HeaderHovered] = rgb(0x0A4A1C);
+    c[ImGuiCol_HeaderActive] = rgb(0x0E5F26);
+    c[ImGuiCol_Separator] = rgb(0x0B4F1F);
+    c[ImGuiCol_SeparatorHovered] = mid;
+    c[ImGuiCol_SeparatorActive] = green;
+    c[ImGuiCol_ResizeGrip] = ImVec4(0.0f, 1.0f, 0.25f, 0.15f);
+    c[ImGuiCol_ResizeGripHovered] = mid;
+    c[ImGuiCol_ResizeGripActive] = green;
+    c[ImGuiCol_InputTextCursor] = green;
+    c[ImGuiCol_Tab] = rgb(0x020E05);
+    c[ImGuiCol_TabHovered] = rgb(0x0A4A1C);
+    c[ImGuiCol_TabSelected] = rgb(0x05260E);
+    c[ImGuiCol_TabSelectedOverline] = green;
+    c[ImGuiCol_TabDimmed] = rgb(0x010802);
+    c[ImGuiCol_TabDimmedSelected] = rgb(0x03180A);
+    c[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_DockingPreview] = ImVec4(0.0f, 1.0f, 0.25f, 0.35f);
+    c[ImGuiCol_DockingEmptyBg] = win;
+    c[ImGuiCol_PlotLines] = green;
+    c[ImGuiCol_PlotLinesHovered] = rgb(0xB6FFC8);
+    c[ImGuiCol_PlotHistogram] = mid; // progress bars
+    c[ImGuiCol_PlotHistogramHovered] = green;
+    c[ImGuiCol_TableHeaderBg] = rgb(0x03180A);
+    c[ImGuiCol_TableBorderStrong] = rgb(0x0B4F1F);
+    c[ImGuiCol_TableBorderLight] = rgb(0x06301A);
+    c[ImGuiCol_TableRowBgAlt] = ImVec4(0.0f, 1.0f, 0.25f, 0.04f);
+    c[ImGuiCol_TextSelectedBg] = ImVec4(0.0f, 1.0f, 0.25f, 0.30f);
+    c[ImGuiCol_TextLink] = rgb(0x7DFF9E);
+    c[ImGuiCol_DragDropTarget] = green;
+    c[ImGuiCol_NavCursor] = green;
+    c[ImGuiCol_ModalWindowDimBg] = ImVec4(0.0f, 0.05f, 0.01f, 0.55f);
+}
+
+void matrixPlot() {
+    ImPlot::StyleColorsAuto();
+    ImVec4* p = ImPlot::GetStyle().Colors;
+    p[ImPlotCol_PlotBg] = rgb(0x000000);
+    p[ImPlotCol_PlotBorder] = rgb(0x0B4F1F);
+    p[ImPlotCol_LegendBg] = ImVec4(0.0f, 0.03f, 0.01f, 0.92f);
+    p[ImPlotCol_LegendBorder] = rgb(0x0B4F1F);
+    p[ImPlotCol_LegendText] = rgb(0x00FF41);
+    p[ImPlotCol_TitleText] = rgb(0x00FF41);
+    p[ImPlotCol_InlayText] = rgb(0x00FF41);
+    p[ImPlotCol_AxisText] = rgb(0x00D836);
+    p[ImPlotCol_AxisGrid] = ImVec4(0.0f, 1.0f, 0.25f, 0.14f);
+    p[ImPlotCol_Selection] = rgb(0x00FF41);
+    p[ImPlotCol_Crosshairs] = ImVec4(0.0f, 1.0f, 0.25f, 0.5f);
+}
+
 struct Status {
     ImVec4 accent, warning, error, cursor, clear;
 };
@@ -214,26 +293,37 @@ const Status& status() {
                                rgb(0x8A8A8A)};
     static const Status graphite{rgb(0xF5B22E), {1.0f, 0.62f, 0.38f, 1}, {1.0f, 0.50f, 0.45f, 1},
                                  {0.95f, 0.95f, 0.95f, 1}, rgb(0x1E1E1E)};
+    // Matrix: a pale green accent and cursor; the warning and the error stand out of the green.
+    static const Status matrix{rgb(0xB6FFC8), rgb(0xE8FF5A), rgb(0xFF5A5A), rgb(0xD9FFE3), rgb(0x000000)};
     switch (g_theme) {
     case Light: return light;
     case Janus: return janus;
     case Studio: return studio;
     case Graphite: return graphite;
+    case Matrix: return matrix;
     default: return dark;
     }
 }
 
+float g_opacity = 1.0f;
+// The theme's colours before the panels' opacity: contrast is judged on them
+// (what is behind a transparent window is unknown).
+ImVec4 g_opaque[ImGuiCol_COUNT];
+
 } // namespace
 
 const char* name(int id) {
-    static const char* names[Count] = {"Dark", "Light", "Classic", "Janus", "Studio", "Graphite"};
+    static const char* names[Count] = {"Dark", "Light", "Classic", "Janus", "Studio", "Graphite", "Matrix"};
     return names[std::clamp(id, 0, Count - 1)];
 }
 
 int current() { return g_theme; }
 
-void apply(int id) {
+float panelOpacity() { return g_opacity; }
+
+void apply(int id, float panelOpacity) {
     g_theme = std::clamp(id, 0, Count - 1);
+    g_opacity = std::clamp(panelOpacity, 0.0f, 1.0f);
     ImGuiStyle& style = ImGui::GetStyle();
     ImVec4* c = style.Colors;
     switch (g_theme) {
@@ -261,6 +351,10 @@ void apply(int id) {
         ImPlot::GetStyle().Colors[ImPlotCol_PlotBg] = rgb(0x262626);
         ImPlot::GetStyle().Colors[ImPlotCol_Selection] = rgb(0xF5B22E);
         break;
+    case Matrix:
+        matrixColors(c);
+        matrixPlot();
+        break;
     default: // today's look: ImPlot follows ImGui
         ImGui::StyleColorsDark();
         ImPlot::StyleColorsAuto();
@@ -274,7 +368,27 @@ void apply(int id) {
     style.TabBorderSize = studio ? 1.0f : 0.0f;
     style.FrameRounding = g_theme == Graphite ? 2.0f : 0.0f;
     style.GrabRounding = style.FrameRounding;
+    style.FrameBorderSize = g_theme == Matrix ? 1.0f : style.FrameBorderSize; // terminal-like outlined fields
     c[ImGuiCol_WindowBg].w = 1.0f;
+    for (int i = 0; i < ImGuiCol_COUNT; ++i) g_opaque[i] = c[i];
+    // Translucent panels: the backgrounds take the opacity (the fields and buttons
+    // part of it, so they still read as controls); popups and menus keep most of
+    // theirs, they are read over whatever is behind.
+    if (g_opacity < 1.0f) {
+        const float o = g_opacity, soft = 0.5f + 0.5f * o, popup = std::max(o, 0.88f);
+        for (ImGuiCol i : {ImGuiCol_WindowBg, ImGuiCol_ChildBg, ImGuiCol_MenuBarBg, ImGuiCol_TitleBg,
+                           ImGuiCol_TitleBgActive, ImGuiCol_TitleBgCollapsed, ImGuiCol_DockingEmptyBg,
+                           ImGuiCol_ScrollbarBg, ImGuiCol_TableHeaderBg, ImGuiCol_Tab, ImGuiCol_TabSelected,
+                           ImGuiCol_TabDimmed, ImGuiCol_TabDimmedSelected})
+            c[i].w *= o;
+        for (ImGuiCol i : {ImGuiCol_FrameBg, ImGuiCol_FrameBgHovered, ImGuiCol_FrameBgActive, ImGuiCol_Button,
+                           ImGuiCol_Header})
+            c[i].w *= soft;
+        c[ImGuiCol_PopupBg].w *= popup;
+        ImVec4* p = ImPlot::GetStyle().Colors;
+        for (ImPlotCol i : {ImPlotCol_FrameBg, ImPlotCol_PlotBg})
+            if (p[i].w >= 0) p[i].w *= o; // IMPLOT_AUTO_COL (-1) follows ImGui's, already translucent
+    }
 }
 
 ImVec4 accent() { return status().accent; }
@@ -284,10 +398,10 @@ ImVec4 cursorSeries() { return status().cursor; }
 
 void clearColor(float out[4]) {
     const ImVec4& c = status().clear;
-    out[0] = c.x;
-    out[1] = c.y;
-    out[2] = c.z;
-    out[3] = 1.0f;
+    out[0] = c.x * g_opacity;
+    out[1] = c.y * g_opacity;
+    out[2] = c.z * g_opacity;
+    out[3] = g_opacity;
 }
 
 float contrast(const ImVec4& a, const ImVec4& b) {
@@ -309,13 +423,14 @@ ImVec4 legible(const ImVec4& c, const ImVec4& bg, float ratio) {
 }
 
 ImVec4 background(ImGuiCol idx) {
-    const ImVec4 window = over(ImGui::GetStyleColorVec4(ImGuiCol_WindowBg), ImVec4(0, 0, 0, 1));
-    return idx == ImGuiCol_WindowBg ? window : over(ImGui::GetStyleColorVec4(idx), window);
+    const ImVec4 window = over(g_opaque[ImGuiCol_WindowBg], ImVec4(0, 0, 0, 1));
+    return idx == ImGuiCol_WindowBg ? window : over(g_opaque[idx], window);
 }
 
 ImVec4 plotBackground() {
-    const ImVec4 c = ImPlot::GetStyle().Colors[ImPlotCol_PlotBg];
-    const bool automatic = c.w == -1; // IMPLOT_AUTO_COL: the window's
+    ImVec4 c = ImPlot::GetStyle().Colors[ImPlotCol_PlotBg];
+    const bool automatic = c.w < 0; // IMPLOT_AUTO_COL: the window's
+    if (!automatic && g_opacity > 0) c.w = std::min(1.0f, c.w / g_opacity); // the theme's, before the opacity
     return automatic ? background() : over(c, background());
 }
 
