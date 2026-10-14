@@ -112,13 +112,15 @@ void App::applyWindowOpacity() {
     }
 }
 
-// The map's background where no layer is drawn: translucent with the panels.
+// The map's background where no layer is drawn. With translucent panels it is
+// left empty (alpha 0): the Map panel's own background shows there, at the same
+// opacity as every other panel's.
 void App::mapBackground(float rgba[4]) const {
-    const float o = theme::panelOpacity();
-    rgba[0] = 0.10f;
-    rgba[1] = 0.10f;
-    rgba[2] = 0.115f;
-    rgba[3] = o;
+    const bool translucent = theme::panelOpacity() < 1.0f;
+    rgba[0] = translucent ? 0.0f : 0.10f;
+    rgba[1] = translucent ? 0.0f : 0.10f;
+    rgba[2] = translucent ? 0.0f : 0.115f;
+    rgba[3] = translucent ? 0.0f : 1.0f;
 }
 
 // Both of ImGui's fonts are loaded once: the pixel one keeps the usual look at
@@ -358,8 +360,10 @@ const char* App::selfTestSettings() {
     }
 
     // Transparency: translucent panel backgrounds with opaque text, the contrast
-    // judged on the theme's own colours, the map's empty area translucent and its
-    // data opaque; the whole window's opacity on the OS window.
+    // judged on the theme's own colours; nothing under the panels (the clear
+    // colour, the map's empty area: alpha 0), so each panel's background is the
+    // one layer over the desktop and all have the opacity set; the map's data
+    // opaque; the whole window's opacity on the OS window.
     theme_ = theme::Matrix;
     applyTheme();
     const ImVec4 opaqueBg = theme::background();
@@ -373,16 +377,16 @@ const char* App::selfTestSettings() {
     const ImVec4 win = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg), text = ImGui::GetStyleColorVec4(ImGuiCol_Text);
     const ImVec4 now = theme::background();
     const bool styleOk = std::fabs(win.w - 0.4f) < 1e-4f && text.w == 1.0f && now.x == opaqueBg.x &&
-                         now.y == opaqueBg.y && now.z == opaqueBg.z && std::fabs(clear[3] - 0.4f) < 1e-4f &&
-                         std::fabs(clear[1] - clear1[1] * 0.4f) < 1e-4f && std::fabs(bg[3] - 0.4f) < 1e-4f;
-    std::printf("    panels at 40%%: window background alpha %.2f, text %.2f, clear colour premultiplied (%.3f, %.2f), "
+                         now.y == opaqueBg.y && now.z == opaqueBg.z && clear1[3] == 1.0f && clear[3] == 0.0f &&
+                         bg[3] == 0.0f;
+    std::printf("    panels at 40%%: window background alpha %.2f, text %.2f, clear colour alpha %.2f (opaque: %.2f), "
                 "framebuffer with alpha: %s\n",
-                win.w, text.w, clear[1], clear[3], glfwGetWindowAttrib(window_, GLFW_TRANSPARENT_FRAMEBUFFER) ? "yes" : "no");
+                win.w, text.w, clear[3], clear1[3], glfwGetWindowAttrib(window_, GLFW_TRANSPARENT_FRAMEBUFFER) ? "yes" : "no");
     if (!styleOk) {
         panelOpacity_ = 1.0f;
-        return failed("translucent panels: backgrounds at the opacity, text opaque, contrast on the opaque theme");
+        return failed("translucent panels: backgrounds at the opacity, text opaque, nothing under them");
     }
-    if (s_) { // the map: its empty area at the panels' opacity, the data opaque
+    if (s_) { // the map: its empty area left to the Map panel's background, the data opaque
         canvasSize_ = ImVec2(400, 300);
         fitView(canvasSize_);
         renderMap(400, 300, 1.0f, 0, bg);
@@ -391,9 +395,9 @@ const char* App::selfTestSettings() {
         gpu_.readMapPixel(200, 150, data);
         std::printf("    map at 40%%: empty area alpha %d, data alpha %d\n", empty[3], data[3]);
         mapDirty_ = true;
-        if (std::abs(empty[3] - 102) > 2 || data[3] != 255) {
+        if (empty[3] != 0 || data[3] != 255) {
             panelOpacity_ = 1.0f;
-            return failed("the map's empty area should take the panels' opacity, its data stay opaque");
+            return failed("the map's empty area should be left to the panel's background, its data stay opaque");
         }
     }
     panelOpacity_ = 1.0f;

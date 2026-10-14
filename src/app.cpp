@@ -708,7 +708,13 @@ void App::resetLayout() {
 }
 
 void App::uiDockspace() {
+    // Translucent panels: the window holding the dock space (it fills the whole
+    // window, under every docked panel) draws no background, so each panel's own
+    // is the only one over the desktop and every panel has the opacity set.
+    const bool translucent = panelOpacity_ < 1.0f;
+    if (translucent) ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
     const ImGuiID dock = ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_None);
+    if (translucent) ImGui::PopStyleColor();
     if (layoutPending_) dockDefaultLayout(dock);
     // A new map panel goes to the right of the main map (splitting its area).
     for (MapView& v : views_) {

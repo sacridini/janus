@@ -23,8 +23,8 @@ ImVec4 accent();       // active layer, tool in use
 ImVec4 warning();
 ImVec4 error();
 ImVec4 cursorSeries(); // the cursor's series on the chart (white on dark themes)
-// Where no panel is (behind the dock space): premultiplied by the panels'
-// opacity, as the system composites a transparent window.
+// Where no panel is (behind the dock space); fully transparent with translucent
+// panels (each panel's own background is then the only layer over the desktop).
 void clearColor(float rgba[4]);
 
 // WCAG contrast ratio of two colours (alpha ignored), 1 to 21.

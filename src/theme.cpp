@@ -385,9 +385,10 @@ void apply(int id, float panelOpacity) {
                            ImGuiCol_Header})
             c[i].w *= soft;
         c[ImGuiCol_PopupBg].w *= popup;
+        // The charts: no background of their own (it would add up with the panel's),
+        // so a chart's area is as translucent as the rest of its panel.
         ImVec4* p = ImPlot::GetStyle().Colors;
-        for (ImPlotCol i : {ImPlotCol_FrameBg, ImPlotCol_PlotBg})
-            if (p[i].w >= 0) p[i].w *= o; // IMPLOT_AUTO_COL (-1) follows ImGui's, already translucent
+        for (ImPlotCol i : {ImPlotCol_FrameBg, ImPlotCol_PlotBg}) p[i] = ImVec4(0, 0, 0, 0);
     }
 }
 
@@ -397,11 +398,14 @@ ImVec4 error() { return status().error; }
 ImVec4 cursorSeries() { return status().cursor; }
 
 void clearColor(float out[4]) {
+    // Translucent panels: nothing under them (each panel's background is the one
+    // layer over the desktop, so they all have the opacity set).
     const ImVec4& c = status().clear;
-    out[0] = c.x * g_opacity;
-    out[1] = c.y * g_opacity;
-    out[2] = c.z * g_opacity;
-    out[3] = g_opacity;
+    const float a = g_opacity < 1.0f ? 0.0f : 1.0f;
+    out[0] = c.x * a;
+    out[1] = c.y * a;
+    out[2] = c.z * a;
+    out[3] = a;
 }
 
 float contrast(const ImVec4& a, const ImVec4& b) {
@@ -428,10 +432,10 @@ ImVec4 background(ImGuiCol idx) {
 }
 
 ImVec4 plotBackground() {
-    ImVec4 c = ImPlot::GetStyle().Colors[ImPlotCol_PlotBg];
-    const bool automatic = c.w < 0; // IMPLOT_AUTO_COL: the window's
-    if (!automatic && g_opacity > 0) c.w = std::min(1.0f, c.w / g_opacity); // the theme's, before the opacity
-    return automatic ? background() : over(c, background());
+    // IMPLOT_AUTO_COL (-1): the window's; translucent panels give the charts no
+    // background of their own (alpha 0): the window's too.
+    const ImVec4 c = ImPlot::GetStyle().Colors[ImPlotCol_PlotBg];
+    return c.w <= 0 ? background() : over(c, background());
 }
 
 ImVec4 onPlot(const ImVec4& c) { return legible(c, plotBackground(), 3.0f); }

@@ -39,8 +39,29 @@ GLFWwindow* createWindow(int w, int h, const char* title, bool visible, std::str
     return window;
 }
 
+namespace {
+void (*g_renderWindow)(ImGuiViewport*, void*) = nullptr;
+
+// A detached panel's window: cleared transparent (ImGui's backend clears it to
+// opaque black), so translucent panels show the desktop there as in the main
+// window; its panels' backgrounds cover it when they are opaque.
+void renderWindow(ImGuiViewport* viewport, void* arg) {
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    viewport->Flags |= ImGuiViewportFlags_NoRendererClear;
+    g_renderWindow(viewport, arg);
+}
+} // namespace
+
 bool initImGui(GLFWwindow* window) {
-    return ImGui_ImplGlfw_InitForOpenGL(window, true) && ImGui_ImplOpenGL3_Init("#version 330");
+    if (!ImGui_ImplGlfw_InitForOpenGL(window, true) || !ImGui_ImplOpenGL3_Init("#version 330")) return false;
+    ImGuiPlatformIO& pio = ImGui::GetPlatformIO();
+    if (pio.Renderer_RenderWindow) {
+        g_renderWindow = pio.Renderer_RenderWindow;
+        pio.Renderer_RenderWindow = renderWindow;
+    }
+    return true;
 }
 
 void newFrame() {
