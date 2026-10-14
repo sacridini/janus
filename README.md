@@ -33,8 +33,13 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
 - **13 map modes on the GPU**: value, anomaly, difference to a reference date,
   temporal statistics, trend, largest drop (date and magnitude), multitemporal
   RGB; changing date, colormap or stretch is instant.
-- **Pixel series as you hover**, pins to compare places, a region with its mean
-  and p10–p90 band; OLS and Sen trends.
+- **Pixel series as you hover**, pins to compare places, a region (a rectangle,
+  a polygon or a freehand outline) with its mean and p10–p90 band; OLS and Sen
+  trends.
+- **Vector layers** (GeoJSON, Shapefile, GeoPackage, KML, CSV of points) over
+  the map in any CRS: the series of every plot or parcel extracted to a CSV
+  table, and a TimeSync-style **interpretation** mode to label samples with
+  the keyboard.
 - **Compare**: several series as layers, in any CRS (reprojected on the GPU),
   map panels side by side, a swipe divider, and space-time transects
   (distance × date).
@@ -92,7 +97,8 @@ on the window. Then:
 | | |
 |---|---|
 | Hover | the pixel's series (exact once the mouse rests) |
-| Click / `Shift` + drag | drop a pin / draw a region |
+| Click / `Shift` + drag / `R` | drop a pin / draw a region / draw a polygon |
+| `Alt` + click | a polygon of a vector layer becomes the region |
 | `←` `→` / `P` | previous or next date / play |
 | `Ctrl` + drag / `C` | space-time transect / swipe |
 | `S` / `Space` / `F` | satellite basemap / show or hide the active layer / fit the map |

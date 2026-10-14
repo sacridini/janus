@@ -376,6 +376,12 @@ void drawScaleBar(Canvas& cv, double metresPerPx, float ps, float bottom) {
 
 } // namespace
 
+std::shared_ptr<ExportJob> startExportJob(std::string title, std::string path,
+                                          std::function<bool(ExportJob&, std::string&)> work) {
+    return startJob(std::move(title), std::move(path), std::move(work));
+}
+void setExportProgress(ExportJob& j, double p) { setProgress(j, p); }
+
 double App::groundMetresPerPixel(double x, double y) const {
     if (!s_) return 0;
     const CubeInfo& info = *s_->info;
@@ -537,6 +543,37 @@ void App::drawFigureOverlay(std::vector<unsigned char>& img, int w, int h, int s
     };
     const float fs = ImGui::GetFontSize() * ps;
     if (o.marks) {
+        // Vector layers under the ROI and the pins, as on the map.
+        for (const VectorLayer& V : vectors_) {
+            if (!V.visible || V.px.empty()) continue;
+            const ImU32 col = ImGui::ColorConvertFloat4ToU32(V.color), dark = IM_COL32(0, 0, 0, 170);
+            for (size_t i = 0; i < V.px.size(); ++i) {
+                const auto& b = V.box[i];
+                if (b[0] > b[2]) continue;
+                const ImVec2 b0 = toPx(b[0], b[1]), b1 = toPx(b[2], b[3]);
+                if (b1.x < -10 || b1.y < -10 || b0.x > w + 10 || b0.y > h + 10) continue;
+                const VectorFeature::Kind kind = V.data->features[i].kind;
+                for (const Ring& r : V.px[i]) {
+                    if (kind == VectorFeature::Point) {
+                        const ImVec2 c = toPx(r[0], r[1]);
+                        cv.circle(c.x, c.y, 5.5f * ps, dark);
+                        cv.circle(c.x, c.y, 4.0f * ps, col);
+                        continue;
+                    }
+                    std::vector<float> pts;
+                    for (size_t k = 0; k + 1 < r.size(); k += 2) {
+                        const ImVec2 q = toPx(r[k], r[k + 1]);
+                        const size_t m = pts.size();
+                        if (m && k + 2 < r.size() && std::hypot(q.x - pts[m - 2], q.y - pts[m - 1]) < ps) continue;
+                        pts.push_back(q.x);
+                        pts.push_back(q.y);
+                    }
+                    if (pts.size() < 4) continue;
+                    cv.polyline(pts, dark, 3.5f * ps, kind == VectorFeature::Area);
+                    cv.polyline(pts, col, 1.5f * ps, kind == VectorFeature::Area);
+                }
+            }
+        }
         if (roi_ && roiPoly_.empty()) {
             const ImVec2 a = toPx(roi_->x0, roi_->y0), b = toPx(roi_->x1, roi_->y1);
             cv.rect(a.x, a.y, b.x, b.y, IM_COL32(255, 210, 60, 255), 2 * ps);
@@ -1141,7 +1178,7 @@ void App::uiExport() {
         ImGui::Combo("Background", &png_.background, "Map's (dark)\0White\0Transparent\0");
         ImGui::Checkbox("Date and mode label", &png_.label);
         ImGui::Checkbox("Legend (colour bar or classes)", &png_.legend);
-        ImGui::Checkbox("Pins and ROI", &png_.marks);
+        ImGui::Checkbox("Pins, ROI and vector layers", &png_.marks);
         ImGui::BeginDisabled(!info.hasGeoTransform || info.crsWkt.empty());
         ImGui::Checkbox("Scale bar", &png_.scaleBar);
         ImGui::EndDisabled();

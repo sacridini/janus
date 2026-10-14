@@ -791,9 +791,13 @@ int App::selfTestStep(const std::vector<std::string>& in) {
     case 114:
     case 115:
         return selfTestRoiPolygon(in);
-    case 120: // the animation export (130-137), which prints OK
-        st_.stage = 130;
-        break;
+    case 120: // vector layers (120-125), then the animation export (130-137), which prints OK
+    case 121:
+    case 122:
+    case 123:
+    case 124:
+    case 125:
+        return selfTestVectors(in);
     case 130:
     case 131:
     case 132:

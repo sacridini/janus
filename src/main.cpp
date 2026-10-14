@@ -63,6 +63,7 @@ int main(int argc, char** argv) {
     bool selftestEmbUi = false;  // dev option: a series of embeddings in every view, hidden window
     bool selftestUi = false;     // dev option: drive the layers workflow in a hidden window
     bool measureCache = false;   // dev option: time the full-resolution cache in a hidden window
+    bool measureVectors = false; // dev option: time vector layers over a series in a hidden window
     for (size_t i = 0; i < args.size(); ++i) {
         const std::string& a = args[i];
         auto next = [&]() -> const char* { return i + 1 < args.size() ? args[++i].c_str() : nullptr; };
@@ -93,6 +94,8 @@ int main(int argc, char** argv) {
             selftestUi = true;
         } else if (a == "--measure-cache") {
             measureCache = selftestUi = true;
+        } else if (a == "--measure-vectors") {
+            measureVectors = selftestUi = true;
         } else if (a == "--selftest-zeit") {
             selftestZeit = true;
         } else if (a == "--selftest-embeddings") {
@@ -192,6 +195,12 @@ int main(int argc, char** argv) {
         app->frame();
         if (measureCache) {
             if (const int rc = app->measureCacheStep(inputs); rc >= 0) {
+                std::fflush(stdout);
+                exitCode = rc;
+                glfwSetWindowShouldClose(window, 1);
+            }
+        } else if (measureVectors) {
+            if (const int rc = app->measureVectorsStep(inputs); rc >= 0) {
                 std::fflush(stdout);
                 exitCode = rc;
                 glfwSetWindowShouldClose(window, 1);

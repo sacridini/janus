@@ -24,6 +24,7 @@
 #include "session.hpp"
 #include "stats.hpp"
 #include "theme.hpp"
+#include "vectors.hpp"
 #include "zeit_client.hpp"
 
 struct GLFWwindow;
@@ -80,6 +81,11 @@ struct ExportJob {
     std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
     std::future<void> done;  // last: destroyed first, waits for the thread
 };
+// Runs `work` in a background thread as an export (Exports window); it returns
+// false with the error set on failure. Progress in [0, 1] wakes the interface.
+std::shared_ptr<ExportJob> startExportJob(std::string title, std::string path,
+                                          std::function<bool(ExportJob&, std::string&)> work);
+void setExportProgress(ExportJob& j, double p);
 
 class App {
 public:
@@ -98,6 +104,9 @@ public:
     int selfTestStep(const std::vector<std::string>& inputs);
     // --measure-cache on|off IN: times the full-resolution cache (app_fullres.cpp).
     int measureCacheStep(const std::vector<std::string>& inputs);
+    // --measure-vectors IN VEC...: times reading, placing, drawing, picking and
+    // extracting vector layers over a series (app_vectors.cpp).
+    int measureVectorsStep(const std::vector<std::string>& inputs);
     // --selftest-embeddings-ui DIR [OUT]: a series of embeddings in every view,
     // checked and saved as PNGs (app_embeddings.cpp).
     int selfTestEmbeddingStep(const std::vector<std::string>& inputs);
@@ -612,6 +621,102 @@ private:
     void roiShortcuts();        // R, Enter, Backspace, Esc
     void drawRoiMarks(ImDrawList* dl, ImVec2 origin);
     int selfTestRoiPolygon(const std::vector<std::string>& in); // --selftest-ui stages 110-115
+
+    // Vector layers (app_vectors.cpp): points, lines and polygons read through
+    // OGR (GeoJSON, Shapefile, GeoPackage, KML, CSV of points...) drawn over
+    // every map, placed on the active layer's grid from any CRS; a polygon as
+    // the ROI (Alt + click); the series at every feature written to a table.
+    struct VectorLayer {
+        int id = 0;
+        std::shared_ptr<VectorData> data;
+        std::string name;
+        bool visible = true;
+        ImVec4 color{1.0f, 0.45f, 0.15f, 1.0f};
+        uint64_t placedFor = 0;                 // vectorPlaceKey() it was placed for (0: not yet)
+        std::string why;                        // why it is not on the map ("": placed)
+        bool offMap = false;                    // placed, but nothing of it over the active layer
+        std::vector<Polygon> px;                // each feature in the active layer's pixels
+        std::vector<std::array<float, 4>> box;  // their bounding boxes (x0, y0, x1, y1; empty: x0 > x1)
+        std::vector<ImVec2> anchor;             // a point of each (inside an area; NaN: none)
+    };
+    std::vector<VectorLayer> vectors_;
+    int nextVectorId_ = 1;
+    struct VectorLoad {
+        std::vector<std::shared_ptr<VectorData>> layers;
+        std::string error;
+    };
+    std::vector<std::future<VectorLoad>> vectorLoads_;
+    int hoverVector_ = -1, hoverFeature_ = -1; // vectors_ index and feature under the cursor (-1: none)
+    // Splits inputs: vector files are loaded as vector layers; returns the rest.
+    std::vector<std::string> takeVectorInputs(const std::vector<std::string>& inputs);
+    void addVectorFiles(const std::vector<std::string>& paths);
+    void pumpVectors();                          // finished loads; placing on the active layer's grid
+    uint64_t vectorPlaceKey() const;             // the active layer's CRS and grid
+    void placeVector(VectorLayer& V);
+    void drawVectorMarks(ImDrawList* dl, ImVec2 origin, bool forExport = false);
+    // The feature under (x, y), active pixels, within `tol` screen points of a point or a line.
+    bool vectorFeatureAt(double x, double y, int& layer, int& feature, float tol = 6.0f) const;
+    bool featureAsRoi(const VectorLayer& V, int feature); // false if it is no polygon or misses the map
+    void centerOnFeature(const VectorLayer& V, int feature, double minScale);
+    VectorLayer* vectorById(int id);
+    void uiVectors();                            // the Layers panel's section
+    void uiVectorTooltip();                      // attributes of the feature under the cursor
+    void removeVector(int index);
+    std::string vectorError_;
+    // Extract series: every feature's series (points: the pixel; polygons: the
+    // mean of the pixels inside) of the active or every visible layer, as CSV.
+    struct ExtractUi {
+        bool open = false;                       // open the popup in this frame
+        int vector = 0;                          // VectorLayer id
+        bool allLayers = false;
+        bool wide = true;                        // a row per feature, else a row per feature and date
+        char path[1024] = "";
+    } extract_;
+    void openExtract(int vectorId);
+    void uiExtract();
+    std::shared_ptr<ExportJob> extractSeries(const VectorLayer& V, bool allLayers, bool wide, const std::string& path);
+    int selfTestVectors(const std::vector<std::string>& in); // --selftest-ui stages 120-125
+
+    // Interpretation (app_labels.cpp): a vector layer's features one after the
+    // other (N / Shift+N), the map centred on each, its series on the chart (a
+    // pin; a polygon becomes the ROI), labelled with keys 1-9, a date of change
+    // (D: the map's date) and notes; saved as it goes, exported as a table.
+    struct LabelEntry {
+        std::string label;   // a class of the label set ("" = not labelled)
+        std::string date;    // date of the change, as the series shows it ("" = none)
+        std::string notes;
+    };
+    struct Interpretation {
+        int vector = 0;                      // VectorLayer id (0: none)
+        int current = -1;                    // feature shown
+        std::vector<std::string> classes;    // the label set (keys 1-9)
+        std::vector<LabelEntry> entries;     // one per feature
+        bool advance = false;                // to the next feature after a label
+        bool skipLabelled = false;           // N / Shift+N skip labelled features
+        float zoom = 4.0f;                   // at least this many screen points per pixel
+        int pinId = 0;                       // the pin at the current feature (0: none)
+        bool dirty = false;                  // saved after a short while
+        double changedAt = 0;
+        char notes[512] = "";
+        char newClass[64] = "";
+        char exportPath[1024] = "";
+        bool exportOpen = false;
+        bool scrollToCurrent = false;
+    } lab_;
+    bool showInterp_ = false;
+    void startInterpretation(int vectorId);
+    void stopInterpretation();
+    void interpGo(int feature);
+    void interpStep(int dir);                // +1 next, -1 previous
+    void interpLabel(int k);                 // class k of the label set (-1: clear)
+    void interpSetDate(bool clear);
+    void interpShortcuts();
+    void pumpInterpretation();               // autosave
+    void uiInterpretation();
+    std::string labelsFile() const;          // app data: the session's labels
+    void saveLabels();
+    void loadLabels();
+    std::shared_ptr<ExportJob> exportLabels(const std::string& path);
     // Chart
     int plotStyle_ = 1;          // 0 lines, 1 lines+markers, 2 markers, 3 stems, 4 stairs
     int plotValues_ = 0;         // 0 values, 1 anomaly (- series mean), 2 z-score
@@ -840,6 +945,8 @@ private:
         int fontSize = 0;     // font size setting to restore
         std::string reveal;   // the file the Files panel should go to
         double zeitT0 = 0;
+        std::string dir;      // files the stage writes (removed at its end)
+        std::vector<std::array<double, 2>> pts; // expected places (active pixels)
     } st_; // --selftest-ui state
     struct {
         int stage = 0;

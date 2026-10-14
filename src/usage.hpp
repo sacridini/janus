@@ -16,6 +16,8 @@ inline const char* kUsage =
     "  series.tif          1 multiband file, 1 band = 1 date\n"
     "  a.tif b.tif ...     several files, 1 file = 1 date\n"
     "  \"ndvi_*.tif\"        wildcard pattern (* and ?)\n"
+    "  plots.gpkg ...      vector files (GeoJSON, Shapefile, GeoPackage, KML, CSV\n"
+    "                      of points) open as vector layers over the series\n"
     "  Dates are read from the file name or the band description\n"
     "  (YYYY-MM-DD, YYYYMMDD, YYYY_MM, YYYY, A2001001...).\n"
     "\n"
@@ -37,6 +39,8 @@ inline const char* kUsage =
     "  --measure-cache on|off IN  time exact series and ROI from the files, build the\n"
     "                      overview (and the full-resolution cache if on), time the\n"
     "                      reads again from the cache, in a hidden window\n"
+    "  --measure-vectors IN VEC...  time vector files over the series IN (reading,\n"
+    "                      placing, drawing, picking, extracting), in a hidden window\n"
     "  --selftest-zeit IN  run the Zeit tools end to end on IN without a window\n"
     "  --selftest-embeddings  check the embedding kernels and PCA, with timings\n"
     "  --selftest-embeddings-ui DIR [OUT]  a series of embeddings in every view, in a\n"
@@ -45,8 +49,9 @@ inline const char* kUsage =
     "                      (A, then B as a layer; C: several bands per date;\n"
     "                      D, E: categorical, with and without a colour table;\n"
     "                      F: B in another CRS, reprojected over it; G: spectra,\n"
-    "                      ENVI and an EnMAP product; the basemap is checked\n"
-    "                      with local tiles, no network)\n";
+    "                      ENVI and an EnMAP product; then a polygonal ROI,\n"
+    "                      vector layers, the interpretation and an animation;\n"
+    "                      the basemap is checked with local tiles, no network)\n";
 
 // Options that take a value (the launcher validates them before opening the GUI).
 inline bool isValueOption(const char* a) {

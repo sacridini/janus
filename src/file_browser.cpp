@@ -10,6 +10,7 @@
 #include <imgui_internal.h> // MarkIniSettingsDirty: the favourites are in the layout file
 
 #include "cube.hpp"
+#include "vectors.hpp"
 #include "glfw.hpp" // glfwPostEmptyEvent: wake the UI when a listing finishes
 #include "platform.hpp"
 
@@ -108,7 +109,7 @@ void FileBrowser::drawShortcut(const std::string& dir, bool favorite, Action& ac
 
 bool FileBrowser::visible(const Entry& e) const {
     if (filter_[0] && lower(e.name).find(lower(filter_)) == std::string::npos && !e.dir) return false;
-    return e.dir || showAll_ || isRasterPath(e.path);
+    return e.dir || showAll_ || isRasterPath(e.path) || isVectorPath(e.path);
 }
 
 void FileBrowser::startListing(Node& n) {

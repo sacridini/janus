@@ -94,6 +94,8 @@ set(JANUS_SOURCES
   src/app_settings.cpp
   src/app_swipe.cpp
   src/app_transect.cpp
+  src/app_vectors.cpp
+  src/app_labels.cpp
   src/app_zeit.cpp
   src/file_browser.cpp
   src/results.cpp
@@ -112,7 +114,8 @@ set(JANUS_SOURCES
   src/session.cpp
   src/stats.cpp
   src/theme.cpp
-  src/tiles.cpp)
+  src/tiles.cpp
+  src/vectors.cpp)
 
 if(APPLE)
   list(APPEND JANUS_SOURCES src/platform_mac.mm) # trackpad gestures, Finder documents (Cocoa)

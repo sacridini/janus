@@ -258,7 +258,7 @@ void App::uiAnimationOptions(bool& canSave) {
     ImGui::Checkbox("Scale bar", &anim_.scaleBar);
     ImGui::EndDisabled();
     ImGui::SetItemTooltip("Ground distance at the centre of the view (the layer needs a CRS)");
-    ImGui::Checkbox("Pins and ROI", &anim_.marks);
+    ImGui::Checkbox("Pins, ROI and vector layers", &anim_.marks);
     if (anim_.format == 0) {
         ImGui::Checkbox("Dither (GIF)", &anim_.dither);
         ImGui::SetItemTooltip("Spreads the error of the 256-colour palette: smoother gradients\n"

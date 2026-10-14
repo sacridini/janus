@@ -147,7 +147,9 @@ bool App::init(const AppOptions& opts, std::string& error) {
 // Opening
 // ---------------------------------------------------------------------------
 
-void App::openInputs(const std::vector<std::string>& inputs, bool addLayer) {
+void App::openInputs(const std::vector<std::string>& given, bool addLayer) {
+    const std::vector<std::string> inputs = takeVectorInputs(given); // vector files become vector layers
+    if (inputs.empty()) return;
     if (opening_.valid()) return; // one open at a time
     openingInputs_ = inputs;
     openingAdd_ = addLayer && !layers_.empty();
@@ -327,6 +329,8 @@ void App::frame() {
     pumpZeit();
     pumpEmbeddings();
     pumpTransect();
+    pumpVectors();
+    pumpInterpretation();
     pumpAnimation();
 
     handleShortcuts();
@@ -352,6 +356,8 @@ void App::frame() {
     uiExport();
     uiAnimation();
     uiSaveRun();
+    uiExtract();
+    uiInterpretation();
     uiPopups();
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
     frameMs_ = frameMs_ * 0.9 + ms * 0.1;
@@ -620,6 +626,7 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyChordPressed(ImGuiKey_S)) toggleSatelliteBasemap();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) roiDragging_ = false;
     roiShortcuts();
+    interpShortcuts();
     compareShortcuts();
 }
 
@@ -642,6 +649,12 @@ void App::uiMenu() {
             auto dir = platform::openFolderDialog();
             if (!dir.empty()) openInputs({dir}, true);
         }
+        if (ImGui::MenuItem("Add vector layer...")) {
+            auto files = platform::openFilesDialog();
+            if (!files.empty()) addVectorFiles(files);
+        }
+        ImGui::SetItemTooltip("Points, lines or polygons drawn over the map: GeoJSON, Shapefile,\n"
+                              "GeoPackage, KML, CSV of points (x/lon, y/lat columns)...");
         ImGui::Separator();
         uiExportMenu();
         ImGui::Separator();
@@ -755,6 +768,8 @@ void App::uiPopups() {
     if (ImGui::BeginPopupModal("Shortcuts and usage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted(
             "Open: Ctrl+O (files), Ctrl+Shift+O (folder), or drop onto the window\n"
+            "Vector layers: File > Add vector layer (GeoJSON, Shapefile, GeoPackage, KML,\n"
+            "               CSV of points), or drop them; drawn over every layer\n"
             "Command line: jn <folder | file.tif | pattern_*.tif ...> [--band N]\n"
             "Map panels: Ctrl+T (new), Ctrl+W (close the focused one, else the last)\n"
             "Settings: Ctrl+, (theme, processing threads, memory and caches)\n"
@@ -775,6 +790,8 @@ void App::uiPopups() {
             "                        visible layer with 'All visible layers' on the chart)\n"
             "  R ................... polygonal ROI: click its vertices (close on the first one,\n"
             "                        with a double click or Enter) or drag a freehand outline\n"
+            "  Alt + click ......... a polygon of a vector layer becomes the ROI (Alt: its\n"
+            "                        attributes; a point's show on hovering it)\n"
             "  Ctrl + drag ......... space-time transect along the line (Transect panel);\n"
             "                        T, then drag, does the same (Mac: Command + drag)\n"
             "  C ................... swipe: drag the divider to compare with another\n"
@@ -786,7 +803,11 @@ void App::uiPopups() {
             "Time\n"
             "  left/right arrows ... previous / next date\n"
             "  P ................... play / pause\n"
-            "  click on the chart .. go to that date");
+            "  click on the chart .. go to that date\n\n"
+            "Interpretation (a vector layer's features, Layers panel > Interpret...)\n"
+            "  N / Shift+N ......... next / previous feature (also Page Down / Page Up)\n"
+            "  1 - 9, 0 ............ label from the label set, 0 clears it\n"
+            "  D / Shift+D ......... date of the change = the map's date / none");
         if (ImGui::Button("Close", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
@@ -942,6 +963,10 @@ void App::mapInput(ImVec2 origin, ImVec2 size, int panel, int& ix, int& iy, bool
                 const int r[4] = {int(std::floor(x0)), int(std::floor(y0)), int(std::ceil(x1)), int(std::ceil(y1))};
                 setRoiShape(r, {});
             }
+        } else if (io.MouseDragMaxDistanceSqr[0] < 16 && io.KeyAlt) {
+            // Alt + click on a polygon of a vector layer: it becomes the ROI.
+            int vl, vf;
+            if (vectorFeatureAt(sx, sy, vl, vf)) featureAsRoi(vectors_[vl], vf);
         } else if (io.MouseDragMaxDistanceSqr[0] < 16 && inside && !ctrlClick_) {
             addPin(ix, iy);
         }
@@ -1014,6 +1039,8 @@ void App::mapInput(ImVec2 origin, ImVec2 size, int panel, int& ix, int& iy, bool
             if (zoomTarget_ <= fit * 1.0001) fitView(size);
         }
     }
+    if (hovered && !vectors_.empty() && !active) vectorFeatureAt(sx, sy, hoverVector_, hoverFeature_);
+    else if (hovered) hoverVector_ = hoverFeature_ = -1;
     if (inside && (ix != hover_.x || iy != hover_.y)) {
         hover_.x = ix;
         hover_.y = iy;
@@ -1036,6 +1063,7 @@ void App::drawMapMarks(ImDrawList* dl, ImVec2 origin, int panel, int ix, int iy,
     auto toScreen = [&](double x, double y) {
         return origin + ImVec2(float(offset_.x + x * scale_), float(offset_.y + y * scale_));
     };
+    drawVectorMarks(dl, origin); // under the pins and the ROI
     if (inside && scale_ >= 6) // outline of the pixel under the cursor
         dl->AddRect(toScreen(ix, iy), toScreen(ix + 1, iy + 1), IM_COL32(255, 255, 255, 200));
     if (!inside && prevMouseInPanel_ >= 0 && prevMouseInPanel_ != panel && hover_.x >= 0) {
@@ -1177,6 +1205,7 @@ void App::uiMap() {
     dl->PushClipRect(origin, origin + size, true);
     drawSwipe(dl, origin, size, pixelScale);
     drawMapMarks(dl, origin, 0, ix, iy, inside);
+    if (ImGui::IsItemHovered()) uiVectorTooltip();
     drawBasemapNote(dl, origin, size);
     drawEmbeddingNotes(dl, origin, size);
 
@@ -1315,6 +1344,13 @@ void App::uiMap() {
                 std::snprintf(status + n, sizeof(status) - n, "  |  value %.6g %s", hover_.values[t_],
                               hover_.exact ? "" : "(approx.)");
         }
+    }
+    if (inside && hoverVector_ >= 0 && hoverVector_ < int(vectors_.size()) && hoverFeature_ >= 0) {
+        const VectorLayer& V = vectors_[hoverVector_];
+        const VectorFeature& F = V.data->features[hoverFeature_];
+        const size_t len = std::strlen(status);
+        std::snprintf(status + len, sizeof(status) - len, "  |  %s #%lld%s", V.name.c_str(), (long long)F.fid,
+                      F.kind == VectorFeature::Point || io.KeyAlt ? "" : " (Alt: attributes)");
     }
     int rx = -1, ry = -1;
     if (inside && topResult && fromActive(*topResultLayer, ix + 0.5, iy + 0.5, rx, ry)) {
@@ -1511,6 +1547,7 @@ void App::uiMapViews() {
     closeViewId_ = 0;
     viewsStale_ = false;
     prevMouseInPanel_ = mouseInPanel_;
+    if (mouseInPanel_ < 0) hoverVector_ = hoverFeature_ = -1; // the mouse left every map
     mouseInPanel_ = -1;
 }
 

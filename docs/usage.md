@@ -30,8 +30,10 @@
   animation player.
 - **Pixel series**: approximate (from the overview) as soon as you hover, exact
   (full resolution) once the mouse rests. Click to drop pins and compare pixels;
-  Shift+drag a rectangle for an ROI (mean and p10–p90 per date, or a box plot
-  per date: p25–p75 box, median, whiskers to p10 and p90).
+  Shift+drag a rectangle for an ROI, or draw a **polygon** (`R`: click its
+  vertices or drag a freehand outline; or Alt + click a polygon of a vector
+  layer): mean and p10–p90 per date, or a box plot per date (p25–p75 box,
+  median, whiskers to p10 and p90), of the pixels whose centres are inside.
 - **Chart**: lines, markers, stems or stairs; raw values, anomaly or z-score;
   OLS or Sen trend line per series; Y axis locked to the map range if you want.
 - **Statistics** per series: n, mean, median, std, CV, min/max (with date),
@@ -72,6 +74,16 @@
   onto the active layer's grid on the GPU (nearest neighbour, values unchanged,
   error < 0.02 px). Cursor, pins and ROI use the exact PROJ transformation. The
   ROI applies to every visible layer.
+- **Vector layers** (File → Add vector layer, or drop them): field plots,
+  samples, parcels... from GeoJSON, Shapefile, GeoPackage, KML, FlatGeobuf or a
+  CSV of points, in any CRS, drawn over every layer and map panel. A polygon
+  becomes the ROI with Alt + click; **Extract series** writes the series of
+  every feature (a point's pixel, a polygon's mean) of the active or every
+  visible layer to a CSV table. See [Vector layers](#vector-layers).
+- **Interpretation** (TimeSync style): go through a vector layer's features
+  one by one (`N` / `Shift+N`), the map centred on each and its series on the
+  chart, and label them with keys `1`–`9`, a date of change (`D`) and notes;
+  saved as you go and exported as GeoPackage, GeoJSON, Shapefile or CSV.
 - **Basemap** (Layers panel → Basemap): satellite imagery or a map under the
   series, for context. Sources: **Esri World Imagery**, **Sentinel-2 cloudless
   2016** by EOX (CC BY 4.0), **OpenStreetMap**, or your own **XYZ URL**
@@ -154,6 +166,8 @@ Inputs:
   series.tif          1 multiband file, 1 band = 1 date
   a.tif b.tif ...     several files, 1 file = 1 date
   "ndvi_*.tif"        wildcard pattern (* and ?)
+  plots.gpkg ...      vector files (GeoJSON, Shapefile, GeoPackage, KML, CSV
+                      of points) open as vector layers over the series
 
 Options:
   --band N            band used when each file is one date (default: 1)
@@ -178,8 +192,9 @@ Developer options:
                       (A, then B as a layer; C: several bands per date;
                       D, E: categorical, with and without a colour table;
                       F: B in another CRS, reprojected over it; G: spectra,
-                      ENVI and an EnMAP product; the basemap is checked
-                      with local tiles, no network)
+                      ENVI and an EnMAP product; then a polygonal ROI,
+                      vector layers, the interpretation and an animation;
+                      the basemap is checked with local tiles, no network)
 ```
 
 Examples:
@@ -203,6 +218,11 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Compare pixels | click to drop a pin |
 | Remove a pin | right click it (Mac: Control + click, or a two-finger click on the trackpad), `Delete` (last one) or the **x** in the statistics table |
 | ROI | `Shift` + drag: rectangular ROI, mean and p10–p90 per date (or a box plot per date: the *ROI* list above the chart); with *All visible layers* on the chart, also on every visible layer (its own pixels under the rectangle, reprojected if needed) |
+| Polygonal ROI | `R` (or View → Draw ROI polygon), then click the vertices and close it on the first one, with a double click or `Enter` (`Backspace` undoes a vertex, `Esc` cancels); or, after `R`, drag a freehand outline (lasso), closed when you let go. The statistics, the local PCA of embeddings, the similarity to the ROI and the scatter use the pixels whose centres are inside; a Zeit run on the ROI covers its bounding box. **Alt + click** a polygon of a vector layer (holes included) to make it the ROI; View → Clear ROI |
+| Vector layers | File → Add vector layer..., the **Layers** panel (*Add vector layer...*), a drop or the command line: GeoJSON, Shapefile, GeoPackage (each of its layers), KML, FlatGeobuf, GML, GPX or a CSV of points; listed on top of the **Layers** panel: show/hide, colour, remove; right click → Zoom to it, Extract series, Interpret. Hovering a point shows its attributes (lines and polygons: hold `Alt`); see [Vector layers](#vector-layers) |
+| Series at points or polygons | a vector layer → **Extract series...**: the active layer or every visible one, a row per feature (a column per date) or a row per feature and date; CSV |
+| Interpretation (labelling) | a vector layer → **Interpret...** (the **Interpretation** panel): `N` / `Shift+N` (or Page Down / Page Up) next / previous feature, `1`–`9` its label, `0` clears it, `D` the date of the change (the date on the map), `Shift+D` none; notes; *Export table...* |
+| Animation | File → Export animation (`Ctrl+Shift+A`): dates (from, to, step), frame rate, resolution, GIF / MP4 / WebM, date stamp, legend, scale bar, pins, ROI and vector layers; see [Animation](#animation-gif-mp4-webm) |
 | Time | `←`/`→` previous/next date, `P` play/pause, click or drag on the chart |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or drag it) |
 | Change between dates | **Display** panel → *Difference (value - reference)*: pick the *Reference* (a date, or *Previous date (t-1)*); diverging colours centered at 0, follows the time bar |
@@ -223,7 +243,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Swipe | View → Swipe (`C`): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode, or *Basemap only*; **Swipe off** or `C` again closes it |
 | Space-time transect | `Ctrl` + drag a line on the map (Mac: `Command` + drag), or `T` / View → Draw transect, then drag; `Esc` cancels. **Transect** panel: distance from A (X) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel |
 | Chart options | style, values/anomaly/z-score, trend (OLS/Sen), Y = map range |
-| Map as a figure | File → Export map as PNG... (`Ctrl+E`): resolution (1×, 2×, 4×), background, date label, legend, pins and ROI; *Save to*: the file (a path, a name alone for the last export folder, or **Browse...**), then **Export** (or `Enter`) |
+| Map as a figure | File → Export map as PNG... (`Ctrl+E`): resolution (1×, 2×, 4×), background, date label, legend, scale bar, pins, ROI and vector layers; *Save to*: the file (a path, a name alone for the last export folder, or **Browse...**), then **Export** (or `Enter`) |
 | Data for QGIS | File → Export values as GeoTIFF... (`Ctrl+Shift+E`; the active layer at the date: visible area or whole image) or Export rendered view as GeoTIFF... (`Ctrl+Shift+V`; RGBA as shown, georeferenced) |
 | Save a tool result | right click it in the **Layers** panel → Save as GeoTIFF..., or File → Export Zeit result as GeoTIFF; `Ctrl+S` saves the result drawn on top. A copy of the result: Float32, full resolution, the series' grid and CRS, no data = NaN, named `<layer>_<tool>_<output>.tif` |
 | Save every output of a run | right click a result → Save all outputs of this run... (`Ctrl+Shift+S` for the run of the result on top): all of them (e.g. LandTrendr's year of detection, magnitude, duration, rate, DSNR, values before and after) into a folder at once; the popup lists the files and warns before replacing one |
@@ -487,6 +507,87 @@ AVX2): a PCA of 128 dimensions in ~10 ms (covariance 4 ms, 19 ms without SIMD),
 an image of a year of 1 Mpx in ~4 ms; reading 8 years of TESSERA (622 × 453 px,
 480 MB of GeoTIFFs) in ~4 s. `jn --selftest-embeddings` prints these timings on
 any computer.
+
+## Vector layers
+
+Field plots, samples of a map's accuracy assessment, forest inventory plots,
+parcels or burned areas usually come as vector files. File → **Add vector
+layer...** (or the **Layers** panel, a drop, the Files panel, the command line)
+reads them through OGR, which comes with GDAL: GeoJSON, Shapefile, GeoPackage
+(each of its layers becomes a vector layer), KML/KMZ, FlatGeobuf, GML, GPX and
+CSV tables of points (columns named `x`/`lon`/`longitude`/`easting` and
+`y`/`lat`/`latitude`/`northing`; without a CRS, coordinates within ±180/±90 are
+read as longitude and latitude).
+
+- **On the map**: drawn over every raster layer, on every map panel and the
+  swipe, in any CRS (placed on the active layer's grid through PROJ, again
+  whenever the active layer changes to another grid). Points are dots; lines
+  and polygons (with their holes) are outlines, thinned to about one vertex
+  per screen point. Each layer has a colour, can be hidden or removed; right
+  click its name for *Zoom to it*.
+- **Attributes**: hovering a point shows its fields; for lines and polygons
+  hold `Alt`. The status bar names the feature under the cursor.
+- **A polygon as the ROI**: `Alt` + click it. Its holes are left out; the
+  statistics, box plots, embeddings' local PCA and the scatter use the pixels
+  whose centres are inside, on every layer.
+- **Extract series** (right click, or the *Extract series...* button under
+  the layer): the series of every feature at full resolution, as the chart
+  shows them (band or normalized difference, quality mask applied), for the
+  active layer or every visible layer, written as CSV in the background
+  (Exports window):
+  - points: the value of the pixel under each; polygons: the mean of the
+    pixels whose centres are inside, with their count (`pixels`); lines are
+    left out; a feature off a layer has empty cells for it;
+  - *a row per feature, a column per date* (`fid`, the file's fields, `lon`,
+    `lat`, then the dates; with several layers the columns are `<layer>
+    <date>`), or *a row per feature and date* (`layer`, `date`, `value`),
+    easier to read in R or pandas.
+- **Interpretation** (right click → *Interpret...*, or *Interpret...* under
+  the layer; the **Interpretation** panel, next to Statistics): the features
+  one by one, as TimeSync does with Landsat. The map goes to each one (zoomed
+  in to at least the *zoom on each* setting; a polygon whole) and its series is
+  on the chart: a point gets a pin, a polygon becomes the ROI.
+  - `N` / `Shift+N` (or Page Down / Page Up, or the arrows in the panel): next
+    / previous feature; *Skip labelled* goes to those without a label only;
+    *Next after a label* moves on by itself.
+  - `1`–`9`: a label of the label set (Stable forest, Deforestation,
+    Degradation, Regeneration, Agriculture, Pasture, Water, Cloud / no data,
+    Other by default; edit it under *Label set*); `0` clears it.
+  - `D`: the date of the change is the date on the map (go to it with `←`/`→`
+    or a click on the chart); `Shift+D` clears it. *Notes* for anything else.
+  - The labels are saved a second after each change (in Janus' data folder,
+    by file and layer): starting the interpretation of the same file again
+    resumes it at the first feature without a label.
+  - *Export table...*: the file's features with their fields and three more,
+    `label`, `change_date` and `notes`, as GeoPackage, GeoJSON or Shapefile
+    (with the geometries) or CSV (with `lon`, `lat`).
+
+## Animation (GIF, MP4, WebM)
+
+File → **Export animation** (`Ctrl+Shift+A`) writes the map over a range of
+dates as a timelapse, drawn exactly as the map shows it (layers, colours,
+detail tiles, basemap, results on top):
+
+- **Dates**: from / to (a range that ends before it starts plays backwards; on
+  a spectrum, bands), a step (every n-th date) and the frame rate (the map's
+  speed by default).
+- **Resolution**: 1× or 2× the map's size on screen (rendered at it, not enlarged).
+- **Format**: GIF (no extra software; up to 256 colours per frame, optional
+  dithering), MP4 (H.264) or WebM (VP9) through [ffmpeg](https://ffmpeg.org).
+  Janus uses the ffmpeg set in File → Settings → Video export, else one next to
+  the program, else the one on PATH (`winget install ffmpeg`, `apt install
+  ffmpeg`, `brew install ffmpeg`). Without it, MP4 and WebM are disabled.
+- **Overlays**: a large date stamp (top left, with the layer and display mode),
+  the legend, a **scale bar** (ground distance at the centre of the view; needs
+  a CRS; also available for PNG figures), pins, the ROI and the vector layers;
+  the basemap's credit whenever it is shown.
+
+While the frames are drawn a progress window keeps the view as it is (Cancel
+stops it); each frame waits for its date, its detail tiles and the basemap's.
+The date shown comes back at the end. Encoding continues in the Exports window
+(`Ctrl+J`); a cancelled or failed export leaves no file behind. If ffmpeg fails,
+the error shows its last lines (the full log is `ffmpeg.log` in Janus' data
+folder).
 
 ## Performance
 

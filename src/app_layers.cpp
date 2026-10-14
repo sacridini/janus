@@ -621,6 +621,7 @@ void App::uiLayers() {
     }
     if (layers_.empty()) {
         ImGui::TextDisabled("No layers. Open a series (File, Files panel,\ndrag and drop or the command line).");
+        uiVectors();
         uiBasemap();
         ImGui::End();
         return;
@@ -638,6 +639,7 @@ void App::uiLayers() {
     ImGui::SetItemTooltip("Open another series as a new layer (a folder, 1 file per date)");
     ImGui::TextDisabled("Top of the list = drawn on top. Click a name to make it active.");
     ImGui::Separator();
+    uiVectors(); // drawn over every raster layer
 
     int moveUp = -1, moveDown = -1, remove = -1, activate = -1;
     // Listed top-down: the last layer is drawn last (on top).

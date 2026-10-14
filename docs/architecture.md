@@ -14,6 +14,11 @@
 
  XYZ tiles (GDAL WMS/TMS, curl) ──► Basemap: tiles of the view at the screen's zoom ──► LRU on the GPU,
                                     drawn first, through a warp grid (active layer's grid -> EPSG:3857)
+
+ vector files (OGR) ──► VectorData (file coordinates) ──► placed on the active layer's grid (PROJ)
+                                                          ├─► drawn by ImGui over every map panel
+                                                          ├─► a polygon as the ROI (pixel-centre mask)
+                                                          └─► series extracted / interpretation labels
 ```
 
 | File | Role |
@@ -35,10 +40,13 @@
 | `src/app_transect.cpp` | Space-time transect: sampling along the line (overview, then full resolution in the background), the Transect panel (image drawn by the map renderer) |
 | `src/app_roi.cpp` | The ROI's shape: a rectangle or a polygon (`R`: clicked vertices or a freehand lasso; a vector polygon), its bounding box and outline; the ROI on another layer's pixels (`roiOnLayer`: scaled, or densified and reprojected), `--selftest-ui` stages 110–115 |
 | `src/geom.*` | Polygons as rings (even-odd: holes and multipolygons without flags): bounds, point in polygon, area, the mask of pixel centres inside (scanlines), densifying, Douglas-Peucker |
+| `src/vectors.*` | Vector files through OGR (GeoJSON, Shapefile, GeoPackage, KML, CSV of points...): features as rings in the file's coordinates with a point inside each and their fields as text; `VectorPlacer` (file CRS -> a raster's pixels and lon/lat, PROJ); tables written as CSV or through OGR with extra columns |
+| `src/app_vectors.cpp` | Vector layers: loading in the background, placing on the active layer's grid (again when it changes), drawing over every map panel (cut to the screen, thinned to a vertex per point), picking, a polygon as the ROI, the Layers panel section, **Extract series** (points: the pixel; polygons: the mean inside; CSV, wide or long, a background job), `--selftest-ui` stages 120–125 |
+| `src/app_labels.cpp` | Interpretation (TimeSync style): a vector layer's features one by one (map centred, a pin or the ROI on the chart), labels from a label set (keys 1-9), a date of change and notes, saved as they are given (app data, by file and layer) and exported with the file's fields |
 | `src/app_animation.cpp` | Animation export: options (in the export popup), frames rendered one per UI frame once their date, detail tiles and basemap are on the GPU (the view frozen behind a modal progress popup), a short queue to the encoder thread (GIF, or ffmpeg fed raw RGBA on stdin), the ffmpeg setting, `--selftest-ui` stages 130–137 |
 | `src/gif.*` | Animated GIF without a library: per-frame palette (exact ≤ 256 colours, else median cut of a 6-bit histogram, optional Floyd–Steinberg), LZW, loop extension; a small decoder for the self-test |
 | `src/file_browser.*` | Lazily listed folder tree (rasters only by default); reveals (expands and scrolls to) the series opened; favourites; a folder's preview as a series (`describeSeriesFiles`) |
-| `src/app_export.cpp` | Export: map as PNG (offscreen render at 1–4×, marks and legend drawn on the CPU with ImGui's pixel font at 13 px, whatever the interface's size), values and the view as GeoTIFF, Zeit results, embedding views (full resolution, `computeEmbeddingExport`); the options popup with its *Save to* path; background jobs, Exports window |
+| `src/app_export.cpp` | Export: map as PNG (offscreen render at 1–4×; the overlay of a figure — label or an animation's date stamp, legend, pins, ROI and vector layers, scale bar, credit — drawn on the CPU with ImGui's pixel font at 13 px, whatever the interface's size, shared with the animation), values and the view as GeoTIFF, Zeit results, embedding views (full resolution, `computeEmbeddingExport`); the options popup with its *Save to* path; background jobs (`startExportJob`), Exports window |
 | `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow, swipe, transect, spectra (ENVI, an EnMAP product) and the exports in a hidden window, checked by reading map pixels and the files written; the full-resolution cache checked against the files |
 | `src/app_fullres.cpp` | Full-resolution cache in the Performance panel, its settings widgets, `--measure-cache` |
 | `src/app_settings.cpp` | Settings window (theme, font size, Files panel, processing threads, overview memory, caches), kept in the layout .ini with the last export folder; the font applied between frames (`App::applyFont`); applies the threads to the open series and Zeit (the serve process is replaced once idle); its `--selftest-ui` checks (pools, contrast of every theme, Zeit restart) |
