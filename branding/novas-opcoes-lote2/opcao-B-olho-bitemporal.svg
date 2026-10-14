@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 200 200" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="opcao-B-olho-bitemporal-iris-l" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="opcao-B-olho-bitemporal-iris-r" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+  </defs>
+  
+  <g transform="translate(0, 0)">
+    <!-- Outer Elliptical Eye Contours -->
+    <!-- Looking Back (Left wing) -->
+    <path d="M 100, 48 C 65, 48 35, 75 22, 100 C 35, 125 65, 152 100, 152"
+          fill="none" stroke="#4296FA" stroke-width="4.5" stroke-linecap="round"/>
+          
+    <!-- Looking Ahead (Right wing) -->
+    <path d="M 100, 48 C 135, 48 165, 75 178, 100 C 165, 125 135, 152 100, 152"
+          fill="none" stroke="#00F2FE" stroke-width="4.5" stroke-linecap="round"/>
+          
+    <!-- Left Iris Half (Past - Stepped Raster Rings) -->
+    <path d="M 100, 64 A 36,36 0 0,0 100, 136 Z" fill="url(#opcao-B-olho-bitemporal-iris-l)"/>
+    <path d="M 100, 76 A 24,24 0 0,0 100, 124 Z" fill="#1C2A3C"/>
+    
+    <!-- Right Iris Half (Future - Stepped Raster Rings) -->
+    <path d="M 100, 64 A 36,36 0 0,1 100, 136 Z" fill="url(#opcao-B-olho-bitemporal-iris-r)"/>
+    <path d="M 100, 76 A 24,24 0 0,1 100, 124 Z" fill="#0E1E38"/>
+    
+    <!-- Central Sensor Core (Orange Date/Time Marker) -->
+    <circle cx="100" cy="100" r="10" fill="#F29A38"/>
+    <circle cx="100" cy="100" r="4.5" fill="#FFFFFF"/>
+    
+    <!-- Directional Sight Arrows (Left/Past and Right/Future) -->
+    <path d="M 22, 100 L 32, 93 L 32, 107 Z" fill="#4296FA"/>
+    <path d="M 178, 100 L 168, 93 L 168, 107 Z" fill="#00F2FE"/>
+    
+    <!-- Vertical Temporal Meridian Line -->
+    <line x1="100" y1="36" x2="100" y2="48" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+    <line x1="100" y1="152" x2="100" y2="164" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 200 200" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="opcao-F-terminal-jn-bracket-l" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="opcao-F-terminal-jn-bracket-r" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+  </defs>
+  
+  <g transform="translate(0, 0)">
+    <!-- Left Bracket: Pointing Left (Past / `«`) -->
+    <path d="M 64, 40
+             L 30, 100
+             L 64, 160
+             L 50, 160
+             L 16, 100
+             L 50, 40 Z"
+          fill="url(#opcao-F-terminal-jn-bracket-l)"/>
+
+    <!-- Right Bracket: Pointing Right (Future / `»`) -->
+    <path d="M 136, 40
+             L 170, 100
+             L 136, 160
+             L 150, 160
+             L 184, 100
+             L 150, 40 Z"
+          fill="url(#opcao-F-terminal-jn-bracket-r)"/>
+
+    <!-- Central 3x3 Raster Matrix (The Data Cube) -->
+    <!-- Col 1 -->
+    <rect x="68" y="72" width="16" height="16" rx="3" fill="#294A7A"/>
+    <rect x="68" y="92" width="16" height="16" rx="3" fill="#4296FA"/>
+    <rect x="68" y="112" width="16" height="16" rx="3" fill="#1E3A8A"/>
+    <!-- Col 2 -->
+    <rect x="88" y="72" width="16" height="16" rx="3" fill="#4296FA"/>
+    <rect x="88" y="92" width="16" height="16" rx="3" fill="#F29A38"/> <!-- Date Cursor -->
+    <rect x="88" y="112" width="16" height="16" rx="3" fill="#6AADFF"/>
+    <!-- Col 3 -->
+    <rect x="108" y="72" width="16" height="16" rx="3" fill="#00F2FE"/>
+    <rect x="108" y="92" width="16" height="16" rx="3" fill="#38BDF8"/>
+    <rect x="108" y="112" width="16" height="16" rx="3" fill="#0284C7"/>
+
+    <!-- Terminal Prompt Underscore `_` -->
+    <rect x="86" y="142" width="28" height="5" rx="2" fill="#F29A38"/>
+  </g>
+</svg>

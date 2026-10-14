@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 200 200" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="opcao-D-fases-orbitais-past" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="opcao-D-fases-orbitais-future" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
+    </linearGradient>
+  </defs>
+  
+  <g transform="translate(0, 0)">
+    <!-- Outer Subtle Orbit Rings -->
+    <ellipse cx="100" cy="100" rx="84" ry="42" fill="none" stroke="#262A31" stroke-width="1.5" transform="rotate(-25 100 100)"/>
+    <ellipse cx="100" cy="100" rx="84" ry="42" fill="none" stroke="#262A31" stroke-width="1.5" transform="rotate(25 100 100)"/>
+
+    <!-- Left Crescent (Past / Look Back) -->
+    <path d="M 96, 28
+             A 72,72 0 0,0 96, 172
+             A 54,54 0 0,1 96, 28 Z"
+          fill="url(#opcao-D-fases-orbitais-past)"/>
+          
+    <!-- Right Crescent (Future / Look Ahead) -->
+    <path d="M 104, 28
+             A 72,72 0 0,1 104, 172
+             A 54,54 0 0,0 104, 28 Z"
+          fill="url(#opcao-D-fases-orbitais-future)"/>
+
+    <!-- Central Temporal Gateway (Vertical Datum) -->
+    <rect x="98" y="24" width="4" height="152" rx="2" fill="#F29A38"/>
+    
+    <!-- Orbital Nodes / Satellites -->
+    <circle cx="100" cy="100" r="14" fill="#0F0F0F" stroke="#F29A38" stroke-width="2.5"/>
+    <!-- Sensor Pixels inside central node -->
+    <rect x="94" y="94" width="5" height="5" rx="1" fill="#4296FA"/>
+    <rect x="101" y="94" width="5" height="5" rx="1" fill="#00F2FE"/>
+    <rect x="94" y="101" width="5" height="5" rx="1" fill="#6AADFF"/>
+    <rect x="101" y="101" width="5" height="5" rx="1" fill="#FFFFFF"/>
+  </g>
+</svg>

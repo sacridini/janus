@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 200 200" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="opcao-2-dualidade-geometrica-left-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="opcao-2-dualidade-geometrica-right-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+    <linearGradient id="opcao-2-dualidade-geometrica-center-line" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="50%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(0, 0)">
+    <!-- Base Glow -->
+    <circle cx="100" cy="100" r="75" fill="#2563EB" opacity="0.08" filter="blur(16px)"/>
+    
+    <!-- Left Profile (Looking Backward / Past) -->
+    <!-- Sleek forehead, nose, lips, chin, swept jaw and neck -->
+    <path d="M 97, 28
+             C 80, 28 62, 38 52, 54
+             C 45, 65 44, 76 38, 86
+             L 28, 98
+             L 39, 102
+             C 36, 109 37, 114 43, 116
+             L 37, 126
+             C 44, 134 54, 137 66, 137
+             C 76, 137 86, 148 88, 162
+             L 97, 164
+             C 97, 120 97, 72 97, 28 Z"
+          fill="url(#opcao-2-dualidade-geometrica-left-grad)"/>
+
+    <!-- Left Eye & Temporal Cutout -->
+    <path d="M 68, 82 C 60, 85 54, 91 50, 93 C 58, 93 64, 89 72, 85 Z" fill="#FFFFFF" opacity="0.9"/>
+    
+    <!-- Right Profile (Looking Forward / Future - Mirrored & Refined) -->
+    <path d="M 103, 28
+             C 120, 28 138, 38 148, 54
+             C 155, 65 156, 76 162, 86
+             L 172, 98
+             L 161, 102
+             C 164, 109 163, 114 157, 116
+             L 163, 126
+             C 156, 134 146, 137 134, 137
+             C 124, 137 114, 148 112, 162
+             L 103, 164
+             C 103, 120 103, 72 103, 28 Z"
+          fill="url(#opcao-2-dualidade-geometrica-right-grad)"/>
+
+    <!-- Right Eye & Temporal Cutout -->
+    <path d="M 132, 82 C 140, 85 146, 91 150, 93 C 142, 93 136, 89 128, 85 Z" fill="#FFFFFF" opacity="0.9"/>
+    
+    <!-- Central Temporal Gateway Line (Negative Space Bridge) -->
+    <line x1="100" y1="26" x2="100" y2="166" stroke="url(#opcao-2-dualidade-geometrica-center-line)" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>
+    
+    <!-- Central Sensor Focal Point -->
+    <circle cx="100" cy="96" r="4.5" fill="#FFFFFF" stroke="#00F2FE" stroke-width="2"/>
+  </g>
+</svg>

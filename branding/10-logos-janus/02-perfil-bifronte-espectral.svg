@@ -1,0 +1,47 @@
+<svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="02-perfil-bifronte-espectral-face-l" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="02-perfil-bifronte-espectral-face-r" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#4296FA"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Left Face: Praeterita (Looking into the Past / Baseline Data) -->
+  <!-- Stylized geometric profile rendered as time-series steps -->
+  <path d="M 94 36 L 68 36 L 56 50 L 56 68 L 46 80 L 46 94 L 58 106 L 52 120 L 66 136 L 76 150 L 94 164" 
+        fill="none" stroke="url(#02-perfil-bifronte-espectral-face-l)" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- Left Face Fill Plate (Semi-transparent Voxel) -->
+  <polygon points="94,40 70,40 60,52 60,68 50,80 50,94 62,106 56,120 70,136 78,148 94,160" 
+           fill="#4296FA" opacity="0.15"/>
+
+  <!-- Right Face: Futura (Looking into Future / Forecast & Trends) -->
+  <path d="M 106 36 L 132 36 L 144 50 L 144 68 L 154 80 L 154 94 L 142 106 L 148 120 L 134 136 L 124 150 L 106 164" 
+        fill="none" stroke="url(#02-perfil-bifronte-espectral-face-r)" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- Right Face Fill Plate -->
+  <polygon points="106,40 130,40 140,52 140,68 150,80 150,94 138,106 144,120 130,136 122,148 106,160" 
+           fill="#00F2FE" opacity="0.15"/>
+
+  <!-- Negative Space in the Middle creates a Radiant Vertical Eye / Chrono-Aperture -->
+  <path d="M 100 56 C 88 78, 88 122, 100 144 C 112 122, 112 78, 100 56 Z" 
+        fill="#0B111E" stroke="#6AADFF" stroke-width="2"/>
+
+  <!-- Central Pupil: The Present Moment ("Now") -->
+  <circle cx="100" cy="100" r="10" fill="#F29A38"/>
+  <circle cx="100" cy="100" r="4" fill="#FFFFFF"/>
+
+  <!-- Horizontal Time Horizon connecting the two eyes of the profiles -->
+  <line x1="38" y1="80" x2="88" y2="80" stroke="#6AADFF" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <circle cx="50" cy="80" r="3" fill="#6AADFF"/>
+  <line x1="112" y1="80" x2="162" y2="80" stroke="#00F2FE" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <circle cx="150" cy="80" r="3" fill="#00F2FE"/>
+
+  <!-- Vertical Temporal Divider (The Axis of Janus) -->
+  <line x1="100" y1="20" x2="100" y2="48" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="100" y1="152" x2="100" y2="180" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,45 @@
+<svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="04-anel-dendrocronologico-ring" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="50%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer Orbit Rings (Annual Seasons / Satellite Repeat Cycles) -->
+  <circle cx="100" cy="100" r="76" fill="none" stroke="#1E3A8A" stroke-width="1.5" stroke-dasharray="4 6" opacity="0.6"/>
+  <circle cx="100" cy="100" r="62" fill="none" stroke="#4296FA" stroke-width="2" stroke-dasharray="8 4" opacity="0.8"/>
+  <circle cx="100" cy="100" r="48" fill="none" stroke="#00F2FE" stroke-width="2"/>
+
+  <!-- Segmented Dendrochronology Raster Pixels around the Ring -->
+  <g fill="#4296FA" opacity="0.7">
+    <rect x="96" y="26" width="8" height="6" rx="1.5"/>
+    <rect x="136" y="38" width="8" height="6" rx="1.5" transform="rotate(30 140 41)"/>
+    <rect x="162" y="70" width="8" height="6" rx="1.5" transform="rotate(60 166 73)"/>
+    <rect x="166" y="112" width="8" height="6" rx="1.5" transform="rotate(100 170 115)"/>
+    <rect x="140" y="152" width="8" height="6" rx="1.5" transform="rotate(135 144 155)"/>
+    <rect x="96" y="168" width="8" height="6" rx="1.5"/>
+    <rect x="52" y="152" width="8" height="6" rx="1.5" transform="rotate(225 56 155)"/>
+    <rect x="26" y="112" width="8" height="6" rx="1.5" transform="rotate(260 30 115)"/>
+    <rect x="30" y="70" width="8" height="6" rx="1.5" transform="rotate(300 34 73)"/>
+    <rect x="56" y="38" width="8" height="6" rx="1.5" transform="rotate(330 60 41)"/>
+  </g>
+
+  <!-- Horizontal Time Series Wave cutting through the iris like an Equator of Time -->
+  <path d="M 20 100 Q 50 78 80 100 T 120 100 Q 140 122 180 100" 
+        fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Dual Eye Horizons forming the central aperture -->
+  <path d="M 44 100 C 60 70, 140 70, 156 100 C 140 130, 60 130, 44 100 Z" 
+        fill="#0B111E" stroke="#6AADFF" stroke-width="2.5"/>
+
+  <!-- Core Pupil & Sensor -->
+  <circle cx="100" cy="100" r="22" fill="#162447" stroke="#00F2FE" stroke-width="2"/>
+  <circle cx="100" cy="100" r="11" fill="#F29A38"/>
+  <circle cx="100" cy="100" r="4" fill="#FFFFFF"/>
+
+  <!-- Vertical "Now" Needle -->
+  <line x1="100" y1="42" x2="100" y2="70" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="100" y1="130" x2="100" y2="158" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

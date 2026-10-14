@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Janus — Exploração dos 10 Logos Conceituais</title>
+  <style>
+    :root {
+      --bg: #090E17;
+      --card-bg: #111A2E;
+      --card-preview: #070B12;
+      --card-border: #1E2D4A;
+      --text: #F1F5F9;
+      --text-muted: #94A3B8;
+      --blue: #4296FA;
+      --blue-light: #6AADFF;
+      --cyan: #00F2FE;
+      --orange: #F29A38;
+      --tag-bg: rgba(66, 150, 250, 0.12);
+      --tag-text: #6AADFF;
+      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    
+    [data-theme="light"] {
+      --bg: #F8FAFC;
+      --card-bg: #FFFFFF;
+      --card-preview: #F1F5F9;
+      --card-border: #E2E8F0;
+      --text: #0F172A;
+      --text-muted: #64748B;
+      --blue: #2563EB;
+      --blue-light: #3B82F6;
+      --cyan: #0284C7;
+      --orange: #EA580C;
+      --tag-bg: rgba(37, 99, 235, 0.08);
+      --tag-text: #2563EB;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; transition: background-color 0.2s, border-color 0.2s; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-main);
+      line-height: 1.6;
+      padding: 40px 24px;
+    }
+
+    .container {
+      max-width: 1300px;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 40px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 30px;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .badge {
+      display: inline-block;
+      background: rgba(242, 154, 56, 0.15);
+      color: var(--orange);
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .theme-toggle {
+      background: var(--card-bg);
+      color: var(--text);
+      border: 1px solid var(--card-border);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .theme-toggle:hover {
+      border-color: var(--blue);
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+
+    p.lead {
+      font-size: 16px;
+      color: var(--text-muted);
+      max-width: 900px;
+    }
+
+    .concept-pillars {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin: 32px 0 48px 0;
+    }
+
+    .pillar {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      padding: 20px;
+      border-radius: 12px;
+    }
+
+    .pillar-num {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--orange);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .pillar-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: var(--blue-light);
+    }
+
+    .pillar-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+      gap: 24px;
+    }
+
+    .logo-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
+
+    .card-preview {
+      background: var(--card-preview);
+      padding: 36px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid var(--card-border);
+      min-height: 220px;
+    }
+
+    .svg-container svg {
+      display: block;
+      filter: drop-shadow(0 6px 16px rgba(0,0,0,0.3));
+    }
+
+    .card-info {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+    }
+
+    .card-sub {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--cyan);
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .tags-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+
+    .tag {
+      background: var(--tag-bg);
+      color: var(--tag-text);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+
+    .card-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+      flex-grow: 1;
+    }
+    .card-desc p {
+      margin-bottom: 8px;
+    }
+    .card-desc strong {
+      color: var(--text);
+    }
+    .myth-note {
+      border-left: 2px solid var(--orange);
+      padding-left: 8px;
+      font-style: italic;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: auto;
+    }
+
+    .btn {
+      display: inline-block;
+      text-decoration: none;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--card-border);
+      color: var(--text);
+    }
+    .btn-outline:hover {
+      border-color: var(--blue);
+      color: var(--blue-light);
+    }
+
+    .btn-primary {
+      background: var(--blue);
+      border: 1px solid var(--blue);
+      color: #FFFFFF;
+    }
+    .btn-primary:hover {
+      background: var(--blue-light);
+    }
+
+    footer {
+      margin-top: 60px;
+      border-top: 1px solid var(--card-border);
+      padding-top: 24px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="top-bar">
+        <span class="badge">Estudo de Identidade Visual</span>
+        <button class="theme-toggle" onclick="toggleTheme()">Alternar Tema Claro / Escuro</button>
+      </div>
+      <h1>Janus — 10 Propostas de Logos</h1>
+      <p class="lead">
+        Uma exploração conceitual da lenda romana de Janus, a óptica do olho de satélite, a 4ª dimensão do tempo e a morfologia das séries temporais raster.
+      </p>
+
+      <div class="concept-pillars">
+        <div class="pillar">
+          <div class="pillar-num">Pilar 1</div>
+          <div class="pillar-title">Mito Romano de Janus</div>
+          <div class="pillar-desc">Ianus Bifrons, deus dos começos, portais (ianuae) e passagens. Duas faces que contemplam o passado e o futuro simultaneamente.</div>
+        </div>
+        <div class="pillar">
+          <div class="pillar-num">Pilar 2</div>
+          <div class="pillar-title">O Olho & Sensor Orbital</div>
+          <div class="pillar-desc">O olho como lente de satélite (Landsat, Sentinel). A pupila como ponto focal que transforma radiação eletromagnética em percepção analítica.</div>
+        </div>
+        <div class="pillar">
+          <div class="pillar-num">Pilar 3</div>
+          <div class="pillar-title">O Tempo & Cursor Presente</div>
+          <div class="pillar-desc">O tempo físico do cubo multitemporal e o marcador de data presente em laranja (#F29A38), cor canônica do ImPlot no Janus.</div>
+        </div>
+        <div class="pillar">
+          <div class="pillar-num">Pilar 4</div>
+          <div class="pillar-title">Séries Temporais & Ondas</div>
+          <div class="pillar-desc">Curvas fenológicas harmônicas, envelopes estatísticos de incerteza (p10-p90) e quebras bruscas por detecção de mudanças (BFAST / LandTrendr).</div>
+        </div>
+      </div>
+    </header>
+
+    <div class="grid">
+      
+    <div class="logo-card" data-id="01-olho-onda-fenologica">
+      <div class="card-preview">
+        <div class="svg-container">
+          <svg viewBox="0 0 200 200" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="showcase-01-olho-onda-fenologica-wave-top" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="30%" stop-color="#4296FA"/>
+      <stop offset="50%" stop-color="#00F2FE"/>
+      <stop offset="70%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="showcase-01-olho-onda-fenologica-wave-bot" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="50%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <radialGradient id="showcase-01-olho-onda-fenologica-pupil" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F29A38"/>
+      <stop offset="70%" stop-color="#FF6D00"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background grid subtle -->
+  <g opacity="0.25" stroke="#2A3B5C" stroke-width="1">
+    <line x1="20" y1="100" x2="180" y2="100"/>
+    <line x1="60" y1="40" x2="60" y2="160" stroke-dasharray="2 4"/>
+    <line x1="100" y1="30" x2="100" y2="170" stroke="#F29A38" opacity="0.6"/>
+    <line x1="140" y1="40" x2="140" y2="160" stroke-dasharray="2 4"/>
+  </g>
+
+  <!-- Eye Almond formed by Dual Phenological Waves (harmonic seasonal curves) -->
+  <!-- Upper eyelid: seasonal spring-summer peak NDVI -->
+  <path d="M 22 100 C 45 65, 75 52, 100 52 C 125 52, 155 65, 178 100" 
+        fill="none" stroke="url(#showcase-01-olho-onda-fenologica-wave-top)" stroke-width="4.5" stroke-linecap="round"/>
+        
+  <!-- Lower eyelid: senescent autumn-winter valley -->
+  <path d="M 22 100 C 45 135, 75 148, 100 148 C 125 148, 155 135, 178 100" 
+        fill="none" stroke="url(#showcase-01-olho-onda-fenologica-wave-bot)" stroke-width="4.5" stroke-linecap="round"/>
+
+  <!-- In-fill area chart between waves (confidence band) -->
+  <path d="M 22 100 C 45 75, 75 66, 100 66 C 125 66, 155 75, 178 100 C 155 125, 125 134, 100 134 C 75 134, 45 125, 22 100 Z"
+        fill="#4296FA" opacity="0.12"/>
+
+  <!-- Harmonic Time Series Signal traversing through the pupil -->
+  <path d="M 28 100 Q 45 82 62 100 T 96 100 L 100 86 L 104 114 L 108 100 Q 125 118 142 100 T 172 100" 
+        fill="none" stroke="#00F2FE" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Central Iris & Pupil (The Observer / Orbital Lens) -->
+  <circle cx="100" cy="100" r="28" fill="#0B111E" stroke="#6AADFF" stroke-width="2.5"/>
+  <circle cx="100" cy="100" r="18" fill="url(#showcase-01-olho-onda-fenologica-pupil)"/>
+  <circle cx="100" cy="100" r="7" fill="#FFFFFF"/>
+
+  <!-- The "NOW" Cursor (ImPlot Orange Timeline) -->
+  <line x1="100" y1="28" x2="100" y2="48" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+  <line x1="100" y1="152" x2="100" y2="172" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+  <polygon points="100,49 97,42 103,42" fill="#F29A38"/>
+  <polygon points="100,151 97,158 103,158" fill="#F29A38"/>
+
+  <!-- Subtle time markers on the curve -->
+  <circle cx="62" cy="100" r="3" fill="#6AADFF"/>
+  <circle cx="138" cy="100" r="3" fill="#00F2FE"/>
+</svg>
+        </div>
+      </div>
+      <div class="card-info">
+        <div class="card-header">
+          <span class="card-sub">The Phenological Waveform Eye</span>
+          <h3 class="card-title">01. O Olho da Onda Fenológica</h3>
+          <div class="tags-container"><span class="tag">Séries Temporais</span><span class="tag">Olho / Óptica</span><span class="tag">Ciclo Sazonal</span></div>
+        </div>
+        <div class="card-desc">
+          <p><strong>Conceito Gráfico:</strong> A clássica amêndoa do olho é gerada geometricamente pelo cruzamento de duas ondas senoidais harmônicas: o pico fenológico de crescimento vegetal no topo e o vale de senescência na base. Um sinal espectral atravessa a pupila, onde o cursor laranja (#F29A38) marca o instante presente.</p>
+          <p class="myth-note"><strong>Raiz Mitológica:</strong> Representa o ciclo eterno das estações que Janus presidia no calendário romano arcaico, unindo a visão biológica à matemática analítica.</p>
+        </div>
+        <div class="card-actions">
+          <a href="01-olho-onda-fenologica.svg" download class="btn btn-outline">Baixar SVG</a>
+          <a href="png/01-olho-onda-fenologica-512.png" target="_blank" class="btn btn-primary">Ver PNG 512px</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="logo-card" data-id="02-perfil-bifronte-espectral">
+      <div class="card-preview">
+        <div class="svg-container">
+          <svg viewBox="0 0 200 200" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="showcase-02-perfil-bifronte-espectral-face-l" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="showcase-02-perfil-bifronte-espectral-face-r" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#4296FA"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Left Face: Praeterita (Looking into the Past / Baseline Data) -->
+  <!-- Stylized geometric profile rendered as time-series steps -->
+  <path d="M 94 36 L 68 36 L 56 50 L 56 68 L 46 80 L 46 94 L 58 106 L 52 120 L 66 136 L 76 150 L 94 164" 
+        fill="none" stroke="url(#showcase-02-perfil-bifronte-espectral-face-l)" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- Left Face Fill Plate (Semi-transparent Voxel) -->
+  <polygon points="94,40 70,40 60,52 60,68 50,80 50,94 62,106 56,120 70,136 78,148 94,160" 
+           fill="#4296FA" opacity="0.15"/>
+
+  <!-- Right Face: Futura (Looking into Future / Forecast & Trends) -->
+  <path d="M 106 36 L 132 36 L 144 50 L 144 68 L 154 80 L 154 94 L 142 106 L 148 120 L 134 136 L 124 150 L 106 164" 
+        fill="none" stroke="url(#showcase-02-perfil-bifronte-espectral-face-r)" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- Right Face Fill Plate -->
+  <polygon points="106,40 130,40 140,52 140,68 150,80 150,94 138,106 144,120 130,136 122,148 106,160" 
+           fill="#00F2FE" opacity="0.15"/>
+
+  <!-- Negative Space in the Middle creates a Radiant Vertical Eye / Chrono-Aperture -->
+  <path d="M 100 56 C 88 78, 88 122, 100 144 C 112 122, 112 78, 100 56 Z" 
+        fill="#0B111E" stroke="#6AADFF" stroke-width="2"/>
+
+  <!-- Central Pupil: The Present Moment ("Now") -->
+  <circle cx="100" cy="100" r="10" fill="#F29A38"/>
+  <circle cx="100" cy="100" r="4" fill="#FFFFFF"/>
+
+  <!-- Horizontal Time Horizon connecting the two eyes of the profiles -->
+  <line x1="38" y1="80" x2="88" y2="80" stroke="#6AADFF" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <circle cx="50" cy="80" r="3" fill="#6AADFF"/>
+  <line x1="112" y1="80" x2="162" y2="80" stroke="#00F2FE" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <circle cx="150" cy="80" r="3" fill="#00F2FE"/>
+
+  <!-- Vertical Temporal Divider (The Axis of Janus) -->
+  <line x1="100" y1="20" x2="100" y2="48" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="100" y1="152" x2="100" y2="180" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+</svg>
+        </div>
+      </div>
+      <div class="card-info">
+        <div class="card-header">
+          <span class="card-sub">The Dual-Profile Chrono-Face</span>
+          <h3 class="card-title">02. O Perfil Bifronte Espectral</h3>
+          <div class="tags-container"><span class="tag">Mito Romano</span><span class="tag">Duas Faces</span><span class="tag">Série em Degraus</span></div>
+        </div>
+        <div class="card-desc">
+          <p><strong>Conceito Gráfico:</strong> A iconografia mais clássica de Janus — dois perfis opostos olhando para o passado e para o futuro — esculpida através de linhas poligonais cartesianas de séries temporais. O espaço negativo central revela um olho vertical luminoso onde pulsa o cursor temporal.</p>
+          <p class="myth-note"><strong>Raiz Mitológica:</strong> Direto à lenda romana: Praeterita (olhar o arquivo histórico à esquerda) e Futura (projetar a tendência à direita), sem mover a cabeça.</p>
+        </div>
+        <div class="card-actions">
+          <a href="02-perfil-bifronte-espectral.svg" download class="btn btn-outline">Baixar SVG</a>
+          <a href="png/02-perfil-bifronte-espectral-512.png" target="_blank" class="btn btn-primary">Ver PNG 512px</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="logo-card" data-id="03-portal-laminas-temporais">
+      <div class="card-preview">
+        <div class="svg-container">
+          <svg viewBox="0 0 200 200" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="showcase-03-portal-laminas-temporais-slice-1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#0A192F"/>
+    </linearGradient>
+    <linearGradient id="showcase-03-portal-laminas-temporais-slice-2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="showcase-03-portal-laminas-temporais-slice-3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#4296FA"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Roman Ianua (Archway Portal) built of Isometric Raster Time-Slices -->
+  <!-- Layer 1: Deep Past (Back Layer) -->
+  <path d="M 44 160 L 44 92 C 44 60, 156 60, 156 92 L 156 160" 
+        fill="none" stroke="#1E3A8A" stroke-width="5" opacity="0.4"/>
+
+  <!-- Layer 2: Mid Past (Offset Layer) -->
+  <path d="M 54 160 L 54 94 C 54 68, 146 68, 146 94 L 146 160" 
+        fill="none" stroke="#4296FA" stroke-width="4.5" opacity="0.7"/>
+
+  <!-- Layer 3: Present Front Portal Frame -->
+  <path d="M 64 160 L 64 96 C 64 76, 136 76, 136 96 L 136 160" 
+        fill="none" stroke="#00F2FE" stroke-width="4"/>
+
+  <!-- Bottom Baseline / Ground Line of the Temple of Janus -->
+  <line x1="30" y1="160" x2="170" y2="160" stroke="#6AADFF" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Isometric Pixel Slices flanking the gateway (The Data Cube Slices) -->
+  <!-- Left Side: Past Stacks -->
+  <polygon points="36,110 52,100 52,120 36,130" fill="#4296FA" opacity="0.5"/>
+  <polygon points="36,136 52,126 52,146 36,156" fill="#1E3A8A" opacity="0.6"/>
+
+  <!-- Right Side: Future Stacks -->
+  <polygon points="148,100 164,110 164,130 148,120" fill="#00F2FE" opacity="0.5"/>
+  <polygon points="148,126 164,136 164,156 148,146" fill="#4296FA" opacity="0.6"/>
+
+  <!-- The Portal Opening forms the Cosmic Eye Looking Through Time -->
+  <!-- Eye Almond nested inside the archway -->
+  <path d="M 64 105 C 80 85, 120 85, 136 105 C 120 125, 80 125, 64 105 Z" 
+        fill="#0B111E" stroke="#6AADFF" stroke-width="2"/>
+
+  <!-- Iris & Focal Sensor -->
+  <circle cx="100" cy="105" r="16" fill="#162447" stroke="#00F2FE" stroke-width="2"/>
+  <circle cx="100" cy="105" r="7" fill="#F29A38"/>
+  <circle cx="100" cy="105" r="2.5" fill="#FFFFFF"/>
+
+  <!-- Laser Keystone / Time Cursor dividing the portal entrance -->
+  <line x1="100" y1="36" x2="100" y2="84" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="100" cy="36" r="4" fill="#F29A38"/>
+</svg>
+        </div>
+      </div>
+      <div class="card-info">
+        <div class="card-header">
+          <span class="card-sub">The Chrono-Slice Portal (Ianua)</span>
+          <h3 class="card-title">03. O Portal de Lâminas Temporais</h3>
+          <div class="tags-container"><span class="tag">Mito Romano</span><span class="tag">Data Cube</span><span class="tag">Portal Ianua</span></div>
+        </div>
+        <div class="card-desc">
+          <p><strong>Conceito Gráfico:</strong> O templo de Janus no Fórum Romano era uma passagem em arco (Ianua) aberta nos dois sentidos. Aqui, o portal é erguido por camadas empilhadas de rasters (slices do data cube). No interior do arco, surge a óptica de observação da Terra com um feixe vertical de corte temporal.</p>
+          <p class="myth-note"><strong>Raiz Mitológica:</strong> Janus como o guardião das portas e transições de estado, simbolizando a passagem da imagem estática para o cubo multitemporal.</p>
+        </div>
+        <div class="card-actions">
+          <a href="03-portal-laminas-temporais.svg" download class="btn btn-outline">Baixar SVG</a>
+          <a href="png/03-portal-laminas-temporais-512.png" target="_blank" class="btn btn-primary">Ver PNG 512px</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="logo-card" data-id="04-anel-dendrocronologico">
+      <div class="card-preview">
+        <div class="svg-container">
+          <svg viewBox="0 0 200 200" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="showcase-04-anel-dendrocronologico-ring" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="50%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer Orbit Rings (Annual Seasons / Satellite Repeat Cycles) -->
+  <circle cx="100" cy="100" r="76" fill="none" stroke="#1E3A8A" stroke-width="1.5" stroke-dasharray="4 6" opacity="0.6"/>
+  <circle cx="100" cy="100" r="62" fill="none" stroke="#4296FA" stroke-width="2" stroke-dasharray="8 4" opacity="0.8"/>
+  <circle cx="100" cy="100" r="48" fill="none" stroke="#00F2FE" stroke-width="2"/>
+
+  <!-- Segmented Dendrochronology Raster Pixels around the Ring -->
+  <g fill="#4296FA" opacity="0.7">
+    <rect x="96" y="26" width="8" height="6" rx="1.5"/>
+    <rect x="136" y="38" width="8" height="6" rx="1.5" transform="rotate(30 140 41)"/>
+    <rect x="162" y="70" width="8" height="6" rx="1.5" transform="rotate(60 166 73)"/>
+    <rect x="166" y="112" width="8" height="6" rx="1.5" transform="rotate(100 170 115)"/>
+    <rect x="140" y="152" width="8" height="6" rx="1.5" transform="rotate(135 144 155)"/>
+    <rect x="96" y="168" width="8" height="6" rx="1.5"/>
+    <rect x="52" y="152" width="8" height="6" rx="1.5" transform="rotate(225 56 155)"/>
+    <rect x="26" y="112" width="8" height="6" rx="1.5" transform="rotate(260 30 115)"/>
+    <rect x="30" y="70" width="8" height="6" rx="1.5" transform="rotate(300 34 73)"/>
+    <rect x="56" y="38" width="8" height="6" rx="1.5" transform="rotate(330 60 41)"/>
+  </g>
+
+  <!-- Horizontal Time Series Wave cutting through the iris like an Equator of Time -->
+  <path d="M 20 100 Q 50 78 80 100 T 120 100 Q 140 122 180 100" 
+        fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Dual Eye Horizons forming the central aperture -->
+  <path d="M 44 100 C 60 70, 140 70, 156 100 C 140 130, 60 130, 44 100 Z" 
+        fill="#0B111E" stroke="#6AADFF" stroke-width="2.5"/>
+
+  <!-- Core Pupil & Sensor -->
+  <circle cx="100" cy="100" r="22" fill="#162447" stroke="#00F2FE" stroke-width="2"/>
+  <circle cx="100" cy="100" r="11" fill="#F29A38"/>
+  <circle cx="100" cy="100" r="4" fill="#FFFFFF"/>
+
+  <!-- Vertical "Now" Needle -->
+  <line x1="100" y1="42" x2="100" y2="70" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="100" y1="130" x2="100" y2="158" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+</svg>
+        </div>
+      </div>
+      <div class="card-info">
+        <div class="card-header">
+          <span class="card-sub">The Dendro-Temporal Orbit Eye</span>
+          <h3 class="card-title">04. A Íris Dendrocronológica & Orbital</h3>
+          <div class="tags-container"><span class="tag">Dendrocronologia</span><span class="tag">Órbitas</span><span class="tag">Tempo Cíclico</span></div>
+        </div>
+        <div class="card-desc">
+          <p><strong>Conceito Gráfico:</strong> Assim como os anéis das árvores registram a história do clima, os satélites registram o tempo em órbitas periódicas repetitivas. A íris é composta por anéis concêntricos de pixels multiespectrais, cortados por uma onda de série temporal que atravessa o centro focal.</p>
+          <p class="myth-note"><strong>Raiz Mitológica:</strong> O tempo circular dos ciclos cósmicos e celestes em harmonia com a observação contínua da Terra pelo satélite.</p>
+        </div>
+        <div class="card-actions">
+          <a href="04-anel-dendrocronologico.svg" download class="btn btn-outline">Baixar SVG</a>
+          <a href="png/04-anel-dendrocronologico-512.png" target="_blank" class="btn btn-primary">Ver PNG 512px</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="logo-card" data-id="05-diafragma-bitemporal">
+      <div class="card-preview">
+        <div class="svg-container">
+          <svg viewBox="0 0 200 200" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="showcase-05-diafragma-bitemporal-blade-l" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#4296FA"/>
+    </linearGradient>
+    <linearGradient id="showcase-05-diafragma-bitemporal-blade-r" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#6AADFF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer Camera / Satellite Sensor Housing -->
+  <circle cx="100" cy="100" r="82" fill="none" stroke="#2A3B5C" stroke-width="3"/>
+  <circle cx="100" cy="100" r="76" fill="#0B111E" stroke="#1E3A8A" stroke-width="2"/>
+
+  <!-- Dual Opposite Aperture Blades (Janus Rotation: Past Clockwise, Future Counter-Clockwise) -->
+  <!-- Left Wing Blades (Past) -->
+  <path d="M 100 24 L 62 52 L 78 96 L 100 100 Z" fill="url(#showcase-05-diafragma-bitemporal-blade-l)" opacity="0.85"/>
+  <path d="M 62 52 L 32 94 L 70 124 L 100 100 Z" fill="url(#showcase-05-diafragma-bitemporal-blade-l)" opacity="0.75"/>
+  <path d="M 32 94 L 48 144 L 88 142 L 100 100 Z" fill="url(#showcase-05-diafragma-bitemporal-blade-l)" opacity="0.65"/>
+  <path d="M 48 144 L 100 176 L 100 134 L 100 100 Z" fill="url(#showcase-05-diafragma-bitemporal-blade-l)" opacity="0.8"/>
+
+  <!-- Right Wing Blades (Future) -->
+  <path d="M 100 24 L 138 52 L 122 96 L 100 100 Z" fill="url(#showcase-05-diafragma-bitemporal-blade-r)" opacity="0.85"/>
+  <path d="M 138 52 L 168 94 L 130 124 L 100 100 Z" fill="url(#showcase-05-diafragma-bitemporal-blade-r)" opacity="0.75"/>
+  <path d="M 168 94 L 152 144 L 112 142 L 100 100 Z" fill="url(#showcase-05-diafragma-bitemporal-blade-r)" opacity="0.65"/>
+  <path d="M 152 144 L 100 176 L 100 134 L 100 100 Z" fill="url(#showcase-05-diafragma-bitemporal-blade-r)" opacity="0.8"/>
+
+  <!-- Center Anamorphic Eye Aperture created by the blades -->
+  <ellipse cx="100" cy="100" rx="30" ry="18" fill="#0B111E" stroke="#00F2FE" stroke-width="2.5"/>
+  
+  <!-- Temporal Scan Line / Sensor Slit -->
+  <line x1="72" y1="100" x2="128" y2="100" stroke="#FFFFFF" stroke-width="1.5" stroke-dasharray="2 3"/>
+
+  <!-- The Orange Focal Sensor ("Now") -->
+  <circle cx="100" cy="100" r="10" fill="#F29A38"/>
+  <circle cx="100" cy="100" r="4" fill="#FFFFFF"/>
+
+  <!-- Calibrated tick marks on the sensor perimeter -->
+  <line x1="100" y1="18" x2="100" y2="28" stroke="#F29A38" stroke-width="3"/>
+  <line x1="100" y1="172" x2="100" y2="182" stroke="#F29A38" stroke-width="3"/>
+  <line x1="18" y1="100" x2="28" y2="100" stroke="#6AADFF" stroke-width="2"/>
+  <line x1="172" y1="100" x2="182" y2="100" stroke="#00F2FE" stroke-width="2"/>
+</svg>
+        </div>
+      </div>
+      <div class="card-info">
+        <div class="card-header">
+          <span class="card-sub">The Dual-Aperture Shutter</span>
+          <h3 class="card-title">05. O Diafragma Óptico Bitemporal</h3>
+          <div class="tags-container"><span class="tag">Sensor de Satélite</span><span class="tag">Óptica</span><span class="tag">Rotação Dual</span></div>
+        </div>
+        <div class="card-desc">
+          <p><strong>Conceito Gráfico:</strong> O olho como telescópio e câmera orbital. Um obturador mecânico de satélite com lâminas que giram em sentidos opostos: a metade esquerda gira em sentido horário (retrospectiva temporal) e a direita em sentido anti-horário (prospectiva), formando uma pupila anamórfica.</p>
+          <p class="myth-note"><strong>Raiz Mitológica:</strong> A rotação simultânea das duas perspectivas temporais de Janus convertida em engenharia aeroespacial e precisão de CCDs.</p>
+        </div>
+        <div class="card-actions">
+          <a href="05-diafragma-bitemporal.svg" download class="btn btn-outline">Baixar SVG</a>
+          <a href="png/05-diafragma-bitemporal-512.png" target="_blank" class="btn btn-primary">Ver PNG 512px</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="logo-card" data-id="06-ruptura-changepoint">
+      <div class="card-preview">
+        <div class="svg-container">
+          <svg viewBox="0 0 200 200" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="showcase-06-ruptura-changepoint-break-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="48%" stop-color="#4296FA"/>
+      <stop offset="50%" stop-color="#F29A38"/>
+      <stop offset="52%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#6AADFF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Coordinate box subtly showing time series axis -->
+  <rect x="24" y="36" width="152" height="128" rx="8" fill="#0B111E" stroke="#2A3B5C" stroke-width="1.5"/>
+
+  <!-- Confidence Intervals Envelope (p10-p90 / Trend Ribbon forming the eye silhouette) -->
+  <path d="M 28 92 C 55 64, 85 64, 100 88 C 115 112, 145 112, 172 84 L 172 116 C 145 144, 115 144, 100 120 C 85 96, 55 96, 28 124 Z"
+        fill="#4296FA" opacity="0.12"/>
+
+  <!-- Upper Eye Boundary: Past Healthy Stable Trajectory -> Sudden Sharp Abrupt Drop (Deforestation/Fire) -> Recovery -->
+  <path d="M 28 88 L 60 84 L 80 86 L 98 88 L 100 124 L 120 122 L 145 114 L 172 96" 
+        fill="none" stroke="url(#showcase-06-ruptura-changepoint-break-grad)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Lower Eye Boundary: Balancing Curve -->
+  <path d="M 28 120 C 55 146, 80 146, 100 126 C 120 146, 145 146, 172 120" 
+        fill="none" stroke="#6AADFF" stroke-width="3" stroke-linecap="round" opacity="0.8"/>
+
+  <!-- Vertical Rupture Vector (The Changepoint Event at T0) -->
+  <line x1="100" y1="46" x2="100" y2="154" stroke="#F29A38" stroke-width="2.5" stroke-dasharray="4 3"/>
+
+  <!-- Center Focal Sensor / Anomaly Dot (The Eye's Glowing Core) -->
+  <circle cx="100" cy="106" r="14" fill="#162447" stroke="#F29A38" stroke-width="2"/>
+  <circle cx="100" cy="106" r="7" fill="#F29A38"/>
+  <circle cx="100" cy="106" r="2.5" fill="#FFFFFF"/>
+
+  <!-- Historical Sample Points on the curve -->
+  <circle cx="44" cy="86" r="3" fill="#4296FA"/>
+  <circle cx="68" cy="85" r="3" fill="#6AADFF"/>
+  <circle cx="88" cy="87" r="3" fill="#6AADFF"/>
+  <!-- Future Projected Points -->
+  <circle cx="116" cy="122" r="3" fill="#00F2FE"/>
+  <circle cx="138" cy="116" r="3" fill="#00F2FE"/>
+  <circle cx="160" cy="104" r="3" fill="#00F2FE"/>
+</svg>
+        </div>
+      </div>
+      <div class="card-info">
+        <div class="card-header">
+          <span class="card-sub">The Changepoint Disturbance Eye</span>
+          <h3 class="card-title">06. O Ponto de Ruptura / Anomalia</h3>
+          <div class="tags-container"><span class="tag">Detecção de Mudança</span><span class="tag">BFAST / LandTrendr</span><span class="tag">Anomalia</span></div>
+        </div>
+        <div class="card-desc">
+          <p><strong>Conceito Gráfico:</strong> Na análise de séries temporais de sensoriamento remoto, o evento mais crucial é a quebra estrutural (desmatamento, queimada, desastre). O contorno superior do olho é uma série temporal estável que sofre uma queda abrupta no instante T0, acendendo o sensor de alerta laranja.</p>
+          <p class="myth-note"><strong>Raiz Mitológica:</strong> Janus como o deus da transição de estados: o momento da mudança onde o estado anterior cessa e um novo ecossistema se estabelece.</p>
+        </div>
+        <div class="card-actions">
+          <a href="06-ruptura-changepoint.svg" download class="btn btn-outline">Baixar SVG</a>
+          <a href="png/06-ruptura-changepoint-512.png" target="_blank" class="btn btn-primary">Ver PNG 512px</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="logo-card" data-id="07-medalhao-romano-series">
+      <div class="card-preview">
+        <div class="svg-container">
+          <svg viewBox="0 0 200 200" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="showcase-07-medalhao-romano-series-coin-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6AADFF"/>
+      <stop offset="50%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+    <linearGradient id="showcase-07-medalhao-romano-series-past-fill" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#4296FA"/>
+    </linearGradient>
+    <linearGradient id="showcase-07-medalhao-romano-series-future-fill" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Ancient Roman 'As' Coin Outer Beaded Border (Time Markers / Calendar Ticks) -->
+  <circle cx="100" cy="100" r="82" fill="none" stroke="url(#showcase-07-medalhao-romano-series-coin-rim)" stroke-width="3"/>
+  <circle cx="100" cy="100" r="75" fill="#0B111E" stroke="#2A3B5C" stroke-width="1.5"/>
+  <circle cx="100" cy="100" r="71" fill="none" stroke="#6AADFF" stroke-width="1" stroke-dasharray="2 5" opacity="0.7"/>
+
+  <!-- Inside the Medallion: Two Opposing Classical Silhouettes Sculpted from Area Curves -->
+  <!-- Left Side: Past Area Curves (Beard / Profile of Janus looking left) -->
+  <path d="M 100 48 C 82 48, 64 60, 54 78 C 66 84, 52 98, 48 110 C 62 112, 54 130, 68 144 C 80 152, 92 152, 100 152 Z"
+        fill="url(#showcase-07-medalhao-romano-series-past-fill)" opacity="0.65"/>
+        
+  <!-- Right Side: Future Area Curves (Profile of Janus looking right) -->
+  <path d="M 100 48 C 118 48, 136 60, 146 78 C 134 84, 148 98, 152 110 C 138 112, 146 130, 132 144 C 120 152, 108 152, 100 152 Z"
+        fill="url(#showcase-07-medalhao-romano-series-future-fill)" opacity="0.65"/>
+
+  <!-- Central Shared Eye of the Bifrons Medallion -->
+  <path d="M 72 100 C 84 84, 116 84, 128 100 C 116 116, 84 116, 72 100 Z" 
+        fill="#0B111E" stroke="#FFFFFF" stroke-width="2.5"/>
+
+  <!-- The Golden/Orange Pupil (The Eternal Now) -->
+  <circle cx="100" cy="100" r="11" fill="#F29A38"/>
+  <circle cx="100" cy="100" r="4" fill="#FFFFFF"/>
+
+  <!-- Roman Numerals / Temporal Meridian Markers (I / N) -->
+  <text x="100" y="38" text-anchor="middle" fill="#F29A38" font-size="10" font-weight="900" font-family="sans-serif">T₀</text>
+  <text x="100" y="172" text-anchor="middle" fill="#F29A38" font-size="9" font-weight="bold" font-family="sans-serif">JANVS</text>
+
+  <!-- Left/Right Roman Indicators: PAST (-) and FUTURE (+) -->
+  <text x="32" y="104" text-anchor="middle" fill="#6AADFF" font-size="11" font-weight="bold" font-family="sans-serif">◀</text>
+  <text x="168" y="104" text-anchor="middle" fill="#00F2FE" font-size="11" font-weight="bold" font-family="sans-serif">▶</text>
+</svg>
+        </div>
+      </div>
+      <div class="card-info">
+        <div class="card-header">
+          <span class="card-sub">The Roman Coin of Time Series</span>
+          <h3 class="card-title">07. A Moeda Imperial de Séries</h3>
+          <div class="tags-container"><span class="tag">Numismática</span><span class="tag">Mito Romano</span><span class="tag">Gráficos de Área</span></div>
+        </div>
+        <div class="card-desc">
+          <p><strong>Conceito Gráfico:</strong> Inspirado no clássico 'As' republicano de bronze com o busto duplo de Janus. No interior da moeda, as silhuetas de Janus são desenhadas por curvas de área preenchida (streamgraphs de envelope estatístico), compartilhando uma pupila central solar com a inscrição T0 e JANVS.</p>
+          <p class="myth-note"><strong>Raiz Mitológica:</strong> Homenagem à herança latina e numismática clássica romana, transmitindo solidez institucional, prestígio acadêmico e perenidade.</p>
+        </div>
+        <div class="card-actions">
+          <a href="07-medalhao-romano-series.svg" download class="btn btn-outline">Baixar SVG</a>
+          <a href="png/07-medalhao-romano-series-512.png" target="_blank" class="btn btn-primary">Ver PNG 512px</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="logo-card" data-id="08-cubo-espaco-tempo-voxel">
+      <div class="card-preview">
+        <div class="svg-container">
+          <svg viewBox="0 0 200 200" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="showcase-08-cubo-espaco-tempo-voxel-top-cube" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#4296FA"/>
+    </linearGradient>
+    <linearGradient id="showcase-08-cubo-espaco-tempo-voxel-left-cube" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="showcase-08-cubo-espaco-tempo-voxel-right-cube" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#4296FA"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Isometric Spacetime Data Cube [T, Y, X] -->
+  <!-- Top Face: Spatial Matrix (The Map / X-Y Raster Canvas) -->
+  <polygon points="100,28 156,60 100,92 44,60" 
+           fill="url(#showcase-08-cubo-espaco-tempo-voxel-top-cube)" stroke="#FFFFFF" stroke-width="1.5" opacity="0.85"/>
+  <!-- Spatial grid lines on top -->
+  <line x1="72" y1="44" x2="128" y2="76" stroke="#FFFFFF" stroke-width="1" opacity="0.4"/>
+  <line x1="128" y1="44" x2="72" y2="76" stroke="#FFFFFF" stroke-width="1" opacity="0.4"/>
+
+  <!-- Left Face: Past Temporal Depth (Slices going back in history) -->
+  <polygon points="44,60 100,92 100,164 44,132" 
+           fill="url(#showcase-08-cubo-espaco-tempo-voxel-left-cube)" stroke="#FFFFFF" stroke-width="1.5" opacity="0.9"/>
+  <!-- Historical Time Series waves on left face -->
+  <path d="M 48 95 Q 68 85 82 108 T 96 125" fill="none" stroke="#6AADFF" stroke-width="2" opacity="0.8"/>
+  <path d="M 48 115 Q 68 105 82 128 T 96 145" fill="none" stroke="#6AADFF" stroke-width="1.5" opacity="0.5"/>
+
+  <!-- Right Face: Future Temporal Projection (Forecast & Anomalies) -->
+  <polygon points="100,92 156,60 156,132 100,164" 
+           fill="url(#showcase-08-cubo-espaco-tempo-voxel-right-cube)" stroke="#FFFFFF" stroke-width="1.5" opacity="0.9"/>
+  <!-- Future Trend wave on right face -->
+  <path d="M 104 125 Q 118 108 132 118 T 152 95" fill="none" stroke="#A5F3FC" stroke-width="2" opacity="0.8"/>
+  <path d="M 104 145 Q 118 128 132 138 T 152 115" fill="none" stroke="#A5F3FC" stroke-width="1.5" opacity="0.5"/>
+
+  <!-- The Central Vertex Unfolds into the Cosmic Eye of Janus -->
+  <!-- Translucent Eye Almond floating precisely at the space-time origin (100, 92) -->
+  <path d="M 64 92 C 80 72, 120 72, 136 92 C 120 112, 80 112, 64 92 Z" 
+        fill="#0B111E" stroke="#FFFFFF" stroke-width="2.5"/>
+
+  <!-- Core Pupil: The GPU Voxel Cursor ("Now" Marker in Orange) -->
+  <circle cx="100" cy="92" r="14" fill="#162447" stroke="#F29A38" stroke-width="2"/>
+  <circle cx="100" cy="92" r="7" fill="#F29A38"/>
+  <circle cx="100" cy="92" r="2.5" fill="#FFFFFF"/>
+
+  <!-- Vertical Temporal Axis Laser Pin -->
+  <line x1="100" y1="14" x2="100" y2="28" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+  <line x1="100" y1="164" x2="100" y2="182" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+</svg>
+        </div>
+      </div>
+      <div class="card-info">
+        <div class="card-header">
+          <span class="card-sub">The Spacetime Voxel Eye</span>
+          <h3 class="card-title">08. O Cubo Espaço-Tempo / Voxel</h3>
+          <div class="tags-container"><span class="tag">Data Cube [T,Y,X]</span><span class="tag">Computação GPU</span><span class="tag">Isometria</span></div>
+        </div>
+        <div class="card-desc">
+          <p><strong>Conceito Gráfico:</strong> A própria estrutura de dados do Janus: o cubo [T, Y, X]. Em perspectiva isométrica, a face superior exibe a matriz espacial (mapa 2D), a face esquerda exibe a história temporal passada e a direita exibe projeções futuras. No vértice onde espaço e tempo colidem, nasce o olho do observador.</p>
+          <p class="myth-note"><strong>Raiz Mitológica:</strong> A onipresença dimensional de Janus sintetizada na arquitetura de data cube em memória de GPU.</p>
+        </div>
+        <div class="card-actions">
+          <a href="08-cubo-espaco-tempo-voxel.svg" download class="btn btn-outline">Baixar SVG</a>
+          <a href="png/08-cubo-espaco-tempo-voxel-512.png" target="_blank" class="btn btn-primary">Ver PNG 512px</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="logo-card" data-id="09-streamgraph-harmonico">
+      <div class="card-preview">
+        <div class="svg-container">
+          <svg viewBox="0 0 200 200" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="showcase-09-streamgraph-harmonico-stream-top" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="50%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+    <linearGradient id="showcase-09-streamgraph-harmonico-stream-mid" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="50%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#6AADFF"/>
+    </linearGradient>
+    <linearGradient id="showcase-09-streamgraph-harmonico-stream-bot" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="50%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Flowing Multitemporal Streamgraph Ribbons converging to form an Eye Silhouette -->
+  <!-- Top Ribbon (Annual Season Harmonic) -->
+  <path d="M 20 100 C 45 68, 75 58, 100 58 C 125 58, 155 68, 180 100 C 155 78, 125 70, 100 70 C 75 70, 45 78, 20 100 Z" 
+        fill="url(#showcase-09-streamgraph-harmonico-stream-top)" opacity="0.85"/>
+
+  <!-- Upper-Middle Ribbon (Semiannual Harmonic) -->
+  <path d="M 20 100 C 45 78, 75 70, 100 70 C 125 70, 155 78, 180 100 C 155 88, 125 82, 100 82 C 75 82, 45 88, 20 100 Z" 
+        fill="url(#showcase-09-streamgraph-harmonico-stream-mid)" opacity="0.75"/>
+
+  <!-- Lower-Middle Ribbon -->
+  <path d="M 20 100 C 45 112, 75 118, 100 118 C 125 118, 155 112, 180 100 C 155 122, 125 130, 100 130 C 75 130, 45 122, 20 100 Z" 
+        fill="url(#showcase-09-streamgraph-harmonico-stream-mid)" opacity="0.75"/>
+
+  <!-- Bottom Ribbon (Long-term Interannual Trend) -->
+  <path d="M 20 100 C 45 122, 75 130, 100 130 C 125 130, 155 122, 180 100 C 155 132, 125 142, 100 142 C 75 142, 45 132, 20 100 Z" 
+        fill="url(#showcase-09-streamgraph-harmonico-stream-bot)" opacity="0.85"/>
+
+  <!-- Central Optical Core (Negative space iris created by the converging waves) -->
+  <circle cx="100" cy="100" r="26" fill="#0B111E" stroke="#00F2FE" stroke-width="2"/>
+  
+  <!-- Sinuous Wave Signal inside the Core -->
+  <path d="M 76 100 Q 88 88 100 100 T 124 100" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Orange Pulse ("Now" Point) -->
+  <circle cx="100" cy="100" r="9" fill="#F29A38"/>
+  <circle cx="100" cy="100" r="3" fill="#FFFFFF"/>
+
+  <!-- High-Precision Vertical Temporal Horizon -->
+  <line x1="100" y1="36" x2="100" y2="52" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="100" y1="148" x2="100" y2="164" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+</svg>
+        </div>
+      </div>
+      <div class="card-info">
+        <div class="card-header">
+          <span class="card-sub">The Harmonic Streamgraph Eye</span>
+          <h3 class="card-title">09. O Olho de Fourier / Harmônico</h3>
+          <div class="tags-container"><span class="tag">Decomposição de Fourier</span><span class="tag">Streamgraph</span><span class="tag">Fluidez</span></div>
+        </div>
+        <div class="card-desc">
+          <p><strong>Conceito Gráfico:</strong> Fitas fluídas de densidade de séries temporais (anual, semestral e interanual) que se entrelaçam e convergem no espaço central, esculpindo por sobreposição a forma exata de uma amêndoa de olho. Uma agulha de data laranja marca o instante presente cortando as faixas espectrais.</p>
+          <p class="myth-note"><strong>Raiz Mitológica:</strong> O fluxo contínuo e irreversível do rio do tempo, orquestrado pela métrica harmônica de Fourier.</p>
+        </div>
+        <div class="card-actions">
+          <a href="09-streamgraph-harmonico.svg" download class="btn btn-outline">Baixar SVG</a>
+          <a href="png/09-streamgraph-harmonico-512.png" target="_blank" class="btn btn-primary">Ver PNG 512px</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="logo-card" data-id="10-glifo-duplo-j">
+      <div class="card-preview">
+        <div class="svg-container">
+          <svg viewBox="0 0 200 200" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="showcase-10-glifo-duplo-j-j-left" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="showcase-10-glifo-duplo-j-j-right" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#4296FA"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Left 'J' (Mirrored, Facing the Past) -->
+  <!-- Top Crossbar, Stem, and Bottom Curve sweeping backwards like an orbit / lower eyelid -->
+  <path d="M 100 48 L 52 48 L 52 62 L 78 62 L 78 116 C 78 136, 62 144, 46 144 C 36 144, 28 140, 24 136 L 20 152 C 28 158, 40 162, 52 162 C 82 162, 98 144, 98 116 Z" 
+        fill="url(#showcase-10-glifo-duplo-j-j-left)"/>
+
+  <!-- Right 'J' (Facing the Future) -->
+  <!-- Top Crossbar, Stem, and Bottom Curve sweeping forward -->
+  <path d="M 100 48 L 148 48 L 148 62 L 122 62 L 122 116 C 122 136, 138 144, 154 144 C 164 144, 172 140, 176 136 L 180 152 C 172 158, 160 162, 148 162 C 118 162, 102 144, 102 116 Z" 
+        fill="url(#showcase-10-glifo-duplo-j-j-right)"/>
+
+  <!-- The Interior Dynamic Opening Creates an Eye Contour -->
+  <path d="M 78 98 C 88 82, 112 82, 122 98 C 112 114, 88 114, 78 98 Z" 
+        fill="#0B111E" stroke="#FFFFFF" stroke-width="2"/>
+
+  <!-- Orange Pulse ("Now" Cursor at the Center of the Glyphs) -->
+  <circle cx="100" cy="98" r="9" fill="#F29A38"/>
+  <circle cx="100" cy="98" r="3.5" fill="#FFFFFF"/>
+
+  <!-- Horizontal Time Signal Wave crossing the heart of the monogram -->
+  <line x1="42" y1="98" x2="74" y2="98" stroke="#6AADFF" stroke-width="2" stroke-linecap="round"/>
+  <line x1="126" y1="98" x2="158" y2="98" stroke="#00F2FE" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Upper Beacon / Time Needle -->
+  <polygon points="100,24 94,40 106,40" fill="#F29A38"/>
+</svg>
+        </div>
+      </div>
+      <div class="card-info">
+        <div class="card-header">
+          <span class="card-sub">The Janus Double-J Monogram</span>
+          <h3 class="card-title">10. O Glifo Bitemporal 'J'</h3>
+          <div class="tags-container"><span class="tag">Identidade Tipográfica</span><span class="tag">Monograma</span><span class="tag">App Icon / 'jn'</span></div>
+        </div>
+        <div class="card-desc">
+          <p><strong>Conceito Gráfico:</strong> Dois caracteres 'J' espelhados costas com costas em perfeita simetria dorsal. As hastes verticais formam o meridiano temporal, as curvas inferiores formam o arco orbital e a pálpebra inferior, e o espaço interno emoldura um pulso de sinal com o cursor laranja. Perfeito para ícone de dock e terminal.</p>
+          <p class="myth-note"><strong>Raiz Mitológica:</strong> A máxima simplificação modernista do mito de Janus: a letra do seu próprio nome convertida no portal e no olho bitemporal.</p>
+        </div>
+        <div class="card-actions">
+          <a href="10-glifo-duplo-j.svg" download class="btn btn-outline">Baixar SVG</a>
+          <a href="png/10-glifo-duplo-j-512.png" target="_blank" class="btn btn-primary">Ver PNG 512px</a>
+        </div>
+      </div>
+    </div>
+    
+    </div>
+
+    <footer>
+      Janus — A fast desktop viewer for raster time series and data cubes. Cores oficiais da interface ImGui/ImPlot.
+    </footer>
+  </div>
+
+  <script>
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme');
+      const target = current === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', target);
+      localStorage.setItem('janus-theme', target);
+    }
+    const saved = localStorage.getItem('janus-theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', saved);
+  </script>
+</body>
+</html>

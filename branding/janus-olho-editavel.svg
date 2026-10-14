@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+  ============================================================
+  JANUS - MASTER EDITABLE BRAND SYMBOL (THE BITEMPORAL EYE)
+  "Look back. Look ahead."
+  ============================================================
+  Layers:
+    #fundo           - Fundo transparente ou de contraste
+    #contornos       - Asas externas do olho (passado à esquerda, futuro à direita)
+    #iris-passado    - Estratos da íris do passado (camadas históricas)
+    #iris-futuro     - Estratos da íris do futuro (camadas de mudança/anomalia)
+    #cursor-data     - Sensor focal central (Marcador de data laranja #F29A38)
+    #meridianos      - Eixo temporal vertical e setas direcionais
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <title>Janus — Símbolo Master Editável</title>
+  
+  <defs>
+    <!-- Gradiente da asa do passado (olhar para trás) -->
+    <linearGradient id="grad-passado" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+
+    <!-- Gradiente da asa do futuro (olhar para frente) -->
+    <linearGradient id="grad-futuro" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+
+    <!-- Gradiente do sensor central (data presente) -->
+    <radialGradient id="grad-sensor" cx="40%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="40%" stop-color="#F29A38"/>
+      <stop offset="100%" stop-color="#FF6D00"/>
+    </radialGradient>
+
+    <!-- Brilho sutil no cursor de data -->
+    <filter id="glow-data" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <g id="janus-eye-master">
+    <!-- ================= CAMADA: CONTORNOS EXTERNOS ================= -->
+    <g id="contornos">
+      <!-- Asa Esquerda (Passado / Look Back) -->
+      <path id="asa-esquerda" 
+            d="M 100, 48 C 65, 48 35, 75 22, 100 C 35, 125 65, 152 100, 152"
+            fill="none" stroke="url(#grad-passado)" stroke-width="4.5" stroke-linecap="round"/>
+
+      <!-- Asa Direita (Futuro / Look Ahead) -->
+      <path id="asa-direita" 
+            d="M 100, 48 C 135, 48 165, 75 178, 100 C 165, 125 135, 152 100, 152"
+            fill="none" stroke="url(#grad-futuro)" stroke-width="4.5" stroke-linecap="round"/>
+    </g>
+
+    <!-- ================= CAMADA: ÍRIS E ESTRATOS ================= -->
+    <g id="iris">
+      <!-- Íris Esquerda (Passado) -->
+      <g id="iris-passado">
+        <path d="M 100, 64 A 36,36 0 0,0 100, 136 Z" fill="url(#grad-passado)"/>
+        <path d="M 100, 76 A 24,24 0 0,0 100, 124 Z" fill="#0F1A2E"/>
+      </g>
+
+      <!-- Íris Direita (Futuro) -->
+      <g id="iris-futuro">
+        <path d="M 100, 64 A 36,36 0 0,1 100, 136 Z" fill="url(#grad-futuro)"/>
+        <path d="M 100, 76 A 24,24 0 0,1 100, 124 Z" fill="#0A1120"/>
+      </g>
+    </g>
+
+    <!-- ================= CAMADA: SETAS E EIXOS ================= -->
+    <g id="meridianos">
+      <!-- Marcadores verticais do meridiano do tempo -->
+      <line id="eixo-topo" x1="100" y1="34" x2="100" y2="48" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+      <line id="eixo-base" x1="100" y1="152" x2="100" y2="166" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+
+      <!-- Setas direcionais no horizonte -->
+      <path id="seta-passado" d="M 20, 100 L 30, 93 L 30, 107 Z" fill="#4296FA"/>
+      <path id="seta-futuro"  d="M 180, 100 L 170, 93 L 170, 107 Z" fill="#00F2FE"/>
+    </g>
+
+    <!-- ================= CAMADA: SENSOR CENTRAL ("NOW") ================= -->
+    <g id="cursor-data" filter="url(#glow-data)">
+      <circle id="sensor-anel-externo" cx="100" cy="100" r="10" fill="url(#grad-sensor)"/>
+      <circle id="sensor-ponto-focal" cx="100" cy="100" r="4" fill="#FFFFFF"/>
+    </g>
+  </g>
+</svg>

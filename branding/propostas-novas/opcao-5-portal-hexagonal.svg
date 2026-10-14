@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 200 200" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="opcao-5-portal-hexagonal-hex-left" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="50%" stop-color="#1D4ED8"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="opcao-5-portal-hexagonal-hex-right" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="50%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+    <linearGradient id="opcao-5-portal-hexagonal-core" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+  </defs>
+  
+  <g transform="translate(0, 0)">
+    <!-- Left Hexagon Half (Past / Reference) -->
+    <!-- Points: Top(100, 30), TopLeft(42, 64), BottomLeft(42, 136), Bottom(100, 170) -->
+    <path d="M 97, 34
+             L 45, 66
+             L 45, 134
+             L 97, 166
+             Z"
+          fill="url(#opcao-5-portal-hexagonal-hex-left)"/>
+          
+    <!-- Left Internal Strata (3 stepping bands) -->
+    <path d="M 97, 56 L 60, 78 L 60, 122 L 97, 144 Z" fill="#1E3A8A" opacity="0.6"/>
+    <path d="M 97, 74 L 75, 87 L 75, 113 L 97, 126 Z" fill="#172554" opacity="0.8"/>
+
+    <!-- Right Hexagon Half (Future / Anomaly) -->
+    <!-- Points: Top(100, 30), TopRight(158, 64), BottomRight(158, 136), Bottom(100, 170) -->
+    <path d="M 103, 34
+             L 155, 66
+             L 155, 134
+             L 103, 166
+             Z"
+          fill="url(#opcao-5-portal-hexagonal-hex-right)"/>
+          
+    <!-- Right Internal Strata (3 stepping bands) -->
+    <path d="M 103, 56 L 140, 78 L 140, 122 L 103, 144 Z" fill="#0284C7" opacity="0.6"/>
+    <path d="M 103, 74 L 125, 87 L 125, 113 L 103, 126 Z" fill="#0369A1" opacity="0.8"/>
+    
+    <!-- Central Portal Threshold (Vertical Slit of Time) -->
+    <line x1="100" y1="28" x2="100" y2="172" stroke="url(#opcao-5-portal-hexagonal-core)" stroke-width="3" stroke-linecap="round"/>
+    
+    <!-- Central Pixel Coordinate / Core Singularity -->
+    <polygon points="100,90 109,100 100,110 91,100" fill="#FFFFFF"/>
+    <circle cx="100" cy="100" r="2.5" fill="#00F2FE"/>
+    
+    <!-- Top & Bottom Gateway Caps -->
+    <circle cx="100" cy="28" r="4.5" fill="#00F2FE"/>
+    <circle cx="100" cy="172" r="4.5" fill="#00F2FE"/>
+  </g>
+</svg>

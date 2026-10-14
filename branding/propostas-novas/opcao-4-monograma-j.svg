@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 200 200" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="opcao-4-monograma-j-past" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1D4ED8"/>
+      <stop offset="100%" stop-color="#3B82F6"/>
+    </linearGradient>
+    <linearGradient id="opcao-4-monograma-j-future" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+    <linearGradient id="opcao-4-monograma-j-core" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#0EA5E9"/>
+    </linearGradient>
+    <filter id="opcao-4-monograma-j-drop" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  
+  <g transform="translate(0, 0)" filter="url(#opcao-4-monograma-j-drop)">
+    <!-- Backward / Past Ribbon (Extends to top-left arrow/serif) -->
+    <!-- Starts from top-right (145, 38) -> sweeps left to (55, 38), forming top temporal bar pointing back -->
+    <path d="M 68, 26
+             L 45, 45
+             L 68, 64
+             L 68, 52
+             L 125, 52
+             C 133, 52 140, 58 140, 66
+             L 140, 118
+             C 140, 142 122, 162 98, 162
+             C 82, 162 68, 152 62, 138
+             L 44, 147
+             C 54, 169 74, 182 98, 182
+             C 134, 182 162, 154 162, 118
+             L 162, 66
+             C 162, 45 145, 28 125, 28
+             L 68, 28
+             Z"
+          fill="url(#opcao-4-monograma-j-future)"/>
+
+    <!-- Foreground Interlocking Stem & Hook (Inner J core) -->
+    <path d="M 116, 52
+             L 116, 118
+             C 116, 128 108, 136 98, 136
+             C 88, 136 80, 128 80, 118
+             L 80, 102
+             L 58, 102
+             L 58, 118
+             C 58, 140 76, 158 98, 158
+             C 120, 158 138, 140 138, 118
+             L 138, 52
+             Z"
+          fill="url(#opcao-4-monograma-j-past)"/>
+          
+    <!-- Temporal Indicator Nodes (Past tick & Future tick) -->
+    <circle cx="45" cy="45" r="4" fill="#00F2FE"/>
+    <circle cx="69" cy="102" r="4" fill="#FFFFFF"/>
+    
+    <!-- Forward Arrow Tip on Hook -->
+    <path d="M 58, 102 L 69, 86 L 80, 102 Z" fill="#00F2FE"/>
+  </g>
+</svg>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 200 200" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="opcao-1-cubo-temporal-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <linearGradient id="opcao-1-cubo-temporal-grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE" />
+      <stop offset="100%" stop-color="#4FACFE" />
+    </linearGradient>
+  </defs>
+  <g transform="translate(0, 5)">
+    <!-- Shadow base -->
+    <ellipse cx="100" cy="180" rx="68" ry="14" fill="#000000" opacity="0.25" filter="blur(6px)"/>
+    <!-- Strata Left & Right -->
+    <g id="strata-left"><polygon points="100.00,102.00 38.00,66.00 38.00,80.96 100.00,116.96" fill="#1E3A8A" opacity="0.95"/><polygon points="100.00,119.00 38.00,83.00 38.00,97.96 100.00,133.96" fill="#1D4ED8" opacity="0.95"/><polygon points="100.00,136.00 38.00,100.00 38.00,114.96 100.00,150.96" fill="#2563EB" opacity="0.95"/><polygon points="100.00,153.00 38.00,117.00 38.00,131.96 100.00,167.96" fill="#1E40AF" opacity="0.95"/></g>
+    <g id="strata-right"><polygon points="100.00,102.00 162.00,66.00 162.00,80.96 100.00,116.96" fill="#0284C7" opacity="0.95"/><polygon points="100.00,119.00 162.00,83.00 162.00,97.96 100.00,133.96" fill="#0EA5E9" opacity="0.95"/><polygon points="100.00,136.00 162.00,100.00 162.00,114.96 100.00,150.96" fill="#38BDF8" opacity="0.95"/><polygon points="100.00,153.00 162.00,117.00 162.00,131.96 100.00,167.96" fill="#0369A1" opacity="0.95"/></g>
+    <!-- Top Grid -->
+    <g id="top-grid"><polygon points="100.00,102.00 118.60,91.20 100.00,80.40 81.40,91.20" fill="#2563EB" stroke="none" stroke-width="0" /><polygon points="120.67,90.00 139.27,79.20 120.67,68.40 102.07,79.20" fill="#3B82F6" stroke="none" stroke-width="0" /><polygon points="141.33,78.00 159.93,67.20 141.33,56.40 122.73,67.20" fill="#60A5FA" stroke="none" stroke-width="0" /><polygon points="79.33,90.00 97.93,79.20 79.33,68.40 60.73,79.20" fill="#1D4ED8" stroke="none" stroke-width="0" /><polygon points="100.00,78.00 118.60,67.20 100.00,56.40 81.40,67.20" fill="#00F2FE" stroke="#00F2FE" stroke-width="1.5" filter="url(#opcao-1-cubo-temporal-glow)"/><polygon points="120.67,66.00 139.27,55.20 120.67,44.40 102.07,55.20" fill="#3B82F6" stroke="none" stroke-width="0" /><polygon points="58.67,78.00 77.27,67.20 58.67,56.40 40.07,67.20" fill="#1E40AF" stroke="none" stroke-width="0" /><polygon points="79.33,66.00 97.93,55.20 79.33,44.40 60.73,55.20" fill="#2563EB" stroke="none" stroke-width="0" /><polygon points="100.00,54.00 118.60,43.20 100.00,32.40 81.40,43.20" fill="#60A5FA" stroke="none" stroke-width="0" /></g>
+    <!-- Center spine accent line (Past/Future boundary) -->
+    <line x1="100" y1="102" x2="100" y2="168" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+  </g>
+</svg>

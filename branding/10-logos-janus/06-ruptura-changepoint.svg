@@ -1,0 +1,43 @@
+<svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="06-ruptura-changepoint-break-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="48%" stop-color="#4296FA"/>
+      <stop offset="50%" stop-color="#F29A38"/>
+      <stop offset="52%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#6AADFF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Coordinate box subtly showing time series axis -->
+  <rect x="24" y="36" width="152" height="128" rx="8" fill="#0B111E" stroke="#2A3B5C" stroke-width="1.5"/>
+
+  <!-- Confidence Intervals Envelope (p10-p90 / Trend Ribbon forming the eye silhouette) -->
+  <path d="M 28 92 C 55 64, 85 64, 100 88 C 115 112, 145 112, 172 84 L 172 116 C 145 144, 115 144, 100 120 C 85 96, 55 96, 28 124 Z"
+        fill="#4296FA" opacity="0.12"/>
+
+  <!-- Upper Eye Boundary: Past Healthy Stable Trajectory -> Sudden Sharp Abrupt Drop (Deforestation/Fire) -> Recovery -->
+  <path d="M 28 88 L 60 84 L 80 86 L 98 88 L 100 124 L 120 122 L 145 114 L 172 96" 
+        fill="none" stroke="url(#06-ruptura-changepoint-break-grad)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Lower Eye Boundary: Balancing Curve -->
+  <path d="M 28 120 C 55 146, 80 146, 100 126 C 120 146, 145 146, 172 120" 
+        fill="none" stroke="#6AADFF" stroke-width="3" stroke-linecap="round" opacity="0.8"/>
+
+  <!-- Vertical Rupture Vector (The Changepoint Event at T0) -->
+  <line x1="100" y1="46" x2="100" y2="154" stroke="#F29A38" stroke-width="2.5" stroke-dasharray="4 3"/>
+
+  <!-- Center Focal Sensor / Anomaly Dot (The Eye's Glowing Core) -->
+  <circle cx="100" cy="106" r="14" fill="#162447" stroke="#F29A38" stroke-width="2"/>
+  <circle cx="100" cy="106" r="7" fill="#F29A38"/>
+  <circle cx="100" cy="106" r="2.5" fill="#FFFFFF"/>
+
+  <!-- Historical Sample Points on the curve -->
+  <circle cx="44" cy="86" r="3" fill="#4296FA"/>
+  <circle cx="68" cy="85" r="3" fill="#6AADFF"/>
+  <circle cx="88" cy="87" r="3" fill="#6AADFF"/>
+  <!-- Future Projected Points -->
+  <circle cx="116" cy="122" r="3" fill="#00F2FE"/>
+  <circle cx="138" cy="116" r="3" fill="#00F2FE"/>
+  <circle cx="160" cy="104" r="3" fill="#00F2FE"/>
+</svg>

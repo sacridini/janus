@@ -1,0 +1,37 @@
+<svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="10-glifo-duplo-j-j-left" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="10-glifo-duplo-j-j-right" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#4296FA"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Left 'J' (Mirrored, Facing the Past) -->
+  <!-- Top Crossbar, Stem, and Bottom Curve sweeping backwards like an orbit / lower eyelid -->
+  <path d="M 100 48 L 52 48 L 52 62 L 78 62 L 78 116 C 78 136, 62 144, 46 144 C 36 144, 28 140, 24 136 L 20 152 C 28 158, 40 162, 52 162 C 82 162, 98 144, 98 116 Z" 
+        fill="url(#10-glifo-duplo-j-j-left)"/>
+
+  <!-- Right 'J' (Facing the Future) -->
+  <!-- Top Crossbar, Stem, and Bottom Curve sweeping forward -->
+  <path d="M 100 48 L 148 48 L 148 62 L 122 62 L 122 116 C 122 136, 138 144, 154 144 C 164 144, 172 140, 176 136 L 180 152 C 172 158, 160 162, 148 162 C 118 162, 102 144, 102 116 Z" 
+        fill="url(#10-glifo-duplo-j-j-right)"/>
+
+  <!-- The Interior Dynamic Opening Creates an Eye Contour -->
+  <path d="M 78 98 C 88 82, 112 82, 122 98 C 112 114, 88 114, 78 98 Z" 
+        fill="#0B111E" stroke="#FFFFFF" stroke-width="2"/>
+
+  <!-- Orange Pulse ("Now" Cursor at the Center of the Glyphs) -->
+  <circle cx="100" cy="98" r="9" fill="#F29A38"/>
+  <circle cx="100" cy="98" r="3.5" fill="#FFFFFF"/>
+
+  <!-- Horizontal Time Signal Wave crossing the heart of the monogram -->
+  <line x1="42" y1="98" x2="74" y2="98" stroke="#6AADFF" stroke-width="2" stroke-linecap="round"/>
+  <line x1="126" y1="98" x2="158" y2="98" stroke="#00F2FE" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Upper Beacon / Time Needle -->
+  <polygon points="100,24 94,40 106,40" fill="#F29A38"/>
+</svg>

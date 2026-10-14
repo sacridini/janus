@@ -1,0 +1,50 @@
+<svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="09-streamgraph-harmonico-stream-top" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="50%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+    <linearGradient id="09-streamgraph-harmonico-stream-mid" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="50%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#6AADFF"/>
+    </linearGradient>
+    <linearGradient id="09-streamgraph-harmonico-stream-bot" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="50%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Flowing Multitemporal Streamgraph Ribbons converging to form an Eye Silhouette -->
+  <!-- Top Ribbon (Annual Season Harmonic) -->
+  <path d="M 20 100 C 45 68, 75 58, 100 58 C 125 58, 155 68, 180 100 C 155 78, 125 70, 100 70 C 75 70, 45 78, 20 100 Z" 
+        fill="url(#09-streamgraph-harmonico-stream-top)" opacity="0.85"/>
+
+  <!-- Upper-Middle Ribbon (Semiannual Harmonic) -->
+  <path d="M 20 100 C 45 78, 75 70, 100 70 C 125 70, 155 78, 180 100 C 155 88, 125 82, 100 82 C 75 82, 45 88, 20 100 Z" 
+        fill="url(#09-streamgraph-harmonico-stream-mid)" opacity="0.75"/>
+
+  <!-- Lower-Middle Ribbon -->
+  <path d="M 20 100 C 45 112, 75 118, 100 118 C 125 118, 155 112, 180 100 C 155 122, 125 130, 100 130 C 75 130, 45 122, 20 100 Z" 
+        fill="url(#09-streamgraph-harmonico-stream-mid)" opacity="0.75"/>
+
+  <!-- Bottom Ribbon (Long-term Interannual Trend) -->
+  <path d="M 20 100 C 45 122, 75 130, 100 130 C 125 130, 155 122, 180 100 C 155 132, 125 142, 100 142 C 75 142, 45 132, 20 100 Z" 
+        fill="url(#09-streamgraph-harmonico-stream-bot)" opacity="0.85"/>
+
+  <!-- Central Optical Core (Negative space iris created by the converging waves) -->
+  <circle cx="100" cy="100" r="26" fill="#0B111E" stroke="#00F2FE" stroke-width="2"/>
+  
+  <!-- Sinuous Wave Signal inside the Core -->
+  <path d="M 76 100 Q 88 88 100 100 T 124 100" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Orange Pulse ("Now" Point) -->
+  <circle cx="100" cy="100" r="9" fill="#F29A38"/>
+  <circle cx="100" cy="100" r="3" fill="#FFFFFF"/>
+
+  <!-- High-Precision Vertical Temporal Horizon -->
+  <line x1="100" y1="36" x2="100" y2="52" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="100" y1="148" x2="100" y2="164" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

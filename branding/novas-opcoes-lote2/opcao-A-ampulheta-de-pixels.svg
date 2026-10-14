@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 200 200" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="opcao-A-ampulheta-de-pixels-frame" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1C2A3C"/>
+    </linearGradient>
+    <linearGradient id="opcao-A-ampulheta-de-pixels-glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F29A38"/>
+      <stop offset="100%" stop-color="#FF5722"/>
+    </linearGradient>
+  </defs>
+  
+  <g transform="translate(0, 0)">
+    <!-- Top & Bottom Plates -->
+    <rect x="52" y="24" width="96" height="8" rx="4" fill="#4296FA"/>
+    <rect x="52" y="168" width="96" height="8" rx="4" fill="#4296FA"/>
+    
+    <!-- Outer Glass Vessel (Geometric Facets) -->
+    <!-- Top bulb -->
+    <path d="M 58, 32 L 142, 32 L 108, 92 L 92, 92 Z" fill="#1C2A3C" opacity="0.6" stroke="#4296FA" stroke-width="2.5" stroke-linejoin="round"/>
+    <!-- Bottom bulb -->
+    <path d="M 92, 108 L 108, 108 L 142, 168 L 58, 168 Z" fill="#1C2A3C" opacity="0.6" stroke="#4296FA" stroke-width="2.5" stroke-linejoin="round"/>
+    
+    <!-- Top Chamber: Past Pixels (Stacking Cube of Rasters) -->
+    <!-- Row 1 -->
+    <rect x="68" y="40" width="10" height="10" rx="2" fill="#6AADFF"/>
+    <rect x="82" y="40" width="10" height="10" rx="2" fill="#4296FA"/>
+    <rect x="96" y="40" width="10" height="10" rx="2" fill="#294A7A"/>
+    <rect x="110" y="40" width="10" height="10" rx="2" fill="#4296FA"/>
+    <rect x="124" y="40" width="10" height="10" rx="2" fill="#6AADFF"/>
+    <!-- Row 2 -->
+    <rect x="75" y="54" width="10" height="10" rx="2" fill="#4296FA"/>
+    <rect x="89" y="54" width="10" height="10" rx="2" fill="#CEE3FF"/>
+    <rect x="103" y="54" width="10" height="10" rx="2" fill="#4296FA"/>
+    <rect x="117" y="54" width="10" height="10" rx="2" fill="#294A7A"/>
+    <!-- Row 3 -->
+    <rect x="82" y="68" width="10" height="10" rx="2" fill="#294A7A"/>
+    <rect x="96" y="68" width="10" height="10" rx="2" fill="#4296FA"/>
+    <rect x="110" y="68" width="10" height="10" rx="2" fill="#6AADFF"/>
+    
+    <!-- Central Bottleneck: The "Now" / Date Cursor -->
+    <circle cx="100" cy="100" r="7" fill="url(#opcao-A-ampulheta-de-pixels-glow)"/>
+    <circle cx="100" cy="100" r="3" fill="#FFFFFF"/>
+    
+    <!-- Flowing Stream of Pixels through the neck -->
+    <rect x="97" y="84" width="6" height="6" rx="1.5" fill="#F29A38"/>
+    <rect x="97" y="112" width="6" height="6" rx="1.5" fill="#F29A38"/>
+    
+    <!-- Bottom Chamber: Accumulating Future / History -->
+    <!-- Mound of pixels -->
+    <rect x="95" y="124" width="10" height="10" rx="2" fill="#F29A38"/>
+    <rect x="88" y="138" width="10" height="10" rx="2" fill="#4296FA"/>
+    <rect x="102" y="138" width="10" height="10" rx="2" fill="#6AADFF"/>
+    <rect x="76" y="152" width="10" height="10" rx="2" fill="#294A7A"/>
+    <rect x="90" y="152" width="10" height="10" rx="2" fill="#4296FA"/>
+    <rect x="104" y="152" width="10" height="10" rx="2" fill="#CEE3FF"/>
+    <rect x="118" y="152" width="10" height="10" rx="2" fill="#4296FA"/>
+  </g>
+</svg>

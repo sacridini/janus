@@ -1,0 +1,52 @@
+<svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="08-cubo-espaco-tempo-voxel-top-cube" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#4296FA"/>
+    </linearGradient>
+    <linearGradient id="08-cubo-espaco-tempo-voxel-left-cube" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="08-cubo-espaco-tempo-voxel-right-cube" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#4296FA"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Isometric Spacetime Data Cube [T, Y, X] -->
+  <!-- Top Face: Spatial Matrix (The Map / X-Y Raster Canvas) -->
+  <polygon points="100,28 156,60 100,92 44,60" 
+           fill="url(#08-cubo-espaco-tempo-voxel-top-cube)" stroke="#FFFFFF" stroke-width="1.5" opacity="0.85"/>
+  <!-- Spatial grid lines on top -->
+  <line x1="72" y1="44" x2="128" y2="76" stroke="#FFFFFF" stroke-width="1" opacity="0.4"/>
+  <line x1="128" y1="44" x2="72" y2="76" stroke="#FFFFFF" stroke-width="1" opacity="0.4"/>
+
+  <!-- Left Face: Past Temporal Depth (Slices going back in history) -->
+  <polygon points="44,60 100,92 100,164 44,132" 
+           fill="url(#08-cubo-espaco-tempo-voxel-left-cube)" stroke="#FFFFFF" stroke-width="1.5" opacity="0.9"/>
+  <!-- Historical Time Series waves on left face -->
+  <path d="M 48 95 Q 68 85 82 108 T 96 125" fill="none" stroke="#6AADFF" stroke-width="2" opacity="0.8"/>
+  <path d="M 48 115 Q 68 105 82 128 T 96 145" fill="none" stroke="#6AADFF" stroke-width="1.5" opacity="0.5"/>
+
+  <!-- Right Face: Future Temporal Projection (Forecast & Anomalies) -->
+  <polygon points="100,92 156,60 156,132 100,164" 
+           fill="url(#08-cubo-espaco-tempo-voxel-right-cube)" stroke="#FFFFFF" stroke-width="1.5" opacity="0.9"/>
+  <!-- Future Trend wave on right face -->
+  <path d="M 104 125 Q 118 108 132 118 T 152 95" fill="none" stroke="#A5F3FC" stroke-width="2" opacity="0.8"/>
+  <path d="M 104 145 Q 118 128 132 138 T 152 115" fill="none" stroke="#A5F3FC" stroke-width="1.5" opacity="0.5"/>
+
+  <!-- The Central Vertex Unfolds into the Cosmic Eye of Janus -->
+  <!-- Translucent Eye Almond floating precisely at the space-time origin (100, 92) -->
+  <path d="M 64 92 C 80 72, 120 72, 136 92 C 120 112, 80 112, 64 92 Z" 
+        fill="#0B111E" stroke="#FFFFFF" stroke-width="2.5"/>
+
+  <!-- Core Pupil: The GPU Voxel Cursor ("Now" Marker in Orange) -->
+  <circle cx="100" cy="92" r="14" fill="#162447" stroke="#F29A38" stroke-width="2"/>
+  <circle cx="100" cy="92" r="7" fill="#F29A38"/>
+  <circle cx="100" cy="92" r="2.5" fill="#FFFFFF"/>
+
+  <!-- Vertical Temporal Axis Laser Pin -->
+  <line x1="100" y1="14" x2="100" y2="28" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+  <line x1="100" y1="164" x2="100" y2="182" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+</svg>

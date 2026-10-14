@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 200 200" width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="opcao-C-medalhao-cientifico-ring" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+  </defs>
+  
+  <g transform="translate(0, 0)">
+    <!-- Outer Celestial / Coordinate Ring -->
+    <circle cx="100" cy="100" r="82" fill="#0F172A" stroke="#4296FA" stroke-width="3"/>
+    <circle cx="100" cy="100" r="74" fill="none" stroke="#2563EB" stroke-width="1" stroke-dasharray="3, 3"/>
+    
+    <!-- Cardinal Ticks (Geospatial Coordinates) -->
+    <line x1="100" y1="14" x2="100" y2="24" stroke="#F29A38" stroke-width="3"/>
+    <line x1="100" y1="176" x2="100" y2="186" stroke="#F29A38" stroke-width="3"/>
+    <line x1="14" y1="100" x2="24" y2="100" stroke="#4296FA" stroke-width="3"/>
+    <line x1="176" y1="100" x2="186" y2="100" stroke="#00F2FE" stroke-width="3"/>
+
+    <!-- Chiselled Dual Janus Bust (Polygonal / Brutalist Facets) -->
+    <!-- Left Forehead & Nose -->
+    <polygon points="100,45 68,58 56,76 72,78 100,74" fill="#3B82F6"/>
+    <!-- Left Nose & Mouth -->
+    <polygon points="56,76 44,92 58,98 72,78" fill="#2563EB"/>
+    <!-- Left Chin & Beard -->
+    <polygon points="44,92 50,112 68,126 78,106 58,98" fill="#1D4ED8"/>
+    <!-- Left Neck & Throat -->
+    <polygon points="68,126 84,148 100,152 100,74 72,78 78,106" fill="#1E3A8A"/>
+    
+    <!-- Right Forehead & Nose (Mirrored in lighter tones) -->
+    <polygon points="100,45 132,58 144,76 128,78 100,74" fill="#60A5FA"/>
+    <!-- Right Nose & Mouth -->
+    <polygon points="144,76 156,92 142,98 128,78" fill="#38BDF8"/>
+    <!-- Right Chin & Beard -->
+    <polygon points="156,92 150,112 132,126 122,106 142,98" fill="#0EA5E9"/>
+    <!-- Right Neck & Throat -->
+    <polygon points="132,126 116,148 100,152 100,74 128,78 122,106" fill="#0284C7"/>
+    
+    <!-- Central Meridian Laser Line (Date marker) -->
+    <line x1="100" y1="42" x2="100" y2="155" stroke="#F29A38" stroke-width="2.5" stroke-linecap="round"/>
+    <circle cx="100" cy="100" r="3.5" fill="#FFFFFF"/>
+  </g>
+</svg>

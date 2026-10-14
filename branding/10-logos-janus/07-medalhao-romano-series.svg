@@ -1,0 +1,47 @@
+<svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="07-medalhao-romano-series-coin-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6AADFF"/>
+      <stop offset="50%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+    <linearGradient id="07-medalhao-romano-series-past-fill" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#4296FA"/>
+    </linearGradient>
+    <linearGradient id="07-medalhao-romano-series-future-fill" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Ancient Roman 'As' Coin Outer Beaded Border (Time Markers / Calendar Ticks) -->
+  <circle cx="100" cy="100" r="82" fill="none" stroke="url(#07-medalhao-romano-series-coin-rim)" stroke-width="3"/>
+  <circle cx="100" cy="100" r="75" fill="#0B111E" stroke="#2A3B5C" stroke-width="1.5"/>
+  <circle cx="100" cy="100" r="71" fill="none" stroke="#6AADFF" stroke-width="1" stroke-dasharray="2 5" opacity="0.7"/>
+
+  <!-- Inside the Medallion: Two Opposing Classical Silhouettes Sculpted from Area Curves -->
+  <!-- Left Side: Past Area Curves (Beard / Profile of Janus looking left) -->
+  <path d="M 100 48 C 82 48, 64 60, 54 78 C 66 84, 52 98, 48 110 C 62 112, 54 130, 68 144 C 80 152, 92 152, 100 152 Z"
+        fill="url(#07-medalhao-romano-series-past-fill)" opacity="0.65"/>
+        
+  <!-- Right Side: Future Area Curves (Profile of Janus looking right) -->
+  <path d="M 100 48 C 118 48, 136 60, 146 78 C 134 84, 148 98, 152 110 C 138 112, 146 130, 132 144 C 120 152, 108 152, 100 152 Z"
+        fill="url(#07-medalhao-romano-series-future-fill)" opacity="0.65"/>
+
+  <!-- Central Shared Eye of the Bifrons Medallion -->
+  <path d="M 72 100 C 84 84, 116 84, 128 100 C 116 116, 84 116, 72 100 Z" 
+        fill="#0B111E" stroke="#FFFFFF" stroke-width="2.5"/>
+
+  <!-- The Golden/Orange Pupil (The Eternal Now) -->
+  <circle cx="100" cy="100" r="11" fill="#F29A38"/>
+  <circle cx="100" cy="100" r="4" fill="#FFFFFF"/>
+
+  <!-- Roman Numerals / Temporal Meridian Markers (I / N) -->
+  <text x="100" y="38" text-anchor="middle" fill="#F29A38" font-size="10" font-weight="900" font-family="sans-serif">T₀</text>
+  <text x="100" y="172" text-anchor="middle" fill="#F29A38" font-size="9" font-weight="bold" font-family="sans-serif">JANVS</text>
+
+  <!-- Left/Right Roman Indicators: PAST (-) and FUTURE (+) -->
+  <text x="32" y="104" text-anchor="middle" fill="#6AADFF" font-size="11" font-weight="bold" font-family="sans-serif">◀</text>
+  <text x="168" y="104" text-anchor="middle" fill="#00F2FE" font-size="11" font-weight="bold" font-family="sans-serif">▶</text>
+</svg>

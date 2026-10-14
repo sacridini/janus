@@ -1,0 +1,61 @@
+<svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="01-olho-onda-fenologica-wave-top" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="30%" stop-color="#4296FA"/>
+      <stop offset="50%" stop-color="#00F2FE"/>
+      <stop offset="70%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="01-olho-onda-fenologica-wave-bot" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="50%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <radialGradient id="01-olho-onda-fenologica-pupil" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F29A38"/>
+      <stop offset="70%" stop-color="#FF6D00"/>
+      <stop offset="100%" stop-color="#1E3A8A"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background grid subtle -->
+  <g opacity="0.25" stroke="#2A3B5C" stroke-width="1">
+    <line x1="20" y1="100" x2="180" y2="100"/>
+    <line x1="60" y1="40" x2="60" y2="160" stroke-dasharray="2 4"/>
+    <line x1="100" y1="30" x2="100" y2="170" stroke="#F29A38" opacity="0.6"/>
+    <line x1="140" y1="40" x2="140" y2="160" stroke-dasharray="2 4"/>
+  </g>
+
+  <!-- Eye Almond formed by Dual Phenological Waves (harmonic seasonal curves) -->
+  <!-- Upper eyelid: seasonal spring-summer peak NDVI -->
+  <path d="M 22 100 C 45 65, 75 52, 100 52 C 125 52, 155 65, 178 100" 
+        fill="none" stroke="url(#01-olho-onda-fenologica-wave-top)" stroke-width="4.5" stroke-linecap="round"/>
+        
+  <!-- Lower eyelid: senescent autumn-winter valley -->
+  <path d="M 22 100 C 45 135, 75 148, 100 148 C 125 148, 155 135, 178 100" 
+        fill="none" stroke="url(#01-olho-onda-fenologica-wave-bot)" stroke-width="4.5" stroke-linecap="round"/>
+
+  <!-- In-fill area chart between waves (confidence band) -->
+  <path d="M 22 100 C 45 75, 75 66, 100 66 C 125 66, 155 75, 178 100 C 155 125, 125 134, 100 134 C 75 134, 45 125, 22 100 Z"
+        fill="#4296FA" opacity="0.12"/>
+
+  <!-- Harmonic Time Series Signal traversing through the pupil -->
+  <path d="M 28 100 Q 45 82 62 100 T 96 100 L 100 86 L 104 114 L 108 100 Q 125 118 142 100 T 172 100" 
+        fill="none" stroke="#00F2FE" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Central Iris & Pupil (The Observer / Orbital Lens) -->
+  <circle cx="100" cy="100" r="28" fill="#0B111E" stroke="#6AADFF" stroke-width="2.5"/>
+  <circle cx="100" cy="100" r="18" fill="url(#01-olho-onda-fenologica-pupil)"/>
+  <circle cx="100" cy="100" r="7" fill="#FFFFFF"/>
+
+  <!-- The "NOW" Cursor (ImPlot Orange Timeline) -->
+  <line x1="100" y1="28" x2="100" y2="48" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+  <line x1="100" y1="152" x2="100" y2="172" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+  <polygon points="100,49 97,42 103,42" fill="#F29A38"/>
+  <polygon points="100,151 97,158 103,158" fill="#F29A38"/>
+
+  <!-- Subtle time markers on the curve -->
+  <circle cx="62" cy="100" r="3" fill="#6AADFF"/>
+  <circle cx="138" cy="100" r="3" fill="#00F2FE"/>
+</svg>
