@@ -363,6 +363,62 @@ Windows sem Python nem conda, e chamável pela linha de comando
   partir de A) e fica sem dado onde sai da camada. Uma linha de camada vetorial
   (Alt + clique) vira a polilinha (a parte mais longa de uma multilinha).
 
+### Validação: amostra estratificada e acurácia (fases 29–32, pedidas em 2026-10-14)
+- **Objetivo**: o Janus como a ferramenta desktop mais completa para validar
+  mapas de mudança e de cobertura (LandTrendr, CCDC, BFAST, CODED, MapBiomas,
+  TWDTW...) com as boas práticas de Olofsson et al. (2014): amostra
+  estratificada, interpretação visual e acurácia com as áreas ajustadas e os
+  seus intervalos de confiança. Substitui o vaivém QGIS + R + Excel; o rival
+  desktop direto (AcATaMa, no QGIS) não tem séries temporais, o Collect Earth
+  Online e o AREA2 são web.
+- **Organizado pelas três partes do protocolo, não por algoritmo**
+  (desenho amostral, desenho de resposta, análise). Um algoritmo só precisa
+  produzir um raster: entra de graça.
+  - **Estratos de qualquer raster por uma regra**: *classes* (camada
+    categórica, mapa de classes do Zeit), *intervalos* de um mapa contínuo
+    (magnitude, Δ), *eventos* (mudança × sem mudança, ou um estrato por
+    período do ano de detecção) e a *combinação* de vários mapas (quantos
+    deles chamam o pixel de mudança: "k de M"), com um **estrato de borda**
+    (pixels sem mudança a até N pixels de uma mudança, onde se escondem os
+    erros de omissão) e um limite opcional (a ROI ou os polígonos de uma
+    camada vetorial).
+  - **O rótulo descreve o terreno, não o mapa**: o intérprete dá a classe, a
+    data, a confiança e outros eventos do ponto; a tradução rótulo → classe de
+    cada mapa avaliado fica na análise ("Degradação" pode ser mudança para o
+    CODED e não para o LandTrendr). Assim uma amostra rotulada avalia vários
+    mapas: os estimadores de **Stehman (2014)** aceitam estratos diferentes
+    das classes do mapa (com estratos = classes, são os de Olofsson et al.
+    2014, eqs. 4–11).
+  - **Unidade de avaliação: o pixel** (o padrão de Olofsson), desenhado como o
+    seu quadrado no mapa.
+- **Projeto num GeoPackage escolhido pelo usuário** (não na pasta de dados,
+  como os rótulos da fase 21): camada `samples` (pontos no CRS do mapa, com
+  estrato, linha, coluna e o rótulo final), tabelas `labels` (uma linha por
+  ponto e intérprete), `strata` (área, peso, n, acurácia esperada) e
+  `project` (a regra dos estratos, a semente, os mapas avaliados e as
+  traduções), e o raster dos estratos ao lado (`<nome>_strata.tif`). Abre no
+  QGIS, vai junto com o artigo e se divide entre intérpretes (os rótulos de
+  outra cópia são juntados pelo id do ponto).
+- **Sorteio em C++, não pelo Zeit** (mudança em relação à proposta): o Zeit
+  0.52.1 tem `sampling_design`, `stratified_sample` e `accuracy`, mas não a
+  borda nem a combinação de mapas, e o C++ dispensa o runtime Python. O mesmo
+  método do Zeit: uma passada pelo mapa em resolução total, em faixas de
+  linhas (contagens por estrato e linha, área de cada linha — esférica num CRS
+  geográfico, raio autálico —, o raster dos estratos escrito na mesma
+  passada), as posições sorteadas sem reposição em cada estrato e só as
+  linhas sorteadas lidas de novo. O Zeit fica como a conferência: o autoteste
+  roda o *Copy Python* (`zeit.accuracy(..., strata=<raster dos estratos>)`) e
+  compara com os números do Janus.
+- **Acurácia ao vivo em C++**: depois do sorteio, o estrato e a classe do mapa
+  em cada ponto ficam fixos e o estimador é aritmética sobre alguns milhares de
+  pontos (microssegundos), refeita a cada rótulo sem chamar a ponte. Conferida
+  no autoteste contra o exemplo do artigo (Olofsson et al. 2014, tabelas 8–10)
+  e contra o Zeit.
+- **Desempenho**: tudo o que lê raster vai para segundo plano (estratos, valores
+  dos mapas nos pontos, áreas mapeadas, recortes); os rótulos são gravados no
+  GeoPackage numa thread, um segundo depois da última mudança; os recortes e a
+  série dos próximos pontos são lidos antes de o usuário chegar a eles.
+
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
@@ -423,6 +479,10 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 26 | 0.36.0 | **NetCDF / Zarr / HDF**: escolha da variável, tempo CF (calendários de modelos), níveis, variável e nível trocados no painel Display | concluída |
 | 27 | 0.36.0 | **Estação (dia do ano)** nas estatísticas, na reprodução e no gráfico, e **composição temporal na GPU** (mediana, média, máx., mín., contagem; ano da data, ±dias, série toda) | concluída |
 | 28 | 0.36.0 | **Transecto em polilinha** (distância acumulada, vértices no painel) e **ao longo de uma linha vetorial** (Alt + clique) | concluída |
+| 29 | 0.37.0 | **Desenho amostral** (Olofsson et al. 2014): estratos de qualquer camada (classes, intervalos, eventos, combinação de mapas), estrato de borda, limite pela ROI ou por polígonos, tamanho da amostra (eq. 13) e alocação (proporcional, igual, Neyman, manual, mínimo por estrato) com a prévia dos erros esperados, sorteio reprodutível, **projeto em GeoPackage**, interpretação em modo cego | concluída |
+| 30 | 0.37.0 | **Acurácia ao vivo**: matriz de erro (pontos e proporção de área), acurácias global, do usuário e do produtor e **área ajustada ± IC** (Stehman 2014), tradução rótulo → classe do mapa, células da matriz que levam aos pontos, convergência do IC, pontos que faltam por estrato, *Copy Python* (`zeit.accuracy`), relatório (HTML + CSV) | concluída |
+| 31 | 0.37.0 | **Interpretação avançada**: galeria de recortes por data em volta do ponto, o quadrado do pixel, vários eventos por ponto, confiança, "não sei dizer", leitura antecipada dos próximos pontos, **vários intérpretes** (concordância, kappa, adjudicação, rótulos juntados de outra cópia) | concluída |
+| 32 | 0.37.0 | **Comparação de mapas** com a mesma amostra (LandTrendr × CCDC × BFAST × MapBiomas...), **área de mudança por ano ± IC**, acurácia das datas (± k anos, histograma das diferenças) | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -513,8 +573,8 @@ termina.
   os embeddings; dependências pesadas e downloads longos) e **interpretação
   visual + acurácia** (`stratified_sample`, rotular os pontos no Janus,
   `accuracy`, Olofsson et al. 2014: o Janus já é quase um TimeSync). A
-  rotulação foi feita na 0.33.0 (fase 21); faltam a amostra estratificada a
-  partir de um mapa de classes e a acurácia com as áreas ajustadas.
+  rotulação foi feita na 0.33.0 (fase 21); a amostra estratificada e a
+  acurácia com as áreas ajustadas, na 0.37.0 (fases 29–32).
 
 ### Depois das fases 20–22 (2026-10-14)
 - Vetores: desenhar acima de ~2 M vértices por quadro numa textura (hoje o
@@ -530,6 +590,22 @@ termina.
 - Fora: `zeit.ai` (PyTorch), `zeit.plot` (é o próprio Janus), `compute_indices`
   (índices novos ficam melhores na GPU), `harmonize`/`regularize` (só com STAC).
 
+### Depois das fases 29–32 (validação, 2026-10-14)
+- A passada dos estratos é sequencial (225 Mpx em 2,3 s; um mapa do Brasil
+  inteiro a 30 m, ~10 Gpx, levaria ~2 min): faixas em várias threads, cada
+  uma com o seu leitor, e um escritor em ordem.
+- Desenho de resposta mais rico: segmentos com rótulo como o TimeSync
+  (vértices na série), a unidade de avaliação em bloco 3 × 3 (hoje só o
+  pixel, como pedido), uma amostra sistemática ou aleatória simples, e a
+  amostragem em dois estágios.
+- Estimadores de mais coisas: a área de cada transição entre duas datas de um
+  mapa categórico; a área por classe *e* ano (não só a mudança); a acurácia
+  por nível de confiança do rótulo.
+- Rótulos de vários intérpretes ao mesmo tempo no mesmo arquivo de uma pasta
+  compartilhada (hoje: cópias e junção por ponto).
+- A galeria de recortes com o basemap de alta resolução de cada ano (Esri
+  Wayback) quando houver.
+
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
 - Ferramentas de IA do Zeit como download opcional (PyTorch é pesado).
@@ -539,6 +615,66 @@ termina.
   (0.25.0); faltam as larguras fixas dos widgets.
 
 ## Histórico
+
+### 0.37.0 — Fases 29 a 32: validação (amostra estratificada, acurácia e área)
+- Pedidas em 2026-10-14 (decisões em "Validação: amostra estratificada e
+  acurácia"): menu **Validation**, painel **Validation** (abas Design,
+  Accuracy, Maps, Interpreters, Report) e painel **Chips**.
+- **Fase 29, desenho amostral**: estratos de qualquer camada (um resultado do
+  Zeit, uma camada numa data, um arquivo) lida como classes, intervalos ou
+  eventos (com períodos), ou da concordância de vários mapas ("mudança em k
+  de M"), com estrato de borda e limite pela ROI ou por polígonos; uma
+  passada em resolução total em segundo plano, o raster dos estratos aberto
+  como camada (nomes e cores no próprio GeoTIFF). Tamanho pela eq. 13 ou
+  dado, alocação proporcional, igual, Neyman ou à mão, mínimo por estrato,
+  acurácia esperada por estrato e os erros esperados (EP global e de cada
+  estrato, IC da área de mudança). Sorteio com semente (SplitMix64 + Floyd,
+  igual em todas as plataformas), mais pontos num estrato depois. Projeto num
+  GeoPackage (`samples`, `labels`, `strata`, `project`) + `<nome>_strata.tif`;
+  arrastar um projeto para a janela (ou `jn serie projeto.gpkg`) abre o
+  projeto, não as tabelas como camadas.
+- **Fase 30, acurácia ao vivo**: tradução rótulo → classe por mapa
+  (adivinhada pelos nomes), matriz em pontos e em proporção de área (clique
+  numa célula: os seus pontos no painel Interpretation), acurácias global, do
+  usuário e do produtor e áreas mapeada e ajustada ± IC (gráfico), o IC ao
+  longo da rotulagem, os pontos por estrato. *Copy Python* com
+  `zeit.accuracy` (o GeoPackage lido pelo `sqlite3`: o runtime não tem
+  `pyogrio`/`fiona`), relatório HTML (figuras em SVG, parágrafo de métodos,
+  referências) + um CSV por tabela.
+- **Fase 31, interpretação**: modo cego, o quadrado do pixel no mapa,
+  confiança (`Shift+1-3`), outros eventos (`E`), "não sei dizer" (rótulo
+  traduzido para "fora"), *Mine to do*, filtros; chips de todas as datas (ou
+  um por ano) em volta do ponto, lidos antes para os próximos pontos; vários
+  intérpretes (nome em Settings), concordância e kappa por par, adjudicação
+  das discordâncias, cópia para um intérprete e junção dos rótulos (o mais
+  novo fica).
+- **Fase 32, comparação**: qualquer número de mapas avaliados com a mesma
+  amostra (estimadores de Stehman), tabela com global, usuário e produtor da
+  mudança e área de mudança; acurácia das datas (± k anos, histograma) e
+  área de mudança por ano ± IC a partir das datas da referência.
+- **Medido** (`--measure-validation`, Core i5-13600K, 20 threads, GeoTIFFs DEFLATE
+  em SSD): classes de 15000 × 15000 (225 Mpx) com borda de 1 px, estratos em
+  2,3 s, áreas mapeadas 0,9 s, recontagem 0,5 s, 1000 pontos sorteados em
+  0,16 s, o mapa nos pontos em 30 ms; anos de 10000 × 10000 em 1,0 s. Os
+  estimadores: 0,7 ms para 5000 pontos e 10 classes, refeitos só quando um
+  rótulo ou uma tradução muda.
+- **Autotestes**: `--selftest-validation` (sem janela, também na CI): o
+  exemplo de Olofsson et al. (2014) (global 0,947 ± 0,018, desmatamento
+  21 158 ± 6 158 ha: os números do Zeit e do artigo), seis desenhos contra o
+  `zeit.sampling_design`, estratos com borda, limite e faixas de 7 linhas
+  contra uma contagem pixel a pixel (inclusive um segundo mapa em outra
+  grade), o sorteio, o projeto escrito e lido, e as estimativas de um
+  projeto rotulado contra `zeit.accuracy` rodado nos seus arquivos (eventos
+  em períodos, eventos, classes em outra grade). `--selftest-ui` 170–179: o
+  fluxo inteiro sobre D (estratos conferidos, sorteio, rotulagem, releitura
+  do GeoPackage, segundo intérprete, adjudicação, segundo mapa, todas as
+  abas, chips, relatório); passa também em Debug com os asserts do ImGui.
+- Achado no caminho: `j.value("x", ...).items()` num `for` itera um
+  temporário já destruído (os nomes das classes sumiam ao reabrir o projeto).
+- Dados para testar à mão em `C:\Users\eduar\Documents\dev\data\janus_validation`
+  (série de NDVI sintética com desmatamento, degradação e regeneração, mapas
+  "estilo LandTrendr" e "estilo CCDC", cobertura da terra, a verdade e três
+  projetos, um deles com dois intérpretes).
 
 ### 0.36.0 — Fases 25 a 28: COGs remotos, NetCDF/Zarr, estação e composição, transecto em polilinha
 - Pedidas em 2026-10-14 (decisões em "Nuvem, clima, estação e transectos").
