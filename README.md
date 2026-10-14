@@ -27,7 +27,7 @@
 With Janus you explore satellite imagery pixel by pixel, find where, when and
 by how much the land changed, and measure how accurate your maps are. The
 change detection comes from [Zeit](https://github.com/sacridini/zeit-cdts),
-inside Janus: nothing else to install. Its command line is `jn`.
+which ships with Janus: there is nothing else to install. Its command line is `jn`.
 
 ## Features
 
