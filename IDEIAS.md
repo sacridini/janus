@@ -365,6 +365,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 23 | 0.34.0 | **Composição RGB de três bandas** por data (várias bandas por arquivo: cor verdadeira, falsa-cor infravermelho...), com o gráfico e o cursor no índice ou banda da série | concluída |
 | 24 | 0.34.0 | Mais do Zeit: **modelo ajustado do BFAST** (e do Lite e do Monitor) no gráfico, **imagem sintética do CCDC** numa data, **Copy Python** (o código da série, das estatísticas e das chamadas do Zeit) | concluída |
 | — | 0.35.0 | **Tema Matrix** (verde fosforescente sobre preto) e **transparência**: o fundo dos painéis translúcido (a área de trabalho aparece por trás; texto e dados opacos) e a opacidade da janela inteira | concluída |
+| — | 0.35.1 | A mesma transparência em todos os painéis (os fundos não se somam mais; painéis destacados transparentes no OpenGL) | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -474,6 +475,22 @@ termina.
   (0.25.0); faltam as larguras fixas dos widgets.
 
 ## Histórico
+
+### 0.35.1 — A mesma transparência em todos os painéis
+- Relatado em 2026-10-14: na 0.35.0 só a janela Settings ficava transparente
+  como pedido. Os fundos translúcidos se somavam: sob os painéis encaixados há
+  a janela que hospeda o dock space (cobre a janela toda e desenha o próprio
+  fundo) e a cor de limpeza, também translúcidas; no gráfico, o fundo do
+  ImPlot por cima do painel. Medido na tela com o tema Matrix (fundos pretos:
+  o brilho com o Janus sobre o do desktop dá 1 − alfa), com os painéis a 40%:
+  Display 0,78, Statistics 0,83, gráfico 0,92, área vazia do mapa 0,61.
+- Agora o fundo de cada painel é a única camada translúcida sobre o desktop:
+  com transparência, a janela do dock space não desenha fundo, a cor de
+  limpeza e a área vazia do mapa ficam com alfa 0 (aparece o fundo do painel
+  do mapa) e os gráficos não têm fundo próprio. Os painéis destacados em
+  janelas do sistema: o backend OpenGL do ImGui as limpava em preto opaco;
+  agora são limpas transparentes (o Metal já limpava com alfa 0). Medido de
+  novo, todos entre 0,39 e 0,41.
 
 ### 0.35.0 — Tema Matrix e transparência
 - Pedidos em 2026-10-14: um tema "matrix" verde e preto, e janelas
