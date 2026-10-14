@@ -206,6 +206,17 @@ section.how, section.features, section.tools, section.install, section.cli, sect
 .qa details[open] summary::after { content: "−"; }
 .qa details p { padding: 0 0 20px; color: var(--mute); max-width: 62ch; }
 
+/* ---------- guides (index): a card per guide ---------- */
+section.guides { padding-block: clamp(64px, 9vw, 120px); }
+.guide-list { list-style: none; padding: 0; margin: clamp(36px, 5vw, 60px) 0 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.guide-list a { display: grid; gap: 10px; align-content: start; height: 100%; padding: 20px 20px 22px; background: var(--win-2); border: 1px solid var(--rule); border-radius: 4px; text-decoration: none; transition: border-color .15s, background-color .15s; }
+.guide-list a:hover { border-color: var(--blue); background: #181B22; }
+.guide-list span { font-family: var(--f-mono); font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--date); }
+.guide-list h3 { font-size: var(--step-2); line-height: 1.1; color: var(--pale); }
+.guide-list p { font-size: .95rem; color: var(--mute); }
+@media (max-width: 1020px) { .guide-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .guide-list { grid-template-columns: minmax(0, 1fr); } }
+
 /* ---------- guide pages (validation.html): a contents column and a reading column ---------- */
 .guide-hero { padding-block: clamp(40px, 6vw, 88px) clamp(28px, 4vw, 48px); border-bottom: 1px solid var(--rule); }
 .guide-hero h1 { font-size: var(--step-3); font-weight: 300; line-height: 1.02; max-width: 18ch; }
@@ -256,12 +267,13 @@ kbd { font-family: var(--f-mono); font-size: .8em; color: var(--text); backgroun
 .terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 22px; margin: 18px 0 0; }
 .terms dt { font-family: var(--f-mono); font-size: .85rem; color: var(--pale); padding-top: 2px; }
 .terms dd { margin: 0; color: #C9CED6; font-size: .95rem; }
+.terms + p, .tbl-wrap + p { margin-top: 18px; }
 .tbl { width: 100%; border-collapse: collapse; margin: 18px 0 0; font-size: .92rem; }
 .tbl-wrap { overflow-x: auto; }
 .tbl th, .tbl td { text-align: left; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
 .tbl th { font-family: var(--f-mono); font-size: .72rem; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
 .tbl td { color: #C9CED6; }
-.tbl td:first-child { white-space: nowrap; }
+.tbl.keys td:first-child { white-space: nowrap; }
 .tbl td.num { font-family: var(--f-mono); font-size: .86rem; color: var(--text); white-space: nowrap; }
 .refs { font-size: .9rem; }
 .refs li { color: var(--mute) !important; }
@@ -275,6 +287,19 @@ kbd { font-family: var(--f-mono); font-size: .8em; color: var(--text); backgroun
   .terms { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .terms dd { margin-bottom: 10px; }
 }
+
+/* ---------- lightbox: a guide's figure, larger, over the page (main.js) ---------- */
+html.lb-open { overflow: hidden; }
+.lightbox { position: fixed; inset: 0; z-index: 200; background: rgba(8, 9, 12, .92); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 16px 16px; gap: 12px; }
+.lightbox[hidden] { display: none; }
+.lb-scroll { flex: 1 1 auto; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.lb-scroll img { max-width: 100%; max-height: 100%; width: auto; height: auto; border: 1px solid var(--rule-2); border-radius: 4px; background: var(--win-2); cursor: zoom-in; }
+.lightbox.actual .lb-scroll { overflow: auto; display: block; text-align: center; }
+.lightbox.actual .lb-scroll img { max-width: none; max-height: none; cursor: zoom-out; }
+.lb-caption { flex: none; max-width: 900px; font-family: var(--f-mono); font-size: .78rem; line-height: 1.55; color: var(--mute); text-align: center; }
+.lb-caption:empty { display: none; }
+.lb-close { position: absolute; top: 10px; right: 14px; width: 36px; height: 36px; border-radius: 3px; border: 1px solid var(--rule-2); background: var(--frame); color: var(--pale); font-size: 1.4rem; line-height: 1; cursor: pointer; }
+.lb-close:hover { background: var(--title); }
 
 /* ---------- footer ---------- */
 .foot { background: #0B0B0B; color: var(--mute); padding-block: 48px calc(48px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--rule); }

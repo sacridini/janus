@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LandTrendr · Janus</title>
+<meta name="description" content="A step-by-step guide to LandTrendr in Janus: an annual series segmented into straight lines, fitted live on the chart and run on the image, with maps of the year, magnitude and duration of change.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="article">
+<meta property="og:title" content="LandTrendr · Janus">
+<meta property="og:description" content="Forty years of a Rondônia forest frontier, segmented by LandTrendr: on the chart, then over the whole image.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/landtrendr/03-fit.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / LandTrendr</p>
+    <p class="eyebrow">Change detection · annual series</p>
+    <h1>LandTrendr, step by step.</h1>
+    <p class="lede">LandTrendr reads a pixel's yearly values as a few straight segments: years of stability, a sudden drop, a slow recovery. In Janus you fit it on the chart, pixel by pixel, until the parameters read the landscape the way you do, and then run it on the image to map when, how much and how fast it changed.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#open">Opening the tool</a></li>
+      <li><a href="#chart">On the chart</a></li>
+      <li><a href="#params">The parameters</a></li>
+      <li><a href="#run">Running it on the image</a></li>
+      <li><a href="#maps">The maps</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>An annual series of a vegetation index is noisy: a dry year, a haze the composite missed, a field ploughed in one year and not the next. LandTrendr (Kennedy et al. 2010) looks for the few <strong>vertices</strong>, the years where the trajectory changes direction, joined by straight <strong>segments</strong>, that explain the series best with as few breaks as possible. A segment that goes down is a <strong>loss</strong> (a clearing, a fire, a harvest); one that goes up is a <strong>gain</strong> (regrowth, a plantation). From the segments, Janus maps one <strong>event</strong> per pixel: its year of detection, magnitude, duration, the values before and after, its rate and how it stands out from the noise.</p>
+      <dl class="terms">
+        <dt>Vertex</dt><dd>A year where the fitted trajectory changes slope.</dd>
+        <dt>Segment</dt><dd>The straight line between two vertices.</dd>
+        <dt>Event</dt><dd>A segment in the direction of interest (loss or gain), and the one mapped when there are several (the greatest, newest, fastest...).</dd>
+        <dt>Magnitude</dt><dd>How far the index moved over the event, in the units of the series.</dd>
+        <dt>DSNR</dt><dd>The magnitude divided by the fit's error: how clearly the event stands above the year-to-year noise.</dd>
+      </dl>
+      <p>LandTrendr needs <strong>one date per year</strong> (at least six), each a composite of the same season, of an index that moves the same way for the change you want: NBR or NDVI drop when a forest is cleared.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>Forty years of NDVI (× 10000), one composite a year from 1985 to 2024, over a circle of about 50 km in central Rondônia, Brazil: a forest frontier opened along the roads, cleared mostly between 2000 and 2005, with some of it grown back since.</p>
+      <figure class="fig">
+        <a href="assets/img/landtrendr/01-series.jpg"><img src="assets/img/landtrendr/01-series.jpg" alt="The Janus window with the 2024 NDVI of a circular area of Rondônia, forest in dark green and pasture in light colours, three pins on the map and their forty-year series on the chart." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The series in 2024</b>, forest in dark green, and three pins: a forest cleared in the early 2000s, one cleared in 1999 that grew back, and a forest that stood throughout.</figcaption>
+      </figure>
+      <p>The stack is one GeoTIFF with a band per year, named <code>yr1985</code> to <code>yr2024</code>: Janus reads the years from the band names. Outside the circle the file holds 0, so it is opened through a VRT that declares 0 as no data; otherwise the edges would be read as an NDVI of 0.</p>
+    </section>
+
+    <section id="open">
+      <h2><span class="n">03</span>Opening the tool</h2>
+      <figure class="fig narrow">
+        <img src="assets/img/landtrendr/02-menu.png" alt="The Tools menu: change detection (agreement, BFAST, BFAST Lite, BFAST Monitor, CCDC, CCDC synthetic image, CODED, LandTrendr), trend, indices, phenology, preprocessing and classification tools, then Tasks and Log." loading="lazy">
+        <figcaption><b>Tools menu.</b> The Zeit tools by category.</figcaption>
+      </figure>
+      <p><span class="ui">Tools → LandTrendr</span> opens its window. The tools come from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a>, which runs in a Python runtime bundled with Janus: nothing to install. A tool that does not fit the series open is disabled, with the reason (LandTrendr on a monthly series: it needs one date per year).</p>
+    </section>
+
+    <section id="chart">
+      <h2><span class="n">04</span>On the chart</h2>
+      <p>With <span class="ui">Fit the cursor, pins and ROI series</span> ticked, LandTrendr runs on every exact series the chart shows, as you move the mouse or drop pins, and draws its segments and vertices over them. Its numbers go to the <strong>Statistics</strong> table.</p>
+      <figure class="fig">
+        <a href="assets/img/landtrendr/03-fit.jpg"><img src="assets/img/landtrendr/03-fit.jpg" alt="LandTrendr's window with its parameters on the right; on the chart the NDVI of the cleared pixel with the fitted segments in magenta; the Statistics table with the vertices, segments and the mapped event." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The cleared forest.</b> Stable near 0.82 until 2002, down to 0.38 by 2009, slowly up since: one loss segment.</figcaption>
+      </figure>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/landtrendr/03-fit-chart.png"><img src="assets/img/landtrendr/03-fit-chart.png" alt="The chart: the yearly NDVI of the pixel and the LandTrendr fit, a flat segment, a steep drop from 2002 to 2009 and a slow rise." loading="lazy"></a>
+          <figcaption><b>The fit</b>: vertices as dots, segments as lines.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/landtrendr/03-fit-stats.png"><img src="assets/img/landtrendr/03-fit-stats.png" alt="The Statistics table: 6 vertices, 5 segments, 1 loss segment, mapped event 4465.4 from 2002 to 2009, pre 8251.5 and post 3786.1." loading="lazy"></a>
+          <figcaption><b>Its numbers</b>: the mapped event is the 2002–2009 loss of 4465 (0.45 NDVI).</figcaption>
+        </figure>
+      </div>
+      <p>The table reads: 6 vertices and 5 segments, of which 1 is a loss; the event a map would show is the greatest loss, <strong>4465.4</strong> from 2002 to 2009, from 8251.5 to 3786.1. The other segments are the noise around the pasture and its slow gain, smaller than the loss.</p>
+      <div class="note">
+        <p class="h">Fit first, run later</p>
+        <p>The chart is where parameters are chosen: drop pins on the cases you know (a clearing, a regrowth, a forest that should stay untouched, a field) and change the parameters until each reads as it should. The run on the image uses exactly what the window shows.</p>
+      </div>
+    </section>
+
+    <section id="params">
+      <h2><span class="n">05</span>The parameters</h2>
+      <h3>Loss or gain</h3>
+      <p><span class="ui">Event</span> sets the direction of interest: <em>Loss</em> for a drop of the index, <em>Gain</em> for a rise. It orients the segmentation and which segments become events. On the pixel cleared in 1999 that grew back, looking for gains maps the regrowth:</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/landtrendr/04-gain-chart.png"><img src="assets/img/landtrendr/04-gain-chart.png" alt="The chart of the regrowth pixel: a long decline to 2011 and a rise to 2024, fitted with two segments." loading="lazy"></a>
+          <figcaption><b>Gain</b> on the regrowth: down to 2011, up since.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/landtrendr/04-gain-stats.png"><img src="assets/img/landtrendr/04-gain-stats.png" alt="The Statistics table: 3 vertices, 2 segments, 1 gain segment, mapped event 2256.3 from 2011 to 2024." loading="lazy"></a>
+          <figcaption>The mapped gain: <b>2256</b> (0.23 NDVI), 2011–2024.</figcaption>
+        </figure>
+      </div>
+      <h3>How many segments</h3>
+      <p><span class="ui">Max segments</span> limits how detailed the trajectory can be. Too few and real events are lost: with two segments at most, the cleared pixel becomes one long decline from 1985 to 2024, with no year of clearing at all.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/landtrendr/05-two-segments.png"><img src="assets/img/landtrendr/05-two-segments.png" alt="The chart of the cleared pixel fitted with at most two segments: a single straight decline over the whole series." loading="lazy"></a>
+        <figcaption><b>Max segments 2</b>: the clearing disappears into a straight line.</figcaption>
+      </figure>
+      <h3>All of them</h3>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Event</td><td class="num">loss</td><td>Direction of interest: a drop or a rise of the index.</td></tr>
+            <tr><td>Max segments</td><td class="num">6</td><td>The most segments the trajectory may have.</td></tr>
+            <tr><td>p-value threshold</td><td class="num">0.05</td><td>Models with a worse p-value are rejected (simpler ones are tried).</td></tr>
+            <tr><td>Recovery threshold</td><td class="num">0.25</td><td>The fastest recovery allowed, per year (1 / years): faster rises are taken as noise, not as regrowth.</td></tr>
+            <tr><td>Spike threshold</td><td class="num">0.9</td><td>Dampens single-year spikes (a missed cloud); 1 keeps them.</td></tr>
+            <tr><td>Best model proportion</td><td class="num">0.75</td><td>Prefers the model with the most vertices whose p-value is close enough to the best one.</td></tr>
+            <tr><td>Vertex count overshoot</td><td class="num">3</td><td>Extra candidate vertices found before the weakest are pruned.</td></tr>
+            <tr><td>Min observations</td><td class="num">6</td><td>Pixels with fewer valid years are not fitted.</td></tr>
+            <tr><td>Pick event by</td><td class="num">greatest</td><td>Which event a pixel's maps show when it has several: the greatest, newest, fastest, longest, or the clearest (DSNR).</td></tr>
+            <tr><td>Min magnitude</td><td class="num">0</td><td>Events smaller than this are ignored, in the units of the series.</td></tr>
+            <tr><td>Min duration</td><td class="num">1</td><td>Events shorter than this (years) are ignored.</td></tr>
+            <tr><td>Pre-event value threshold</td><td class="num">0</td><td>Loss: only events that start above this value (a forest); gain: below it. 0 is off.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The first eight shape the segmentation; the last four only choose which event is mapped. Thresholds are in the units of the series: here NDVI × 10000, so a minimum magnitude of 2500 is a drop of 0.25 NDVI.</p>
+    </section>
+
+    <section id="run">
+      <h2><span class="n">06</span>Running it on the image</h2>
+      <p>Under <span class="ui">Run on the raster</span>, choose the scope: the <span class="ui">Whole image</span>, the <span class="ui">Visible area</span> of the map, or the <span class="ui">ROI</span>. Janus estimates the run time from a sample of the series (here about 6 s for 2.8 million pixels). <span class="ui">Run</span> starts a separate process on every core; its progress is in <span class="ui">Tools → Tasks</span>, and the map stays usable meanwhile.</p>
+      <figure class="fig narrow">
+        <img src="assets/img/landtrendr/06-task.png" alt="The Tasks panel: LandTrendr on the whole image, 1686 by 1671 pixels, running at 31 percent, 512 of 1671 rows, about 10 seconds left, with the Log and Cancel buttons." loading="lazy">
+        <figcaption><b>Tasks</b>, while the run goes: rows done, time left, <span class="ui">Log</span> and <span class="ui">Cancel</span>. Once done, <span class="ui">Folder</span> opens its outputs.</figcaption>
+      </figure>
+      <p>For the map, only real clearings should count: the run used a <strong>minimum magnitude of 2500</strong> (0.25 NDVI) and a <strong>pre-event value of 7500</strong> (the loss has to start in forest). Without them every pixel gets some loss, if only a dry year in the pasture.</p>
+      <p>The outputs are GeoTIFFs (in <code>%LOCALAPPDATA%\Janus\results</code> by default, next to the run's <code>job.json</code> and <code>job.log</code>), opened over the map and listed under the series in the Layers panel. Pixels without an event are transparent.</p>
+    </section>
+
+    <section id="maps">
+      <h2><span class="n">07</span>The maps</h2>
+      <figure class="fig">
+        <a href="assets/img/landtrendr/07-yod.jpg"><img src="assets/img/landtrendr/07-yod.jpg" alt="The year of detection over the circle: purple for losses of the 1980s and 1990s, green and yellow for recent ones, with the forest left without colour; the Layers panel lists the seven outputs." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Year of detection</b>, 1985 (purple) to 2023 (yellow). The forest that stood shows through in dark green.</figcaption>
+      </figure>
+      <p>Each output is a layer with its own colour scale and range, which you can hide, reorder, export as GeoTIFF or compare with a swipe:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Map</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Year of detection</td><td>The year the mapped event starts.</td></tr>
+            <tr><td>Magnitude</td><td>How far the index moved over it.</td></tr>
+            <tr><td>Duration</td><td>Its length in years: a clearing is 1–2, a slow decline many.</td></tr>
+            <tr><td>Pre-event / post-event value</td><td>The index at the start and at the end of the event.</td></tr>
+            <tr><td>Rate</td><td>Magnitude per year.</td></tr>
+            <tr><td>DSNR</td><td>Magnitude over the fit's error: low values are events barely above the noise.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figure class="fig">
+        <a href="assets/img/landtrendr/08-magnitude.jpg"><img src="assets/img/landtrendr/08-magnitude.jpg" alt="The magnitude of the mapped loss, from 2521 to 5210, over the same area." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Magnitude</b> of the same events: the deepest clearings in yellow.</figcaption>
+      </figure>
+      <p>Hover the map with a result on top: the chart still shows the pixel's series and its fit, so every colour can be checked against the trajectory behind it.</p>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">08</span>What next</h2>
+      <ul>
+        <li><strong>Validate it.</strong> The year of detection is a map of events: <a href="validation.html">the Validation guide</a> stratifies it, draws a sample and estimates its accuracy and the area of loss by year, with confidence intervals.</li>
+        <li><strong>Compare it.</strong> <span class="ui">Tools → Agreement of change maps</span> takes several maps of dates (LandTrendr, <a href="ccdc.html">CCDC</a>, <a href="bfast.html">BFAST</a>, <a href="coded.html">CODED</a>) and maps where and when they agree.</li>
+        <li><strong>Export it.</strong> Right click a result in the Layers panel to save it as GeoTIFF, or save the map as a PNG figure.</li>
+        <li><strong>Script it.</strong> The same algorithm is <code>zeit.landtrendr</code> and <code>zeit.extract_events</code> in Python.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">09</span>References</h2>
+      <ul class="refs">
+        <li>Kennedy, R. E., Yang, Z., Cohen, W. B. (2010). Detecting trends in forest disturbance and recovery using yearly Landsat time series: 1. LandTrendr — Temporal segmentation algorithms. <em>Remote Sensing of Environment</em>, 114, 2897–2910.</li>
+        <li>Kennedy, R. E. et al. (2018). Implementation of the LandTrendr algorithm on Google Earth Engine. <em>Remote Sensing</em>, 10(5), 691.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the change detection library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></p>
+      <p>Built in C++17 with Dear ImGui, ImPlot and GDAL. OpenGL on Windows and Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

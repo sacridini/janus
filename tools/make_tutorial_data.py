@@ -2,7 +2,7 @@
 
 Usage: python tools/make_tutorial_data.py <out>   (GDAL's Python bindings, numpy, pystac-client;
        a few minutes and ~60 MB, read in place from public cloud buckets)
-Then:  janus --shots-validation <out> <site/assets/img/validation>
+Then:  janus --shots validation <out> <site/assets/img/validation>
 
 An area of 16 x 13 km south-west of Novo Progresso (Pará, Brazil), on the BR-163
 deforestation front:

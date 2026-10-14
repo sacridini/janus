@@ -101,6 +101,60 @@
     io.observe(cube);
   }
 
+  // ---- guide pages: a figure opens larger over the page (click again: actual size; Esc or outside: close)
+  var figs = document.querySelectorAll(".article .fig img");
+  if (figs.length) {
+    var box = document.createElement("div");
+    box.className = "lightbox";
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-modal", "true");
+    box.setAttribute("aria-label", "Enlarged image");
+    box.hidden = true;
+    box.innerHTML = '<button class="lb-close" type="button" aria-label="Close">×</button>' +
+      '<div class="lb-scroll"><img alt=""></div><p class="lb-caption"></p>';
+    document.body.appendChild(box);
+    var big = box.querySelector("img"), cap = box.querySelector(".lb-caption");
+    var closeBtn = box.querySelector(".lb-close"), opener = null;
+    function close() {
+      box.hidden = true;
+      box.classList.remove("actual");
+      document.documentElement.classList.remove("lb-open");
+      if (opener) opener.focus();
+    }
+    function open(img, link) {
+      opener = link || img;
+      big.src = (link && link.getAttribute("href")) || img.currentSrc || img.src;
+      big.alt = img.alt;
+      var fc = img.closest("figure") && img.closest("figure").querySelector("figcaption");
+      cap.textContent = fc ? fc.textContent : "";
+      box.hidden = false;
+      document.documentElement.classList.add("lb-open");
+      closeBtn.focus();
+    }
+    figs.forEach(function (img) {
+      var link = img.closest("a");
+      var target = link || img;
+      if (!link) { img.tabIndex = 0; img.setAttribute("role", "button"); }
+      img.style.cursor = "zoom-in";
+      target.addEventListener("click", function (e) { e.preventDefault(); open(img, link); });
+      if (!link) img.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(img, null); }
+      });
+    });
+    big.addEventListener("click", function (e) {
+      e.stopPropagation();
+      // Larger than the screen: toggle between fitting it and its actual size.
+      if (big.naturalWidth > window.innerWidth * 0.94 || big.naturalHeight > window.innerHeight * 0.86) box.classList.toggle("actual");
+    });
+    box.addEventListener("click", function (e) { if (e.target === box || e.target.classList.contains("lb-scroll")) close(); });
+    closeBtn.addEventListener("click", close);
+    document.addEventListener("keydown", function (e) {
+      if (box.hidden) return;
+      if (e.key === "Escape") close();
+      else if (e.key === "Tab") { e.preventDefault(); closeBtn.focus(); } // focus stays in the dialog
+    });
+  }
+
   // ---- guide pages: the contents entry of the section being read
   var toc = document.querySelectorAll(".toc a[href^='#']");
   if (toc.length && "IntersectionObserver" in window) {

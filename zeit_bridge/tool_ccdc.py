@@ -158,6 +158,9 @@ def _segments(p, ctx, vals, qa):
     B, T, h, w = vals.shape
     roles, _ = _roles(ctx)
     S = int(p["max_segments"])
+    # Zeit takes a NaN for a date that does not exist (255, see _prepare): 0 is out of
+    # the valid range, so the date is kept as one that cannot be used.
+    vals = np.where(np.isfinite(vals), vals, 0.0)
     data = xr.DataArray(vals.transpose(1, 0, 2, 3), dims=("time", "band", "y", "x"),
                         coords={"time": zc.times(ctx), "band": roles})
     ds = zeit.ccdc(data, qa=qa, max_segments=S, conseq_anom=int(p["conseq_anom"]),
@@ -202,10 +205,16 @@ def _jumps(sg):
 
 
 def _prepare(p, ctx):
-    """(bands x 10000 [B, T, ...] with NaN, Fmask [T, ...] with 255 where a band is missing, roles, units)."""
+    """(bands x 10000 [B, T, ...] with NaN, Fmask [T, ...] with 4 where a band is missing, roles, units).
+
+    A date without a value is an observation that cannot be used (4, as a cloud), not
+    one that does not exist (255): like the original, CCDC skips the pixels where fewer
+    than half of the dates exist (meant for the edges of a scene), so in a stack whose
+    clouds were masked to no data (e.g. a Google Earth Engine export) every pixel with
+    more cloudy dates than clear ones got no model at all."""
     vals, roles, mode = _inputs(p, ctx)
     qa = np.array(ctx["fmask"], dtype=np.int32)
-    qa[~np.all(np.isfinite(vals), axis=0)] = 255
+    qa[~np.all(np.isfinite(vals), axis=0)] = 4
     return vals, qa, roles, mode
 
 
@@ -243,7 +252,7 @@ def pixel(p, ctx):
     if not ctx.get("ordinal"):
         return {"overlays": [], "rows": [["CCDC", "needs real dates"]]}
     vals, qa, roles, mode = _prepare(p, ctx)  # [B, T], [T]
-    n_obs = int((qa < 255).sum())
+    n_obs = int(np.all(np.isfinite(vals), axis=0).sum())
     n_clear = int((qa < 2).sum())
     if n_clear < 12:
         return {"overlays": [], "rows": [["CCDC", f"not enough clear observations ({n_clear}, need 12)"]]}

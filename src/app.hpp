@@ -112,10 +112,11 @@ public:
     // --selftest-embeddings-ui DIR [OUT]: a series of embeddings in every view,
     // checked and saved as PNGs (app_embeddings.cpp).
     int selfTestEmbeddingStep(const std::vector<std::string>& inputs);
-    // --shots-validation DATA OUT: the screenshots of the validation tutorial
-    // (site/validation.html) from tools/make_tutorial_data.py's DATA, as PNGs in
-    // OUT, in a hidden window of this size (app_validation.cpp).
-    int shotsValidationStep(const std::string& data, const std::string& out);
+    // --shots TOUR IN OUT: the screenshots of a guide of the website (site/*.html)
+    // as PNGs in OUT, in a hidden window of this size: validation (IN: the data of
+    // tools/make_tutorial_data.py), landtrendr, ccdc, coded, bfast, phenology (IN:
+    // their series; app_shots.cpp). -1 while running, then the exit code.
+    int shotsStep(const std::string& tour, const std::string& in, const std::string& out);
     static constexpr int kShotsWidth = 1680, kShotsHeight = 1050;
     // For render::present: what reads this frame's pixels, when a screenshot asked for them.
     std::function<void(const unsigned char*, int, int)> takeCapture() {
@@ -1169,15 +1170,36 @@ private:
         int stage = 0;
         double since = 0;          // the stage's start
         int frames = 0;            // frames since then
-        std::string dir;           // the project and the report (OUT/work)
-        int example = -1;          // the point shown being interpreted
+        std::string dir;           // files a tour writes (OUT/work)
+        int example = -1;          // validation: the point shown being interpreted
         int exampleT = -1;         // the date it is shown at
         std::vector<int> labels;   // the label (class of the label set) given to each point
         std::vector<int> years;    // the year of its change (0: none)
         std::shared_ptr<ExportJob> report;
-        ImVec4 menuRect{0, 0, 0, 0}; // the Validation menu in the menu bar (min, max)
-        bool clicked = false;
-    } shots_; // --shots-validation state
+        std::map<std::string, ImVec4> menus; // the main menus in the menu bar (min, max), by name
+        std::shared_ptr<ZeitJob> job;        // a tool's raster run
+        int jobStage = -1;                   // the stage that started it
+        size_t results = 0;                  // results_ before it
+    } shots_; // --shots state
+    // The tours (app_validation.cpp; app_shots.cpp) and what they share (app_shots.cpp).
+    int shotsValidationStep(const std::string& data, const std::string& out);
+    int shotsToolStep(const std::string& tour, const std::string& in, const std::string& out);
+    using ShotCrops = std::vector<std::pair<std::string, std::array<int, 4>>>;
+    // A panel's rectangle in the frame's pixels (docked: with its tab bar); `fit`:
+    // down to what it holds. A rectangle of the screen, `pad` pixels around.
+    std::array<int, 4> shotRect(const char* window, bool fit = false) const;
+    std::array<int, 4> shotRect(ImVec2 lo, ImVec2 hi, int pad) const;
+    // This frame as dir/name.png ("-": not the frame) and each crop as dir/name-<suffix>.png
+    // (dir/<suffix>.png with "-").
+    void shoot(const std::string& dir, const std::string& name, const ShotCrops& crops = {});
+    // The guides' layout: `right` docked as tabs in a column on the right, `under`
+    // as tabs next to the chart, under the map.
+    void shotsDock(const std::vector<const char*>& right, const std::vector<const char*>& under);
+    // A main menu clicked open (the pointer on its first item if `hoverFirst`) and
+    // saved as dir/file.png with its tooltip: true once shot.
+    bool shotsMenu(const char* menu, const std::string& dir, const std::string& file, bool hoverFirst);
+    void shotsNext(const std::string& done);
+    double shotsTime() const;    // seconds into the stage
     unsigned dockspaceId_ = 0;   // ImGuiID of the dock space (the screenshots' layout)
     std::function<void(const unsigned char*, int, int)> capture_; // a screenshot of this frame (takeCapture)
 

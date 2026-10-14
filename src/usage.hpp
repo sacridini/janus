@@ -55,9 +55,10 @@ inline const char* kUsage =
     "  --selftest-validation  check the sampling design, strata, sample and accuracy\n"
     "                      estimators (Olofsson et al. 2014) and, with the runtime,\n"
     "                      the estimates against zeit.accuracy\n"
-    "  --shots-validation DATA OUT  the validation tutorial's screenshots (PNGs in\n"
-    "                      OUT) from tools/make_tutorial_data.py's DATA, in a hidden\n"
-    "                      window\n"
+    "  --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT), in a hidden\n"
+    "                      window: validation (IN: tools/make_tutorial_data.py's\n"
+    "                      data), landtrendr, ccdc, coded, bfast, phenology (IN: the\n"
+    "                      series)\n"
     "  --selftest-embeddings-ui DIR [OUT]  a series of embeddings in every view, in a\n"
     "                      hidden window; PNGs of each in OUT\n"
     "  --selftest-ui A B [C [D [E [F [G]]]]]  drive the layers workflow in a hidden window\n"
@@ -71,7 +72,7 @@ inline const char* kUsage =
 
 // Options that take a value (the launcher validates them before opening the GUI).
 inline bool isValueOption(const char* a) {
-    const char* opts[] = {"--band", "--budget", "--threads", "--zeit-python", "--zeit-bridge"};
+    const char* opts[] = {"--band", "--budget", "--threads", "--zeit-python", "--zeit-bridge", "--shots"};
     for (const char* o : opts) {
         const char *p = a, *q = o;
         while (*p && *p == *q) ++p, ++q;

@@ -852,7 +852,8 @@ void App::drawValidationMarks(ImDrawList* dl, ImVec2 origin) {
 
 void App::uiValidationMenu() {
     const bool open = ImGui::BeginMenu("Validation");
-    shots_.menuRect = ImVec4(ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y, ImGui::GetItemRectMax().x, ImGui::GetItemRectMax().y);
+    shots_.menus["Validation"] = ImVec4(ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y, ImGui::GetItemRectMax().x,
+                                        ImGui::GetItemRectMax().y);
     if (!open) return;
     if (!val_) val_ = std::make_shared<Validation>();
     Validation& v = *val_;
@@ -3105,39 +3106,17 @@ int App::selfTestValidationUi(const std::vector<std::string>& in) {
 }
 
 // ---------------------------------------------------------------------------
-// --shots-validation DATA OUT: the screenshots of the validation tutorial
+// --shots validation DATA OUT: the screenshots of the validation guide
 // ---------------------------------------------------------------------------
 
 // site/validation.html walks through the validation of Global Forest Change's
 // loss of 2018-2023 near Novo Progresso with Sentinel-2 dry-season composites
 // (tools/make_tutorial_data.py): one stage per step, each saved as PNGs (the
-// window, some panels alone). The points are labelled by a rule on each one's
-// NBR series (a drop from forest, and whether it grows back), not by a person:
-// the numbers on the screenshots show the tool at work, they validate nothing.
+// window, some panels alone; app_shots.cpp). The points are labelled by a rule
+// on each one's NBR series (a drop from forest, and whether it grows back), not
+// by a person: the numbers on the screenshots show the tool at work, they
+// validate nothing.
 namespace {
-
-// RGBA, top row first, to an RGB PNG of the rectangle x, y, w, h (pixels).
-bool writeShot(const std::string& path, const unsigned char* rgba, int W, int H, std::array<int, 4> r) {
-    const int x0 = std::clamp(r[0], 0, W - 1), y0 = std::clamp(r[1], 0, H - 1);
-    const int w = std::clamp(r[2], 1, W - x0), h = std::clamp(r[3], 1, H - y0);
-    std::vector<unsigned char> rgb(size_t(w) * h * 3);
-    for (int y = 0; y < h; ++y)
-        for (int x = 0; x < w; ++x)
-            std::copy_n(&rgba[(size_t(y0 + y) * W + x0 + x) * 4], 3, &rgb[(size_t(y) * w + x) * 3]);
-    GDALDriver* mem = GetGDALDriverManager()->GetDriverByName("MEM");
-    GDALDriver* png = GetGDALDriverManager()->GetDriverByName("PNG");
-    if (!mem || !png) return false;
-    GDALDataset* ds = mem->Create("", w, h, 3, GDT_Byte, nullptr);
-    int bands[3] = {1, 2, 3};
-    (void)ds->RasterIO(GF_Write, 0, 0, w, h, rgb.data(), w, h, GDT_Byte, 3, bands, 3, w * 3, 1, nullptr);
-    const char* opts[] = {"ZLEVEL=9", nullptr};
-    GDALDataset* out = png->CreateCopy(path.c_str(), ds, FALSE, const_cast<char**>(opts), nullptr, nullptr);
-    if (out) GDALClose(out);
-    GDALClose(ds);
-    std::error_code ec;
-    fs::remove(fs::u8path(path + ".aux.xml"), ec);
-    return out != nullptr;
-}
 
 // The NBR, (NIR - SWIR2) / (NIR + SWIR2) (bands 4 and 6), of each composite at
 // each point (x, y in the CRS `wkt`); NaN without a clear observation.
@@ -3238,21 +3217,13 @@ Reading readSeries(const std::vector<double>& nbr, int first) {
 } // namespace
 
 int App::shotsValidationStep(const std::string& data, const std::string& out) {
-    auto now = [] { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); };
     auto fail = [&](const std::string& what) {
         std::printf("FAIL (stage %d): %s\n", shots_.stage, what.c_str());
         return 1;
     };
-    auto next = [&](const std::string& done) {
-        std::printf("[stage %2d] %s\n", shots_.stage, done.c_str());
-        std::fflush(stdout);
-        ++shots_.stage;
-        shots_.since = now();
-        shots_.frames = 0;
-    };
-    if (shots_.stage == 0 && shots_.frames == 0) shots_.since = now();
-    const double t = now() - shots_.since;
+    auto next = [&](const std::string& done) { shotsNext(done); };
     ++shots_.frames;
+    const double t = shotsTime();
     if (t > 120) return fail("timeout");
     if (!val_) val_ = std::make_shared<Validation>();
     Validation& v = *val_;
@@ -3261,39 +3232,8 @@ int App::shotsValidationStep(const std::string& data, const std::string& out) {
     const std::string mapbiomas = (dataDir / "mapbiomas_loss_2018_2023.tif").u8string();
     ImGuiIO& io = ImGui::GetIO();
     io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); // no hover, unless a stage points somewhere
-    // A panel's rectangle in the frame's pixels (a docked one with its tab bar);
-    // `fit`: down to what it holds.
-    auto rectOf = [&](const char* name, bool fit = false) -> std::array<int, 4> {
-        const ImGuiWindow* w = ImGui::FindWindowByName(name);
-        if (!w) return {0, 0, 0, 0};
-        ImVec2 p = w->Pos, s = w->Size;
-        if (w->DockNode) {
-            p = w->DockNode->Pos;
-            s = w->DockNode->Size;
-        }
-        if (fit) s.y = std::min(s.y, w->DC.CursorMaxPos.y - p.y + ImGui::GetStyle().WindowPadding.y + 6);
-        const ImVec2 o = ImGui::GetMainViewport()->Pos, k = io.DisplayFramebufferScale;
-        return {int(std::lround((p.x - o.x) * k.x)), int(std::lround((p.y - o.y) * k.y)), int(std::lround(s.x * k.x)),
-                int(std::lround(s.y * k.y))};
-    };
-    // This frame as `name`.png (unless the name is "-"), and the rectangles given as `name`-<suffix>.png
-    // (<suffix>.png with "-").
-    auto shoot = [&](const std::string& name, const std::vector<std::pair<std::string, std::array<int, 4>>>& crops = {}) {
-        capture_ = [dir = outDir, name, crops](const unsigned char* px, int w, int h) {
-            if (!px) {
-                std::printf("    %s: this backend does not read its pixels back\n", name.c_str());
-                return;
-            }
-            auto save = [&](const std::string& file, std::array<int, 4> r) {
-                const std::string f = (dir / file).u8string();
-                const bool ok = writeShot(f, px, w, h, r);
-                std::printf("    %s %s (%d x %d)\n", ok ? "wrote" : "COULD NOT WRITE", f.c_str(), r[2], r[3]);
-            };
-            if (name != "-") save(name + ".png", {0, 0, w, h});
-            for (const auto& [suffix, r] : crops) save((name == "-" ? "" : name + "-") + suffix + ".png", r);
-            std::fflush(stdout);
-        };
-    };
+    auto rectOf = [&](const char* name, bool fit = false) { return shotRect(name, fit); };
+    auto shoot = [&](const std::string& name, const ShotCrops& crops = {}) { App::shoot(out, name, crops); };
     auto layerOf = [&](const std::string& path) -> SeriesLayer* {
         for (SeriesLayer& L : layers_)
             if (L.inputs.size() == 1 && L.inputs[0] == path) return &L;
@@ -3353,26 +3293,7 @@ int App::shotsValidationStep(const std::string& data, const std::string& out) {
     }
     case 2: { // the tutorial's panels: Validation and Interpretation on the right, Chips under the map
         if (opening_.valid() || layers_.size() != 2 || !dockspaceId_) break;
-        const ImGuiID dock = dockspaceId_;
-        ImGui::DockBuilderRemoveNode(dock);
-        ImGui::DockBuilderAddNode(dock, ImGuiDockNodeFlags_DockSpace);
-        ImGui::DockBuilderSetNodeSize(dock, ImGui::GetMainViewport()->WorkSize);
-        ImGuiID right, rest, left, mid, leftTop, leftBottom, center, bottom, bottomLeft, bottomRight;
-        ImGui::DockBuilderSplitNode(dock, ImGuiDir_Right, 0.37f, &right, &rest);
-        ImGui::DockBuilderSplitNode(rest, ImGuiDir_Left, 0.25f, &left, &mid);
-        ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.55f, &leftBottom, &leftTop);
-        ImGui::DockBuilderSplitNode(mid, ImGuiDir_Down, 0.36f, &bottom, &center);
-        ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Right, 0.48f, &bottomRight, &bottomLeft);
-        ImGui::DockBuilderDockWindow("Layers", leftTop);
-        ImGui::DockBuilderDockWindow("Files", leftTop);
-        ImGui::DockBuilderDockWindow("Display", leftBottom);
-        ImGui::DockBuilderDockWindow("Map", center);
-        ImGui::DockBuilderDockWindow("Time series", bottomLeft);
-        ImGui::DockBuilderDockWindow("Statistics", bottomRight);
-        ImGui::DockBuilderDockWindow("Chips", bottomRight);
-        ImGui::DockBuilderDockWindow("Validation", right);
-        ImGui::DockBuilderDockWindow("Interpretation", right);
-        ImGui::DockBuilderFinish(dock);
+        shotsDock({"Validation", "Interpretation"}, {"Chips"});
         setActive(0);
         setT(s_->info->T() - 1);
         next("the tutorial's layout; the last date");
@@ -3405,35 +3326,13 @@ int App::shotsValidationStep(const std::string& data, const std::string& out) {
         next("the series and the map");
         break;
     }
-    case 4: { // the Validation menu, open, the pointer on its first item
-        const ImVec4 m = shots_.menuRect;
-        if (shots_.frames <= 2) {
-            io.AddMousePosEvent((m.x + m.z) / 2, (m.y + m.w) / 2);
-            io.AddMouseButtonEvent(ImGuiMouseButton_Left, shots_.frames == 1);
+    case 4: // the Validation menu, open, the pointer on its first item
+        if (!shotsMenu("Validation", out, "02-menu", true)) {
+            if (t > 10) return fail("the Validation menu did not open");
             break;
         }
-        ImGuiContext& g = *GImGui;
-        const ImGuiWindow* menu = g.OpenPopupStack.empty() ? nullptr : g.OpenPopupStack.back().Window;
-        if (!menu) {
-            if (shots_.frames > 30) return fail("the Validation menu did not open");
-            break;
-        }
-        io.AddMousePosEvent(menu->Pos.x + 60, menu->Pos.y + g.Style.WindowPadding.y + g.FontSize * 0.5f + 2);
-        if (t < 2) break;
-        // The menu, its title and the tooltip of the item pointed at.
-        ImVec2 lo(m.x, m.y), hi(menu->Pos.x + menu->Size.x, menu->Pos.y + menu->Size.y);
-        for (ImGuiWindow* w : g.Windows)
-            if (w->Active && (w->Flags & ImGuiWindowFlags_Tooltip)) {
-                lo = ImMin(lo, w->Pos);
-                hi = ImMax(hi, w->Pos + w->Size);
-            }
-        const ImVec2 o = ImGui::GetMainViewport()->Pos, k = io.DisplayFramebufferScale;
-        const int pad = 12;
-        shoot("-", {{"02-menu", {int((lo.x - o.x) * k.x) - pad, int((lo.y - o.y) * k.y) - pad,
-                                 int((hi.x - lo.x) * k.x) + 2 * pad, int((hi.y - lo.y) * k.y) + 2 * pad}}});
         next("the Validation menu");
         break;
-    }
     case 5: { // Design: the map read as events in two periods, a buffer of 1 px
         if (shots_.frames == 1) {
             ImGui::ClosePopupsExceptModals();

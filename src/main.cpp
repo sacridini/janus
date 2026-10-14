@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
     bool selftestUi = false;     // dev option: drive the layers workflow in a hidden window
     bool measureCache = false;   // dev option: time the full-resolution cache in a hidden window
     bool measureVectors = false; // dev option: time vector layers over a series in a hidden window
-    bool shotsValidation = false; // dev option: the validation tutorial's screenshots, hidden window
+    std::string shots;           // dev option: a guide's screenshots (--shots TOUR), hidden window
     bool describe = false;       // dev option: print how the inputs open, without a window
     for (size_t i = 0; i < args.size(); ++i) {
         const std::string& a = args[i];
@@ -111,8 +111,10 @@ int main(int argc, char** argv) {
             measureCache = selftestUi = true;
         } else if (a == "--measure-vectors") {
             measureVectors = selftestUi = true;
-        } else if (a == "--shots-validation") {
-            shotsValidation = selftestUi = true;
+        } else if (a == "--shots") {
+            const char* v = next();
+            shots = v ? v : "";
+            selftestUi = true;
         } else if (a == "--describe") {
             describe = true;
         } else if (a == "--selftest-zeit") {
@@ -203,7 +205,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "Could not open the window (%s): %s\n", render::name(), error.c_str());
         return 1;
     }
-    if (shotsValidation) { // the same size on every machine, not the screen's (glfwRestoreWindow would show it)
+    if (!shots.empty()) { // the same size on every machine, not the screen's (glfwRestoreWindow would show it)
         glfwSetWindowSize(window, App::kShotsWidth, App::kShotsHeight);
     }
     st.windowMs = ms();
@@ -227,7 +229,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     // The screenshots in the default settings and layout: the user's are neither read nor written.
-    if (shotsValidation) io.IniFilename = nullptr;
+    if (!shots.empty()) io.IniFilename = nullptr;
     glfwSetDropCallback(window, dropCallback);
     st.uiMs = ms();
     if (!inputs.empty() && !selftestUi) app->openInputs(inputs);
@@ -269,12 +271,12 @@ int main(int argc, char** argv) {
                 exitCode = rc;
                 glfwSetWindowShouldClose(window, 1);
             }
-        } else if (shotsValidation) {
+        } else if (!shots.empty()) {
             if (inputs.size() != 2) {
-                std::fprintf(stderr, "--shots-validation needs the tutorial's data folder and the output folder\n");
+                std::fprintf(stderr, "--shots TOUR needs its input and the output folder\n");
                 exitCode = 2;
                 glfwSetWindowShouldClose(window, 1);
-            } else if (const int rc = app->shotsValidationStep(inputs[0], inputs[1]); rc >= 0) {
+            } else if (const int rc = app->shotsStep(shots, inputs[0], inputs[1]); rc >= 0) {
                 std::fflush(stdout);
                 exitCode = rc;
                 glfwSetWindowShouldClose(window, 1);

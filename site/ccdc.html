@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CCDC · Janus</title>
+<meta name="description" content="A step-by-step guide to CCDC in Janus: harmonic models of every Landsat band, breaks where the land changes, maps of their dates and magnitudes, and a synthetic image of any date.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CCDC · Janus">
+<meta property="og:description" content="Every Landsat observation of a Rondônia landscape, modelled band by band: breaks where the forest was cleared, and an image of a cloudy date.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/ccdc/02-fit.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / CCDC</p>
+    <p class="eyebrow">Change detection · every Landsat observation</p>
+    <h1>CCDC, step by step.</h1>
+    <p class="lede">CCDC models every band of every clear Landsat observation with a trend and the seasons, and starts a new model when the land stops looking like the old one. In Janus you see those models over a pixel's series, map the dates and sizes of the breaks, and predict the image of a date the clouds hid.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#quality">Clouds and the quality band</a></li>
+      <li><a href="#window">The tool's window</a></li>
+      <li><a href="#chart">On the chart</a></li>
+      <li><a href="#run">Running it</a></li>
+      <li><a href="#maps">The maps</a></li>
+      <li><a href="#synthetic">A synthetic image</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>CCDC (Continuous Change Detection and Classification, Zhu &amp; Woodcock 2014) fits, for each band, a model made of a straight trend plus up to three harmonics of the year: the seasons. It starts on the first clear observations, then compares each new one with what the model predicts. When <strong>six observations in a row</strong> fall too far from it, over the green to SWIR2 bands together, that is a <strong>break</strong>: the model ends and a new one starts after it. A single odd observation (a cloud the mask missed) is an outlier, not a change.</p>
+      <dl class="terms">
+        <dt>Segment</dt><dd>A period with one model: the land as it was between two breaks.</dd>
+        <dt>Break</dt><dd>The date a segment ends because the observations stopped fitting it.</dd>
+        <dt>Magnitude</dt><dd>The jump between the model before and the model after, at the break, over the green to SWIR2 bands (reflectance × 10000).</dd>
+      </dl>
+      <p>CCDC works on <strong>surface reflectance</strong>, with every date a file of six bands (blue, green, red, NIR, SWIR1, SWIR2, and optionally thermal), and on <strong>real dates</strong>: every observation counts, not composites. It needs at least four observations a year and 24 in all.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>125 Landsat 8 and 9 observations, February 2020 to August 2026, of a 30 × 30 km area of central Rondônia (the same landscape as the <a href="landtrendr.html">LandTrendr guide</a>), as Collection 2 Level-2 surface reflectance with the <code>QA_PIXEL</code> band. Each date is a GeoTIFF of seven bands named Blue, Green, Red, NIR, SWIR1, SWIR2 and QA_PIXEL.</p>
+      <figure class="fig">
+        <a href="assets/img/ccdc/01-series.jpg"><img src="assets/img/ccdc/01-series.jpg" alt="The Janus window: the last date of the series in SWIR1, NIR and red, forest in green and pasture in pink, three pins, and their NDVI series on the chart with many gaps." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The series</b> in SWIR1 / NIR / red (forest green, pasture pink), the chart in NDVI. The gaps are the dates the clouds hid.</figcaption>
+      </figure>
+      <p>To open it: the folder with <span class="ui">File → Open folder...</span>, then, in the Display panel, NIR as the band and red for the normalized difference (the chart shows the NDVI), and SWIR1 / NIR / red as an RGB composite for the map.</p>
+      <div class="note warn">
+        <p class="h">Collection 2 digital numbers</p>
+        <p>Landsat Collection 2 Level-2 values are digital numbers: reflectance is DN × 0.0000275 − 0.2. CCDC detects them and converts them (<span class="ui">Reflectance units</span>), but an NDVI computed on the DNs themselves is wrong, because of the offset. Set the scale and offset in the files (GDAL's band scale and offset; Janus applies them), or export reflectance.</p>
+      </div>
+    </section>
+
+    <section id="quality">
+      <h2><span class="n">03</span>Clouds and the quality band</h2>
+      <p>CCDC needs to know which observations are clear. Janus finds a band named <code>QA_PIXEL</code> (or <code>Fmask</code>) and reads its bits: clouds, their shadows, cirrus and fill become unusable observations, on the chart (gaps) and for every tool. It is set in the Display panel, under <span class="ui">Quality band</span>, with the rule that reads it (<em>Landsat C2 QA_PIXEL bits</em>, Fmask codes...).</p>
+      <p>In this stack, as in most exports from Google Earth Engine, cloudy pixels were already masked to no data. Of 125 dates, a pixel typically has about 60 clear ones, nearly all from May to October: the dry season.</p>
+      <div class="note">
+        <p class="h">Masked dates are still observations</p>
+        <p>The original CCDC skips the pixels where fewer than half of the dates exist, a rule meant for the edges of a Landsat scene. A date masked to no data is an observation the clouds spoiled, not a missing one, and Janus passes it to CCDC as such: otherwise every pixel of a stack like this one, cloudier than clear, would get no model at all.</p>
+      </div>
+    </section>
+
+    <section id="window">
+      <h2><span class="n">04</span>The tool's window</h2>
+      <p><span class="ui">Tools → CCDC</span>. Its window starts with the <strong>Bands</strong>: which band of each date plays each role. Janus guesses them from the band names (<code>NIR</code>, <code>SWIR1</code>, <code>SR_B5</code>...), and stacks of six or more unnamed bands are taken as blue to SWIR2; change any of them in the lists. The quality band in use is named under them.</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Reflectance units</td><td class="num">auto</td><td>CCDC's thresholds are in reflectance × 10000. Automatic: values with a median up to 2 are reflectance 0–1, above 6500 Collection 2 digital numbers.</td></tr>
+            <tr><td>Consecutive anomalies</td><td class="num">6</td><td>Clear observations in a row beyond the threshold that make a break. Fewer: faster but more false breaks.</td></tr>
+            <tr><td>Change probability</td><td class="num">0.99</td><td>The chi-square probability of the change threshold over the detection bands.</td></tr>
+            <tr><td>Outlier probability</td><td class="num">0.999999</td><td>Above it, a single observation is an outlier, not change.</td></tr>
+            <tr><td>Max coefficients</td><td class="num">8</td><td>The richest model: 4 (trend and one harmonic), 6 (two) or 8 (three). With few observations CCDC uses fewer by itself.</td></tr>
+            <tr><td>Max segments</td><td class="num">8</td><td>Segments kept per pixel.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="chart">
+      <h2><span class="n">05</span>On the chart</h2>
+      <p>With <span class="ui">Fit the cursor, pins and ROI series</span> on, each segment is drawn over the series, in what the layer shows (here the NDVI computed from the models' red and NIR), with a vertical line at each break.</p>
+      <figure class="fig">
+        <a href="assets/img/ccdc/02-fit.jpg"><img src="assets/img/ccdc/02-fit.jpg" alt="CCDC's window with its bands and parameters; on the chart the NDVI of the cleared pixel, CCDC's segments in magenta and breaks as vertical lines; the Statistics table with the segments and the break." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The forest cleared in 2022.</b> Three segments; the first break, on 25 June 2022, is the clearing.</figcaption>
+      </figure>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/ccdc/02-fit-chart.png"><img src="assets/img/ccdc/02-fit-chart.png" alt="The chart: forest NDVI near 0.9 in 2020, a break in mid 2022, a low flat pasture segment until 2024, then a segment with wide seasonal swings." loading="lazy"></a>
+          <figcaption><b>The segments</b>, each with its seasons.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/ccdc/02-fit-stats.png"><img src="assets/img/ccdc/02-fit-stats.png" alt="The Statistics table: 3 segments, 61 observations of which 58 clear, units reflectance 0 to 1, segment 1 from 2020-05-26 to 2021-08-01 and a break on 2022-06-25 of magnitude 2393." loading="lazy"></a>
+          <figcaption><b>Its numbers</b>: each segment, its clear observations and its break.</figcaption>
+        </figure>
+      </div>
+      <p>The forest's segment ends with a break on <strong>25 June 2022</strong>, a jump of 2393 in reflectance and an NDVI change of −0.69: the clearing. A second break comes in April 2024, an NDVI change of +0.70. It is not regrowth: until 2024 every clear observation of the pasture was from the dry season, and the first ones of the rainy season, when the pasture is green, did not fit a model that had never seen them.</p>
+      <div class="note warn">
+        <p class="h">Seasons need observations all year</p>
+        <p>The harmonics describe the seasons only where there are observations. With clear dates only from May to October, the curve between November and April is a guess, and it can swing far (the last segment above). Read breaks next to a change of the observations' season with care, and prefer fewer coefficients when the series has a long cloudy season.</p>
+      </div>
+      <p>On the forest opened in 2021, partly back since, CCDC also breaks in 2022, into a model that stays between forest and pasture:</p>
+      <figure class="fig narrow">
+        <a href="assets/img/ccdc/03-thinned-chart.png"><img src="assets/img/ccdc/03-thinned-chart.png" alt="The chart of the opened forest: a forest segment until 2021, a break in 2022 and a segment oscillating between 0.45 and 0.65." loading="lazy"></a>
+        <figcaption><b>An opened forest.</b> After the 2022 break, the NDVI stays between forest and pasture.</figcaption>
+      </figure>
+    </section>
+
+    <section id="run">
+      <h2><span class="n">06</span>Running it</h2>
+      <p>CCDC is the slowest of the tools: here about half a minute for the whole area, 1.2 million pixels, on every core. Zoom in on what you want to see and run it on the <span class="ui">Visible area</span> (or on the ROI) first, then on the whole image once the parameters are right. The run of these screenshots, 261 × 196 pixels around the clearing, took 12 s.</p>
+    </section>
+
+    <section id="maps">
+      <h2><span class="n">07</span>The maps</h2>
+      <figure class="fig">
+        <a href="assets/img/ccdc/05-break-date.jpg"><img src="assets/img/ccdc/05-break-date.jpg" alt="The date of the largest break over the visible area, from 2022 in dark blue to 2026 in yellow, over the fields; forest without breaks shows through in green." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Largest break date</b>, 2022 (dark) to 2026 (yellow). The cleared fields of 2022 stand out as blocks; forest without breaks shows through.</figcaption>
+      </figure>
+      <figure class="fig">
+        <a href="assets/img/ccdc/06-magnitude.jpg"><img src="assets/img/ccdc/06-magnitude.jpg" alt="The magnitude of the largest break over the same area, highest in the field cleared in 2022." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Largest break magnitude</b> (reflectance × 10000): the clearing of 2022 is the largest.</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Map</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Breaks</td><td>How many breaks the pixel has.</td></tr>
+            <tr><td>Largest break date</td><td>The date of the break with the largest magnitude (decimal year).</td></tr>
+            <tr><td>Largest break magnitude</td><td>Its jump over the green to SWIR2 bands, reflectance × 10000.</td></tr>
+            <tr><td>NDVI change at largest break</td><td>The NDVI after it minus before it, from the models: negative is loss.</td></tr>
+            <tr><td>First / last break date</td><td>The earliest and the latest break.</td></tr>
+            <tr><td>Segments</td><td>How many models the pixel has.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The NDVI change tells the direction the magnitude does not: a map of it with a threshold (below −0.3, say) keeps the losses and drops the seasonal artefacts and the regrowth.</p>
+    </section>
+
+    <section id="synthetic">
+      <h2><span class="n">08</span>A synthetic image</h2>
+      <p>The models describe every band on every day of each segment, so they can give the image of a date that has no observation, or a cloudy one. <span class="ui">Tools → CCDC synthetic image</span> runs CCDC and predicts the date in <span class="ui">Date</span> (a decimal year; 0 follows the date on the map): every band, in the series' units, and what the layer shows.</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/ccdc/07-observed.jpg"><img src="assets/img/ccdc/07-observed.jpg" alt="The observed image of 16 January 2025: entirely covered by cloud." width="1680" height="1050" loading="lazy"></a>
+          <figcaption><b>Observed</b>, 16 January 2025: clouds.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/ccdc/08-synthetic.jpg"><img src="assets/img/ccdc/08-synthetic.jpg" alt="The synthetic NDVI of the same date predicted by CCDC: fields and forest without clouds, with some fields in saturated yellow." width="1680" height="1050" loading="lazy"></a>
+          <figcaption><b>Synthetic NDVI</b> of the same date, from the models.</figcaption>
+        </figure>
+      </div>
+      <p>The fields and the forest are back; the saturated yellow fields are the caveat above at work: January is in the rainy season, where these models have no observation, and some of their curves overshoot.</p>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">09</span>What next</h2>
+      <ul>
+        <li><strong>Degradation apart from clearing</strong>: <a href="coded.html">CODED</a> works on the same kind of series, with the NDFI.</li>
+        <li><strong>Validate the dates</strong>: the largest break date is a map of events; see <a href="validation.html">the Validation guide</a>.</li>
+        <li><strong>Compare with LandTrendr or BFAST</strong>: <span class="ui">Tools → Agreement of change maps</span>.</li>
+        <li><strong>Script it</strong>: <code>zeit.ccdc</code> and <code>zeit.predict_synthetic_image</code> in Python.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">10</span>References</h2>
+      <ul class="refs">
+        <li>Zhu, Z., Woodcock, C. E. (2014). Continuous change detection and classification of land cover using all available Landsat data. <em>Remote Sensing of Environment</em>, 144, 152–171.</li>
+        <li>Zhu, Z., Woodcock, C. E., Holden, C., Yang, Z. (2015). Generating synthetic Landsat images based on all available Landsat data: predicting Landsat surface reflectance at any given time. <em>Remote Sensing of Environment</em>, 162, 67–83.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: its CCDC is a port of the original MATLAB code.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></p>
+      <p>Built in C++17 with Dear ImGui, ImPlot and GDAL. OpenGL on Windows and Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

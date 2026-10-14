@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Phenology · Janus</title>
+<meta name="description" content="A step-by-step guide to Phenology in Janus: growing seasons found in a vegetation index series, a curve fitted to each, and maps of the start, peak, end and length of the season.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Phenology · Janus">
+<meta property="og:description" content="Twenty-five years of growing seasons in western France: when they start, peak and end, field by field.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/phenology/03-sos.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Phenology</p>
+    <p class="eyebrow">Seasons · sub-annual index</p>
+    <h1>Phenology, step by step.</h1>
+    <p class="lede">Every field greens up and dries down on its own calendar. The Phenology tool finds the growing seasons in a vegetation index series, fits a curve to each, and reads when it starts, peaks and ends: on the chart for one pixel, and as maps for the whole image.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#chart">On the chart</a></li>
+      <li><a href="#params">The parameters</a></li>
+      <li><a href="#run">Running it</a></li>
+      <li><a href="#maps">The maps</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>The tool is Zeit's port of <strong>phenofit</strong> (Kong et al. 2022). It smooths the series to find its <strong>seasons</strong>, from one trough to the next; fits a curve to the observations of each season (a double logistic, by default Elmore's); and reads from the curve:</p>
+      <dl class="terms">
+        <dt>SOS</dt><dd>Start of season: the day the curve rises past the threshold (by default, half of the season's amplitude).</dd>
+        <dt>POS</dt><dd>Peak of season: the day of the curve's maximum.</dd>
+        <dt>EOS</dt><dd>End of season: the day it falls back past the threshold.</dd>
+        <dt>LOS</dt><dd>Length of season: EOS minus SOS, in days.</dd>
+      </dl>
+      <p>It needs a sub-annual vegetation index (NDVI, EVI; 8 or 16 days, or monthly) with at least six observations a year. Dates on the maps are days of the year.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>The same MODIS EVI series as the <a href="bfast.html">BFAST guide</a>: every 16 days from 2001 to 2025, 250 m, over 170 × 170 km of farmland in western France. The pin is on a field.</p>
+    </section>
+
+    <section id="chart">
+      <h2><span class="n">03</span>On the chart</h2>
+      <p><span class="ui">Tools → Phenology</span>. With the chart fit on, the seasons' curves are drawn over the series, with vertical lines at each start, peak and end, and the Statistics table lists the seasons.</p>
+      <figure class="fig">
+        <a href="assets/img/phenology/01-fit.jpg"><img src="assets/img/phenology/01-fit.jpg" alt="The Phenology window with its parameters; the EVI map of June 2024 with a pin; on the chart 25 years of the pin's EVI with a curve fitted to each season and lines at their starts, peaks and ends; the Statistics table with 22 seasons." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Twenty-five years of one field</b>: 22 seasons found, each with its curve.</figcaption>
+      </figure>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/phenology/01-fit-chart.png"><img src="assets/img/phenology/01-fit-chart.png" alt="The chart: the EVI of the field, a curve for each season and vertical lines at the starts, peaks and ends." loading="lazy"></a>
+          <figcaption>22 seasons in 25 years: in some years no season passed the criteria.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/phenology/01-fit-stats.png"><img src="assets/img/phenology/01-fit-stats.png" alt="The Statistics table: 22 seasons, the latest 12 shown, with the peaks of 5 May 2012, 5 June 2014 and 1 July 2015 and their start and end dates." loading="lazy"></a>
+          <figcaption>The seasons, by their peaks.</figcaption>
+        </figure>
+      </div>
+      <p>The peaks move: 5 May in 2012, 5 June in 2014, 1 July in 2015. That is the crop rotation: a winter cereal peaks in spring, sunflower or maize in summer. Hover the map to fit any other pixel.</p>
+    </section>
+
+    <section id="params">
+      <h2><span class="n">04</span>The parameters</h2>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Curve</td><td class="num">elmore</td><td>The function fitted to each season: Beck, Elmore, Gu, Zhang (double logistics), asymmetric Gaussian, Klos, or the double logistic of phenofit.</td></tr>
+            <tr><td>Season start/end</td><td class="num">trs5</td><td>How SOS and EOS are read: a threshold of the amplitude (50%, 20%, 60%), the derivative, or Zhang's or Gu's methods.</td></tr>
+            <tr><td>Smoothing</td><td class="num">whittaker</td><td>Used to find the seasons (the curves are fitted to the observations): Whittaker, HANTS or none.</td></tr>
+            <tr><td>Whittaker lambda</td><td class="num">10</td><td>Larger is smoother: fewer, broader seasons.</td></tr>
+            <tr><td>HANTS frequencies</td><td class="num">3</td><td>Harmonics a year, with HANTS.</td></tr>
+            <tr><td>Min pixel amplitude</td><td class="num">0.1</td><td>Pixels whose series varies less (water, towns, bare rock) are skipped. In the index's units: 1000 for NDVI × 10000.</td></tr>
+            <tr><td>Min season amplitude</td><td class="num">0</td><td>Seasons that rise less above their troughs are dropped.</td></tr>
+            <tr><td>Min season length</td><td class="num">0</td><td>Seasons shorter than this, in days, are dropped.</td></tr>
+            <tr><td>Season mapped</td><td class="num">median</td><td>How a pixel's seasons become one map: the median of all, the latest, or the one peaking in <span class="ui">Year</span>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>For a field with a double crop, or grassland cut twice, lower lambda (or raise the HANTS frequencies) until the chart splits the year into two seasons; for a noisy series, raise it.</p>
+    </section>
+
+    <section id="run">
+      <h2><span class="n">05</span>Running it</h2>
+      <p>Phenology fits a curve to every season of every pixel: 0.46 million pixels and 25 years here, about 14 minutes on every core (the window estimated 18). It runs in the background; the map and the chart stay usable.</p>
+      <figure class="fig narrow">
+        <img src="assets/img/phenology/02-task.png" alt="The Tasks panel with the Phenology run over the whole image and its progress." loading="lazy">
+        <figcaption><b>Tasks</b>: the run, its progress and the time left.</figcaption>
+      </figure>
+    </section>
+
+    <section id="maps">
+      <h2><span class="n">06</span>The maps</h2>
+      <p>With <span class="ui">Season mapped</span> on the median, each map is the typical year of each pixel:</p>
+      <figure class="fig">
+        <a href="assets/img/phenology/03-sos.jpg"><img src="assets/img/phenology/03-sos.jpg" alt="The start of season over the area, from day 37 in dark blue to day 149 in yellow; the Layers panel lists the eight outputs." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Start of season</b>, day 37 (early February, dark) to day 149 (late May, yellow).</figcaption>
+      </figure>
+      <figure class="fig">
+        <a href="assets/img/phenology/04-pos.jpg"><img src="assets/img/phenology/04-pos.jpg" alt="The peak of season over the area, from day 105 to day 203." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Peak of season</b>, day 105 (mid April) to day 203 (late July): spring crops and grassland against summer crops.</figcaption>
+      </figure>
+      <figure class="fig">
+        <a href="assets/img/phenology/05-los.jpg"><img src="assets/img/phenology/05-los.jpg" alt="The length of the season, from 83 to 200 days; long seasons in yellow along the valleys and woods." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Length of season</b>, 83 to 200 days: short in the fields, long in the woods and meadows of the valleys.</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Map</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>SOS, POS, EOS</td><td>Start, peak and end of the season, day of the year.</td></tr>
+            <tr><td>Length of season</td><td>EOS − SOS, in days.</td></tr>
+            <tr><td>Peak value</td><td>The index at the peak.</td></tr>
+            <tr><td>Amplitude</td><td>The rise of the season above its troughs.</td></tr>
+            <tr><td>Fit R²</td><td>How well the curves fit the observations.</td></tr>
+            <tr><td>Seasons detected</td><td>How many seasons the pixel has.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">07</span>What next</h2>
+      <ul>
+        <li><strong>One year</strong>: <span class="ui">Season mapped → the year below</span> maps the season peaking in a given year, to compare a drought year with a normal one.</li>
+        <li><strong>Breaks in the seasons</strong>: <a href="bfast.html">BFAST</a> finds when the season's shape changed.</li>
+        <li><strong>Classes from the curves</strong>: <span class="ui">Tools → TWDTW classification</span> classifies pixels by patterns taken from pins.</li>
+        <li><strong>Script it</strong>: <code>zeit.phenology</code> in Python.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">08</span>References</h2>
+      <ul class="refs">
+        <li>Kong, D., McVicar, T. R., Xiao, M., Zhang, Y., Peña-Arancibia, J. L., Filippa, G., Xie, Y., Gu, X. (2022). phenofit: an R package for extracting vegetation phenology from time series remote sensing. <em>Methods in Ecology and Evolution</em>, 13, 1508–1527.</li>
+        <li>Elmore, A. J., Guinn, S. M., Minsley, B. J., Richardson, A. D. (2012). Landscape controls on the timing of spring, autumn, and growing season length in mid-Atlantic forests. <em>Global Change Biology</em>, 18, 656–674.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></p>
+      <p>Built in C++17 with Dear ImGui, ImPlot and GDAL. OpenGL on Windows and Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

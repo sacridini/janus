@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BFAST · Janus</title>
+<meta name="description" content="A step-by-step guide to BFAST, BFAST Lite and BFAST Monitor in Janus: breaks in the trend and the seasons of a regular series, on the chart and over the image.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="article">
+<meta property="og:title" content="BFAST · Janus">
+<meta property="og:description" content="Twenty-five years of 16-day EVI in western France: where the trend and the seasons broke, and when.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/bfast/02-bfast.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / BFAST</p>
+    <p class="eyebrow">Change detection · regular series</p>
+    <h1>BFAST, step by step.</h1>
+    <p class="lede">The BFAST family splits a regular series into a trend and the seasons, and looks for the dates where either breaks. Janus has three of them: BFAST, which searches trend and season apart; BFAST Lite, one faster pass; and BFAST Monitor, which watches for the first departure from a stable history.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#bfast">BFAST</a></li>
+      <li><a href="#lite">BFAST Lite</a></li>
+      <li><a href="#monitor">BFAST Monitor</a></li>
+      <li><a href="#run">Running it on the image</a></li>
+      <li><a href="#maps">The maps</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>A vegetation index over the years is the sum of a <strong>trend</strong> (the slow rise or fall of the cover), a <strong>season</strong> (the yearly cycle, modelled with harmonics) and noise. BFAST (Verbesselt et al. 2010) fits both and tests whether they hold over the whole series; where they do not, it finds the dates of the <strong>breaks</strong>: a jump of the trend (a clearing, a fire, a new crop) or a change of the seasons (a field turned into a forest, or a double crop). Between two breaks, each part has its own straight trend.</p>
+      <dl class="terms">
+        <dt>Trend break</dt><dd>The level of the series jumps, or its slope changes.</dd>
+        <dt>Season break</dt><dd>The shape of the yearly cycle changes.</dd>
+        <dt>Magnitude</dt><dd>The model after the break minus the model before it, on the first observation after it.</dd>
+      </dl>
+      <p>The three tools need a <strong>regular series</strong> (evenly spaced dates: 16-day, monthly) with at least two observations a year. A missing date must be a date with no data, not a date left out: the seasons are fitted on the time axis.</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Tool</th><th>Finds</th><th>Speed</th></tr></thead>
+          <tbody>
+            <tr><td>BFAST</td><td>Breaks of the trend and of the season, apart, by iterating the two.</td><td>slowest</td></tr>
+            <tr><td>BFAST Lite</td><td>Breaks of one model with trend and season, the number chosen by the LWZ criterion (Masiliunas et al. 2021).</td><td>faster</td></tr>
+            <tr><td>BFAST Monitor</td><td>The first date, after a stable history, where the observations leave the model (Verbesselt et al. 2012).</td><td>fast</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>MODIS EVI every 16 days, January 2001 to December 2025 (575 dates), at 250 m, over 170 × 170 km of western France: fields of cereals and sunflowers, grassland, woods. One GeoTIFF with a band per date, named <code>EVI_2001_01_01</code> and so on: Janus reads the dates from the names. Dates without a clear value are no data, so the series stays regular.</p>
+      <figure class="fig">
+        <a href="assets/img/bfast/01-series.jpg"><img src="assets/img/bfast/01-series.jpg" alt="The EVI of July 2025 over the area, fields in light colours and woods in green, a pin, and its 25-year series on the chart with a yearly cycle." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The series</b> in July 2025 and a pin on a pixel whose level fell in the early 2010s.</figcaption>
+      </figure>
+    </section>
+
+    <section id="bfast">
+      <h2><span class="n">03</span>BFAST</h2>
+      <p><span class="ui">Tools → BFAST</span>. On the chart, the fitted model (trend plus season) and, lighter, the trend alone, with a vertical line at each break.</p>
+      <figure class="fig">
+        <a href="assets/img/bfast/02-bfast.jpg"><img src="assets/img/bfast/02-bfast.jpg" alt="BFAST's window with its parameters, an estimated 54 minutes for the whole image; on the chart the EVI series, the model and the trend in three parts; the Statistics table with two trend breaks." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>BFAST on the pin</b>: two trend breaks, in September 2006 (+0.10) and April 2013 (−0.11), no season break.</figcaption>
+      </figure>
+      <figure class="fig narrow">
+        <a href="assets/img/bfast/02-bfast-chart.png"><img src="assets/img/bfast/02-bfast-chart.png" alt="The chart: the EVI observations, BFAST's model with three trend segments separated by breaks in 2006 and 2013." loading="lazy"></a>
+        <figcaption>The trend falls in three steps; the season keeps its shape.</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Min segment size</td><td class="num">0.15</td><td>The shortest segment, as a share of the valid observations: no two breaks closer than that.</td></tr>
+            <tr><td>Max trend breaks / season breaks</td><td class="num">5 / 5</td><td>The most breaks searched for in each component.</td></tr>
+            <tr><td>Harmonic order</td><td class="num">3</td><td>Pairs of sines and cosines of the season: 1 is a single wave a year, 3 allows a double crop.</td></tr>
+            <tr><td>Significance level</td><td class="num">0.05</td><td>A component is searched for breaks only when the OLS-MOSUM test says it is not stable at this level.</td></tr>
+            <tr><td>Max iterations</td><td class="num">10</td><td>Rounds of trend and season re-estimation.</td></tr>
+            <tr><td>Min observations</td><td class="num">20</td><td>Pixels with fewer valid observations are not fitted.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>BFAST is thorough and slow: its window estimates <strong>54 minutes</strong> for this image of 0.46 million pixels on every core. Use it on the chart, on an ROI or on the visible area.</p>
+    </section>
+
+    <section id="lite">
+      <h2><span class="n">04</span>BFAST Lite</h2>
+      <p>BFAST Lite fits one model, trend and season together, with up to <span class="ui">Max breaks</span> breaks, and picks how many by the LWZ information criterion. On the same pin it finds the 2013 break alone, with a jump of −0.23:</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/bfast/03-lite-chart.png"><img src="assets/img/bfast/03-lite-chart.png" alt="The chart: BFAST Lite's model with one break in early 2013, the level lower after it." loading="lazy"></a>
+          <figcaption><b>One break</b>, March 2013.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/bfast/03-lite-stats.png"><img src="assets/img/bfast/03-lite-stats.png" alt="The Statistics table: BFAST Lite, 1 break in 2013-03 with a jump of -0.234, LWZ -1118.3, 537 valid observations." loading="lazy"></a>
+          <figcaption>Its jump and the LWZ of the model kept.</figcaption>
+        </figure>
+      </div>
+      <p>A break is a sudden change, not any change. On another pin whose EVI fell slowly over the years, BFAST Lite keeps a single segment: the decline is the trend.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/bfast/05-dropped-chart.png"><img src="assets/img/bfast/05-dropped-chart.png" alt="The chart of a second pin: a slow decline of the EVI fitted with one trend and its seasons, without a break." loading="lazy"></a>
+        <figcaption><b>No break</b>: a slow decline is a trend.</figcaption>
+      </figure>
+    </section>
+
+    <section id="monitor">
+      <h2><span class="n">05</span>BFAST Monitor</h2>
+      <p>BFAST Monitor asks another question: from a date on, does the land still behave as it did? It fits a stable model of trend and season on the <strong>history</strong>, everything before <span class="ui">Monitoring start</span>, and flags the first date in the <strong>monitoring period</strong> where the moving sum of the residuals leaves its boundary.</p>
+      <figure class="fig">
+        <a href="assets/img/bfast/04-monitor.jpg"><img src="assets/img/bfast/04-monitor.jpg" alt="BFAST Monitor's window with monitoring from 2010; on the chart the history model and, lighter, its projection over the monitoring period; the Statistics table with a break in May 2013." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Monitoring from 2010</b>: the history's model, projected over the monitoring period, and the break flagged in May 2013.</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Monitoring start</td><td class="num">0</td><td>A decimal year (2010 here); 0 monitors the last quarter of the series.</td></tr>
+            <tr><td>MOSUM window</td><td class="num">0.25</td><td>The moving sum's window, as a share of the history.</td></tr>
+            <tr><td>Monitoring period</td><td class="num">10×</td><td>How long the monitoring may be, relative to the history (it sets the boundary).</td></tr>
+            <tr><td>Harmonic order</td><td class="num">3</td><td>The season's harmonics.</td></tr>
+            <tr><td>Significance level</td><td class="num">0.05</td><td>Of the boundary: lower, fewer and surer breaks.</td></tr>
+            <tr><td>Min history obs.</td><td class="num">10</td><td>Pixels with fewer valid observations in the history are not fitted.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The history has to be stable: a break inside it spoils the model every later date is compared with. Pick the start after the changes you are not interested in.</p>
+    </section>
+
+    <section id="run">
+      <h2><span class="n">06</span>Running it on the image</h2>
+      <p>The estimates in the three windows tell which to run where: on this image BFAST would take about an hour, BFAST Lite a few minutes for a zoomed-in area, BFAST Monitor <strong>seconds for the whole image</strong>. The run below is BFAST Monitor from 2010, over every pixel.</p>
+      <figure class="fig narrow">
+        <img src="assets/img/bfast/06-task.png" alt="The Tasks panel with the BFAST Monitor run over the whole image." loading="lazy">
+        <figcaption><b>Tasks</b>: the run and its progress.</figcaption>
+      </figure>
+    </section>
+
+    <section id="maps">
+      <h2><span class="n">07</span>The maps</h2>
+      <figure class="fig">
+        <a href="assets/img/bfast/07-break-date.jpg"><img src="assets/img/bfast/07-break-date.jpg" alt="The date of the break BFAST Monitor flagged after 2010 over the whole area, coloured from 2010 to 2025; pixels without a break show the EVI." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Break date</b>: when each pixel first left its 2001–2009 behaviour.</figcaption>
+      </figure>
+      <p>Nearly every pixel breaks. That is not BFAST Monitor failing: in farmland the rotation changes the crop, and so the season, from one year to the next, and no model of 2001–2009 holds for long. BFAST Monitor is made for land that should stay the same (a forest, a protected area), where a departure is news. The <strong>magnitude</strong> says which way the land went:</p>
+      <figure class="fig">
+        <a href="assets/img/bfast/08-magnitude.jpg"><img src="assets/img/bfast/08-magnitude.jpg" alt="The magnitude of the breaks, the median residual after the break, in red where the EVI fell below the history and in blue where it rose." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Magnitude</b>, the median residual after the break: red where the EVI fell below what the history predicts, blue where it rose.</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Tool</th><th>Maps</th></tr></thead>
+          <tbody>
+            <tr><td>BFAST</td><td>Trend breaks, season breaks, date and magnitude of the largest trend break.</td></tr>
+            <tr><td>BFAST Lite</td><td>Breaks, date and magnitude of the largest break, date of the first.</td></tr>
+            <tr><td>BFAST Monitor</td><td>Break date, magnitude (median residual), break detected (0/1).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>A break's date is that of the first observation after it, as in Zeit's <code>extract_events</code>. Hover the map with a result on top: the chart shows the pixel's series with the model, to see what each colour stands for.</p>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">08</span>What next</h2>
+      <ul>
+        <li><strong>The seasons themselves</strong>: <a href="phenology.html">Phenology</a> reads the start, peak and end of each season from the same kind of series.</li>
+        <li><strong>Several detectors</strong>: <span class="ui">Tools → Agreement of change maps</span> maps where BFAST, <a href="landtrendr.html">LandTrendr</a> or <a href="ccdc.html">CCDC</a> agree.</li>
+        <li><strong>Validate the dates</strong>: <a href="validation.html">the Validation guide</a>.</li>
+        <li><strong>Script it</strong>: <code>zeit.bfast</code>, <code>zeit.bfast_lite</code> and <code>zeit.bfast_monitor</code> in Python.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">09</span>References</h2>
+      <ul class="refs">
+        <li>Verbesselt, J., Hyndman, R., Newnham, G., Culvenor, D. (2010). Detecting trend and seasonal changes in satellite image time series. <em>Remote Sensing of Environment</em>, 114, 106–115.</li>
+        <li>Verbesselt, J., Zeileis, A., Herold, M. (2012). Near real-time disturbance detection using satellite image time series. <em>Remote Sensing of Environment</em>, 123, 98–108.</li>
+        <li>Masiliunas, D., Tsendbazar, N.-E., Herold, M., Verbesselt, J. (2021). BFAST Lite: a lightweight break detection method for time series analysis. <em>Remote Sensing</em>, 13(16), 3308.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the change detection library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></p>
+      <p>Built in C++17 with Dear ImGui, ImPlot and GDAL. OpenGL on Windows and Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

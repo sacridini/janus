@@ -25,12 +25,12 @@
 
 <header class="nav" id="top">
   <div class="nav-in">
-    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg" alt="" width="30" height="40"><img class="brand-name" src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></a>
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></a>
     <nav aria-label="Main">
       <ul>
         <li><a href="./#features">Features</a></li>
         <li><a href="./#tools">Change detection</a></li>
-        <li><a href="validation.html" aria-current="page">Validation</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
         <li><a href="./#install">Install</a></li>
         <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
@@ -44,7 +44,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / Guide</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Validation</p>
     <p class="eyebrow">Validation · accuracy and area</p>
     <h1>Validating a map, step by step.</h1>
     <p class="lede">A map of change is an estimate, and so is the area you measure on it. The <span class="ui">Validation</span> menu turns any map into a stratified random sample, lets you interpret it point by point against the images, and gives the map's accuracy and the <em>error-adjusted</em> area of each class, with confidence intervals, following the good practices of Olofsson et al. (2014).</p>
@@ -112,7 +112,7 @@
       <p>Open both as you would for any other work: the images with <span class="ui">File → Open folder...</span> (or <code>jn</code> on the command line), the map with <span class="ui">File → Add layer: file(s)...</span>. Show the images in a composite that makes the change easy to see (the <span class="ui">RGB composite</span> of the Display panel), and the chart in an index that separates forest from what replaces it (here the NBR, the normalized difference of NIR and SWIR2). The map does not even need to be open: the design can read it from a file.</p>
       <div class="note">
         <p class="h">Reproduce it</p>
-        <p><code>python tools/make_tutorial_data.py data</code> downloads the same area (about 60 MB, read in place from the public buckets of Earth Search, Global Forest Change and MapBiomas). <code>janus --shots-validation data out</code> then runs this whole guide and saves these screenshots.</p>
+        <p><code>python tools/make_tutorial_data.py data</code> downloads the same area (about 60 MB, read in place from the public buckets of Earth Search, Global Forest Change and MapBiomas). <code>janus --shots validation data out</code> then runs this whole guide and saves these screenshots.</p>
       </div>
       <div class="note warn">
         <p class="h">About the numbers</p>
@@ -217,7 +217,7 @@
       </div>
       <h3>The keys</h3>
       <div class="tbl-wrap">
-        <table class="tbl">
+        <table class="tbl keys">
           <thead><tr><th>Key</th><th>What it does</th></tr></thead>
           <tbody>
             <tr><td><kbd>N</kbd> / <kbd>Shift</kbd>+<kbd>N</kbd></td><td>Next / previous point (also Page Down / Page Up). <span class="ui">Mine to do</span> keeps only the points you have not labelled.</td></tr>

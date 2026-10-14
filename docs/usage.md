@@ -204,9 +204,10 @@ Developer options:
   --selftest-validation  check the sampling design, strata, sample and accuracy
                       estimators (Olofsson et al. 2014) and, with the runtime,
                       the estimates against zeit.accuracy
-  --shots-validation DATA OUT  the validation tutorial's screenshots (PNGs in
-                      OUT) from tools/make_tutorial_data.py's DATA, in a hidden
-                      window
+  --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT), in a hidden
+                      window: validation (IN: tools/make_tutorial_data.py's
+                      data), landtrendr, ccdc, coded, bfast, phenology (IN: the
+                      series)
   --selftest-ui A B [C [D [E [F [G]]]]]  drive the layers workflow in a hidden window
                       (A, then B as a layer; C: several bands per date;
                       D, E: categorical, with and without a colour table;
@@ -291,7 +292,12 @@ Clicking a legend entry hides/shows that series together with its trend line.
 ## Zeit tools
 
 The **Tools** menu lists the algorithms of [Zeit](https://github.com/sacridini/zeit-cdts)
-that Janus exposes:
+that Janus exposes (step-by-step guides with screenshots on the website:
+[LandTrendr](https://sacridini.github.io/janus/landtrendr.html),
+[CCDC](https://sacridini.github.io/janus/ccdc.html),
+[CODED and the NDFI](https://sacridini.github.io/janus/coded.html),
+[BFAST](https://sacridini.github.io/janus/bfast.html),
+[Phenology](https://sacridini.github.io/janus/phenology.html)):
 
 | Tool | Series | Maps |
 |---|---|---|

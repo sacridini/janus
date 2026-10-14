@@ -95,6 +95,7 @@ set(JANUS_SOURCES
   src/app_open.cpp
   src/app_python.cpp
   src/app_selftest.cpp
+  src/app_shots.cpp
   src/app_settings.cpp
   src/app_swipe.cpp
   src/app_transect.cpp

@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CODED and the NDFI · Janus</title>
+<meta name="description" content="A step-by-step guide to CODED and the NDFI in Janus: spectral unmixing of every Landsat observation, and forest degradation told apart from deforestation.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CODED and the NDFI · Janus">
+<meta property="og:description" content="Degradation apart from deforestation, from the NDFI of every Landsat observation of a Rondônia landscape.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/coded/05-strata.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / CODED</p>
+    <p class="eyebrow">Change detection · forest degradation</p>
+    <h1>CODED and the NDFI, step by step.</h1>
+    <p class="lede">Logging and understory fire leave a forest standing, and most indices barely see them. The NDFI does: it splits every pixel into green vegetation, dead wood, soil and shade. CODED models it over a training period and calls a change when it falls well below, then tells degradation (still forest after) from deforestation.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#ndfi">The NDFI</a></li>
+      <li><a href="#coded">CODED on the chart</a></li>
+      <li><a href="#params">The parameters</a></li>
+      <li><a href="#maps">The maps</a></li>
+      <li><a href="#threshold">How strict</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p><strong>Spectral mixture analysis</strong> reads each pixel's six reflectances as a mix of a few pure materials, the endmembers: green vegetation (GV), non-photosynthetic vegetation (NPV: dead wood, dry leaves), soil, shade and cloud. The <strong>NDFI</strong> (Normalized Difference Fraction Index, Souza et al. 2005) combines them:</p>
+      <p style="font-family: var(--f-mono); color: var(--pale); margin-left: 1em;">NDFI = (GV<sub>shade</sub> − (NPV + soil)) / (GV<sub>shade</sub> + NPV + soil)</p>
+      <p>where GV<sub>shade</sub> is the green vegetation normalized by the shade. Closed forest is near 1; a canopy opened by logging or a fire drops, while it still reads as forest to the NDVI; pasture and bare soil go below 0.</p>
+      <p><strong>CODED</strong> (Continuous Degradation Detection, Bullock et al. 2020) fits a harmonic model of the NDFI over a <strong>training period</strong>, then watches every later observation: a few in a row far below the model are a <strong>change</strong>. After it, a new model; if its mean NDFI is still that of a forest, the change was <strong>degradation</strong>, otherwise <strong>deforestation</strong>.</p>
+      <p>Both need Landsat-style surface reflectance (blue, green, red, NIR, SWIR1, SWIR2) with real dates; CODED also needs at least two observations a year, and a quality band helps both.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>The same Landsat 8 and 9 series as the <a href="ccdc.html">CCDC guide</a>: 125 dates, February 2020 to August 2026, of central Rondônia, with its QA_PIXEL band. The map is zoomed in on a forest cleared in May–June 2022, 261 × 196 pixels around it.</p>
+    </section>
+
+    <section id="ndfi">
+      <h2><span class="n">03</span>The NDFI</h2>
+      <p><span class="ui">Tools → NDFI (spectral unmixing)</span> unmixes every observation with the endmembers of Souza et al. (2005). Run on the raster, it writes the NDFI of every date as a <strong>new series</strong>, opened as a layer over the others, ready for LandTrendr, BFAST or the agreement; and three maps: the mean NDFI, the lowest, and the observations used.</p>
+      <figure class="fig narrow">
+        <img src="assets/img/coded/01-ndfi-tool.png" alt="The NDFI tool's window: its bands, the reflectance units, max cloud fraction 0.05, the option to write the fractions too, and the run on the raster." loading="lazy">
+        <figcaption><b>The NDFI tool.</b> <span class="ui">Also write the fractions</span> adds the GV, NPV, soil and shade series.</figcaption>
+      </figure>
+      <figure class="fig">
+        <a href="assets/img/coded/02-ndfi.jpg"><img src="assets/img/coded/02-ndfi.jpg" alt="The NDFI of July 2022 as a layer: forest in green near 1, the fields and the clearing in brown below 0; the chart shows the cleared pixel's NDFI falling from 1 to below 0 in 2022." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The NDFI layer</b>, July 2022, over the area of the run (the series shows around it): the clearing is already brown, below 0. On the chart, the cleared pixel's NDFI after mid 2022.</figcaption>
+      </figure>
+      <p><span class="ui">Max cloud fraction</span> (0.05) leaves out the observations whose unmixed cloud fraction is larger: thin clouds and haze the quality band missed.</p>
+    </section>
+
+    <section id="coded">
+      <h2><span class="n">04</span>CODED on the chart</h2>
+      <p><span class="ui">Tools → CODED (degradation)</span>. Its bands are found as for CCDC. On the chart, with the layer showing a normalized difference, CODED adds the NDFI of each observation, the training mean, and a vertical line at each change.</p>
+      <figure class="fig">
+        <a href="assets/img/coded/03-fit.jpg"><img src="assets/img/coded/03-fit.jpg" alt="CODED's window with monitoring from 2022 and two years of training; on the chart the NDVI of the cleared pixel, the NDFI of each observation and a change line in 2022; the Statistics table with the training, the stratum and the change." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The clearing</b>: trained as forest (mean NDFI 1.0 over 9 clear observations of 2020–2021), then a deforestation in May 2022: the NDFI fell by 1.19, to 0.14.</figcaption>
+      </figure>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/coded/03-fit-chart.png"><img src="assets/img/coded/03-fit-chart.png" alt="The chart: the NDVI series, the NDFI of each observation dropping from near 1 to below 0 after mid 2022, and the change line." loading="lazy"></a>
+          <figcaption>The NDFI (dark dots) and the change.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/coded/03-fit-stats.png"><img src="assets/img/coded/03-fit-stats.png" alt="The Statistics table with CODED's rows: the training, its observations, the stratum and the change with its date and NDFI change." loading="lazy"></a>
+          <figcaption>Its rows in the Statistics table.</figcaption>
+        </figure>
+      </div>
+      <p>The forest opened in 2021 and partly grown back reads differently:</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/coded/04-thinned-chart.png"><img src="assets/img/coded/04-thinned-chart.png" alt="The chart of the opened forest with CODED's NDFI and change." loading="lazy"></a>
+          <figcaption><b>An opened forest.</b></figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/coded/04-thinned-stats.png"><img src="assets/img/coded/04-thinned-stats.png" alt="The Statistics table for the opened forest." loading="lazy"></a>
+          <figcaption>Trained as barely forest (mean NDFI 0.50, the canopy already open), a change in July 2023, read as deforestation.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="params">
+      <h2><span class="n">05</span>The parameters</h2>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Reflectance units</td><td class="num">auto</td><td>The endmembers are reflectances: 0–1, × 10000 or Collection 2 digital numbers, detected from the values.</td></tr>
+            <tr><td>Monitoring start</td><td class="num">0</td><td>The year monitoring starts; the training period is before it. 0: the training starts with the series. Here 2022.</td></tr>
+            <tr><td>Training period</td><td class="num">3</td><td>Years of training, whose NDFI model the monitoring compares with. Here 2, all the series has before 2022.</td></tr>
+            <tr><td>Consecutive observations</td><td class="num">3</td><td>Observations in a row beyond the threshold that make a change.</td></tr>
+            <tr><td>Threshold (RMSEs)</td><td class="num">3</td><td>How far below the model, in RMSEs of the training fit.</td></tr>
+            <tr><td>Years after a change</td><td class="num">3</td><td>Modelled as the land after a change, and the least time between two changes.</td></tr>
+            <tr><td>Min observations</td><td class="num">6</td><td>Least observations to fit a model.</td></tr>
+            <tr><td>Changes</td><td class="num">loss</td><td>Only drops of the NDFI, as CODED, or rises too.</td></tr>
+            <tr><td>Max changes</td><td class="num">3</td><td>Changes kept per pixel.</td></tr>
+            <tr><td>Forest NDFI</td><td class="num">0.5</td><td>A model with a mean NDFI at least this is forest: before the change (forest or not), after it (degradation or deforestation).</td></tr>
+            <tr><td>Max cloud fraction</td><td class="num">0.05</td><td>Observations with more unmixed cloud are left out.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="maps">
+      <h2><span class="n">06</span>The maps</h2>
+      <p>Run over the visible area (14 s here; about 80 s for the whole 1.2 million pixels), CODED maps:</p>
+      <figure class="fig">
+        <a href="assets/img/coded/05-strata.jpg"><img src="assets/img/coded/05-strata.jpg" alt="CODED's strata over the area: forest, non-forest, degradation, deforestation and disturbance, with the legend in the Layers panel." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Strata</b>: forest (green), non-forest (beige), degradation (orange), deforestation (red), disturbance (purple).</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Map</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Strata</td><td>Forest, non-forest, degradation, deforestation, or disturbance (a change outside forest).</td></tr>
+            <tr><td>First / last change date</td><td>The earliest and the latest change.</td></tr>
+            <tr><td>NDFI change at the first change</td><td>The NDFI after it minus before it.</td></tr>
+            <tr><td>Changes</td><td>How many changes.</td></tr>
+            <tr><td>Mean NDFI of the training period</td><td>What the land was before.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figure class="fig">
+        <a href="assets/img/coded/06-first-change.jpg"><img src="assets/img/coded/06-first-change.jpg" alt="The date of the first change over the area." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>First change date.</b></figcaption>
+      </figure>
+    </section>
+
+    <section id="threshold">
+      <h2><span class="n">07</span>How strict</h2>
+      <p>With only two years of training, about nine clear observations, the model of a forest pixel is tight, and ordinary variation from one dry season to the next crosses 3 RMSEs: above, much of the standing forest reads as degraded. At 5 RMSEs only the strong drops are left: the clearings, in red, and far less orange. There is no right threshold in general. Check it on pins over forest you know untouched and over logging you know of, and give CODED a longer training period when the series allows.</p>
+      <figure class="fig">
+        <a href="assets/img/coded/07-strata-5.jpg"><img src="assets/img/coded/07-strata-5.jpg" alt="CODED's strata with a threshold of 5 RMSEs." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Threshold 5 RMSEs.</b></figcaption>
+      </figure>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">08</span>What next</h2>
+      <ul>
+        <li><strong>Every band, every break</strong>: <a href="ccdc.html">CCDC</a> on the same series.</li>
+        <li><strong>The NDFI series in other tools</strong>: LandTrendr on yearly NDFI composites, BFAST on a regular NDFI series.</li>
+        <li><strong>Validate the strata</strong>: they are a map of classes with change in it; see <a href="validation.html">the Validation guide</a>.</li>
+        <li><strong>Script it</strong>: <code>zeit.unmix</code> and <code>zeit.coded</code> in Python.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">09</span>References</h2>
+      <ul class="refs">
+        <li>Bullock, E. L., Woodcock, C. E., Olofsson, P. (2020). Monitoring tropical forest degradation using spectral unmixing and Landsat time series analysis. <em>Remote Sensing of Environment</em>, 238, 110968.</li>
+        <li>Souza, C. M., Roberts, D. A., Cochrane, M. A. (2005). Combining spectral and spatial information to map canopy damage from selective logging and forest fires. <em>Remote Sensing of Environment</em>, 98, 329–343.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the change detection library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></p>
+      <p>Built in C++17 with Dear ImGui, ImPlot and GDAL. OpenGL on Windows and Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

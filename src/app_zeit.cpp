@@ -653,7 +653,10 @@ void App::runTool(const ZeitTool& tool) {
 // ---------------------------------------------------------------------------
 
 void App::uiToolsMenu() {
-    if (!ImGui::BeginMenu("Tools")) return;
+    const bool open = ImGui::BeginMenu("Tools");
+    shots_.menus["Tools"] = ImVec4(ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y, ImGui::GetItemRectMax().x,
+                                   ImGui::GetItemRectMax().y);
+    if (!open) return;
     const ZeitClient::State st = zeit_ ? zeit_->state() : ZeitClient::State::Off;
     if (st == ZeitClient::State::Off) {
         if (ImGui::MenuItem("Start Zeit")) startZeit();
