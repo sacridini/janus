@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 
 struct GLFWwindow;
@@ -16,8 +17,11 @@ GLFWwindow* createWindow(int w, int h, const char* title, bool visible, std::str
 // After ImGui::CreateContext: platform (GLFW) and renderer backends.
 bool initImGui(GLFWwindow* window);
 void newFrame();
+// The main window's pixels as drawn, before they are presented: RGBA, top row
+// first, framebuffer pixels (rgba is nullptr where the backend cannot read them).
+using Capture = std::function<void(const unsigned char* rgba, int w, int h)>;
 // After ImGui::Render: draws the main window and the detached panels, presents.
-void present(GLFWwindow* window, const float clear[4]);
+void present(GLFWwindow* window, const float clear[4], const Capture& capture = {});
 void shutdownImGui();
 
 } // namespace render

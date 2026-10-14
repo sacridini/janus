@@ -1,4 +1,4 @@
-// Janus site: OS tabs, copy buttons, latest-release links, chart draw-in.
+// Janus site: OS tabs, copy buttons, latest-release links, chart draw-in, guide contents.
 (function () {
   "use strict";
   var REPO = "sacridini/janus";
@@ -99,5 +99,23 @@
       es.forEach(function (e) { if (e.isIntersecting) { cube.classList.add("drawn"); io.disconnect(); } });
     }, { threshold: 0.4 });
     io.observe(cube);
+  }
+
+  // ---- guide pages: the contents entry of the section being read
+  var toc = document.querySelectorAll(".toc a[href^='#']");
+  if (toc.length && "IntersectionObserver" in window) {
+    var byId = {};
+    toc.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+    var seen = new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        toc.forEach(function (a) { a.removeAttribute("aria-current"); });
+        byId[e.target.id].setAttribute("aria-current", "true");
+      });
+    }, { rootMargin: "-20% 0px -70% 0px" });
+    Object.keys(byId).forEach(function (id) {
+      var s = document.getElementById(id);
+      if (s) seen.observe(s);
+    });
   }
 })();

@@ -112,6 +112,17 @@ public:
     // --selftest-embeddings-ui DIR [OUT]: a series of embeddings in every view,
     // checked and saved as PNGs (app_embeddings.cpp).
     int selfTestEmbeddingStep(const std::vector<std::string>& inputs);
+    // --shots-validation DATA OUT: the screenshots of the validation tutorial
+    // (site/validation.html) from tools/make_tutorial_data.py's DATA, as PNGs in
+    // OUT, in a hidden window of this size (app_validation.cpp).
+    int shotsValidationStep(const std::string& data, const std::string& out);
+    static constexpr int kShotsWidth = 1680, kShotsHeight = 1050;
+    // For render::present: what reads this frame's pixels, when a screenshot asked for them.
+    std::function<void(const unsigned char*, int, int)> takeCapture() {
+        auto c = std::move(capture_);
+        capture_ = nullptr;
+        return c;
+    }
 
     std::vector<std::string> pendingDrop; // filled by the drag-and-drop callback
     bool pendingDropAdd = false;          // dropped with Shift held: added as layers
@@ -1154,5 +1165,20 @@ private:
         std::array<int, 4> roi{};
         double t0 = 0;
     } measure_; // --measure-cache state
+    struct {
+        int stage = 0;
+        double since = 0;          // the stage's start
+        int frames = 0;            // frames since then
+        std::string dir;           // the project and the report (OUT/work)
+        int example = -1;          // the point shown being interpreted
+        int exampleT = -1;         // the date it is shown at
+        std::vector<int> labels;   // the label (class of the label set) given to each point
+        std::vector<int> years;    // the year of its change (0: none)
+        std::shared_ptr<ExportJob> report;
+        ImVec4 menuRect{0, 0, 0, 0}; // the Validation menu in the menu bar (min, max)
+        bool clicked = false;
+    } shots_; // --shots-validation state
+    unsigned dockspaceId_ = 0;   // ImGuiID of the dock space (the screenshots' layout)
+    std::function<void(const unsigned char*, int, int)> capture_; // a screenshot of this frame (takeCapture)
 
 };

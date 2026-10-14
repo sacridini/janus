@@ -204,6 +204,9 @@ Developer options:
   --selftest-validation  check the sampling design, strata, sample and accuracy
                       estimators (Olofsson et al. 2014) and, with the runtime,
                       the estimates against zeit.accuracy
+  --shots-validation DATA OUT  the validation tutorial's screenshots (PNGs in
+                      OUT) from tools/make_tutorial_data.py's DATA, in a hidden
+                      window
   --selftest-ui A B [C [D [E [F [G]]]]]  drive the layers workflow in a hidden window
                       (A, then B as a layer; C: several bands per date;
                       D, E: categorical, with and without a colour table;
@@ -618,7 +621,9 @@ detection, CCDC's breaks, a TWDTW or SOM class map...), a categorical layer at
 a date (MapBiomas), or any raster file — into a stratified random sample,
 interpreted point by point, and estimates of the map's accuracy and of the
 **error-adjusted area** of each class, with confidence intervals, following
-the good practices of Olofsson et al. (2014).
+the good practices of Olofsson et al. (2014). A step-by-step guide with
+screenshots, from the strata to the report, is on the website:
+[Validating a map, step by step](https://sacridini.github.io/janus/validation.html).
 
 **Design** (Validation → New sampling design; the **Validation** panel):
 

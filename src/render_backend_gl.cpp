@@ -7,6 +7,9 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
+#include <algorithm>
+#include <vector>
+
 namespace render {
 
 const char* name() { return "OpenGL"; }
@@ -69,13 +72,27 @@ void newFrame() {
     ImGui_ImplGlfw_NewFrame();
 }
 
-void present(GLFWwindow* window, const float clear[4]) {
+void present(GLFWwindow* window, const float clear[4], const Capture& capture) {
     int fbw, fbh;
     glfwGetFramebufferSize(window, &fbw, &fbh);
     glViewport(0, 0, fbw, fbh);
     glClearColor(clear[0], clear[1], clear[2], clear[3]);
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    if (capture && fbw > 0 && fbh > 0) {
+        std::vector<unsigned char> px(size_t(fbw) * fbh * 4), row(size_t(fbw) * 4);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadBuffer(GL_BACK);
+        glReadPixels(0, 0, fbw, fbh, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+        for (int y = 0; y < fbh / 2; ++y) { // OpenGL's first row is the bottom one
+            unsigned char* a = &px[size_t(y) * fbw * 4];
+            unsigned char* b = &px[size_t(fbh - 1 - y) * fbw * 4];
+            std::copy(a, a + row.size(), row.data());
+            std::copy(b, b + row.size(), a);
+            std::copy(row.begin(), row.end(), b);
+        }
+        capture(px.data(), fbw, fbh);
+    }
     // Panels detached to other windows/monitors (they share this GL context's
     // textures, so the map framebuffer can be shown there too).
     if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {

@@ -77,6 +77,7 @@ int main(int argc, char** argv) {
     bool selftestUi = false;     // dev option: drive the layers workflow in a hidden window
     bool measureCache = false;   // dev option: time the full-resolution cache in a hidden window
     bool measureVectors = false; // dev option: time vector layers over a series in a hidden window
+    bool shotsValidation = false; // dev option: the validation tutorial's screenshots, hidden window
     bool describe = false;       // dev option: print how the inputs open, without a window
     for (size_t i = 0; i < args.size(); ++i) {
         const std::string& a = args[i];
@@ -110,6 +111,8 @@ int main(int argc, char** argv) {
             measureCache = selftestUi = true;
         } else if (a == "--measure-vectors") {
             measureVectors = selftestUi = true;
+        } else if (a == "--shots-validation") {
+            shotsValidation = selftestUi = true;
         } else if (a == "--describe") {
             describe = true;
         } else if (a == "--selftest-zeit") {
@@ -200,6 +203,9 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "Could not open the window (%s): %s\n", render::name(), error.c_str());
         return 1;
     }
+    if (shotsValidation) { // the same size on every machine, not the screen's (glfwRestoreWindow would show it)
+        glfwSetWindowSize(window, App::kShotsWidth, App::kShotsHeight);
+    }
     st.windowMs = ms();
 
     IMGUI_CHECKVERSION();
@@ -220,6 +226,8 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "Could not initialize the GPU: %s\n", error.c_str());
         return 1;
     }
+    // The screenshots in the default settings and layout: the user's are neither read nor written.
+    if (shotsValidation) io.IniFilename = nullptr;
     glfwSetDropCallback(window, dropCallback);
     st.uiMs = ms();
     if (!inputs.empty() && !selftestUi) app->openInputs(inputs);
@@ -261,6 +269,16 @@ int main(int argc, char** argv) {
                 exitCode = rc;
                 glfwSetWindowShouldClose(window, 1);
             }
+        } else if (shotsValidation) {
+            if (inputs.size() != 2) {
+                std::fprintf(stderr, "--shots-validation needs the tutorial's data folder and the output folder\n");
+                exitCode = 2;
+                glfwSetWindowShouldClose(window, 1);
+            } else if (const int rc = app->shotsValidationStep(inputs[0], inputs[1]); rc >= 0) {
+                std::fflush(stdout);
+                exitCode = rc;
+                glfwSetWindowShouldClose(window, 1);
+            }
         } else if (selftestUi) {
             if (inputs.size() < 2 || inputs.size() > 7) {
                 std::fprintf(stderr, "--selftest-ui needs two to seven inputs\n");
@@ -276,7 +294,7 @@ int main(int argc, char** argv) {
 
         float clear[4];
         theme::clearColor(clear);
-        render::present(window, clear);
+        render::present(window, clear, app->takeCapture());
 
         if (firstFrame) {
             firstFrame = false;

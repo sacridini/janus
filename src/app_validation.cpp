@@ -19,6 +19,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <set>
 
 #include <gdal_priv.h>
@@ -216,6 +217,11 @@ struct App::Validation {
         std::vector<std::pair<int, val::ClassArea>> rows;
     } byYear;
     int selectTab = -1;
+    int sections = -1;                        // the screenshots: Accuracy's sections open (bits, in order; -1: as left)
+    bool section(const char* name, int bit) {
+        if (sections >= 0) ImGui::SetNextItemOpen((sections >> bit) & 1);
+        return ImGui::CollapsingHeader(name);
+    }
 
     // The pixel's square on the map.
     std::unique_ptr<VectorPlacer> placer;
@@ -845,7 +851,9 @@ void App::drawValidationMarks(ImDrawList* dl, ImVec2 origin) {
 // ---------------------------------------------------------------------------
 
 void App::uiValidationMenu() {
-    if (!ImGui::BeginMenu("Validation")) return;
+    const bool open = ImGui::BeginMenu("Validation");
+    shots_.menuRect = ImVec4(ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y, ImGui::GetItemRectMax().x, ImGui::GetItemRectMax().y);
+    if (!open) return;
     if (!val_) val_ = std::make_shared<Validation>();
     Validation& v = *val_;
     if (ImGui::MenuItem("New sampling design...")) {
@@ -1585,7 +1593,7 @@ void App::uiValidationAccuracy() {
     }
 
     // --- Translations ---
-    if (ImGui::CollapsingHeader("Reference labels -> the map's classes")) {
+    if (v.section("Reference labels -> the map's classes", 0)) {
         std::vector<std::string> targets;
         if (M.rule.kind == val::MapKind::Events) targets = {val::kChange, val::kNoChange};
         else
@@ -1638,7 +1646,11 @@ void App::uiValidationAccuracy() {
     ImGui::RadioButton("proportions of area", &v.matrixMode, 1);
     ImGui::SameLine();
     ImGui::TextDisabled("(rows: map, columns: reference; click a cell for its points)");
-    if (ImGui::BeginTable("##matrix", int(C) + 2, ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_ScrollX)) {
+    // A table that scrolls sideways is a child window: without a height it would take the rest of the panel.
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float matrixH = float(C + 2) * (ImGui::GetTextLineHeight() + 2 * style.CellPadding.y + 1) + style.ScrollbarSize + 2;
+    if (ImGui::BeginTable("##matrix", int(C) + 2, ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_ScrollX,
+                          ImVec2(0, matrixH))) {
         ImGui::TableSetupColumn("map \\ ref.");
         for (const std::string& c : a.classes) ImGui::TableSetupColumn(c.c_str());
         ImGui::TableSetupColumn("total");
@@ -1728,7 +1740,7 @@ void App::uiValidationAccuracy() {
     }
 
     // --- The estimates as points came ---
-    if (ImGui::CollapsingHeader("As the labels came (convergence)")) {
+    if (v.section("As the labels came (convergence)", 1)) {
         v.convClass = std::clamp(v.convClass, -1, int(C) - 1);
         ImGui::SetNextItemWidth(220);
         if (ImGui::BeginCombo("##convc", v.convClass < 0 ? "overall accuracy" : ("area of " + a.classes[v.convClass]).c_str())) {
@@ -1790,7 +1802,7 @@ void App::uiValidationAccuracy() {
     }
 
     // --- Dates ---
-    if (M.rule.kind == val::MapKind::Events && ImGui::CollapsingHeader("Dates of change")) {
+    if (M.rule.kind == val::MapKind::Events && v.section("Dates of change", 2)) {
         ImGui::SetNextItemWidth(160);
         ImGui::SliderFloat("tolerance (years)", &v.tolerance, 0, 5, "%.0f");
         v.tolerance = std::round(v.tolerance);
@@ -1815,7 +1827,7 @@ void App::uiValidationAccuracy() {
     // --- Area of change by year (the reference's dates) ---
     bool anyChange = false;
     for (const auto& [l, t] : M.mapping) anyChange |= t == val::kChange;
-    if (M.rule.kind == val::MapKind::Events && anyChange && ImGui::CollapsingHeader("Area of change by year")) {
+    if (M.rule.kind == val::MapKind::Events && anyChange && v.section("Area of change by year", 3)) {
         const uint64_t key = (v.version * 131 + uint64_t(v.selected)) * 131 + uint64_t(conf);
         if (v.byYear.key != key) {
             v.byYear.key = key;
@@ -1858,8 +1870,15 @@ void App::uiValidationMaps() {
                        "reference labels; the estimators weigh the points by the project's strata (Stehman 2014), "
                        "so maps other than the one stratified are assessed without bias.");
     int remove = -1;
-    if (ImGui::BeginTable("##maps", 8, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_ScrollX)) {
-        ImGui::TableSetupColumn("map", ImGuiTableColumnFlags_WidthStretch);
+    // Its own height (scrolling sideways, it is a child window that would take the rest of the panel).
+    const float rowH = ImGui::GetFrameHeight() + 2 * ImGui::GetStyle().CellPadding.y;
+    const ImVec2 mapsSize(0, rowH * float(P.maps.size() + 1) + ImGui::GetStyle().ScrollbarSize + 2);
+    if (ImGui::BeginTable("##maps", 8, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_ScrollX,
+                          mapsSize)) {
+        // As wide as the longest name (a stretched column is squeezed in a table that scrolls sideways).
+        float nameW = ImGui::CalcTextSize("map").x;
+        for (const val::AssessedMap& m : P.maps) nameW = std::max(nameW, ImGui::CalcTextSize(m.rule.name.c_str()).x);
+        ImGui::TableSetupColumn("map", ImGuiTableColumnFlags_WidthFixed, nameW);
         ImGui::TableSetupColumn("points");
         ImGui::TableSetupColumn("overall");
         ImGui::TableSetupColumn("change: user's");
@@ -3081,6 +3100,638 @@ int App::selfTestValidationUi(const std::vector<std::string>& in) {
         std::printf("OK (%.1f s)\n", now() - st_.t0);
         return 0;
     }
+    }
+    return -1;
+}
+
+// ---------------------------------------------------------------------------
+// --shots-validation DATA OUT: the screenshots of the validation tutorial
+// ---------------------------------------------------------------------------
+
+// site/validation.html walks through the validation of Global Forest Change's
+// loss of 2018-2023 near Novo Progresso with Sentinel-2 dry-season composites
+// (tools/make_tutorial_data.py): one stage per step, each saved as PNGs (the
+// window, some panels alone). The points are labelled by a rule on each one's
+// NBR series (a drop from forest, and whether it grows back), not by a person:
+// the numbers on the screenshots show the tool at work, they validate nothing.
+namespace {
+
+// RGBA, top row first, to an RGB PNG of the rectangle x, y, w, h (pixels).
+bool writeShot(const std::string& path, const unsigned char* rgba, int W, int H, std::array<int, 4> r) {
+    const int x0 = std::clamp(r[0], 0, W - 1), y0 = std::clamp(r[1], 0, H - 1);
+    const int w = std::clamp(r[2], 1, W - x0), h = std::clamp(r[3], 1, H - y0);
+    std::vector<unsigned char> rgb(size_t(w) * h * 3);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            std::copy_n(&rgba[(size_t(y0 + y) * W + x0 + x) * 4], 3, &rgb[(size_t(y) * w + x) * 3]);
+    GDALDriver* mem = GetGDALDriverManager()->GetDriverByName("MEM");
+    GDALDriver* png = GetGDALDriverManager()->GetDriverByName("PNG");
+    if (!mem || !png) return false;
+    GDALDataset* ds = mem->Create("", w, h, 3, GDT_Byte, nullptr);
+    int bands[3] = {1, 2, 3};
+    (void)ds->RasterIO(GF_Write, 0, 0, w, h, rgb.data(), w, h, GDT_Byte, 3, bands, 3, w * 3, 1, nullptr);
+    const char* opts[] = {"ZLEVEL=9", nullptr};
+    GDALDataset* out = png->CreateCopy(path.c_str(), ds, FALSE, const_cast<char**>(opts), nullptr, nullptr);
+    if (out) GDALClose(out);
+    GDALClose(ds);
+    std::error_code ec;
+    fs::remove(fs::u8path(path + ".aux.xml"), ec);
+    return out != nullptr;
+}
+
+// The NBR, (NIR - SWIR2) / (NIR + SWIR2) (bands 4 and 6), of each composite at
+// each point (x, y in the CRS `wkt`); NaN without a clear observation.
+std::vector<std::vector<double>> nbrAt(const std::vector<std::string>& files, const std::string& wkt,
+                                       const std::vector<val::Point>& pts) {
+    std::vector<std::vector<double>> out(pts.size(), std::vector<double>(files.size(), NAN));
+    OGRSpatialReference from;
+    from.importFromWkt(wkt.c_str());
+    from.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    for (size_t k = 0; k < files.size(); ++k) {
+        GDALDataset* ds = GDALDataset::FromHandle(GDALOpen(files[k].c_str(), GA_ReadOnly));
+        if (!ds) continue;
+        OGRSpatialReference to;
+        to.importFromWkt(ds->GetProjectionRef());
+        to.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+        OGRCoordinateTransformation* ct = OGRCreateCoordinateTransformation(&from, &to);
+        double gt[6];
+        ds->GetGeoTransform(gt);
+        for (size_t i = 0; i < pts.size() && ct; ++i) {
+            double x = pts[i].x, y = pts[i].y;
+            if (!ct->Transform(1, &x, &y)) continue;
+            const int col = int(std::floor((x - gt[0]) / gt[1])), row = int(std::floor((y - gt[3]) / gt[5]));
+            if (col < 0 || row < 0 || col >= ds->GetRasterXSize() || row >= ds->GetRasterYSize()) continue;
+            int16_t nir = 0, swir = 0;
+            (void)ds->GetRasterBand(4)->RasterIO(GF_Read, col, row, 1, 1, &nir, 1, 1, GDT_Int16, 0, 0);
+            (void)ds->GetRasterBand(6)->RasterIO(GF_Read, col, row, 1, 1, &swir, 1, 1, GDT_Int16, 0, 0);
+            if (nir > 0 && swir > 0) out[i][k] = double(nir - swir) / double(nir + swir);
+        }
+        OGRCoordinateTransformation::DestroyCT(ct);
+        GDALClose(ds);
+    }
+    return out;
+}
+
+// The centre of a pixel of `year` in the map `path` well inside a clearing of
+// that year (the most pixels of it in a 9 x 9 window), in the map's CRS.
+bool insideLoss(const std::string& path, int year, double& x, double& y, std::string& wkt) {
+    GDALDataset* ds = GDALDataset::FromHandle(GDALOpen(path.c_str(), GA_ReadOnly));
+    if (!ds) return false;
+    const int W = ds->GetRasterXSize(), H = ds->GetRasterYSize();
+    std::vector<int> a(size_t(W) * H);
+    (void)ds->GetRasterBand(1)->RasterIO(GF_Read, 0, 0, W, H, a.data(), W, H, GDT_Int32, 0, 0);
+    double gt[6];
+    ds->GetGeoTransform(gt);
+    wkt = ds->GetProjectionRef();
+    GDALClose(ds);
+    int best = 0, bx = -1, by = -1;
+    for (int j = 4; j < H - 4; j += 2)
+        for (int i = 4; i < W - 4; i += 2) {
+            if (a[size_t(j) * W + i] != year) continue;
+            int n = 0;
+            for (int dy = -4; dy <= 4; ++dy)
+                for (int dx = -4; dx <= 4; ++dx) n += a[size_t(j + dy) * W + i + dx] == year;
+            // The most of it, then the nearest the centre.
+            const int far = std::abs(i - W / 2) + std::abs(j - H / 2);
+            if (n > best || (n == best && far < std::abs(bx - W / 2) + std::abs(by - H / 2))) best = n, bx = i, by = j;
+        }
+    if (bx < 0) return false;
+    x = gt[0] + (bx + 0.5) * gt[1];
+    y = gt[3] + (by + 0.5) * gt[5];
+    return true;
+}
+
+// What an interpreter would call a series of yearly NBR starting in `first`
+// (a class of kEventLabels: 0 stable forest, 1 deforestation, 2 degradation,
+// 3 regeneration, 5 pasture, 7 no data, 8 other), the year it changed (0:
+// none) and the confidence (1-3).
+struct Reading {
+    int label = 8, year = 0, confidence = 2;
+};
+Reading readSeries(const std::vector<double>& nbr, int first) {
+    constexpr double kForest = 0.45;
+    Reading r;
+    for (double x : nbr)
+        if (!std::isfinite(x)) return {7, 0, 1};
+    for (size_t k = 1; k < nbr.size(); ++k) {
+        const double drop = nbr[k - 1] - nbr[k];
+        if (nbr[k - 1] > kForest && nbr[k] < kForest - 0.05 && drop > 0.15) {
+            // Forest again two years on: the canopy opened (logging, fire) and closed.
+            const bool back = k + 2 < nbr.size() && nbr[k + 2] > kForest && nbr.back() > kForest;
+            return {back ? 2 : 1, first + int(k), drop > 0.3 ? 3 : drop > 0.2 ? 2 : 1};
+        }
+    }
+    // A deep dip that lasts a year and stays above cleared land: the canopy thinned (degradation), at its first year.
+    for (size_t k = 1; k + 1 < nbr.size(); ++k) {
+        const double before = *std::max_element(nbr.begin(), nbr.begin() + k);
+        if (before > kForest + 0.1 && before - nbr[k] > 0.15 && nbr[k] < 0.5 && before - nbr[k + 1] > 0.08)
+            return {2, first + int(k), 1};
+    }
+    const auto [lo, hi] = std::minmax_element(nbr.begin(), nbr.end());
+    if (*lo > kForest) r = {0, 0, *lo > kForest + 0.1 ? 3 : 2};
+    else if (nbr.front() < kForest && nbr.back() > kForest) r = {3, 0, 2};
+    else if (*hi < kForest) r = {5, 0, *hi < kForest - 0.1 ? 3 : 2};
+    else r = {8, 0, 1};
+    return r;
+}
+
+} // namespace
+
+int App::shotsValidationStep(const std::string& data, const std::string& out) {
+    auto now = [] { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); };
+    auto fail = [&](const std::string& what) {
+        std::printf("FAIL (stage %d): %s\n", shots_.stage, what.c_str());
+        return 1;
+    };
+    auto next = [&](const std::string& done) {
+        std::printf("[stage %2d] %s\n", shots_.stage, done.c_str());
+        std::fflush(stdout);
+        ++shots_.stage;
+        shots_.since = now();
+        shots_.frames = 0;
+    };
+    if (shots_.stage == 0 && shots_.frames == 0) shots_.since = now();
+    const double t = now() - shots_.since;
+    ++shots_.frames;
+    if (t > 120) return fail("timeout");
+    if (!val_) val_ = std::make_shared<Validation>();
+    Validation& v = *val_;
+    const fs::path dataDir = fs::u8path(data), outDir = fs::u8path(out);
+    const std::string gfc = (dataDir / "gfc_loss_2018_2023.tif").u8string();
+    const std::string mapbiomas = (dataDir / "mapbiomas_loss_2018_2023.tif").u8string();
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); // no hover, unless a stage points somewhere
+    // A panel's rectangle in the frame's pixels (a docked one with its tab bar);
+    // `fit`: down to what it holds.
+    auto rectOf = [&](const char* name, bool fit = false) -> std::array<int, 4> {
+        const ImGuiWindow* w = ImGui::FindWindowByName(name);
+        if (!w) return {0, 0, 0, 0};
+        ImVec2 p = w->Pos, s = w->Size;
+        if (w->DockNode) {
+            p = w->DockNode->Pos;
+            s = w->DockNode->Size;
+        }
+        if (fit) s.y = std::min(s.y, w->DC.CursorMaxPos.y - p.y + ImGui::GetStyle().WindowPadding.y + 6);
+        const ImVec2 o = ImGui::GetMainViewport()->Pos, k = io.DisplayFramebufferScale;
+        return {int(std::lround((p.x - o.x) * k.x)), int(std::lround((p.y - o.y) * k.y)), int(std::lround(s.x * k.x)),
+                int(std::lround(s.y * k.y))};
+    };
+    // This frame as `name`.png (unless the name is "-"), and the rectangles given as `name`-<suffix>.png
+    // (<suffix>.png with "-").
+    auto shoot = [&](const std::string& name, const std::vector<std::pair<std::string, std::array<int, 4>>>& crops = {}) {
+        capture_ = [dir = outDir, name, crops](const unsigned char* px, int w, int h) {
+            if (!px) {
+                std::printf("    %s: this backend does not read its pixels back\n", name.c_str());
+                return;
+            }
+            auto save = [&](const std::string& file, std::array<int, 4> r) {
+                const std::string f = (dir / file).u8string();
+                const bool ok = writeShot(f, px, w, h, r);
+                std::printf("    %s %s (%d x %d)\n", ok ? "wrote" : "COULD NOT WRITE", f.c_str(), r[2], r[3]);
+            };
+            if (name != "-") save(name + ".png", {0, 0, w, h});
+            for (const auto& [suffix, r] : crops) save((name == "-" ? "" : name + "-") + suffix + ".png", r);
+            std::fflush(stdout);
+        };
+    };
+    auto layerOf = [&](const std::string& path) -> SeriesLayer* {
+        for (SeriesLayer& L : layers_)
+            if (L.inputs.size() == 1 && L.inputs[0] == path) return &L;
+        return nullptr;
+    };
+    auto quiet = [&] {
+        if (opening_.valid() || !s_ || !s_->overview.complete()) return false;
+        const SeriesLayer* L = activeLayer();
+        if (L && compositeOn(*L) && !compositeReady(*L, t_)) return false;
+        return !v.strataJob.valid() && !v.drawJob.valid() && v.toOpen.empty() && !v.writer.valid() && v.tasks.empty();
+    };
+    auto focus = [&](const char* name) {
+        if (ImGuiWindow* w = ImGui::FindWindowByName(name)) ImGui::FocusWindow(w);
+    };
+    auto scrollValidation = [&](bool bottom) {
+        if (ImGuiWindow* w = ImGui::FindWindowByName("Validation")) ImGui::SetScrollY(w, bottom ? w->ScrollMax.y : 0.0f);
+    };
+    // The design's key, as the Design tab makes it (or the strata would be stale).
+    auto specKey = [&] {
+        json m = json::array();
+        for (const val::MapRule& r : v.maps) m.push_back(r.toJson());
+        return m.dump() + "|" + std::to_string(v.buffer) + "|" + std::to_string(v.limit) + "|";
+    };
+    auto yearIndex = [&](int year) {
+        for (int k = 0; k < s_->info->T(); ++k)
+            if (val::yearOf(s_->info->layers[k].label) == year) return k;
+        return s_->info->T() - 1;
+    };
+
+    switch (shots_.stage) {
+    case 0: { // the composites, the NBR on the chart (NIR and SWIR2: bands 4 and 6)
+        interpreter_ = "Ana";
+        layoutPending_ = true;
+        shots_.dir = (outDir / "work").u8string();
+        std::error_code ec;
+        fs::remove_all(fs::u8path(shots_.dir), ec);
+        fs::create_directories(fs::u8path(shots_.dir), ec);
+        opts_.sel = BandSelection{};
+        opts_.sel.band = 4;
+        opts_.sel.ndBand = 6;
+        opts_.sel.chosen = true;
+        openInputs({(dataDir / "s2").u8string()});
+        next("the Sentinel-2 composites opening (NBR)");
+        break;
+    }
+    case 1: { // in SWIR1 / NIR / red; the map to validate over them
+        if (opening_.valid() || layers_.size() != 1 || !s_) break;
+        SeriesLayer& L = layers_[0];
+        L.comp = std::make_unique<BandComposite>();
+        L.comp->on = true;
+        L.comp->bands = {5, 4, 3};
+        opts_.sel = BandSelection{};
+        openInputs({gfc}, true);
+        next(std::to_string(s_->info->T()) + " dates in SWIR1 / NIR / red; " + fs::u8path(gfc).filename().u8string() +
+             " added as a layer");
+        break;
+    }
+    case 2: { // the tutorial's panels: Validation and Interpretation on the right, Chips under the map
+        if (opening_.valid() || layers_.size() != 2 || !dockspaceId_) break;
+        const ImGuiID dock = dockspaceId_;
+        ImGui::DockBuilderRemoveNode(dock);
+        ImGui::DockBuilderAddNode(dock, ImGuiDockNodeFlags_DockSpace);
+        ImGui::DockBuilderSetNodeSize(dock, ImGui::GetMainViewport()->WorkSize);
+        ImGuiID right, rest, left, mid, leftTop, leftBottom, center, bottom, bottomLeft, bottomRight;
+        ImGui::DockBuilderSplitNode(dock, ImGuiDir_Right, 0.37f, &right, &rest);
+        ImGui::DockBuilderSplitNode(rest, ImGuiDir_Left, 0.25f, &left, &mid);
+        ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.55f, &leftBottom, &leftTop);
+        ImGui::DockBuilderSplitNode(mid, ImGuiDir_Down, 0.36f, &bottom, &center);
+        ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Right, 0.48f, &bottomRight, &bottomLeft);
+        ImGui::DockBuilderDockWindow("Layers", leftTop);
+        ImGui::DockBuilderDockWindow("Files", leftTop);
+        ImGui::DockBuilderDockWindow("Display", leftBottom);
+        ImGui::DockBuilderDockWindow("Map", center);
+        ImGui::DockBuilderDockWindow("Time series", bottomLeft);
+        ImGui::DockBuilderDockWindow("Statistics", bottomRight);
+        ImGui::DockBuilderDockWindow("Chips", bottomRight);
+        ImGui::DockBuilderDockWindow("Validation", right);
+        ImGui::DockBuilderDockWindow("Interpretation", right);
+        ImGui::DockBuilderFinish(dock);
+        setActive(0);
+        setT(s_->info->T() - 1);
+        next("the tutorial's layout; the last date");
+        break;
+    }
+    case 3: {
+        if (shots_.frames == 3) {
+            fitView(canvasSize_);
+            viewTouched_ = true;
+            // A pin inside a clearing of 2021: its series on the chart.
+            double x, y, px, py;
+            std::string wkt;
+            if (insideLoss(gfc, 2021, x, y, wkt)) {
+                OGRSpatialReference from, to;
+                from.importFromWkt(wkt.c_str());
+                to.importFromWkt(s_->info->crsWkt.c_str());
+                from.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                to.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+                OGRCoordinateTransformation* ct = OGRCreateCoordinateTransformation(&from, &to);
+                if (ct && ct->Transform(1, &x, &y) && s_->info->geoToPixel(x, y, px, py)) addPin(int(px), int(py));
+                OGRCoordinateTransformation::DestroyCT(ct);
+            }
+        }
+        if (!quiet() || t < 4) break;
+        int fbw = 0, fbh = 0;
+        glfwGetFramebufferSize(window_, &fbw, &fbh);
+        if (fbw != kShotsWidth || fbh != kShotsHeight)
+            std::printf("    note: the frame is %d x %d, not %d x %d (display scaling?)\n", fbw, fbh, kShotsWidth, kShotsHeight);
+        shoot("01-series-and-map");
+        next("the series and the map");
+        break;
+    }
+    case 4: { // the Validation menu, open, the pointer on its first item
+        const ImVec4 m = shots_.menuRect;
+        if (shots_.frames <= 2) {
+            io.AddMousePosEvent((m.x + m.z) / 2, (m.y + m.w) / 2);
+            io.AddMouseButtonEvent(ImGuiMouseButton_Left, shots_.frames == 1);
+            break;
+        }
+        ImGuiContext& g = *GImGui;
+        const ImGuiWindow* menu = g.OpenPopupStack.empty() ? nullptr : g.OpenPopupStack.back().Window;
+        if (!menu) {
+            if (shots_.frames > 30) return fail("the Validation menu did not open");
+            break;
+        }
+        io.AddMousePosEvent(menu->Pos.x + 60, menu->Pos.y + g.Style.WindowPadding.y + g.FontSize * 0.5f + 2);
+        if (t < 2) break;
+        // The menu, its title and the tooltip of the item pointed at.
+        ImVec2 lo(m.x, m.y), hi(menu->Pos.x + menu->Size.x, menu->Pos.y + menu->Size.y);
+        for (ImGuiWindow* w : g.Windows)
+            if (w->Active && (w->Flags & ImGuiWindowFlags_Tooltip)) {
+                lo = ImMin(lo, w->Pos);
+                hi = ImMax(hi, w->Pos + w->Size);
+            }
+        const ImVec2 o = ImGui::GetMainViewport()->Pos, k = io.DisplayFramebufferScale;
+        const int pad = 12;
+        shoot("-", {{"02-menu", {int((lo.x - o.x) * k.x) - pad, int((lo.y - o.y) * k.y) - pad,
+                                 int((hi.x - lo.x) * k.x) + 2 * pad, int((hi.y - lo.y) * k.y) + 2 * pad}}});
+        next("the Validation menu");
+        break;
+    }
+    case 5: { // Design: the map read as events in two periods, a buffer of 1 px
+        if (shots_.frames == 1) {
+            ImGui::ClosePopupsExceptModals();
+            while (pins_.size() > 1) removePinById(pins_.back().id); // the click that opened the menu reached the map too
+            showValidation_ = true;
+            v.selectTab = 0;
+            val::MapRule r = Validation::fileRule(gfc);
+            r.kind = val::MapKind::Events;
+            r.bins = {2018, 2021, 2024};
+            v.maps = {r};
+            v.binsText = {val::binsText(r.bins)};
+            v.changeText = {""};
+            v.buffer = 1;
+            v.limit = 0;
+            break;
+        }
+        if (shots_.frames == 3) focus("Validation");
+        if (t < 2) break;
+        shoot("03-design", {{"panel", rectOf("Validation", true)}});
+        next("the design, before the strata");
+        break;
+    }
+    case 6: { // the strata, the sample size and its allocation
+        if (shots_.frames == 1) {
+            std::string why;
+            validationComputeStrata(validationSpec(why));
+            v.strataFor = specKey();
+            break;
+        }
+        if (v.strataJob.valid() || !v.toOpen.empty() || opening_.valid()) break;
+        if (!v.designError.empty()) return fail(v.designError);
+        v.alloc = int(val::Alloc::Proportional);
+        v.targetSe = 0.015f;
+        v.nAuto = true;
+        v.minPer = 50;
+        v.seed = 42;
+        for (val::Stratum& s : v.strata.strata)
+            s.expectedUa = s.change ? 0.8 : s.name.find("buffer") != std::string::npos ? 0.85 : 0.95;
+        if (SeriesLayer* S = layerOf(v.strataPath)) S->opacity = 0.8f;
+        if (!quiet() || t < 4) break;
+        std::string strata;
+        for (const val::Stratum& s : v.strata.strata)
+            strata += "\n      " + s.name + ": " + std::to_string(s.pixels) + " px, " + std::to_string(s.n) + " points";
+        shoot("04-strata", {{"panel", rectOf("Validation", true)}});
+        next("the strata:" + strata);
+        break;
+    }
+    case 7: { // the sample, drawn into a project; the interpretation starts, blind
+        if (shots_.frames == 1) {
+            std::string why;
+            validationDraw((fs::u8path(shots_.dir) / "gfc_loss_2018_2023_validation.gpkg").u8string(), validationSpec(why));
+            break;
+        }
+        if (v.drawJob.valid() || !v.toOpen.empty() || opening_.valid()) break;
+        if (!v.designError.empty()) return fail(v.designError);
+        if (!v.project || !lab_.project) return fail("no project, or its interpretation did not start");
+        if (shots_.labels.empty()) {
+            // What each point shows, read once (labelled in stage 9).
+            const val::Project& P = *v.project;
+            std::vector<std::string> files;
+            for (const Layer& l : s_->info->layers) files.push_back(l.path);
+            const auto nbr = nbrAt(files, P.strata.grid.wkt, P.points);
+            const int first = val::yearOf(s_->info->layers[0].label);
+            std::map<int, int> count;
+            for (const auto& series : nbr) {
+                const Reading r = readSeries(series, first);
+                shots_.labels.push_back(r.label);
+                shots_.years.push_back(r.year * 10 + r.confidence);
+                ++count[r.label];
+            }
+            std::string c;
+            for (const auto& [l, n] : count) c += " " + kEventLabels[l] + " " + std::to_string(n) + ";";
+            std::printf("    the points read:%s\n", c.c_str());
+            showValidation_ = true;
+            v.selectTab = 0;
+            focus("Validation");
+            fitView(canvasSize_);
+        }
+        if (!quiet() || t < 4) break;
+        shoot("05-sample", {{"panel", rectOf("Validation", true)}});
+        next("the sample: " + std::to_string(v.project->points.size()) + " points, blind");
+        break;
+    }
+    case 8: { // one point being interpreted: a clearing, at the date it shows
+        if (shots_.frames == 1) {
+            // A clearing in a stratum of change, seen with high confidence, in the middle of the series.
+            const val::Project& P = *v.project;
+            for (size_t i = 0; i < P.points.size() && shots_.example < 0; ++i) {
+                const int year = shots_.years[i] / 10, conf = shots_.years[i] % 10;
+                const int s = P.strata.indexOfCode(P.points[i].stratum);
+                if (shots_.labels[i] == 1 && conf == 3 && year >= 2020 && year <= 2022 && s >= 0 && P.strata.strata[s].change)
+                    shots_.example = int(i);
+            }
+            if (shots_.example < 0) return fail("no clearing in a stratum of change to show");
+            clearPins(); // the first screenshot's
+            showInterp_ = true;
+            showChips_ = true;
+            lab_.zoom = 6;
+            interpGo(shots_.example);
+            shots_.exampleT = yearIndex(shots_.years[shots_.example] / 10);
+            setT(shots_.exampleT);
+            break;
+        }
+        if (shots_.frames == 3) focus("Interpretation");
+        if (shots_.frames == 4) focus("Chips");
+        if (t < 3) break;
+        if (lab_.entries[shots_.example].label.empty()) {
+            interpLabel(1);
+            interpSetDate(false);
+            interpSetConfidence(3);
+            break;
+        }
+        if (!quiet() || !v.chipTex || t < 5) break;
+        shoot("06-interpretation",
+              {{"panel", rectOf("Interpretation")}, {"chips", rectOf("Chips")}, {"chart", rectOf("Time series")}});
+        next("point " + std::to_string(shots_.example + 1) + " interpreted: deforestation in " +
+             s_->info->layers[shots_.exampleT].label);
+        break;
+    }
+    case 9: { // every point labelled (by the rule), then the accuracy
+        if (shots_.frames == 1) {
+            // In a random order, a label every 40 s or so (the order the convergence chart follows).
+            const val::Project& P = *v.project;
+            std::vector<int> order(P.points.size());
+            for (size_t i = 0; i < order.size(); ++i) order[i] = int(i);
+            std::mt19937 rng(7);
+            std::shuffle(order.begin(), order.end(), rng);
+            int k = 0;
+            for (const int i : order) {
+                if (i == shots_.example) continue;
+                lab_.current = i;
+                interpLabel(shots_.labels[i]);
+                const int year = shots_.years[i] / 10;
+                lab_.entries[i].date = year ? s_->info->layers[yearIndex(year)].label : "";
+                interpSetConfidence(shots_.years[i] % 10);
+                const int s = 9 * 3600 + 40 * ++k;
+                char when[32];
+                std::snprintf(when, sizeof(when), "2026-10-%02dT%02d:%02d:%02dZ", 1 + s / 86400, s / 3600 % 24, s / 60 % 60, s % 60);
+                lab_.entries[i].updated = when;
+                validationLabelsChanged(i);
+            }
+            saveLabels();
+            lab_.current = shots_.example;
+            showChips_ = false;
+            v.selectTab = 1;
+            v.sections = 0;
+            break;
+        }
+        if (shots_.frames == 3) focus("Validation");
+        if (!quiet() || t < 3) break;
+        shoot("07-accuracy", {{"panel", rectOf("Validation", true)}});
+        next("every point labelled; the accuracy");
+        break;
+    }
+    case 10: { // how the labels read for this map
+        v.sections = 1;
+        if (t < 2) break;
+        shoot("-", {{"08-translations", rectOf("Validation", true)}});
+        next("the translations of the labels");
+        break;
+    }
+    case 11: { // the estimates as the labels came, and the dates
+        v.sections = 2 | 4;
+        if (shots_.frames > 3) scrollValidation(true);
+        if (t < 2) break;
+        shoot("-", {{"09-convergence-dates", rectOf("Validation", true)}});
+        next("the convergence and the dates");
+        break;
+    }
+    case 12: { // the area of change by year
+        v.sections = 8;
+        if (shots_.frames > 3) scrollValidation(true);
+        if (t < 2) break;
+        shoot("-", {{"10-by-year", rectOf("Validation", true)}});
+        next("the area of change by year");
+        break;
+    }
+    case 13: { // not blind any more: the map and the points right or wrong
+        if (shots_.frames == 1) {
+            v.sections = 0;
+            scrollValidation(false);
+            setValidationBlind(false);
+            v.colorBy = 2;
+            if (SeriesLayer* S = layerOf(v.project->strataPath)) S->visible = false;
+            if (lab_.pinId) removePinById(lab_.pinId);
+            lab_.pinId = 0;
+            break;
+        }
+        if (shots_.frames == 3) {
+            fitView(canvasSize_);
+            setT(s_->info->T() - 1);
+        }
+        if (!quiet() || t < 4) break;
+        shoot("11-right-wrong");
+        next("the points right or wrong over the map");
+        break;
+    }
+    case 14: { // a second map, assessed with the same sample
+        if (shots_.frames == 1) {
+            val::AssessedMap m;
+            m.rule = Validation::fileRule(mapbiomas);
+            m.rule.kind = val::MapKind::Events;
+            m.rule.bins = {2018, 2021, 2024};
+            v.project->maps.push_back(m);
+            v.addMapData(*this, v.project->maps.size() - 1);
+            v.metaDirty = true;
+            ++v.version;
+            v.selectTab = 2;
+            break;
+        }
+        if (v.data.size() < 2 || !v.data[1]->ready() || v.project->maps[1].mapping.empty() || !quiet() || t < 3) break;
+        shoot("-", {{"12-maps", rectOf("Validation", true)}});
+        next("MapBiomas assessed with the same sample");
+        break;
+    }
+    case 15: { // a second interpreter's labels, merged
+        if (shots_.frames == 1) {
+            const val::Project& P = *v.project;
+            const std::string copy = (fs::u8path(shots_.dir) / "gfc_loss_2018_2023_validation_bruno.gpkg").u8string();
+            if (v.writer.valid()) v.writer.wait();
+            std::error_code ec;
+            fs::copy_file(fs::u8path(P.path), fs::u8path(copy), fs::copy_options::overwrite_existing, ec);
+            // Bruno labels 60 points across the strata, and reads a few clearings as degradation, some pasture as
+            // agriculture.
+            std::vector<std::pair<int, val::Label>> rows;
+            int changed = 0;
+            const int n = int(P.points.size());
+            for (int k = 0; k < 60 && k < n; ++k) {
+                const int i = k * n / 60;
+                val::Label l = lab_.entries[i];
+                if (changed < 5 && k % 2 == 1 && (shots_.labels[i] == 1 || shots_.labels[i] == 5)) {
+                    l.label = shots_.labels[i] == 1 ? "Degradation" : "Agriculture";
+                    ++changed;
+                }
+                l.updated = val::nowIso();
+                rows.push_back({i, l});
+            }
+            std::string e;
+            if (!val::saveLabels(copy, "Bruno", rows, {}, e)) return fail(e);
+            validationMerge(copy, v.message);
+            v.selectTab = 3;
+            break;
+        }
+        if (!quiet() || t < 3) break;
+        shoot("-", {{"13-interpreters", rectOf("Validation", true)}});
+        next("Bruno's labels merged: " + v.message);
+        break;
+    }
+    case 16: { // adjudication
+        if (shots_.frames == 1) {
+            v.message.clear();
+            setValidationBlind(true);
+            startAdjudication();
+            if (lab_.filter.empty()) return fail("no disagreement to adjudicate");
+            break;
+        }
+        if (shots_.frames == 3) focus("Interpretation");
+        if (!quiet() || t < 4) break;
+        shoot("14-adjudication", {{"panel", rectOf("Interpretation")}});
+        // Each disagreement settled as Ana read it.
+        for (int i : lab_.filter) {
+            lab_.current = i;
+            interpLabel(shots_.labels[i]);
+            const int year = shots_.years[i] / 10;
+            lab_.entries[i].date = year ? s_->info->layers[yearIndex(year)].label : "";
+            interpSetConfidence(shots_.years[i] % 10);
+        }
+        saveLabels();
+        lab_.as = interpreterName();
+        validationEntries();
+        lab_.filter.clear();
+        lab_.filterName.clear();
+        next("the disagreements adjudicated");
+        break;
+    }
+    case 17: { // the report
+        if (shots_.frames == 1) {
+            setValidationBlind(false);
+            const fs::path dir = fs::u8path(shots_.dir) / "report";
+            std::error_code ec;
+            fs::create_directories(dir, ec);
+            shots_.report = exportValidationReport(dir.u8string());
+            if (!shots_.report) return fail("the report did not start");
+            v.selectTab = 4;
+            break;
+        }
+        if (shots_.frames == 3) focus("Validation");
+        showExports_ = false;
+        if (shots_.report->state == ExportJob::State::Running || !quiet() || t < 3) break;
+        if (shots_.report->state != ExportJob::State::Done) return fail("the report failed: " + shots_.report->error);
+        shoot("-", {{"15-report", rectOf("Validation", true)}});
+        next("the report: " + (fs::u8path(shots_.dir) / "report" / "report.html").u8string());
+        break;
+    }
+    case 18:
+        closeValidationProject();
+        std::printf("OK\n");
+        return 0;
     }
     return -1;
 }

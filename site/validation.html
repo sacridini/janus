@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Validating a map · Janus</title>
+<meta name="description" content="A step-by-step guide to the Validation tools of Janus: strata, sample size, a stratified random sample, blind interpretation, accuracy and error-adjusted areas with confidence intervals (Olofsson et al. 2014).">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Validating a map · Janus">
+<meta property="og:description" content="From a change map to its accuracy and its error-adjusted area, with confidence intervals: the whole process in Janus, step by step.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/validation/06-interpretation.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg" alt="" width="30" height="40"><img class="brand-name" src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="validation.html" aria-current="page">Validation</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / Guide</p>
+    <p class="eyebrow">Validation · accuracy and area</p>
+    <h1>Validating a map, step by step.</h1>
+    <p class="lede">A map of change is an estimate, and so is the area you measure on it. The <span class="ui">Validation</span> menu turns any map into a stratified random sample, lets you interpret it point by point against the images, and gives the map's accuracy and the <em>error-adjusted</em> area of each class, with confidence intervals, following the good practices of Olofsson et al. (2014).</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#overview">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#menu">The Validation menu</a></li>
+      <li><a href="#design">Maps to stratify</a></li>
+      <li><a href="#strata">The strata</a></li>
+      <li><a href="#size">Sample size</a></li>
+      <li><a href="#draw">Drawing the sample</a></li>
+      <li><a href="#interpret">Interpreting</a></li>
+      <li><a href="#accuracy">Accuracy and areas</a></li>
+      <li><a href="#more">More from the labels</a></li>
+      <li><a href="#maps">Other maps</a></li>
+      <li><a href="#interpreters">Several interpreters</a></li>
+      <li><a href="#report">The report</a></li>
+      <li><a href="#practice">Good practice</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <!-- ===================================================== -->
+    <section id="overview">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>Counting the pixels of a class gives the <em>mapped</em> area. It is biased by the map's errors: every pixel of forest the map calls deforestation adds to it (commission), every clearing it misses takes from it (omission). To know the real area you need a <strong>reference</strong>: what is really on the ground at a set of places, from images better than the ones the map was made from, or from a closer look at them. A sample of places, chosen at random with known probabilities, lets you estimate from those few points the map's accuracy and the area of each class over the whole map, with a confidence interval.</p>
+      <p>Janus does each step of that in the same window where you look at the series:</p>
+      <ol class="steps">
+        <li><b>Strata</b>Split the map into strata: its classes, its dates of change, a buffer around change.</li>
+        <li><b>Sample size</b>How many points, and how many in each stratum, for the precision you want.</li>
+        <li><b>Draw</b>A stratified random sample, saved as a project (a GeoPackage).</li>
+        <li><b>Interpret</b>Each point, blind to the map: its series, its images at every date, a label.</li>
+        <li><b>Estimate</b>Overall, user's and producer's accuracy, adjusted areas, all with intervals.</li>
+        <li><b>Report</b>Tables, figures and a methods paragraph, ready for the paper.</li>
+      </ol>
+      <h3>A few words used below</h3>
+      <dl class="terms">
+        <dt>Map</dt><dd>The product being assessed: a land-cover map, a map of the year of change, a Zeit result.</dd>
+        <dt>Reference</dt><dd>The class (and the date of change) you give a sample point from the images. It is taken as the truth.</dd>
+        <dt>Stratum</dt><dd>A part of the map sampled on its own: each stratum gets its own number of points, drawn at random among its pixels.</dd>
+        <dt>Weight</dt><dd>A stratum's share of the map's area. The estimators weigh each point by it, so a stratum sampled more densely than its area does not bias the estimates.</dd>
+        <dt>User's accuracy</dt><dd>Of the pixels the map calls a class, the share that really is that class (1 − commission error).</dd>
+        <dt>Producer's accuracy</dt><dd>Of the area that really is a class, the share the map calls that class (1 − omission error).</dd>
+        <dt>Adjusted area</dt><dd>The area of a class estimated from the reference labels and the strata's weights, not from the map's pixel count; given ± its confidence interval.</dd>
+      </dl>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>The screenshots follow one validation from start to end. The map is the <strong>forest loss of 2018–2023</strong> in Global Forest Change v1.11 (Hansen et al. 2013): for each pixel, the year it lost its forest, or nothing. The place is 16 × 13 km south-west of Novo Progresso, Pará, on the BR-163 deforestation front. The reference comes from <strong>Sentinel-2</strong>: one cloud-free composite per dry season, 2017 to 2024, with six bands (blue to SWIR2), opened as a series in Janus.</p>
+      <figure class="fig">
+        <a href="assets/img/validation/01-series-and-map.jpg"><img src="assets/img/validation/01-series-and-map.jpg" alt="The Janus window: the Sentinel-2 composite of 2024 in false colour, with the Global Forest Change loss years drawn over it in colour; the Layers and Display panels on the left, the time series chart below the map." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The starting point.</b> The Sentinel-2 composites in SWIR1 / NIR / red (forest is green, cleared land pink), the chart in NBR, and the map to validate added as a layer on top: each colour a year of loss.</figcaption>
+      </figure>
+      <p>Open both as you would for any other work: the images with <span class="ui">File → Open folder...</span> (or <code>jn</code> on the command line), the map with <span class="ui">File → Add layer: file(s)...</span>. Show the images in a composite that makes the change easy to see (the <span class="ui">RGB composite</span> of the Display panel), and the chart in an index that separates forest from what replaces it (here the NBR, the normalized difference of NIR and SWIR2). The map does not even need to be open: the design can read it from a file.</p>
+      <div class="note">
+        <p class="h">Reproduce it</p>
+        <p><code>python tools/make_tutorial_data.py data</code> downloads the same area (about 60 MB, read in place from the public buckets of Earth Search, Global Forest Change and MapBiomas). <code>janus --shots-validation data out</code> then runs this whole guide and saves these screenshots.</p>
+      </div>
+      <div class="note warn">
+        <p class="h">About the numbers</p>
+        <p>To keep the guide reproducible, the points in these screenshots were labelled by a simple rule on each point's NBR series (a drop from forest, and whether it grew back), not by a person looking at the images. The numbers show how to read the tool; they are not an assessment of Global Forest Change.</p>
+      </div>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="menu">
+      <h2><span class="n">03</span>The Validation menu</h2>
+      <figure class="fig narrow">
+        <img src="assets/img/validation/02-menu.png" alt="The Validation menu open: New sampling design, Open project, Close project, Validation panel, Interpret the sample, Chips, Accuracy and areas, Export report, Copy Python." loading="lazy">
+        <figcaption><b>Validation menu.</b> Hover an item for what it does.</figcaption>
+      </figure>
+      <ul>
+        <li><span class="ui">New sampling design...</span> opens the <strong>Validation</strong> panel on its <span class="ui">Design</span> tab: the strata, the sample size, the draw.</li>
+        <li><span class="ui">Open project...</span> reopens a project saved before (the GeoPackage), with its labels; work resumes where it stopped. <span class="ui">Close project</span> saves what is pending.</li>
+        <li><span class="ui">Validation panel</span>, <span class="ui">Interpret the sample</span> and <span class="ui">Chips</span> show the three panels you work in.</li>
+        <li><span class="ui">Accuracy and areas</span> goes to the results; <span class="ui">Export report...</span> writes them to a folder; <span class="ui">Copy Python</span> copies the <code>zeit.accuracy</code> code that computes the same numbers from the project's files.</li>
+      </ul>
+      <p>The Validation panel has five tabs, in the order of the work: <span class="ui">Design</span>, <span class="ui">Accuracy</span>, <span class="ui">Maps</span>, <span class="ui">Interpreters</span> and <span class="ui">Report</span>.</p>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="design">
+      <h2><span class="n">04</span>Maps to stratify</h2>
+      <p>Strata are what make a sample efficient. Change is usually rare: in a simple random sample of 300 points over a map with 2% of loss, about six would fall on loss, too few to say anything about it. Sampling each stratum separately lets you put 50 or 100 points on the rare classes and still estimate everything without bias, because each point counts by its stratum's weight.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/validation/03-design-panel.png"><img src="assets/img/validation/03-design-panel.png" alt="The Design tab: the map gfc_loss_2018_2023.tif read as events with periods 2018, 2021, 2024; the buffer slider at 1 pixel; the limit set to every pixel; the Compute the strata button." loading="lazy"></a>
+        <figcaption><b>Design tab.</b> The map is read as events in two periods, with a buffer of one pixel around them.</figcaption>
+      </figure>
+      <h3>Add a map</h3>
+      <p><span class="ui">Add a map...</span> lists the maps already open (Zeit results, layers at their date) and <span class="ui">A raster file...</span>. Then say how its values are read:</p>
+      <ul>
+        <li><strong>classes</strong>: each value is a class (a land-cover map, a TWDTW or SOM result). Its classes become the strata. Tick the ones that are <em>change</em>; that matters for the buffer and for several maps.</li>
+        <li><strong>intervals</strong>: ranges of a continuous value, with their edges, e.g. <code>-1, -0.1, 1</code> for a magnitude, and which ranges are change.</li>
+        <li><strong>events</strong>: the value is the date of a change (LandTrendr's year of detection, a loss year). Above zero is change; zero and no data are not. With <strong>periods</strong> (<code>2018, 2021, 2024</code>), each period becomes a stratum of its own: here 2018–2020 and 2021–2023.</li>
+      </ul>
+      <p>With <strong>several maps</strong>, the strata are their agreement: one stratum for each number of maps that call a pixel change (<em>change in 2 of 3 maps</em>...). A good design when you will compare the maps later.</p>
+      <h3>Buffer</h3>
+      <p>The pixels without change within <em>N</em> pixels of a change become a stratum of their own. The changes a map misses are mostly next to the ones it found (the edge of a clearing mapped too small, a clearing of the year after). Without a buffer those few omission errors fall in the huge stratum of no change, where each point weighs a lot, and they inflate the interval of the area of change. A handful of points in the buffer makes the area much more precise (Olofsson et al. 2020).</p>
+      <h3>Limit</h3>
+      <p><span class="ui">every pixel</span> of the map, <span class="ui">inside the ROI</span> drawn on the map, or <span class="ui">inside polygons of</span> a vector layer you opened (a municipality, a biome, a study area).</p>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="strata">
+      <h2><span class="n">05</span>The strata</h2>
+      <p><span class="ui">Compute the strata</span> reads the map once at full resolution, in the background. The result is a raster of strata, opened as a layer, and a table with each stratum's pixels, area (in hectares, on the sphere for a geographic CRS like this one) and weight.</p>
+      <figure class="fig">
+        <a href="assets/img/validation/04-strata.png"><img src="assets/img/validation/04-strata.png" alt="The window after computing the strata: the strata raster drawn as a layer over the images, and the Validation panel with the table of strata, their pixels, areas and weights." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The strata layer</b> over the images: no change (14,144 ha, weight 0.64), loss in 2018&ndash;2020 (1,511 ha), loss in 2021&ndash;2023 (4,163 ha) and the buffer of one pixel around the loss (2,257 ha).</figcaption>
+      </figure>
+      <p>If you change the maps, the buffer or the limit afterwards, the panel says so (<em>the maps or the limit changed</em>) and the sample cannot be drawn until the strata are computed again.</p>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="size">
+      <h2><span class="n">06</span>Sample size and allocation</h2>
+      <figure class="fig narrow">
+        <a href="assets/img/validation/04-strata-panel.png"><img src="assets/img/validation/04-strata-panel.png" alt="The sample size controls: standard error of the overall accuracy 0.015, n from it (eq. 13), allocation proportional with at least 50 per stratum, and the table of strata with expected user's accuracy, n and the expected standard error of each user's accuracy." loading="lazy"></a>
+        <figcaption><b>Sample size.</b> 346 points for a standard error of 0.015 on the overall accuracy, at least 50 in each stratum. Expected: an area of change known to &plusmn; 683 ha.</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Standard error of the overall accuracy</strong>: the precision you want. With <span class="ui">n from it (eq. 13)</span> ticked, the number of points comes from equation 13 of Olofsson et al. (2014), from the strata's weights and the user's accuracy you expect of each. Untick it to give the number yourself.</li>
+        <li><strong>Expected UA</strong> (in the table): the user's accuracy you expect of each stratum. Hard classes (change) 0.6–0.8, easy ones 0.9–0.95. It sets <em>n</em> and the Neyman allocation; guess from a quick look, or from a pilot sample.</li>
+        <li><strong>Allocation</strong>: <em>proportional</em> to the strata's areas, <em>equal</em> in each, <em>Neyman</em> (to area × the expected standard deviation), or <em>by hand</em> in the <em>n</em> column. With <strong>at least, per stratum</strong>, the rare strata get a floor: Olofsson et al. advise 50 to 100 points for the accuracy of a rare class.</li>
+      </ul>
+      <p>Under the table, Janus shows the <strong>errors this design should give</strong> if each stratum's accuracy is as expected: the standard error of each user's accuracy, of the overall accuracy, and the interval of the area of change. Change the numbers until those are good enough for your purpose, before drawing anything.</p>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="draw">
+      <h2><span class="n">07</span>Drawing the sample</h2>
+      <p><span class="ui">Draw the sample and create the project...</span> asks where to save the <strong>project</strong>, a GeoPackage, and draws the points at random among each stratum's pixels, at the pixels' centres. The strata raster is saved beside it. The <strong>seed</strong> makes the draw repeatable: the same strata, sizes and seed always give the same points.</p>
+      <figure class="fig">
+        <a href="assets/img/validation/05-sample.jpg"><img src="assets/img/validation/05-sample.jpg" alt="The sample drawn: yellow points scattered over the Sentinel-2 image; the map and the strata are hidden; the Validation panel shows the project's sample by stratum." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The sample</b>, 346 points, opened as a vector layer. The map and the strata are hidden: the interpretation is blind.</figcaption>
+      </figure>
+      <p>The project is an ordinary GeoPackage; open it in QGIS, keep it with the paper's data. Its tables are <code>samples</code> (the points, with the reference label of each once there is one), <code>labels</code> (every label of every interpreter, with its date, confidence and notes), <code>strata</code> and <code>project</code> (the design, the maps assessed and how their classes read the labels).</p>
+      <p>The interpretation starts at once, <strong>blind</strong>: the maps being assessed and the strata are not drawn, and the points are coloured only by their state. Knowing what the map says sways the reference toward it; the blind mode keeps that from happening. <span class="ui">Blind</span> is a checkbox in the panel; it is better left on until the last label.</p>
+      <p>Later, <span class="ui">Add points</span> (top of the Design tab) draws more points in one stratum, among its pixels not yet sampled. The sample stays a stratified random sample: useful when a rare class's accuracy is still too uncertain.</p>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="interpret">
+      <h2><span class="n">08</span>Interpreting the points</h2>
+      <p>The <strong>Interpretation</strong> panel takes the points one by one, as TimeSync does. The map goes to each point and outlines its pixel, the chart shows its series (a pin), and the <strong>Chips</strong> panel shows a small window around it at every date.</p>
+      <figure class="fig">
+        <a href="assets/img/validation/06-interpretation.png"><img src="assets/img/validation/06-interpretation.png" alt="Interpreting a point: the map zoomed in on the point with its pixel outlined, at the date the clearing appears; the chart shows the NBR falling; the Chips panel shows the point at every date; the Interpretation panel shows the label Deforestation, its date and a high confidence." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Point 195</b>: forest until 2019, cleared in the 2020 image. The NBR drops on the chart, the chips show the clearing, and it is labelled <em>Deforestation</em>, dated 2020, high confidence.</figcaption>
+      </figure>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/validation/06-interpretation-panel.png"><img src="assets/img/validation/06-interpretation-panel.png" alt="The Interpretation panel: the point's number, the label set with keys 1 to 9, the date of the change, the confidence, notes and other events." loading="lazy"></a>
+          <figcaption><b>Interpretation panel.</b> The label, its date and confidence.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/validation/06-interpretation-chips.png"><img src="assets/img/validation/06-interpretation-chips.png" alt="The Chips panel: the same small window around the point at each of the eight dates, the point's pixel outlined; the forest turns to bare land." loading="lazy"></a>
+          <figcaption><b>Chips.</b> The point at every date, in the map's colours.</figcaption>
+        </figure>
+      </div>
+      <h3>The keys</h3>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Key</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>N</kbd> / <kbd>Shift</kbd>+<kbd>N</kbd></td><td>Next / previous point (also Page Down / Page Up). <span class="ui">Mine to do</span> keeps only the points you have not labelled.</td></tr>
+            <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>A label of the label set: Stable forest, Deforestation, Degradation, Regeneration, Agriculture, Pasture, Water, Cloud / no data, Other (edit it under <span class="ui">Label set</span>). <kbd>0</kbd> clears it.</td></tr>
+            <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>The previous / next date on the map; a click on the chart or on a chip goes to its date.</td></tr>
+            <tr><td><kbd>D</kbd></td><td>The date of the change is the date on the map (double click a chip does the same). <kbd>Shift</kbd>+<kbd>D</kbd> clears it.</td></tr>
+            <tr><td><kbd>Shift</kbd>+<kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd></td><td>Confidence: low, medium, high.</td></tr>
+            <tr><td><kbd>E</kbd></td><td>Another event at the map's date: a point degraded in 2019, then cleared in 2022, keeps both.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Label what is on the ground, not what the map says: the class, and for a change the date it shows up. Labels are written to the GeoPackage a second after each change, so closing Janus loses nothing. If an image cannot tell (clouds, a pixel on an edge), say so with <em>Cloud / no data</em> or <em>Other</em> and a note: those points are left out of the estimates, and the report counts them.</p>
+      <div class="note">
+        <p class="h">Chips</p>
+        <p>The chips use the active layer's colours, or its RGB composite. <em>One per year</em> keeps the date nearest the map's day of the year when the series has many dates. The next points' chips are read ahead, so moving on with <kbd>N</kbd> is immediate.</p>
+      </div>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="accuracy">
+      <h2><span class="n">09</span>Accuracy and areas</h2>
+      <p>The <span class="ui">Accuracy</span> tab is recomputed with every label: you can watch the estimates settle as you go. Choose the map at the top (a project can assess several) and the confidence level of the intervals (95% by default).</p>
+      <figure class="fig narrow">
+        <a href="assets/img/validation/07-accuracy-panel.png"><img src="assets/img/validation/07-accuracy-panel.png" alt="The Accuracy tab: points used, overall accuracy with its interval, the user's and producer's accuracy of change and the adjusted area of change, the error matrix, the table of accuracies and areas by class, and a bar chart of mapped and adjusted areas." loading="lazy"></a>
+        <figcaption><b>Accuracy tab</b> with all 346 points labelled.</figcaption>
+      </figure>
+      <h3>Reading it</h3>
+      <ul>
+        <li><strong>Overall accuracy</strong> 0.780 &plusmn; 0.040: the share of the map's area that is right, ± the half-width of its interval.</li>
+        <li><strong>Change</strong>: the user's accuracy of change 0.567 &plusmn; 0.101 (of what the map calls loss, how much is loss), its producer's accuracy 0.611 &plusmn; 0.088 (of the real loss, how much the map found), and the <strong>adjusted area of change</strong>, 5,262 &plusmn; 882 ha, against the 5,674 ha the map counts.</li>
+        <li><strong>The error matrix</strong>: rows are the map, columns the reference. In <span class="ui">points</span> it counts the sample; in <span class="ui">proportions of area</span> each cell is the estimated share of the map's area, the matrix the estimators work on. <strong>Click a cell</strong> and the Interpretation panel lists its points, so you can go through the errors one by one and check your labels.</li>
+        <li><strong>Accuracy and areas</strong>: for each class, user's and producer's accuracy, the mapped area and the adjusted area ± its interval, also as a chart. When the interval of the adjusted area does not contain the mapped area, the map's pixel count is biased beyond chance.</li>
+      </ul>
+      <p>In the example, the total area of loss the map counts (5,674 ha) is inside the interval of the adjusted area, but the two periods are not. The map has 1,511 ha of loss in 2018–2020 where the reference estimates 2,459 &plusmn; 634 ha: it misses early loss (producer's accuracy 0.41). It has 4,163 ha in 2021–2023 against 2,803 &plusmn; 692 ha: a good part of what it dates to those years is not loss in the images, or is older loss (user's accuracy 0.45). The total looks right only because the two errors cancel out, and only the strata by period show it.</p>
+      <h3>From labels to the map's classes</h3>
+      <p>The label set describes the ground; the map has its own classes. <span class="ui">Reference labels → the map's classes</span> says how each label reads for this map. Janus guesses it from the names; for a map of events, loss and disturbance labels are change. Labels like <em>Cloud / no data</em> are left out.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/validation/08-translations.png"><img src="assets/img/validation/08-translations.png" alt="The translations of the reference labels: Stable forest no change, Deforestation change, Degradation change, Regeneration no change, Agriculture and Pasture no change, Water no change, Cloud / no data left out, Other no change." loading="lazy"></a>
+        <figcaption><b>Translations</b> of the labels for a map of events. Change one if your map means something else (is degradation loss?).</figcaption>
+      </figure>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="more">
+      <h2><span class="n">10</span>More from the labels</h2>
+      <h3>As the labels came</h3>
+      <p>The estimate, and its interval, after each step of the labelling. It answers <em>have I labelled enough?</em>: when the interval of what you need (the overall accuracy, or the area of a class) is narrow enough, you can stop, or add points where it is still wide.</p>
+      <h3>Dates of change</h3>
+      <p>For a map of events, the points both the map and the reference call change are compared by date: the share within ± <em>k</em> years (the tolerance) and the histogram of the differences. Here the reference year is the first dry-season image that shows the clearing, so a loss mapped in a given year often shows in the next image: the histogram leans to −1.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/validation/09-convergence-dates.png"><img src="assets/img/validation/09-convergence-dates.png" alt="The convergence chart of the overall accuracy against the number of labelled points, with its shaded interval narrowing; below it the agreement of the dates within one year and the histogram of the map year minus the reference year." loading="lazy"></a>
+        <figcaption><b>Convergence and dates.</b> The estimate settles after about 150 points. Of the 67 points both call change, 0.80 &plusmn; 0.11 are dated within a year of each other.</figcaption>
+      </figure>
+      <h3>Area of change by year</h3>
+      <p>From the reference alone: the area whose first change falls in each year, ± its interval. The map's dates are not used, only its strata, so this is the series of loss to report, with the uncertainty that comes with it.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/validation/10-by-year.png"><img src="assets/img/validation/10-by-year.png" alt="A bar chart of the estimated area of change by year from the reference labels, with error bars." loading="lazy"></a>
+        <figcaption><b>Area of change by year</b>, with its 95% intervals.</figcaption>
+      </figure>
+      <h3>Right and wrong on the map</h3>
+      <p>Once the interpretation is done, untick <span class="ui">Blind</span>: the map and the strata come back, and in the Interpretation panel the points can be coloured <span class="ui">by stratum</span> or <span class="ui">right / wrong</span> for the selected map. The errors often cluster (along roads, at the edges of clearings), which tells you where the map struggles.</p>
+      <figure class="fig">
+        <a href="assets/img/validation/11-right-wrong.jpg"><img src="assets/img/validation/11-right-wrong.jpg" alt="The map of loss years over the images with the sample points coloured right or wrong for the map." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Right / wrong.</b> Points where the map agrees with the reference, and where it does not.</figcaption>
+      </figure>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="maps">
+      <h2><span class="n">11</span>One sample, many maps</h2>
+      <p>The reference labels describe the ground, so the same sample can assess any other map of the same area: another product, a LandTrendr or CCDC result, last year's version of your own map. In the <span class="ui">Maps</span> tab, <span class="ui">Assess another map...</span> adds one; it is read at the points and its areas over the project's strata. The estimators weigh the points by the strata the sample was drawn from (Stehman 2014), so a map other than the one stratified is assessed without bias, only less precisely.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/validation/12-maps.png"><img src="assets/img/validation/12-maps.png" alt="The Maps tab comparing gfc_loss_2018_2023.tif and mapbiomas_loss_2018_2023.tif: points, overall accuracy, user's and producer's accuracy of change, mapped and adjusted area of change." loading="lazy"></a>
+        <figcaption><b>Maps tab.</b> Global Forest Change: overall 0.780, change found with user&rsquo;s 0.567 and producer&rsquo;s 0.611. MapBiomas: 0.756, 0.524 and 0.506.</figcaption>
+      </figure>
+      <p>Here the second map is the loss of forest in MapBiomas Collection 9 over the same years. Note the last column: the <strong>adjusted area of change is the same for both maps</strong>, 5,262 &plusmn; 882 ha. It comes from the reference labels and the strata, not from the map, so a better map does not change the estimate of the area; it changes how far its own pixel count is from it (5,674 ha for one, 4,889 ha for the other).</p>
+      <p>Click a map's name to see its Accuracy tab; set how it is read (classes, intervals, events and their periods) under the table.</p>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="interpreters">
+      <h2><span class="n">12</span>Several interpreters</h2>
+      <p>Two people reading the same images do not always agree, and how often they agree is worth reporting. Labels are kept by interpreter: your name is in <span class="ui">File → Settings...</span> (by default your login). <span class="ui">Save a copy for an interpreter...</span> writes a copy of the project (with its strata raster) for a colleague to label in their own Janus; <span class="ui">Merge labels from a copy...</span> brings their labels back, point by point, the newer kept.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/validation/13-interpreters.png"><img src="assets/img/validation/13-interpreters.png" alt="The Interpreters tab: Ana and Bruno with their number of labelled points, their agreement and Cohen's kappa, the number of disagreements and the Adjudicate button." loading="lazy"></a>
+        <figcaption><b>Interpreters.</b> Ana and Bruno agree on 91.7% of the 60 points both labelled (kappa 0.869), with 5 disagreements left to settle.</figcaption>
+      </figure>
+      <p>The tab shows each pair's agreement on the points both labelled, <strong>Cohen's kappa</strong> (the agreement beyond chance) and how often their dates are within a year. <span class="ui">Adjudicate...</span> goes through the disagreements: the others' labels are shown, and the label you give settles the point (it is kept as the adjudicated label, theirs stay as they were).</p>
+      <figure class="fig">
+        <a href="assets/img/validation/14-adjudication.png"><img src="assets/img/validation/14-adjudication.png" alt="Adjudicating: the map on a point Ana labelled Pasture and Bruno Agriculture, its series on the chart, and the Interpretation panel warning that your label settles the point, with both labels shown and the list of the 5 disagreements." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Adjudicating</b> point 99: Ana read it as pasture, Bruno as agriculture. The list holds only the 5 disagreements.</figcaption>
+      </figure>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="report">
+      <h2><span class="n">13</span>The report</h2>
+      <p>The <span class="ui">Report</span> tab writes a <strong>methods paragraph</strong> from the project (the strata, the points per stratum, the allocation, the seed, the number of interpreters and of labelled points, the estimators), with its references, ready to copy into a paper.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/validation/15-report.png"><img src="assets/img/validation/15-report.png" alt="The Report tab: Export the report and Copy Python buttons, the generated methods paragraph and the references." loading="lazy"></a>
+        <figcaption><b>Report tab.</b> The methods paragraph is written from the project.</figcaption>
+      </figure>
+      <p><span class="ui">Export the report...</span> writes to a folder a <code>report.html</code> (the design, the comparison of the maps, each map's error matrix, accuracies and areas with figures, the area of change by year, the interpreters' agreement, the methods and the references) and a CSV of every table, for your own figures.</p>
+      <figure class="fig">
+        <a href="assets/img/validation/16-report-html.png"><img src="assets/img/validation/16-report-html.png" alt="The exported report.html open in a browser: the methods paragraph, the sampling design table and the comparison of the maps." loading="lazy"></a>
+        <figcaption><b>report.html</b>, as exported.</figcaption>
+      </figure>
+      <p><span class="ui">Copy Python</span> copies the <code>zeit.accuracy</code> call that computes the same estimates from the project's GeoPackage and rasters: a check that does not depend on Janus, and a start for scripts of your own.</p>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="practice">
+      <h2><span class="n">14</span>Good practice</h2>
+      <ul>
+        <li><strong>Decide the design before looking at the results.</strong> Strata, sample size and seed are part of the method; drawing again until the numbers look good is not a random sample any more. To be more precise, add points in a stratum.</li>
+        <li><strong>Give rare classes enough points.</strong> 50 to 100 per stratum of change, whatever a proportional allocation would give them.</li>
+        <li><strong>Use a buffer for maps of change.</strong> It is where the omission errors hide.</li>
+        <li><strong>Stay blind.</strong> Untick it only when every point has a label.</li>
+        <li><strong>Use better data for the reference than for the map</strong>: a denser series, finer images, the basemap, field data. Interpreting the same images the map was made from mostly tells how well the algorithm read them.</li>
+        <li><strong>Report the intervals.</strong> An area of change is the adjusted area ± its interval, not the pixel count.</li>
+        <li><strong>Keep the project.</strong> The GeoPackage holds the points, every label and the design: anyone can recompute the estimates, in Janus or with <code>zeit.accuracy</code>.</li>
+      </ul>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="refs">
+      <h2><span class="n">15</span>References</h2>
+      <ul class="refs">
+        <li>Olofsson, P., Foody, G. M., Herold, M., Stehman, S. V., Woodcock, C. E., Wulder, M. A. (2014). Good practices for estimating area and assessing accuracy of land change. <em>Remote Sensing of Environment</em>, 148, 42–57.</li>
+        <li>Olofsson, P., Arévalo, P., Espejo, A. B., Green, C., Lindquist, E., McRoberts, R. E., Sanz, M. J. (2020). Mitigating the effects of omission errors on area and area change estimates. <em>Remote Sensing of Environment</em>, 236, 111492.</li>
+        <li>Stehman, S. V. (2014). Estimating area and map accuracy for stratified random sampling when the strata are different from the map classes. <em>International Journal of Remote Sensing</em>, 35(13), 4923–4939.</li>
+        <li>Hansen, M. C. et al. (2013). High-resolution global maps of 21st-century forest cover change. <em>Science</em>, 342, 850–853. Data: Global Forest Change 2000–2023 v1.11.</li>
+        <li>Souza, C. M. et al. (2020). Reconstructing three decades of land use and land cover changes in Brazilian biomes with Landsat archive and Earth Engine. <em>Remote Sensing</em>, 12(17), 2735. Data: MapBiomas Collection 9.</li>
+        <li>Sentinel-2 L2A: Copernicus Sentinel data, processed by ESA; cloud-optimized GeoTIFFs from Earth Search (Element 84).</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></p>
+      <p>Built in C++17 with Dear ImGui, ImPlot and GDAL. OpenGL on Windows and Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

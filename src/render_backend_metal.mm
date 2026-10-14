@@ -84,7 +84,8 @@ void newFrame() {
     ImGui_ImplGlfw_NewFrame();
 }
 
-void present(GLFWwindow* window, const float clear[4]) {
+void present(GLFWwindow* window, const float clear[4], const Capture& capture) {
+    if (capture) capture(nullptr, 0, 0); // not read back on Metal (the screenshots are taken with OpenGL)
     @autoreleasepool {
         NSWindow* nswin = glfwGetCocoaWindow(window);
         // Hidden (--selftest-ui) or fully covered: nextDrawable would block (up to

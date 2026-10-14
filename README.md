@@ -54,7 +54,8 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
   date, and the accuracy and **error-adjusted areas ± confidence intervals**
   of every map assessed with it (LandTrendr × CCDC × BFAST × MapBiomas...),
   live as labels come; several interpreters, kappa and adjudication; an HTML
-  report and the matching `zeit.accuracy` code.
+  report and the matching `zeit.accuracy` code. Step by step, with
+  screenshots: [Validating a map](https://sacridini.github.io/janus/validation.html).
 - **Compare**: several series as layers, in any CRS (reprojected on the GPU),
   map panels side by side, a swipe divider, and space-time transects
   (distance × date) along a line, a polyline or a vector line.

@@ -781,6 +781,7 @@ void App::uiDockspace() {
     const bool translucent = panelOpacity_ < 1.0f;
     if (translucent) ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
     const ImGuiID dock = ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_None);
+    dockspaceId_ = dock;
     if (translucent) ImGui::PopStyleColor();
     if (layoutPending_) dockDefaultLayout(dock);
     // A new map panel goes to the right of the main map (splitting its area).
