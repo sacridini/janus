@@ -35,6 +35,8 @@
 | `src/app_transect.cpp` | Space-time transect: sampling along the line (overview, then full resolution in the background), the Transect panel (image drawn by the map renderer) |
 | `src/app_roi.cpp` | The ROI's shape: a rectangle or a polygon (`R`: clicked vertices or a freehand lasso; a vector polygon), its bounding box and outline; the ROI on another layer's pixels (`roiOnLayer`: scaled, or densified and reprojected), `--selftest-ui` stages 110–115 |
 | `src/geom.*` | Polygons as rings (even-odd: holes and multipolygons without flags): bounds, point in polygon, area, the mask of pixel centres inside (scanlines), densifying, Douglas-Peucker |
+| `src/app_animation.cpp` | Animation export: options (in the export popup), frames rendered one per UI frame once their date, detail tiles and basemap are on the GPU (the view frozen behind a modal progress popup), a short queue to the encoder thread (GIF, or ffmpeg fed raw RGBA on stdin), the ffmpeg setting, `--selftest-ui` stages 130–137 |
+| `src/gif.*` | Animated GIF without a library: per-frame palette (exact ≤ 256 colours, else median cut of a 6-bit histogram, optional Floyd–Steinberg), LZW, loop extension; a small decoder for the self-test |
 | `src/file_browser.*` | Lazily listed folder tree (rasters only by default); reveals (expands and scrolls to) the series opened; favourites; a folder's preview as a series (`describeSeriesFiles`) |
 | `src/app_export.cpp` | Export: map as PNG (offscreen render at 1–4×, marks and legend drawn on the CPU with ImGui's pixel font at 13 px, whatever the interface's size), values and the view as GeoTIFF, Zeit results, embedding views (full resolution, `computeEmbeddingExport`); the options popup with its *Save to* path; background jobs, Exports window |
 | `src/app_selftest.cpp` | `--selftest-ui`: the layers workflow, swipe, transect, spectra (ENVI, an EnMAP product) and the exports in a hidden window, checked by reading map pixels and the files written; the full-resolution cache checked against the files |
@@ -57,5 +59,5 @@
 | `cmake/package_macos.cmake` | macOS app and `.dmg` (bundled libraries, RPATH `@executable_path/../Frameworks`, ad hoc signature) |
 | `.github/workflows/build.yml` | CI: Windows, Linux and macOS builds, self-tests, installers; releases on `v*` tags |
 | `tools/make_selftest_data.py` | Synthetic inputs for `--selftest-ui` and `--selftest-zeit` |
-| `src/platform.*` | OS-specific: arguments, open and save dialogs, data folder, opening folders, HDD detection (Windows, Linux, macOS) |
+| `src/platform.*` | OS-specific: arguments, open and save dialogs, data folder, opening folders, HDD detection, `ChildProcess` (a helper fed through stdin, e.g. ffmpeg, no console window) and `findOnPath` (Windows, Linux, macOS) |
 | `src/launcher.cpp` | `jn.com` console launcher |

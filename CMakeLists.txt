@@ -83,6 +83,7 @@ set(JANUS_SOURCES
   src/app.cpp
   src/app_basemap.cpp
   src/app_analysis.cpp
+  src/app_animation.cpp
   src/app_classes.cpp
   src/app_embeddings.cpp
   src/app_export.cpp
@@ -104,6 +105,7 @@ set(JANUS_SOURCES
   src/embedding_simd.cpp
   src/fullres_cache.cpp
   src/geom.cpp
+  src/gif.cpp
   src/overview.cpp
   src/platform.cpp
   src/reproject.cpp

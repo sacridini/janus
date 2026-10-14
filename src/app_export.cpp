@@ -15,12 +15,14 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <memory>
 #include <thread>
 
 #include <cpl_conv.h>
 #include <cpl_error.h>
 #include <cpl_string.h>
 #include <gdal_priv.h>
+#include <ogr_spatialref.h>
 #include <imgui_internal.h>
 #include <implot.h>
 
@@ -319,9 +321,10 @@ void drawLegends(Canvas& cv, const std::vector<Legend>& legends, float ps) {
 }
 
 // The basemap's attribution, bottom right on a dark box, in lines that fit
-// the image (sizes in points x ps, as on the map).
-void drawCredit(Canvas& cv, const std::string& text, float ps) {
-    if (text.empty()) return;
+// the image (sizes in points x ps, as on the map). Returns the top of the box
+// (the image's height without one).
+float drawCredit(Canvas& cv, const std::string& text, float ps) {
+    if (text.empty()) return float(cv.h);
     const float fs = ImGui::GetFontSize() * 0.85f * ps, line = fs + 2 * ps, pad = 3 * ps;
     const float maxW = std::max(80 * ps, cv.w - 20 * ps);
     std::vector<std::string> lines(1);
@@ -341,9 +344,59 @@ void drawCredit(Canvas& cv, const std::string& text, float ps) {
     for (size_t k = 0; k < lines.size(); ++k)
         cv.text(x1 - Canvas::textWidth(lines[k].c_str(), fs), y0 + line * k, lines[k].c_str(), fs,
                 IM_COL32(220, 220, 220, 255));
+    return y0 - pad;
+}
+
+// A scale bar bottom right, its bottom at `bottom`: the longest round length
+// (1, 2 or 5 x 10^k m) that fits in ~120 points, white with a dark outline on
+// a dark box, its length above it.
+void drawScaleBar(Canvas& cv, double metresPerPx, float ps, float bottom) {
+    if (!(metresPerPx > 0) || !std::isfinite(metresPerPx)) return;
+    const double maxM = 120 * ps * metresPerPx;
+    double len = std::pow(10.0, std::floor(std::log10(maxM)));
+    for (double k : {5.0, 2.0})
+        if (len * k <= maxM) {
+            len *= k;
+            break;
+        }
+    const float barW = float(len / metresPerPx);
+    char text[32];
+    if (len >= 1000) std::snprintf(text, sizeof(text), "%g km", len / 1000);
+    else if (len >= 1) std::snprintf(text, sizeof(text), "%g m", len);
+    else std::snprintf(text, sizeof(text), "%g cm", len * 100);
+    const float fs = ImGui::GetFontSize() * ps, pad = 5 * ps, barH = 5 * ps;
+    const float x1 = cv.w - 10 * ps, x0 = x1 - barW, y1 = bottom - 8 * ps, y0 = y1 - barH;
+    const float tw = Canvas::textWidth(text, fs);
+    cv.fillRect(std::min(x0, x1 - tw) - pad, y0 - fs - 3 * ps - pad, x1 + pad, y1 + pad, IM_COL32(0, 0, 0, 140));
+    cv.fillRect(x0 - ps, y0 - ps, x1 + ps, y1 + ps, IM_COL32(0, 0, 0, 255));
+    cv.fillRect(x0, y0, x1, y1, IM_COL32(255, 255, 255, 255));
+    cv.fillRect(x0 + barW / 2 - ps / 2, y0, x0 + barW / 2 + ps / 2, y1, IM_COL32(0, 0, 0, 255)); // the half
+    cv.text(x1 - tw, y0 - fs - 3 * ps, text, fs, IM_COL32(255, 255, 255, 255));
 }
 
 } // namespace
+
+double App::groundMetresPerPixel(double x, double y) const {
+    if (!s_) return 0;
+    const CubeInfo& info = *s_->info;
+    if (!info.hasGeoTransform || info.crsWkt.empty()) return 0;
+    OGRSpatialReference src, ll;
+    if (src.importFromWkt(info.crsWkt.c_str()) != OGRERR_NONE || ll.importFromEPSG(4326) != OGRERR_NONE) return 0;
+    src.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    ll.SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
+    std::unique_ptr<OGRCoordinateTransformation> ct(OGRCreateCoordinateTransformation(&src, &ll));
+    if (!ct) return 0;
+    // Two points 10 pixels apart along the row, as longitude and latitude.
+    double gx[2], gy[2];
+    if (!info.pixelToGeo(x - 5, y, gx[0], gy[0]) || !info.pixelToGeo(x + 5, y, gx[1], gy[1])) return 0;
+    if (!ct->Transform(2, gx, gy)) return 0;
+    // Haversine on the mean Earth radius (within 0.5% of the ellipsoid's distance).
+    constexpr double kR = 6371008.8, kRad = 3.14159265358979323846 / 180;
+    const double dlat = (gy[1] - gy[0]) * kRad, dlon = (gx[1] - gx[0]) * kRad;
+    const double a = std::sin(dlat / 2) * std::sin(dlat / 2) +
+                     std::cos(gy[0] * kRad) * std::cos(gy[1] * kRad) * std::sin(dlon / 2) * std::sin(dlon / 2);
+    return 2 * kR * std::asin(std::min(1.0, std::sqrt(a))) / 10;
+}
 
 // ---------------------------------------------------------------------------
 // Rendering
@@ -454,12 +507,31 @@ std::shared_ptr<ExportJob> App::exportPng(const std::string& path, const PngOpti
     auto img = std::make_shared<std::vector<unsigned char>>();
     int w = 0, h = 0;
     renderExport(o.scale, transparent, o.background == 1 ? white : nullptr, *img, w, h);
+    FigureOverlay fo;
+    fo.label = o.label ? 1 : 0;
+    fo.legend = o.legend;
+    fo.marks = o.marks;
+    fo.scaleBar = o.scaleBar;
+    drawFigureOverlay(*img, w, h, o.scale, fo);
+    char title[160];
+    std::snprintf(title, sizeof(title), "Map as PNG, %d x %d px", w, h);
+    auto job = startJob(title, path, [img, w, h, transparent, path](ExportJob& j, std::string& error) {
+        char** opts = CSLSetNameValue(nullptr, "ZLEVEL", "6");
+        const bool ok = writeImage(path, "PNG", *img, w, h, transparent, nullptr, "", opts, j, error);
+        CSLDestroy(opts);
+        return ok;
+    });
+    exports_.push_back(job);
+    showExports_ = true;
+    return job;
+}
 
+void App::drawFigureOverlay(std::vector<unsigned char>& img, int w, int h, int scale, const FigureOverlay& o) {
     // Marks, label and legend, as the map draws them, in points x ps. Figures
     // keep their text whatever the interface's font size (Settings).
     ImGui::PushFont(fontBitmap_, float(kDefaultFontSize));
-    const float ps = mapPixelScale_ * float(o.scale);
-    Canvas cv{w, h, img->data()};
+    const float ps = mapPixelScale_ * float(scale);
+    Canvas cv{w, h, img.data()};
     auto toPx = [&](double x, double y) {
         return ImVec2(float((offset_.x + x * scale_) * ps), float((offset_.y + y * scale_) * ps));
     };
@@ -498,7 +570,28 @@ std::shared_ptr<ExportJob> App::exportPng(const std::string& path, const PngOpti
     int embCmap = -1;
     float embLo = 0, embHi = 1;
     const bool emb = embeddingMapInfo(embTitle, embCmap, embLo, embHi, embWait);
-    if (o.label) {
+    const bool dated = !emb && (mode_ == ModeValue || mode_ == ModeAnomaly || mode_ == ModeDiff);
+    if (o.label == 2 && dated) {
+        // An animation's date stamp: the date large (ImGui's scalable font), the
+        // layer and the mode under it.
+        const SeriesLayer* A = activeLayer();
+        std::string sub = (A ? A->name + "  |  " : std::string()) + modeName(mode_, info);
+        if (mode_ == ModeDiff) {
+            const int ref = diffRefDate(diffRef_, t_, info.T());
+            sub += std::string(" from ") + (ref >= 0 ? info.layers[ref].label : "(none)");
+        }
+        const char* date = info.layers[t_].label.c_str();
+        ImGui::PushFont(fontVector_ ? fontVector_ : fontBitmap_, float(kDefaultFontSize));
+        const float big = 30 * ps, wBig = Canvas::textWidth(date, big);
+        ImGui::PopFont();
+        const float x = 12 * ps, y = 10 * ps, wSub = Canvas::textWidth(sub.c_str(), fs);
+        cv.fillRect(x - 7 * ps, y - 5 * ps, x + std::max(wBig, wSub) + 7 * ps, y + big + 4 * ps + fs + 5 * ps,
+                    IM_COL32(0, 0, 0, 165));
+        ImGui::PushFont(fontVector_ ? fontVector_ : fontBitmap_, float(kDefaultFontSize));
+        cv.text(x, y, date, big, IM_COL32(255, 255, 255, 255));
+        ImGui::PopFont();
+        cv.text(x, y + big + 4 * ps, sub.c_str(), fs, IM_COL32(225, 225, 225, 255));
+    } else if (o.label) {
         char title[200];
         if (emb)
             std::snprintf(title, sizeof(title), "%s", embTitle.c_str());
@@ -560,19 +653,13 @@ std::shared_ptr<ExportJob> App::exportPng(const std::string& path, const PngOpti
         }
         drawLegends(cv, legends, ps);
     }
-    drawCredit(cv, basemapAttribution(), ps); // whenever the basemap is drawn
+    const float creditTop = drawCredit(cv, basemapAttribution(), ps); // whenever the basemap is drawn
+    if (o.scaleBar) {
+        // Measured at the centre of the view; one target pixel is 1 / (scale_ ps) layer pixels.
+        const double cx = (canvasSize_.x * 0.5 - offset_.x) / scale_, cy = (canvasSize_.y * 0.5 - offset_.y) / scale_;
+        drawScaleBar(cv, groundMetresPerPixel(cx, cy) / (scale_ * ps), ps, creditTop);
+    }
     ImGui::PopFont();
-    char title[160];
-    std::snprintf(title, sizeof(title), "Map as PNG, %d x %d px", w, h);
-    auto job = startJob(title, path, [img, w, h, transparent, path](ExportJob& j, std::string& error) {
-        char** opts = CSLSetNameValue(nullptr, "ZLEVEL", "6");
-        const bool ok = writeImage(path, "PNG", *img, w, h, transparent, nullptr, "", opts, j, error);
-        CSLDestroy(opts);
-        return ok;
-    });
-    exports_.push_back(job);
-    showExports_ = true;
-    return job;
 }
 
 std::shared_ptr<ExportJob> App::exportValues(const std::string& path, bool wholeImage) {
@@ -824,6 +911,12 @@ void App::uiExportMenu() {
     }
     ImGui::SetItemTooltip("The embedding view shown (principal components, similarity or change)\n"
                           "at full resolution, read again from the files");
+    if (ImGui::MenuItem("Export animation (GIF, MP4, WebM)...", "Ctrl+Shift+A", false, s_ != nullptr)) {
+        exportKind_ = 5;
+        exportPopup_ = true;
+    }
+    ImGui::SetItemTooltip("The map over a range of dates as a timelapse, with the date stamp,\n"
+                          "legend, scale bar and basemap");
     if (ImGui::BeginMenu("Export Zeit result as GeoTIFF", !results_.empty())) {
         const ResultLayer* top = topResult();
         if (top && ImGui::MenuItem(("Save " + top->name + "...").c_str(), "Ctrl+S")) saveResult(*top);
@@ -857,6 +950,7 @@ void App::exportShortcuts() {
     if (s_ && s_->info->hasGeoTransform && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V)) open(3);
     const SeriesLayer* emb = embeddingLayer();
     if (emb && embeddingView(*emb) && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_M)) open(4);
+    if (s_ && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_A)) open(5);
     if (const ResultLayer* top = topResult()) {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S)) saveResult(*top);
         else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S)) openSaveRun(*top);
@@ -976,13 +1070,24 @@ void App::uiSaveRun() {
 
 void App::uiExport() {
     static const char* kTitles[] = {"", "Export map as PNG", "Export values as GeoTIFF",
-                                    "Export rendered view as GeoTIFF", "Export embeddings as GeoTIFF"};
-    static const char* kFilters[] = {"", "PNG image", "GeoTIFF", "GeoTIFF", "GeoTIFF"};
-    static const char* kExts[] = {"", "png", "tif", "tif", "tif"};
-    static const char* kSuffixes[] = {"", ".png", ".tif", "_view.tif", ""};
-    const int kind = std::clamp(exportKind_, 0, 4);
-    // Named after the layer and date; embeddings after their layer (maybe not the active one) and view.
+                                    "Export rendered view as GeoTIFF", "Export embeddings as GeoTIFF",
+                                    "Export animation"};
+    static const char* kFilters[] = {"", "PNG image", "GeoTIFF", "GeoTIFF", "GeoTIFF", "Animation"};
+    static const char* kExts[] = {"", "png", "tif", "tif", "tif", "gif"};
+    static const char* kSuffixes[] = {"", ".png", ".tif", "_view.tif", "", ".gif"};
+    const int kind = std::clamp(exportKind_, 0, 5);
+    const char* ext = kind == 5 ? animExt(anim_.format) : kExts[kind]; // an animation's follows its format
+    // Named after the layer and date; embeddings after their layer (maybe not the active one) and view;
+    // an animation after the layer and its dates.
     auto defaultName = [&]() -> std::string {
+        if (kind == 5) {
+            const std::vector<int> d = animDates(anim_);
+            const SeriesLayer* A = activeLayer();
+            std::string name = A ? sanitize(A->name) : "janus";
+            if (!d.empty())
+                name += "_" + sanitize(s_->info->layers[d.front()].label) + "-" + sanitize(s_->info->layers[d.back()].label);
+            return name + "." + animExt(anim_.format);
+        }
         const SeriesLayer* L = kind == 4 ? embeddingLayer() : nullptr;
         EmbeddingExport e;
         std::string why;
@@ -993,13 +1098,18 @@ void App::uiExport() {
     if (exportPopup_) {
         ImGui::OpenPopup("Export###export");
         exportPopup_ = false;
+        if (kind == 5 && s_) { // every date at the map's speed, unless changed in the popup
+            anim_.from = 0;
+            anim_.to = s_->info->T() - 1;
+            anim_.fps = fps_;
+        }
         // Where it goes: the last export's folder (else the layer's).
         const std::string path = s_ ? (fs::u8path(exportFolder()) / fs::u8path(defaultName())).u8string() : "";
         std::snprintf(exportPath_, sizeof(exportPath_), "%s", path.c_str());
     }
     const std::string name = std::string(kTitles[kind]) + "###export";
     if (!ImGui::BeginPopupModal(name.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    if (!s_ || exportKind_ < 1 || exportKind_ > 4) {
+    if (!s_ || exportKind_ < 1 || exportKind_ > 5) {
         ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
         return;
@@ -1032,6 +1142,10 @@ void App::uiExport() {
         ImGui::Checkbox("Date and mode label", &png_.label);
         ImGui::Checkbox("Legend (colour bar or classes)", &png_.legend);
         ImGui::Checkbox("Pins and ROI", &png_.marks);
+        ImGui::BeginDisabled(!info.hasGeoTransform || info.crsWkt.empty());
+        ImGui::Checkbox("Scale bar", &png_.scaleBar);
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("Ground distance at the centre of the view (the layer needs a CRS)");
     } else if (exportKind_ == 2) {
         const SeriesLayer* L = activeLayer();
         ImGui::TextColored(theme::accent(), "%s", L ? L->name.c_str() : "");
@@ -1063,6 +1177,9 @@ void App::uiExport() {
         scaleChoice(viewScale_);
         ImGui::TextDisabled("RGB + alpha (transparent where nothing is drawn), as shown,\n"
                             "georeferenced in the active layer's CRS.");
+    } else if (exportKind_ == 5) {
+        uiAnimationOptions(canSave);
+        ext = animExt(anim_.format); // may have changed above
     } else {
         const SeriesLayer* L = embeddingLayer();
         ImGui::TextColored(theme::accent(), "%s", L ? L->name.c_str() : "");
@@ -1101,16 +1218,16 @@ void App::uiExport() {
     const bool enter = ImGui::InputText("##saveto", exportPath_, sizeof(exportPath_), ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SetItemTooltip("Full path of the file, or a name alone (saved in %s).", exportFolder().c_str());
     ImGui::SameLine();
-    std::string target = exportTarget(kExts[kind]);
+    std::string target = exportTarget(ext);
     if (ImGui::Button("Browse...")) {
         std::error_code ec;
         const fs::path t = fs::u8path(target);
         const bool known = !target.empty() && fs::is_directory(t.parent_path(), ec);
         const std::string path = askSavePath(kTitles[kind], known ? t.filename().u8string() : defaultName(),
-                                             kFilters[kind], kExts[kind], known ? t.parent_path().u8string() : "");
+                                             kFilters[kind], ext, known ? t.parent_path().u8string() : "");
         if (!path.empty()) {
             std::snprintf(exportPath_, sizeof(exportPath_), "%s", path.c_str());
-            target = exportTarget(kExts[kind]);
+            target = exportTarget(ext);
         }
     }
     {
@@ -1147,6 +1264,7 @@ void App::uiExport() {
         if (exportKind_ == 1) exportPng(target, png_);
         else if (exportKind_ == 2) exportValues(target, valuesWhole_);
         else if (exportKind_ == 3) exportView(target, viewScale_);
+        else if (exportKind_ == 5) startAnimation(target, anim_);
         else exportEmbeddings(target, emb);
     }
     ImGui::EndPopup();

@@ -157,7 +157,19 @@ private:
         bool label = true;       // date and mode, top left
         bool legend = true;      // colour bar or classes, bottom left
         bool marks = false;      // pins and ROI
+        bool scaleBar = false;   // ground distance, bottom right
     };
+    // What is drawn over a rendered map (PNG, animation frames).
+    struct FigureOverlay {
+        int label = 1;           // 0 none, 1 date and mode (one line), 2 the date stamp of an animation (large)
+        bool legend = true, marks = false, scaleBar = false;
+    };
+    // Over `img` (w x h RGBA rows, rendered by renderExport at `scale`): the
+    // label, legend, marks, scale bar and the basemap's credit, as the map draws them.
+    void drawFigureOverlay(std::vector<unsigned char>& img, int w, int h, int scale, const FigureOverlay& o);
+    // Metres on the ground per pixel of the active layer at its pixel (x, y),
+    // along a row (geodesic, whatever the CRS); 0 when it cannot be known.
+    double groundMetresPerPixel(double x, double y) const;
     void uiExportMenu();         // File menu entries
     void uiExport();             // options popup
     void uiExports();            // progress window
@@ -194,6 +206,33 @@ private:
     // The path typed in the export popup: absolute (from exportFolder()), with `ext`.
     std::string exportTarget(const char* ext) const;
     const char* selfTestExports(); // nullptr = passed
+
+    // Animation (app_animation.cpp): the map over a range of dates, rendered
+    // offscreen one frame per UI frame (the view frozen behind a modal progress
+    // popup) and encoded in the background: our own GIF writer (gif.hpp), or
+    // MP4 / WebM through an external ffmpeg fed raw frames on its standard input.
+    struct AnimOptions {
+        int from = 0, to = -1;       // dates (to < 0: the last)
+        int step = 1;                // every n-th date
+        float fps = 4.f;
+        int scale = 1;               // x the on-screen resolution
+        int format = 0;              // 0 GIF, 1 MP4 (H.264), 2 WebM (VP9)
+        int background = 0;          // 0 the map's (dark), 1 white
+        bool stamp = true, legend = true, scaleBar = true, marks = false;
+        bool dither = false;         // GIF: error diffusion (smoother gradients, larger files)
+    } anim_;
+    struct AnimRun;                  // the export being rendered
+    std::shared_ptr<AnimRun> animRun_;
+    std::string ffmpegPath_;         // Settings: "" = next to Janus, else on PATH
+    static const char* animExt(int format);
+    std::string findFfmpeg() const;  // the ffmpeg that would be used, "" if none
+    std::vector<int> animDates(const AnimOptions& o) const;
+    void uiAnimationOptions(bool& canSave); // the export popup's options (exportKind_ 5)
+    std::shared_ptr<ExportJob> startAnimation(const std::string& path, const AnimOptions& o);
+    void pumpAnimation();            // once per frame: the next date, its frame when ready
+    void uiAnimation();              // the progress popup
+    void uiFfmpegSettings();         // Settings window
+    int selfTestAnimation(const std::string& a); // --selftest-ui stages 130-139 (A reopened)
 
     // Settings window (app_settings.cpp): theme, processing threads, memory and
     // caches, kept in the layout .ini.

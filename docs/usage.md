@@ -56,7 +56,9 @@
   **rendered view** as an RGBA GeoTIFF, both ready for QGIS; **Zeit results** as
   GeoTIFF (e.g. each LandTrendr output: year of detection, magnitude,
   duration...); the **embedding view** shown (principal components,
-  similarity, change) as a Float32 GeoTIFF at full resolution. The export window shows where the file goes (*Save to*: type a path,
+  similarity, change) as a Float32 GeoTIFF at full resolution; a range of
+  dates as an **animation** (GIF, or MP4/WebM through ffmpeg) with the date
+  stamp, legend and a scale bar (see [Animation](#animation-gif-mp4-webm)). The export window shows where the file goes (*Save to*: type a path,
   or a name alone for the last export folder, or pick one with **Browse...**;
   it warns before replacing a file). Files are written in the background
   (File → Exports shows progress);
@@ -548,3 +550,4 @@ once and is kept in the layout file, next to the other data of Janus
 | Overview memory | Memory for the cube overview (1024 MB by default); **Apply** reopens the active layer. `--budget` overrides it for one run |
 | Clear overview cache | Deletes the cached overviews except the active layer's |
 | Full-resolution cache | When it is built (on demand, series on an HDD, every series), its budget, and clearing it (see [Performance](#performance)) |
+| Video export (ffmpeg) | The `ffmpeg` executable used for MP4 and WebM animations (**Browse...**); empty: one next to Janus, else the one on PATH (see [Animation](#animation-gif-mp4-webm)) |

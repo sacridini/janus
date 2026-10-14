@@ -51,6 +51,10 @@ public:
     void forEachVisible(int t, int t2, const ViewRect& v,
                         const std::function<void(GpuTex, GpuTex, double, double, double, double)>& f);
 
+    // Tiles of date t that update() would want for the view and are not on the
+    // GPU yet (0 when the overview is enough): an exported frame waits for them.
+    int missing(int t, const ViewRect& v) const;
+
     size_t gpuBytes() const { return gpuBytes_; }
     int gpuTiles() const { return int(gpu_.size()); }
     int inflight() const;

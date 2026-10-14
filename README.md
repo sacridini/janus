@@ -57,9 +57,9 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
   visible area over any series, shown through their principal components (also
   local to a region, refitted as you move it), the similarity to the cursor or
   a pin, and the change between years; computed in C++ with SIMD.
-- **Export**: maps as PNG figures, values, views, Zeit results and embedding
-  views as georeferenced GeoTIFFs,
-  series as CSV.
+- **Export**: maps as PNG figures, timelapse **animations** (GIF, MP4, WebM)
+  with the date, legend and scale bar, values, views, Zeit results and
+  embedding views as georeferenced GeoTIFFs, series as CSV.
 - **Fast on any disk**: about 0.15 s to the first frame, a disk cache of the
   cube, and a full-resolution cache that serves a pixel's series in about 1 ms
   even when the data sit on a spinning hard disk.

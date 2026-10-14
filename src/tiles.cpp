@@ -61,6 +61,14 @@ int TileManager::update(int t, const ViewRect& v, int prefetchT) {
     return level;
 }
 
+int TileManager::missing(int t, const ViewRect& v) const {
+    if (maxLevel_ < 0 || v.scale * overviewFactor_ <= 1.0) return 0;
+    const int level = std::clamp(int(std::floor(std::log2(1.0 / v.scale))), 0, maxLevel_);
+    int n = 0;
+    forTilesInView(v, level, info_->width, info_->height, [&](int tx, int ty) { n += !gpu_.count(makeKey(t, level, tx, ty)); });
+    return n;
+}
+
 void TileManager::request(int t, int level, const ViewRect& v, int priority) {
     const int W = info_->width, H = info_->height;
     forTilesInView(v, level, W, H, [&](int tx, int ty) {

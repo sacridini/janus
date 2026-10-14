@@ -791,9 +791,18 @@ int App::selfTestStep(const std::vector<std::string>& in) {
     case 114:
     case 115:
         return selfTestRoiPolygon(in);
-    case 120:
-        std::printf("OK (%.1f s)\n", now() - st_.t0);
-        return 0;
+    case 120: // the animation export (130-137), which prints OK
+        st_.stage = 130;
+        break;
+    case 130:
+    case 131:
+    case 132:
+    case 133:
+    case 134:
+    case 135:
+    case 136:
+    case 137:
+        return selfTestAnimation(in[0]);
     }
     return -1;
 }

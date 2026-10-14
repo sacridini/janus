@@ -1,5 +1,6 @@
 #include "platform.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -16,6 +17,9 @@
 #include <shobjidl.h>
 #include <winioctl.h>
 #else
+#include <cerrno>
+#include <csignal>
+#include <fcntl.h>
 #include <fstream>
 #include <memory>
 #include <spawn.h>
@@ -529,4 +533,225 @@ std::vector<std::string> platform::takeOpenRequests() { return {}; }
 bool platform::shiftHeld() { return (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0; }
 #elif !defined(__APPLE__)
 bool platform::shiftHeld() { return false; } // macOS: platform_mac.mm
+#endif
+
+// ---------------------------------------------------------------------------
+// Helper programs fed through their standard input (ffmpeg)
+// ---------------------------------------------------------------------------
+
+#ifdef _WIN32
+
+std::string platform::findOnPath(const std::string& program) {
+    wchar_t buf[MAX_PATH];
+    const DWORD n = SearchPathW(nullptr, toWide(program).c_str(), L".exe", MAX_PATH, buf, nullptr);
+    return n > 0 && n < MAX_PATH ? toUtf8(buf) : "";
+}
+
+struct platform::ChildProcess::Impl {
+    HANDLE process = nullptr, input = nullptr;
+};
+
+static std::wstring quoteArg(const std::wstring& a) {
+    if (!a.empty() && a.find_first_of(L" \t\"") == std::wstring::npos) return a;
+    std::wstring out = L"\"";
+    int backslashes = 0;
+    for (wchar_t c : a) {
+        if (c == L'\\') {
+            ++backslashes;
+        } else {
+            if (c == L'"') out.append(size_t(backslashes) * 2 + 1, L'\\');
+            else out.append(size_t(backslashes), L'\\');
+            backslashes = 0;
+            out += c;
+        }
+    }
+    out.append(size_t(backslashes) * 2, L'\\');
+    return out + L"\"";
+}
+
+platform::ChildProcess::ChildProcess() : impl_(std::make_unique<Impl>()) {}
+
+platform::ChildProcess::~ChildProcess() {
+    if (impl_->input) CloseHandle(impl_->input);
+    if (impl_->process) {
+        if (WaitForSingleObject(impl_->process, 0) == WAIT_TIMEOUT) TerminateProcess(impl_->process, 1);
+        CloseHandle(impl_->process);
+    }
+}
+
+bool platform::ChildProcess::start(const std::vector<std::string>& argv, const std::string& logPath,
+                                   std::string& error) {
+    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+    HANDLE inR = nullptr, inW = nullptr;
+    if (!CreatePipe(&inR, &inW, &sa, 1 << 20)) {
+        error = "CreatePipe failed";
+        return false;
+    }
+    SetHandleInformation(inW, HANDLE_FLAG_INHERIT, 0);
+    HANDLE logH = CreateFileW(toWide(logPath).c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (logH == INVALID_HANDLE_VALUE)
+        logH = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);
+    // Inherit exactly these handles, nothing else of this process.
+    HANDLE inherit[2] = {inR, logH};
+    SIZE_T attrSize = 0;
+    InitializeProcThreadAttributeList(nullptr, 1, 0, &attrSize);
+    std::vector<char> attrBuf(attrSize);
+    auto attrs = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attrBuf.data());
+    InitializeProcThreadAttributeList(attrs, 1, 0, &attrSize);
+    UpdateProcThreadAttribute(attrs, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherit, sizeof(inherit), nullptr, nullptr);
+    STARTUPINFOEXW si{};
+    si.StartupInfo.cb = sizeof(si);
+    si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    si.StartupInfo.hStdInput = inR;
+    si.StartupInfo.hStdOutput = logH;
+    si.StartupInfo.hStdError = logH;
+    si.lpAttributeList = attrs;
+    std::wstring cmd;
+    for (const std::string& a : argv) cmd += (cmd.empty() ? L"" : L" ") + quoteArg(toWide(a));
+    PROCESS_INFORMATION pi{};
+    const BOOL ok = CreateProcessW(toWide(argv[0]).c_str(), cmd.data(), nullptr, nullptr, TRUE,
+                                   CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr, &si.StartupInfo,
+                                   &pi);
+    DeleteProcThreadAttributeList(attrs);
+    CloseHandle(inR);
+    CloseHandle(logH);
+    if (!ok) {
+        error = "could not start " + argv[0] + " (error " + std::to_string(GetLastError()) + ")";
+        CloseHandle(inW);
+        return false;
+    }
+    CloseHandle(pi.hThread);
+    impl_->process = pi.hProcess;
+    impl_->input = inW;
+    return true;
+}
+
+bool platform::ChildProcess::write(const void* data, size_t n) {
+    const char* p = static_cast<const char*>(data);
+    while (n > 0 && impl_->input) {
+        DWORD written = 0;
+        const DWORD chunk = DWORD(std::min<size_t>(n, size_t(1) << 24));
+        if (!WriteFile(impl_->input, p, chunk, &written, nullptr) || written == 0) return false;
+        p += written;
+        n -= written;
+    }
+    return n == 0;
+}
+
+int platform::ChildProcess::finish() {
+    if (impl_->input) {
+        CloseHandle(impl_->input);
+        impl_->input = nullptr;
+    }
+    if (!impl_->process) return -1;
+    WaitForSingleObject(impl_->process, INFINITE);
+    DWORD code = 0;
+    return GetExitCodeProcess(impl_->process, &code) ? int(code) : -1;
+}
+
+void platform::ChildProcess::kill() {
+    if (impl_->process) TerminateProcess(impl_->process, 1);
+}
+
+#else
+
+std::string platform::findOnPath(const std::string& program) {
+    const char* path = std::getenv("PATH");
+    if (!path) return "";
+    const std::string p = path;
+    size_t start = 0;
+    while (start <= p.size()) {
+        const size_t end = p.find(':', start);
+        const std::string dir = p.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        const fs::path f = fs::path(dir) / program;
+        if (!dir.empty() && access(f.c_str(), X_OK) == 0) return f.string();
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return "";
+}
+
+struct platform::ChildProcess::Impl {
+    pid_t pid = -1;
+    int input = -1;
+    bool reaped = false;
+    int status = 0;
+};
+
+platform::ChildProcess::ChildProcess() : impl_(std::make_unique<Impl>()) {}
+
+platform::ChildProcess::~ChildProcess() {
+    if (impl_->input >= 0) close(impl_->input);
+    if (impl_->pid > 0 && !impl_->reaped) {
+        ::kill(impl_->pid, SIGKILL);
+        waitpid(impl_->pid, &impl_->status, 0);
+    }
+}
+
+bool platform::ChildProcess::start(const std::vector<std::string>& argv, const std::string& logPath,
+                                   std::string& error) {
+    int fds[2];
+    if (pipe(fds) != 0) {
+        error = std::string("pipe failed: ") + std::strerror(errno);
+        return false;
+    }
+    fcntl(fds[1], F_SETFD, FD_CLOEXEC); // only the read end reaches the child (as its stdin)
+    int logFd = open(logPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (logFd < 0) logFd = open("/dev/null", O_WRONLY | O_CLOEXEC);
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, fds[0], 0);
+    posix_spawn_file_actions_adddup2(&fa, logFd, 1);
+    posix_spawn_file_actions_adddup2(&fa, logFd, 2);
+    std::vector<std::string> a = argv;
+    std::vector<char*> av;
+    for (std::string& x : a) av.push_back(x.data());
+    av.push_back(nullptr);
+    pid_t pid = -1;
+    const int rc = posix_spawn(&pid, av[0], &fa, nullptr, av.data(), environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(fds[0]);
+    if (logFd >= 0) close(logFd);
+    if (rc != 0) {
+        error = "could not start " + argv[0] + ": " + std::strerror(rc);
+        close(fds[1]);
+        return false;
+    }
+    signal(SIGPIPE, SIG_IGN); // a write after the process died must fail, not kill Janus
+    impl_->pid = pid;
+    impl_->input = fds[1];
+    return true;
+}
+
+bool platform::ChildProcess::write(const void* data, size_t n) {
+    const char* p = static_cast<const char*>(data);
+    while (n > 0 && impl_->input >= 0) {
+        const ssize_t k = ::write(impl_->input, p, n);
+        if (k < 0 && errno == EINTR) continue;
+        if (k <= 0) return false;
+        p += k;
+        n -= size_t(k);
+    }
+    return n == 0;
+}
+
+int platform::ChildProcess::finish() {
+    if (impl_->input >= 0) {
+        close(impl_->input);
+        impl_->input = -1;
+    }
+    if (impl_->pid <= 0) return -1;
+    if (!impl_->reaped) {
+        while (waitpid(impl_->pid, &impl_->status, 0) < 0 && errno == EINTR) {
+        }
+        impl_->reaped = true;
+    }
+    return WIFEXITED(impl_->status) ? WEXITSTATUS(impl_->status) : -1;
+}
+
+void platform::ChildProcess::kill() {
+    if (impl_->pid > 0 && !impl_->reaped) ::kill(impl_->pid, SIGKILL);
+}
+
 #endif

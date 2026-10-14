@@ -236,7 +236,9 @@ void App::finishOpen() {
     startZeit();
 }
 
-bool App::wantsContinuousFrames() const { return playing_ || roiDragging_ || hoverPending_ || zooming_; }
+bool App::wantsContinuousFrames() const {
+    return playing_ || roiDragging_ || hoverPending_ || zooming_ || animRun_;
+}
 
 bool App::modeAvailable(int mode) const {
     if (!s_) return false;
@@ -265,7 +267,7 @@ void App::frame() {
     const auto frameStart = std::chrono::steady_clock::now();
     if (appliedTheme_ != theme_) applyTheme(); // also the one read from the layout file
     gestures_ = platform::takeGestures();
-    if (!pendingDrop.empty() && !opening_.valid()) {
+    if (!pendingDrop.empty() && !opening_.valid() && !animRun_) {
         auto drop = std::move(pendingDrop);
         pendingDrop.clear();
         openInputs(drop, std::exchange(pendingDropAdd, false) && !layers_.empty());
@@ -325,6 +327,7 @@ void App::frame() {
     pumpZeit();
     pumpEmbeddings();
     pumpTransect();
+    pumpAnimation();
 
     handleShortcuts();
     uiMenu();
@@ -347,6 +350,7 @@ void App::frame() {
     uiZeitLog();
     uiExports();
     uiExport();
+    uiAnimation();
     uiSaveRun();
     uiPopups();
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
@@ -584,6 +588,7 @@ void App::updateRangeAndHistogram() {
 
 void App::handleShortcuts() {
     ImGuiIO& io = ImGui::GetIO();
+    if (animRun_) return; // the map and its date stay as they are while an animation is drawn
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O)) {
         auto files = platform::openFilesDialog();
         if (!files.empty()) openInputs(files);
@@ -755,7 +760,8 @@ void App::uiPopups() {
             "Settings: Ctrl+, (theme, processing threads, memory and caches)\n"
             "Reset layout: Ctrl+Shift+R (panels and windows back to their first place)\n"
             "Export: Ctrl+E map as PNG, Ctrl+Shift+E values, Ctrl+Shift+V rendered view,\n"
-            "        Ctrl+Shift+M embeddings (GeoTIFF); Ctrl+J the Exports window\n"
+            "        Ctrl+Shift+M embeddings (GeoTIFF); Ctrl+Shift+A animation (GIF, MP4,\n"
+            "        WebM); Ctrl+J the Exports window\n"
             "Zeit result on top: Ctrl+S save it, Ctrl+Shift+S save every output of its run\n\n"
             "Map\n"
             "  drag ................ pan\n"

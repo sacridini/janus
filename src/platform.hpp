@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ctime>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -59,5 +60,30 @@ Gestures takeGestures();
 // Finder's "Open With", a double click, a drop on the Dock icon). Elsewhere
 // they come on the command line: always empty.
 std::vector<std::string> takeOpenRequests();
+
+// The full path of `program` found on PATH (Windows: also with .exe), else "".
+std::string findOnPath(const std::string& program);
+
+// A helper program fed through its standard input (e.g. ffmpeg encoding the
+// frames of a video); its standard output and error go to `logPath`. No console
+// window on Windows. The destructor kills it if it is still running.
+class ChildProcess {
+public:
+    ChildProcess();
+    ~ChildProcess();
+    ChildProcess(const ChildProcess&) = delete;
+    ChildProcess& operator=(const ChildProcess&) = delete;
+    // argv[0]: the program's path. False with `error` if it could not start.
+    bool start(const std::vector<std::string>& argv, const std::string& logPath, std::string& error);
+    // Blocks while the pipe is full; false once the process has gone.
+    bool write(const void* data, size_t n);
+    // Closes its input and waits for it to end: the exit code (-1 if unknown).
+    int finish();
+    void kill();
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
 
 } // namespace platform

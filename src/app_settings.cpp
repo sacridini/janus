@@ -46,6 +46,7 @@ void App::registerSettings() {
         else if (value("FontSize=", v)) app.fontSize_ = std::clamp(v, kMinFontSize, kMaxFontSize);
         else if (value("RevealOpened=", v)) app.revealOpened_ = v != 0;
         else if (std::strncmp(line, "ExportDir=", 10) == 0) app.exportDir_ = line + 10;
+        else if (std::strncmp(line, "Ffmpeg=", 7) == 0) app.ffmpegPath_ = line + 7;
         else if (std::strncmp(line, "Favorite=", 9) == 0 && line[9]) app.files_.addFavorite(line + 9);
         else if (std::strncmp(line, "Theme=", 6) == 0)
             for (int i = 0; i < theme::Count; ++i)
@@ -64,9 +65,10 @@ void App::registerSettings() {
         const App& app = *static_cast<App*>(handler->UserData);
         const SessionSettings& s = app.settings_;
         buf->appendf("[Janus][Settings]\nFullResCache=%d\nFullResBudgetGB=%d\nOverviewBudgetMB=%d\nThreads=%d\n"
-                     "Theme=%s\nFontSize=%d\nRevealOpened=%d\nExportDir=%s\n",
+                     "Theme=%s\nFontSize=%d\nRevealOpened=%d\nExportDir=%s\nFfmpeg=%s\n",
                      s.fullResMode, int(s.fullResBudgetBytes >> 30), app.overviewBudgetMB_, s.threads,
-                     theme::name(app.theme_), app.fontSize_, int(app.revealOpened_), app.exportDir_.c_str());
+                     theme::name(app.theme_), app.fontSize_, int(app.revealOpened_), app.exportDir_.c_str(),
+                     app.ffmpegPath_.c_str());
         for (const std::string& f : app.files_.favorites()) buf->appendf("Favorite=%s\n", f.c_str()); // one line each
         buf->append("\n");
     };
@@ -214,6 +216,7 @@ void App::uiSettings() {
     if (ImGui::Button("Clear overview cache", ImVec2(-1, 0))) clearOverviewCache();
     ImGui::SetItemTooltip("%s (the active layer's is kept)", settings_.cacheDir.c_str());
     uiFullResSettings();
+    uiFfmpegSettings();
     ImGui::End();
 }
 
