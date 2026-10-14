@@ -259,6 +259,57 @@ Windows sem Python nem conda, e chamável pela linha de comando
     DLR); EOWEB GeoPortal ou o STAC do DLR Geoservice (coleção
     `ENMAP_HSI_L2A`, ARD), com autenticação.
 
+### Vetores, ROI poligonal e animação (fases 20–22, pedidas em 2026-10-14)
+- Pedidas juntas: dados de campo e de validação quase sempre chegam como
+  vetores; talhões, clareiras e queimadas não são retângulos; e a animação
+  para artigos e apresentações. Feitas em paralelo (a 22 num sub-agente, num
+  worktree), com o merge e os testes no fim.
+- **Vetores pelo OGR** do GDAL que já vem junto: nenhuma dependência nova.
+  GeoJSON, Shapefile, GeoPackage (cada camada dele), KML, FlatGeobuf, GML, GPX
+  e CSV de pontos (colunas `x`/`lon`/`longitude`..., sem CRS e dentro de
+  ±180/±90 = lon/lat). As geometrias ficam nas coordenadas do arquivo e são
+  postas na grade da camada ativa pelo PROJ (de novo só quando a grade muda:
+  a chave é o CRS + o geotransform, não a camada), como o resto do mapa.
+- **Desenho pelo ImGui** (linhas sobre cada painel de mapa), não na GPU do
+  mapa: corte pelo que está na tela e ~1 vértice a cada 1,5 ponto de tela.
+  Medido (`--measure-vectors`, série de 3000 × 3000 × 12, Release): 20 000
+  pontos com discos antialiasados custavam 12,3 ms e 1,7 M vértices por
+  quadro com a série inteira na tela; como quadrados quando há mais de 2000 na
+  tela, 1,0 ms e 0,16 M. 5000 polígonos de 25 vértices (125 000): 9,7 ms com
+  linhas de 1,5 e 3,5 pontos; com larguras inteiras (o ImGui as tira da
+  textura da fonte) e o desbaste a 1,5 ponto, 2,0 ms e 0,25 M vértices;
+  aproximado (8 pontos por pixel), 0,03–0,2 ms. Ler: ~115 ms cada arquivo;
+  pôr na grade (lon/lat ou UTM 22S → UTM 23S): 10 ms (pontos) e 28 ms
+  (polígonos); o elemento sob o cursor: 20–95 µs. Acima de 2 M vértices
+  num quadro o resto espera um zoom maior (aviso no mapa).
+- **ROI poligonal sem caminho novo de leitura**: a ROI continua sendo a
+  caixa (lida como antes, cache em resolução total incluído) mais uma máscara
+  dos centros de pixel dentro do polígono, a mesma que já servia à ROI de uma
+  camada reprojetada (`Session::startRoi`); os anéis são par-ímpar, então
+  buracos e multipolígonos não pedem nada à parte (`src/geom.*`). O PCA local
+  dos embeddings, a similaridade à ROI e a dispersão usam a máscara; uma
+  rodada do Zeit na ROI cobre a caixa (dito na janela da ferramenta).
+- **Extrair séries**: o valor do pixel de cada ponto (data a data, os pontos
+  em ordem de linha: os blocos ficam no cache do GDAL) e a média dos pixels
+  dentro de cada polígono (lida na caixa, subamostrada acima de 1 Mpx), do
+  cache em resolução total quando há. Medido: 20 000 pontos × 12 datas em
+  1,5 s; 5000 polígonos × 12 datas em 2,1 s (arquivos LZW em faixas de 1
+  linha, já na RAM). CSV largo (uma coluna por data) ou longo (uma linha por
+  data), o longo para R/pandas e para camadas de datas diferentes.
+- **Interpretação** como o TimeSync: o mapa vai a cada elemento, um pino
+  (ponto) ou a ROI (polígono) põe a série no gráfico. `N` / `Shift+N`:
+  pedidos `N`/`P`, mas `P` já toca a série (0.31.1), então anterior é
+  `Shift+N` (e Page Up/Down). Rótulos `1`–`9` de um conjunto editável, `D` a
+  data da mudança (a data no mapa), notas. Salvo um segundo depois de cada
+  mudança em JSON na pasta de dados (por arquivo + camada, chave pelo `fid`):
+  abrir o mesmo arquivo retoma o trabalho. Exportado com os campos do arquivo
+  + `label`, `change_date`, `notes` (GeoPackage, GeoJSON, Shapefile pelo OGR,
+  lendo as geometrias de novo; ou CSV com lon/lat).
+- **Animação**: GIF com codificador próprio (sem biblioteca) e MP4/WebM pelo
+  ffmpeg **externo**, alimentado por stdin: linkar o libav seria a maior
+  dependência do projeto por um formato que muitos já têm instalado. Detalhes
+  e medidas no histórico da 0.33.0.
+
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
@@ -308,6 +359,9 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | — | 0.30.0 | **Exportação conferida e com atalhos**: o popup de opções passa a abrir (nunca era desenhado), embeddings como GeoTIFF em resolução total, todas as saídas de uma rodada do Zeit numa pasta, reset do layout (`Ctrl+Shift+R`); faixa Int8 dos embeddings de todos os anos | concluída |
 | 18 | 0.31.0 | Mais do Zeit: **CODED** (degradação florestal) e **NDFI** (desmistura espectral, a série vira camada), **Tmask** (nuvens que a banda de qualidade perdeu), **SOM** (agrupamento de trajetórias, série típica no gráfico) e **concordância** entre mapas de mudança | concluída |
 | 19 | 0.32.0 | **Hiperespectral** (EnMAP primeiro; PRISMA, EMIT, ENVI em geral): eixo espectral em nm, espectros do cursor, pinos e ROI, RGB por comprimento de onda, bandas e índices por nm em séries de cenas, similaridade espectral e PCA (ver "Hiperespectral" em Decisões) | concluída |
+| 20 | 0.33.0 | **ROI poligonal**: `R` e cliques ou laço à mão livre; um polígono de uma camada vetorial (Alt + clique); estatísticas, box plot, PCA local e dispersão nos pixels dentro | concluída |
+| 21 | 0.33.0 | **Camadas vetoriais** (OGR: GeoJSON, Shapefile, GeoPackage, KML, CSV de pontos) sobre o mapa em qualquer CRS, **extração de séries** de todos os pontos/polígonos para CSV e **interpretação** estilo TimeSync (`N`/`Shift+N`, rótulos `1`–`9`, data da mudança, notas, exportação) | concluída |
+| 22 | 0.33.0 | **Animação**: timelapse de um intervalo de datas em GIF (codificador próprio), MP4 e WebM (ffmpeg externo), com carimbo da data, legenda, barra de escala e basemap | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -391,7 +445,20 @@ termina.
 - Decisões grandes: **séries por STAC** (compostos anuais da área visível, como
   os embeddings; dependências pesadas e downloads longos) e **interpretação
   visual + acurácia** (`stratified_sample`, rotular os pontos no Janus,
-  `accuracy`, Olofsson et al. 2014: o Janus já é quase um TimeSync).
+  `accuracy`, Olofsson et al. 2014: o Janus já é quase um TimeSync). A
+  rotulação foi feita na 0.33.0 (fase 21); faltam a amostra estratificada a
+  partir de um mapa de classes e a acurácia com as áreas ajustadas.
+
+### Depois das fases 20–22 (2026-10-14)
+- Vetores: desenhar acima de ~2 M vértices por quadro numa textura (hoje o
+  resto espera um zoom maior); rótulos de texto dos elementos no mapa; editar
+  vértices de um polígono; salvar a ROI desenhada como vetor.
+- Extração: perfis ao longo de linhas (hoje deixadas de fora); percentis além
+  da média dos polígonos.
+- Interpretação: confiança do rótulo, dois intérpretes no mesmo arquivo,
+  vários eventos por ponto (como o TimeSync: segmentos com rótulo).
+- Animação: os painéis de mapa lado a lado num quadro só; a série do pino no
+  canto do quadro.
 - Fora: `zeit.ai` (PyTorch), `zeit.plot` (é o próprio Janus), `compute_indices`
   (índices novos ficam melhores na GPU), `harmonize`/`regularize` (só com STAC).
 
@@ -404,6 +471,70 @@ termina.
   (0.25.0); faltam as larguras fixas dos widgets.
 
 ## Histórico
+
+### 0.33.0 — Fases 20 a 22: ROI poligonal, camadas vetoriais, interpretação e animação
+- Pedidas em 2026-10-14 (ver "Vetores, ROI poligonal e animação" em
+  Decisões, com as medidas).
+- **ROI poligonal** (fase 20): `R` (ou View → Draw ROI polygon), cliques nos
+  vértices e fechar no primeiro, com duplo clique ou `Enter` (`Backspace`
+  desfaz, `Esc` cancela); arrastar depois do `R` desenha à mão livre e fecha
+  ao soltar. A ROI em todas as camadas (as reprojetadas recebem o polígono
+  densificado), no PNG e na animação.
+- **Camadas vetoriais** (fase 21): File → Add vector layer, o painel Layers,
+  soltar na janela, o painel Files (agora lista vetores) ou a linha de
+  comando (`jn serie/ parcelas.gpkg`). Cor, mostrar/esconder, remover, Zoom
+  to it; atributos de um ponto ao passar o mouse (linhas e polígonos com
+  `Alt`); `Alt` + clique num polígono = ROI (com os buracos). Nos PNG e nas
+  animações com "Pins, ROI and vector layers".
+- **Extract series**: CSV largo ou longo das séries de todos os elementos,
+  da camada ativa ou de todas as visíveis, em segundo plano (Exports).
+- **Interpretação** (painel Interpretation, ao lado de Statistics): `N` /
+  `Shift+N`, rótulos `1`–`9` (`0` limpa), `D` / `Shift+D`, notas, *Skip
+  labelled*, *Next after a label*, zoom mínimo em cada elemento; salvo na
+  pasta de dados e retomado; *Export table...*.
+- **Animação** (fase 22): File → Export animation (`Ctrl+Shift+A`): datas de/até
+  (ao contrário toca para trás; num espectro, bandas), passo, quadros por
+  segundo (padrão: a velocidade do mapa), 1x/2x, fundo do mapa ou branco,
+  carimbo da data (grande, com a camada e o modo), legenda, **barra de
+  escala** (nova, também no PNG: distância geodésica na linha do centro),
+  pinos, ROI e vetores; o crédito do mapa de fundo sempre que ele aparece.
+  - Cada quadro é desenhado como o PNG (offscreen, marcas na CPU), um por
+    quadro da interface, só quando a data, os tiles de detalhe do zoom (até
+    20 s, `TileManager::missing()`) e os do mapa de fundo estão na GPU. A
+    vista fica congelada atrás de um popup modal com progresso e Cancelar; a
+    data volta no fim ou no cancelamento. Os quadros vão para uma fila de 3
+    (a memória não cresce com a animação) e são codificados numa thread;
+    arquivo `.part` renomeado no fim.
+  - **GIF sem biblioteca** (`src/gif.*`): paleta por quadro (exata com ≤ 256
+    cores, senão corte mediano de um histograma de 6 bits por canal — com 5
+    bits os gradientes dos colormaps viravam faixas), Floyd–Steinberg
+    opcional, LZW de 9 a 12 bits, laço infinito, atraso em centésimos.
+    Medido (Release, 1 núcleo): quadro de 2009 × 768 (1,5 Mpx) em ~6 ms de
+    paleta + ~11 ms de LZW; 5 quadros = 779 KB; erro contra o mapa 0,37 por
+    canal em média, 2 no máximo.
+  - **MP4 (H.264) e WebM (VP9) pelo ffmpeg externo**: o caminho em Settings
+    (Video export), senão ao lado do Janus, senão no PATH; quadros RGBA crus
+    pela entrada padrão, largura/altura pares, `-crf 18`/`yuv420p`/
+    `+faststart` (MP4), `-crf 32 -b:v 0` (WebM), sem janela de console; a
+    saída vai para `ffmpeg.log` e as últimas linhas aparecem no erro. Sem
+    ffmpeg, MP4 e WebM ficam desligados com a dica de instalação. 5 quadros
+    de 2008 × 768 = 22 KB.
+  - `platform::ChildProcess` (CreateProcess + CREATE_NO_WINDOW; posix_spawn) e
+    `platform::findOnPath`: nada de sistema operacional no código comum.
+- `--measure-vectors IN VEC...` (desenvolvimento): ler, pôr na grade,
+  desenhar, apontar e extrair, com tempos.
+- Autoteste (`--selftest-ui`, depois dos espectros): 110–115 um L côncavo
+  desenhado como polígono (vértices clicados, o último duas vezes como num
+  duplo clique) contra a CPU em B, A (deslocada) e F (UTM 22S), e o contorno
+  no PNG; 120–125 vetores escritos na hora (GeoJSON em lon/lat com um ponto em
+  0 N 0 E, GeoPackage em UTM 22S com um polígono com buraco e uma linha, CSV
+  sem CRS): postos a 2e-7 px de onde foram escritos, apontados, o polígono
+  com buraco como ROI (80 × 70 − 30 × 30 = 4700 pixels), as tabelas (largas
+  em B, A e F; longa no polígono = média da ROI) contra os arquivos, o PNG, a
+  interpretação com `N`, `2` e `D` como digitados, salva, retomada e
+  exportada (GeoPackage com geometrias, CSV com lon/lat); 130–137 a animação
+  (o GIF decodificado quadro a quadro contra o mapa, o MP4 conferido pelo
+  ffprobe quando há ffmpeg, um cancelamento).
 
 ### 0.32.0 — Fase 19: hiperespectral
 - Pedida em 2026-10-10, depois de olhar o EnMAP e a EnMAP-Box: hiperespectral
