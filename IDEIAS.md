@@ -310,6 +310,59 @@ Windows sem Python nem conda, e chamável pela linha de comando
   dependência do projeto por um formato que muitos já têm instalado. Detalhes
   e medidas no histórico da 0.33.0.
 
+### Nuvem, clima, estação e transectos (fases 25–28, pedidas em 2026-10-14)
+- **COGs remotos pelo GDAL**, sem código de rede próprio: uma URL (`https://`,
+  `s3://`, `gs://`, `az://`) vira o caminho do sistema de arquivos virtual
+  (`/vsicurl/`, `/vsis3/`...) logo na entrada (`gdalPath`), e todo o resto do
+  Janus (overview, série do cursor, tiles, cache do overview) lê como se fosse
+  um arquivo. O overview pede ao GDAL a imagem inteira reduzida: num COG ele
+  baixa só o nível de overview que basta; o cursor e os tiles baixam só os
+  blocos que tocam.
+  - Remoto não é HDD: leitores em paralelo (requisições HTTP se sobrepõem) e o
+    cache em resolução total não é feito sozinho (seria baixar tudo).
+  - Abrir sem listar a "pasta" (`GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR`) só
+    para caminhos remotos, por thread: no global, arquivos locais perderiam os
+    vizinhos (`.ovr`, `.aux.xml`, o `.hdr` do ENVI).
+  - Opções globais só quando o usuário não as definiu: 3 tentativas, faixas
+    consecutivas fundidas, 256 MB de blocos baixados em memória, S3/GCS sem
+    assinatura quando não há credenciais (buckets públicos: Landsat,
+    Sentinel-2), os certificados do basemap.
+  - Uma série de URLs abre os arquivos 16 por vez (cada abertura são 1–2 idas
+    e voltas): 6 COGs do Sentinel-2 em 2,7 s (4 em 5,0 s, um a um). A data vem
+    do nome do arquivo ou, com cada arquivo numa pasta, da pasta
+    (`.../S2B_23KPQ_20230811_0_L2A/B04.tif`).
+- **NetCDF / Zarr / HDF pelo GDAL**: uma variável é um subdataset
+  (`NETCDF:"f.nc":t2m`, `ZARR:"f.zarr":/t2m`) cujas bandas são as combinações
+  das outras dimensões, e cada banda traz as suas coordenadas
+  (`NETCDF_DIM_time`, `DIM_time_VALUE`): o cubo usa essas coordenadas, não a
+  ordem das bandas. Tempo pelas convenções CF ("<unidade> since <data>") com os
+  calendários de modelos (`noleap`, `360_day`, `all_leap`; a data vira a real
+  mais próxima: 30 de fevereiro -> 28/29); "months/years since" inteiros contam
+  meses e anos do calendário. Outras dimensões (nível, profundidade, membro):
+  um nível de cada vez, trocado no painel Display como a banda.
+  - O driver netCDF do conda-forge é um plugin (`libgdal-netcdf`, mais
+    `libgdal-hdf5`): copiado para `gdalplugins/` no build e nos pacotes, e o
+    Janus aponta `GDAL_DRIVER_PATH` só para ele. O Zarr já vem no núcleo.
+  - Grade lon/lat sem grid mapping (quase todo arquivo de clima): WGS 84
+    assumido, para basemap, vetores e outras camadas alinharem.
+  - Conferido: valores idênticos aos do xarray (inclusive latitude crescente e
+    "hours since 1900"); datas iguais às do cftime em noleap, 360_day, horário
+    e "months since".
+- **Estação e composição na GPU**: a estação é uma máscara de datas (o tempo
+  da data vira NaN no vetor de datas do cubo), então as estatísticas temporais
+  (o passe que já existia) só a ignoram; a composição (mediana, média, máximo,
+  mínimo, contagem) é calculada no shader do mapa sobre as datas do overview a
+  cada quadro, sem textura nova: mudar a data, a janela ou a estação custa um
+  quadro. Mediana de até 64 valores (ordenação por inserção; acima disso, um a
+  cada k) — o mesmo cálculo na CPU (faixa, histograma, barra de status) e no
+  autoteste, que confere a cor do mapa contra uma referência independente.
+- **Transecto em polilinha**: amostras espaçadas igualmente em distância ao
+  longo da linha (distância geodésica por segmento em lon/lat), a distância
+  acumulada no eixo X e os vértices como verticais tracejadas. Uma linha reta
+  continua recortada na camada; a polilinha mantém a forma (e as distâncias a
+  partir de A) e fica sem dado onde sai da camada. Uma linha de camada vetorial
+  (Alt + clique) vira a polilinha (a parte mais longa de uma multilinha).
+
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
@@ -366,6 +419,10 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 24 | 0.34.0 | Mais do Zeit: **modelo ajustado do BFAST** (e do Lite e do Monitor) no gráfico, **imagem sintética do CCDC** numa data, **Copy Python** (o código da série, das estatísticas e das chamadas do Zeit) | concluída |
 | — | 0.35.0 | **Tema Matrix** (verde fosforescente sobre preto) e **transparência**: o fundo dos painéis translúcido (a área de trabalho aparece por trás; texto e dados opacos) e a opacidade da janela inteira | concluída |
 | — | 0.35.1 | A mesma transparência em todos os painéis (os fundos não se somam mais; painéis destacados transparentes no OpenGL) | concluída |
+| 25 | 0.36.0 | **COGs remotos**: File → Open URL (`Ctrl+U`) e `jn https://...` (também `s3://`, `gs://`, `az://`), lidos no lugar pelo `/vsicurl/` do GDAL; séries de URLs | concluída |
+| 26 | 0.36.0 | **NetCDF / Zarr / HDF**: escolha da variável, tempo CF (calendários de modelos), níveis, variável e nível trocados no painel Display | concluída |
+| 27 | 0.36.0 | **Estação (dia do ano)** nas estatísticas, na reprodução e no gráfico, e **composição temporal na GPU** (mediana, média, máx., mín., contagem; ano da data, ±dias, série toda) | concluída |
+| 28 | 0.36.0 | **Transecto em polilinha** (distância acumulada, vértices no painel) e **ao longo de uma linha vetorial** (Alt + clique) | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -413,7 +470,13 @@ termina.
   passam pela grade de warp da 0.22.0. Desligado por padrão; atribuição no
   mapa e no PNG exportado. Google Satellite só por URL própria com chave
   (os termos proíbem usar os tiles direto).
-- NetCDF com dimensão de tempo; reprojeção; paletas por classe (color table).
+- ~~NetCDF com dimensão de tempo~~ — feito na 0.36.0 (fase 26); ~~reprojeção~~ —
+  0.22.0; ~~paletas por classe~~ — 0.11.0.
+- Depois das fases 25–28: STAC (buscar as cenas de uma área e montar a série
+  de URLs sozinho); Planetary Computer sem colar URLs assinadas (pede o token
+  da API); longitudes 0–360 dos arquivos de clima centradas em 0 para o
+  basemap; o seletor de variáveis para NetCDF remoto; a composição como camada
+  (GeoTIFF em resolução total) e em resolução total ao aproximar.
 
 ### Interface
 - **Visualizações sugeridas** (2026-10-08, ordem de prioridade): transecto
@@ -457,8 +520,9 @@ termina.
 - Vetores: desenhar acima de ~2 M vértices por quadro numa textura (hoje o
   resto espera um zoom maior); rótulos de texto dos elementos no mapa; editar
   vértices de um polígono; salvar a ROI desenhada como vetor.
-- Extração: perfis ao longo de linhas (hoje deixadas de fora); percentis além
-  da média dos polígonos.
+- Extração: perfis ao longo de linhas (o transecto já segue uma linha, fase
+  28; falta extrair todas as linhas de uma camada); percentis além da média
+  dos polígonos.
 - Interpretação: confiança do rótulo, dois intérpretes no mesmo arquivo,
   vários eventos por ponto (como o TimeSync: segmentos com rótulo).
 - Animação: os painéis de mapa lado a lado num quadro só; a série do pino no
@@ -475,6 +539,41 @@ termina.
   (0.25.0); faltam as larguras fixas dos widgets.
 
 ## Histórico
+
+### 0.36.0 — Fases 25 a 28: COGs remotos, NetCDF/Zarr, estação e composição, transecto em polilinha
+- Pedidas em 2026-10-14 (decisões em "Nuvem, clima, estação e transectos").
+- **Fase 25, COGs remotos**: File → Open URL (`Ctrl+U`; *Add layer: URL...*),
+  uma URL por linha (várias = série), e a linha de comando
+  (`jn https://.../B04.tif`). Testado com os COGs públicos do Sentinel-2 da
+  Element 84 na AWS, por `https://` e `s3://` misturados: 6 datas de 10980 ×
+  10980 abertas em 2,7 s, o overview de 4 datas na tela em menos de 25 s, a
+  série do pixel central (bloco de 1024 × 1024 de cada data) em ~6 s. O
+  painel Performance mostra "remote (HTTP range requests)".
+- **Fase 26, NetCDF / Zarr**: um arquivo de várias variáveis pergunta qual
+  (nome, forma, `long_name` e unidade); uma só abre direto. Tempo CF e
+  calendários; dados horários com hora no rótulo (granularidade nova);
+  dimensões além do tempo como níveis; painel Display → Variable e nível
+  (reabrem a camada no lugar, como a banda; o nome da camada vira "arquivo
+  variável"). Zarr v2 e v3 (pasta `.zarr`). Plugins do GDAL no build, no
+  instalador, nos pacotes de Linux/macOS e na CI (`libgdal-netcdf`,
+  `libgdal-hdf5`; o Linux e o macOS não foram testados nesta versão).
+- **Fase 27, estação e composição**: Display → Season (presets por meses, dois
+  controles de dia do ano, estação que atravessa o ano novo) e o modo
+  *Temporal composite*. As setas e o Play pulam as datas fora da estação; com
+  a composição do ano da data, andam de ano em ano. Mapas lado a lado, PNG e
+  animação mostram a composição com o seu título.
+- **Fase 28, transecto**: `T` e cliques (duplo clique ou `Enter` termina,
+  `Backspace` desfaz), Alt + clique numa linha vetorial; distância acumulada,
+  dobras tracejadas no painel, o cursor do mapa projetado na polilinha.
+- `jn --describe IN` (desenvolvimento): como a entrada abre, sem janela
+  (datas, grade, CRS, variáveis, a série do pixel central).
+- Autotestes: `--selftest-ui` confere a composição (5 redutores × 3 janelas) e
+  a estação contra a CPU, a polilinha (distâncias, 101 amostras fora da camada
+  sem dado, valores exatos) e a linha vetorial; no fim abre `H/clim.nc` (novo
+  no `make_selftest_data.py`: duas variáveis, calendário noleap, dois níveis),
+  escolhe a variável, troca o nível e a variável no lugar e abre o diálogo
+  Open URL. O OpenGL foi testado; o shader Metal (mesma lógica) não foi
+  compilado nesta máquina.
 
 ### 0.35.1 — A mesma transparência em todos os painéis
 - Relatado em 2026-10-14: na 0.35.0 só a janela Settings ficava transparente
