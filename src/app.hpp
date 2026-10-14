@@ -855,6 +855,52 @@ private:
                                                                   const std::vector<float>& v, int t) const;
     std::string classError_;
 
+    // RGB composite of three bands of each date's file (app_composite.cpp), drawn
+    // instead of the series' quantity; the cube, the chart and the cursor keep it.
+    struct BandComposite {
+        BandComposite() = default;
+        ~BandComposite(); // its textures
+        BandComposite(const BandComposite&) = delete;
+        BandComposite& operator=(const BandComposite&) = delete;
+        bool on = false;
+        std::array<int, 3> bands{0, 0, 0};       // R, G, B: bands of each date's file (1-based)
+        bool fixedDate = false;                  // a date of its own, else the layer's
+        int date = 0;
+        float lo[3] = {0, 0, 0}, hi[3] = {1, 1, 1}; // stretch of each channel (band values)
+        bool stretched = false;                  // set from the first image read (kept for every date)
+        uint64_t key = 1;                        // bands and stretch the images were made with
+        struct Img {
+            GpuTex tex = 0;
+            uint64_t key = 0;
+            int w = 0, h = 0;
+            double x0 = 0, y0 = 0, x1 = 0, y1 = 0; // the window, in the layer's pixels
+            double used = 0;                     // ImGui time it was last drawn (cache)
+        };
+        std::map<int, Img> imgs;                 // per date, at overview resolution
+        Img detail;                              // the active layer's visible window at screen resolution
+        int detailT = -1;
+        // The last image read, as values (re-stretched at once, the cursor's values).
+        struct Values {
+            int t = -1, w = 0, h = 0;
+            bool detail = false;
+            double x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+            std::vector<float> v;                // 3 x w x h
+        } last;
+        struct Read {
+            int t = -1;
+            bool detail = false;
+            uint64_t key = 0;
+            double x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+            int w = 0, h = 0;
+            std::future<std::vector<float>> f;
+        };
+        std::optional<Read> reading;
+        uint64_t wantDetail = 0;                 // window asked for (view key) and since when
+        double wantSince = 0;
+        std::shared_ptr<CubeReader> reader;
+        std::string error;
+    };
+
     struct SeriesLayer {
         std::unique_ptr<Session> session;
         std::vector<std::string> inputs;
@@ -880,6 +926,7 @@ private:
         std::vector<double> years;    // years since the 1st date (for trends)
         LayerClasses classes;
         std::shared_ptr<EmbeddingLayer> emb; // a layer of embeddings (app_embeddings.cpp)
+        std::unique_ptr<BandComposite> comp; // three bands as RGB (app_composite.cpp)
     };
     std::vector<SeriesLayer> layers_;
     int active_ = -1;
@@ -888,6 +935,23 @@ private:
     // drawn through their principal components, the similarity to a reference
     // or the change between years; their download through Zeit.
     void initEmbeddingLayer(SeriesLayer& L);
+    // RGB composites of three bands per date (app_composite.cpp).
+    struct CompositePreset {
+        const char* name;
+        std::array<int, 3> bands;            // 0 where the series has no such band
+    };
+    std::vector<CompositePreset> compositePresets(const CubeInfo& info);
+    bool compositeOn(const SeriesLayer& L) const { return L.comp && L.comp->on && !embeddingView(L); }
+    int compositeDate(const SeriesLayer& L, int t) const; // the date drawn when the map shows t
+    bool compositeReady(const SeriesLayer& L, int t) const;
+    void pumpComposites();
+    void drawComposite(const SeriesLayer& L, int t, float alpha, bool detail,
+                       const std::function<void(const double*, float*)>& toTarget);
+    void clearCompositeImages(BandComposite& C);
+    std::string compositeTitle(const SeriesLayer& L, int t) const;
+    std::string compositeStatusAt(double ax, double ay) const; // the band values under the cursor
+    void uiComposite();                      // Display panel, layers with several bands per date
+    int selfTestComposite(const std::vector<std::string>& in); // --selftest-ui stages 140-145
     void showSpectralAnalysis();                 // the Embeddings panel, the active spectrum in principal components
     int layerDate(const SeriesLayer& L) const;   // the date a layer shows
     SeriesLayer* embeddingLayer();               // the active layer if it holds embeddings, else the top one

@@ -974,6 +974,13 @@ bool CubeReader::readBandPixel(int layer, int b, int x, int y, float& value, boo
     return true;
 }
 
+bool CubeReader::readBandWindow(int layer, int b, int x, int y, int w, int h, float* buf, int bw, int bh) {
+    GDALRasterBand* rb = band(layer, b);
+    if (!rb || !readRaw(layer, b, x, y, w, h, buf, bw, bh)) return false;
+    postProcess(readBandMeta(rb), buf, size_t(bw) * bh);
+    return true;
+}
+
 CubeReader& threadReader(const std::shared_ptr<const CubeInfo>& info) {
     thread_local std::unique_ptr<CubeReader> reader;
     if (!reader || reader->cubeId() != info->id) reader = std::make_unique<CubeReader>(info);

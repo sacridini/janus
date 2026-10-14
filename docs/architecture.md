@@ -35,6 +35,7 @@
 | `src/app.*` | User interface (ImGui/ImPlot) |
 | `src/app_layers.cpp` | Several series as layers (alignment, active layer, other layers' series), Layers and Files panels |
 | `src/app_classes.cpp` | Categorical series: detection, class colours and names, legend, class statistics |
+| `src/app_composite.cpp` | RGB composite of three bands per date (several bands per file): presets by band role or wavelength, each date read in the background at the overview's size (the dates shown first, an LRU of RGBA textures), the visible window again at screen resolution when zoomed in, a stretch kept for every date; drawn instead of the cube on the map, panels, swipe and exports; `--selftest-ui` stages 140–145 |
 | `src/app_swipe.cpp` | Swipe: the comparison drawn like a map panel into its own target, divider, View menu entries and keys of swipe and transect |
 | `src/app_analysis.cpp` | Analysis panel: a series by day of the year (years overlaid, climatology, year × day heatmap), class shares over time and transitions (counted on the overview, a few dates per frame), scatter of two layers/dates (density, least squares) |
 | `src/app_transect.cpp` | Space-time transect: sampling along the line (overview, then full resolution in the background), the Transect panel (image drawn by the map renderer) |

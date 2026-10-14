@@ -328,6 +328,7 @@ void App::frame() {
     pumpBasemap();
     pumpZeit();
     pumpEmbeddings();
+    pumpComposites();
     pumpTransect();
     pumpVectors();
     pumpInterpretation();
@@ -856,6 +857,9 @@ void App::renderMap(int w, int h, float pixelScale, int slot, const float* backg
         double q[4];
         if (embeddingView(L)) { // principal components, similarity or change: an image of its own
             drawEmbedding(L, t, L.opacity, [&](const double* g, float* r) { screenRect(g[0], g[1], g[2], g[3], r); });
+        } else if (compositeOn(L)) { // three bands as RGB, the active layer's in detail when zoomed in
+            drawComposite(L, t, L.opacity, isActive,
+                          [&](const double* g, float* r) { screenRect(g[0], g[1], g[2], g[3], r); });
         } else {
         DrawParams p;
         p.mode = mode;
@@ -1175,7 +1179,8 @@ void App::uiMap() {
     // the tiles of both dates) ---
     int level = -1;
     const int diffRef = diffRefDate(diffRef_, t_, T);
-    if (detail_ && (mode_ == ModeValue || (mode_ == ModeDiff && diffRef >= 0)) && !s_->deferRandomReads()) {
+    if (detail_ && (mode_ == ModeValue || (mode_ == ModeDiff && diffRef >= 0)) && !s_->deferRandomReads() &&
+        !compositeOn(*activeLayer())) { // an RGB composite reads its own detail
         const ViewRect v{-offset_.x / scale_, -offset_.y / scale_, (size.x - offset_.x) / scale_,
                          (size.y - offset_.y) / scale_, scale_ * pixelScale};
         level = s_->tiles->update(t_, v, playing_ ? (t_ + 1) % T : -1);
@@ -1226,12 +1231,17 @@ void App::uiMap() {
     float embLo = 0, embHi = 1;
     const bool embShown = embeddingMapInfo(embTitle, embCmap, embLo, embHi, embWait);
     if (embShown) std::snprintf(title, sizeof(title), "%s", embTitle.c_str());
+    const bool composite = !embShown && compositeOn(*activeLayer());
+    if (composite) std::snprintf(title, sizeof(title), "%s", compositeTitle(*activeLayer(), t_).c_str());
     dl->AddText(origin + ImVec2(11, 9), IM_COL32(0, 0, 0, 200), title);
     dl->AddText(origin + ImVec2(10, 8), IM_COL32(255, 255, 255, 255), title);
 
     std::string wait;
     if (embShown)
         wait = embWait;
+    else if (composite)
+        wait = !activeLayer()->comp->error.empty() ? "RGB composite: " + activeLayer()->comp->error
+               : compositeReady(*activeLayer(), t_) ? "" : "Reading the RGB composite of this date...";
     else if (modeNeedsStats(mode_) && !s_->gpu.statsValid)
         wait = "Computing statistics: waiting for the complete overview...";
     else if (mode_ == ModeDiff && diffRef < 0)
@@ -1253,7 +1263,7 @@ void App::uiMap() {
         dl->AddRectFilled(p0, ImVec2(p0.x + 240 * frac, p1.y), IM_COL32(70, 130, 220, 220), 3);
         dl->AddText(p0 + ImVec2(6, 2), IM_COL32(255, 255, 255, 255), buf);
     }
-    const bool colourBar = embShown ? embCmap >= 0 : mode_ != ModeRGB;
+    const bool colourBar = embShown ? embCmap >= 0 : mode_ != ModeRGB && !composite;
     if (colourBar) {
         const ImVec2 b0 = origin + ImVec2(10, size.y - 34), bsz(220, 10);
         const int n = 48;
@@ -1312,7 +1322,10 @@ void App::uiMap() {
         double gx, gy;
         if (info.pixelToGeo(ix + 0.5, iy + 0.5, gx, gy))
             n += std::snprintf(status + n, sizeof(status) - n, "  |  x %.6f  y %.6f", gx, gy);
-        if (embShown) {
+        if (composite) {
+            const std::string e = compositeStatusAt(ix + 0.5, iy + 0.5);
+            std::snprintf(status + n, sizeof(status) - n, "%s", e.c_str());
+        } else if (embShown) {
             const std::string e = embeddingStatusAt(ix, iy);
             std::snprintf(status + n, sizeof(status) - n, "%s", e.c_str());
         } else if (modeNeedsStats(mode_) && s_->gpu.statsValid) {
@@ -1453,6 +1466,7 @@ void App::uiBands() {
         ImGui::EndDisabled();
         if (ImGui::SmallButton("Revert")) selUi_ = info.sel;
     }
+    uiComposite();
 }
 
 bool App::addSpectralIndexLayer(const SpectralIndex& s) {
@@ -1778,8 +1792,12 @@ void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
     const std::array<int, 3>& rgb = isActive ? rgb_ : L->disp.rgb;
     const Range& range = v.ownMode ? v.range : isActive ? range_[mode] : L->disp.range[mode];
     const int cmap = isActive ? cmap_[mode] : L->disp.cmap[mode];
-    if (embeddingView(*L)) {
-        drawEmbedding(*L, t, 1.0f, [&](const double* g, float* r) { screenRect(g[0], g[1], g[2], g[3], r); });
+    const bool composite = compositeOn(*L) && !v.ownMode;
+    if (embeddingView(*L) || composite) {
+        if (composite)
+            drawComposite(*L, t, 1.0f, false, [&](const double* g, float* r) { screenRect(g[0], g[1], g[2], g[3], r); });
+        else
+            drawEmbedding(*L, t, 1.0f, [&](const double* g, float* r) { screenRect(g[0], g[1], g[2], g[3], r); });
         for (const ResultLayer& R : results_) {
             if (R.cubeId != li.id || !R.visible || !R.tex) continue;
             float r[4];

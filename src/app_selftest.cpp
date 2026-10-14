@@ -807,6 +807,13 @@ int App::selfTestStep(const std::vector<std::string>& in) {
     case 136:
     case 137:
         return selfTestAnimation(in[0]);
+    case 140:
+    case 141:
+    case 142:
+    case 143:
+    case 144:
+    case 145:
+        return selfTestComposite(in);
     }
     return -1;
 }

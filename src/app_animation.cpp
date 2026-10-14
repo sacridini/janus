@@ -440,6 +440,7 @@ void App::pumpAnimation() {
             const int ref = diffRefDate(act ? diffRef_ : L.disp.diffRef, lt, LT);
             ready = ref < 0 || loaded[ref];
         }
+        if (compositeOn(L)) ready = compositeReady(L, lt); // three bands as RGB: their image of the date
         if (!ready) {
             r.status = "Loading " + L.name + " at " + L.session->info->layers[std::clamp(lt, 0, LT - 1)].label + "...";
             return;
@@ -821,8 +822,8 @@ int App::selfTestAnimation(const std::string& a) {
         exports_.clear();
         if (platform::getEnv("JANUS_KEEP_ANIM").empty()) fs::remove_all(fs::u8path(gTest.dir), ec);
         next("cancel: no file left, the date restored");
-        std::printf("OK (%.1f s)\n", now() - st_.t0);
-        return 0;
+        st_.stage = 140; // RGB composites of three bands per date (app_composite.cpp), which print OK
+        return -1;
     }
     }
     return -1;

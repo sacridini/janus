@@ -20,7 +20,9 @@
   date): show any band or a **normalized difference** of two (NDVI, NDMI, NBR...),
   and hide cloudy observations with a **quality band** (Fmask codes, Landsat
   Collection 2 `QA_PIXEL` bits or a 0/1 mask; a band named Fmask or QA_PIXEL is
-  used automatically). Multiband tools such as CCDC read every band.
+  used automatically). Multiband tools such as CCDC read every band. The map
+  can show three bands of each date as an **RGB composite** (true colour,
+  colour infrared...) while the chart keeps the band or index.
 - **Map modes**, all computed on the GPU: value at date, anomaly (value − mean),
   **difference** (value − a reference date: a fixed date or the previous one),
   temporal mean, standard deviation, linear trend (OLS, per year), minimum,
@@ -229,6 +231,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Largest drop | **Display** panel → *Largest drop: date* or *magnitude*: the largest decrease between consecutive valid observations (no-data dates skipped), dated at the lower one; the colour bar shows dates. Exact values for the cursor and pins in the **Statistics** panel |
 | Classes (categorical data) | **Display** panel → *Categorical (classes)*: legend with colours, names and shares (click a colour to change it, untick a class to hide it); detection can be switched off or forced |
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
+| RGB of three bands | **Display** panel → RGB composite (one file per date with several bands): *Three bands of each date as RGB*, a preset (true colour, colour infrared, SWIR, agriculture, land/water: bands found by their names or wavelengths) or any three bands, the map's date or a fixed one, the stretch of each channel (2–98% of the first image, kept for every date; *Stretch to this image*). The chart, the cursor and the tools keep the series' band or index; zoomed in, the visible area is read again at full resolution; map panels, the swipe, PNGs and animations show it too |
 | Reset layout | **View → Reset layout** (`Ctrl+Shift+R`, Mac: `Command+Shift+R`): every panel docked where it was at the first start, the floating windows (Exports, Tasks, Log, Settings) back to their first size and place, map panels to the right of the main map; the panels open stay open |
 | Performance panel | **View → Performance** (hidden by default): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**) |
 | Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus, Studio, Graphite), font size, whether the Files panel follows what is opened, processing threads, overview memory, full-resolution cache (when it is built, its budget) and clearing the caches; kept between sessions (see [Settings](#settings)) |

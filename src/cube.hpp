@@ -182,6 +182,9 @@ public:
     bool readPixel(int layer, int x, int y, float& value);
     // One source band of a date at a pixel, scale applied (nodata -> NaN unless `raw`).
     bool readBandPixel(int layer, int band, int x, int y, float& value, bool raw = false);
+    // One source band of a date over a window, resampled like readWindow, scale
+    // applied, nodata -> NaN (e.g. the bands of an RGB composite).
+    bool readBandWindow(int layer, int band, int x, int y, int w, int h, float* buf, int bw, int bh);
 
 private:
     GDALRasterBand* band(int layer, int b = 0);

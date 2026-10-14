@@ -85,6 +85,7 @@ set(JANUS_SOURCES
   src/app_analysis.cpp
   src/app_animation.cpp
   src/app_classes.cpp
+  src/app_composite.cpp
   src/app_embeddings.cpp
   src/app_export.cpp
   src/app_fullres.cpp

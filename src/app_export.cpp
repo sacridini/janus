@@ -607,17 +607,22 @@ void App::drawFigureOverlay(std::vector<unsigned char>& img, int w, int h, int s
     int embCmap = -1;
     float embLo = 0, embHi = 1;
     const bool emb = embeddingMapInfo(embTitle, embCmap, embLo, embHi, embWait);
-    const bool dated = !emb && (mode_ == ModeValue || mode_ == ModeAnomaly || mode_ == ModeDiff);
+    const SeriesLayer* active = activeLayer();
+    const bool composite = !emb && active && compositeOn(*active); // three bands as RGB
+    const bool dated = !emb && (composite || mode_ == ModeValue || mode_ == ModeAnomaly || mode_ == ModeDiff);
     if (o.label == 2 && dated) {
         // An animation's date stamp: the date large (ImGui's scalable font), the
         // layer and the mode under it.
         const SeriesLayer* A = activeLayer();
         std::string sub = (A ? A->name + "  |  " : std::string()) + modeName(mode_, info);
-        if (mode_ == ModeDiff) {
+        if (composite) {
+            const std::string t = compositeTitle(*A, t_);
+            sub = A->name + "  |  " + t.substr(t.find("RGB: "));
+        } else if (mode_ == ModeDiff) {
             const int ref = diffRefDate(diffRef_, t_, info.T());
             sub += std::string(" from ") + (ref >= 0 ? info.layers[ref].label : "(none)");
         }
-        const char* date = info.layers[t_].label.c_str();
+        const char* date = info.layers[composite ? compositeDate(*A, t_) : t_].label.c_str();
         ImGui::PushFont(fontVector_ ? fontVector_ : fontBitmap_, float(kDefaultFontSize));
         const float big = 30 * ps, wBig = Canvas::textWidth(date, big);
         ImGui::PopFont();
@@ -632,6 +637,8 @@ void App::drawFigureOverlay(std::vector<unsigned char>& img, int w, int h, int s
         char title[200];
         if (emb)
             std::snprintf(title, sizeof(title), "%s", embTitle.c_str());
+        else if (composite)
+            std::snprintf(title, sizeof(title), "%s", compositeTitle(*active, t_).c_str());
         else if (mode_ == ModeRGB)
             std::snprintf(title, sizeof(title), "RGB: %s / %s / %s", info.layers[rgb_[0]].label.c_str(),
                           info.layers[rgb_[1]].label.c_str(), info.layers[rgb_[2]].label.c_str());
@@ -657,7 +664,7 @@ void App::drawFigureOverlay(std::vector<unsigned char>& img, int w, int h, int s
                 L.hi = embHi;
                 legends.push_back(std::move(L));
             }
-        } else if (A && A->visible && mode_ != ModeRGB) {
+        } else if (A && A->visible && mode_ != ModeRGB && !composite) {
             Legend L;
             L.caption = A->name;
             if (const LayerClasses* C = activeClasses()) {

@@ -47,7 +47,8 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
   OpenStreetMap or your own XYZ tiles; off until you pick one.
 - **Categorical series** (land cover, classifications) with class colours,
   names and change summaries; **several bands per date** with normalized
-  differences and cloud masks.
+  differences, cloud masks and **RGB composites** (true colour, colour
+  infrared...) while the chart keeps the index.
 - **Change detection built in**: LandTrendr, Mann-Kendall, BFAST, CCDC,
   CODED (forest degradation, with the NDFI), phenology, TWDTW, SOM clustering,
   Tmask cloud screening and more from [Zeit](https://github.com/sacridini/zeit-cdts),
