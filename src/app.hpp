@@ -25,6 +25,7 @@
 #include "session.hpp"
 #include "stats.hpp"
 #include "theme.hpp"
+#include "validation.hpp"
 #include "vectors.hpp"
 #include "zeit_client.hpp"
 
@@ -718,6 +719,7 @@ private:
         std::vector<Polygon> px;                // each feature in the active layer's pixels
         std::vector<std::array<float, 4>> box;  // their bounding boxes (x0, y0, x1, y1; empty: x0 > x1)
         std::vector<ImVec2> anchor;             // a point of each (inside an area; NaN: none)
+        std::vector<ImU32> colors;              // a colour per feature (e.g. a sample's state); empty: `color`
     };
     std::vector<VectorLayer> vectors_;
     int nextVectorId_ = 1;
@@ -761,11 +763,9 @@ private:
     // other (N / Shift+N), the map centred on each, its series on the chart (a
     // pin; a polygon becomes the ROI), labelled with keys 1-9, a date of change
     // (D: the map's date) and notes; saved as it goes, exported as a table.
-    struct LabelEntry {
-        std::string label;   // a class of the label set ("" = not labelled)
-        std::string date;    // date of the change, as the series shows it ("" = none)
-        std::string notes;
-    };
+    // A class of the label set ("" = not labelled), the date of the change as the
+    // series shows it, notes, the confidence (0-3) and more events at the feature.
+    using LabelEntry = val::Label;
     struct Interpretation {
         int vector = 0;                      // VectorLayer id (0: none)
         int current = -1;                    // feature shown
@@ -782,6 +782,13 @@ private:
         char exportPath[1024] = "";
         bool exportOpen = false;
         bool scrollToCurrent = false;
+        // A validation project's sample: labels go to its GeoPackage, under `as`
+        // (the interpreter's name, or val::kAdjudicated to settle disagreements).
+        bool project = false;
+        std::string as;
+        std::vector<int> filter;             // only these features (N / Shift+N); empty: all
+        std::string filterName;              // e.g. "map: change, reference: no change"
+        char eventLabel[64] = "";            // the label of an event being added
     } lab_;
     bool showInterp_ = false;
     void startInterpretation(int vectorId);
@@ -790,6 +797,9 @@ private:
     void interpStep(int dir);                // +1 next, -1 previous
     void interpLabel(int k);                 // class k of the label set (-1: clear)
     void interpSetDate(bool clear);
+    void interpSetConfidence(int c);         // 0 clears, 1 low, 2 medium, 3 high
+    void interpAddEvent(const std::string& label); // at the map's date
+    void interpTouched();                    // the current entry changed: saved, the accuracy follows
     void interpShortcuts();
     void pumpInterpretation();               // autosave
     void uiInterpretation();
@@ -797,6 +807,49 @@ private:
     void saveLabels();
     void loadLabels();
     std::shared_ptr<ExportJob> exportLabels(const std::string& path);
+
+    // Validation (app_validation.cpp): a sampling design over any map (strata of
+    // classes, intervals, events or the agreement of several maps, a buffer, a
+    // limit; sample size and allocation), the sample drawn into a project (a
+    // GeoPackage), its points interpreted (blind to the maps), and the accuracy
+    // and error-adjusted areas of every map assessed with it, as labels come
+    // (Olofsson et al. 2014, Stehman 2014: validation.hpp).
+    struct Validation;
+    std::shared_ptr<Validation> val_;
+    bool showValidation_ = false;
+    bool showChips_ = false;
+    std::string interpreter_;                // Settings: the name labels are given under
+    std::string interpreterName() const;     // interpreter_, else the user's login
+    void uiValidationMenu();
+    void uiValidation();
+    void uiValidationDesign();
+    void uiValidationAccuracy();
+    void uiValidationMaps();
+    void uiValidationInterpreters();
+    void uiValidationReport();
+    void pumpValidation();
+    void openValidationProject(const std::string& path);
+    void closeValidationProject();
+    bool validationProjectOpen() const;
+    bool isProjectVector(int vectorId) const;
+    void validationLabelsChanged(int feature); // the interpretation changed a point's label
+    void validationSaveLabels();             // the changed points to the GeoPackage (in the background)
+    void validationLabelSetChanged();
+    void setValidationBlind(bool on);
+    void startAdjudication();
+    void drawValidationMarks(ImDrawList* dl, ImVec2 origin);
+    void uiInterpretationProject();          // the interpretation window's part for a project
+    void validationEntries();                // lab_.classes and lab_.entries from the project (as lab_.as)
+    void uiChips();                          // the current feature at every date, around it
+    void pumpChips();
+    void dropValidationTextures();           // before the GPU goes
+    // The design being edited (its limit placed on the first map's grid; `why` when it cannot be).
+    val::StrataSpec validationSpec(std::string& why);
+    void validationComputeStrata(const val::StrataSpec& spec); // in the background, shown as a layer when done
+    void validationDraw(const std::string& path, const val::StrataSpec& spec); // the sample, into a new project
+    int validationMerge(const std::string& path, std::string& msg); // another copy's labels; -1: not merged
+    std::shared_ptr<ExportJob> exportValidationReport(const std::string& folder);
+    int selfTestValidationUi(const std::vector<std::string>& in); // --selftest-ui stages 170-179
     // Chart
     int plotStyle_ = 1;          // 0 lines, 1 lines+markers, 2 markers, 3 stems, 4 stairs
     int plotValues_ = 0;         // 0 values, 1 anomaly (- series mean), 2 z-score

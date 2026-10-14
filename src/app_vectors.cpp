@@ -88,13 +88,18 @@ std::vector<std::string> App::takeVectorInputs(const std::vector<std::string>& i
 }
 
 void App::addVectorFiles(const std::vector<std::string>& paths) {
-    for (const std::string& path : paths)
+    for (const std::string& path : paths) {
+        if (val::isProject(path)) { // a validation project: its sample, labels and maps (app_validation.cpp)
+            openValidationProject(path);
+            continue;
+        }
         vectorLoads_.push_back(std::async(std::launch::async, [path] {
             VectorLoad r;
             r.layers = loadVectorFile(path, r.error);
             glfwPostEmptyEvent();
             return r;
         }));
+    }
 }
 
 uint64_t App::vectorPlaceKey() const {
@@ -214,7 +219,7 @@ void App::drawVectorMarks(ImDrawList* dl, ImVec2 origin, bool forExport) {
     for (size_t li = 0; li < vectors_.size(); ++li) {
         const VectorLayer& V = vectors_[li];
         if (!V.visible || V.px.empty()) continue;
-        const ImU32 col = ImGui::ColorConvertFloat4ToU32(V.color);
+        const ImU32 layerCol = ImGui::ColorConvertFloat4ToU32(V.color);
         // Many points in view: squares (4 vertices each, no antialiased edge),
         // ~10x fewer vertices than discs (measured: 20 000 points, 1.7 M -> 0.16 M).
         size_t pointsInView = 0;
@@ -227,6 +232,7 @@ void App::drawVectorMarks(ImDrawList* dl, ImVec2 origin, bool forExport) {
             if (!inView(b)) continue;
             const VectorFeature& F = V.data->features[i];
             const bool hot = (int(li) == hoverVector_ && int(i) == hoverFeature_) || (&V == interp && int(i) == lab_.current);
+            const ImU32 col = i < V.colors.size() ? V.colors[i] : layerCol;
             if (F.kind == VectorFeature::Point) {
                 for (const Ring& r : V.px[i]) {
                     if (r.size() < 2) continue;

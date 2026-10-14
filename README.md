@@ -47,6 +47,14 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
   the map in any CRS: the series of every plot or parcel extracted to a CSV
   table, and a TimeSync-style **interpretation** mode to label samples with
   the keyboard.
+- **Map validation** (Olofsson et al. 2014): strata from any map (classes,
+  intervals, dates of change, the agreement of several maps, a buffer around
+  change), sample size and allocation, a stratified random sample in a
+  GeoPackage project, blind interpretation of its points with chips of every
+  date, and the accuracy and **error-adjusted areas ± confidence intervals**
+  of every map assessed with it (LandTrendr × CCDC × BFAST × MapBiomas...),
+  live as labels come; several interpreters, kappa and adjudication; an HTML
+  report and the matching `zeit.accuracy` code.
 - **Compare**: several series as layers, in any CRS (reprojected on the GPU),
   map panels side by side, a swipe divider, and space-time transects
   (distance × date) along a line, a polyline or a vector line.

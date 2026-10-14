@@ -100,6 +100,7 @@ set(JANUS_SOURCES
   src/app_transect.cpp
   src/app_vectors.cpp
   src/app_labels.cpp
+  src/app_validation.cpp
   src/app_zeit.cpp
   src/file_browser.cpp
   src/results.cpp
@@ -120,6 +121,8 @@ set(JANUS_SOURCES
   src/stats.cpp
   src/theme.cpp
   src/tiles.cpp
+  src/validation.cpp
+  src/validation_selftest.cpp
   src/vectors.cpp)
 
 if(APPLE)

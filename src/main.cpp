@@ -22,6 +22,7 @@
 #include "selftest.hpp"
 #include "theme.hpp"
 #include "usage.hpp"
+#include "validation.hpp"
 
 namespace fs = std::filesystem;
 
@@ -70,6 +71,8 @@ int main(int argc, char** argv) {
     bool measureStartup = false; // dev option: print startup timings and exit after the first frame
     bool selftestZeit = false;   // dev option: run the Zeit path without a window
     bool selftestEmb = false;    // dev option: embedding kernels and PCA, with timings
+    bool measureVal = false;     // dev option: time the strata, sample and estimators on a map
+    bool selftestVal = false;    // dev option: sampling design, strata, sample and estimators of validation.hpp
     bool selftestEmbUi = false;  // dev option: a series of embeddings in every view, hidden window
     bool selftestUi = false;     // dev option: drive the layers workflow in a hidden window
     bool measureCache = false;   // dev option: time the full-resolution cache in a hidden window
@@ -113,6 +116,10 @@ int main(int argc, char** argv) {
             selftestZeit = true;
         } else if (a == "--selftest-embeddings") {
             selftestEmb = true;
+        } else if (a == "--selftest-validation") {
+            selftestVal = true;
+        } else if (a == "--measure-validation") {
+            measureVal = true;
         } else if (a == "--selftest-embeddings-ui") {
             selftestEmbUi = selftestUi = true;
         } else if (a == "--measure-startup") {
@@ -146,6 +153,25 @@ int main(int argc, char** argv) {
         platform::attachParentConsole();
         std::string report;
         const char* err = embeddingSelfTest(report, opts.ioThreads > 0 ? opts.ioThreads : defaultProcessingThreads());
+        std::fputs(report.c_str(), stdout);
+        std::printf("%s\n", err ? (std::string("FAIL: ") + err).c_str() : "OK");
+        std::fflush(stdout);
+        return err ? 1 : 0;
+    }
+    if (measureVal) {
+        platform::attachParentConsole();
+        const int rc = inputs.empty() ? 2 : val::measure(inputs[0]);
+        std::fflush(stdout);
+        return rc;
+    }
+    if (selftestVal) {
+        platform::attachParentConsole();
+        // zeit.accuracy is run on a labelled project when the runtime is there.
+        const std::string python = !opts.zeitPython.empty()
+                                       ? opts.zeitPython
+                                       : bundledPython((fs::u8path(platform::resourceDir()) / "runtime").u8string());
+        std::string report;
+        const char* err = val::selfTest(report, python);
         std::fputs(report.c_str(), stdout);
         std::printf("%s\n", err ? (std::string("FAIL: ") + err).c_str() : "OK");
         std::fflush(stdout);

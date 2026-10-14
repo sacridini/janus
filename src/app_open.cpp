@@ -193,9 +193,10 @@ int App::selfTestMultidim(const std::vector<std::string>& in) {
         ++st_.stage;
         st_.since = now();
     };
-    auto ok = [&] {
-        std::printf("OK (%.1f s)\n", now() - st_.t0);
-        return 0;
+    auto ok = [&] { // then the validation stages (app_validation.cpp), which print OK
+        st_.stage = 170;
+        st_.since = now();
+        return -1;
     };
     if (now() - st_.since > 60) return fail("timeout");
     const std::string file = in.empty() ? "" : (fs::u8path(in[0]).parent_path() / "H" / "clim.nc").u8string();

@@ -2,9 +2,11 @@
 // TimeSync does with Landsat: the map centred on each (zoomed in), its series
 // on the chart (a pin at a point; a polygon becomes the ROI), a label from the
 // label set (keys 1-9), the date of the change (D: the date on the map) and
-// notes. Labels are saved as they are given (in the app data, by file and
-// layer: opening the same file again resumes the work) and exported as a
-// table (CSV, GeoPackage, GeoJSON, Shapefile) with the file's own fields.
+// notes, its confidence and more events. Labels are saved as they are given
+// (in the app data, by file and layer: opening the same file again resumes
+// the work) and exported as a table (CSV, GeoPackage, GeoJSON, Shapefile) with
+// the file's own fields; the sample of a validation project saves them in its
+// GeoPackage instead (app_validation.cpp).
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "app.hpp"
 
@@ -40,7 +42,13 @@ void App::startInterpretation(int vectorId) {
     lab_.vector = vectorId;
     lab_.classes = kDefaultClasses;
     lab_.entries.assign(V->data->features.size(), LabelEntry{});
-    loadLabels();
+    if (isProjectVector(vectorId)) {
+        lab_.project = true;
+        lab_.as = interpreterName();
+        validationEntries();
+    } else {
+        loadLabels();
+    }
     // Where the work stopped: the first feature without a label.
     int first = -1;
     for (size_t i = 0; i < lab_.entries.size() && first < 0; ++i)
@@ -87,6 +95,19 @@ void App::interpGo(int feature) {
 void App::interpStep(int dir) {
     const VectorLayer* V = vectorById(lab_.vector);
     if (!V) return;
+    if (!lab_.filter.empty()) { // only the features of the filter, in its order
+        const auto& f = lab_.filter;
+        const auto it = std::find(f.begin(), f.end(), lab_.current);
+        const int pos = it != f.end() ? int(it - f.begin()) : dir > 0 ? -1 : int(f.size());
+        for (int k = pos + dir; k >= 0 && k < int(f.size()); k += dir) {
+            const int i = f[k];
+            if (i < 0 || i >= int(lab_.entries.size()) || V->data->features[i].kind == VectorFeature::None) continue;
+            if (lab_.skipLabelled && !lab_.entries[i].label.empty()) continue;
+            interpGo(i);
+            return;
+        }
+        return;
+    }
     const int n = int(V->data->features.size());
     for (int i = lab_.current + dir; i >= 0 && i < n; i += dir) {
         if (V->data->features[i].kind == VectorFeature::None) continue;
@@ -99,16 +120,34 @@ void App::interpStep(int dir) {
 void App::interpLabel(int k) {
     if (lab_.current < 0 || lab_.current >= int(lab_.entries.size()) || k >= int(lab_.classes.size())) return;
     lab_.entries[lab_.current].label = k < 0 ? "" : lab_.classes[k];
-    lab_.dirty = true;
-    lab_.changedAt = ImGui::GetTime();
+    interpTouched();
     if (k >= 0 && lab_.advance) interpStep(+1);
 }
 
 void App::interpSetDate(bool clear) {
     if (!s_ || lab_.current < 0 || lab_.current >= int(lab_.entries.size())) return;
     lab_.entries[lab_.current].date = clear ? "" : s_->info->layers[t_].label;
+    interpTouched();
+}
+
+void App::interpSetConfidence(int c) {
+    if (lab_.current < 0 || lab_.current >= int(lab_.entries.size())) return;
+    lab_.entries[lab_.current].confidence = std::clamp(c, 0, 3);
+    interpTouched();
+}
+
+void App::interpAddEvent(const std::string& label) {
+    if (!s_ || label.empty() || lab_.current < 0 || lab_.current >= int(lab_.entries.size())) return;
+    lab_.entries[lab_.current].events.push_back({label, s_->info->layers[t_].label});
+    interpTouched();
+}
+
+void App::interpTouched() {
+    if (lab_.current < 0 || lab_.current >= int(lab_.entries.size())) return;
+    lab_.entries[lab_.current].updated = val::nowIso();
     lab_.dirty = true;
     lab_.changedAt = ImGui::GetTime();
+    if (lab_.project) validationLabelsChanged(lab_.current);
 }
 
 void App::interpShortcuts() {
@@ -121,6 +160,13 @@ void App::interpShortcuts() {
     if (ImGui::IsKeyChordPressed(ImGuiKey_0) || ImGui::IsKeyChordPressed(ImGuiKey_Keypad0)) interpLabel(-1);
     if (ImGui::IsKeyChordPressed(ImGuiKey_D)) interpSetDate(false);
     if (ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey_D)) interpSetDate(true);
+    for (int c = 1; c <= 3; ++c) // Shift+1-3: low, medium, high confidence
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey(ImGuiKey_0 + c))) interpSetConfidence(c);
+    if (ImGui::IsKeyChordPressed(ImGuiKey_E) && lab_.current >= 0 && lab_.current < int(lab_.entries.size())) {
+        // An event: the label chosen for events, else the feature's label, at the map's date.
+        const std::string l = lab_.eventLabel[0] ? std::string(lab_.eventLabel) : lab_.entries[lab_.current].label;
+        interpAddEvent(l);
+    }
 }
 
 void App::pumpInterpretation() {
@@ -147,6 +193,10 @@ std::string App::labelsFile() const {
 
 void App::saveLabels() {
     lab_.dirty = false;
+    if (lab_.project) {
+        validationSaveLabels();
+        return;
+    }
     const VectorLayer* V = vectorById(lab_.vector);
     const std::string path = labelsFile();
     if (!V || path.empty()) return;
@@ -157,8 +207,10 @@ void App::saveLabels() {
     json e = json::array();
     for (size_t i = 0; i < lab_.entries.size(); ++i) {
         const LabelEntry& L = lab_.entries[i];
-        if (L.label.empty() && L.date.empty() && L.notes.empty()) continue;
-        e.push_back({{"fid", V->data->features[i].fid}, {"label", L.label}, {"date", L.date}, {"notes", L.notes}});
+        if (L.empty()) continue;
+        json o = val::labelToJson(L);
+        o["fid"] = V->data->features[i].fid;
+        e.push_back(std::move(o));
     }
     j["entries"] = std::move(e);
     std::error_code ec;
@@ -188,10 +240,7 @@ void App::loadLabels() {
         for (const json& e : j.value("entries", json::array())) {
             const auto it = byFid.find(e.value("fid", int64_t(-1)));
             if (it == byFid.end()) continue;
-            LabelEntry& L = lab_.entries[it->second];
-            L.label = e.value("label", std::string());
-            L.date = e.value("date", std::string());
-            L.notes = e.value("notes", std::string());
+            lab_.entries[it->second] = val::labelFromJson(e);
         }
     } catch (const std::exception&) {
         // A damaged file: the session starts empty (the file is replaced at the first label).
@@ -282,6 +331,7 @@ void App::uiInterpretation() {
     ImGui::SetNextItemWidth(-1);
     ImGui::SliderFloat("##zoom", &lab_.zoom, 1.0f, 32.0f, "zoom on each: %.0f points per pixel", ImGuiSliderFlags_Logarithmic);
 
+    if (lab_.project) uiInterpretationProject();
     if (lab_.current >= 0 && lab_.current < n) {
         LabelEntry& E = lab_.entries[lab_.current];
         ImGui::SeparatorText("Label (keys 1-9, 0 clears)");
@@ -303,11 +353,52 @@ void App::uiInterpretation() {
         ImGui::SetItemTooltip("The date shown on the map: go to it with the arrows or a click on the chart");
         ImGui::SameLine();
         if (ImGui::SmallButton("Clear (Shift+D)")) interpSetDate(true);
+        // Confidence: how sure the interpreter is (kept with the label).
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Confidence");
+        static const char* kConf[] = {"low", "medium", "high"};
+        for (int c = 1; c <= 3; ++c) {
+            ImGui::SameLine();
+            const bool on = E.confidence == c;
+            if (on) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            char t[32];
+            std::snprintf(t, sizeof(t), "%s##conf%d", kConf[c - 1], c);
+            if (ImGui::SmallButton(t)) interpSetConfidence(on ? 0 : c);
+            if (on) ImGui::PopStyleColor();
+            ImGui::SetItemTooltip("Shift+%d", c);
+        }
+        // More events at the feature (e.g. degraded, then cleared): a label and a date each.
+        if (ImGui::TreeNodeEx("##events", ImGuiTreeNodeFlags_SpanAvailWidth | (E.events.empty() ? 0 : ImGuiTreeNodeFlags_DefaultOpen),
+                              "Other events (%d)", int(E.events.size()))) {
+            int remove = -1;
+            for (int k = 0; k < int(E.events.size()); ++k) {
+                ImGui::PushID(k);
+                if (ImGui::SmallButton("x")) remove = k;
+                ImGui::SameLine();
+                ImGui::Text("%s  %s", E.events[k].date.c_str(), E.events[k].label.c_str());
+                ImGui::PopID();
+            }
+            if (remove >= 0) {
+                E.events.erase(E.events.begin() + remove);
+                interpTouched();
+            }
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
+            if (ImGui::BeginCombo("##evlabel", lab_.eventLabel[0] ? lab_.eventLabel : "(the label)")) {
+                if (ImGui::Selectable("(the label)", !lab_.eventLabel[0])) lab_.eventLabel[0] = 0;
+                for (const std::string& c : lab_.classes)
+                    if (ImGui::Selectable(c.c_str(), c == lab_.eventLabel))
+                        std::snprintf(lab_.eventLabel, sizeof(lab_.eventLabel), "%s", c.c_str());
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Add at the map's date (E)"))
+                interpAddEvent(lab_.eventLabel[0] ? std::string(lab_.eventLabel) : E.label);
+            ImGui::TreePop();
+        }
         ImGui::SeparatorText("Notes");
         if (ImGui::InputTextMultiline("##notes", lab_.notes, sizeof(lab_.notes), ImVec2(-1, ImGui::GetTextLineHeight() * 3))) {
             E.notes = lab_.notes;
-            lab_.dirty = true;
-            lab_.changedAt = ImGui::GetTime();
+            interpTouched();
         }
         const VectorFeature& F = D.features[lab_.current];
         if (!D.fields.empty() && ImGui::CollapsingHeader("Attributes")) {
@@ -332,10 +423,10 @@ void App::uiInterpretation() {
             ImGui::Text("%s%s", k < 9 ? (std::to_string(k + 1) + "  ").c_str() : "   ", lab_.classes[k].c_str());
             ImGui::PopID();
         }
+        bool changed = false;
         if (remove >= 0) {
             lab_.classes.erase(lab_.classes.begin() + remove);
-            lab_.dirty = true;
-            lab_.changedAt = ImGui::GetTime();
+            changed = true;
         }
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 60);
         const bool enter = ImGui::InputText("##new", lab_.newClass, sizeof(lab_.newClass), ImGuiInputTextFlags_EnterReturnsTrue);
@@ -344,36 +435,65 @@ void App::uiInterpretation() {
             std::find(lab_.classes.begin(), lab_.classes.end(), std::string(lab_.newClass)) == lab_.classes.end()) {
             lab_.classes.push_back(lab_.newClass);
             lab_.newClass[0] = 0;
-            lab_.dirty = true;
-            lab_.changedAt = ImGui::GetTime();
+            changed = true;
+        }
+        if (changed) {
+            if (lab_.project) {
+                validationLabelSetChanged();
+            } else {
+                lab_.dirty = true;
+                lab_.changedAt = ImGui::GetTime();
+            }
         }
         ImGui::TextDisabled("Labels already given keep their text when the set changes.");
     }
-    ImGui::SeparatorText("Features");
-    if (ImGui::Button("Export table...")) {
-        const std::string stem = fs::u8path(D.path).stem().u8string() + "_labels";
-        const std::string p = askSavePath("Export the labels (.csv, .gpkg, .geojson or .shp)", stem + ".gpkg",
-                                          "GeoPackage", "gpkg");
-        if (!p.empty()) exportLabels(p);
+    ImGui::SeparatorText(lab_.filter.empty() ? "Features" : ("Features: " + lab_.filterName).c_str());
+    if (!lab_.filter.empty()) {
+        if (ImGui::SmallButton("Show all")) {
+            lab_.filter.clear();
+            lab_.filterName.clear();
+        }
+        ImGui::SameLine();
     }
-    ImGui::SetItemTooltip("The file's features and fields with label, change_date and notes:\n"
-                          "GeoPackage, GeoJSON or Shapefile (with the geometries), or CSV (with lon/lat)");
-    ImGui::SameLine();
-    ImGui::TextDisabled("saved as you go");
-    ImGui::SetItemTooltip("%s", labelsFile().c_str());
-    if (ImGui::BeginTable("##features", 4, ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV,
+    if (!lab_.project) {
+        if (ImGui::Button("Export table...")) {
+            const std::string stem = fs::u8path(D.path).stem().u8string() + "_labels";
+            const std::string p = askSavePath("Export the labels (.csv, .gpkg, .geojson or .shp)", stem + ".gpkg",
+                                              "GeoPackage", "gpkg");
+            if (!p.empty()) exportLabels(p);
+        }
+        ImGui::SetItemTooltip("The file's features and fields with label, change_date and notes:\n"
+                              "GeoPackage, GeoJSON or Shapefile (with the geometries), or CSV (with lon/lat)");
+        ImGui::SameLine();
+        ImGui::TextDisabled("saved as you go");
+        ImGui::SetItemTooltip("%s", labelsFile().c_str());
+    } else {
+        ImGui::TextDisabled("saved in the project as you go");
+        ImGui::SetItemTooltip("%s", D.path.c_str());
+    }
+    // The rows: every feature, or the filter's.
+    const int rows = lab_.filter.empty() ? n : int(lab_.filter.size());
+    auto rowFeature = [&](int r) { return lab_.filter.empty() ? r : lab_.filter[r]; };
+    if (ImGui::BeginTable("##features", 5, ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV,
                           ImVec2(0, std::max(120.0f, ImGui::GetContentRegionAvail().y)))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableSetupColumn("label");
         ImGui::TableSetupColumn("date", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("conf.", ImGuiTableColumnFlags_WidthFixed);
         ImGui::TableSetupColumn("notes");
         ImGui::TableHeadersRow();
+        int currentRow = -1;
+        if (lab_.scrollToCurrent && lab_.current >= 0)
+            for (int r = 0; r < rows && currentRow < 0; ++r)
+                if (rowFeature(r) == lab_.current) currentRow = r;
         ImGuiListClipper clip;
-        clip.Begin(n);
-        if (lab_.scrollToCurrent && lab_.current >= 0) clip.IncludeItemByIndex(lab_.current);
+        clip.Begin(rows);
+        if (currentRow >= 0) clip.IncludeItemByIndex(currentRow);
         while (clip.Step())
-            for (int i = clip.DisplayStart; i < clip.DisplayEnd; ++i) {
+            for (int r = clip.DisplayStart; r < clip.DisplayEnd; ++r) {
+                const int i = rowFeature(r);
+                if (i < 0 || i >= int(lab_.entries.size())) continue;
                 const LabelEntry& e = lab_.entries[i];
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
@@ -386,8 +506,14 @@ void App::uiInterpretation() {
                 }
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(e.label.c_str());
+                if (!e.events.empty()) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("+%d", int(e.events.size()));
+                }
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(e.date.c_str());
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(e.confidence == 1 ? "low" : e.confidence == 2 ? "med." : e.confidence == 3 ? "high" : "");
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(e.notes.c_str());
             }

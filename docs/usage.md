@@ -199,13 +199,19 @@ Developer options:
   --describe IN       print how IN opens (dates, size, CRS, variables of a
                       NetCDF / Zarr, the series of the centre pixel) and exit
   --selftest-zeit IN  run the Zeit tools end to end on IN without a window
+  --measure-validation IN  time the strata of the map IN (a buffer of 1 px), its
+                      areas, a sample of 1000 points and the estimators
+  --selftest-validation  check the sampling design, strata, sample and accuracy
+                      estimators (Olofsson et al. 2014) and, with the runtime,
+                      the estimates against zeit.accuracy
   --selftest-ui A B [C [D [E [F [G]]]]]  drive the layers workflow in a hidden window
                       (A, then B as a layer; C: several bands per date;
                       D, E: categorical, with and without a colour table;
                       F: B in another CRS, reprojected over it; G: spectra,
                       ENVI and an EnMAP product; then a polygonal ROI,
-                      vector layers, the interpretation and an animation;
-                      the basemap is checked with local tiles, no network)
+                      vector layers, the interpretation, an animation and a
+                      validation project on D; the basemap is checked with
+                      local tiles, no network)
 ```
 
 Examples:
@@ -588,12 +594,112 @@ read as longitude and latitude).
     Other by default; edit it under *Label set*); `0` clears it.
   - `D`: the date of the change is the date on the map (go to it with `←`/`→`
     or a click on the chart); `Shift+D` clears it. *Notes* for anything else.
+  - `Shift+1` / `Shift+2` / `Shift+3`: the label's *confidence* (low, medium,
+    high). `E` adds another *event* at the map's date (the label chosen under
+    *Other events*, else the feature's label): a point degraded, then cleared,
+    keeps both.
+  - **Chips** (Validation → Chips, or *Chips* in the panel): the feature at
+    every date of the active layer, a small window around it in the map's
+    colours (or its RGB composite), the feature's pixel outlined; *one per
+    year* keeps the date nearest the map's day of the year. Click a chip to
+    show its date on the map, double click to make it the date of the change.
+    The next features' chips are read ahead.
   - The labels are saved a second after each change (in Janus' data folder,
     by file and layer): starting the interpretation of the same file again
     resumes it at the first feature without a label.
   - *Export table...*: the file's features with their fields and three more,
     `label`, `change_date` and `notes`, as GeoPackage, GeoJSON or Shapefile
     (with the geometries) or CSV (with `lon`, `lat`).
+
+## Validation: accuracy and area (Olofsson et al. 2014)
+
+The **Validation** menu turns a map — a Zeit result (LandTrendr's year of
+detection, CCDC's breaks, a TWDTW or SOM class map...), a categorical layer at
+a date (MapBiomas), or any raster file — into a stratified random sample,
+interpreted point by point, and estimates of the map's accuracy and of the
+**error-adjusted area** of each class, with confidence intervals, following
+the good practices of Olofsson et al. (2014).
+
+**Design** (Validation → New sampling design; the **Validation** panel):
+
+- *Maps to stratify*: one map, whose classes are the strata, or several, whose
+  agreement is (a stratum for each number of maps that call a pixel change:
+  *change in 2 of 3 maps*...). Each map is read as **classes** (its values),
+  **intervals** of its values (edges, e.g. `-1, -0.1, 1` for a magnitude) or
+  **events** (a date of change: > 0 is change, no data and 0 are not; with
+  periods, e.g. `2000, 2010, 2021`, a stratum per period). Tick the classes
+  (or intervals) that are change.
+- *Buffer*: the pixels without change within N pixels of a change become a
+  stratum of their own: omission errors (change the map missed) hide there,
+  and a few points in it make the area of change much more precise.
+- *Limit*: every pixel, the pixels inside the ROI, or inside the polygons of a
+  vector layer.
+- **Compute the strata**: one pass over the map(s) at full resolution in the
+  background (another map is read on the first one's grid); the strata raster
+  opens as a layer, with each stratum's pixels, area (hectares; on the sphere
+  for a geographic CRS) and weight.
+- *Sample size*: from the standard error wanted for the overall accuracy
+  (eq. 13, with the user's accuracy expected of each stratum), or given;
+  *allocation* proportional, equal, Neyman or by hand, with a minimum per
+  stratum (rare change needs 50–100 points). The panel shows the errors the
+  design should give: the standard error of the overall and of each user's
+  accuracy, and the interval of the area of change.
+- **Draw the sample and create the project...**: a GeoPackage (the project)
+  and its strata raster beside it. The same strata, sizes and seed draw the
+  same points. Later, *Add points* draws more in a stratum (still a
+  stratified random sample).
+
+**The project** (a GeoPackage: open it in QGIS, keep it with the paper):
+`samples` (the points at their pixels' centres, with the reference label of
+each), `labels` (every interpreter's labels), `strata` and `project` (the
+design, the maps assessed, the translations). Validation → Open project...
+resumes the work.
+
+**Interpretation**: the sample opens in the Interpretation panel (see
+[Vector layers](#vector-layers)), the map going to each point, its pixel
+outlined. **Blind** (on by default): the maps assessed and the strata are not
+drawn and the points are coloured only by their state (yours, others',
+disagreement, adjudicated), so the reference is not swayed by the maps.
+Labels describe the ground, not the map: the class, the date of the change,
+the confidence, other events, notes. They are written to the GeoPackage a
+second after each change. *Mine to do* lists the points you have not
+labelled.
+
+**Accuracy** (updated with every label):
+
+- *Reference labels → the map's classes*: how each label reads for this map
+  (guessed from the names; for a map of events, loss and disturbance labels
+  are change); "can't tell" and clouds are left out. A point is change when
+  any of its events is; with periods, by the date of the first.
+- The overall accuracy, the **error matrix** in points or in proportions of
+  area (a click on a cell lists its points in the Interpretation panel: the
+  errors one by one), each class's user's and producer's accuracy, and its
+  mapped and **adjusted area ± the interval** (a chart of both).
+- *As the labels came*: the overall accuracy or a class's area as points were
+  labelled, with its interval: label until it is narrow enough.
+- Maps of events: the agreement of the **dates** (within ± k years, the
+  histogram of the differences) and the **area of change by year** with its
+  interval, from the reference's dates.
+
+**Maps**: one sample assesses many maps. Add a Zeit result, a layer at a date
+or a file (*Assess another map...*): each is read at the points and its areas
+over the strata, and its labels translated; the estimators weigh the points by
+the project's strata (Stehman 2014), so maps other than the one stratified are
+assessed without bias. The table compares their overall accuracy, the user's
+and producer's accuracy of change and the area of change.
+
+**Interpreters**: your name is in Settings (by default your login). Each
+interpreter can label a copy of the project (*Save a copy for an
+interpreter...*); *Merge labels from a copy...* brings their labels back (by
+point, the newer kept). The panel shows each pair's agreement and Cohen's
+kappa; *Adjudicate...* goes through the disagreements, and the label given
+settles each (the others' labels shown).
+
+**Report**: *Export the report...* writes `report.html` (design, maps,
+matrices, accuracies, areas with figures, interpreters, a methods paragraph
+and the references) and a CSV of every table. *Copy Python* gives the
+`zeit.accuracy` code that computes the same estimates from the project's
+files.
 
 ## Animation (GIF, MP4, WebM)
 
@@ -686,4 +792,5 @@ once and is kept in the layout file, next to the other data of Janus
 | Overview memory | Memory for the cube overview (1024 MB by default); **Apply** reopens the active layer. `--budget` overrides it for one run |
 | Clear overview cache | Deletes the cached overviews except the active layer's |
 | Full-resolution cache | When it is built (on demand, series on an HDD, every series), its budget, and clearing it (see [Performance](#performance)) |
+| Interpreter | The name your labels of a validation project are kept under (by default your login), see [Validation](#validation-accuracy-and-area-olofsson-et-al-2014) |
 | Video export (ffmpeg) | The `ffmpeg` executable used for MP4 and WebM animations (**Browse...**); empty: one next to Janus, else the one on PATH (see [Animation](#animation-gif-mp4-webm)) |

@@ -50,6 +50,7 @@ void App::registerSettings() {
         else if (value("RevealOpened=", v)) app.revealOpened_ = v != 0;
         else if (std::strncmp(line, "ExportDir=", 10) == 0) app.exportDir_ = line + 10;
         else if (std::strncmp(line, "Ffmpeg=", 7) == 0) app.ffmpegPath_ = line + 7;
+        else if (std::strncmp(line, "Interpreter=", 12) == 0) app.interpreter_ = line + 12;
         else if (value("PanelOpacity=", v)) app.panelOpacity_ = std::clamp(v, 10, 100) / 100.0f;
         else if (value("WindowOpacity=", v)) app.windowOpacity_ = std::clamp(v, 20, 100) / 100.0f;
         else if (std::strncmp(line, "Favorite=", 9) == 0 && line[9]) app.files_.addFavorite(line + 9);
@@ -76,6 +77,7 @@ void App::registerSettings() {
                      theme::name(app.theme_), app.fontSize_, int(app.revealOpened_), app.exportDir_.c_str(),
                      app.ffmpegPath_.c_str(), int(std::lround(app.panelOpacity_ * 100)),
                      int(std::lround(app.windowOpacity_ * 100)));
+        if (!app.interpreter_.empty()) buf->appendf("Interpreter=%s\n", app.interpreter_.c_str());
         for (const std::string& f : app.files_.favorites()) buf->appendf("Favorite=%s\n", f.c_str()); // one line each
         buf->append("\n");
     };
@@ -277,6 +279,18 @@ void App::uiSettings() {
     ImGui::SetItemTooltip("%s (the active layer's is kept)", settings_.cacheDir.c_str());
     uiFullResSettings();
     uiFfmpegSettings();
+
+    ImGui::SeparatorText("Validation");
+    char who[128];
+    std::snprintf(who, sizeof(who), "%s", interpreter_.c_str());
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::InputTextWithHint("##interpreter", ("Interpreter: " + interpreterName()).c_str(), who, sizeof(who))) {
+        interpreter_ = who;
+        ImGui::MarkIniSettingsDirty();
+    }
+    ImGui::SetItemTooltip("The name your labels of a validation project's points are kept under (by default\n"
+                          "your login): with several interpreters, each one's labels, their agreement and\n"
+                          "the disagreements to settle");
     ImGui::End();
 }
 

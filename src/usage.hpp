@@ -50,6 +50,11 @@ inline const char* kUsage =
     "                      NetCDF / Zarr, the series of the centre pixel) and exit\n"
     "  --selftest-zeit IN  run the Zeit tools end to end on IN without a window\n"
     "  --selftest-embeddings  check the embedding kernels and PCA, with timings\n"
+    "  --measure-validation IN  time the strata of the map IN (a buffer of 1 px), its\n"
+    "                      areas, a sample of 1000 points and the estimators\n"
+    "  --selftest-validation  check the sampling design, strata, sample and accuracy\n"
+    "                      estimators (Olofsson et al. 2014) and, with the runtime,\n"
+    "                      the estimates against zeit.accuracy\n"
     "  --selftest-embeddings-ui DIR [OUT]  a series of embeddings in every view, in a\n"
     "                      hidden window; PNGs of each in OUT\n"
     "  --selftest-ui A B [C [D [E [F [G]]]]]  drive the layers workflow in a hidden window\n"
@@ -57,8 +62,9 @@ inline const char* kUsage =
     "                      D, E: categorical, with and without a colour table;\n"
     "                      F: B in another CRS, reprojected over it; G: spectra,\n"
     "                      ENVI and an EnMAP product; then a polygonal ROI,\n"
-    "                      vector layers, the interpretation and an animation;\n"
-    "                      the basemap is checked with local tiles, no network)\n";
+    "                      vector layers, the interpretation, an animation and a\n"
+    "                      validation project on D; the basemap is checked with\n"
+    "                      local tiles, no network)\n";
 
 // Options that take a value (the launcher validates them before opening the GUI).
 inline bool isValueOption(const char* a) {

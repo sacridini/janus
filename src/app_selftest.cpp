@@ -949,6 +949,17 @@ int App::selfTestStep(const std::vector<std::string>& in) {
     case 164:
     case 165:
         return selfTestMultidim(in);
+    case 170:
+    case 171:
+    case 172:
+    case 173:
+    case 174:
+    case 175:
+    case 176:
+    case 177:
+    case 178:
+    case 179:
+        return selfTestValidationUi(in);
     }
     return -1;
 }

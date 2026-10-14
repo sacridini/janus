@@ -100,6 +100,8 @@ App::~App() {
     for (auto& e : exports_) e->cancel = true; // their threads finish when exports_ goes
     zeitNext_.reset();
     zeit_.reset();
+    closeValidationProject(); // its labels written
+    dropValidationTextures();
     closeAll();
     retireBasemap();
     retiredBasemaps_.clear(); // waits for their last requests
@@ -367,6 +369,8 @@ void App::frame() {
     pumpTransect();
     pumpVectors();
     pumpInterpretation();
+    pumpValidation();
+    pumpChips();
     pumpAnimation();
 
     handleShortcuts();
@@ -394,6 +398,8 @@ void App::frame() {
     uiSaveRun();
     uiExtract();
     uiInterpretation();
+    uiValidation();
+    uiChips();
     uiPopups();
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
     frameMs_ = frameMs_ * 0.9 + ms * 0.1;
@@ -748,6 +754,7 @@ void App::uiMenu() {
         ImGui::EndMenu();
     }
     uiToolsMenu();
+    uiValidationMenu();
     if (ImGui::BeginMenu("Help")) {
         if (ImGui::MenuItem("Shortcuts and usage")) openHelpPopup_ = true;
         ImGui::EndMenu();
@@ -1141,6 +1148,7 @@ void App::drawMapMarks(ImDrawList* dl, ImVec2 origin, int panel, int ix, int iy,
         return origin + ImVec2(float(offset_.x + x * scale_), float(offset_.y + y * scale_));
     };
     drawVectorMarks(dl, origin); // under the pins and the ROI
+    drawValidationMarks(dl, origin);
     if (inside && scale_ >= 6) // outline of the pixel under the cursor
         dl->AddRect(toScreen(ix, iy), toScreen(ix + 1, iy + 1), IM_COL32(255, 255, 255, 200));
     if (!inside && prevMouseInPanel_ >= 0 && prevMouseInPanel_ != panel && hover_.x >= 0) {
