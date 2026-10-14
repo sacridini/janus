@@ -362,6 +362,8 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 20 | 0.33.0 | **ROI poligonal**: `R` e cliques ou laço à mão livre; um polígono de uma camada vetorial (Alt + clique); estatísticas, box plot, PCA local e dispersão nos pixels dentro | concluída |
 | 21 | 0.33.0 | **Camadas vetoriais** (OGR: GeoJSON, Shapefile, GeoPackage, KML, CSV de pontos) sobre o mapa em qualquer CRS, **extração de séries** de todos os pontos/polígonos para CSV e **interpretação** estilo TimeSync (`N`/`Shift+N`, rótulos `1`–`9`, data da mudança, notas, exportação) | concluída |
 | 22 | 0.33.0 | **Animação**: timelapse de um intervalo de datas em GIF (codificador próprio), MP4 e WebM (ffmpeg externo), com carimbo da data, legenda, barra de escala e basemap | concluída |
+| 23 | 0.34.0 | **Composição RGB de três bandas** por data (várias bandas por arquivo: cor verdadeira, falsa-cor infravermelho...), com o gráfico e o cursor no índice ou banda da série | concluída |
+| 24 | 0.34.0 | Mais do Zeit: **modelo ajustado do BFAST** (e do Lite e do Monitor) no gráfico, **imagem sintética do CCDC** numa data, **Copy Python** (o código da série, das estatísticas e das chamadas do Zeit) | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -377,8 +379,8 @@ termina.
 - ~~**Estimativa de tempo**~~ — feita na 0.8.0 (ver histórico). Ideia original: estimar antes de rodar uma ferramenta lenta (BFAST ~2–3 ms/pixel:
   uma cena Landsat inteira levaria horas). Ideia: o manifesto declara um custo por
   pixel medido e a janela mostra a estimativa para o escopo escolhido.
-- BFAST: desenhar o **modelo ajustado** (tendência + sazonalidade) no gráfico —
-  o Zeit hoje devolve só as quebras.
+- ~~BFAST: desenhar o **modelo ajustado** (tendência + sazonalidade) no gráfico~~
+  — feito na 0.34.0 (ajustado de novo na ponte entre as quebras do Zeit).
 - BFAST Monitor: história estável (o R corta a parte instável da história; o
   Zeit usa a história inteira, o que gera alarmes falsos após uma quebra antiga).
 - Mapa de **diferença** entre duas datas (Δ) → fase 12.
@@ -436,8 +438,8 @@ termina.
 - **Classificação a partir de pinos** (`zeit.classify`, Random Forest; ótima nos
   embeddings): pede o scikit-learn no runtime, evitado de propósito na fase 17.
   O modo "ajustar e aplicar" da ponte (o do SOM) já serve.
-- **Imagem sintética do CCDC** (`predict_synthetic_image`): o `tool_ccdc`
-  teria de guardar os coeficientes (hoje grava só os mapas-resumo).
+- ~~**Imagem sintética do CCDC**~~ — feita na 0.34.0 (ferramenta própria: roda o
+  CCDC e avalia os modelos na data; não guarda os coeficientes entre rodadas).
 - Ganhos pequenos: `desawtooth` como opção da suavização, filtros de maioria e
   de área mínima (`apply_majority_filter`, `apply_mmu_filter`) nos mapas de
   classe, as regras de qualidade do Zeit (`qc_sentinel2_scl`, `qc_modis_*`).
@@ -471,6 +473,62 @@ termina.
   (0.25.0); faltam as larguras fixas dos widgets.
 
 ## Histórico
+
+### 0.34.0 — Fases 23 e 24: RGB de três bandas, modelos do BFAST, CCDC sintético, Copy Python
+- Pedidas em 2026-10-14, logo depois da 0.33.0 (feitas em sequência: um
+  worktree partiria do commit antes da 0.33.0, que ainda não estava commitada).
+- **Composição RGB** (fase 23) em séries com várias bandas por arquivo
+  (Landsat, Sentinel-2): três bandas de cada data como RGB no lugar da
+  grandeza da série, que o cubo, o gráfico, o cursor e as ferramentas
+  continuam mostrando. Não é um modo novo dos shaders: como os embeddings, uma
+  imagem RGBA por data, lida em segundo plano no tamanho do overview (a data
+  mostrada primeiro, depois as dos painéis; LRU de 256 MB na GPU) e, na camada
+  ativa com zoom além do overview, a janela visível de novo na resolução da
+  tela, desenhada pixel a pixel (vizinho mais próximo, como o cubo).
+  Predefinições pela função das bandas (os nomes, ou o que se mapeou numa
+  ferramenta multibanda) ou pelo comprimento de onda: cor verdadeira, falsa-cor
+  infravermelho, SWIR, agricultura, terra/água. O realce (2–98% de cada banda)
+  sai da primeira imagem e vale para todas as datas: elas se comparam e tocam
+  como filme; arrastável, ou *Stretch to this image*. Data do mapa ou fixa.
+  Aparece nos painéis de mapa, na cortina, nos PNG e nas animações (que
+  esperam a imagem de cada data).
+- **Modelo do BFAST no gráfico** (fase 24): o Zeit devolve as quebras, não os
+  modelos; a ponte os ajusta de novo por mínimos quadrados no eixo regular do
+  Zeit (início + índice / frequência, como o `ts` do R): BFAST = tendência
+  linear por partes (entre quebras de tendência) + harmônicos por partes (entre
+  quebras de sazonalidade), juntos; BFAST Lite = tendência + harmônicos
+  refeitos entre as quebras; BFAST Monitor = o modelo da história e,
+  mais claro, a projeção no período monitorado. A tendência sozinha vai mais
+  clara por baixo (overlays com `weight` e `alpha`). Medido numa série mensal
+  sintética com uma queda em 2014,5: quebra achada no lugar e R² 0,986 (BFAST e
+  Lite), 0,71 no Monitor (a projeção não acompanha a queda, que é o que ele
+  detecta). O autoteste do Zeit confere que o modelo passa pelas datas da série
+  (R² > 0; numa série Landsat em que o BFAST não acha a quebra, 0,23).
+- **Imagem sintética do CCDC**: ferramenta própria (`ccdc_synthetic`), roda o
+  CCDC e avalia em cada pixel o segmento que cobre a data (antes do primeiro, o
+  primeiro; depois do último, o último), em todas as bandas nas unidades da
+  série e na grandeza mostrada (ex.: NDVI). *Date* 0 = a data do mapa: o
+  manifesto declara `map_date`, a ponte recebe `map_year` e o gráfico é
+  ajustado de novo quando a data muda.
+- **Copy Python**: o código não é escrito à mão por ferramenta. Numa rodada
+  por pixel, a ponte grava as chamadas do Zeit que a ferramenta faz (as
+  funções públicas do módulo, embrulhadas só na thread do pedido, só as
+  chamadas de primeiro nível; `vars(zeit)`, não `dir`: o `dir` lista as
+  entradas preguiçosas e o `getattr` importaria o `zeit.ai`, que puxa o
+  torch) e devolve o código com os valores resolvidos (ex.: o início e a
+  frequência do BFAST Monitor). O Janus escreve antes a leitura da mesma série
+  com rasterio (banda, diferença normalizada, máscara de qualidade, nodata,
+  escala; a ROI com o polígono por `rasterize`), as estatísticas do painel
+  (média, OLS e Sen por ano) e, para as multibanda, as bandas por função em
+  refletância × 10000 e os códigos Fmask. Toda ferramenta com modo pixel
+  devolve as suas chamadas (autoteste do Zeit).
+- Autoteste (`--selftest-ui`): 140–145 a composição em C com overview a 1:2
+  (presets pelos nomes das bandas; pixels do mapa = bandas do arquivo
+  realçadas, no overview e, com zoom, pixel a pixel; outra data; data fixa;
+  a série intacta); 150–154 o código copiado rodado pelo Python do runtime:
+  pino com Fmask e Mann-Kendall (a mesma série, 4 datas mascaradas), ROI
+  poligonal (a mesma média em todas as datas), CCDC na série `landsat` (as
+  bandas, os códigos Fmask e a chamada rodam).
 
 ### 0.33.0 — Fases 20 a 22: ROI poligonal, camadas vetoriais, interpretação e animação
 - Pedidas em 2026-10-14 (ver "Vetores, ROI poligonal e animação" em
