@@ -24,13 +24,12 @@
 
 ![Janus: map, time series and statistics of an annual NDVI cube](docs/screenshot.jpg)
 
-Janus opens a folder of rasters, a multiband stack, a NetCDF or Zarr, or
-cloud-optimized GeoTIFFs as a data cube, keeps it on the GPU and shows the time
-series of any pixel as you move the mouse. It detects change with LandTrendr,
-CCDC, BFAST, CODED and the other tools of [Zeit](https://github.com/sacridini/zeit-cdts),
-fitted live on the chart or run over the image, and validates the maps they make,
-down to their error-adjusted areas. Zeit runs in a Python runtime bundled with
-Janus: nothing else to install. Its command line is `jn`.
+Janus is a desktop workbench for satellite image time series: explore decades
+of data pixel by pixel, find where, when and by how much the land changed with
+LandTrendr, CCDC, BFAST, CODED and the other tools of
+[Zeit](https://github.com/sacridini/zeit-cdts), and measure how accurate your
+maps are. Zeit comes inside Janus: nothing else to install. Its command line
+is `jn`.
 
 ## Features
 
