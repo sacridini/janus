@@ -38,6 +38,8 @@ std::string App::layerName(const CubeInfo& info, const std::vector<std::string>&
     fs::path p = fs::u8path(inputs.size() == 1 ? inputs[0] : info.firstPath);
     if (inputs.size() != 1) p = p.parent_path();
     std::string n = p.has_stem() ? p.stem().u8string() : p.filename().u8string();
+    // A URL (without its query) or a NetCDF / Zarr variable ("clim t2m").
+    if (inputs.size() == 1 && (isRemotePath(inputs[0]) || datasetFile(inputs[0]) != inputs[0])) n = displayName(inputs[0]);
     if (n.empty()) n = p.u8string();
     // Disambiguate equal names (e.g. two folders called "ndvi").
     int dup = 0;
@@ -245,10 +247,11 @@ void App::setActive(int i) {
             pinAt.push_back({lx, ly});
         }
     if (carry && N.reproj && tr_.on && tr_.geo) {
-        // The transect's ends in the new layer's CRS (pumpTransect places them).
+        // The transect's vertices in the new layer's CRS (pumpTransect places them).
         const CubeInfo& pi = *prev->session->info;
         bool ok = true;
-        for (double* g : {tr_.ga, tr_.gb}) {
+        for (size_t k = 0; k + 1 < tr_.g.size(); k += 2) {
+            double* g = &tr_.g[k];
             double px, py, lx, ly;
             if (pi.geoToPixel(g[0], g[1], px, py) && activeToLayer(N, px, py, lx, ly))
                 N.session->info->pixelToGeo(lx, ly, g[0], g[1]);

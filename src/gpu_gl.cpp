@@ -26,7 +26,8 @@ void main() {
 // Per-pixel temporal statistics of the overview, in two passes (mean, then
 // centered sums: numerically stable). The largest drop is the largest decrease
 // between consecutive valid observations (NaN skipped), dated at the later one;
-// 0 and no date if the series never decreases.
+// 0 and no date if the series never decreases. Dates whose time is NaN are
+// outside the season (App::season_) and left out.
 const char* kStatsFrag = R"(#version 330 core
 uniform sampler2DArray uCube;
 uniform sampler2D uTimes;
@@ -40,20 +41,24 @@ void main() {
     float n = 0.0, sv = 0.0, sx = 0.0, mn = 3.0e38, mx = -3.0e38;
     float last = 0.0, drop = 0.0, dropT = nanv;
     for (int t = 0; t < uT; ++t) {
+        float x = texelFetch(uTimes, ivec2(t, 0), 0).r;
+        if (isnan(x)) continue;
         float v = texelFetch(uCube, ivec3(p, t), 0).r;
         if (isnan(v)) continue;
         if (n > 0.0 && last - v > drop) { drop = last - v; dropT = float(t); }
         last = v;
-        n += 1.0; sv += v; sx += texelFetch(uTimes, ivec2(t, 0), 0).r;
+        n += 1.0; sv += v; sx += x;
         mn = min(mn, v); mx = max(mx, v);
     }
     if (n < 1.0) { o0 = vec4(nanv, nanv, nanv, 0.0); o1 = vec4(nanv); o2 = nanv; return; }
     float mv = sv / n, mxx = sx / n;
     float sxx = 0.0, sxy = 0.0, syy = 0.0;
     for (int t = 0; t < uT; ++t) {
+        float x = texelFetch(uTimes, ivec2(t, 0), 0).r;
+        if (isnan(x)) continue;
         float v = texelFetch(uCube, ivec3(p, t), 0).r;
         if (isnan(v)) continue;
-        float dx = texelFetch(uTimes, ivec2(t, 0), 0).r - mxx, dy = v - mv;
+        float dx = x - mxx, dy = v - mv;
         sxx += dx * dx; sxy += dx * dy; syy += dy * dy;
     }
     float sd = n > 1.0 ? sqrt(syy / (n - 1.0)) : 0.0;
@@ -87,12 +92,46 @@ uniform sampler2D uWarpGrid;    // the layer's uv at the nodes (RG32F)
 uniform vec4 uWarpQuad;         // the quad in the grid's domain: x0, y0, w, h
 uniform vec4 uWarpSrc;          // the drawn texture in the layer's uv: x0, y0, w, h
 uniform vec4 uColor;            // uSource 3: a plain colour (fillRect)
+uniform sampler2D uTimes;       // the cube's dates (years; NaN = outside the season)
 
 vec2 uv;                        // where the cube / tile / statistics are read
 
 float cubeAt(int t) { return uSource == 1 ? texture(uTile, uv).r : texture(uCube, vec3(uv, float(t))).r; }
 float refAt(int t) { return uSource == 1 ? texture(uTile2, uv).r : texture(uCube, vec3(uv, float(t))).r; }
 float norm(float v) { return clamp((v - uRange.x) / (uRange.y - uRange.x), 0.0, 1.0); }
+
+// Temporal composite of the dates t0..t1 in the season (time not NaN), of the
+// overview: 0 median, 1 mean, 2 maximum, 3 minimum, 4 number of observations.
+// The median sorts up to 64 values: with more, every k-th one (as
+// compositeValue in app_season.cpp, which gives the same numbers on the CPU).
+float composite(int t0, int t1, int reducer) {
+    float n = 0.0, s = 0.0, mn = 3.0e38, mx = -3.0e38;
+    for (int t = t0; t <= t1; ++t) {
+        if (isnan(texelFetch(uTimes, ivec2(t, 0), 0).r)) continue;
+        float v = texture(uCube, vec3(uv, float(t))).r;
+        if (isnan(v)) continue;
+        n += 1.0; s += v; mn = min(mn, v); mx = max(mx, v);
+    }
+    if (reducer == 4) return n;
+    if (n < 1.0) return uintBitsToFloat(0x7fc00000u);
+    if (reducer == 1) return s / n;
+    if (reducer == 2) return mx;
+    if (reducer == 3) return mn;
+    float vals[64];
+    int k = int(ceil(n / 64.0)), i = 0, m = 0;
+    for (int t = t0; t <= t1 && m < 64; ++t) {
+        if (isnan(texelFetch(uTimes, ivec2(t, 0), 0).r)) continue;
+        float v = texture(uCube, vec3(uv, float(t))).r;
+        if (isnan(v)) continue;
+        if (i % k == 0) {
+            int j = m++;
+            while (j > 0 && vals[j - 1] > v) { vals[j] = vals[j - 1]; --j; }
+            vals[j] = v;
+        }
+        ++i;
+    }
+    return (m % 2 == 1) ? vals[m / 2] : 0.5 * (vals[m / 2 - 1] + vals[m / 2]);
+}
 
 // Bilinear between the 4 grid nodes around the point, in full float precision
 // (texture filtering weights have only ~8 bits), then into the drawn texture.
@@ -142,6 +181,7 @@ void main() {
     }
     if (uMode == 0) v = cubeAt(uLayers.x);
     else if (uMode == 10) v = cubeAt(uLayers.x) - refAt(uLayers.y);
+    else if (uMode == 13) v = uSource == 0 ? composite(uLayers.x, uLayers.y, uLayers.z) : uintBitsToFloat(0x7fc00000u);
     else {
         vec4 s0 = texture(uStats0, uv), s1 = texture(uStats1, uv);
         if (uMode == 1) v = cubeAt(uLayers.x) - s0.x;
@@ -251,6 +291,12 @@ void GpuCube::uploadLayer(int t, const float* data) {
     loaded[t] = true;
 }
 
+void GpuCube::setTimes(const std::vector<float>& timesYears) {
+    glBindTexture(GL_TEXTURE_2D, tex(times));
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, T, 1, GL_RED, GL_FLOAT, timesYears.data());
+}
+
 size_t GpuCube::bytes() const { return size_t(w) * h * (T + 9) * 4; }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +344,7 @@ bool Gpu::init(std::string& error) {
     glUniform1i(glGetUniformLocation(d.progDisplay, "uStats2"), 7);
     glUniform1i(glGetUniformLocation(d.progDisplay, "uClassLut"), 6);
     glUniform1i(glGetUniformLocation(d.progDisplay, "uWarpGrid"), 8);
+    glUniform1i(glGetUniformLocation(d.progDisplay, "uTimes"), 9);
     glUseProgram(d.progStats);
     glUniform1i(glGetUniformLocation(d.progStats, "uCube"), 0);
     glUniform1i(glGetUniformLocation(d.progStats, "uTimes"), 1);
@@ -493,6 +540,8 @@ void Gpu::drawCube(const GpuCube& c, const float rect[4], const DrawParams& p) {
         glBindTexture(GL_TEXTURE_2D, c.statsValid ? tex(c.stats1) : d.dummy2D);
         glActiveTexture(GL_TEXTURE7);
         glBindTexture(GL_TEXTURE_2D, c.statsValid ? tex(c.stats2) : d.dummy2D);
+        glActiveTexture(GL_TEXTURE9);
+        glBindTexture(GL_TEXTURE_2D, tex(c.times));
         d.boundCube = &c;
     }
     d.drawQuad(rect, 0, p);

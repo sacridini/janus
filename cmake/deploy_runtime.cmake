@@ -11,8 +11,24 @@ set(CMAKE_GET_RUNTIME_DEPENDENCIES_PLATFORM "windows+pe")
 set(CMAKE_GET_RUNTIME_DEPENDENCIES_TOOL "dumpbin")
 set(CMAKE_GET_RUNTIME_DEPENDENCIES_COMMAND "${DUMPBIN}")
 
+# GDAL drivers built as plugins (conda-forge: libgdal-netcdf, libgdal-hdf5):
+# NetCDF and HDF5 rasters. Copied to gdalplugins/ (main.cpp points GDAL there);
+# their DLLs (netcdf, hdf5...) go next to the program with the rest.
+set(plugin_dir "${DLL_DIR}/../lib/gdalplugins")
+set(plugins "")
+foreach(name gdal_netCDF gdal_HDF5)
+  if(EXISTS "${plugin_dir}/${name}.dll")
+    list(APPEND plugins "${plugin_dir}/${name}.dll")
+  endif()
+endforeach()
+if(NOT plugins)
+  message(WARNING "deploy_runtime: no GDAL netCDF/HDF5 plugin in ${plugin_dir} (conda install libgdal-netcdf): "
+                  "NetCDF files will not open")
+endif()
+
 file(GET_RUNTIME_DEPENDENCIES
   EXECUTABLES "${EXE}"
+  MODULES ${plugins}
   DIRECTORIES "${DLL_DIR}"
   RESOLVED_DEPENDENCIES_VAR deps
   UNRESOLVED_DEPENDENCIES_VAR unresolved
@@ -35,6 +51,11 @@ list(LENGTH deps n)
 message(STATUS "deploy_runtime: copied ${n} DLLs to ${OUT_DIR}")
 if(unresolved)
   message(WARNING "deploy_runtime: DLLs not found: ${unresolved}")
+endif()
+
+file(REMOVE_RECURSE "${OUT_DIR}/gdalplugins")
+if(plugins)
+  file(COPY ${plugins} DESTINATION "${OUT_DIR}/gdalplugins")
 endif()
 
 file(COPY "${DATA_DIR}/proj/proj.db" DESTINATION "${OUT_DIR}/share/proj")

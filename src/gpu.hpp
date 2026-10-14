@@ -25,6 +25,7 @@ enum DisplayMode {
     ModeDiff,        // value(t) - value(reference date), reference in DrawParams::tg
     ModeDropDate,    // largest drop between consecutive valid observations: date index
     ModeDropMag,     // ... and its magnitude (previous - next > 0)
+    ModeComposite,   // temporal composite of dates t..tg (DrawParams), reducer in tb (see App::CompositeOpts)
     ModeCount
 };
 
@@ -39,6 +40,7 @@ struct GpuCube {
     uint64_t stats2 = 0;        // date index of the largest drop (1 float per pixel)
     uint64_t times = 0;         // T floats: years since the 1st date
     bool statsValid = false;
+    int statsGen = 0;           // statistics computed so far (a new season recomputes them)
     std::vector<bool> loaded;
     bool sharesHost = false;    // Metal: the cube buffer is the Overview's array itself
     // CPU-visible statistics once computed, w*h float4 each (Metal: the shared
@@ -57,6 +59,9 @@ struct GpuCube {
     // marks the date; GL copies each date into its texture array.
     void create(int w, int h, int T, const std::vector<float>& timesYears, float* host, size_t hostBytes);
     void uploadLayer(int t, const float* data);
+    // The dates again (years since the 1st; NaN = outside the season: left out
+    // of the statistics and the composites). statsValid must be reset after.
+    void setTimes(const std::vector<float>& timesYears);
     size_t bytes() const;
 };
 
@@ -72,7 +77,8 @@ struct WarpParams {
 
 struct DrawParams {
     int mode = ModeValue;
-    int t = 0, tg = 0, tb = 0;   // layers (tg/tb only in RGB mode; tg = reference date in ModeDiff)
+    int t = 0, tg = 0, tb = 0;   // layers (tg/tb only in RGB mode; tg = reference date in ModeDiff;
+                                 // ModeComposite: dates t..tg, reducer tb)
     float lo = 0, hi = 1;        // stretch range
     GpuTex classLut = 0;         // categorical data: class value -> colour (see createClassLut)
     GpuTex tile2 = 0;            // ModeDiff on a detail tile: the reference date's tile

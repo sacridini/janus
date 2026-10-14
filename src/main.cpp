@@ -15,6 +15,7 @@
 #include <ogr_srs_api.h>
 
 #include "app.hpp"
+#include "cube.hpp"
 #include "embedding.hpp"
 #include "platform.hpp"
 #include "render_backend.hpp"
@@ -34,6 +35,15 @@ static void configureBundledData() {
         OSRSetPROJSearchPaths(paths);
     }
     if (fs::exists(share / "gdal", ec)) CPLSetConfigOption("GDAL_DATA", (share / "gdal").u8string().c_str());
+    // GDAL drivers built as plugins (netCDF, HDF5): the bundled ones only, next
+    // to the libraries (Windows: the program's folder; Linux: lib/; macOS:
+    // Frameworks/). A build tree has them from the post-build step.
+    const fs::path exe = fs::u8path(platform::exeDir());
+    for (const fs::path& plugins : {exe / "gdalplugins", exe / "lib" / "gdalplugins", exe / ".." / "Frameworks" / "gdalplugins"})
+        if (fs::exists(plugins, ec)) {
+            CPLSetConfigOption("GDAL_DRIVER_PATH", plugins.lexically_normal().u8string().c_str());
+            break;
+        }
 }
 
 static App* g_app = nullptr;
@@ -64,6 +74,7 @@ int main(int argc, char** argv) {
     bool selftestUi = false;     // dev option: drive the layers workflow in a hidden window
     bool measureCache = false;   // dev option: time the full-resolution cache in a hidden window
     bool measureVectors = false; // dev option: time vector layers over a series in a hidden window
+    bool describe = false;       // dev option: print how the inputs open, without a window
     for (size_t i = 0; i < args.size(); ++i) {
         const std::string& a = args[i];
         auto next = [&]() -> const char* { return i + 1 < args.size() ? args[++i].c_str() : nullptr; };
@@ -96,6 +107,8 @@ int main(int argc, char** argv) {
             measureCache = selftestUi = true;
         } else if (a == "--measure-vectors") {
             measureVectors = selftestUi = true;
+        } else if (a == "--describe") {
+            describe = true;
         } else if (a == "--selftest-zeit") {
             selftestZeit = true;
         } else if (a == "--selftest-embeddings") {
@@ -120,8 +133,15 @@ int main(int argc, char** argv) {
     StartupTimes st;
     configureBundledData();
     GDALAllRegister();
+    configureRemoteAccess();
     CPLSetErrorHandler(CPLQuietErrorHandler);
     if (selftestUi) platform::attachParentConsole();
+    if (describe) {
+        platform::attachParentConsole();
+        const int rc = describeInputs(inputs, opts.sel);
+        std::fflush(stdout);
+        return rc;
+    }
     if (selftestEmb) {
         platform::attachParentConsole();
         std::string report;

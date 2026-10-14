@@ -6,6 +6,8 @@
 #include <cstring>
 #include <filesystem>
 
+#include <cpl_vsi.h>
+
 #include "job_pool.hpp"
 
 #ifdef _WIN32
@@ -38,10 +40,23 @@ uint64_t cubeCacheKey(const CubeInfo& info, const void* salt, size_t saltBytes) 
     for (const Layer& L : info.layers) {
         k = fnv1a(k, L.path.data(), L.path.size());
         k = fnv1a(k, &L.band, sizeof(L.band));
+        // The file holding the layer (a NetCDF variable's .nc); GDAL's stat for
+        // network paths (a HEAD request, cached by GDAL: it was just opened).
         std::error_code ec;
-        const fs::path p = fs::u8path(L.path);
-        const uint64_t size = fs::file_size(p, ec);
-        const auto mtime = fs::last_write_time(p, ec).time_since_epoch().count();
+        const std::string file = datasetFile(L.path);
+        uint64_t size = 0;
+        int64_t mtime = 0;
+        VSIStatBufL st;
+        if (isRemotePath(file) || file.rfind("/vsi", 0) == 0) {
+            if (VSIStatExL(file.c_str(), &st, VSI_STAT_SIZE_FLAG) == 0) {
+                size = uint64_t(st.st_size);
+                mtime = int64_t(st.st_mtime);
+            }
+        } else {
+            const fs::path p = fs::u8path(file);
+            size = fs::file_size(p, ec);
+            mtime = int64_t(fs::last_write_time(p, ec).time_since_epoch().count());
+        }
         k = fnv1a(k, &size, sizeof(size));
         k = fnv1a(k, &mtime, sizeof(mtime));
         double meta[3] = {L.meta.hasNoData ? L.meta.noData : 0.0, L.meta.scale, L.meta.offset};

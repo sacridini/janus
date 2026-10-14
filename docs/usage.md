@@ -170,6 +170,11 @@ Inputs:
   series.tif          1 multiband file, 1 band = 1 date
   a.tif b.tif ...     several files, 1 file = 1 date
   "ndvi_*.tif"        wildcard pattern (* and ?)
+  https://.../cog.tif cloud-optimized GeoTIFFs on the web, read in place (only
+  s3://, gs://, az:// the blocks shown are downloaded); several URLs = a series
+  clim.nc, data.zarr  NetCDF / Zarr / HDF: a variable's time steps (CF dates);
+                      with several variables the window asks which one, or
+                      name it: NETCDF:"clim.nc":t2m, ZARR:"data.zarr":/t2m
   plots.gpkg ...      vector files (GeoJSON, Shapefile, GeoPackage, KML, CSV
                       of points) open as vector layers over the series
 
@@ -191,6 +196,8 @@ Developer options:
   --measure-cache on|off IN  time exact series and ROI from the files, build the
                       overview (and the full-resolution cache if on), time the
                       reads again from the cache, in a hidden window
+  --describe IN       print how IN opens (dates, size, CRS, variables of a
+                      NetCDF / Zarr, the series of the centre pixel) and exit
   --selftest-zeit IN  run the Zeit tools end to end on IN without a window
   --selftest-ui A B [C [D [E [F [G]]]]]  drive the layers workflow in a hidden window
                       (A, then B as a layer; C: several bands per date;
@@ -207,6 +214,9 @@ Examples:
 jn D:\data\ndvi_annual\
 jn landsat_stack.tif
 jn "S2_*_NDVI.tif" --band 1
+jn https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/36/Q/WD/2020/7/S2A_36QWD_20200701_0_L2A/B04.tif
+jn era5_t2m.nc
+jn NETCDF:"cmip6.nc":tas --band 3     (the 3rd level of a variable with levels)
 ```
 
 `jn` opens the window and returns the prompt immediately (on Windows `jn.com` is
@@ -217,6 +227,8 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 
 | Action | How |
 |---|---|
+| Remote rasters (cloud) | **File → Open URL...** (`Ctrl+U`; *Add layer: URL...* adds one): one URL per line, several make a series. `https://`, `s3://`, `gs://`, `az://`: cloud-optimized GeoTIFFs (AWS Earth Search, Planetary Computer with a signed URL, USGS, ESA...) are read in place through GDAL's network file systems: only the header, the overview level the map needs and the blocks looked at (the cursor's pixel, the detail tiles) are downloaded. Public S3 and GCS buckets need no account; private ones use the usual credentials (`AWS_ACCESS_KEY_ID`, `~/.aws`, `GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_STORAGE_CONNECTION_STRING`...). Dates come from the file names, or from the folder each file sits in (Sentinel-2 COGs: `.../S2B_23KPQ_20230811_0_L2A/B04.tif`). The overview is cached on disk like any other |
+| NetCDF, Zarr, HDF | open the file (or the `.zarr` folder): with several variables a list asks which one (name, shape, long name and units); the time axis is decoded from CF units (`days since 1970-01-01`, hours, months...) and calendars (`noleap`, `360_day`, `all_leap`...: a model's 30 February becomes the 28th/29th); hourly data are labelled with the hour. **Display** panel → *Variable*: another variable of the file, *level*: another value of the other dimensions (pressure level, depth, member); both reopen the layer in place. A lon/lat grid without a grid mapping is taken as WGS 84 |
 | Pan / zoom | drag / mouse wheel (zooming out stops at the image extent), `F` fits the map; trackpad: two fingers pan, pinch zooms |
 | Pixel series | hover (exact once the mouse rests) |
 | Compare pixels | click to drop a pin |
@@ -230,6 +242,8 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Time | `←`/`→` previous/next date, `P` play/pause, click or drag on the chart |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or drag it) |
 | Change between dates | **Display** panel → *Difference (value - reference)*: pick the *Reference* (a date, or *Previous date (t-1)*); diverging colours centered at 0, follows the time bar |
+| Temporal composite | **Display** panel → *Temporal composite*: median, mean, maximum, minimum or number of observations of each pixel over a window: the shown date's year (the arrows and playback then go year by year), some days around the date (a moving window) or the whole series; with the season, only its dates. Computed in the map shader over the overview's dates each time the map is drawn (the median of up to 64 values: every k-th one beyond) |
+| Season | **Display** panel → Season → *Only part of the year*: a window of days of the year (presets by months: DJF, JJA, Apr–Sep...; a start after the end wraps over the new year and belongs to the year it ends in). The dates outside it are left out of the temporal statistics (mean, trend, std...), the composites, playback and the arrow keys; the chart shades the season. Applies to every layer with dates |
 | Largest drop | **Display** panel → *Largest drop: date* or *magnitude*: the largest decrease between consecutive valid observations (no-data dates skipped), dated at the lower one; the colour bar shows dates. Exact values for the cursor and pins in the **Statistics** panel |
 | Classes (categorical data) | **Display** panel → *Categorical (classes)*: legend with colours, names and shares (click a colour to change it, untick a class to hide it); detection can be switched off or forced |
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
@@ -247,7 +261,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Second monitor | drag a panel's tab out of the main window |
 | Maps side by side | View → New map view (`Ctrl+T`): pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** or `Ctrl+W` (the focused panel, else the last one opened) |
 | Swipe | View → Swipe (`C`): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode, or *Basemap only*; **Swipe off** or `C` again closes it |
-| Space-time transect | `Ctrl` + drag a line on the map (Mac: `Command` + drag), or `T` / View → Draw transect, then drag; `Esc` cancels. **Transect** panel: distance from A (X) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel |
+| Space-time transect | `Ctrl` + drag a line on the map (Mac: `Command` + drag), or `T` / View → Draw transect, then drag; a **polyline** (a river, a road, a valley): `T`, then click its vertices, a double click or `Enter` ends it (`Backspace` undoes a vertex); **Alt + click** a line of a vector layer: the transect along it; `Esc` cancels. **Transect** panel: distance from A along the line (X; dashed verticals at the bends; no data where a polyline leaves the layer) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel |
 | Chart options | style, values/anomaly/z-score, trend (OLS/Sen), Y = map range |
 | Map as a figure | File → Export map as PNG... (`Ctrl+E`): resolution (1×, 2×, 4×), background, date label, legend, scale bar, pins, ROI and vector layers; *Save to*: the file (a path, a name alone for the last export folder, or **Browse...**), then **Export** (or `Enter`) |
 | Data for QGIS | File → Export values as GeoTIFF... (`Ctrl+Shift+E`; the active layer at the date: visible area or whole image) or Export rendered view as GeoTIFF... (`Ctrl+Shift+V`; RGBA as shown, georeferenced) |

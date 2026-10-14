@@ -1,7 +1,8 @@
 // Space-time transect (a Hovmoeller diagram): a line drawn on the map (Ctrl +
-// drag, or T then drag) is sampled at every date, and the Transect panel shows
-// the distance along it (X) against the dates (Y, oldest on top) in the
-// layer's colours. It is filled at once from the overview in RAM, then refined
+// drag, or T then drag), a polyline (T, then a click per vertex: along a river,
+// a road, a valley) or a line of a vector layer (Alt + click) is sampled at
+// every date, and the Transect panel shows the distance along it (X) against
+// the dates (Y, oldest on top) in the layer's colours. It is filled at once from the overview in RAM, then refined
 // with full-resolution values read in the background (one job per date on the
 // interactive pool; on an HDD only once the overview is built). The image is
 // drawn by the map renderer: the values are a float texture drawn like a
@@ -64,57 +65,96 @@ struct App::TransectExact {
     std::atomic<bool> cancel{false};
 };
 
-// a, b: the active layer's pixels (map space).
-void App::setTransect(ImVec2 a, ImVec2 b) {
+// pts: the active layer's pixels (map space).
+void App::setTransect(std::vector<ImVec2> pts) {
     clearTransect();
-    if (!s_) return;
+    if (!s_ || pts.size() < 2) return;
     const CubeInfo& info = *s_->info;
     Transect& tr = tr_;
     // The line as drawn, georeferenced: another layer samples its own part of it.
-    tr.geo = info.hasGeoTransform && info.pixelToGeo(a.x, a.y, tr.ga[0], tr.ga[1]) &&
-             info.pixelToGeo(b.x, b.y, tr.gb[0], tr.gb[1]);
-    if (!clipSegment(a, b, float(info.width), float(info.height))) {
+    tr.geo = info.hasGeoTransform;
+    for (const ImVec2& v : pts) {
+        double gx = 0, gy = 0;
+        tr.geo = tr.geo && info.pixelToGeo(v.x, v.y, gx, gy);
+        tr.g.push_back(gx);
+        tr.g.push_back(gy);
+    }
+    if (!tr.geo) tr.g.clear();
+    // A straight line is clipped to the layer; a polyline keeps its shape (and
+    // its distances from A), without data where it leaves the layer.
+    if (pts.size() == 2 && !clipSegment(pts[0], pts[1], float(info.width), float(info.height))) {
         clearTransect();
         return;
     }
     tr.on = true;
     tr.cube = info.id;
-    tr.a = a;
-    tr.b = b;
-    double g[4] = {0, 0, 0, 0}; // clipped end points
-    if (tr.geo) {
-        info.pixelToGeo(a.x, a.y, g[0], g[1]);
-        info.pixelToGeo(b.x, b.y, g[2], g[3]);
+    tr.pts = pts;
+    tr.a = pts.front();
+    tr.b = pts.back();
+    // Length of each segment: metres on the ellipsoid's mean sphere for
+    // geographic CRSs (EPSG:4xxx, degrees), map units otherwise (metres for an
+    // EPSG projected CRS), else pixels.
+    const std::string& auth = info.crsAuthority;
+    const bool degrees = auth.size() == 9 && auth.compare(0, 6, "EPSG:4") == 0;
+    tr.unit = !info.hasGeoTransform ? "px" : degrees || !auth.empty() ? "m" : "map units";
+    const size_t S = pts.size() - 1;
+    std::vector<double> lenPx(S), len(S);
+    double totalPx = 0;
+    for (size_t k = 0; k < S; ++k) {
+        lenPx[k] = std::hypot(double(pts[k + 1].x - pts[k].x), double(pts[k + 1].y - pts[k].y));
+        totalPx += lenPx[k];
+        double g0x, g0y, g1x, g1y;
+        if (!info.hasGeoTransform || !info.pixelToGeo(pts[k].x, pts[k].y, g0x, g0y) ||
+            !info.pixelToGeo(pts[k + 1].x, pts[k + 1].y, g1x, g1y)) {
+            len[k] = lenPx[k];
+        } else if (degrees) {
+            const double rad = 3.14159265358979323846 / 180, R = 6371008.8;
+            const double la1 = g0y * rad, la2 = g1y * rad, dla = la2 - la1, dlo = (g1x - g0x) * rad;
+            const double h = std::sin(dla / 2) * std::sin(dla / 2) +
+                             std::cos(la1) * std::cos(la2) * std::sin(dlo / 2) * std::sin(dlo / 2);
+            len[k] = 2 * R * std::asin(std::min(1.0, std::sqrt(h)));
+        } else {
+            len[k] = std::hypot(g1x - g0x, g1y - g0y);
+        }
     }
-    const double lenPx = std::hypot(double(b.x - a.x), double(b.y - a.y));
-    tr.n = std::clamp(int(std::ceil(lenPx)) + 1, 2, kMaxSamples);
+    tr.vdist.assign(1, 0.0);
+    for (size_t k = 0; k < S; ++k) tr.vdist.push_back(tr.vdist.back() + len[k]);
+    tr.length = tr.vdist.back();
+    if (!(tr.length > 0)) { // a degenerate line, or no georeferencing: pixels
+        tr.unit = "px";
+        tr.vdist.assign(1, 0.0);
+        for (size_t k = 0; k < S; ++k) tr.vdist.push_back(tr.vdist.back() + lenPx[k]);
+        tr.length = tr.vdist.back();
+    }
+    if (!(tr.length > 0)) {
+        clearTransect();
+        return;
+    }
+    // Samples evenly spaced along the line (in distance), about one per pixel.
+    tr.n = std::clamp(int(std::ceil(totalPx)) + 1, 2, kMaxSamples);
     tr.T = info.T();
     tr.px.resize(tr.n);
     tr.py.resize(tr.n);
+    tr.at.resize(tr.n);
+    size_t k = 0;
+    int inside = 0;
     for (int i = 0; i < tr.n; ++i) {
-        const double f = double(i) / (tr.n - 1);
-        tr.px[i] = std::clamp(int(std::floor(a.x + f * (b.x - a.x))), 0, info.width - 1);
-        tr.py[i] = std::clamp(int(std::floor(a.y + f * (b.y - a.y))), 0, info.height - 1);
+        const double d = tr.length * i / (tr.n - 1);
+        while (k + 1 < S && tr.vdist[k + 1] < d) ++k;
+        const double seg = tr.vdist[k + 1] - tr.vdist[k];
+        const double f = seg > 0 ? std::clamp((d - tr.vdist[k]) / seg, 0.0, 1.0) : 0.0;
+        const ImVec2 q = pts[k] + (pts[k + 1] - pts[k]) * float(f);
+        tr.at[i] = q;
+        const int x = int(std::floor(q.x)), y = int(std::floor(q.y));
+        // A straight line's ends may sit on the far edge (clipped): kept on the layer.
+        const bool in = S == 1 ? true : x >= 0 && y >= 0 && x < info.width && y < info.height;
+        tr.px[i] = in ? std::clamp(x, 0, info.width - 1) : -1;
+        tr.py[i] = in ? std::clamp(y, 0, info.height - 1) : -1;
+        inside += in;
     }
-    // Length: metres on the ellipsoid's mean sphere for geographic CRSs (EPSG:4xxx,
-    // degrees), map units otherwise (metres for an EPSG projected CRS), else pixels.
-    if (tr.geo) {
-        const std::string& auth = info.crsAuthority;
-        if (auth.size() == 9 && auth.compare(0, 6, "EPSG:4") == 0) {
-            const double k = 3.14159265358979323846 / 180, R = 6371008.8;
-            const double la1 = g[1] * k, la2 = g[3] * k, dla = la2 - la1, dlo = (g[2] - g[0]) * k;
-            const double h = std::sin(dla / 2) * std::sin(dla / 2) +
-                             std::cos(la1) * std::cos(la2) * std::sin(dlo / 2) * std::sin(dlo / 2);
-            tr.length = 2 * R * std::asin(std::min(1.0, std::sqrt(h)));
-            tr.unit = "m";
-        } else {
-            tr.length = std::hypot(g[2] - g[0], g[3] - g[1]);
-            tr.unit = auth.empty() ? "map units" : "m";
-        }
-    }
-    if (!tr.geo || !(tr.length > 0)) {
-        tr.length = lenPx;
-        tr.unit = "px";
+    if (inside == 0) {
+        clearTransect();
+        return;
     }
     tr.values.assign(size_t(tr.n) * tr.T, NAN);
     tr.state.assign(tr.T, 0);
@@ -122,6 +162,39 @@ void App::setTransect(ImVec2 a, ImVec2 b) {
     else startTransectExact();
     updateTransectRows();
     publishTransect();
+}
+
+bool App::featureAsTransect(const VectorLayer& V, int feature) {
+    if (feature < 0 || feature >= int(V.px.size()) || V.data->features[feature].kind != VectorFeature::Line) return false;
+    // A line of several parts: the longest one.
+    const Ring* best = nullptr;
+    double bestLen = -1;
+    for (const Ring& r : V.px[feature]) {
+        double len = 0;
+        for (size_t i = 2; i + 1 < r.size(); i += 2) len += std::hypot(r[i] - r[i - 2], r[i + 1] - r[i - 1]);
+        if (r.size() >= 4 && len > bestLen) {
+            bestLen = len;
+            best = &r;
+        }
+    }
+    if (!best) return false;
+    std::vector<ImVec2> pts;
+    for (size_t i = 0; i + 1 < best->size(); i += 2) {
+        const ImVec2 v{float((*best)[i]), float((*best)[i + 1])};
+        if (pts.empty() || std::fabs(v.x - pts.back().x) + std::fabs(v.y - pts.back().y) > 1e-3f) pts.push_back(v);
+    }
+    // Nearly straight vertices thinned to about one per pixel of the layer (a
+    // GPS track has thousands); the line keeps its shape.
+    std::vector<ImVec2> thin;
+    for (const ImVec2& v : pts)
+        if (thin.empty() || std::hypot(v.x - thin.back().x, v.y - thin.back().y) >= 1.0f || &v == &pts.back()) thin.push_back(v);
+    if (thin.size() < 2) return false;
+    // Two vertices would be clipped like a drawn line: a polyline keeps them.
+    if (thin.size() == 2) thin.insert(thin.begin() + 1, (thin[0] + thin[1]) * 0.5f);
+    setTransect(thin);
+    if (!tr_.on) return false;
+    tr_.fit = true;
+    return true;
 }
 
 void App::clearTransect() {
@@ -150,7 +223,8 @@ void App::startTransectExact() {
             float* row = job->values.data() + size_t(t) * job->n;
             for (int i = 0; i < job->n; ++i) {
                 if (job->cancel) return;
-                if (i > 0 && job->px[i] == job->px[i - 1] && job->py[i] == job->py[i - 1]) row[i] = row[i - 1];
+                if (job->px[i] < 0) row[i] = NAN; // off the layer
+                else if (i > 0 && job->px[i] == job->px[i - 1] && job->py[i] == job->py[i - 1]) row[i] = row[i - 1];
                 else if (!reader.readPixel(t, job->px[i], job->py[i], row[i])) row[i] = NAN;
             }
             job->rowDone[t].store(true, std::memory_order_release);
@@ -176,6 +250,7 @@ bool App::updateTransectRows() {
             changed = true;
         } else if (tr.state[t] == 0 && s_->gpu.loaded[t]) { // same pixels as the approximate series
             for (int i = 0; i < tr.n; ++i) {
+                if (tr.px[i] < 0) continue; // off the layer: NaN
                 const int ox = std::min(ov.w - 1, int(double(tr.px[i]) * ov.w / info.width));
                 const int oy = std::min(ov.h - 1, int(double(tr.py[i]) * ov.h / info.height));
                 row[i] = ov.at(t, ox, oy);
@@ -239,9 +314,10 @@ void App::pumpTransect() {
         const CubeInfo& info = *s_->info;
         if (tr_.geo && info.hasGeoTransform) {
             const auto& g = info.geoTransform;
-            const ImVec2 a(float((tr_.ga[0] - g[0]) / g[1]), float((tr_.ga[1] - g[3]) / g[5]));
-            const ImVec2 b(float((tr_.gb[0] - g[0]) / g[1]), float((tr_.gb[1] - g[3]) / g[5]));
-            setTransect(a, b); // cleared if it is outside this layer
+            std::vector<ImVec2> pts;
+            for (size_t k = 0; k + 1 < tr_.g.size(); k += 2)
+                pts.emplace_back(float((tr_.g[k] - g[0]) / g[1]), float((tr_.g[k + 1] - g[3]) / g[5]));
+            setTransect(pts); // cleared if it is outside this layer
         } else {
             clearTransect();
         }
@@ -257,57 +333,115 @@ void App::pumpTransect() {
 
 bool App::transectInput(int panel, double sx, double sy) {
     const ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 p{float(sx), float(sy)};
     if (ImGui::IsItemActivated() && !io.KeyShift && (io.KeyCtrl || transectMode_)) {
         transectPanel_ = panel;
         transectCancel_ = false;
-        transectStart_ = transectEnd_ = ImVec2(float(sx), float(sy));
+        transectDragged_ = false;
+        transectDouble_ = io.MouseClickedCount[ImGuiMouseButton_Left] == 2;
+        transectStart_ = transectEnd_ = p;
     }
     if (transectPanel_ != panel) return false;
     if (ImGui::IsItemActive()) {
-        if (!transectCancel_) transectEnd_ = ImVec2(float(sx), float(sy));
+        if (!transectCancel_) transectEnd_ = p;
+        if (transectDraft_.empty() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 4.0f)) transectDragged_ = true;
         return true;
     }
-    // Released: a line of a few points at least.
+    // Released. A drag: a straight line of a few points at least. A click in
+    // transect mode: a vertex of a polyline (a double click, or a click on the
+    // last vertex, ends it).
     transectPanel_ = -1;
-    const ImVec2 d = (transectEnd_ - transectStart_) * float(scale_);
-    if (!transectCancel_ && d.x * d.x + d.y * d.y >= 25) {
-        setTransect(transectStart_, transectEnd_);
-        transectMode_ = false;
+    if (transectCancel_) return true;
+    if (transectDragged_) {
+        const ImVec2 d = (transectEnd_ - transectStart_) * float(scale_);
+        if (d.x * d.x + d.y * d.y >= 25) {
+            setTransect(transectStart_, transectEnd_);
+            transectMode_ = false;
+        }
+        return true;
     }
+    if (!transectMode_) return true; // Ctrl + click: nothing
+    if (!transectDraft_.empty()) {
+        const ImVec2 d = (p - transectDraft_.back()) * float(scale_);
+        if (transectDouble_ || d.x * d.x + d.y * d.y <= 36) {
+            finishTransectDraft();
+            return true;
+        }
+    }
+    transectDraft_.push_back(p);
     return true;
+}
+
+void App::finishTransectDraft() {
+    std::vector<ImVec2> pts;
+    for (const ImVec2& v : transectDraft_) // without repeated vertices (a double click is two clicks)
+        if (pts.empty() || std::hypot(v.x - pts.back().x, v.y - pts.back().y) * scale_ > 1) pts.push_back(v);
+    transectDraft_.clear();
+    if (pts.size() < 2) return;
+    if (pts.size() == 2) pts.insert(pts.begin() + 1, (pts[0] + pts[1]) * 0.5f); // clicked: not clipped
+    setTransect(pts);
+    tr_.fit = true;
+    transectMode_ = false;
+}
+
+void App::transectShortcuts() {
+    if (!transectMode_) {
+        transectDraft_.clear();
+        return;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) finishTransectDraft();
+    if ((ImGui::IsKeyPressed(ImGuiKey_Backspace) || ImGui::IsKeyPressed(ImGuiKey_Delete)) && !transectDraft_.empty())
+        transectDraft_.pop_back();
 }
 
 void App::drawTransectMarks(ImDrawList* dl, ImVec2 origin) {
     auto toScreen = [&](ImVec2 p) {
         return origin + ImVec2(float(offset_.x + p.x * scale_), float(offset_.y + p.y * scale_));
     };
-    auto line = [&](ImVec2 a, ImVec2 b) {
-        const ImVec2 A = toScreen(a), B = toScreen(b);
-        dl->AddLine(A, B, IM_COL32(0, 0, 0, 200), 4.0f);
-        dl->AddLine(A, B, kLineCol, 2.0f);
-        const char* names[2] = {"A", "B"};
-        for (int k = 0; k < 2; ++k) {
-            const ImVec2 p = k ? B : A;
-            dl->AddCircleFilled(p, 4.5f, kLineCol);
-            dl->AddCircle(p, 4.5f, IM_COL32(0, 0, 0, 220), 0, 1.5f);
-            dl->AddText(p + ImVec2(6, -16) + ImVec2(1, 1), IM_COL32(0, 0, 0, 220), names[k]);
-            dl->AddText(p + ImVec2(6, -16), kLineCol, names[k]);
-        }
+    auto label = [&](ImVec2 p, const char* name) {
+        dl->AddCircleFilled(p, 4.5f, kLineCol);
+        dl->AddCircle(p, 4.5f, IM_COL32(0, 0, 0, 220), 0, 1.5f);
+        dl->AddText(p + ImVec2(6, -16) + ImVec2(1, 1), IM_COL32(0, 0, 0, 220), name);
+        dl->AddText(p + ImVec2(6, -16), kLineCol, name);
     };
-    if (transectPanel_ >= 0 && !transectCancel_) {
-        line(transectStart_, transectEnd_);
+    // The line: A and B at its ends, a dot at each bend.
+    auto polyline = [&](const std::vector<ImVec2>& pts, bool ends) {
+        std::vector<ImVec2> s;
+        for (const ImVec2& v : pts) s.push_back(toScreen(v));
+        if (s.size() >= 2) {
+            dl->AddPolyline(s.data(), int(s.size()), IM_COL32(0, 0, 0, 200), ImDrawFlags_None, 4.0f);
+            dl->AddPolyline(s.data(), int(s.size()), kLineCol, ImDrawFlags_None, 2.0f);
+        }
+        for (size_t k = 1; k + 1 < s.size(); ++k) {
+            dl->AddCircleFilled(s[k], 3.0f, kLineCol);
+            dl->AddCircle(s[k], 3.0f, IM_COL32(0, 0, 0, 220), 0, 1.0f);
+        }
+        if (!s.empty()) label(s.front(), "A");
+        if (ends && s.size() >= 2) label(s.back(), "B");
+    };
+    const bool hovered = ImGui::IsItemHovered();
+    if (transectPanel_ >= 0 && !transectCancel_ && transectDragged_) {
+        polyline({transectStart_, transectEnd_}, true);
+    } else if (!transectDraft_.empty()) { // a polyline being clicked, and the edge to the cursor
+        std::vector<ImVec2> pts = transectDraft_;
+        if (hovered) {
+            const ImVec2 m = ImGui::GetIO().MousePos - origin;
+            pts.emplace_back(float((m.x - offset_.x) / scale_), float((m.y - offset_.y) / scale_));
+        }
+        polyline(pts, false);
     } else if (tr_.on) {
-        line(tr_.a, tr_.b);
-        if (tr_.hoverI >= 0) { // the cell hovered in the Transect panel
-            const float f = float(tr_.hoverI) / float(tr_.n - 1);
-            const ImVec2 c = toScreen(tr_.a + (tr_.b - tr_.a) * f);
+        polyline(tr_.pts.size() == 2 ? std::vector<ImVec2>{tr_.a, tr_.b} : tr_.pts, true);
+        if (tr_.hoverI >= 0 && tr_.hoverI < int(tr_.at.size())) { // the cell hovered in the Transect panel
+            const ImVec2 c = toScreen(tr_.at[tr_.hoverI]);
             dl->AddCircle(c, 7.0f, IM_COL32(0, 0, 0, 220), 0, 4.0f);
             dl->AddCircle(c, 7.0f, IM_COL32(255, 255, 255, 255), 0, 2.0f);
         }
     }
-    if (transectMode_ && transectPanel_ < 0 && ImGui::IsItemHovered()) {
+    if (transectMode_ && transectPanel_ < 0 && hovered) {
         const ImVec2 p = ImGui::GetIO().MousePos + ImVec2(16, 12);
-        const char* hint = "drag: transect (Esc cancels)";
+        const char* hint = transectDraft_.empty()
+                               ? "drag: straight transect; click: first vertex of a polyline (Esc cancels)"
+                               : "click: next vertex; double click / Enter: done; Backspace: undo; Esc: cancel";
         dl->AddText(p + ImVec2(1, 1), IM_COL32(0, 0, 0, 220), hint);
         dl->AddText(p, kLineCol, hint);
     }
@@ -356,7 +490,8 @@ void App::uiTransect() {
     ImGui::SameLine();
     int exact = 0;
     for (char s : tr.state) exact += s == 2;
-    ImGui::TextDisabled("%s, %d samples  |  %s", formatDistance(tr.length, tr.unit).c_str(), n,
+    ImGui::TextDisabled("%s%s, %d samples  |  %s", formatDistance(tr.length, tr.unit).c_str(),
+                        tr.pts.size() > 2 ? (", " + std::to_string(tr.pts.size() - 2) + " bends").c_str() : "", n,
                         tr.pending                ? "overview; full resolution once the overview is built (HDD)"
                         : exact == T              ? "full resolution"
                         : tr.job                  ? "overview, full resolution coming..."
@@ -385,7 +520,9 @@ void App::uiTransect() {
     ImGui::TextDisabled("(?)");
     ImGui::SetItemTooltip("Distance along the line from A (X) against the dates (Y, oldest on top).\n"
                           "Hover: distance, date and value, marked on the map. Click: go to that date.\n"
-                          "Draw another line: Ctrl + drag on the map (or T, then drag).\n"
+                          "Draw another line: Ctrl + drag on the map (or T, then drag); a polyline:\n"
+                          "T, then a click per vertex (double click or Enter ends it); along a line\n"
+                          "of a vector layer: Alt + click it. Dashed verticals: the bends.\n"
                           "Filled from the overview at once, then with full-resolution values.");
 
     // --- Image ---
@@ -443,14 +580,30 @@ void App::uiTransect() {
         // Current date (orange, like the chart).
         dl->AddRect(ImPlot::PlotToPixels(x0, t_), ImPlot::PlotToPixels(x1, t_ + 1), IM_COL32(255, 153, 51, 255), 0,
                     ImDrawFlags_None, 1.5f);
-        // The map cursor, when it is on the line.
+        // The bends of a polyline: thin dashed verticals at their distances.
+        for (size_t k = 1; k + 1 < tr.vdist.size(); ++k) {
+            const ImVec2 a = ImPlot::PlotToPixels(tr.vdist[k], 0), b = ImPlot::PlotToPixels(tr.vdist[k], T);
+            for (float y = a.y; y < b.y; y += 8)
+                dl->AddLine(ImVec2(a.x, y), ImVec2(a.x, std::min(y + 4, b.y)), IM_COL32(80, 230, 255, 200), 1.0f);
+        }
+        // The map cursor, when it is on the line: its distance along it.
         if (prevMouseInPanel_ >= 0 && hover_.x >= 0) {
-            const ImVec2 p(hover_.x + 0.5f, hover_.y + 0.5f), ab = tr.b - tr.a;
-            const float len2 = ab.x * ab.x + ab.y * ab.y;
-            const float u = len2 > 0 ? ((p.x - tr.a.x) * ab.x + (p.y - tr.a.y) * ab.y) / len2 : -1;
-            const ImVec2 off = (tr.a + ab * u - p) * float(scale_);
-            if (u >= 0 && u <= 1 && off.x * off.x + off.y * off.y < 100) {
-                const ImVec2 a = ImPlot::PlotToPixels(u * tr.length, 0), b = ImPlot::PlotToPixels(u * tr.length, T);
+            const std::vector<ImVec2> pts = tr.pts.size() == 2 ? std::vector<ImVec2>{tr.a, tr.b} : tr.pts;
+            const ImVec2 p(hover_.x + 0.5f, hover_.y + 0.5f);
+            double best = 100, dist = -1; // within 10 screen points
+            for (size_t k = 0; k + 1 < pts.size() && k + 1 < tr.vdist.size(); ++k) {
+                const ImVec2 ab = pts[k + 1] - pts[k];
+                const float len2 = ab.x * ab.x + ab.y * ab.y;
+                const float u = len2 > 0 ? std::clamp(((p.x - pts[k].x) * ab.x + (p.y - pts[k].y) * ab.y) / len2, 0.0f, 1.0f) : 0;
+                const ImVec2 off = (pts[k] + ab * u - p) * float(scale_);
+                const double d2 = off.x * off.x + off.y * off.y;
+                if (d2 < best) {
+                    best = d2;
+                    dist = tr.vdist[k] + u * (tr.vdist[k + 1] - tr.vdist[k]);
+                }
+            }
+            if (dist >= 0) {
+                const ImVec2 a = ImPlot::PlotToPixels(dist, 0), b = ImPlot::PlotToPixels(dist, T);
                 dl->AddLine(a, b, IM_COL32(0, 0, 0, 200), 3.0f);
                 dl->AddLine(a, b, IM_COL32(255, 255, 255, 230), 1.0f);
             }
@@ -470,8 +623,10 @@ void App::uiTransect() {
                 if (classes) ImGui::Text("class %s", className(*classes, v).c_str());
                 else if (tr.kind == 1) ImGui::Text("value %.6g  (anomaly %.4g)", v, tr.shown[size_t(t) * n + i]);
                 else ImGui::Text("value %.6g", v);
-                ImGui::TextDisabled("col %d  row %d%s", tr.px[i], tr.py[i],
-                                    tr.state[t] == 2 ? "" : tr.state[t] == 1 ? "  (approx., overview)" : "  (not loaded)");
+                if (tr.px[i] < 0) ImGui::TextDisabled("off the layer");
+                else
+                    ImGui::TextDisabled("col %d  row %d%s", tr.px[i], tr.py[i],
+                                        tr.state[t] == 2 ? "" : tr.state[t] == 1 ? "  (approx., overview)" : "  (not loaded)");
                 ImGui::EndTooltip();
                 if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && ImGui::GetIO().MouseDragMaxDistanceSqr[0] < 16)
                     setT(t);

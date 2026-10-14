@@ -17,6 +17,7 @@
 #include "basemap.hpp"
 #include "file_browser.hpp"
 #include "geom.hpp"
+#include "multidim.hpp"
 #include "platform.hpp"
 #include "gpu.hpp"
 #include "reproject.hpp"
@@ -161,6 +162,7 @@ private:
     void uiCopyPython();
     std::string pythonCopied_;   // the last code copied (self-test)
     int selfTestPython();        // --selftest-ui stages 150-154
+    int selfTestMultidim(const std::vector<std::string>& in); // --selftest-ui stages 160-165
 
     // Export (app_export.cpp): the map as PNG, values and the rendered view as
     // GeoTIFF, Zeit results. Rendering is on the GPU (main thread); reading the
@@ -401,7 +403,60 @@ private:
         std::shared_ptr<CubeInfo> info;
         std::string error;
         double seconds = 0;
+        std::vector<std::string> inputs;   // what was opened: a container's only variable replaces the file
+        std::vector<MdVariable> variables; // a container of several variables: one is picked first
     };
+    // File > Open URL (cloud-optimized GeoTIFFs and other rasters over http,
+    // S3, GCS, Azure) and the variable picker of NetCDF / Zarr files (app_open.cpp).
+    bool openUrlPopup_ = false;
+    char urlText_[16384] = "";
+    bool urlAdd_ = false;
+    bool variablePopup_ = false;
+    std::vector<MdVariable> varChoices_;
+    std::string varFile_;                 // the container they are from
+    bool varAdd_ = false;
+    int varPick_ = 0;
+    std::string mdVarsFor_;               // container whose variables mdVars_ lists (Display panel)
+    std::vector<MdVariable> mdVars_;
+    std::future<std::vector<MdVariable>> mdVarsLoad_;
+    void openUrlDialog(bool add);
+    void uiOpenUrl();
+    void uiVariablePicker();
+    void uiMultidim();                    // Display panel: variable and level of a NetCDF / Zarr layer
+    void reopenLayerInputs(int i, const std::vector<std::string>& inputs, const BandSelection& sel);
+
+    // Season (a day-of-year window) and temporal composites (app_season.cpp).
+    // The season keeps the dates outside it out of the temporal statistics,
+    // the composites, the playback and the chart's highlight; a composite
+    // reduces the dates of a window (the date's year, days around it, the whole
+    // series) to one map, computed in the map shader over the overview.
+    struct Season {
+        bool on = false;
+        int start = 152, end = 243; // days of the year (1-366), inclusive; start > end wraps over the new year
+    };
+    Season season_;
+    struct CompositeOpts {
+        int reducer = 0;  // 0 median, 1 mean, 2 maximum, 3 minimum, 4 number of observations
+        int window = 0;   // 0 the date's (season) year, 1 days around the date, 2 the whole series
+        int days = 30;    // window 1: up to this many days before and after
+    };
+    CompositeOpts comp_;
+    bool seasonActive(const CubeInfo& info) const { return season_.on && info.timeIsDate && !info.spectral; }
+    uint64_t seasonKey() const;
+    bool inSeason(const CubeInfo& info, int t) const;
+    int seasonYear(const CubeInfo& info, int t) const; // the year a date's season ends in
+    void temporalWindow(const CubeInfo& info, int t, int& t0, int& t1) const;
+    // The draw parameters of ModeComposite at date t; false while its dates are not all loaded.
+    bool temporalParams(const Session& S, int t, DrawParams& p) const;
+    // The composite at an overview pixel, on the CPU (the shader's numbers: ranges, the status bar).
+    float temporalAt(const Session& S, size_t pix, int t0, int t1) const;
+    std::string temporalText(const CubeInfo& info, int t) const; // e.g. "median of 9 dates, 2021"
+    std::string seasonText() const;                               // e.g. "Jun 1 - Aug 31"
+    int stepDate(int t, int dir) const;                            // next / previous date in the season
+    void pumpSeason();
+    void uiSeason();
+    void uiTemporalOptions();
+    void plotSeasonBands(const CubeInfo& info) const; // the season on the chart (inside BeginPlot)
     std::future<OpenResult> opening_;
     std::vector<std::string> openingInputs_;
     std::optional<BandSelection> openingSel_; // band selection of the pending open (default: options)
@@ -509,12 +564,15 @@ private:
     struct Transect {
         bool on = false;
         uint64_t cube = 0;                    // layer (CubeInfo id) it was sampled on
-        ImVec2 a{0, 0}, b{0, 0};              // end points, active layer's pixels
-        bool geo = false;                     // georeferenced end points (kept across layers)
-        double ga[2] = {0, 0}, gb[2] = {0, 0};
+        std::vector<ImVec2> pts;              // vertices (a polyline), active layer's pixels
+        ImVec2 a{0, 0}, b{0, 0};              // its ends (a straight line is clipped to the layer)
+        bool geo = false;                     // georeferenced vertices (kept across layers)
+        std::vector<double> g;                // their map coordinates, x, y per vertex (as drawn)
+        std::vector<double> vdist;            // distance from A at each vertex, in `unit`
         int n = 0, T = 0;                     // samples, dates
-        std::vector<int> px, py;              // full-resolution pixel of each sample
-        double length = 0;                    // A -> B in `unit`
+        std::vector<int> px, py;              // full-resolution pixel of each sample (-1: off the layer)
+        std::vector<ImVec2> at;               // where each sample is (active layer's pixels)
+        double length = 0;                    // A -> B along the line, in `unit`
         std::string unit;
         std::vector<float> values;            // [t][i]: exact rows where read, else the overview
         std::vector<char> state;              // per date: 0 no data yet, 1 overview, 2 full resolution
@@ -535,7 +593,16 @@ private:
     int transectPanel_ = -1;                  // map panel where the line is being drawn
     bool transectCancel_ = false;             // Esc during the drag
     ImVec2 transectStart_{0, 0}, transectEnd_{0, 0};
-    void setTransect(ImVec2 a, ImVec2 b);
+    std::vector<ImVec2> transectDraft_;       // a polyline being clicked (T, then clicks)
+    bool transectDragged_ = false, transectDouble_ = false;
+    void setTransect(ImVec2 a, ImVec2 b) { setTransect(std::vector<ImVec2>{a, b}); }
+    // A straight line (two vertices) is clipped to the layer; a polyline keeps
+    // its vertices and has no data where it leaves the layer.
+    void setTransect(std::vector<ImVec2> pts);
+    void finishTransectDraft();
+    struct VectorLayer;
+    bool featureAsTransect(const VectorLayer& V, int feature); // a line of a vector layer (Alt + click)
+    void transectShortcuts();
     void clearTransect();
     void startTransectExact();
     int transectRowsRead() const;             // dates read at full resolution so far
@@ -932,6 +999,7 @@ private:
         // The map's ROI on this layer (non-active layers, "All visible layers").
         std::shared_ptr<RoiData> roi; // null: not started, or the ROI misses the layer
         uint64_t roiGen = 0;          // roiGen_ it belongs to
+        uint64_t seasonApplied = 0;   // season (and session) its dates' mask was made for (app_season.cpp)
         int roiSeen = -1;
         std::vector<float> roiMean, roiP10, roiP90;
         SeriesStats roiStats;

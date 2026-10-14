@@ -23,10 +23,15 @@ get_filename_component(PREFIX "${PREFIX}" DIRECTORY)
 set(name "janus-${VERSION}")
 set(stage "${OUT}/${name}")
 file(REMOVE_RECURSE "${stage}")
-file(MAKE_DIRECTORY "${stage}/lib")
+file(MAKE_DIRECTORY "${stage}/lib/gdalplugins")
+
+# GDAL drivers built as plugins (conda-forge libgdal-netcdf / libgdal-hdf5):
+# NetCDF and HDF5 rasters, in lib/gdalplugins (found by main.cpp).
+file(GLOB plugins "${PREFIX}/lib/gdalplugins/gdal_netCDF.so" "${PREFIX}/lib/gdalplugins/gdal_HDF5.so")
 
 file(GET_RUNTIME_DEPENDENCIES
   EXECUTABLES "${EXE}"
+  MODULES ${plugins}
   DIRECTORIES "${PREFIX}/lib"
   RESOLVED_DEPENDENCIES_VAR deps
   UNRESOLVED_DEPENDENCIES_VAR unresolved
@@ -48,6 +53,12 @@ message(STATUS "package_linux: ${n} libraries")
 if(unresolved)
   message(WARNING "package_linux: libraries not found: ${unresolved}")
 endif()
+
+foreach(plugin IN LISTS plugins)
+  get_filename_component(name "${plugin}" NAME)
+  file(COPY_FILE "${plugin}" "${stage}/lib/gdalplugins/${name}")
+  file(RPATH_SET FILE "${stage}/lib/gdalplugins/${name}" NEW_RPATH "$ORIGIN/..")
+endforeach()
 
 file(COPY "${EXE}" DESTINATION "${stage}")
 # Only the bundled libraries: drop the build machine's library paths.

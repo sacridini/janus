@@ -37,6 +37,9 @@ struct BasemapSource {
 
 // Esri World Imagery, Sentinel-2 cloudless 2016 by EOX, OpenStreetMap.
 const std::vector<BasemapSource>& basemapPresets();
+// TLS certificates for libcurl (basemap tiles, remote rasters): the system's or
+// the shipped bundle; empty = curl's default or already configured.
+std::string curlCaBundle();
 // Why a custom XYZ template cannot be used ("" if it can).
 std::string basemapUrlProblem(const std::string& url);
 

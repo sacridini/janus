@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <future>
 #include <regex>
 
 #include <cpl_conv.h>
@@ -13,6 +14,9 @@
 #include <gdal_rat.h>
 #include <ogr_spatialref.h>
 
+#include "basemap.hpp"
+#include "multidim.hpp"
+
 namespace fs = std::filesystem;
 
 // ---------------------------------------------------------------------------
@@ -20,7 +24,7 @@ namespace fs = std::filesystem;
 // ---------------------------------------------------------------------------
 
 // Days since 1970-01-01 (Howard Hinnant's algorithm), without relying on timegm.
-static int64_t daysFromCivil(int y, unsigned m, unsigned d) {
+int64_t daysFromCivil(int y, unsigned m, unsigned d) {
     y -= m <= 2;
     const int64_t era = (y >= 0 ? y : y - 399) / 400;
     const unsigned yoe = unsigned(y - era * 400);
@@ -29,7 +33,7 @@ static int64_t daysFromCivil(int y, unsigned m, unsigned d) {
     return era * 146097 + int64_t(doe) - 719468;
 }
 
-static void civilFromDays(int64_t z, int& y, unsigned& m, unsigned& d) {
+void civilFromDays(int64_t z, int& y, unsigned& m, unsigned& d) {
     z += 719468;
     const int64_t era = (z >= 0 ? z : z - 146096) / 146097;
     const unsigned doe = unsigned(z - era * 146097);
@@ -137,6 +141,11 @@ std::string formatTime(const CubeInfo& info, double t) {
     switch (info.granularity) {
     case TimeGranularity::Year: std::snprintf(buf, sizeof(buf), "%04d", y); break;
     case TimeGranularity::Month: std::snprintf(buf, sizeof(buf), "%04d-%02u", y, m); break;
+    case TimeGranularity::Hour: {
+        const int64_t s = int64_t(std::floor(t)) - int64_t(std::floor(t / 86400.0)) * 86400;
+        std::snprintf(buf, sizeof(buf), "%04d-%02u-%02u %02d:%02d", y, m, d, int(s / 3600), int(s / 60 % 60));
+        break;
+    }
     default: std::snprintf(buf, sizeof(buf), "%04d-%02u-%02u", y, m, d); break;
     }
     return buf;
@@ -393,7 +402,7 @@ static BandMeta readBandMeta(GDALRasterBand* b);
 
 bool writeCubeVrt(const CubeInfo& info, const std::string& path, std::string& error, int sourceBand, bool raw) {
     std::string srsWkt;
-    if (GDALDataset* ds = GDALDataset::Open(info.firstPath.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)) {
+    if (GDALDataset* ds = openRaster(info.firstPath)) {
         if (const OGRSpatialReference* srs = ds->GetSpatialRef()) {
             char* wkt = nullptr;
             srs->exportToWkt(&wkt);
@@ -402,6 +411,7 @@ bool writeCubeVrt(const CubeInfo& info, const std::string& path, std::string& er
         }
         GDALClose(ds);
     }
+    if (srsWkt.empty()) srsWkt = info.crsWkt; // assumed (lon/lat NetCDF without a grid mapping)
     char num[64];
     std::string x = "<VRTDataset rasterXSize=\"" + std::to_string(info.width) + "\" rasterYSize=\"" +
                     std::to_string(info.height) + "\">\n";
@@ -421,7 +431,7 @@ bool writeCubeVrt(const CubeInfo& info, const std::string& path, std::string& er
             srcBand = sourceBand + L.bandBase;
             if (sourceBand == info.sel.ndBand) {
                 m = L.ndMeta;
-            } else if (GDALDataset* ds = GDALDataset::Open(L.path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)) {
+            } else if (GDALDataset* ds = openRaster(L.path)) {
                 m = srcBand <= ds->GetRasterCount() ? readBandMeta(ds->GetRasterBand(srcBand)) : BandMeta{};
                 GDALClose(ds);
             }
@@ -506,6 +516,112 @@ bool isEnmapSpectralImage(const std::string& path) {
     return n.rfind("ENMAP", 0) == 0 && n.find("SPECTRAL_IMAGE") != std::string::npos && isRasterExt(fs::u8path(path));
 }
 
+static std::string lowerStr(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+    return s;
+}
+
+static bool startsWith(const std::string& s, const char* prefix) { return s.rfind(prefix, 0) == 0; }
+
+bool isRemotePath(const std::string& path) {
+    const std::string p = lowerStr(datasetFile(path));
+    for (const char* u : {"http://", "https://", "ftp://", "s3://", "gs://", "az://"})
+        if (startsWith(p, u)) return true;
+    for (const char* v : {"/vsicurl", "/vsis3", "/vsigs", "/vsiaz", "/vsiadls", "/vsioss", "/vsiswift", "/vsiwebhdfs"})
+        if (p.find(v) != std::string::npos) return true;
+    return false;
+}
+
+// A Zarr store: a folder named *.zarr or holding Zarr's metadata files.
+static bool isZarrStore(const fs::path& p) {
+    std::error_code ec;
+    if (!fs::is_directory(p, ec)) return false;
+    if (lowerStr(p.extension().u8string()) == ".zarr") return true;
+    for (const char* f : {".zgroup", ".zarray", "zarr.json"})
+        if (fs::exists(p / f, ec)) return true;
+    return false;
+}
+
+std::string gdalPath(const std::string& input) {
+    const std::string l = lowerStr(input);
+    std::string p = input;
+    if (startsWith(l, "http://") || startsWith(l, "https://") || startsWith(l, "ftp://")) p = "/vsicurl/" + input;
+    else if (startsWith(l, "s3://")) p = "/vsis3/" + input.substr(5);
+    else if (startsWith(l, "gs://")) p = "/vsigs/" + input.substr(5);
+    else if (startsWith(l, "az://")) p = "/vsiaz/" + input.substr(5);
+    else return input;
+    // A remote Zarr store is a folder: GDAL needs to be told the driver.
+    std::string bare = l.substr(0, l.find('?'));
+    while (!bare.empty() && bare.back() == '/') bare.pop_back();
+    if (bare.size() > 5 && bare.compare(bare.size() - 5, 5, ".zarr") == 0) p = "ZARR:\"" + p + "\"";
+    return p;
+}
+
+std::string datasetFile(const std::string& path) {
+    // DRIVER:"file":rest (NETCDF, ZARR, HDF5, HDF4_SDS...); a Windows drive
+    // letter ("C:\...") has a single character before the colon.
+    const size_t colon = path.find(':');
+    if (colon != std::string::npos && colon > 1 && colon + 1 < path.size() && path[colon + 1] == '"') {
+        const size_t end = path.find('"', colon + 2);
+        if (end != std::string::npos) return path.substr(colon + 2, end - colon - 2);
+    }
+    return path;
+}
+
+std::string displayName(const std::string& path) {
+    std::string file = datasetFile(path);
+    std::string var; // what follows the file in a subdataset name
+    if (file != path) {
+        const size_t end = path.find('"', path.find(':') + 2);
+        var = end + 1 < path.size() ? path.substr(end + 1) : "";
+        while (!var.empty() && (var[0] == ':' || var[0] == '/')) var.erase(0, 1);
+    }
+    if (isRemotePath(file)) {
+        file = file.substr(0, file.find('?')); // a signed URL's token
+        while (!file.empty() && file.back() == '/') file.pop_back();
+    }
+    const size_t slash = file.find_last_of("/\\");
+    std::string name = slash == std::string::npos ? file : file.substr(slash + 1);
+    const size_t dot = name.find_last_of('.');
+    if (dot != std::string::npos && dot > 0) name.erase(dot);
+    if (name.empty()) name = file;
+    return var.empty() ? name : name + " " + var;
+}
+
+GDALDataset* openRaster(const std::string& path) {
+    if (!isRemotePath(path)) return GDALDataset::Open(path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY);
+    // Thread-local: local files keep finding their side-cars (.ovr, .aux.xml, .hdr).
+    const std::string old = CPLGetThreadLocalConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "");
+    CPLSetThreadLocalConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR");
+    GDALDataset* ds = GDALDataset::Open(path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY);
+    CPLSetThreadLocalConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", old.empty() ? nullptr : old.c_str());
+    return ds;
+}
+
+void configureRemoteAccess() {
+    auto setDefault = [](const char* key, const char* value) {
+        if (!CPLGetConfigOption(key, nullptr)) CPLSetConfigOption(key, value);
+    };
+    setDefault("GDAL_HTTP_MAX_RETRY", "3");
+    setDefault("GDAL_HTTP_RETRY_DELAY", "1");
+    setDefault("GDAL_HTTP_MERGE_CONSECUTIVE_RANGES", "YES");
+    setDefault("CPL_VSIL_CURL_CACHE_SIZE", "268435456"); // 256 MB of downloaded blocks (default 16 MB)
+    setDefault("CPL_VSIL_CURL_CHUNK_SIZE", "65536");
+    // Public buckets (Landsat, Sentinel-2 COGs...) without an account: unsigned
+    // requests unless credentials are configured.
+    std::error_code ec;
+    const std::string home = CPLGetConfigOption("USERPROFILE", CPLGetConfigOption("HOME", ""));
+    const bool awsCreds = CPLGetConfigOption("AWS_ACCESS_KEY_ID", nullptr) || CPLGetConfigOption("AWS_PROFILE", nullptr) ||
+                          CPLGetConfigOption("AWS_DEFAULT_PROFILE", nullptr) ||
+                          (!home.empty() && (fs::exists(fs::u8path(home) / ".aws" / "credentials", ec) ||
+                                             fs::exists(fs::u8path(home) / ".aws" / "config", ec)));
+    if (!awsCreds) setDefault("AWS_NO_SIGN_REQUEST", "YES");
+    const bool gsCreds = CPLGetConfigOption("GOOGLE_APPLICATION_CREDENTIALS", nullptr) ||
+                         CPLGetConfigOption("GS_SECRET_ACCESS_KEY", nullptr) || CPLGetConfigOption("GS_OAUTH2_REFRESH_TOKEN", nullptr);
+    if (!gsCreds) setDefault("GS_NO_SIGN_REQUEST", "YES");
+    if (const std::string ca = curlCaBundle(); !ca.empty()) setDefault("CURL_CA_BUNDLE", ca.c_str());
+}
+
 static bool wildcardMatch(const char* pat, const char* s) {
     if (*pat == '\0') return *s == '\0';
     if (*pat == '*') return wildcardMatch(pat + 1, s) || (*s && wildcardMatch(pat, s + 1));
@@ -542,9 +658,16 @@ static bool naturalLess(const std::string& a, const std::string& b) {
 static std::vector<std::string> expandInputs(const std::vector<std::string>& inputs) {
     std::vector<std::string> files;
     for (const std::string& in : inputs) {
+        // URLs, subdataset names and Zarr stores (folders) are one input each.
+        if (isRemotePath(in) || datasetFile(in) != in) {
+            files.push_back(gdalPath(in));
+            continue;
+        }
         fs::path p = fs::u8path(in);
         std::error_code ec;
-        if (fs::is_directory(p, ec)) {
+        if (isZarrStore(p)) {
+            files.push_back(in);
+        } else if (fs::is_directory(p, ec)) {
             std::vector<std::string> dir;
             for (auto& e : fs::directory_iterator(p, ec))
                 if (e.is_regular_file() && isRasterExt(e.path())) dir.push_back(e.path().u8string());
@@ -625,6 +748,24 @@ static void readClassInfo(GDALRasterBand* b, CubeInfo& info) {
     }
 }
 
+// Labels as precise as the dates need: years, months, days or hours.
+static TimeGranularity granularityOf(const std::vector<Layer>& layers) {
+    bool jan1 = true, first = true, midnight = true;
+    for (const Layer& L : layers) {
+        int y;
+        unsigned m, d;
+        const int64_t day = int64_t(std::floor(L.time / 86400.0));
+        civilFromDays(day, y, m, d);
+        midnight = midnight && std::fabs(L.time - double(day) * 86400.0) < 1;
+        first = first && d == 1;
+        jan1 = jan1 && d == 1 && m == 1;
+    }
+    return !midnight ? TimeGranularity::Hour
+           : jan1    ? TimeGranularity::Year
+           : first   ? TimeGranularity::Month
+                     : TimeGranularity::Day;
+}
+
 std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const BandSelection& sel,
                                    std::string& error) {
     static std::atomic<uint64_t> nextId{1};
@@ -639,9 +780,12 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
 
     auto openDs = [&](const std::string& f) -> GDALDataset* {
         CPLErrorReset();
-        GDALDataset* ds = GDALDataset::Open(f.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY);
+        GDALDataset* ds = openRaster(f);
         if (!ds) {
             error = f + ": " + (CPLGetLastErrorMsg()[0] ? CPLGetLastErrorMsg() : "GDAL could not open the file");
+            if (isRemotePath(f))
+                error += "\n(remote: check the address and the connection; private buckets need credentials, "
+                         "e.g. AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY or a signed URL)";
         }
         return ds;
     };
@@ -649,11 +793,20 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
     GDALDataset* first = openDs(files[0]);
     if (!first) return nullptr;
     info->firstPath = files[0];
+    info->remote = isRemotePath(files[0]);
     info->width = first->GetRasterXSize();
     info->height = first->GetRasterYSize();
     if (first->GetRasterCount() == 0) {
-        error = files[0] + ": no raster bands.";
+        // A container of variables (NetCDF, Zarr, HDF): the interface asks
+        // which one (listVariables); here only a lone one opens by itself.
+        const std::vector<MdVariable> vars = files.size() == 1 ? listVariables(files[0]) : std::vector<MdVariable>{};
         GDALClose(first);
+        if (vars.size() == 1) return openCube({vars[0].dataset}, sel, error);
+        error = files[0] + ": no raster bands.";
+        if (!vars.empty()) {
+            error = files[0] + " holds " + std::to_string(vars.size()) + " variables; open one of them:";
+            for (const MdVariable& v : vars) error += "\n  " + v.dataset;
+        }
         return nullptr;
     }
     info->dataType = GDALGetDataTypeName(first->GetRasterBand(1)->GetRasterDataType());
@@ -710,7 +863,7 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
                 const char* d = first->GetRasterBand(b)->GetDescription();
                 packedNames.push_back(d && d[0] ? std::string(d) : "Band " + std::to_string(b));
             }
-            packedPrefix.push_back(fs::u8path(files[0]).stem().u8string());
+            packedPrefix.push_back(displayName(files[0]));
         }
         if (packedDates > 0 && tag) info->embeddingTag = tag;
     }
@@ -758,7 +911,7 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
             L.band = info->sel.band;
             L.meta = readBandMeta(first->GetRasterBand(L.band));
             L.ndMeta = readBandMeta(first->GetRasterBand(info->sel.ndBand));
-            L.label = fs::u8path(files[0]).stem().u8string();
+            L.label = displayName(files[0]);
             timeTexts.push_back(L.label);
             info->layers.push_back(L);
             GDALClose(first);
@@ -770,6 +923,75 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
                 info->timeIsDate = true;
                 info->granularity = g;
                 info->layers[0].label = formatTime(*info, t);
+            }
+            return info;
+        }
+        // A NetCDF / Zarr variable: bands placed by their coordinates (CF time),
+        // one level of the other dimensions at a time.
+        if (MdBands md; !info->spectral && readMdBands(first, files[0], md)) {
+            info->multidim = true;
+            const std::string var = displayName(files[0]), file = displayName(datasetFile(files[0]));
+            info->mdVariable = var.size() > file.size() + 1 ? var.substr(file.size() + 1) : "";
+            if (const char* v = first->GetRasterBand(1)->GetMetadataItem("NETCDF_VARNAME"); v && info->mdVariable.empty())
+                info->mdVariable = v; // a file of one variable, opened by its name
+            if (md.levels.size() > 1) info->mdLevels = md.levels;
+            info->sel = BandSelection{};
+            info->sel.band = std::clamp(sel.band, 1, int(md.levels.size()));
+            info->sel.chosen = sel.chosen;
+            for (int b = 1; b <= n; ++b) {
+                if (md.level[size_t(b - 1)] != info->sel.band - 1) continue;
+                GDALRasterBand* rb = first->GetRasterBand(b);
+                Layer L;
+                L.path = files[0];
+                L.band = b;
+                L.meta = readBandMeta(rb);
+                if (info->layers.empty()) readClassInfo(rb, *info);
+                L.time = md.time[size_t(b - 1)];
+                if (!md.timeIsDate) L.label = md.timeDim + " " + std::to_string(int(info->layers.size()) + 1);
+                info->layers.push_back(L);
+            }
+            std::stable_sort(info->layers.begin(), info->layers.end(),
+                             [](const Layer& a, const Layer& b) { return a.time < b.time; });
+            if (md.timeIsDate) {
+                info->timeIsDate = true;
+                info->granularity = granularityOf(info->layers);
+                for (Layer& L : info->layers) L.label = formatTime(*info, L.time);
+            } else {
+                char v[48];
+                for (size_t i = 0; i < info->layers.size(); ++i) { // the axis' coordinate, as an index
+                    std::snprintf(v, sizeof(v), "%.6g", info->layers[i].time);
+                    info->layers[i].label = md.timeDim + " " + v;
+                    info->layers[i].time = double(i);
+                }
+            }
+            // Lon/lat grids without a grid mapping (most climate files): WGS 84,
+            // so basemaps, vectors and other layers line up.
+            const auto& g = info->geoTransform;
+            const double x1 = g[0] + g[1] * info->width, y1 = g[3] + g[5] * info->height;
+            if (info->crsWkt.empty() && info->hasGeoTransform && std::min(g[0], x1) >= -180.5 &&
+                std::max(g[0], x1) <= 360.5 && std::min(g[3], y1) >= -90.5 && std::max(g[3], y1) <= 90.5) {
+                OGRSpatialReference wgs;
+                wgs.importFromEPSG(4326);
+                char* wkt = nullptr;
+                const char* opts[] = {"FORMAT=WKT2_2019", nullptr};
+                if (wgs.exportToWkt(&wkt, opts) == OGRERR_NONE && wkt) {
+                    info->crsWkt = wkt;
+                    info->crsName = "WGS 84 (assumed: lon/lat grid without a grid mapping)";
+                    info->crsAuthority = "EPSG:4326";
+                }
+                CPLFree(wkt);
+            }
+            GDALClose(first);
+            std::string d = std::string(info->driver) + " variable" + (info->mdVariable.empty() ? "" : " " + info->mdVariable) +
+                            ", " + std::to_string(info->T()) + (md.timeIsDate ? " dates" : " steps of " + md.timeDim);
+            if (!info->mdLevels.empty()) d += ", " + info->mdLevels[size_t(info->sel.band - 1)];
+            if (!md.calendar.empty() && lowerStr(md.calendar) != "standard" && lowerStr(md.calendar) != "gregorian" &&
+                lowerStr(md.calendar) != "proleptic_gregorian")
+                d += " (" + md.calendar + " calendar)";
+            info->description = d;
+            if (info->layers.empty()) {
+                error = files[0] + ": no bands for the chosen level.";
+                return nullptr;
             }
             return info;
         }
@@ -839,14 +1061,46 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
         if (info->sel.qaRule == QaRule::None) info->sel.qaBand = 0;
         if (const char* tag = first->GetMetadataItem("ZEIT_EMBEDDING")) info->embeddingTag = tag;
         GDALClose(first);
-        for (const std::string& f : files) {
-            GDALDataset* ds = openDs(f);
-            if (!ds) return nullptr;
+        // Remote files: each open is a few round trips (~1 s), so they are
+        // opened 16 at a time; local ones as they are needed.
+        std::vector<GDALDataset*> pre(files.size(), nullptr);
+        if (info->remote && files.size() > 1) {
+            std::vector<std::string> errs(files.size());
+            for (size_t b = 0; b < files.size(); b += 16) {
+                std::vector<std::future<void>> batch;
+                for (size_t i = b; i < std::min(files.size(), b + 16); ++i)
+                    batch.push_back(std::async(std::launch::async, [&, i] {
+                        CPLErrorReset();
+                        pre[i] = openRaster(files[i]);
+                        if (!pre[i]) errs[i] = CPLGetLastErrorMsg();
+                    }));
+                for (auto& f : batch) f.get();
+            }
+            for (size_t i = 0; i < files.size(); ++i)
+                if (!pre[i]) {
+                    error = files[i] + ": " + (errs[i].empty() ? "GDAL could not open the file" : errs[i]);
+                    for (GDALDataset* d : pre)
+                        if (d) GDALClose(d);
+                    return nullptr;
+                }
+        }
+        for (size_t fi = 0; fi < files.size(); ++fi) {
+            const std::string& f = files[fi];
+            GDALDataset* ds = pre[fi] ? std::exchange(pre[fi], nullptr) : openDs(f);
+            auto closeRest = [&] {
+                for (GDALDataset* d : pre)
+                    if (d) GDALClose(d);
+            };
+            if (!ds) {
+                closeRest();
+                return nullptr;
+            }
             if (ds->GetRasterXSize() != info->width || ds->GetRasterYSize() != info->height) {
                 error = fs::u8path(f).filename().u8string() + ": size " + std::to_string(ds->GetRasterXSize()) +
                         "x" + std::to_string(ds->GetRasterYSize()) + " differs from the 1st file (" +
                         std::to_string(info->width) + "x" + std::to_string(info->height) + ").";
                 GDALClose(ds);
+                closeRest();
                 return nullptr;
             }
             const BandSelection& s = info->sel;
@@ -854,6 +1108,7 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
             if (need > ds->GetRasterCount()) {
                 error = f + ": has no band " + std::to_string(need) + ".";
                 GDALClose(ds);
+                closeRest();
                 return nullptr;
             }
             Layer L;
@@ -862,7 +1117,7 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
             L.meta = readBandMeta(ds->GetRasterBand(s.band));
             if (s.ndBand > 0) L.ndMeta = readBandMeta(ds->GetRasterBand(s.ndBand));
             else if (info->layers.empty()) readClassInfo(ds->GetRasterBand(s.band), *info);
-            L.label = fs::u8path(f).stem().u8string();
+            L.label = displayName(f);
             timeTexts.push_back(L.label);
             info->layers.push_back(L);
             GDALClose(ds);
@@ -872,12 +1127,26 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
     }
     info->description = desc;
 
-    // Dates: only used if every layer has a recognizable date.
+    // Dates: only used if every layer has a recognizable date. Files in a
+    // folder each, with the date on the folder (Sentinel-2 COGs on AWS:
+    // .../S2B_23KPQ_20230811_0_L2A/B04.tif), take their folder's.
+    std::vector<std::string> folders;
+    for (const Layer& L : info->layers) {
+        std::string f = datasetFile(L.path);
+        f = f.substr(0, f.find('?'));
+        const size_t end = f.find_last_of("/\\");
+        const size_t start = end == std::string::npos ? std::string::npos : f.find_last_of("/\\", end - 1);
+        folders.push_back(end == std::string::npos ? "" : f.substr(start == std::string::npos ? 0 : start + 1, end - start - 1));
+    }
+    std::vector<std::string> distinct = folders;
+    std::sort(distinct.begin(), distinct.end());
+    const bool folderPerFile = files.size() > 1 && std::unique(distinct.begin(), distinct.end()) == distinct.end();
     bool allDates = true;
     TimeGranularity gran = TimeGranularity::Year;
     std::vector<double> times(info->layers.size());
     for (size_t i = 0; i < info->layers.size() && allDates; ++i) {
         TimeGranularity g = parseDate(timeTexts[i], times[i]);
+        if (g == TimeGranularity::Index && folderPerFile && i < folders.size()) g = parseDate(folders[i], times[i]);
         if (g == TimeGranularity::Index) allDates = false;
         gran = std::max(gran, g);
     }
@@ -909,7 +1178,7 @@ GDALRasterBand* CubeReader::band(int layer, int b) {
     const Layer& L = info_->layers[layer];
     auto it = ds_.find(L.path);
     if (it == ds_.end())
-        it = ds_.emplace(L.path, GDALDataset::Open(L.path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)).first;
+        it = ds_.emplace(L.path, openRaster(L.path)).first;
     if (!it->second) return nullptr;
     b = b <= 0 ? L.band : b + L.bandBase; // b: a band of the date (1..bandsPerDate)
     return b <= it->second->GetRasterCount() ? it->second->GetRasterBand(b) : nullptr;

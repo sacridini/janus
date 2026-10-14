@@ -39,8 +39,8 @@ double secondsSince(std::chrono::steady_clock::time_point t) {
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
 }
 
-bool timeDependent(int m) { return m == ModeValue || m == ModeAnomaly || m == ModeRGB || m == ModeDiff; }
-bool needsStats(int m) { return m != ModeValue && m != ModeRGB && m != ModeDiff; }
+bool timeDependent(int m) { return m == ModeValue || m == ModeAnomaly || m == ModeRGB || m == ModeDiff || m == ModeComposite; }
+bool needsStats(int m) { return m != ModeValue && m != ModeRGB && m != ModeDiff && m != ModeComposite; }
 
 std::string escapePercent(const std::string& s) {
     std::string out;
@@ -439,6 +439,10 @@ void App::pumpAnimation() {
         if (ready && mode == ModeDiff) {
             const int ref = diffRefDate(act ? diffRef_ : L.disp.diffRef, lt, LT);
             ready = ref < 0 || loaded[ref];
+        }
+        if (ready && mode == ModeComposite) {
+            DrawParams p;
+            ready = temporalParams(*L.session, lt, p);
         }
         if (compositeOn(L)) ready = compositeReady(L, lt); // three bands as RGB: their image of the date
         if (!ready) {

@@ -11,6 +11,7 @@
 #include <thread>
 
 #include "cube.hpp"
+#include "multidim.hpp"
 #include "platform.hpp"
 #include "results.hpp"
 #include "selftest.hpp"
@@ -21,6 +22,50 @@ using Clock = std::chrono::steady_clock;
 
 static double msSince(Clock::time_point t0) {
     return std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
+}
+
+int describeInputs(const std::vector<std::string>& inputs, const BandSelection& sel) {
+    const auto t0 = Clock::now();
+    if (inputs.size() == 1) {
+        const std::vector<MdVariable> vars = listVariables(inputs[0]);
+        if (vars.size() > 1) {
+            std::printf("%d variables (%.0f ms):\n", int(vars.size()), msSince(t0));
+            for (const MdVariable& v : vars) std::printf("  %-12s %s\n    %s\n", v.name.c_str(), v.desc.c_str(), v.dataset.c_str());
+            return 0;
+        }
+    }
+    std::string err;
+    auto info = openCube(inputs, sel, err);
+    if (!info) {
+        std::printf("FAIL: %s\n", err.c_str());
+        return 1;
+    }
+    const double openMs = msSince(t0);
+    std::printf("%s\n%d x %d, %s, %d layer(s), opened in %.0f ms%s\n", info->description.c_str(), info->width,
+                info->height, info->dataType.c_str(), info->T(), openMs, info->remote ? " (remote)" : "");
+    std::printf("CRS: %s%s%s\n", info->crsName.empty() ? "none" : info->crsName.c_str(),
+                info->crsAuthority.empty() ? "" : "  ", info->crsAuthority.c_str());
+    if (info->hasGeoTransform) {
+        const auto& g = info->geoTransform;
+        std::printf("origin %.10g, %.10g; pixel %.6g x %.6g\n", g[0], g[3], g[1], g[5]);
+    }
+    if (!info->mdLevels.empty())
+        std::printf("levels: %d, shown: %s\n", int(info->mdLevels.size()), info->mdLevels[size_t(info->sel.band - 1)].c_str());
+    const int T = info->T();
+    CubeReader reader(info);
+    const int px = info->width / 2, py = info->height / 2;
+    const auto tr = Clock::now();
+    for (int t = 0; t < T; ++t) {
+        if (T > 14 && t == 6) {
+            std::printf("  ...\n");
+            t = T - 6;
+        }
+        float v = NAN;
+        const bool ok = reader.readPixel(t, px, py, v);
+        std::printf("  %-20s %s\n", info->layers[t].label.c_str(), ok ? std::to_string(v).c_str() : "(read failed)");
+    }
+    std::printf("centre pixel (%d, %d) read in %.0f ms\n", px, py, msSince(tr));
+    return 0;
 }
 
 int runZeitSelfTest(const std::vector<std::string>& inputs, const BandSelection& sel, const std::string& python,

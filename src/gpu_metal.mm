@@ -73,6 +73,40 @@ static float refAt(constant DrawU& u, device const float* cube, texture2d<float>
 
 static float norm(constant DrawU& u, float v) { return clamp((v - u.range.x) / (u.range.y - u.range.x), 0.0, 1.0); }
 
+// Temporal composite of the dates t0..t1 in the season (time not NaN), as
+// composite() in gpu_gl.cpp: 0 median (of at most 64 values: every k-th one
+// beyond), 1 mean, 2 maximum, 3 minimum, 4 number of observations.
+static float composite(constant DrawU& u, device const float* cube, device const float* times, uint pix, int t0,
+                       int t1, int reducer) {
+    const uint plane = uint(u.w) * uint(u.h);
+    float n = 0.0, s = 0.0, mn = 3.0e38, mx = -3.0e38;
+    for (int t = t0; t <= t1; ++t) {
+        if (isnan(times[t])) continue;
+        float v = cube[uint(t) * plane + pix];
+        if (isnan(v)) continue;
+        n += 1.0; s += v; mn = min(mn, v); mx = max(mx, v);
+    }
+    if (reducer == 4) return n;
+    if (n < 1.0) return as_type<float>(0x7fc00000u);
+    if (reducer == 1) return s / n;
+    if (reducer == 2) return mx;
+    if (reducer == 3) return mn;
+    float vals[64];
+    int k = int(ceil(n / 64.0)), i = 0, m = 0;
+    for (int t = t0; t <= t1 && m < 64; ++t) {
+        if (isnan(times[t])) continue;
+        float v = cube[uint(t) * plane + pix];
+        if (isnan(v)) continue;
+        if (i % k == 0) {
+            int j = m++;
+            while (j > 0 && vals[j - 1] > v) { vals[j] = vals[j - 1]; --j; }
+            vals[j] = v;
+        }
+        ++i;
+    }
+    return (m % 2 == 1) ? vals[m / 2] : 0.5 * (vals[m / 2 - 1] + vals[m / 2]);
+}
+
 // Bilinear between the 4 grid nodes around the point, in full float precision
 // (as gpu_gl.cpp's warpedUV), then into the drawn texture.
 static float2 warpedUV(constant DrawU& u, texture2d<float> grid, float2 quv) {
@@ -92,6 +126,7 @@ fragment float4 fmain(VOut in [[stage_in]], constant DrawU& u [[buffer(0)]],
                       device const float4* stats0 [[buffer(2)]],
                       device const float4* stats1 [[buffer(3)]],
                       device const float* stats2 [[buffer(4)]],
+                      device const float* times [[buffer(5)]],
                       texture2d<float> cmap [[texture(0)]],
                       texture2d<float> tile [[texture(1)]],
                       texture2d<float> lut [[texture(2)]],
@@ -129,6 +164,8 @@ fragment float4 fmain(VOut in [[stage_in]], constant DrawU& u [[buffer(0)]],
     }
     if (u.mode == 0) v = cubeAt(u, cube, tile, uv, pix, u.layers.x);
     else if (u.mode == 10) v = cubeAt(u, cube, tile, uv, pix, u.layers.x) - refAt(u, cube, tile2, uv, pix, u.layers.y);
+    else if (u.mode == 13)
+        v = u.source == 0 ? composite(u, cube, times, pix, u.layers.x, u.layers.y, u.layers.z) : as_type<float>(0x7fc00000u);
     else {
         const float nanv = as_type<float>(0x7fc00000u);
         float4 s0 = u.hasStats ? stats0[pix] : float4(nanv), s1 = u.hasStats ? stats1[pix] : float4(nanv);
@@ -155,6 +192,7 @@ struct StatsU {
 // numerically stable). Neighbouring threads read neighbouring pixels. The
 // largest drop is the largest decrease between consecutive valid observations
 // (NaN skipped), dated at the later one; 0 and no date if it never decreases.
+// Dates whose time is NaN are outside the season and left out.
 kernel void stats(constant StatsU& u [[buffer(0)]], device const float* cube [[buffer(1)]],
                   device const float* times [[buffer(2)]], device float4* o0 [[buffer(3)]],
                   device float4* o1 [[buffer(4)]], device float* o2 [[buffer(5)]],
@@ -165,6 +203,7 @@ kernel void stats(constant StatsU& u [[buffer(0)]], device const float* cube [[b
     float n = 0.0, sv = 0.0, sx = 0.0, mn = 3.0e38, mx = -3.0e38;
     float last = 0.0, drop = 0.0, dropT = nanv;
     for (int t = 0; t < u.T; ++t) {
+        if (isnan(times[t])) continue;
         float v = cube[uint(t) * plane + pix];
         if (isnan(v)) continue;
         if (n > 0.0 && last - v > drop) { drop = last - v; dropT = float(t); }
@@ -176,6 +215,7 @@ kernel void stats(constant StatsU& u [[buffer(0)]], device const float* cube [[b
     float mv = sv / n, mxx = sx / n;
     float sxx = 0.0, sxy = 0.0, syy = 0.0;
     for (int t = 0; t < u.T; ++t) {
+        if (isnan(times[t])) continue;
         float v = cube[uint(t) * plane + pix];
         if (isnan(v)) continue;
         float dx = times[t] - mxx, dy = v - mv;
@@ -314,6 +354,14 @@ void GpuCube::uploadLayer(int t, const float* data) {
     const size_t plane = size_t(w) * h;
     std::memcpy(static_cast<float*>(borrow<id<MTLBuffer>>(cube).contents) + plane * t, data, plane * sizeof(float));
     loaded[t] = true;
+}
+
+void GpuCube::setTimes(const std::vector<float>& timesYears) {
+    // A new buffer: frames still in flight keep reading the one they were given.
+    id<MTLBuffer> tb = makeBuffer(T * sizeof(float));
+    std::memcpy(tb.contents, timesYears.data(), T * sizeof(float));
+    release(times);
+    times = retain(tb);
 }
 
 size_t GpuCube::bytes() const { return size_t(w) * h * (T + 9) * 4; }
@@ -483,6 +531,7 @@ void Gpu::beginMap(int w, int h, const float bg[4], int slot) {
     [d.enc setFragmentBuffer:d.dummyBuf offset:0 atIndex:2];
     [d.enc setFragmentBuffer:d.dummyBuf offset:0 atIndex:3];
     [d.enc setFragmentBuffer:d.dummyBuf offset:0 atIndex:4];
+    [d.enc setFragmentBuffer:d.dummyBuf offset:0 atIndex:5];
     [d.enc setFragmentTexture:d.cmapTex atIndex:0];
     [d.enc setFragmentTexture:d.dummyTile atIndex:1];
     [d.enc setFragmentTexture:d.dummyLut atIndex:2];
@@ -532,6 +581,7 @@ void Gpu::drawCube(const GpuCube& c, const float rect[4], const DrawParams& p) {
         [d.enc setFragmentBuffer:c.statsValid ? borrow<id<MTLBuffer>>(c.stats0) : d.dummyBuf offset:0 atIndex:2];
         [d.enc setFragmentBuffer:c.statsValid ? borrow<id<MTLBuffer>>(c.stats1) : d.dummyBuf offset:0 atIndex:3];
         [d.enc setFragmentBuffer:c.statsValid ? borrow<id<MTLBuffer>>(c.stats2) : d.dummyBuf offset:0 atIndex:4];
+        [d.enc setFragmentBuffer:borrow<id<MTLBuffer>>(c.times) offset:0 atIndex:5];
         d.boundCube = &c;
         d.cubeW = c.w;
         d.cubeH = c.h;

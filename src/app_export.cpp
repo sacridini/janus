@@ -609,7 +609,8 @@ void App::drawFigureOverlay(std::vector<unsigned char>& img, int w, int h, int s
     const bool emb = embeddingMapInfo(embTitle, embCmap, embLo, embHi, embWait);
     const SeriesLayer* active = activeLayer();
     const bool composite = !emb && active && compositeOn(*active); // three bands as RGB
-    const bool dated = !emb && (composite || mode_ == ModeValue || mode_ == ModeAnomaly || mode_ == ModeDiff);
+    const bool dated = !emb && (composite || mode_ == ModeValue || mode_ == ModeAnomaly || mode_ == ModeDiff ||
+                                mode_ == ModeComposite);
     if (o.label == 2 && dated) {
         // An animation's date stamp: the date large (ImGui's scalable font), the
         // layer and the mode under it.
@@ -618,6 +619,8 @@ void App::drawFigureOverlay(std::vector<unsigned char>& img, int w, int h, int s
         if (composite) {
             const std::string t = compositeTitle(*A, t_);
             sub = A->name + "  |  " + t.substr(t.find("RGB: "));
+        } else if (mode_ == ModeComposite) {
+            sub = (A ? A->name + "  |  " : std::string()) + temporalText(info, t_);
         } else if (mode_ == ModeDiff) {
             const int ref = diffRefDate(diffRef_, t_, info.T());
             sub += std::string(" from ") + (ref >= 0 ? info.layers[ref].label : "(none)");
@@ -644,6 +647,8 @@ void App::drawFigureOverlay(std::vector<unsigned char>& img, int w, int h, int s
                           info.layers[rgb_[1]].label.c_str(), info.layers[rgb_[2]].label.c_str());
         else if (mode_ == ModeValue || mode_ == ModeAnomaly)
             std::snprintf(title, sizeof(title), "%s  |  %s", info.layers[t_].label.c_str(), modeName(mode_));
+        else if (mode_ == ModeComposite)
+            std::snprintf(title, sizeof(title), "%s", temporalText(info, t_).c_str());
         else
             std::snprintf(title, sizeof(title), "%s  |  %d dates", modeName(mode_), info.T());
         const float x = 10 * ps, y = 8 * ps;

@@ -31,7 +31,9 @@ static int decodeThreadsFor(const SessionSettings& s, bool rotational) {
 
 Session::Session(std::shared_ptr<CubeInfo> infoIn, const SessionSettings& s, std::function<void()> wake)
     : info(std::move(infoIn)), wake_(std::move(wake)) {
-    rotational = platform::isOnRotationalDisk(info->firstPath);
+    // Network reads (http, S3...) gain from parallel requests: never an HDD.
+    // A NetCDF variable's disk is its file's.
+    rotational = !info->remote && platform::isOnRotationalDisk(datasetFile(info->firstPath));
     bg_ = std::make_unique<JobPool>(bgThreadsFor(s, rotational), wake_);
     fg_ = std::make_unique<JobPool>(fgThreadsFor(s, rotational), wake_);
 
@@ -74,6 +76,7 @@ bool Session::pump(Gpu& g) {
     if (overview.complete() && !gpu.statsValid && info->T() >= 2) {
         const auto t0 = std::chrono::steady_clock::now();
         g.computeStats(gpu);
+        ++gpu.statsGen;
         statsMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         changed = true;
     }

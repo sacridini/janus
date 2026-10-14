@@ -51,6 +51,8 @@ Source: "{#BuildDir}\janus.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\jn.com"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\share\*"; DestDir: "{app}\share"; Flags: ignoreversion recursesubdirs createallsubdirs
+; GDAL drivers built as plugins (NetCDF, HDF5)
+Source: "{#BuildDir}\gdalplugins\*"; DestDir: "{app}\gdalplugins"; Flags: ignoreversion skipifsourcedoesntexist
 ; Private Python runtime with Zeit (never added to PATH)
 Source: "{#RuntimeDir}\*"; DestDir: "{app}\runtime"; Flags: ignoreversion recursesubdirs createallsubdirs
 

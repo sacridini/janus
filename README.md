@@ -30,9 +30,16 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
 - **Opens any stack of rasters**: a folder (one file per date), a multiband file
   (one band per date), a list of files or a wildcard; dates come from file names
   or band descriptions.
-- **13 map modes on the GPU**: value, anomaly, difference to a reference date,
+- **Cloud-native**: cloud-optimized GeoTIFFs straight from `https://`, `s3://`,
+  `gs://` or `az://` (File → Open URL, or `jn https://...`), reading only the
+  blocks and overview levels on screen.
+- **Climate cubes**: NetCDF, Zarr and HDF variables with CF time (model
+  calendars included), levels and a variable picker.
+- **14 map modes on the GPU**: value, anomaly, difference to a reference date,
   temporal statistics, trend, largest drop (date and magnitude), multitemporal
-  RGB; changing date, colormap or stretch is instant.
+  RGB, temporal composites (median, mean, max... of a year or a moving window);
+  a **season** (days of the year) for the statistics and composites; changing
+  date, colormap or stretch is instant.
 - **Pixel series as you hover**, pins to compare places, a region (a rectangle,
   a polygon or a freehand outline) with its mean and p10–p90 band; OLS and Sen
   trends.
@@ -42,7 +49,7 @@ explore time series quickly, not to be a full GIS. Its command line is `jn`.
   the keyboard.
 - **Compare**: several series as layers, in any CRS (reprojected on the GPU),
   map panels side by side, a swipe divider, and space-time transects
-  (distance × date).
+  (distance × date) along a line, a polyline or a vector line.
 - **Basemap** under the series: Esri World Imagery, Sentinel-2 cloudless,
   OpenStreetMap or your own XYZ tiles; off until you pick one.
 - **Categorical series** (land cover, classifications) with class colours,

@@ -157,6 +157,127 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         return nullptr;
     };
 
+    // Temporal composites and the season (app_season.cpp) on the active layer:
+    // map pixels against the colour of a CPU reference computed here, apart
+    // from App::temporalAt (sorted values, no stride: series of < 64 dates).
+    auto checkTemporal = [&]() -> const char* {
+        const CubeInfo& info = *s_->info;
+        const int T = info.T();
+        if (!info.timeIsDate || T < 4) return "the test layer should have at least 4 dates";
+        canvasSize_ = ImVec2(400, 300);
+        fitView(canvasSize_);
+        auto expect = [&](int mode, float lo, float hi, int ix, int iy, float value) -> bool {
+            mode_ = mode;
+            range_[mode] = Range{lo, hi, true, 0};
+            renderMap(400, 300);
+            unsigned char px[4];
+            const int cx = int(offset_.x + (ix + 0.5) * scale_), cy = int(offset_.y + (iy + 0.5) * scale_);
+            gpu_.readMapPixel(cx, cy, px);
+            int e[3] = {26, 26, 29};
+            if (!std::isnan(value)) {
+                const ImVec4 c = ImPlot::SampleColormap(std::clamp((value - lo) / (hi - lo), 0.0f, 1.0f), cmap_[mode]);
+                e[0] = int(c.x * 255 + 0.5f);
+                e[1] = int(c.y * 255 + 0.5f);
+                e[2] = int(c.z * 255 + 0.5f);
+            }
+            const bool ok = std::abs(px[0] - e[0]) <= 3 && std::abs(px[1] - e[1]) <= 3 && std::abs(px[2] - e[2]) <= 3;
+            if (!ok)
+                std::printf("    mode %d at (%d,%d): value %.4g, map rgb(%d, %d, %d), expected rgb(%d, %d, %d)\n", mode, ix,
+                            iy, value, px[0], px[1], px[2], e[0], e[1], e[2]);
+            return ok;
+        };
+        auto reference = [](const std::vector<float>& sv, int t0, int t1, int reducer, const std::vector<bool>& in) {
+            std::vector<float> v;
+            for (int t = t0; t <= t1; ++t)
+                if (in[size_t(t)] && !std::isnan(sv[size_t(t)])) v.push_back(sv[size_t(t)]);
+            if (reducer == 4) return float(v.size());
+            if (v.empty()) return NAN;
+            std::sort(v.begin(), v.end());
+            double s = 0;
+            for (float x : v) s += x;
+            const size_t n = v.size();
+            return reducer == 0   ? (n % 2 ? v[n / 2] : 0.5f * (v[n / 2 - 1] + v[n / 2]))
+                   : reducer == 1 ? float(s / n)
+                   : reducer == 2 ? v.back()
+                                  : v.front();
+        };
+        const CompositeOpts savedComp = comp_;
+        const Season savedSeason = season_;
+        const int savedT = t_;
+        const std::vector<bool> all(static_cast<size_t>(T), true);
+        const int pts[][2] = {{10, 10}, {60, 70}, {150, 30}, {180, 100}, {120, 60}};
+        int checked = 0;
+        for (const auto& q : pts) {
+            const int ix = q[0] * info.width / 200, iy = q[1] * info.height / 120;
+            const std::vector<float> sv = approxSeries(ix, iy);
+            for (int reducer = 0; reducer < 5; ++reducer) {
+                comp_.reducer = reducer;
+                const float lo = reducer == 4 ? 0.0f : -1.0f, hi = reducer == 4 ? float(T) : 1.0f;
+                comp_.window = 2; // whole series
+                if (!expect(ModeComposite, lo, hi, ix, iy, reference(sv, 0, T - 1, reducer, all)))
+                    return "composite of the whole series: wrong colour on the map";
+                comp_.window = 0; // the date's year: one date per year here
+                t_ = T / 2;
+                if (!expect(ModeComposite, lo, hi, ix, iy, reference(sv, t_, t_, reducer, all)))
+                    return "composite of the date's year: wrong colour on the map";
+                comp_.window = 1; // +-400 days: the date and its neighbours (yearly dates)
+                comp_.days = 400;
+                if (!expect(ModeComposite, lo, hi, ix, iy, reference(sv, t_ - 1, t_ + 1, reducer, all)))
+                    return "composite of +-400 days: wrong colour on the map";
+                ++checked;
+            }
+        }
+        // The season: a day no date falls on (none in), then the days from the
+        // 2nd date to the middle one (some in); the mean and counts follow it.
+        auto doy = [&](int t) {
+            const int64_t d = int64_t(std::floor(info.layers[size_t(t)].time / 86400.0));
+            int y;
+            unsigned m, dd;
+            civilFromDays(d, y, m, dd);
+            return int(d - daysFromCivil(y, 1, 1)) + 1;
+        };
+        int empty = 1;
+        for (bool used = true; used && empty < 366; ++empty) {
+            used = false;
+            for (int t = 0; t < T; ++t) used |= doy(t) == empty;
+            if (!used) break;
+        }
+        const int a = doy(1), b = doy(T / 2);
+        for (const int k : {0, 1}) {
+            season_ = k == 0 ? Season{true, empty, empty} : Season{true, std::min(a, b), std::max(a, b)};
+            pumpSeason();
+            gpu_.computeStats(s_->gpu);
+            ++s_->gpu.statsGen;
+            std::vector<bool> in(static_cast<size_t>(T));
+            for (int t = 0; t < T; ++t) in[size_t(t)] = doy(t) >= season_.start && doy(t) <= season_.end;
+            for (int t = 0; t < T; ++t)
+                if (in[size_t(t)] != inSeason(info, t)) return "season: a date's day of the year misjudged";
+            const int n = int(std::count(in.begin(), in.end(), true));
+            if ((k == 0) != (n == 0)) return "season: the test season should hold no date, then some";
+            for (const auto& q : pts) {
+                const int ix = q[0] * info.width / 200, iy = q[1] * info.height / 120;
+                const std::vector<float> sv = approxSeries(ix, iy);
+                if (!expect(ModeMean, -1, 1, ix, iy, reference(sv, 0, T - 1, 1, in)))
+                    return "temporal mean in the season: wrong colour on the map";
+                comp_.window = 2;
+                comp_.reducer = 4;
+                if (!expect(ModeComposite, 0, float(T), ix, iy, reference(sv, 0, T - 1, 4, in)))
+                    return "observations in the season: wrong colour on the map";
+            }
+        }
+        season_ = savedSeason;
+        pumpSeason();
+        gpu_.computeStats(s_->gpu);
+        ++s_->gpu.statsGen;
+        comp_ = savedComp;
+        t_ = savedT;
+        mode_ = ModeValue;
+        mapDirty_ = true;
+        std::printf("    temporal composites (5 reducers x 3 windows, %d pixels) and the season match the CPU\n",
+                    checked / 5);
+        return nullptr;
+    };
+
     switch (st_.stage) {
     case 0:
         st_.t0 = st_.since = now();
@@ -684,6 +805,7 @@ int App::selfTestStep(const std::vector<std::string>& in) {
         if (nan == 0) return fail("cloudy dates should be masked by the QA band");
         if (fitRequested_ || !viewTouched_) return fail("the view should be kept");
         if (const char* e = checkChangeMaps()) return fail(e);
+        if (const char* e = checkTemporal()) return fail(e);
         next("reopened in place: name, pin and view kept, values are NDVI, clouds masked");
         if (in.size() < 4) {
             std::printf("OK (%.1f s)\n", now() - st_.t0);
@@ -820,6 +942,13 @@ int App::selfTestStep(const std::vector<std::string>& in) {
     case 153:
     case 154:
         return selfTestPython();
+    case 160:
+    case 161:
+    case 162:
+    case 163:
+    case 164:
+    case 165:
+        return selfTestMultidim(in);
     }
     return -1;
 }
@@ -1325,6 +1454,38 @@ const char* App::selfTestCompare() {
                 s_->info->layers[t].label.c_str(), v, px[0], px[1], px[2], e[0], e[1], e[2]);
     if (std::abs(px[0] - e[0]) > 4 || std::abs(px[1] - e[1]) > 4 || std::abs(px[2] - e[2]) > 4)
         return "the transect image should use the layer's colormap and range";
+
+    // A polyline on B: east along row 100, south along column 150, east again
+    // past B's edge (x = 300): distances add up segment by segment, the samples
+    // off the layer stay without data, the others are B's exact values.
+    {
+        const std::vector<ImVec2> poly = {{10.5f, 100.5f}, {150.5f, 100.5f}, {150.5f, 180.5f}, {400.5f, 180.5f}};
+        setTransect(poly);
+        if (!tr_.on || tr_.pts.size() != 4 || tr_.vdist.size() != 4) return "the polyline should keep its 4 vertices";
+        const double want[4] = {0, 140 * 30.0, 220 * 30.0, 470 * 30.0};
+        for (int k = 0; k < 4; ++k)
+            if (std::fabs(tr_.vdist[k] - want[k]) > 1e-6) return "the polyline's distances should add up along it";
+        while (transectRowsRead() < tr_.T) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        updateTransectRows();
+        int off = 0, bad = 0;
+        double maxErr = 0;
+        for (int i = 0; i < tr_.n; ++i) {
+            const bool outside = tr_.at[i].x >= 300;
+            off += tr_.px[i] < 0;
+            if (outside != (tr_.px[i] < 0)) ++bad;
+            for (int t = 0; t < T; ++t) {
+                const float v = tr_.values[size_t(t) * tr_.n + i];
+                if (tr_.px[i] < 0) bad += !std::isnan(v);
+                else maxErr = std::max(maxErr, std::fabs(v - (2.0 + 0.01 * (tr_.px[i] - 50) + 0.1 * t)));
+            }
+        }
+        std::printf("    polyline transect: %d samples, %.0f m, bends at %.0f and %.0f m, %d samples off B, max error %.1e\n",
+                    tr_.n, tr_.length, tr_.vdist[1], tr_.vdist[2], off, maxErr);
+        if (tr_.n != 471 || off < 90 || off > 110 || bad || maxErr > 1e-5)
+            return "the polyline should have 471 samples, ~100 off B (no data), B's values elsewhere";
+        setTransect(ImVec2(10.5f, 100.5f), ImVec2(290.5f, 100.5f)); // the straight line, for the checks below
+        while (transectRowsRead() < tr_.T) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
     // Another active layer: the same line on its grid (A's pixels = B's + 100).
     setActive(0);
     pumpTransect();

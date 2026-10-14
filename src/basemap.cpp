@@ -80,11 +80,13 @@ std::string wmsXml(const BasemapSource& s, const std::string& cacheDir) {
     return x + "</GDAL_WMS>";
 }
 
+} // namespace
+
 // TLS certificates for libcurl: the user's setting if any, else the system's
 // bundle (Linux, macOS: the conda-built curl looks for one at its build
 // prefix), else the one shipped in share/ssl. Empty: curl's default (Windows:
 // Schannel and the system store).
-std::string caBundle() {
+std::string curlCaBundle() {
     for (const char* k : {"CURL_CA_BUNDLE", "GDAL_CURL_CA_BUNDLE", "SSL_CERT_FILE"})
         if (CPLGetConfigOption(k, nullptr)) return "";
     std::string path = platform::caBundlePath();
@@ -93,8 +95,6 @@ std::string caBundle() {
     if (path.empty() && fs::exists(shipped, ec)) path = shipped.u8string();
     return path;
 }
-
-} // namespace
 
 const std::vector<BasemapSource>& basemapPresets() {
     static const std::vector<BasemapSource> p = {
@@ -224,7 +224,7 @@ Basemap::Basemap(const BasemapSource& src, const std::string& cacheDir, std::fun
     std::error_code ec;
     fs::create_directories(fs::u8path(cacheDir), ec);
     sh_->xml = wmsXml(src_, cacheDir);
-    sh_->caBundle = caBundle();
+    sh_->caBundle = curlCaBundle();
     sh_->maxZoom = src_.maxZoom;
     sh_->tileSize = src_.tileSize;
     sh_->wake = std::move(wake);

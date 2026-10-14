@@ -20,6 +20,11 @@ Then:  jn --selftest-ui <out>/A <out>/B <out>/C <out>/D <out>/E <out>/F <out>/G
   serie  21 annual dates with a break in 2010 (every Zeit tool that applies)
   landsat  monthly Blue..SWIR2 + Fmask, 2016-2021: forest degraded in 2019 and
          cleared in 2020, clouds Fmask misses (CCDC, NDFI, CODED, Tmask...)
+  H      H/clim.nc, a NetCDF of two variables on a lon/lat grid, 12 monthly dates
+         in CF time ("days since 2020-01-01", noleap calendar): t2m (time, lat,
+         lon) = 10 + t + 0.1 x and ta (time, level, lat, lon) = 100 k + t + 0.01 y
+         at level k; the end of --selftest-ui reads it. Written with GDAL's
+         netCDF driver, else with the netCDF4 module; skipped without either
 """
 import os
 import sys
@@ -213,11 +218,79 @@ def enmap_product(parent, date, cube, nm):
         f.write("    </bandCharacterisation>\n  </specific>\n</level_X>\n")
 
 
+def multidim(out):
+    T, L, H, W = 12, 2, 20, 30
+    days = np.array([0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334], dtype="float64")  # noleap month starts
+    lat = np.linspace(-10.25, -19.75, H)
+    lon = np.linspace(-49.75, -35.25, W)
+    t = np.arange(T, dtype="float32")[:, None, None]
+    y = np.arange(H, dtype="float32")[None, :, None]
+    x = np.arange(W, dtype="float32")[None, None, :]
+    t2m = (10 + t + 0.1 * x + 0 * y).astype("float32")
+    ta = np.stack([(100 * k + t + 0.01 * y + 0 * x) for k in range(L)], axis=1).astype("float32")
+    os.makedirs(f"{out}/H", exist_ok=True)
+    path = f"{out}/H/clim.nc"
+    drv = gdal.GetDriverByName("netCDF")
+    if drv is not None:
+        ds = drv.CreateMultiDimensional(path)
+        rg = ds.GetRootGroup()
+        f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+        f32 = gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+        text = gdal.ExtendedDataType.CreateString()
+
+        def attr(obj, name, value):
+            obj.CreateAttribute(name, [], text).Write(value)
+
+        dims = {}
+        for name, kind, n, values, units in (("time", "TEMPORAL", T, days, "days since 2020-01-01"),
+                                             ("level", "VERTICAL", L, np.array([1000.0, 850.0]), "hPa"),
+                                             ("lat", "HORIZONTAL_Y", H, lat, "degrees_north"),
+                                             ("lon", "HORIZONTAL_X", W, lon, "degrees_east")):
+            d = rg.CreateDimension(name, kind, None, n)
+            v = rg.CreateMDArray(name, [d], f64)
+            v.Write(values)
+            attr(v, "units", units)
+            if name == "time":
+                attr(v, "calendar", "noleap")
+            d.SetIndexingVariable(v)
+            dims[name] = d
+        a = rg.CreateMDArray("t2m", [dims["time"], dims["lat"], dims["lon"]], f32)
+        a.Write(t2m)
+        attr(a, "long_name", "2 m temperature")
+        attr(a, "units", "degC")
+        a = rg.CreateMDArray("ta", [dims["time"], dims["level"], dims["lat"], dims["lon"]], f32)
+        a.Write(ta)
+        attr(a, "long_name", "air temperature")
+        ds = None
+        return
+    try:
+        import netCDF4
+    except ImportError:
+        print("H skipped: neither GDAL's netCDF driver nor the netCDF4 module")
+        return
+    ds = netCDF4.Dataset(path, "w")
+    for name, n in (("time", T), ("level", L), ("lat", H), ("lon", W)):
+        ds.createDimension(name, n)
+    for name, values, units in (("time", days, "days since 2020-01-01"), ("level", [1000.0, 850.0], "hPa"),
+                                ("lat", lat, "degrees_north"), ("lon", lon, "degrees_east")):
+        v = ds.createVariable(name, "f8", (name,))
+        v.units = units
+        v[:] = values
+    ds["time"].calendar = "noleap"
+    v = ds.createVariable("t2m", "f4", ("time", "lat", "lon"))
+    v.long_name, v.units = "2 m temperature", "degC"
+    v[:] = t2m
+    v = ds.createVariable("ta", "f4", ("time", "level", "lat", "lon"))
+    v.long_name = "air temperature"
+    v[:] = ta
+    ds.close()
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     out = sys.argv[1]
-    for make in (layers, reprojected, bands, classes, serie, landsat, spectra):
+    for make in (layers, reprojected, bands, classes, serie, landsat, spectra, multidim):
         make(out)
     print(f"ok: {out}")
 

@@ -144,6 +144,8 @@ void App::uiCompareMenu() {
     ImGui::Separator();
     if (ImGui::MenuItem("Swipe", "C", swipe_, s_ != nullptr)) toggleSwipe();
     if (ImGui::MenuItem("Draw transect", "T or Ctrl+drag", transectMode_, s_ != nullptr)) transectMode_ = !transectMode_;
+    ImGui::SetItemTooltip("Then drag: a straight line; or click its vertices: a polyline (double click\n"
+                          "or Enter ends it). Alt + click a line of a vector layer: the transect along it.");
     if (ImGui::MenuItem("Clear transect", nullptr, false, tr_.on)) clearTransect();
     if (ImGui::MenuItem("Draw ROI polygon", "R", polyMode_, s_ != nullptr)) {
         polyMode_ = !polyMode_;

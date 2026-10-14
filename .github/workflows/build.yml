@@ -23,19 +23,19 @@ jobs:
       matrix:
         include:
           - os: windows-2022
-            packages: gdal numpy pip
+            packages: gdal libgdal-netcdf libgdal-hdf5 numpy pip
             configure: -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$CONDA_PREFIX/Library" -DPython3_EXECUTABLE="$CONDA_PREFIX/python.exe"
             exe: build/Release/janus.exe
             package: installer
           - os: ubuntu-24.04
             packages: >-
-              cmake ninja cxx-compiler c-compiler pkg-config gdal numpy pip
+              cmake ninja cxx-compiler c-compiler pkg-config gdal libgdal-netcdf libgdal-hdf5 numpy pip
               xorg-libx11 xorg-libxrandr xorg-libxinerama xorg-libxcursor xorg-libxi xorg-libxext libgl-devel
             configure: -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DPython3_EXECUTABLE="$CONDA_PREFIX/bin/python" -DGLFW_BUILD_WAYLAND=OFF
             exe: build/janus
             package: package_linux
           - os: macos-15
-            packages: gdal numpy pip
+            packages: gdal libgdal-netcdf libgdal-hdf5 numpy pip
             configure: -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DPython3_EXECUTABLE="$CONDA_PREFIX/bin/python"
             exe: build/janus
             package: package_macos

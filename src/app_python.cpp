@@ -390,8 +390,9 @@ int App::selfTestPython() {
         std::error_code ec;
         st_.dir = (fs::u8path(lastInputs_.empty() ? std::string() : lastInputs_[0]).parent_path() / "landsat").u8string();
         if (lastInputs_.empty() || !fs::is_directory(fs::u8path(st_.dir), ec)) {
-            std::printf("OK (%.1f s)\n", now() - st_.t0);
-            return 0;
+            st_.stage = 160; // NetCDF (app_open.cpp), which prints OK
+            st_.since = now();
+            return -1;
         }
         openInputs({st_.dir});
         break;
@@ -426,8 +427,8 @@ int App::selfTestPython() {
         ++pixelVersion_;
         clearPins();
         next("the CCDC code: its bands, Fmask codes and call");
-        std::printf("OK (%.1f s)\n", now() - st_.t0);
-        return 0;
+        st_.stage = 160; // NetCDF (app_open.cpp), which prints OK
+        return -1;
     }
     }
     return -1;

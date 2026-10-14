@@ -37,14 +37,17 @@ const char* kModeNames[ModeCount] = {
     "Difference (value - reference)",
     "Largest drop: date",
     "Largest drop: magnitude",
+    "Temporal composite",
 };
 // Order of the modes in the menus (the enum's numbers are fixed by the shaders).
-const int kModeOrder[ModeCount] = {ModeValue, ModeAnomaly, ModeDiff,     ModeMean,     ModeStd,
-                                   ModeSlope, ModeMin,     ModeMax,      ModeAmplitude, ModeR2,
-                                   ModeDropDate, ModeDropMag, ModeRGB};
+const int kModeOrder[ModeCount] = {ModeValue,    ModeAnomaly, ModeDiff,    ModeComposite, ModeMean,
+                                   ModeStd,      ModeSlope,   ModeMin,     ModeMax,       ModeAmplitude,
+                                   ModeR2,       ModeDropDate, ModeDropMag, ModeRGB};
 
-bool modeIsTimeDependent(int m) { return m == ModeValue || m == ModeAnomaly || m == ModeRGB || m == ModeDiff; }
-bool modeNeedsStats(int m) { return m != ModeValue && m != ModeRGB && m != ModeDiff; }
+bool modeIsTimeDependent(int m) {
+    return m == ModeValue || m == ModeAnomaly || m == ModeRGB || m == ModeDiff || m == ModeComposite;
+}
+bool modeNeedsStats(int m) { return m != ModeValue && m != ModeRGB && m != ModeDiff && m != ModeComposite; }
 
 // Label of a value of `mode` on a colour bar: dates for the drop date.
 std::string rangeLabel(int mode, float v, const CubeInfo& info) {
@@ -158,7 +161,19 @@ void App::openInputs(const std::vector<std::string>& given, bool addLayer) {
     opening_ = std::async(std::launch::async, [inputs, sel] {
         const auto t0 = std::chrono::steady_clock::now();
         OpenResult r;
-        r.info = openCube(inputs, sel, r.error);
+        r.inputs = inputs;
+        // A NetCDF / Zarr / HDF file of several variables: which one is asked
+        // first; a lone one opens by itself.
+        if (inputs.size() == 1) {
+            std::vector<MdVariable> vars = listVariables(inputs[0]);
+            if (vars.size() > 1) {
+                r.variables = std::move(vars);
+                glfwPostEmptyEvent();
+                return r;
+            }
+            if (vars.size() == 1) r.inputs = {vars[0].dataset};
+        }
+        r.info = openCube(r.inputs, sel, r.error);
         r.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         glfwPostEmptyEvent(); // wake the UI loop
         return r;
@@ -168,10 +183,20 @@ void App::openInputs(const std::vector<std::string>& given, bool addLayer) {
 // Main thread: called once the background open has finished.
 void App::finishOpen() {
     OpenResult r = opening_.get();
-    const std::vector<std::string> inputs = std::move(openingInputs_);
+    openingInputs_.clear();
+    const std::vector<std::string> inputs = std::move(r.inputs);
     const bool keepActive = std::exchange(openingKeepActive_, false); // this open's only, even if it fails
     const std::string name = std::exchange(openingName_, std::string());
     auto info = r.info;
+    if (!r.variables.empty()) { // pick one, then it opens like any raster
+        varChoices_ = std::move(r.variables);
+        varFile_ = inputs[0];
+        varAdd_ = openingAdd_;
+        varPick_ = 0;
+        variablePopup_ = true;
+        openingReplace_ = -1;
+        return;
+    }
     if (!info) {
         error_ = r.error;
         openErrorPopup_ = true;
@@ -188,6 +213,11 @@ void App::finishOpen() {
     if (openingReplace_ >= 0) {
         const int i = std::exchange(openingReplace_, -1);
         if (i < int(layers_.size())) {
+            if (inputs != layers_[i].inputs) { // another variable of the same file
+                layers_[i].inputs = inputs;
+                layers_[i].name.clear();
+                layers_[i].name = layerName(*info, inputs);
+            }
             replaceLayerSession(i, info, r.seconds);
             return;
         }
@@ -232,8 +262,11 @@ void App::finishOpen() {
     } else {
         setActive(int(layers_.size()) - 1);
     }
-    files_.addRecent(inputs.size() == 1 ? inputs[0] : info->firstPath);
-    if (revealOpened_) files_.reveal(inputs.size() == 1 ? inputs[0] : info->firstPath);
+    if (!info->remote) { // the folder of the files (of a NetCDF variable's file)
+        const std::string where = datasetFile(inputs.size() == 1 ? inputs[0] : info->firstPath);
+        files_.addRecent(where);
+        if (revealOpened_) files_.reveal(where);
+    }
     // Zeit (separate process) starts only now, never on the startup path.
     startZeit();
 }
@@ -276,6 +309,7 @@ void App::frame() {
         openInputs(drop, std::exchange(pendingDropAdd, false) && !layers_.empty());
     }
     if (opening_.valid() && opening_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) finishOpen();
+    pumpSeason(); // the dates of the season, before the statistics are computed
     for (SeriesLayer& L : layers_) // every layer keeps loading and uploading
         if (L.session->pump(gpu_)) mapDirty_ = true;
     if (s_) {
@@ -312,7 +346,7 @@ void App::frame() {
             playAccum_ += ImGui::GetIO().DeltaTime;
             if (playAccum_ >= 1.0 / fps_) {
                 playAccum_ = 0;
-                setT(t_ + 1);
+                setT(stepDate(t_, 1));
             }
         }
         if (cmap_[mode_] != appliedCmap_) {
@@ -514,6 +548,17 @@ std::vector<float> App::collectSample(const Session& S, int mode, int t, size_t 
         break;
     case ModeDropDate: overPixels([&](size_t p) { return S.gpu.hostStats2[p]; }); break;
     case ModeDropMag: overPixels([&](size_t p) { return s1[p * 4 + 3]; }); break;
+    case ModeComposite: { // the window of date t (of the shown date for the "every date" range)
+        int t0, t1;
+        temporalWindow(*S.info, t >= 0 ? t : (&S == s_ ? t_ : 0), t0, t1);
+        const size_t step = std::max<size_t>(1, px / std::min<size_t>(maxN, 100000));
+        out.reserve(px / step + 1);
+        for (size_t p = (step / 2) % px; p < px; p += step) {
+            const float v = temporalAt(S, p, t0, t1);
+            if (!std::isnan(v)) out.push_back(v);
+        }
+        break;
+    }
     default: break;
     }
     return out;
@@ -545,7 +590,14 @@ static void autoRange(int mode, std::vector<float>& s, float& lo, float& hi) {
 
 void App::updateRangeAndHistogram() {
     if (modeNeedsStats(mode_) && !s_->gpu.statsValid) return;
-    const uint64_t version = uint64_t(s_->overview.layersDone()) * 2 + (s_->gpu.statsValid ? 1 : 0);
+    // The composite's numbers change with its options, the season and its window.
+    int c0 = 0, c1 = 0;
+    if (mode_ == ModeComposite) temporalWindow(*s_->info, t_, c0, c1);
+    const uint64_t compKey = mode_ == ModeComposite
+                                 ? ((uint64_t(comp_.reducer) * 3 + comp_.window) * 1000 + comp_.days) * 1000003ull + seasonKey()
+                                 : 0;
+    const uint64_t version = (uint64_t(s_->overview.layersDone()) * 2 + (s_->gpu.statsValid ? 1 : 0)) +
+                             uint64_t(s_->gpu.statsGen) * 7919 + compKey * 104729;
     const bool timeDep = modeIsTimeDependent(mode_);
 
     Range& r = range_[mode_];
@@ -562,7 +614,8 @@ void App::updateRangeAndHistogram() {
     }
 
     const int histT = timeDep ? (mode_ == ModeRGB ? rgb_[0] : t_) : -1;
-    const uint64_t hkey = version * 1000003ull + uint64_t(histT + 1) * 16 + uint64_t(mode_) + refKey * 65536;
+    const uint64_t hkey = version * 1000003ull + uint64_t(histT + 1) * 16 + uint64_t(mode_) + refKey * 65536 +
+                          (mode_ == ModeComposite ? (uint64_t(c0) * 65537 + uint64_t(c1)) * 31 : 0);
     if (hkey != histKey_) {
         histKey_ = hkey;
         histX_.clear();
@@ -605,6 +658,7 @@ void App::handleShortcuts() {
         auto dir = platform::openFolderDialog();
         if (!dir.empty()) openInputs({dir});
     }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_U)) openUrlDialog(false);
     if (s_ && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_L)) {
         auto files = platform::openFilesDialog();
         if (!files.empty()) openInputs(files, true);
@@ -617,8 +671,8 @@ void App::handleShortcuts() {
     if (!views_.empty() && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_W))
         closeViewId_ = focusedViewId_ ? focusedViewId_ : views_.back().id;
     if (io.WantTextInput || !s_) return;
-    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) setT(t_ - 1);
-    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) setT(t_ + 1);
+    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) setT(stepDate(t_, -1));
+    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) setT(stepDate(t_, 1));
     if (ImGui::IsKeyChordPressed(ImGuiKey_P)) playing_ = !playing_;
     if (ImGui::IsKeyChordPressed(ImGuiKey_Space)) { // shows / hides the active layer
         layers_[active_].visible = !layers_[active_].visible;
@@ -628,6 +682,7 @@ void App::handleShortcuts() {
     if (ImGui::IsKeyChordPressed(ImGuiKey_S)) toggleSatelliteBasemap();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) roiDragging_ = false;
     roiShortcuts();
+    transectShortcuts();
     interpShortcuts();
     compareShortcuts();
 }
@@ -643,6 +698,10 @@ void App::uiMenu() {
             auto dir = platform::openFolderDialog();
             if (!dir.empty()) openInputs({dir});
         }
+        if (ImGui::MenuItem("Open URL...", "Ctrl+U")) openUrlDialog(false);
+        ImGui::SetItemTooltip("Cloud-optimized GeoTIFFs (and other rasters) straight from the web:\n"
+                              "https://, s3://, gs://, az://. Only the blocks and overview levels\n"
+                              "shown are downloaded; one URL per line makes a series.");
         if (ImGui::MenuItem("Add layer: file(s)...", "Ctrl+L", false, s_ != nullptr)) {
             auto files = platform::openFilesDialog();
             if (!files.empty()) openInputs(files, true);
@@ -651,6 +710,7 @@ void App::uiMenu() {
             auto dir = platform::openFolderDialog();
             if (!dir.empty()) openInputs({dir}, true);
         }
+        if (ImGui::MenuItem("Add layer: URL...", nullptr, false, s_ != nullptr)) openUrlDialog(true);
         if (ImGui::MenuItem("Add vector layer...")) {
             auto files = platform::openFilesDialog();
             if (!files.empty()) addVectorFiles(files);
@@ -758,6 +818,8 @@ void App::dockDefaultLayout(unsigned dock) {
 }
 
 void App::uiPopups() {
+    uiOpenUrl();
+    uiVariablePicker();
     if (openErrorPopup_) {
         ImGui::OpenPopup("Error");
         openErrorPopup_ = false;
@@ -775,10 +837,11 @@ void App::uiPopups() {
     }
     if (ImGui::BeginPopupModal("Shortcuts and usage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted(
-            "Open: Ctrl+O (files), Ctrl+Shift+O (folder), or drop onto the window\n"
+            "Open: Ctrl+O (files), Ctrl+Shift+O (folder), Ctrl+U (URL: COGs on the web, S3, GCS)\n"
+            "      or drop onto the window; NetCDF / Zarr: a variable is picked if there are several\n"
             "Vector layers: File > Add vector layer (GeoJSON, Shapefile, GeoPackage, KML,\n"
             "               CSV of points), or drop them; drawn over every layer\n"
-            "Command line: jn <folder | file.tif | pattern_*.tif ...> [--band N]\n"
+            "Command line: jn <folder | file.tif | pattern_*.tif | https://.../cog.tif ...> [--band N]\n"
             "Map panels: Ctrl+T (new), Ctrl+W (close the focused one, else the last)\n"
             "Settings: Ctrl+, (theme, processing threads, memory and caches)\n"
             "Reset layout: Ctrl+Shift+R (panels and windows back to their first place)\n"
@@ -798,10 +861,11 @@ void App::uiPopups() {
             "                        visible layer with 'All visible layers' on the chart)\n"
             "  R ................... polygonal ROI: click its vertices (close on the first one,\n"
             "                        with a double click or Enter) or drag a freehand outline\n"
-            "  Alt + click ......... a polygon of a vector layer becomes the ROI (Alt: its\n"
-            "                        attributes; a point's show on hovering it)\n"
+            "  Alt + click ......... a polygon of a vector layer becomes the ROI, a line the\n"
+            "                        transect (Alt: its attributes; a point's show on hovering it)\n"
             "  Ctrl + drag ......... space-time transect along the line (Transect panel);\n"
-            "                        T, then drag, does the same (Mac: Command + drag)\n"
+            "                        T, then drag, does the same (Mac: Command + drag);\n"
+            "                        T, then clicks: a polyline (double click / Enter ends it)\n"
             "  C ................... swipe: drag the divider to compare with another\n"
             "                        layer, date or mode (picked in the bar above the map)\n"
             "  S ................... satellite basemap on / off (Esri World Imagery, or the\n"
@@ -882,6 +946,7 @@ void App::renderMap(int w, int h, float pixelScale, int slot, const float* backg
                      : modeIsTimeDependent(mode) ? loaded[t] : true;
         if (modeNeedsStats(mode) && !S.gpu.statsValid) ready = false;
         if (mode == ModeDiff && (p.tg < 0 || !loaded[p.tg])) ready = false;
+        if (mode == ModeComposite) ready = temporalParams(S, t, p);
         float rect[4];
         if (ready && layerQuad(L, 0, 0, info.width, info.height, q, p.warp)) { // straight or reprojected
             screenRect(q[0], q[1], q[2], q[3], rect);
@@ -975,16 +1040,17 @@ void App::mapInput(ImVec2 origin, ImVec2 size, int panel, int& ix, int& iy, bool
                 setRoiShape(r, {});
             }
         } else if (io.MouseDragMaxDistanceSqr[0] < 16 && io.KeyAlt) {
-            // Alt + click on a polygon of a vector layer: it becomes the ROI.
+            // Alt + click on a polygon of a vector layer: it becomes the ROI; on a
+            // line: the transect follows it.
             int vl, vf;
-            if (vectorFeatureAt(sx, sy, vl, vf)) featureAsRoi(vectors_[vl], vf);
+            if (vectorFeatureAt(sx, sy, vl, vf) && !featureAsRoi(vectors_[vl], vf)) featureAsTransect(vectors_[vl], vf);
         } else if (io.MouseDragMaxDistanceSqr[0] < 16 && inside && !ctrlClick_) {
             addPin(ix, iy);
         }
         ctrlClick_ = false;
     }
     if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) removePinAtCursor();
-    if (hovered && !pins_.empty() && !polyMode_ &&
+    if (hovered && !pins_.empty() && !polyMode_ && transectDraft_.empty() &&
         (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)))
         removePinById(pins_.back().id);
     // Zoom by a factor around the cursor; zooming out stops at the image extent
@@ -1137,11 +1203,11 @@ void App::uiMap() {
     ImGuiIO& io = ImGui::GetIO();
 
     // --- Time bar ---
-    if (ImGui::ArrowButton("##prev", ImGuiDir_Left)) setT(t_ - 1);
+    if (ImGui::ArrowButton("##prev", ImGuiDir_Left)) setT(stepDate(t_, -1));
     ImGui::SameLine();
     if (ImGui::Button(playing_ ? "Pause" : " Play ", ImVec2(60, 0))) playing_ = !playing_;
     ImGui::SameLine();
-    if (ImGui::ArrowButton("##next", ImGuiDir_Right)) setT(t_ + 1);
+    if (ImGui::ArrowButton("##next", ImGuiDir_Right)) setT(stepDate(t_, 1));
     ImGui::SameLine();
     ImGui::SetNextItemWidth(std::max(120.0f, ImGui::GetContentRegionAvail().x - 250));
     int t = t_;
@@ -1231,10 +1297,13 @@ void App::uiMap() {
     else if (mode_ == ModeDiff)
         std::snprintf(title, sizeof(title), "%s - %s  |  Difference", info.layers[t_].label.c_str(),
                       diffRef >= 0 ? info.layers[diffRef].label.c_str() : "(none)");
+    else if (mode_ == ModeComposite)
+        std::snprintf(title, sizeof(title), "%s", temporalText(info, t_).c_str());
     else if (modeIsTimeDependent(mode_))
         std::snprintf(title, sizeof(title), "%s  |  %s", info.layers[t_].label.c_str(), modeName(mode_, info));
     else
-        std::snprintf(title, sizeof(title), "%s  |  %d %s", kModeNames[mode_], T, info.spectral ? "bands" : "dates");
+        std::snprintf(title, sizeof(title), "%s  |  %d %s%s", kModeNames[mode_], T, info.spectral ? "bands" : "dates",
+                      seasonActive(info) ? ("  |  " + seasonText()).c_str() : "");
     std::string embTitle, embWait;
     int embCmap = -1;
     float embLo = 0, embHi = 1;
@@ -1255,6 +1324,10 @@ void App::uiMap() {
         wait = "Computing statistics: waiting for the complete overview...";
     else if (mode_ == ModeDiff && diffRef < 0)
         wait = "The first date has no previous date";
+    else if (mode_ == ModeComposite) {
+        DrawParams cp;
+        if (!temporalParams(*s_, t_, cp)) wait = "Loading the dates of the composite...";
+    }
     else if (modeIsTimeDependent(mode_) &&
              (!s_->gpu.loaded[mode_ == ModeRGB ? rgb_[0] : t_] || (mode_ == ModeDiff && !s_->gpu.loaded[diffRef])))
         wait = "Loading this date...";
@@ -1337,6 +1410,13 @@ void App::uiMap() {
         } else if (embShown) {
             const std::string e = embeddingStatusAt(ix, iy);
             std::snprintf(status + n, sizeof(status) - n, "%s", e.c_str());
+        } else if (mode_ == ModeComposite) {
+            const Overview& ov = s_->overview;
+            const size_t p = size_t(std::min(ov.h - 1, int(double(iy) * ov.h / info.height))) * ov.w +
+                             size_t(std::min(ov.w - 1, int(double(ix) * ov.w / info.width)));
+            int t0, t1;
+            temporalWindow(info, t_, t0, t1);
+            std::snprintf(status + n, sizeof(status) - n, "  |  composite %.6g (overview)", temporalAt(*s_, p, t0, t1));
         } else if (modeNeedsStats(mode_) && s_->gpu.statsValid) {
             // Displayed quantity (mean, trend...) at the overview pixel under the cursor.
             const Overview& ov = s_->overview;
@@ -1344,7 +1424,7 @@ void App::uiMap() {
                              size_t(std::min(ov.w - 1, int(double(ix) * ov.w / info.width)));
             const float* a = s_->gpu.hostStats0 + p * 4;
             const float* b = s_->gpu.hostStats1 + p * 4;
-            const float v[ModeCount] = {0, 0, a[0], a[1], a[2], b[0], b[1], b[1] - b[0], b[2], 0, 0, 0, b[3]};
+            const float v[ModeCount] = {0, 0, a[0], a[1], a[2], b[0], b[1], b[1] - b[0], b[2], 0, 0, 0, b[3], 0};
             const float dropT = s_->gpu.hostStats2[p];
             if (mode_ == ModeAnomaly && hover_.x == ix && hover_.y == iy)
                 std::snprintf(status + n, sizeof(status) - n, "  |  anomaly %.6g", hover_.values[t_] - a[0]);
@@ -1404,6 +1484,10 @@ void App::uiBands() {
         ImGui::SetItemTooltip("Each pixel's spectrum as one vector (Embeddings panel): its principal\n"
                               "components as RGB, of the scene or of an ROI, or its similarity to the\n"
                               "spectrum of the cursor, a pin or the ROI");
+        return;
+    }
+    if (info.multidim) {
+        uiMultidim();
         return;
     }
     if (info.bandsPerDate <= 1) return;
@@ -1735,6 +1819,8 @@ void App::uiMapView(MapView& v) {
     else if (mode == ModeDiff)
         std::snprintf(title, sizeof(title), "%s  |  %s - %s  |  Difference", L->name.c_str(), li.layers[t].label.c_str(),
                       diffRef >= 0 ? li.layers[diffRef].label.c_str() : "(none)");
+    else if (mode == ModeComposite)
+        std::snprintf(title, sizeof(title), "%s  |  %s", L->name.c_str(), temporalText(li, t).c_str());
     else if (modeIsTimeDependent(mode))
         std::snprintf(title, sizeof(title), "%s  |  %s  |  %s", L->name.c_str(), li.layers[t].label.c_str(),
                       kModeNames[mode]);
@@ -1832,6 +1918,7 @@ void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
                  : modeIsTimeDependent(mode) ? loaded[t] : true;
     if (modeNeedsStats(mode) && !S.gpu.statsValid) ready = false;
     if (mode == ModeDiff && (p.tg < 0 || !loaded[p.tg])) ready = false;
+    if (mode == ModeComposite) ready = temporalParams(S, t, p);
     float rect[4];
     if (ready && layerRect(0, 0, li.width, li.height, rect, p.warp)) gpu_.drawCube(S.gpu, rect, p, cmap, 1.0f);
     if ((mode == ModeValue || (mode == ModeDiff && ready)) && v.detailLevel >= 0) {
@@ -1911,6 +1998,8 @@ void App::uiLayer() {
         ImGui::EndCombo();
     }
     uiClasses();
+    if (mode_ == ModeComposite) uiTemporalOptions();
+    uiSeason();
     if (!activeClasses()) { // colormap, range and histogram: continuous data only
     if (modeNeedsStats(mode_)) {
         ImGui::TextDisabled(s_->gpu.statsValid ? "Computed on the GPU for every pixel (overview)."
@@ -2142,6 +2231,7 @@ void App::uiSeries() {
             for (const std::string& n : names) labels.push_back(n.c_str());
             ImPlot::SetupAxisTicks(ImAxis_Y1, ticks.data(), int(ticks.size()), labels.data());
         }
+        plotSeasonBands(info);
 
         // Displayed value: raw, anomaly or z-score (using the series' own statistics).
         auto transform = [&](double v, const SeriesStats& st) {
@@ -2558,7 +2648,7 @@ void App::uiPerf() {
     if (s_) {
         const Overview& ov = s_->overview;
         const double MB = 1024.0 * 1024.0;
-        ImGui::Text("Disk: %s", s_->rotational ? "spinning HDD" : "SSD / network");
+        ImGui::Text("Disk: %s", s_->info->remote ? "remote (HTTP range requests)" : s_->rotational ? "spinning HDD" : "SSD / network");
         ImGui::Text("Threads: %d background readers + %d interactive", s_->bgPool().threads(), s_->fgPool().threads());
         ImGui::Text("Open (metadata): %.0f ms", s_->openSeconds * 1000);
         ImGui::SeparatorText("Overview (GPU)");

@@ -58,7 +58,11 @@ struct Layer {
     BandMeta ndMeta;     // of the normalized-difference band, if any
 };
 
-enum class TimeGranularity { Index, Year, Month, Day };
+enum class TimeGranularity { Index, Year, Month, Day, Hour };
+
+// Days since 1970-01-01 of a proleptic Gregorian date, and back.
+int64_t daysFromCivil(int y, unsigned m, unsigned d);
+void civilFromDays(int64_t z, int& y, unsigned& m, unsigned& d);
 
 struct CubeInfo {
     uint64_t id = 0;     // unique per open (invalidates per-thread readers)
@@ -93,6 +97,15 @@ struct CubeInfo {
     // Zeit's ZEIT_EMBEDDING tag of the first file (JSON: source, model...): a
     // layer of foundation-model embeddings (see embedding.hpp).
     std::string embeddingTag;
+    // A variable of a NetCDF / Zarr / HDF file (multidim.hpp): its bands are
+    // placed by their coordinates (CF time), not by their order. With more
+    // dimensions than time (e.g. pressure level), each combination of the
+    // others is a "level" and sel.band picks the one shown (1-based).
+    bool multidim = false;
+    std::string mdVariable;              // e.g. "t2m"
+    std::vector<std::string> mdLevels;   // e.g. "level 850"; empty with time alone
+    // Read over the network (http, S3, GCS, Azure: isRemotePath).
+    bool remote = false;
 
     int T() const { return int(layers.size()); }
     // Time in decimal years relative to the 1st layer (for trends).
@@ -160,6 +173,28 @@ std::string formatTime(const CubeInfo& info, double t);
 
 // True for file names with a raster extension Janus lists by default.
 bool isRasterPath(const std::string& path);
+
+// Cloud-native access: a URL (http(s)://, s3://, gs://, az://) or a path in
+// one of GDAL's network file systems (/vsicurl/, /vsis3/...), also inside a
+// subdataset name. Only the blocks (and overview levels) read are downloaded.
+bool isRemotePath(const std::string& path);
+// What GDAL opens for an input: a URL becomes its network file system path
+// (https://... -> /vsicurl/https://..., s3://b/k -> /vsis3/b/k; a remote Zarr
+// store also gets the ZARR: prefix); anything else is returned as is.
+std::string gdalPath(const std::string& input);
+// The file (or URL) holding a dataset: the path inside a subdataset name
+// (NETCDF:"f.nc":t2m -> f.nc), else the input itself.
+std::string datasetFile(const std::string& path);
+// A short name for the interface: the file's stem (a URL's, without its query
+// or network prefix), followed by the variable of a subdataset ("clim t2m").
+std::string displayName(const std::string& path);
+// Opens a raster read-only. Remote paths are opened without listing their
+// "folder" (one request less per file; side-car files are not looked for).
+GDALDataset* openRaster(const std::string& path);
+// Global GDAL options for network reads (retries, larger block cache, merged
+// ranges, anonymous S3/GCS when no credentials are configured, TLS
+// certificates). Called once at startup.
+void configureRemoteAccess();
 // An EnMAP product's spectral image (ENMAP01-...-SPECTRAL_IMAGE.TIF/.BSQ...):
 // opening its folder opens it alone.
 bool isEnmapSpectralImage(const std::string& path);

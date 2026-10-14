@@ -34,8 +34,14 @@ function(run)
   endif()
 endfunction()
 
+# GDAL drivers built as plugins (conda-forge libgdal-netcdf / libgdal-hdf5):
+# NetCDF and HDF5 rasters, in Frameworks/gdalplugins (found by main.cpp; their
+# libraries are found through @rpath = @loader_path/.., i.e. Frameworks/).
+file(GLOB plugins "${PREFIX}/lib/gdalplugins/gdal_netCDF.dylib" "${PREFIX}/lib/gdalplugins/gdal_HDF5.dylib")
+
 file(GET_RUNTIME_DEPENDENCIES
   EXECUTABLES "${EXE}"
+  MODULES ${plugins}
   DIRECTORIES "${PREFIX}/lib"
   RESOLVED_DEPENDENCIES_VAR deps
   UNRESOLVED_DEPENDENCIES_VAR unresolved
@@ -52,6 +58,14 @@ message(STATUS "package_macos: ${n} libraries")
 if(unresolved)
   message(WARNING "package_macos: libraries not found: ${unresolved}")
 endif()
+
+foreach(plugin IN LISTS plugins)
+  get_filename_component(name "${plugin}" NAME)
+  file(MAKE_DIRECTORY "${app}/Frameworks/gdalplugins")
+  file(COPY_FILE "${plugin}" "${app}/Frameworks/gdalplugins/${name}")
+  execute_process(COMMAND install_name_tool -add_rpath "@loader_path/.." "${app}/Frameworks/gdalplugins/${name}"
+                  OUTPUT_QUIET ERROR_QUIET) # already there if conda set it
+endforeach()
 
 file(COPY_FILE "${EXE}" "${app}/MacOS/janus")
 # Only the bundled libraries: the build machine's library path is replaced
@@ -71,7 +85,7 @@ configure_file("${SRC}/resources/Info.plist.in" "${app}/Info.plist" @ONLY)
 
 # install_name_tool invalidated the signatures (and on Apple Silicon unsigned
 # code is killed on load): sign every library, then the bundle (seals Resources).
-file(GLOB libs "${app}/Frameworks/*")
+file(GLOB libs LIST_DIRECTORIES false "${app}/Frameworks/*" "${app}/Frameworks/gdalplugins/*")
 foreach(lib IN LISTS libs)
   run(codesign --force --sign - "${lib}")
 endforeach()

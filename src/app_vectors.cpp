@@ -363,7 +363,9 @@ void App::uiVectorTooltip() {
     ImGui::BeginTooltip();
     ImGui::TextColored(V.color, "%s", V.name.c_str());
     ImGui::TextDisabled("feature %lld%s", (long long)F.fid,
-                        F.kind == VectorFeature::Area ? "  (Alt + click: use as the ROI)" : "");
+                        F.kind == VectorFeature::Area   ? "  (Alt + click: use as the ROI)"
+                        : F.kind == VectorFeature::Line ? "  (Alt + click: transect along it)"
+                                                        : "");
     const size_t shown = std::min<size_t>(V.data->fields.size(), 16);
     if (shown && ImGui::BeginTable("##attrs", 2, ImGuiTableFlags_SizingFixedFit)) {
         for (size_t k = 0; k < shown; ++k) {
@@ -462,7 +464,7 @@ void App::uiVectors() {
         if (!files.empty()) addVectorFiles(files);
     }
     ImGui::SetItemTooltip("GeoJSON, Shapefile, GeoPackage, KML, CSV of points (x/lon, y/lat columns)...");
-    ImGui::TextDisabled("Alt + click a polygon: it becomes the ROI.");
+    ImGui::TextDisabled("Alt + click a polygon: it becomes the ROI; a line: the transect.");
     ImGui::Separator();
 }
 
@@ -981,7 +983,17 @@ int App::selfTestVectors(const std::vector<std::string>& in) {
         if (!csvOnTop || !onPoint || !inArea || inHole || !onLine)
             return fail("picking: the top layer's point, a point, the polygon, not its hole, the line");
         if (!featureAsRoi(*G, 0) || roiPoly_.size() != 2) return fail("the polygon with its hole should become the ROI");
-        next("placed on B, picked; the polygon (with its hole) as the ROI");
+        // The line (Alt + click on it): the transect along it, written in UTM 22S.
+        if (featureAsRoi(*G, 1) || !featureAsTransect(*G, 1)) return fail("the line should become the transect, not the ROI");
+        const double lineLen = std::hypot(kLine[2] - kLine[0], kLine[3] - kLine[1]) * 30;
+        std::printf("    transect along the line: %zu vertices, (%.3f, %.3f) - (%.3f, %.3f), %.1f %s (%.1f m drawn), %d samples\n",
+                    tr_.pts.size(), tr_.a.x, tr_.a.y, tr_.b.x, tr_.b.y, tr_.length, tr_.unit.c_str(), lineLen, tr_.n);
+        if (!tr_.on || std::hypot(tr_.a.x - kLine[0], tr_.a.y - kLine[1]) > 1e-3 ||
+            std::hypot(tr_.b.x - kLine[2], tr_.b.y - kLine[3]) > 1e-3 || std::fabs(tr_.length - lineLen) > 0.01 ||
+            tr_.unit != "m")
+            return fail("the transect should follow the line from end to end");
+        clearTransect();
+        next("placed on B, picked; the polygon (with its hole) as the ROI, the line as the transect");
         break;
     }
     case 122: {

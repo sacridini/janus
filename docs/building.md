@@ -4,7 +4,8 @@
 
 Requirements: CMake ≥ 3.21, a C++17 compiler (Visual Studio 2022 on Windows,
 GCC or Clang elsewhere) and a GDAL installation with CMake config files, e.g. a
-conda-forge environment (`conda create -n geo -c conda-forge gdal`). GLFW, Dear
+conda-forge environment (`conda create -n geo -c conda-forge gdal libgdal-netcdf libgdal-hdf5`:
+the two plugins read NetCDF and HDF5; the build copies them to `gdalplugins/`). GLFW, Dear
 ImGui, ImPlot and nlohmann/json are downloaded by CMake (`FetchContent`).
 
 ## Windows
@@ -44,7 +45,7 @@ Everything (compiler, GDAL, X11/OpenGL headers) can come from one conda-forge
 environment, so nothing needs to be installed system-wide:
 
 ```bash
-conda create -n janus-linux -c conda-forge cmake ninja cxx-compiler c-compiler pkg-config gdal \
+conda create -n janus-linux -c conda-forge cmake ninja cxx-compiler c-compiler pkg-config gdal libgdal-netcdf libgdal-hdf5 \
     xorg-libx11 xorg-libxrandr xorg-libxinerama xorg-libxcursor xorg-libxi xorg-libxext libgl-devel
 conda activate janus-linux
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DGLFW_BUILD_WAYLAND=OFF
@@ -63,7 +64,7 @@ Builds with the Xcode command line tools (AppleClang) and GDAL from a conda
 environment; tested on macOS 26, UI and Zeit self-tests pass:
 
 ```bash
-conda create -n geo -c conda-forge gdal
+conda create -n geo -c conda-forge gdal libgdal-netcdf libgdal-hdf5
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$HOME/miniconda3/envs/geo" \
     -DPython3_EXECUTABLE="$HOME/miniconda3/envs/geo/bin/python3"
 cmake --build build -j

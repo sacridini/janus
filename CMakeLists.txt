@@ -90,7 +90,9 @@ set(JANUS_SOURCES
   src/app_export.cpp
   src/app_fullres.cpp
   src/app_roi.cpp
+  src/app_season.cpp
   src/app_layers.cpp
+  src/app_open.cpp
   src/app_python.cpp
   src/app_selftest.cpp
   src/app_settings.cpp
@@ -110,6 +112,7 @@ set(JANUS_SOURCES
   src/fullres_cache.cpp
   src/geom.cpp
   src/gif.cpp
+  src/multidim.cpp
   src/overview.cpp
   src/platform.cpp
   src/reproject.cpp
