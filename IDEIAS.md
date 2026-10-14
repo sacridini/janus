@@ -364,6 +364,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 22 | 0.33.0 | **Animação**: timelapse de um intervalo de datas em GIF (codificador próprio), MP4 e WebM (ffmpeg externo), com carimbo da data, legenda, barra de escala e basemap | concluída |
 | 23 | 0.34.0 | **Composição RGB de três bandas** por data (várias bandas por arquivo: cor verdadeira, falsa-cor infravermelho...), com o gráfico e o cursor no índice ou banda da série | concluída |
 | 24 | 0.34.0 | Mais do Zeit: **modelo ajustado do BFAST** (e do Lite e do Monitor) no gráfico, **imagem sintética do CCDC** numa data, **Copy Python** (o código da série, das estatísticas e das chamadas do Zeit) | concluída |
+| — | 0.35.0 | **Tema Matrix** (verde fosforescente sobre preto) e **transparência**: o fundo dos painéis translúcido (a área de trabalho aparece por trás; texto e dados opacos) e a opacidade da janela inteira | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -473,6 +474,31 @@ termina.
   (0.25.0); faltam as larguras fixas dos widgets.
 
 ## Histórico
+
+### 0.35.0 — Tema Matrix e transparência
+- Pedidos em 2026-10-14: um tema "matrix" verde e preto, e janelas
+  transparentes, com um nível de transparência, para ver o fundo.
+- **Matrix**: verde fosforescente (#00FF41) sobre preto, controles em verdes
+  escuros com contorno, gráficos pretos com grade verde; a fonte padrão já é
+  monoespaçada. Contraste conferido como o dos outros temas (texto 6,2:1,
+  séries do gráfico 6,3:1, cabeçalhos de tabela 5,6:1).
+- **Duas transparências** (Settings), para os dois sentidos do pedido:
+  - o **fundo dos painéis** (10–100%): a janela é criada com framebuffer com
+    alfa (`GLFW_TRANSPARENT_FRAMEBUFFER`; no Metal, camada não opaca), que o
+    sistema compõe pré-multiplicado; os fundos de painéis, menus, abas e a
+    área vazia do mapa tomam o alfa (campos e botões parte dele, os popups
+    pouco), a cor de limpeza vai pré-multiplicada; texto, linhas, controles
+    e os dados do mapa ficam opacos. Opaco como antes enquanto tudo é
+    desenhado opaco (100%). O contraste é julgado nas cores opacas do tema:
+    o que fica atrás da janela é desconhecido;
+  - a **janela inteira** (20–100%, `glfwSetWindowOpacity`), texto e mapa
+    inclusive, como a transparência do sistema; nos painéis destacados também.
+- Conferido na tela (Windows 11): com os painéis a 40% a área de trabalho e
+  as janelas de trás aparecem pelos painéis e pela área vazia do mapa.
+- Autoteste: o tema no laço de contraste; com os painéis a 40%, alfa do fundo
+  0,40 e do texto 1, contraste igual ao opaco, cor de limpeza pré-multiplicada,
+  área vazia do mapa com alfa 102 e dados 255; a opacidade da janela chega à
+  janela do sistema (0,60).
 
 ### 0.34.0 — Fases 23 e 24: RGB de três bandas, modelos do BFAST, CCDC sintético, Copy Python
 - Pedidas em 2026-10-14, logo depois da 0.33.0 (feitas em sequência: um
