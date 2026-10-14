@@ -24,12 +24,10 @@
 
 ![Janus: map, time series and statistics of an annual NDVI cube](docs/screenshot.jpg)
 
-With Janus you explore satellite imagery pixel by pixel, find where,
-when and by how much the land changed with LandTrendr, CCDC, BFAST, CODED and
-the other tools of
-[Zeit](https://github.com/sacridini/zeit-cdts), and measure how accurate your
-maps are. Zeit comes inside Janus: nothing else to install. Its command line
-is `jn`.
+With Janus you explore satellite imagery pixel by pixel, find where, when and
+by how much the land changed, and measure how accurate your maps are. The
+change detection comes from [Zeit](https://github.com/sacridini/zeit-cdts),
+inside Janus: nothing else to install. Its command line is `jn`.
 
 ## Features
 
