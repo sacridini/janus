@@ -76,7 +76,7 @@ p { margin: 0; }
 .nav-in { max-width: var(--max); margin: 0 auto; padding-inline: var(--gutter); display: flex; align-items: center; gap: 24px; height: 64px; }
 .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
 .brand-mark { height: 36px; width: auto; }
-.brand-name { height: 17px; width: auto; }
+.brand-name { height: 28px; width: auto; }
 .nav nav { margin-left: auto; }
 .nav ul { list-style: none; display: flex; gap: 26px; margin: 0; padding: 0; }
 .nav nav a { color: var(--mute); text-decoration: none; font-size: .75rem; letter-spacing: .12em; text-transform: uppercase; }
@@ -88,6 +88,20 @@ p { margin: 0; }
 .hero h1 { font-size: var(--step-4); font-weight: 300; line-height: .92; letter-spacing: -.01em; text-transform: uppercase; }
 .lede { font-size: var(--step-1); line-height: 1.55; color: #C9CED6; max-width: 38ch; margin-top: 28px; }
 .cta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 34px; }
+/* The brand as the page's title: the eye and the name, large, centred */
+.hero-in { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.hero-brand { display: flex; align-items: center; justify-content: center; gap: clamp(12px, 3vw, 40px); margin: 0 0 clamp(20px, 3vw, 36px); }
+.hero-mark { width: clamp(120px, 20vw, 240px); height: auto; filter: drop-shadow(0 0 28px rgba(66, 150, 250, .28)); }
+.hero-name { width: clamp(230px, 40vw, 478px); height: auto; }
+.hero-in .eyebrow { margin-bottom: 0; }
+.hero-in .lede { margin-inline: auto; max-width: 52ch; }
+.hero-in .cta { justify-content: center; }
+.hero-in .term { margin-inline: auto; width: 100%; text-align: left; }
+@media (max-width: 560px) {
+  .hero-brand { flex-direction: column; gap: 6px; }
+  .hero-mark { width: 150px; }
+  .hero-name { width: min(78vw, 300px); }
+}
 .hero-art { margin: 0; width: 100%; display: flex; justify-content: center; }
 .hero-art img { width: min(100%, 380px); }
 
@@ -306,7 +320,7 @@ html.lb-open { overflow: hidden; }
 .foot-grid { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 28px; align-items: center; }
 .coin { width: 72px; height: 72px; }
 .foot-name { margin-bottom: 8px; }
-.foot-name img { height: 18px; width: auto; }
+.foot-name img { height: 30px; width: auto; }
 .foot p { font-size: .95rem; max-width: 50ch; }
 .foot ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; font-family: var(--f-mono); font-size: .75rem; letter-spacing: .12em; text-transform: uppercase; }
 .foot a { color: var(--pale); text-decoration: none; }

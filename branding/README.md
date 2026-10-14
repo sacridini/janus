@@ -22,7 +22,7 @@ O olho bitemporal de Janus (*"Look back. Look ahead."*): duas ópticas/horizonte
 | `png/` | PNG transparente, 512 / 1024 / 2048 px de largura | Documentos, slides, README |
 | `icones/` | `janus.ico`, `janus.icns`, PNG 64–1024 | Ícone do programa no Windows, macOS e avatar (`icone-quadrado-*`) |
 | `favicon/` | SVG, PNG 16–48 px, `favicon.ico` | Site e abas do navegador |
-| `tools/generate_brand_eye.py` | Python (PyMuPDF, Pillow) | Regenera todo o sistema de assets de forma determinística |
+| `tools/generate_brand_eye.py` | Python (Pillow; PNGs drawn by headless Chrome or Edge, PyMuPDF as a fallback without gradients) | Regenera todo o sistema de assets de forma determinística |
 
 Variações em `svg/` e `png/`: `janus-simbolo`, `janus-horizontal`, `janus-vertical` e `janus-nome`, cada uma em azul (sem sufixo), `-claro` e `-escuro`. `janus-icone` é o ícone com cantos arredondados para docks e atalhos; `janus-icone-quadrado` é sem cantos, para lugares que arredondam sozinhos (iOS, avatar do GitHub).
 

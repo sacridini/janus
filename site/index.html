@@ -6,12 +6,12 @@
 <title>Janus · Raster time series viewer</title>
 <meta name="description" content="Janus is a fast desktop viewer for raster time series and data cubes. It keeps the whole cube on the GPU and reads the exact series of any pixel while you hover. Windows, macOS and Linux.">
 <meta name="theme-color" content="#0F0F0F">
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="icon" href="favicon.ico" sizes="any">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="favicon.svg?v=3" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=3" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=3">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Janus · Raster time series viewer">
-<meta property="og:description" content="Look back, look ahead. A fast desktop viewer for raster time series and data cubes, with change detection built in.">
+<meta property="og:description" content="A fast desktop viewer for raster time series and data cubes, with change detection built in.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -25,7 +25,7 @@
 
 <header class="nav" id="top">
   <div class="nav-in">
-    <a class="brand" href="#top" aria-label="Janus, back to top"><img class="brand-mark" src="assets/img/janus-simbolo.svg" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></a>
+    <a class="brand" href="#top" aria-label="Janus, back to top"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=3" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=3" alt="Janus" width="56" height="28"></a>
     <nav aria-label="Main">
       <ul>
         <li><a href="#features">Features</a></li>
@@ -44,10 +44,12 @@
 
 <!-- ============ HERO ============ -->
 <section class="hero">
-  <div class="wrap hero-grid">
-    <div class="hero-text">
-      <p class="eyebrow">Raster time series viewer · <span data-version>Windows · macOS · Linux</span></p>
-      <h1>Look back.<br>Look ahead.</h1>
+  <div class="wrap hero-in">
+    <h1 class="hero-brand">
+      <img class="hero-mark" src="assets/img/janus-simbolo.svg?v=3" alt="" width="240" height="240">
+      <img class="hero-name" src="assets/img/janus-nome.svg?v=3" alt="Janus" width="478" height="240">
+    </h1>
+    <p class="eyebrow">Raster time series viewer · <span data-version>Windows · macOS · Linux</span></p>
       <p class="lede">Janus opens a folder of rasters as a data cube, keeps the whole cube on the GPU and shows the series of any pixel as you move the mouse. It is built to explore time series quickly, not to be a full GIS.</p>
       <div class="cta">
         <a class="btn btn-primary" data-dl="auto" href="https://github.com/sacridini/janus/releases/latest">Download</a>
@@ -67,10 +69,6 @@
         </div>
         <p class="term-note">After installing, <code>jn</code> opens the window and gives the prompt back right away.</p>
       </div>
-    </div>
-    <figure class="hero-art">
-      <img src="assets/img/janus-simbolo.svg" alt="The bitemporal eye of Janus: looking back to the past and ahead to the future, with the central temporal sensor." width="400" height="400">
-    </figure>
   </div>
 </section>
 
@@ -373,9 +371,9 @@ jn "S2_*_NDVI.tif" --band 1
 
 <footer class="foot">
   <div class="wrap foot-grid">
-    <img class="coin" src="assets/img/janus-icone.svg" alt="" width="96" height="96">
+    <img class="coin" src="assets/img/janus-icone.svg?v=3" alt="" width="96" height="96">
     <div>
-      <p class="foot-name"><img src="assets/img/janus-nome.svg" alt="Janus" width="72" height="22"></p>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=3" alt="Janus" width="60" height="30"></p>
       <p>Built in C++17 with Dear ImGui, ImPlot and GDAL. OpenGL on Windows and Linux, Metal on macOS.</p>
     </div>
     <ul>

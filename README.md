@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="branding/png/janus-horizontal-1024.png" alt="Janus" width="420">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="branding/png/janus-horizontal-1024.png">
+    <img src="branding/png/janus-horizontal-escuro-1024.png" alt="Janus" width="420">
+  </picture>
 </p>
 
 <p align="center">

@@ -19,7 +19,7 @@
     <!-- Gradiente da asa do passado (olhar para trás) -->
     <linearGradient id="grad-passado" x1="100%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#4296FA"/>
-      <stop offset="100%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#2F6FE0"/>
     </linearGradient>
 
     <!-- Gradiente da asa do futuro (olhar para frente) -->
@@ -48,12 +48,12 @@
       <!-- Asa Esquerda (Passado / Look Back) -->
       <path id="asa-esquerda" 
             d="M 100, 48 C 65, 48 35, 75 22, 100 C 35, 125 65, 152 100, 152"
-            fill="none" stroke="url(#grad-passado)" stroke-width="4.5" stroke-linecap="round"/>
+            fill="none" stroke="url(#grad-passado)" stroke-width="7" stroke-linecap="round"/>
 
       <!-- Asa Direita (Futuro / Look Ahead) -->
       <path id="asa-direita" 
             d="M 100, 48 C 135, 48 165, 75 178, 100 C 165, 125 135, 152 100, 152"
-            fill="none" stroke="url(#grad-futuro)" stroke-width="4.5" stroke-linecap="round"/>
+            fill="none" stroke="url(#grad-futuro)" stroke-width="7" stroke-linecap="round"/>
     </g>
 
     <!-- ================= CAMADA: ÍRIS E ESTRATOS ================= -->
@@ -61,25 +61,25 @@
       <!-- Íris Esquerda (Passado) -->
       <g id="iris-passado">
         <path d="M 100, 64 A 36,36 0 0,0 100, 136 Z" fill="url(#grad-passado)"/>
-        <path d="M 100, 76 A 24,24 0 0,0 100, 124 Z" fill="#0F1A2E"/>
+        <path d="M 100, 76 A 24,24 0 0,0 100, 124 Z" fill="#1D3B6B"/>
       </g>
 
       <!-- Íris Direita (Futuro) -->
       <g id="iris-futuro">
         <path d="M 100, 64 A 36,36 0 0,1 100, 136 Z" fill="url(#grad-futuro)"/>
-        <path d="M 100, 76 A 24,24 0 0,1 100, 124 Z" fill="#0A1120"/>
+        <path d="M 100, 76 A 24,24 0 0,1 100, 124 Z" fill="#144A63"/>
       </g>
     </g>
 
     <!-- ================= CAMADA: SETAS E EIXOS ================= -->
     <g id="meridianos">
       <!-- Marcadores verticais do meridiano do tempo -->
-      <line id="eixo-topo" x1="100" y1="34" x2="100" y2="48" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
-      <line id="eixo-base" x1="100" y1="152" x2="100" y2="166" stroke="#F29A38" stroke-width="3" stroke-linecap="round"/>
+      <line id="eixo-topo" x1="100" y1="32" x2="100" y2="46" stroke="#F29A38" stroke-width="5" stroke-linecap="round"/>
+      <line id="eixo-base" x1="100" y1="154" x2="100" y2="168" stroke="#F29A38" stroke-width="5" stroke-linecap="round"/>
 
       <!-- Setas direcionais no horizonte -->
-      <path id="seta-passado" d="M 20, 100 L 30, 93 L 30, 107 Z" fill="#4296FA"/>
-      <path id="seta-futuro"  d="M 180, 100 L 170, 93 L 170, 107 Z" fill="#00F2FE"/>
+      <path id="seta-passado" d="M 16, 100 L 31, 90 L 31, 110 Z" fill="#4296FA"/>
+      <path id="seta-futuro"  d="M 184, 100 L 169, 90 L 169, 110 Z" fill="#00F2FE"/>
     </g>
 
     <!-- ================= CAMADA: SENSOR CENTRAL ("NOW") ================= -->
