@@ -15,6 +15,7 @@
 
 #include "job_pool.hpp"
 #include "overview.hpp"
+#include "profiler.hpp"
 
 #ifdef _WIN32
 #include <share.h>
@@ -228,6 +229,7 @@ private:
     static constexpr size_t kChunk = 4u << 20;
     static constexpr uint64_t kLead = 128ull << 20;
     void run(const std::string& path) {
+        PROFILE_THREAD("fullres prefetch");
         FILE* f = openFile(path, "rb", false);
         std::vector<char> buf(kChunk);
         uint64_t pos = begin_;
@@ -518,6 +520,8 @@ int FullResCache::buildWithOverview(int t, float* ov, int ow, int oh) {
 // GDAL's own multi-threaded decoding (one job per 1-row strip) was measured
 // at 0.6-1.0 s per date against 0.25 s this way.
 bool FullResCache::buildDate(int t, float* ov, int ow, int oh) {
+    PROFILE_ZONE_N("fullres date");
+    PROFILE_VALUE(uint64_t(t));
     std::unique_ptr<Prefetcher> prefetch;
     uint64_t begin = 0, end = 0;
     if (decodeThreads_ > 1 && dateByteRange(*info_, t, begin, end))
@@ -530,6 +534,7 @@ bool FullResCache::buildDate(int t, float* ov, int ow, int oh) {
     std::atomic<int> next{0}, bandsDone{0};
     std::atomic<bool> readFailed{false}, writeFailed{false};
     auto work = [&] {
+        PROFILE_ZONE_N("fullres decode");
         CubeReader reader(info_);
         std::vector<float> band;
         for (;;) {
@@ -537,7 +542,10 @@ bool FullResCache::buildDate(int t, float* ov, int ow, int oh) {
             if (by >= nby_ || readFailed || (stop_ && !ov)) break;
             const int y0 = by * kBlock, bh = blockH(by);
             band.resize(size_t(W_) * bh);
-            if (prefetch) prefetch->waitFor(double(by + 1) / nby_);
+            if (prefetch) {
+                PROFILE_ZONE_N("wait for prefetch");
+                prefetch->waitFor(double(by + 1) / nby_);
+            }
             if (!reader.readWindow(t, 0, y0, W_, bh, band.data(), W_, bh)) {
                 readFailed = true;
                 break;
@@ -582,6 +590,7 @@ bool FullResCache::buildDate(int t, float* ov, int ow, int oh) {
 
 // Compresses the blocks of band `by` (W x blockH floats) and appends them.
 bool FullResCache::storeBand(int t, int by, const float* band) {
+    PROFILE_ZONE_N("fullres compress band");
     const int bh = blockH(by);
     const CPLCompressor* comp = CPLGetCompressor(codec_);
     const char* const opts[] = {"LEVEL=1", nullptr};
@@ -645,6 +654,7 @@ void FullResCache::giveReader(FILE* f) {
 }
 
 bool FullResCache::loadBlock(int t, int b, float* out) {
+    PROFILE_ZONE_N("fullres block");
     const size_t i = size_t(t) * nb_ + b;
     const uint64_t offset = off_[i];
     const uint32_t size = size_[i];
@@ -672,6 +682,7 @@ bool FullResCache::loadBlock(int t, int b, float* out) {
 }
 
 int FullResCache::readSeries(int x, int y, float* out, char* got) {
+    PROFILE_ZONE_N("fullres series");
     if (!started_ || nDone_.load() == 0 || x < 0 || y < 0 || x >= W_ || y >= H_) return 0;
     const double t0 = nowSeconds();
     const int bx = x / kBlock, by = y / kBlock;
@@ -692,6 +703,7 @@ int FullResCache::readSeries(int x, int y, float* out, char* got) {
 }
 
 bool FullResCache::readWindow(int t, int x, int y, int w, int h, float* buf, int bw, int bh) {
+    PROFILE_ZONE_N("fullres window");
     if (!hasDate(t) || w <= 0 || h <= 0 || bw <= 0 || bh <= 0) return false;
     const double t0 = nowSeconds();
     std::vector<int> xs, ys;

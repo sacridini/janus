@@ -25,6 +25,7 @@
 
 #include "glfw.hpp"
 #include "platform.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -154,6 +155,7 @@ void App::placeVector(VectorLayer& V) {
 }
 
 void App::pumpVectors() {
+    PROFILE_ZONE();
     for (size_t k = 0; k < vectorLoads_.size();) {
         if (vectorLoads_[k].wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
             ++k;
@@ -360,6 +362,7 @@ void App::centerOnFeature(const VectorLayer& V, int feature, double minScale) {
 }
 
 void App::uiVectorTooltip() {
+    PROFILE_ZONE();
     if (hoverVector_ < 0 || hoverVector_ >= int(vectors_.size())) return;
     const VectorLayer& V = vectors_[hoverVector_];
     if (hoverFeature_ < 0 || hoverFeature_ >= int(V.data->features.size())) return;
@@ -392,6 +395,7 @@ void App::uiVectorTooltip() {
 // ---------------------------------------------------------------------------
 
 void App::uiVectors() {
+    PROFILE_ZONE();
     if (vectors_.empty() && vectorLoads_.empty()) return;
     ImGui::SeparatorText("Vector layers");
     if (!vectorLoads_.empty()) ImGui::TextDisabled("reading %d file(s)...", int(vectorLoads_.size()));
@@ -493,6 +497,7 @@ void App::openExtract(int vectorId) {
 }
 
 void App::uiExtract() {
+    PROFILE_ZONE();
     if (extract_.open) {
         ImGui::OpenPopup("Extract series###extract");
         extract_.open = false;

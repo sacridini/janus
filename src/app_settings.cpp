@@ -21,6 +21,7 @@
 #include <implot.h>
 
 #include "glfw.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -158,6 +159,7 @@ void App::clearOverviewCache() {
 }
 
 void App::uiSettings() {
+    PROFILE_ZONE();
     if (!showSettings_) return;
     if (focusSettings_) ImGui::SetNextWindowFocus();
     focusSettings_ = false;

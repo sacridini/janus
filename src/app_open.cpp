@@ -16,6 +16,7 @@
 #include <imgui_internal.h>
 
 #include "glfw.hpp"
+#include "profiler.hpp"
 
 void App::openUrlDialog(bool add) {
     urlAdd_ = add && s_ != nullptr;
@@ -23,6 +24,7 @@ void App::openUrlDialog(bool add) {
 }
 
 void App::uiOpenUrl() {
+    PROFILE_ZONE();
     if (openUrlPopup_) {
         ImGui::OpenPopup("Open URL");
         openUrlPopup_ = false;
@@ -77,6 +79,7 @@ void App::uiOpenUrl() {
 }
 
 void App::uiVariablePicker() {
+    PROFILE_ZONE();
     if (variablePopup_) {
         ImGui::OpenPopup("Choose a variable");
         variablePopup_ = false;
@@ -124,6 +127,7 @@ void App::reopenLayerInputs(int i, const std::vector<std::string>& inputs, const
 }
 
 void App::uiMultidim() {
+    PROFILE_ZONE();
     const CubeInfo& info = *s_->info;
     // The container's variables, listed in the background (a remote file needs requests).
     const std::string container = containerOf(info.firstPath);

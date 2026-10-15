@@ -19,6 +19,7 @@
 #include <implot.h>
 
 #include "glfw.hpp"
+#include "profiler.hpp"
 
 namespace {
 
@@ -49,6 +50,7 @@ std::string percent(double share) {
 } // namespace
 
 void App::uiAnalysis() {
+    PROFILE_ZONE();
     if (!showAnalysis_) return;
     // The first time: a tab next to the series chart.
     if (const ImGuiWindow* ts = ImGui::FindWindowByName("Time series"); ts && ts->DockId)
@@ -88,6 +90,7 @@ void App::uiAnalysis() {
 // ---------------------------------------------------------------------------
 
 void App::uiSeasonal() {
+    PROFILE_ZONE();
     const CubeInfo& info = *s_->info;
     if (!info.timeIsDate) {
         ImGui::TextDisabled("The dates of this series are not known (it is ordered by index).");
@@ -347,6 +350,7 @@ void App::countTransitions(const SeriesLayer& L, int from, int to, Transitions& 
 }
 
 void App::uiClassTimeline() {
+    PROFILE_ZONE();
     const SeriesLayer* L = activeLayer();
     const LayerClasses* C = activeClasses();
     if (!L || !C || C->list.empty()) {
@@ -616,6 +620,7 @@ void App::computeScatter(ScatterData& sc, const SeriesLayer& X, int tx, const Se
 }
 
 void App::uiScatter() {
+    PROFILE_ZONE();
     // Layers on the active layer's grid by an affine map (other CRSs: not here).
     std::vector<const SeriesLayer*> usable;
     for (const SeriesLayer& L : layers_)

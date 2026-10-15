@@ -18,6 +18,7 @@
 
 #include "glfw.hpp"
 #include "platform.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -155,6 +156,7 @@ ViewRect App::layerView(const SeriesLayer& L, double x0, double y0, double x1, d
 }
 
 void App::updateAlignment() {
+    PROFILE_ZONE();
     const SeriesLayer* A = activeLayer();
     if (!A) return;
     const CubeInfo& a = *A->session->info;
@@ -444,6 +446,7 @@ std::vector<float> App::approxSeriesOf(const Session& s, int x, int y) const {
 }
 
 void App::updateOtherHover(int ix, int iy) {
+    PROFILE_ZONE();
     if (chartLayers_ == 0) return;
     for (SeriesLayer& L : layers_) {
         if (&L == activeLayer()) continue;
@@ -475,6 +478,7 @@ void App::requestOtherSeries(bool hover) {
 }
 
 void App::pumpOtherSeries() {
+    PROFILE_ZONE();
     for (SeriesLayer& L : layers_) {
         if (&L == activeLayer()) continue;
         if (L.years.empty()) {
@@ -559,6 +563,7 @@ void App::clearOtherRois() {
 // polygon through 16 points per edge for a reprojected layer), read like the
 // active layer's ROI (full-resolution cache when there is one).
 void App::updateOtherRois() {
+    PROFILE_ZONE();
     for (SeriesLayer& L : layers_) {
         if (&L == activeLayer()) continue;
         const Session& S = *L.session;
@@ -618,6 +623,7 @@ void App::updateOtherRois() {
 // ---------------------------------------------------------------------------
 
 void App::uiLayers() {
+    PROFILE_ZONE();
     if (!ImGui::Begin("Layers")) {
         ImGui::End();
         return;
@@ -718,6 +724,7 @@ void App::uiLayers() {
 }
 
 void App::uiFiles() {
+    PROFILE_ZONE();
     if (!ImGui::Begin("Files")) {
         ImGui::End();
         return;

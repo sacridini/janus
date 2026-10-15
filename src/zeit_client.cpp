@@ -7,6 +7,7 @@
 #include <fstream>
 
 #include "platform.hpp"
+#include "profiler.hpp"
 #include "gl.hpp" // glfwPostEmptyEvent: wake the UI loop when a message arrives
 
 #ifdef _WIN32
@@ -157,8 +158,14 @@ ZeitProcess::~ZeitProcess() {
         CloseHandle(stdinWrite_); // EOF on stdin: the serve loop exits by itself
         stdinWrite_ = nullptr;
     }
-    if (process_ && WaitForSingleObject(process_, 2000) != WAIT_OBJECT_0) TerminateProcess(process_, 1);
-    if (reader_.joinable()) reader_.join();
+    {
+        PROFILE_ZONE_N("wait for the bridge");
+        if (process_ && WaitForSingleObject(process_, 2000) != WAIT_OBJECT_0) TerminateProcess(process_, 1);
+    }
+    {
+        PROFILE_ZONE_N("join the bridge reader");
+        if (reader_.joinable()) reader_.join();
+    }
     if (stdoutRead_) CloseHandle(stdoutRead_);
     if (process_) CloseHandle(process_);
 #else

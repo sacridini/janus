@@ -5,6 +5,7 @@
 // attribute table) or, failing that, when the first date read has only a few
 // distinct whole values. The Display panel can override the detection.
 #include "app.hpp"
+#include "profiler.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -114,6 +115,7 @@ bool App::countLayerClasses(const SeriesLayer& L, int maxClasses, std::map<int, 
 // Per frame, for every layer: decides whether it is categorical, completes the
 // class list once every date is read, and refreshes the GPU lookup table.
 void App::updateClasses(SeriesLayer& L) {
+    PROFILE_ZONE();
     LayerClasses& C = L.classes;
     const Session& S = *L.session;
     const CubeInfo& info = *S.info;
@@ -173,6 +175,7 @@ std::string App::className(const LayerClasses& C, float v) {
 
 // Display panel: categorical switch and the legend (colours and names editable).
 void App::uiClasses() {
+    PROFILE_ZONE();
     SeriesLayer* L = activeLayer() ? &layers_[active_] : nullptr;
     if (!L) return;
     LayerClasses& C = L->classes;

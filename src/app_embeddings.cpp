@@ -22,6 +22,7 @@
 #include "embedding.hpp"
 #include "glfw.hpp"
 #include "job_pool.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -358,6 +359,7 @@ bool App::embeddingExportSpec(bool wholeLayer, EmbeddingExport& e, std::string& 
 // ---------------------------------------------------------------------------
 
 void App::updateEmbeddingRef(SeriesLayer& L, int t) {
+    PROFILE_ZONE();
     EmbeddingLayer& E = *L.emb;
     const EmbeddingStore& S = *E.store;
     const int year = E.refFixedYear ? std::clamp(E.refYear, 0, S.T - 1) : t;
@@ -431,6 +433,7 @@ uint64_t App::embeddingKey(const SeriesLayer& L, int t) const {
 }
 
 void App::pumpEmbeddings() {
+    PROFILE_ZONE();
     pumpEmbeddingDownloads();
     for (SeriesLayer& L : layers_) {
         if (!L.emb) continue;
@@ -820,6 +823,7 @@ void App::startEmbeddingDownload() {
 }
 
 void App::pumpEmbeddingDownloads() {
+    PROFILE_ZONE();
     for (EmbDownload& d : embDownloads_) {
         const ZeitJob::State st = d.job->state;
         if (st != ZeitJob::State::Running && d.endedAt < 0) d.endedAt = ImGui::GetTime();
@@ -840,6 +844,7 @@ void App::pumpEmbeddingDownloads() {
 }
 
 void App::uiEmbeddingDownload(bool inLayers) {
+    PROFILE_ZONE();
     ImGui::PushID(inLayers ? "embdl-layers" : "embdl-panel");
     const bool open = inLayers ? ImGui::CollapsingHeader("Embeddings") : true;
     if (inLayers) ImGui::SetItemTooltip("Foundation-model embeddings (AlphaEarth, TESSERA) of the visible area,\n"
@@ -918,6 +923,7 @@ void App::uiEmbeddingDownload(bool inLayers) {
 // ---------------------------------------------------------------------------
 
 void App::uiEmbeddings() {
+    PROFILE_ZONE();
     if (!showEmbeddings_) return;
     if (const ImGuiWindow* d = ImGui::FindWindowByName("Display"); d && d->DockId)
         ImGui::SetNextWindowDockID(d->DockId, ImGuiCond_FirstUseEver); // a tab next to Display

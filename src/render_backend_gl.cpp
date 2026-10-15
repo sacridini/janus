@@ -2,6 +2,7 @@
 #include "render_backend.hpp"
 
 #include "gl.hpp"
+#include "profiler_gl.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -39,6 +40,7 @@ GLFWwindow* createWindow(int w, int h, const char* title, bool visible, std::str
         glfwDestroyWindow(window);
         return nullptr;
     }
+    PROFILE_GPU_CONTEXT();
     return window;
 }
 
@@ -73,12 +75,17 @@ void newFrame() {
 }
 
 void present(GLFWwindow* window, const float clear[4], const Capture& capture) {
+    PROFILE_ZONE();
     int fbw, fbh;
     glfwGetFramebufferSize(window, &fbw, &fbh);
     glViewport(0, 0, fbw, fbh);
     glClearColor(clear[0], clear[1], clear[2], clear[3]);
     glClear(GL_COLOR_BUFFER_BIT);
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    {
+        PROFILE_ZONE_N("ImGui draw");
+        PROFILE_GPU_ZONE("ImGui draw");
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    }
     if (capture && fbw > 0 && fbh > 0) {
         std::vector<unsigned char> px(size_t(fbw) * fbh * 4), row(size_t(fbw) * 4);
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
@@ -96,12 +103,17 @@ void present(GLFWwindow* window, const float clear[4], const Capture& capture) {
     // Panels detached to other windows/monitors (they share this GL context's
     // textures, so the map framebuffer can be shown there too).
     if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+        PROFILE_ZONE_N("other windows");
         GLFWwindow* current = glfwGetCurrentContext();
         ImGui::UpdatePlatformWindows();
         ImGui::RenderPlatformWindowsDefault();
         glfwMakeContextCurrent(current);
     }
-    glfwSwapBuffers(window);
+    {
+        PROFILE_ZONE_N("swap");
+        glfwSwapBuffers(window);
+    }
+    PROFILE_GPU_COLLECT();
 }
 
 void shutdownImGui() {

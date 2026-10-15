@@ -228,7 +228,7 @@ Basemap::Basemap(const BasemapSource& src, const std::string& cacheDir, std::fun
     sh_->maxZoom = src_.maxZoom;
     sh_->tileSize = src_.tileSize;
     sh_->wake = std::move(wake);
-    pool_ = std::make_unique<JobPool>(std::max(1, src_.connections));
+    pool_ = std::make_unique<JobPool>(std::max(1, src_.connections), std::function<void()>(), "basemap");
 }
 
 Basemap::~Basemap() {

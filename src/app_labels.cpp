@@ -22,6 +22,7 @@
 #include <imgui_internal.h>
 
 #include "platform.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -170,6 +171,7 @@ void App::interpShortcuts() {
 }
 
 void App::pumpInterpretation() {
+    PROFILE_ZONE();
     if (lab_.vector && !vectorById(lab_.vector)) stopInterpretation();
     if (lab_.dirty && ImGui::GetTime() - lab_.changedAt > 1.0) saveLabels(); // a second after the last change
 }
@@ -273,6 +275,7 @@ std::shared_ptr<ExportJob> App::exportLabels(const std::string& path) {
 // ---------------------------------------------------------------------------
 
 void App::uiInterpretation() {
+    PROFILE_ZONE();
     if (!showInterp_) return;
     // The first time: a tab next to Statistics, beside the chart.
     if (const ImGuiWindow* st = ImGui::FindWindowByName("Statistics"); st && st->DockId)

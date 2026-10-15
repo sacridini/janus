@@ -10,6 +10,7 @@
 // the map's.
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "app.hpp"
+#include "profiler.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -237,6 +238,7 @@ void App::startTransectExact() {
 int App::transectRowsRead() const { return tr_.job ? tr_.job->done.load() : 0; }
 
 bool App::updateTransectRows() {
+    PROFILE_ZONE();
     Transect& tr = tr_;
     const Overview& ov = s_->overview;
     const CubeInfo& info = *s_->info;
@@ -304,6 +306,7 @@ void App::transectColors(int& cmap, float& lo, float& hi) const {
 }
 
 void App::pumpTransect() {
+    PROFILE_ZONE();
     if (!tr_.on) return;
     if (!s_) {
         clearTransect();
@@ -448,6 +451,7 @@ void App::drawTransectMarks(ImDrawList* dl, ImVec2 origin) {
 }
 
 void App::renderTransect(int w, int h) {
+    PROFILE_ZONE();
     const float bg[4] = {0.10f, 0.10f, 0.115f, 1.0f}; // no data
     gpu_.beginMap(w, h, bg, kTransectSlot);
     DrawParams p;
@@ -460,6 +464,7 @@ void App::renderTransect(int w, int h) {
 }
 
 void App::uiTransect() {
+    PROFILE_ZONE();
     if (!tr_.on || !s_) return;
     if (!tr_.docked) {
         // Layouts saved before this panel existed: a tab next to the chart.

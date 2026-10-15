@@ -126,6 +126,38 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # The Tracy build (-DJANUS_TRACY=ON, docs/building.md) kept compiling, and
+  # --profile-tour run with the client in (no profiler connected).
+  tracy:
+    name: tracy (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: janus
+          create-args: >-
+            -c conda-forge cmake ninja cxx-compiler c-compiler pkg-config gdal numpy
+            xorg-libx11 xorg-libxrandr xorg-libxinerama xorg-libxcursor xorg-libxi xorg-libxext libgl-devel
+          init-shell: bash
+          cache-environment: true
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DGLFW_BUILD_WAYLAND=OFF -DJANUS_TRACY=ON
+
+      - name: Build
+        run: cmake --build build --target janus --parallel 4
+
+      - name: Profile tour
+        run: |
+          python tools/make_selftest_data.py "$RUNNER_TEMP/td"
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglx-mesa0
+          LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1920x1080x24" build/janus --profile-tour "$RUNNER_TEMP/td/serie"
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build

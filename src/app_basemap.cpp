@@ -18,6 +18,7 @@
 #include <imgui_internal.h>
 
 #include "glfw.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -131,6 +132,7 @@ void App::retireBasemap() {
 // Once per frame. Nothing is made before the third frame (the window shows
 // first, even when the setting asks for a basemap), nor without a series.
 void App::pumpBasemap() {
+    PROFILE_ZONE();
     if (bm_.source == "none") {
         retireBasemap();
         basemapWhy_.clear();
@@ -202,6 +204,7 @@ void App::drawBasemapNote(ImDrawList* dl, ImVec2 origin, ImVec2 size) {
 
 // Layers panel, below the layers (it is drawn under all of them).
 void App::uiBasemap() {
+    PROFILE_ZONE();
     ImGui::PushID("basemap");
     ImGui::SeparatorText("Basemap");
     const auto& presets = basemapPresets();
@@ -303,6 +306,7 @@ void App::uiBasemap() {
 }
 
 void App::uiBasemapPerf() {
+    PROFILE_ZONE();
     if (!basemap_) return;
     const Basemap& b = *basemap_;
     ImGui::SeparatorText("Basemap");

@@ -16,6 +16,7 @@
 
 #include "basemap.hpp"
 #include "multidim.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -1170,21 +1171,28 @@ std::shared_ptr<CubeInfo> openCube(const std::vector<std::string>& inputs, const
 CubeReader::CubeReader(std::shared_ptr<const CubeInfo> info) : info_(std::move(info)) {}
 
 CubeReader::~CubeReader() {
+    PROFILE_ZONE();
     for (auto& [_, ds] : ds_)
-        if (ds) GDALClose(ds);
+        if (ds) {
+            PROFILE_ZONE_N("GDALClose");
+            GDALClose(ds);
+        }
 }
 
 GDALRasterBand* CubeReader::band(int layer, int b) {
     const Layer& L = info_->layers[layer];
     auto it = ds_.find(L.path);
-    if (it == ds_.end())
+    if (it == ds_.end()) {
+        PROFILE_ZONE_N("open dataset");
         it = ds_.emplace(L.path, openRaster(L.path)).first;
+    }
     if (!it->second) return nullptr;
     b = b <= 0 ? L.band : b + L.bandBase; // b: a band of the date (1..bandsPerDate)
     return b <= it->second->GetRasterCount() ? it->second->GetRasterBand(b) : nullptr;
 }
 
 static void postProcess(const BandMeta& m, float* v, size_t n) {
+    PROFILE_ZONE();
     const float nd = float(m.noData);
     const bool scaled = m.scale != 1.0 || m.offset != 0.0;
     const float s = float(m.scale), o = float(m.offset);
@@ -1198,6 +1206,12 @@ static void postProcess(const BandMeta& m, float* v, size_t n) {
 bool CubeReader::readRaw(int layer, int b, int x, int y, int w, int h, float* buf, int bw, int bh) {
     GDALRasterBand* rb = band(layer, b);
     if (!rb) return false;
+    PROFILE_ZONE_N("GDAL RasterIO");
+#ifdef TRACY_ENABLE
+    char what[96];
+    const int n = std::snprintf(what, sizeof(what), "date %d: %dx%d at (%d, %d) -> %dx%d", layer, w, h, x, y, bw, bh);
+    PROFILE_TEXT(what, size_t(n));
+#endif
     GDALRasterIOExtraArg extra;
     INIT_RASTERIO_EXTRA_ARG(extra);
     extra.eResampleAlg = GRIORA_NearestNeighbour;

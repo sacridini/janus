@@ -18,6 +18,7 @@
 
 #include "glfw.hpp"
 #include "platform.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -280,6 +281,7 @@ const BandRoles& App::activeBandRoles() {
 // ---------------------------------------------------------------------------
 
 void App::pumpZeit() {
+    PROFILE_ZONE();
     if (!zeit_) return;
     // Another processing threads setting: the serve process (pixel fits,
     // estimates) is replaced by one started with it, once that one is ready
@@ -546,6 +548,7 @@ void App::toolWindow(const ToolUi& ui, int win[4], const char** scopeName) const
 // Asks the bridge to time the tool on a sample of the series (once the
 // parameters have been still for a moment).
 void App::updateEstimate(const ZeitTool& tool, ToolUi& ui) {
+    PROFILE_ZONE();
     if (!s_ || !zeit_ || zeit_->state() != ZeitClient::State::Ready || ui.estReq != 0) return;
     const json key = {{"cube", s_->info->id}, {"params", ui.params}, {"roles", activeBandRoles()}};
     const auto now = std::chrono::steady_clock::now();
@@ -653,6 +656,7 @@ void App::runTool(const ZeitTool& tool) {
 // ---------------------------------------------------------------------------
 
 void App::uiToolsMenu() {
+    PROFILE_ZONE();
     const bool open = ImGui::BeginMenu("Tools");
     shots_.menus["Tools"] = ImVec4(ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y, ImGui::GetItemRectMax().x,
                                    ImGui::GetItemRectMax().y);
@@ -698,6 +702,7 @@ void App::uiToolsMenu() {
 // from the pins or the ROI mean of the active layer, each with a class name.
 // Value: [{"name", "years", "days", "values"}, ...] (days: since 1970, or null).
 bool App::uiPatterns(const ZeitParam& p, json& v) {
+    PROFILE_ZONE();
     if (!v.is_array()) v = json::array();
     bool changed = false;
     ImGui::TextUnformatted(p.label.c_str());
@@ -758,6 +763,7 @@ bool App::uiPatterns(const ZeitParam& p, json& v) {
 // of any series, of the parameter's unit, in the order they were checked (the
 // first one is the grid). Value: [{"name", "path"}, ...].
 bool App::uiLayersParam(const ZeitParam& p, json& v) {
+    PROFILE_ZONE();
     if (!v.is_array()) v = json::array();
     bool changed = false;
     auto present = [&](const std::string& path) {
@@ -835,6 +841,7 @@ void App::drawClassSeries(const SeriesStats& st) {
 }
 
 void App::uiToolWindow(const ZeitTool& tool) {
+    PROFILE_ZONE();
     ToolUi& ui = toolUi_[tool.id];
     if (!ui.open) return;
     if (!ui.params.is_object()) {
@@ -1017,6 +1024,7 @@ void App::uiToolWindow(const ZeitTool& tool) {
 }
 
 void App::uiTasks() {
+    PROFILE_ZONE();
     if (!showTasks_) return;
     ImGui::SetNextWindowSize(ImVec2(560, 300), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Tasks", &showTasks_)) {
@@ -1084,6 +1092,7 @@ void App::showZeitLog(const std::string& path) {
 }
 
 void App::uiZeitLog() {
+    PROFILE_ZONE();
     if (!showZeitLog_) return;
     ImGui::SetNextWindowSize(ImVec2(720, 400), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Log", &showZeitLog_)) {
@@ -1184,6 +1193,7 @@ void App::uiZeitLog() {
 
 // Tool results of one series, listed under it in the Layers panel.
 void App::uiResultsOf(uint64_t cubeId) {
+    PROFILE_ZONE();
     int remove = -1;
     for (size_t i = 0; i < results_.size(); ++i) {
         ResultLayer& r = results_[i];

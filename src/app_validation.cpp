@@ -29,6 +29,7 @@
 
 #include "glfw.hpp"
 #include "platform.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -606,6 +607,7 @@ void App::startAdjudication() {
 // ---------------------------------------------------------------------------
 
 void App::pumpValidation() {
+    PROFILE_ZONE();
     if (!val_) return;
     Validation& v = *val_;
     auto ready = [](auto& f) { return f.valid() && f.wait_for(std::chrono::seconds(0)) == std::future_status::ready; };
@@ -851,6 +853,7 @@ void App::drawValidationMarks(ImDrawList* dl, ImVec2 origin) {
 // ---------------------------------------------------------------------------
 
 void App::uiValidationMenu() {
+    PROFILE_ZONE();
     const bool open = ImGui::BeginMenu("Validation");
     shots_.menus["Validation"] = ImVec4(ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y, ImGui::GetItemRectMax().x,
                                         ImGui::GetItemRectMax().y);
@@ -898,6 +901,7 @@ void App::uiValidationMenu() {
 // ---------------------------------------------------------------------------
 
 void App::uiValidation() {
+    PROFILE_ZONE();
     if (!showValidation_) return;
     if (!val_) val_ = std::make_shared<Validation>();
     Validation& v = *val_;
@@ -1130,6 +1134,7 @@ int App::validationMerge(const std::string& path, std::string& msg) {
 
 
 void App::uiValidationDesign() {
+    PROFILE_ZONE();
     Validation& v = *val_;
     const bool busy = v.strataJob.valid() || v.drawJob.valid();
 
@@ -1518,6 +1523,7 @@ bool App::Validation::pickSource(const std::vector<Source>& src, val::MapRule& o
 // ---------------------------------------------------------------------------
 
 void App::uiValidationAccuracy() {
+    PROFILE_ZONE();
     Validation& v = *val_;
     if (!v.project) {
         ImGui::TextWrapped("Open a validation project (Validation > Open project...) or draw a sample (Design).");
@@ -1861,6 +1867,7 @@ void App::uiValidationAccuracy() {
 // ---------------------------------------------------------------------------
 
 void App::uiValidationMaps() {
+    PROFILE_ZONE();
     Validation& v = *val_;
     if (!v.project) {
         ImGui::TextWrapped("Open a project first: every map added here is assessed with its sample and its labels.");
@@ -1996,6 +2003,7 @@ void App::uiValidationMaps() {
 // ---------------------------------------------------------------------------
 
 void App::uiValidationInterpreters() {
+    PROFILE_ZONE();
     Validation& v = *val_;
     if (!v.project) {
         ImGui::TextWrapped("Open a project first.");
@@ -2210,6 +2218,7 @@ std::string svgBars(const std::vector<std::string>& labels, const std::vector<st
 } // namespace
 
 void App::uiValidationReport() {
+    PROFILE_ZONE();
     Validation& v = *val_;
     if (!v.project) {
         ImGui::TextWrapped("Open a project first.");
@@ -2463,6 +2472,7 @@ std::shared_ptr<ExportJob> App::exportValidationReport(const std::string& folder
 // ---------------------------------------------------------------------------
 
 void App::uiInterpretationProject() {
+    PROFILE_ZONE();
     if (!val_ || !val_->project) return;
     Validation& v = *val_;
     const val::Project& P = *v.project;
@@ -2530,6 +2540,7 @@ void App::uiInterpretationProject() {
 // ---------------------------------------------------------------------------
 
 void App::pumpChips() {
+    PROFILE_ZONE();
     if (!showChips_ || !s_ || !lab_.vector) return;
     if (!val_) val_ = std::make_shared<Validation>();
     Validation& v = *val_;
@@ -2622,6 +2633,7 @@ void App::pumpChips() {
 }
 
 void App::uiChips() {
+    PROFILE_ZONE();
     if (!showChips_) return;
     if (!val_) val_ = std::make_shared<Validation>();
     Validation& v = *val_;

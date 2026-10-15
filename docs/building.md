@@ -39,6 +39,37 @@ assembles its own copy of the runtime in `build\package`:
 cmake --build build --config Release --target installer   # -> dist\janus-<version>-setup.exe
 ```
 
+## Profiling with Tracy
+
+`-DJANUS_TRACY=ON` builds in the [Tracy](https://github.com/wolfpld/tracy)
+client (v0.14.1): zones on the main loop, the UI steps, the job pools (threads
+`bg N`, `fg N`), GDAL reads, the overview, detail tiles, the full-resolution
+cache and the OpenGL work, plus plots of the job queues and tiles
+(`src/profiler.hpp`). Off (the default), the macros compile to nothing.
+
+```powershell
+cmake -S . -B build-tracy -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="<conda-env>\Library" -DJANUS_TRACY=ON
+cmake --build build-tracy --config Release --target janus
+```
+
+The profiler must be the same version: `windows-0.14.1.zip` from Tracy's
+[releases](https://github.com/wolfpld/tracy/releases/tag/v0.14.1).
+
+- **Live**: start `tracy-profiler.exe -a 127.0.0.1` (or click *Connect*), then
+  `build-tracy\Release\janus.exe <series>`. The client collects from the start,
+  so the profiler can also connect later.
+- **A fixed workload**: `janus.exe --profile-tour <series>` opens the series in
+  a hidden window and goes through the overview, cursor series, every date, the
+  display modes, a zoom and pan at full resolution and an ROI, printing each
+  stage's time (it also works without Tracy). Each stage is a span in Tracy's
+  timeline. To record it to a file instead:
+
+  ```powershell
+  tracy-capture.exe -o tour.tracy -a 127.0.0.1    # waits for the program
+  $env:TRACY_NO_EXIT = 1; .\build-tracy\Release\janus.exe --profile-tour <series>
+  tracy-csvexport.exe tour.tracy > zones.csv       # or open tour.tracy in tracy-profiler
+  ```
+
 ## Linux
 
 Everything (compiler, GDAL, X11/OpenGL headers) can come from one conda-forge

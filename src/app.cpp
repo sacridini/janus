@@ -17,6 +17,7 @@
 #include "glfw.hpp"
 #include "render_backend.hpp"
 #include "platform.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -94,18 +95,40 @@ int diffRefDate(int ref, int t, int T) { return ref < 0 ? t - 1 : std::min(ref, 
 App::App(GLFWwindow* window) : window_(window) {}
 
 App::~App() {
-    if (opening_.valid()) opening_.wait();
-    for (auto& j : jobs_) j->cancel(); // don't leave orphan processes behind
-    jobs_.clear();
-    for (auto& e : exports_) e->cancel = true; // their threads finish when exports_ goes
-    zeitNext_.reset();
-    zeit_.reset();
-    closeValidationProject(); // its labels written
-    dropValidationTextures();
-    closeAll();
-    retireBasemap();
-    retiredBasemaps_.clear(); // waits for their last requests
-    gpu_.shutdown();
+    PROFILE_ZONE();
+    if (opening_.valid()) {
+        PROFILE_ZONE_N("wait for opening");
+        opening_.wait();
+    }
+    {
+        PROFILE_ZONE_N("cancel jobs");
+        for (auto& j : jobs_) j->cancel(); // don't leave orphan processes behind
+        jobs_.clear();
+        for (auto& e : exports_) e->cancel = true; // their threads finish when exports_ goes
+    }
+    {
+        PROFILE_ZONE_N("stop Zeit");
+        zeitNext_.reset();
+        zeit_.reset();
+    }
+    {
+        PROFILE_ZONE_N("close validation");
+        closeValidationProject(); // its labels written
+        dropValidationTextures();
+    }
+    {
+        PROFILE_ZONE_N("close layers");
+        closeAll();
+    }
+    {
+        PROFILE_ZONE_N("close basemap");
+        retireBasemap();
+        retiredBasemaps_.clear(); // waits for their last requests
+    }
+    {
+        PROFILE_ZONE_N("GPU shutdown");
+        gpu_.shutdown();
+    }
 }
 
 bool App::init(const AppOptions& opts, std::string& error) {
@@ -301,6 +324,7 @@ void App::setT(int t) {
 // ---------------------------------------------------------------------------
 
 void App::frame() {
+    PROFILE_ZONE();
     const auto frameStart = std::chrono::steady_clock::now();
     if (appliedTheme_ != theme_ || appliedPanelOpacity_ != panelOpacity_) applyTheme(); // also the layout file's
     applyWindowOpacity();
@@ -406,6 +430,7 @@ void App::frame() {
 }
 
 void App::pumpSeries() {
+    PROFILE_ZONE();
     for (SeriesResult& r : s_->takeSeries()) {
         auto apply = [&](SeriesView& v) {
             if (v.request != r.id) return false;
@@ -468,6 +493,7 @@ void App::clearRoi() {
 }
 
 void App::updateRoiSeries() {
+    PROFILE_ZONE();
     if (!roi_) return;
     const int done = roi_->done.load();
     if (done == roiSeen_) return;
@@ -595,6 +621,7 @@ static void autoRange(int mode, std::vector<float>& s, float& lo, float& hi) {
 }
 
 void App::updateRangeAndHistogram() {
+    PROFILE_ZONE();
     if (modeNeedsStats(mode_) && !s_->gpu.statsValid) return;
     // The composite's numbers change with its options, the season and its window.
     int c0 = 0, c1 = 0;
@@ -694,6 +721,7 @@ void App::handleShortcuts() {
 }
 
 void App::uiMenu() {
+    PROFILE_ZONE();
     if (!ImGui::BeginMainMenuBar()) return;
     if (ImGui::BeginMenu("File")) {
         if (ImGui::MenuItem("Open file(s)...", "Ctrl+O")) {
@@ -775,6 +803,7 @@ void App::resetLayout() {
 }
 
 void App::uiDockspace() {
+    PROFILE_ZONE();
     // Translucent panels: the window holding the dock space (it fills the whole
     // window, under every docked panel) draws no background, so each panel's own
     // is the only one over the desktop and every panel has the opacity set.
@@ -826,6 +855,7 @@ void App::dockDefaultLayout(unsigned dock) {
 }
 
 void App::uiPopups() {
+    PROFILE_ZONE();
     uiOpenUrl();
     uiVariablePicker();
     if (openErrorPopup_) {
@@ -906,6 +936,7 @@ void App::fitView(ImVec2 c) {
 }
 
 void App::renderMap(int w, int h, float pixelScale, int slot, const float* background) {
+    PROFILE_ZONE();
     static const float kBg[4] = {0.10f, 0.10f, 0.115f, 1.0f};
     const float* bg = background ? background : kBg;
     gpu_.beginMap(int(std::lround(w * pixelScale)), int(std::lround(h * pixelScale)), bg, slot);
@@ -1180,6 +1211,7 @@ void App::drawMapMarks(ImDrawList* dl, ImVec2 origin, int panel, int ix, int iy,
 }
 
 void App::uiMap() {
+    PROFILE_ZONE();
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
     const bool open = ImGui::Begin("Map", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
@@ -1485,6 +1517,7 @@ void App::uiMap() {
 // One file per date with several bands: which band (or normalized difference
 // of two) the series shows, and the quality band that hides unusable dates.
 void App::uiBands() {
+    PROFILE_ZONE();
     const CubeInfo& info = *s_->info;
     if (info.spectral) {
         uiSpectralIndex();
@@ -1587,6 +1620,7 @@ bool App::addSpectralIndexLayer(const SpectralIndex& s) {
 
 // A spectrum: an index of its bands as a map, added as a layer above it.
 void App::uiSpectralIndex() {
+    PROFILE_ZONE();
     const CubeInfo& info = *s_->info;
     ImGui::SeparatorText("Index map");
     std::vector<const SpectralIndex*> covered;
@@ -1640,6 +1674,7 @@ void App::newMapView() {
 }
 
 void App::uiMapViews() {
+    PROFILE_ZONE();
     focusedViewId_ = 0;
     for (size_t i = 0; i < views_.size();) {
         MapView& v = views_[i];
@@ -1756,6 +1791,7 @@ App::SeriesLayer* App::uiViewBar(MapView& v) {
 }
 
 void App::uiMapView(MapView& v) {
+    PROFILE_ZONE();
     if (!s_) {
         ImGui::TextDisabled("No series open.");
         return;
@@ -1858,6 +1894,7 @@ void App::uiMapView(MapView& v) {
 }
 
 void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
+    PROFILE_ZONE();
     float bg[4];
     mapBackground(bg);
     gpu_.beginMap(int(std::lround(w * pixelScale)), int(std::lround(h * pixelScale)), bg, v.id);
@@ -1953,6 +1990,7 @@ void App::renderView(MapView& v, int w, int h, float pixelScale, ImVec2 shift) {
 }
 
 void App::uiLayer() {
+    PROFILE_ZONE();
     if (!ImGui::Begin("Display")) {
         ImGui::End();
         return;
@@ -2130,6 +2168,7 @@ void App::uiLayer() {
 }
 
 void App::uiSeries() {
+    PROFILE_ZONE();
     if (!ImGui::Begin("Time series")) {
         ImGui::End();
         return;
@@ -2449,6 +2488,7 @@ void App::drawRoiBoxes(const char* label, ImVec4 col, const std::function<double
 }
 
 void App::uiStats() {
+    PROFILE_ZONE();
     if (!ImGui::Begin("Statistics")) {
         ImGui::End();
         return;
@@ -2640,6 +2680,7 @@ void App::uiStats() {
 }
 
 void App::uiPerf() {
+    PROFILE_ZONE();
     if (!showPerf_) return;
     if (!ImGui::Begin("Performance", &showPerf_)) {
         ImGui::End();

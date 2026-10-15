@@ -55,6 +55,21 @@ FetchContent_Declare(nlohmann_json
 
 FetchContent_MakeAvailable(glfw imgui implot nlohmann_json)
 
+# --- Tracy profiler (optional) --------------------------------------------------
+# -DJANUS_TRACY=ON: zones on the main loop, the job pools, reads and GPU work
+# (src/profiler.hpp), seen live in Tracy's profiler of the same version (v0.14.1).
+# Off, the macros compile to nothing. -DTRACY_ON_DEMAND=ON collects only while
+# a profiler is connected (else from the start, buffered until one connects).
+option(JANUS_TRACY "Build with the Tracy profiler client" OFF)
+if(JANUS_TRACY)
+  set(TRACY_ENABLE ON CACHE BOOL "" FORCE) # off by default in Tracy's own CMake
+  FetchContent_Declare(tracy
+    GIT_REPOSITORY https://github.com/wolfpld/tracy.git
+    GIT_TAG        v0.14.1
+    GIT_SHALLOW    TRUE)
+  FetchContent_MakeAvailable(tracy)
+endif()
+
 find_package(GDAL CONFIG REQUIRED)
 
 add_library(imgui STATIC
@@ -89,6 +104,7 @@ set(JANUS_SOURCES
   src/app_embeddings.cpp
   src/app_export.cpp
   src/app_fullres.cpp
+  src/app_profile.cpp
   src/app_roi.cpp
   src/app_season.cpp
   src/app_layers.cpp
@@ -162,6 +178,17 @@ endif()
 if(MSVC)
   target_compile_options(janus PRIVATE /utf-8 /W3)
   target_link_options(janus PRIVATE /ENTRY:mainCRTStartup)
+endif()
+
+if(JANUS_TRACY)
+  target_link_libraries(janus PRIVATE Tracy::TracyClient)
+  # Symbols in the optimized build: Tracy resolves call stacks and samples with them.
+  if(MSVC)
+    target_compile_options(janus PRIVATE $<$<CONFIG:Release>:/Zi>)
+    target_link_options(janus PRIVATE $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF>)
+  else()
+    target_compile_options(janus PRIVATE -g)
+  endif()
 endif()
 
 if(WIN32)

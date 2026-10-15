@@ -7,6 +7,7 @@
 #include "fullres_cache.hpp"
 #include "gpu.hpp"
 #include "job_pool.hpp"
+#include "profiler.hpp"
 
 TileManager::TileManager(std::shared_ptr<const CubeInfo> info, double overviewFactor, JobPool& pool,
                          size_t maxGpuBytes, std::shared_ptr<FullResCache> fullRes)
@@ -54,6 +55,7 @@ void TileManager::tick() {
 }
 
 int TileManager::update(int t, const ViewRect& v, int prefetchT) {
+    PROFILE_ZONE_N("TileManager::update");
     if (maxLevel_ < 0 || v.scale * overviewFactor_ <= 1.0) return -1;
     const int level = std::clamp(int(std::floor(std::log2(1.0 / v.scale))), 0, maxLevel_);
     request(t, level, v, 1);
@@ -94,6 +96,8 @@ void TileManager::request(int t, int level, const ViewRect& v, int priority) {
                     return;
                 }
             }
+            PROFILE_ZONE_N("tile");
+            PROFILE_VALUE(uint64_t(level));
             const auto t0 = std::chrono::steady_clock::now();
             const int span = TileManager::kTileSize << level;
             Result r;
@@ -118,6 +122,7 @@ void TileManager::request(int t, int level, const ViewRect& v, int priority) {
 }
 
 bool TileManager::uploadReady(int maxUploads) {
+    PROFILE_ZONE_N("TileManager::uploadReady");
     std::vector<Result> batch;
     {
         std::lock_guard<std::mutex> lk(sh_->m);
@@ -149,6 +154,7 @@ bool TileManager::uploadReady(int maxUploads) {
 }
 
 void TileManager::evict() {
+    PROFILE_ZONE_N("TileManager::evict");
     std::vector<std::pair<uint64_t, uint64_t>> order; // (lastUsed, key)
     order.reserve(gpu_.size());
     for (auto& [k, tile] : gpu_) order.push_back({tile.lastUsed, k});

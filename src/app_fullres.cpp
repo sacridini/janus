@@ -4,6 +4,7 @@
 // app_settings.cpp), and `--measure-cache`, which times the build and the
 // reads with and without it.
 #include "app.hpp"
+#include "profiler.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -24,6 +25,7 @@ double nowMs() {
 } // namespace
 
 void App::uiFullRes() {
+    PROFILE_ZONE();
     FullResCache& c = *s_->fullRes;
     const int T = s_->info->T();
     ImGui::SeparatorText("Full-resolution cache");
@@ -70,6 +72,7 @@ void App::uiFullRes() {
 }
 
 void App::uiFullResSettings() {
+    PROFILE_ZONE();
     const char* modes[] = {"Full-resolution cache: on demand", "Full-resolution cache: series on an HDD",
                            "Full-resolution cache: every series"};
     ImGui::SetNextItemWidth(-1);

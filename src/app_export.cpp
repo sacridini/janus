@@ -29,6 +29,7 @@
 #include "embedding.hpp"
 #include "glfw.hpp"
 #include "platform.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -941,6 +942,7 @@ std::shared_ptr<ExportJob> App::exportResult(const ResultLayer& r, const std::st
 // ---------------------------------------------------------------------------
 
 void App::uiExportMenu() {
+    PROFILE_ZONE();
     if (ImGui::MenuItem("Export map as PNG...", "Ctrl+E", false, s_ != nullptr)) {
         exportKind_ = 1;
         exportPopup_ = true;
@@ -985,6 +987,7 @@ void App::uiExportMenu() {
 }
 
 void App::uiResultExportMenu(const ResultLayer& r, const char* label) {
+    PROFILE_ZONE();
     if (ImGui::MenuItem(label)) saveResult(r);
 }
 
@@ -1059,6 +1062,7 @@ std::vector<std::shared_ptr<ExportJob>> App::exportRun(const ResultLayer& r, con
 }
 
 void App::uiSaveRun() {
+    PROFILE_ZONE();
     if (saveRun_.open) {
         ImGui::OpenPopup("Save all outputs###saverun");
         saveRun_.open = false;
@@ -1118,6 +1122,7 @@ void App::uiSaveRun() {
 }
 
 void App::uiExport() {
+    PROFILE_ZONE();
     static const char* kTitles[] = {"", "Export map as PNG", "Export values as GeoTIFF",
                                     "Export rendered view as GeoTIFF", "Export embeddings as GeoTIFF",
                                     "Export animation"};
@@ -1320,6 +1325,7 @@ void App::uiExport() {
 }
 
 void App::uiExports() {
+    PROFILE_ZONE();
     if (!showExports_) return;
     ImGui::SetNextWindowSize(ImVec2(600, 260), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Exports", &showExports_)) {

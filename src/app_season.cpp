@@ -9,6 +9,7 @@
 // time the map is drawn, so changing the date, the season or the reducer
 // costs one frame.
 #include "app.hpp"
+#include "profiler.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -182,6 +183,7 @@ int App::stepDate(int t, int dir) const {
 }
 
 void App::pumpSeason() {
+    PROFILE_ZONE();
     for (SeriesLayer& L : layers_) {
         Session& S = *L.session;
         const CubeInfo& info = *S.info;
@@ -200,6 +202,7 @@ void App::pumpSeason() {
 }
 
 void App::uiSeason() {
+    PROFILE_ZONE();
     const CubeInfo& info = *s_->info;
     if (!info.timeIsDate || info.spectral || info.T() < 2) return;
     ImGui::SeparatorText("Season");
@@ -249,6 +252,7 @@ void App::uiSeason() {
 }
 
 void App::uiTemporalOptions() {
+    PROFILE_ZONE();
     const CubeInfo& info = *s_->info;
     ImGui::SetNextItemWidth(-1);
     if (ImGui::BeginCombo("##reducer", kReducers[comp_.reducer])) {

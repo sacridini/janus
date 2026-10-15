@@ -109,6 +109,9 @@ public:
     // --measure-vectors IN VEC...: times reading, placing, drawing, picking and
     // extracting vector layers over a series (app_vectors.cpp).
     int measureVectorsStep(const std::vector<std::string>& inputs);
+    // --profile-tour IN: a fixed tour of a series, timed stage by stage, for
+    // the profiler (app_profile.cpp).
+    int profileTourStep(const std::vector<std::string>& inputs);
     // --selftest-embeddings-ui DIR [OUT]: a series of embeddings in every view,
     // checked and saved as PNGs (app_embeddings.cpp).
     int selfTestEmbeddingStep(const std::vector<std::string>& inputs);
@@ -1166,6 +1169,13 @@ private:
         std::array<int, 4> roi{};
         double t0 = 0;
     } measure_; // --measure-cache state
+    struct {
+        int stage = 0;
+        double t0 = 0, since = 0;  // the tour's and the stage's start
+        int frames = 0;            // frames since the stage started
+        int step = 0;              // within the stage
+        int stepFrame = 0;         // the frame the step started
+    } tour_; // --profile-tour state
     struct {
         int stage = 0;
         double since = 0;          // the stage's start

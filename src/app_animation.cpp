@@ -28,6 +28,7 @@
 #include "gif.hpp"
 #include "glfw.hpp"
 #include "platform.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -174,6 +175,7 @@ std::vector<int> App::animDates(const AnimOptions& o) const {
 // ---------------------------------------------------------------------------
 
 void App::uiAnimationOptions(bool& canSave) {
+    PROFILE_ZONE();
     const CubeInfo& info = *s_->info;
     const int T = info.T();
     const char* unit = info.spectral ? "band" : "date";
@@ -399,6 +401,7 @@ std::shared_ptr<ExportJob> App::startAnimation(const std::string& path, const An
 }
 
 void App::pumpAnimation() {
+    PROFILE_ZONE();
     if (!animRun_) return;
     AnimRun& r = *animRun_;
     // Rendering ends: the encoder finishes in the background (Exports window).
@@ -489,6 +492,7 @@ void App::pumpAnimation() {
 }
 
 void App::uiAnimation() {
+    PROFILE_ZONE();
     if (animRun_ && !ImGui::IsPopupOpen("Exporting animation###animrun")) ImGui::OpenPopup("Exporting animation###animrun");
     if (!ImGui::BeginPopupModal("Exporting animation###animrun", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
     if (!animRun_) {
@@ -514,6 +518,7 @@ void App::uiAnimation() {
 // ---------------------------------------------------------------------------
 
 void App::uiFfmpegSettings() {
+    PROFILE_ZONE();
     ImGui::SeparatorText("Video export (ffmpeg)");
     static char buf[1024] = "";
     static std::string shown = "\x01";

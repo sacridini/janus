@@ -21,6 +21,7 @@
 #include <imgui_internal.h>
 
 #include "platform.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -256,6 +257,7 @@ if y.size >= 2:
 }
 
 void App::uiCopyPython() {
+    PROFILE_ZONE();
     const bool any = hover_.x >= 0 || !pins_.empty() || (roi_ && roi_->done.load() == s_->info->T());
     ImGui::BeginDisabled(!any);
     if (ImGui::Button("Copy Python")) ImGui::OpenPopup("##copypython");

@@ -196,6 +196,9 @@ Developer options:
   --measure-cache on|off IN  time exact series and ROI from the files, build the
                       overview (and the full-resolution cache if on), time the
                       reads again from the cache, in a hidden window
+  --profile-tour IN   a fixed tour of IN (overview, cursor series, dates, modes,
+                      zoom and pan at full resolution, an ROI), timed stage by
+                      stage, in a hidden window; for Tracy (-DJANUS_TRACY=ON)
   --describe IN       print how IN opens (dates, size, CRS, variables of a
                       NetCDF / Zarr, the series of the centre pixel) and exit
   --selftest-zeit IN  run the Zeit tools end to end on IN without a window

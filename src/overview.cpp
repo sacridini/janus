@@ -9,6 +9,7 @@
 #include <cpl_vsi.h>
 
 #include "job_pool.hpp"
+#include "profiler.hpp"
 
 #ifdef _WIN32
 #include <share.h>
@@ -161,6 +162,7 @@ void Overview::start(std::shared_ptr<const CubeInfo> info, int64_t budgetBytes, 
     if (fromCache_) {
         // Read layer by layer so the GPU receives data while the rest loads.
         pool.submit(0, [this, n] {
+            PROFILE_ZONE_N("overview from cache");
             FILE* f = openFile(cachePath_, "rb", false);
             bool ok = f && seekTo(f, dataOffset_);
             for (int t = 0; t < T; ++t) {
@@ -216,6 +218,8 @@ void Overview::start(std::shared_ptr<const CubeInfo> info, int64_t budgetBytes, 
 }
 
 void Overview::decode(int t) {
+    PROFILE_ZONE_N("overview date");
+    PROFILE_VALUE(uint64_t(t));
     float* out = data.data() + size_t(t) * w * h;
     const int full = fullResBuild ? fullResBuild(t, out, w, h) : -1;
     const bool ok = full >= 0 ? full > 0 : threadReader(info_).readWindow(t, 0, 0, info_->width, info_->height, out, w, h);
@@ -225,6 +229,7 @@ void Overview::decode(int t) {
 }
 
 bool Overview::loadLayer(int t) {
+    PROFILE_ZONE_N("overview date from cache");
     const size_t n = size_t(w) * h;
     std::lock_guard<std::mutex> lk(fileM_);
     return cache_ && seekTo(cache_, dataOffset_ + n * sizeof(float) * t) &&
@@ -232,6 +237,7 @@ bool Overview::loadLayer(int t) {
 }
 
 void Overview::saveLayer(int t) {
+    PROFILE_ZONE_N("overview date to cache");
     const size_t n = size_t(w) * h;
     const char one = 1;
     std::lock_guard<std::mutex> lk(fileM_);

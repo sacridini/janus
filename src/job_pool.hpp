@@ -4,19 +4,23 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <mutex>
 #include <queue>
 #include <thread>
 #include <vector>
 
+#include "profiler.hpp"
+
 // Thread pool with priorities. Lower `priority` runs first; within the same
 // priority the newest job runs first (LIFO), because for tiles and series the
 // most recent request is the one the user cares about.
 class JobPool {
 public:
-    explicit JobPool(int threads, std::function<void()> onJobDone = {})
-        : onJobDone_(std::move(onJobDone)) {
+    // `name`: the workers' name in the profiler ("name 0", "name 1"...).
+    explicit JobPool(int threads, std::function<void()> onJobDone = {}, const char* name = "jobs")
+        : onJobDone_(std::move(onJobDone)), name_(name) {
         setThreads(threads);
     }
     ~JobPool() {
@@ -70,6 +74,11 @@ private:
     };
 
     void loop(int index) {
+#ifdef TRACY_ENABLE
+        char thread[64];
+        std::snprintf(thread, sizeof(thread), "%s %d", name_, index);
+        PROFILE_THREAD(thread);
+#endif
         for (;;) {
             Job job;
             {
@@ -79,7 +88,11 @@ private:
                 job = std::move(const_cast<Job&>(q_.top()));
                 q_.pop();
             }
-            job.fn();
+            {
+                PROFILE_ZONE_N("job");
+                PROFILE_VALUE(uint64_t(job.priority));
+                job.fn();
+            }
             --pending_;
             if (onJobDone_) onJobDone_();
         }
@@ -94,4 +107,5 @@ private:
     std::atomic<int> pending_{0};
     std::atomic<int> limit_{0};
     std::function<void()> onJobDone_;
+    const char* name_;
 };

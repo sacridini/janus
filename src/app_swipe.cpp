@@ -4,6 +4,7 @@
 // Also the View menu entries and keys of the swipe and the transect.
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "app.hpp"
+#include "profiler.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -40,6 +41,7 @@ void App::toggleSwipe() {
 
 // The comparison's bar, a row between the time bar and the map.
 void App::uiSwipeBar() {
+    PROFILE_ZONE();
     if (!swipe_ || !s_) return;
     ImGui::PushID("swipe");
     if (ImGui::Button("Swipe off")) toggleSwipe();
@@ -69,6 +71,7 @@ bool App::swipeInput(ImVec2 origin, ImVec2 size) {
 }
 
 void App::renderSwipe(ImVec2 size, float pixelScale) {
+    PROFILE_ZONE();
     renderView(swipeView_, int(size.x), int(size.y), pixelScale, ImVec2(0, 0));
     swipeView_.size = size;
     swipeView_.pixelScale = pixelScale;
@@ -141,6 +144,7 @@ void App::drawSwipe(ImDrawList* dl, ImVec2 origin, ImVec2 size, float pixelScale
 // ---------------------------------------------------------------------------
 
 void App::uiCompareMenu() {
+    PROFILE_ZONE();
     ImGui::Separator();
     if (ImGui::MenuItem("Swipe", "C", swipe_, s_ != nullptr)) toggleSwipe();
     if (ImGui::MenuItem("Draw transect", "T or Ctrl+drag", transectMode_, s_ != nullptr)) transectMode_ = !transectMode_;

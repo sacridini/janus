@@ -18,6 +18,7 @@
 #include "cube.hpp"
 #include "embedding.hpp"
 #include "platform.hpp"
+#include "profiler.hpp"
 #include "render_backend.hpp"
 #include "selftest.hpp"
 #include "theme.hpp"
@@ -59,6 +60,7 @@ static void dropCallback(GLFWwindow* window, int count, const char** paths) {
 }
 
 int main(int argc, char** argv) {
+    PROFILE_THREAD("main");
     using Clock = std::chrono::steady_clock;
     const auto t0 = Clock::now();
     auto ms = [&] { return std::chrono::duration<double, std::milli>(Clock::now() - t0).count(); };
@@ -77,6 +79,7 @@ int main(int argc, char** argv) {
     bool selftestUi = false;     // dev option: drive the layers workflow in a hidden window
     bool measureCache = false;   // dev option: time the full-resolution cache in a hidden window
     bool measureVectors = false; // dev option: time vector layers over a series in a hidden window
+    bool profileTour = false;    // dev option: a fixed tour of a series in a hidden window (for Tracy)
     std::string shots;           // dev option: a guide's screenshots (--shots TOUR), hidden window
     bool describe = false;       // dev option: print how the inputs open, without a window
     for (size_t i = 0; i < args.size(); ++i) {
@@ -111,6 +114,8 @@ int main(int argc, char** argv) {
             measureCache = selftestUi = true;
         } else if (a == "--measure-vectors") {
             measureVectors = selftestUi = true;
+        } else if (a == "--profile-tour") {
+            profileTour = selftestUi = true;
         } else if (a == "--shots") {
             const char* v = next();
             shots = v ? v : "";
@@ -240,17 +245,29 @@ int main(int argc, char** argv) {
     while (!glfwWindowShouldClose(window)) {
         // Without animation, sleep until an event (mouse, keyboard or a
         // finished background job): the CPU stays idle when nothing changes.
-        if (app->wantsContinuousFrames() || firstFrame || selftestUi) glfwPollEvents();
-        else glfwWaitEventsTimeout(0.5);
+        {
+            PROFILE_ZONE_N("events");
+            if (app->wantsContinuousFrames() || firstFrame || selftestUi) glfwPollEvents();
+            else glfwWaitEventsTimeout(0.5);
+        }
         // Documents from the Finder (macOS): opened like a drop on the window.
         if (std::vector<std::string> docs = platform::takeOpenRequests(); !docs.empty()) app->pendingDrop = std::move(docs);
 
         app->applyFont();
         render::newFrame();
-        ImGui::NewFrame();
+        {
+            PROFILE_ZONE_N("ImGui::NewFrame");
+            ImGui::NewFrame();
+        }
         app->frame();
         if (measureCache) {
             if (const int rc = app->measureCacheStep(inputs); rc >= 0) {
+                std::fflush(stdout);
+                exitCode = rc;
+                glfwSetWindowShouldClose(window, 1);
+            }
+        } else if (profileTour) {
+            if (const int rc = app->profileTourStep(inputs); rc >= 0) {
                 std::fflush(stdout);
                 exitCode = rc;
                 glfwSetWindowShouldClose(window, 1);
@@ -292,11 +309,15 @@ int main(int argc, char** argv) {
                 glfwSetWindowShouldClose(window, 1);
             }
         }
-        ImGui::Render();
+        {
+            PROFILE_ZONE_N("ImGui::Render");
+            ImGui::Render();
+        }
 
         float clear[4];
         theme::clearColor(clear);
         render::present(window, clear, app->takeCapture());
+        PROFILE_FRAME();
 
         if (firstFrame) {
             firstFrame = false;
@@ -315,14 +336,18 @@ int main(int argc, char** argv) {
 
     // io.IniFilename points into App: save the layout while it is alive, so
     // DestroyContext does not write to a freed file name.
+    PROFILE_ZONE_N("shutdown");
     if (io.IniFilename) ImGui::SaveIniSettingsToDisk(io.IniFilename);
     io.IniFilename = nullptr;
     g_app = nullptr;
     app.reset(); // release GPU resources and threads before the context goes away
-    render::shutdownImGui();
-    ImPlot::DestroyContext();
-    ImGui::DestroyContext();
-    glfwDestroyWindow(window);
-    glfwTerminate();
+    {
+        PROFILE_ZONE_N("ImGui and window");
+        render::shutdownImGui();
+        ImPlot::DestroyContext();
+        ImGui::DestroyContext();
+        glfwDestroyWindow(window);
+        glfwTerminate();
+    }
     return exitCode;
 }

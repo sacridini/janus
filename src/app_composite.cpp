@@ -23,6 +23,7 @@
 #include <implot.h>
 
 #include "glfw.hpp"
+#include "profiler.hpp"
 
 namespace fs = std::filesystem;
 
@@ -160,6 +161,7 @@ std::string App::compositeStatusAt(double ax, double ay) const {
 // ---------------------------------------------------------------------------
 
 void App::pumpComposites() {
+    PROFILE_ZONE();
     const double now = ImGui::GetTime();
     for (SeriesLayer& L : layers_) {
         if (!L.comp) continue;
@@ -310,6 +312,7 @@ void App::drawComposite(const SeriesLayer& L, int t, float alpha, bool detail,
 // ---------------------------------------------------------------------------
 
 void App::uiComposite() {
+    PROFILE_ZONE();
     if (active_ < 0 || active_ >= int(layers_.size())) return;
     SeriesLayer& L = layers_[active_];
     const CubeInfo& info = *L.session->info;

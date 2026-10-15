@@ -10,6 +10,7 @@
 #include <implot.h>
 
 #include "gl.hpp"
+#include "profiler_gl.hpp"
 
 namespace {
 
@@ -285,6 +286,8 @@ void GpuCube::create(int w_, int h_, int T_, const std::vector<float>& timesYear
 }
 
 void GpuCube::uploadLayer(int t, const float* data) {
+    PROFILE_ZONE();
+    PROFILE_GPU_ZONE("upload date");
     glBindTexture(GL_TEXTURE_2D_ARRAY, tex(cube));
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, t, w, h, 1, GL_RED, GL_FLOAT, data);
@@ -421,6 +424,8 @@ void Gpu::setColormap(int cmap) {
 }
 
 void Gpu::computeStats(GpuCube& c) {
+    PROFILE_ZONE();
+    PROFILE_GPU_ZONE("statistics");
     Impl& d = *impl_;
     glBindFramebuffer(GL_FRAMEBUFFER, d.statsFbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex(c.stats0), 0);
@@ -530,6 +535,7 @@ void Gpu::Impl::drawQuad(const float r[4], int source, const DrawParams& p) {
 }
 
 void Gpu::drawCube(const GpuCube& c, const float rect[4], const DrawParams& p) {
+    PROFILE_GPU_ZONE("draw cube");
     Impl& d = *impl_;
     if (d.boundCube != &c) {
         glActiveTexture(GL_TEXTURE0);
@@ -548,6 +554,7 @@ void Gpu::drawCube(const GpuCube& c, const float rect[4], const DrawParams& p) {
 }
 
 void Gpu::drawTile(GpuTex t, const float rect[4], const DrawParams& p) {
+    PROFILE_GPU_ZONE("draw tile");
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, tex(t));
     impl_->drawQuad(rect, 1, p);
@@ -658,6 +665,7 @@ void Gpu::readMapPixel(int x, int y, unsigned char rgba[4], int slot) {
 }
 
 void Gpu::readMap(std::vector<unsigned char>& rgba, int& w, int& h, int slot) {
+    PROFILE_ZONE();
     const Impl::Target& tg = impl_->targets.at(slot);
     w = tg.w;
     h = tg.h;
@@ -685,6 +693,7 @@ GpuTex Gpu::createClassLut(const unsigned char* rgba, GpuTex t) {
 }
 
 GpuTex Gpu::createTileTexture(int w, int h, const float* data) {
+    PROFILE_GPU_ZONE("upload tile");
     GLuint t;
     glGenTextures(1, &t);
     glBindTexture(GL_TEXTURE_2D, t);
