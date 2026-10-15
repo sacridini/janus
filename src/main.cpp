@@ -149,6 +149,12 @@ int main(int argc, char** argv) {
 
     StartupTimes st;
     configureBundledData();
+    // GDAL's block cache: 512 MB instead of 5% of the RAM. Closing a file frees
+    // its cached blocks under a global lock, one file at a time: with ~3 GB of
+    // 1-row strips (a series read whole for its overview), closing Janus or a
+    // layer took 15-20 s; with 512 MB it takes under a second, and detail tiles
+    // read as fast (--profile-tour). GDAL_CACHEMAX in the environment wins.
+    if (!CPLGetConfigOption("GDAL_CACHEMAX", nullptr)) CPLSetConfigOption("GDAL_CACHEMAX", "512");
     GDALAllRegister();
     configureRemoteAccess();
     CPLSetErrorHandler(CPLQuietErrorHandler);
