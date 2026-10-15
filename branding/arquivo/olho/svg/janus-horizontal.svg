@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200" width="600" height="200">
+  <title>Janus</title>
+  <g transform="translate(0, 0)">
+    <g id="simbolo">
+  <defs>
+    <linearGradient id="h-s-pass" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4296FA"/>
+      <stop offset="100%" stop-color="#2F6FE0"/>
+    </linearGradient>
+    <linearGradient id="h-s-fut" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6AADFF"/>
+      <stop offset="100%" stop-color="#00F2FE"/>
+    </linearGradient>
+  </defs>
+  <!-- Contornos do Olho -->
+  <path d="M 100, 48 C 65, 48 35, 75 22, 100 C 35, 125 65, 152 100, 152" fill="none" stroke="url(#h-s-pass)" stroke-width="7" stroke-linecap="round"/>
+  <path d="M 100, 48 C 135, 48 165, 75 178, 100 C 165, 125 135, 152 100, 152" fill="none" stroke="url(#h-s-fut)" stroke-width="7" stroke-linecap="round"/>
+  <!-- Íris Esquerda (Passado) -->
+  <path d="M 100, 64 A 36,36 0 0,0 100, 136 Z" fill="url(#h-s-pass)"/>
+  <path d="M 100, 76 A 24,24 0 0,0 100, 124 Z" fill="#1D3B6B"/>
+  <!-- Íris Direita (Futuro) -->
+  <path d="M 100, 64 A 36,36 0 0,1 100, 136 Z" fill="url(#h-s-fut)"/>
+  <path d="M 100, 76 A 24,24 0 0,1 100, 124 Z" fill="#144A63"/>
+  <!-- Meridianos e Setas -->
+  <line x1="100" y1="32" x2="100" y2="46" stroke="#F29A38" stroke-width="5" stroke-linecap="round"/>
+  <line x1="100" y1="154" x2="100" y2="168" stroke="#F29A38" stroke-width="5" stroke-linecap="round"/>
+  <path d="M 16, 100 L 31, 90 L 31, 110 Z" fill="#4296FA"/>
+  <path d="M 184, 100 L 169, 90 L 169, 110 Z" fill="#00F2FE"/>
+  <!-- Sensor Central -->
+  <circle cx="100" cy="100" r="10" fill="#F29A38"/>
+  <circle cx="100" cy="100" r="4" fill="#FFFFFF"/>
+</g>
+  </g>
+  <g transform="translate(220, 52) scale(1.0)">
+    <g id="nome">
+  <g fill="none" stroke="#4296FA" stroke-width="8.5" stroke-linejoin="miter" stroke-miterlimit="12">
+    <path transform="translate(0,0)" d="M43.75,-20 L43.75,76.0 A19.75,19.75 0 0 1 4.25,76.0 L4.25,68.0"/>
+    <path transform="translate(72,0)" d="M-1.75,140 L27.0,-7.65 L55.75,140 M10.8,66.0 L43.2,66.0"/>
+    <path transform="translate(150,0)" d="M4.25,130 L4.25,-1.7 L43.75,101.7 L43.75,-30"/>
+    <path transform="translate(222,0)" d="M4.25,-20 L4.25,76.0 A19.75,19.75 0 0 0 43.75,76.0 L43.75,-20"/>
+    <path transform="translate(294,0)" d="M43.75,29.0 L43.75,24.0 A19.75,19.75 0 0 0 4.25,24.0 C4.25,48.0 43.75,52.0 43.75,76.0 A19.75,19.75 0 0 1 4.25,76.0 L4.25,71.0"/>
+  </g>
+</g>
+  </g>
+</svg>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  JANUS · arquivo mestre editável
+  ◁ | ▷  retroceder e avançar, desencontrados na altura como as letras do nome.
+
+  Camadas (Inkscape: camadas de verdade; Illustrator, Figma e Affinity: grupos com nome):
+    guias            linhas de construção (escondida): topo 0, base 100, hastes -30 e 130, folga de 44
+    simbolo          eixo, passado (◁, mais alto) e futuro (▷, mais baixo)
+    nome             o wordmark JANUS
+
+  Regras: traço 8,5 · pontas retas (butt) · cantos em quina (miter) · uma cor só.
+  Azul ImGui #4296FA · claro #CEE3FF (sobre escuro) · escuro #1D4ED8 (sobre branco).
+  Gere todas as versões de novo com: python tools/generate_brand.py
+-->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     viewBox="-160 -40 520 190" width="1040" height="380">
+  <title>Janus</title>
+  <g id="guias" inkscape:groupmode="layer" inkscape:label="guias" style="display:none" fill="none" stroke="#F29A38" stroke-width="0.6" stroke-dasharray="4 3">
+    <path d="M-160,0 L360,0 M-160,100 L360,100"/>
+    <path d="M-160,-30 L360,-30 M-160,130 L360,130"/>
+    <path d="M-44,-40 L-44,150 M0,-40 L0,150"/>
+  </g>
+  <g id="camada-simbolo" inkscape:groupmode="layer" inkscape:label="simbolo" transform="translate(-148,0)">
+    <g id="simbolo" fill="none" stroke="#4296FA" stroke-width="8.5" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="12">
+      <path id="passado" d="M50,-20 L2,30 L50,80"/>
+      <path id="futuro" d="M50,20 L98,70 L50,120"/>
+      <path id="eixo" d="M50,-30 L50,130"/>
+    </g>
+  </g>
+  <g id="camada-nome" inkscape:groupmode="layer" inkscape:label="nome">
+    <g id="nome" fill="none" stroke="#4296FA" stroke-width="8.5" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="12">
+    <path d="M43.75,-20 L43.75,76.0 A19.75,19.75 0 0 1 4.25,76.0 L4.25,68.0"/>
+    <path transform="translate(72,0)" d="M-1.75,140 L27.0,-7.65 L55.75,140 M10.8,66.0 L43.2,66.0"/>
+    <path transform="translate(150,0)" d="M4.25,130 L4.25,-1.7 L43.75,101.7 L43.75,-30"/>
+    <path transform="translate(222,0)" d="M4.25,-20 L4.25,76.0 A19.75,19.75 0 0 0 43.75,76.0 L43.75,-20"/>
+    <path transform="translate(294,0)" d="M43.75,29.0 L43.75,24.0 A19.75,19.75 0 0 0 4.25,24.0 C4.25,48.0 43.75,52.0 43.75,76.0 A19.75,19.75 0 0 1 4.25,76.0 L4.25,71.0"/>
+  </g>
+  </g>
+</svg>

@@ -1,44 +1,53 @@
 # Janus — identidade visual
 
-O olho bitemporal de Janus (*"Look back. Look ahead."*): duas ópticas/horizontes integrados que olham simultaneamente para o passado (à esquerda) e para o futuro (à direita). A íris é composta por estratos espectrais concêntricos (representando as camadas multitemporais da pilha raster) e um sensor focal central com o marcador de data presente em laranja (`#F29A38`), exatamente a cor da linha de tempo do ImPlot no Janus. O nome usa letras condensadas desenhadas para combinar com a geometria. As cores vêm da própria interface do programa (ImGui/ImPlot).
+**◁ | ▷** — retroceder e avançar, como nos botões de um videocassete. Dois triângulos vazados num mesmo eixo: o da esquerda (o passado) mais alto, o da direita (o futuro) mais baixo, e o eixo passando dos dois. O símbolo segue as regras do nome: o mesmo traço, pontas retas, cantos em quina, uma cor só, alturas desencontradas e hastes que vazam a caixa, como no A e no N.
+
+## Construção
+
+Unidades do wordmark, em que a altura das letras vai de 0 a 100.
+
+| Elemento | Desenho |
+|---|---|
+| Traço | 8,5, pontas retas (*butt*), cantos em quina (*miter*), igual às letras |
+| Eixo | x = 50, de y = −30 a y = 130 (as mesmas pontas do N) |
+| Passado ◁ | (50, −20) → (2, 30) → (50, 80) |
+| Futuro ▷ | (50, 20) → (98, 70) → (50, 120), o passado girado 180° |
+| Folga até o J | 44, a mesma ordem da folga entre as letras |
+
+Nos ícones de 16, 24 e 32 px o símbolo é desenhado pixel a pixel, com linhas de 1 px (o de 32 é o de 16 dobrado). Em 48 px o traço fica mais grosso para não sumir.
 
 ## Cores
 
 | Nome | Hex | Uso |
 |---|---|---|
-| Azul ImGui | `#4296FA` | Cor principal da óptica e asa do passado |
-| Azul Claro | `#6AADFF` / `#CEE3FF` | Realces e versão clara do logo |
-| Ciano Espectral | `#00F2FE` | Asa do futuro e detecção de anomalia |
-| Marcador de Data ("Now") | `#F29A38` | Ponto focal do sensor central e eixos temporais |
-| Janela | `#0F0F0F` | Fundo principal da interface |
-| Painel | `#162447` / `#1C2A3C` | Fundo do ícone e áreas de destaque |
+| Azul ImGui | `#4296FA` | Cor do símbolo e do nome |
+| Azul claro | `#CEE3FF` | Versões `-claro`, sobre fundos escuros ou coloridos |
+| Azul escuro | `#1D4ED8` | Versões `-escuro`, sobre branco (README no tema claro) |
+| Janela | `#0F0F0F` | Fundo do programa e do site |
+| Ladrilho | `#111A2E` / `#2A4A7A` | Fundo e borda do ícone do programa |
 
 ## Arquivos
 
-| Pasta / Arquivo | Formato | Para quê |
+| Pasta / arquivo | Formato | Para quê |
 |---|---|---|
-| `janus-olho-editavel.svg` | SVG vetorial com camadas | **Arquivo mestre editável** (Inkscape, Illustrator, Figma, Affinity) com IDs semânticos |
-| `svg/` | SVG vetorial | Versões de produção para web e sistemas (`janus-simbolo`, `janus-horizontal`, `janus-vertical`, `janus-icone`) |
-| `png/` | PNG transparente, 512 / 1024 / 2048 px de largura | Documentos, slides, README |
-| `icones/` | `janus.ico`, `janus.icns`, PNG 64–1024 | Ícone do programa no Windows, macOS e avatar (`icone-quadrado-*`) |
+| `janus-editavel.svg` | SVG com camadas | **Arquivo mestre editável** (Inkscape, Illustrator, Figma, Affinity): camadas `simbolo`, `nome` e `guias` (escondida, com as linhas de construção) |
+| `janus-editavel.pdf` | PDF vetorial | O mesmo mestre para quem prefere abrir PDF no Illustrator ou no Affinity |
+| `svg/` | SVG | `janus-simbolo`, `janus-horizontal`, `janus-vertical`, `janus-nome`, cada um em azul (sem sufixo), `-claro` e `-escuro`; `janus-icone` (cantos arredondados) e `janus-icone-quadrado` |
+| `pdf/` | PDF vetorial | Os mesmos desenhos de `svg/` |
+| `png/` | PNG transparente, 512 / 1024 / 2048 px de largura | Documentos, slides, README; `janus-social-1280x640.png` é a imagem de prévia do repositório no GitHub |
+| `icones/` | `janus.ico`, `janus.icns`, PNG 64–1024 | Ícone do programa e avatar (`icone-quadrado-*`) |
 | `favicon/` | SVG, PNG 16–48 px, `favicon.ico` | Site e abas do navegador |
-| `tools/generate_brand_eye.py` | Python (Pillow; PNGs drawn by headless Chrome or Edge, PyMuPDF as a fallback without gradients) | Regenera todo o sistema de assets de forma determinística |
-
-Variações em `svg/` e `png/`: `janus-simbolo`, `janus-horizontal`, `janus-vertical` e `janus-nome`, cada uma em azul (sem sufixo), `-claro` e `-escuro`. `janus-icone` é o ícone com cantos arredondados para docks e atalhos; `janus-icone-quadrado` é sem cantos, para lugares que arredondam sozinhos (iOS, avatar do GitHub).
-
-## Como o SVG Master está montado
-
-O arquivo `branding/janus-olho-editavel.svg` contém grupos semânticos:
-- `#contornos`: Asas externas do olho (`#asa-esquerda` com gradiente de passado e `#asa-direita` com gradiente de futuro);
-- `#iris`: Camadas concêntricas de estratos espectrais (`#iris-passado` e `#iris-futuro`);
-- `#meridianos`: Marcadores verticais do meridiano de tempo e setas direcionais no horizonte;
-- `#cursor-data`: Ponto focal e anel de brilho do sensor central (`#F29A38`).
 
 ## Gerar de novo
 
 ```bash
-python tools/generate_brand_eye.py
+python tools/generate_brand.py
 ```
-O script gera os SVGs, renderiza os PNGs em todas as escalas através do PyMuPDF, compila o `janus.ico` multi-resolução e o `janus.icns` do macOS, e sincroniza automaticamente com as pastas `resources/` e `site/`.
 
-A proposta anterior (figura negra) está guardada em `arquivo/figura-negra/`.
+O script desenha todos os SVGs e PDFs, os PNGs (pelo Chrome ou Edge em modo headless; aponte a variável `CHROME` para outro navegador), os ícones `.ico` e `.icns`, a imagem `og.png` do site, e copia o que precisa para `resources/` (ícone do programa) e `site/`.
+
+## Propostas anteriores
+
+- `arquivo/olho/` — o olho bitemporal (até outubro de 2026), com o script que o gerava.
+- `arquivo/figura-negra/` — a figura negra.
+- `opcoes-anos-90/`, `10-logos-janus/`, `novas-opcoes-lote2/`, `propostas-novas/` — rodadas de opções.

@@ -74,8 +74,8 @@ p { margin: 0; }
 /* ---------- nav ---------- */
 .nav { position: sticky; top: 0; z-index: 50; background: rgba(15,15,15,.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--rule); padding-top: env(safe-area-inset-top, 0px); }
 .nav-in { max-width: var(--max); margin: 0 auto; padding-inline: var(--gutter); display: flex; align-items: center; gap: 24px; height: 64px; }
-.brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
-.brand-mark { height: 36px; width: auto; }
+.brand { display: flex; align-items: center; gap: 1px; text-decoration: none; }
+.brand-mark { height: 25.6px; width: auto; } /* the symbol at the scale of the name beside it */
 .brand-name { height: 28px; width: auto; }
 .nav nav { margin-left: auto; }
 .nav ul { list-style: none; display: flex; gap: 26px; margin: 0; padding: 0; }
@@ -88,10 +88,10 @@ p { margin: 0; }
 .hero h1 { font-size: var(--step-4); font-weight: 300; line-height: .92; letter-spacing: -.01em; text-transform: uppercase; }
 .lede { font-size: var(--step-1); line-height: 1.55; color: #C9CED6; max-width: 38ch; margin-top: 28px; }
 .cta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 34px; }
-/* The brand as the page's title: the eye and the name, large, centred */
+/* The brand as the page's title: the symbol and the name, large, centred, at one scale */
 .hero-in { display: flex; flex-direction: column; align-items: center; text-align: center; }
-.hero-brand { display: flex; align-items: center; justify-content: center; gap: clamp(12px, 3vw, 40px); margin: 0 0 clamp(20px, 3vw, 36px); }
-.hero-mark { width: clamp(120px, 20vw, 240px); height: auto; filter: drop-shadow(0 0 28px rgba(66, 150, 250, .28)); }
+.hero-brand { display: flex; align-items: center; justify-content: center; gap: clamp(4px, .66vw, 8px); margin: 0 0 clamp(20px, 3vw, 36px); }
+.hero-mark { width: clamp(105.6px, 18.36vw, 219.4px); height: auto; }
 .hero-name { width: clamp(230px, 40vw, 478px); height: auto; }
 .hero-in .eyebrow { margin-bottom: 0; }
 .hero-in .lede { margin-inline: auto; max-width: 52ch; }
@@ -99,7 +99,7 @@ p { margin: 0; }
 .hero-in .term { margin-inline: auto; width: 100%; text-align: left; }
 @media (max-width: 560px) {
   .hero-brand { flex-direction: column; gap: 6px; }
-  .hero-mark { width: 150px; }
+  .hero-mark { width: min(36vw, 138px); }
   .hero-name { width: min(78vw, 300px); }
 }
 .hero-art { margin: 0; width: 100%; display: flex; justify-content: center; }
