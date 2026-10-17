@@ -616,6 +616,16 @@ termina.
 
 ## Histórico
 
+### 0.38.0 — O símbolo novo: rewind | forward
+- O olho bitemporal sai e entra o símbolo de transporte: dois triângulos
+  vazados num eixo vertical, o passado mais alto à esquerda, o futuro mais
+  baixo à direita, com o traço, as pontas e a cor única do nome JANUS.
+- Em tudo: o ícone do programa (`janus.exe`, a janela, o instalador, os
+  atalhos e o menu de contexto do Windows), o `.icns` do macOS, o `.png` do
+  Linux, o site (favicon, navegação, capa) e o README.
+  `tools/generate_brand.py` desenha tudo a partir de um só lugar; o olho
+  fica guardado em `branding/arquivo/olho/`.
+
 ### 0.37.0 — Fases 29 a 32: validação (amostra estratificada, acurácia e área)
 - Pedidas em 2026-10-14 (decisões em "Validação: amostra estratificada e
   acurácia"): menu **Validation**, painel **Validation** (abas Design,
