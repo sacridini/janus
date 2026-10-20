@@ -616,6 +616,35 @@ termina.
 
 ## Histórico
 
+### 0.39.0 — Cache em disco com budget automático
+- Pedido em 2026-10-20: até aqui os overviews tinham um limite fixo de 20 GB
+  (só aplicado na abertura, sem aparecer em lugar nenhum) e os caches em
+  resolução total um budget próprio de 64 GB; nenhum olhava o disco, e num
+  SSD pequeno ou quase cheio os padrões podiam enchê-lo.
+- Um budget só para os dois tipos (`src/disk_cache.*`), tirado do disco que
+  guarda a pasta de cache: **automático** por padrão, um décimo do disco,
+  de 8 a 256 GB (um SSD de 256 GB: ~25 GB; um disco de 4 TB: 256 GB), ou
+  definido à mão em Settings (8 a 2048 GB).
+- Uma reserva de um décimo do disco (10 a 100 GB) fica sempre livre: quando
+  o disco enche, o budget encolhe e saem primeiro as séries abertas há mais
+  tempo; os caches das séries abertas (agora também os overviews) nunca são
+  apagados. Um overview lido do cache conta como aberto.
+- Checado na abertura, antes de gravar cada arquivo de cache, ao fechar uma
+  série e a cada minuto (a cada 2 s com Settings ou Performance abertos).
+  Um build em resolução total que não cabe não começa (o painel diz o
+  motivo: o budget ou o espaço livre); um que está rodando quando o disco
+  enche para (**Resume** quando houver espaço); um overview que não cabe é
+  montado só em memória, sem ser salvo.
+- Settings: automático ou à mão, o tamanho agora e por quê, quanto cada tipo
+  ocupa; painel Performance: seção *Disk cache*. Um `FullResBudgetGB` mudado
+  à mão é mantido; o padrão antigo (64 GB) vira automático.
+- Por que não na instalação: o espaço livre muda com o tempo, e no macOS e
+  no Linux não há um passo de instalação; `fs::space` custa microssegundos,
+  dá para checar sempre.
+- Um budget só, em vez de uma fração fixa para cada tipo: quem não usa o
+  cache em resolução total não perde espaço de overviews.
+- Os tiles do basemap seguem com o limite do GDAL (512 MB).
+
 ### 0.38.0 — O símbolo novo: rewind | forward
 - O olho bitemporal sai e entra o símbolo de transporte: dois triângulos
   vazados num eixo vertical, o passado mais alto à esquerda, o futuro mais
