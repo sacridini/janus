@@ -139,8 +139,7 @@ bool App::init(const AppOptions& opts, std::string& error) {
     settings_.cacheDir = platform::cacheDir();
     std::error_code ec;
     fs::create_directories(fs::u8path(settings_.cacheDir), ec);
-    Overview::pruneCache(settings_.cacheDir, 20ull << 30);
-    registerSettings(); // read with the layout file at the first frame (and the full-resolution caches pruned)
+    registerSettings(); // read with the layout file at the first frame (then the disk caches regulated)
     registerBasemapSettings();
     settings_.ioThreads = opts.ioThreads;
     settings_.maxTexSize = std::min<int>(gpu_.maxCubeSide(), 16384);
@@ -386,6 +385,7 @@ void App::frame() {
         appliedCmap_ = cmap_[ModeValue];
     }
 
+    pumpDiskCache();
     pumpBasemap();
     pumpZeit();
     pumpEmbeddings();
@@ -2708,6 +2708,9 @@ void App::uiPerf() {
             ImGui::Text("Read from cache in %.2f s", ov.buildSeconds());
         else if (ov.complete() && ov.cachedLayers())
             ImGui::Text("Built in %.2f s (%d dates resumed from cache)", ov.buildSeconds(), ov.cachedLayers());
+        else if (ov.complete() && !ov.cacheError().empty())
+            ImGui::TextColored(theme::warning(), "Built in %.2f s, not saved to cache: %s", ov.buildSeconds(),
+                               ov.cacheError().c_str());
         else if (ov.complete())
             ImGui::Text("Built in %.2f s (saved to cache)", ov.buildSeconds());
         else
@@ -2725,6 +2728,7 @@ void App::uiPerf() {
         ImGui::Text("Queue: %d (background), %d (interactive)", s_->bgPool().pending(), s_->fgPool().pending());
         uiFullRes();
     }
+    uiDiskCachePerf();
     uiBasemapPerf();
     ImGui::SeparatorText("Zeit");
     if (!zeit_ || zeit_->state() == ZeitClient::State::Off) {

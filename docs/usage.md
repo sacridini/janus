@@ -263,8 +263,8 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | RGB of three bands | **Display** panel → RGB composite (one file per date with several bands): *Three bands of each date as RGB*, a preset (true colour, colour infrared, SWIR, agriculture, land/water: bands found by their names or wavelengths) or any three bands, the map's date or a fixed one, the stretch of each channel (2–98% of the first image, kept for every date; *Stretch to this image*). The chart, the cursor and the tools keep the series' band or index; zoomed in, the visible area is read again at full resolution; map panels, the swipe, PNGs and animations show it too |
 | Python of a series | Time series panel → **Copy Python** → the cursor, a pin or the ROI: code (numpy, rasterio) that reads the same series from the files (band, normalized difference, quality mask; the ROI's pixels inside it), prints its statistics and, with a Zeit tool on the chart, makes the same Zeit calls with the same parameters (as the tool made them: recorded, not rewritten) |
 | Reset layout | **View → Reset layout** (`Ctrl+Shift+R`, Mac: `Command+Shift+R`): every panel docked where it was at the first start, the floating windows (Exports, Tasks, Log, Settings) back to their first size and place, map panels to the right of the main map; the panels open stay open |
-| Performance panel | **View → Performance** (hidden by default): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**) |
-| Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus, Studio, Graphite), font size, whether the Files panel follows what is opened, processing threads, overview memory, full-resolution cache (when it is built, its budget) and clearing the caches; kept between sessions (see [Settings](#settings)) |
+| Performance panel | **View → Performance** (hidden by default): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**), disk cache (what the caches take, their budget, the disk's free space) |
+| Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus, Studio, Graphite), font size, whether the Files panel follows what is opened, processing threads, overview memory, the disk cache budget (automatic or set by hand), full-resolution cache (when it is built) and clearing the caches; kept between sessions (see [Settings](#settings)) |
 | Several series | **Layers** panel or File → Add layer (`Ctrl+L`): show/hide (`Space`: the active layer), order, opacity, close; click a name to make it active. Layers in another CRS show "reprojected from EPSG:…" (hover for the grid size and its error) |
 | Basemap | **Layers** panel → Basemap (below the layers): pick a source (None = nothing downloaded), tick to show/hide, opacity; `S` shows or hides satellite imagery (Esri World Imagery, or the imagery source picked); *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. The source and its settings are kept between sessions, but it starts hidden, as does every series opened (tick to show); the map panels' and the swipe's layer list has *Basemap only* |
 | Browse files | **Files** panel: double click opens, right click → Add as layer or Add to favorites; Ctrl+click selects several files; hover a folder for what it would open as. Opening a series expands the tree down to it (Settings → *Files panel follows what is opened*) |
@@ -779,9 +779,22 @@ folder).
   built in a pass of its own (54 s per tile, bound by the disk). Each date is saved as it is
   built and used right away; a stopped build resumes.
 - The cache is on by default for series on an HDD; **File → Settings**
-  turns it on for every series or leaves it to **Build it now** (per series),
-  and sets its budget (64 GB by default: the least recently opened series leave
-  first). With the files on an SSD it matters less.
+  turns it on for every series or leaves it to **Build it now** (per series).
+  With the files on an SSD it matters less.
+- **Disk cache budget**: the overview and full-resolution caches share one
+  budget, taken from the disk that holds the cache folder. Automatic (the
+  default): a tenth of the disk, 8 to 256 GB (a 256 GB SSD: ~25 GB; a 4 TB
+  disk: 256 GB); **File → Settings** sets one by hand instead. Either way a
+  tenth of the disk (10 to 100 GB) is left free: as the disk fills up the
+  budget shrinks and the least recently opened series leave the cache first;
+  the open series' caches are never removed. Checked at startup, before each
+  cache file is written, when a series is closed and every minute. A
+  full-resolution build that does not fit is not started (the panel says why:
+  the budget, or the disk's free space); one running when the disk fills up
+  stops (**Resume** once there is room); an overview that does not fit is
+  built in memory without being saved. The Performance panel shows what the
+  caches take, the budget and the disk's free space. Basemap tiles keep their
+  own limit (512 MB, `cache\basemap`).
 - **Threads**: on an SSD the background readers (overview, full-resolution
   cache) use the processing threads of [Settings](#settings), at most 12, and
   exact series, ROI, tiles and the transect up to 4. On an HDD both are one
@@ -804,7 +817,8 @@ once and is kept in the layout file, next to the other data of Janus
 | Files panel follows what is opened | On by default: opening a series, a file or a folder (from anywhere) expands the Files panel down to it and scrolls there; its folder is listed again, so new files show up |
 | Processing threads | How many CPU threads Janus and Zeit may use, shown as *N of M* logical cores; default: all but 2 (at least 1), so the computer stays responsive during long runs. Applies to the readers of the open series (they shrink or grow at once), the full-resolution cache, exports (GeoTIFF compression, PNG) and Zeit: raster jobs started from then on (as `OMP_NUM_THREADS`, `NUMBA_NUM_THREADS`, the BLAS limits and Zeit's `n_jobs`; jobs already running keep theirs) and the process that fits the chart and estimates run times (replaced in the background once idle) |
 | Overview memory | Memory for the cube overview (1024 MB by default); **Apply** reopens the active layer. `--budget` overrides it for one run |
-| Clear overview cache | Deletes the cached overviews except the active layer's |
-| Full-resolution cache | When it is built (on demand, series on an HDD, every series), its budget, and clearing it (see [Performance](#performance)) |
+| Disk cache budget | **Automatic** (the default: a tenth of the disk holding the cache folder, 8 to 256 GB) or a size set by hand, 8 to 2048 GB; shows the size now, why it is smaller when the disk is filling up, and what the overviews and full-resolution caches take (see [Performance](#performance)). From an older version, a full-resolution cache budget changed by hand is kept; the old default (64 GB) becomes automatic |
+| Clear overview cache | Deletes the cached overviews except the open series' |
+| Full-resolution cache | When it is built (on demand, series on an HDD, every series), and clearing it (see [Performance](#performance)) |
 | Interpreter | The name your labels of a validation project are kept under (by default your login), see [Validation](#validation-accuracy-and-area-olofsson-et-al-2014) |
 | Video export (ffmpeg) | The `ffmpeg` executable used for MP4 and WebM animations (**Browse...**); empty: one next to Janus, else the one on PATH (see [Animation](#animation-gif-mp4-webm)) |

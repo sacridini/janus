@@ -35,7 +35,9 @@ struct SessionSettings {
     // series on an HDD only, or never (then on demand: Session::buildFullRes).
     enum FullRes { FullResOff = 0, FullResHdd = 1, FullResAll = 2 };
     int fullResMode = FullResHdd;
-    uint64_t fullResBudgetBytes = 64ull << 30;
+    // Disk cache budget (overviews and full-resolution caches, disk_cache.hpp):
+    // bytes, 0 = automatic (from the disk holding cacheDir).
+    uint64_t cacheBudgetBytes = 0;
 };
 
 struct SeriesResult {
@@ -85,9 +87,10 @@ public:
     // Starts (or resumes) building the full-resolution cache now, whatever the
     // setting. False if it cannot be built: see fullRes->error().
     bool buildFullRes();
-    // A new processing threads setting: the pools grow or shrink now (jobs
-    // running keep going), a full-resolution build started later uses it.
-    void setThreads(const SessionSettings& s);
+    // New processing threads or disk cache budget settings: the pools grow or
+    // shrink now (jobs running keep going), a full-resolution build started
+    // later uses both.
+    void applySettings(const SessionSettings& s);
 
     std::shared_ptr<const CubeInfo> info;
     std::shared_ptr<FullResCache> fullRes; // before the pools: their jobs use it
@@ -105,7 +108,7 @@ public:
 private:
     std::function<void()> wake_;
     int fullResDecodeThreads_ = 1;
-    uint64_t fullResBudget_ = 0;
+    uint64_t cacheBudget_ = 0;
     std::mutex seriesM_;
     std::vector<SeriesResult> seriesResults_;
     std::atomic<uint64_t> nextSeriesId_{1};

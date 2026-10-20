@@ -125,6 +125,7 @@ set(JANUS_SOURCES
   src/zeit_client.cpp
   src/basemap.cpp
   src/cube.cpp
+  src/disk_cache.cpp
   src/embedding.cpp
   src/embedding_simd.cpp
   src/fullres_cache.cpp

@@ -403,6 +403,7 @@ void App::removeLayer(int i) {
         s_ = nullptr;
     }
     layers_.erase(layers_.begin() + i);
+    nextDiskCheck_ = 0; // its caches may go now
     if (layers_.empty()) {
         active_ = -1;
         pins_.clear();
@@ -425,6 +426,7 @@ void App::closeAll() {
     clearRoi();
     s_ = nullptr;
     layers_.clear();
+    nextDiskCheck_ = 0;
     active_ = -1;
     pins_.clear();
     hover_ = SeriesView{};

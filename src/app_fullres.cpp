@@ -61,9 +61,9 @@ void App::uiFullRes() {
             ImGui::PopTextWrapPos();
         } else if (c.building()) {
             ImGui::TextDisabled("Building in the background; cached dates are used already");
-        } else if (!c.readOnly() && ImGui::Button("Resume", ImVec2(-1, 0))) {
-            s_->buildFullRes();
         }
+        // Also after a stop for room (pumpDiskCache): resumes if the dates fit now.
+        if (!c.building() && !c.readOnly() && ImGui::Button("Resume", ImVec2(-1, 0))) s_->buildFullRes();
     }
     ImGui::SetItemTooltip("%s", c.path().c_str());
     if (c.seriesHits()) ImGui::Text("Series from the cache: %.2f ms (%d reads)", c.lastSeriesMs(), c.seriesHits());
@@ -91,17 +91,11 @@ void App::uiFullResSettings() {
                           "than raw floats, lossless), built in the background: exact series, ROI\n"
                           "and detail tiles read from it in about a millisecond. On an HDD the\n"
                           "first build shares the overview's read of the files.");
-    int gb = int(settings_.fullResBudgetBytes >> 30);
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::SliderInt("##fullresBudget", &gb, 8, 2048, "Full-resolution cache budget: %d GB",
-                         ImGuiSliderFlags_Logarithmic)) {
-        settings_.fullResBudgetBytes = uint64_t(std::max(1, gb)) << 30;
-        ImGui::MarkIniSettingsDirty();
+    if (ImGui::Button("Clear full-resolution cache", ImVec2(-1, 0))) {
+        FullResCache::clear(settings_.cacheDir);
+        nextDiskCheck_ = 0;
     }
-    ImGui::SetItemTooltip("The least recently opened series leave the cache when a new one needs room.");
-    if (ImGui::Button("Clear full-resolution cache", ImVec2(-1, 0))) FullResCache::clear(settings_.cacheDir);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) // lists the folder: only when asked
-        ImGui::SetTooltip("%.1f GB in %s (series open now are kept)", FullResCache::folderBytes(settings_.cacheDir) / 1e9,
+    ImGui::SetItemTooltip("%.1f GB in %s (series open now are kept)", diskBudget_.fullRes / double(1ull << 30),
                           settings_.cacheDir.c_str());
 }
 

@@ -1,8 +1,9 @@
 // Settings window (File > Settings..., Ctrl+,): the interface theme and font
 // size, the Files panel, the processing threads (Janus' pools and exports,
-// Zeit's processes), the overview memory and the caches. Every value is kept in
-// the layout .ini ([Janus][Settings], with the last export folder); --budget
-// and --threads override theirs for one run.
+// Zeit's processes), the overview memory and the caches, whose disk budget is
+// regulated here too (pumpDiskCache). Every value is kept in the layout .ini
+// ([Janus][Settings], with the last export folder); --budget and --threads
+// override theirs for one run.
 #include "app.hpp"
 
 #include <algorithm>
@@ -13,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -44,7 +46,10 @@ void App::registerSettings() {
         };
         int v = 0;
         if (value("FullResCache=", v)) s.fullResMode = std::clamp(v, 0, 2);
-        else if (value("FullResBudgetGB=", v)) s.fullResBudgetBytes = uint64_t(std::clamp(v, 1, 1 << 20)) << 30;
+        else if (value("CacheBudgetGB=", v)) s.cacheBudgetBytes = uint64_t(std::clamp(v, 0, 1 << 20)) << 30;
+        // Up to 0.38 the full-resolution caches alone had a budget: one changed
+        // by hand is kept, the old default (64 GB) becomes automatic.
+        else if (value("FullResBudgetGB=", v) && v != 64) s.cacheBudgetBytes = uint64_t(std::clamp(v, 8, 1 << 20)) << 30;
         else if (value("OverviewBudgetMB=", v)) app.overviewBudgetMB_ = std::clamp(v, 64, 1 << 20);
         else if (value("Threads=", v)) s.threads = std::max(0, v); // 0: the default
         else if (value("FontSize=", v)) app.fontSize_ = std::clamp(v, kMinFontSize, kMaxFontSize);
@@ -59,22 +64,22 @@ void App::registerSettings() {
             for (int i = 0; i < theme::Count; ++i)
                 if (std::strcmp(line + 6, theme::name(i)) == 0) app.theme_ = i;
     };
-    // Once every value is known: the oldest full-resolution caches go (as the
-    // overview's at startup), the budget and the threads apply; the theme at
-    // the start of the frame.
+    // Once every value is known: the overview memory and the threads apply,
+    // the disk caches are regulated at the next frame; the theme at the start
+    // of the frame.
     h.ApplyAllFn = [](ImGuiContext*, ImGuiSettingsHandler* handler) {
         App& app = *static_cast<App*>(handler->UserData);
-        FullResCache::prune(app.settings_.cacheDir, app.settings_.fullResBudgetBytes);
+        app.nextDiskCheck_ = 0;
         app.applyOverviewBudget();
         app.applyThreads();
     };
     h.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buf) {
         const App& app = *static_cast<App*>(handler->UserData);
         const SessionSettings& s = app.settings_;
-        buf->appendf("[Janus][Settings]\nFullResCache=%d\nFullResBudgetGB=%d\nOverviewBudgetMB=%d\nThreads=%d\n"
+        buf->appendf("[Janus][Settings]\nFullResCache=%d\nCacheBudgetGB=%d\nOverviewBudgetMB=%d\nThreads=%d\n"
                      "Theme=%s\nFontSize=%d\nRevealOpened=%d\nExportDir=%s\nFfmpeg=%s\nPanelOpacity=%d\n"
                      "WindowOpacity=%d\n",
-                     s.fullResMode, int(s.fullResBudgetBytes >> 30), app.overviewBudgetMB_, s.threads,
+                     s.fullResMode, int(s.cacheBudgetBytes >> 30), app.overviewBudgetMB_, s.threads,
                      theme::name(app.theme_), app.fontSize_, int(app.revealOpened_), app.exportDir_.c_str(),
                      app.ffmpegPath_.c_str(), int(std::lround(app.panelOpacity_ * 100)),
                      int(std::lround(app.windowOpacity_ * 100)));
@@ -142,7 +147,7 @@ void App::applyFont() {
 
 void App::applyThreads() {
     threadsChanged_ = std::chrono::steady_clock::now();
-    for (SeriesLayer& L : layers_) L.session->setThreads(settings_);
+    for (SeriesLayer& L : layers_) L.session->applySettings(settings_);
     if (zeit_) zeit_->setJobThreads(settings_.processingThreads()); // the serve process: pumpZeit
 }
 
@@ -153,9 +158,86 @@ void App::applyOverviewBudget() {
 
 void App::clearOverviewCache() {
     std::error_code ec;
-    const std::string keep = s_ ? fs::u8path(s_->overview.cachePath()).filename().u8string() : "";
     for (auto& e : fs::directory_iterator(fs::u8path(settings_.cacheDir), ec))
-        if (e.path().extension() == ".januscube" && e.path().filename().u8string() != keep) fs::remove(e.path(), ec);
+        if (e.path().extension() == diskcache::kOverviewExt && !diskcache::inUse(e.path().u8string()))
+            fs::remove(e.path(), ec);
+    nextDiskCheck_ = 0;
+}
+
+void App::pumpDiskCache() {
+    PROFILE_ZONE();
+    const double now = ImGui::GetTime();
+    if (nextDiskCheck_ > 0 && now < nextDiskCheck_) return;
+    nextDiskCheck_ = now + (showSettings_ || showPerf_ ? 2.0 : 60.0);
+    const std::string& dir = settings_.cacheDir;
+    diskBudget_ = diskcache::budget(dir, settings_.cacheBudgetBytes);
+    if (diskBudget_.used <= diskBudget_.bytes) return;
+    // Over the budget (the disk filling up, or a smaller budget): the least
+    // recently opened series' caches go; if those in use still take too much,
+    // their full-resolution builds stop (Resume once there is room).
+    diskcache::prune(dir, diskBudget_.bytes);
+    diskBudget_ = diskcache::budget(dir, settings_.cacheBudgetBytes);
+    if (diskBudget_.used <= diskBudget_.bytes) return;
+    const double GB = double(1ull << 30);
+    char why[192];
+    if (diskBudget_.byDisk())
+        std::snprintf(why, sizeof(why), "stopped: the disk has %.1f GB free and Janus keeps %.0f GB of it free",
+                      diskBudget_.available / GB, diskBudget_.reserve / GB);
+    else
+        std::snprintf(why, sizeof(why), "stopped: the open series' caches take %.1f GB, more than the budget (%.0f GB)",
+                      diskBudget_.used / GB, diskBudget_.bytes / GB);
+    for (SeriesLayer& L : layers_)
+        if (L.session->fullRes->building()) L.session->fullRes->stop(why);
+}
+
+void App::setCacheBudget(uint64_t bytes) {
+    settings_.cacheBudgetBytes = bytes;
+    ImGui::MarkIniSettingsDirty();
+    for (SeriesLayer& L : layers_) L.session->applySettings(settings_);
+    nextDiskCheck_ = 0;
+}
+
+// Settings: automatic or by hand, what it is now and why, what the caches take.
+void App::uiDiskCacheSettings() {
+    PROFILE_ZONE();
+    const diskcache::Budget& b = diskBudget_;
+    const double GB = double(1ull << 30);
+    bool automatic = settings_.cacheBudgetBytes == 0;
+    if (ImGui::Checkbox("Disk cache budget: automatic", &automatic))
+        setCacheBudget(automatic ? 0 : uint64_t(std::max<int64_t>(8, std::llround(b.cap / GB))) << 30);
+    ImGui::SetItemTooltip("The overview and full-resolution caches share it. Automatic: a tenth of the\n"
+                          "disk holding the cache folder, 8 to 256 GB. Either way a tenth of the disk\n"
+                          "(10 to 100 GB) stays free: as the disk fills up the budget shrinks, and the\n"
+                          "least recently opened series leave the cache first.");
+    if (automatic) {
+        if (b.disk) ImGui::TextDisabled("%.0f GB: a tenth of the %.0f GB disk (8 to 256 GB)", b.cap / GB, b.disk / GB);
+        else ImGui::TextDisabled("%.0f GB (the disk's size is unknown)", b.cap / GB);
+    } else {
+        int gb = int(settings_.cacheBudgetBytes >> 30);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::SliderInt("##cacheBudget", &gb, 8, 2048, "Disk cache budget: %d GB", ImGuiSliderFlags_Logarithmic))
+            setCacheBudget(uint64_t(std::max(8, gb)) << 30);
+    }
+    if (b.byDisk())
+        ImGui::TextColored(theme::warning(), "Now %.1f GB: the disk has %.1f GB free, %.0f GB of it kept free",
+                           b.bytes / GB, b.available / GB, b.reserve / GB);
+    ImGui::TextDisabled("In use: %.1f GB (overviews %.1f, full resolution %.1f)", b.used / GB, b.overview / GB,
+                        b.fullRes / GB);
+    ImGui::SetItemTooltip("%s", settings_.cacheDir.c_str());
+}
+
+// Performance panel: the disk caches against their budget and the disk.
+void App::uiDiskCachePerf() {
+    const diskcache::Budget& b = diskBudget_;
+    const double GB = double(1ull << 30);
+    ImGui::SeparatorText("Disk cache");
+    ImGui::Text("%.1f of %.1f GB (%s)", b.used / GB, b.bytes / GB, b.automatic ? "automatic" : "set in Settings");
+    ImGui::SetItemTooltip("%s", settings_.cacheDir.c_str());
+    ImGui::Text("Overviews %.1f GB, full resolution %.1f GB", b.overview / GB, b.fullRes / GB);
+    if (b.disk)
+        ImGui::Text("Disk: %.0f of %.0f GB free (%.0f GB kept free)", b.available / GB, b.disk / GB, b.reserve / GB);
+    if (b.byDisk())
+        ImGui::TextColored(theme::warning(), "Budget shrunk from %.0f GB: the disk is filling up", b.cap / GB);
 }
 
 void App::uiSettings() {
@@ -277,8 +359,10 @@ void App::uiSettings() {
     } else if (opts_.budgetMB > 0) {
         ImGui::TextDisabled("--budget %d MB for this run", int(opts_.budgetMB));
     }
+    uiDiskCacheSettings();
     if (ImGui::Button("Clear overview cache", ImVec2(-1, 0))) clearOverviewCache();
-    ImGui::SetItemTooltip("%s (the active layer's is kept)", settings_.cacheDir.c_str());
+    ImGui::SetItemTooltip("%.1f GB in %s (the open series' are kept)", diskBudget_.overview / double(1ull << 30),
+                          settings_.cacheDir.c_str());
     uiFullResSettings();
     uiFfmpegSettings();
 
@@ -300,14 +384,18 @@ void App::uiSettings() {
 // their jobs still run after the pools shrink and grow), the exports and the
 // Zeit processes; every theme keeps the text and the chart colours Janus draws
 // legible (WCAG contrast: 4.5:1 for text, 3:1 for chart series), and the dark
-// theme draws the data colours as they always were. Restores both settings.
+// theme draws the data colours as they always were; the disk cache budget
+// (automatic from the disk, or by hand) counts the caches, keeps the open
+// series' and prunes the least recently opened first. Restores the settings.
 const char* App::selfTestSettings() {
     const int savedThreads = settings_.threads, savedTheme = theme_;
+    const uint64_t savedBudget = settings_.cacheBudgetBytes;
     auto restore = [&] {
         settings_.threads = savedThreads;
         applyThreads();
         theme_ = savedTheme;
         applyTheme();
+        if (settings_.cacheBudgetBytes != savedBudget) setCacheBudget(savedBudget);
     };
     auto failed = [&](const char* what) {
         restore();
@@ -426,6 +514,48 @@ const char* App::selfTestSettings() {
 #ifdef _WIN32
     if (std::fabs(got - 0.6f) > 0.01f) return failed("the window's opacity should reach the OS window");
 #endif
+
+    // Disk cache budget: automatic (regulated as at startup), then by hand
+    // (computed only: the user's caches are not pruned to it).
+    const std::string& dir = settings_.cacheDir;
+    const double GB = double(1ull << 30);
+    setCacheBudget(0);
+    pumpDiskCache();
+    const diskcache::Budget a = diskBudget_;
+    std::printf("    disk cache: automatic %.1f GB (cap %.1f GB of a %.0f GB disk, %.1f GB free, %.0f GB kept free), "
+                "%.2f GB in use\n",
+                a.bytes / GB, a.cap / GB, a.disk / GB, a.available / GB, a.reserve / GB, a.used / GB);
+    if (!a.automatic || a.cap != diskcache::autoCap(a.disk) || a.bytes > a.cap)
+        return failed("the automatic disk cache budget should be a tenth of the disk, 8 to 256 GB");
+    if (a.disk && a.bytes != std::min(a.cap, a.used + a.available > a.reserve ? a.used + a.available - a.reserve : 0))
+        return failed("the disk cache budget should keep the disk's reserve free");
+    for (SeriesLayer& L : layers_) {
+        const Session& S = *L.session;
+        if (!S.overview.cacheError().empty()) std::printf("    overview not saved: %s\n", S.overview.cacheError().c_str());
+        else if (!diskcache::inUse(S.overview.cachePath())) return failed("an open series' overview cache is not kept");
+        if (S.fullRes->started() && !diskcache::inUse(S.fullRes->path()))
+            return failed("an open series' full-resolution cache is not kept");
+    }
+    const diskcache::Budget m = diskcache::budget(dir, 8ull << 30);
+    if (m.automatic || m.cap != 8ull << 30 || m.bytes > m.cap)
+        return failed("a disk cache budget set by hand should be used");
+    setCacheBudget(savedBudget);
+    // The least recently opened goes first: an old cache, not in use, and only it.
+    const fs::path old = fs::u8path(dir) / ("00000000selftest" + std::string(diskcache::kOverviewExt));
+    {
+        std::error_code ec;
+        std::ofstream(old, std::ios::binary).close();
+        fs::resize_file(old, 1 << 20, ec);
+        fs::last_write_time(old, fs::file_time_type::clock::now() - std::chrono::hours(24 * 365 * 30), ec);
+        std::vector<fs::path> others;
+        for (auto& e : fs::directory_iterator(fs::u8path(dir), ec))
+            if (e.path() != old) others.push_back(e.path());
+        diskcache::prune(dir, diskcache::budget(dir, 0).used - (1 << 20));
+        const bool gone = !fs::exists(old, ec);
+        fs::remove(old, ec);
+        const bool kept = std::all_of(others.begin(), others.end(), [&](const fs::path& p) { return fs::exists(p, ec); });
+        if (!gone || !kept) return failed("pruning should remove the least recently opened cache, and only it");
+    }
     restore();
     return nullptr;
 }

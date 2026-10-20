@@ -407,7 +407,7 @@ int App::selfTestStep(const std::vector<std::string>& in) {
                     pins_.empty() ? -1 : pins_[0].x, layers_[1].ax, layers_[1].bx);
         if (pins_.empty() || pins_[0].x != pinBefore + 100) return fail("the pin should move to A's grid (+100)");
         if (const char* e = selfTestSettings()) return fail(e);
-        next("active layer switched, pin remapped; settings: processing threads, themes");
+        next("active layer switched, pin remapped; settings: processing threads, themes, disk cache budget");
         st_.stage = 70; // font size and the Files panel, then Zeit's threads (60), then back to 8
         break;
     }

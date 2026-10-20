@@ -60,8 +60,10 @@ public:
 
     // `budgetBytes` accounts for T floats per pixel (cube) + 8 (statistics). Metal
     // shares `data` with the GPU (see PageAllocator); GL keeps a second copy there.
+    // `cacheBudget`: the disk cache budget setting (bytes, 0 = automatic;
+    // disk_cache.hpp), within which the cache file must fit.
     void start(std::shared_ptr<const CubeInfo> info, int64_t budgetBytes, int maxTexSize,
-               JobPool& pool, const std::string& cacheDir);
+               JobPool& pool, const std::string& cacheDir, uint64_t cacheBudget);
 
     // Set before start(): builds date t at full resolution in the same read and
     // fills the overview layer (FullResCache::buildWithOverview; -1 = not handled).
@@ -76,13 +78,12 @@ public:
     int cachedLayers() const { return cachedLayers_; } // dates read from the cache
     double buildSeconds() const { return buildSeconds_.load(); }
     std::string cachePath() const { return cachePath_; }
+    std::string cacheError() const { return cacheError_; } // why it is not saved (no room)
     int failedLayers() const { return failed_.load(); }
 
 
     const float* layer(int t) const { return data.data() + size_t(t) * w * h; }
     float at(int t, int x, int y) const { return data[(size_t(t) * h + y) * w + x]; }
-
-    static void pruneCache(const std::string& cacheDir, uint64_t maxBytes);
 
 private:
     void markDone(int t);
@@ -93,7 +94,7 @@ private:
     void saveLayer(int t); // into it
 
     std::shared_ptr<const CubeInfo> info_;
-    std::string cachePath_;
+    std::string cachePath_, cacheError_;
     bool fromCache_ = false;
     int cachedLayers_ = 0;
     std::mutex fileM_;

@@ -15,6 +15,7 @@
 #include <imgui.h>
 
 #include "basemap.hpp"
+#include "disk_cache.hpp"
 #include "file_browser.hpp"
 #include "geom.hpp"
 #include "multidim.hpp"
@@ -275,6 +276,15 @@ private:
     void applyOverviewBudget();      // for the series opened from now on
     int overviewBudgetMB() const { return opts_.budgetMB > 0 ? int(opts_.budgetMB) : overviewBudgetMB_; }
     void clearOverviewCache();
+    // Disk cache budget (disk_cache.hpp): regulated at the first frame, every
+    // minute (every 2 s while Settings or Performance show it) and after a
+    // series is closed.
+    void pumpDiskCache();
+    void setCacheBudget(uint64_t bytes); // 0: automatic
+    void uiDiskCacheSettings();
+    void uiDiskCachePerf();
+    diskcache::Budget diskBudget_;
+    double nextDiskCheck_ = 0;       // ImGui::GetTime(); 0: at the next frame
     const char* selfTestSettings();  // nullptr = passed
     int selfTestZeitThreads();       // --selftest-ui stages 50-52
     void openSettings() { showSettings_ = focusSettings_ = true; }

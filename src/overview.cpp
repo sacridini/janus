@@ -8,6 +8,7 @@
 
 #include <cpl_vsi.h>
 
+#include "disk_cache.hpp"
 #include "job_pool.hpp"
 #include "profiler.hpp"
 
@@ -111,10 +112,11 @@ FILE* openFile(const std::string& path, const char* mode, bool exclusive) {
 
 Overview::~Overview() {
     if (cache_) std::fclose(cache_);
+    if (!cachePath_.empty()) diskcache::release(cachePath_);
 }
 
 void Overview::start(std::shared_ptr<const CubeInfo> info, int64_t budgetBytes, int maxTexSize,
-                     JobPool& pool, const std::string& cacheDir) {
+                     JobPool& pool, const std::string& cacheDir, uint64_t cacheBudget) {
     info_ = std::move(info);
     T = info_->T();
     const double W = info_->width, H = info_->height;
@@ -129,8 +131,9 @@ void Overview::start(std::shared_ptr<const CubeInfo> info, int64_t budgetBytes, 
 
     const uint64_t key = cacheKey(*info_, w, h);
     char name[32];
-    std::snprintf(name, sizeof(name), "%016llx.januscube", (unsigned long long)key);
+    std::snprintf(name, sizeof(name), "%016llx%s", (unsigned long long)key, diskcache::kOverviewExt);
     cachePath_ = (fs::u8path(cacheDir) / name).u8string();
+    diskcache::retain(cachePath_);
 
     // Dates already in the cache: all of them in a complete file without an
     // index (the first format), the indexed ones in a file written date by
@@ -160,6 +163,8 @@ void Overview::start(std::shared_ptr<const CubeInfo> info, int64_t budgetBytes, 
     fromCache_ = cachedLayers_ == T;
 
     if (fromCache_) {
+        std::error_code ec; // least recently opened goes first (disk_cache.hpp)
+        fs::last_write_time(fs::u8path(cachePath_), fs::file_time_type::clock::now(), ec);
         // Read layer by layer so the GPU receives data while the rest loads.
         pool.submit(0, [this, n] {
             PROFILE_ZONE_N("overview from cache");
@@ -175,10 +180,16 @@ void Overview::start(std::shared_ptr<const CubeInfo> info, int64_t budgetBytes, 
         return;
     }
 
-    // Kept open, and closed to other writers, while the missing dates are built.
-    if (indexed) {
+    // Room for the missing dates in the disk cache budget (older caches pruned
+    // to make it); without it the overview is built in memory only. Kept open,
+    // and closed to other writers, while the missing dates are built.
+    std::error_code ec;
+    const uint64_t full = sizeof(Header) + uint64_t(T) + n * sizeof(float) * T;
+    const uint64_t onDisk = indexed ? fs::file_size(fs::u8path(cachePath_), ec) : 0;
+    const bool room = diskcache::makeRoom(cacheDir, cacheBudget, full > onDisk ? full - onDisk : 0, cacheError_);
+    if (room && indexed) {
         cache_ = openFile(cachePath_, "r+b", true);
-    } else if ((cache_ = openFile(cachePath_, "w+b", true))) {
+    } else if (room && (cache_ = openFile(cachePath_, "w+b", true))) {
         std::fill(have.begin(), have.end(), 0);
         dataOffset_ = sizeof(Header) + T;
         Header hd{};
@@ -194,7 +205,7 @@ void Overview::start(std::shared_ptr<const CubeInfo> info, int64_t budgetBytes, 
             cache_ = nullptr;
         }
     }
-    if (!cache_) std::fill(have.begin(), have.end(), 0); // another session writes it: no cache
+    if (!cache_) std::fill(have.begin(), have.end(), 0); // no room, or another session writes it: no cache
     cachedLayers_ = int(std::count(have.begin(), have.end(), 1));
 
     // Build what is missing. The order follows the focused date: if the user
@@ -288,22 +299,4 @@ std::vector<int> Overview::takeReadyLayers() {
     std::vector<int> out;
     out.swap(ready_);
     return out;
-}
-
-void Overview::pruneCache(const std::string& cacheDir, uint64_t maxBytes) {
-    struct Entry { fs::path p; fs::file_time_type t; uint64_t size; };
-    std::vector<Entry> entries;
-    uint64_t total = 0;
-    std::error_code ec;
-    for (auto& e : fs::directory_iterator(fs::u8path(cacheDir), ec)) {
-        if (e.path().extension() != ".januscube") continue;
-        entries.push_back({e.path(), e.last_write_time(ec), e.file_size(ec)});
-        total += entries.back().size;
-    }
-    std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) { return a.t < b.t; });
-    for (const Entry& e : entries) {
-        if (total <= maxBytes) break;
-        fs::remove(e.p, ec);
-        total -= e.size;
-    }
 }

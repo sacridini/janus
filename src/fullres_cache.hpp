@@ -45,11 +45,14 @@ public:
     // Opens (or creates) the cache file; submitBuild then builds the missing
     // dates in `pool` (after the overview's jobs). `decodeThreads` > 1 (HDD):
     // each date is streamed by one reader and decoded by that many threads.
-    // Also resumes a stopped build. False if it cannot be used: see error().
-    bool start(int decodeThreads, uint64_t budgetBytes);
+    // Also resumes a stopped build. `budget`: the disk cache budget setting
+    // (bytes, 0 = automatic; disk_cache.hpp), within which the missing dates
+    // must fit. False if it cannot be used: see error().
+    bool start(int decodeThreads, uint64_t budget);
     void submitBuild(JobPool& pool);
     // Stops building (the date being read is dropped); what is done stays readable.
     void stop() { stop_ = true; }
+    void stop(const std::string& why); // shown as error() until resumed
     bool started() const { return started_.load(); }
     bool building() const { return started_.load() && !stop_.load() && !readOnly_ && !complete(); }
 
@@ -83,15 +86,11 @@ public:
     int windowHits() const { return windowHits_.load(); }
     double avgWindowMs() const { int n = windowHits_.load(); return n ? windowMsSum_.load() / n : 0.0; }
 
-    // Removes the oldest caches (least recently opened) until the folder's
-    // full-resolution caches take at most maxBytes; files in use are kept.
-    static void prune(const std::string& cacheDir, uint64_t maxBytes);
     // Removes every full-resolution cache not in use; returns the bytes freed.
     static uint64_t clear(const std::string& cacheDir);
-    // Size of the cache folder's full-resolution caches.
-    static uint64_t folderBytes(const std::string& cacheDir);
 
 private:
+    uint64_t bytesFor(int dates) const; // estimated size of that many dates
     bool buildDate(int t, float* ov, int ow, int oh);
     bool storeBand(int t, int by, const float* band);
     bool claim(int t);

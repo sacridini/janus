@@ -48,14 +48,14 @@ Session::Session(std::shared_ptr<CubeInfo> infoIn, const SessionSettings& s, std
     // pass does not read (its own cache had them).
     fullRes = std::make_shared<FullResCache>(info, s.cacheDir);
     fullResDecodeThreads_ = decodeThreadsFor(s, rotational);
-    fullResBudget_ = s.fullResBudgetBytes;
+    cacheBudget_ = s.cacheBudgetBytes;
     const bool wantFull = s.fullResMode == SessionSettings::FullResAll ||
                           (s.fullResMode == SessionSettings::FullResHdd && rotational);
-    if (wantFull) fullRes->start(fullResDecodeThreads_, fullResBudget_);
+    if (wantFull) fullRes->start(fullResDecodeThreads_, cacheBudget_);
     overview.fullResBuild = [c = fullRes.get()](int t, float* layer, int w, int h) {
         return c->buildWithOverview(t, layer, w, h);
     };
-    overview.start(info, s.overviewBudgetBytes, s.maxTexSize, *bg_, s.cacheDir);
+    overview.start(info, s.overviewBudgetBytes, s.maxTexSize, *bg_, s.cacheDir, cacheBudget_);
     if (wantFull) fullRes->submitBuild(*bg_);
     gpu.create(overview.w, overview.h, T, timesYears, overview.data.data(), overview.pageBytes());
     tiles = std::make_unique<TileManager>(info, overview.factor, *fg_, s.tileBudgetBytes, fullRes);
@@ -173,14 +173,15 @@ std::shared_ptr<RoiData> Session::startRoi(int x0, int y0, int x1, int y1, const
     return roi;
 }
 
-void Session::setThreads(const SessionSettings& s) {
+void Session::applySettings(const SessionSettings& s) {
     bg_->setThreads(bgThreadsFor(s, rotational));
     fg_->setThreads(fgThreadsFor(s, rotational));
     fullResDecodeThreads_ = decodeThreadsFor(s, rotational);
+    cacheBudget_ = s.cacheBudgetBytes;
 }
 
 bool Session::buildFullRes() {
-    if (!fullRes->start(fullResDecodeThreads_, fullResBudget_)) return false;
+    if (!fullRes->start(fullResDecodeThreads_, cacheBudget_)) return false;
     fullRes->submitBuild(*bg_);
     return true;
 }

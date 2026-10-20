@@ -7,12 +7,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <map>
 #include <thread>
 
 #include <cpl_compressor.h>
 #include <gdal_priv.h>
 
+#include "disk_cache.hpp"
 #include "job_pool.hpp"
 #include "overview.hpp"
 #include "profiler.hpp"
@@ -26,7 +26,7 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr char kMagic[8] = {'J', 'A', 'N', 'U', 'S', 'F', 'R', '1'};
-constexpr const char* kExt = ".janusfull";
+constexpr const char* kExt = diskcache::kFullResExt;
 
 // File: header, one flag per date, one block table per date (nb offsets, then
 // nb sizes), then the blocks. A date's blocks are written first, then its
@@ -75,16 +75,6 @@ FILE* openFile(const std::string& path, const char* mode, bool exclusive) {
     (void)exclusive;
     return std::fopen(path.c_str(), mode);
 #endif
-}
-
-// Caches open in this process: never pruned or cleared.
-std::mutex gInUseM;
-std::map<std::string, int> gInUse;
-
-bool inUse(const fs::path& p) {
-    std::lock_guard<std::mutex> lk(gInUseM);
-    auto it = gInUse.find(p.filename().u8string());
-    return it != gInUse.end() && it->second > 0;
 }
 
 // Lossless block coding. Neighbouring floats share sign, exponent and high
@@ -284,10 +274,7 @@ FullResCache::~FullResCache() {
     stop_ = true;
     if (w_) std::fclose(w_);
     for (FILE* f : readers_) std::fclose(f);
-    if (!path_.empty()) {
-        std::lock_guard<std::mutex> lk(gInUseM);
-        --gInUse[fs::u8path(path_).filename().u8string()];
-    }
+    if (!path_.empty()) diskcache::release(path_);
 }
 
 std::string FullResCache::error() const {
@@ -295,18 +282,33 @@ std::string FullResCache::error() const {
     return error_;
 }
 
-uint64_t FullResCache::estimatedBytes() const {
+// From the dates written, else the lossless ratio measured on Landsat NDVI (1.42).
+uint64_t FullResCache::bytesFor(int dates) const {
     const int done = nDone_.load();
-    if (done > 0 && end_.load() > dataOffset_)
-        return dataOffset_ + uint64_t(double(end_.load() - dataOffset_) / done * T_);
-    // Measured lossless ratio on Landsat NDVI: 1.42.
-    return dataOffset_ + uint64_t(double(W_) * H_ * T_ * 4 / 1.4);
+    const double perDate = done > 0 && end_.load() > dataOffset_ ? double(end_.load() - dataOffset_) / done
+                                                                 : double(W_) * H_ * 4 / 1.4;
+    return uint64_t(perDate * std::max(0, dates));
 }
 
-bool FullResCache::start(int decodeThreads, uint64_t budgetBytes) {
-    if (started_) { // resume after stop()
+uint64_t FullResCache::estimatedBytes() const { return dataOffset_ + bytesFor(T_); }
+
+void FullResCache::stop(const std::string& why) {
+    std::lock_guard<std::mutex> lk(m_);
+    error_ = why;
+    stop_ = true;
+}
+
+bool FullResCache::start(int decodeThreads, uint64_t budget) {
+    if (started_) { // resume after stop(), if the missing dates still fit
+        {
+            std::lock_guard<std::mutex> lk(m_);
+            if (readOnly_ || !w_) return complete();
+        }
+        std::string why;
+        const bool room = diskcache::makeRoom(cacheDir_, budget, bytesFor(T_ - nDone_.load()), why);
         std::lock_guard<std::mutex> lk(m_);
-        if (readOnly_ || !w_) return complete();
+        error_ = why;
+        if (!room) return false;
         for (char& s : state_)
             if (s == 3) s = 0;
         stop_ = false;
@@ -328,11 +330,9 @@ bool FullResCache::start(int decodeThreads, uint64_t budgetBytes) {
     key_ = cubeCacheKey(*info_, saltBytes, sizeof(saltBytes));
     char name[40];
     std::snprintf(name, sizeof(name), "%016llx%s", (unsigned long long)key_, kExt);
-    if (path_.empty()) { // a start() that failed may be retried
-        std::lock_guard<std::mutex> lk(gInUseM);
-        ++gInUse[name];
-    }
+    const bool retry = !path_.empty(); // a start() that failed may be retried
     path_ = (fs::u8path(cacheDir_) / name).u8string();
+    if (!retry) diskcache::retain(path_);
     tableOffset_ = sizeof(Header) + uint64_t(T_);
     dataOffset_ = tableOffset_ + uint64_t(T_) * nb_ * 12;
     off_.assign(size_t(T_) * nb_, 0);
@@ -392,8 +392,8 @@ bool FullResCache::start(int decodeThreads, uint64_t budgetBytes) {
         return true;
     }
 
-    // Room for the missing dates: within the budget (older caches pruned) and
-    // on the disk.
+    // Room for the missing dates in the disk cache budget (older caches pruned
+    // to make it, disk_cache.hpp).
     auto fail = [&](const std::string& why) {
         std::lock_guard<std::mutex> lk(m_);
         error_ = why;
@@ -401,26 +401,9 @@ bool FullResCache::start(int decodeThreads, uint64_t budgetBytes) {
         started_ = nDone_ > 0; // what is there stays readable
         return started_.load();
     };
-    const uint64_t raw = uint64_t(double(W_) * H_ * T_ * 4 / 1.4);
-    const uint64_t need = dataOffset_ + raw / T_ * (T_ - nDone_.load());
-    const uint64_t have = valid ? fs::file_size(p, ec) : 0;
-    char msg[160];
-    if (need > budgetBytes) {
-        std::snprintf(msg, sizeof(msg), "needs %.1f GB, more than the cache budget (%.0f GB)", need / 1e9,
-                      budgetBytes / 1e9);
-        return fail(msg);
-    }
-    prune(cacheDir_, budgetBytes - need);
-    if (folderBytes(cacheDir_) - have + need > budgetBytes) {
-        std::snprintf(msg, sizeof(msg), "needs %.1f GB; the budget (%.0f GB) is taken by caches in use", need / 1e9,
-                      budgetBytes / 1e9);
-        return fail(msg);
-    }
-    const fs::space_info sp = fs::space(fs::u8path(cacheDir_), ec);
-    if (!ec && sp.available < need + (2ull << 30)) {
-        std::snprintf(msg, sizeof(msg), "needs %.1f GB, the disk has %.1f GB free", need / 1e9, sp.available / 1e9);
-        return fail(msg);
-    }
+    std::string why;
+    if (!diskcache::makeRoom(cacheDir_, budget, (valid ? 0 : dataOffset_) + bytesFor(T_ - nDone_.load()), why))
+        return fail(why);
 
     // Kept open, and closed to other writers, while dates are missing.
     if (valid) {
@@ -735,39 +718,13 @@ bool FullResCache::readWindow(int t, int x, int y, int w, int h, float* buf, int
     return true;
 }
 
-void FullResCache::prune(const std::string& cacheDir, uint64_t maxBytes) {
-    struct Entry { fs::path p; fs::file_time_type t; uint64_t size; };
-    std::vector<Entry> entries;
-    uint64_t total = 0;
-    std::error_code ec;
-    for (auto& e : fs::directory_iterator(fs::u8path(cacheDir), ec)) {
-        if (e.path().extension() != kExt) continue;
-        entries.push_back({e.path(), e.last_write_time(ec), e.file_size(ec)});
-        total += entries.back().size;
-    }
-    std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) { return a.t < b.t; });
-    for (const Entry& e : entries) {
-        if (total <= maxBytes) break;
-        if (inUse(e.p) || !fs::remove(e.p, ec)) continue;
-        total -= e.size;
-    }
-}
-
 uint64_t FullResCache::clear(const std::string& cacheDir) {
     uint64_t freed = 0;
     std::error_code ec;
     for (auto& e : fs::directory_iterator(fs::u8path(cacheDir), ec)) {
-        if (e.path().extension() != kExt || inUse(e.path())) continue;
+        if (e.path().extension() != kExt || diskcache::inUse(e.path().u8string())) continue;
         const uint64_t size = e.file_size(ec);
         if (fs::remove(e.path(), ec)) freed += size;
     }
     return freed;
-}
-
-uint64_t FullResCache::folderBytes(const std::string& cacheDir) {
-    uint64_t total = 0;
-    std::error_code ec;
-    for (auto& e : fs::directory_iterator(fs::u8path(cacheDir), ec))
-        if (e.path().extension() == kExt) total += e.file_size(ec);
-    return total;
 }
