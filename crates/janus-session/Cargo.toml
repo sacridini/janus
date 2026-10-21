@@ -1,0 +1,10 @@
+[package]
+name = "janus-session"
+description = "Janus: one open series and its background work (overview, full-resolution cache, series, ROI, tiles)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+janus-cache = { path = "../janus-cache" }
+janus-cube = { path = "../janus-cube" }

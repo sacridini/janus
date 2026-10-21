@@ -7,7 +7,12 @@ license.workspace = true
 
 [dependencies]
 bytemuck = "1"
+gdal.workspace = true
 janus-cube = { path = "../janus-cube" }
+janus-gdal = { path = "../janus-gdal" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 mimalloc = { version = "0.1", default-features = false }

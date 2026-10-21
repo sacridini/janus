@@ -141,17 +141,17 @@ impl State {
         let t = self.display.t;
         let response = plot.show(ui, |plot| {
             if let Some(hv) = self.hover {
-                let (values, exact) = match s.hover_exact(hv.src.0, hv.src.1) {
+                let (values, exact) = match s.exact(hv.src.0, hv.src.1) {
                     Some(e) => (e.values, true),
-                    None => (s.overview.series(hv.ov.0, hv.ov.1), false),
+                    None => (s.s.overview.series(hv.ov.0, hv.ov.1), false),
                 };
                 let name = if exact { "cursor" } else { "cursor (overview)" };
                 add_series(plot, name, &xs, &values, theme::cursor_series(), if exact { 1.5 } else { 1.0 });
             }
             for (i, pin) in self.pins.iter().enumerate() {
                 let values = s
-                    .pin_exact(pin.at.src.0, pin.at.src.1)
-                    .map_or_else(|| s.overview.series(pin.at.ov.0, pin.at.ov.1), |e| e.values);
+                    .exact(pin.at.src.0, pin.at.src.1)
+                    .map_or_else(|| s.s.overview.series(pin.at.ov.0, pin.at.ov.1), |e| e.values);
                 add_series(plot, &format!("pin {}", i + 1), &xs, &values, pin.color, 1.5);
             }
             plot.vline(VLine::new("date", xs[t]).color(egui::Color32::from_rgb(242, 154, 56)).width(1.0));
@@ -163,7 +163,7 @@ impl State {
             let nt = info.nearest_layer(p.x);
             if nt != self.display.t {
                 self.display.t = nt;
-                s.overview.set_focus(nt);
+                s.s.overview.set_focus(nt);
             }
         }
     }

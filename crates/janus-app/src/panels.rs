@@ -53,7 +53,7 @@ impl State {
             }
             ui.strong(&labels[d.t]);
         });
-        s.overview.set_focus(d.t);
+        s.s.overview.set_focus(d.t);
         ui.horizontal(|ui| {
             ui.checkbox(&mut d.playing, "Play (P)");
             ui.weak(format!("date {} of {n}", d.t + 1));
@@ -167,7 +167,7 @@ impl State {
             if let (Some(a), Some(b)) = (i.layers.first(), i.layers.last()) {
                 row("dates", format!("{} to {}", a.label, b.label));
             }
-            let ov = &s.overview;
+            let ov = &s.s.overview;
             row("overview", format!("{} x {} (1:{:.2})", ov.w, ov.h, ov.factor));
             row("cache", ov.cache_path().file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default());
         });
@@ -180,7 +180,7 @@ impl State {
             ui.weak("Hover the map for the pixel's statistics.");
             return;
         };
-        let ov = &s.overview;
+        let ov = &s.s.overview;
         let p = at.ov.1 * ov.w + at.ov.0;
         ui.weak(format!("pixel ({}, {}), overview ({}, {})", at.src.0, at.src.1, at.ov.0, at.ov.1));
         Grid::new("pixel stats").num_columns(2).striped(true).show(ui, |ui| {
@@ -208,7 +208,7 @@ impl State {
                 ui.weak(format!("largest drop at {}", s.info.layers[dt as usize].label));
             }
         }
-        if let Some(e) = s.hover_exact(at.src.0, at.src.1).or_else(|| s.pin_exact(at.src.0, at.src.1)) {
+        if let Some(e) = s.exact(at.src.0, at.src.1).or_else(|| s.exact(at.src.0, at.src.1)) {
             let valid: Vec<f32> = e.values.iter().copied().filter(|v| !v.is_nan()).collect();
             let mean = valid.iter().sum::<f32>() / valid.len().max(1) as f32;
             ui.separator();
@@ -237,7 +237,7 @@ impl State {
             row("GPU", format!("{} ({:?})", info.name, info.backend));
             if let Some(s) = &self.session {
                 row("open (metadata)", format!("{:.0} ms", s.open_ms));
-                let ov = &s.overview;
+                let ov = &s.s.overview;
                 row(
                     "overview",
                     format!(
@@ -259,6 +259,30 @@ impl State {
                 if let Some(r) = s.ready_ms {
                     row("open to statistics", format!("{r:.0} ms"));
                 }
+                let c = &s.s.full_res;
+                row(
+                    "full-resolution cache",
+                    if c.started() {
+                        format!(
+                            "{}/{} dates, {:.2} GB, {}",
+                            c.dates_done(),
+                            s.info.t(),
+                            c.bytes() as f64 / 1e9,
+                            c.codec()
+                        )
+                    } else if c.error().is_empty() {
+                        "off (series on an SSD)".into()
+                    } else {
+                        c.error()
+                    },
+                );
+                if c.series_hits() > 0 {
+                    row(
+                        "series from the cache",
+                        format!("{} ({:.2} ms the last)", c.series_hits(), c.last_series_ms()),
+                    );
+                }
+                row("disk", if s.s.rotational { "spinning (HDD): one reader".into() } else { "SSD".to_string() });
             }
             let f = &self.perf;
             if let Some((p50, p95, max)) = f.summary() {

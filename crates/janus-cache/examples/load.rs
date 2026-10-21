@@ -11,10 +11,12 @@ fn main() {
         budget_bytes: 1024 << 20,
         max_texture: 16384,
         cache_dir: janus_cache::overview::default_cache_dir(),
-        threads: 12,
+        cache_budget: 0,
+        full_res: None,
     };
+    let pool = janus_cache::JobPool::new(12, "bg", None);
     let t = Instant::now();
-    let ov = janus_cache::Overview::start(info, &opts, || {});
+    let ov = janus_cache::Overview::start(info, &opts, &pool, || {});
     while !ov.complete() {
         std::thread::yield_now();
     }

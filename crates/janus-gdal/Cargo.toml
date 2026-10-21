@@ -1,0 +1,9 @@
+[package]
+name = "janus-gdal"
+description = "Janus: the parts of GDAL's C API the gdal crate does not cover"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gdal-sys.workspace = true

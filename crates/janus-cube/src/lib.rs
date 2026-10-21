@@ -7,6 +7,7 @@
 pub mod dates;
 pub mod inputs;
 mod reader;
+pub mod stats;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

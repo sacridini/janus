@@ -1,0 +1,22 @@
+C:\Users\eduar\Documents\215_067: 7478 x 7319 x 41 dates (Float32), cache on
+  41 files (band 1 of each)
+  source series (3309, 740): 13 ms (cold)
+  source series (489, 4866): 5 ms (cold)
+  source series (361, 7311): 5 ms (cold)
+  source series (727, 2267): 5 ms (cold)
+  source series (2998, 2830): 5 ms (cold)
+  source ROI 256x256 x 41 dates: 1289 ms (cold)
+  overview: 0.4 s (from its cache), 2366 x 2316
+  full-resolution cache: 15.2 s since open (15.1 s building, 0 dates with the overview), 6.52 GB (raw 8.98 GB, 1.38x)
+  series (3309, 740): cache 2.46 ms, source 14 ms (files read just now)
+  series (489, 4866): cache 0.82 ms, source 5 ms (files read just now)
+  series (361, 7311): cache 0.45 ms, source 5 ms (files read just now)
+  series (727, 2267): cache 0.83 ms, source 6 ms (files read just now)
+  series (2998, 2830): cache 0.85 ms, source 5 ms (files read just now)
+  series (2755, 883): cache 0.82 ms, source 5 ms (files read just now)
+  series (4090, 421): cache 0.85 ms, source 5 ms (files read just now)
+  series (1489, 5638): cache 0.91 ms, source 6 ms (files read just now)
+  series (4987, 2785): cache 0.80 ms, source 5 ms (files read just now)
+  series (5261, 2486): cache 0.82 ms, source 5 ms (files read just now)
+  ROI 256x256 x 41 dates: cache 20.6 ms, source 1298 ms (1 thread each)
+OK: cache reads equal the source

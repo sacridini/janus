@@ -151,6 +151,26 @@ nele. O `Dataset` do GDAL é `Send` mas não `Sync`, exatamente o modelo do
 `thread_local CubeReader` atual: o compilador passa a garantir o que hoje é
 convenção.
 
+### 6. terrio no lugar do GDAL? (pergunta de 2026-10-21)
+
+O [terrio](https://terrio.opengeos.org/why-terrio/) é E/S geoespacial em Rust
+puro (MIT): GeoTIFF/COG, JPEG 2000, Zarr, netCDF, leitura remota, reprojeção
+com as operações do PROJ, WebAssembly. Em conversões e warp, numa máquina de
+40 threads, os benchmarks dele dão 1,2–16× sobre o GDAL.
+
+- **Não como base agora.** O repositório nasceu em 2026-10-14 (v0.3.2,
+  "early development"). Faltam HDF, o driver WMS/TMS do basemap, a escrita
+  de VRT e o tempo CF da API multidimensional. Não há leitura reamostrada
+  pelo vizinho mais próximo com os mesmos pixels do GDAL, da qual dependem os
+  caches compatíveis com o C++. E não foi medido no nosso caso (LZW em
+  faixas de 1 linha, reduzido e em resolução total).
+- **Mas vale acompanhar:** sem as DLLs do GDAL no instalador, e o Janus no
+  navegador.
+- **Plano:** o `CubeReader` é a única porta de leitura dos crates. No fim da
+  fase 2, testar o terrio como leitor de GeoTIFF/COG na 215_067 (overview e
+  séries, bit a bit contra o GDAL). Se ganhar, ele lê GeoTIFF/COG e o GDAL
+  fica com o resto.
+
 ---
 
 ## Equivalências

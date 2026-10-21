@@ -155,7 +155,7 @@ impl Display {
 
     /// The composite of an overview pixel over dates t0..t1, as the shader computes it.
     fn composite_at(&self, s: &Session, p: usize, t0: usize, t1: usize) -> f32 {
-        let ov = &s.overview;
+        let ov = &s.s.overview;
         let vals: Vec<f32> = (t0..=t1).filter_map(|t| ov.layer(t).map(|l| l[p])).filter(|v| !v.is_nan()).collect();
         let n = vals.len();
         match self.reducer {
@@ -176,7 +176,7 @@ impl Display {
 
     /// A sample of the values the mode shows: of date `t`, or of every date loaded.
     fn collect_sample(&self, s: &Session, t: Option<usize>, max_n: usize) -> Vec<f32> {
-        let ov = &s.overview;
+        let ov = &s.s.overview;
         let px = ov.w * ov.h;
         let mut out = Vec::new();
         let stats = s.stats.as_ref();
@@ -249,7 +249,7 @@ impl Display {
             return false;
         }
         let (c0, c1) = if self.mode == Mode::Composite { self.composite_window(s, self.t) } else { (0, 0) };
-        let version = (s.overview.layers_done() as u64 * 2 + u64::from(s.stats.is_some()))
+        let version = (s.s.overview.layers_done() as u64 * 2 + u64::from(s.stats.is_some()))
             ^ (u64::from(self.whole_series) << 40)
             ^ ((self.reducer as u64) << 44)
             ^ ((c0 as u64 * 65537 + c1 as u64) << 20);

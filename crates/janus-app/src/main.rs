@@ -8,6 +8,7 @@ mod app;
 mod chart;
 mod display;
 mod map;
+mod measure;
 mod panels;
 mod session;
 mod theme;
@@ -36,6 +37,9 @@ Options:
   --measure-startup   print startup timings and exit after the first frame
   --screenshot PNG    save the window once the series is ready, print its timings and exit
   --detach-map        the map in a window of its own (with --screenshot, both windows saved)
+  --measure-cache on|off IN  time exact series and an ROI from the files, build the overview (and the
+                      full-resolution cache if on), time the reads again from the cache, check them
+                      against the files; without a window
   -h, --help          show this help
   --version           show the version
 ";
@@ -53,6 +57,12 @@ fn attach_console() {
 
 fn main() -> eframe::Result<()> {
     let t0 = Instant::now();
+    // GDAL's block cache at 512 MB unless the environment sets it: closing a series of 41 files took 15-20 s with
+    // GDAL's default (commit 9d6019c)
+    if std::env::var_os("GDAL_CACHEMAX").is_none() {
+        let _ = gdal::config::set_config_option("GDAL_CACHEMAX", "512");
+    }
+    gdal::DriverManager::register_all();
     let mut opts = app::Options { budget_mb: 1024, ..Default::default() };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -71,6 +81,10 @@ fn main() -> eframe::Result<()> {
             "--measure-startup" => opts.measure_startup = true,
             "--screenshot" => opts.screenshot = args.next().map(Into::into),
             "--detach-map" => opts.detach_map = true,
+            "--measure-cache" => {
+                attach_console();
+                std::process::exit(measure::measure_cache(&args.by_ref().collect::<Vec<_>>()));
+            }
             _ => opts.inputs.push(a),
         }
     }
@@ -78,12 +92,6 @@ fn main() -> eframe::Result<()> {
         attach_console();
     }
 
-    // GDAL's block cache at 512 MB unless the environment sets it: closing a series of 41 files took 15-20 s with
-    // GDAL's default (commit 9d6019c)
-    if std::env::var_os("GDAL_CACHEMAX").is_none() {
-        let _ = gdal::config::set_config_option("GDAL_CACHEMAX", "512");
-    }
-    gdal::DriverManager::register_all();
     let gdal_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     let mut setup = WgpuSetupCreateNew::without_display_handle();

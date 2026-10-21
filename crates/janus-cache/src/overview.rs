@@ -15,6 +15,10 @@ use std::time::Instant;
 
 use janus_cube::{CubeInfo, with_thread_reader};
 
+use crate::disk;
+use crate::fullres::FullResCache;
+use crate::pool::JobPool;
+
 const MAGIC: [u8; 8] = *b"TSVCUBE1";
 /// magic, key, w, h, T, reserved (1: the index of the dates written follows)
 const HEADER_BYTES: u64 = 8 + 8 + 4 * 4;
@@ -100,11 +104,14 @@ pub struct OverviewOptions {
     pub budget_bytes: i64,
     pub max_texture: usize,
     pub cache_dir: PathBuf,
-    pub threads: usize,
+    /// the disk cache budget setting (bytes, 0 = automatic; disk.rs), within which the cache file must fit
+    pub cache_budget: u64,
+    /// built in the same read of each date, when it integrates with the overview (HDD)
+    pub full_res: Option<Arc<FullResCache>>,
 }
 
-/// Opens the cache file for writing, closed to other writers meanwhile (Windows; the C++ opens it `_SH_DENYWR`).
-fn open_for_writing(path: &Path, create: bool) -> std::io::Result<File> {
+/// Opens a cache file for writing, closed to other writers meanwhile (Windows; the C++ opens it `_SH_DENYWR`).
+pub(crate) fn open_for_writing(path: &Path, create: bool) -> std::io::Result<File> {
     let mut o = OpenOptions::new();
     o.read(true).write(true);
     if create {
@@ -134,25 +141,30 @@ pub struct Overview {
     from_cache: AtomicBool,
     cached_layers: AtomicUsize,
     cache_path: PathBuf,
+    /// why there is no cache file (no room in the budget), if so
+    cache_error: Mutex<String>,
     /// the cache file while dates are written to it, and the offset of the first date
     cache: Mutex<Option<(File, u64)>>,
+    full_res: Option<Arc<FullResCache>>,
     started: Instant,
     build_seconds: Mutex<Option<f64>>,
     on_ready: Box<dyn Fn() + Send + Sync>,
 }
 
 impl Overview {
-    /// Starts loading or building the overview in background threads; `on_ready` is called whenever dates are
-    /// ready (to wake the interface).
+    /// Starts loading or building the overview in `pool` (the C++'s priorities: the cache 0, building 10, the
+    /// focused date first); `on_ready` is called whenever dates are ready (to wake the interface).
     pub fn start(
         info: Arc<CubeInfo>,
         opts: &OverviewOptions,
+        pool: &JobPool,
         on_ready: impl Fn() + Send + Sync + 'static,
     ) -> Arc<Self> {
         let t = info.t();
         let (w, h) = overview_size(info.width, info.height, t, opts.budget_bytes, opts.max_texture);
         let key = cache_key(&info, w, h);
         let cache_path = opts.cache_dir.join(format!("{key:016x}{EXTENSION}"));
+        disk::retain(&cache_path);
         let n = w * h;
 
         // Dates already in the cache: all of them in a complete file without an index (the first format), the
@@ -202,41 +214,52 @@ impl Overview {
             from_cache: AtomicBool::new(cached == t),
             cached_layers: AtomicUsize::new(cached),
             cache_path,
+            cache_error: Mutex::new(String::new()),
             cache: Mutex::new(None),
+            full_res: opts.full_res.clone(),
             started: Instant::now(),
             build_seconds: Mutex::new(None),
             on_ready: Box::new(on_ready),
         });
 
         if cached == t {
+            // the least recently opened goes first (disk.rs)
+            disk::touch(&ov.cache_path);
             // read date by date so that the GPU receives dates while the rest loads
             let o = ov.clone();
-            std::thread::Builder::new()
-                .name("overview cache".into())
-                .spawn(move || {
-                    let mut f = File::open(&o.cache_path).ok();
-                    let ok = f.as_mut().is_some_and(|f| f.seek(SeekFrom::Start(data_offset)).is_ok());
-                    let mut ok = ok;
-                    for i in 0..o.t {
+            pool.submit(0, move || {
+                let mut f = File::open(&o.cache_path).ok();
+                let ok = f.as_mut().is_some_and(|f| f.seek(SeekFrom::Start(data_offset)).is_ok());
+                let mut ok = ok;
+                for i in 0..o.t {
+                    if ok {
+                        let mut v = vec![0f32; n];
+                        ok = f.as_mut().unwrap().read_exact(bytemuck::cast_slice_mut(&mut v)).is_ok();
                         if ok {
-                            let mut v = vec![0f32; n];
-                            ok = f.as_mut().unwrap().read_exact(bytemuck::cast_slice_mut(&mut v)).is_ok();
-                            if ok {
-                                let _ = o.layers[i].set(v.into_boxed_slice());
-                            }
+                            let _ = o.layers[i].set(v.into_boxed_slice());
                         }
-                        if !ok {
-                            o.failed.fetch_add(1, Ordering::Relaxed);
-                        }
-                        o.mark_done(i);
                     }
-                })
-                .expect("thread");
+                    if !ok {
+                        o.failed.fetch_add(1, Ordering::Relaxed);
+                    }
+                    o.mark_done(i);
+                }
+            });
             return ov;
         }
 
-        // The cache file, made or reopened for the missing dates (no room is made for it yet: phase 2).
-        let file = if indexed {
+        // Room for the missing dates in the disk cache budget (older caches pruned to make it); without it the
+        // overview is built in memory only.
+        let full = HEADER_BYTES + t as u64 + (n * 4 * t) as u64;
+        let on_disk = if indexed { std::fs::metadata(&ov.cache_path).map_or(0, |m| m.len()) } else { 0 };
+        let room = disk::make_room(&opts.cache_dir, opts.cache_budget, full.saturating_sub(on_disk));
+        if let Err(why) = &room {
+            *ov.cache_error.lock().unwrap() = why.clone();
+        }
+        // The cache file, made or reopened for the missing dates.
+        let file = if room.is_err() {
+            None
+        } else if indexed {
             open_for_writing(&ov.cache_path, false).ok()
         } else {
             have.fill(false);
@@ -258,31 +281,27 @@ impl Overview {
         ov.cached_layers.store(have.iter().filter(|&&x| x).count(), Ordering::Relaxed);
         *ov.cache.lock().unwrap() = file.map(|f| (f, data_offset));
 
-        let o = ov.clone();
-        let have_cached = have.clone();
-        std::thread::Builder::new()
-            .name("overview cache".into())
-            .spawn(move || {
-                for i in (0..o.t).filter(|&i| have_cached[i]) {
+        if have.iter().any(|&x| x) {
+            let o = ov.clone();
+            pool.submit(0, move || {
+                for i in (0..o.t).filter(|&i| have[i]) {
                     if o.load_layer(i) {
                         o.mark_done(i);
                     } else {
                         o.decode(i); // unreadable in the cache: from the source
                     }
                 }
-            })
-            .expect("thread");
-        let missing = t - have.iter().filter(|&&x| x).count();
-        for k in 0..opts.threads.max(1).min(missing) {
+            });
+        }
+        // Build what is missing. The order follows the focused date: if the user jumps to 2010 while loading,
+        // 2010 and the following dates come first.
+        for _ in ov.cached_layers()..t {
             let o = ov.clone();
-            std::thread::Builder::new()
-                .name(format!("overview {k}"))
-                .spawn(move || {
-                    while let Some(i) = o.claim_next() {
-                        o.decode(i);
-                    }
-                })
-                .expect("thread");
+            pool.submit(10, move || {
+                if let Some(i) = o.claim_next() {
+                    o.decode(i);
+                }
+            });
         }
         ov
     }
@@ -299,7 +318,11 @@ impl Overview {
     fn decode(&self, i: usize) {
         let mut v = vec![0f32; self.w * self.h];
         let (w, h) = (self.info.width, self.info.height);
-        let ok = with_thread_reader(&self.info, |r| r.read_window(i, (0, 0, w, h), &mut v, (self.w, self.h)));
+        // on an HDD the full-resolution cache reads the whole date once for both
+        let full = self.full_res.as_ref().and_then(|c| c.build_with_overview(i, &mut v, self.w, self.h));
+        let ok = full.unwrap_or_else(|| {
+            with_thread_reader(&self.info, |r| r.read_window(i, (0, 0, w, h), &mut v, (self.w, self.h)))
+        });
         if ok {
             self.save_layer(i, &v);
             let _ = self.layers[i].set(v.into_boxed_slice());
@@ -345,6 +368,11 @@ impl Overview {
             *self.cache.lock().unwrap() = None;
         }
         (self.on_ready)();
+    }
+
+    /// Why the overview has no cache file, if so.
+    pub fn cache_error(&self) -> String {
+        self.cache_error.lock().unwrap().clone()
     }
 
     /// The dates ready since the last call (to send to the GPU).
@@ -395,6 +423,12 @@ impl Overview {
     pub fn series(&self, x: usize, y: usize) -> Vec<f32> {
         let p = y * self.w + x;
         (0..self.t).map(|i| self.layer(i).map_or(f32::NAN, |l| l[p])).collect()
+    }
+}
+
+impl Drop for Overview {
+    fn drop(&mut self) {
+        disk::release(&self.cache_path);
     }
 }
 

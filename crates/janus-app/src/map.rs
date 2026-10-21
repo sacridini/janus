@@ -56,7 +56,7 @@ impl State {
             painter.text(rect.center(), Align2::CENTER_CENTER, msg, FontId::proportional(13.0), theme::weak_text());
             return;
         };
-        let (ow, oh) = (s.overview.w as f64, s.overview.h as f64);
+        let (ow, oh) = (s.s.overview.w as f64, s.s.overview.h as f64);
         let (w, h) = (s.info.width as f64, s.info.height as f64);
         let fit = (f64::from(rect.width()) / ow).min(f64::from(rect.height()) / oh);
         let m = &mut self.map;
@@ -239,7 +239,7 @@ impl State {
         }
 
         // loading, the colour bar and the status at the bottom
-        let ov = &s.overview;
+        let ov = &s.s.overview;
         if !ov.complete() {
             let f = ov.layers_done() as f32 / ov.t.max(1) as f32;
             let bar = Rect::from_min_size(rect.left_top() + vec2(8.0, 8.0), vec2(200.0, 4.0));

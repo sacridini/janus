@@ -1488,6 +1488,7 @@ dependencies = [
  "janus-cache",
  "janus-cube",
  "janus-gpu",
+ "janus-session",
  "mimalloc",
  "rfd",
  "wgpu",
@@ -1498,7 +1499,10 @@ name = "janus-cache"
 version = "0.40.0"
 dependencies = [
  "bytemuck",
+ "gdal",
  "janus-cube",
+ "janus-gdal",
+ "libc",
  "mimalloc",
 ]
 
@@ -1511,12 +1515,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "janus-gdal"
+version = "0.40.0"
+dependencies = [
+ "gdal-sys",
+]
+
+[[package]]
 name = "janus-gpu"
 version = "0.40.0"
 dependencies = [
  "bytemuck",
  "pollster 0.4.0",
  "wgpu",
+]
+
+[[package]]
+name = "janus-session"
+version = "0.40.0"
+dependencies = [
+ "janus-cache",
+ "janus-cube",
 ]
 
 [[package]]

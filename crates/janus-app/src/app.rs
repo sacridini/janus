@@ -256,7 +256,7 @@ impl State {
     fn set_date(&mut self, t: usize) {
         if let Some(s) = &self.session {
             self.display.t = t.min(s.info.t() - 1);
-            s.overview.set_focus(self.display.t);
+            s.s.overview.set_focus(self.display.t);
         }
     }
 
@@ -291,7 +291,12 @@ impl State {
             match r {
                 Ok(info) => {
                     let max_tex = self.render_state.device.limits().max_texture_dimension_2d as usize;
-                    let s = Session::new(info, &o, self.opts.budget_mb, max_tex, ctx);
+                    let settings = janus_session::SessionSettings {
+                        overview_budget_bytes: self.opts.budget_mb << 20,
+                        max_texture: max_tex.min(16384),
+                        ..Default::default()
+                    };
+                    let s = Session::new(info, &o, &settings, ctx);
                     self.display.t = 0;
                     self.display.rgb = [0, s.info.t() / 2, s.info.t() - 1];
                     self.session = Some(s);
@@ -314,7 +319,7 @@ impl State {
             if self.last_play.is_none_or(|l| now.duration_since(l).as_secs_f64() >= 0.25) {
                 self.last_play = Some(now);
                 self.display.t = (self.display.t + 1) % s.info.t();
-                s.overview.set_focus(self.display.t);
+                s.s.overview.set_focus(self.display.t);
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
@@ -441,7 +446,7 @@ impl State {
                     println!(
                         "open {:.0} ms, overview read {:.0} ms, ready in {:.0} ms (statistics {:.1} ms, GPU {:.1}); {}",
                         s.open_ms,
-                        s.overview.build_seconds().unwrap_or(0.0) * 1000.0,
+                        s.s.overview.build_seconds().unwrap_or(0.0) * 1000.0,
                         s.ready_ms.unwrap_or(0.0),
                         s.stats.as_ref().map_or(0.0, |st| st.ms),
                         s.stats.as_ref().map_or(0.0, |st| st.gpu_ms),
