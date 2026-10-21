@@ -367,7 +367,7 @@ impl State {
         let composite = self.composite.as_ref().filter(|c| c.on);
         let mut status = match composite {
             Some(c) => c.title(&s.info, self.display.t),
-            None => format!("{}  {}", s.info.layers[self.display.t].label, crate::display::mode_name(mode)),
+            None => self.map_title(),
         };
         if let Some(hv) = self.hover {
             let v = ov.layer(self.display.t).map_or(f32::NAN, |l| l[hv.ov.1 * ov.w + hv.ov.0]);
@@ -379,6 +379,29 @@ impl State {
         }
         shadow_text(&painter, rect.left_bottom() + vec2(8.0, -8.0), Align2::LEFT_BOTTOM, &status);
         self.basemap_note(&painter, rect);
+    }
+}
+
+impl State {
+    /// What the map shows (app.cpp, the map's title): the dates of the RGB or the difference, the composite's
+    /// window, the date and the mode, or the mode over the dates (and the season).
+    fn map_title(&self) -> String {
+        let (Some(s), d) = (&self.session, &self.display) else { return String::new() };
+        let info = &s.info;
+        let label = |t: usize| info.layers[t.min(info.t() - 1)].label.as_str();
+        match d.mode {
+            Mode::Rgb => format!("RGB: {} / {} / {}", label(d.rgb[0]), label(d.rgb[1]), label(d.rgb[2])),
+            Mode::Diff => format!("{} - {}  |  Difference", label(d.t), label(d.diff_ref)),
+            Mode::Composite => d.temporal_text(info, d.t),
+            m if crate::display::time_dependent(m) => format!("{}  |  {}", label(d.t), crate::display::mode_name(m)),
+            m => format!(
+                "{}  |  {} {}{}",
+                crate::display::mode_name(m),
+                info.t(),
+                if info.spectral { "bands" } else { "dates" },
+                if d.season.active(info) { format!("  |  {}", d.season.text()) } else { String::new() }
+            ),
+        }
     }
 }
 

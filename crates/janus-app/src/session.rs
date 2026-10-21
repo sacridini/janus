@@ -47,6 +47,10 @@ pub struct Session {
     /// the dates the GPU has
     pub uploaded: Vec<bool>,
     pub stats: Option<Stats>,
+    /// statistics computed so far (a season computes them again)
+    pub stats_gen: u64,
+    /// the season the dates' times on the GPU were made for (0: none applied yet)
+    pub season_applied: u64,
     stats_job: Option<StatsJob>,
     pub opened: Instant,
     /// from opening the files to the overview complete and its statistics computed (ms)
@@ -70,6 +74,8 @@ impl Session {
             info,
             s,
             stats: None,
+            stats_gen: 0,
+            season_applied: 0,
             stats_job: None,
             opened: opening.started,
             ready_ms: None,
@@ -109,6 +115,7 @@ impl Session {
         {
             self.stats = stats;
             self.stats_job = None;
+            self.stats_gen += 1;
             self.ready_ms = Some(self.opened.elapsed().as_secs_f64() * 1000.0);
             changed = true;
         }
@@ -121,6 +128,16 @@ impl Session {
             all.drain(..excess);
         }
         changed
+    }
+
+    /// The dates' times on the GPU changed (a season: NaN outside it): the statistics are computed again (a
+    /// computation under way is dropped).
+    pub fn recompute_stats(&mut self, times: &[f32]) {
+        if let Some(cube) = &self.cube {
+            cube.set_times(times);
+        }
+        self.stats = None;
+        self.stats_job = None;
     }
 
     /// Asks for the exact series of the cursor's source pixel (an older request not yet read is dropped).

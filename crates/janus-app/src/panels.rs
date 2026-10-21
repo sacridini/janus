@@ -6,7 +6,7 @@ use egui_plot::{Bar, BarChart, Plot, VLine};
 use janus_gpu::{Mode, colormaps};
 
 use crate::app::State;
-use crate::display::{REDUCERS, mode_name};
+use crate::display::mode_name;
 
 /// A colormap's gradient, `width` × 14 points.
 fn gradient(ui: &mut Ui, cmap: usize, width: f32) -> egui::Response {
@@ -43,13 +43,16 @@ impl State {
         let labels: Vec<String> = s.info.layers.iter().map(|l| l.label.clone()).collect();
         let d = &mut self.display;
         let n = labels.len();
+        let info = s.info.clone();
+        let wrap = |t: i64| ((t % n as i64 + n as i64) % n as i64) as usize;
         ui.horizontal(|ui| {
-            if ui.button("<").clicked() && d.t > 0 {
-                d.t -= 1;
+            // the date before or after, in the season
+            if ui.button("<").clicked() {
+                d.t = wrap(d.step_date(&info, d.t, -1));
             }
             ui.add(Slider::new(&mut d.t, 0..=n - 1).show_value(false));
-            if ui.button(">").clicked() && d.t + 1 < n {
-                d.t += 1;
+            if ui.button(">").clicked() {
+                d.t = wrap(d.step_date(&info, d.t, 1));
             }
             ui.strong(&labels[d.t]);
         });
@@ -76,14 +79,6 @@ impl State {
                     date_slider(ui, c, &mut d.rgb[i], &labels);
                 }
             }
-            Mode::Composite => {
-                ComboBox::from_label("Reducer").selected_text(REDUCERS[d.reducer as usize]).show_ui(ui, |ui| {
-                    for (i, r) in REDUCERS.iter().enumerate() {
-                        ui.selectable_value(&mut d.reducer, i as i32, *r);
-                    }
-                });
-                ui.checkbox(&mut d.whole_series, "The whole series (else the date's year)");
-            }
             _ => {}
         }
 
@@ -93,6 +88,12 @@ impl State {
         }
         if turned_on {
             d.mode = Mode::Value;
+        }
+        if d.mode == Mode::Composite && crate::season::temporal_options_ui(ui, d, &info) {
+            self.map.dirty = true;
+        }
+        if crate::season::season_ui(ui, d, &info) {
+            self.map.dirty = true;
         }
         let categorical = self.classes.on() && d.mode == Mode::Value;
         if d.mode != Mode::Rgb && !categorical {

@@ -139,6 +139,9 @@ impl State {
             Some(format!("{x}\n{:.4}", position.y))
         });
         let t = self.display.t;
+        // the background and the season under the series, in a slot painted once the plot is laid out
+        let background = ui.painter().add(egui::Shape::Noop);
+        plot = plot.show_background(false);
         let response = plot.show(ui, |plot| {
             if let Some(hv) = self.hover {
                 let (values, exact) = match s.exact(hv.src.0, hv.src.1) {
@@ -158,6 +161,7 @@ impl State {
             let primary = plot.response().is_pointer_button_down_on() && plot.ctx().input(|i| i.pointer.primary_down());
             primary.then(|| plot.pointer_coordinate()).flatten()
         });
+        ui.painter().set(background, crate::season::chart_background(ui, &response.transform, &self.display, info));
         // a click or a drag on the chart picks the nearest date
         if let Some(p) = response.inner {
             let nt = info.nearest_layer(p.x);

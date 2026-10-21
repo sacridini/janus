@@ -85,6 +85,22 @@ fn statistics_and_map() {
         }
     }
 
+    // a season: the dates outside it have a NaN time and are left out of the statistics
+    let season: Vec<f32> = times.iter().enumerate().map(|(i, &x)| if i % 3 == 1 { f32::NAN } else { x }).collect();
+    cube.set_times(&season);
+    let stats = gpu.compute_stats_async(&cube, || {}).wait().unwrap();
+    for p in 0..w * h {
+        let series: Vec<f32> = (0..t).map(|i| value(i, p)).collect();
+        let want = cpu_stats(&season, &series);
+        let (s0, s1) = (stats.s0[p], stats.s1[p]);
+        let got = [s0[0], s0[1], s0[2], s0[3], s1[0], s1[1], s1[2], s1[3]];
+        for (k, (g, e)) in got.iter().zip(want).enumerate() {
+            let same = (g.is_nan() && e.is_nan()) || (g - e).abs() <= 1e-5 * e.abs().max(1.0);
+            assert!(same, "season: pixel {p}, statistic {k}: {g} vs {e}");
+        }
+    }
+    cube.set_times(&times);
+
     // the map of date 3 drawn 1:1, against the colormap's colours
     let lut = colormaps::all()[colormaps::VIRIDIS].lut();
     let rect = [0.0, 0.0, w as f32, h as f32];

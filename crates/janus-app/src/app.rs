@@ -73,6 +73,8 @@ pub struct Options {
     pub selftest_composite: bool,
     /// the overview's budget in bytes, for the tests (instead of budget_mb)
     pub budget_bytes: Option<i64>,
+    /// --season: days of the year (start, end) of a season set once the series opens
+    pub season: Option<(i32, i32)>,
 }
 
 /// The exit code of a tour or a test run in the window (main returns it once the window closed).
@@ -339,6 +341,9 @@ impl State {
                     self.map.fit();
                     // each series opens without the basemap: drawn only when asked for
                     self.basemap.ui.on = false;
+                    if let Some((a, b)) = self.opts.season {
+                        self.display.season = crate::season::Season { on: true, start: a, end: b };
+                    }
                     if let Some(b) = &self.opts.basemap {
                         if b.contains("://") {
                             self.basemap.ui.source = "custom".into();
@@ -352,6 +357,7 @@ impl State {
                 Err(e) => self.error = Some(e),
             }
         }
+        self.pump_season();
         let (Some(s), Some(gpu)) = (&mut self.session, &mut self.gpu) else { return };
         if s.pump(gpu, ctx) {
             self.map.dirty = true;
@@ -371,7 +377,10 @@ impl State {
             let now = Instant::now();
             if self.last_play.is_none_or(|l| now.duration_since(l).as_secs_f64() >= 0.25) {
                 self.last_play = Some(now);
-                self.display.t = (self.display.t + 1) % s.info.t();
+                // the next date in the season (year by year for a composite of the date's year)
+                let n = s.info.t() as i64;
+                let t = self.display.step_date(&s.info, self.display.t, 1);
+                self.display.t = ((t % n + n) % n) as usize;
                 s.s.overview.set_focus(self.display.t);
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
@@ -401,12 +410,11 @@ impl State {
         if n == 0 {
             return;
         }
-        let t = self.display.t;
-        if left && t > 0 {
-            self.set_date(t - 1);
+        if left {
+            self.step_date(-1);
         }
-        if right && t + 1 < n {
-            self.set_date(t + 1);
+        if right {
+            self.step_date(1);
         }
         if home {
             self.set_date(0);

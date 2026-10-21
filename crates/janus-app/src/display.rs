@@ -3,6 +3,7 @@
 
 use janus_gpu::{LayerParams, Mode, colormaps};
 
+use crate::season::Season;
 use crate::session::Session;
 
 /// The C++'s names of the modes (app.cpp, kModeNames).
@@ -41,6 +42,13 @@ pub struct Range {
     key: u64,
 }
 
+impl Range {
+    /// Computed again from the next sample (unless set by hand).
+    pub fn invalidate(&mut self) {
+        self.key = u64::MAX;
+    }
+}
+
 /// 0-1 until a sample sets it (the C++'s): a mode without values (no drop in the series) keeps it.
 impl Default for Range {
     fn default() -> Self {
@@ -65,9 +73,13 @@ pub struct Display {
     /// the reference date of the difference
     pub diff_ref: usize,
     pub rgb: [usize; 3],
-    /// the composite's reducer (REDUCERS) and window: the date's year or the whole series
+    /// the temporal composite's reducer (REDUCERS) and window: 0 the date's (season) year, 1 `days` around the
+    /// date, 2 the whole series
     pub reducer: i32,
-    pub whole_series: bool,
+    pub window: i32,
+    pub days: i32,
+    /// part of the year: the other dates left out of the statistics, the composites, playback and the arrows
+    pub season: Season,
     pub hist: Histogram,
     pub playing: bool,
 }
@@ -89,7 +101,9 @@ impl Default for Display {
             diff_ref: 0,
             rgb: [0, 0, 0],
             reducer: 0,
-            whole_series: false,
+            window: 0,
+            days: 30,
+            season: Season::default(),
             hist: Histogram::default(),
             playing: false,
         }
@@ -132,19 +146,6 @@ fn auto_range(mode: Mode, s: &mut [f32]) -> (f32, f32) {
 }
 
 impl Display {
-    /// The composite's dates: those of the shown date's year, or the whole series.
-    pub fn composite_window(&self, s: &Session, t: usize) -> (usize, usize) {
-        let n = s.info.t();
-        if self.whole_series || !s.info.time_is_date {
-            return (0, n - 1);
-        }
-        let year = |i: usize| s.info.decimal_year(i).floor();
-        let y = year(t);
-        let first = (0..n).find(|&i| year(i) == y).unwrap_or(t);
-        let last = (0..n).rev().find(|&i| year(i) == y).unwrap_or(t);
-        (first, last)
-    }
-
     /// How the active layer is drawn (the class table and the warp are the caller's to add).
     pub fn layer_params(&self, s: &Session) -> LayerParams {
         let t = self.t as i32;
@@ -152,7 +153,7 @@ impl Display {
             Mode::Diff => [t, self.diff_ref as i32, 0],
             Mode::Rgb => self.rgb.map(|v| v as i32),
             Mode::Composite => {
-                let (a, b) = self.composite_window(s, self.t);
+                let (a, b) = self.temporal_window(&s.info, self.t);
                 [a as i32, b as i32, self.reducer]
             }
             _ => [t, 0, 0],
@@ -161,10 +162,14 @@ impl Display {
         LayerParams::new(self.mode, layers, [r.lo, r.hi])
     }
 
-    /// The composite of an overview pixel over dates t0..t1, as the shader computes it.
+    /// The composite of an overview pixel over dates t0..t1 (those in the season), as the shader computes it.
     fn composite_at(&self, s: &Session, p: usize, t0: usize, t1: usize) -> f32 {
         let ov = &s.s.overview;
-        let vals: Vec<f32> = (t0..=t1).filter_map(|t| ov.layer(t).map(|l| l[p])).filter(|v| !v.is_nan()).collect();
+        let vals: Vec<f32> = (t0..=t1)
+            .filter(|&t| self.season.contains(&s.info, t) && s.uploaded[t])
+            .filter_map(|t| ov.layer(t).map(|l| l[p]))
+            .filter(|v| !v.is_nan())
+            .collect();
         let n = vals.len();
         match self.reducer {
             4 => n as f32,
@@ -234,7 +239,7 @@ impl Display {
                 }
             }
             (Mode::Composite, _) => {
-                let (t0, t1) = self.composite_window(s, t.unwrap_or(self.t));
+                let (t0, t1) = self.temporal_window(&s.info, t.unwrap_or(self.t));
                 let step = (px / max_n.min(100_000)).max(1);
                 let mut p = (step / 2) % px;
                 while p < px {
@@ -256,11 +261,18 @@ impl Display {
         if self.mode.needs_stats() && s.stats.is_none() {
             return false;
         }
-        let (c0, c1) = if self.mode == Mode::Composite { self.composite_window(s, self.t) } else { (0, 0) };
+        // the composite's numbers change with its options and the season (not with the date: the stretch is kept
+        // so the years compare); the statistics' with each computation (a season)
+        let comp_key = if self.mode == Mode::Composite {
+            (((self.reducer as u64) * 3 + self.window as u64) * 1000 + self.days as u64)
+                .wrapping_mul(1000003)
+                .wrapping_add(self.season.key())
+        } else {
+            0
+        };
         let version = (s.s.overview.layers_done() as u64 * 2 + u64::from(s.stats.is_some()))
-            ^ (u64::from(self.whole_series) << 40)
-            ^ ((self.reducer as u64) << 44)
-            ^ ((c0 as u64 * 65537 + c1 as u64) << 20);
+            .wrapping_add(s.stats_gen.wrapping_mul(7919))
+            .wrapping_add(comp_key.wrapping_mul(104729));
         let ref_key = if self.mode == Mode::Diff { self.diff_ref as u64 + 2 } else { 0 };
         let rkey = version.wrapping_mul(1000003).wrapping_add(ref_key * 65536).wrapping_add(self.mode as u64);
         let mut changed = false;

@@ -14,6 +14,7 @@ mod golden;
 mod map;
 mod measure;
 mod panels;
+mod season;
 mod session;
 mod theme;
 mod tour;
@@ -46,6 +47,7 @@ Options:
                       full resolution, an ROI), timed stage by stage as the C++'s
   --tour-json FILE    with --profile-tour: the timings as JSON
   --basemap ID|URL    a basemap under the series once it opens: esri, eox, osm or an XYZ URL
+  --season A-B        a season (days of the year A to B, e.g. 152-243) once the series opens
   --selftest-composite C  the RGB composite of the test series C (five bands per date) against its files
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
                       C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
@@ -99,6 +101,12 @@ fn main() -> eframe::Result<()> {
             "--tour-json" => opts.tour_json = args.next().map(Into::into),
             "--dump-golden" => opts.dump_golden = Some(Default::default()),
             "--basemap" => opts.basemap = args.next(),
+            "--season" => {
+                opts.season = args.next().and_then(|v| {
+                    let (a, b) = v.split_once('-')?;
+                    Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+                })
+            }
             "--selftest-composite" => {
                 // C (five bands per date) with an overview at 1:2, as the C++'s test opens it
                 opts.selftest_composite = true;
