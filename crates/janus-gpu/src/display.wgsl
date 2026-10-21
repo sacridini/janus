@@ -13,9 +13,10 @@ struct Draw {
     classes: i32,          // 1: categorical, the colour from the class table by value
     warp: i32,             // 1: through the warp grid
     nearest: i32,          // images: 1 nearest neighbour, 0 bilinear (the sampler bound)
-    encode: i32,           // 1: the target is sRGB (colours leave linear), 0: they leave as they are
     nan_bits: u32,
-    _pad: vec2<u32>,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
     color: vec4<f32>,      // source 3
     warp_quad: vec4<f32>,  // the quad in the grid's domain: x0, y0, w, h
     warp_src: vec4<f32>,   // the drawn texture in the layer's uv: x0, y0, w, h
@@ -90,13 +91,9 @@ fn norm(v: f32) -> f32 {
     return clamp((v - u.range.x) / (u.range.y - u.range.x), 0.0, 1.0);
 }
 
-// The colour as it leaves: the bytes it is (a linear target viewed as sRGB, as GL draws), or linear for an sRGB
-// target that encodes it back into the same bytes.
+// The colour as it leaves: the sRGB bytes it is, into a target that keeps them (GL's framebuffer of the C++, and
+// what egui, working in gamma space, shows as they are).
 fn out_color(c: vec3<f32>, a: f32) -> vec4<f32> {
-    if (u.encode == 1) {
-        let l = select(pow((c + 0.055) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045));
-        return vec4<f32>(l, a);
-    }
     return vec4<f32>(c, a);
 }
 

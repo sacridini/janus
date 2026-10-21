@@ -125,9 +125,8 @@ struct DrawUniform {
     classes: i32,
     warp: i32,
     nearest: i32,
-    encode: i32,
     nan_bits: u32,
-    _pad: [u32; 2],
+    _pad: [u32; 3],
     color: [f32; 4],
     warp_quad: [f32; 4],
     warp_src: [f32; 4],
@@ -241,12 +240,11 @@ impl GpuCube {
     }
 }
 
-/// An offscreen target (a map panel): an RGBA texture the size of the panel in pixels.
+/// An offscreen target (a map panel): an RGBA texture the size of the panel in pixels, holding the sRGB bytes as
+/// GL's framebuffer holds them (egui samples textures as these bytes: it works in gamma space).
 pub struct Target {
     pub texture: wgpu::Texture,
-    /// the sRGB view egui samples
     pub view: wgpu::TextureView,
-    write_view: wgpu::TextureView,
     pub size: [u32; 2],
 }
 
@@ -284,10 +282,10 @@ pub struct Gpu {
     dummy_rg32: GpuTexture,
     uniforms: RefCell<(wgpu::Buffer, u64)>,
     targets: HashMap<i32, Target>,
-    /// whether the targets are sRGB (wgpu's OpenGL: no view formats) and colours leave linear
-    encode: bool,
-    target_format: wgpu::TextureFormat,
 }
+
+/// The targets' format: the sRGB bytes as they are, blended as they are (GL's blending of the C++).
+const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 fn tex_entry(
     binding: u32,
@@ -347,20 +345,8 @@ pub fn required_limits(adapter: &wgpu::Adapter) -> wgpu::Limits {
     }
 }
 
-/// Whether the adapter's textures can be viewed in another format (a linear target shown as sRGB); wgpu's OpenGL
-/// backend cannot.
-pub fn supports_view_formats(adapter: &wgpu::Adapter) -> bool {
-    adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::VIEW_FORMATS)
-}
-
-/// sRGB to linear, for a clear colour of an sRGB target.
-fn to_linear(c: f32) -> f32 {
-    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
-}
-
 impl Gpu {
-    /// `view_formats`: supports_view_formats(adapter).
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, view_formats: bool) -> Self {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         let d = device;
         let vf = wgpu::ShaderStages::VERTEX_FRAGMENT;
         let frag = wgpu::ShaderStages::FRAGMENT;
@@ -398,8 +384,6 @@ impl Gpu {
                 tex_entry(7, frag, d2, false),
             ],
         });
-        let encode = !view_formats;
-        let target_format = if encode { wgpu::TextureFormat::Rgba8UnormSrgb } else { wgpu::TextureFormat::Rgba8Unorm };
         let module = d.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("display"),
             source: wgpu::ShaderSource::Wgsl(include_str!("display.wgsl").into()),
@@ -427,7 +411,7 @@ impl Gpu {
                 compilation_options: Default::default(),
                 // SRC_ALPHA, ONE_MINUS_SRC_ALPHA (gpu_gl.cpp); an opaque draw (alpha 1) replaces
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: target_format,
+                    format: TARGET_FORMAT,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -524,8 +508,6 @@ impl Gpu {
             dummy_rg32,
             uniforms: RefCell::new((uniforms, 64)),
             targets: HashMap::new(),
-            encode,
-            target_format,
         };
         let empty = gpu.create_cube(1, 1, 1, &[0.0]);
         gpu.no_cube = Some(empty.group.clone());
@@ -747,23 +729,20 @@ impl Gpu {
         if self.targets.get(&slot).is_some_and(|t| t.size == size) {
             return false;
         }
-        let srgb = wgpu::TextureFormat::Rgba8UnormSrgb;
-        let formats = [srgb];
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("map target"),
             size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: self.target_format,
+            format: TARGET_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,
-            view_formats: if self.encode { &[] } else { &formats },
+            view_formats: &[],
         });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor { format: Some(srgb), ..Default::default() });
-        let write_view = texture.create_view(&Default::default());
-        self.targets.insert(slot, Target { texture, view, write_view, size });
+        let view = texture.create_view(&Default::default());
+        self.targets.insert(slot, Target { texture, view, size });
         true
     }
 
@@ -787,7 +766,6 @@ impl Gpu {
         DrawUniform {
             rect: [rect[0] / w * 2.0 - 1.0, 1.0 - rect[1] / h * 2.0, rect[2] / w * 2.0 - 1.0, 1.0 - rect[3] / h * 2.0],
             alpha: 1.0,
-            encode: i32::from(self.encode),
             nan_bits: NAN_BITS,
             ..Default::default()
         }
@@ -957,17 +935,13 @@ impl Gpu {
                 }),
             }],
         });
-        let rgb = if self.encode {
-            [f.clear[0], f.clear[1], f.clear[2]].map(to_linear)
-        } else {
-            [f.clear[0], f.clear[1], f.clear[2]]
-        };
+        let rgb = [f.clear[0], f.clear[1], f.clear[2]];
         let mut enc = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("map"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &target.write_view,
+                    view: &target.view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {

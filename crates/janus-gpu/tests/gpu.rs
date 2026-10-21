@@ -4,16 +4,15 @@
 
 use janus_gpu::{CLASS_LUT_SIZE, Gpu, LayerParams, Mode, colormaps};
 
-fn device() -> Option<(wgpu::Device, wgpu::Queue, bool)> {
+fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
     let limits = janus_gpu::required_limits(&adapter);
-    let vf = janus_gpu::supports_view_formats(&adapter);
     let (d, q) = pollster::block_on(
         adapter.request_device(&wgpu::DeviceDescriptor { required_limits: limits, ..Default::default() }),
     )
     .ok()?;
-    Some((d, q, vf))
+    Some((d, q))
 }
 
 /// The C++ shader's statistics of one series, in f32 as the GPU computes them.
@@ -60,7 +59,7 @@ fn near_colormap(got: &[u8], lut: &[[u8; 4]; 256], v: f32) -> bool {
 
 #[test]
 fn statistics_and_map() {
-    let Some((device, queue, vf)) = device() else {
+    let Some((device, queue)) = device() else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
@@ -69,7 +68,7 @@ fn statistics_and_map() {
     let value = |i: usize, p: usize| -> f32 {
         if (p + i).is_multiple_of(11) { f32::NAN } else { ((p * 31 + i * 17) % 97) as f32 / 97.0 + i as f32 * 0.01 }
     };
-    let mut gpu = Gpu::new(&device, &queue, vf);
+    let mut gpu = Gpu::new(&device, &queue);
     let mut cube = gpu.create_cube(w as u32, h as u32, t as u32, &times);
     for i in 0..t {
         let layer: Vec<f32> = (0..w * h).map(|p| value(i, p)).collect();
@@ -142,15 +141,12 @@ fn statistics_and_map() {
     assert_eq!(&px[8..12], &[10, 200, 30, 255]);
     assert_eq!(px[15], 0, "nodata");
 
-    // an image, then a half-transparent rectangle over it: blended in sRGB as GL blends (on targets that are not
-    // sRGB themselves)
+    // an image, then a half-transparent rectangle over it: blended in sRGB as GL blends
     let img = gpu.create_image(1, 1, &[255, 0, 0, 255]);
     let mut f = gpu.begin_map(3, [2, 2], [0.0; 4]);
     gpu.draw_image(&mut f, &img, [0.0, 0.0, 2.0, 2.0], 1.0, None, true);
     gpu.fill_rect(&mut f, [0.0, 0.0, 2.0, 2.0], [0.0, 0.0, 1.0, 0.5]);
     gpu.end_map(f);
     let (_, _, px) = gpu.read_target(3).unwrap();
-    if vf {
-        assert!((px[0] as i32 - 128).abs() <= 1 && px[1] == 0 && (px[2] as i32 - 128).abs() <= 1, "{:?}", &px[0..4]);
-    }
+    assert!((px[0] as i32 - 128).abs() <= 1 && px[1] == 0 && (px[2] as i32 - 128).abs() <= 1, "{:?}", &px[0..4]);
 }

@@ -117,6 +117,8 @@ pub struct State {
     pub session: Option<Session>,
     pub error: Option<String>,
     pub display: Display,
+    /// the active layer's classes, if categorical
+    pub classes: crate::classes::LayerClasses,
     pub map: MapView,
     pub hover: Option<PixelAt>,
     pub pins: Vec<Pin>,
@@ -220,6 +222,7 @@ impl JanusApp {
                 session: None,
                 error: None,
                 display: Display::default(),
+                classes: Default::default(),
                 map: MapView::default(),
                 hover: None,
                 pins: Vec::new(),
@@ -255,6 +258,7 @@ impl State {
         self.hover = None;
         self.pins.clear();
         self.display = Display::default();
+        self.classes = Default::default();
         self.map.fit();
         self.opening = Some(Opening::start(inputs, ctx));
     }
@@ -273,12 +277,11 @@ impl State {
             // "Abertura rápida"), and no frame waits for their shaders to compile
             let (tx, rx) = std::sync::mpsc::channel();
             let (device, queue, c) = (self.render_state.device.clone(), self.render_state.queue.clone(), ctx.clone());
-            let view_formats = janus_gpu::supports_view_formats(&self.render_state.adapter);
             std::thread::Builder::new()
                 .name("map pipelines".into())
                 .spawn(move || {
                     let start = Instant::now();
-                    let gpu = Gpu::new(&device, &queue, view_formats);
+                    let gpu = Gpu::new(&device, &queue);
                     let _ = tx.send((gpu, start.elapsed().as_secs_f64() * 1000.0));
                     c.request_repaint();
                 })
@@ -315,6 +318,13 @@ impl State {
         let (Some(s), Some(gpu)) = (&mut self.session, &mut self.gpu) else { return };
         if s.pump(gpu, ctx) {
             self.map.dirty = true;
+        }
+        let (changed, became_on) = self.classes.update(s, gpu);
+        if changed {
+            self.map.dirty = true;
+        }
+        if became_on {
+            self.display.mode = janus_gpu::Mode::Value;
         }
         if self.display.update(s) {
             self.map.dirty = true;

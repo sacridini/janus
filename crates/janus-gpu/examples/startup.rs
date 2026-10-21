@@ -30,7 +30,7 @@ fn main() {
         }))
         .unwrap();
         let t_dev = t.elapsed().as_secs_f64() * 1e3;
-        let _gpu = janus_gpu::Gpu::new(&device, &queue, janus_gpu::supports_view_formats(&adapter));
+        let _gpu = janus_gpu::Gpu::new(&device, &queue);
         device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         let t_gpu = t.elapsed().as_secs_f64() * 1e3;
         println!(

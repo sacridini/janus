@@ -6,6 +6,7 @@
 
 mod app;
 mod chart;
+mod classes;
 mod display;
 mod map;
 mod measure;

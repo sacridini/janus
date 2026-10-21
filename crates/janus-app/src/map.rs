@@ -30,7 +30,7 @@ pub struct MapView {
     pub dirty: bool,
 }
 
-type DrawKey = (Mode, [i32; 3], [u32; 2], usize, [u32; 4], usize);
+type DrawKey = (Mode, [i32; 3], [u32; 2], usize, [u32; 4], usize, Option<usize>);
 
 /// The map's background where there is no data (the C++'s, app.cpp renderMap).
 const MAP_BACKGROUND: [f32; 4] = [0.10, 0.10, 0.115, 1.0];
@@ -221,6 +221,9 @@ impl State {
             [(a.x - rect.min.x) * ppp, (a.y - rect.min.y) * ppp, (b.x - rect.min.x) * ppp, (b.y - rect.min.y) * ppp]
         };
         let mut params = self.display.layer_params(s);
+        if self.classes.on() && params.mode == Mode::Value {
+            params.class_lut = self.classes.lut.clone();
+        }
         let cmap = self.display.cmap[params.mode as usize];
         let mode = params.mode;
         let t = self.display.t;
@@ -255,6 +258,7 @@ impl State {
             cmap,
             to_px(m, 0.0, 0.0, ow, oh).map(f32::to_bits),
             s.tiles.gpu_tiles(),
+            params.class_lut.as_ref().map(|l| std::sync::Arc::as_ptr(l) as usize),
         );
         if m.dirty || m.drawn.as_ref() != Some(&key) {
             let mut f = gpu.begin_map(0, size, MAP_BACKGROUND);

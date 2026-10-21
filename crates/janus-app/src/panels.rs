@@ -87,7 +87,15 @@ impl State {
             _ => {}
         }
 
-        if d.mode != Mode::Rgb {
+        let (changed, turned_on) = self.classes.ui(ui, s);
+        if changed {
+            self.map.dirty = true;
+        }
+        if turned_on {
+            d.mode = Mode::Value;
+        }
+        let categorical = self.classes.on() && d.mode == Mode::Value;
+        if d.mode != Mode::Rgb && !categorical {
             let cmap = &mut d.cmap[d.mode as usize];
             ui.horizontal(|ui| {
                 ComboBox::from_id_salt("cmap").width(160.0).selected_text(colormaps::all()[*cmap].name).show_ui(
@@ -183,6 +191,18 @@ impl State {
         let ov = &s.s.overview;
         let p = at.ov.1 * ov.w + at.ov.0;
         ui.weak(format!("pixel ({}, {}), overview ({}, {})", at.src.0, at.src.1, at.ov.0, at.ov.1));
+        if self.classes.on() {
+            // a categorical series: its classes, not statistics of values
+            let values = s.exact(at.src.0, at.src.1).map_or_else(|| ov.series(at.ov.0, at.ov.1), |e| e.values);
+            Grid::new("class summary").num_columns(2).striped(true).show(ui, |ui| {
+                for (k, v) in self.classes.summary(&s.info, &values, self.display.t) {
+                    ui.weak(k);
+                    ui.label(v);
+                    ui.end_row();
+                }
+            });
+            return;
+        }
         Grid::new("pixel stats").num_columns(2).striped(true).show(ui, |ui| {
             let mut row = |k: &str, v: f32| {
                 ui.weak(k);
