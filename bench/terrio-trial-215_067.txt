@@ -1,0 +1,7 @@
+C:\Users\eduar\Documents\215_067: 7478 x 7319 x 41, overview 2366 x 2316
+1. one date at full resolution: GDAL 1498 ms, terrio 382 ms, same pixels: true
+2. one date reduced to the overview: GDAL 487 ms, terrio 1550 ms, same pixels: true
+3. a pixel's series (first): GDAL 11.51 ms, terrio 29.62 ms, same values: true
+3. a pixel's series (again): GDAL 0.02 ms, terrio 37.01 ms, same values: true
+2b. one date reduced from a whole read: terrio 369 ms, same pixels: true
+4. the overview, 41 dates on 12 threads: GDAL 4975 ms, terrio by rows 8430 ms, terrio whole dates 13047 ms

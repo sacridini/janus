@@ -1,0 +1,18 @@
+# A measured trial of terrio (pure-Rust GIS I/O) against GDAL on Janus' reads (RUST_MIGRATION.md, decision 6).
+# Its own workspace: terrio stays out of Janus' dependencies.
+[package]
+name = "terrio-trial"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+terrio = "0.3"
+janus-cube = { path = "../../crates/janus-cube" }
+janus-cache = { path = "../../crates/janus-cache" }
+gdal = "0.19"
+
+[profile.release]
+lto = "thin"

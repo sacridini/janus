@@ -166,10 +166,22 @@ com as operações do PROJ, WebAssembly. Em conversões e warp, numa máquina de
   faixas de 1 linha, reduzido e em resolução total).
 - **Mas vale acompanhar:** sem as DLLs do GDAL no instalador, e o Janus no
   navegador.
-- **Plano:** o `CubeReader` é a única porta de leitura dos crates. No fim da
-  fase 2, testar o terrio como leitor de GeoTIFF/COG na 215_067 (overview e
-  séries, bit a bit contra o GDAL). Se ganhar, ele lê GeoTIFF/COG e o GDAL
-  fica com o resto.
+- **Testado no fim da fase 2** (`tools/terrio-trial`, terrio 0.3.2,
+  `bench/terrio-trial-215_067.txt`). Os pixels são os mesmos do GDAL em
+  todas as leituras. Os tempos:
+
+  | Leitura (215_067, LZW em faixas de 1 linha) | GDAL | terrio |
+  |---|---:|---:|
+  | Uma data inteira | 1,5 s (1 thread) | 0,38 s (todos os núcleos: paraleliza as faixas por dentro) |
+  | Uma data reduzida ao overview | 0,49 s | 1,55 s por linhas; 0,37 s lendo a data inteira |
+  | Série de um pixel, 41 datas | 11,5 ms; 0,02 ms com os blocos no cache | 30–37 ms (sem cache de blocos) |
+  | Overview das 41 datas em 12 threads | 5,0 s | 8,4 s por linhas; 13,0 s com datas inteiras |
+
+  Conclusão: o terrio é mais rápido só para uma leitura isolada com os
+  núcleos livres. No trabalho do Janus (muitas datas e tiles em paralelo, o
+  overview lendo só as faixas de que precisa, séries repetidas), o GDAL é
+  mais rápido. **O GDAL continua.** Vale testar de novo quando o terrio
+  amadurecer, ou se o Janus no navegador (sem GDAL) entrar no plano.
 
 ---
 
@@ -652,7 +664,7 @@ python tools/compare_bench.py bench/baseline-cpp-0.39.0.json bench/rust.json
 |---|---|
 | 0. Preparação | em andamento: licença (GPL-2.0-or-later) e linha de base do tour e da abertura em `bench/`; faltam a ponte com o Zeit 1.7 e o `--dump-golden` |
 | 1. Esqueleto e riscos | em andamento: tudo feito menos a transparência; o primeiro quadro não passou (ver acima) |
-| 2. Núcleo de dados | em andamento: caches (overview e resolução total) intercambiáveis com o C++ e ≤ C++ no `--measure-cache`; abertura igual ao C++ em todos os dados de teste (`--describe`): seleção de bandas, espectros, embeddings, classes, NetCDF/Zarr, remotos; sessão, série, ROI, tiles. Falta o teste do terrio |
+| 2. Núcleo de dados | em andamento: caches (overview e resolução total) intercambiáveis com o C++ e ≤ C++ no `--measure-cache`; abertura igual ao C++ em todos os dados de teste (`--describe`): seleção de bandas, espectros, embeddings, classes, NetCDF/Zarr, remotos; sessão, série, ROI, tiles. teste do terrio feito (o GDAL continua) |
 | 3. GPU completa | não iniciada |
 | 4. Aplicação básica | não iniciada |
 | 5. Zeit nativo | não iniciada |
