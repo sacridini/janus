@@ -1,0 +1,42 @@
+profile tour: C:\Users\eduar\Documents\215_067
+  7478 x 7319 x 41 Float32, overview 2366 x 2316 (from its cache)
+  open                    608 ms      2 frames   304.0 ms/frame
+  overview                225 ms      1 frames   225.3 ms/frame
+  hover series            591 ms     87 frames     6.8 ms/frame
+  every date              300 ms     42 frames     7.1 ms/frame
+  display modes           922 ms    101 frames     9.1 ms/frame
+  zoom in                 444 ms     63 frames     7.0 ms/frame
+  pan (full res)          250 ms     37 frames     6.8 ms/frame
+  dates (full res)       1153 ms    165 frames     7.0 ms/frame
+  (ROI read in 849 ms, 0 dates from the full-resolution cache)
+  ROI 512x512             861 ms    124 frames     6.9 ms/frame
+  zoom out                208 ms     30 frames     6.9 ms/frame
+  total 5.6 s
+profile tour: C:\Users\eduar\Documents\215_067
+  7478 x 7319 x 41 Float32, overview 2366 x 2316 (from its cache)
+  open                    623 ms      2 frames   311.6 ms/frame
+  overview                215 ms      1 frames   214.6 ms/frame
+  hover series            587 ms     87 frames     6.7 ms/frame
+  every date              298 ms     42 frames     7.1 ms/frame
+  display modes           924 ms    101 frames     9.2 ms/frame
+  zoom in                 452 ms     64 frames     7.1 ms/frame
+  pan (full res)          250 ms     37 frames     6.7 ms/frame
+  dates (full res)       1042 ms    149 frames     7.0 ms/frame
+  (ROI read in 759 ms, 0 dates from the full-resolution cache)
+  ROI 512x512             778 ms    112 frames     6.9 ms/frame
+  zoom out                208 ms     30 frames     6.9 ms/frame
+  total 5.4 s
+profile tour: C:\Users\eduar\Documents\215_067
+  7478 x 7319 x 41 Float32, overview 2366 x 2316 (from its cache)
+  open                    624 ms      2 frames   311.9 ms/frame
+  overview                231 ms      1 frames   230.7 ms/frame
+  hover series            588 ms     87 frames     6.8 ms/frame
+  every date              298 ms     42 frames     7.1 ms/frame
+  display modes           924 ms    101 frames     9.1 ms/frame
+  zoom in                 451 ms     64 frames     7.0 ms/frame
+  pan (full res)          250 ms     37 frames     6.8 ms/frame
+  dates (full res)       1077 ms    154 frames     7.0 ms/frame
+  (ROI read in 809 ms, 0 dates from the full-resolution cache)
+  ROI 512x512             819 ms    119 frames     6.9 ms/frame
+  zoom out                209 ms     30 frames     7.0 ms/frame
+  total 5.5 s

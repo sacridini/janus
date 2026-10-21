@@ -1,0 +1,23 @@
+[package]
+name = "janus-app"
+description = "Janus: raster time series and data cubes, explored and analysed (the interface, egui)"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "janus"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.36", default-features = false, features = ["default_fonts", "wgpu", "accesskit", "x11", "wayland"] }
+egui = "0.36"
+egui_dock = "0.21"
+egui_plot = "0.37"
+gdal.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"] }
+janus-cache = { path = "../janus-cache" }
+janus-cube = { path = "../janus-cube" }
+janus-gpu = { path = "../janus-gpu" }
+mimalloc = { version = "0.1", default-features = false }
+rfd = "0.17"
+wgpu = "30"

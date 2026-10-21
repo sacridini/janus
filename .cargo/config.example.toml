@@ -1,0 +1,11 @@
+# Copy to .cargo/config.toml and point it at a GDAL (e.g. conda-forge's).
+#
+# On Windows gdal-sys links gdal_i.lib, the name of GDAL's import library in
+# the OSGeo builds; conda-forge calls it gdal.lib, so copy it:
+#   mkdir .cargo/gdal && cp <prefix>/Library/lib/gdal.lib .cargo/gdal/gdal_i.lib
+# and run with <prefix>/Library/bin on PATH (gdal.dll and its dependencies).
+# On Linux and macOS pkg-config finds GDAL and none of this is needed.
+[env]
+GDAL_LIB_DIR = { value = ".cargo/gdal", relative = true }
+GDAL_INCLUDE_DIR = "<prefix>/Library/include"
+GDAL_VERSION = "3.11.5"

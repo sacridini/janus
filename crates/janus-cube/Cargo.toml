@@ -1,0 +1,9 @@
+[package]
+name = "janus-cube"
+description = "Janus: a series of rasters as a cube (layers, dates, reading through GDAL)"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+gdal.workspace = true
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl"] }

@@ -1,0 +1,12 @@
+[package]
+name = "janus-gpu"
+description = "Janus: the map on the GPU (wgpu): the cube, its statistics and the display modes"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+wgpu = "30"
+
+[dev-dependencies]
+pollster = "0.4"

@@ -1,0 +1,5 @@
+startup (ms since process start): gdal 6 | window+OpenGL 166 | ui 171 | open inputs 171 | first frame 174
+startup (ms since process start): gdal 6 | window+OpenGL 160 | ui 164 | open inputs 164 | first frame 167
+startup (ms since process start): gdal 6 | window+OpenGL 160 | ui 164 | open inputs 164 | first frame 168
+startup (ms since process start): gdal 6 | window+OpenGL 159 | ui 164 | open inputs 164 | first frame 167
+startup (ms since process start): gdal 7 | window+OpenGL 165 | ui 169 | open inputs 169 | first frame 171

@@ -1,0 +1,18 @@
+profile tour: C:\Users\eduar\Documents\215_067
+  7478 x 7319 x 41 Float32, overview 2366 x 2316 (built)
+  open                    351 ms     17 frames    20.7 ms/frame
+  overview               3146 ms    308 frames    10.2 ms/frame
+  hover series            810 ms    118 frames     6.9 ms/frame
+  every date              349 ms     42 frames     8.3 ms/frame
+  display modes           998 ms    101 frames     9.9 ms/frame
+  zoom in                 438 ms     63 frames     6.9 ms/frame
+  pan (full res)          257 ms     37 frames     6.9 ms/frame
+  dates (full res)       1021 ms    147 frames     6.9 ms/frame
+  (ROI read in 838 ms, 0 dates from the full-resolution cache)
+  ROI 512x512             854 ms    123 frames     6.9 ms/frame
+  zoom out                208 ms     30 frames     6.9 ms/frame
+  total 8.4 s
+
+real	0m11.464s
+user	0m0.000s
+sys	0m0.000s

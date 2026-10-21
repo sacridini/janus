@@ -1,0 +1,12 @@
+[package]
+name = "janus-cache"
+description = "Janus: the cube at reduced resolution (overview) and its disk cache, in the C++'s formats"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bytemuck = "1"
+janus-cube = { path = "../janus-cube" }
+
+[dev-dependencies]
+mimalloc = { version = "0.1", default-features = false }

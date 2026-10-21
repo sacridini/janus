@@ -539,11 +539,82 @@ quiser testar.
 
 ---
 
+## Fase 1: o que já existe e o que se mediu
+
+Branch `rust-port`, iniciado em 2026-10-21. Windows 11, i5-13600K, RTX 3060,
+série 215_067 (41 medoides de 7478×7319, NVMe), C++ 0.39.0 recompilado para a
+comparação (`bench/cpp-0.39.0-*.txt`).
+
+### O que existe
+
+| Crate | Conteúdo | Testes |
+|---|---|---|
+| `janus-cube` | datas nos nomes (as mesmas expressões do C++), ordem natural, pastas e curingas, abertura pelo GDAL (vários arquivos com uma data cada, ou um arquivo multibanda), leitor por thread | datas, ordem, curingas |
+| `janus-cache` | o overview no formato `.januscube` do C++: mesma chave FNV-1a (inclusive o `mtime` como o MSVC o conta), mesmo cabeçalho e índice de datas, leitura e construção em paralelo seguindo a data em foco | tamanho do overview |
+| `janus-gpu` | cubo R32F em textura de array, estatísticas por pixel num compute shader, os 14 modos de exibição (sem tiles, warp e classes, que são da fase 3), mapas de cores do ImPlot byte a byte, alvos fora da tela, leitura de volta das estatísticas numa thread própria | estatísticas contra a mesma conta na CPU (1e-5), cores do mapa contra o mapa de cores (±2), em DX12, Vulkan e OpenGL |
+| `janus-app` | eframe + wgpu, layout padrão do C++ no `egui_dock`, mapa (zoom suave com a constante de 60 ms do C++, arrasto, pinos), gráfico da série com eixo de datas, Display (modo, data, mapa de cores, faixa automática como o `autoRange` do C++, histograma), Layers, Statistics, Performance, ProggyClean a 13 px, `--measure-startup`, `--screenshot`, `--detach-map` | eixo de datas |
+
+O Rust abre o cache gravado pelo C++: a chave bateu na 215_067
+(`742aef8331107408.januscube`) e nenhum arquivo novo foi criado.
+
+### Medidas
+
+| Medida | C++ 0.39.0 | Rust (fase 1) |
+|---|---|---|
+| Primeiro quadro | 167–174 ms (OpenGL) | 300–321 ms (DX12, o padrão); 199 ms (OpenGL do wgpu); 338–354 ms (Vulkan) |
+| Janela vazia do eframe, primeiro quadro | — | 290 ms (DX12), 190 ms (OpenGL), 340 ms (Vulkan) |
+| Metadados dos 41 arquivos | — | 30–57 ms, fora da thread da interface |
+| Overview do cache, só a leitura | 194 ms (zona do Tracy, sem as falhas de página, pagas antes em `data.assign`) | ~240 ms (com as falhas de página) |
+| Estatísticas | ~67 ms, na thread da interface (um quadro parado) | 41–58 ms na GPU + ~35 ms de cópia, numa thread própria (nenhum quadro parado) |
+| CPU por quadro, mediana | 0,2–0,4 ms | 0,31–0,34 ms |
+| Pior quadro ao abrir | 225 ms (overview e estatísticas num quadro) | 100–120 ms (faixa e histograma de 2 M valores a cada data que chega, como no C++) |
+
+### Os riscos da fase 1
+
+1. **Janelas destacadas: resolvido.** Uma aba arrastada para fora do dock
+   vira uma janela do sistema com o seu próprio dock (o padrão do Terraflux),
+   e o mapa desenha nela (`--detach-map`). Custo: a viewport "imediata" do
+   egui desenha as duas janelas a cada quadro, e a mediana da CPU por quadro
+   vai a 6,3 ms com uma janela destacada. Na fase 4: viewports diferidas.
+2. **Primeiro quadro: não passou.** Onde o tempo vai, medido
+   (`janus-gpu/examples/startup.rs`, `janus-app/examples/startup_probe.rs`):
+   - o DX12 do wgpu enumera os 3 adaptadores (RTX, Intel e o WARP de
+     software), criando um device em cada: 180–290 ms. O padrão do eframe
+     enumera duas vezes, e um seletor próprio de adaptador não mudou o tempo;
+   - o Vulkan gasta 82 ms só criando a instância (carregador e camadas);
+   - o FXC compila os shaders do DX12 em ~100 ms. Por isso os pipelines do
+     mapa já são criados numa thread, depois do primeiro quadro;
+   - o backend OpenGL do wgpu chega a 199 ms (+18% sobre o C++). Ele roda os
+     shaders do Janus, inclusive o compute, na NVIDIA, mas é o backend menos
+     testado do wgpu.
+
+   **Decisão pendente:** aceitar o DX12 (~+140 ms, a janela abre em ~0,3 s)
+   ou adotar o OpenGL do wgpu no Windows, depois de testar em Intel e AMD.
+3. **Gráficos: menor do que o previsto.** O `egui_plot` 0.37 já tem
+   `FilledArea` (a faixa p10–p90), `BoxPlot`, `Heatmap` e `BarChart`. O eixo
+   de datas foi escrito (`chart::time_marks`).
+4. **Fonte:** a ProggyClean a 13 px sai nítida no egui (capturas da fase 1).
+5. **Transparência:** ainda não testada.
+
+### Diferenças anotadas para as próximas fases
+
+- O alvo do mapa é sRGB: o shader devolve as cores do mapa de cores em
+  linear, e elas voltam aos mesmos bytes. Uma camada com opacidade < 1 seria
+  misturada em linear, e não em sRGB como no C++: conferir na fase 3.
+- O cache ainda não entra no orçamento de disco nem é "tocado" ao ser lido (a
+  poda por último aberto do `disk_cache.cpp`): fase 2.
+- As linhas de grade do gráfico saem claras demais (o egui_plot usa a cor do
+  texto): fase 4, com os temas.
+
 ## Como trabalhar
 
 ```bash
-cargo build --release -p janus-app                    # o Janus em Rust
-cargo test --workspace                                 # crates sem janela + egui_kittest
+# Windows: .cargo/config.toml aponta o GDAL (ver .cargo/config.example.toml),
+# e o bin do GDAL vai no PATH para rodar
+cargo build --release -p janus-app                    # o Janus em Rust (target/release/janus.exe)
+cargo test --workspace                                 # crates sem janela (WGPU_BACKEND=dx12|vulkan|gl)
+target/release/janus.exe --measure-startup D:_067
+target/release/janus.exe --screenshot shot.png D:_067   # tempos da abertura e uma captura
 build/Release/janus.exe --dump-golden tests/golden     # referências do C++ (fase 0)
 cargo run --release -p janus-app -- --profile-tour D:\215_067 --json bench/rust.json
 python tools/compare_bench.py bench/baseline-cpp-0.39.0.json bench/rust.json
@@ -553,8 +624,8 @@ python tools/compare_bench.py bench/baseline-cpp-0.39.0.json bench/rust.json
 
 | Fase | Status |
 |---|---|
-| 0. Preparação | não iniciada |
-| 1. Esqueleto e riscos | não iniciada |
+| 0. Preparação | em andamento: linha de base do tour e da abertura em `bench/` (falta a licença, a ponte com o Zeit 1.7 e o `--dump-golden`) |
+| 1. Esqueleto e riscos | em andamento: tudo feito menos a transparência; o primeiro quadro não passou (ver acima) |
 | 2. Núcleo de dados | não iniciada |
 | 3. GPU completa | não iniciada |
 | 4. Aplicação básica | não iniciada |
