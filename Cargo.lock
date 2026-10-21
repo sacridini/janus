@@ -1487,6 +1487,7 @@ dependencies = [
  "image",
  "janus-cache",
  "janus-cube",
+ "janus-geo",
  "janus-gpu",
  "janus-session",
  "mimalloc",
@@ -1521,6 +1522,16 @@ name = "janus-gdal"
 version = "0.40.0"
 dependencies = [
  "gdal-sys",
+]
+
+[[package]]
+name = "janus-geo"
+version = "0.40.0"
+dependencies = [
+ "gdal",
+ "gdal-sys",
+ "janus-cache",
+ "janus-cube",
 ]
 
 [[package]]
