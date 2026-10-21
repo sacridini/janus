@@ -12,6 +12,7 @@ mod measure;
 mod panels;
 mod session;
 mod theme;
+mod tour;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -37,6 +38,9 @@ Options:
   --measure-startup   print startup timings and exit after the first frame
   --screenshot PNG    save the window once the series is ready, print its timings and exit
   --detach-map        the map in a window of its own (with --screenshot, both windows saved)
+  --profile-tour IN   a fixed tour of IN (overview, cursor series, dates, modes, zoom and pan at
+                      full resolution, an ROI), timed stage by stage as the C++'s
+  --tour-json FILE    with --profile-tour: the timings as JSON
   --describe IN       print how IN opens (dates, size, CRS, variables of a NetCDF / Zarr, the
                       series of the centre pixel) and exit
   --measure-cache on|off IN  time exact series and an ROI from the files, build the overview (and the
@@ -83,6 +87,8 @@ fn main() -> eframe::Result<()> {
             "--measure-startup" => opts.measure_startup = true,
             "--screenshot" => opts.screenshot = args.next().map(Into::into),
             "--detach-map" => opts.detach_map = true,
+            "--profile-tour" => opts.profile_tour = true,
+            "--tour-json" => opts.tour_json = args.next().map(Into::into),
             "--describe" => {
                 attach_console();
                 std::process::exit(measure::describe(&args.by_ref().collect::<Vec<_>>()));
@@ -94,9 +100,11 @@ fn main() -> eframe::Result<()> {
             _ => opts.inputs.push(a),
         }
     }
-    if opts.measure_startup || opts.screenshot.is_some() {
+    if opts.measure_startup || opts.screenshot.is_some() || opts.profile_tour {
         attach_console();
     }
+    // the size of the C++'s hidden window for its tests and tours
+    let test_window = opts.measure_startup || opts.screenshot.is_some() || opts.profile_tour;
 
     let gdal_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
@@ -114,8 +122,8 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Janus")
-            .with_inner_size([1400.0, 900.0])
-            .with_maximized(!opts.measure_startup && opts.screenshot.is_none())
+            .with_inner_size(if test_window { [1600.0, 950.0] } else { [1400.0, 900.0] })
+            .with_maximized(!test_window)
             .with_drag_and_drop(true),
         wgpu_options: WgpuConfiguration {
             wgpu_setup: WgpuSetup::CreateNew(setup),
@@ -128,5 +136,10 @@ fn main() -> eframe::Result<()> {
         persist_window: false,
         ..Default::default()
     };
-    eframe::run_native("Janus", options, Box::new(move |cc| Ok(Box::new(app::JanusApp::new(cc, opts, t0, gdal_ms)))))
+    eframe::run_native("Janus", options, Box::new(move |cc| Ok(Box::new(app::JanusApp::new(cc, opts, t0, gdal_ms)))))?;
+    let rc = app::EXIT_CODE.load(std::sync::atomic::Ordering::Relaxed);
+    if rc != 0 {
+        std::process::exit(rc);
+    }
+    Ok(())
 }

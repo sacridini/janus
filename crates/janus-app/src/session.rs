@@ -6,7 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use janus_cube::CubeInfo;
-use janus_gpu::{Gpu, Stats, StatsJob};
+use janus_gpu::{Gpu, GpuCube, GpuTexture, Stats, StatsJob};
+use janus_session::TileManager;
 use janus_session::{SeriesResult, SessionSettings};
 
 /// A series being opened: the files' metadata are read off the interface's thread (the first frame never waits
@@ -39,6 +40,10 @@ impl Opening {
 pub struct Session {
     pub s: janus_session::Session,
     pub info: Arc<CubeInfo>,
+    /// the overview on the GPU (made at the first frame with the GPU)
+    pub cube: Option<GpuCube>,
+    /// detail tiles at full resolution or intermediate levels, when the zoom goes past the overview's
+    pub tiles: TileManager<GpuTexture>,
     /// the dates the GPU has
     pub uploaded: Vec<bool>,
     pub stats: Option<Stats>,
@@ -56,7 +61,11 @@ impl Session {
         let info = Arc::new(info);
         let c = ctx.clone();
         let s = janus_session::Session::new(info.clone(), settings, Arc::new(move || c.request_repaint()));
+        let tiles =
+            TileManager::new(info.clone(), s.overview.factor, settings.tile_budget_bytes, Some(s.full_res.clone()));
         Session {
+            cube: None,
+            tiles,
             uploaded: vec![false; info.t()],
             info,
             s,
@@ -73,20 +82,25 @@ impl Session {
     /// collects the exact series read. Returns whether the map changed.
     pub fn pump(&mut self, gpu: &mut Gpu, ctx: &egui::Context) -> bool {
         let ov = self.s.overview.clone();
-        if !gpu.has_cube() {
-            gpu.create_cube(ov.w as u32, ov.h as u32, ov.t as u32, &self.s.times_years);
-        }
+        let cube = self
+            .cube
+            .get_or_insert_with(|| gpu.create_cube(ov.w as u32, ov.h as u32, ov.t as u32, &self.s.times_years));
         let ready = ov.take_ready();
         for &t in &ready {
             if let Some(layer) = ov.layer(t) {
-                gpu.upload_layer(t as u32, layer);
+                cube.upload_layer(t as u32, layer);
                 self.uploaded[t] = true;
             }
         }
         let mut changed = !ready.is_empty();
         if self.stats.is_none() && self.stats_job.is_none() && ov.complete() {
             let c = ctx.clone();
-            self.stats_job = Some(gpu.compute_stats_async(move || c.request_repaint()));
+            self.stats_job = Some(gpu.compute_stats_async(cube, move || c.request_repaint()));
+        }
+        // the tiles read since the last frame, to the GPU (16 at most per frame, as the C++)
+        self.tiles.tick();
+        if self.tiles.upload_ready(16, |d| gpu.create_tile(d.w as u32, d.h as u32, &d.data)) {
+            changed = true;
         }
         if let Some(job) = &self.stats_job
             && let Some(stats) = job.poll()

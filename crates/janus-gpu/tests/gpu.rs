@@ -1,16 +1,19 @@
-//! The renderer without a window: the statistics against the same sums on the CPU, and the map's colours against
-//! the colormap (the C++'s self-test checks the map the same way, app_selftest.cpp).
+//! The renderer without a window: the statistics against the same sums on the CPU, the map's colours against the
+//! colormap (the C++'s self-test checks the map the same way, app_selftest.cpp), detail tiles, class colours,
+//! images and the blending of layers.
 
-use janus_gpu::{DrawParams, Gpu, Mode, colormaps};
+use janus_gpu::{CLASS_LUT_SIZE, Gpu, LayerParams, Mode, colormaps};
 
-fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
+fn device() -> Option<(wgpu::Device, wgpu::Queue, bool)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
     let limits = janus_gpu::required_limits(&adapter);
-    pollster::block_on(
+    let vf = janus_gpu::supports_view_formats(&adapter);
+    let (d, q) = pollster::block_on(
         adapter.request_device(&wgpu::DeviceDescriptor { required_limits: limits, ..Default::default() }),
     )
-    .ok()
+    .ok()?;
+    Some((d, q, vf))
 }
 
 /// The C++ shader's statistics of one series, in f32 as the GPU computes them.
@@ -45,9 +48,19 @@ fn cpu_stats(times: &[f32], v: &[f32]) -> [f32; 8] {
     [mv, (syy / (n - 1.0)).sqrt(), sxy / sxx, n, mn, mx, (sxy * sxy) / (sxx * syy), drop]
 }
 
+/// A colour between the two nearest of the colormap's 256 (bilinear), give or take 2.
+fn near_colormap(got: &[u8], lut: &[[u8; 4]; 256], v: f32) -> bool {
+    let f = v.clamp(0.0, 1.0) * 255.0;
+    let (a, b) = (lut[f.floor() as usize], lut[f.ceil() as usize]);
+    (0..3).all(|c| {
+        let (lo, hi) = (a[c].min(b[c]) as i32 - 2, a[c].max(b[c]) as i32 + 2);
+        (lo..=hi).contains(&(got[c] as i32))
+    })
+}
+
 #[test]
 fn statistics_and_map() {
-    let Some((device, queue)) = device() else {
+    let Some((device, queue, vf)) = device() else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
@@ -56,60 +69,88 @@ fn statistics_and_map() {
     let value = |i: usize, p: usize| -> f32 {
         if (p + i).is_multiple_of(11) { f32::NAN } else { ((p * 31 + i * 17) % 97) as f32 / 97.0 + i as f32 * 0.01 }
     };
-    let mut gpu = Gpu::new(&device, &queue);
-    gpu.create_cube(w as u32, h as u32, t as u32, &times);
+    let mut gpu = Gpu::new(&device, &queue, vf);
+    let mut cube = gpu.create_cube(w as u32, h as u32, t as u32, &times);
     for i in 0..t {
         let layer: Vec<f32> = (0..w * h).map(|p| value(i, p)).collect();
-        gpu.upload_layer(i as u32, &layer);
+        cube.upload_layer(i as u32, &layer);
     }
-    let stats = gpu.compute_stats().unwrap();
+    let stats = gpu.compute_stats_async(&cube, || {}).wait().unwrap();
     for p in 0..w * h {
         let series: Vec<f32> = (0..t).map(|i| value(i, p)).collect();
         let want = cpu_stats(&times, &series);
-        let got = [
-            stats.s0[p][0],
-            stats.s0[p][1],
-            stats.s0[p][2],
-            stats.s0[p][3],
-            stats.s1[p][0],
-            stats.s1[p][1],
-            stats.s1[p][2],
-            stats.s1[p][3],
-        ];
+        let (s0, s1) = (stats.s0[p], stats.s1[p]);
+        let got = [s0[0], s0[1], s0[2], s0[3], s1[0], s1[1], s1[2], s1[3]];
         for (k, (g, e)) in got.iter().zip(want).enumerate() {
             assert!((g - e).abs() <= 1e-5 * e.abs().max(1.0), "pixel {p}, statistic {k}: {g} vs {e}");
         }
     }
 
     // the map of date 3 drawn 1:1, against the colormap's colours
-    gpu.ensure_target(0, [w as u32, h as u32]);
-    gpu.set_colormap(colormaps::VIRIDIS);
-    let p = DrawParams {
-        rect: [0.0, 0.0, w as f32, h as f32],
-        mode: Mode::Value,
-        layers: [3, 0, 0],
-        range: [0.0, 1.0],
-        alpha: 1.0,
-    };
-    gpu.render(0, Some(&p));
-    let (_, _, px) = gpu.read_target(0).unwrap();
     let lut = colormaps::all()[colormaps::VIRIDIS].lut();
-    for y in 0..h {
-        for x in 0..w {
-            let v = value(3, y * w + x);
-            let got = &px[(y * w + x) * 4..(y * w + x) * 4 + 4];
-            if v.is_nan() {
-                assert_eq!(got[3], 0, "nodata is left transparent");
-                continue;
-            }
-            // linear filtering between the two nearest of the 256 colours
-            let f = v.clamp(0.0, 1.0) * 255.0;
-            let (a, b) = (lut[f.floor() as usize], lut[f.ceil() as usize]);
-            for c in 0..3 {
-                let (lo, hi) = (a[c].min(b[c]) as i32 - 2, a[c].max(b[c]) as i32 + 2);
-                assert!((lo..=hi).contains(&(got[c] as i32)), "({x}, {y}) channel {c}: {} not in {lo}..{hi}", got[c]);
-            }
+    let rect = [0.0, 0.0, w as f32, h as f32];
+    let mut f = gpu.begin_map(0, [w as u32, h as u32], [0.0; 4]);
+    gpu.draw_cube(&mut f, &cube, rect, &LayerParams::new(Mode::Value, [3, 0, 0], [0.0, 1.0]), colormaps::VIRIDIS, 1.0);
+    gpu.end_map(f);
+    let (_, _, px) = gpu.read_target(0).unwrap();
+    for p in 0..w * h {
+        let (v, got) = (value(3, p), &px[p * 4..p * 4 + 4]);
+        if v.is_nan() {
+            assert_eq!(got[3], 0, "nodata is left transparent");
+        } else {
+            assert!(near_colormap(got, &lut, v), "pixel {p}: {got:?} for {v}");
             assert_eq!(got[3], 255);
         }
+    }
+
+    // a detail tile in the Value mode, over the cube: its own values
+    let tile: Vec<f32> = (0..4 * 4).map(|i| i as f32 / 15.0).collect();
+    let tex = gpu.create_tile(4, 4, &tile);
+    let mut f = gpu.begin_map(1, [8, 8], [0.0; 4]);
+    gpu.draw_tile(
+        &mut f,
+        &cube,
+        &tex,
+        [0.0, 0.0, 8.0, 8.0],
+        &LayerParams::new(Mode::Value, [0, 0, 0], [0.0, 1.0]),
+        colormaps::VIRIDIS,
+        1.0,
+    );
+    gpu.end_map(f);
+    let (_, _, px) = gpu.read_target(1).unwrap();
+    for y in 0..8 {
+        for x in 0..8 {
+            let v = tile[(y / 2) * 4 + x / 2];
+            assert!(near_colormap(&px[(y * 8 + x) * 4..], &lut, v), "tile ({x}, {y})");
+        }
+    }
+
+    // classes: value -> its colour, a value without one transparent
+    let mut table = vec![0u8; CLASS_LUT_SIZE as usize * 4];
+    table[4..8].copy_from_slice(&[10, 200, 30, 255]); // class 1
+    let classes: Vec<f32> = vec![1.0, 2.0, 1.0, f32::NAN];
+    let mut cc = gpu.create_cube(2, 2, 1, &[0.0]);
+    cc.upload_layer(0, &classes);
+    let mut p = LayerParams::new(Mode::Value, [0, 0, 0], [0.0, 1.0]);
+    p.class_lut = Some(gpu.create_class_lut(&table));
+    let mut f = gpu.begin_map(2, [2, 2], [0.0; 4]);
+    gpu.draw_cube(&mut f, &cc, [0.0, 0.0, 2.0, 2.0], &p, colormaps::VIRIDIS, 1.0);
+    gpu.end_map(f);
+    let (_, _, px) = gpu.read_target(2).unwrap();
+    assert_eq!(&px[0..4], &[10, 200, 30, 255]);
+    assert_eq!(px[7], 0, "class 2 has no colour");
+    assert_eq!(&px[8..12], &[10, 200, 30, 255]);
+    assert_eq!(px[15], 0, "nodata");
+
+    // an image, then a half-transparent rectangle over it: blended in sRGB as GL blends (on targets that are not
+    // sRGB themselves)
+    let img = gpu.create_image(1, 1, &[255, 0, 0, 255]);
+    let mut f = gpu.begin_map(3, [2, 2], [0.0; 4]);
+    gpu.draw_image(&mut f, &img, [0.0, 0.0, 2.0, 2.0], 1.0, None, true);
+    gpu.fill_rect(&mut f, [0.0, 0.0, 2.0, 2.0], [0.0, 0.0, 1.0, 0.5]);
+    gpu.end_map(f);
+    let (_, _, px) = gpu.read_target(3).unwrap();
+    if vf {
+        assert!((px[0] as i32 - 128).abs() <= 1 && px[1] == 0 && (px[2] as i32 - 128).abs() <= 1, "{:?}", &px[0..4]);
     }
 }

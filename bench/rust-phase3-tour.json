@@ -1,0 +1,16 @@
+{
+  "program": "janus (Rust) 0.40.0",
+  "input": "C:\\Users\\eduar\\Documents\\215_067",
+  "stages": [
+    {"stage": "open", "ms": 42.2, "frames": 4},
+    {"stage": "overview", "ms": 509.2, "frames": 31},
+    {"stage": "hover series", "ms": 326.2, "frames": 48},
+    {"stage": "every date", "ms": 294.9, "frames": 42},
+    {"stage": "display modes", "ms": 767.4, "frames": 101},
+    {"stage": "zoom in", "ms": 437.4, "frames": 63},
+    {"stage": "pan (full res)", "ms": 256.9, "frames": 37},
+    {"stage": "dates (full res)", "ms": 611.5, "frames": 88},
+    {"stage": "ROI 512x512", "ms": 691.1, "frames": 100},
+    {"stage": "zoom out", "ms": 208.1, "frames": 30}
+  ]
+}

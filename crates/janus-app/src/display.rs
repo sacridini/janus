@@ -1,7 +1,7 @@
 //! What the map shows: the date, the display mode, its colormap and stretch, and the histogram of the shown
 //! values (src/app.cpp: collectSample, autoRange, updateRangeAndHistogram).
 
-use janus_gpu::{DrawParams, Mode, colormaps};
+use janus_gpu::{LayerParams, Mode, colormaps};
 
 use crate::session::Session;
 
@@ -138,7 +138,8 @@ impl Display {
         (first, last)
     }
 
-    pub fn draw_params(&self, s: &Session, rect: [f32; 4]) -> DrawParams {
+    /// How the active layer is drawn (the class table and the warp are the caller's to add).
+    pub fn layer_params(&self, s: &Session) -> LayerParams {
         let t = self.t as i32;
         let layers = match self.mode {
             Mode::Diff => [t, self.diff_ref as i32, 0],
@@ -150,7 +151,7 @@ impl Display {
             _ => [t, 0, 0],
         };
         let r = self.ranges[self.mode as usize];
-        DrawParams { rect, mode: self.mode, layers, range: [r.lo, r.hi], alpha: 1.0 }
+        LayerParams::new(self.mode, layers, [r.lo, r.hi])
     }
 
     /// The composite of an overview pixel over dates t0..t1, as the shader computes it.

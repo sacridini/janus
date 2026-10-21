@@ -1,25 +1,43 @@
-// The map: a layer of the cube (or its statistics) through the colormap, on a quad placed in the target. The C++'s
-// kVertex and kDisplayFrag (gpu_gl.cpp) for the overview; detail tiles, RGBA images, the warp grid and classes
-// come in phase 3. Textures are read as GL_NEAREST reads them: the texel under floor(uv * size).
+// The map (gpu_gl.cpp, kVertex and kDisplayFrag): a layer of the cube (or its statistics) through a colormap, a
+// detail tile, an RGBA image (a basemap tile, a composite) or a plain colour, on a quad placed in the target,
+// straight or through a warp grid (a layer in another CRS). Textures are read as GL_NEAREST reads them: the texel
+// under floor(uv * size); images through the sampler chosen (bilinear or nearest).
 
-struct View {
-    rect: vec4<f32>,     // NDC: x0, y0 (top), x1, y1 (bottom)
-    layers: vec4<i32>,   // x, y, z: dates (or the composite's first and last date and reducer)
+struct Draw {
+    rect: vec4<f32>,       // NDC: x0, y0 (top), x1, y1 (bottom)
+    layers: vec4<i32>,     // x, y, z: dates (Rgb: three; Diff: date, reference; Composite: first, last, reducer)
     range: vec2<f32>,
     alpha: f32,
     mode: i32,
-    t: u32,
+    source: i32,           // 0 cube, 1 detail tile, 2 RGBA image, 3 colour
+    classes: i32,          // 1: categorical, the colour from the class table by value
+    warp: i32,             // 1: through the warp grid
+    nearest: i32,          // images: 1 nearest neighbour, 0 bilinear (the sampler bound)
+    encode: i32,           // 1: the target is sRGB (colours leave linear), 0: they leave as they are
     nan_bits: u32,
+    _pad: vec2<u32>,
+    color: vec4<f32>,      // source 3
+    warp_quad: vec4<f32>,  // the quad in the grid's domain: x0, y0, w, h
+    warp_src: vec4<f32>,   // the drawn texture in the layer's uv: x0, y0, w, h
 };
 
-@group(0) @binding(0) var<uniform> u: View;
-@group(0) @binding(1) var cube: texture_2d_array<f32>;
-@group(0) @binding(2) var stats0: texture_2d<f32>;
-@group(0) @binding(3) var stats1: texture_2d<f32>;
-@group(0) @binding(4) var stats2: texture_2d<f32>;
-@group(0) @binding(5) var cmap: texture_2d<f32>;
-@group(0) @binding(6) var cmap_sampler: sampler;
-@group(0) @binding(7) var<storage, read> times: array<f32>;
+@group(0) @binding(0) var<uniform> u: Draw;
+
+@group(1) @binding(0) var cube: texture_2d_array<f32>;
+@group(1) @binding(1) var stats0: texture_2d<f32>;
+@group(1) @binding(2) var stats1: texture_2d<f32>;
+@group(1) @binding(3) var stats2: texture_2d<f32>;
+@group(1) @binding(4) var<storage, read> times: array<f32>;
+
+@group(2) @binding(0) var cmap: texture_2d<f32>;
+@group(2) @binding(1) var cmap_sampler: sampler;   // bilinear
+@group(2) @binding(2) var image_sampler: sampler;  // bilinear or nearest, chosen per draw (a texture has one
+                                                   // sampler on OpenGL)
+@group(2) @binding(3) var tile: texture_2d<f32>;
+@group(2) @binding(4) var tile2: texture_2d<f32>;
+@group(2) @binding(5) var image: texture_2d<f32>;
+@group(2) @binding(6) var class_lut: texture_2d<f32>;
+@group(2) @binding(7) var warp_grid: texture_2d<f32>;
 
 struct VOut {
     @builtin(position) pos: vec4<f32>,
@@ -35,8 +53,13 @@ fn vs(@builtin(vertex_index) i: u32) -> VOut {
     return o;
 }
 
+// NaN by its bits: compilers may fold x != x away.
 fn is_nan(x: f32) -> bool {
     return (bitcast<u32>(x) & 0x7fffffffu) > 0x7f800000u;
+}
+
+fn nan() -> f32 {
+    return bitcast<f32>(u.nan_bits);
 }
 
 var<private> uv: vec2<f32>;
@@ -46,6 +69,16 @@ fn texel(size: vec2<u32>) -> vec2<i32> {
 }
 
 fn cube_at(t: i32) -> f32 {
+    if (u.source == 1) {
+        return textureLoad(tile, texel(textureDimensions(tile)), 0).r;
+    }
+    return textureLoad(cube, texel(textureDimensions(cube)), t, 0).r;
+}
+
+fn ref_at(t: i32) -> f32 {
+    if (u.source == 1) {
+        return textureLoad(tile2, texel(textureDimensions(tile2)), 0).r;
+    }
     return textureLoad(cube, texel(textureDimensions(cube)), t, 0).r;
 }
 
@@ -53,18 +86,23 @@ fn stats_at(s: texture_2d<f32>) -> vec4<f32> {
     return textureLoad(s, texel(textureDimensions(s)), 0);
 }
 
-// The target is sRGB: colours leave linear and are stored as the sRGB bytes they were.
-fn linear(c: vec3<f32>) -> vec3<f32> {
-    return select(pow((c + 0.055) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045));
-}
-
 fn norm(v: f32) -> f32 {
     return clamp((v - u.range.x) / (u.range.y - u.range.x), 0.0, 1.0);
 }
 
-// Temporal composite of the dates t0..t1 in the season (time not NaN): 0 median, 1 mean, 2 maximum, 3 minimum,
-// 4 number of observations. The median sorts up to 64 values: with more, every k-th one (as compositeValue in
-// app_season.cpp).
+// The colour as it leaves: the bytes it is (a linear target viewed as sRGB, as GL draws), or linear for an sRGB
+// target that encodes it back into the same bytes.
+fn out_color(c: vec3<f32>, a: f32) -> vec4<f32> {
+    if (u.encode == 1) {
+        let l = select(pow((c + 0.055) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045));
+        return vec4<f32>(l, a);
+    }
+    return vec4<f32>(c, a);
+}
+
+// Temporal composite of the dates t0..t1 in the season (time not NaN), of the overview: 0 median, 1 mean,
+// 2 maximum, 3 minimum, 4 number of observations. The median sorts up to 64 values: with more, every k-th one
+// (as compositeValue in app_season.cpp).
 fn composite(t0: i32, t1: i32, reducer: i32) -> f32 {
     var n = 0.0;
     var s = 0.0;
@@ -80,7 +118,7 @@ fn composite(t0: i32, t1: i32, reducer: i32) -> f32 {
         mx = max(mx, v);
     }
     if (reducer == 4) { return n; }
-    if (n < 1.0) { return bitcast<f32>(u.nan_bits); }
+    if (n < 1.0) { return nan(); }
     if (reducer == 1) { return s / n; }
     if (reducer == 2) { return mx; }
     if (reducer == 3) { return mn; }
@@ -107,24 +145,64 @@ fn composite(t0: i32, t1: i32, reducer: i32) -> f32 {
     return 0.5 * (vals[m / 2 - 1] + vals[m / 2]);
 }
 
+// Bilinear between the 4 grid nodes around the point, in full float precision (texture filtering weights have
+// only ~8 bits), then into the drawn texture.
+fn warped_uv(vuv: vec2<f32>) -> vec2<f32> {
+    let w = u.warp_quad.xy + vuv * u.warp_quad.zw;
+    let n = vec2<i32>(textureDimensions(warp_grid));
+    let g = w * vec2<f32>(n - 1);
+    let i = clamp(vec2<i32>(floor(g)), vec2<i32>(0), n - 2);
+    let f = g - vec2<f32>(i);
+    let a = textureLoad(warp_grid, i, 0).rg;
+    let b = textureLoad(warp_grid, i + vec2<i32>(1, 0), 0).rg;
+    let c = textureLoad(warp_grid, i + vec2<i32>(0, 1), 0).rg;
+    let d = textureLoad(warp_grid, i + vec2<i32>(1, 1), 0).rg;
+    let l = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    return (l - u.warp_src.xy) / u.warp_src.zw;
+}
+
 @fragment
 fn fs(in: VOut) -> @location(0) vec4<f32> {
+    if (u.source == 3) {
+        return out_color(u.color.rgb, u.color.a);
+    }
     uv = in.uv;
+    if (u.warp == 1) {
+        uv = warped_uv(in.uv);
+        if (is_nan(uv.x) || is_nan(uv.y) || uv.x < 0.0 || uv.y < 0.0 || uv.x >= 1.0 || uv.y >= 1.0) { discard; }
+    }
+    if (u.source == 2) {
+        // a basemap tile, a composite, embeddings: its colours, bilinear or nearest
+        let c = textureSampleLevel(image, image_sampler, uv, 0.0);
+        return out_color(c.rgb, c.a * u.alpha);
+    }
     let mode = u.mode;
     if (mode == 9) {
         let r = cube_at(u.layers.x);
         let g = cube_at(u.layers.y);
         let b = cube_at(u.layers.z);
         if (is_nan(r) || is_nan(g) || is_nan(b)) { discard; }
-        return vec4<f32>(linear(vec3<f32>(norm(r), norm(g), norm(b))), u.alpha);
+        return out_color(vec3<f32>(norm(r), norm(g), norm(b)), u.alpha);
     }
     var v: f32;
+    if (u.classes == 1 && mode == 0) {
+        v = cube_at(u.layers.x);
+        if (is_nan(v)) { discard; }
+        let c = i32(floor(v + 0.5));
+        let size = i32(textureDimensions(class_lut).x);
+        var col = vec4<f32>(0.5, 0.5, 0.5, 1.0);
+        if (c >= 0 && c < size) {
+            col = textureLoad(class_lut, vec2<i32>(c, 0), 0);
+        }
+        if (col.a == 0.0) { discard; }
+        return out_color(col.rgb, u.alpha);
+    }
     if (mode == 0) {
         v = cube_at(u.layers.x);
     } else if (mode == 10) {
-        v = cube_at(u.layers.x) - cube_at(u.layers.y);
+        v = cube_at(u.layers.x) - ref_at(u.layers.y);
     } else if (mode == 13) {
-        v = composite(u.layers.x, u.layers.y, u.layers.z);
+        if (u.source == 0) { v = composite(u.layers.x, u.layers.y, u.layers.z); } else { v = nan(); }
     } else {
         let s0 = stats_at(stats0);
         let s1 = stats_at(stats1);
@@ -141,5 +219,5 @@ fn fs(in: VOut) -> @location(0) vec4<f32> {
     }
     if (is_nan(v)) { discard; }
     let c = textureSampleLevel(cmap, cmap_sampler, vec2<f32>(norm(v) * (255.0 / 256.0) + 0.5 / 256.0, 0.5), 0.0);
-    return vec4<f32>(linear(c.rgb), u.alpha);
+    return out_color(c.rgb, u.alpha);
 }

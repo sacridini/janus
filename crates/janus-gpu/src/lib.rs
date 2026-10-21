@@ -1,10 +1,15 @@
-//! The map on the GPU with wgpu (src/gpu.hpp, gpu_gl.cpp, gpu_metal.mm): the overview as an R32F texture array,
-//! the per-pixel temporal statistics in one compute pass, and the display of a date, a statistic or a composite
-//! through a colormap into an offscreen target per map panel. One shader source (WGSL) for every system.
+//! The map on the GPU with wgpu (src/gpu.hpp, gpu_gl.cpp, gpu_metal.mm). Each open series has its cube
+//! ([`GpuCube`]: the overview as an R32F texture array, its per-pixel temporal statistics computed in one compute
+//! pass); a map panel is drawn into an offscreen target of its own, a frame at a time ([`Gpu::begin_map`]): cubes
+//! and detail tiles through a colormap (or a table of class colours), RGBA images (basemap tiles, composites) and
+//! plain rectangles, each with an opacity, straight or through a warp grid (a layer in another CRS). One shader
+//! source (WGSL) for every system.
 
 pub mod colormaps;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 use wgpu::util::DeviceExt;
@@ -53,31 +58,83 @@ impl Mode {
     }
 }
 
-/// How a layer is drawn into a target.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct DrawParams {
-    /// where the overview goes in the target, in its pixels: x0, y0, x1, y1 (may extend past the target)
-    pub rect: [f32; 4],
-    pub mode: Mode,
-    /// the date (Value, Anomaly), the two dates (Diff: date, reference), three dates (Rgb), or the composite's
-    /// first and last date and reducer
-    pub layers: [i32; 3],
-    pub range: [f32; 2],
-    pub alpha: f32,
+/// A texture on the GPU (a detail tile, an image, a class table, a warp grid), shared by whoever draws it.
+pub struct Texture {
+    pub texture: wgpu::Texture,
+    pub view: wgpu::TextureView,
+    pub width: u32,
+    pub height: u32,
 }
 
+pub type GpuTexture = Arc<Texture>;
+
+impl Texture {
+    /// Bytes on the GPU.
+    pub fn bytes(&self) -> usize {
+        let b = self.texture.format().block_copy_size(None).unwrap_or(4) as usize;
+        self.width as usize * self.height as usize * b
+    }
+}
+
+/// A layer in another CRS than the map's: each point of the quad goes to the layer's own coordinates through a
+/// grid made on the CPU (the layer's uv at nodes over a map-space domain), interpolated bilinearly; points outside
+/// the drawn texture are discarded (gpu.hpp, WarpParams).
+#[derive(Clone)]
+pub struct Warp {
+    pub grid: GpuTexture,
+    /// the quad in the grid's domain (0..1): x0, y0, w, h
+    pub quad: [f32; 4],
+    /// the drawn texture (cube, tile) in the layer's uv: x0, y0, w, h
+    pub src: [f32; 4],
+}
+
+/// How a layer is drawn (gpu.hpp, DrawParams).
+#[derive(Clone)]
+pub struct LayerParams {
+    pub mode: Mode,
+    /// the date (Value, Anomaly), the date and its reference (Diff), three dates (Rgb), or the composite's first
+    /// and last date and reducer
+    pub layers: [i32; 3],
+    pub range: [f32; 2],
+    /// categorical data: class value -> colour (see Gpu::create_class_lut)
+    pub class_lut: Option<GpuTexture>,
+    /// Diff on a detail tile: the reference date's tile
+    pub tile2: Option<GpuTexture>,
+    pub warp: Option<Warp>,
+}
+
+impl LayerParams {
+    pub fn new(mode: Mode, layers: [i32; 3], range: [f32; 2]) -> Self {
+        LayerParams { mode, layers, range, class_lut: None, tile2: None, warp: None }
+    }
+}
+
+/// Class colours of categorical data: CLASS_LUT_SIZE texels, value v -> texel v (alpha 0 = not a class of the
+/// series, drawn transparent).
+pub const CLASS_LUT_SIZE: u32 = 4096;
+
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct ViewUniform {
+#[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
+struct DrawUniform {
     rect: [f32; 4],
     layers: [i32; 4],
     range: [f32; 2],
     alpha: f32,
     mode: i32,
-    t: u32,
+    source: i32,
+    classes: i32,
+    warp: i32,
+    nearest: i32,
+    encode: i32,
     nan_bits: u32,
     _pad: [u32; 2],
+    color: [f32; 4],
+    warp_quad: [f32; 4],
+    warp_src: [f32; 4],
 }
+
+/// Each draw's uniforms sit at a multiple of this in one buffer (WebGPU's minimum uniform offset alignment).
+const UNIFORM_STRIDE: u64 = 256;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -88,10 +145,23 @@ struct StatsUniform {
 }
 
 const NAN_BITS: u32 = 0x7fc0_0000;
-/// The target's format: sRGB, as egui's own textures. The shader works on the colormap's sRGB colours (as the C++)
-/// and outputs them linear, which the target stores back as the same sRGB bytes. (A linear target viewed as sRGB
-/// would need view formats, which wgpu's OpenGL backend lacks.)
-pub const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+/// The per-pixel statistics read back to the CPU (for the ranges, histograms and the Statistics panel).
+#[derive(Default)]
+pub struct Stats {
+    pub w: usize,
+    pub h: usize,
+    /// mean, std, slope, n per pixel
+    pub s0: Vec<[f32; 4]>,
+    /// min, max, R², largest drop per pixel
+    pub s1: Vec<[f32; 4]>,
+    /// date index of the largest drop
+    pub s2: Vec<f32>,
+    /// the whole time (ms): compute, readback and copy
+    pub ms: f64,
+    /// until the GPU had computed and copied them to readable memory (ms)
+    pub gpu_ms: f64,
+}
 
 /// The rows of a mapped readback buffer copied once, out of their padding, into a vector (aligned for floats).
 fn unpad<T: bytemuck::Pod + Default>((buf, row): &(wgpu::Buffer, u32), w: usize, h: usize) -> Option<Vec<T>> {
@@ -116,63 +186,107 @@ impl StatsJob {
     pub fn poll(&self) -> Option<Option<Stats>> {
         self.rx.try_recv().ok()
     }
+
+    /// Waits for them.
+    pub fn wait(self) -> Option<Stats> {
+        self.rx.recv().ok().flatten()
+    }
 }
 
-/// The per-pixel statistics read back to the CPU (for the ranges, histograms and the Statistics panel).
-#[derive(Default)]
-pub struct Stats {
-    pub w: usize,
-    pub h: usize,
-    /// mean, std, slope, n per pixel
-    pub s0: Vec<[f32; 4]>,
-    /// min, max, R2, largest drop per pixel
-    pub s1: Vec<[f32; 4]>,
-    /// date index of the largest drop
-    pub s2: Vec<f32>,
-    /// the whole time (ms): compute, readback and copy
-    pub ms: f64,
-    /// until the GPU had computed and copied them to readable memory (ms)
-    pub gpu_ms: f64,
-}
-
-struct GpuCube {
-    w: u32,
-    h: u32,
-    t: u32,
+/// A series' cube on the GPU: the overview's dates, their times (years since the first; NaN = outside the season)
+/// and the statistics.
+pub struct GpuCube {
+    pub w: u32,
+    pub h: u32,
+    pub t: u32,
+    queue: wgpu::Queue,
     texture: wgpu::Texture,
     stats: [wgpu::Texture; 3],
-    view: wgpu::TextureView,
-    stat_views: [wgpu::TextureView; 3],
     times: wgpu::Buffer,
+    /// the display's group 1
+    group: wgpu::BindGroup,
     stats_group: wgpu::BindGroup,
-    /// changes with every new cube: the targets' bind groups are made again
-    generation: u64,
+    loaded: Vec<bool>,
+}
+
+impl GpuCube {
+    /// Sends date `i` of the overview (w × h floats).
+    pub fn upload_layer(&mut self, i: u32, data: &[f32]) {
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y: 0, z: i },
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytemuck::cast_slice(data),
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(self.w * 4), rows_per_image: Some(self.h) },
+            wgpu::Extent3d { width: self.w, height: self.h, depth_or_array_layers: 1 },
+        );
+        self.loaded[i as usize] = true;
+    }
+
+    pub fn loaded(&self, i: usize) -> bool {
+        self.loaded.get(i).copied().unwrap_or(false)
+    }
+
+    /// The dates' times (years since the first; NaN = outside the season): the statistics need computing again.
+    pub fn set_times(&self, times: &[f32]) {
+        self.queue.write_buffer(&self.times, 0, bytemuck::cast_slice(times));
+    }
+
+    /// Bytes on the GPU: the dates and the statistics (w × h × (T + 9) floats).
+    pub fn bytes(&self) -> usize {
+        self.w as usize * self.h as usize * (self.t as usize + 9) * 4
+    }
 }
 
 /// An offscreen target (a map panel): an RGBA texture the size of the panel in pixels.
 pub struct Target {
     pub texture: wgpu::Texture,
-    /// drawn into, and sampled by egui
+    /// the sRGB view egui samples
     pub view: wgpu::TextureView,
+    write_view: wgpu::TextureView,
     pub size: [u32; 2],
-    uniform: wgpu::Buffer,
-    /// the display's bind group for the cube of that generation
-    group: Option<(u64, wgpu::BindGroup)>,
+}
+
+/// One draw of a map frame.
+struct PendingDraw {
+    uniform: DrawUniform,
+    cube_group: wgpu::BindGroup,
+    textures: wgpu::BindGroup,
+}
+
+/// A map frame being drawn into a target (Gpu::begin_map ... Gpu::end_map).
+pub struct MapFrame {
+    slot: i32,
+    size: [u32; 2],
+    clear: [f32; 4],
+    draws: Vec<PendingDraw>,
 }
 
 pub struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     display: wgpu::RenderPipeline,
-    display_layout: wgpu::BindGroupLayout,
+    uniform_layout: wgpu::BindGroupLayout,
+    cube_layout: wgpu::BindGroupLayout,
+    texture_layout: wgpu::BindGroupLayout,
     stats: wgpu::ComputePipeline,
     stats_layout: wgpu::BindGroupLayout,
-    cmap_texture: wgpu::Texture,
-    cmap_sampler: wgpu::Sampler,
-    colormap: Option<usize>,
-    cube: Option<GpuCube>,
-    generation: u64,
+    linear_sampler: wgpu::Sampler,
+    nearest_sampler: wgpu::Sampler,
+    colormaps: RefCell<HashMap<usize, GpuTexture>>,
+    /// the cube group of draws without a cube (images, rectangles, overlays): a 1 x 1 x 1 cube
+    no_cube: Option<wgpu::BindGroup>,
+    dummy_r32: GpuTexture,
+    dummy_rgba: GpuTexture,
+    dummy_rg32: GpuTexture,
+    uniforms: RefCell<(wgpu::Buffer, u64)>,
     targets: HashMap<i32, Target>,
+    /// whether the targets are sRGB (wgpu's OpenGL: no view formats) and colours leave linear
+    encode: bool,
+    target_format: wgpu::TextureFormat,
 }
 
 fn tex_entry(
@@ -193,11 +307,16 @@ fn tex_entry(
     }
 }
 
-fn buffer_entry(binding: u32, stages: wgpu::ShaderStages, ty: wgpu::BufferBindingType) -> wgpu::BindGroupLayoutEntry {
+fn buffer_entry(
+    binding: u32,
+    stages: wgpu::ShaderStages,
+    ty: wgpu::BufferBindingType,
+    dynamic: bool,
+) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility: stages,
-        ty: wgpu::BindingType::Buffer { ty, has_dynamic_offset: false, min_binding_size: None },
+        ty: wgpu::BindingType::Buffer { ty, has_dynamic_offset: dynamic, min_binding_size: None },
         count: None,
     }
 }
@@ -228,39 +347,69 @@ pub fn required_limits(adapter: &wgpu::Adapter) -> wgpu::Limits {
     }
 }
 
+/// Whether the adapter's textures can be viewed in another format (a linear target shown as sRGB); wgpu's OpenGL
+/// backend cannot.
+pub fn supports_view_formats(adapter: &wgpu::Adapter) -> bool {
+    adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::VIEW_FORMATS)
+}
+
+/// sRGB to linear, for a clear colour of an sRGB target.
+fn to_linear(c: f32) -> f32 {
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}
+
 impl Gpu {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+    /// `view_formats`: supports_view_formats(adapter).
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, view_formats: bool) -> Self {
+        let d = device;
         let vf = wgpu::ShaderStages::VERTEX_FRAGMENT;
         let frag = wgpu::ShaderStages::FRAGMENT;
         let d2 = wgpu::TextureViewDimension::D2;
-        let display_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("display"),
+        let uniform_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("draw"),
+            entries: &[buffer_entry(0, vf, wgpu::BufferBindingType::Uniform, true)],
+        });
+        let cube_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cube"),
             entries: &[
-                buffer_entry(0, vf, wgpu::BufferBindingType::Uniform),
-                tex_entry(1, frag, wgpu::TextureViewDimension::D2Array, false),
+                tex_entry(0, frag, wgpu::TextureViewDimension::D2Array, false),
+                tex_entry(1, frag, d2, false),
                 tex_entry(2, frag, d2, false),
+                tex_entry(3, frag, d2, false),
+                buffer_entry(4, frag, wgpu::BufferBindingType::Storage { read_only: true }, false),
+            ],
+        });
+        let sampler_entry = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: frag,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        };
+        let texture_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("textures"),
+            entries: &[
+                tex_entry(0, frag, d2, true),
+                sampler_entry(1),
+                sampler_entry(2),
                 tex_entry(3, frag, d2, false),
                 tex_entry(4, frag, d2, false),
                 tex_entry(5, frag, d2, true),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 6,
-                    visibility: frag,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                buffer_entry(7, frag, wgpu::BufferBindingType::Storage { read_only: true }),
+                tex_entry(6, frag, d2, false),
+                tex_entry(7, frag, d2, false),
             ],
         });
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let encode = !view_formats;
+        let target_format = if encode { wgpu::TextureFormat::Rgba8UnormSrgb } else { wgpu::TextureFormat::Rgba8Unorm };
+        let module = d.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("display"),
             source: wgpu::ShaderSource::Wgsl(include_str!("display.wgsl").into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("display"),
-            bind_group_layouts: &[Some(&display_layout)],
+            bind_group_layouts: &[Some(&uniform_layout), Some(&cube_layout), Some(&texture_layout)],
             immediate_size: 0,
         });
-        let display = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let display = d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("display"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -276,8 +425,9 @@ impl Gpu {
                 module: &module,
                 entry_point: Some("fs"),
                 compilation_options: Default::default(),
+                // SRC_ALPHA, ONE_MINUS_SRC_ALPHA (gpu_gl.cpp); an opaque draw (alpha 1) replaces
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: TARGET_FORMAT,
+                    format: target_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -286,27 +436,32 @@ impl Gpu {
             cache: None,
         });
 
-        let stats_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let stats_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("stats"),
             entries: &[
                 tex_entry(0, wgpu::ShaderStages::COMPUTE, wgpu::TextureViewDimension::D2Array, false),
-                buffer_entry(1, wgpu::ShaderStages::COMPUTE, wgpu::BufferBindingType::Storage { read_only: true }),
-                buffer_entry(2, wgpu::ShaderStages::COMPUTE, wgpu::BufferBindingType::Uniform),
+                buffer_entry(
+                    1,
+                    wgpu::ShaderStages::COMPUTE,
+                    wgpu::BufferBindingType::Storage { read_only: true },
+                    false,
+                ),
+                buffer_entry(2, wgpu::ShaderStages::COMPUTE, wgpu::BufferBindingType::Uniform, false),
                 storage_entry(3, wgpu::TextureFormat::Rgba32Float),
                 storage_entry(4, wgpu::TextureFormat::Rgba32Float),
                 storage_entry(5, wgpu::TextureFormat::R32Float),
             ],
         });
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let module = d.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("stats"),
             source: wgpu::ShaderSource::Wgsl(include_str!("stats.wgsl").into()),
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("stats"),
             bind_group_layouts: &[Some(&stats_layout)],
             immediate_size: 0,
         });
-        let stats = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let stats = d.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("stats"),
             layout: Some(&layout),
             module: &module,
@@ -314,38 +469,66 @@ impl Gpu {
             compilation_options: Default::default(),
             cache: None,
         });
-
-        let cmap_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("colormap"),
-            size: wgpu::Extent3d { width: 256, height: 1, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let cmap_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("colormap"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
+        let sampler = |filter| {
+            d.create_sampler(&wgpu::SamplerDescriptor {
+                mag_filter: filter,
+                min_filter: filter,
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                ..Default::default()
+            })
+        };
+        let make = |format, w, h, bytes: &[u8]| {
+            let texture = d.create_texture_with_data(
+                queue,
+                &wgpu::TextureDescriptor {
+                    label: Some("placeholder"),
+                    size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                },
+                wgpu::util::TextureDataOrder::LayerMajor,
+                bytes,
+            );
+            let view = texture.create_view(&Default::default());
+            Arc::new(Texture { texture, view, width: w, height: h })
+        };
+        let dummy_r32 = make(wgpu::TextureFormat::R32Float, 1, 1, &[0; 4]);
+        let dummy_rgba = make(wgpu::TextureFormat::Rgba8Unorm, 1, 1, &[0; 4]);
+        let dummy_rg32 = make(wgpu::TextureFormat::Rg32Float, 2, 2, &[0; 32]);
+        let uniforms = d.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("draws"),
+            size: UNIFORM_STRIDE * 64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
         let mut gpu = Gpu {
-            device: device.clone(),
+            device: d.clone(),
             queue: queue.clone(),
             display,
-            display_layout,
+            uniform_layout,
+            cube_layout,
+            texture_layout,
             stats,
             stats_layout,
-            cmap_texture,
-            cmap_sampler,
-            colormap: None,
-            cube: None,
-            generation: 0,
+            linear_sampler: sampler(wgpu::FilterMode::Linear),
+            nearest_sampler: sampler(wgpu::FilterMode::Nearest),
+            colormaps: RefCell::new(HashMap::new()),
+            no_cube: None,
+            dummy_r32,
+            dummy_rgba,
+            dummy_rg32,
+            uniforms: RefCell::new((uniforms, 64)),
             targets: HashMap::new(),
+            encode,
+            target_format,
         };
-        gpu.set_colormap(colormaps::VIRIDIS);
+        let empty = gpu.create_cube(1, 1, 1, &[0.0]);
+        gpu.no_cube = Some(empty.group.clone());
         gpu
     }
 
@@ -353,26 +536,70 @@ impl Gpu {
         &self.device
     }
 
-    pub fn set_colormap(&mut self, cmap: usize) {
-        if self.colormap == Some(cmap) {
-            return;
-        }
-        self.colormap = Some(cmap);
-        let lut = colormaps::all()[cmap].lut();
-        self.queue.write_texture(
-            self.cmap_texture.as_image_copy(),
-            bytemuck::cast_slice(&lut),
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(256 * 4), rows_per_image: None },
-            wgpu::Extent3d { width: 256, height: 1, depth_or_array_layers: 1 },
-        );
+    fn no_cube(&self) -> wgpu::BindGroup {
+        self.no_cube.clone().expect("made in new")
     }
 
-    /// A new cube of w × h × t on the GPU (the dates sent with `upload_layer`), with every date in the season.
-    pub fn create_cube(&mut self, w: u32, h: u32, t: u32, times: &[f32]) {
+    /// The colormap's lookup texture (256 colours, bilinear), made once.
+    fn colormap(&self, cmap: usize) -> GpuTexture {
+        if let Some(t) = self.colormaps.borrow().get(&cmap) {
+            return t.clone();
+        }
+        let lut = colormaps::all()[cmap.min(colormaps::all().len() - 1)].lut();
+        let t = self.create_texture(wgpu::TextureFormat::Rgba8Unorm, 256, 1, bytemuck::cast_slice(&lut));
+        self.colormaps.borrow_mut().insert(cmap, t.clone());
+        t
+    }
+
+    fn create_texture(&self, format: wgpu::TextureFormat, w: u32, h: u32, bytes: &[u8]) -> GpuTexture {
+        let texture = self.device.create_texture_with_data(
+            &self.queue,
+            &wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d { width: w.max(1), height: h.max(1), depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            bytes,
+        );
+        let view = texture.create_view(&Default::default());
+        Arc::new(Texture { texture, view, width: w, height: h })
+    }
+
+    /// A detail tile: w × h floats.
+    pub fn create_tile(&self, w: u32, h: u32, data: &[f32]) -> GpuTexture {
+        self.create_texture(wgpu::TextureFormat::R32Float, w, h, bytemuck::cast_slice(data))
+    }
+
+    /// An RGBA image (rows from the top): a basemap tile, a composite.
+    pub fn create_image(&self, w: u32, h: u32, rgba: &[u8]) -> GpuTexture {
+        self.create_texture(wgpu::TextureFormat::Rgba8Unorm, w, h, rgba)
+    }
+
+    /// A table of class colours: CLASS_LUT_SIZE RGBA texels.
+    pub fn create_class_lut(&self, rgba: &[u8]) -> GpuTexture {
+        self.create_texture(wgpu::TextureFormat::Rgba8Unorm, CLASS_LUT_SIZE, 1, rgba)
+    }
+
+    /// A warp grid: w × h (u, v) pairs, rows from the top.
+    pub fn create_warp_grid(&self, w: u32, h: u32, rg: &[f32]) -> GpuTexture {
+        self.create_texture(wgpu::TextureFormat::Rg32Float, w, h, bytemuck::cast_slice(rg))
+    }
+
+    /// A new cube of w × h × t on the GPU (the dates sent with upload_layer), `times` the dates in years since the
+    /// first (NaN = outside the season).
+    pub fn create_cube(&self, w: u32, h: u32, t: u32, times: &[f32]) -> GpuCube {
         let d = &self.device;
+        // two layers at least: wgpu's OpenGL makes a texture of one layer a plain 2D texture, which cannot be
+        // viewed as an array
         let texture = d.create_texture(&wgpu::TextureDescriptor {
             label: Some("cube"),
-            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: t },
+            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: t.max(2) },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -413,98 +640,49 @@ impl Gpu {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         });
-        let stat_views = stats.each_ref().map(|s| s.create_view(&Default::default()));
+        let sv = stats.each_ref().map(|s| s.create_view(&Default::default()));
+        let tv = wgpu::BindingResource::TextureView;
+        let group = d.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cube"),
+            layout: &self.cube_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: tv(&view) },
+                wgpu::BindGroupEntry { binding: 1, resource: tv(&sv[0]) },
+                wgpu::BindGroupEntry { binding: 2, resource: tv(&sv[1]) },
+                wgpu::BindGroupEntry { binding: 3, resource: tv(&sv[2]) },
+                wgpu::BindGroupEntry { binding: 4, resource: times.as_entire_binding() },
+            ],
+        });
         let stats_group = d.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("stats"),
             layout: &self.stats_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+                wgpu::BindGroupEntry { binding: 0, resource: tv(&view) },
                 wgpu::BindGroupEntry { binding: 1, resource: times.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 2, resource: stats_uniform.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&stat_views[0]) },
-                wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&stat_views[1]) },
-                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&stat_views[2]) },
+                wgpu::BindGroupEntry { binding: 3, resource: tv(&sv[0]) },
+                wgpu::BindGroupEntry { binding: 4, resource: tv(&sv[1]) },
+                wgpu::BindGroupEntry { binding: 5, resource: tv(&sv[2]) },
             ],
         });
-        self.generation += 1;
-        self.cube = Some(GpuCube {
+        GpuCube {
             w,
             h,
             t,
+            queue: self.queue.clone(),
             texture,
             stats,
-            view,
-            stat_views,
             times,
+            group,
             stats_group,
-            generation: self.generation,
-        });
-    }
-
-    fn display_group(&self, uniform: &wgpu::Buffer, c: &GpuCube) -> wgpu::BindGroup {
-        let cmap_view = self.cmap_texture.create_view(&Default::default());
-        let tex = wgpu::BindingResource::TextureView;
-        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("display"),
-            layout: &self.display_layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: uniform.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: tex(&c.view) },
-                wgpu::BindGroupEntry { binding: 2, resource: tex(&c.stat_views[0]) },
-                wgpu::BindGroupEntry { binding: 3, resource: tex(&c.stat_views[1]) },
-                wgpu::BindGroupEntry { binding: 4, resource: tex(&c.stat_views[2]) },
-                wgpu::BindGroupEntry { binding: 5, resource: tex(&cmap_view) },
-                wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::Sampler(&self.cmap_sampler) },
-                wgpu::BindGroupEntry { binding: 7, resource: c.times.as_entire_binding() },
-            ],
-        })
-    }
-
-    /// Forgets the cube (another series is being opened).
-    pub fn clear_cube(&mut self) {
-        self.cube = None;
-    }
-
-    pub fn has_cube(&self) -> bool {
-        self.cube.is_some()
-    }
-
-    /// Sends date `i` of the overview (w × h floats) to the GPU.
-    pub fn upload_layer(&self, i: u32, data: &[f32]) {
-        let Some(c) = &self.cube else { return };
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &c.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: 0, z: i },
-                aspect: wgpu::TextureAspect::All,
-            },
-            bytemuck::cast_slice(data),
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(c.w * 4), rows_per_image: Some(c.h) },
-            wgpu::Extent3d { width: c.w, height: c.h, depth_or_array_layers: 1 },
-        );
-    }
-
-    /// The dates' times (NaN = outside the season): the statistics need computing again after.
-    pub fn set_times(&self, times: &[f32]) {
-        if let Some(c) = &self.cube {
-            self.queue.write_buffer(&c.times, 0, bytemuck::cast_slice(times));
+            loaded: vec![false; t as usize],
         }
-    }
-
-    /// Computes the statistics of every pixel and reads them back, waiting for the GPU.
-    pub fn compute_stats(&self) -> Option<Stats> {
-        self.compute_stats_async(|| {}).rx.recv().ok().flatten()
     }
 
     /// Computes the statistics of every pixel; they are read back and copied in a thread of their own (the C++
     /// waits for them on the interface's thread), `on_done` called when they are ready.
-    pub fn compute_stats_async(&self, on_done: impl FnOnce() + Send + 'static) -> StatsJob {
+    pub fn compute_stats_async(&self, c: &GpuCube, on_done: impl FnOnce() + Send + 'static) -> StatsJob {
         let (tx, rx) = std::sync::mpsc::channel();
-        let Some(c) = self.cube.as_ref() else {
-            let _ = tx.send(None);
-            return StatsJob { rx };
-        };
         let start = Instant::now();
         let mut enc = self.device.create_command_encoder(&Default::default());
         {
@@ -562,15 +740,6 @@ impl Gpu {
         StatsJob { rx }
     }
 
-    fn target_uniform(device: &wgpu::Device) -> wgpu::Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("view"),
-            size: std::mem::size_of::<ViewUniform>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
-    }
-
     /// The target of a map panel (`slot`), made or remade at the size asked. Returns whether it is new (its
     /// texture must then be registered with egui again).
     pub fn ensure_target(&mut self, slot: i32, size: [u32; 2]) -> bool {
@@ -578,21 +747,23 @@ impl Gpu {
         if self.targets.get(&slot).is_some_and(|t| t.size == size) {
             return false;
         }
+        let srgb = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let formats = [srgb];
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("map target"),
             size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: TARGET_FORMAT,
+            format: self.target_format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
+            view_formats: if self.encode { &[] } else { &formats },
         });
-        let view = texture.create_view(&Default::default());
-        let uniform = Self::target_uniform(&self.device);
-        self.targets.insert(slot, Target { texture, view, size, uniform, group: None });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor { format: Some(srgb), ..Default::default() });
+        let write_view = texture.create_view(&Default::default());
+        self.targets.insert(slot, Target { texture, view, write_view, size });
         true
     }
 
@@ -600,45 +771,212 @@ impl Gpu {
         self.targets.get(&slot)
     }
 
-    /// Draws the cube into a target, cleared first. Without a cube the target is only cleared.
-    pub fn render(&mut self, slot: i32, p: Option<&DrawParams>) {
-        let mut draw = false;
-        if let (Some(p), Some(c)) = (p, &self.cube)
-            && let Some(target) = self.targets.get(&slot)
-        {
-            let [w, h] = target.size.map(|v| v as f32);
-            let ndc = |x: f32, y: f32| [x / w * 2.0 - 1.0, 1.0 - y / h * 2.0];
-            let [x0, y0] = ndc(p.rect[0], p.rect[1]);
-            let [x1, y1] = ndc(p.rect[2], p.rect[3]);
-            let u = ViewUniform {
-                rect: [x0, y0, x1, y1],
-                layers: [p.layers[0], p.layers[1], p.layers[2], 0],
-                range: p.range,
-                alpha: p.alpha,
-                mode: p.mode as i32,
-                t: c.t,
-                nan_bits: NAN_BITS,
-                _pad: [0; 2],
-            };
-            self.queue.write_buffer(&target.uniform, 0, bytemuck::bytes_of(&u));
-            if target.group.as_ref().is_none_or(|g| g.0 != c.generation) {
-                let group = self.display_group(&target.uniform, c);
-                let generation = c.generation;
-                self.targets.get_mut(&slot).unwrap().group = Some((generation, group));
-            }
-            draw = true;
+    /// A closed panel's target.
+    pub fn release_target(&mut self, slot: i32) {
+        self.targets.remove(&slot);
+    }
+
+    /// Starts a frame of the map in a target of `size` pixels (made if needed), cleared to `bg` (sRGB).
+    pub fn begin_map(&mut self, slot: i32, size: [u32; 2], bg: [f32; 4]) -> MapFrame {
+        self.ensure_target(slot, size);
+        MapFrame { slot, size: [size[0].max(1), size[1].max(1)], clear: bg, draws: Vec::new() }
+    }
+
+    fn uniform(&self, f: &MapFrame, rect: [f32; 4]) -> DrawUniform {
+        let [w, h] = f.size.map(|v| v as f32);
+        DrawUniform {
+            rect: [rect[0] / w * 2.0 - 1.0, 1.0 - rect[1] / h * 2.0, rect[2] / w * 2.0 - 1.0, 1.0 - rect[3] / h * 2.0],
+            alpha: 1.0,
+            encode: i32::from(self.encode),
+            nan_bits: NAN_BITS,
+            ..Default::default()
         }
-        let Some(target) = self.targets.get(&slot) else { return };
+    }
+
+    fn textures(
+        &self,
+        cmap: Option<usize>,
+        tile: Option<&GpuTexture>,
+        image: Option<(&GpuTexture, bool)>,
+        p: Option<&LayerParams>,
+    ) -> wgpu::BindGroup {
+        let cmap = cmap.map(|c| self.colormap(c));
+        fn tv<'a>(t: Option<&'a GpuTexture>, dummy: &'a GpuTexture) -> wgpu::BindingResource<'a> {
+            wgpu::BindingResource::TextureView(&t.unwrap_or(dummy).view)
+        }
+        let image_sampler = if image.is_some_and(|i| i.1) { &self.nearest_sampler } else { &self.linear_sampler };
+        let (tile2, lut, warp) = match p {
+            Some(p) => (p.tile2.as_ref(), p.class_lut.as_ref(), p.warp.as_ref().map(|w| &w.grid)),
+            None => (None, None, None),
+        };
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("textures"),
+            layout: &self.texture_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: tv(cmap.as_ref(), &self.dummy_rgba) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.linear_sampler) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(image_sampler) },
+                wgpu::BindGroupEntry { binding: 3, resource: tv(tile, &self.dummy_r32) },
+                wgpu::BindGroupEntry { binding: 4, resource: tv(tile2, &self.dummy_r32) },
+                wgpu::BindGroupEntry { binding: 5, resource: tv(image.map(|i| i.0), &self.dummy_rgba) },
+                wgpu::BindGroupEntry { binding: 6, resource: tv(lut, &self.dummy_rgba) },
+                wgpu::BindGroupEntry { binding: 7, resource: tv(warp, &self.dummy_rg32) },
+            ],
+        })
+    }
+
+    fn layer_uniform(&self, f: &MapFrame, rect: [f32; 4], p: &LayerParams, source: i32, alpha: f32) -> DrawUniform {
+        let mut u = self.uniform(f, rect);
+        let hi = if p.range[1] > p.range[0] { p.range[1] } else { p.range[0] + 1e-6 };
+        u.layers = [p.layers[0], p.layers[1], p.layers[2], 0];
+        u.range = [p.range[0], hi];
+        u.alpha = alpha;
+        u.mode = p.mode as i32;
+        u.source = source;
+        u.classes = i32::from(p.class_lut.is_some());
+        if let Some(w) = &p.warp {
+            u.warp = 1;
+            u.warp_quad = w.quad;
+            u.warp_src = w.src;
+        }
+        u
+    }
+
+    /// A cube through colormap `cmap` with an opacity; `rect` its place in the target's pixels (x0, y0, x1, y1).
+    pub fn draw_cube(&self, f: &mut MapFrame, c: &GpuCube, rect: [f32; 4], p: &LayerParams, cmap: usize, alpha: f32) {
+        let uniform = self.layer_uniform(f, rect, p, 0, alpha);
+        let textures = self.textures(Some(cmap), None, None, Some(p));
+        f.draws.push(PendingDraw { uniform, cube_group: c.group.clone(), textures });
+    }
+
+    /// A detail tile (with the cube's statistics for the modes that need them).
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_tile(
+        &self,
+        f: &mut MapFrame,
+        c: &GpuCube,
+        tile: &GpuTexture,
+        rect: [f32; 4],
+        p: &LayerParams,
+        cmap: usize,
+        alpha: f32,
+    ) {
+        let uniform = self.layer_uniform(f, rect, p, 1, alpha);
+        let textures = self.textures(Some(cmap), Some(tile), None, Some(p));
+        f.draws.push(PendingDraw { uniform, cube_group: c.group.clone(), textures });
+    }
+
+    /// A single-band raster (e.g. a Zeit result) through its own colormap and range.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_overlay(
+        &self,
+        f: &mut MapFrame,
+        tex: &GpuTexture,
+        rect: [f32; 4],
+        range: [f32; 2],
+        cmap: usize,
+        alpha: f32,
+        warp: Option<&Warp>,
+    ) {
+        let mut p = LayerParams::new(Mode::Value, [0, 0, 0], range);
+        p.warp = warp.cloned();
+        let uniform = self.layer_uniform(f, rect, &p, 1, alpha);
+        let textures = self.textures(Some(cmap), Some(tex), None, Some(&p));
+        f.draws.push(PendingDraw { uniform, cube_group: self.no_cube(), textures });
+    }
+
+    /// An RGBA image blended by its own alpha × `alpha`, bilinear (or `nearest`), through a warp if given.
+    pub fn draw_image(
+        &self,
+        f: &mut MapFrame,
+        tex: &GpuTexture,
+        rect: [f32; 4],
+        alpha: f32,
+        warp: Option<&Warp>,
+        nearest: bool,
+    ) {
+        let mut u = self.uniform(f, rect);
+        u.source = 2;
+        u.alpha = alpha;
+        u.nearest = i32::from(nearest);
+        let mut p = LayerParams::new(Mode::Value, [0, 0, 0], [0.0, 1.0]);
+        if let Some(w) = warp {
+            u.warp = 1;
+            u.warp_quad = w.quad;
+            u.warp_src = w.src;
+            p.warp = Some(w.clone());
+        }
+        let textures = self.textures(None, None, Some((tex, nearest)), Some(&p));
+        f.draws.push(PendingDraw { uniform: u, cube_group: self.no_cube(), textures });
+    }
+
+    /// A rectangle of one colour (sRGB, alpha its opacity) blended over the map.
+    pub fn fill_rect(&self, f: &mut MapFrame, rect: [f32; 4], rgba: [f32; 4]) {
+        let mut u = self.uniform(f, rect);
+        u.source = 3;
+        u.color = rgba;
+        let textures = self.textures(None, None, None, None);
+        f.draws.push(PendingDraw { uniform: u, cube_group: self.no_cube(), textures });
+    }
+
+    /// Draws the frame's draws in order, in one pass.
+    pub fn end_map(&self, f: MapFrame) {
+        let Some(target) = self.targets.get(&f.slot) else { return };
+        let n = f.draws.len() as u64;
+        {
+            let mut u = self.uniforms.borrow_mut();
+            if u.1 < n {
+                let cap = n.next_power_of_two();
+                u.0 = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("draws"),
+                    size: UNIFORM_STRIDE * cap,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                u.1 = cap;
+            }
+            if n > 0 {
+                let mut bytes = vec![0u8; (UNIFORM_STRIDE * n) as usize];
+                for (i, d) in f.draws.iter().enumerate() {
+                    let at = i * UNIFORM_STRIDE as usize;
+                    bytes[at..at + size_of::<DrawUniform>()].copy_from_slice(bytemuck::bytes_of(&d.uniform));
+                }
+                self.queue.write_buffer(&u.0, 0, &bytes);
+            }
+        }
+        let u = self.uniforms.borrow();
+        let uniform_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("draws"),
+            layout: &self.uniform_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &u.0,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(size_of::<DrawUniform>() as u64),
+                }),
+            }],
+        });
+        let rgb = if self.encode {
+            [f.clear[0], f.clear[1], f.clear[2]].map(to_linear)
+        } else {
+            [f.clear[0], f.clear[1], f.clear[2]]
+        };
         let mut enc = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("map"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &target.view,
+                    view: &target.write_view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: f64::from(rgb[0]),
+                            g: f64::from(rgb[1]),
+                            b: f64::from(rgb[2]),
+                            a: f64::from(f.clear[3]),
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -647,16 +985,18 @@ impl Gpu {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if let (true, Some((_, g))) = (draw, &target.group) {
-                pass.set_pipeline(&self.display);
-                pass.set_bind_group(0, g, &[]);
+            pass.set_pipeline(&self.display);
+            for (i, d) in f.draws.iter().enumerate() {
+                pass.set_bind_group(0, &uniform_group, &[(i as u64 * UNIFORM_STRIDE) as u32]);
+                pass.set_bind_group(1, &d.cube_group, &[]);
+                pass.set_bind_group(2, &d.textures, &[]);
                 pass.draw(0..4, 0..1);
             }
         }
         self.queue.submit([enc.finish()]);
     }
 
-    /// The target's pixels (RGBA, rows from the top), for tests and exports.
+    /// The target's pixels (sRGB bytes, rows from the top), for tests and exports.
     pub fn read_target(&self, slot: i32) -> Option<(u32, u32, Vec<u8>)> {
         let t = self.targets.get(&slot)?;
         let [w, h] = t.size;
@@ -679,7 +1019,7 @@ impl Gpu {
         self.queue.submit([enc.finish()]);
         buf.slice(..).map_async(wgpu::MapMode::Read, |_| {});
         self.device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
-        let Ok(data) = buf.slice(..).get_mapped_range() else { return None };
+        let data = buf.slice(..).get_mapped_range().ok()?;
         let mut out = Vec::with_capacity((w * h * 4) as usize);
         for y in 0..h as usize {
             out.extend_from_slice(&data[y * row as usize..y * row as usize + w as usize * 4]);

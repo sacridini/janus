@@ -61,7 +61,14 @@ pub struct Options {
     pub screenshot: Option<PathBuf>,
     /// the map opened in a window of its own (to check detached panels); with --screenshot, both windows saved
     pub detach_map: bool,
+    /// --profile-tour: the C++'s fixed tour of the series, timed stage by stage
+    pub profile_tour: bool,
+    /// the tour's timings as JSON
+    pub tour_json: Option<PathBuf>,
 }
+
+/// The exit code of a tour or a test run in the window (main returns it once the window closed).
+pub static EXIT_CODE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 /// Times since the process started (ms), as the C++'s --measure-startup prints them.
 #[derive(Default)]
@@ -119,6 +126,7 @@ pub struct State {
     screenshot_asked: bool,
     /// screenshots asked and not yet saved
     shots_pending: usize,
+    pub(crate) tour: crate::tour::Tour,
 }
 
 /// A screenshot of a window, written as a PNG.
@@ -220,6 +228,7 @@ impl JanusApp {
                 last_play: None,
                 screenshot_asked: false,
                 shots_pending: 0,
+                tour: Default::default(),
             },
         };
         if detach {
@@ -247,13 +256,10 @@ impl State {
         self.pins.clear();
         self.display = Display::default();
         self.map.fit();
-        if let Some(gpu) = &mut self.gpu {
-            gpu.clear_cube();
-        }
         self.opening = Some(Opening::start(inputs, ctx));
     }
 
-    fn set_date(&mut self, t: usize) {
+    pub(crate) fn set_date(&mut self, t: usize) {
         if let Some(s) = &self.session {
             self.display.t = t.min(s.info.t() - 1);
             s.s.overview.set_focus(self.display.t);
@@ -267,11 +273,12 @@ impl State {
             // "Abertura rápida"), and no frame waits for their shaders to compile
             let (tx, rx) = std::sync::mpsc::channel();
             let (device, queue, c) = (self.render_state.device.clone(), self.render_state.queue.clone(), ctx.clone());
+            let view_formats = janus_gpu::supports_view_formats(&self.render_state.adapter);
             std::thread::Builder::new()
                 .name("map pipelines".into())
                 .spawn(move || {
                     let start = Instant::now();
-                    let gpu = Gpu::new(&device, &queue);
+                    let gpu = Gpu::new(&device, &queue, view_formats);
                     let _ = tx.send((gpu, start.elapsed().as_secs_f64() * 1000.0));
                     c.request_repaint();
                 })
@@ -312,7 +319,6 @@ impl State {
         if self.display.update(s) {
             self.map.dirty = true;
         }
-        gpu.set_colormap(self.display.cmap[self.display.mode as usize]);
         // playing: four dates a second
         if self.display.playing {
             let now = Instant::now();
@@ -418,7 +424,7 @@ impl State {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
-        if let Some(path) = self.opts.screenshot.clone() {
+        if let Some(path) = self.opts.screenshot.clone().filter(|_| !self.opts.profile_tour) {
             let ready = self.session.as_ref().is_some_and(|s| s.ready_ms.is_some());
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
@@ -490,6 +496,12 @@ impl eframe::App for JanusApp {
         let detached: Vec<ViewportId> = self.windows.iter().map(|w| w.id).collect();
         s.measurements(ui, &detached);
         s.pump(&ctx);
+        if s.opts.profile_tour
+            && let Some(rc) = s.tour_step(&ctx)
+        {
+            EXIT_CODE.store(rc, std::sync::atomic::Ordering::Relaxed);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         s.shortcuts(&ctx);
         // files dropped on the window open as the series
         let dropped: Vec<String> =

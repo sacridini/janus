@@ -3,6 +3,8 @@
 //! button removes one; the cursor's pixel, the pins, the colour bar and the status are drawn over it.
 
 use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Ui, vec2};
+use janus_gpu::Mode;
+use janus_session::ViewRect;
 
 use crate::app::State;
 use crate::theme;
@@ -20,10 +22,18 @@ pub struct MapView {
     /// where the wheel was turned: the screen point and the image point under it, kept together while zooming
     anchor: Option<(Pos2, [f64; 2])>,
     pub fit_pending: bool,
+    /// the map's size on the screen (points), last frame
+    pub canvas: [f32; 2],
     texture: Option<egui::TextureId>,
-    drawn: Option<janus_gpu::DrawParams>,
+    /// what the target holds: the mode, dates, range, colormap, the image's place and the tiles on the GPU
+    drawn: Option<DrawKey>,
     pub dirty: bool,
 }
+
+type DrawKey = (Mode, [i32; 3], [u32; 2], usize, [u32; 4], usize);
+
+/// The map's background where there is no data (the C++'s, app.cpp renderMap).
+const MAP_BACKGROUND: [f32; 4] = [0.10, 0.10, 0.115, 1.0];
 
 /// A pixel under the cursor or pinned: of the overview and of the source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,6 +50,16 @@ pub struct Pin {
 impl MapView {
     pub fn fit(&mut self) {
         self.fit_pending = true;
+    }
+
+    /// The map centred on an overview pixel at `scale` screen points per overview pixel.
+    pub fn set_view(&mut self, center: [f64; 2], scale: f64) {
+        self.center = center;
+        self.scale = scale;
+        self.target_scale = scale;
+        self.anchor = None;
+        self.fit_pending = false;
+        self.dirty = true;
     }
 }
 
@@ -58,8 +78,10 @@ impl State {
         };
         let (ow, oh) = (s.s.overview.w as f64, s.s.overview.h as f64);
         let (w, h) = (s.info.width as f64, s.info.height as f64);
-        let fit = (f64::from(rect.width()) / ow).min(f64::from(rect.height()) / oh);
+        // the whole image with a margin, as the C++'s fitView
+        let fit = 0.98 * (f64::from(rect.width()) / ow).min(f64::from(rect.height()) / oh);
         let m = &mut self.map;
+        m.canvas = [rect.width(), rect.height()];
         if m.fit_pending || m.scale <= 0.0 {
             m.center = [ow / 2.0, oh / 2.0];
             m.scale = fit;
@@ -178,7 +200,7 @@ impl State {
             }
         }
 
-        // the cube drawn into the panel's target, at the screen's pixels
+        // the cube drawn into the panel's target, at the screen's pixels, the detail tiles over it
         let ppp = ui.ctx().pixels_per_point();
         let size = [(rect.width() * ppp).round() as u32, (rect.height() * ppp).round() as u32];
         let Some(gpu) = self.gpu.as_mut() else { return };
@@ -192,21 +214,74 @@ impl State {
             }
             m.dirty = true;
         }
-        let tl = screen_of(m, 0.0, 0.0);
-        let br = screen_of(m, ow, oh);
-        let px_rect = [
-            (tl.x - rect.min.x) * ppp,
-            (tl.y - rect.min.y) * ppp,
-            (br.x - rect.min.x) * ppp,
-            (br.y - rect.min.y) * ppp,
-        ];
-        let params = self.display.draw_params(s, px_rect);
-        let ready = !params.mode.needs_stats() || s.stats.is_some();
-        if m.dirty || m.drawn != Some(params) {
-            gpu.render(0, ready.then_some(&params));
-            m.drawn = Some(params);
+        let Some(s) = self.session.as_mut() else { return };
+        let (fx, fy) = (w / ow, h / oh); // source pixels per overview pixel
+        let to_px = |m: &MapView, x0: f64, y0: f64, x1: f64, y1: f64| -> [f32; 4] {
+            let (a, b) = (screen_of(m, x0, y0), screen_of(m, x1, y1));
+            [(a.x - rect.min.x) * ppp, (a.y - rect.min.y) * ppp, (b.x - rect.min.x) * ppp, (b.y - rect.min.y) * ppp]
+        };
+        let mut params = self.display.layer_params(s);
+        let cmap = self.display.cmap[params.mode as usize];
+        let mode = params.mode;
+        let t = self.display.t;
+        let ready = match mode {
+            Mode::Rgb => params.layers.iter().all(|&l| s.uploaded[l as usize]),
+            Mode::Diff => s.uploaded[t] && s.uploaded[params.layers[1] as usize],
+            Mode::Composite => true,
+            m if m.needs_stats() => s.stats.is_some(),
+            _ => s.uploaded[t],
+        };
+        // the detail tiles of the view: the visible part in source pixels, at screen pixels per source pixel
+        let (v0, v1) = (image_at(m, rect.min), image_at(m, rect.max));
+        let view = ViewRect {
+            x0: v0[0] * fx,
+            y0: v0[1] * fy,
+            x1: v1[0] * fx,
+            y1: v1[1] * fy,
+            scale: m.scale * f64::from(ppp) / fx,
+        };
+        let detail = matches!(mode, Mode::Value | Mode::Diff) && !s.s.defer_random_reads();
+        let prefetch = self.display.playing.then(|| (t + 1) % s.info.t());
+        if detail {
+            s.tiles.update(s.s.fg(), t, &view, prefetch);
+            if mode == Mode::Diff {
+                s.tiles.update(s.s.fg(), params.layers[1] as usize, &view, None);
+            }
+        }
+        let key = (
+            mode,
+            params.layers,
+            params.range.map(f32::to_bits),
+            cmap,
+            to_px(m, 0.0, 0.0, ow, oh).map(f32::to_bits),
+            s.tiles.gpu_tiles(),
+        );
+        if m.dirty || m.drawn.as_ref() != Some(&key) {
+            let mut f = gpu.begin_map(0, size, MAP_BACKGROUND);
+            if let (true, Some(cube)) = (ready, &s.cube) {
+                gpu.draw_cube(&mut f, cube, to_px(m, 0.0, 0.0, ow, oh), &params, cmap, 1.0);
+                if detail {
+                    let tiles: Vec<_> = if mode == Mode::Diff {
+                        s.tiles
+                            .visible_pairs(t, params.layers[1] as usize, &view)
+                            .into_iter()
+                            .map(|(a, b)| (a, Some(b)))
+                            .collect()
+                    } else {
+                        s.tiles.visible(t, &view).into_iter().map(|a| (a, None)).collect()
+                    };
+                    for (tile, reference) in tiles {
+                        params.tile2 = reference.map(|r| r.tex.clone());
+                        let r = to_px(m, tile.x / fx, tile.y / fy, (tile.x + tile.sw) / fx, (tile.y + tile.sh) / fy);
+                        gpu.draw_tile(&mut f, cube, &tile.tex, r, &params, cmap, 1.0);
+                    }
+                }
+            }
+            gpu.end_map(f);
+            m.drawn = Some(key);
             m.dirty = false;
         }
+        let s = self.session.as_ref().unwrap();
         if let Some(tex) = m.texture {
             painter.image(tex, rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         }

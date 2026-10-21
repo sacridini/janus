@@ -266,6 +266,26 @@ impl<T> TileManager<T> {
         keys.iter().map(|k| &self.resident[k]).collect()
     }
 
+    /// The cached tiles of date t covering the view with, for each, the tile of date `t2` at the same place (the
+    /// reference of a difference): only where both are cached. Coarsest first.
+    pub fn visible_pairs(&mut self, t: usize, t2: usize, v: &ViewRect) -> Vec<(&Tile<T>, &Tile<T>)> {
+        let Some(max) = self.max_level else { return Vec::new() };
+        let frame = self.frame;
+        let mut keys = Vec::new();
+        for level in (0..=max).rev() {
+            for (tx, ty) in tiles_in_view(v, level, self.info.width, self.info.height) {
+                let (a, b) = (make_key(t, level, tx, ty), make_key(t2, level, tx, ty));
+                if self.resident.contains_key(&a) && self.resident.contains_key(&b) {
+                    for k in [a, b] {
+                        self.resident.get_mut(&k).unwrap().last_used = frame;
+                    }
+                    keys.push((a, b));
+                }
+            }
+        }
+        keys.iter().map(|(a, b)| (&self.resident[a], &self.resident[b])).collect()
+    }
+
     pub fn gpu_bytes(&self) -> usize {
         self.bytes
     }
