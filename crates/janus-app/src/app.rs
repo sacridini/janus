@@ -69,6 +69,10 @@ pub struct Options {
     pub dump_golden: Option<PathBuf>,
     /// --basemap: a basemap (a preset's id or an XYZ URL) shown once the series opens
     pub basemap: Option<String>,
+    /// --selftest-composite: the RGB composite of a series with several bands per date against its files
+    pub selftest_composite: bool,
+    /// the overview's budget in bytes, for the tests (instead of budget_mb)
+    pub budget_bytes: Option<i64>,
 }
 
 /// The exit code of a tour or a test run in the window (main returns it once the window closed).
@@ -135,6 +139,9 @@ pub struct State {
     pub(crate) tour: crate::tour::Tour,
     pub(crate) golden: crate::golden::Golden,
     pub basemap: crate::basemap::BasemapState,
+    /// three bands of each date as RGB (series with several bands per date)
+    pub composite: Option<crate::composite::BandComposite>,
+    pub(crate) composite_test: crate::composite::SelfTest,
 }
 
 /// A screenshot of a window, written as a PNG.
@@ -199,7 +206,10 @@ impl TabViewer for Tabs<'_> {
                         self.s.layers_ui(ui);
                         self.s.basemap_ui(ui);
                     }
-                    Tab::Display => self.s.display_ui(ui),
+                    Tab::Display => {
+                        self.s.display_ui(ui);
+                        self.s.composite_ui(ui);
+                    }
                     Tab::Statistics => self.s.statistics_ui(ui),
                     Tab::Performance => {
                         self.s.performance_ui(ui);
@@ -246,6 +256,8 @@ impl JanusApp {
                 tour: Default::default(),
                 golden: Default::default(),
                 basemap: Default::default(),
+                composite: None,
+                composite_test: Default::default(),
             },
         };
         if detach {
@@ -316,7 +328,7 @@ impl State {
                 Ok(info) => {
                     let max_tex = self.render_state.device.limits().max_texture_dimension_2d as usize;
                     let settings = janus_session::SessionSettings {
-                        overview_budget_bytes: self.opts.budget_mb << 20,
+                        overview_budget_bytes: self.opts.budget_bytes.unwrap_or(self.opts.budget_mb << 20),
                         max_texture: max_tex.min(16384),
                         ..Default::default()
                     };
@@ -540,8 +552,11 @@ impl eframe::App for JanusApp {
         s.measurements(ui, &detached);
         s.pump(&ctx);
         s.pump_basemap(&ctx);
+        s.pump_composite(&ctx);
         let rc = if s.opts.dump_golden.is_some() {
             s.golden_step(&ctx)
+        } else if s.opts.selftest_composite {
+            s.composite_selftest_step(&ctx)
         } else if s.opts.profile_tour {
             s.tour_step(&ctx)
         } else {

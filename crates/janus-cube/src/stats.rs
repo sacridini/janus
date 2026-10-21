@@ -14,6 +14,25 @@ fn median(v: &mut [f64]) -> f64 {
     if n.is_multiple_of(2) { 0.5 * (m + v[..n / 2].iter().copied().fold(f64::NEG_INFINITY, f64::max)) } else { m }
 }
 
+/// The `q_lo` and `q_hi` quantiles of `data` from about `max_samples` of its values taken evenly, NaN left out
+/// (src/stats.cpp, samplePercentiles): 0-1 without values, `hi` above `lo`.
+pub fn sample_percentiles(data: &[f32], max_samples: usize, q_lo: f64, q_hi: f64) -> (f32, f32) {
+    let step = (data.len() / max_samples.max(1)).max(1);
+    let mut s: Vec<f32> = data.iter().step_by(step).copied().filter(|v| !v.is_nan()).collect();
+    if s.is_empty() {
+        return (0.0, 1.0);
+    }
+    let mut q = |p: f64| {
+        let k = (p * (s.len() - 1) as f64) as usize;
+        *s.select_nth_unstable_by(k, f32::total_cmp).1
+    };
+    let (lo, mut hi) = (q(q_lo), q(q_hi));
+    if hi.is_nan() || hi <= lo {
+        hi = lo + 1e-6;
+    }
+    (lo, hi)
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SeriesStats {
     pub n: usize,

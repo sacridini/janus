@@ -28,6 +28,8 @@ pub struct MapView {
     /// what the target holds: the mode, dates, range, colormap, the image's place and the tiles on the GPU
     drawn: Option<DrawKey>,
     pub dirty: bool,
+    /// the view last drawn, in source pixels at target pixels per source pixel (what an RGB composite reads)
+    pub last_view: Option<ViewRect>,
 }
 
 type DrawKey = (Mode, [i32; 3], [u32; 2], usize, [u32; 4], usize, Option<usize>);
@@ -243,7 +245,10 @@ impl State {
             y1: v1[1] * fy,
             scale: m.scale * f64::from(ppp) / fx,
         };
-        let detail = matches!(mode, Mode::Value | Mode::Diff) && !s.s.defer_random_reads();
+        m.last_view = Some(view);
+        // an RGB composite reads its own detail
+        let composite = self.composite.as_ref().is_some_and(|c| c.on);
+        let detail = matches!(mode, Mode::Value | Mode::Diff) && !s.s.defer_random_reads() && !composite;
         let prefetch = self.display.playing.then(|| (t + 1) % s.info.t());
         if detail {
             s.tiles.update(s.s.fg(), t, &view, prefetch);
@@ -265,7 +270,12 @@ impl State {
             // the basemap under the layers, in map space (the active layer's source pixels)
             self.basemap
                 .draw(gpu, &mut f, &view, MAP_BACKGROUND, |q| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy));
-            if let (true, Some(cube)) = (ready, &s.cube) {
+            if let Some(c) = self.composite.as_mut().filter(|c| c.on) {
+                // three bands as RGB, in detail when zoomed in
+                State::draw_composite(c, gpu, &mut f, t, s.info.t(), |w| {
+                    to_px(m, w[0] / fx, w[1] / fy, w[2] / fx, w[3] / fy)
+                });
+            } else if let (true, Some(cube)) = (ready, &s.cube) {
                 gpu.draw_cube(&mut f, cube, to_px(m, 0.0, 0.0, ow, oh), &params, cmap, 1.0);
                 if detail {
                     let tiles: Vec<_> = if mode == Mode::Diff {
@@ -354,10 +364,18 @@ impl State {
             shadow_text(&painter, bar.left_top() - vec2(0.0, 2.0), Align2::LEFT_BOTTOM, &format!("{:.4}", range.lo));
             shadow_text(&painter, bar.right_top() - vec2(0.0, 2.0), Align2::RIGHT_BOTTOM, &format!("{:.4}", range.hi));
         }
-        let mut status = format!("{}  {}", s.info.layers[self.display.t].label, crate::display::mode_name(mode));
+        let composite = self.composite.as_ref().filter(|c| c.on);
+        let mut status = match composite {
+            Some(c) => c.title(&s.info, self.display.t),
+            None => format!("{}  {}", s.info.layers[self.display.t].label, crate::display::mode_name(mode)),
+        };
         if let Some(hv) = self.hover {
             let v = ov.layer(self.display.t).map_or(f32::NAN, |l| l[hv.ov.1 * ov.w + hv.ov.0]);
             status += &format!("   pixel ({}, {})  {v:.4}", hv.src.0, hv.src.1);
+            if let Some(c) = composite {
+                let (x, y) = (hv.src.0 as f64 + 0.5, hv.src.1 as f64 + 0.5);
+                status += &c.status_at(x, y, self.display.t, s.info.t());
+            }
         }
         shadow_text(&painter, rect.left_bottom() + vec2(8.0, -8.0), Align2::LEFT_BOTTOM, &status);
         self.basemap_note(&painter, rect);

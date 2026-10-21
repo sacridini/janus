@@ -338,7 +338,7 @@ impl State {
             });
         }
         // state: why it is not drawn, offline, a server error, loading
-        let warn = Color32::from_rgb(255, 179, 102);
+        let warn = crate::theme::warning();
         if self.session.is_none() {
             ui.weak("Drawn under a georeferenced series once one is open.");
         } else if !bm.why.is_empty() {

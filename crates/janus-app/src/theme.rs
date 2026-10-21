@@ -23,6 +23,11 @@ pub fn pin_color(i: usize) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
+/// A warning in the panels (the dark theme's status colour, theme.cpp).
+pub fn warning() -> Color32 {
+    im(1.0, 0.7, 0.4, 1.0)
+}
+
 pub fn weak_text() -> Color32 {
     im(0.50, 0.50, 0.50, 1.0)
 }

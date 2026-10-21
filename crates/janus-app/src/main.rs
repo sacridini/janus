@@ -8,6 +8,7 @@ mod app;
 mod basemap;
 mod chart;
 mod classes;
+mod composite;
 mod display;
 mod golden;
 mod map;
@@ -45,6 +46,7 @@ Options:
                       full resolution, an ROI), timed stage by stage as the C++'s
   --tour-json FILE    with --profile-tour: the timings as JSON
   --basemap ID|URL    a basemap under the series once it opens: esri, eox, osm or an XYZ URL
+  --selftest-composite C  the RGB composite of the test series C (five bands per date) against its files
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
                       C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
   --describe IN       print how IN opens (dates, size, CRS, variables of a NetCDF / Zarr, the
@@ -97,6 +99,11 @@ fn main() -> eframe::Result<()> {
             "--tour-json" => opts.tour_json = args.next().map(Into::into),
             "--dump-golden" => opts.dump_golden = Some(Default::default()),
             "--basemap" => opts.basemap = args.next(),
+            "--selftest-composite" => {
+                // C (five bands per date) with an overview at 1:2, as the C++'s test opens it
+                opts.selftest_composite = true;
+                opts.budget_bytes = Some(10 * 100 * 60 * 4 + 4096);
+            }
             "--describe" => {
                 attach_console();
                 std::process::exit(measure::describe(&args.by_ref().collect::<Vec<_>>()));
@@ -111,8 +118,11 @@ fn main() -> eframe::Result<()> {
     if opts.dump_golden.is_some() {
         opts.dump_golden = opts.inputs.pop().map(Into::into);
     }
-    let test_window =
-        opts.measure_startup || opts.screenshot.is_some() || opts.profile_tour || opts.dump_golden.is_some();
+    let test_window = opts.measure_startup
+        || opts.screenshot.is_some()
+        || opts.profile_tour
+        || opts.dump_golden.is_some()
+        || opts.selftest_composite;
     if test_window {
         attach_console();
     }

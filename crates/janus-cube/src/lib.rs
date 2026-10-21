@@ -9,6 +9,7 @@ pub mod inputs;
 pub mod multidim;
 mod reader;
 pub mod remote;
+pub mod roles;
 pub mod spectral;
 pub mod stats;
 
