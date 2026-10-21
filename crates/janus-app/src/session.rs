@@ -14,12 +14,14 @@ use janus_session::{SeriesResult, SessionSettings};
 /// for them).
 pub struct Opening {
     pub inputs: Vec<String>,
+    /// added as a layer (else the open layers are closed)
+    pub add: bool,
     pub started: Instant,
     rx: Receiver<Result<CubeInfo, String>>,
 }
 
 impl Opening {
-    pub fn start(inputs: Vec<String>, ctx: &egui::Context) -> Self {
+    pub fn start(inputs: Vec<String>, add: bool, ctx: &egui::Context) -> Self {
         let (tx, rx) = channel();
         let (i, ctx) = (inputs.clone(), ctx.clone());
         std::thread::Builder::new()
@@ -29,7 +31,7 @@ impl Opening {
                 ctx.request_repaint();
             })
             .expect("thread");
-        Opening { inputs, started: Instant::now(), rx }
+        Opening { inputs, add, started: Instant::now(), rx }
     }
 
     pub fn poll(&self) -> Option<Result<CubeInfo, String>> {

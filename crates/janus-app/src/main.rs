@@ -11,6 +11,7 @@ mod classes;
 mod composite;
 mod display;
 mod golden;
+mod layers;
 mod map;
 mod measure;
 mod panels;
@@ -48,6 +49,8 @@ Options:
   --tour-json FILE    with --profile-tour: the timings as JSON
   --basemap ID|URL    a basemap under the series once it opens: esri, eox, osm or an XYZ URL
   --season A-B        a season (days of the year A to B, e.g. 152-243) once the series opens
+  --layer IN          IN added as a layer once the series is open (repeatable)
+  --selftest-reproject B F  F (B reprojected) drawn on B's grid where PROJ puts it
   --selftest-composite C  the RGB composite of the test series C (five bands per date) against its files
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
                       C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
@@ -101,6 +104,8 @@ fn main() -> eframe::Result<()> {
             "--tour-json" => opts.tour_json = args.next().map(Into::into),
             "--dump-golden" => opts.dump_golden = Some(Default::default()),
             "--basemap" => opts.basemap = args.next(),
+            "--layer" => opts.extra_layers.extend(args.next()),
+            "--selftest-reproject" => opts.selftest_reproject = true,
             "--season" => {
                 opts.season = args.next().and_then(|v| {
                     let (a, b) = v.split_once('-')?;
@@ -123,6 +128,10 @@ fn main() -> eframe::Result<()> {
             _ => opts.inputs.push(a),
         }
     }
+    if opts.selftest_reproject && opts.inputs.len() == 2 {
+        // B opens, F is added as a layer by the test
+        opts.extra_layers = opts.inputs.split_off(1);
+    }
     if opts.dump_golden.is_some() {
         opts.dump_golden = opts.inputs.pop().map(Into::into);
     }
@@ -130,7 +139,8 @@ fn main() -> eframe::Result<()> {
         || opts.screenshot.is_some()
         || opts.profile_tour
         || opts.dump_golden.is_some()
-        || opts.selftest_composite;
+        || opts.selftest_composite
+        || opts.selftest_reproject;
     if test_window {
         attach_console();
     }

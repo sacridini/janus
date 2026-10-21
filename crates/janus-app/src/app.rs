@@ -75,6 +75,10 @@ pub struct Options {
     pub budget_bytes: Option<i64>,
     /// --season: days of the year (start, end) of a season set once the series opens
     pub season: Option<(i32, i32)>,
+    /// --layer: series added as layers once the first is open
+    pub extra_layers: Vec<String>,
+    /// --selftest-reproject B F: F reprojected on B's grid
+    pub selftest_reproject: bool,
 }
 
 /// The exit code of a tour or a test run in the window (main returns it once the window closed).
@@ -124,7 +128,11 @@ pub struct State {
     pub gpu: Option<Gpu>,
     gpu_rx: Option<std::sync::mpsc::Receiver<(Gpu, f64)>>,
     pub opening: Option<Opening>,
+    /// the active layer's session (its entry in `layers` holds None)
     pub session: Option<Session>,
+    /// every open series, bottom to top; the active one's state is in the members here
+    pub layers: Vec<crate::layers::SeriesLayer>,
+    pub active: usize,
     pub error: Option<String>,
     pub display: Display,
     /// the active layer's classes, if categorical
@@ -144,6 +152,7 @@ pub struct State {
     /// three bands of each date as RGB (series with several bands per date)
     pub composite: Option<crate::composite::BandComposite>,
     pub(crate) composite_test: crate::composite::SelfTest,
+    pub(crate) reproject_test: crate::layers::ReprojectTest,
 }
 
 /// A screenshot of a window, written as a PNG.
@@ -229,7 +238,7 @@ impl JanusApp {
         let window_ms = t0.elapsed().as_secs_f64() * 1000.0;
         theme::apply(&cc.egui_ctx);
         let render_state = cc.wgpu_render_state.clone().expect("Janus draws with wgpu");
-        let opening = (!opts.inputs.is_empty()).then(|| Opening::start(opts.inputs.clone(), &cc.egui_ctx));
+        let opening = (!opts.inputs.is_empty()).then(|| Opening::start(opts.inputs.clone(), false, &cc.egui_ctx));
         let detach = opts.detach_map;
         let mut app = JanusApp {
             dock: default_layout(),
@@ -244,6 +253,8 @@ impl JanusApp {
                 gpu_rx: None,
                 opening,
                 session: None,
+                layers: Vec::new(),
+                active: 0,
                 error: None,
                 display: Display::default(),
                 classes: Default::default(),
@@ -260,6 +271,7 @@ impl JanusApp {
                 basemap: Default::default(),
                 composite: None,
                 composite_test: Default::default(),
+                reproject_test: Default::default(),
             },
         };
         if detach {
@@ -280,15 +292,71 @@ impl JanusApp {
 }
 
 impl State {
-    pub fn open(&mut self, inputs: Vec<String>, ctx: &egui::Context) {
-        self.session = None;
+    /// Opens a series in the background; `add` keeps the open ones and adds it as a new layer. One open at a time.
+    pub fn open_inputs(&mut self, inputs: Vec<String>, add: bool, ctx: &egui::Context) {
+        if inputs.is_empty() || self.opening.is_some() {
+            return;
+        }
         self.error = None;
-        self.hover = None;
-        self.pins.clear();
-        self.display = Display::default();
-        self.classes = Default::default();
-        self.map.fit();
-        self.opening = Some(Opening::start(inputs, ctx));
+        self.opening = Some(Opening::start(inputs, add && !self.layers.is_empty(), ctx));
+    }
+
+    /// The series opened: a new layer, made active (the others closed unless it is added).
+    fn finish_open(&mut self, info: janus_cube::CubeInfo, o: Opening, ctx: &egui::Context) {
+        if !o.add {
+            self.close_all(ctx);
+            // a new series starts without the basemap until ticked
+            self.basemap.ui.on = false;
+        }
+        let max_tex = self.render_state.device.limits().max_texture_dimension_2d as usize;
+        let settings = janus_session::SessionSettings {
+            overview_budget_bytes: self.opts.budget_bytes.unwrap_or(self.opts.budget_mb << 20),
+            max_texture: max_tex.min(16384),
+            ..Default::default()
+        };
+        let s = Session::new(info, &o, &settings, ctx);
+        let n = s.info.t();
+        let mut disp = Display { rgb: [0, n / 2, n - 1], ..Default::default() };
+        // a new layer starts at the date (or wavelength) nearest to the one shown
+        if let Some(a) = &self.session
+            && crate::layers::matchable_axis(&a.info, &s.info)
+        {
+            disp.t = s.info.nearest_layer(a.info.layers[self.display.t].time);
+        }
+        let name = self.layer_name(&s.info, &o.inputs);
+        self.layers.push(crate::layers::SeriesLayer {
+            session: Some(s),
+            inputs: o.inputs,
+            name,
+            visible: true,
+            opacity: 1.0,
+            disp,
+            classes: Default::default(),
+            composite: None,
+            place: Default::default(),
+        });
+        let first = self.layers.len() == 1;
+        if first {
+            self.map.fit();
+            self.map.touched = false;
+        }
+        self.display.playing = false;
+        self.set_active(self.layers.len() - 1, ctx);
+        if first {
+            // test runs: a season, a basemap
+            if let Some((a, b)) = self.opts.season {
+                self.display.season = crate::season::Season { on: true, start: a, end: b };
+            }
+            if let Some(b) = &self.opts.basemap {
+                if b.contains("://") {
+                    self.basemap.ui.source = "custom".into();
+                    self.basemap.ui.url = b.clone();
+                } else {
+                    self.basemap.ui.source = b.clone();
+                }
+                self.basemap.ui.on = true;
+            }
+        }
     }
 
     pub(crate) fn set_date(&mut self, t: usize) {
@@ -327,37 +395,22 @@ impl State {
         {
             let o = self.opening.take().unwrap();
             match r {
-                Ok(info) => {
-                    let max_tex = self.render_state.device.limits().max_texture_dimension_2d as usize;
-                    let settings = janus_session::SessionSettings {
-                        overview_budget_bytes: self.opts.budget_bytes.unwrap_or(self.opts.budget_mb << 20),
-                        max_texture: max_tex.min(16384),
-                        ..Default::default()
-                    };
-                    let s = Session::new(info, &o, &settings, ctx);
-                    self.display.t = 0;
-                    self.display.rgb = [0, s.info.t() / 2, s.info.t() - 1];
-                    self.session = Some(s);
-                    self.map.fit();
-                    // each series opens without the basemap: drawn only when asked for
-                    self.basemap.ui.on = false;
-                    if let Some((a, b)) = self.opts.season {
-                        self.display.season = crate::season::Season { on: true, start: a, end: b };
-                    }
-                    if let Some(b) = &self.opts.basemap {
-                        if b.contains("://") {
-                            self.basemap.ui.source = "custom".into();
-                            self.basemap.ui.url = b.clone();
-                        } else {
-                            self.basemap.ui.source = b.clone();
-                        }
-                        self.basemap.ui.on = true;
-                    }
-                }
+                Ok(info) => self.finish_open(info, o, ctx),
                 Err(e) => self.error = Some(e),
             }
         }
+        // --layer: the next series added once the first is open (the self-tests add theirs themselves)
+        if self.opening.is_none()
+            && !self.layers.is_empty()
+            && !self.opts.selftest_reproject
+            && !self.opts.extra_layers.is_empty()
+        {
+            let next = self.opts.extra_layers.remove(0);
+            self.open_inputs(vec![next], true, ctx);
+        }
         self.pump_season();
+        self.pump_layers(ctx);
+        self.sync_layer_times();
         let (Some(s), Some(gpu)) = (&mut self.session, &mut self.gpu) else { return };
         if s.pump(gpu, ctx) {
             self.map.dirty = true;
@@ -437,13 +490,13 @@ impl State {
                 if ui.button("Open folder...").clicked()
                     && let Some(dir) = rfd::FileDialog::new().pick_folder()
                 {
-                    self.open(vec![dir.to_string_lossy().into_owned()], ui.ctx());
+                    self.open_inputs(vec![dir.to_string_lossy().into_owned()], false, ui.ctx());
                 }
                 if ui.button("Open files...").clicked()
                     && let Some(files) =
                         rfd::FileDialog::new().add_filter("rasters", &["tif", "tiff", "vrt", "img", "jp2"]).pick_files()
                 {
-                    self.open(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), ui.ctx());
+                    self.open_inputs(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), false, ui.ctx());
                 }
                 ui.separator();
                 if ui.button("Quit").clicked() {
@@ -565,6 +618,8 @@ impl eframe::App for JanusApp {
             s.golden_step(&ctx)
         } else if s.opts.selftest_composite {
             s.composite_selftest_step(&ctx)
+        } else if s.opts.selftest_reproject {
+            s.reproject_selftest_step(&ctx)
         } else if s.opts.profile_tour {
             s.tour_step(&ctx)
         } else {
@@ -575,11 +630,13 @@ impl eframe::App for JanusApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         s.shortcuts(&ctx);
-        // files dropped on the window open as the series
-        let dropped: Vec<String> =
-            ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_string_lossy().into_owned()).collect());
+        // files dropped on the window open as the series; with Shift held, as new layers
+        let (dropped, shift): (Vec<String>, bool) = ctx.input(|i| {
+            let f = i.raw.dropped_files.iter().map(|f| f.path().to_string_lossy().into_owned());
+            (f.collect(), i.modifiers.shift)
+        });
         if !dropped.is_empty() {
-            s.open(dropped, &ctx);
+            s.open_inputs(dropped, shift, &ctx);
         }
 
         let mut reset = false;

@@ -368,9 +368,10 @@ impl State {
         f: &mut MapFrame,
         t: usize,
         n: usize,
+        alpha: f32,
         to_px: impl Fn([f64; 4]) -> [f32; 4],
     ) {
-        c.draw(t, n, |tex, win| gpu.draw_image(f, tex, to_px(win), 1.0, None, true));
+        c.draw(t, n, |tex, win| gpu.draw_image(f, tex, to_px(win), alpha, None, true));
     }
 
     /// The Display panel's section, for series with three bands or more per date.
@@ -548,7 +549,7 @@ impl State {
         let sc = self.map.last_view.map_or(1.0, |v| v.scale) as f32;
         let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
         let mut f = gpu.begin_map(1, [400, 300], crate::map::MAP_BACKGROUND);
-        State::draw_composite(c, gpu, &mut f, t, s.info.t(), |w| {
+        State::draw_composite(c, gpu, &mut f, t, s.info.t(), 1.0, |w| {
             [
                 200.0 + (w[0] as f32 - cx) * sc,
                 150.0 + (w[1] as f32 - cy) * sc,

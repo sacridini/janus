@@ -182,21 +182,23 @@ impl State {
 
     /// The season's dates on the GPU: the others' times NaN, the statistics computed again with them.
     pub(crate) fn pump_season(&mut self) {
-        let Some(s) = self.session.as_mut() else { return };
         let season = self.display.season;
-        let active = season.active(&s.info);
-        let key = (if active { season.key() } else { 0 }).wrapping_mul(1000003).wrapping_add(s.info.id);
-        if s.season_applied == key {
-            return;
+        let sessions = self.session.iter_mut().chain(self.layers.iter_mut().filter_map(|l| l.session.as_mut()));
+        for s in sessions {
+            let active = season.active(&s.info);
+            let key = (if active { season.key() } else { 0 }).wrapping_mul(1000003).wrapping_add(s.info.id);
+            if s.season_applied == key {
+                continue;
+            }
+            let first = s.season_applied == 0 && !active;
+            s.season_applied = key;
+            if first {
+                continue; // a new series without a season: its dates are already on the GPU
+            }
+            let times = season.times(&s.info, &s.s.times_years);
+            s.recompute_stats(&times);
+            self.map.dirty = true;
         }
-        let first = s.season_applied == 0 && !active;
-        s.season_applied = key;
-        if first {
-            return; // a new series without a season: its dates are already on the GPU
-        }
-        let times = season.times(&s.info, &s.s.times_years);
-        s.recompute_stats(&times);
-        self.map.dirty = true;
     }
 }
 

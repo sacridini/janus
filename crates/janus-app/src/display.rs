@@ -162,6 +162,19 @@ impl Display {
         LayerParams::new(self.mode, layers, [r.lo, r.hi])
     }
 
+    /// Whether what the mode draws is on the GPU: its dates, its statistics, the composite's window (C++
+    /// renderMap).
+    pub fn ready(&self, s: &Session, p: &LayerParams) -> bool {
+        let up = |t: i32| s.uploaded.get(t as usize).copied().unwrap_or(false);
+        match self.mode {
+            Mode::Rgb => p.layers.iter().all(|&l| up(l)),
+            Mode::Diff => up(self.t as i32) && up(p.layers[1]),
+            Mode::Composite => (p.layers[0]..=p.layers[1]).all(up),
+            m if m.needs_stats() => s.stats.is_some(),
+            _ => up(self.t as i32),
+        }
+    }
+
     /// The composite of an overview pixel over dates t0..t1 (those in the season), as the shader computes it.
     fn composite_at(&self, s: &Session, p: usize, t0: usize, t1: usize) -> f32 {
         let ov = &s.s.overview;

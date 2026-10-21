@@ -22,6 +22,8 @@ pub struct MapView {
     /// where the wheel was turned: the screen point and the image point under it, kept together while zooming
     anchor: Option<(Pos2, [f64; 2])>,
     pub fit_pending: bool,
+    /// moved or zoomed since the last fit (a layer made active keeps the view only then)
+    pub touched: bool,
     /// the map's size on the screen (points), last frame
     pub canvas: [f32; 2],
     texture: Option<egui::TextureId>,
@@ -52,6 +54,7 @@ pub struct Pin {
 impl MapView {
     pub fn fit(&mut self) {
         self.fit_pending = true;
+        self.touched = false;
     }
 
     /// The map centred on an overview pixel at `scale` screen points per overview pixel.
@@ -125,6 +128,7 @@ impl State {
             });
             if scroll != 0.0 || pinch != 1.0 {
                 let factor = 1.25f64.powf(f64::from(scroll) / 50.0) * f64::from(pinch);
+                m.touched = true;
                 m.target_scale = (m.target_scale * factor).clamp(fit.min(max_scale), max_scale.max(fit));
                 if let Some(p) = resp.hover_pos() {
                     m.anchor = Some((p, image_at(m, p)));
@@ -151,6 +155,7 @@ impl State {
         }
         if resp.dragged_by(egui::PointerButton::Primary) || resp.dragged_by(egui::PointerButton::Middle) {
             let d = resp.drag_delta();
+            m.touched |= d != egui::Vec2::ZERO;
             m.center[0] -= f64::from(d.x) / m.scale;
             m.center[1] -= f64::from(d.y) / m.scale;
             m.anchor = None;
@@ -229,13 +234,7 @@ impl State {
         let cmap = self.display.cmap[params.mode as usize];
         let mode = params.mode;
         let t = self.display.t;
-        let ready = match mode {
-            Mode::Rgb => params.layers.iter().all(|&l| s.uploaded[l as usize]),
-            Mode::Diff => s.uploaded[t] && s.uploaded[params.layers[1] as usize],
-            Mode::Composite => true,
-            m if m.needs_stats() => s.stats.is_some(),
-            _ => s.uploaded[t],
-        };
+        let ready = self.display.ready(s, &params);
         // the detail tiles of the view: the visible part in source pixels, at screen pixels per source pixel
         let (v0, v1) = (image_at(m, rect.min), image_at(m, rect.max));
         let view = ViewRect {
@@ -270,27 +269,41 @@ impl State {
             // the basemap under the layers, in map space (the active layer's source pixels)
             self.basemap
                 .draw(gpu, &mut f, &view, MAP_BACKGROUND, |q| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy));
-            if let Some(c) = self.composite.as_mut().filter(|c| c.on) {
-                // three bands as RGB, in detail when zoomed in
-                State::draw_composite(c, gpu, &mut f, t, s.info.t(), |w| {
-                    to_px(m, w[0] / fx, w[1] / fy, w[2] / fx, w[3] / fy)
-                });
-            } else if let (true, Some(cube)) = (ready, &s.cube) {
-                gpu.draw_cube(&mut f, cube, to_px(m, 0.0, 0.0, ow, oh), &params, cmap, 1.0);
-                if detail {
-                    let tiles: Vec<_> = if mode == Mode::Diff {
-                        s.tiles
-                            .visible_pairs(t, params.layers[1] as usize, &view)
-                            .into_iter()
-                            .map(|(a, b)| (a, Some(b)))
-                            .collect()
-                    } else {
-                        s.tiles.visible(t, &view).into_iter().map(|a| (a, None)).collect()
-                    };
-                    for (tile, reference) in tiles {
-                        params.tile2 = reference.map(|r| r.tex.clone());
-                        let r = to_px(m, tile.x / fx, tile.y / fy, (tile.x + tile.sw) / fx, (tile.y + tile.sh) / fy);
-                        gpu.draw_tile(&mut f, cube, &tile.tex, r, &params, cmap, 1.0);
+            let to_map = |q: [f64; 4]| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy);
+            // every layer, bottom to top; the active one with its detail
+            for li in 0..self.layers.len() {
+                let l = &mut self.layers[li];
+                if !l.visible || !l.place.aligned {
+                    continue;
+                }
+                if li != self.active {
+                    State::draw_layer(l, gpu, &mut f, &to_map);
+                    continue;
+                }
+                let alpha = l.opacity;
+                if let Some(c) = self.composite.as_mut().filter(|c| c.on) {
+                    // three bands as RGB, in detail when zoomed in
+                    State::draw_composite(c, gpu, &mut f, t, s.info.t(), alpha, |w| {
+                        to_px(m, w[0] / fx, w[1] / fy, w[2] / fx, w[3] / fy)
+                    });
+                } else if let (true, Some(cube)) = (ready, &s.cube) {
+                    gpu.draw_cube(&mut f, cube, to_px(m, 0.0, 0.0, ow, oh), &params, cmap, alpha);
+                    if detail {
+                        let tiles: Vec<_> = if mode == Mode::Diff {
+                            s.tiles
+                                .visible_pairs(t, params.layers[1] as usize, &view)
+                                .into_iter()
+                                .map(|(a, b)| (a, Some(b)))
+                                .collect()
+                        } else {
+                            s.tiles.visible(t, &view).into_iter().map(|a| (a, None)).collect()
+                        };
+                        for (tile, reference) in tiles {
+                            params.tile2 = reference.map(|r| r.tex.clone());
+                            let r =
+                                to_px(m, tile.x / fx, tile.y / fy, (tile.x + tile.sw) / fx, (tile.y + tile.sh) / fy);
+                            gpu.draw_tile(&mut f, cube, &tile.tex, r, &params, cmap, alpha);
+                        }
                     }
                 }
             }

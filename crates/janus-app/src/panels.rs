@@ -150,38 +150,6 @@ impl State {
             });
     }
 
-    pub fn layers_ui(&mut self, ui: &mut Ui) {
-        let Some(s) = &self.session else {
-            ui.weak("No series open.");
-            return;
-        };
-        let i = &s.info;
-        Grid::new("series").num_columns(2).striped(true).show(ui, |ui| {
-            let mut row = |k: &str, v: String| {
-                ui.weak(k);
-                ui.label(v);
-                ui.end_row();
-            };
-            row("series", i.description.clone());
-            row("size", format!("{} x {} x {} {}", i.width, i.height, i.t(), i.data_type));
-            row("driver", i.driver.clone());
-            row(
-                "CRS",
-                if i.crs_authority.is_empty() {
-                    i.crs_name.clone()
-                } else {
-                    format!("{} ({})", i.crs_name, i.crs_authority)
-                },
-            );
-            if let (Some(a), Some(b)) = (i.layers.first(), i.layers.last()) {
-                row("dates", format!("{} to {}", a.label, b.label));
-            }
-            let ov = &s.s.overview;
-            row("overview", format!("{} x {} (1:{:.2})", ov.w, ov.h, ov.factor));
-            row("cache", ov.cache_path().file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default());
-        });
-    }
-
     pub fn statistics_ui(&mut self, ui: &mut Ui) {
         let Some(s) = &self.session else { return };
         let at = self.hover.or(self.pins.last().map(|p| p.at));
