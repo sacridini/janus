@@ -1,0 +1,12 @@
+[package]
+name = "janus-geo"
+description = "Janus: layers in other CRSs on the map (reprojection, warp grids) and the web basemap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gdal.workspace = true
+gdal-sys.workspace = true
+janus-cache = { path = "../janus-cache" }
+janus-cube = { path = "../janus-cube" }

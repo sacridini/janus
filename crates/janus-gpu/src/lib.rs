@@ -258,7 +258,8 @@ struct PendingDraw {
 /// A map frame being drawn into a target (Gpu::begin_map ... Gpu::end_map).
 pub struct MapFrame {
     slot: i32,
-    size: [u32; 2],
+    /// the target's size in pixels
+    pub size: [u32; 2],
     clear: [f32; 4],
     draws: Vec<PendingDraw>,
 }

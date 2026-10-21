@@ -654,6 +654,9 @@ O Rust abre o cache gravado pelo C++: a chave bateu na 215_067
   errada) quando ela terminava de ser lida entre o envio das datas e o teste
   de "overview completa"; e o estiramento padrão era 0–0 em vez do 0–1 do C++
   (um modo sem valores, como a data da queda numa série sem quedas).
+- **Basemap (fase 3):** a configuração (fonte, opacidade, URL própria) ainda
+  não é guardada entre sessões (o C++ a guarda no `.ini` do layout): fase 4,
+  com as outras configurações. A atribuição nas exportações vem na fase 9.
 - A fonte parece menor que no ImGui (pedido de 2026-10-21): rever o tamanho e
   o ajuste da ProggyClean na fase 4, com a configuração de tamanho de fonte.
 
@@ -681,7 +684,7 @@ python tools/compare_bench.py bench/baseline-cpp-0.39.0.json bench/rust.json
 | 0. Preparação | em andamento: licença (GPL-2.0-or-later), linha de base do tour e da abertura em `bench/`, `--dump-golden` (mapas, estiramentos e estatísticas; séries, ROIs e validação entram nas suas fases); falta a ponte com o Zeit 1.7 |
 | 1. Esqueleto e riscos | em andamento: tudo feito menos a transparência; o primeiro quadro não passou (ver acima) |
 | 2. Núcleo de dados | em andamento: caches (overview e resolução total) intercambiáveis com o C++ e ≤ C++ no `--measure-cache`; abertura igual ao C++ em todos os dados de teste (`--describe`): seleção de bandas, espectros, embeddings, classes, NetCDF/Zarr, remotos; sessão, série, ROI, tiles. teste do terrio feito (o GDAL continua) |
-| 3. GPU completa | em andamento: quadros com cubos, tiles de detalhe, imagens, classes e warp (testados em DX12, Vulkan e OpenGL), mistura em sRGB como no GL; `--profile-tour` portado (4,2 s contra 5,5 s do C++ na 215_067); `--dump-golden` igual ao C++ nos 11 dados de teste e na 215_067 (estatísticas, estiramentos e mapas, ver abaixo). Faltam reprojeção, basemap, composição RGB e estação |
+| 3. GPU completa | em andamento: quadros com cubos, tiles de detalhe, imagens, classes e warp (testados em DX12, Vulkan e OpenGL), mistura em sRGB como no GL; `--profile-tour` portado (4,2 s contra 5,5 s do C++ na 215_067); `--dump-golden` igual ao C++ nos 11 dados de teste e na 215_067 (estatísticas, estiramentos e mapas, ver abaixo); `janus-geo`: reprojeção (OGR exato e grade de warp, testada contra o OGR) e basemap (XYZ pelo driver WMS do GDAL, LRU na GPU, Esri/EOX/OSM/URL própria, atalho S, `--basemap`), conferido contra o PROJ com a pirâmide local do autoteste do C++ (3117 pixels, 0 diferentes). Faltam composição RGB e estação; a reprojeção de camadas entra com as várias camadas (fase 4) |
 | 4. Aplicação básica | não iniciada |
 | 5. Zeit nativo | não iniciada |
 | 6. Análise e geometria | não iniciada |

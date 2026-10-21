@@ -67,6 +67,8 @@ pub struct Options {
     pub tour_json: Option<PathBuf>,
     /// --dump-golden: the folder of the maps and statistics to compare with the C++'s
     pub dump_golden: Option<PathBuf>,
+    /// --basemap: a basemap (a preset's id or an XYZ URL) shown once the series opens
+    pub basemap: Option<String>,
 }
 
 /// The exit code of a tour or a test run in the window (main returns it once the window closed).
@@ -125,13 +127,14 @@ pub struct State {
     pub hover: Option<PixelAt>,
     pub pins: Vec<Pin>,
     pub perf: Perf,
-    frame: u64,
+    pub(crate) frame: u64,
     last_play: Option<Instant>,
     screenshot_asked: bool,
     /// screenshots asked and not yet saved
     shots_pending: usize,
     pub(crate) tour: crate::tour::Tour,
     pub(crate) golden: crate::golden::Golden,
+    pub basemap: crate::basemap::BasemapState,
 }
 
 /// A screenshot of a window, written as a PNG.
@@ -192,10 +195,16 @@ impl TabViewer for Tabs<'_> {
             Tab::TimeSeries => self.s.series_ui(ui),
             _ => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match tab {
-                    Tab::Layers => self.s.layers_ui(ui),
+                    Tab::Layers => {
+                        self.s.layers_ui(ui);
+                        self.s.basemap_ui(ui);
+                    }
                     Tab::Display => self.s.display_ui(ui),
                     Tab::Statistics => self.s.statistics_ui(ui),
-                    Tab::Performance => self.s.performance_ui(ui),
+                    Tab::Performance => {
+                        self.s.performance_ui(ui);
+                        self.s.basemap_perf_ui(ui);
+                    }
                     _ => {}
                 });
             }
@@ -236,6 +245,7 @@ impl JanusApp {
                 shots_pending: 0,
                 tour: Default::default(),
                 golden: Default::default(),
+                basemap: Default::default(),
             },
         };
         if detach {
@@ -315,6 +325,17 @@ impl State {
                     self.display.rgb = [0, s.info.t() / 2, s.info.t() - 1];
                     self.session = Some(s);
                     self.map.fit();
+                    // each series opens without the basemap: drawn only when asked for
+                    self.basemap.ui.on = false;
+                    if let Some(b) = &self.opts.basemap {
+                        if b.contains("://") {
+                            self.basemap.ui.source = "custom".into();
+                            self.basemap.ui.url = b.clone();
+                        } else {
+                            self.basemap.ui.source = b.clone();
+                        }
+                        self.basemap.ui.on = true;
+                    }
                 }
                 Err(e) => self.error = Some(e),
             }
@@ -350,7 +371,7 @@ impl State {
             return;
         }
         let n = self.session.as_ref().map_or(0, |s| s.info.t());
-        let (left, right, home, end, fit, play) = ctx.input(|i| {
+        let (left, right, home, end, fit, play, satellite) = ctx.input(|i| {
             use egui::Key;
             (
                 i.key_pressed(Key::ArrowLeft),
@@ -359,8 +380,12 @@ impl State {
                 i.key_pressed(Key::End),
                 i.key_pressed(Key::F),
                 i.key_pressed(Key::P),
+                i.key_pressed(Key::S),
             )
         });
+        if satellite {
+            self.toggle_satellite();
+        }
         if n == 0 {
             return;
         }
@@ -439,7 +464,11 @@ impl State {
             }
         }
         if let Some(path) = self.opts.screenshot.clone().filter(|_| !self.opts.profile_tour) {
-            let ready = self.session.as_ref().is_some_and(|s| s.ready_ms.is_some());
+            // the series ready, and the basemap's tiles if asked for (none loading, the map placed)
+            let basemap_ready = self.opts.basemap.is_none()
+                || !self.basemap.why.is_empty()
+                || self.basemap.b.as_ref().is_some_and(|b| b.has_map() && b.loads() > 0 && b.inflight() == 0);
+            let ready = self.session.as_ref().is_some_and(|s| s.ready_ms.is_some()) && basemap_ready;
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
                 self.shots_pending += 1;
@@ -510,6 +539,7 @@ impl eframe::App for JanusApp {
         let detached: Vec<ViewportId> = self.windows.iter().map(|w| w.id).collect();
         s.measurements(ui, &detached);
         s.pump(&ctx);
+        s.pump_basemap(&ctx);
         let rc = if s.opts.dump_golden.is_some() {
             s.golden_step(&ctx)
         } else if s.opts.profile_tour {

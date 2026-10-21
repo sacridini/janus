@@ -5,6 +5,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod basemap;
 mod chart;
 mod classes;
 mod display;
@@ -43,6 +44,7 @@ Options:
   --profile-tour IN   a fixed tour of IN (overview, cursor series, dates, modes, zoom and pan at
                       full resolution, an ROI), timed stage by stage as the C++'s
   --tour-json FILE    with --profile-tour: the timings as JSON
+  --basemap ID|URL    a basemap under the series once it opens: esri, eox, osm or an XYZ URL
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
                       C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
   --describe IN       print how IN opens (dates, size, CRS, variables of a NetCDF / Zarr, the
@@ -94,6 +96,7 @@ fn main() -> eframe::Result<()> {
             "--profile-tour" => opts.profile_tour = true,
             "--tour-json" => opts.tour_json = args.next().map(Into::into),
             "--dump-golden" => opts.dump_golden = Some(Default::default()),
+            "--basemap" => opts.basemap = args.next(),
             "--describe" => {
                 attach_console();
                 std::process::exit(measure::describe(&args.by_ref().collect::<Vec<_>>()));

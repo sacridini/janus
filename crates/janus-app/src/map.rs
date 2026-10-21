@@ -262,6 +262,9 @@ impl State {
         );
         if m.dirty || m.drawn.as_ref() != Some(&key) {
             let mut f = gpu.begin_map(0, size, MAP_BACKGROUND);
+            // the basemap under the layers, in map space (the active layer's source pixels)
+            self.basemap
+                .draw(gpu, &mut f, &view, MAP_BACKGROUND, |q| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy));
             if let (true, Some(cube)) = (ready, &s.cube) {
                 gpu.draw_cube(&mut f, cube, to_px(m, 0.0, 0.0, ow, oh), &params, cmap, 1.0);
                 if detail {
@@ -357,6 +360,7 @@ impl State {
             status += &format!("   pixel ({}, {})  {v:.4}", hv.src.0, hv.src.1);
         }
         shadow_text(&painter, rect.left_bottom() + vec2(8.0, -8.0), Align2::LEFT_BOTTOM, &status);
+        self.basemap_note(&painter, rect);
     }
 }
 

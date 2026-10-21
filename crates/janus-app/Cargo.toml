@@ -18,6 +18,7 @@ gdal.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }
 janus-cache = { path = "../janus-cache" }
 janus-cube = { path = "../janus-cube" }
+janus-geo = { path = "../janus-geo" }
 janus-gpu = { path = "../janus-gpu" }
 janus-session = { path = "../janus-session" }
 mimalloc = { version = "0.1", default-features = false }
