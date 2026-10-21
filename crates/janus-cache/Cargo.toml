@@ -3,6 +3,7 @@ name = "janus-cache"
 description = "Janus: the cube at reduced resolution (overview) and its disk cache, in the C++'s formats"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 bytemuck = "1"

@@ -80,10 +80,10 @@ GPL-2.0-or-later.
 - O Janus **não tem arquivo LICENSE** hoje.
 - Relicenciar o `zeit-core` não resolve tudo. O solver lasso do CCDC vem do
   GLMnet (GPL-2.0, de terceiros), por isso o próprio `zeit._rust` já sai sob GPL.
-- **Recomendação:** Janus sob **GPL-3.0-or-later**, a mesma licença do
-  Terraflux. Ela é compatível com a GPL-2.0-or-later do Zeit, e as outras
-  dependências (GDAL MIT/X, egui MIT/Apache, wgpu MIT/Apache) não criam
-  conflito. Acrescentar `LICENSE` e `THIRD_PARTY_NOTICES.md` na fase 0.
+- **Decidido (2026-10-21):** Janus sob **GPL-2.0-or-later**, a mesma licença
+  do Zeit. As outras dependências (GDAL MIT/X, egui MIT/Apache, wgpu
+  MIT/Apache) não criam conflito. `LICENSE` acrescentado no branch
+  `rust-port`; falta o `THIRD_PARTY_NOTICES.md` (fase 10, com os pacotes).
 
 ### 2. Estratégia: aplicação nova ao lado, não migração por FFI
 
@@ -605,6 +605,8 @@ O Rust abre o cache gravado pelo C++: a chave bateu na 215_067
   poda por último aberto do `disk_cache.cpp`): fase 2.
 - As linhas de grade do gráfico saem claras demais (o egui_plot usa a cor do
   texto): fase 4, com os temas.
+- A fonte parece menor que no ImGui (pedido de 2026-10-21): rever o tamanho e
+  o ajuste da ProggyClean na fase 4, com a configuração de tamanho de fonte.
 
 ## Como trabalhar
 
@@ -624,7 +626,7 @@ python tools/compare_bench.py bench/baseline-cpp-0.39.0.json bench/rust.json
 
 | Fase | Status |
 |---|---|
-| 0. Preparação | em andamento: linha de base do tour e da abertura em `bench/` (falta a licença, a ponte com o Zeit 1.7 e o `--dump-golden`) |
+| 0. Preparação | em andamento: licença (GPL-2.0-or-later) e linha de base do tour e da abertura em `bench/`; faltam a ponte com o Zeit 1.7 e o `--dump-golden` |
 | 1. Esqueleto e riscos | em andamento: tudo feito menos a transparência; o primeiro quadro não passou (ver acima) |
 | 2. Núcleo de dados | não iniciada |
 | 3. GPU completa | não iniciada |

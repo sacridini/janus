@@ -7,15 +7,29 @@ resolver = "3"
 version = "0.40.0"
 edition = "2024"
 rust-version = "1.90"
+license = "GPL-2.0-or-later"
 
 [workspace.dependencies]
 gdal = "0.19"
 gdal-sys = "0.12"
 
+# Builds while developing: thin LTO, quicker to make and smaller on disk.
 [profile.release]
+lto = "thin"
+codegen-units = 16
+
+# The packages and the measurements against the C++: whole-program LTO in one codegen unit
+# (cargo build --profile dist).
+[profile.dist]
+inherits = "release"
 lto = "fat"
 codegen-units = 1
 
-# Debug builds usable with real cubes.
+# Debug builds usable with real cubes, and small: line tables for our code, no debug information for the
+# dependencies (most of target/debug's size).
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 opt-level = 3
+debug = false

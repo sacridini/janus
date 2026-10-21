@@ -3,6 +3,7 @@ name = "janus-app"
 description = "Janus: raster time series and data cubes, explored and analysed (the interface, egui)"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "janus"

@@ -152,6 +152,11 @@ cmake --build build --config Release
 See [docs/building.md](docs/building.md) for each platform, the Zeit runtime
 and the installers.
 
+## License
+
+Janus is free software under the GNU General Public License, version 2 or
+later ([LICENSE](LICENSE)), as is [Zeit](https://github.com/sacridini/zeit-cdts).
+
 ---
 
 Built with [Dear ImGui](https://github.com/ocornut/imgui),
