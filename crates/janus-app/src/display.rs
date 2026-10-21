@@ -32,13 +32,20 @@ pub fn time_dependent(m: Mode) -> bool {
     matches!(m, Mode::Value | Mode::Anomaly | Mode::Rgb | Mode::Diff | Mode::Composite)
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct Range {
     pub lo: f32,
     pub hi: f32,
     /// set by hand: not recomputed
     pub manual: bool,
     key: u64,
+}
+
+/// 0-1 until a sample sets it (the C++'s): a mode without values (no drop in the series) keeps it.
+impl Default for Range {
+    fn default() -> Self {
+        Range { lo: 0.0, hi: 1.0, manual: false, key: u64::MAX }
+    }
 }
 
 #[derive(Default)]

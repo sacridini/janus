@@ -65,6 +65,8 @@ pub struct Options {
     pub profile_tour: bool,
     /// the tour's timings as JSON
     pub tour_json: Option<PathBuf>,
+    /// --dump-golden: the folder of the maps and statistics to compare with the C++'s
+    pub dump_golden: Option<PathBuf>,
 }
 
 /// The exit code of a tour or a test run in the window (main returns it once the window closed).
@@ -129,6 +131,7 @@ pub struct State {
     /// screenshots asked and not yet saved
     shots_pending: usize,
     pub(crate) tour: crate::tour::Tour,
+    pub(crate) golden: crate::golden::Golden,
 }
 
 /// A screenshot of a window, written as a PNG.
@@ -232,6 +235,7 @@ impl JanusApp {
                 screenshot_asked: false,
                 shots_pending: 0,
                 tour: Default::default(),
+                golden: Default::default(),
             },
         };
         if detach {
@@ -506,9 +510,14 @@ impl eframe::App for JanusApp {
         let detached: Vec<ViewportId> = self.windows.iter().map(|w| w.id).collect();
         s.measurements(ui, &detached);
         s.pump(&ctx);
-        if s.opts.profile_tour
-            && let Some(rc) = s.tour_step(&ctx)
-        {
+        let rc = if s.opts.dump_golden.is_some() {
+            s.golden_step(&ctx)
+        } else if s.opts.profile_tour {
+            s.tour_step(&ctx)
+        } else {
+            None
+        };
+        if let Some(rc) = rc {
             EXIT_CODE.store(rc, std::sync::atomic::Ordering::Relaxed);
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }

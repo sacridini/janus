@@ -113,6 +113,7 @@ public:
     // --profile-tour IN: a fixed tour of a series, timed stage by stage, for
     // the profiler (app_profile.cpp).
     int profileTourStep(const std::vector<std::string>& inputs);
+    int dumpGoldenStep(const std::vector<std::string>& args);
     // --selftest-embeddings-ui DIR [OUT]: a series of embeddings in every view,
     // checked and saved as PNGs (app_embeddings.cpp).
     int selfTestEmbeddingStep(const std::vector<std::string>& inputs);
@@ -1186,6 +1187,12 @@ private:
         int step = 0;              // within the stage
         int stepFrame = 0;         // the frame the step started
     } tour_; // --profile-tour state
+    struct {
+        int stage = 0;
+        int step = 0;
+        std::string out;
+        std::string text; // golden.txt
+    } golden_; // --dump-golden state
     struct {
         int stage = 0;
         double since = 0;          // the stage's start

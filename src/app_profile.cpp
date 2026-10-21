@@ -12,6 +12,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <iterator>
 
 namespace {
@@ -196,5 +198,80 @@ int App::profileTourStep(const std::vector<std::string>& inputs) {
         return 0;
     }
     PROFILE_PLOT("tour stage", int64_t(p.stage));
+    return -1;
+}
+
+// `--dump-golden IN... OUT`: the map of IN in every display mode that needs no
+// options, rendered at 400 x 300 with the whole image in view, as raw RGBA
+// files (OUT/mode_NN.rgba), with the automatic ranges and a sample of the
+// statistics (OUT/golden.txt): the references the Rust port compares its maps
+// and statistics with (RUST_MIGRATION.md, phase 0).
+int App::dumpGoldenStep(const std::vector<std::string>& args) {
+    auto& g = golden_;
+    static const int modes[] = {ModeValue, ModeAnomaly, ModeMean,      ModeStd,      ModeSlope,  ModeMin,
+                                ModeMax,   ModeAmplitude, ModeR2, ModeDropDate, ModeDropMag};
+    char line[256];
+    switch (g.stage) {
+    case 0: {
+        ImGui::GetIO().IniFilename = nullptr; // the default layout and settings, nothing saved
+        if (args.size() < 2) {
+            std::printf("usage: --dump-golden INPUT... OUT\n");
+            return 2;
+        }
+        g.out = args.back();
+        std::error_code ec;
+        std::filesystem::create_directories(std::filesystem::u8path(g.out), ec);
+        openInputs(std::vector<std::string>(args.begin(), args.end() - 1));
+        g.stage = 1;
+        break;
+    }
+    case 1: { // the overview and its statistics, then a sample of the statistics
+        if (!s_ || !s_->overview.complete() || (s_->info->T() >= 2 && !s_->gpu.statsValid)) break;
+        const Overview& ov = s_->overview;
+        std::snprintf(line, sizeof(line), "size %d %d %d overview %d %d\n", s_->info->width, s_->info->height,
+                      s_->info->T(), ov.w, ov.h);
+        g.text = line;
+        const size_t n = size_t(ov.w) * ov.h;
+        for (size_t p = 0; s_->gpu.statsValid && p < n; p += 997) {
+            const float* a = s_->gpu.hostStats0 + p * 4;
+            const float* b = s_->gpu.hostStats1 + p * 4;
+            std::snprintf(line, sizeof(line), "stats %zu %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n", p, a[0], a[1],
+                          a[2], a[3], b[0], b[1], b[2], b[3], s_->gpu.hostStats2[p]);
+            g.text += line;
+        }
+        mode_ = modes[0];
+        mapDirty_ = true;
+        g.stage = 2;
+        break;
+    }
+    case 2: { // mode_'s range was computed in this frame: its map, then the next mode
+        const double W = s_->info->width, H = s_->info->height;
+        const double oldScale = scale_;
+        const ImVec2 oldOffset = offset_;
+        scale_ = 0.98 * std::min(400.0 / W, 300.0 / H);
+        offset_ = ImVec2(float((400 - W * scale_) * 0.5), float((300 - H * scale_) * 0.5));
+        renderMap(400, 300, 1.0f, -1);
+        std::vector<unsigned char> rgba;
+        int w = 0, h = 0;
+        gpu_.readMap(rgba, w, h, -1);
+        scale_ = oldScale;
+        offset_ = oldOffset;
+        std::snprintf(line, sizeof(line), "mode_%02d.rgba", mode_);
+        std::ofstream(std::filesystem::u8path(g.out) / line, std::ios::binary)
+            .write(reinterpret_cast<const char*>(rgba.data()), std::streamsize(rgba.size()));
+        std::snprintf(line, sizeof(line), "range %d %.9g %.9g cmap %d\n", mode_, range_[mode_].lo, range_[mode_].hi,
+                      cmap_[mode_]);
+        g.text += line;
+        if (++g.step == int(std::size(modes))) {
+            const auto path = std::filesystem::u8path(g.out) / "golden.txt";
+            std::ofstream(path, std::ios::binary) << g.text;
+            std::printf("golden: %d maps and %s\n", g.step, path.u8string().c_str());
+            return 0;
+        }
+        mode_ = modes[g.step];
+        mapDirty_ = true;
+        break;
+    }
+    }
     return -1;
 }

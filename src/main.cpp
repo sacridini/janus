@@ -80,6 +80,7 @@ int main(int argc, char** argv) {
     bool measureCache = false;   // dev option: time the full-resolution cache in a hidden window
     bool measureVectors = false; // dev option: time vector layers over a series in a hidden window
     bool profileTour = false;    // dev option: a fixed tour of a series in a hidden window (for Tracy)
+    bool dumpGolden = false;     // dev option: maps and statistics for the Rust port to compare with
     std::string shots;           // dev option: a guide's screenshots (--shots TOUR), hidden window
     bool describe = false;       // dev option: print how the inputs open, without a window
     for (size_t i = 0; i < args.size(); ++i) {
@@ -116,6 +117,8 @@ int main(int argc, char** argv) {
             measureVectors = selftestUi = true;
         } else if (a == "--profile-tour") {
             profileTour = selftestUi = true;
+        } else if (a == "--dump-golden") {
+            dumpGolden = selftestUi = true;
         } else if (a == "--shots") {
             const char* v = next();
             shots = v ? v : "";
@@ -268,6 +271,12 @@ int main(int argc, char** argv) {
         app->frame();
         if (measureCache) {
             if (const int rc = app->measureCacheStep(inputs); rc >= 0) {
+                std::fflush(stdout);
+                exitCode = rc;
+                glfwSetWindowShouldClose(window, 1);
+            }
+        } else if (dumpGolden) {
+            if (const int rc = app->dumpGoldenStep(inputs); rc >= 0) {
                 std::fflush(stdout);
                 exitCode = rc;
                 glfwSetWindowShouldClose(window, 1);

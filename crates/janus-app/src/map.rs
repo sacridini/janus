@@ -33,7 +33,7 @@ pub struct MapView {
 type DrawKey = (Mode, [i32; 3], [u32; 2], usize, [u32; 4], usize, Option<usize>);
 
 /// The map's background where there is no data (the C++'s, app.cpp renderMap).
-const MAP_BACKGROUND: [f32; 4] = [0.10, 0.10, 0.115, 1.0];
+pub(crate) const MAP_BACKGROUND: [f32; 4] = [0.10, 0.10, 0.115, 1.0];
 
 /// A pixel under the cursor or pinned: of the overview and of the source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

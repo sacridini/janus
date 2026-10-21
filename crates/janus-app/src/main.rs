@@ -8,6 +8,7 @@ mod app;
 mod chart;
 mod classes;
 mod display;
+mod golden;
 mod map;
 mod measure;
 mod panels;
@@ -42,6 +43,8 @@ Options:
   --profile-tour IN   a fixed tour of IN (overview, cursor series, dates, modes, zoom and pan at
                       full resolution, an ROI), timed stage by stage as the C++'s
   --tour-json FILE    with --profile-tour: the timings as JSON
+  --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
+                      C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
   --describe IN       print how IN opens (dates, size, CRS, variables of a NetCDF / Zarr, the
                       series of the centre pixel) and exit
   --measure-cache on|off IN  time exact series and an ROI from the files, build the overview (and the
@@ -90,6 +93,7 @@ fn main() -> eframe::Result<()> {
             "--detach-map" => opts.detach_map = true,
             "--profile-tour" => opts.profile_tour = true,
             "--tour-json" => opts.tour_json = args.next().map(Into::into),
+            "--dump-golden" => opts.dump_golden = Some(Default::default()),
             "--describe" => {
                 attach_console();
                 std::process::exit(measure::describe(&args.by_ref().collect::<Vec<_>>()));
@@ -101,11 +105,14 @@ fn main() -> eframe::Result<()> {
             _ => opts.inputs.push(a),
         }
     }
-    if opts.measure_startup || opts.screenshot.is_some() || opts.profile_tour {
+    if opts.dump_golden.is_some() {
+        opts.dump_golden = opts.inputs.pop().map(Into::into);
+    }
+    let test_window =
+        opts.measure_startup || opts.screenshot.is_some() || opts.profile_tour || opts.dump_golden.is_some();
+    if test_window {
         attach_console();
     }
-    // the size of the C++'s hidden window for its tests and tours
-    let test_window = opts.measure_startup || opts.screenshot.is_some() || opts.profile_tour;
 
     let gdal_ms = t0.elapsed().as_secs_f64() * 1000.0;
 

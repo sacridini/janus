@@ -93,7 +93,9 @@ impl Session {
             }
         }
         let mut changed = !ready.is_empty();
-        if self.stats.is_none() && self.stats_job.is_none() && ov.complete() {
+        // every date on the GPU, not just read: the last one can complete after take_ready above, and statistics
+        // of a cube with a date missing (zeros) would stay
+        if self.stats.is_none() && self.stats_job.is_none() && ov.complete() && self.uploaded.iter().all(|&u| u) {
             let c = ctx.clone();
             self.stats_job = Some(gpu.compute_stats_async(cube, move || c.request_repaint()));
         }

@@ -630,9 +630,9 @@ O Rust abre o cache gravado pelo C++: a chave bateu na 215_067
 
 ### Diferenças anotadas para as próximas fases
 
-- O alvo do mapa é sRGB: o shader devolve as cores do mapa de cores em
-  linear, e elas voltam aos mesmos bytes. Uma camada com opacidade < 1 seria
-  misturada em linear, e não em sRGB como no C++: conferir na fase 3.
+- O alvo do mapa guarda os bytes sRGB como estão (Rgba8Unorm), como o
+  framebuffer do GL: a mistura de uma camada com opacidade < 1 sai em sRGB,
+  como no C++ (resolvido na fase 3; o egui trabalha em espaço gama).
 - O cache ainda não entra no orçamento de disco nem é "tocado" ao ser lido (a
   poda por último aberto do `disk_cache.cpp`): fase 2.
 - As linhas de grade do gráfico saem claras demais (o egui_plot usa a cor do
@@ -641,6 +641,19 @@ O Rust abre o cache gravado pelo C++: a chave bateu na 215_067
   caracteres, o `std::filesystem` do MSVC falha, e a chave dos caches leva
   tamanho −1 e `mtime` mínimo, sem perceber se os arquivos mudarem. O Rust lê
   os valores certos, então esses caches (raros) não se compartilham.
+- **Comparação de mapas (`--dump-golden`, fase 3):** nos 10 dados de teste,
+  na variável `t2m` do NetCDF e na 215_067, as estatísticas da GPU, os
+  estiramentos automáticos dos 11 modos e os mapas saem iguais aos do C++,
+  exceto empates do vizinho mais próximo: onde o centro de um pixel cai na
+  borda de um texel, o amostrador do GL (ponto fixo) e o `floor(uv * size)`
+  do port tomam texels vizinhos, ao longo de uma linha ou coluna inteira
+  (2 linhas de 294 na 215_067). Não é diferença do port, e o
+  `tools/compare_golden.py` os separa das diferenças.
+- **Defeitos do port achados pela comparação:** as estatísticas podiam ser
+  calculadas com a última data ainda fora da GPU (zeros: mínimo 0, tendência
+  errada) quando ela terminava de ser lida entre o envio das datas e o teste
+  de "overview completa"; e o estiramento padrão era 0–0 em vez do 0–1 do C++
+  (um modo sem valores, como a data da queda numa série sem quedas).
 - A fonte parece menor que no ImGui (pedido de 2026-10-21): rever o tamanho e
   o ajuste da ProggyClean na fase 4, com a configuração de tamanho de fonte.
 
@@ -653,7 +666,10 @@ cargo build --release -p janus-app                    # o Janus em Rust (target/
 cargo test --workspace                                 # crates sem janela (WGPU_BACKEND=dx12|vulkan|gl)
 target/release/janus.exe --measure-startup D:_067
 target/release/janus.exe --screenshot shot.png D:_067   # tempos da abertura e uma captura
-build/Release/janus.exe --dump-golden tests/golden     # referências do C++ (fase 0)
+# mapas dos 11 modos sem opções, estiramentos e uma amostra das estatísticas, nos dois
+build/Release/janus.exe --dump-golden D:_067 golden-cpp
+target/release/janus.exe --dump-golden D:_067 golden-rs
+python tools/compare_golden.py golden-cpp golden-rs
 cargo run --release -p janus-app -- --profile-tour D:\215_067 --json bench/rust.json
 python tools/compare_bench.py bench/baseline-cpp-0.39.0.json bench/rust.json
 ```
@@ -662,10 +678,10 @@ python tools/compare_bench.py bench/baseline-cpp-0.39.0.json bench/rust.json
 
 | Fase | Status |
 |---|---|
-| 0. Preparação | em andamento: licença (GPL-2.0-or-later) e linha de base do tour e da abertura em `bench/`; faltam a ponte com o Zeit 1.7 e o `--dump-golden` |
+| 0. Preparação | em andamento: licença (GPL-2.0-or-later), linha de base do tour e da abertura em `bench/`, `--dump-golden` (mapas, estiramentos e estatísticas; séries, ROIs e validação entram nas suas fases); falta a ponte com o Zeit 1.7 |
 | 1. Esqueleto e riscos | em andamento: tudo feito menos a transparência; o primeiro quadro não passou (ver acima) |
 | 2. Núcleo de dados | em andamento: caches (overview e resolução total) intercambiáveis com o C++ e ≤ C++ no `--measure-cache`; abertura igual ao C++ em todos os dados de teste (`--describe`): seleção de bandas, espectros, embeddings, classes, NetCDF/Zarr, remotos; sessão, série, ROI, tiles. teste do terrio feito (o GDAL continua) |
-| 3. GPU completa | em andamento: quadros com cubos, tiles de detalhe, imagens, classes e warp (testados em DX12, Vulkan e OpenGL), mistura em sRGB como no GL; `--profile-tour` portado (4,2 s contra 5,5 s do C++ na 215_067). Faltam reprojeção, basemap, composição RGB, estação e a comparação de mapas com o C++ |
+| 3. GPU completa | em andamento: quadros com cubos, tiles de detalhe, imagens, classes e warp (testados em DX12, Vulkan e OpenGL), mistura em sRGB como no GL; `--profile-tour` portado (4,2 s contra 5,5 s do C++ na 215_067); `--dump-golden` igual ao C++ nos 11 dados de teste e na 215_067 (estatísticas, estiramentos e mapas, ver abaixo). Faltam reprojeção, basemap, composição RGB e estação |
 | 4. Aplicação básica | não iniciada |
 | 5. Zeit nativo | não iniciada |
 | 6. Análise e geometria | não iniciada |
