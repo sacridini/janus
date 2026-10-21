@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 bytemuck = "1"
 gdal.workspace = true
+gdal-sys.workspace = true
 janus-cube = { path = "../janus-cube" }
 janus-gdal = { path = "../janus-gdal" }
 

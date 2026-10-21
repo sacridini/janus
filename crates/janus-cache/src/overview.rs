@@ -59,14 +59,49 @@ pub fn cube_cache_key(info: &CubeInfo, salt: &[u8]) -> u64 {
     for l in &info.layers {
         k = fnv1a(k, l.path.as_bytes());
         k = fnv1a(k, &l.band.to_le_bytes());
-        let (size, mtime) = std::fs::metadata(&l.path).map_or((0u64, 0i64), |m| (m.len(), mtime_count(&m)));
+        // the file holding the layer (a NetCDF variable's .nc); GDAL's stat for network paths (a HEAD request,
+        // cached by GDAL: it was just opened)
+        let file = janus_cube::dataset_file(&l.path);
+        let (size, mtime) = if janus_cube::is_remote_path(file) || file.starts_with("/vsi") {
+            vsi_stat(file)
+        } else {
+            std::fs::metadata(file).map_or((0u64, 0i64), |m| (m.len(), mtime_count(&m)))
+        };
         k = fnv1a(k, &size.to_le_bytes());
         k = fnv1a(k, &mtime.to_le_bytes());
         for v in [l.meta.no_data.unwrap_or(0.0), l.meta.scale, l.meta.offset] {
             k = fnv1a(k, &v.to_le_bytes());
         }
     }
+    // the normalized difference and the quality mask change the values (hashed only when in use, so caches of plain
+    // series stay valid)
+    let sel = &info.sel;
+    if sel.nd_band > 0 || sel.qa_band > 0 {
+        for v in [sel.band, sel.nd_band, sel.qa_band, sel.qa_rule.code()] {
+            k = fnv1a(k, &v.to_le_bytes());
+        }
+        for l in &info.layers {
+            for v in [l.nd_meta.no_data.unwrap_or(0.0), l.nd_meta.scale, l.nd_meta.offset] {
+                k = fnv1a(k, &v.to_le_bytes());
+            }
+        }
+    }
     k
+}
+
+/// The size and modification time (seconds) of a file in one of GDAL's virtual file systems.
+fn vsi_stat(file: &str) -> (u64, i64) {
+    let Ok(c) = std::ffi::CString::new(file) else { return (0, 0) };
+    // SAFETY: a C string and a zeroed struct for GDAL to fill.
+    unsafe {
+        let mut st: gdal_sys::VSIStatBufL = std::mem::zeroed();
+        // VSI_STAT_SIZE_FLAG
+        if gdal_sys::VSIStatExL(c.as_ptr(), &mut st, 0x8) == 0 {
+            (st.st_size as u64, st.st_mtime as i64)
+        } else {
+            (0, 0)
+        }
+    }
 }
 
 /// The overview's size: as large as `budget_bytes` allows for T floats per pixel plus 8 (statistics), never larger

@@ -24,7 +24,7 @@ impl Opening {
         std::thread::Builder::new()
             .name("open".into())
             .spawn(move || {
-                let _ = tx.send(janus_cube::open_cube(&i));
+                let _ = tx.send(janus_cube::open_cube(&i, &janus_cube::BandSelection::default()));
                 ctx.request_repaint();
             })
             .expect("thread");

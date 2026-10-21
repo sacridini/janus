@@ -625,6 +625,10 @@ O Rust abre o cache gravado pelo C++: a chave bateu na 215_067
   poda por último aberto do `disk_cache.cpp`): fase 2.
 - As linhas de grade do gráfico saem claras demais (o egui_plot usa a cor do
   texto): fase 4, com os temas.
+- **Defeito do C++ achado na fase 2:** com caminhos de mais de 260
+  caracteres, o `std::filesystem` do MSVC falha, e a chave dos caches leva
+  tamanho −1 e `mtime` mínimo, sem perceber se os arquivos mudarem. O Rust lê
+  os valores certos, então esses caches (raros) não se compartilham.
 - A fonte parece menor que no ImGui (pedido de 2026-10-21): rever o tamanho e
   o ajuste da ProggyClean na fase 4, com a configuração de tamanho de fonte.
 
@@ -648,7 +652,7 @@ python tools/compare_bench.py bench/baseline-cpp-0.39.0.json bench/rust.json
 |---|---|
 | 0. Preparação | em andamento: licença (GPL-2.0-or-later) e linha de base do tour e da abertura em `bench/`; faltam a ponte com o Zeit 1.7 e o `--dump-golden` |
 | 1. Esqueleto e riscos | em andamento: tudo feito menos a transparência; o primeiro quadro não passou (ver acima) |
-| 2. Núcleo de dados | não iniciada |
+| 2. Núcleo de dados | em andamento: caches (overview e resolução total) intercambiáveis com o C++ e ≤ C++ no `--measure-cache`; abertura igual ao C++ em todos os dados de teste (`--describe`): seleção de bandas, espectros, embeddings, classes, NetCDF/Zarr, remotos; sessão, série, ROI, tiles. Falta o teste do terrio |
 | 3. GPU completa | não iniciada |
 | 4. Aplicação básica | não iniciada |
 | 5. Zeit nativo | não iniciada |

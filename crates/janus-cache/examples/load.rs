@@ -5,7 +5,7 @@ use std::time::Instant;
 fn main() {
     let inputs: Vec<String> = std::env::args().skip(1).collect();
     let t = Instant::now();
-    let info = Arc::new(janus_cube::open_cube(&inputs).expect("open"));
+    let info = Arc::new(janus_cube::open_cube(&inputs, &janus_cube::BandSelection::default()).expect("open"));
     let open_ms = t.elapsed().as_secs_f64() * 1e3;
     let opts = janus_cache::OverviewOptions {
         budget_bytes: 1024 << 20,

@@ -1500,6 +1500,7 @@ version = "0.40.0"
 dependencies = [
  "bytemuck",
  "gdal",
+ "gdal-sys",
  "janus-cube",
  "janus-gdal",
  "libc",
@@ -1511,6 +1512,7 @@ name = "janus-cube"
 version = "0.40.0"
 dependencies = [
  "gdal",
+ "gdal-sys",
  "regex",
 ]
 

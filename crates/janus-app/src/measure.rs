@@ -53,7 +53,7 @@ pub fn measure_cache(args: &[String]) -> i32 {
     }
     let on = args[0] == "on";
     let inputs = &args[1..];
-    let info = match janus_cube::open_cube(inputs) {
+    let info = match janus_cube::open_cube(inputs, &janus_cube::BandSelection::default()) {
         Ok(i) => Arc::new(i),
         Err(e) => {
             println!("{e}");
@@ -71,7 +71,8 @@ pub fn measure_cache(args: &[String]) -> i32 {
     let mut rng = Mt19937::new(7);
     let mut px: Vec<(usize, usize)> =
         (0..5).map(|_| ((rng.next() % w as u32) as usize, (rng.next() % h as u32) as usize)).collect();
-    let roi = (w / 2 - 128, h / 2 - 128, 256, 256);
+    // the C++'s 256 x 256 at the centre, inside the image when it is smaller
+    let roi = ((w / 2).saturating_sub(128), (h / 2).saturating_sub(128), 256.min(w), 256.min(h));
     let mut reader = CubeReader::new(info.clone());
     let series =
         |r: &mut CubeReader, x, y| -> Vec<f32> { (0..t).map(|i| r.read_pixel(i, x, y).unwrap_or(f32::NAN)).collect() };
@@ -80,10 +81,10 @@ pub fn measure_cache(args: &[String]) -> i32 {
         series(&mut reader, x, y);
         println!("  source series ({x}, {y}): {:.0} ms (cold)", ms(s));
     }
-    let mut buf = vec![0f32; 256 * 256];
+    let mut buf = vec![0f32; roi.2 * roi.3];
     let s = Instant::now();
     for i in 0..t {
-        reader.read_window(i, roi, &mut buf, (256, 256));
+        reader.read_window(i, roi, &mut buf, (roi.2, roi.3));
     }
     println!("  source ROI 256x256 x {t} dates: {:.0} ms (cold)", ms(s));
 
@@ -139,14 +140,14 @@ pub fn measure_cache(args: &[String]) -> i32 {
         bad += usize::from(n != t || v.iter().zip(&src).any(|(a, b)| a.to_bits() != b.to_bits()));
         println!("  series ({x}, {y}): cache {cache_ms:.2} ms, source {src_ms:.0} ms (files read just now)");
     }
-    let (mut a, mut b) = (vec![0f32; 256 * 256], vec![0f32; 256 * 256]);
+    let (mut a, mut b) = (vec![0f32; roi.2 * roi.3], vec![0f32; roi.2 * roi.3]);
     let (mut cache_ms, mut src_ms) = (0.0, 0.0);
     for i in 0..t {
         let s = Instant::now();
-        c.read_window(i, roi, &mut a, (256, 256));
+        c.read_window(i, roi, &mut a, (roi.2, roi.3));
         cache_ms += ms(s);
         let s = Instant::now();
-        reader.read_window(i, roi, &mut b, (256, 256));
+        reader.read_window(i, roi, &mut b, (roi.2, roi.3));
         src_ms += ms(s);
         bad += usize::from(a.iter().zip(&b).any(|(p, q)| p.to_bits() != q.to_bits()));
     }
@@ -158,6 +159,83 @@ pub fn measure_cache(args: &[String]) -> i32 {
         println!("OK: cache reads equal the source");
         0
     }
+}
+
+/// `janus --describe IN...` (src/selftest.cpp, describeInputs): how the inputs open (the variables of a NetCDF /
+/// Zarr, dates, size, CRS, the series of the centre pixel), without a window; the C++'s output, line for line.
+pub fn describe(inputs: &[String]) -> i32 {
+    use janus_cube::multidim::{format_g, list_variables};
+    let t0 = Instant::now();
+    if inputs.len() == 1 {
+        let vars = list_variables(&inputs[0]);
+        if vars.len() > 1 {
+            println!("{} variables ({:.0} ms):", vars.len(), ms(t0));
+            for v in &vars {
+                println!(
+                    "  {:<12} {}
+    {}",
+                    v.name, v.desc, v.dataset
+                );
+            }
+            return 0;
+        }
+    }
+    let info = match janus_cube::open_cube(inputs, &janus_cube::BandSelection::default()) {
+        Ok(i) => Arc::new(i),
+        Err(e) => {
+            println!("FAIL: {e}");
+            return 1;
+        }
+    };
+    println!(
+        "{}
+{} x {}, {}, {} layer(s), opened in {:.0} ms{}",
+        info.description,
+        info.width,
+        info.height,
+        info.data_type,
+        info.t(),
+        ms(t0),
+        if info.remote { " (remote)" } else { "" }
+    );
+    println!(
+        "CRS: {}{}{}",
+        if info.crs_name.is_empty() { "none" } else { &info.crs_name },
+        if info.crs_authority.is_empty() { "" } else { "  " },
+        info.crs_authority
+    );
+    if let Some(g) = info.geo_transform {
+        println!(
+            "origin {}, {}; pixel {} x {}",
+            format_g(g[0], 10),
+            format_g(g[3], 10),
+            format_g(g[1], 6),
+            format_g(g[5], 6)
+        );
+    }
+    if !info.md_levels.is_empty() {
+        println!("levels: {}, shown: {}", info.md_levels.len(), info.md_levels[info.sel.band as usize - 1]);
+    }
+    let t = info.t();
+    let mut reader = CubeReader::new(info.clone());
+    let (px, py) = (info.width / 2, info.height / 2);
+    let tr = Instant::now();
+    let mut i = 0;
+    while i < t {
+        if t > 14 && i == 6 {
+            println!("  ...");
+            i = t - 6;
+        }
+        let v = reader.read_pixel(i, px, py);
+        // std::to_string of a float: %f
+        let text = v.map_or("(read failed)".to_string(), |v| {
+            if v.is_nan() { "nan".into() } else { format!("{:.6}", f64::from(v)) }
+        });
+        println!("  {:<20} {text}", info.layers[i].label);
+        i += 1;
+    }
+    println!("centre pixel ({px}, {py}) read in {:.0} ms", ms(tr));
+    0
 }
 
 #[cfg(test)]

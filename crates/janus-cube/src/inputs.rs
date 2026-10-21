@@ -63,35 +63,52 @@ fn path_string(p: &Path) -> String {
 }
 
 /// The files of the inputs, each folder's and pattern's in natural order. The paths are spelt as the C++ spells
-/// them (the folder as given, then the file name), which the caches' keys depend on.
+/// them (the folder as given, then the file name), which the caches' keys depend on. URLs, subdataset names and
+/// Zarr stores (folders) are one input each; an EnMAP product's folder opens its spectral image alone.
 pub fn expand_inputs(inputs: &[String]) -> Vec<String> {
+    use crate::remote::{dataset_file, gdal_path, is_enmap_spectral_image, is_remote_path, is_zarr_store};
+    let list = |dir: &Path, keep: &dyn Fn(&Path) -> bool| -> Vec<String> {
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()) && keep(&e.path()))
+            .map(|e| path_string(&e.path()))
+            .collect()
+    };
     let mut files = Vec::new();
     for input in inputs {
+        if is_remote_path(input) || dataset_file(input) != input {
+            files.push(gdal_path(input));
+            continue;
+        }
         let p = Path::new(input);
-        if p.is_dir() {
-            let mut dir: Vec<String> = std::fs::read_dir(p)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .filter(|e| e.file_type().is_ok_and(|t| t.is_file()) && is_raster_path(&e.path()))
-                .map(|e| path_string(&e.path()))
-                .collect();
+        if is_zarr_store(p) {
+            files.push(input.clone());
+        } else if p.is_dir() {
+            let mut dir = list(p, &is_raster_path);
+            // an EnMAP product folder: its spectral image, not the quality layers beside it
+            if let Some(s) = dir.iter().find(|f| is_enmap_spectral_image(Path::new(f))) {
+                dir = vec![s.clone()];
+            }
+            // no rasters, but EnMAP products in subfolders: where a zip extracts to (one product: its spectrum;
+            // several: a series of scenes)
+            if dir.is_empty() {
+                for sub in std::fs::read_dir(p).into_iter().flatten().flatten() {
+                    if sub.file_type().is_ok_and(|t| t.is_dir()) {
+                        dir.extend(list(&sub.path(), &is_enmap_spectral_image));
+                    }
+                }
+            }
             dir.sort_by(|a, b| natural_cmp(a, b));
             files.extend(dir);
         } else if input.contains(['*', '?']) {
             let parent = p.parent().filter(|d| !d.as_os_str().is_empty());
             let parent = parent.map(Path::to_path_buf).unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
             let pat = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            let mut dir: Vec<String> = std::fs::read_dir(&parent)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .filter(|e| {
-                    e.file_type().is_ok_and(|t| t.is_file())
-                        && wildcard_match(pat.as_bytes(), e.file_name().to_string_lossy().as_bytes())
-                })
-                .map(|e| path_string(&e.path()))
-                .collect();
+            let mut dir = list(&parent, &|f: &Path| {
+                wildcard_match(pat.as_bytes(), f.file_name().unwrap_or_default().to_string_lossy().as_bytes())
+            });
             dir.sort_by(|a, b| natural_cmp(a, b));
             files.extend(dir);
         } else {

@@ -7,4 +7,5 @@ license.workspace = true
 
 [dependencies]
 gdal.workspace = true
+gdal-sys.workspace = true
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl"] }

@@ -37,6 +37,8 @@ Options:
   --measure-startup   print startup timings and exit after the first frame
   --screenshot PNG    save the window once the series is ready, print its timings and exit
   --detach-map        the map in a window of its own (with --screenshot, both windows saved)
+  --describe IN       print how IN opens (dates, size, CRS, variables of a NetCDF / Zarr, the
+                      series of the centre pixel) and exit
   --measure-cache on|off IN  time exact series and an ROI from the files, build the overview (and the
                       full-resolution cache if on), time the reads again from the cache, check them
                       against the files; without a window
@@ -81,6 +83,10 @@ fn main() -> eframe::Result<()> {
             "--measure-startup" => opts.measure_startup = true,
             "--screenshot" => opts.screenshot = args.next().map(Into::into),
             "--detach-map" => opts.detach_map = true,
+            "--describe" => {
+                attach_console();
+                std::process::exit(measure::describe(&args.by_ref().collect::<Vec<_>>()));
+            }
             "--measure-cache" => {
                 attach_console();
                 std::process::exit(measure::measure_cache(&args.by_ref().collect::<Vec<_>>()));
