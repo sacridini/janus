@@ -33,6 +33,8 @@ pub struct UiTest {
     /// the season checked (0: none of the dates, 1: some) and the statistics computed before it
     season: usize,
     stats_gen: u64,
+    /// the exit code, once decided (the window takes another frame to close)
+    result: Option<i32>,
 }
 
 fn loaded(s: Option<&Session>) -> bool {
@@ -42,8 +44,12 @@ fn loaded(s: Option<&Session>) -> bool {
 impl State {
     pub fn ui_selftest_step(&mut self, ctx: &egui::Context) -> Option<i32> {
         ctx.request_repaint();
+        if self.ui_test.result.is_some() {
+            return self.ui_test.result;
+        }
         let mut st = std::mem::take(&mut self.ui_test);
         let r = self.ui_selftest_stage(&mut st, ctx);
+        st.result = r;
         self.ui_test = st;
         r
     }
@@ -308,6 +314,25 @@ impl State {
         Ok(())
     }
 
+    /// After C: D opens (stage 14), or the test ends without it.
+    fn test_open_d(
+        &mut self,
+        st: &mut UiTest,
+        input: &dyn Fn(usize) -> Option<String>,
+        t0: std::time::Instant,
+        ctx: &egui::Context,
+    ) -> Option<i32> {
+        let Some(d) = input(2) else {
+            println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
+            return Some(0);
+        };
+        self.open_inputs(vec![d], false, ctx);
+        println!("[{:5.1} s] open D (categorical, colour table)", t0.elapsed().as_secs_f64());
+        st.stage = 14;
+        st.since = Some(std::time::Instant::now());
+        None
+    }
+
     fn ui_selftest_stage(&mut self, st: &mut UiTest, ctx: &egui::Context) -> Option<i32> {
         let t0 = *st.t0.get_or_insert_with(std::time::Instant::now);
         let fail = |what: &str| {
@@ -565,9 +590,67 @@ impl State {
                     return None;
                 }
                 next(st, "the season: the mean and the observations in it match the CPU");
-                let Some(d) = input(2) else { return ok() };
-                self.open_inputs(vec![d], false, ctx);
-                next(st, "open D (categorical, colour table)");
+                if std::env::var_os("JANUS_PYTHON").is_none() && run_python("values = [0.0]").is_err() {
+                    println!("    Copy Python: skipped (no Python with zeit and rasterio; JANUS_PYTHON names one)");
+                    return self.test_open_d(st, &input, t0, ctx);
+                }
+                // Copy Python (the C++'s stages 150-152): a pin on the cloudy half, Mann-Kendall on the chart
+                self.clear_pins();
+                self.add_pin(150, 30);
+                let mk = janus_zeit::manifest().tool("mann_kendall")?;
+                *self.zeit.params(mk) = mk.params.iter().map(|q| (q.id.clone(), q.default.clone())).collect();
+                self.zeit.pixel_tool = Some(mk.id.clone());
+                self.zeit.version += 1;
+                st.stage = 30;
+            }
+            30 => {
+                let pin = self.series.pins.last()?.clone();
+                let id = self.session.as_ref()?.info.id;
+                if !pin.exact
+                    || !self.zeit.fit_of(id, crate::zeit::Which::Pin(pin.id), pin.x, pin.y).is_some_and(|r| r.is_ok())
+                {
+                    return None;
+                }
+                let code = self.python_snippet(crate::python::Which::Pin(pin.id))?;
+                let v = match run_python(&code) {
+                    Ok(v) => v,
+                    Err(e) => return fail(&format!("the pin's code should run: {e}")),
+                };
+                let Some(nan) = same(&pin.values, &v, 1e-6) else {
+                    return fail("the pin's code should read the pin's series");
+                };
+                if !code.contains("zeit.mann_kendall(series") {
+                    return fail("the code should call Mann-Kendall");
+                }
+                println!(
+                    "    pin: {} dates as in Janus ({nan} masked by Fmask), zeit.mann_kendall(series, ...) ran",
+                    v.len()
+                );
+                if nan == 0 {
+                    return fail("the pin should have dates masked by the quality band");
+                }
+                self.zeit.pixel_tool = None;
+                self.zeit.version += 1;
+                self.set_roi_rect([20, 10, 120, 100]);
+                next(st, "Copy Python of the pin: the same series, and the tool's call");
+            }
+            31 => {
+                if !self.series.roi.complete() {
+                    return None;
+                }
+                let code = self.python_snippet(crate::python::Which::Roi)?;
+                let v = match run_python(&code) {
+                    Ok(v) => v,
+                    Err(e) => return fail(&format!("the ROI's code should run: {e}")),
+                };
+                if same(&self.series.roi.mean, &v, 1e-5).is_none() {
+                    return fail("the ROI's code should give the ROI's mean at every date");
+                }
+                println!("    ROI (rectangle): the mean of {} dates as in Janus", v.len());
+                self.clear_roi();
+                self.clear_pins();
+                next(st, "Copy Python of the ROI: its mean");
+                return self.test_open_d(st, &input, t0, ctx);
             }
             14 | 17 => {
                 let path = input(if st.stage == 14 { 2 } else { 3 })?;
@@ -639,4 +722,44 @@ impl State {
         }
         None
     }
+}
+
+/// Runs Copy Python's code (the Python of JANUS_PYTHON, else `python`) and reads the series it computed.
+fn run_python(code: &str) -> Result<Vec<f64>, String> {
+    let dir = std::env::temp_dir().join("janus-selftest-python");
+    let _ = std::fs::create_dir_all(&dir);
+    let script = dir.join("snippet.py");
+    let text = format!(
+        "import zeit, rasterio\n{code}\nimport json, math\n\
+         print(\"JANUS_CHECK \" + json.dumps([float(v) if math.isfinite(v) else None for v in values]))\n"
+    );
+    std::fs::write(&script, text).map_err(|e| e.to_string())?;
+    let python = std::env::var("JANUS_PYTHON").unwrap_or_else(|_| "python".into());
+    let out = std::process::Command::new(&python).arg(&script).output().map_err(|e| format!("{python}: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let line = stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("JANUS_CHECK "))
+        .ok_or_else(|| format!("exit {:?}:\n{stdout}\n{}", out.status.code(), String::from_utf8_lossy(&out.stderr)))?;
+    let v: Vec<Option<f64>> = serde_json::from_str(line).map_err(|e| e.to_string())?;
+    Ok(v.into_iter().map(|x| x.unwrap_or(f64::NAN)).collect())
+}
+
+/// The same series (within `tol` relative), and how many dates have no value; None if not.
+fn same(a: &[f32], b: &[f64], tol: f64) -> Option<usize> {
+    if a.len() != b.len() {
+        return None;
+    }
+    let mut nan = 0;
+    for (&x, &y) in a.iter().zip(b) {
+        if x.is_nan() != y.is_nan() {
+            return None;
+        }
+        if x.is_nan() {
+            nan += 1;
+        } else if (f64::from(x) - y).abs() > tol * (1.0 + y.abs()) {
+            return None;
+        }
+    }
+    Some(nan)
 }

@@ -162,21 +162,78 @@ pub fn qa_usable(rule: Option<&str>, qa: f64) -> bool {
 
 struct Inputs {
     spec: JobSpec,
-    input: Dataset,
-    nd: Option<Dataset>,
-    qa: Option<Dataset>,
-    bands: Vec<(String, Dataset)>,
+    input: Source,
+    nd: Option<Source>,
+    qa: Option<Source>,
+    bands: Vec<(String, Source)>,
 }
 
 fn open(path: &str) -> Result<Dataset, String> {
     Dataset::open(path).map_err(|e| format!("{path}: {e}"))
 }
 
-/// Every band of a window as float64, [band][pixels]; unless `raw`, the dataset's NoData and non-finite values
-/// NaN (the bridge's `_read`).
-fn read(ds: &Dataset, x0: usize, y0: usize, w: usize, h: usize, raw: bool) -> Result<Vec<f64>, String> {
-    let mut out = Vec::with_capacity(ds.raster_count() * w * h);
-    for b in 1..=ds.raster_count() {
+/// A dataset opened once per reading thread: its bands (a file per date, most often compressed) read on several
+/// cores at once.
+struct Source {
+    handles: Vec<Dataset>,
+}
+
+impl Source {
+    fn open(path: &str, threads: usize) -> Result<Source, String> {
+        let first = open(path)?;
+        let k = threads.clamp(1, first.raster_count().max(1));
+        let mut handles = vec![first];
+        for _ in 1..k {
+            handles.push(open(path)?);
+        }
+        Ok(Source { handles })
+    }
+
+    fn ds(&self) -> &Dataset {
+        &self.handles[0]
+    }
+
+    /// Every band of a window as float64, [band][pixels]; unless `raw`, the dataset's NoData and non-finite values
+    /// NaN (the bridge's `_read`).
+    fn read(&mut self, x0: usize, y0: usize, w: usize, h: usize, raw: bool) -> Result<Vec<f64>, String> {
+        let n = self.ds().raster_count();
+        if self.handles.len() == 1 {
+            return read(self.ds(), 1..=n, x0, y0, w, h, raw);
+        }
+        let per = n.div_ceil(self.handles.len());
+        let parts: Vec<Result<Vec<f64>, String>> = std::thread::scope(|s| {
+            let running: Vec<_> = self
+                .handles
+                .iter_mut()
+                .enumerate()
+                .filter(|(i, _)| i * per < n)
+                .map(|(i, ds)| {
+                    let ds: &mut Dataset = ds;
+                    s.spawn(move || read(ds, i * per + 1..=((i + 1) * per).min(n), x0, y0, w, h, raw))
+                })
+                .collect();
+            running.into_iter().map(|r| r.join().unwrap_or_else(|_| Err("reading failed".into()))).collect()
+        });
+        let mut out = Vec::with_capacity(n * w * h);
+        for part in parts {
+            out.extend(part?);
+        }
+        Ok(out)
+    }
+}
+
+/// The bands `bands` (1-based) of a window as float64, [band][pixels] (see `Source::read`).
+fn read(
+    ds: &Dataset,
+    bands: std::ops::RangeInclusive<usize>,
+    x0: usize,
+    y0: usize,
+    w: usize,
+    h: usize,
+    raw: bool,
+) -> Result<Vec<f64>, String> {
+    let mut out = Vec::with_capacity(bands.clone().count() * w * h);
+    for b in bands {
         let band = ds.rasterband(b).map_err(|e| e.to_string())?;
         let buf: Buffer<f64> =
             band.read_as((x0 as isize, y0 as isize), (w, h), (w, h), None).map_err(|e| e.to_string())?;
@@ -196,13 +253,20 @@ fn read(ds: &Dataset, x0: usize, y0: usize, w: usize, h: usize, raw: bool) -> Re
 
 impl Inputs {
     fn new(spec: &JobSpec) -> Result<Inputs, String> {
+        let threads = match spec.n_jobs() {
+            n if n > 0 => n as usize,
+            _ => std::thread::available_parallelism().map_or(4, |n| n.get()),
+        };
+        let open = |path: &str| Source::open(path, threads);
         let input = open(&spec.input)?;
+        let input_ds = input.ds();
         let t = spec.years.len();
-        if input.raster_count() != t {
-            return Err(format!("ValueError: input has {} bands but {t} dates were given", input.raster_count()));
+        if input_ds.raster_count() != t {
+            return Err(format!("ValueError: input has {} bands but {t} dates were given", input_ds.raster_count()));
         }
-        let (w, h) = input.raster_size();
-        let matching = |name: &str, ds: Dataset| -> Result<Dataset, String> {
+        let (w, h) = input_ds.raster_size();
+        let matching = |name: &str, src: Source| -> Result<Source, String> {
+            let ds = src.ds();
             let (sw, sh) = ds.raster_size();
             if ds.raster_count() != t || sw != w || sh != h {
                 return Err(format!(
@@ -210,7 +274,7 @@ impl Inputs {
                     ds.raster_count()
                 ));
             }
-            Ok(ds)
+            Ok(src)
         };
         let nd = spec.nd_input.as_deref().map(|p| open(p).and_then(|d| matching("nd_input", d))).transpose()?;
         let qa = spec.qa_input.as_deref().map(|p| open(p).and_then(|d| matching("qa_input", d))).transpose()?;
@@ -223,17 +287,17 @@ impl Inputs {
     }
 
     /// The shown series of a window (normalized difference, quality mask) and its bands and codes.
-    fn read(&self, x0: usize, y0: usize, w: usize, h: usize) -> Result<Chunk, String> {
-        let mut stack = read(&self.input, x0, y0, w, h, true)?;
+    fn read(&mut self, x0: usize, y0: usize, w: usize, h: usize) -> Result<Chunk, String> {
+        let mut stack = self.input.read(x0, y0, w, h, true)?;
         let nodata = self.spec.nodata;
         for v in stack.iter_mut() {
             if nodata == Some(*v) || !v.is_finite() {
                 *v = f64::NAN;
             }
         }
-        let qa = self.qa.as_ref().map(|d| read(d, x0, y0, w, h, true)).transpose()?;
-        if let Some(nd) = &self.nd {
-            let b = read(nd, x0, y0, w, h, false)?;
+        let qa = self.qa.as_mut().map(|d| d.read(x0, y0, w, h, true)).transpose()?;
+        if let Some(nd) = &mut self.nd {
+            let b = nd.read(x0, y0, w, h, false)?;
             for (a, b) in stack.iter_mut().zip(&b) {
                 let s = *a + b;
                 *a = if s != 0.0 { (*a - b) / s } else { f64::NAN };
@@ -249,8 +313,8 @@ impl Inputs {
         }
         let bands = self
             .bands
-            .iter()
-            .map(|(r, d)| read(d, x0, y0, w, h, false).map(|a| (r.clone(), a)))
+            .iter_mut()
+            .map(|(r, d)| d.read(x0, y0, w, h, false).map(|a| (r.clone(), a)))
             .collect::<Result<_, _>>()?;
         Ok(Chunk { t: self.spec.years.len(), h, w, stack, bands, qa })
     }
@@ -456,7 +520,12 @@ const FIT_ROWS: usize = 64;
 
 /// Every pixel of `n_rows` full-width rows spread over the window, as one chunk of 1 x N (the bridge's
 /// `sample_rows`): what a tool fits its model on before the chunks.
-fn sample_rows(inputs: &Inputs, window: [usize; 4], n_rows: usize, progress: &dyn Fn(f64)) -> Result<Chunk, String> {
+fn sample_rows(
+    inputs: &mut Inputs,
+    window: [usize; 4],
+    n_rows: usize,
+    progress: &dyn Fn(f64),
+) -> Result<Chunk, String> {
     let [x0, y0, x1, y1] = window;
     let (w, h) = (x1 - x0, y1 - y0);
     let k = n_rows.min(h).max(1);
@@ -511,8 +580,8 @@ pub fn run_job(
     if tool.input.as_deref() == Some("layers") {
         return run_layers(spec, tool, &p, progress, cancel);
     }
-    let inputs = Inputs::new(spec)?;
-    let (iw, ih) = inputs.input.raster_size();
+    let mut inputs = Inputs::new(spec)?;
+    let (iw, ih) = inputs.input.ds().raster_size();
     let window = spec.window.unwrap_or([0, 0, iw, ih]);
     let [x0, y0, x1, y1] = window;
     let (w, h) = (x1 - x0, y1 - y0);
@@ -521,15 +590,16 @@ pub fn run_job(
     let mut ctx = JobCtx { input: spec.context(), n_jobs: spec.n_jobs(), ..Default::default() };
     // a tool with a model of the whole window (a SOM) fits it first, on rows spread over it
     let base = if spec.tool == "som" {
-        let sample =
-            sample_rows(&inputs, [x0, y0, x1, y1], FIT_ROWS, &|f| progress(0.05 * f, "reading a sample of the image"))?;
+        let sample = sample_rows(&mut inputs, [x0, y0, x1, y1], FIT_ROWS, &|f| {
+            progress(0.05 * f, "reading a sample of the image")
+        })?;
         progress(0.05, &format!("fitting on a sample of {} pixels", sample.pixels()));
         ctx.model = Some(crate::som::fit(&p, &sample, &ctx)?);
         0.1
     } else {
         0.0
     };
-    let mut outs = Outputs::new(tool, &active_outputs(tool, &p), &dir, &inputs.input, window, spec)?;
+    let mut outs = Outputs::new(tool, &active_outputs(tool, &p), &dir, inputs.input.ds(), window, spec)?;
     let rows = rows_per_chunk(tool, w);
     let bands: Vec<(usize, usize)> = (0..h).step_by(rows).map(|r| (r, rows.min(h - r))).collect();
     let t0 = std::time::Instant::now();
@@ -616,8 +686,8 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
         return Ok(Estimate { sec_per_px: 5e-8, sec_per_chunk: 0.0, chunk_cells: cells, sec_fixed: 0.0 });
     }
     let p = Params::with_defaults(&spec.tool, &spec.params).unwrap_or_default();
-    let inputs = Inputs::new(spec)?;
-    let (iw, ih) = inputs.input.raster_size();
+    let mut inputs = Inputs::new(spec)?;
+    let (iw, ih) = inputs.input.ds().raster_size();
     let [x0, y0, x1, y1] = spec.window.unwrap_or([0, 0, iw, ih]);
     let (w, h) = (x1 - x0, y1 - y0);
     let mut ctx = JobCtx { input: spec.context(), n_jobs: spec.n_jobs(), ..Default::default() };
@@ -625,12 +695,12 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
     if spec.tool == "som" {
         // fewer rows than a run reads
         let t = std::time::Instant::now();
-        let sample = sample_rows(&inputs, [x0, y0, x1, y1], 16, &|_| {})?;
+        let sample = sample_rows(&mut inputs, [x0, y0, x1, y1], 16, &|_| {})?;
         ctx.model = Some(crate::som::fit(&p, &sample, &ctx)?);
         fixed = t.elapsed().as_secs_f64();
     }
     let ctx = ctx;
-    let sample = |n: usize| -> Result<(f64, f64), String> {
+    let mut sample = |n: usize| -> Result<(f64, f64), String> {
         let (sw, sh) = (n.min(w), n.min(h));
         let chunk = inputs.read(x0 + (w - sw) / 2, y0 + (h - sh) / 2, sw, sh)?;
         let t = std::time::Instant::now();

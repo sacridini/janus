@@ -75,7 +75,8 @@ Options:
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
                       C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
   --selftest-zeit IN...  every Zeit tool on the series without a window: a pixel fit, its Python calls, the
-                      estimate and a raster run of 256 x 256 px, the outputs read back (timings)
+                      estimate and a raster run of 256 x 256 px (LandTrendr also 512 x 512), the outputs read
+                      back (timings)
   --describe IN       print how IN opens (dates, size, CRS, variables of a NetCDF / Zarr, the
                       series of the centre pixel) and exit
   --measure-cache on|off IN  time exact series and an ROI from the files, build the overview (and the

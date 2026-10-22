@@ -194,6 +194,18 @@ pub fn selftest_zeit(inputs: &[String], threads: usize) -> i32 {
                 Err(e) => return fail(format!("{} job: {e}", tool.id)),
             };
             println!("  raster job ({ww} x {wh} px x {n} dates): {:.0} ms", ms(tj));
+            // RUST_MIGRATION.md's gate: LandTrendr on 512 x 512 in less than 1.5 s
+            if tool.id == "landtrendr" && info.width >= 512 && info.height >= 512 {
+                let mut big = spec.clone();
+                let (x0, y0) = ((info.width - 512) / 2, (info.height - 512) / 2);
+                big.window = Some([x0, y0, x0 + 512, y0 + 512]);
+                big.output_dir = work.join("landtrendr-512").to_string_lossy().to_string();
+                let tb = Instant::now();
+                if let Err(e) = run_job(&big, &|_, _| {}, &AtomicBool::new(false)) {
+                    return fail(format!("landtrendr 512 job: {e}"));
+                }
+                println!("  raster job (512 x 512 px x {n} dates): {:.0} ms (gate: < 1500 ms)", ms(tb));
+            }
             let tool_params = Params::with_defaults(&tool.id, &params).unwrap_or_default();
             if result.outputs.len() != active_outputs(tool, &tool_params).len() {
                 return fail(format!("{}: the job returned another set of outputs", tool.id));

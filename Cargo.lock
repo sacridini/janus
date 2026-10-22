@@ -1535,6 +1535,7 @@ dependencies = [
  "janus-geo",
  "janus-gpu",
  "janus-session",
+ "janus-zeit",
  "mimalloc",
  "rfd",
  "serde",
@@ -1603,6 +1604,7 @@ name = "janus-zeit"
 version = "0.40.0"
 dependencies = [
  "gdal",
+ "gdal-sys",
  "janus-cube",
  "serde",
  "serde_json",
