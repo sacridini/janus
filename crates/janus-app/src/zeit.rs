@@ -852,20 +852,20 @@ pub struct Job {
 
 /// A run's log (job.log beside its job.json): what runs, its progress, its outputs or its error, each line after
 /// the seconds since the run started.
-struct JobLog {
-    path: std::path::PathBuf,
-    t0: Instant,
+pub(crate) struct JobLog {
+    pub(crate) path: std::path::PathBuf,
+    pub(crate) t0: Instant,
 }
 
 impl JobLog {
-    fn write(&self, text: &str) {
+    pub(crate) fn write(&self, text: &str) {
         use std::io::Write as _;
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&self.path) {
             let _ = f.write_all(text.as_bytes());
         }
     }
 
-    fn line(&self, text: &str) {
+    pub(crate) fn line(&self, text: &str) {
         self.write(&format!("[{:7.1} s] {text}\n", self.t0.elapsed().as_secs_f64()));
     }
 }
@@ -972,14 +972,14 @@ pub(crate) fn load_result(path: &str, max_dim: usize) -> Result<(Vec<f32>, usize
 }
 
 /// Now as "YYYY-MM-DD HH:MM:SS UTC", for the logs.
-fn timestamp_text() -> String {
+pub(crate) fn timestamp_text() -> String {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
     let (y, m, d) = janus_zeit::numeric::civil(now.div_euclid(86400));
     let s = now.rem_euclid(86400);
     format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02} UTC", s / 3600, s / 60 % 60, s % 60)
 }
 
-fn timestamp() -> String {
+pub(crate) fn timestamp() -> String {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
     let (y, m, d) = janus_zeit::numeric::civil(now.div_euclid(86400));
     let s = now.rem_euclid(86400);
@@ -1126,7 +1126,7 @@ Reading the data adds to it, mostly on spinning disks.",
         });
     }
 
-    fn results_dir(&self) -> std::path::PathBuf {
+    pub(crate) fn results_dir(&self) -> std::path::PathBuf {
         self.zeit.results_dir.clone().unwrap_or_else(|| crate::settings::app_data_dir().join("results"))
     }
 

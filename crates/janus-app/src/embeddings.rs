@@ -433,14 +433,15 @@ impl State {
             }
             for d in done {
                 let Some(img) = e.img.get_mut(d.t) else { continue };
-                let gpu = self.gpu.as_ref();
+                let Some(g) = self.gpu.as_ref() else {
+                    e.slot_sent.clear(); // before the first frame: asked for again once there is a GPU
+                    continue;
+                };
                 img.rgba = !d.rgba.is_empty();
-                img.tex = gpu.map(|g| {
-                    if img.rgba {
-                        g.create_image(s.w as u32, s.h as u32, &d.rgba)
-                    } else {
-                        g.create_tile(s.w as u32, s.h as u32, &d.values)
-                    }
+                img.tex = Some(if img.rgba {
+                    g.create_image(s.w as u32, s.h as u32, &d.rgba)
+                } else {
+                    g.create_tile(s.w as u32, s.h as u32, &d.values)
                 });
                 (img.key, img.ms, img.values, img.lo, img.hi) = (d.key, d.ms, d.values, d.lo, d.hi);
                 // the automatic range of a float view comes from the first image of each reference (or base), so
@@ -591,6 +592,12 @@ impl State {
                 _ => "Draw an ROI (Shift + drag): the similarity to its mean vector".into(),
             },
             _ if e.view == View::Change && e.base_of(t).is_none() => "The first year has no previous year".into(),
+            _ if e.view == View::Pca && e.basis.as_ref().is_some_and(|b| b.samples < 2) => {
+                format!(
+                    "No data {}: no vectors to fit the principal components",
+                    if e.basis_local { "in the ROI" } else { "in this layer" }
+                )
+            }
             _ if e.img.get(t).is_none_or(|i| i.tex.is_none()) => "Computing...".into(),
             _ => String::new(),
         };
@@ -661,6 +668,7 @@ impl State {
             );
             y += 24.0;
         }
+        self.draw_download_notes(painter, rect, y);
     }
 
     /// Every layer drawn as embeddings has the image of its date (or failed to read).
@@ -811,7 +819,8 @@ impl State {
     /// The Embeddings panel: the layer, its view and the view's options, the charts of the cursor and the pins.
     pub(crate) fn embeddings_ui(&mut self, ui: &mut Ui) {
         let Some(i) = self.embedding_layer() else {
-            ui.label("No layer of embeddings. Open one (a folder of yearly files from Zeit or Janus).");
+            ui.label("No layer of embeddings. Open one (a folder of yearly files from Zeit or Janus) or add the embeddings of the visible area:");
+            self.embedding_download_ui(ui);
             return;
         };
         let t = self.layer_date(i);
@@ -1152,6 +1161,10 @@ impl State {
                     });
             }
         }
+        ui.add_space(6.0);
+        egui::CollapsingHeader::new("Download embeddings")
+            .id_salt("emb dl panel")
+            .show(ui, |ui| self.embedding_download_ui(ui));
         if dirty {
             self.map.dirty = true;
         }

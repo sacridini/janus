@@ -421,6 +421,9 @@ impl EmbeddingStore {
             offset[b] = 0.5 * (lo + hi);
             scale[b] = (hi - lo) / 254.0;
         }
+        if skip.iter().all(|&s| s != 0) {
+            skip.fill(0); // no data anywhere (e.g. embeddings of the sea): every vector invalid, not zeros
+        }
         let _ = self.ranges.set(Ranges { scale, offset, skip });
         Ok(())
     }

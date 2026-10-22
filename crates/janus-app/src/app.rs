@@ -250,6 +250,9 @@ pub struct State {
     /// the Embeddings panel is shown
     pub show_embeddings: bool,
     pub(crate) embeddings_test: crate::embeddings_test::EmbeddingsTest,
+    /// the embeddings download's choices, and the downloads under way
+    pub emb_download: crate::emb_download::DownloadUi,
+    pub emb_downloads: Vec<crate::emb_download::EmbDownload>,
     pub chart: crate::chart::ChartOptions,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
@@ -419,6 +422,15 @@ impl TabViewer for Tabs<'_> {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match tab {
                     Tab::Layers => {
                         self.s.layers_ui(ui);
+                        // embeddings of the visible area, added on top
+                        egui::CollapsingHeader::new("Embeddings")
+                            .id_salt("emb dl layers")
+                            .show(ui, |ui| self.s.embedding_download_ui(ui))
+                            .header_response
+                            .on_hover_text(
+                                "Foundation-model embeddings (AlphaEarth, TESSERA) of the visible area,\n\
+                                 downloaded and added as a layer",
+                            );
                         self.s.basemap_ui(ui);
                     }
                     Tab::Display => self.s.display_ui(ui),
@@ -487,6 +499,8 @@ impl JanusApp {
                 analysis: Default::default(),
                 show_embeddings: false,
                 embeddings_test: Default::default(),
+                emb_download: Default::default(),
+                emb_downloads: Vec::new(),
                 chart: Default::default(),
                 band_sel: None,
                 spectral_index: 0,
@@ -1188,6 +1202,7 @@ impl eframe::App for JanusApp {
         s.pump_vectors();
         s.pump_interpretation(&ctx);
         s.pump_embeddings(&ctx);
+        s.pump_embedding_downloads(&ctx);
         s.pump_zeit_jobs(&ctx);
         s.scripted_zeit_run(&ctx);
         let rc = if s.opts.dump_golden.is_some() {

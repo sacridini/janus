@@ -24,6 +24,8 @@ pub struct EmbeddingsTest {
     since: Option<Instant>,
     out: std::path::PathBuf,
     job: Option<(Arc<ExportJob>, janus_embed::EmbeddingExport)>,
+    /// the download's last progress message shown
+    shown: String,
     result: Option<i32>,
 }
 
@@ -219,6 +221,42 @@ impl State {
                 st.stage = 1;
             }
             1 => {
+                // another kind of series: the embeddings of its visible area are downloaded and added on top, as the
+                // Layers panel does
+                if li.is_none() && self.layers.len() == 1 && self.emb_downloads.is_empty() {
+                    if self.opening.is_some() || !self.session.as_ref()?.s.overview.complete() || st.frames < 3 {
+                        return None;
+                    }
+                    // the ROI given (--roi), else the visible area
+                    let area = if self.opts.roi.is_some() {
+                        self.series.roi_rect?;
+                        1
+                    } else {
+                        0
+                    };
+                    self.emb_download = crate::emb_download::DownloadUi { source: 0, y0: 2023, y1: 2024, res: 0, area };
+                    let (ll, wm, hm) = match self.embedding_bounds(area) {
+                        Ok(b) => b,
+                        Err(e) => return fail(&format!("bounds: {e}")),
+                    };
+                    println!(
+                        "    {}: downloading AlphaEarth 2023-2024 for {:.4} {:.4} {:.4} {:.4} ({:.2} x {:.2} km)",
+                        self.layers[0].name,
+                        ll[0],
+                        ll[1],
+                        ll[2],
+                        ll[3],
+                        wm / 1000.0,
+                        hm / 1000.0
+                    );
+                    self.start_embedding_download(ctx);
+                    if self.emb_downloads.is_empty() {
+                        return fail("the download did not start");
+                    }
+                    st.stage = 100;
+                    st.since = Some(Instant::now());
+                    return None;
+                }
                 let i = li?;
                 let e = self.layers[i].emb.as_ref()?;
                 let s = e.store.clone()?;
@@ -246,6 +284,9 @@ impl State {
                     s.bytes() as f64 / 1048576.0,
                     s.seconds()
                 );
+                if b.samples < 2 {
+                    return fail("no valid vectors in the layer");
+                }
                 let pct = |c: usize| 100.0 * b.eig[c] / b.total;
                 println!(
                     "    global PCA: {} vectors in {:.1} ms (covariance {:.2}, eigen {:.2} ms, {} it.); PC1-3 {:.1}% {:.1}% {:.1}%; image {:.1} ms",
@@ -444,6 +485,40 @@ impl State {
                 self.set_date(0);
                 self.map.dirty = true;
                 next(st, "change.tif");
+            }
+            100 => {
+                // the download: its progress, then the layer on top, the series still active
+                if let Some(d) = self.emb_downloads.last() {
+                    let s = d.status.lock().unwrap();
+                    if s.state == crate::zeit::JobState::Failed {
+                        return fail(&format!("download: {}", s.error));
+                    }
+                    if s.state == crate::zeit::JobState::Running && !s.message.is_empty() && s.message != st.shown {
+                        st.shown = s.message.clone();
+                        println!("    {:3.0}%  {}", s.progress * 100.0, s.message);
+                    }
+                }
+                let i = li?;
+                if self.opening.is_some() || self.layers[i].emb.as_ref()?.store.is_none() {
+                    return None;
+                }
+                if self.layers.len() != 2 || self.active != 0 || self.layers[0].emb.is_some() {
+                    return fail("the series should stay active, the embeddings on top");
+                }
+                let l = &self.layers[i];
+                let how = l
+                    .place
+                    .reproj
+                    .as_ref()
+                    .map_or("same grid".to_string(), |(r, _)| format!("reprojected from {}", r.crs_text));
+                println!("    added: {}, {}; {how}", l.name, l.emb.as_ref()?.meta.label());
+                if !l.place.aligned {
+                    return fail("the embeddings could not be placed on the series");
+                }
+                // the views' checks below are made on the embeddings as the active layer
+                self.set_active(i, ctx);
+                st.stage = 1;
+                st.since = Some(Instant::now());
             }
             _ => {
                 if !current(self) {

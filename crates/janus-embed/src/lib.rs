@@ -6,6 +6,7 @@
 // the kernels and loops index their arrays as the C++ does (several arrays at once)
 #![allow(clippy::needless_range_loop)]
 
+pub mod download;
 pub mod eigen;
 pub mod engine;
 pub mod export;

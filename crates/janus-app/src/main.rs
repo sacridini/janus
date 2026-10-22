@@ -11,6 +11,7 @@ mod chart;
 mod classes;
 mod composite;
 mod display;
+mod emb_download;
 mod embeddings;
 mod embeddings_test;
 mod exports;
@@ -86,7 +87,9 @@ Options:
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
                       C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
   --selftest-embeddings  the embedding kernels, eigenvectors and PCA against known answers, timed
-  --selftest-embeddings-ui DIR [OUT]  a series of embeddings: its views, their GeoTIFFs checked (in OUT)
+  --selftest-embeddings-ui DIR [OUT]  a series of embeddings: its views, their GeoTIFFs checked (in OUT); DIR
+                      another kind of series: AlphaEarth 2023-2024 of its visible area (or --roi) downloaded
+                      first and added on top
   --selftest-zeit IN...  every Zeit tool on the series without a window: a pixel fit, its Python calls, the
                       estimate and a raster run of 256 x 256 px (LandTrendr also 512 x 512), the outputs read
                       back (timings)
