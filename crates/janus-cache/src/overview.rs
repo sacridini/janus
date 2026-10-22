@@ -141,6 +141,10 @@ pub(crate) fn open_for_writing(path: &Path, create: bool) -> std::io::Result<Fil
     o.read(true).write(true);
     if create {
         o.create(true).truncate(true);
+        // the cache folder of a first run (e.g. ~/.cache/janus on a new Linux account)
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
     }
     #[cfg(windows)]
     {
