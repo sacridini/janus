@@ -1,0 +1,59 @@
+{
+ "outputs": [
+  {
+   "id": "sig_slope",
+   "name": "Significant Sen's slope",
+   "colormap": "BrBG",
+   "unit": "value/step",
+   "path": "mann_kendall_sig_slope.tif"
+  },
+  {
+   "id": "slope",
+   "name": "Sen's slope",
+   "colormap": "BrBG",
+   "unit": "value/step",
+   "path": "mann_kendall_slope.tif"
+  },
+  {
+   "id": "p",
+   "name": "p-value",
+   "colormap": "Plasma",
+   "unit": "p",
+   "path": "mann_kendall_p.tif"
+  },
+  {
+   "id": "z",
+   "name": "Z statistic",
+   "colormap": "BrBG",
+   "unit": "z",
+   "path": "mann_kendall_z.tif"
+  },
+  {
+   "id": "tau",
+   "name": "Kendall's tau",
+   "colormap": "BrBG",
+   "unit": "tau",
+   "path": "mann_kendall_tau.tif"
+  },
+  {
+   "id": "trend",
+   "name": "Trend (-1, 0, +1)",
+   "colormap": "RdBu",
+   "unit": "class",
+   "path": "mann_kendall_trend.tif"
+  },
+  {
+   "id": "intercept",
+   "name": "Intercept",
+   "colormap": "Viridis",
+   "unit": "value",
+   "path": "mann_kendall_intercept.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}

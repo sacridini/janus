@@ -10,6 +10,7 @@ pub mod bands;
 mod bfast;
 mod ccdc;
 mod coded;
+pub mod job;
 mod landtrendr;
 pub mod manifest;
 mod mann_kendall;

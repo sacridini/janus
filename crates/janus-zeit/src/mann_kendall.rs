@@ -80,3 +80,39 @@ pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
     }
     Ok(PixelResult { overlays, rows })
 }
+
+/// A raster run's chunk: the test on every pixel; Sen's slope also where the trend is significant.
+pub fn chunk(p: &Params, chunk: &crate::job::Chunk, ctx: &crate::job::JobCtx) -> Result<crate::job::ChunkOut, String> {
+    let method = match p.str("method") {
+        "original" => Method::Original,
+        "hamed_rao" => Method::HamedRao,
+        "yue_wang" => Method::YueWang,
+        "seasonal" => Method::Seasonal,
+        m => return Err(format!("ValueError: Unknown method {m:?}")),
+    };
+    let lag = p.int("lag");
+    let n = chunk.pixels();
+    let out = batch(
+        &chunk.by_pixel(&chunk.stack),
+        n,
+        chunk.t,
+        method,
+        p.f64("alpha"),
+        if lag < 0 { -1 } else { lag as i32 },
+        period(p, &ctx.input) as i32,
+        p.int("min_valid") as i32,
+        ctx.n_jobs,
+    );
+    // trend, h, p, z, tau, s, var_s, slope, intercept (each [pixels], float32)
+    let metric = |k: usize| -> Vec<f64> { out[k * n..(k + 1) * n].iter().map(|&v| f64::from(v as f32)).collect() };
+    let (h, slope) = (metric(1), metric(7));
+    let mut res = crate::job::ChunkOut::new();
+    res.insert("sig_slope".into(), h.iter().zip(&slope).map(|(&h, &s)| if h > 0.5 { s } else { f64::NAN }).collect());
+    res.insert("slope".into(), slope);
+    res.insert("p".into(), metric(2));
+    res.insert("z".into(), metric(3));
+    res.insert("tau".into(), metric(4));
+    res.insert("trend".into(), metric(0));
+    res.insert("intercept".into(), metric(8));
+    Ok(res)
+}

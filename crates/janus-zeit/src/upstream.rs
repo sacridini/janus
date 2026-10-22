@@ -81,7 +81,8 @@ pub fn landtrendr_event(
             continue;
         }
         let rate = magnitude / duration;
-        let dsnr = if rmse > 0.0 { magnitude / rmse } else { 0.0 };
+        // numba fastmath: the division by the loop-invariant RMSE is a multiplication by its reciprocal
+        let dsnr = if rmse > 0.0 { magnitude * (1.0 / rmse) } else { 0.0 };
         let score = f64::from(match sort_by {
             SortBy::Greatest => magnitude,
             SortBy::Newest => start_year,

@@ -1,0 +1,59 @@
+{
+ "outputs": [
+  {
+   "id": "yod",
+   "name": "Year of detection",
+   "colormap": "Viridis",
+   "unit": "year",
+   "path": "landtrendr_yod.tif"
+  },
+  {
+   "id": "magnitude",
+   "name": "Magnitude",
+   "colormap": "Plasma",
+   "unit": "value",
+   "path": "landtrendr_magnitude.tif"
+  },
+  {
+   "id": "duration",
+   "name": "Duration",
+   "colormap": "Viridis",
+   "unit": "years",
+   "path": "landtrendr_duration.tif"
+  },
+  {
+   "id": "pre_val",
+   "name": "Pre-event value",
+   "colormap": "Viridis",
+   "unit": "value",
+   "path": "landtrendr_pre_val.tif"
+  },
+  {
+   "id": "post_val",
+   "name": "Post-event value",
+   "colormap": "Viridis",
+   "unit": "value",
+   "path": "landtrendr_post_val.tif"
+  },
+  {
+   "id": "rate",
+   "name": "Rate",
+   "colormap": "Plasma",
+   "unit": "value/year",
+   "path": "landtrendr_rate.tif"
+  },
+  {
+   "id": "dsnr",
+   "name": "DSNR",
+   "colormap": "Plasma",
+   "unit": "ratio",
+   "path": "landtrendr_dsnr.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}

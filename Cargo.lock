@@ -1602,6 +1602,7 @@ dependencies = [
 name = "janus-zeit"
 version = "0.40.0"
 dependencies = [
+ "gdal",
  "janus-cube",
  "serde",
  "serde_json",
