@@ -1814,6 +1814,155 @@
     }
    ],
    "chunk_cells": 200000
+  },
+  {
+   "id": "snic",
+   "name": "SNIC segmentation",
+   "category": "Segmentation",
+   "description": "SNIC superpixels (Achanta & Süsstrunk 2017), as zeit.snic: the area divided into segments of pixels whose whole series are alike (each date, or each band of each date, is one value compared), grown from seeds on R snic's grids, as sits_segment does. A raster run writes the segments' labels, each segment's mean series (opened as a new layer) and the segments' polygons in a GeoPackage (opened as a vector layer), with their size, centre and mean of every value: ready to interpret by object, to extract series from, or to classify one sample a segment.",
+   "requires": {
+    "time": "any",
+    "min_dates": 1
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "features",
+     "label": "Values compared",
+     "type": "enum",
+     "default": "shown",
+     "options": [
+      "shown",
+      "bands"
+     ],
+     "labels": [
+      "The shown band or index of every date",
+      "Every band of every date"
+     ],
+     "help": "Shown: the series shown on the map (the band, or the normalized difference, with the quality band applied). Every band: all the bands of every date, so pixels are alike when all their bands are (more memory and time)."
+    },
+    {
+     "id": "spacing",
+     "label": "Seed spacing",
+     "type": "int",
+     "default": 10,
+     "min": 2,
+     "max": 1000,
+     "unit": "px",
+     "help": "Distance between the seeds, in pixels (sits_segment's default: 10): about the side of a segment."
+    },
+    {
+     "id": "grid",
+     "label": "Seed grid",
+     "type": "enum",
+     "default": "rectangular",
+     "options": [
+      "rectangular",
+      "diamond",
+      "hexagonal",
+      "random"
+     ],
+     "labels": [
+      "Rectangular",
+      "Diamond",
+      "Hexagonal",
+      "Random"
+     ],
+     "help": "R snic's grids: rectangular; diamond (a second grid shifted by half a step, the step scaled by 1.41); hexagonal (the column step scaled by 1.73); random (as many seeds as the rectangular grid, drawn at random)."
+    },
+    {
+     "id": "compactness",
+     "label": "Compactness",
+     "type": "float",
+     "default": 0.5,
+     "min": 0.0,
+     "max": 100000.0,
+     "help": "Larger: more regular, compact segments; smaller: segments follow the data more closely. The values' differences are in their own units: 0.5 (sits' default) for reflectance or an index in 0-1, about 5000 for reflectance x 10000."
+    },
+    {
+     "id": "padding",
+     "label": "Margin",
+     "type": "float",
+     "default": 0.5,
+     "min": 0.0,
+     "max": 10.0,
+     "unit": "spacing",
+     "help": "The margin along the edges kept free of seeds, in seed spacings (0.5: half a spacing, R snic's default)."
+    },
+    {
+     "id": "tile",
+     "label": "Tile size",
+     "type": "int",
+     "default": 1024,
+     "min": 0,
+     "max": 16384,
+     "unit": "px",
+     "help": "The area is segmented in tiles of this many pixels a side, in parallel; segments never cross the tiles' edges. 0: the whole area at once (one core, and the whole area in memory)."
+    },
+    {
+     "id": "gaps",
+     "label": "Dates without a value",
+     "type": "enum",
+     "default": "interpolate",
+     "options": [
+      "interpolate",
+      "skip"
+     ],
+     "labels": [
+      "Interpolate in time",
+      "Leave the pixel out"
+     ],
+     "help": "A pixel is compared on every date: fill the gaps linearly between its neighbours in time (the first and last values repeat at the ends), or leave such pixels out of every segment."
+    },
+    {
+     "id": "min_valid",
+     "label": "Min dates with a value (%)",
+     "type": "float",
+     "default": 50.0,
+     "min": 1.0,
+     "max": 100.0,
+     "help": "When interpolating: pixels with values on fewer dates are left out of every segment."
+    },
+    {
+     "id": "seed",
+     "label": "Random seed",
+     "type": "int",
+     "default": 42,
+     "min": 0,
+     "max": 1000000,
+     "help": "Seed of the random grid (same seed, same seeds)."
+    },
+    {
+     "id": "polygons",
+     "label": "Write the polygons",
+     "type": "bool",
+     "default": true,
+     "help": "Also write the segments as polygons in a GeoPackage, with their size, centre and mean of every value compared (a column each, up to 1000), and open them as a vector layer."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "labels",
+     "name": "Segment",
+     "colormap": "Paired",
+     "unit": "segment",
+     "dtype": "int32"
+    },
+    {
+     "id": "mean",
+     "name": "Segment mean",
+     "series": true
+    },
+    {
+     "id": "polygons",
+     "name": "Segments",
+     "vector": true,
+     "when": "polygons"
+    }
+   ],
+   "chunk_cells": 2000000
   }
  ],
  "errors": []

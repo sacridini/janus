@@ -955,9 +955,36 @@ impl ResultLayer {
         self.data[py.min(self.th - 1) * self.tw + px.min(self.tw - 1)]
     }
 
+    /// A map of segments (SNIC's labels): each segment one colour of a qualitative colormap.
+    pub fn is_segments(&self) -> bool {
+        self.unit == "segment"
+    }
+
+    /// What its texture holds: the values, or for a map of segments each label's colour (1..=the colormap's
+    /// colours), scattered by a multiplicative hash so that neighbouring segments seldom share one.
+    pub(crate) fn texture_values(&self) -> std::borrow::Cow<'_, [f32]> {
+        if !self.is_segments() {
+            return std::borrow::Cow::Borrowed(&self.data);
+        }
+        let k = janus_gpu::colormaps::all()[self.cmap].keys().count().max(1) as u32;
+        let colour = |v: f32| ((v as u32).wrapping_mul(2_654_435_761) >> 16) % k + 1;
+        self.data.iter().map(|&v| if v.is_finite() && v >= 0.0 { colour(v) as f32 } else { f32::NAN }).collect()
+    }
+
     /// The automatic range: min..max for years and durations, 2-98 % otherwise; a class map's colours one
-    /// per class.
+    /// per class, a map of segments' one per colour.
     pub(crate) fn auto_range(&mut self) {
+        if self.is_segments() {
+            let colormaps = janus_gpu::colormaps::all();
+            if !colormaps[self.cmap].qualitative
+                && let Some(paired) = janus_gpu::colormaps::by_name("Paired")
+            {
+                self.cmap = paired;
+            }
+            self.lo = 0.5;
+            self.hi = colormaps[self.cmap].keys().count() as f32 + 0.5;
+            return;
+        }
         if !self.classes.is_empty() {
             let colormaps = janus_gpu::colormaps::all();
             if self.classes.len() > colormaps[self.cmap].keys().count()
@@ -1316,6 +1343,7 @@ Reading the data adds to it, mostly on spinning disks.",
 
     /// Finished runs: their maps loaded as result layers (on a thread), their series opened as layers.
     pub(crate) fn pump_zeit_jobs(&mut self, ctx: &egui::Context) {
+        let mut vectors = vec![];
         for j in &mut self.zeit.jobs {
             if j.loaded {
                 continue;
@@ -1332,6 +1360,11 @@ Reading the data adds to it, mostly on spinning disks.",
             let mut first = true;
             for o in &res.outputs {
                 let path = o["path"].as_str().unwrap_or("").to_string();
+                if o["vector"].as_bool() == Some(true) {
+                    // SNIC's polygons: a vector layer
+                    vectors.push(path);
+                    continue;
+                }
                 if o["series"].as_bool() == Some(true) {
                     // e.g. the NDFI of every date: a new layer
                     self.zeit.series_to_open.push(path);
@@ -1393,6 +1426,9 @@ Reading the data adds to it, mostly on spinning disks.",
                 });
             }
         }
+        if !vectors.is_empty() {
+            self.add_vector_files(vectors, ctx);
+        }
         // loaded results: on the GPU, under their series (if it is still open)
         let done: Vec<_> = std::mem::take(&mut *self.zeit.loaded.lock().unwrap());
         for r in done {
@@ -1412,7 +1448,7 @@ Reading the data adds to it, mostly on spinning disks.",
                         continue;
                     }
                     if let Some(gpu) = &self.gpu {
-                        layer.tex = Some(gpu.create_tile(layer.tw as u32, layer.th as u32, &layer.data));
+                        layer.tex = Some(gpu.create_tile(layer.tw as u32, layer.th as u32, &layer.texture_values()));
                     }
                     self.zeit.results.push(layer);
                     self.map.dirty = true;
@@ -1449,7 +1485,7 @@ Reading the data adds to it, mostly on spinning disks.",
             if let Some(r) = self.zeit.results.iter_mut().find(|r| r.path == path) {
                 (r.data, r.tw, r.th) = (data, tw, th);
                 if let Some(gpu) = &self.gpu {
-                    r.tex = Some(gpu.create_tile(tw as u32, th as u32, &r.data));
+                    r.tex = Some(gpu.create_tile(tw as u32, th as u32, &r.texture_values()));
                 }
                 self.map.dirty = true;
             }
@@ -1679,7 +1715,9 @@ on {source}",
                     return;
                 }
                 ui.indent("result", |ui| {
-                    if r.classes.is_empty() {
+                    if r.is_segments() {
+                        ui.weak("Each segment a colour (hover: its number)");
+                    } else if r.classes.is_empty() {
                         let maps = janus_gpu::colormaps::all();
                         ComboBox::from_id_salt("rcmap").selected_text(maps[r.cmap].name).show_ui(ui, |ui| {
                             for (k, m) in maps.iter().enumerate() {
@@ -1914,6 +1952,14 @@ pub(crate) fn series_inputs(
     for role in needed.iter().chain(&optional) {
         if let Some(&b) = roles.get(role) {
             spec.bands.insert(role.clone(), vrt(&format!("_{role}"), b, false)?);
+        }
+    }
+    if tool.id == "snic" && spec.params.get("features").and_then(Value::as_str) == Some("bands") {
+        // SNIC on every band of every date
+        for b in 1..=info.bands_per_date.max(1) {
+            let role = format!("b{b:03}");
+            spec.bands.insert(role.clone(), vrt(&format!("_{role}"), b as i32, false)?);
+            spec.band_names.insert(role, info.band_names.get(b - 1).cloned().unwrap_or_else(|| format!("band {b}")));
         }
     }
     Ok(())

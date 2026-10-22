@@ -71,7 +71,7 @@ which ships with Janus: there is nothing else to install. Its command line is `j
   infrared...) while the chart keeps the index.
 - **Change detection built in**: LandTrendr, Mann-Kendall, BFAST, CCDC,
   CODED (forest degradation, with the NDFI), phenology, TWDTW, SOM clustering,
-  Tmask cloud screening and more from [Zeit](https://github.com/sacridini/zeit-cdts),
+  SNIC segmentation, Tmask cloud screening and more from [Zeit](https://github.com/sacridini/zeit-cdts),
   fitted live on the chart (BFAST and CCDC models drawn over the series) or
   run on the image (also CCDC's cloud-free synthetic image of a date), plus
   the agreement of several change maps. **Copy Python** gives the code that

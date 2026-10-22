@@ -441,6 +441,17 @@ Windows sem Python nem conda, e chamável pela linha de comando
   - Risco: o Burn usa a sua própria versão do `wgpu` (via CubeCL), que pode
     não ser a do egui; então são dois `wgpu` no binário e dois dispositivos na
     mesma GPU. Medir o tamanho e a memória antes de seguir (fase 34).
+  - **Medido em 2026-10-22** (um teste fora do repositório: um TempCNN do
+    tamanho do sits treinado 20 passos e aplicado a 65 536 pixels): o Burn
+    0.22.1 (CubeCL 0.11.3) usa o **wgpu 30.0.1**, o mesmo do egui, então há um
+    só `wgpu` no binário; o `burn-wgpu` aceita um dispositivo já criado
+    (`init_device(WgpuSetup)`), então o modelo pode rodar no dispositivo do
+    mapa. Tamanho: 44 MB com o perfil `dist` (53 MB com o `release`), contra os
+    27,8 MB do Janus em `release`: ~+35 MB no instalador. Memória: ~300 MB no
+    pico. Velocidade: 65 536 pixels classificados em 0,05 s na GPU, 8,9 s na CPU
+    (`flex`, Rust puro). Na 0.22 a API mudou: os modelos não têm mais o tipo do
+    backend (`Tensor<3>`, `Device::wgpu(..)`, `device.autodiff()`), e o
+    `ndarray` está obsoleto (o `flex` o substitui na CPU).
 - **Ordem** (do mais simples e mais reaproveitável ao mais pesado): SNIC (33),
   a infraestrutura de treino e aplicação (34), TempCNN (35), L-TAE (36),
   Presto (37), U-TAE (38). Cada fase termina com o seu autoteste e uma
@@ -466,6 +477,24 @@ Windows sem Python nem conda, e chamável pela linha de comando
   visível, ROI), com a estimativa de tempo e a tarefa em Tools → Tasks.
 - Conferência: os mesmos rótulos e médias que o `zeit.snic` nas mesmas
   sementes (referências gravadas pela ponte, como as das fases 5 e 7).
+- **Feito (2026-10-22)**: `janus-zeit/src/snic.rs`, a ferramenta `snic` do
+  `tools.json` (categoria Segmentation, no fim da lista: as abas do dock guardam
+  a ferramenta pelo índice). A janela é segmentada **uma faixa de blocos por
+  vez** (os blocos de uma faixa em paralelo): como os segmentos não cruzam os
+  blocos, os rótulos são os do `zeit.snic` na janela inteira com os mesmos
+  blocos, e a memória é a de uma faixa (recusada acima de 4 GB, pedindo blocos
+  menores). Atributos: a série mostrada ou todas as bandas de todas as datas
+  (VRTs `b001`...); os buracos preenchidos no tempo como no SOM. Saídas: os
+  rótulos em Int32 (-1 sem segmento; um tipo novo das saídas), mostrados com uma
+  cor por segmento (hash multiplicativo sobre o Paired), a **série média** de
+  cada segmento (da série mostrada; aberta como camada) e os polígonos
+  (`GDALPolygonize`, 4-conexo: um polígono por segmento) com `supercells`, `x`,
+  `y`, `n_pixels` e a média de cada atributo (até 1000 colunas). As referências
+  não vêm da ponte (que nunca teve o SNIC), mas de `tools/zeit_snic_fixtures.py`
+  (`snic_grid` e `run_snic` do Zeit, atributos preenchidos pelo `fill_gaps` da
+  ponte); `tests/snic.rs` confere grades, rótulos, médias e polígonos bit a bit.
+  A grade aleatória achou um estouro em `Pcg64::choice` (só em debug), corrigido.
+  Self-test da interface: estágios 82–83.
 
 **Fase 34 — Infraestrutura de aprendizado (`janus-ml`)**
 - **Amostras de treino** de qualquer fonte que o Janus já tem: rótulos da
@@ -603,7 +632,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 30 | 0.37.0 | **Acurácia ao vivo**: matriz de erro (pontos e proporção de área), acurácias global, do usuário e do produtor e **área ajustada ± IC** (Stehman 2014), tradução rótulo → classe do mapa, células da matriz que levam aos pontos, convergência do IC, pontos que faltam por estrato, *Copy Python* (`zeit.accuracy`), relatório (HTML + CSV) | concluída |
 | 31 | 0.37.0 | **Interpretação avançada**: galeria de recortes por data em volta do ponto, o quadrado do pixel, vários eventos por ponto, confiança, "não sei dizer", leitura antecipada dos próximos pontos, **vários intérpretes** (concordância, kappa, adjudicação, rótulos juntados de outra cópia) | concluída |
 | 32 | 0.37.0 | **Comparação de mapas** com a mesma amostra (LandTrendr × CCDC × BFAST × MapBiomas...), **área de mudança por ano ± IC**, acurácia das datas (± k anos, histograma das diferenças) | concluída |
-| 33 | — | **SNIC**: superpixels das trajetórias inteiras (`zeit-core`), grades de sementes do R `snic`, rótulos, médias e polígonos (ver "IA" em Decisões) | planejada |
+| 33 | — | **SNIC**: superpixels das trajetórias inteiras (`zeit-core`), grades de sementes do R `snic`, rótulos, médias e polígonos (ver "IA" em Decisões) | concluída (sem versão) |
 | 34 | — | **Infraestrutura de IA** (`janus-ml`, Burn sobre `wgpu`): amostras de treino de rótulos, projetos de validação, pinos e vetores; treino em tarefa com curvas e matriz de confusão; modelo em arquivo; aplicação em blocos na GPU (classes, probabilidade, entropia) | planejada |
 | 35 | — | **TempCNN** (Pelletier et al. 2019), conferido contra o `sits_tempcnn` | planejada |
 | 36 | — | **L-TAE** (Garnot & Landrieu 2020), datas irregulares pelo dia do ano, conferido contra o `sits_lighttae` | planejada |

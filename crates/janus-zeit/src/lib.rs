@@ -22,6 +22,7 @@ pub mod pixel;
 pub mod python;
 pub mod rng;
 mod smooth;
+pub mod snic;
 mod som;
 mod tmask;
 mod twdtw;

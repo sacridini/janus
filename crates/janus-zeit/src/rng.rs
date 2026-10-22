@@ -253,14 +253,14 @@ impl Pcg64 {
             }
             if set[loc] == u64::MAX {
                 set[loc] = val;
-                out[j - pop_size + size] = val as i64;
+                out[j + size - pop_size] = val as i64;
             } else {
                 let mut loc = (j as u64 & mask) as usize;
                 while set[loc] != u64::MAX {
                     loc = (loc + 1) & mask as usize;
                 }
                 set[loc] = j as u64;
-                out[j - pop_size + size] = j as i64;
+                out[j + size - pop_size] = j as i64;
             }
         }
         self.shuffle(&mut out, 1);

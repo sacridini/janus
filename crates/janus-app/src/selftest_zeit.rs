@@ -213,6 +213,16 @@ pub fn selftest_zeit(inputs: &[String], threads: usize) -> i32 {
             for o in &result.outputs {
                 let path = o["path"].as_str().unwrap_or("").to_string();
                 let name = o["name"].as_str().unwrap_or("");
+                if o["vector"].as_bool() == Some(true) {
+                    // SNIC's polygons, read as a vector layer is
+                    match janus_geo::vectors::load_vector_file(&path, 1_000_000) {
+                        Ok(v) => {
+                            println!("    {name:<28} {} polygons", v.iter().map(|l| l.features.len()).sum::<usize>())
+                        }
+                        Err(e) => return fail(format!("{}: vector output: {e}", tool.id)),
+                    }
+                    continue;
+                }
                 if o["series"].as_bool() == Some(true) {
                     // a series output opens as a series of the same dates (what Janus adds as a layer)
                     let s = match janus_cube::open_cube(std::slice::from_ref(&path), &BandSelection::default()) {

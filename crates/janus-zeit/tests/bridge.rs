@@ -41,11 +41,15 @@ fn data(name: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
+/// Tools Janus has and the bridge never had (their references are Zeit's own: tests/snic.rs).
+const AFTER_THE_BRIDGE: [&str; 1] = ["snic"];
+
 #[test]
 fn descriptors_are_the_bridges() {
     let bridge: Manifest = serde_json::from_str(&data("tools.json")).unwrap();
-    assert_eq!(manifest().tools.len(), bridge.tools.len());
-    for (a, b) in manifest().tools.iter().zip(&bridge.tools) {
+    let native: Vec<_> = manifest().tools.iter().filter(|t| !AFTER_THE_BRIDGE.contains(&t.id.as_str())).collect();
+    assert_eq!(native.len(), bridge.tools.len());
+    for (a, b) in native.into_iter().zip(&bridge.tools) {
         assert_eq!(a, b, "{}", a.id);
     }
 }

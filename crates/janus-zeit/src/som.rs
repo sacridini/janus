@@ -14,7 +14,7 @@ const MAX_CLUSTERS: i64 = 12;
 
 /// Each pixel's series ([pixels][T]) with every value finite: gaps filled linearly in time when enough dates
 /// have one, else NaN (the bridge's `fill_gaps`).
-fn fill_gaps(v: &[f64], t: usize, x: &[f64], p: &Params) -> Vec<f64> {
+pub(crate) fn fill_gaps(v: &[f64], t: usize, x: &[f64], p: &Params) -> Vec<f64> {
     let n = v.len() / t.max(1);
     let mut out = vec![f64::NAN; v.len()];
     let skip = p.str("gaps") == "skip";

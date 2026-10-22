@@ -1,7 +1,8 @@
 //! `--selftest-ui` stages 70-78 and 81 (src/app_selftest.cpp), with A active and B open: another font size
 //! (ProggyForever, the scalable face) and the Files panel revealing the opened file (70-72); the Log window following
 //! a file as it grows (73-74); the Analysis panel drawn on every tab (75-76); the layout scrambled and reset (77-78);
-//! a finished Zeit run with a series output and a class map with typical series (81).
+//! a finished Zeit run with a series output and a class map with typical series (81); a SNIC run on the series, its
+//! segments, their mean series and their polygons (82-83).
 
 use super::UiTest;
 use crate::app::{LayoutCmd, State};
@@ -299,6 +300,97 @@ impl State {
                 next(
                     st,
                     "Zeit run: a series output added as a layer (active one kept), a class map with typical series",
+                );
+                st.stage = 82;
+            }
+            82 => {
+                // SNIC on the whole series, run as the tool's Run button runs it, into a folder of the test's
+                let stamp =
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+                let dir = std::env::temp_dir().join(format!("janus-selftest-snic-{stamp}"));
+                let tool = janus_zeit::manifest().tool("snic")?;
+                let mut params: std::collections::BTreeMap<String, serde_json::Value> =
+                    tool.params.iter().map(|q| (q.id.clone(), q.default.clone())).collect();
+                params.insert("spacing".into(), 12.into());
+                params.insert("tile".into(), 64.into());
+                *self.zeit.params(tool) = params;
+                self.zeit.tools.entry(tool.id.clone()).or_default().scope = 0;
+                self.zeit.results_dir = Some(dir.clone());
+                st.run = Some((dir, self.layers.len(), self.active));
+                st.run_vectors = self.vectors.len();
+                self.run_tool(tool, ctx);
+                next(st, "SNIC run started on the whole series (seeds every 12 px, tiles of 64 px)");
+            }
+            83 => {
+                let (dir, before, active) = st.run.clone()?;
+                let job = self.zeit.jobs.last()?;
+                let (state, error) = {
+                    let s = job.status.lock().ok()?;
+                    (s.state, s.error.clone())
+                };
+                match state {
+                    crate::zeit::JobState::Failed | crate::zeit::JobState::Cancelled => {
+                        return fail(&format!("the SNIC run should finish: {error}"));
+                    }
+                    crate::zeit::JobState::Running => return None,
+                    crate::zeit::JobState::Done => {}
+                }
+                let tag = dir.file_name()?.to_string_lossy().into_owned();
+                let seg = self.zeit.results.iter().position(|r| r.is_segments() && r.path.contains(&tag));
+                let si =
+                    seg.filter(|&k| !self.zeit.results[k].data.is_empty() && self.zeit.results[k].tex.is_some())?;
+                if self.opening.is_some()
+                    || self.layers.len() == before
+                    || self.vectors.len() == st.run_vectors
+                    || self.zeit.loads_pending()
+                {
+                    return None; // the mean series opens as a layer, the polygons as a vector layer
+                }
+                let info = self.layers.get(active)?.session.as_ref().map(|s| s.info.clone()).or_else(|| {
+                    (self.active == active).then(|| self.session.as_ref().map(|s| s.info.clone())).flatten()
+                })?;
+                let r = &self.zeit.results[si];
+                let labels: std::collections::BTreeSet<i64> =
+                    r.data.iter().filter(|v| v.is_finite()).map(|&v| v as i64).collect();
+                let added = self.layers.last()?;
+                let ai = added.session.as_ref()?.info.clone();
+                let v = self.vectors.last()?;
+                println!(
+                    "    {} segments on the map ({}, {} x {} px), mean series \"{}\" of {} dates, {} polygons in {}",
+                    labels.len(),
+                    janus_gpu::colormaps::all()[r.cmap].name,
+                    r.w,
+                    r.h,
+                    added.name,
+                    ai.t(),
+                    v.data.features.len(),
+                    v.name
+                );
+                if !janus_gpu::colormaps::all()[r.cmap].qualitative || r.lo != 0.5 || labels.len() < 10 {
+                    return fail("the segments should show one qualitative colour each");
+                }
+                if r.w != info.width || r.h != info.height || labels.iter().any(|&l| l < 0) {
+                    return fail("the segments should cover the series, their labels the seeds' numbers");
+                }
+                if self.layers.len() != before + 1 || ai.t() != info.t() || self.active != active {
+                    return fail(
+                        "the mean series should open as a new layer of the series' dates, the active one kept",
+                    );
+                }
+                if v.data.features.len() != labels.len() || !v.data.fields.iter().any(|f| f == "n_pixels") {
+                    return fail("the polygons should open as a vector layer, one polygon a segment with its size");
+                }
+                let last = self.layers.len() - 1;
+                self.remove_layer(last, ctx);
+                self.remove_vector(self.vectors.len() - 1);
+                self.zeit.results.remove(si);
+                self.zeit.results.retain(|r| !r.path.contains(&tag));
+                self.zeit.jobs.pop();
+                self.zeit.results_dir = None;
+                let _ = std::fs::remove_dir_all(&dir);
+                next(
+                    st,
+                    "SNIC: the segments (a colour each), their mean series as a layer, their polygons as a vector layer",
                 );
                 st.stage = 7;
             }

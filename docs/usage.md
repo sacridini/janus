@@ -152,7 +152,8 @@
   **CCDC** (multiband), **CODED** (forest degradation, multiband), the
   **NDFI** (spectral unmixing), **Tmask** (clouds the quality band missed),
   **TWDTW classification** (classes from pins), **SOM clustering** (typical
-  trajectories), the **agreement** of several change maps and **smoothing**
+  trajectories), **SNIC segmentation** (segments of alike trajectories, with
+  their polygons), the **agreement** of several change maps and **smoothing**
   (Whittaker, Savitzky-Golay; chart only). Each is fitted live on the cursor, pins and ROI series
   (segments, trend lines, break dates, seasons or CCDC models drawn on the chart),
   or run on the whole image, the visible area or an ROI, with the results
@@ -300,6 +301,7 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 | Tmask (cloud screening) | one file per date with green and SWIR1, ≥ 2 dates per year | observations flagged and their share; the series shown without them as a **new layer** |
 | TWDTW classification | dates | class map (one class per pattern, with a legend), distance, margin to the 2nd class |
 | SOM clustering | any | cluster map (the typical series of the cluster under the cursor is drawn on the chart), distance to it |
+| SNIC segmentation | any | segments (a colour each), each segment's mean series as a **new layer**, the segments' **polygons** (GeoPackage, opened as a vector layer) with their size, centre and mean of every value compared |
 | Agreement of change maps | maps of dates from other tools (any series) | consensus year, how many maps agree (and their share), maps with a change, spread of the years |
 | Smoothing | any | chart only: the smoothed series (Whittaker or Savitzky-Golay) |
 
@@ -339,6 +341,21 @@ neuron: pixels with alike trajectories share a cluster, and neighbouring
 clusters are alike. Each pixel needs a value on every date: gaps are filled
 linearly in time (or the pixel is left out). Hover the cluster map: the chart
 draws the typical series of the cluster under the cursor, in its colour.
+
+**SNIC segmentation** (Achanta & Süsstrunk 2017, as `zeit.snic` and R's
+`sits_segment`) divides the area into segments of neighbouring pixels whose
+whole series are alike: every date of the shown band or index (or, with
+*Values compared: Every band*, every band of every date) is one value compared.
+Segments grow from seeds every *Seed spacing* pixels on one of R snic's grids;
+*Compactness* trades regular shapes for following the data, and is in the
+values' units (0.5 for reflectance or an index in 0-1, thousands for
+reflectance x 10000). The area is segmented in tiles (*Tile size*) on every
+core, and segments never cross a tile's edge. Gaps are filled in time as for the
+SOM. The run writes the labels (`snic_labels.tif`, Int32, -1 outside every
+segment), each segment's mean series (`snic_mean.tif`, opened as a layer: the
+series as objects) and the polygons (`snic_polygons.gpkg`, layer `segments`:
+`supercells`, `x`, `y`, `n_pixels` and a column per value compared, named
+`date` or `date_band`), opened as a vector layer for interpretation by object.
 
 The **agreement** runs on maps Janus already shows, not on the series: check two
 or more results whose values are dates (LandTrendr's year of detection; CCDC,

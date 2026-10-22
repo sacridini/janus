@@ -35,6 +35,9 @@ pub struct JobSpec {
     /// multiband tools: each mapped role's band
     #[serde(default)]
     pub bands: BTreeMap<String, String>,
+    /// a tool on every band of the series (SNIC): the name of each role's band
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub band_names: BTreeMap<String, String>,
     #[serde(default)]
     pub nodata: Option<f64>,
     #[serde(default)]
@@ -160,9 +163,9 @@ pub fn qa_usable(rule: Option<&str>, qa: f64) -> bool {
 // Inputs
 // ---------------------------------------------------------------------------------------------------------------
 
-struct Inputs {
+pub(crate) struct Inputs {
     spec: JobSpec,
-    input: Source,
+    pub(crate) input: Source,
     nd: Option<Source>,
     qa: Option<Source>,
     bands: Vec<(String, Source)>,
@@ -174,7 +177,7 @@ fn open(path: &str) -> Result<Dataset, String> {
 
 /// A dataset opened once per reading thread: its bands (a file per date, most often compressed) read on several
 /// cores at once.
-struct Source {
+pub(crate) struct Source {
     handles: Vec<Dataset>,
 }
 
@@ -189,7 +192,7 @@ impl Source {
         Ok(Source { handles })
     }
 
-    fn ds(&self) -> &Dataset {
+    pub(crate) fn ds(&self) -> &Dataset {
         &self.handles[0]
     }
 
@@ -252,7 +255,7 @@ fn read(
 }
 
 impl Inputs {
-    fn new(spec: &JobSpec) -> Result<Inputs, String> {
+    pub(crate) fn new(spec: &JobSpec) -> Result<Inputs, String> {
         let threads = match spec.n_jobs() {
             n if n > 0 => n as usize,
             _ => std::thread::available_parallelism().map_or(4, |n| n.get()),
@@ -287,7 +290,7 @@ impl Inputs {
     }
 
     /// The shown series of a window (normalized difference, quality mask) and its bands and codes.
-    fn read(&mut self, x0: usize, y0: usize, w: usize, h: usize) -> Result<Chunk, String> {
+    pub(crate) fn read(&mut self, x0: usize, y0: usize, w: usize, h: usize) -> Result<Chunk, String> {
         let mut stack = self.input.read(x0, y0, w, h, true)?;
         let nodata = self.spec.nodata;
         for v in stack.iter_mut() {
@@ -330,7 +333,7 @@ pub fn active_outputs<'a>(tool: &'a Tool, p: &Params) -> Vec<&'a Output> {
 }
 
 /// One label per date for a series output's band descriptions: Janus's, else ISO dates, else decimal years.
-fn date_labels(spec: &JobSpec) -> Vec<String> {
+pub(crate) fn date_labels(spec: &JobSpec) -> Vec<String> {
     if let Some(l) = spec.labels.as_ref().filter(|l| l.len() == spec.years.len()) {
         return l.clone();
     }
@@ -346,13 +349,13 @@ fn date_labels(spec: &JobSpec) -> Vec<String> {
     spec.years.iter().map(|y| format!("{y:.4}")).collect()
 }
 
-struct Outputs {
+pub(crate) struct Outputs {
     w: usize,
     outs: Vec<(Output, PathBuf, Dataset)>,
 }
 
 impl Outputs {
-    fn new(
+    pub(crate) fn new(
         tool: &Tool,
         outputs: &[&Output],
         dir: &Path,
@@ -374,6 +377,7 @@ impl Outputs {
             let path = dir.join(format!("{}_{}.tif", tool.id, o.id));
             let count = if o.series == Some(true) { labels.len() } else { 1 };
             let int16 = o.dtype.as_deref() == Some("int16");
+            let int32 = o.dtype.as_deref() == Some("int32");
             let mut opts = vec![
                 "COMPRESS=DEFLATE".to_string(),
                 "TILED=YES".into(),
@@ -385,12 +389,14 @@ impl Outputs {
             if count > 1 {
                 opts.push("INTERLEAVE=BAND".into());
             }
-            if int16 {
+            if int16 || int32 {
                 opts.push("PREDICTOR=2".into());
             }
             let options = RasterCreationOptions::from_iter(opts);
             let mut ds = if int16 {
                 driver.create_with_band_type_with_options::<i16, _>(&path, w, h, count, &options)
+            } else if int32 {
+                driver.create_with_band_type_with_options::<i32, _>(&path, w, h, count, &options)
             } else {
                 driver.create_with_band_type_with_options::<f32, _>(&path, w, h, count, &options)
             }
@@ -405,7 +411,14 @@ impl Outputs {
             }
             for b in 1..=count {
                 let mut band = ds.rasterband(b).map_err(|e| e.to_string())?;
-                band.set_no_data_value(Some(if int16 { -32768.0 } else { f64::NAN })).map_err(|e| e.to_string())?;
+                let nodata = if int16 {
+                    -32768.0
+                } else if int32 {
+                    -1.0
+                } else {
+                    f64::NAN
+                };
+                band.set_no_data_value(Some(nodata)).map_err(|e| e.to_string())?;
                 if o.series == Some(true) {
                     band.set_description(&labels[b - 1]).map_err(|e| e.to_string())?;
                 }
@@ -419,7 +432,7 @@ impl Outputs {
         Ok(Outputs { w, outs })
     }
 
-    fn write(&mut self, res: &ChunkOut, r: usize, h: usize) -> Result<(), String> {
+    pub(crate) fn write(&mut self, res: &ChunkOut, r: usize, h: usize) -> Result<(), String> {
         let w = self.w;
         for (o, path, ds) in &mut self.outs {
             let a = res.get(&o.id).ok_or_else(|| format!("KeyError: '{}'", o.id))?;
@@ -437,6 +450,11 @@ impl Outputs {
                         })
                         .collect();
                     band.write((0, r as isize), (w, h), &mut Buffer::new((w, h), data))
+                } else if o.dtype.as_deref() == Some("int32") {
+                    // labels: -1 without one
+                    let data: Vec<i32> =
+                        part.iter().map(|&v| if v.is_finite() && v >= 0.0 { v as i32 } else { -1 }).collect();
+                    band.write((0, r as isize), (w, h), &mut Buffer::new((w, h), data))
                 } else {
                     let data: Vec<f32> = part.iter().map(|&v| v as f32).collect();
                     band.write((0, r as isize), (w, h), &mut Buffer::new((w, h), data))
@@ -449,7 +467,7 @@ impl Outputs {
 
     /// The result's outputs: the manifest's, with their path, a class map's class names and what the tool's fit
     /// adds (the bridge's `describe`).
-    fn describe(&self, p: &Params, model: Option<&Value>) -> Vec<Value> {
+    pub(crate) fn describe(&self, p: &Params, model: Option<&Value>) -> Vec<Value> {
         self.outs
             .iter()
             .map(|(o, path, _)| {
@@ -580,6 +598,9 @@ pub fn run_job(
     if tool.input.as_deref() == Some("layers") {
         return run_layers(spec, tool, &p, progress, cancel);
     }
+    if spec.tool == "snic" {
+        return crate::snic::run(spec, tool, &p, progress, cancel);
+    }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();
     let window = spec.window.unwrap_or([0, 0, iw, ih]);
@@ -686,6 +707,9 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
         return Ok(Estimate { sec_per_px: 5e-8, sec_per_chunk: 0.0, chunk_cells: cells, sec_fixed: 0.0 });
     }
     let p = Params::with_defaults(&spec.tool, &spec.params).unwrap_or_default();
+    if spec.tool == "snic" {
+        return crate::snic::estimate(spec, &p, cells);
+    }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();
     let [x0, y0, x1, y1] = spec.window.unwrap_or([0, 0, iw, ih]);

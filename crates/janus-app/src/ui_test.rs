@@ -64,6 +64,8 @@ pub struct UiTest {
     hits: usize,
 
     run: Option<(std::path::PathBuf, usize, usize)>,
+    /// stage 82: the vector layers before the SNIC run
+    run_vectors: usize,
     /// the exit code, once decided (the window takes another frame to close)
     result: Option<i32>,
 }
@@ -860,7 +862,7 @@ impl State {
             120..=125 => return self.test_vectors(st, t0, ctx),
             50..=56 => return self.test_basemap(st, t0, ctx),
             57..=59 => return self.test_full_res(st, t0),
-            70..=78 | 81 => return self.test_misc(st, t0, ctx),
+            70..=78 | 81..=83 => return self.test_misc(st, t0, ctx),
             130..=137 | 79 | 80 => return self.test_animation(st, &input, t0, ctx),
             170..=179 => return self.test_validation(st, &input, t0, ctx),
             _ => {}

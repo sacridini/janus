@@ -86,6 +86,9 @@ pub struct Output {
     pub dtype: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale: Option<f64>,
+    /// polygons in a GeoPackage (SNIC's segments), opened as a vector layer
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector: Option<bool>,
     /// a bool parameter that must be on for it to be written
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub when: Option<String>,
