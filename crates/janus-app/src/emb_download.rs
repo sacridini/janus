@@ -1,7 +1,7 @@
 //! Embeddings of the visible area or the ROI downloaded as a layer (src/app_embeddings.cpp: embeddingBounds,
-//! startEmbeddingDownload, uiEmbeddingDownload): AlphaEarth read natively, TESSERA through Zeit in an external
-//! Python (janus_embed::download); the job in Tools > Tasks with its log, its progress on the map, the layer added on
-//! top (the series being studied stays active) when it is ready.
+//! startEmbeddingDownload, uiEmbeddingDownload): AlphaEarth and TESSERA read natively (janus_embed::download); the
+//! job in Tools > Tasks with its log, its progress on the map, the layer added on top (the series being studied stays
+//! active) when it is ready.
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -34,8 +34,7 @@ const SOURCES: [SourceInfo; 2] = [
         source: Source::Tessera,
         label: "TESSERA (128 dims)",
         help: "TESSERA (University of Cambridge): 128 dimensions per 10 m pixel and year, from\n\
-               Sentinel-1 and Sentinel-2 time series; read from its public Zarr store by Zeit, in a\n\
-               Python with Zeit and geotessera (JANUS_PYTHON names it; else `python`).",
+               Sentinel-1 and Sentinel-2 time series; read from its free Zarr store on Source Cooperative.",
     },
 ];
 const RESOLUTIONS: [u32; 5] = [10, 20, 30, 60, 100];
@@ -176,7 +175,6 @@ impl State {
             res: (res != 10).then_some(f64::from(res)),
             out_dir: out.clone(),
             cache_dir: cache_dir(),
-            python: None,
         };
         let log = JobLog { path: out.join("job.log"), t0: Instant::now() };
         log.write(&format!(

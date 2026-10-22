@@ -1668,6 +1668,7 @@ dependencies = [
  "parquet",
  "rayon",
  "serde_json",
+ "zeit-core",
 ]
 
 [[package]]

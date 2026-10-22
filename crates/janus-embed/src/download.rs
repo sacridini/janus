@@ -5,7 +5,7 @@
 //! AlphaEarth is read natively (zeit/_alphaearth.py): the open copy on Source Cooperative holds, per year and UTM
 //! zone, COGs of 8192 x 8192 cells and 64 int8 bands, indexed by aef_index.parquet; the files are bottom-up (the
 //! first row is the southern one), values map to [-1, 1] as sign(v) * (v / 127.5)^2 and -128 marks a pixel without
-//! an embedding. TESSERA (its Zarr store, through geotessera) runs Zeit in an external Python.
+//! an embedding. TESSERA is read natively too, from its Zarr store (tessera.rs).
 
 use std::ffi::CString;
 use std::fs::File;
@@ -64,8 +64,6 @@ pub struct DownloadSpec {
     pub out_dir: PathBuf,
     /// where the AlphaEarth index is kept
     pub cache_dir: PathBuf,
-    /// TESSERA: a Python with Zeit (None: JANUS_PYTHON, else `python`)
-    pub python: Option<String>,
 }
 
 /// Runs a download: `progress(fraction, message)`; Err("cancelled") when `cancel` was set. Returns the files.
@@ -77,7 +75,7 @@ pub fn download(
     std::fs::create_dir_all(&spec.out_dir).map_err(|e| format!("{}: {e}", spec.out_dir.display()))?;
     match spec.source {
         Source::AlphaEarth => alphaearth(spec, progress, cancel),
-        Source::Tessera => tessera(spec, progress, cancel),
+        Source::Tessera => crate::tessera::download(spec, progress, cancel),
     }
 }
 
@@ -86,10 +84,10 @@ fn set_config(k: &str, v: &str) {
 }
 
 /// GDAL's HTTP reads of COGs: no directory listing, retries, a cache, merged ranges.
-fn http_options() {
+pub(crate) fn http_options() {
     for (k, v) in [
         ("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR"),
-        ("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tiff,.tif,.parquet"),
+        ("CPL_VSIL_CURL_ALLOWED_EXTENSIONS", ".tiff,.tif,.parquet,.json,{noext}"),
         ("GDAL_HTTP_MAX_RETRY", "5"),
         ("GDAL_HTTP_RETRY_DELAY", "1"),
         ("VSI_CACHE", "TRUE"),
@@ -246,7 +244,7 @@ fn srs(def: &str) -> Result<SpatialRef, String> {
 }
 
 /// The box in another CRS (densified edges, as rasterio's transform_bounds).
-fn bounds_in(bbox: [f64; 4], crs: &str) -> Result<[f64; 4], String> {
+pub(crate) fn bounds_in(bbox: [f64; 4], crs: &str) -> Result<[f64; 4], String> {
     let (wgs, dst) = (srs("EPSG:4326")?, srs(crs)?);
     let ct = CoordTransform::new(&wgs, &dst).map_err(|e| e.to_string())?;
     ct.transform_bounds(&bbox, 21).map_err(|e| e.to_string())
@@ -532,7 +530,7 @@ fn read_cells(
 }
 
 /// The mean of each k x k block of cells ([band][h][w] -> [band][h/k][w/k]), NaN left out.
-fn average(cells: &[f32], d: usize, h: usize, w: usize, k: usize) -> Vec<f32> {
+pub(crate) fn average(cells: &[f32], d: usize, h: usize, w: usize, k: usize) -> Vec<f32> {
     let (oh, ow) = (h / k, w / k);
     let mut out = vec![f32::NAN; d * oh * ow];
     for b in 0..d {
@@ -556,7 +554,7 @@ fn average(cells: &[f32], d: usize, h: usize, w: usize, k: usize) -> Vec<f32> {
 }
 
 /// A year's GeoTIFF being written (the bridge's profile).
-struct GeoTiff {
+pub(crate) struct GeoTiff {
     ds: Dataset,
     path: PathBuf,
     tmp: PathBuf,
@@ -567,7 +565,7 @@ struct GeoTiff {
 
 impl GeoTiff {
     #[allow(clippy::too_many_arguments)]
-    fn create(
+    pub(crate) fn create(
         path: &Path,
         w: usize,
         h: usize,
@@ -613,12 +611,12 @@ impl GeoTiff {
     }
 
     /// Rows r .. r + h: [band][row][col] values quantised to Int16 (NaN -> nodata).
-    fn write_strip(&mut self, r: usize, h: usize, block: &[f32]) -> Result<(), String> {
+    pub(crate) fn write_strip(&mut self, r: usize, h: usize, block: &[f32]) -> Result<(), String> {
         let plane = self.w * h;
         let mut q = vec![0i16; self.d * plane];
         for (o, &v) in q.iter_mut().zip(block) {
             *o = if v.is_finite() {
-                (f64::from(v) / self.scale).round_ties_even().clamp(-32767.0, 32767.0) as i16
+                (v / self.scale as f32).round_ties_even().clamp(-32767.0, 32767.0) as i16
             } else {
                 NODATA
             };
@@ -649,146 +647,12 @@ impl GeoTiff {
         Ok(())
     }
 
-    fn finish(self) -> Result<(), String> {
+    pub(crate) fn finish(self) -> Result<(), String> {
         let GeoTiff { ds, path, tmp, .. } = self;
         drop(ds);
         let _ = std::fs::remove_file(&path);
         std::fs::rename(&tmp, &path).map_err(|e| format!("cannot rename {}: {e}", tmp.display()))
     }
-}
-
-/// The Python that runs TESSERA's download: the first that imports zeit and geotessera of JANUS_PYTHON, `python`
-/// and `py -3` on the PATH (the PATH's first `python` is often another installation, e.g. python.org's), and the
-/// conda / miniforge installations in the home folder with their environments. Looked for once.
-fn tessera_python() -> Option<String> {
-    static FOUND: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    FOUND
-        .get_or_init(|| {
-            let mut candidates: Vec<String> = std::env::var("JANUS_PYTHON").ok().into_iter().collect();
-            candidates.extend(["python".to_string(), "python3".to_string()]);
-            let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from);
-            let exe = if cfg!(windows) { "python.exe" } else { "bin/python" };
-            for base in ["miniforge3", "mambaforge", "miniconda3", "anaconda3"] {
-                let Some(root) = home.as_ref().map(|h| h.join(base)) else { continue };
-                candidates.push(root.join(exe).to_string_lossy().into_owned());
-                if let Ok(envs) = std::fs::read_dir(root.join("envs")) {
-                    for e in envs.flatten() {
-                        candidates.push(e.path().join(exe).to_string_lossy().into_owned());
-                    }
-                }
-            }
-            let imports = |cmd: &str, pre: &[&str]| {
-                let mut c = std::process::Command::new(cmd);
-                c.args(pre).args(["-c", "import zeit, geotessera"]);
-                c.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-                #[cfg(windows)]
-                {
-                    use std::os::windows::process::CommandExt;
-                    c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-                }
-                c.status().is_ok_and(|s| s.success())
-            };
-            for c in &candidates {
-                if (c.contains('/') || c.contains('\\')) && !Path::new(c).exists() {
-                    continue;
-                }
-                if imports(c, &[]) {
-                    return Some(c.clone());
-                }
-            }
-            // the Windows launcher: the interpreter it picks, by its path
-            if cfg!(windows) && imports("py", &["-3"]) {
-                let out =
-                    std::process::Command::new("py").args(["-3", "-c", "import sys; print(sys.executable)"]).output();
-                if let Ok(o) = out {
-                    let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                    if !p.is_empty() {
-                        return Some(p);
-                    }
-                }
-            }
-            None
-        })
-        .clone()
-}
-
-/// TESSERA: Zeit in an external Python (crates/janus-embed/python/task_embeddings.py), its progress read from its
-/// output.
-fn tessera(
-    spec: &DownloadSpec,
-    progress: &(dyn Fn(f64, &str) + Sync),
-    cancel: &AtomicBool,
-) -> Result<Vec<PathBuf>, String> {
-    use std::io::BufRead;
-    let script = spec.out_dir.join("task_embeddings.py");
-    std::fs::write(&script, include_str!("../python/task_embeddings.py")).map_err(|e| e.to_string())?;
-    let job = spec.out_dir.join("job.json");
-    let params = serde_json::json!({
-        "tool": "embeddings",
-        "params": {"source": "tessera", "years": spec.years, "bounds": spec.bounds, "res": spec.res},
-        "output_dir": spec.out_dir,
-    });
-    std::fs::write(&job, params.to_string()).map_err(|e| e.to_string())?;
-    progress(0.0, "looking for a Python with Zeit and geotessera");
-    let python = match &spec.python {
-        Some(p) => p.clone(),
-        None => tessera_python().ok_or_else(|| {
-            "TESSERA is read by Zeit in Python, and no Python here imports zeit and geotessera (JANUS_PYTHON, \
-             `python` and `py` on the PATH and the conda / miniforge installations were tried). Install them in a \
-             Python 3.12 or newer (pip install zeit-cdts geotessera) and, if it is not found, name it with \
-             JANUS_PYTHON. AlphaEarth needs no Python."
-                .to_string()
-        })?,
-    };
-    progress(0.0, "starting Zeit (TESSERA is read by Zeit in Python)");
-    let log = File::create(spec.out_dir.join("task_embeddings.log")).map_err(|e| e.to_string())?;
-    let mut child = std::process::Command::new(&python)
-        .arg(&script)
-        .arg(&job)
-        .stdout(std::process::Stdio::piped())
-        .stderr(log)
-        .spawn()
-        .map_err(|e| format!("TESSERA needs a Python with Zeit (JANUS_PYTHON names one): {python}: {e}"))?;
-    let stdout = child.stdout.take().unwrap();
-    let child = Mutex::new(child);
-    let done = AtomicBool::new(false);
-    let mut result = None;
-    let mut error = None;
-    std::thread::scope(|sc| {
-        // cancelling kills Zeit even while it says nothing (a large read)
-        sc.spawn(|| {
-            while !done.load(Ordering::Relaxed) {
-                if cancel.load(Ordering::Relaxed) {
-                    let _ = child.lock().unwrap().kill();
-                    return;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-        });
-        for line in std::io::BufReader::new(stdout).lines() {
-            let Ok(line) = line else { break };
-            let Ok(msg) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
-            if let Some(p) = msg["progress"].as_f64() {
-                progress(p, msg["message"].as_str().unwrap_or(""));
-            } else if let Some(r) = msg.get("result") {
-                result = Some(r.clone());
-            } else if let Some(e) = msg["error"].as_str() {
-                error = Some(e.to_string());
-            }
-        }
-        done.store(true, Ordering::Relaxed);
-    });
-    let status = child.into_inner().unwrap().wait().map_err(|e| e.to_string())?;
-    if cancel.load(Ordering::Relaxed) {
-        return Err("cancelled".into());
-    }
-    if let Some(e) = error {
-        return Err(e);
-    }
-    let r = result.ok_or_else(|| {
-        format!("Zeit stopped (exit code {:?}); see task_embeddings.log in the folder", status.code())
-    })?;
-    Ok(r["outputs"].as_array().into_iter().flatten().filter_map(|o| o["path"].as_str()).map(PathBuf::from).collect())
 }
 
 #[cfg(test)]
@@ -836,7 +700,6 @@ mod tests {
             res: None,
             out_dir: out.clone(),
             cache_dir: PathBuf::from(home).join(".cache/zeit/embeddings"),
-            python: None,
         };
         let t = Instant::now();
         let files = download(&spec, &|f, m| println!("{:3.0}% {m}", f * 100.0), &AtomicBool::new(false)).unwrap();
@@ -859,32 +722,52 @@ mod tests {
         let _ = std::fs::remove_dir_all(&out);
     }
 
-    /// TESSERA through Zeit in Python, a small area of one year: `cargo test -p janus-embed --release -- --ignored
-    /// tessera_through_python` (network; a Python with Zeit and geotessera: JANUS_PYTHON or `python`).
+    /// TESSERA read natively against Zeit's files of the same region (task_embeddings.py through Zeit, in the folder
+    /// JANUS_TESSERA_REF with its job.json), value by value: `cargo test -p janus-embed --release -- --ignored
+    /// tessera_against_zeit` (network).
     #[test]
     #[ignore]
-    fn tessera_through_python() {
-        let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).unwrap();
+    fn tessera_against_zeit() {
+        let Some(dir) = std::env::var_os("JANUS_TESSERA_REF").map(PathBuf::from) else { return };
+        let job: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("job.json")).unwrap()).unwrap();
+        let p = &job["params"];
+        let b: Vec<f64> = p["bounds"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        let years: Vec<i32> = p["years"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap() as i32).collect();
         let out = std::env::temp_dir().join("janus-embed-tessera-test");
         let _ = std::fs::remove_dir_all(&out);
-        std::fs::create_dir_all(&out).unwrap();
         let spec = DownloadSpec {
             source: Source::Tessera,
-            years: vec![2024],
-            bounds: [-43.0461, -22.9478, -43.0340, -22.9390],
-            res: None,
+            years,
+            bounds: [b[0], b[1], b[2], b[3]],
+            res: p["res"].as_f64(),
             out_dir: out.clone(),
-            cache_dir: PathBuf::from(home).join(".cache/zeit/embeddings"),
-            python: None,
+            cache_dir: std::env::temp_dir(),
         };
         let t = Instant::now();
         let files = download(&spec, &|f, m| println!("{:3.0}% {m}", f * 100.0), &AtomicBool::new(false)).unwrap();
         println!("{} file(s) in {:.1} s", files.len(), t.elapsed().as_secs_f64());
-        assert_eq!(files.len(), 1);
-        let ds = Dataset::open(&files[0]).unwrap();
-        let (w, h) = ds.raster_size();
-        println!("{:?}: {w} x {h} x {}", files[0].file_name().unwrap(), ds.raster_count());
-        assert_eq!(ds.raster_count(), 128);
+        if let Some(keep) = std::env::var_os("JANUS_TESSERA_KEEP") {
+            for f in &files {
+                let _ = std::fs::copy(f, PathBuf::from(&keep).join(f.file_name().unwrap()));
+            }
+        }
+        for f in &files {
+            let name = f.file_name().unwrap();
+            let (a, b) = (Dataset::open(f).unwrap(), Dataset::open(dir.join(name)).unwrap());
+            assert_eq!(a.raster_size(), b.raster_size(), "{name:?}");
+            assert_eq!(a.geo_transform().unwrap(), b.geo_transform().unwrap());
+            assert_eq!(a.spatial_ref().unwrap().auth_code().ok(), b.spatial_ref().unwrap().auth_code().ok());
+            let (w, h) = a.raster_size();
+            let mut differ = 0;
+            for band in 1..=a.raster_count() {
+                let ra = a.rasterband(band).unwrap().read_as::<i16>((0, 0), (w, h), (w, h), None).unwrap();
+                let rb = b.rasterband(band).unwrap().read_as::<i16>((0, 0), (w, h), (w, h), None).unwrap();
+                differ += ra.data().iter().zip(rb.data()).filter(|(x, y)| x != y).count();
+            }
+            println!("{name:?}: {w} x {h} x {}, {differ} values differ", a.raster_count());
+            assert_eq!(differ, 0);
+        }
         let _ = std::fs::remove_dir_all(&out);
     }
 

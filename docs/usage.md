@@ -481,7 +481,7 @@ signal), as Zeit itself refuses them.
 source, the years and the cell size (10 m native; coarser cells are the mean of
 the 10 m vectors), the visible area or the ROI, and **Add embeddings**. The size
 is estimated first (Int16, D values per pixel and year) and very large areas are
-refused. Zeit downloads in the background (a bar on the map tells the year and
+refused. Janus downloads them itself, no Python needed, in the background (a bar on the map tells the year and
 the time left; **Tools → Tasks** has its log) and writes one GeoTIFF per year
 under `%LOCALAPPDATA%\Janus\results\embeddings`; the layer is added on top,
 reprojected if the series is in another CRS, while the series you were studying

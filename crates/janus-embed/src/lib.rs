@@ -13,6 +13,7 @@ pub mod export;
 pub mod selftest;
 pub mod simd;
 pub mod store;
+mod tessera;
 pub mod views;
 
 use janus_cube::CubeInfo;
