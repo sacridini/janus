@@ -497,7 +497,7 @@ impl State {
         let m = &mut self.map;
         let c = if m.canvas[0] > 0.0 { m.canvas } else { [800.0, 600.0] };
         // screen points per active pixel
-        let mut s = (m.scale / g.fx).max(min_scale.min(64.0 * g.ow / g.w / g.fx));
+        let mut s = (m.scale / g.fx).max(min_scale.min(crate::map::MAX_ZOOM * g.ow / g.w / g.fx));
         let b = v.boxes[i];
         let mid = if v.data.features[i].kind != Kind::Point && b[0] <= b[2] {
             let fit = 0.8
@@ -526,7 +526,7 @@ impl State {
         }
         let s = (0.9
             * (f64::from(m.canvas[0]) / (b[2] - b[0]).max(1.0)).min(f64::from(m.canvas[1]) / (b[3] - b[1]).max(1.0)))
-        .clamp(0.01, 64.0);
+        .clamp(0.01, crate::map::MAX_ZOOM);
         m.set_view([(b[0] + b[2]) * 0.5 / g.fx, (b[1] + b[3]) * 0.5 / g.fy], s * g.fx);
         m.touched = true;
     }

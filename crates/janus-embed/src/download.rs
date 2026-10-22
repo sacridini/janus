@@ -657,6 +657,61 @@ impl GeoTiff {
     }
 }
 
+/// The Python that runs TESSERA's download: the first that imports zeit and geotessera of JANUS_PYTHON, `python`
+/// and `py -3` on the PATH (the PATH's first `python` is often another installation, e.g. python.org's), and the
+/// conda / miniforge installations in the home folder with their environments. Looked for once.
+fn tessera_python() -> Option<String> {
+    static FOUND: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    FOUND
+        .get_or_init(|| {
+            let mut candidates: Vec<String> = std::env::var("JANUS_PYTHON").ok().into_iter().collect();
+            candidates.extend(["python".to_string(), "python3".to_string()]);
+            let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from);
+            let exe = if cfg!(windows) { "python.exe" } else { "bin/python" };
+            for base in ["miniforge3", "mambaforge", "miniconda3", "anaconda3"] {
+                let Some(root) = home.as_ref().map(|h| h.join(base)) else { continue };
+                candidates.push(root.join(exe).to_string_lossy().into_owned());
+                if let Ok(envs) = std::fs::read_dir(root.join("envs")) {
+                    for e in envs.flatten() {
+                        candidates.push(e.path().join(exe).to_string_lossy().into_owned());
+                    }
+                }
+            }
+            let imports = |cmd: &str, pre: &[&str]| {
+                let mut c = std::process::Command::new(cmd);
+                c.args(pre).args(["-c", "import zeit, geotessera"]);
+                c.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+                }
+                c.status().is_ok_and(|s| s.success())
+            };
+            for c in &candidates {
+                if (c.contains('/') || c.contains('\\')) && !Path::new(c).exists() {
+                    continue;
+                }
+                if imports(c, &[]) {
+                    return Some(c.clone());
+                }
+            }
+            // the Windows launcher: the interpreter it picks, by its path
+            if cfg!(windows) && imports("py", &["-3"]) {
+                let out =
+                    std::process::Command::new("py").args(["-3", "-c", "import sys; print(sys.executable)"]).output();
+                if let Ok(o) = out {
+                    let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    if !p.is_empty() {
+                        return Some(p);
+                    }
+                }
+            }
+            None
+        })
+        .clone()
+}
+
 /// TESSERA: Zeit in an external Python (crates/janus-embed/python/task_embeddings.py), its progress read from its
 /// output.
 fn tessera(
@@ -674,7 +729,17 @@ fn tessera(
         "output_dir": spec.out_dir,
     });
     std::fs::write(&job, params.to_string()).map_err(|e| e.to_string())?;
-    let python = spec.python.clone().or_else(|| std::env::var("JANUS_PYTHON").ok()).unwrap_or_else(|| "python".into());
+    progress(0.0, "looking for a Python with Zeit and geotessera");
+    let python = match &spec.python {
+        Some(p) => p.clone(),
+        None => tessera_python().ok_or_else(|| {
+            "TESSERA is read by Zeit in Python, and no Python here imports zeit and geotessera (JANUS_PYTHON, \
+             `python` and `py` on the PATH and the conda / miniforge installations were tried). Install them in a \
+             Python 3.12 or newer (pip install zeit-cdts geotessera) and, if it is not found, name it with \
+             JANUS_PYTHON. AlphaEarth needs no Python."
+                .to_string()
+        })?,
+    };
     progress(0.0, "starting Zeit (TESSERA is read by Zeit in Python)");
     let log = File::create(spec.out_dir.join("task_embeddings.log")).map_err(|e| e.to_string())?;
     let mut child = std::process::Command::new(&python)

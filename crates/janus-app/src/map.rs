@@ -12,6 +12,10 @@ use crate::display::range_label;
 use crate::theme;
 use janus_cube::multidim::format_g;
 
+/// The closest zoom: screen points per source pixel (the C++'s 64; four times that, to look at a pixel's
+/// neighbours closely).
+pub(crate) const MAX_ZOOM: f64 = 256.0;
+
 /// The C++'s wheel zoom: an exponential approach with this time constant (s).
 const ZOOM_TAU: f64 = 0.06;
 
@@ -121,8 +125,8 @@ impl State {
             m.anchor = None;
             m.fit_pending = false;
         }
-        // up to 64 screen points per source pixel; down to the whole image
-        let max_scale = 64.0 * ow / w;
+        // up to MAX_ZOOM screen points per source pixel; down to the whole image
+        let max_scale = MAX_ZOOM * ow / w;
         if resp.hovered() {
             // the wheel's own steps (in points), smoothed here as the C++ smooths them
             // macOS: a trackpad's two fingers (precise deltas, in points) pan, as the C++'s gestures do; a pinch
