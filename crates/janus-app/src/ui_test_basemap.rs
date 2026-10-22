@@ -509,7 +509,7 @@ impl State {
                 self.map.touched = false;
                 self.map.fit();
                 next(st, "basemap None: nothing made, nothing drawn");
-                st.stage = 6;
+                st.stage = 57; // the full-resolution cache, then 6
             }
             _ => {}
         }

@@ -14,6 +14,8 @@ use janus_gpu::Mode;
 mod animation;
 #[path = "ui_test_basemap.rs"]
 mod basemap;
+#[path = "ui_test_fullres.rs"]
+mod fullres;
 #[path = "ui_test_misc.rs"]
 mod misc;
 #[path = "ui_test_validation.rs"]
@@ -58,6 +60,8 @@ pub struct UiTest {
     anim: animation::AnimTest,
     /// stage 70: the font size before the test's; 81: the run's folder, the layers and the active one before it
     font: i32,
+    /// stage 58: the full-resolution cache's series read before the pin
+    hits: usize,
 
     run: Option<(std::path::PathBuf, usize, usize)>,
     /// the exit code, once decided (the window takes another frame to close)
@@ -721,6 +725,54 @@ impl State {
                 self.clear_roi();
                 self.clear_pins();
                 next(st, "Copy Python of the ROI: its mean");
+                // a multiband tool (the C++'s stages 153-154): CCDC on Zeit's Landsat series, when it is there
+                let dir = std::path::Path::new(self.opts.inputs.first()?).parent().map(|d| d.join("landsat"));
+                let Some(dir) = dir.filter(|d| d.is_dir()) else {
+                    return self.test_open_d(st, &input, t0, ctx);
+                };
+                self.open_inputs(vec![dir.to_string_lossy().into_owned()], false, ctx);
+            }
+            32 => {
+                let s = self.session.as_ref()?;
+                if self.opening.is_some() || s.info.bands_per_date < 6 || !s.s.overview.complete() {
+                    return None;
+                }
+                let (w, h) = (s.info.width, s.info.height);
+                self.clear_pins();
+                self.add_pin(w / 2, h / 2);
+                let Some(ccdc) = janus_zeit::manifest().tool("ccdc") else {
+                    return fail("CCDC should be among the tools");
+                };
+                *self.zeit.params(ccdc) = ccdc.params.iter().map(|q| (q.id.clone(), q.default.clone())).collect();
+                self.zeit.pixel_tool = Some(ccdc.id.clone());
+                self.zeit.version += 1;
+                next(st, "the Landsat series (six bands and Fmask per date), CCDC on a pin");
+            }
+            33 => {
+                let pin = self.series.pins.last()?.clone();
+                let id = self.session.as_ref()?.info.id;
+                if !pin.exact
+                    || !self.zeit.fit_of(id, crate::zeit::Which::Pin(pin.id), pin.x, pin.y).is_some_and(|r| r.is_ok())
+                {
+                    return None;
+                }
+                let code = self.python_snippet(crate::python::Which::Pin(pin.id))?;
+                let check = format!("{code}\nassert int(result1[\"n_segments\"].values.ravel()[0]) >= 1\n");
+                let v = match run_python(&check) {
+                    Ok(v) => v,
+                    Err(e) => return fail(&format!("the CCDC code should run and fit segments: {e}")),
+                };
+                if same(&pin.values, &v, 1e-6).is_none() {
+                    return fail("the CCDC code should read the pin's series");
+                }
+                if !code.contains("zeit.ccdc(bands_cube, qa=fmask") {
+                    return fail("the code should call zeit.ccdc on the bands and their Fmask codes");
+                }
+                println!("    CCDC: the bands by role in reflectance x 10000 and the Fmask codes; zeit.ccdc ran");
+                self.zeit.pixel_tool = None;
+                self.zeit.version += 1;
+                self.clear_pins();
+                next(st, "the CCDC code: its bands, Fmask codes and call");
                 return self.test_open_d(st, &input, t0, ctx);
             }
             14 | 17 => {
@@ -807,6 +859,7 @@ impl State {
             110..=115 => return self.test_roi_polygon(st, &input, t0, ctx),
             120..=125 => return self.test_vectors(st, t0, ctx),
             50..=56 => return self.test_basemap(st, t0, ctx),
+            57..=59 => return self.test_full_res(st, t0),
             70..=78 | 81 => return self.test_misc(st, t0, ctx),
             130..=137 | 79 | 80 => return self.test_animation(st, &input, t0, ctx),
             170..=179 => return self.test_validation(st, &input, t0, ctx),
