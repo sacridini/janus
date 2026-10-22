@@ -150,63 +150,225 @@ impl State {
             });
     }
 
+    /// The Statistics panel (app.cpp, uiStats): a column per series on the chart (the cursor, the pins, the ROI's
+    /// mean, and the other layers' with "All visible layers"), a row per statistic; a categorical series' classes.
     pub fn statistics_ui(&mut self, ui: &mut Ui) {
         let Some(s) = &self.session else { return };
-        let at = self.hover.or(self.pins.last().map(|p| p.at));
-        let Some(at) = at else {
-            ui.weak("Hover the map for the pixel's statistics.");
+        let info = s.info.clone();
+        struct Col<'a> {
+            name: String,
+            st: &'a janus_cube::stats::SeriesStats,
+            color: Color32,
+            /// a pin's id, to remove it
+            pin: Option<u32>,
+            roi: bool,
+            /// whose dates arg_min / arg_max refer to (None: the active layer)
+            cube: Option<&'a janus_cube::CubeInfo>,
+            values: Option<&'a [f32]>,
+            classes: Option<&'a crate::classes::LayerClasses>,
+            t: usize,
+        }
+        let sr = &self.series;
+        let active_classes = self.classes.on().then_some(&self.classes);
+        let mut cols: Vec<Col> = Vec::new();
+        let t = self.display.t;
+        if let Some(h) = &sr.hover {
+            let name = if h.exact { "Cursor" } else { "Cursor*" }.to_string();
+            cols.push(Col {
+                name,
+                st: &h.stats,
+                color: h.color,
+                pin: None,
+                roi: false,
+                cube: None,
+                values: Some(&h.values),
+                classes: active_classes,
+                t,
+            });
+        }
+        for p in &sr.pins {
+            let name = format!("Pin {}{}", p.id, if p.exact { "" } else { "*" });
+            cols.push(Col {
+                name,
+                st: &p.stats,
+                color: p.color,
+                pin: Some(p.id),
+                roi: false,
+                cube: None,
+                values: Some(&p.values),
+                classes: active_classes,
+                t,
+            });
+        }
+        if !sr.roi.mean.is_empty() {
+            let color = crate::series::ROI_COLOR;
+            cols.push(Col {
+                name: "ROI mean".into(),
+                st: &sr.roi.stats,
+                color,
+                pin: None,
+                roi: true,
+                cube: None,
+                values: None,
+                classes: None,
+                t,
+            });
+        }
+        if sr.chart_layers == 1 {
+            for (i, l) in self.layers.iter().enumerate() {
+                let Some(ls) = l.session.as_ref().filter(|_| i != self.active && l.visible) else { continue };
+                let lc = l.classes.on().then_some(&l.classes);
+                if let Some(h) = &l.series.hover {
+                    let name = format!("Cursor [{}]{}", l.name, if h.exact { "" } else { "*" });
+                    cols.push(Col {
+                        name,
+                        st: &h.stats,
+                        color: h.color,
+                        pin: None,
+                        roi: false,
+                        cube: Some(&ls.info),
+                        values: Some(&h.values),
+                        classes: lc,
+                        t: l.disp.t,
+                    });
+                }
+                for p in &l.series.pins {
+                    let name = format!("Pin {} [{}]{}", p.id, l.name, if p.exact { "" } else { "*" });
+                    cols.push(Col {
+                        name,
+                        st: &p.stats,
+                        color: p.color,
+                        pin: None,
+                        roi: false,
+                        cube: Some(&ls.info),
+                        values: Some(&p.values),
+                        classes: lc,
+                        t: l.disp.t,
+                    });
+                }
+                if !l.series.roi.mean.is_empty() && lc.is_none() {
+                    let name = format!("ROI mean [{}]{}", l.name, if l.series.roi.complete() { "" } else { "*" });
+                    let color = crate::series::ROI_COLOR;
+                    cols.push(Col {
+                        name,
+                        st: &l.series.roi.stats,
+                        color,
+                        pin: None,
+                        roi: false,
+                        cube: Some(&ls.info),
+                        values: Some(&l.series.roi.mean),
+                        classes: None,
+                        t: l.disp.t,
+                    });
+                }
+            }
+        }
+        if cols.is_empty() {
+            ui.weak("Hover over the map, click to drop pins\nor Shift+drag for an ROI.");
             return;
+        }
+        let unit = if info.time_is_date { "/yr" } else { "/step" };
+        let num = |v: f64| janus_cube::multidim::format_g(v, 5);
+        let date = |cube: &janus_cube::CubeInfo, i: Option<usize>| {
+            i.and_then(|i| cube.layers.get(i)).map_or("-".to_string(), |l| l.label.clone())
         };
-        let ov = &s.s.overview;
-        let p = at.ov.1 * ov.w + at.ov.0;
-        ui.weak(format!("pixel ({}, {}), overview ({}, {})", at.src.0, at.src.1, at.ov.0, at.ov.1));
-        if self.classes.on() {
-            // a categorical series: its classes, not statistics of values
-            let values = s.exact(at.src.0, at.src.1).map_or_else(|| ov.series(at.ov.0, at.ov.1), |e| e.values);
-            Grid::new("class summary").num_columns(2).striped(true).show(ui, |ui| {
-                for (k, v) in self.classes.summary(&s.info, &values, self.display.t) {
-                    ui.weak(k);
-                    ui.label(v);
-                    ui.end_row();
+        type Row = (
+            &'static str,
+            fn(
+                &janus_cube::stats::SeriesStats,
+                &dyn Fn(Option<usize>) -> String,
+                &dyn Fn(f64) -> String,
+                &str,
+            ) -> String,
+        );
+        let rows: [Row; 12] = [
+            ("Valid n", |s, _, _, _| s.n.to_string()),
+            ("Mean", |s, _, num, _| num(s.mean)),
+            ("Median", |s, _, num, _| num(s.median)),
+            ("Std. deviation", |s, _, num, _| num(s.std)),
+            ("CV", |s, _, num, _| num(s.cv)),
+            ("Minimum", |s, date, num, _| format!("{} ({})", num(s.min), date(s.arg_min))),
+            ("Maximum", |s, date, num, _| format!("{} ({})", num(s.max), date(s.arg_max))),
+            ("Amplitude", |s, _, num, _| num(s.max - s.min)),
+            ("OLS trend", |s, _, num, unit| format!("{}{unit}", num(s.ols_slope))),
+            ("R\u{b2} (OLS)", |s, _, num, _| num(s.r2)),
+            ("Sen's slope", |s, _, num, unit| format!("{}{unit}", num(s.sen_slope))),
+            ("Largest drop", |s, date, num, _| match s.arg_drop {
+                Some(_) => format!("{} ({})", num(s.drop_mag), date(s.arg_drop)),
+                None if s.n >= 2 => "none".into(),
+                None => "-".into(),
+            }),
+        ];
+        let (mut remove_pin, mut remove_roi) = (None, false);
+        egui::ScrollArea::horizontal().show(ui, |ui| {
+            Grid::new("stats").striped(true).num_columns(1 + cols.len()).show(ui, |ui| {
+                ui.strong("Metric");
+                for c in &cols {
+                    ui.horizontal(|ui| {
+                        if (c.pin.is_some() || c.roi)
+                            && ui
+                                .small_button("x")
+                                .on_hover_text(if c.roi { "Remove the ROI" } else { "Remove this pin" })
+                                .clicked()
+                        {
+                            if c.roi {
+                                remove_roi = true;
+                            } else {
+                                remove_pin = c.pin;
+                            }
+                        }
+                        ui.colored_label(c.color, egui::RichText::new(&c.name).strong());
+                    });
+                }
+                ui.end_row();
+                if let Some(ac) = active_classes {
+                    // categorical: class summaries (majority, changes...) instead of means and trends
+                    let summaries: Vec<Vec<(String, String)>> = cols
+                        .iter()
+                        .map(|c| match (c.classes, c.values) {
+                            (Some(cl), Some(v)) => cl.summary(c.cube.unwrap_or(&info), v, c.t),
+                            _ => Vec::new(),
+                        })
+                        .collect();
+                    let labels = ac.summary(&info, &[], 0);
+                    for (r, (label, _)) in labels.iter().enumerate() {
+                        ui.weak(label);
+                        for sm in &summaries {
+                            ui.label(sm.get(r).map_or("-", |x| x.1.as_str()));
+                        }
+                        ui.end_row();
+                    }
+                } else {
+                    for (label, f) in rows {
+                        ui.weak(label);
+                        for c in &cols {
+                            let cube = c.cube.unwrap_or(&info);
+                            ui.label(f(c.st, &|i| date(cube, i), &num, unit));
+                        }
+                        ui.end_row();
+                    }
+                    if self.display.mode == janus_gpu::Mode::Diff {
+                        // what the map shows, from each series (active layer)
+                        let r = self.display.diff_ref.min(info.t() - 1);
+                        ui.weak(format!("Difference vs {}", info.layers[r].label));
+                        for c in &cols {
+                            let v = c.values.or(c.roi.then_some(sr.roi.mean.as_slice()));
+                            let d = v
+                                .filter(|_| c.cube.is_none())
+                                .and_then(|v| Some(v.get(t)? - v.get(r)?))
+                                .filter(|d| !d.is_nan());
+                            ui.label(d.map_or("-".to_string(), |d| num(f64::from(d))));
+                        }
+                        ui.end_row();
+                    }
                 }
             });
-            return;
-        }
-        Grid::new("pixel stats").num_columns(2).striped(true).show(ui, |ui| {
-            let mut row = |k: &str, v: f32| {
-                ui.weak(k);
-                ui.label(if v.is_nan() { "-".to_string() } else { format!("{v:.4}") });
-                ui.end_row();
-            };
-            row("value at the date", ov.layer(self.display.t).map_or(f32::NAN, |l| l[p]));
-            if let Some(st) = &s.stats {
-                let (s0, s1) = (st.s0[p], st.s1[p]);
-                row("mean", s0[0]);
-                row("std. deviation", s0[1]);
-                row("trend (per year)", s0[2]);
-                row("observations", s0[3]);
-                row("minimum", s1[0]);
-                row("maximum", s1[1]);
-                row("trend R²", s1[2]);
-                row("largest drop", s1[3]);
-            }
         });
-        if let Some(st) = &s.stats {
-            let dt = st.s2[p];
-            if !dt.is_nan() {
-                ui.weak(format!("largest drop at {}", s.info.layers[dt as usize].label));
-            }
+        if let Some(id) = remove_pin {
+            self.remove_pin(id);
         }
-        if let Some(e) = s.exact(at.src.0, at.src.1).or_else(|| s.exact(at.src.0, at.src.1)) {
-            let valid: Vec<f32> = e.values.iter().copied().filter(|v| !v.is_nan()).collect();
-            let mean = valid.iter().sum::<f32>() / valid.len().max(1) as f32;
-            ui.separator();
-            ui.weak(format!(
-                "exact series: {} of {} dates, mean {mean:.4}, read in {:.1} ms",
-                valid.len(),
-                e.values.len(),
-                e.ms
-            ));
+        if remove_roi {
+            self.clear_roi();
         }
     }
 

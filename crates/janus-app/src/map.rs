@@ -39,18 +39,6 @@ type DrawKey = (Mode, [i32; 3], [u32; 2], usize, [u32; 4], usize, Option<usize>)
 /// The map's background where there is no data (the C++'s, app.cpp renderMap).
 pub(crate) const MAP_BACKGROUND: [f32; 4] = [0.10, 0.10, 0.115, 1.0];
 
-/// A pixel under the cursor or pinned: of the overview and of the source.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PixelAt {
-    pub ov: (usize, usize),
-    pub src: (usize, usize),
-}
-
-pub struct Pin {
-    pub at: PixelAt,
-    pub color: Color32,
-}
-
 impl MapView {
     pub fn fit(&mut self) {
         self.fit_pending = true;
@@ -94,8 +82,8 @@ impl State {
             m.anchor = None;
             m.fit_pending = false;
         }
-        // up to 32 screen points per source pixel; down to the whole image
-        let max_scale = 32.0 * ow / w;
+        // up to 64 screen points per source pixel; down to the whole image
+        let max_scale = 64.0 * ow / w;
         let image_at = |m: &MapView, p: Pos2| -> [f64; 2] {
             [
                 m.center[0] + f64::from(p.x - rect.center().x) / m.scale,
@@ -153,59 +141,94 @@ impl State {
                 m.center = [ow / 2.0, oh / 2.0];
             }
         }
-        if resp.dragged_by(egui::PointerButton::Primary) || resp.dragged_by(egui::PointerButton::Middle) {
+        // the source pixel under the pointer (the active layer's)
+        let (fx, fy) = (w / ow, h / oh);
+        let src_at = |m: &MapView, p: Pos2| -> [f64; 2] {
+            let [ix, iy] = image_at(m, p);
+            [ix * fx, iy * fy]
+        };
+        let shift = ui.input(|i| i.modifiers.shift);
+        // Shift + drag: an ROI rectangle (no pan, no pin)
+        if resp.drag_started_by(egui::PointerButton::Primary)
+            && shift
+            && let Some(p) = resp.interact_pointer_pos()
+        {
+            let a = src_at(m, p);
+            self.series.roi_drag = Some((a, a));
+        }
+        if let Some((a, _)) = self.series.roi_drag {
+            if let Some(p) = resp.interact_pointer_pos() {
+                self.series.roi_drag = Some((a, src_at(m, p)));
+            }
+            if resp.drag_stopped() || !resp.is_pointer_button_down_on() {
+                let (a, b) = self.series.roi_drag.take().unwrap();
+                if (b[0] - a[0]).abs() >= 1.0 && (b[1] - a[1]).abs() >= 1.0 {
+                    let r = [
+                        a[0].min(b[0]).floor() as i64,
+                        a[1].min(b[1]).floor() as i64,
+                        a[0].max(b[0]).ceil() as i64,
+                        a[1].max(b[1]).ceil() as i64,
+                    ];
+                    self.set_roi_rect(r);
+                }
+            }
+            ui.ctx().request_repaint();
+        } else if resp.dragged_by(egui::PointerButton::Primary) || resp.dragged_by(egui::PointerButton::Middle) {
             let d = resp.drag_delta();
             m.touched |= d != egui::Vec2::ZERO;
             m.center[0] -= f64::from(d.x) / m.scale;
             m.center[1] -= f64::from(d.y) / m.scale;
             m.anchor = None;
         }
+        let m = &mut self.map;
         // the image's centre stays on it
         m.center = [m.center[0].clamp(0.0, ow), m.center[1].clamp(0.0, oh)];
 
         // the pixel under the cursor
-        let pixel_at = |m: &MapView, p: Pos2| -> Option<PixelAt> {
-            let [ix, iy] = image_at(m, p);
-            (ix >= 0.0 && iy >= 0.0 && ix < ow && iy < oh).then(|| PixelAt {
-                ov: (ix as usize, iy as usize),
-                src: (((ix * w / ow) as usize).min(w as usize - 1), ((iy * h / oh) as usize).min(h as usize - 1)),
-            })
-        };
-        let hover = resp.hover_pos().and_then(|p| pixel_at(m, p));
-        if hover != self.hover {
-            self.hover = hover;
-            if let Some(hv) = hover {
-                s.request_hover(hv.src.0, hv.src.1);
-            }
-        }
-        if resp.clicked()
-            && let Some(hv) = hover
-        {
-            let color = theme::pin_color(self.pins.len());
-            self.pins.push(Pin { at: hv, color });
-            s.request_pin(hv.src.0, hv.src.1);
-        }
-        let m = &mut self.map;
+        let pointer = resp.hover_pos().map(|p| src_at(m, p));
+        let inside =
+            pointer.filter(|[x, y]| *x >= 0.0 && *y >= 0.0 && *x < w && *y < h).map(|[x, y]| (x as usize, y as usize));
         let screen_of = |m: &MapView, ix: f64, iy: f64| -> Pos2 {
             Pos2::new(
                 rect.center().x + ((ix - m.center[0]) * m.scale) as f32,
                 rect.center().y + ((iy - m.center[1]) * m.scale) as f32,
             )
         };
+        // a source pixel's point on the screen
+        let src_screen = |m: &MapView, x: f64, y: f64| screen_of(m, x / fx, y / fy);
+        let m_snapshot = (m.center, m.scale);
+        if inside.is_some() && !self.opts.scripted() {
+            self.set_hover(inside);
+        }
+        // a click drops a pin; the right button removes the one under the cursor; Delete the last one
+        if resp.clicked()
+            && !shift
+            && let Some((x, y)) = inside
+        {
+            self.add_pin(x, y);
+        }
         if resp.secondary_clicked()
             && let Some(p) = resp.interact_pointer_pos()
         {
-            // the nearest pin within 8 points
-            let near = self.pins.iter().enumerate().min_by(|a, b| {
-                let d = |pin: &Pin| screen_of(m, pin.at.ov.0 as f64 + 0.5, pin.at.ov.1 as f64 + 0.5).distance(p);
-                d(a.1).total_cmp(&d(b.1))
-            });
-            if let Some((i, pin)) = near
-                && screen_of(m, pin.at.ov.0 as f64 + 0.5, pin.at.ov.1 as f64 + 0.5).distance(p) < 8.0
-            {
-                self.pins.remove(i);
+            let mv = MapView { center: m_snapshot.0, scale: m_snapshot.1, ..Default::default() };
+            let near = self
+                .series
+                .pins
+                .iter()
+                .map(|pin| (pin.id, src_screen(&mv, pin.x as f64 + 0.5, pin.y as f64 + 0.5).distance(p)))
+                .filter(|(_, d)| *d < 12.0)
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            if let Some((id, _)) = near {
+                self.remove_pin(id);
             }
         }
+        if resp.hovered()
+            && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
+            && let Some(id) = self.series.pins.last().map(|p| p.id)
+        {
+            self.remove_pin(id);
+        }
+        let m = &mut self.map;
 
         // the cube drawn into the panel's target, at the screen's pixels, the detail tiles over it
         let ppp = ui.ctx().pixels_per_point();
@@ -316,31 +339,69 @@ impl State {
             painter.image(tex, rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         }
 
-        // the cursor's source pixel when large enough to see, and the pins
+        // the outline of the pixel under the cursor (when large enough), the pins, the ROI
         let src_scale = m.scale * ow / w;
-        if let Some(hv) = self.hover
+        let at = |x: f64, y: f64| screen_of(m, x / fx, y / fy);
+        if let Some((x, y)) = inside
             && src_scale >= 6.0
         {
-            let a = screen_of(m, hv.src.0 as f64 * ow / w, hv.src.1 as f64 * oh / h);
-            let b = screen_of(m, (hv.src.0 + 1) as f64 * ow / w, (hv.src.1 + 1) as f64 * oh / h);
-            painter.rect_stroke(
-                Rect::from_min_max(a, b),
-                0.0,
-                Stroke::new(1.0, theme::cursor_series()),
-                egui::StrokeKind::Outside,
-            );
+            let r = Rect::from_min_max(at(x as f64, y as f64), at(x as f64 + 1.0, y as f64 + 1.0));
+            painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_white_alpha(200)), egui::StrokeKind::Middle);
         }
-        for (i, pin) in self.pins.iter().enumerate() {
-            let c = screen_of(m, (pin.at.src.0 as f64 + 0.5) * ow / w, (pin.at.src.1 as f64 + 0.5) * oh / h);
-            painter.circle_stroke(c, 5.0, Stroke::new(3.0, Color32::BLACK));
-            painter.circle_stroke(c, 5.0, Stroke::new(1.5, pin.color));
-            painter.text(
-                c + vec2(7.0, -7.0),
-                Align2::LEFT_BOTTOM,
-                format!("{}", i + 1),
-                FontId::proportional(13.0),
-                pin.color,
+        for pin in &self.series.pins {
+            // a dark ring and a white one: visible over any colormap
+            let c = at(pin.x as f64 + 0.5, pin.y as f64 + 0.5);
+            painter.circle_stroke(c, 8.5, Stroke::new(3.0, Color32::from_black_alpha(220)));
+            painter.circle_filled(c, 6.5, pin.color);
+            painter.circle_stroke(c, 6.5, Stroke::new(1.5, Color32::WHITE));
+            let font = FontId::proportional(13.0);
+            let galley = painter.layout_no_wrap(pin.id.to_string(), font, pin.color);
+            let tp = c + vec2(11.0, -18.0);
+            painter.rect_filled(
+                Rect::from_min_max(tp - vec2(3.0, 1.0), tp + galley.size() + vec2(3.0, 1.0)),
+                3.0,
+                Color32::from_black_alpha(190),
             );
+            painter.galley(tp, galley, pin.color);
+        }
+        let roi = crate::series::ROI_COLOR;
+        let outline = |r: [usize; 4], thick: f32| {
+            let rr = Rect::from_min_max(at(r[0] as f64, r[1] as f64), at(r[2] as f64, r[3] as f64));
+            painter.rect_stroke(
+                rr,
+                0.0,
+                Stroke::new(thick + 2.0, Color32::from_black_alpha(160)),
+                egui::StrokeKind::Middle,
+            );
+            painter.rect_stroke(rr, 0.0, Stroke::new(thick, roi), egui::StrokeKind::Middle);
+        };
+        let sr = &self.series;
+        if let Some((a, b)) = sr.roi_drag {
+            let rr = Rect::from_two_pos(at(a[0], a[1]), at(b[0], b[1]));
+            painter.rect_stroke(rr, 0.0, Stroke::new(2.0, roi), egui::StrokeKind::Middle);
+        } else if let Some(r) = sr.roi_rect {
+            if sr.roi_pending {
+                outline(r, 1.0);
+                painter.text(
+                    at(r[0] as f64, r[1] as f64) + vec2(4.0, 2.0),
+                    Align2::LEFT_TOP,
+                    "ROI: waiting for the overview (HDD)",
+                    FontId::proportional(13.0),
+                    roi,
+                );
+            } else if let Some(d) = &sr.roi.data {
+                outline(r, 2.0);
+                let (done, n) = (d.done.load(std::sync::atomic::Ordering::Relaxed), d.per_t.len());
+                if done < n {
+                    painter.text(
+                        at(d.x0 as f64, d.y0 as f64) + vec2(4.0, 2.0),
+                        Align2::LEFT_TOP,
+                        format!("ROI {done}/{n}"),
+                        FontId::proportional(13.0),
+                        roi,
+                    );
+                }
+            }
         }
 
         // loading, the colour bar and the status at the bottom
@@ -382,12 +443,12 @@ impl State {
             Some(c) => c.title(&s.info, self.display.t),
             None => self.map_title(),
         };
-        if let Some(hv) = self.hover {
-            let v = ov.layer(self.display.t).map_or(f32::NAN, |l| l[hv.ov.1 * ov.w + hv.ov.0]);
-            status += &format!("   pixel ({}, {})  {v:.4}", hv.src.0, hv.src.1);
+        if let Some((x, y)) = inside {
+            let (ox, oy) = ((x * ov.w / s.info.width).min(ov.w - 1), (y * ov.h / s.info.height).min(ov.h - 1));
+            let v = ov.layer(self.display.t).map_or(f32::NAN, |l| l[oy * ov.w + ox]);
+            status += &format!("   pixel ({x}, {y})  {v:.4}");
             if let Some(c) = composite {
-                let (x, y) = (hv.src.0 as f64 + 0.5, hv.src.1 as f64 + 0.5);
-                status += &c.status_at(x, y, self.display.t, s.info.t());
+                status += &c.status_at(x as f64 + 0.5, y as f64 + 0.5, self.display.t, s.info.t());
             }
         }
         shadow_text(&painter, rect.left_bottom() + vec2(8.0, -8.0), Align2::LEFT_BOTTOM, &status);

@@ -12,7 +12,7 @@ use egui_dock::{DockArea, DockState, NodeIndex, SurfaceIndex, TabViewer};
 use janus_gpu::Gpu;
 
 use crate::display::Display;
-use crate::map::{MapView, Pin, PixelAt};
+use crate::map::MapView;
 use crate::session::{Opening, Session};
 use crate::theme;
 
@@ -77,8 +77,18 @@ pub struct Options {
     pub season: Option<(i32, i32)>,
     /// --layer: series added as layers once the first is open
     pub extra_layers: Vec<String>,
+    /// --pin, --roi: pins and an ROI once the series is open (screenshots)
+    pub pins: Vec<(usize, usize)>,
+    pub roi: Option<[i64; 4]>,
     /// --selftest-reproject B F: F reprojected on B's grid
     pub selftest_reproject: bool,
+}
+
+impl Options {
+    /// A tour or a self-test drives the map: the pointer over the window is not the cursor.
+    pub fn scripted(&self) -> bool {
+        self.profile_tour || self.dump_golden.is_some() || self.selftest_composite || self.selftest_reproject
+    }
 }
 
 /// The exit code of a tour or a test run in the window (main returns it once the window closed).
@@ -138,8 +148,9 @@ pub struct State {
     /// the active layer's classes, if categorical
     pub classes: crate::classes::LayerClasses,
     pub map: MapView,
-    pub hover: Option<PixelAt>,
-    pub pins: Vec<Pin>,
+    /// the cursor's series, the pins, the ROI
+    pub series: crate::series::SeriesState,
+    pub chart: crate::chart::ChartOptions,
     pub perf: Perf,
     pub(crate) frame: u64,
     last_play: Option<Instant>,
@@ -259,8 +270,8 @@ impl JanusApp {
                 display: Display::default(),
                 classes: Default::default(),
                 map: MapView::default(),
-                hover: None,
-                pins: Vec::new(),
+                series: Default::default(),
+                chart: Default::default(),
                 perf: Perf::default(),
                 frame: 0,
                 last_play: None,
@@ -334,6 +345,7 @@ impl State {
             classes: Default::default(),
             composite: None,
             place: Default::default(),
+            series: Default::default(),
         });
         let first = self.layers.len() == 1;
         if first {
@@ -346,6 +358,12 @@ impl State {
             // test runs: a season, a basemap
             if let Some((a, b)) = self.opts.season {
                 self.display.season = crate::season::Season { on: true, start: a, end: b };
+            }
+            for (x, y) in self.opts.pins.clone() {
+                self.add_pin(x, y);
+            }
+            if let Some(r) = self.opts.roi {
+                self.set_roi_rect(r);
             }
             if let Some(b) = &self.opts.basemap {
                 if b.contains("://") {
@@ -411,6 +429,7 @@ impl State {
         self.pump_season();
         self.pump_layers(ctx);
         self.sync_layer_times();
+        self.pump_series();
         let (Some(s), Some(gpu)) = (&mut self.session, &mut self.gpu) else { return };
         if s.pump(gpu, ctx) {
             self.map.dirty = true;

@@ -10,7 +10,6 @@ use janus_gpu::Mode;
 use janus_session::RoiData;
 
 use crate::app::State;
-use crate::map::PixelAt;
 
 /// Stage names, as the C++'s: index = stage.
 const STAGES: [&str; 11] = [
@@ -36,7 +35,6 @@ pub struct Tour {
     step: usize,
     step_frame: u32,
     roi: Option<Arc<RoiData>>,
-    hover: Option<(usize, usize)>,
     /// printed lines, also written to --tour-json if asked
     pub lines: Vec<(String, f64, u32)>,
 }
@@ -123,7 +121,7 @@ impl State {
                 // the cursor over 40 places, each until its exact series came (or 120 frames)
                 let s = self.session.as_ref()?;
                 let (w, h) = (s.info.width, s.info.height);
-                let exact = p.hover.is_some_and(|(x, y)| s.exact(x, y).is_some());
+                let exact = self.series.hover.as_ref().is_some_and(|h| h.exact);
                 if p.step == 0 || exact || p.frames - p.step_frame > 120 {
                     if p.step == 40 {
                         p.next();
@@ -133,11 +131,10 @@ impl State {
                     let u = (0.5 + p.step as f64 * 0.6180339887) % 1.0;
                     let v = (0.5 + p.step as f64 * 0.7548776662) % 1.0;
                     let (x, y) = ((u * (w - 1) as f64) as usize, (v * (h - 1) as f64) as usize);
-                    let ov = &s.s.overview;
-                    let at = PixelAt { ov: (x * ov.w / w, y * ov.h / h), src: (x, y) };
-                    self.hover = Some(at);
-                    s.request_hover(x, y);
-                    p.hover = Some((x, y));
+                    // as the map puts it: the overview's series at once, the exact one asked for at the next
+                    // frame (as if the mouse had rested)
+                    self.set_hover(Some((x, y)));
+                    self.rest_hover();
                     p.step_frame = p.frames;
                     p.step += 1;
                 }
@@ -145,7 +142,7 @@ impl State {
             4 => {
                 // every date, one per frame (an animation over the whole image)
                 if p.step == 0 {
-                    self.hover = None;
+                    self.series.hover = None;
                     self.map.fit();
                 }
                 let t = self.session.as_ref()?.info.t();

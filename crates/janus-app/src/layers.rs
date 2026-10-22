@@ -9,13 +9,11 @@ use egui::Ui;
 use janus_cube::CubeInfo;
 use janus_geo::Reprojection;
 use janus_gpu::{GpuTexture, Warp};
-use janus_session::ViewRect;
 
 use crate::app::State;
 use crate::classes::LayerClasses;
 use crate::composite::BandComposite;
 use crate::display::Display;
-use crate::map::{Pin, PixelAt};
 use crate::session::Session;
 use crate::theme;
 
@@ -108,40 +106,6 @@ impl Placement {
         };
         Some((q, Some(warp)))
     }
-
-    /// The map-space rectangle in the layer's own pixels (what to read of it) and the zoom there: target pixels per
-    /// layer pixel, at `px_per_map_px`.
-    pub fn view(&self, x0: f64, y0: f64, x1: f64, y1: f64, px_per_map_px: f64) -> ViewRect {
-        let Some((r, _)) = &self.reproj else {
-            return ViewRect {
-                x0: (x0 - self.ax) / self.bx,
-                y0: (y0 - self.ay) / self.by,
-                x1: (x1 - self.ax) / self.bx,
-                y1: (y1 - self.ay) / self.by,
-                scale: px_per_map_px * self.bx,
-            };
-        };
-        // reprojected: the bounding box of the view's edges in the layer's pixels
-        let p = r.polygon(x0, y0, x1, y1, 8);
-        let k = r.layer_px_per_map_px((x0 + x1) * 0.5, (y0 + y1) * 0.5);
-        if p.is_empty() || k.is_nan() || k <= 0.0 {
-            return ViewRect { x0: 0.0, y0: 0.0, x1: 0.0, y1: 0.0, scale: 0.0 }; // nothing to read
-        }
-        let mut v = ViewRect {
-            x0: f64::INFINITY,
-            y0: f64::INFINITY,
-            x1: f64::NEG_INFINITY,
-            y1: f64::NEG_INFINITY,
-            scale: px_per_map_px / k,
-        };
-        for q in p.as_chunks::<2>().0 {
-            v.x0 = v.x0.min(q[0]);
-            v.y0 = v.y0.min(q[1]);
-            v.x1 = v.x1.max(q[0]);
-            v.y1 = v.y1.max(q[1]);
-        }
-        v
-    }
 }
 
 /// An open series. The active one's session, display state, classes and composite are the State's (here None and
@@ -156,6 +120,8 @@ pub struct SeriesLayer {
     pub classes: LayerClasses,
     pub composite: Option<BandComposite>,
     pub place: Placement,
+    /// its series at the active layer's cursor, pins and ROI ("All visible layers")
+    pub series: crate::series::OtherSeries,
 }
 
 /// The map's options a layer does not keep (the C++'s App members): the season, the temporal composites' options,
@@ -183,9 +149,9 @@ pub fn matchable_axis(a: &CubeInfo, b: &CubeInfo) -> bool {
 }
 
 impl State {
-    /// The active layer's entry (its session is self.session).
-    pub fn active_layer(&self) -> Option<&SeriesLayer> {
-        self.layers.get(self.active)
+    /// Layer i's session (the active one's is the State's).
+    pub fn layer_session(&self, i: usize) -> Option<&Session> {
+        if i == self.active { self.session.as_ref() } else { self.layers.get(i)?.session.as_ref() }
     }
 
     /// A layer's name: its file or folder (a URL, a NetCDF / Zarr variable), numbered when another has it.
@@ -315,8 +281,7 @@ impl State {
                     keep_view = Some(([lx / nfx, ly / nfy], scale_src * nfx));
                 }
             }
-            pins_at =
-                self.pins.iter().map(|p| place.to_layer(p.at.src.0 as f64 + 0.5, p.at.src.1 as f64 + 0.5)).collect();
+            pins_at = self.series.pins.iter().map(|p| place.to_layer(p.x as f64 + 0.5, p.y as f64 + 0.5)).collect();
         }
         // the active layer's state into its entry, the new one's out of its own; the season, the composites'
         // options and playback are the map's, not a layer's
@@ -351,8 +316,8 @@ impl State {
         // pins: on the new grid (those outside it dropped), read again
         let Some(s) = &self.session else { return };
         let info = s.info.clone();
-        let ov = &s.s.overview;
-        let old_pins = std::mem::take(&mut self.pins);
+        let old_pins = std::mem::take(&mut self.series.pins);
+        let mut carried = Vec::new();
         for (k, p) in old_pins.into_iter().enumerate() {
             let (px, py) = match pins_at.get(k) {
                 Some(Some((lx, ly))) => {
@@ -362,17 +327,16 @@ impl State {
                     (*lx as usize, *ly as usize)
                 }
                 Some(None) => continue,
-                None => p.at.src, // unrelated grids: they keep their pixel
+                None => (p.x, p.y), // unrelated grids: they keep their pixel
             };
             if px >= info.width || py >= info.height {
                 continue;
             }
-            let at = PixelAt { ov: (px * ov.w / info.width, py * ov.h / info.height), src: (px, py) };
-            s.request_pin(px, py);
-            self.pins.push(Pin { at, color: p.color });
+            carried.push((p.id, p.color, px, py));
         }
-        // the cursor belongs to the previous grid
-        self.hover = None;
+        // the cursor and the ROI belong to the previous grid
+        self.rebuild_pins(carried);
+        self.clear_roi();
         self.sync_layer_times();
         self.map.dirty = true;
         let n = self.layers.len();
@@ -383,6 +347,17 @@ impl State {
             if n > 1 { format!("  [{n} layers]") } else { String::new() }
         );
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+    }
+
+    /// Layers i and j change places in the drawing order (the active one stays active).
+    pub fn swap_layers(&mut self, i: usize, j: usize) {
+        self.layers.swap(i, j);
+        if self.active == i {
+            self.active = j;
+        } else if self.active == j {
+            self.active = i;
+        }
+        self.map.dirty = true;
     }
 
     /// Closes layer i.
@@ -401,8 +376,7 @@ impl State {
         self.layers.remove(i);
         if self.layers.is_empty() {
             self.active = 0;
-            self.pins.clear();
-            self.hover = None;
+            self.series = Default::default();
             ctx.send_viewport_cmd(egui::ViewportCommand::Title("Janus".into()));
             return;
         }
@@ -428,8 +402,7 @@ impl State {
         self.display = Display::default();
         self.classes = Default::default();
         self.composite = None;
-        self.pins.clear();
-        self.hover = None;
+        self.series = Default::default();
         ctx.send_viewport_cmd(egui::ViewportCommand::Title("Janus".into()));
     }
 
@@ -603,22 +576,10 @@ impl State {
             });
         }
         if let Some(i) = up {
-            self.layers.swap(i, i + 1);
-            if self.active == i {
-                self.active = i + 1;
-            } else if self.active == i + 1 {
-                self.active = i;
-            }
-            self.map.dirty = true;
+            self.swap_layers(i, i + 1);
         }
         if let Some(i) = down {
-            self.layers.swap(i, i - 1);
-            if self.active == i {
-                self.active = i - 1;
-            } else if self.active == i - 1 {
-                self.active = i;
-            }
-            self.map.dirty = true;
+            self.swap_layers(i, i - 1);
         }
         if let Some(i) = activate {
             self.set_active(i, &ctx);
@@ -664,10 +625,7 @@ impl State {
                 if !complete(s) {
                     return None;
                 }
-                let ov = &s.s.overview;
-                let at = PixelAt { ov: (50 * ov.w / s.info.width, 100 * ov.h / s.info.height), src: (50, 100) };
-                s.request_pin(50, 100);
-                self.pins.push(Pin { at, color: theme::pin_color(0) });
+                self.add_pin(50, 100);
                 let f = self.opts.extra_layers.first()?.clone();
                 self.open_inputs(vec![f], true, ctx);
                 next(st, "B open, a pin at (50, 100); F (B reprojected to UTM 22S) added as a layer");
@@ -683,7 +641,7 @@ impl State {
                 if !self.layers[0].place.aligned || self.layers[0].place.reproj.is_none() {
                     return fail("F should be active, B reprojected on its grid");
                 }
-                let pin_f = self.pins.first().map(|p| p.at.src);
+                let pin_f = self.series.pins.first().map(|p| (p.x, p.y));
                 self.set_active(0, ctx);
                 let f = &self.layers[1];
                 let Some((r, Some(_))) = &f.place.reproj else {
@@ -715,7 +673,7 @@ impl State {
                     r.build_ms,
                     r.grid_error
                 );
-                let pin = self.pins.first().map(|p| p.at.src);
+                let pin = self.series.pins.first().map(|p| (p.x, p.y));
                 println!("    pin carried B (50, 100) -> F {pin_f:?} -> B {pin:?}");
                 if max_err > 0.01 || round_trip > 1e-6 {
                     return fail("the warp grid should be within 0.01 px of PROJ");
@@ -802,8 +760,73 @@ impl State {
                     return fail("F's overview should be drawn where PROJ puts it");
                 }
                 next(st, "F's overview through the warp grid where PROJ puts it");
+                // A (B + 0.5 over the same grid lines) added under them, B active again
+                let a = self.opts.extra_layers.get(1)?.clone();
+                self.open_inputs(vec![a], true, ctx);
+            }
+            3 => {
+                if self.opening.is_some() || self.layers.len() != 3 || !complete(self.layer_session(2)?) {
+                    return None;
+                }
+                self.swap_layers(2, 1); // A in the middle, F on top
+                self.swap_layers(1, 0); // A at the bottom
+                self.set_active(1, ctx); // B
+                // the cursor (the pin is there too) and an ROI, on every visible layer
+                self.set_chart_layers(1);
+                self.set_hover(Some((50, 100)));
+                self.rest_hover();
+                self.set_roi_rect([13, 21, 163, 191]);
+                next(st, "A added; B active, cursor, pin and ROI on every layer");
+            }
+            4 => {
+                let sr = &self.series;
+                let (a, f) = (&self.layers[0], &self.layers[2]);
+                let ready = |h: &Option<crate::series::SeriesView>| h.as_ref().is_some_and(|h| h.exact);
+                let pins_ready = |p: &[crate::series::SeriesView]| p.first().is_some_and(|p| p.exact);
+                if !ready(&sr.hover)
+                    || !ready(&f.series.hover)
+                    || !pins_ready(&sr.pins)
+                    || !pins_ready(&f.series.pins)
+                    || !sr.roi.complete()
+                    || !a.series.roi.complete()
+                {
+                    return None;
+                }
+                let Some((r, _)) = &f.place.reproj else { return fail("F lost its reprojection") };
+                let (ex, ey) = r.to_layer(50.5, 100.5)?;
+                let (fh, bh) = (f.series.hover.as_ref()?, sr.hover.as_ref()?);
+                println!(
+                    "    cursor B (50, 100) -> F ({}, {}) (PROJ: {ex:.3}, {ey:.3}): {} in both",
+                    fh.x, fh.y, fh.values[0]
+                );
+                if fh.x != ex as usize || fh.y != ey as usize {
+                    return fail("F's cursor pixel should be PROJ's");
+                }
+                if fh.values != bh.values {
+                    return fail("F's series under the cursor should be B's");
+                }
+                if f.series.pins[0].values != sr.pins[0].values {
+                    return fail("F's series at the pin should be B's");
+                }
+                let (bd, ad) = (sr.roi.data.as_ref()?, a.series.roi.data.as_ref()?);
+                let mut d_a = 0f32;
+                for t in 0..bd.per_t.len() {
+                    let (nb, na) = (bd.per_t[t].get()?.n, ad.per_t[t].get()?.n);
+                    if na != nb {
+                        return fail("A's ROI should have B's pixels (same grid lines)");
+                    }
+                    d_a = d_a.max((a.series.roi.mean[t] - sr.roi.mean[t] - 0.5).abs());
+                }
+                println!(
+                    "    ROI 150 x 170 px of B: {} px on B and on A (|A - B - 0.5| {d_a:.2e})",
+                    bd.per_t[0].get()?.n
+                );
+                if d_a > 1e-4 {
+                    return fail("A's ROI should be B's + 0.5");
+                }
+                next(st, "F's cursor and pin series equal B's; the ROI on A and B agrees");
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
-                st.stage = 3;
+                st.stage = 5;
                 return Some(0);
             }
             _ => {}

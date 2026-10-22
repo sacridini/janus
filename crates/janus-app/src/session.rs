@@ -49,6 +49,8 @@ pub struct Session {
     /// the dates the GPU has
     pub uploaded: Vec<bool>,
     pub stats: Option<Stats>,
+    /// each date's time in years since the first (the series' trends)
+    pub years: Vec<f64>,
     /// statistics computed so far (a season computes them again)
     pub stats_gen: u64,
     /// the season the dates' times on the GPU were made for (0: none applied yet)
@@ -69,7 +71,9 @@ impl Session {
         let s = janus_session::Session::new(info.clone(), settings, Arc::new(move || c.request_repaint()));
         let tiles =
             TileManager::new(info.clone(), s.overview.factor, settings.tile_budget_bytes, Some(s.full_res.clone()));
+        let years = (0..info.t()).map(|t| info.years_from_start(t)).collect();
         Session {
+            years,
             cube: None,
             tiles,
             uploaded: vec![false; info.t()],
@@ -121,6 +125,12 @@ impl Session {
             self.ready_ms = Some(self.opened.elapsed().as_secs_f64() * 1000.0);
             changed = true;
         }
+        self.collect_series();
+        changed
+    }
+
+    /// The exact series read since the last call, kept for the cursor and the pins.
+    pub fn collect_series(&self) {
         let new = self.s.take_series();
         if !new.is_empty() {
             let mut all = self.series.lock().unwrap();
@@ -129,7 +139,6 @@ impl Session {
             let excess = all.len().saturating_sub(256);
             all.drain(..excess);
         }
-        changed
     }
 
     /// The dates' times on the GPU changed (a season: NaN outside it): the statistics are computed again (a

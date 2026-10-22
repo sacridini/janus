@@ -17,12 +17,6 @@ pub fn cursor_series() -> Color32 {
 }
 
 /// Colours of the pins, in order (ImPlot's "Deep" after the cursor's).
-pub fn pin_color(i: usize) -> Color32 {
-    let keys = janus_gpu::colormaps::all()[0].keys().collect::<Vec<_>>();
-    let c = keys[i % keys.len()];
-    Color32::from_rgb(c[0], c[1], c[2])
-}
-
 /// The accent (the dark theme's status colour, theme.cpp): the season on the chart.
 pub fn accent() -> Color32 {
     im(0.55, 0.80, 1.0, 1.0)

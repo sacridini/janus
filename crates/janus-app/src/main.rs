@@ -16,6 +16,7 @@ mod map;
 mod measure;
 mod panels;
 mod season;
+mod series;
 mod session;
 mod theme;
 mod tour;
@@ -50,7 +51,10 @@ Options:
   --basemap ID|URL    a basemap under the series once it opens: esri, eox, osm or an XYZ URL
   --season A-B        a season (days of the year A to B, e.g. 152-243) once the series opens
   --layer IN          IN added as a layer once the series is open (repeatable)
-  --selftest-reproject B F  F (B reprojected) drawn on B's grid where PROJ puts it
+  --pin X,Y           a pin at source pixel (X, Y) once the series is open (repeatable)
+  --roi X0,Y0,X1,Y1   an ROI rectangle once the series is open
+  --selftest-reproject B F A  F (B reprojected) drawn on B's grid where PROJ puts it; the cursor, a pin and
+                      an ROI on B, A and F
   --selftest-composite C  the RGB composite of the test series C (five bands per date) against its files
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
                       C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
@@ -105,6 +109,20 @@ fn main() -> eframe::Result<()> {
             "--dump-golden" => opts.dump_golden = Some(Default::default()),
             "--basemap" => opts.basemap = args.next(),
             "--layer" => opts.extra_layers.extend(args.next()),
+            "--pin" => {
+                let v: Vec<usize> =
+                    args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
+                if let [x, y] = v[..] {
+                    opts.pins.push((x, y));
+                }
+            }
+            "--roi" => {
+                let v: Vec<i64> =
+                    args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
+                if let [a, b, c, d] = v[..] {
+                    opts.roi = Some([a, b, c, d]);
+                }
+            }
             "--selftest-reproject" => opts.selftest_reproject = true,
             "--season" => {
                 opts.season = args.next().and_then(|v| {
@@ -128,8 +146,8 @@ fn main() -> eframe::Result<()> {
             _ => opts.inputs.push(a),
         }
     }
-    if opts.selftest_reproject && opts.inputs.len() == 2 {
-        // B opens, F is added as a layer by the test
+    if opts.selftest_reproject && opts.inputs.len() == 3 {
+        // B opens, F and A are added as layers by the test
         opts.extra_layers = opts.inputs.split_off(1);
     }
     if opts.dump_golden.is_some() {
