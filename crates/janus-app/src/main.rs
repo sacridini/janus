@@ -83,6 +83,7 @@ Options:
   --selftest-composite C  the RGB composite of the test series C (five bands per date) against its files
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
                       C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
+  --selftest-embeddings  the embedding kernels, eigenvectors and PCA against known answers, timed
   --selftest-zeit IN...  every Zeit tool on the series without a window: a pixel fit, its Python calls, the
                       estimate and a raster run of 256 x 256 px (LandTrendr also 512 x 512), the outputs read
                       back (timings)
@@ -214,6 +215,21 @@ fn main() -> eframe::Result<()> {
                 // C (five bands per date) with an overview at 1:2, as the C++'s test opens it
                 opts.selftest_composite = true;
                 opts.budget_bytes = Some(10 * 100 * 60 * 4 + 4096);
+            }
+            "--selftest-embeddings" => {
+                attach_console();
+                let threads = settings::load().0.threads;
+                let threads = if threads > 0 { threads as usize } else { janus_session::default_processing_threads() };
+                std::process::exit(match janus_embed::selftest::run(threads) {
+                    Ok(r) => {
+                        println!("{r}OK");
+                        0
+                    }
+                    Err((r, e)) => {
+                        println!("{r}FAIL: {e}");
+                        1
+                    }
+                });
             }
             "--selftest-zeit" => {
                 attach_console();

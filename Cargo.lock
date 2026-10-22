@@ -1533,6 +1533,7 @@ dependencies = [
  "image",
  "janus-cache",
  "janus-cube",
+ "janus-embed",
  "janus-geo",
  "janus-gpu",
  "janus-session",
@@ -1564,6 +1565,17 @@ dependencies = [
  "gdal",
  "gdal-sys",
  "regex",
+]
+
+[[package]]
+name = "janus-embed"
+version = "0.40.0"
+dependencies = [
+ "gdal",
+ "gdal-sys",
+ "janus-cube",
+ "rayon",
+ "serde_json",
 ]
 
 [[package]]
