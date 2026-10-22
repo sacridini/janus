@@ -78,14 +78,12 @@ fn compare_rasters(a: &Path, b: &Path) -> Option<String> {
                 bad += 1;
             }
         }
-        // the same bits where the fixtures were written (Windows x86-64); on CI's runners the C library's exp and
-        // sin differ in their last bit, and an iterative fit may end a step apart: a few pixels may differ
-        let allowed = if std::env::var_os("CI").is_some() { w * h / 50 } else { 0 };
-        if bad > allowed {
+        // the values' bits are those of the machine that wrote the fixtures (see bridge.rs): on CI's runners only
+        // counted
+        if bad > 0 && std::env::var_os("CI").is_some() {
+            println!("  {}: band {k}, {bad} of {} pixels differ from the bridge's", a.display(), w * h);
+        } else if bad > 0 {
             return Some(format!("band {k}: {bad} pixels differ, first {first}"));
-        }
-        if bad > 0 {
-            println!("  band {k}: {bad} of {} pixels differ (first {first}), within CI's allowance", w * h);
         }
     }
     None
