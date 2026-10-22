@@ -7,7 +7,9 @@ use janus_gpu::Mode;
 use janus_session::ViewRect;
 
 use crate::app::State;
+use crate::display::range_label;
 use crate::theme;
+use janus_cube::multidim::format_g;
 
 /// The C++'s wheel zoom: an exponential approach with this time constant (s).
 const ZOOM_TAU: f64 = 0.06;
@@ -32,6 +34,8 @@ pub struct MapView {
     pub dirty: bool,
     /// the view last drawn, in source pixels at target pixels per source pixel (what an RGB composite reads)
     pub last_view: Option<ViewRect>,
+    /// the detail tiles' level drawn (0 = full resolution), None: the overview
+    pub detail_level: Option<u32>,
 }
 
 type DrawKey = (Mode, [i32; 3], [u32; 2], usize, [u32; 4], usize, Option<usize>);
@@ -58,17 +62,28 @@ impl MapView {
 
 impl State {
     pub fn map_ui(&mut self, ui: &mut Ui) {
-        let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
-        let painter = ui.painter_at(rect);
-        let Some(s) = &self.session else {
+        if self.session.is_none() {
+            let (rect, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
             let msg = match (&self.opening, &self.error) {
-                (Some(o), _) => format!("Opening {}...", o.inputs.join(", ")),
+                (Some(o), _) if o.inputs.len() == 1 => format!("Opening {}...", o.inputs[0]),
+                (Some(o), _) => format!("Opening {} inputs...", o.inputs.len()),
                 (_, Some(e)) => e.clone(),
-                _ => "Open a series: File > Open folder, or drop it here".to_string(),
+                _ => "Open a time series: File > Open (Ctrl+O), drop files/a folder onto the window\nor call it from \
+                      the command line: jn <folder | series.tif | files_*.tif>"
+                    .to_string(),
             };
+            let painter = ui.painter_at(rect);
             painter.text(rect.center(), Align2::CENTER_CENTER, msg, FontId::proportional(13.0), theme::weak_text());
             return;
-        };
+        }
+        self.time_bar(ui);
+        // the canvas, above a status line
+        let status_h = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
+        let avail = ui.available_size();
+        let (rect, resp) =
+            ui.allocate_exact_size(vec2(avail.x.max(64.0), (avail.y - status_h).max(64.0)), Sense::click_and_drag());
+        let painter = ui.painter_at(rect);
+        let Some(s) = &self.session else { return };
         let (ow, oh) = (s.s.overview.w as f64, s.s.overview.h as f64);
         let (w, h) = (s.info.width as f64, s.info.height as f64);
         // the whole image with a margin, as the C++'s fitView
@@ -272,8 +287,10 @@ impl State {
         let composite = self.composite.as_ref().is_some_and(|c| c.on);
         let detail = matches!(mode, Mode::Value | Mode::Diff) && !s.s.defer_random_reads() && !composite;
         let prefetch = self.display.playing.then(|| (t + 1) % s.info.t());
+        let detail = detail && self.display.detail && (mode != Mode::Diff || ready);
+        m.detail_level = None;
         if detail {
-            s.tiles.update(s.s.fg(), t, &view, prefetch);
+            m.detail_level = s.tiles.update(s.s.fg(), t, &view, prefetch);
             if mode == Mode::Diff {
                 s.tiles.update(s.s.fg(), params.layers[1] as usize, &view, None);
             }
@@ -404,59 +421,209 @@ impl State {
             }
         }
 
-        // loading, the colour bar and the status at the bottom
-        let ov = &s.s.overview;
-        if !ov.complete() {
-            let f = ov.layers_done() as f32 / ov.t.max(1) as f32;
-            let bar = Rect::from_min_size(rect.left_top() + vec2(8.0, 8.0), vec2(200.0, 4.0));
-            painter.rect_filled(bar, 0.0, Color32::from_black_alpha(160));
-            painter.rect_filled(
-                Rect::from_min_size(bar.min, vec2(200.0 * f, 4.0)),
-                0.0,
-                Color32::from_rgb(230, 179, 0),
-            );
-            let what = if ov.from_cache() { "from its cache" } else { "reading" };
-            shadow_text(
-                &painter,
-                bar.left_bottom() + vec2(0.0, 4.0),
-                Align2::LEFT_TOP,
-                &format!("overview {}/{} ({what})", ov.layers_done(), ov.t),
-            );
-        }
-        let mode = self.display.mode;
-        let range = self.display.ranges[mode as usize];
-        if mode != janus_gpu::Mode::Rgb {
-            let cm = &janus_gpu::colormaps::all()[self.display.cmap[mode as usize]];
-            let bar = Rect::from_min_size(rect.left_bottom() + vec2(8.0, -40.0), vec2(160.0, 10.0));
-            for i in 0..64 {
-                let c = cm.sample(i as f32 / 63.0);
-                let x0 = bar.min.x + bar.width() * i as f32 / 64.0;
-                let r =
-                    Rect::from_min_max(Pos2::new(x0, bar.min.y), Pos2::new(x0 + bar.width() / 64.0 + 0.5, bar.max.y));
-                painter.rect_filled(r, 0.0, Color32::from_rgb(c[0], c[1], c[2]));
-            }
-            shadow_text(&painter, bar.left_top() - vec2(0.0, 2.0), Align2::LEFT_BOTTOM, &format!("{:.4}", range.lo));
-            shadow_text(&painter, bar.right_top() - vec2(0.0, 2.0), Align2::RIGHT_BOTTOM, &format!("{:.4}", range.hi));
-        }
+        // the title (date and mode), a wait, the overview's progress, the colour bar
+        let (zoom, detail_level) = (m.scale * ow / w, m.detail_level);
+        let info = &s.info;
+        let d = &self.display;
+        let n = info.t();
         let composite = self.composite.as_ref().filter(|c| c.on);
-        let mut status = match composite {
-            Some(c) => c.title(&s.info, self.display.t),
+        let title = match composite {
+            Some(c) => c.title(info, d.t),
             None => self.map_title(),
         };
+        let font = FontId::proportional(13.0);
+        painter.text(
+            rect.min + vec2(11.0, 9.0),
+            Align2::LEFT_TOP,
+            &title,
+            font.clone(),
+            Color32::from_black_alpha(200),
+        );
+        painter.text(rect.min + vec2(10.0, 8.0), Align2::LEFT_TOP, &title, font.clone(), Color32::WHITE);
+        let up = |t: usize| s.uploaded.get(t).copied().unwrap_or(false);
+        let wait = if let Some(c) = composite {
+            if !c.error.is_empty() {
+                format!("RGB composite: {}", c.error)
+            } else if c.ready(d.t, n) {
+                String::new()
+            } else {
+                "Reading the RGB composite of this date...".into()
+            }
+        } else if d.mode.needs_stats() && s.stats.is_none() {
+            "Computing statistics: waiting for the complete overview...".into()
+        } else if d.mode == Mode::Diff && d.diff_ref_date(d.t, n).is_none() {
+            "The first date has no previous date".into()
+        } else if d.mode == Mode::Composite {
+            let (t0, t1) = d.temporal_window(info, d.t);
+            if (t0..=t1).all(up) { String::new() } else { "Loading the dates of the composite...".into() }
+        } else if crate::display::time_dependent(d.mode)
+            && (!up(if d.mode == Mode::Rgb { d.rgb[0] } else { d.t })
+                || (d.mode == Mode::Diff && !d.diff_ref_date(d.t, n).is_some_and(up)))
+        {
+            "Loading this date...".into()
+        } else {
+            String::new()
+        };
+        if !wait.is_empty() {
+            painter.text(rect.center(), Align2::CENTER_CENTER, wait, font.clone(), Color32::from_gray(220));
+        }
+        let ov = &s.s.overview;
+        if !ov.complete() {
+            let what = if ov.from_cache() { " (cache)" } else { "" };
+            let f = ov.layers_done() as f32 / n as f32;
+            let p0 = rect.min + vec2(rect.width() - 250.0, 10.0);
+            painter.rect_filled(Rect::from_min_size(p0, vec2(240.0, 18.0)), 3.0, Color32::from_black_alpha(160));
+            painter.rect_filled(
+                Rect::from_min_size(p0, vec2(240.0 * f, 18.0)),
+                3.0,
+                Color32::from_rgba_unmultiplied(70, 130, 220, 220),
+            );
+            painter.text(
+                p0 + vec2(6.0, 2.0),
+                Align2::LEFT_TOP,
+                format!("Building overview {}/{n}{what}", ov.layers_done()),
+                font.clone(),
+                Color32::WHITE,
+            );
+        }
+        if d.mode != Mode::Rgb && composite.is_none() {
+            let cm = &janus_gpu::colormaps::all()[d.cmap[d.mode as usize]];
+            let b0 = rect.left_bottom() + vec2(10.0, -34.0);
+            let bar = Rect::from_min_size(b0, vec2(220.0, 10.0));
+            for i in 0..48 {
+                let c = cm.sample((i as f32 + 0.5) / 48.0);
+                let x0 = bar.min.x + bar.width() * i as f32 / 48.0;
+                let x1 = bar.min.x + bar.width() * (i + 1) as f32 / 48.0;
+                painter.rect_filled(
+                    Rect::from_min_max(Pos2::new(x0, bar.min.y), Pos2::new(x1, bar.max.y)),
+                    0.0,
+                    Color32::from_rgb(c[0], c[1], c[2]),
+                );
+            }
+            painter.rect_stroke(bar, 0.0, Stroke::new(1.0, Color32::BLACK), egui::StrokeKind::Outside);
+            let range = d.ranges[d.mode as usize];
+            let label = Color32::from_gray(230);
+            painter.text(
+                b0 + vec2(0.0, 12.0),
+                Align2::LEFT_TOP,
+                range_label(d.mode, range.lo, info),
+                font.clone(),
+                label,
+            );
+            painter.text(
+                bar.right_top() + vec2(0.0, 12.0),
+                Align2::RIGHT_TOP,
+                range_label(d.mode, range.hi, info),
+                font.clone(),
+                label,
+            );
+        }
+
+        // the status line under the map: the zoom, its detail, the pixel and what the map shows there
+        let mut status = format!("zoom {:.1}%", zoom * 100.0);
+        status += &match detail_level {
+            Some(l) => format!(" (detail 1:{})", 1u32 << l),
+            None => format!(" (overview 1:{:.1})", ov.factor),
+        };
         if let Some((x, y)) = inside {
-            let (ox, oy) = ((x * ov.w / s.info.width).min(ov.w - 1), (y * ov.h / s.info.height).min(ov.h - 1));
-            let v = ov.layer(self.display.t).map_or(f32::NAN, |l| l[oy * ov.w + ox]);
-            status += &format!("   pixel ({x}, {y})  {v:.4}");
+            status += &format!("  |  col {x}  row {y}");
+            if let Some((gx, gy)) = info.pixel_to_geo(x as f64 + 0.5, y as f64 + 0.5) {
+                status += &format!("  |  x {gx:.6}  y {gy:.6}");
+            }
+            let p = (y * ov.h / info.height).min(ov.h - 1) * ov.w + (x * ov.w / info.width).min(ov.w - 1);
+            let hover = self.series.hover.as_ref().filter(|h| h.x == x && h.y == y && d.t < h.values.len());
+            let approx = |h: &crate::series::SeriesView| if h.exact { "" } else { "(approx.)" };
+            let g = |v: f64| format_g(v, 6);
             if let Some(c) = composite {
-                status += &c.status_at(x as f64 + 0.5, y as f64 + 0.5, self.display.t, s.info.t());
+                status += &c.status_at(x as f64 + 0.5, y as f64 + 0.5, d.t, n);
+            } else if d.mode == Mode::Composite {
+                let (t0, t1) = d.temporal_window(info, d.t);
+                status += &format!("  |  composite {} (overview)", g(f64::from(d.composite_at(s, p, t0, t1))));
+            } else if let (true, Some(st)) = (d.mode.needs_stats(), &s.stats) {
+                // the quantity shown (mean, trend...) at the overview pixel under the cursor
+                let (a, b) = (st.s0[p], st.s1[p]);
+                let v = match d.mode {
+                    Mode::Mean => a[0],
+                    Mode::Std => a[1],
+                    Mode::Slope => a[2],
+                    Mode::Min => b[0],
+                    Mode::Max => b[1],
+                    Mode::Amplitude => b[1] - b[0],
+                    Mode::R2 => b[2],
+                    _ => b[3],
+                };
+                if d.mode == Mode::Anomaly {
+                    if let Some(h) = hover {
+                        status += &format!("  |  anomaly {}", g(f64::from(h.values[d.t] - a[0])));
+                    }
+                } else if d.mode == Mode::DropDate {
+                    let at = st.s2[p];
+                    let when = if at.is_nan() { "none".to_string() } else { info.layers[at as usize].label.clone() };
+                    status += &format!("  |  largest drop {when} ({})", format_g(f64::from(b[3]), 4));
+                } else {
+                    let unit = if d.mode == Mode::Slope { if info.time_is_date { "/yr" } else { "/step" } } else { "" };
+                    status += &format!("  |  {} {}{unit}", crate::display::mode_name(d.mode), g(f64::from(v)));
+                }
+            } else if let (Mode::Diff, Some(h)) = (d.mode, hover) {
+                if let Some(r) = d.diff_ref_date(d.t, n) {
+                    status += &format!("  |  difference {} {}", g(f64::from(h.values[d.t] - h.values[r])), approx(h));
+                }
+            } else if let Some(h) = hover {
+                if self.classes.on() {
+                    status += &format!("  |  class {} {}", self.classes.name_of(h.values[d.t]), approx(h));
+                } else {
+                    status += &format!("  |  value {} {}", g(f64::from(h.values[d.t])), approx(h));
+                }
             }
         }
-        shadow_text(&painter, rect.left_bottom() + vec2(8.0, -8.0), Align2::LEFT_BOTTOM, &status);
         self.basemap_note(&painter, rect);
+        ui.weak(status);
     }
 }
 
 impl State {
+    /// The time bar over the map: the date before and after (in the season), playback and its speed, the date.
+    fn time_bar(&mut self, ui: &mut Ui) {
+        let Some(s) = &self.session else { return };
+        let info = s.info.clone();
+        let n = info.t();
+        let d = &mut self.display;
+        let (mut step, mut set) = (0i64, None);
+        ui.horizontal(|ui| {
+            if ui.button("<").clicked() {
+                step = -1;
+            }
+            if ui.add_sized([60.0, 18.0], egui::Button::new(if d.playing { "Pause" } else { "Play" })).clicked() {
+                d.playing = !d.playing;
+            }
+            if ui.button(">").clicked() {
+                step = 1;
+            }
+            let mut t = d.t;
+            let label = info.layers[d.t].label.clone();
+            ui.spacing_mut().slider_width = (ui.available_width() - 250.0).max(120.0);
+            if ui.add(egui::Slider::new(&mut t, 0..=n - 1).show_value(false)).changed() {
+                set = Some(t);
+            }
+            ui.label(label);
+            ui.spacing_mut().slider_width = 100.0;
+            let unit = if info.spectral { "bands/s" } else { "dates/s" };
+            ui.add(
+                egui::Slider::new(&mut d.fps, 0.5..=30.0)
+                    .logarithmic(true)
+                    .fixed_decimals(1)
+                    .suffix(format!(" {unit}")),
+            );
+            ui.weak(format!("{}/{n}", d.t + 1));
+        });
+        if step != 0 {
+            self.step_date(step);
+        }
+        if let Some(t) = set {
+            self.set_date(t);
+        }
+    }
+
     /// What the map shows (app.cpp, the map's title): the dates of the RGB or the difference, the composite's
     /// window, the date and the mode, or the mode over the dates (and the season).
     fn map_title(&self) -> String {
@@ -465,7 +632,9 @@ impl State {
         let label = |t: usize| info.layers[t.min(info.t() - 1)].label.as_str();
         match d.mode {
             Mode::Rgb => format!("RGB: {} / {} / {}", label(d.rgb[0]), label(d.rgb[1]), label(d.rgb[2])),
-            Mode::Diff => format!("{} - {}  |  Difference", label(d.t), label(d.diff_ref)),
+            Mode::Diff => {
+                format!("{} - {}  |  Difference", label(d.t), d.diff_ref_date(d.t, info.t()).map_or("(none)", label))
+            }
             Mode::Composite => d.temporal_text(info, d.t),
             m if crate::display::time_dependent(m) => format!("{}  |  {}", label(d.t), crate::display::mode_name(m)),
             m => format!(
@@ -477,11 +646,4 @@ impl State {
             ),
         }
     }
-}
-
-/// Text readable over any map: a dark shadow under it.
-fn shadow_text(painter: &egui::Painter, at: Pos2, align: Align2, text: &str) {
-    let font = FontId::proportional(13.0);
-    painter.text(at + vec2(1.0, 1.0), align, text, font.clone(), Color32::from_black_alpha(220));
-    painter.text(at, align, text, font, Color32::WHITE);
 }

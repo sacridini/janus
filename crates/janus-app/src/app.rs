@@ -151,6 +151,8 @@ pub struct State {
     /// the cursor's series, the pins, the ROI
     pub series: crate::series::SeriesState,
     pub chart: crate::chart::ChartOptions,
+    /// the Display panel's band selection being edited (for the cube id)
+    pub band_sel: Option<(u64, janus_cube::BandSelection)>,
     pub perf: Perf,
     pub(crate) frame: u64,
     last_play: Option<Instant>,
@@ -228,10 +230,7 @@ impl TabViewer for Tabs<'_> {
                         self.s.layers_ui(ui);
                         self.s.basemap_ui(ui);
                     }
-                    Tab::Display => {
-                        self.s.display_ui(ui);
-                        self.s.composite_ui(ui);
-                    }
+                    Tab::Display => self.s.display_ui(ui),
                     Tab::Statistics => self.s.statistics_ui(ui),
                     Tab::Performance => {
                         self.s.performance_ui(ui);
@@ -272,6 +271,7 @@ impl JanusApp {
                 map: MapView::default(),
                 series: Default::default(),
                 chart: Default::default(),
+                band_sel: None,
                 perf: Perf::default(),
                 frame: 0,
                 last_play: None,
@@ -312,22 +312,48 @@ impl State {
         self.opening = Some(Opening::start(inputs, add && !self.layers.is_empty(), ctx));
     }
 
+    /// Layer i's files again with another band selection, in place (finish_open replaces its session).
+    pub fn reopen_layer(&mut self, i: usize, sel: janus_cube::BandSelection, ctx: &egui::Context) {
+        if self.opening.is_some() || i >= self.layers.len() {
+            return;
+        }
+        let mut o = Opening::start_with(self.layers[i].inputs.clone(), true, sel, ctx);
+        o.replace = Some(i);
+        self.opening = Some(o);
+    }
+
+    /// The overview's settings of a series opened now.
+    pub(crate) fn session_settings(&self) -> janus_session::SessionSettings {
+        let max_tex = self.render_state.device.limits().max_texture_dimension_2d as usize;
+        janus_session::SessionSettings {
+            overview_budget_bytes: self.opts.budget_bytes.unwrap_or(self.opts.budget_mb << 20),
+            max_texture: max_tex.min(16384),
+            ..Default::default()
+        }
+    }
+
     /// The series opened: a new layer, made active (the others closed unless it is added).
     fn finish_open(&mut self, info: janus_cube::CubeInfo, o: Opening, ctx: &egui::Context) {
+        if let Some(i) = o.replace.filter(|&i| i < self.layers.len()) {
+            self.replace_layer_session(i, info, &o, ctx);
+            return;
+        }
         if !o.add {
             self.close_all(ctx);
             // a new series starts without the basemap until ticked
             self.basemap.ui.on = false;
         }
-        let max_tex = self.render_state.device.limits().max_texture_dimension_2d as usize;
-        let settings = janus_session::SessionSettings {
-            overview_budget_bytes: self.opts.budget_bytes.unwrap_or(self.opts.budget_mb << 20),
-            max_texture: max_tex.min(16384),
-            ..Default::default()
-        };
-        let s = Session::new(info, &o, &settings, ctx);
+        let s = Session::new(info, &o, &self.session_settings(), ctx);
         let n = s.info.t();
         let mut disp = Display { rgb: [0, n / 2, n - 1], ..Default::default() };
+        // a spectrum opens in true colour (if it covers the visible), at the near infrared
+        if s.info.spectral {
+            if let Some(rgb) = janus_cube::spectral::composite_layers(&s.info, &janus_cube::spectral::COMPOSITES[0]) {
+                disp.rgb = rgb;
+                disp.mode = janus_gpu::Mode::Rgb;
+            }
+            disp.t = s.info.nearest_layer(860.0);
+        }
         // a new layer starts at the date (or wavelength) nearest to the one shown
         if let Some(a) = &self.session
             && crate::layers::matchable_axis(&a.info, &s.info)
@@ -444,10 +470,11 @@ impl State {
         if self.display.update(s) {
             self.map.dirty = true;
         }
-        // playing: four dates a second
+        // playing: the dates per second set on the time bar
         if self.display.playing {
             let now = Instant::now();
-            if self.last_play.is_none_or(|l| now.duration_since(l).as_secs_f64() >= 0.25) {
+            let every = 1.0 / f64::from(self.display.fps.max(0.1));
+            if self.last_play.is_none_or(|l| now.duration_since(l).as_secs_f64() >= every) {
                 self.last_play = Some(now);
                 // the next date in the season (year by year for a composite of the date's year)
                 let n = s.info.t() as i64;
@@ -455,7 +482,7 @@ impl State {
                 self.display.t = ((t % n + n) % n) as usize;
                 s.s.overview.set_focus(self.display.t);
             }
-            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(every));
         }
     }
 

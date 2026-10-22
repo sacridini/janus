@@ -206,7 +206,7 @@ impl State {
     }
 
     pub fn add_pin(&mut self, x: usize, y: usize) {
-        let Some(s) = &self.session else { return };
+        let Some(s) = self.session.as_ref().filter(|s| x < s.info.width && y < s.info.height) else { return };
         let id = self.series.next_pin;
         self.series.next_pin += 1;
         let p = view(s, id, x, y, pin_color(id));

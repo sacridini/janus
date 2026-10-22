@@ -26,6 +26,37 @@ pub fn mode_name(m: Mode) -> &'static str {
     }
 }
 
+/// A spectrum's RGB mode by its name (app.cpp, modeName).
+pub fn mode_name_of(m: Mode, info: &janus_cube::CubeInfo) -> &'static str {
+    if m == Mode::Rgb && info.spectral { "RGB composite (3 bands)" } else { mode_name(m) }
+}
+
+/// The order of the modes in the menus (the enum's numbers are fixed by the shaders).
+pub const MODE_ORDER: [Mode; 14] = [
+    Mode::Value,
+    Mode::Anomaly,
+    Mode::Diff,
+    Mode::Composite,
+    Mode::Mean,
+    Mode::Std,
+    Mode::Slope,
+    Mode::Min,
+    Mode::Max,
+    Mode::Amplitude,
+    Mode::R2,
+    Mode::DropDate,
+    Mode::DropMag,
+    Mode::Rgb,
+];
+
+/// A value of `mode` on a colour bar: dates for the drop's date.
+pub fn range_label(mode: Mode, v: f32, info: &janus_cube::CubeInfo) -> String {
+    if mode == Mode::DropDate {
+        return info.layers[(v.round().max(0.0) as usize).min(info.t() - 1)].label.clone();
+    }
+    janus_cube::multidim::format_g(f64::from(v), 4)
+}
+
 pub const REDUCERS: [&str; 5] = ["Median", "Mean", "Maximum", "Minimum", "Observations"];
 
 /// Modes whose values change with the date.
@@ -70,8 +101,14 @@ pub struct Display {
     pub mode: Mode,
     pub cmap: [usize; 14],
     pub ranges: [Range; 14],
-    /// the reference date of the difference
-    pub diff_ref: usize,
+    /// the reference date of the difference: a date, or -1 the previous one
+    pub diff_ref: i32,
+    /// the automatic stretch of each date (else the same for every date: colours comparable through time)
+    pub per_date_range: bool,
+    /// past the overview's resolution, tiles of the visible area read at full resolution
+    pub detail: bool,
+    /// playback (dates per second)
+    pub fps: f32,
     pub rgb: [usize; 3],
     /// the temporal composite's reducer (REDUCERS) and window: 0 the date's (season) year, 1 `days` around the
     /// date, 2 the whole series
@@ -99,6 +136,9 @@ impl Default for Display {
             cmap,
             ranges: [Range::default(); 14],
             diff_ref: 0,
+            per_date_range: false,
+            detail: true,
+            fps: 4.0,
             rgb: [0, 0, 0],
             reducer: 0,
             window: 0,
@@ -146,11 +186,16 @@ fn auto_range(mode: Mode, s: &mut [f32]) -> (f32, f32) {
 }
 
 impl Display {
+    /// The difference's reference date at date t: the fixed one, or the previous (none at the first).
+    pub fn diff_ref_date(&self, t: usize, n: usize) -> Option<usize> {
+        if self.diff_ref < 0 { t.checked_sub(1) } else { Some((self.diff_ref as usize).min(n - 1)) }
+    }
+
     /// How the active layer is drawn (the class table and the warp are the caller's to add).
     pub fn layer_params(&self, s: &Session) -> LayerParams {
         let t = self.t as i32;
         let layers = match self.mode {
-            Mode::Diff => [t, self.diff_ref as i32, 0],
+            Mode::Diff => [t, self.diff_ref_date(self.t, s.info.t()).map_or(t, |r| r as i32), 0],
             Mode::Rgb => self.rgb.map(|v| v as i32),
             Mode::Composite => {
                 let (a, b) = self.temporal_window(&s.info, self.t);
@@ -168,7 +213,7 @@ impl Display {
         let up = |t: i32| s.uploaded.get(t as usize).copied().unwrap_or(false);
         match self.mode {
             Mode::Rgb => p.layers.iter().all(|&l| up(l)),
-            Mode::Diff => up(self.t as i32) && up(p.layers[1]),
+            Mode::Diff => up(self.t as i32) && self.diff_ref_date(self.t, s.info.t()).is_some_and(|r| up(r as i32)),
             Mode::Composite => (p.layers[0]..=p.layers[1]).all(up),
             m if m.needs_stats() => s.stats.is_some(),
             _ => up(self.t as i32),
@@ -176,7 +221,7 @@ impl Display {
     }
 
     /// The composite of an overview pixel over dates t0..t1 (those in the season), as the shader computes it.
-    fn composite_at(&self, s: &Session, p: usize, t0: usize, t1: usize) -> f32 {
+    pub fn composite_at(&self, s: &Session, p: usize, t0: usize, t1: usize) -> f32 {
         let ov = &s.s.overview;
         let vals: Vec<f32> = (t0..=t1)
             .filter(|&t| self.season.contains(&s.info, t) && s.uploaded[t])
@@ -243,13 +288,13 @@ impl Display {
             (Mode::DropDate, Some(st)) => over_pixels(&mut out, &|p| st.s2[p]),
             (Mode::DropMag, Some(st)) => over_pixels(&mut out, &|p| st.s1[p][3]),
             (Mode::Diff, _) => {
-                let r = self.diff_ref;
-                if s.uploaded[r] {
-                    // a date against itself (all zeros) only counts when it is the date asked for
-                    over_layers(&mut out, &|l, p| {
-                        if l != r || t.is_some() { layer(l, p) - layer(r, p) } else { f32::NAN }
-                    });
-                }
+                // every date against its reference; a date against itself (all zeros) only counts when it is the
+                // date asked for
+                let n = s.info.t();
+                over_layers(&mut out, &|l, p| match self.diff_ref_date(l, n) {
+                    Some(r) if s.uploaded[r] && (r != l || t.is_some()) => layer(l, p) - layer(r, p),
+                    _ => f32::NAN,
+                });
             }
             (Mode::Composite, _) => {
                 let (t0, t1) = self.temporal_window(&s.info, t.unwrap_or(self.t));
@@ -286,12 +331,20 @@ impl Display {
         let version = (s.s.overview.layers_done() as u64 * 2 + u64::from(s.stats.is_some()))
             .wrapping_add(s.stats_gen.wrapping_mul(7919))
             .wrapping_add(comp_key.wrapping_mul(104729));
-        let ref_key = if self.mode == Mode::Diff { self.diff_ref as u64 + 2 } else { 0 };
-        let rkey = version.wrapping_mul(1000003).wrapping_add(ref_key * 65536).wrapping_add(self.mode as u64);
+        let time_dep = time_dependent(self.mode);
+        // the reference changes the values; a range per date follows the date
+        let ref_key = if self.mode == Mode::Diff { (self.diff_ref + 2) as u64 * 7919 } else { 0 };
+        let range_t = (self.per_date_range && time_dep).then_some(self.t);
+        let rkey = version
+            .wrapping_mul(1000003)
+            .wrapping_add(range_t.map_or(0, |t| t as u64 + 1) * 8)
+            .wrapping_add(u64::from(self.per_date_range))
+            .wrapping_add(ref_key.wrapping_mul(65536))
+            .wrapping_add((self.mode as u64) << 56);
         let mut changed = false;
         let r = &mut self.ranges[self.mode as usize];
         if !r.manual && r.key != rkey {
-            let mut sample = self.collect_sample(s, None, 2_000_000);
+            let mut sample = self.collect_sample(s, range_t, 2_000_000);
             if !sample.is_empty() {
                 let (lo, hi) = auto_range(self.mode, &mut sample);
                 let r = &mut self.ranges[self.mode as usize];
@@ -299,8 +352,12 @@ impl Display {
                 changed = true;
             }
         }
-        let hist_t = time_dependent(self.mode).then_some(if self.mode == Mode::Rgb { self.rgb[0] } else { self.t });
-        let hkey = rkey.wrapping_mul(31).wrapping_add(hist_t.map_or(0, |t| t as u64 + 1));
+        let hist_t = time_dep.then_some(if self.mode == Mode::Rgb { self.rgb[0] } else { self.t });
+        let (c0, c1) = if self.mode == Mode::Composite { self.temporal_window(&s.info, self.t) } else { (0, 0) };
+        let hkey = rkey
+            .wrapping_mul(31)
+            .wrapping_add(hist_t.map_or(0, |t| t as u64 + 1))
+            .wrapping_add((c0 as u64 * 65537 + c1 as u64).wrapping_mul(31) << 20);
         if hkey != self.hist.key {
             self.hist = Histogram { key: hkey, ..Default::default() };
             let mut sample = self.collect_sample(s, hist_t, 400_000);
@@ -316,7 +373,8 @@ impl Display {
                 let w = f64::from(hi - lo) / bins as f64;
                 let mut ys = vec![0.0; bins];
                 for &v in &sample {
-                    let b = ((f64::from(v) - f64::from(lo)) / w).floor();
+                    // as the C++ bins them: truncated toward zero
+                    let b = ((f64::from(v) - f64::from(lo)) / w).trunc();
                     if b >= 0.0 && (b as usize) < bins {
                         ys[b as usize] += 1.0;
                     }

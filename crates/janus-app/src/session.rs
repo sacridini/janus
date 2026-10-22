@@ -16,22 +16,29 @@ pub struct Opening {
     pub inputs: Vec<String>,
     /// added as a layer (else the open layers are closed)
     pub add: bool,
+    /// the layer whose session it replaces (the same files with another band selection)
+    pub replace: Option<usize>,
     pub started: Instant,
     rx: Receiver<Result<CubeInfo, String>>,
 }
 
 impl Opening {
     pub fn start(inputs: Vec<String>, add: bool, ctx: &egui::Context) -> Self {
+        Self::start_with(inputs, add, janus_cube::BandSelection::default(), ctx)
+    }
+
+    /// With a band selection (the shown band, a normalized difference, a quality band).
+    pub fn start_with(inputs: Vec<String>, add: bool, sel: janus_cube::BandSelection, ctx: &egui::Context) -> Self {
         let (tx, rx) = channel();
         let (i, ctx) = (inputs.clone(), ctx.clone());
         std::thread::Builder::new()
             .name("open".into())
             .spawn(move || {
-                let _ = tx.send(janus_cube::open_cube(&i, &janus_cube::BandSelection::default()));
+                let _ = tx.send(janus_cube::open_cube(&i, &sel));
                 ctx.request_repaint();
             })
             .expect("thread");
-        Opening { inputs, add, started: Instant::now(), rx }
+        Opening { inputs, add, replace: None, started: Instant::now(), rx }
     }
 
     pub fn poll(&self) -> Option<Result<CubeInfo, String>> {

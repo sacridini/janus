@@ -349,6 +349,51 @@ impl State {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
     }
 
+    /// The same files with another band selection: the layer keeps its place, name, visibility, opacity, display
+    /// mode, date, pins and view; the stretches go back to automatic since the values changed.
+    pub(crate) fn replace_layer_session(
+        &mut self,
+        i: usize,
+        info: CubeInfo,
+        o: &crate::session::Opening,
+        ctx: &egui::Context,
+    ) {
+        let s = Session::new(info, o, &self.session_settings(), ctx);
+        let n = s.info.t();
+        let carry = |old: &Display| Display {
+            mode: old.mode,
+            cmap: old.cmap,
+            t: old.t.min(n - 1),
+            rgb: [0, n / 2, n - 1],
+            diff_ref: old.diff_ref.min(n as i32 - 1),
+            per_date_range: old.per_date_range,
+            detail: old.detail,
+            fps: old.fps,
+            season: old.season,
+            reducer: old.reducer,
+            window: old.window,
+            days: old.days,
+            ..Default::default()
+        };
+        if i == self.active {
+            self.display = carry(&self.display);
+            self.session = Some(s);
+            self.classes = Default::default();
+            self.clear_roi();
+            let at = self.series.pins.iter().map(|p| (p.id, p.color, p.x, p.y)).collect();
+            self.rebuild_pins(at);
+        } else {
+            let l = &mut self.layers[i];
+            l.disp = carry(&l.disp);
+            l.session = Some(s);
+            l.classes = Default::default();
+            l.series = Default::default();
+        }
+        self.update_alignment();
+        self.sync_layer_times();
+        self.map.dirty = true;
+    }
+
     /// Layers i and j change places in the drawing order (the active one stays active).
     pub fn swap_layers(&mut self, i: usize, j: usize) {
         self.layers.swap(i, j);
