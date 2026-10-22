@@ -159,6 +159,7 @@ pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResu
         "tmask" => crate::tmask::pixel(p, input),
         "ndfi" => crate::ndfi::pixel(p, input),
         "coded" => crate::coded::pixel(p, input),
+        "phenology" => crate::phenology::pixel(p, input),
         "bfast" => crate::bfast::bfast_pixel(p, input),
         "bfast_lite" => crate::bfast::lite_pixel(p, input),
         "bfast_monitor" => crate::bfast::monitor_pixel(p, input),

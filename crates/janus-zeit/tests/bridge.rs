@@ -218,3 +218,23 @@ fn ndfi() {
 fn coded() {
     compare("coded");
 }
+
+/// Python's timedelta(days=x).days, the bridge's phenology dates.
+#[test]
+fn timedelta_days() {
+    let mut bad = 0;
+    for line in data("timedelta.txt").lines() {
+        let (x, d) = line.split_once(' ').unwrap();
+        let (x, d): (f64, i64) = (x.parse().unwrap(), d.parse().unwrap());
+        if janus_zeit::numeric::timedelta_days(x) != d {
+            bad += 1;
+            println!("timedelta(days={x:?}).days = {d}, native {}", janus_zeit::numeric::timedelta_days(x));
+        }
+    }
+    assert_eq!(bad, 0);
+}
+
+#[test]
+fn phenology() {
+    compare("phenology");
+}

@@ -137,3 +137,39 @@ pub fn regular_time(days: &[i64]) -> Result<(f64, i32), String> {
     let start = year + ((first - year) * frequency as f64).round_ties_even() / frequency as f64;
     Ok((start, frequency as i32))
 }
+
+/// (year, month, day) of a day counted from 1970-01-01.
+pub fn civil(days: i64) -> (i64, u32, u32) {
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (yoe + era * 400 + i64::from(m <= 2), m, d)
+}
+
+/// The whole days of Python's `timedelta(days=x)` (CPython's _datetime: the whole days and the whole
+/// microseconds of the fraction kept, the leftover microsecond rounded half to even), which `date + timedelta`
+/// adds.
+pub fn timedelta_days(x: f64) -> i64 {
+    const US_PER_DAY: i64 = 86_400_000_000;
+    let (int_days, frac) = (x.trunc(), x.fract());
+    let mut us = int_days as i64 * US_PER_DAY;
+    if frac != 0.0 {
+        let dnum = US_PER_DAY as f64 * frac;
+        let (whole, leftover) = (dnum.trunc(), dnum.fract());
+        us += whole as i64;
+        if leftover != 0.0 {
+            let mut r = leftover.round(); // C's round: halves away from zero
+            if (r - leftover).abs() == 0.5 {
+                let odd = (us & 1) as f64;
+                r = 2.0 * ((leftover + odd) * 0.5).round() - odd;
+            }
+            us += r as i64;
+        }
+    }
+    us.div_euclid(US_PER_DAY)
+}

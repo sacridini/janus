@@ -14,6 +14,7 @@ pub mod manifest;
 mod mann_kendall;
 mod ndfi;
 pub mod numeric;
+mod phenology;
 pub mod pixel;
 mod smooth;
 mod tmask;

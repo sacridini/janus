@@ -3,9 +3,9 @@
 made-up series, written as JSON fixtures that `cargo test -p janus-zeit` compares
 with the native runs.
 
-    python tools/zeit_fixtures.py [OUT_DIR] [TOOL...]
+    python tools/zeit_fixtures.py [--out DIR] [TOOL...]
 
-OUT_DIR defaults to crates/janus-zeit/tests/data. Needs a Python with Zeit >= 2.0
+DIR defaults to crates/janus-zeit/tests/data; without TOOLs, every tool. Needs a Python with Zeit >= 2.0
 (numpy, xarray, pandas); the manifest of every tool is written too (tools.json),
 with the Zeit version it came from.
 """
@@ -270,7 +270,38 @@ def multiband_cases(roles, variants, n_cases=20, step=16):
     return cases
 
 
+def phenology_cases(rng):
+    curves = ["beck", "elmore", "gu", "zhang", "ag", "klos", "dl"]
+    methods = ["trs5", "trs2", "trs6", "der", "zhang", "gu"]
+    out = []
+    for k in range(28):
+        if k % 4 == 3:
+            years, days = monthly(2014, int(rng.integers(2, 7)))
+        else:
+            first = f"{int(rng.integers(2005, 2016))}-0{int(rng.integers(1, 9))}-0{int(rng.integers(1, 9))}"
+            years, days = regular(first=first, n=int(rng.integers(30, 180)))
+        t = np.asarray(days, dtype=np.float64)
+        phase = rng.uniform(0, 6)
+        v = 0.35 + 0.3 * np.clip(np.sin(2 * np.pi * t / 365.25 + phase), -0.6, 1) + rng.normal(0, 0.02, t.size)
+        if k % 7 == 5:  # two seasons a year
+            v = 0.4 + 0.2 * np.sin(4 * np.pi * t / 365.25 + phase) + rng.normal(0, 0.02, t.size)
+        if k % 9 == 8:  # barely varies
+            v = 0.2 + rng.normal(0, 0.01, t.size)
+        v[rng.random(t.size) < rng.uniform(0, 0.25)] = np.nan
+        params = {"curve": curves[k % len(curves)], "method": methods[k % len(methods)],
+                  "smoothing": ["whittaker", "hants", "none"][k % 3]}
+        if k % 5 == 4:
+            params.update({"lambda": 100.0, "min_amplitude": 0.05, "min_season_length": 60})
+        out.append({"params": params, "years": years, "days": days, "values": v})
+    years, days = regular(n=20)  # under a year
+    out.append({"params": {}, "years": years, "days": days, "values": rng.uniform(0, 1, 20)})
+    years, days = regular(n=40)  # no real dates
+    out.append({"params": {}, "years": years, "days": None, "values": rng.uniform(0, 1, 40)})
+    return out
+
+
 CASES = {
+    "phenology": phenology_cases,
     "coded": multiband_cases(zc.LANDSAT_ROLES, [{}, {"monitor_start": 2017.0}, {"direction": "both", "max_events": 5},
                                                 {"thresh": 2.0, "consec": 2, "forest_ndfi": 0.3}, {"cloud_threshold": 1.0},
                                                 {"train_years": 1.5, "min_obs": 4, "min_years": 1.0}], n_cases=30),
@@ -289,8 +320,13 @@ CASES = {
 
 def main():
     args = sys.argv[1:]
-    out_dir = args.pop(0) if args and not args[0] in CASES else os.path.join(HERE, "..", "crates", "janus-zeit",
-                                                                           "tests", "data")
+    out_dir = os.path.join(HERE, "..", "crates", "janus-zeit", "tests", "data")
+    if args[:1] == ["--out"]:
+        out_dir = args[1]
+        args = args[2:]
+    unknown = [a for a in args if a not in CASES]
+    if unknown:
+        sys.exit(f"no cases for {unknown}; tools: {sorted(CASES)}")
     wanted = args or list(CASES)
     os.makedirs(out_dir, exist_ok=True)
     manifest = bridge.manifest()
