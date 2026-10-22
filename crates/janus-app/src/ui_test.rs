@@ -796,7 +796,7 @@ impl State {
             90..=100 => return self.test_spectra(st, &input, t0, ctx),
             110..=115 => return self.test_roi_polygon(st, &input, t0, ctx),
             120..=125 => return self.test_vectors(st, t0, ctx),
-            130..=137 => return self.test_animation(st, &input, t0, ctx),
+            130..=137 | 79 | 80 => return self.test_animation(st, &input, t0, ctx),
             170..=179 => return self.test_validation(st, &input, t0, ctx),
             _ => {}
         }

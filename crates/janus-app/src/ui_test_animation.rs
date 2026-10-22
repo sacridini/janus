@@ -97,6 +97,9 @@ pub(crate) struct AnimTest {
     o: AnimOptions,
     dates: Vec<usize>,
     orig_t: usize,
+    /// stage 79: the swipe before a shortcut; 80: the run's folder
+    swipe: bool,
+    run: std::path::PathBuf,
 }
 
 impl State {
@@ -370,6 +373,155 @@ impl State {
                         let _ = std::fs::remove_dir_all(&at.dir);
                     }
                     next(st, "cancel: no file left, the date restored");
+                    st.frames = 0;
+                    st.stage = 79; // the export shortcuts, then Save all outputs
+                }
+                79 => {
+                    // the export shortcuts, as typed: each dialog opens, with a file name in the export folder
+                    let keys: [(egui::Key, egui::Modifiers, usize, &str); 3] = [
+                        (egui::Key::E, egui::Modifiers::COMMAND, 1, ".png"),
+                        (egui::Key::E, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, 2, ".tif"),
+                        (egui::Key::V, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, 3, "_view.tif"),
+                    ];
+                    let k = st.frames / 2;
+                    if k >= keys.len() {
+                        st.frames = 0;
+                        next(st, "export shortcuts: Ctrl+E, Ctrl+Shift+E, Ctrl+Shift+V open their dialogs");
+                        st.stage = 80;
+                        return None;
+                    }
+                    let (key, modifiers, kind, ext) = keys[k];
+                    if st.frames % 2 == 0 {
+                        // keys down; read at the next frame
+                        self.export.kind = 0;
+                        self.export.shown = false;
+                        at.swipe = self.swipe.is_some();
+                        ctx.input_mut(|i| {
+                            i.events.push(egui::Event::Key {
+                                key,
+                                physical_key: None,
+                                pressed: true,
+                                repeat: false,
+                                modifiers,
+                            })
+                        });
+                        st.frames += 1;
+                        return None;
+                    }
+                    let open = self.export.shown && self.export.kind == kind;
+                    let path = self.export.path.clone();
+                    println!(
+                        "    {modifiers:?}+{key:?}: dialog {kind} {}, saving to {path}",
+                        if open { "open" } else { "NOT open" }
+                    );
+                    if !open {
+                        return fail("the export shortcut should open its dialog");
+                    }
+                    if !path.ends_with(ext) {
+                        return fail("the export dialog should propose a file name with the format's extension");
+                    }
+                    if self.swipe.is_some() != at.swipe {
+                        return fail("an export shortcut should not toggle the swipe");
+                    }
+                    self.export.shown = false;
+                    st.frames += 1;
+                }
+                80 => {
+                    // a Zeit run of two outputs: Ctrl+Shift+S opens "Save all outputs", which copies both
+                    let info = self.session.as_ref()?.info.clone();
+                    if st.frames == 0 {
+                        let stamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map_or(0, |d| d.as_nanos());
+                        at.run = std::env::temp_dir().join(format!("janus-selftest-run-{stamp}"));
+                        let _ = std::fs::create_dir_all(at.run.join("run"));
+                        let _ = std::fs::create_dir_all(at.run.join("saved"));
+                        for (i, c) in ['a', 'b'].into_iter().enumerate() {
+                            let f = at.run.join("run").join(format!("tool_{c}.tif"));
+                            let _ = std::fs::copy(&info.layers[i].path, &f);
+                            self.zeit.results.push(crate::zeit::ResultLayer {
+                                cube: info.id,
+                                name: format!("Test tool: output {c}"),
+                                path: f.to_string_lossy().into_owned(),
+                                unit: String::new(),
+                                cmap: 0,
+                                x0: 0,
+                                y0: 0,
+                                w: 0,
+                                h: 0,
+                                tw: 0,
+                                th: 0,
+                                data: Vec::new(),
+                                tex: None,
+                                lo: 0.0,
+                                hi: 1.0,
+                                visible: false, // not drawn (no texture)
+                                opacity: 1.0,
+                                classes: Vec::new(),
+                                class_series: Vec::new(),
+                            });
+                        }
+                        at.swipe = self.swipe.is_some();
+                        let m = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+                        ctx.input_mut(|i| {
+                            i.events.push(egui::Event::Key {
+                                key: egui::Key::S,
+                                physical_key: None,
+                                pressed: true,
+                                repeat: false,
+                                modifiers: m,
+                            })
+                        });
+                        st.frames = 1;
+                        return None;
+                    }
+                    let k = self.zeit.results.len() - 1;
+                    if st.frames == 1 {
+                        let open = self.export.save_run.is_some();
+                        let n = self.run_outputs(k).len();
+                        println!(
+                            "    Ctrl+Shift+S: Save all outputs {}, {n} outputs in the run",
+                            if open { "open" } else { "NOT open" }
+                        );
+                        if !open {
+                            return fail("Ctrl+Shift+S should open the Save all outputs dialog");
+                        }
+                        if n != 2 {
+                            return fail("the run should have both outputs");
+                        }
+                        if self.swipe.is_some() != at.swipe {
+                            return fail("Ctrl+Shift+S should not toggle the swipe");
+                        }
+                        self.export.save_run = None;
+                        st.jobs = self.export_run(k, &at.run.join("saved").to_string_lossy(), ctx); // what Save all does
+                        st.frames = 2;
+                        return None;
+                    }
+                    if st.jobs.iter().any(|j| j.state() == ExportState::Running) {
+                        return None;
+                    }
+                    for i in 0..2 {
+                        let r = k - 1 + i;
+                        let f = at.run.join("saved").join(self.result_file_name(r));
+                        let size = |p: &std::path::Path| std::fs::metadata(p).ok().map(|m| m.len());
+                        let same =
+                            size(&f).is_some() && size(&f) == size(std::path::Path::new(&self.zeit.results[r].path));
+                        println!(
+                            "    saved {} ({})",
+                            f.file_name().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default(),
+                            if same { "same size as the output" } else { "missing" }
+                        );
+                        if st.jobs[i].state() != ExportState::Done || !same {
+                            return fail("Save all should copy every output of the run into the folder");
+                        }
+                    }
+                    self.zeit.results.truncate(k - 1);
+                    st.jobs.clear();
+                    self.exports.clear();
+                    self.show_exports = false;
+                    let _ = std::fs::remove_dir_all(&at.run);
+                    st.frames = 0;
+                    next(st, "Save all outputs: both outputs of the run copied, named after the layer");
                     if self.opts.extra_layers.len() < 3 {
                         println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                         return Some(0);
