@@ -29,6 +29,7 @@ janus-geo = { path = "../janus-geo" }
 janus-zeit = { path = "../janus-zeit" }
 janus-gpu = { path = "../janus-gpu" }
 janus-session = { path = "../janus-session" }
+janus-validation = { path = "../janus-validation" }
 mimalloc = { version = "0.1", default-features = false }
 rfd = "0.17"
 serde = { version = "1", features = ["derive"] }

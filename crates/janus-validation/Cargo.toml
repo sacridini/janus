@@ -1,0 +1,14 @@
+[package]
+name = "janus-validation"
+description = "Janus: validation of maps (Olofsson et al. 2014; Stehman 2014): strata, design, sample, estimators, the project"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gdal.workspace = true
+gdal-sys.workspace = true
+janus-geo = { path = "../janus-geo" }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+libm = "0.2"
+rayon = "1.12"

@@ -86,6 +86,11 @@ Options:
   --selftest-composite C  the RGB composite of the test series C (five bands per date) against its files
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
                       C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
+  --selftest-validation  the estimators against Olofsson et al. (2014), the design, strata, sample and project on
+                      synthetic maps and, with a Python with Zeit (JANUS_PYTHON, else `python`), the estimates
+                      against zeit.accuracy
+  --measure-validation IN  the strata of a map (a buffer of 1 px), its areas, a sample of 1000 points, the
+                      map at them and the estimators, timed
   --selftest-embeddings  the embedding kernels, eigenvectors and PCA against known answers, timed
   --selftest-embeddings-ui DIR [OUT]  a series of embeddings: its views, their GeoTIFFs checked (in OUT); DIR
                       another kind of series: AlphaEarth 2023-2024 of its visible area (or --roi) downloaded
@@ -237,6 +242,38 @@ fn main() -> eframe::Result<()> {
                         1
                     }
                 });
+            }
+            "--selftest-validation" => {
+                attach_console();
+                // a Python with what the Copy Python code imports, to compare with zeit.accuracy
+                let python = std::env::var("JANUS_PYTHON").unwrap_or_else(|_| "python".into());
+                let has = std::process::Command::new(&python)
+                    .args(["-c", "import zeit, geopandas, rioxarray, xarray"])
+                    .output()
+                    .is_ok_and(|o| o.status.success());
+                let mut rep = String::new();
+                let r = janus_validation::selftest::self_test(&mut rep, has.then_some(python.as_str()));
+                if !has {
+                    rep += "  (no Python with Zeit, geopandas and rioxarray: zeit.accuracy not compared)\n";
+                }
+                std::process::exit(match r {
+                    Ok(()) => {
+                        println!("{rep}OK");
+                        0
+                    }
+                    Err(e) => {
+                        println!("{rep}FAIL: {e}");
+                        1
+                    }
+                });
+            }
+            "--measure-validation" => {
+                attach_console();
+                let Some(p) = args.next() else {
+                    println!("--measure-validation needs a map");
+                    std::process::exit(2);
+                };
+                std::process::exit(janus_validation::selftest::measure(&p));
             }
             "--selftest-zeit" => {
                 attach_console();

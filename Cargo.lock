@@ -1607,6 +1607,7 @@ dependencies = [
  "janus-geo",
  "janus-gpu",
  "janus-session",
+ "janus-validation",
  "janus-zeit",
  "mimalloc",
  "rfd",
@@ -1681,6 +1682,18 @@ version = "0.40.0"
 dependencies = [
  "janus-cache",
  "janus-cube",
+]
+
+[[package]]
+name = "janus-validation"
+version = "0.40.0"
+dependencies = [
+ "gdal",
+ "gdal-sys",
+ "janus-geo",
+ "libm",
+ "rayon",
+ "serde_json",
 ]
 
 [[package]]
