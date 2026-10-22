@@ -46,6 +46,12 @@ pub struct ToolUi {
     pub open: bool,
     pub params: BTreeMap<String, Value>,
     pub scope: usize,
+    /// the run's time measured on a sample (for the series, parameters and bands of `est_key`), the measure under
+    /// way, and when they changed last (measured once they stay for a moment)
+    est: Option<Result<janus_zeit::job::Estimate, String>>,
+    est_key: String,
+    est_job: Option<Receiver<Result<janus_zeit::job::Estimate, String>>>,
+    est_changed: Option<Instant>,
 }
 
 /// The bands a multiband fit reads for its pixel (in the worker).
@@ -92,6 +98,18 @@ pub struct ZeitUi {
     rx: Option<Receiver<Reply>>,
     /// the last fit's time (Performance)
     pub last_fit_ms: f64,
+    /// the raster runs, their result maps, the Tasks window
+    pub jobs: Vec<Job>,
+    pub results: Vec<ResultLayer>,
+    pub show_tasks: bool,
+    /// where runs write (None: the app's results folder)
+    pub results_dir: Option<std::path::PathBuf>,
+    /// series outputs to open as layers, and the layer to keep active meanwhile
+    pub series_to_open: Vec<String>,
+    pub keep_active: Option<usize>,
+    /// result maps read (on threads)
+    loaded: Arc<std::sync::Mutex<Vec<Result<ResultLayer, String>>>>,
+    pending_loads: usize,
 }
 
 /// The worker: the newest request of each series, in turn; a multiband pixel's bands read first.
@@ -405,6 +423,10 @@ impl State {
             }
             ui.separator();
         }
+        if ui.add(egui::Button::selectable(self.zeit.show_tasks, "Tasks")).clicked() {
+            self.zeit.show_tasks = !self.zeit.show_tasks;
+            ui.close();
+        }
         ui.weak(format!("Zeit {} (native, zeit-core)", janus_zeit::ZEIT_VERSION));
     }
 
@@ -511,7 +533,7 @@ impl State {
             }
             ui.weak("Runs on every exact series; the model is drawn over it\nand its numbers are added to the Statistics table.");
         }
-        if tool.modes.iter().any(|m| m == "raster") {
+        if tool.modes.iter().any(|m| m == "raster") && self.session.is_some() {
             self.raster_run_ui(ui, tool, why.is_some());
         }
     }
@@ -782,15 +804,790 @@ pub(crate) fn fit_rows(fit: Option<&Result<PixelResult, String>>) -> Vec<(String
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Raster runs: their tasks and their result maps
+// ---------------------------------------------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobState {
+    Running,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+/// What a running job tells the window.
+pub struct JobStatus {
+    pub state: JobState,
+    pub progress: f64,
+    pub message: String,
+    pub error: String,
+    pub result: Option<janus_zeit::job::JobResult>,
+    pub seconds: f64,
+}
+
+/// A raster run of a tool (Tools > Tasks).
+pub struct Job {
+    pub title: String,
+    pub tool: String,
+    /// the series (layer) it ran on: its results go under it
+    pub cube: u64,
+    pub output_dir: String,
+    pub started: Instant,
+    pub status: Arc<std::sync::Mutex<JobStatus>>,
+    pub cancel: Arc<std::sync::atomic::AtomicBool>,
+    /// its outputs were taken (as result layers or series)
+    pub loaded: bool,
+}
+
+/// A map a run wrote, drawn over its series (src/results.hpp).
+pub struct ResultLayer {
+    pub cube: u64,
+    /// e.g. "LandTrendr: Year of detection"
+    pub name: String,
+    pub path: String,
+    pub unit: String,
+    pub cmap: usize,
+    /// the window in the series' pixels
+    pub x0: usize,
+    pub y0: usize,
+    pub w: usize,
+    pub h: usize,
+    /// a copy (at most 4096 px a side): tw x th, NaN = no value
+    pub tw: usize,
+    pub th: usize,
+    pub data: Vec<f32>,
+    pub tex: Option<janus_gpu::GpuTexture>,
+    pub lo: f32,
+    pub hi: f32,
+    pub visible: bool,
+    pub opacity: f32,
+    /// a class map: value k is classes[k - 1]
+    pub classes: Vec<String>,
+    /// each class's typical series (x in decimal years), drawn for the class under the cursor
+    pub class_series: Vec<(Vec<f64>, Vec<f64>)>,
+}
+
+impl ResultLayer {
+    /// The value at a pixel of its series (NaN outside or without one).
+    pub fn value_at(&self, x: usize, y: usize) -> f32 {
+        if x < self.x0 || y < self.y0 || x >= self.x0 + self.w || y >= self.y0 + self.h || self.data.is_empty() {
+            return f32::NAN;
+        }
+        let px = ((x - self.x0) as f64 * self.tw as f64 / self.w as f64) as usize;
+        let py = ((y - self.y0) as f64 * self.th as f64 / self.h as f64) as usize;
+        self.data[py.min(self.th - 1) * self.tw + px.min(self.tw - 1)]
+    }
+
+    /// The automatic range: min..max for years and durations, 2-98 % otherwise; a class map's colours one
+    /// per class.
+    fn auto_range(&mut self) {
+        if !self.classes.is_empty() {
+            let colormaps = janus_gpu::colormaps::all();
+            if self.classes.len() > colormaps[self.cmap].keys().count()
+                && let Some(paired) = janus_gpu::colormaps::by_name("Paired")
+            {
+                self.cmap = paired;
+            }
+            self.lo = 0.5;
+            self.hi = colormaps[self.cmap].keys().count() as f32 + 0.5;
+            return;
+        }
+        let v: Vec<f32> = self.data.iter().copied().filter(|x| x.is_finite()).collect();
+        if v.is_empty() {
+            (self.lo, self.hi) = (0.0, 1.0);
+        } else if self.unit == "year" || self.unit == "years" {
+            let (mn, mx) = v.iter().fold((f32::MAX, f32::MIN), |(a, b), &x| (a.min(x), b.max(x)));
+            (self.lo, self.hi) = (mn, mx.max(mn + 1.0));
+        } else {
+            (self.lo, self.hi) = janus_cube::stats::sample_percentiles(&v, 2_000_000, 0.02, 0.98);
+        }
+    }
+}
+
+/// Band 1 of a result raster, downsampled (nearest) so its longer side is at most `max_dim`.
+fn load_result(path: &str, max_dim: usize) -> Result<(Vec<f32>, usize, usize), String> {
+    let ds = gdal::Dataset::open(path).map_err(|e| format!("{path}: {e}"))?;
+    let (w, h) = ds.raster_size();
+    let s = (max_dim as f64 / w.max(h) as f64).min(1.0);
+    let (tw, th) = (((w as f64 * s).round() as usize).max(1), ((h as f64 * s).round() as usize).max(1));
+    let band = ds.rasterband(1).map_err(|e| e.to_string())?;
+    let nd = band.no_data_value().filter(|v| !v.is_nan());
+    let buf = band
+        .read_as::<f32>((0, 0), (w, h), (tw, th), Some(gdal::raster::ResampleAlg::NearestNeighbour))
+        .map_err(|e| format!("{path}: {e}"))?;
+    let mut data = buf.data().to_vec();
+    if let Some(nd) = nd {
+        for v in data.iter_mut() {
+            if *v == nd as f32 {
+                *v = f32::NAN;
+            }
+        }
+    }
+    Ok((data, tw, th))
+}
+
+fn timestamp() -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
+    let (y, m, d) = janus_zeit::numeric::civil(now.div_euclid(86400));
+    let s = now.rem_euclid(86400);
+    format!("{y:04}{m:02}{d:02}-{:02}{:02}{:02}", s / 3600, s / 60 % 60, s % 60)
+}
+
+/// A file or folder name from the series' inputs.
+fn series_name(info: &CubeInfo, inputs: &[String]) -> String {
+    let p = std::path::PathBuf::from(if inputs.len() == 1 { inputs[0].clone() } else { info.first_path.clone() });
+    let p = if inputs.len() == 1 { p } else { p.parent().map(|p| p.to_path_buf()).unwrap_or(p) };
+    let n = p.file_stem().or(p.file_name()).map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let n = if n.is_empty() { "series".into() } else { n };
+    n.chars().map(|c| if matches!(c, ' ' | ':' | '*' | '?') { '_' } else { c }).collect()
+}
+
+fn format_duration(s: f64) -> String {
+    if s < 1.0 {
+        "under a second".into()
+    } else if s < 90.0 {
+        format!("~{s:.0} s")
+    } else if s < 5400.0 {
+        format!("~{:.0} min", s / 60.0)
+    } else {
+        format!("~{:.1} h", s / 3600.0)
+    }
+}
+
 impl State {
     /// The result maps a "layers" parameter can choose: (name, path, unit).
     pub(crate) fn zeit_result_maps(&self) -> Vec<(String, String, String)> {
-        vec![]
+        self.zeit.results.iter().map(|r| (r.name.clone(), r.path.clone(), r.unit.clone())).collect()
     }
 
-    /// A raster run of the tool (scope, output folder, estimate, Run).
-    fn raster_run_ui(&mut self, ui: &mut Ui, _tool: &Tool, _unavailable: bool) {
+    /// The pixel window of a run's scope: the whole image, the visible area or the ROI.
+    fn run_window(&self, scope: usize) -> ([usize; 4], &'static str) {
+        let Some(s) = &self.session else { return ([0, 0, 0, 0], "") };
+        let (w, h) = (s.info.width, s.info.height);
+        if scope == 1
+            && let Some(v) = self.map.last_view
+        {
+            let x0 = (v.x0.floor().max(0.0) as usize).min(w - 1);
+            let y0 = (v.y0.floor().max(0.0) as usize).min(h - 1);
+            let x1 = (v.x1.ceil() as usize).clamp(x0 + 1, w);
+            let y1 = (v.y1.ceil() as usize).clamp(y0 + 1, h);
+            return ([x0, y0, x1, y1], "visible area");
+        }
+        if scope == 2
+            && let Some([x0, y0, x1, y1]) = self.series.roi_rect
+        {
+            return ([x0, y0, x1, y1], "ROI");
+        }
+        ([0, 0, w, h], "whole image")
+    }
+
+    /// A raster run of the tool (scope, output folder, Run).
+    fn raster_run_ui(&mut self, ui: &mut Ui, tool: &'static Tool, unavailable: bool) {
+        if self.session.is_none() {
+            return;
+        }
+        if tool.input.as_deref() == Some("layers") {
+            crate::panels::section(ui, "Run");
+            let maps = tool
+                .params
+                .iter()
+                .filter(|p| p.kind == "layers")
+                .map(|p| self.zeit.params(tool).get(&p.id).and_then(Value::as_array).map_or(0, Vec::len))
+                .max()
+                .unwrap_or(0);
+            ui.weak("On the grid of the first map checked; the results go under its series.");
+            self.output_folder_ui(ui);
+            if ui
+                .add_enabled(maps >= 2, egui::Button::new("Run").min_size(egui::vec2(ui.available_width(), 0.0)))
+                .clicked()
+            {
+                self.run_tool(tool, &ui.ctx().clone());
+            }
+            if maps < 2 {
+                ui.weak("Check at least two maps above.");
+            }
+            return;
+        }
         crate::panels::section(ui, "Run on the raster");
-        ui.weak("Raster runs: next.");
+        const SCOPES: [&str; 3] = ["Whole image", "Visible area", "ROI"];
+        let roi = self.series.roi_rect.is_some();
+        let ui_state = self.zeit.tools.entry(tool.id.clone()).or_default();
+        if ui_state.scope == 2 && !roi {
+            ui_state.scope = 0;
+        }
+        ComboBox::from_id_salt(("scope", &tool.id))
+            .width(ui.available_width())
+            .selected_text(SCOPES[ui_state.scope])
+            .show_ui(ui, |ui| {
+                for (i, s) in SCOPES.iter().enumerate() {
+                    if ui.add_enabled(i != 2 || roi, egui::Button::selectable(ui_state.scope == i, *s)).clicked() {
+                        ui_state.scope = i;
+                    }
+                }
+            });
+        let scope = ui_state.scope;
+        self.output_folder_ui(ui);
+        let (win, _) = self.run_window(scope);
+        let px = (win[2] - win[0]) as f64 * (win[3] - win[1]) as f64;
+        if !unavailable {
+            self.update_estimate(tool, ui.ctx());
+            let est = self.zeit.tools.get(&tool.id).and_then(|u| u.est.as_ref());
+            match est {
+                Some(Ok(e)) => {
+                    ui.label(format!(
+                        "Estimated: {} for {:.3} M px",
+                        format_duration(e.seconds(win[2] - win[0], win[3] - win[1])),
+                        px / 1e6
+                    ))
+                    .on_hover_text(
+                        "Computing time measured on a sample of the series, on every core.
+Reading the data adds to it, mostly on spinning disks.",
+                    );
+                }
+                Some(Err(e)) => {
+                    ui.weak(format!("No estimate: {e}"));
+                }
+                None => {
+                    ui.weak("Estimating the run time...");
+                }
+            }
+        }
+        if ui
+            .add_enabled(!unavailable, egui::Button::new("Run").min_size(egui::vec2(ui.available_width(), 0.0)))
+            .clicked()
+        {
+            self.run_tool(tool, &ui.ctx().clone());
+        }
+        ui.weak("Runs in the background on every core; see Tools > Tasks.");
+    }
+
+    fn output_folder_ui(&mut self, ui: &mut Ui) {
+        let dir = self.results_dir();
+        ui.horizontal(|ui| {
+            ui.weak(format!("Output: {}", dir.display()));
+            if ui.small_button("Change...").clicked()
+                && let Some(d) = rfd::FileDialog::new().pick_folder()
+            {
+                self.zeit.results_dir = Some(d);
+            }
+        });
+    }
+
+    fn results_dir(&self) -> std::path::PathBuf {
+        self.zeit.results_dir.clone().unwrap_or_else(|| crate::settings::app_data_dir().join("results"))
+    }
+
+    /// A run's spec on the active series (or, for a tool on maps, on its first map's grid): the spec without its
+    /// output folder, the series its results go under, what it runs on, and the series' name.
+    fn job_spec(&mut self, tool: &'static Tool) -> Result<(janus_zeit::job::JobSpec, u64, String, String), String> {
+        let info = self.session.as_ref().ok_or("no series is open")?.info.clone();
+        let inputs = self.layers.get(self.active).map(|l| l.inputs.clone()).unwrap_or_default();
+        let name = series_name(&info, &inputs);
+        let params: BTreeMap<String, Value> = self.zeit.params(tool).clone();
+        let scope = self.zeit.tools.get(&tool.id).map_or(0, |u| u.scope);
+        let work = crate::settings::app_data_dir().join("work");
+        let _ = std::fs::create_dir_all(&work);
+        let mut spec = janus_zeit::job::JobSpec {
+            tool: tool.id.clone(),
+            params: params.clone(),
+            years: (0..info.t()).map(|t| info.decimal_year(t)).collect(),
+            days: info.time_is_date.then(|| (0..info.t()).map(|t| info.unix_day(t)).collect()),
+            labels: Some(info.layers.iter().map(|l| l.label.clone()).collect()),
+            map_year: Some(info.decimal_year(self.display.t)),
+            threads: (self.settings.s.threads > 0).then_some(self.settings.s.threads as i64),
+            ..Default::default()
+        };
+        let (mut window, scope_name) = self.run_window(scope);
+        let mut scope_name = scope_name.to_string();
+        let mut cube = info.id;
+        if tool.input.as_deref() == Some("layers") {
+            // on result maps: the outputs on the first one's grid, under its series
+            let first = tool
+                .params
+                .iter()
+                .filter(|p| p.kind == "layers")
+                .find_map(|p| params.get(&p.id)?.as_array()?.first()?.get("path")?.as_str().map(str::to_string));
+            let Some(r) = first.and_then(|p| self.zeit.results.iter().find(|r| r.path == p)) else {
+                return Err("Choose the maps to run on first.".into());
+            };
+            cube = r.cube;
+            window = [r.x0, r.y0, r.x0 + r.w, r.y0 + r.h];
+            let n: usize = tool
+                .params
+                .iter()
+                .filter(|p| p.kind == "layers")
+                .map(|p| params.get(&p.id).and_then(Value::as_array).map_or(0, Vec::len))
+                .sum();
+            scope_name = format!("{n} maps");
+        } else {
+            // the series as VRTs (the shown band, its normalized difference's other band, the quality band,
+            // each mapped role's band), as the C++ wrote them for the bridge
+            let stem = work.join(format!("{name}_{}", info.id));
+            let vrt = |suffix: &str, band: i32, raw: bool| -> Result<String, String> {
+                let path = format!("{}{suffix}.vrt", stem.display());
+                janus_cube::vrt::write_cube_vrt(&info, &path, band, raw).map(|_| path)
+            };
+            let roles = self.active_roles();
+            let built = (|| -> Result<(), String> {
+                spec.input = vrt("", 0, false)?;
+                spec.shown = shown_of(&info, &roles);
+                if info.sel.nd_band > 0 {
+                    spec.nd_input = Some(vrt(&format!("_b{}", info.sel.nd_band), info.sel.nd_band, false)?);
+                }
+                if info.sel.qa_band > 0 {
+                    spec.qa_input = Some(vrt("_qa", info.sel.qa_band, true)?);
+                    spec.qa_rule = Some(info.sel.qa_rule.id().to_string());
+                }
+                let (needed, optional) = tool_roles(tool);
+                for role in needed.iter().chain(&optional) {
+                    if let Some(&b) = roles.get(role) {
+                        spec.bands.insert(role.clone(), vrt(&format!("_{role}"), b, false)?);
+                    }
+                }
+                Ok(())
+            })();
+            built?;
+        }
+        spec.window = Some(window);
+        Ok((spec, cube, scope_name, name))
+    }
+
+    /// Starts a raster run of the tool.
+    fn run_tool(&mut self, tool: &'static Tool, ctx: &egui::Context) {
+        let (mut spec, cube, scope_name, name) = match self.job_spec(tool) {
+            Ok(s) => s,
+            Err(e) => {
+                self.error_popup = Some(e);
+                return;
+            }
+        };
+        let out = self.results_dir().join(format!("{name}_{}_{}", tool.id, timestamp()));
+        if let Err(e) = std::fs::create_dir_all(&out) {
+            self.error_popup = Some(format!("could not create {}: {e}", out.display()));
+            return;
+        }
+        let window = spec.window.unwrap_or_default();
+        spec.output_dir = out.to_string_lossy().to_string();
+        let title = format!("{} - {scope_name} ({} x {} px)", tool.name, window[2] - window[0], window[3] - window[1]);
+        let status = Arc::new(std::sync::Mutex::new(JobStatus {
+            state: JobState::Running,
+            progress: 0.0,
+            message: "starting".into(),
+            error: String::new(),
+            result: None,
+            seconds: 0.0,
+        }));
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (st, cn) = (status.clone(), cancel.clone());
+        let ctx = ctx.clone();
+        std::thread::Builder::new()
+            .name("zeit-job".into())
+            .spawn(move || {
+                let t0 = Instant::now();
+                let progress = |f: f64, m: &str| {
+                    let mut s = st.lock().unwrap();
+                    s.progress = f;
+                    s.message = m.to_string();
+                    ctx.request_repaint();
+                };
+                let r = janus_zeit::job::run_job(&spec, &progress, &cn);
+                let mut s = st.lock().unwrap();
+                s.seconds = t0.elapsed().as_secs_f64();
+                match r {
+                    Ok(res) => {
+                        s.state = JobState::Done;
+                        s.progress = 1.0;
+                        s.result = Some(res);
+                    }
+                    Err(e) if e == "cancelled" => s.state = JobState::Cancelled,
+                    Err(e) => {
+                        s.state = JobState::Failed;
+                        s.error = e;
+                    }
+                }
+                ctx.request_repaint();
+            })
+            .ok();
+        self.zeit.jobs.push(Job {
+            title,
+            tool: tool.id.clone(),
+            cube,
+            output_dir: out.to_string_lossy().to_string(),
+            started: Instant::now(),
+            status,
+            cancel,
+            loaded: false,
+        });
+        self.zeit.show_tasks = true;
+    }
+
+    /// Finished runs: their maps loaded as result layers (on a thread), their series opened as layers.
+    pub(crate) fn pump_zeit_jobs(&mut self, ctx: &egui::Context) {
+        for j in &mut self.zeit.jobs {
+            if j.loaded {
+                continue;
+            }
+            let mut st = j.status.lock().unwrap();
+            if st.state != JobState::Done {
+                continue;
+            }
+            j.loaded = true;
+            let Some(res) = st.result.take() else { continue };
+            drop(st);
+            let tool_name = manifest().tool(&j.tool).map_or(j.tool.clone(), |t| t.name.clone());
+            let [x0, y0, x1, y1] = res.window;
+            let mut first = true;
+            for o in &res.outputs {
+                let path = o["path"].as_str().unwrap_or("").to_string();
+                if o["series"].as_bool() == Some(true) {
+                    // e.g. the NDFI of every date: a new layer
+                    self.zeit.series_to_open.push(path);
+                    continue;
+                }
+                let colormap = o["colormap"].as_str().unwrap_or("Viridis");
+                let class_series = o["class_series"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .map(|c| {
+                                let f = |k: &str| -> Vec<f64> {
+                                    c[k].as_array()
+                                        .map(|v| v.iter().map(|x| x.as_f64().unwrap_or(f64::NAN)).collect())
+                                        .unwrap_or_default()
+                                };
+                                (f("x"), f("y"))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let mut layer = ResultLayer {
+                    cube: j.cube,
+                    name: format!("{tool_name}: {}", o["name"].as_str().unwrap_or("")),
+                    path: path.clone(),
+                    unit: o["unit"].as_str().unwrap_or("").to_string(),
+                    cmap: janus_gpu::colormaps::by_name(colormap).unwrap_or(janus_gpu::colormaps::VIRIDIS),
+                    x0,
+                    y0,
+                    w: x1 - x0,
+                    h: y1 - y0,
+                    tw: 0,
+                    th: 0,
+                    data: vec![],
+                    tex: None,
+                    lo: 0.0,
+                    hi: 1.0,
+                    visible: first, // the first output (e.g. the year of detection) shown
+                    opacity: 1.0,
+                    classes: o["classes"]
+                        .as_array()
+                        .map(|a| a.iter().map(|c| c.as_str().unwrap_or("").to_string()).collect())
+                        .unwrap_or_default(),
+                    class_series,
+                };
+                first = false;
+                let loaded = self.zeit.loaded.clone();
+                self.zeit.pending_loads += 1;
+                let c = ctx.clone();
+                std::thread::spawn(move || {
+                    let r = load_result(&layer.path, 4096).map(|(data, tw, th)| {
+                        (layer.data, layer.tw, layer.th) = (data, tw, th);
+                        layer.auto_range();
+                        layer
+                    });
+                    loaded.lock().unwrap().push(r);
+                    c.request_repaint();
+                });
+            }
+        }
+        // loaded results: on the GPU, under their series (if it is still open)
+        let done: Vec<_> = std::mem::take(&mut *self.zeit.loaded.lock().unwrap());
+        for r in done {
+            self.zeit.pending_loads -= 1;
+            match r {
+                Err(e) => self.error_popup = Some(e),
+                Ok(mut layer) => {
+                    let open = self.layers.iter().enumerate().any(|(i, l)| {
+                        let id = if i == self.active {
+                            self.session.as_ref().map(|s| s.info.id)
+                        } else {
+                            l.session.as_ref().map(|s| s.info.id)
+                        };
+                        id == Some(layer.cube)
+                    });
+                    if !open {
+                        continue;
+                    }
+                    if let Some(gpu) = &self.gpu {
+                        layer.tex = Some(gpu.create_tile(layer.tw as u32, layer.th as u32, &layer.data));
+                    }
+                    self.zeit.results.push(layer);
+                    self.map.dirty = true;
+                }
+            }
+        }
+        // series outputs join as layers, one at a time; the series being studied stays active
+        if !self.zeit.series_to_open.is_empty() && self.opening.is_none() && !self.layers.is_empty() {
+            let path = self.zeit.series_to_open.remove(0);
+            self.zeit.keep_active = Some(self.active);
+            self.open_inputs(vec![path], true, ctx);
+        }
+    }
+
+    /// Tools > Tasks: the raster runs, their progress, cancel, their folder.
+    pub(crate) fn tasks_window(&mut self, ctx: &egui::Context) {
+        if !self.zeit.show_tasks {
+            return;
+        }
+        let mut open = true;
+        let mut remove = None;
+        egui::Window::new("Tasks").open(&mut open).default_size([560.0, 300.0]).show(ctx, |ui| {
+            if self.zeit.jobs.is_empty() {
+                ui.weak("No tasks yet. Run a tool from the Tools menu.");
+            }
+            for (i, j) in self.zeit.jobs.iter().enumerate() {
+                ui.push_id(i, |ui| {
+                    let s = j.status.lock().unwrap();
+                    ui.label(&j.title);
+                    let el = if s.state == JobState::Running { j.started.elapsed().as_secs_f64() } else { s.seconds };
+                    let name = match s.state {
+                        JobState::Running => "running",
+                        JobState::Done => "done",
+                        JobState::Cancelled => "cancelled",
+                        JobState::Failed => "failed",
+                    };
+                    ui.horizontal(|ui| {
+                        let bw = ui.text_style_height(&egui::TextStyle::Body) * 4.5;
+                        ui.add(
+                            egui::ProgressBar::new(s.progress as f32)
+                                .desired_width((ui.available_width() - 2.0 * bw - 8.0).max(60.0))
+                                .text(format!("{name}  {:.0}%  {el:.0} s", s.progress * 100.0)),
+                        );
+                        if s.state == JobState::Running {
+                            if ui.add(egui::Button::new("Cancel").min_size(egui::vec2(bw, 0.0))).clicked() {
+                                j.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        } else {
+                            if ui.add(egui::Button::new("Folder").min_size(egui::vec2(bw, 0.0))).clicked() {
+                                crate::platform::open_in_explorer(&j.output_dir);
+                            }
+                            if ui.add(egui::Button::new("Remove").min_size(egui::vec2(bw, 0.0))).clicked() {
+                                remove = Some(i);
+                            }
+                        }
+                    });
+                    if s.state == JobState::Running && !s.message.is_empty() {
+                        ui.weak(&s.message);
+                    }
+                    if !s.error.is_empty() {
+                        ui.colored_label(theme::error(), &s.error);
+                    }
+                    ui.separator();
+                });
+            }
+        });
+        if let Some(i) = remove {
+            self.zeit.jobs.remove(i);
+        }
+        self.zeit.show_tasks = open;
+    }
+
+    /// The result maps of a series, under it in the Layers panel.
+    pub(crate) fn results_ui(ui: &mut Ui, results: &mut Vec<ResultLayer>, cube: u64, dirty: &mut bool) {
+        let mut remove = None;
+        for (i, r) in results.iter_mut().enumerate().filter(|(_, r)| r.cube == cube) {
+            ui.push_id(("result", i), |ui| {
+                ui.horizontal(|ui| {
+                    if ui.checkbox(&mut r.visible, &r.name).on_hover_text(&r.path).changed() {
+                        *dirty = true;
+                    }
+                    if ui.small_button("x").on_hover_text("Remove this layer (the file stays on disk)").clicked() {
+                        remove = Some(i);
+                    }
+                });
+                if !r.visible {
+                    return;
+                }
+                ui.indent("result", |ui| {
+                    if r.classes.is_empty() {
+                        let maps = janus_gpu::colormaps::all();
+                        ComboBox::from_id_salt("rcmap").selected_text(maps[r.cmap].name).show_ui(ui, |ui| {
+                            for (k, m) in maps.iter().enumerate() {
+                                if ui.selectable_label(k == r.cmap, m.name).clicked() {
+                                    r.cmap = k;
+                                    *dirty = true;
+                                }
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            let speed = ((r.hi - r.lo) / 300.0).max(1e-6);
+                            *dirty |= ui.add(egui::DragValue::new(&mut r.lo).speed(speed).max_decimals(4)).changed();
+                            *dirty |= ui.add(egui::DragValue::new(&mut r.hi).speed(speed).max_decimals(4)).changed();
+                            if ui.button("Auto").clicked() {
+                                r.auto_range();
+                                *dirty = true;
+                            }
+                        });
+                    } else {
+                        // a class map's legend
+                        let cm = &janus_gpu::colormaps::all()[r.cmap];
+                        for (k, c) in r.classes.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                let [cr, cg, cb, _] = cm.sample((k as f32 + 0.5) / cm.keys().count() as f32);
+                                let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                                ui.painter().rect_filled(rect, 2.0, Color32::from_rgb(cr, cg, cb));
+                                ui.label(c);
+                            });
+                        }
+                    }
+                    if ui.add(egui::Slider::new(&mut r.opacity, 0.05..=1.0).text("opacity").fixed_decimals(2)).changed()
+                    {
+                        *dirty = true;
+                    }
+                });
+            });
+        }
+        if let Some(i) = remove {
+            results.remove(i);
+            *dirty = true;
+        }
+    }
+}
+
+/// A series' visible result maps over it, through its placement on the map.
+pub(crate) fn draw_results(
+    gpu: &janus_gpu::Gpu,
+    f: &mut janus_gpu::MapFrame,
+    results: &[ResultLayer],
+    info: &CubeInfo,
+    place: &crate::layers::Placement,
+    to_map: &dyn Fn([f64; 4]) -> [f32; 4],
+) {
+    for r in results.iter().filter(|r| r.cube == info.id && r.visible) {
+        let Some(tex) = &r.tex else { continue };
+        let (x0, y0) = (r.x0 as f64, r.y0 as f64);
+        if let Some((q, warp)) = place.quad(info, x0, y0, x0 + r.w as f64, y0 + r.h as f64) {
+            gpu.draw_overlay(f, tex, to_map(q), [r.lo, r.hi], r.cmap, r.opacity, warp.as_ref());
+        }
+    }
+}
+
+impl ZeitUi {
+    /// Every run done and its maps loaded (or failed).
+    pub fn runs_settled(&self) -> bool {
+        !self.jobs.is_empty()
+            && self.jobs.iter().all(|j| {
+                j.loaded
+                    || j.status.lock().unwrap().state != JobState::Running
+                        && j.status.lock().unwrap().state != JobState::Done
+            })
+            && self.loaded.lock().unwrap().is_empty()
+            && self.pending_loads == 0
+    }
+}
+
+impl State {
+    /// --zeit-run: the --zeit tool run once the series is loaded (on the ROI's window if there is one).
+    pub(crate) fn scripted_zeit_run(&mut self, ctx: &egui::Context) {
+        if !self.opts.zeit_run || !self.zeit.jobs.is_empty() {
+            return;
+        }
+        let Some(tool) = self.opts.zeit_tool.as_deref().and_then(|id| manifest().tool(id)) else { return };
+        if !self.session.as_ref().is_some_and(|s| s.ready_ms.is_some()) {
+            return;
+        }
+        if self.series.roi_rect.is_some() {
+            self.zeit.tools.entry(tool.id.clone()).or_default().scope = 2;
+        }
+        self.run_tool(tool, ctx);
+    }
+}
+
+impl State {
+    /// The run's time measured again once the series, the parameters or the bands stay for 0.6 s.
+    fn update_estimate(&mut self, tool: &'static Tool, ctx: &egui::Context) {
+        let roles = self.active_roles();
+        let Some(id) = self.session.as_ref().map(|s| s.info.id) else { return };
+        let key = format!("{id} {} {roles:?}", serde_json::to_string(self.zeit.params(tool)).unwrap_or_default());
+        let u = self.zeit.tools.entry(tool.id.clone()).or_default();
+        if let Some(rx) = &u.est_job {
+            if let Ok(r) = rx.try_recv() {
+                u.est = Some(r);
+                u.est_job = None;
+            }
+            return;
+        }
+        if key == u.est_key {
+            return;
+        }
+        let now = Instant::now();
+        match u.est_changed {
+            None => {
+                u.est_changed = Some(now);
+                ctx.request_repaint_after(std::time::Duration::from_millis(650));
+                return;
+            }
+            Some(t) if now - t < std::time::Duration::from_millis(600) => {
+                ctx.request_repaint_after(std::time::Duration::from_millis(650));
+                return;
+            }
+            _ => {}
+        }
+        u.est_changed = None;
+        u.est_key = key;
+        u.est = None;
+        // on the whole image
+        let scope = std::mem::take(&mut u.scope);
+        let spec = self.job_spec(tool);
+        let u = self.zeit.tools.entry(tool.id.clone()).or_default();
+        u.scope = scope;
+        match spec {
+            Err(e) => u.est = Some(Err(e)),
+            Ok((spec, ..)) => {
+                let (tx, rx) = channel();
+                let c = ctx.clone();
+                std::thread::spawn(move || {
+                    let _ = tx.send(janus_zeit::job::estimate(&spec));
+                    c.request_repaint();
+                });
+                u.est_job = Some(rx);
+            }
+        }
+    }
+
+    /// The typical series of the class under the cursor, from the topmost visible class map that has them (a
+    /// SOM's clusters): its class colour over a dark outline, a model and not data.
+    pub(crate) fn draw_class_series(&self, plot: &mut PlotUi, st: &SeriesStats, values: usize) {
+        let (Some(s), Some(h)) = (&self.session, &self.series.hover) else { return };
+        let info = &s.info;
+        for r in self.zeit.results.iter().rev() {
+            if r.cube != info.id || !r.visible || r.class_series.is_empty() {
+                continue;
+            }
+            let v = r.value_at(h.x, h.y);
+            let k = if v.is_nan() { 0 } else { v.round() as usize };
+            let Some((x, y)) = k.checked_sub(1).and_then(|i| r.class_series.get(i)) else { continue };
+            let shown = |v: f64| match values {
+                1 => v - st.mean,
+                2 if st.std > 0.0 => (v - st.mean) / st.std,
+                2 => 0.0,
+                _ => v,
+            };
+            let pts: Vec<[f64; 2]> = x.iter().zip(y).map(|(&x, &y)| [info.x_from_decimal_year(x), shown(y)]).collect();
+            let name =
+                format!("{}: typical series", r.classes.get(k - 1).cloned().unwrap_or_else(|| format!("class {k}")));
+            let cm = &janus_gpu::colormaps::all()[r.cmap];
+            let n = cm.keys().count().max(1);
+            let [cr, cg, cb, _] = cm.sample(((k - 1) % n) as f32 / (n - 1).max(1) as f32);
+            plot.line(
+                Line::new(&name, PlotPoints::from(pts.clone()))
+                    .color(Color32::from_rgba_unmultiplied(13, 13, 20, 230))
+                    .width(5.0),
+            );
+            plot.line(
+                Line::new(&name, PlotPoints::from(pts)).color(theme::on_plot(Color32::from_rgb(cr, cg, cb))).width(2.5),
+            );
+            return; // one map's only
+        }
     }
 }

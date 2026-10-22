@@ -628,6 +628,9 @@ impl State {
                 }
                 if li != self.active {
                     State::draw_layer(l, gpu, &mut f, &to_map);
+                    if let Some(ls) = &l.session {
+                        crate::zeit::draw_results(gpu, &mut f, &self.zeit.results, &ls.info, &l.place, &to_map);
+                    }
                     continue;
                 }
                 let alpha = l.opacity;
@@ -656,6 +659,7 @@ impl State {
                         }
                     }
                 }
+                crate::zeit::draw_results(gpu, &mut f, &self.zeit.results, &s.info, &l.place, &to_map);
             }
             gpu.end_map(f);
             if slot == 0 {

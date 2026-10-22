@@ -660,6 +660,7 @@ impl State {
                     {
                         self.map.dirty = true;
                     }
+                    State::results_ui(ui, &mut self.zeit.results, info.id, &mut self.map.dirty);
                 });
                 ui.separator();
             });

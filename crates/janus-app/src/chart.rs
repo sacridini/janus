@@ -507,6 +507,7 @@ impl State {
                 pl.series(plot, &name, &h.values, &h.stats, (h.color, 2.0), true);
                 let fit = self.zeit.fit_of(info.id, crate::zeit::Which::Hover, h.x, h.y);
                 crate::zeit::draw_fit(plot, &name, fit, &h.stats, o.values, &info);
+                self.draw_class_series(plot, &h.stats, o.values);
             }
             if sr.chart_layers == 1 {
                 // the other visible layers: their own dates on the same axis, a marker shape per layer

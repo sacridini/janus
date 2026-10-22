@@ -531,3 +531,72 @@ impl JobCtx {
         JobCtx { input, n_jobs: 1, ..Default::default() }
     }
 }
+
+/// A run's computing time as the bridge's `estimate` measured it: a fixed cost per chunk plus a cost per pixel,
+/// fitted on growing samples from the middle of the window (after a warm-up); the reading not included.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Estimate {
+    pub sec_per_px: f64,
+    pub sec_per_chunk: f64,
+    pub chunk_cells: f64,
+}
+
+impl Estimate {
+    /// Seconds for a window of `w` x `h` pixels (the C++'s estimateJobSeconds).
+    pub fn seconds(&self, w: usize, h: usize) -> f64 {
+        let rows = ((self.chunk_cells / w.max(1) as f64) as usize).clamp(8, 512);
+        let chunks = h.div_ceil(rows);
+        chunks as f64 * self.sec_per_chunk + w as f64 * h as f64 * self.sec_per_px
+    }
+}
+
+pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
+    let tool = manifest().tool(&spec.tool).ok_or_else(|| format!("KeyError: '{}'", spec.tool))?;
+    let cells = tool.chunk_cells.unwrap_or(4_000_000) as f64;
+    if tool.input.as_deref() == Some("layers") {
+        return Ok(Estimate { sec_per_px: 5e-8, sec_per_chunk: 0.0, chunk_cells: cells });
+    }
+    let p = Params::with_defaults(&spec.tool, &spec.params).unwrap_or_default();
+    let inputs = Inputs::new(spec)?;
+    let (iw, ih) = inputs.input.raster_size();
+    let [x0, y0, x1, y1] = spec.window.unwrap_or([0, 0, iw, ih]);
+    let (w, h) = (x1 - x0, y1 - y0);
+    let ctx = JobCtx { input: spec.context(), n_jobs: spec.n_jobs(), ..Default::default() };
+    let sample = |n: usize| -> Result<(f64, f64), String> {
+        let (sw, sh) = (n.min(w), n.min(h));
+        let chunk = inputs.read(x0 + (w - sw) / 2, y0 + (h - sh) / 2, sw, sh)?;
+        let t = std::time::Instant::now();
+        run_chunk(&spec.tool, &p, &chunk, &ctx)?;
+        Ok((t.elapsed().as_secs_f64(), (sw * sh) as f64))
+    };
+    sample(2)?; // warm-up
+    let mut points = vec![sample(8)?];
+    if points[0].0 < 1.5 {
+        points.push(sample(16)?);
+    }
+    for side in [64, 128] {
+        if points.len() < 2 || side > w.max(h) * 2 {
+            break;
+        }
+        let ((t0, _), (t1, n1)) = (points[points.len() - 2], points[points.len() - 1]);
+        let spent: f64 = points.iter().map(|p| p.0).sum();
+        let flat = t1 < 1.5 * t0 && t1 < 1.5;
+        let cheap = t1 * (side * side) as f64 / n1 < 1.0;
+        if spent > 4.0 || !(flat || cheap) {
+            break;
+        }
+        points.push(sample(side)?);
+    }
+    // least squares t = a + b n (b >= 0)
+    let (per_chunk, per_px) = if points.len() == 1 {
+        (0.0, points[0].0 / points[0].1.max(1.0))
+    } else {
+        let k = points.len() as f64;
+        let (mn, mt) = (points.iter().map(|p| p.1).sum::<f64>() / k, points.iter().map(|p| p.0).sum::<f64>() / k);
+        let sxx: f64 = points.iter().map(|p| (p.1 - mn).powi(2)).sum();
+        let b =
+            if sxx > 0.0 { (points.iter().map(|p| (p.1 - mn) * (p.0 - mt)).sum::<f64>() / sxx).max(0.0) } else { 0.0 };
+        ((mt - b * mn).max(0.0), b)
+    };
+    Ok(Estimate { sec_per_px: per_px, sec_per_chunk: per_chunk, chunk_cells: cells })
+}

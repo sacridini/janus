@@ -120,6 +120,9 @@ pub struct Options {
     pub roi: Option<[i64; 4]>,
     /// --zeit TOOL: that Zeit tool fitted on the chart, its window open
     pub zeit_tool: Option<String>,
+    /// --zeit-run: the --zeit tool run on the raster (its ROI if --roi, else the whole image) once the series is
+    /// loaded
+    pub zeit_run: bool,
     /// --selftest-reproject B F: F reprojected on B's grid
     pub selftest_reproject: bool,
     /// --selftest-multidim H/clim.nc: a NetCDF of two variables, its levels, opened in place
@@ -576,6 +579,10 @@ impl State {
         }
         self.display.playing = false;
         self.set_active(self.layers.len() - 1, ctx);
+        // a series a Zeit run wrote joins under the one studied, which stays active
+        if let Some(k) = self.zeit.keep_active.take().filter(|&k| k < self.layers.len()) {
+            self.set_active(k, ctx);
+        }
         if first {
             // test runs: a season, a basemap
             if let Some((a, b)) = self.opts.season {
@@ -950,7 +957,9 @@ impl State {
             let basemap_ready = self.opts.basemap.is_none()
                 || !self.basemap.why.is_empty()
                 || self.basemap.b.as_ref().is_some_and(|b| b.has_map() && b.loads() > 0 && b.inflight() == 0);
-            let ready = self.session.as_ref().is_some_and(|s| s.ready_ms.is_some()) && basemap_ready;
+            // a Zeit run asked for: done, its maps loaded
+            let zeit_ready = !self.opts.zeit_run || self.zeit.runs_settled();
+            let ready = self.session.as_ref().is_some_and(|s| s.ready_ms.is_some()) && basemap_ready && zeit_ready;
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
                 self.shots_pending += 1;
@@ -1031,6 +1040,8 @@ impl eframe::App for JanusApp {
         s.pump_basemap(&ctx);
         s.pump_composite(&ctx);
         s.pump_zeit(&ctx);
+        s.pump_zeit_jobs(&ctx);
+        s.scripted_zeit_run(&ctx);
         let rc = if s.opts.dump_golden.is_some() {
             s.golden_step(&ctx)
         } else if s.opts.selftest_composite {
@@ -1167,6 +1178,7 @@ impl eframe::App for JanusApp {
         self.state.settings_ui(&ctx);
         self.state.popups(&ctx);
         self.state.tool_windows(&ctx);
+        self.state.tasks_window(&ctx);
         // the layout kept, every few seconds when it changed (not for the tests)
         if self.layout_checked.elapsed().as_secs_f64() > 3.0 && !self.state.settings.no_save {
             self.layout_checked = Instant::now();

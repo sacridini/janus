@@ -15,7 +15,8 @@ pub fn is_raster_path(path: &Path) -> bool {
 
 /// File names of vector data (points, lines, polygons) Janus opens as vector layers (src/vectors.cpp).
 pub fn is_vector_path(path: &Path) -> bool {
-    const EXTS: [&str; 12] = ["geojson", "json", "shp", "gpkg", "kml", "kmz", "gml", "fgb", "csv", "gpx", "tab", "geojsonl"];
+    const EXTS: [&str; 12] =
+        ["geojson", "json", "shp", "gpkg", "kml", "kmz", "gml", "fgb", "csv", "gpx", "tab", "geojsonl"];
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
 }
 

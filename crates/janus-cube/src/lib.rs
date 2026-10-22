@@ -12,6 +12,7 @@ pub mod remote;
 pub mod roles;
 pub mod spectral;
 pub mod stats;
+pub mod vrt;
 
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString};
