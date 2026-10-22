@@ -33,6 +33,8 @@ pub enum Tab {
     Interpretation,
     /// View > Analysis, next to the time series
     Analysis,
+    /// with a layer of embeddings (or a spectrum's analysis), next to Display
+    Embeddings,
 }
 
 impl Tab {
@@ -55,6 +57,7 @@ impl Tab {
             Tab::Transect => "Transect",
             Tab::Interpretation => "Interpretation",
             Tab::Analysis => "Analysis",
+            Tab::Embeddings => "Embeddings",
         }
     }
 }
@@ -89,9 +92,9 @@ fn load_layout() -> Option<DockState<Tab>> {
 /// The dock as kept: the map panels left out.
 fn layout_text(dock: &DockState<Tab>) -> Option<String> {
     let mut d = dock.clone();
-    while let Some(p) =
-        d.find_tab_from(|t| matches!(t, Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis))
-    {
+    while let Some(p) = d.find_tab_from(|t| {
+        matches!(t, Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis | Tab::Embeddings)
+    }) {
         d.remove_tab(p);
     }
     serde_json::to_string(&d).ok()
@@ -149,6 +152,9 @@ pub struct Options {
     /// --measure-vectors IN VEC...: the vector files measured over the series
     pub measure_vectors: bool,
     pub measure_vector_files: Vec<String>,
+    /// --selftest-embeddings-ui DIR [OUT]
+    pub selftest_embeddings_ui: bool,
+    pub selftest_embeddings_out: Option<PathBuf>,
 }
 
 impl Options {
@@ -156,6 +162,7 @@ impl Options {
     pub fn scripted(&self) -> bool {
         self.profile_tour
             || self.measure_vectors
+            || self.selftest_embeddings_ui
             || self.dump_golden.is_some()
             || self.selftest_composite
             || self.selftest_reproject
@@ -240,6 +247,9 @@ pub struct State {
     pub(crate) measure_vectors: crate::measure_vectors::MeasureVectors,
     /// the Analysis panel's state
     pub analysis: crate::analysis::AnalysisUi,
+    /// the Embeddings panel is shown
+    pub show_embeddings: bool,
+    pub(crate) embeddings_test: crate::embeddings_test::EmbeddingsTest,
     pub chart: crate::chart::ChartOptions,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
@@ -370,7 +380,7 @@ impl TabViewer for Tabs<'_> {
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {
-        matches!(tab, Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis)
+        matches!(tab, Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis | Tab::Embeddings)
     }
 
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
@@ -386,6 +396,9 @@ impl TabViewer for Tabs<'_> {
         if *tab == Tab::Analysis {
             self.s.analysis.show = false;
         }
+        if *tab == Tab::Embeddings {
+            self.s.show_embeddings = false;
+        }
         egui_dock::tab_viewer::OnCloseResponse::Close
     }
 
@@ -396,6 +409,9 @@ impl TabViewer for Tabs<'_> {
             Tab::TimeSeries => self.s.series_ui(ui),
             Tab::Transect => self.s.transect_ui(ui),
             Tab::Analysis => self.s.analysis_ui(ui),
+            Tab::Embeddings => {
+                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.s.embeddings_ui(ui));
+            }
             Tab::Interpretation => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.s.interpretation_ui(ui));
             }
@@ -469,6 +485,8 @@ impl JanusApp {
                 show_exports: false,
                 measure_vectors: Default::default(),
                 analysis: Default::default(),
+                show_embeddings: false,
+                embeddings_test: Default::default(),
                 chart: Default::default(),
                 band_sel: None,
                 spectral_index: 0,
@@ -612,6 +630,7 @@ impl State {
             disp.t = s.info.nearest_layer(a.info.layers[self.display.t].time);
         }
         let name = o.name.clone().unwrap_or_else(|| self.layer_name(&s.info, &o.inputs));
+        let emb = crate::embeddings::EmbeddingLayer::new(&s.info);
         self.layers.push(crate::layers::SeriesLayer {
             session: Some(s),
             inputs: o.inputs,
@@ -623,7 +642,12 @@ impl State {
             composite: None,
             place: Default::default(),
             series: Default::default(),
+            emb,
         });
+        // the panel comes up with the first layer of embeddings
+        if self.layers.last().and_then(|l| l.emb.as_ref()).is_some_and(|e| !e.spectral) {
+            self.show_embeddings = true;
+        }
         // the folder of the files (of a NetCDF variable's file) in the Files panel
         if !self.layers.last().is_some_and(|l| l.session.as_ref().is_some_and(|s| s.info.remote)) {
             let l = self.layers.last().unwrap();
@@ -986,6 +1010,10 @@ impl State {
                 {
                     self.analysis.show = analysis;
                 }
+                let mut emb = self.show_embeddings;
+                if ui.checkbox(&mut emb, "Embeddings").clicked() {
+                    self.show_embeddings = emb;
+                }
                 let mut interp = self.labels.show;
                 if ui.checkbox(&mut interp, "Interpretation").clicked() {
                     self.labels.show = interp;
@@ -1072,7 +1100,10 @@ impl State {
                 || self.basemap.b.as_ref().is_some_and(|b| b.has_map() && b.loads() > 0 && b.inflight() == 0);
             // a Zeit run asked for: done, its maps loaded
             let zeit_ready = !self.opts.zeit_run || self.zeit.runs_settled();
-            let ready = self.session.as_ref().is_some_and(|s| s.ready_ms.is_some()) && basemap_ready && zeit_ready;
+            // layers drawn as embeddings: the images of their dates made
+            let emb_ready = self.state_embeddings_settled();
+            let ready =
+                self.session.as_ref().is_some_and(|s| s.ready_ms.is_some()) && basemap_ready && zeit_ready && emb_ready;
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
                 self.shots_pending += 1;
@@ -1156,6 +1187,7 @@ impl eframe::App for JanusApp {
         s.pump_transect(&ctx);
         s.pump_vectors();
         s.pump_interpretation(&ctx);
+        s.pump_embeddings(&ctx);
         s.pump_zeit_jobs(&ctx);
         s.scripted_zeit_run(&ctx);
         let rc = if s.opts.dump_golden.is_some() {
@@ -1168,6 +1200,8 @@ impl eframe::App for JanusApp {
             s.ui_selftest_step(&ctx)
         } else if s.opts.selftest_multidim {
             s.multidim_selftest_step(&ctx)
+        } else if s.opts.selftest_embeddings_ui {
+            s.embeddings_test_step(&ctx)
         } else if s.opts.measure_vectors {
             s.measure_vectors_step(&ctx)
         } else if s.opts.profile_tour {
@@ -1211,6 +1245,18 @@ impl eframe::App for JanusApp {
             for w in self.windows.drain(..) {
                 drop(w);
             }
+        }
+        // the Embeddings panel while it is shown, as a tab next to Display
+        let emb_tab = self.dock.find_tab(&Tab::Embeddings);
+        if self.state.show_embeddings && emb_tab.is_none() {
+            if let Some(p) = self.dock.find_tab(&Tab::Display) {
+                self.dock.set_focused_node_and_surface(p.node_path());
+            }
+            self.dock.push_to_focused_leaf(Tab::Embeddings);
+        } else if !self.state.show_embeddings
+            && let Some(p) = emb_tab
+        {
+            self.dock.remove_tab(p);
         }
         // the Analysis panel while it is shown, as a tab next to the time series
         let analysis_tab = self.dock.find_tab(&Tab::Analysis);

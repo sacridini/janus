@@ -157,6 +157,12 @@ pub fn applicability(tool: &Tool, info: &CubeInfo) -> Option<String> {
     if tool.input.as_deref() == Some("layers") {
         return None; // runs on result maps, whatever the series
     }
+    if janus_embed::embedding_meta(info).is {
+        // as Zeit itself, which refuses such cubes
+        return Some(
+            "a layer of embeddings has no physical unit nor seasonal signal (see the Embeddings panel)".into(),
+        );
+    }
     if info.spectral {
         return Some("a spectrum (one band per wavelength), not a series in time".into());
     }

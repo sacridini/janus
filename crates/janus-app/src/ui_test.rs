@@ -787,7 +787,7 @@ impl State {
                     };
                 }
             }
-            90..=97 => return self.test_spectra(st, &input, t0, ctx),
+            90..=100 => return self.test_spectra(st, &input, t0, ctx),
             110..=114 => return self.test_roi_polygon(st, &input, t0, ctx),
             120..=125 => return self.test_vectors(st, t0, ctx),
             _ => {}
@@ -1252,6 +1252,28 @@ impl State {
                     }
                 }
                 next(st, "series of scenes: dates from the names, wavelengths in the band names, NDVI");
+            }
+            98 => {
+                self.open_inputs(vec![g.join("envi").join("spectrum.bsq").to_string_lossy().into()], false, ctx);
+                next(st, "open G's ENVI spectrum again");
+            }
+            99 => {
+                if !ready(self) {
+                    return None;
+                }
+                self.show_spectral_analysis();
+                st.frames = 0;
+                next(st, "its principal components and similarity (Embeddings panel)");
+            }
+            100 => {
+                let r = self.test_spectral_views(st, &nm);
+                if r < 0 {
+                    return None;
+                }
+                if r > 0 {
+                    return fail("spectral principal components or similarity");
+                }
+                next(st, "spectrum: principal components (bands without data left out), similarity as in the file");
                 if input(4).is_none() {
                     println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                     return Some(0);
@@ -1261,6 +1283,89 @@ impl State {
             _ => {}
         }
         None
+    }
+}
+
+impl State {
+    /// The active layer is G's ENVI spectrum, its analysis asked for (stages 98-100 of the C++): its principal
+    /// components (the bands without data read as 0), then the similarity to the spectrum under the cursor against
+    /// the file's. -1 waiting, 0 passed, 1 failed (printed).
+    fn test_spectral_views(&mut self, st: &mut UiTest, nm: &[f64]) -> i32 {
+        let t_n = nm.len();
+        let Some(e) = self.layers.get(self.active).and_then(|l| l.emb.as_ref()).filter(|e| e.spectral) else {
+            println!("    the spectrum should have its analysis layer");
+            return 1;
+        };
+        let Some(s) = e.store.clone() else { return -1 };
+        if !s.complete() || e.basis.is_none() || e.img.first().is_none_or(|i| !i.has_texture()) {
+            return -1;
+        }
+        if st.frames == 0 {
+            // the principal components of the scene
+            let b = e.basis.clone().unwrap();
+            let skipped = s.ranges().map_or(0, |r| r.skip.iter().filter(|&&k| k != 0).count());
+            let valid = (0..s.pixels()).filter(|&p| s.valid(0, p)).count();
+            let pct = |c: usize| 100.0 * b.eig[c] / b.total;
+            println!(
+                "    store {} x {}, {} dimensions ({skipped} without data), {valid} of {} pixels valid; PC1-3 {:.1}% {:.1}% {:.1}%",
+                s.w,
+                s.h,
+                s.d,
+                s.pixels(),
+                pct(0),
+                pct(1),
+                pct(2)
+            );
+            if s.d != t_n || skipped != 2 {
+                println!("    the store should read every band, the 2 without data as 0");
+                return 1;
+            }
+            if valid != s.pixels() {
+                println!("    bands without data must not make the spectra invalid");
+                return 1;
+            }
+            if !e.img[0].rgba || b.eig[0] < 0.5 * b.total {
+                println!("    the principal components should be an RGB image, PC1 the reflectance gradient");
+                return 1;
+            }
+            let e = self.layers[self.active].emb.as_mut().unwrap();
+            (e.view, e.ref_kind) = (crate::embeddings::View::Similarity, 0);
+            e.reset_reference();
+            self.series.hover = None;
+            self.set_hover(Some((60, 33)));
+            self.map.dirty = true;
+            st.frames = 1;
+            return -1;
+        }
+        let img = &e.img[0];
+        if e.reference.is_empty() || img.rgba || img.values.len() != s.pixels() {
+            return -1;
+        }
+        let cosine = |x0: usize, y0: usize, x1: usize, y1: usize| {
+            let (mut ab, mut aa, mut bb) = (0f64, 0f64, 0f64);
+            for t in 0..t_n {
+                let (a, b) = (g_expected(nm, t, x0, y0), g_expected(nm, t, x1, y1));
+                if a.is_nan() || b.is_nan() {
+                    continue;
+                }
+                ab += a * b;
+                aa += a * a;
+                bb += b * b;
+            }
+            ab / (aa * bb).sqrt()
+        };
+        let mut worst = 0f64;
+        for [x, y] in [[60, 33], [5, 7], [119, 79], [90, 2]] {
+            let (want, got) = (cosine(60, 33, x, y), f64::from(img.values[y * s.w + x]));
+            worst = worst.max((got - want).abs());
+            if (got - want).abs() > 0.005 {
+                println!("    similarity at ({x}, {y}): {got:.5}, expected {want:.5} from the file");
+                return 1;
+            }
+        }
+        println!("    spectral similarity to the cursor: max |map - file| {worst:.2e} (Int8 store); {}", e.ref_text);
+        self.layers[self.active].emb.as_mut().unwrap().view = crate::embeddings::View::Band;
+        0
     }
 }
 

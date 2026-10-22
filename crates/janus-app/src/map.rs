@@ -443,14 +443,18 @@ impl State {
         let d = &self.display;
         let n = info.t();
         let composite = self.composite.as_ref().filter(|c| c.on);
-        let title = match composite {
-            Some(c) => c.title(info, d.t),
-            None => self.map_title(),
+        let emb = self.embedding_map_info();
+        let title = match (composite, &emb) {
+            (_, Some(e)) => e.0.clone(),
+            (Some(c), None) => c.title(info, d.t),
+            (None, None) => self.map_title(),
         };
         State::canvas_title(&painter, rect, &title);
         let font = body_font(&painter);
         let up = |t: usize| s.uploaded.get(t).copied().unwrap_or(false);
-        let wait = if let Some(c) = composite {
+        let wait = if let Some(e) = &emb {
+            e.2.clone()
+        } else if let Some(c) = composite {
             if !c.error.is_empty() {
                 format!("RGB composite: {}", c.error)
             } else if c.ready(d.t, n) {
@@ -495,7 +499,12 @@ impl State {
                 Color32::WHITE,
             );
         }
-        if d.mode != Mode::Rgb && composite.is_none() {
+        self.draw_embedding_notes(&painter, rect);
+        if let Some((_, bar, _)) = &emb {
+            if let Some((cmap, lo, hi)) = bar {
+                State::colour_bar(&painter, rect, *cmap, format_g(f64::from(*lo), 3), format_g(f64::from(*hi), 3));
+            }
+        } else if d.mode != Mode::Rgb && composite.is_none() {
             let range = d.ranges[d.mode as usize];
             let (lo, hi) = (range_label(d.mode, range.lo, info), range_label(d.mode, range.hi, info));
             State::colour_bar(&painter, rect, d.cmap[d.mode as usize], lo, hi);
@@ -559,6 +568,9 @@ impl State {
             }
         }
         self.basemap_note(&painter, rect);
+        if let Some((x, y)) = inside {
+            status += &self.embedding_status_at(x, y);
+        }
         if let Some(v) = self.vector_status(ui.input(|i| i.modifiers.alt)) {
             status += &v;
         }
@@ -573,6 +585,8 @@ impl State {
         let Some(g) = self.grid() else { return };
         let (ow, oh, fx, fy) = (g.ow, g.oh, g.fx, g.fy);
         let rect = Rect::from_min_size(Pos2::ZERO, vec2(canvas[0], canvas[1]));
+        // each layer's date of its embeddings
+        let emb_dates: Vec<usize> = (0..self.layers.len()).map(|i| self.layer_date(i)).collect();
         let Some(gpu) = self.gpu.as_mut() else { return };
         let m = &mut self.map;
         let Some(s) = self.session.as_mut() else { return };
@@ -633,8 +647,13 @@ impl State {
             let to_map = |q: [f64; 4]| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy);
             // every layer, bottom to top; the active one with its detail
             for li in 0..self.layers.len() {
+                let t_emb = emb_dates.get(li).copied();
                 let l = &mut self.layers[li];
                 if !l.visible || !l.place.aligned {
+                    continue;
+                }
+                if let (Some(e), Some(te)) = (l.emb.as_ref().filter(|e| e.drawn()), t_emb) {
+                    e.draw(te, &l.place, l.opacity, gpu, &mut f, &to_map);
                     continue;
                 }
                 if li != self.active {

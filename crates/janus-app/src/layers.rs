@@ -159,6 +159,8 @@ pub struct SeriesLayer {
     pub place: Placement,
     /// its series at the active layer's cursor, pins and ROI ("All visible layers")
     pub series: crate::series::OtherSeries,
+    /// a layer of embeddings (or a spectrum's analysis): its views
+    pub emb: Option<Box<crate::embeddings::EmbeddingLayer>>,
 }
 
 /// The map's options a layer does not keep (the C++'s App members): the season, the temporal composites' options,
@@ -412,6 +414,7 @@ impl State {
             days: old.days,
             ..Default::default()
         };
+        self.layers[i].emb = crate::embeddings::EmbeddingLayer::new(&s.info);
         if i == self.active {
             self.display = carry(&self.display);
             self.session = Some(s);

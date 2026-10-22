@@ -11,6 +11,8 @@ mod chart;
 mod classes;
 mod composite;
 mod display;
+mod embeddings;
+mod embeddings_test;
 mod exports;
 mod files;
 mod golden;
@@ -84,6 +86,7 @@ Options:
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
                       C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
   --selftest-embeddings  the embedding kernels, eigenvectors and PCA against known answers, timed
+  --selftest-embeddings-ui DIR [OUT]  a series of embeddings: its views, their GeoTIFFs checked (in OUT)
   --selftest-zeit IN...  every Zeit tool on the series without a window: a pixel fit, its Python calls, the
                       estimate and a raster run of 256 x 256 px (LandTrendr also 512 x 512), the outputs read
                       back (timings)
@@ -167,6 +170,7 @@ fn main() -> eframe::Result<()> {
             "--detach-map" => opts.detach_map = true,
             "--profile-tour" => opts.profile_tour = true,
             "--measure-vectors" => opts.measure_vectors = true,
+            "--selftest-embeddings-ui" => opts.selftest_embeddings_ui = true,
             "--tour-json" => opts.tour_json = args.next().map(Into::into),
             "--dump-golden" => opts.dump_golden = Some(Default::default()),
             "--basemap" => opts.basemap = args.next(),
@@ -219,7 +223,7 @@ fn main() -> eframe::Result<()> {
             "--selftest-embeddings" => {
                 attach_console();
                 let threads = settings::load().0.threads;
-                let threads = if threads > 0 { threads as usize } else { janus_session::default_processing_threads() };
+                let threads = if threads > 0 { threads } else { janus_session::default_processing_threads() };
                 std::process::exit(match janus_embed::selftest::run(threads) {
                     Ok(r) => {
                         println!("{r}OK");
@@ -255,6 +259,10 @@ fn main() -> eframe::Result<()> {
         // B opens, F and A are added as layers by the test
         opts.extra_layers = opts.inputs.split_off(1);
     }
+    if opts.selftest_embeddings_ui && opts.inputs.len() >= 2 {
+        // the folder of embeddings opens; OUT: where its files are written
+        opts.selftest_embeddings_out = opts.inputs.pop().map(Into::into);
+    }
     if opts.measure_vectors && opts.inputs.len() >= 2 {
         // the series opens, the vector files are added by the measure
         opts.measure_vector_files = opts.inputs.split_off(1);
@@ -266,6 +274,7 @@ fn main() -> eframe::Result<()> {
         || opts.screenshot.is_some()
         || opts.profile_tour
         || opts.measure_vectors
+        || opts.selftest_embeddings_ui
         || opts.dump_golden.is_some()
         || opts.selftest_composite
         || opts.selftest_reproject

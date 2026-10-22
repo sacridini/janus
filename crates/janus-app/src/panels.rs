@@ -346,6 +346,18 @@ impl State {
     fn bands_ui(&mut self, ui: &mut Ui, info: &janus_cube::CubeInfo) {
         if info.spectral {
             self.spectral_index_ui(ui, info);
+            section(ui, "Analysis");
+            if ui
+                .add(egui::Button::new("Principal components, similarity").min_size(vec2(ui.available_width(), 0.0)))
+                .on_hover_text(
+                    "Each pixel's spectrum as one vector (Embeddings panel): its principal\n\
+                     components as RGB, of the scene or of an ROI, or its similarity to the\n\
+                     spectrum of the cursor, a pin or the ROI",
+                )
+                .clicked()
+            {
+                self.show_spectral_analysis();
+            }
             return;
         }
         if info.multidim {
@@ -725,8 +737,8 @@ impl State {
         let f = &self.perf;
         if let Some((p50, p95, max)) = f.summary() {
             ui.label(format!("Frame: {p50:.2} ms of CPU (p95 {p95:.2}, max {max:.2})")).on_hover_text(
-                "The interface's CPU time per frame, the last few hundred frames. The app only
-redraws when                  something changes (mouse, keyboard, new data); idle, the CPU sleeps.",
+                "The interface's CPU time per frame, the last few hundred frames. The app only\n\
+                 redraws when something changes (mouse, keyboard, new data); idle, the CPU sleeps.",
             );
         }
         let st = &self.startup;
@@ -737,8 +749,8 @@ redraws when                  something changes (mouse, keyboard, new data); idl
             st.first_frame_ms.map_or("-".into(), |v| format!("{v:.0} ms"))
         ))
         .on_hover_text(format!(
-            "Since process start: GDAL {:.0} ms ({}), window + wgpu {:.0} ms, first frame {};
-the map's shaders {}              (in the background). GPU: {} ({:?})",
+            "Since process start: GDAL {:.0} ms ({}), window + wgpu {:.0} ms, first frame {};\n\
+             the map's shaders {} (in the background). GPU: {} ({:?})",
             st.gdal_ms,
             janus_cube::gdal_version(),
             st.window_ms,
