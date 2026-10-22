@@ -525,7 +525,7 @@ impl State {
         let mut top = None;
         for (i, l) in self.layers.iter().enumerate() {
             let Some(id) = self.layer_session(i).map(|s| s.info.id) else { continue };
-            if l.visible && l.place.aligned {
+            if l.place.aligned {
                 top = self.zeit.results.iter().rfind(|r| r.visible && r.cube == id).or(top);
             }
         }
@@ -676,7 +676,15 @@ impl State {
             for li in 0..self.layers.len() {
                 let t_emb = emb_dates.get(li).copied();
                 let l = &mut self.layers[li];
-                if !l.visible || !l.place.aligned {
+                if !l.place.aligned {
+                    continue;
+                }
+                if !l.visible {
+                    // a series hidden: the maps its runs made still shown, as layers of their own
+                    let info = if li == self.active { Some(&s.info) } else { l.session.as_ref().map(|x| &x.info) };
+                    if let Some(info) = info {
+                        crate::zeit::draw_results(gpu, &mut f, &self.zeit.results, info, &l.place, &to_map);
+                    }
                     continue;
                 }
                 if let (Some(e), Some(te)) = (l.emb.as_ref().filter(|e| e.drawn()), t_emb) {

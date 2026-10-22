@@ -81,6 +81,9 @@ struct Reply {
     ms: f64,
 }
 
+/// A result's copy at full resolution: its path, values, width and height.
+type FullCopy = (String, Vec<f32>, usize, usize);
+
 #[derive(Default)]
 pub struct ZeitUi {
     pub tools: HashMap<String, ToolUi>,
@@ -111,6 +114,8 @@ pub struct ZeitUi {
     pub keep_active: Option<usize>,
     /// result maps read (on threads)
     loaded: Arc<std::sync::Mutex<Vec<Result<ResultLayer, String>>>>,
+    /// shown results' copies at full resolution read (path, data, width, height)
+    upgraded: Arc<std::sync::Mutex<Vec<FullCopy>>>,
     pending_loads: usize,
 }
 
@@ -935,6 +940,8 @@ pub struct ResultLayer {
     pub classes: Vec<String>,
     /// each class's typical series (x in decimal years), drawn for the class under the cursor
     pub class_series: Vec<(Vec<f64>, Vec<f64>)>,
+    /// its copy at full resolution being read (it is shown, and the first copy was reduced)
+    pub upgrading: bool,
 }
 
 impl ResultLayer {
@@ -1369,6 +1376,7 @@ Reading the data adds to it, mostly on spinning disks.",
                         .map(|a| a.iter().map(|c| c.as_str().unwrap_or("").to_string()).collect())
                         .unwrap_or_default(),
                     class_series,
+                    upgrading: false,
                 };
                 first = false;
                 let loaded = self.zeit.loaded.clone();
@@ -1411,11 +1419,40 @@ Reading the data adds to it, mostly on spinning disks.",
                 }
             }
         }
+        self.upgrade_results(ctx);
         // series outputs join as layers, one at a time; the series being studied stays active
         if !self.zeit.series_to_open.is_empty() && self.opening.is_none() && !self.layers.is_empty() {
             let path = self.zeit.series_to_open.remove(0);
             self.zeit.keep_active = Some(self.active);
             self.open_inputs(vec![path], true, ctx);
+        }
+    }
+
+    /// A result is first read reduced (at most 4096 px a side, quick); once shown, its copy at full resolution (up
+    /// to the GPU's largest texture) is read in the background, or its pixels would not fall on the series'.
+    fn upgrade_results(&mut self, ctx: &egui::Context) {
+        let max = self.render_state.device.limits().max_texture_dimension_2d as usize;
+        for r in self.zeit.results.iter_mut() {
+            if r.visible && !r.upgrading && (r.tw < r.w || r.th < r.h) && r.w.max(r.h) <= max && !r.data.is_empty() {
+                r.upgrading = true;
+                let (path, done, c) = (r.path.clone(), self.zeit.upgraded.clone(), ctx.clone());
+                std::thread::spawn(move || {
+                    if let Ok((data, tw, th)) = load_result(&path, max) {
+                        done.lock().unwrap().push((path, data, tw, th));
+                        c.request_repaint();
+                    }
+                });
+            }
+        }
+        let done: Vec<_> = std::mem::take(&mut *self.zeit.upgraded.lock().unwrap());
+        for (path, data, tw, th) in done {
+            if let Some(r) = self.zeit.results.iter_mut().find(|r| r.path == path) {
+                (r.data, r.tw, r.th) = (data, tw, th);
+                if let Some(gpu) = &self.gpu {
+                    r.tex = Some(gpu.create_tile(tw as u32, th as u32, &r.data));
+                }
+                self.map.dirty = true;
+            }
         }
     }
 
@@ -1450,9 +1487,13 @@ Reading the data adds to it, mostly on spinning disks.",
                     };
                     ui.horizontal(|ui| {
                         let bw = ui.text_style_height(&egui::TextStyle::Body) * 4.5;
+                        // the bar takes what the buttons leave, exactly: a row wider than the panel grows a window
+                        // that fits its content, frame after frame
+                        let buttons = if s.state == JobState::Running { 2.0 } else { 3.0 };
+                        let rest = buttons * (bw + ui.spacing().item_spacing.x);
                         ui.add(
                             egui::ProgressBar::new(s.progress as f32)
-                                .desired_width((ui.available_width() - 3.0 * bw - 12.0).max(60.0))
+                                .desired_width((ui.available_width() - rest).max(60.0))
                                 .text(format!("{name}  {:.0}%  {el:.0} s", s.progress * 100.0)),
                         );
                         let log = ui.add(egui::Button::new("Log").min_size(egui::vec2(bw, 0.0)));
@@ -1606,16 +1647,31 @@ Reading the data adds to it, mostly on spinning disks.",
     }
 
     /// The result maps of a series, under it in the Layers panel.
-    pub(crate) fn results_ui(ui: &mut Ui, results: &mut Vec<ResultLayer>, cube: u64, dirty: &mut bool) {
+    /// The result maps of series `cube` (named `source`) as rows of the Layers panel, the last drawn (on top)
+    /// first; whether there were any.
+    pub(crate) fn results_ui(
+        ui: &mut Ui,
+        results: &mut Vec<ResultLayer>,
+        cube: u64,
+        source: &str,
+        dirty: &mut bool,
+    ) -> bool {
         let mut remove = None;
-        for (i, r) in results.iter_mut().enumerate().filter(|(_, r)| r.cube == cube) {
+        let mut any = false;
+        for (i, r) in results.iter_mut().enumerate().rev().filter(|(_, r)| r.cube == cube) {
+            any = true;
             ui.push_id(("result", i), |ui| {
                 // the button first: a long name runs past the panel, not the button
                 ui.horizontal(|ui| {
                     if ui.small_button("x").on_hover_text("Remove this layer (the file stays on disk)").clicked() {
                         remove = Some(i);
                     }
-                    if ui.checkbox(&mut r.visible, &r.name).on_hover_text(&r.path).changed() {
+                    let tip = format!(
+                        "{}
+on {source}",
+                        r.path
+                    );
+                    if ui.checkbox(&mut r.visible, &r.name).on_hover_text(tip).changed() {
                         *dirty = true;
                     }
                 });
@@ -1665,6 +1721,7 @@ Reading the data adds to it, mostly on spinning disks.",
             results.remove(i);
             *dirty = true;
         }
+        any
     }
 }
 
@@ -1920,6 +1977,7 @@ impl ResultLayer {
             opacity: 1.0,
             classes: vec![],
             class_series: vec![],
+            upgrading: false,
         }
     }
 }

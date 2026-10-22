@@ -462,6 +462,7 @@ impl State {
                                 opacity: 1.0,
                                 classes: Vec::new(),
                                 class_series: Vec::new(),
+                                upgrading: false,
                             });
                         }
                         at.swipe = self.swipe.is_some();

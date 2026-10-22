@@ -1254,6 +1254,14 @@ impl State {
             let zeit_ready = !self.opts.zeit_run || self.zeit.runs_settled();
             // layers drawn as embeddings: the images of their dates made
             let emb_ready = self.state_embeddings_settled();
+            // the results shown at full resolution
+            let max_tex = self.render_state.device.limits().max_texture_dimension_2d as usize;
+            let zeit_ready = zeit_ready
+                && !self
+                    .zeit
+                    .results
+                    .iter()
+                    .any(|r| r.visible && (r.tw < r.w || r.th < r.h) && r.w.max(r.h) <= max_tex);
             // a view asked for: its full-resolution tiles drawn
             let tiles_ready =
                 self.opts.view.is_none() || self.session.as_ref().is_some_and(|s| s.tiles.inflight() == 0);

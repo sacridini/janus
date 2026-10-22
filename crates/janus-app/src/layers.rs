@@ -586,6 +586,10 @@ impl State {
             let Some(info) = info else { continue };
             let l = &mut self.layers[i];
             ui.push_id(i, |ui| {
+                // the maps its runs made: layers of their own above it, shown or hidden apart from it
+                if State::results_ui(ui, &mut self.zeit.results, info.id, &l.name, &mut self.map.dirty) {
+                    ui.separator();
+                }
                 ui.horizontal(|ui| {
                     if ui
                         .checkbox(&mut l.visible, "")
@@ -665,7 +669,6 @@ impl State {
                     {
                         self.map.dirty = true;
                     }
-                    State::results_ui(ui, &mut self.zeit.results, info.id, &mut self.map.dirty);
                 });
                 ui.separator();
             });

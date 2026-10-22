@@ -346,13 +346,13 @@ impl State {
         self.basemap.b.as_ref().map(|b| b.source().attribution.clone()).unwrap_or_default()
     }
 
-    /// The top result drawn, as on the map: the last visible result of a visible layer, else the active layer's
-    /// last, else the last.
+    /// The top result drawn, as on the map: the last visible result of a placed layer (shown or not: its maps are
+    /// layers of their own), else the active layer's last, else the last.
     pub(crate) fn top_result(&self) -> Option<usize> {
         let r = &self.zeit.results;
         let mut top = None;
         for (i, l) in self.layers.iter().enumerate() {
-            if !l.visible || !l.place.aligned {
+            if !l.place.aligned {
                 continue;
             }
             let id = if i == self.active {
