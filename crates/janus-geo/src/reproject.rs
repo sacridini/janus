@@ -10,7 +10,7 @@ use gdal::spatial_ref::{AxisMappingStrategy, CoordTransform, SpatialRef};
 use janus_cube::CubeInfo;
 
 /// Inverse of a geotransform (CRS -> pixel); None if it is singular.
-fn invert(g: &[f64; 6]) -> Option<[f64; 6]> {
+pub(crate) fn invert(g: &[f64; 6]) -> Option<[f64; 6]> {
     let det = g[1] * g[5] - g[2] * g[4];
     if det == 0.0 || !det.is_finite() {
         return None;
@@ -62,7 +62,7 @@ fn edge_points(x0: f64, y0: f64, x1: f64, y1: f64, per_edge: usize) -> (Vec<f64>
 }
 
 /// An OGR transformation, used by one thread at a time.
-struct Transform(Mutex<CoordTransform>);
+pub(crate) struct Transform(pub(crate) Mutex<CoordTransform>);
 
 // OGR's transformations are not thread-safe; the mutex makes each use exclusive
 unsafe impl Send for Transform {}
@@ -70,7 +70,7 @@ unsafe impl Sync for Transform {}
 
 impl Transform {
     /// Points in place; ok[i] = false where it failed.
-    fn run(&self, x: &mut [f64], y: &mut [f64], ok: &mut [i32]) {
+    pub(crate) fn run(&self, x: &mut [f64], y: &mut [f64], ok: &mut [i32]) {
         let ct = self.0.lock().unwrap();
         let _q = Quiet::new();
         unsafe {

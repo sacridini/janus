@@ -4,6 +4,7 @@
 pub mod basemap;
 pub mod plane;
 pub mod reproject;
+pub mod vectors;
 
 pub use basemap::{Basemap, BasemapSource, Placement};
 pub use reproject::Reprojection;
