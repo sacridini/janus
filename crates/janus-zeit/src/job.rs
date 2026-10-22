@@ -10,14 +10,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use gdal::raster::{Buffer, RasterCreationOptions};
 use gdal::{Dataset, DriverManager, Metadata};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::manifest::{Output, Tool, manifest};
 use crate::pixel::{Params, PixelInput, Shown};
 
-/// What Janus sends for a run (the bridge's job spec).
-#[derive(Clone, Debug, Default, Deserialize)]
+/// What Janus sends for a run (the bridge's job spec; job.json in the run's folder).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct JobSpec {
     pub tool: String,
     #[serde(default)]

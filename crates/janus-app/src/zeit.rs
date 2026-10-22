@@ -102,6 +102,8 @@ pub struct ZeitUi {
     pub jobs: Vec<Job>,
     pub results: Vec<ResultLayer>,
     pub show_tasks: bool,
+    /// Tools > Tasks > Log: a run's log, followed
+    pub log: LogView,
     /// where runs write (None: the app's results folder)
     pub results_dir: Option<std::path::PathBuf>,
     /// series outputs to open as layers, and the layer to keep active meanwhile
@@ -833,11 +835,47 @@ pub struct Job {
     /// the series (layer) it ran on: its results go under it
     pub cube: u64,
     pub output_dir: String,
+    /// job.log in the output folder
+    pub log_path: String,
     pub started: Instant,
     pub status: Arc<std::sync::Mutex<JobStatus>>,
     pub cancel: Arc<std::sync::atomic::AtomicBool>,
     /// its outputs were taken (as result layers or series)
     pub loaded: bool,
+}
+
+/// A run's log (job.log beside its job.json): what runs, its progress, its outputs or its error, each line after
+/// the seconds since the run started.
+struct JobLog {
+    path: std::path::PathBuf,
+    t0: Instant,
+}
+
+impl JobLog {
+    fn write(&self, text: &str) {
+        use std::io::Write as _;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&self.path) {
+            let _ = f.write_all(text.as_bytes());
+        }
+    }
+
+    fn line(&self, text: &str) {
+        self.write(&format!("[{:7.1} s] {text}\n", self.t0.elapsed().as_secs_f64()));
+    }
+}
+
+/// The Log window: the file shown and its end, read as it grows.
+#[derive(Default)]
+pub struct LogView {
+    pub show: bool,
+    pub path: String,
+    shown: String,
+    text: String,
+    /// the bytes of the file read
+    size: u64,
+    /// only the end of the file is shown
+    cut: bool,
+    checked: Option<Instant>,
 }
 
 /// A map a run wrote, drawn over its series (src/results.hpp).
@@ -925,6 +963,14 @@ pub(crate) fn load_result(path: &str, max_dim: usize) -> Result<(Vec<f32>, usize
         }
     }
     Ok((data, tw, th))
+}
+
+/// Now as "YYYY-MM-DD HH:MM:SS UTC", for the logs.
+fn timestamp_text() -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
+    let (y, m, d) = janus_zeit::numeric::civil(now.div_euclid(86400));
+    let s = now.rem_euclid(86400);
+    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02} UTC", s / 3600, s / 60 % 60, s % 60)
 }
 
 fn timestamp() -> String {
@@ -1136,6 +1182,28 @@ Reading the data adds to it, mostly on spinning disks.",
         let window = spec.window.unwrap_or_default();
         spec.output_dir = out.to_string_lossy().to_string();
         let title = format!("{} - {scope_name} ({} x {} px)", tool.name, window[2] - window[0], window[3] - window[1]);
+        // the spec (what the bridge was given) and the log beside the maps
+        let spec_path = out.join("job.json");
+        let _ = std::fs::write(&spec_path, serde_json::to_string_pretty(&spec).unwrap_or_default());
+        let log = JobLog { path: out.join("job.log"), t0: Instant::now() };
+        let mut params = serde_json::to_string(&spec.params).unwrap_or_default();
+        if params.len() > 4000 {
+            // reference series (patterns)
+            let mut k = 4000;
+            while !params.is_char_boundary(k) {
+                k -= 1;
+            }
+            params = format!("{}...", &params[..k]);
+        }
+        log.write(&format!(
+            "=== {} job: {title}\ntool: {}\nparams: {params}\nwindow: {window:?}\nthreads: {}\nspec: {}\noutput: {}\n",
+            timestamp_text(),
+            tool.id,
+            spec.threads.filter(|&n| n > 0).map_or("not limited".into(), |n| n.to_string()),
+            spec_path.display(),
+            out.display()
+        ));
+        let log_path = log.path.to_string_lossy().to_string();
         let status = Arc::new(std::sync::Mutex::new(JobStatus {
             state: JobState::Running,
             progress: 0.0,
@@ -1151,10 +1219,19 @@ Reading the data adds to it, mostly on spinning disks.",
             .name("zeit-job".into())
             .spawn(move || {
                 let t0 = Instant::now();
+                // progress to the log every 5 s or 10%
+                let logged = std::sync::Mutex::new((-1.0, -1.0));
                 let progress = |f: f64, m: &str| {
                     let mut s = st.lock().unwrap();
                     s.progress = f;
                     s.message = m.to_string();
+                    drop(s);
+                    let now = t0.elapsed().as_secs_f64();
+                    let mut l = logged.lock().unwrap();
+                    if l.0 < 0.0 || f >= 1.0 || f - l.0 >= 0.1 || now - l.1 >= 5.0 {
+                        log.line(&format!("{:3.0}%  {m}", f * 100.0));
+                        *l = (f, now);
+                    }
                     ctx.request_repaint();
                 };
                 let r = janus_zeit::job::run_job(&spec, &progress, &cn);
@@ -1162,12 +1239,22 @@ Reading the data adds to it, mostly on spinning disks.",
                 s.seconds = t0.elapsed().as_secs_f64();
                 match r {
                     Ok(res) => {
+                        for o in &res.outputs {
+                            let name = o["name"].as_str().or(o["id"].as_str()).unwrap_or("");
+                            log.line(&format!("output: {name} -> {}", o["path"].as_str().unwrap_or("")));
+                        }
+                        log.line("done");
                         s.state = JobState::Done;
                         s.progress = 1.0;
                         s.result = Some(res);
                     }
-                    Err(e) if e == "cancelled" => s.state = JobState::Cancelled,
+                    Err(e) if e == "cancelled" => {
+                        log.line("cancelled");
+                        s.state = JobState::Cancelled;
+                    }
                     Err(e) => {
+                        log.line(&format!("error: {e}"));
+                        log.line("failed");
                         s.state = JobState::Failed;
                         s.error = e;
                     }
@@ -1180,6 +1267,7 @@ Reading the data adds to it, mostly on spinning disks.",
             tool: tool.id.clone(),
             cube,
             output_dir: out.to_string_lossy().to_string(),
+            log_path,
             started: Instant::now(),
             status,
             cancel,
@@ -1307,6 +1395,7 @@ Reading the data adds to it, mostly on spinning disks.",
         }
         let mut open = true;
         let mut remove = None;
+        let mut show_log = None;
         egui::Window::new("Tasks").open(&mut open).default_size([560.0, 300.0]).show(ctx, |ui| {
             if self.zeit.jobs.is_empty() {
                 ui.weak("No tasks yet. Run a tool from the Tools menu.");
@@ -1326,9 +1415,13 @@ Reading the data adds to it, mostly on spinning disks.",
                         let bw = ui.text_style_height(&egui::TextStyle::Body) * 4.5;
                         ui.add(
                             egui::ProgressBar::new(s.progress as f32)
-                                .desired_width((ui.available_width() - 2.0 * bw - 8.0).max(60.0))
+                                .desired_width((ui.available_width() - 3.0 * bw - 12.0).max(60.0))
                                 .text(format!("{name}  {:.0}%  {el:.0} s", s.progress * 100.0)),
                         );
+                        let log = ui.add(egui::Button::new("Log").min_size(egui::vec2(bw, 0.0)));
+                        if log.on_hover_text(&j.log_path).clicked() {
+                            show_log = Some(j.log_path.clone());
+                        }
                         if s.state == JobState::Running {
                             if ui.add(egui::Button::new("Cancel").min_size(egui::vec2(bw, 0.0))).clicked() {
                                 j.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1355,7 +1448,125 @@ Reading the data adds to it, mostly on spinning disks.",
         if let Some(i) = remove {
             self.zeit.jobs.remove(i);
         }
+        if let Some(path) = show_log {
+            (self.zeit.log.path, self.zeit.log.show) = (path, true);
+        }
         self.zeit.show_tasks = open;
+    }
+
+    /// Tasks > Log: a run's log, its end, followed as it grows (looked at 4 times a second).
+    pub(crate) fn log_window(&mut self, ctx: &egui::Context) {
+        if !self.zeit.log.show {
+            return;
+        }
+        // what can be shown: every run's log, newest first
+        let sources: Vec<(String, String)> =
+            self.zeit.jobs.iter().rev().map(|j| (j.title.clone(), j.log_path.clone())).collect();
+        let v = &mut self.zeit.log;
+        if !sources.iter().any(|s| s.1 == v.path) {
+            match sources.first() {
+                Some(s) => v.path = s.1.clone(),
+                None => {
+                    v.show = false;
+                    return;
+                }
+            }
+        }
+        const KEEP: u64 = 2 << 20; // bytes kept (the end of a long log)
+        if v.path != v.shown || v.checked.is_none_or(|t| t.elapsed().as_secs_f64() >= 0.25) {
+            v.checked = Some(Instant::now());
+            let size = std::fs::metadata(&v.path).map_or(0, |m| m.len());
+            if v.path != v.shown || size < v.size {
+                // another file, or this one started again
+                v.shown = v.path.clone();
+                v.text.clear();
+                v.size = size.saturating_sub(KEEP);
+                v.cut = v.size > 0;
+            }
+            if size > v.size {
+                use std::io::{Read as _, Seek as _};
+                let mut add = Vec::new();
+                if let Ok(mut f) = std::fs::File::open(&v.path)
+                    && f.seek(std::io::SeekFrom::Start(v.size)).is_ok()
+                {
+                    let _ = f.take(size - v.size).read_to_end(&mut add);
+                }
+                v.size += add.len() as u64;
+                v.text.push_str(&String::from_utf8_lossy(&add).replace('\r', ""));
+                if v.text.len() as u64 > 2 * KEEP {
+                    // the end only, from a line start
+                    let mut from = v.text.len() - KEEP as usize;
+                    while !v.text.is_char_boundary(from) {
+                        from += 1;
+                    }
+                    let from = v.text[from..].find('\n').map_or(from, |k| from + k + 1);
+                    v.text.drain(..from);
+                    v.cut = true;
+                }
+            }
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        let mut open = true;
+        egui::Window::new("Log").open(&mut open).default_size([720.0, 400.0]).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let preview = sources.iter().find(|s| s.1 == v.path).map_or("", |s| s.0.as_str());
+                egui::ComboBox::from_id_salt("log-source")
+                    .width(ui.text_style_height(&egui::TextStyle::Body) * 26.0)
+                    .selected_text(preview)
+                    .show_ui(ui, |ui| {
+                        for (title, p) in &sources {
+                            if ui.selectable_label(*p == v.path, title).on_hover_text(p).clicked() {
+                                v.path = p.clone();
+                            }
+                        }
+                    });
+                if ui.button("Copy").on_hover_text("Copies the log shown").clicked() {
+                    ui.ctx().copy_text(v.text.clone());
+                }
+                if ui.button("Open file").clicked() {
+                    crate::platform::open_in_explorer(&v.path);
+                }
+                if ui.button("Folder").clicked()
+                    && let Some(d) = std::path::Path::new(&v.path).parent()
+                {
+                    crate::platform::open_in_explorer(&d.to_string_lossy());
+                }
+            });
+            ui.weak(format!("{}{}", v.path, if v.cut { "  (its end)" } else { "" }));
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                if v.text.is_empty() {
+                    ui.weak("(no log yet)");
+                    return;
+                }
+                // errors in the error colour, warnings in the warning's, a run's first line ("=== date ...") in
+                // the accent
+                let lines: Vec<&str> = v.text.lines().collect();
+                let row = ui.text_style_height(&egui::TextStyle::Body);
+                egui::ScrollArea::both().auto_shrink(false).stick_to_bottom(true).show_rows(
+                    ui,
+                    row,
+                    lines.len(),
+                    |ui, range| {
+                        for line in &lines[range] {
+                            let has = |k: &str| line.contains(k);
+                            let err = ["Traceback", "Error", "Exception", "error:", "] failed"].into_iter().any(has);
+                            let colour = if err {
+                                Some(theme::error())
+                            } else if has("Warning") || has("warning:") {
+                                Some(theme::warning())
+                            } else if line.starts_with("=== ") {
+                                Some(theme::accent())
+                            } else {
+                                None
+                            };
+                            let text = egui::RichText::new(*line);
+                            ui.add(egui::Label::new(colour.map_or(text.clone(), |c| text.color(c))).extend());
+                        }
+                    },
+                );
+            });
+        });
+        self.zeit.log.show = open;
     }
 
     /// The result maps of a series, under it in the Layers panel.

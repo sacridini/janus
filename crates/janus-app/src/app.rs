@@ -1179,6 +1179,7 @@ impl eframe::App for JanusApp {
         self.state.popups(&ctx);
         self.state.tool_windows(&ctx);
         self.state.tasks_window(&ctx);
+        self.state.log_window(&ctx);
         // the layout kept, every few seconds when it changed (not for the tests)
         if self.layout_checked.elapsed().as_secs_f64() > 3.0 && !self.state.settings.no_save {
             self.layout_checked = Instant::now();

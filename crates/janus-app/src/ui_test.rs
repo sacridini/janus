@@ -448,6 +448,24 @@ impl State {
                 if panel != a_alone {
                     return fail("a map panel of A should draw what the main map shows of A");
                 }
+                // a Zeit result over A (1 everywhere, at the top of 0..1): drawn on both
+                let info = self.layers[0].session.as_ref()?.info.clone();
+                let mut r = crate::zeit::ResultLayer::for_test(vec![1.0; 16], 4, 4, String::new());
+                (r.cube, r.w, r.h, r.visible) = (cube, info.width, info.height, true);
+                r.tex = Some(self.gpu.as_ref()?.create_tile(4, 4, &r.data));
+                self.zeit.results.push(r);
+                let on_map = centre(&self.test_render()?);
+                let mut v = crate::views::ViewSetup::new(VIEW_SLOT, cube);
+                self.render_view(&mut v, SIZE, 1.0, VIEW_SLOT as i32);
+                let (_, _, img) = self.gpu.as_ref()?.read_target(VIEW_SLOT as i32)?;
+                self.gpu.as_mut()?.release_target(VIEW_SLOT as i32);
+                let on_panel = centre(&img);
+                self.zeit.results.pop();
+                println!("    a result over A: rgb{on_map:?} on the map, rgb{on_panel:?} on the panel");
+                let top = janus_gpu::colormaps::all()[janus_gpu::colormaps::VIRIDIS].sample(1.0);
+                if on_map != on_panel || on_map.iter().zip(&top).any(|(&a, &b)| a.abs_diff(b) > 2) {
+                    return fail("a result should be drawn over its layer on the map and on a map panel");
+                }
                 self.layers[0].visible = false;
                 let none = centre(&self.test_render()?);
                 println!("    map center with both hidden: rgb{none:?}");

@@ -240,7 +240,7 @@ impl State {
         let Some(g) = self.grid() else { return };
         let (fx, fy) = (g.fx, g.fy);
         let i = self.layer_of(v.cube);
-        let State { session, display, classes, composite, layers, gpu, basemap, map, active, .. } = self;
+        let State { session, display, classes, composite, layers, gpu, basemap, map, active, zeit, .. } = self;
         let Some(gpu) = gpu.as_mut() else { return };
         let m: &MapView = map;
         // the active layer's source pixels -> this view's target pixels
@@ -290,7 +290,10 @@ impl State {
         };
         v.detail_level = None;
         if let Some(l) = layer.filter(|l| l.place.aligned && !v.basemap_only) {
+            let (info, place) = (l.session.info.clone(), l.place);
             draw_view_layer(gpu, &mut f, v, l, &view, &to_map);
+            // the layer's Zeit results over it, as on the main map
+            crate::zeit::draw_results(gpu, &mut f, &zeit.results, &info, place, &to_map);
         }
         gpu.end_map(f);
         v.drawn_size = size;
