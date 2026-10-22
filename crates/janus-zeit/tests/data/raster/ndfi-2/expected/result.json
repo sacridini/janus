@@ -1,0 +1,40 @@
+{
+ "outputs": [
+  {
+   "id": "ndfi",
+   "name": "NDFI",
+   "unit": "NDFI",
+   "series": true,
+   "dtype": "int16",
+   "scale": 0.0001,
+   "path": "ndfi_ndfi.tif"
+  },
+  {
+   "id": "ndfi_mean",
+   "name": "Mean NDFI",
+   "colormap": "NDVI",
+   "unit": "NDFI",
+   "path": "ndfi_ndfi_mean.tif"
+  },
+  {
+   "id": "ndfi_min",
+   "name": "Lowest NDFI",
+   "colormap": "NDVI",
+   "unit": "NDFI",
+   "path": "ndfi_ndfi_min.tif"
+  },
+  {
+   "id": "n_obs",
+   "name": "Observations used",
+   "colormap": "Viridis",
+   "unit": "count",
+   "path": "ndfi_n_obs.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}

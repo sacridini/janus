@@ -73,7 +73,36 @@ def bfast_family_cases(variants):
     return cases
 
 
+def landsat_grid(rng, n_dates=90):
+    """H x W Landsat pixels on the same dates: (years, days, {role: [T, H, W]}, Fmask [T, H, W], NDVI shown)."""
+    days = np.datetime64("2014-01-05") + np.arange(n_dates) * 16
+    pixels = [zf.landsat_series(rng, days=days) for _ in range(H * W)]
+    years, day_numbers = pixels[0][0], pixels[0][1]
+    bands = {r: grid([px[2][r] for px in pixels]) for r in pixels[0][2]}
+    return years, day_numbers, bands, grid([px[3] for px in pixels]), grid([px[4] for px in pixels])
+
+
+def multiband_cases(roles, variants):
+    def cases(rng):
+        out = []
+        for k, params in enumerate(variants):
+            years, days, bands, qa, shown = landsat_grid(rng)
+            case = {"params": params, "years": years, "days": days, "input": shown,
+                    "bands": {r: bands[r] for r in roles}, "qa_input": qa, "qa_rule": "fmask",
+                    "shown": {"band": None, "nd": ["nir", "red"]}}
+            if k % 3 == 1:  # reflectance 0-1
+                case["bands"] = {r: v / 10000.0 for r, v in case["bands"].items()}
+            if k % 3 == 2:  # Landsat C2 digital numbers with QA_PIXEL bits
+                case["bands"] = {r: (v / 10000.0 + 0.2) / 2.75e-5 for r, v in case["bands"].items()}
+                case["qa_input"], case["qa_rule"] = zf.landsat_c2_qa(qa), "landsat_c2"
+            out.append(case)
+        return out
+    return cases
+
+
 CASES = {
+    "ndfi": multiband_cases(zf.zc.LANDSAT_ROLES, [{}, {"fractions": True, "cloud_threshold": 1.0}, {"cloud_threshold": 0.2}]),
+    "tmask": multiband_cases(["green", "swir1"], [{}, {"write_series": False}, {}]),
     "landtrendr": landtrendr_cases,
     "mann_kendall": mann_kendall_cases,
     "bfast": bfast_family_cases([{}, {"h": 0.25, "max_breaks_trend": 2}]),

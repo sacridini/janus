@@ -437,6 +437,8 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "landtrendr" => crate::landtrendr::chunk(p, chunk, ctx),
         "mann_kendall" => crate::mann_kendall::chunk(p, chunk, ctx),
         "bfast" => crate::bfast::bfast_chunk(p, chunk, ctx),
+        "tmask" => crate::tmask::chunk(p, chunk, ctx),
+        "ndfi" => crate::ndfi::chunk(p, chunk, ctx),
         "bfast_lite" => crate::bfast::lite_chunk(p, chunk, ctx),
         "bfast_monitor" => crate::bfast::monitor_chunk(p, chunk, ctx),
         _ => Err(format!("{tool}: raster runs not available in this version")),
@@ -501,4 +503,26 @@ pub fn run_job(
     let outputs = outs.describe(&p, ctx.model.as_ref());
     drop(outs);
     Ok(JobResult { outputs, window })
+}
+
+impl PixelInput {
+    /// The pixel as a 1 x 1 chunk (the bridge's pixel_stack): a pixel run computes as a raster run does.
+    pub fn as_chunk(&self) -> Chunk {
+        Chunk {
+            t: self.values.len(),
+            h: 1,
+            w: 1,
+            stack: self.values.clone(),
+            bands: self.bands.clone(),
+            qa: self.qa.clone(),
+        }
+    }
+}
+
+impl JobCtx {
+    /// A pixel run's context: one thread, nothing shared.
+    pub fn for_pixel(input: &PixelInput) -> JobCtx {
+        let input = PixelInput { values: vec![], bands: BTreeMap::new(), qa: None, ..input.clone() };
+        JobCtx { input, n_jobs: 1, ..Default::default() }
+    }
 }

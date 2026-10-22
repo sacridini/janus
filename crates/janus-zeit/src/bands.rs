@@ -7,19 +7,21 @@ use crate::pixel::{Overlay, Params, PixelInput};
 pub const LANDSAT_ROLES: [&str; 6] = ["blue", "green", "red", "nir", "swir1", "swir2"];
 
 /// Fmask codes of each date (0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 no observation) from the quality
-/// band; without one, 0 where every band has a value and 255 elsewhere (the bridge's to_fmask).
-pub fn fmask(input: &PixelInput) -> Option<Vec<i32>> {
-    if input.bands.is_empty() {
-        return None;
-    }
-    let t = input.values.len();
-    let ok: Vec<bool> = (0..t).map(|i| input.bands.values().all(|b| b.get(i).is_some_and(|v| v.is_finite()))).collect();
-    let rule = input.qa_rule.as_deref().unwrap_or("none");
-    let Some(qa) = input.qa.as_ref().filter(|_| rule != "none") else {
+/// band; without one, 0 where every band has a value and 255 elsewhere (the bridge's to_fmask). Element by
+/// element: the bands and the codes in any layout, the same for all.
+pub fn fmask_codes(
+    bands: &std::collections::BTreeMap<String, Vec<f64>>,
+    qa: Option<&[f64]>,
+    rule: Option<&str>,
+) -> Option<Vec<i32>> {
+    let len = bands.values().next()?.len();
+    let ok: Vec<bool> = (0..len).map(|i| bands.values().all(|b| b.get(i).is_some_and(|v| v.is_finite()))).collect();
+    let rule = rule.unwrap_or("none");
+    let Some(qa) = qa.filter(|_| rule != "none") else {
         return Some(ok.iter().map(|&o| if o { 0 } else { 255 }).collect());
     };
     Some(
-        (0..t)
+        (0..len)
             .map(|i| {
                 let q = qa[i];
                 let fin = q.is_finite() && q >= 0.0;
@@ -57,6 +59,11 @@ pub fn fmask(input: &PixelInput) -> Option<Vec<i32>> {
             })
             .collect(),
     )
+}
+
+/// A pixel's Fmask codes.
+pub fn fmask(input: &PixelInput) -> Option<Vec<i32>> {
+    fmask_codes(&input.bands, input.qa.as_deref(), input.qa_rule.as_deref())
 }
 
 pub fn missing_roles(input: &PixelInput, roles: &[&str]) -> Vec<String> {
@@ -104,8 +111,38 @@ pub fn from_x10000(v: f64, mode: &str) -> f64 {
     }
 }
 
-/// The mapped bands as reflectance x 10000 (per role, each date), observations the quality band rejects (Fmask
-/// cloud, shadow, snow or no observation) NaN when `clear_only`; and the unit mode (zeit_common.landsat_cube).
+/// The mapped bands as reflectance x 10000 (per role, element by element as the bands are laid out),
+/// observations the quality band rejects (Fmask cloud, shadow, snow or no observation) NaN when `clear_only`;
+/// and the unit mode, from `units` of the optical bands (zeit_common.landsat_cube).
+pub fn landsat_arrays(
+    bands: &std::collections::BTreeMap<String, Vec<f64>>,
+    fm: Option<&[i32]>,
+    roles: &[&str],
+    units: impl FnOnce(&[&[f64]]) -> String,
+) -> Result<(Vec<Vec<f64>>, String), String> {
+    let optical: Vec<&[f64]> = roles
+        .iter()
+        .map(|r| bands.get(*r).map(Vec::as_slice).ok_or_else(|| format!("KeyError: '{r}'")))
+        .collect::<Result<_, _>>()?;
+    let mode = units(&optical);
+    let cube = optical
+        .iter()
+        .map(|b| {
+            b.iter()
+                .enumerate()
+                .map(|(t, &v)| match fm {
+                    Some(f) if f[t] > 1 => f64::NAN,
+                    _ => to_x10000(v, &mode),
+                })
+                .collect()
+        })
+        .collect();
+    Ok((cube, mode))
+}
+
+const NO_DATES: &str = "ValueError: needs real dates (none were found in the file names or band descriptions)";
+
+/// A pixel's Landsat cube: its reflectance units from its own values.
 pub fn landsat_cube(
     p: &Params,
     input: &PixelInput,
@@ -113,30 +150,27 @@ pub fn landsat_cube(
     clear_only: bool,
 ) -> Result<(Vec<Vec<f64>>, String), String> {
     if input.days.is_none() {
-        return Err("ValueError: needs real dates (none were found in the file names or band descriptions)".into());
+        return Err(NO_DATES.into());
     }
-    let bands: Vec<&[f64]> = roles
-        .iter()
-        .map(|r| input.bands.get(*r).map(Vec::as_slice).ok_or_else(|| format!("KeyError: '{r}'")))
-        .collect::<Result<_, _>>()?;
-    let mode = reflectance_units(p, &bands);
     let fm = if clear_only { fmask(input) } else { None };
-    let cube = bands
-        .iter()
-        .map(|b| {
-            b.iter()
-                .enumerate()
-                .map(|(t, &v)| {
-                    let v = to_x10000(v, &mode);
-                    match &fm {
-                        Some(f) if f[t] > 1 => f64::NAN,
-                        _ => v,
-                    }
-                })
-                .collect()
-        })
-        .collect();
-    Ok((cube, mode))
+    landsat_arrays(&input.bands, fm.as_deref(), roles, |o| reflectance_units(p, o))
+}
+
+/// A chunk's Landsat cube ([T][pixels] per role): its reflectance units decided once per job, from the first
+/// chunk (zeit_common's ctx["cache"]).
+pub fn landsat_chunk(
+    p: &Params,
+    chunk: &crate::job::Chunk,
+    ctx: &crate::job::JobCtx,
+    roles: &[&str],
+    clear_only: bool,
+) -> Result<(Vec<Vec<f64>>, String), String> {
+    if ctx.input.days.is_none() {
+        return Err(NO_DATES.into());
+    }
+    let fm =
+        if clear_only { fmask_codes(&chunk.bands, chunk.qa.as_deref(), ctx.input.qa_rule.as_deref()) } else { None };
+    landsat_arrays(&chunk.bands, fm.as_deref(), roles, |o| ctx.once("units", || reflectance_units(p, o)))
 }
 
 /// Janus shows a normalized difference (values in -1..1): an index such as the NDFI can be drawn on its axis.

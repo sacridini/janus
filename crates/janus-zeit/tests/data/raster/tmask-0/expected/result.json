@@ -1,0 +1,32 @@
+{
+ "outputs": [
+  {
+   "id": "n_flagged",
+   "name": "Observations flagged",
+   "colormap": "Plasma",
+   "unit": "count",
+   "path": "tmask_n_flagged.tif"
+  },
+  {
+   "id": "flagged_share",
+   "name": "Share flagged",
+   "colormap": "Plasma",
+   "unit": "%",
+   "path": "tmask_flagged_share.tif"
+  },
+  {
+   "id": "series",
+   "name": "Screened series",
+   "unit": "value",
+   "series": true,
+   "when": "write_series",
+   "path": "tmask_series.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}

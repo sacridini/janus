@@ -193,12 +193,14 @@ def bfast_family_cases(variants, monthly_too=True):
     return cases
 
 
-def landsat_series(rng, n=None, first="2014-01-05", step=16, disturb=True):
-    """Six Landsat bands (reflectance x 10000) of a forest pixel every `step` days, a clearing in some, with
-    Fmask codes (cloud, shadow, snow, missing) and clouds and shadows Fmask missed; and the NDVI Janus shows."""
-    n = n or int(rng.integers(60, 200))
-    days = np.datetime64(first) + np.arange(n) * step
-    days = days[rng.random(n) > 0.05]
+def landsat_series(rng, n=None, first="2014-01-05", step=16, disturb=True, days=None):
+    """Six Landsat bands (reflectance x 10000) of a forest pixel every `step` days (or on `days`), a clearing in
+    some, with Fmask codes (cloud, shadow, snow, missing) and clouds and shadows Fmask missed; and the NDVI Janus
+    shows."""
+    if days is None:
+        n = n or int(rng.integers(60, 200))
+        days = np.datetime64(first) + np.arange(n) * step
+        days = days[rng.random(n) > 0.05]
     n = days.size
     t = days.astype(np.int64).astype(np.float64)
     season = np.sin(2 * np.pi * t / 365.25 + rng.uniform(0, 6))

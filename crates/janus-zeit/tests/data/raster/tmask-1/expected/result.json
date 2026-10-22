@@ -1,0 +1,24 @@
+{
+ "outputs": [
+  {
+   "id": "n_flagged",
+   "name": "Observations flagged",
+   "colormap": "Plasma",
+   "unit": "count",
+   "path": "tmask_n_flagged.tif"
+  },
+  {
+   "id": "flagged_share",
+   "name": "Share flagged",
+   "colormap": "Plasma",
+   "unit": "%",
+   "path": "tmask_flagged_share.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}
