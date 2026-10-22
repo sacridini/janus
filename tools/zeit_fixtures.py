@@ -343,7 +343,36 @@ def twdtw_cases(rng):
     return out
 
 
+def ccdc_cases(synthetic):
+    def cases(rng):
+        out = []
+        variants = [{}, {"conseq_anom": 4, "num_c": "6"}, {"chi2_prob_threshold": 0.9, "max_segments": 3},
+                    {"num_c": "4"}, {"tmax_cg_prob_threshold": 0.99}]
+        shown = [{"band": None, "nd": ["nir", "red"]}, {"band": "nir", "nd": None}, {"band": "thermal", "nd": None},
+                 None, {"band": None, "nd": ["nir", "swir1"]}]
+        for k in range(22):
+            years, days, bands, qa, values = landsat_series(rng, n=int(rng.integers(60, 230)))
+            case = {"params": dict(variants[k % len(variants)]), "years": years, "days": days, "values": values,
+                    "bands": dict(bands), "qa": qa, "qa_rule": "fmask", "shown": shown[k % len(shown)]}
+            if k % 3 == 0:  # thermal: Kelvin, deg C or C2 ST digital numbers
+                kelvin = 295.0 + 8.0 * np.sin(2 * np.pi * np.asarray(days) / 365.25) + rng.normal(0, 1, len(days))
+                case["bands"]["thermal"] = [kelvin, kelvin - 273.15, (kelvin - 149.0) / 0.00341802][k % 9 // 3]
+            if k % 4 == 1:
+                case["bands"] = {r: v / 10000.0 if r != "thermal" else v for r, v in case["bands"].items()}
+            if synthetic:
+                case["params"]["date"] = [0.0, 2016.5, 2030.0, 2000.0][k % 4]
+                case["map_year"] = [None, 2017.25][k % 2]
+            out.append(case)
+        years, days, bands, qa, values = landsat_series(rng, n=20)
+        out.append({"params": {}, "years": years, "days": days, "values": values, "bands": bands, "qa": qa,
+                    "qa_rule": "fmask"})  # too few clear observations
+        return out
+    return cases
+
+
 CASES = {
+    "ccdc": ccdc_cases(False),
+    "ccdc_synthetic": ccdc_cases(True),
     "twdtw": twdtw_cases,
     "phenology": phenology_cases,
     "coded": multiband_cases(zc.LANDSAT_ROLES, [{}, {"monitor_start": 2017.0}, {"direction": "both", "max_events": 5},

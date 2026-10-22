@@ -8,6 +8,7 @@
 
 pub mod bands;
 mod bfast;
+mod ccdc;
 mod coded;
 mod landtrendr;
 pub mod manifest;

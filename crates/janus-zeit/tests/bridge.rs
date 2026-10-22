@@ -243,3 +243,15 @@ fn phenology() {
 fn twdtw() {
     compare("twdtw");
 }
+
+// CCDC: the segments, dates, magnitudes and rows the same bits; the models drawn go through numpy's cos/sin and
+// BLAS (dgemv): to rounding
+#[test]
+fn ccdc() {
+    compare_within("ccdc", |_| Tol { curves: 1e-12, rows: false });
+}
+
+#[test]
+fn ccdc_synthetic() {
+    compare_within("ccdc_synthetic", |_| Tol { curves: 1e-12, rows: false });
+}

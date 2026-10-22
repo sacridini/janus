@@ -120,7 +120,7 @@ pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
     let d = distances(p, vals, days, &pats);
     // the class: the first lowest distance; unclassified above the max distance
     let finite = d.iter().any(|x| x.is_finite());
-    let best_k = (0..d.len()).fold(0, |b, i| if d[i].is_finite() && !(d[b] <= d[i]) { i } else { b });
+    let best_k = (0..d.len()).fold(0, |b, i| if d[i].is_finite() && (d[b].is_nan() || d[b] > d[i]) { i } else { b });
     let best = if finite { d[best_k] } else { f64::NAN };
     let max_distance = p.f64("max_distance");
     let class = (finite && !(max_distance > 0.0 && best > max_distance)).then_some(best_k);
