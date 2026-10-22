@@ -101,6 +101,7 @@ def multiband_cases(roles, variants):
 
 
 CASES = {
+    "coded": multiband_cases(zf.zc.LANDSAT_ROLES, [{}, {"direction": "both", "thresh": 2.0}, {"monitor_start": 2016.0}]),
     "ndfi": multiband_cases(zf.zc.LANDSAT_ROLES, [{}, {"fractions": True, "cloud_threshold": 1.0}, {"cloud_threshold": 0.2}]),
     "tmask": multiband_cases(["green", "swir1"], [{}, {"write_series": False}, {}]),
     "landtrendr": landtrendr_cases,

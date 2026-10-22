@@ -1,0 +1,59 @@
+{
+ "outputs": [
+  {
+   "id": "strata",
+   "name": "Strata",
+   "colormap": "Strata",
+   "unit": "class",
+   "classes": [
+    "Forest",
+    "Non-forest",
+    "Degradation",
+    "Deforestation",
+    "Disturbance"
+   ],
+   "path": "coded_strata.tif"
+  },
+  {
+   "id": "first_change",
+   "name": "First change date",
+   "colormap": "Viridis",
+   "unit": "year",
+   "path": "coded_first_change.tif"
+  },
+  {
+   "id": "first_ndfi_change",
+   "name": "NDFI change at the first change",
+   "colormap": "BrBG",
+   "unit": "NDFI",
+   "path": "coded_first_ndfi_change.tif"
+  },
+  {
+   "id": "last_change",
+   "name": "Last change date",
+   "colormap": "Viridis",
+   "unit": "year",
+   "path": "coded_last_change.tif"
+  },
+  {
+   "id": "n_events",
+   "name": "Changes",
+   "colormap": "Viridis",
+   "unit": "count",
+   "path": "coded_n_events.tif"
+  },
+  {
+   "id": "ndfi_mean",
+   "name": "Mean NDFI of the training period",
+   "colormap": "NDVI",
+   "unit": "NDFI",
+   "path": "coded_ndfi_mean.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}

@@ -4,7 +4,8 @@
 
 use crate::bands::{series_overlay, shown_is_index};
 use crate::bfast::fmt_year;
-use crate::ndfi::{check, f3, unmix};
+use crate::job::{Chunk, ChunkOut, JobCtx};
+use crate::ndfi::{check, f3, unmix, unmix_chunk};
 use crate::numeric::{decimal_year, decimal_year_days};
 use crate::pixel::{Overlay, Params, PixelInput, PixelResult, row};
 
@@ -41,9 +42,10 @@ struct Coded {
     train_start: f64,
 }
 
-fn run(p: &Params, input: &PixelInput) -> Result<Coded, String> {
-    let fr = unmix(p, input)?;
-    let days = input.days.as_ref().ok_or("ValueError: needs real dates")?;
+/// zeit.coded of every pixel of a chunk.
+fn run_chunk(p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<Vec<Coded>, String> {
+    let fr = unmix_chunk(p, chunk, ctx)?;
+    let days = ctx.input.days.as_ref().ok_or("ValueError: needs real dates")?;
     let t: Vec<f64> = days.iter().map(|&d| decimal_year(d)).collect();
     let start = p.f64("monitor_start");
     let train_years = p.f64("train_years");
@@ -63,48 +65,92 @@ fn run(p: &Params, input: &PixelInput) -> Result<Coded, String> {
         loss_only: direction == "loss",
         max_events: max_events as i32,
     };
-    let ndfi: Vec<f64> = fr.ndfi.iter().map(|&v| f64::from(v)).collect();
-    let features: Vec<f64> =
-        ["gv", "npv", "soil", "shade"].iter().flat_map(|f| fr.get(f).iter().map(|&v| f64::from(v))).collect();
-    let out = zeit_core::coded::coded_batch(&t, &ndfi, &features, 1, 4, &params, 1).map_err(|e| e.to_string())?;
+    let n = chunk.pixels();
+    let f64s = |v: &[f32]| -> Vec<f64> { chunk.by_pixel(&v.iter().map(|&x| f64::from(x)).collect::<Vec<_>>()) };
+    let ndfi = f64s(&fr.ndfi);
+    // pixels x features x T
+    let feats: Vec<Vec<f64>> = ["gv", "npv", "soil", "shade"].iter().map(|f| f64s(fr.get(f))).collect();
+    let mut features = Vec::with_capacity(n * 4 * chunk.t);
+    for px in 0..n {
+        for f in &feats {
+            features.extend_from_slice(&f[px * chunk.t..(px + 1) * chunk.t]);
+        }
+    }
+    let out =
+        zeit_core::coded::coded_batch(&t, &ndfi, &features, n, 4, &params, ctx.n_jobs).map_err(|e| e.to_string())?;
     // the layout (zeit/_coded.py `_layout`): the training model, then each change
     let nf = 4;
     let (header, per_event) = (3 + 1 + 1 + 3 * nf + 1, 3 + 3 + 1 + 3 * nf);
+    let size = out.len() / n.max(1);
     let forest_ndfi = p.f64("forest_ndfi");
-    let train_c = out[0];
-    let changes: Vec<Change> = (0..max_events)
-        .map(|e| {
-            let ev = &out[header + e * per_event..header + (e + 1) * per_event];
-            let days = decimal_year_days(ev[0]);
-            let t_change = if days.is_finite() { decimal_year(days as i64) } else { f64::NAN };
-            let (happened, has_post) = (!t_change.is_nan(), !ev[3].is_nan());
-            let kind = if happened && has_post && ev[3] >= forest_ndfi {
-                1
-            } else if happened && has_post {
-                2
-            } else if happened {
-                3
+    Ok((0..n)
+        .map(|px| {
+            let row = &out[px * size..(px + 1) * size];
+            let train_c = row[0];
+            let changes: Vec<Change> = (0..max_events)
+                .map(|e| {
+                    let ev = &row[header + e * per_event..header + (e + 1) * per_event];
+                    let days = decimal_year_days(ev[0]);
+                    let t_change = if days.is_finite() { decimal_year(days as i64) } else { f64::NAN };
+                    let (happened, has_post) = (!t_change.is_nan(), !ev[3].is_nan());
+                    let kind = if happened && has_post && ev[3] >= forest_ndfi {
+                        1
+                    } else if happened && has_post {
+                        2
+                    } else if happened {
+                        3
+                    } else {
+                        0
+                    };
+                    Change { t_change, ndfi_change: ev[2] as f32, post_ndfi: ev[3] as f32, kind }
+                })
+                .collect();
+            let forest = train_c >= forest_ndfi && !train_c.is_nan();
+            let first = changes.first().map_or(0, |c| c.kind);
+            let strata = if !train_c.is_nan() || first > 0 {
+                if first > 0 {
+                    first + 2
+                } else if forest {
+                    1
+                } else {
+                    2
+                }
             } else {
                 0
             };
-            Change { t_change, ndfi_change: ev[2] as f32, post_ndfi: ev[3] as f32, kind }
+            let n_train = if row[4].is_nan() { 0 } else { row[4] as u16 };
+            Coded { changes, ndfi_mean: train_c as f32, rmse: row[3] as f32, n_train, forest, strata, train_start }
         })
-        .collect();
-    let forest = train_c >= forest_ndfi && !train_c.is_nan();
-    let first = changes.first().map_or(0, |c| c.kind);
-    let strata = if !train_c.is_nan() || first > 0 {
-        if first > 0 {
-            first + 2
-        } else if forest {
-            1
-        } else {
-            2
-        }
-    } else {
-        0
+        .collect())
+}
+
+fn run(p: &Params, input: &PixelInput) -> Result<Coded, String> {
+    Ok(run_chunk(p, &input.as_chunk(), &JobCtx::for_pixel(input))?.remove(0))
+}
+
+pub fn chunk(p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<ChunkOut, String> {
+    let with_bands = PixelInput { bands: chunk.bands.clone(), ..ctx.input.clone() };
+    if let Some(why) = check(&with_bands) {
+        return Err(format!("ValueError: CODED: {why}"));
+    }
+    let all = run_chunk(p, chunk, ctx)?;
+    let mut res = ChunkOut::new();
+    let mut put = |id: &str, f: &dyn Fn(&Coded) -> f64| {
+        res.insert(id.into(), all.iter().map(f).collect());
     };
-    let n_train = if out[4].is_nan() { 0 } else { out[4] as u16 };
-    Ok(Coded { changes, ndfi_mean: train_c as f32, rmse: out[3] as f32, n_train, forest, strata, train_start })
+    fn found(c: &Coded) -> Vec<&Change> {
+        c.changes.iter().filter(|ch| ch.t_change.is_finite()).collect()
+    }
+    put("strata", &|c| if c.strata > 0 { f64::from(c.strata) } else { f64::NAN });
+    put("first_change", &|c| found(c).first().map_or(f64::NAN, |ch| ch.t_change));
+    put("first_ndfi_change", &|c| found(c).first().map_or(f64::NAN, |ch| f64::from(ch.ndfi_change)));
+    put("last_change", &|c| found(c).last().map_or(f64::NAN, |ch| ch.t_change));
+    put("n_events", &|c| {
+        let k = found(c).len();
+        if c.ndfi_mean.is_finite() || k > 0 { k as f64 } else { f64::NAN }
+    });
+    put("ndfi_mean", &|c| f64::from(c.ndfi_mean));
+    Ok(res)
 }
 
 pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
