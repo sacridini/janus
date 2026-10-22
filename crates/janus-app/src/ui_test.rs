@@ -12,6 +12,8 @@ use janus_gpu::Mode;
 
 #[path = "ui_test_animation.rs"]
 mod animation;
+#[path = "ui_test_basemap.rs"]
+mod basemap;
 #[path = "ui_test_validation.rs"]
 mod validation;
 #[path = "ui_test_vectors.rs"]
@@ -519,6 +521,7 @@ impl State {
                     return fail("the scatter of A and B should be the line B = A - 0.5");
                 }
                 next(st, "layer drawing and visibility, a map panel, transect");
+                st.stage = 50; // the basemap (50-56), then 6
             }
             6 => {
                 st.pin_x = self.series.pins.first()?.x;
@@ -796,6 +799,7 @@ impl State {
             90..=100 => return self.test_spectra(st, &input, t0, ctx),
             110..=115 => return self.test_roi_polygon(st, &input, t0, ctx),
             120..=125 => return self.test_vectors(st, t0, ctx),
+            50..=56 => return self.test_basemap(st, t0, ctx),
             130..=137 | 79 | 80 => return self.test_animation(st, &input, t0, ctx),
             170..=179 => return self.test_validation(st, &input, t0, ctx),
             _ => {}

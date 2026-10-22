@@ -767,7 +767,7 @@ impl State {
                 ("TILED", "YES"),
                 ("COMPRESS", "DEFLATE"),
                 ("PHOTOMETRIC", "RGB"),
-                ("ALPHA", "UNASSOCIATED"),
+                ("ALPHA", "NON-PREMULTIPLIED"),
                 ("BIGTIFF", "IF_SAFER"),
             ];
             let wkt = if gt.is_some() { file_wkt(&src) } else { String::new() };
