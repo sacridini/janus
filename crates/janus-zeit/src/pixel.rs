@@ -52,6 +52,23 @@ pub struct PixelInput {
     pub days: Option<Vec<i64>>,
     /// NaN = missing
     pub values: Vec<f64>,
+    /// multiband tools: each mapped band role's series (blue, green, red, nir, swir1, swir2, thermal)
+    pub bands: BTreeMap<String, Vec<f64>>,
+    /// the quality band's codes, and how to read them (fmask, landsat_c2, nonzero, none)
+    pub qa: Option<Vec<f64>>,
+    pub qa_rule: Option<String>,
+    /// what the shown series is in band roles: a band, or a normalized difference of two
+    pub shown: Option<Shown>,
+    /// the decimal year of the date shown on the map (CCDC's synthetic image)
+    pub map_year: Option<f64>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct Shown {
+    #[serde(default)]
+    pub band: Option<String>,
+    #[serde(default)]
+    pub nd: Option<Vec<String>>,
 }
 
 impl PixelInput {
@@ -139,6 +156,7 @@ pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResu
         "landtrendr" => crate::landtrendr::pixel(p, input),
         "mann_kendall" => crate::mann_kendall::pixel(p, input),
         "smooth" => crate::smooth::pixel(p, input),
+        "tmask" => crate::tmask::pixel(p, input),
         "bfast" => crate::bfast::bfast_pixel(p, input),
         "bfast_lite" => crate::bfast::lite_pixel(p, input),
         "bfast_monitor" => crate::bfast::monitor_pixel(p, input),

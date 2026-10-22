@@ -13,12 +13,27 @@ struct Case {
     years: Vec<f64>,
     days: Option<Vec<i64>>,
     values: Vec<Option<f64>>,
+    #[serde(default)]
+    bands: BTreeMap<String, Vec<Option<f64>>>,
+    #[serde(default)]
+    qa: Option<Vec<Option<f64>>>,
+    #[serde(default)]
+    qa_rule: Option<String>,
+    #[serde(default)]
+    shown: Option<janus_zeit::pixel::Shown>,
+    #[serde(default)]
+    map_year: Option<f64>,
     result: Value,
 }
 
 #[derive(Deserialize)]
 struct Fixtures {
     cases: Vec<Case>,
+}
+
+/// JSON's nulls as NaN.
+fn nan(v: &[Option<f64>]) -> Vec<f64> {
+    v.iter().map(|x| x.unwrap_or(f64::NAN)).collect()
 }
 
 fn data(name: &str) -> String {
@@ -125,7 +140,12 @@ fn compare_within(tool: &str, tol: impl Fn(&Case) -> Tol) {
         let input = PixelInput {
             years: c.years.clone(),
             days: c.days.clone(),
-            values: c.values.iter().map(|v| v.unwrap_or(f64::NAN)).collect(),
+            values: nan(&c.values),
+            bands: c.bands.iter().map(|(r, v)| (r.clone(), nan(v))).collect(),
+            qa: c.qa.as_deref().map(nan),
+            qa_rule: c.qa_rule.clone(),
+            shown: c.shown.clone(),
+            map_year: c.map_year,
         };
         let got = run_pixel(tool, &p, &input);
         let ok = match (&got, c.result.get("error")) {
@@ -182,4 +202,9 @@ fn bfast_lite() {
 #[test]
 fn bfast_monitor() {
     compare_within("bfast_monitor", |_| Tol { curves: 1e-8, rows: false });
+}
+
+#[test]
+fn tmask() {
+    compare("tmask");
 }

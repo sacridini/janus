@@ -17,10 +17,8 @@ pub fn lstsq(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
         let mut rotated = false;
         for p in 0..k {
             for q in p + 1..k {
-                let (alpha, beta, gamma) = u[p]
-                    .iter()
-                    .zip(&u[q])
-                    .fold((0.0, 0.0, 0.0), |(a, b, g), (x, y)| (a + x * x, b + y * y, g + x * y));
+                let (alpha, beta, gamma) =
+                    u[p].iter().zip(&u[q]).fold((0.0, 0.0, 0.0), |(a, b, g), (x, y)| (a + x * x, b + y * y, g + x * y));
                 if gamma == 0.0 || gamma.abs() <= 1e-15 * (alpha * beta).sqrt() {
                     continue;
                 }

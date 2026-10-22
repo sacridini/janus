@@ -193,7 +193,84 @@ def bfast_family_cases(variants, monthly_too=True):
     return cases
 
 
+def landsat_series(rng, n=None, first="2014-01-05", step=16, disturb=True):
+    """Six Landsat bands (reflectance x 10000) of a forest pixel every `step` days, a clearing in some, with
+    Fmask codes (cloud, shadow, snow, missing) and clouds and shadows Fmask missed; and the NDVI Janus shows."""
+    n = n or int(rng.integers(60, 200))
+    days = np.datetime64(first) + np.arange(n) * step
+    days = days[rng.random(n) > 0.05]
+    n = days.size
+    t = days.astype(np.int64).astype(np.float64)
+    season = np.sin(2 * np.pi * t / 365.25 + rng.uniform(0, 6))
+    base = {"blue": 300, "green": 550, "red": 350, "nir": 3200, "swir1": 1500, "swir2": 700}
+    amp = {"blue": 30, "green": 60, "red": 60, "nir": 400, "swir1": 150, "swir2": 80}
+    bands = {r: base[r] + amp[r] * season + rng.normal(0, 0.03 * base[r], n) for r in base}
+    if disturb and rng.random() < 0.7:  # a clearing: soil
+        at = int(rng.integers(n // 4, 3 * n // 4))
+        for r, d in {"blue": 400, "green": 500, "red": 900, "nir": -1400, "swir1": 1300, "swir2": 1100}.items():
+            bands[r][at:] += d * np.exp(-(t[at:] - t[at]) / rng.uniform(300, 3000))
+    qa = np.zeros(n)
+    kind = rng.random(n)
+    cloud, shadow = kind < 0.12, (kind >= 0.12) & (kind < 0.18)
+    missed_cloud, missed_shadow = (kind >= 0.18) & (kind < 0.22), (kind >= 0.22) & (kind < 0.25)
+    bright = {"blue": 2500, "green": 2500, "red": 2500, "nir": 2000, "swir1": 1500, "swir2": 1200}
+    for r in bands:
+        c = cloud | missed_cloud
+        bands[r][c] += bright[r] * rng.uniform(0.3, 1.0, c.sum())
+        bands[r][shadow | missed_shadow] *= 0.4
+    qa[cloud] = 4
+    qa[shadow] = 2
+    qa[(kind >= 0.25) & (kind < 0.26)] = 3
+    gone = (kind >= 0.26) & (kind < 0.29)
+    for r in bands:
+        bands[r][gone] = np.nan
+    qa[gone] = 255
+    nd = (bands["nir"] - bands["red"]) / (bands["nir"] + bands["red"])
+    values = np.where(qa <= 1, nd, np.nan)
+    return zc.decimal_years(days).tolist(), days.astype(np.int64).tolist(), bands, qa, values
+
+
+def landsat_c2_qa(fmask):
+    """Fmask codes as Landsat Collection 2 QA_PIXEL bits."""
+    out = np.full(fmask.shape, 1 << 6, dtype=np.float64)  # clear
+    out[fmask == 4] = (1 << 3) | (1 << 1)
+    out[fmask == 2] = 1 << 4
+    out[fmask == 3] = 1 << 5
+    out[fmask == 255] = 1
+    return out
+
+
+def multiband_cases(roles, variants, n_cases=20, step=16):
+    def cases(rng):
+        out = []
+        for k in range(n_cases):
+            years, days, bands, qa, values = landsat_series(rng, step=step)
+            case = {"params": dict(variants[k % len(variants)]), "years": years, "days": days, "values": values,
+                    "bands": {r: bands[r] for r in roles}, "qa": qa, "qa_rule": "fmask",
+                    "shown": {"band": None, "nd": ["nir", "red"]}}
+            units = k % 4
+            if units == 1:  # reflectance 0-1
+                case["bands"] = {r: v / 10000.0 for r, v in case["bands"].items()}
+            elif units == 2:  # Landsat C2 L2 digital numbers, with its QA bits
+                case["bands"] = {r: (v / 10000.0 + 0.2) / 2.75e-5 for r, v in case["bands"].items()}
+                case["qa"], case["qa_rule"] = landsat_c2_qa(qa), "landsat_c2"
+            elif k % 8 == 3:  # no quality band
+                case["qa"], case["qa_rule"] = None, None
+            out.append(case)
+        years, days, bands, qa, values = landsat_series(rng, step=step)
+        out.append({"params": {}, "years": years, "days": days, "values": values,
+                    "bands": {r: bands[r] for r in roles[:-1]}, "qa": qa, "qa_rule": "fmask"})  # a role missing
+        out.append({"params": {}, "years": years, "days": None, "values": values,
+                    "bands": {r: bands[r] for r in roles}, "qa": qa, "qa_rule": "fmask"})  # no real dates
+        years, days, bands, qa, values = landsat_series(rng, n=8, step=step)
+        out.append({"params": {}, "years": years, "days": days, "values": values,
+                    "bands": {r: bands[r] for r in roles}, "qa": qa, "qa_rule": "fmask"})  # few dates
+        return out
+    return cases
+
+
 CASES = {
+    "tmask": multiband_cases(["green", "swir1"], [{}, {"units": "x10000"}, {"write_series": False}]),
     "landtrendr": landtrendr_cases,
     "mann_kendall": mann_kendall_cases,
     "smooth": smooth_cases,
@@ -224,12 +301,19 @@ def main():
             p = bridge.defaults(entry["manifest"], case["params"])
             ctx = bridge.make_ctx(case["years"], case["days"], n_jobs=1)
             ctx["values"] = [float(v) for v in case["values"]]
+            ctx["shown"] = case.get("shown")
+            ctx["map_year"] = case.get("map_year")
+            if case.get("bands"):
+                bridge.band_ctx(ctx, {r: [float(x) for x in v] for r, v in case["bands"].items()},
+                                None if case.get("qa") is None else [float(x) for x in case["qa"]],
+                                case.get("qa_rule"))
             try:
                 result = entry["pixel"](p, ctx)
             except Exception as e:  # the native run must fail too
                 result = {"error": f"{type(e).__name__}: {e}"}
-            fixtures.append({"params": case["params"], "years": case["years"], "days": case["days"],
-                             "values": case["values"], "result": result})
+            extra = {k: case[k] for k in ("bands", "qa", "qa_rule", "shown", "map_year") if k in case}
+            fixtures.append(extra | {"params": case["params"], "years": case["years"], "days": case["days"],
+                                     "values": case["values"], "result": result})
         path = os.path.join(out_dir, f"{tool}.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(jsonable({"zeit": manifest.get("zeit_version"), "cases": fixtures}), f)
