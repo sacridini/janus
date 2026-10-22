@@ -238,3 +238,8 @@ fn timedelta_days() {
 fn phenology() {
     compare("phenology");
 }
+
+#[test]
+fn twdtw() {
+    compare("twdtw");
+}

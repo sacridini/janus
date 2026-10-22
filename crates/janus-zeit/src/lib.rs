@@ -18,6 +18,7 @@ mod phenology;
 pub mod pixel;
 mod smooth;
 mod tmask;
+mod twdtw;
 pub mod upstream;
 
 pub use manifest::{Manifest, Output, Param, Tool, manifest};

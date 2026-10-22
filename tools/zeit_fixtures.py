@@ -300,7 +300,51 @@ def phenology_cases(rng):
     return out
 
 
+def class_series(rng, kind, days):
+    """A pixel of a land cover: forest (high, flat), crop (one season a year), pasture (low, weak season)."""
+    t = np.asarray(days, dtype=np.float64)
+    phase = rng.normal(0, 0.2)
+    if kind == "forest":
+        v = 0.82 + 0.03 * np.sin(2 * np.pi * t / 365.25 + phase)
+    elif kind == "crop":
+        v = 0.3 + 0.5 * np.clip(np.sin(2 * np.pi * t / 365.25 + 1.5 + phase), 0, 1)
+    else:
+        v = 0.45 + 0.1 * np.sin(2 * np.pi * t / 365.25 + 3 + phase)
+    v = v + rng.normal(0, 0.03, t.size)
+    v[rng.random(t.size) < 0.1] = np.nan
+    return v
+
+
+def twdtw_cases(rng):
+    kinds = ["forest", "crop", "pasture"]
+    out = []
+    variants = [{}, {"cycle": "year"}, {"max_elapsed": 0}, {"max_distance": 2.0}, {"steepness": 1.0, "midpoint": 20.0},
+                {"min_valid": 500}, {"max_elapsed": 30, "cycle": "year"}]
+    for k in range(24):
+        years, days = regular(first="2018-01-01", n=int(rng.integers(40, 90)))
+        pats = []
+        for j, kind in enumerate(kinds[: 1 + k % 3]):
+            pv = class_series(rng, kind, days)
+            pat = {"name": kind if k % 5 else "same", "from": f"pin {j + 1}", "years": years, "days": days,
+                   "values": [None if not np.isfinite(x) else float(x) for x in pv]}
+            if k % 4 == 1 and j == 0:  # a one-season pattern
+                pat = {key: (val[:23] if isinstance(val, list) else val) for key, val in pat.items()}
+            pats.append(pat)
+        params = dict(variants[k % len(variants)], patterns=pats)
+        out.append({"params": params, "years": years, "days": days,
+                    "values": class_series(rng, kinds[k % 3], days)})
+    years, days = regular(n=40)
+    v = class_series(rng, "crop", days)
+    bad = {"name": "x", "years": years, "days": None, "values": [0.5] * 40}
+    out.append({"params": {"patterns": [bad]}, "years": years, "days": days, "values": v})  # a pattern without dates
+    out.append({"params": {}, "years": years, "days": days, "values": v})  # no pattern
+    good = {"name": "crop", "years": years, "days": days, "values": [float(x) for x in class_series(rng, "crop", days)]}
+    out.append({"params": {"patterns": [good]}, "years": years, "days": None, "values": v})  # no real dates
+    return out
+
+
 CASES = {
+    "twdtw": twdtw_cases,
     "phenology": phenology_cases,
     "coded": multiband_cases(zc.LANDSAT_ROLES, [{}, {"monitor_start": 2017.0}, {"direction": "both", "max_events": 5},
                                                 {"thresh": 2.0, "consec": 2, "forest_ndfi": 0.3}, {"cloud_threshold": 1.0},
