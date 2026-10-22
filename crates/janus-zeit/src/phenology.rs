@@ -107,33 +107,53 @@ fn nanmedian(v: &[f64]) -> f64 {
     median(&ok)
 }
 
-pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
-    let years = &input.years;
+/// A pixel's season (in Zeit's day numbers), with the peak and amplitude of its observations.
+struct Season {
+    sos: f64,
+    pos: f64,
+    eos: f64,
+    los: f64,
+    peak: f64,
+    amp: f64,
+    r2: f64,
+}
+
+/// zeit.phenology per season of every pixel of `values` (pixels x T, NaN missing), as the bridge's `_fit` and
+/// `_season_table`: the gap-filled series (pixels x T) and each pixel's fitted seasons.
+fn fit(
+    p: &Params,
+    ctx: &PixelInput,
+    values: &[f64],
+    n: usize,
+    n_jobs: i32,
+) -> Result<(Vec<f64>, Vec<Vec<Season>>), String> {
+    let years = &ctx.years;
+    let t = years.len();
     let base = years[0].floor() as i64;
     let days = to_days(years, base);
-    let vals = &input.values;
-    let n_valid = vals.iter().filter(|v| v.is_finite()).count();
-    if n_valid < 6 {
-        return Ok(PixelResult {
-            overlays: vec![],
-            rows: vec![row("Phenology", format!("not enough data ({n_valid} valid)"))],
-        });
-    }
-    if years[years.len() - 1] - years[0] < 1.0 {
-        return Ok(PixelResult { overlays: vec![], rows: vec![row("Phenology", "needs at least one year of data")] });
-    }
-    let span = (years[years.len() - 1] - years[0]).max(1.0);
+    let span = (years[t - 1] - years[0]).max(1.0);
     let s_max = (2.0 * span.ceil() + 2.0).min(200.0) as usize;
 
     // gaps filled linearly by index, with weight 0 (the bridge's `_prepare`)
-    let t = vals.len();
     let idx: Vec<f64> = (0..t).map(|i| i as f64).collect();
-    let (gx, gy): (Vec<f64>, Vec<f64>) = (0..t).filter(|&i| vals[i].is_finite()).map(|i| (i as f64, vals[i])).unzip();
-    let v: Vec<f64> = (0..t).map(|i| if vals[i].is_finite() { vals[i] } else { np_interp(idx[i], &gx, &gy) }).collect();
-    let w: Vec<f64> = vals.iter().map(|x| f64::from(u8::from(x.is_finite()))).collect();
+    let mut v = values.to_vec();
+    let w: Vec<f64> = values.iter().map(|x| f64::from(u8::from(x.is_finite()))).collect();
+    let mut has_data = vec![false; n];
+    for px in 0..n {
+        let row = &mut v[px * t..(px + 1) * t];
+        let (gx, gy): (Vec<f64>, Vec<f64>) = (0..t).filter(|&i| row[i].is_finite()).map(|i| (i as f64, row[i])).unzip();
+        has_data[px] = !gx.is_empty();
+        if has_data[px] && gx.len() < t {
+            for i in 0..t {
+                if !row[i].is_finite() {
+                    row[i] = np_interp(idx[i], &gx, &gy);
+                }
+            }
+        }
+    }
 
     // zeit.phenology(annual=False): its own day numbers, from the dates
-    let date_days = input.days.as_ref().ok_or("ValueError: the time axis has no dates: pass dates=")?;
+    let date_days = ctx.days.as_ref().ok_or("ValueError: the time axis has no dates: pass dates=")?;
     let base_year = date_days.iter().map(|&d| civil(d).0).min().unwrap_or(1970);
     let day_numbers: Vec<f64> = date_days.iter().map(|&d| (d - year_start(base_year) + 1) as f64).collect();
     let curve = p.str("curve");
@@ -153,37 +173,62 @@ pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
         r_min_filter: 0.02,
         season_retry: true,
     };
-    // (metric, season) as float32
-    let out: Vec<f64> = fit_phenology_batch(&v, &day_numbers, 1, Some(&w), &settings, 1)
+    // (metric, pixel, season) as float32
+    let out: Vec<f64> = fit_phenology_batch(&v, &day_numbers, n, Some(&w), &settings, n_jobs)
         .into_iter()
         .map(|x| f64::from(x as f32))
         .collect();
-    let m = |name: &str, s: usize| out[metric(name) * s_max + s];
-
-    // the season table (the bridge's `_season_table`): peak and amplitude from the observations
     let (k_sos, k_eos) = method_metrics(p.str("method")).ok_or("KeyError: method")?;
-    let obs: Vec<f64> = (0..t).map(|i| if w[i] > 0.0 { v[i] } else { f64::NAN }).collect();
-    struct Season {
-        sos: f64,
-        pos: f64,
-        eos: f64,
-        los: f64,
-        peak: f64,
-        r2: f64,
+    let seasons = (0..n)
+        .map(|px| {
+            if !has_data[px] {
+                return vec![];
+            }
+            let m = |name: &str, s: usize| out[(metric(name) * n + px) * s_max + s];
+            // peak and amplitude from the observations (the bridge's `_season_table`)
+            let obs: Vec<f64> = (0..t).map(|i| if w[px * t + i] > 0.0 { v[px * t + i] } else { f64::NAN }).collect();
+            let fold = |pick: &dyn Fn(usize) -> bool, max: bool| {
+                (0..t)
+                    .filter(|&i| pick(i) && !obs[i].is_nan())
+                    .map(|i| obs[i])
+                    .fold(f64::NAN, |a, x| if a.is_nan() || (max && x > a) || (!max && x < a) { x } else { a })
+            };
+            (0..s_max)
+                .filter(|&s| m("POP", s).is_finite())
+                .map(|s| {
+                    let (sos, pos, eos) = (m(k_sos, s), m("POP", s), m(k_eos, s));
+                    let peak = fold(&|i| days[i] >= sos && days[i] <= eos, true);
+                    let low = fold(&|i| (days[i] - pos).abs() <= 182.6, false);
+                    Season { sos, pos, eos, los: eos - sos, peak, amp: peak - low, r2: m("R2", s) }
+                })
+                .collect()
+        })
+        .collect();
+    Ok((v, seasons))
+}
+
+/// The calendar year of a season's peak (a day number).
+fn pos_year(pos: f64, base: i64) -> i64 {
+    civil(year_start(base) + (pos.floor() as i64 - 1)).0
+}
+
+pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
+    let years = &input.years;
+    let base = years[0].floor() as i64;
+    let days = to_days(years, base);
+    let vals = &input.values;
+    let n_valid = vals.iter().filter(|v| v.is_finite()).count();
+    if n_valid < 6 {
+        return Ok(PixelResult {
+            overlays: vec![],
+            rows: vec![row("Phenology", format!("not enough data ({n_valid} valid)"))],
+        });
     }
-    let mut seasons = vec![];
-    for s in 0..s_max {
-        let pos = m("POP", s);
-        if !pos.is_finite() {
-            continue;
-        }
-        let (sos, eos) = (m(k_sos, s), m(k_eos, s));
-        let peak = (0..t)
-            .filter(|&i| days[i] >= sos && days[i] <= eos && !obs[i].is_nan())
-            .map(|i| obs[i])
-            .fold(f64::NAN, |a, x| if a.is_nan() || x > a { x } else { a });
-        seasons.push(Season { sos, pos, eos, los: eos - sos, peak, r2: m("R2", s) });
+    if years[years.len() - 1] - years[0] < 1.0 {
+        return Ok(PixelResult { overlays: vec![], rows: vec![row("Phenology", "needs at least one year of data")] });
     }
+    let (v, mut all) = fit(p, input, vals, 1, 1)?;
+    let seasons = all.remove(0);
     if seasons.is_empty() {
         let finite = vals.iter().copied().filter(|x| !x.is_nan());
         let range = finite.clone().fold(f64::NEG_INFINITY, f64::max) - finite.fold(f64::INFINITY, f64::min);
@@ -235,9 +280,7 @@ pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
         seasons
             .iter()
             .map(|s| {
-                let pos_year =
-                    if s.pos.is_finite() { civil(year_start(base) + (s.pos.floor() as i64 - 1)).0 } else { -1 };
-                let jan1 = (year_start(pos_year) - year_start(base)) as f64 + 1.0;
+                let jan1 = (year_start(pos_year(s.pos, base)) - year_start(base)) as f64 + 1.0;
                 f(s) - jan1 + 1.0
             })
             .collect()
@@ -258,4 +301,40 @@ pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
         overlays.push(Overlay::new("markers", "Season peak", px, py));
     }
     Ok(PixelResult { overlays, rows })
+}
+
+pub fn chunk(p: &Params, chunk: &crate::job::Chunk, ctx: &crate::job::JobCtx) -> Result<crate::job::ChunkOut, String> {
+    let base = ctx.input.years[0].floor() as i64;
+    let values = chunk.by_pixel(&chunk.stack);
+    let (t, n) = (chunk.t, chunk.pixels());
+    let (_, all) = fit(p, &ctx.input, &values, n, ctx.n_jobs)?;
+    let names = ["sos", "pos", "eos", "los", "peak", "amplitude", "r2"];
+    let mut res: crate::job::ChunkOut = names.iter().map(|k| (k.to_string(), Vec::with_capacity(n))).collect();
+    let mut n_seasons = Vec::with_capacity(n);
+    let mode = p.str("season");
+    let year = p.int("year");
+    for (px, seasons) in all.iter().enumerate() {
+        // the dates as days of the year of the season's peak; the rest as they are
+        let per = |s: &Season| -> [f64; 7] {
+            let jan1 = (year_start(pos_year(s.pos, base)) - year_start(base)) as f64 + 1.0;
+            [s.sos - jan1 + 1.0, s.pos - jan1 + 1.0, s.eos - jan1 + 1.0, s.los, s.peak, s.amp, s.r2]
+        };
+        let rows: Vec<[f64; 7]> = seasons.iter().map(per).collect();
+        let picked: [f64; 7] = if mode == "median" {
+            std::array::from_fn(|k| nanmedian(&rows.iter().map(|r| r[k]).collect::<Vec<_>>()))
+        } else {
+            let sel = |s: &Season| !(mode == "year" && year > 0) || pos_year(s.pos, base) == year;
+            match seasons.iter().rposition(sel) {
+                Some(i) => rows[i],
+                None => [f64::NAN; 7],
+            }
+        };
+        for (k, name) in names.iter().enumerate() {
+            res.get_mut(*name).unwrap().push(picked[k]);
+        }
+        let any = (0..t).any(|i| values[px * t + i].is_finite());
+        n_seasons.push(if any { seasons.len() as f64 } else { f64::NAN });
+    }
+    res.insert("n_seasons".into(), n_seasons);
+    Ok(res)
 }

@@ -122,7 +122,29 @@ def ccdc_cases(synthetic):
     return cases
 
 
+def phenology_cases(rng):
+    out = []
+    variants = [{}, {"season": "latest", "curve": "beck", "method": "der"},
+                {"season": "year", "year": 2016, "smoothing": "hants", "curve": "zhang"}]
+    for params in variants:
+        years, days = zf.regular(first="2014-01-03", n=92)
+        t = np.asarray(days, dtype=np.float64)
+        series = []
+        for j in range(H * W):
+            v = 0.35 + 0.3 * np.clip(np.sin(2 * np.pi * t / 365.25 + rng.uniform(0, 6)), -0.6, 1)
+            v = v + rng.normal(0, 0.02, t.size)
+            if j % 11 == 0:  # barely varies
+                v = 0.2 + rng.normal(0, 0.01, t.size)
+            v[rng.random(t.size) < 0.15] = np.nan
+            series.append(v)
+        if params.get("season") == "latest":
+            series[3] = np.full(t.size, np.nan)  # no data
+        out.append({"params": params, "years": years, "days": days, "input": grid(series)})
+    return out
+
+
 CASES = {
+    "phenology": phenology_cases,
     "ccdc": ccdc_cases(False),
     "ccdc_synthetic": ccdc_cases(True),
     "coded": multiband_cases(zf.zc.LANDSAT_ROLES, [{}, {"direction": "both", "thresh": 2.0}, {"monitor_start": 2016.0}]),

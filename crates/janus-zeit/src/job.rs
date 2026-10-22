@@ -441,6 +441,7 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "ndfi" => crate::ndfi::chunk(p, chunk, ctx),
         "coded" => crate::coded::chunk(p, chunk, ctx),
         "ccdc" => crate::ccdc::chunk(p, chunk, ctx),
+        "phenology" => crate::phenology::chunk(p, chunk, ctx),
         "ccdc_synthetic" => crate::ccdc::synthetic_chunk(p, chunk, ctx),
         "bfast_lite" => crate::bfast::lite_chunk(p, chunk, ctx),
         "bfast_monitor" => crate::bfast::monitor_chunk(p, chunk, ctx),

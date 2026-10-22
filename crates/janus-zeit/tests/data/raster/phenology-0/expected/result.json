@@ -1,0 +1,66 @@
+{
+ "outputs": [
+  {
+   "id": "sos",
+   "name": "Start of season (SOS)",
+   "colormap": "Viridis",
+   "unit": "day of year",
+   "path": "phenology_sos.tif"
+  },
+  {
+   "id": "pos",
+   "name": "Peak of season (POS)",
+   "colormap": "Viridis",
+   "unit": "day of year",
+   "path": "phenology_pos.tif"
+  },
+  {
+   "id": "eos",
+   "name": "End of season (EOS)",
+   "colormap": "Viridis",
+   "unit": "day of year",
+   "path": "phenology_eos.tif"
+  },
+  {
+   "id": "los",
+   "name": "Length of season (EOS - SOS)",
+   "colormap": "Plasma",
+   "unit": "days",
+   "path": "phenology_los.tif"
+  },
+  {
+   "id": "peak",
+   "name": "Peak value",
+   "colormap": "Viridis",
+   "unit": "value",
+   "path": "phenology_peak.tif"
+  },
+  {
+   "id": "amplitude",
+   "name": "Amplitude",
+   "colormap": "Plasma",
+   "unit": "value",
+   "path": "phenology_amplitude.tif"
+  },
+  {
+   "id": "r2",
+   "name": "Fit R2",
+   "colormap": "Viridis",
+   "unit": "R2",
+   "path": "phenology_r2.tif"
+  },
+  {
+   "id": "n_seasons",
+   "name": "Seasons detected",
+   "colormap": "Viridis",
+   "unit": "count",
+   "path": "phenology_n_seasons.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}
