@@ -159,6 +159,10 @@ pub struct Options {
     pub swipe: bool,
     /// --pin, --roi: pins and an ROI once the series is open (screenshots)
     pub pins: Vec<(usize, usize)>,
+    /// --view X,Y,S: the map centred on source pixel (X, Y) at S screen pixels per source pixel; --opacity: the
+    /// active layer's (screenshots)
+    pub view: Option<[f64; 3]>,
+    pub opacity: Option<f32>,
     pub roi: Option<[i64; 4]>,
     /// --roi with more than two corners: a polygon's vertices (x, y, ...)
     pub roi_polygon: Vec<f64>,
@@ -803,6 +807,15 @@ impl State {
             for (x, y) in self.opts.pins.clone() {
                 self.add_pin(x, y);
             }
+            if let Some([x, y, scale]) = self.opts.view {
+                self.view_at(x, y, scale);
+                self.map.touched = true;
+            }
+            if let Some(o) = self.opts.opacity
+                && let Some(l) = self.layers.get_mut(self.active)
+            {
+                l.opacity = o.clamp(0.0, 1.0);
+            }
             if let Some(r) = self.opts.roi {
                 self.set_roi_rect(r);
             }
@@ -1241,13 +1254,17 @@ impl State {
             let zeit_ready = !self.opts.zeit_run || self.zeit.runs_settled();
             // layers drawn as embeddings: the images of their dates made
             let emb_ready = self.state_embeddings_settled();
+            // a view asked for: its full-resolution tiles drawn
+            let tiles_ready =
+                self.opts.view.is_none() || self.session.as_ref().is_some_and(|s| s.tiles.inflight() == 0);
             // an ROI asked for: its series read
             let roi_ready = self.opts.roi.is_none() && self.opts.roi_polygon.is_empty() || self.series.roi.complete();
             let ready = self.session.as_ref().is_some_and(|s| s.ready_ms.is_some())
                 && basemap_ready
                 && zeit_ready
                 && emb_ready
-                && roi_ready;
+                && roi_ready
+                && tiles_ready;
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
                 self.shots_pending += 1;

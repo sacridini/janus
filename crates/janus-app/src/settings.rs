@@ -133,7 +133,7 @@ pub fn parse(text: &str) -> (Settings, BasemapSetting) {
                 }
             }
             ("basemap", "Source") => b.source = Some(v.to_string()),
-            ("basemap", "Opacity") => b.opacity = v.trim().parse::<f32>().ok().map(|o| o.clamp(0.05, 1.0)),
+            ("basemap", "Opacity") => b.opacity = v.trim().parse::<f32>().ok().map(|o| o.clamp(0.0, 1.0)),
             ("basemap", "Url") => b.url = Some(v.to_string()),
             ("basemap", "MaxZoom") => b.max_zoom = int().map(|z| z.clamp(0, 22) as i32),
             ("basemap", "TileSize") => b.tile_size = Some(if int() == Some(512) { 512 } else { 256 }),

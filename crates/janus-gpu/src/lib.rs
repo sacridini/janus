@@ -253,6 +253,8 @@ struct PendingDraw {
     uniform: DrawUniform,
     cube_group: wgpu::BindGroup,
     textures: wgpu::BindGroup,
+    /// the scissor rectangle (x, y, w, h in the target's pixels), None: the whole target
+    clip: Option<[u32; 4]>,
 }
 
 /// A map frame being drawn into a target (Gpu::begin_map ... Gpu::end_map).
@@ -262,6 +264,8 @@ pub struct MapFrame {
     pub size: [u32; 2],
     clear: [f32; 4],
     draws: Vec<PendingDraw>,
+    /// the draws pushed while set are cut to this rectangle (x, y, w, h in the target's pixels)
+    pub clip: Option<[u32; 4]>,
 }
 
 pub struct Gpu {
@@ -759,7 +763,7 @@ impl Gpu {
     /// Starts a frame of the map in a target of `size` pixels (made if needed), cleared to `bg` (sRGB).
     pub fn begin_map(&mut self, slot: i32, size: [u32; 2], bg: [f32; 4]) -> MapFrame {
         self.ensure_target(slot, size);
-        MapFrame { slot, size: [size[0].max(1), size[1].max(1)], clear: bg, draws: Vec::new() }
+        MapFrame { slot, size: [size[0].max(1), size[1].max(1)], clear: bg, draws: Vec::new(), clip: None }
     }
 
     fn uniform(&self, f: &MapFrame, rect: [f32; 4]) -> DrawUniform {
@@ -825,7 +829,7 @@ impl Gpu {
     pub fn draw_cube(&self, f: &mut MapFrame, c: &GpuCube, rect: [f32; 4], p: &LayerParams, cmap: usize, alpha: f32) {
         let uniform = self.layer_uniform(f, rect, p, 0, alpha);
         let textures = self.textures(Some(cmap), None, None, Some(p));
-        f.draws.push(PendingDraw { uniform, cube_group: c.group.clone(), textures });
+        f.draws.push(PendingDraw { uniform, cube_group: c.group.clone(), textures, clip: f.clip });
     }
 
     /// A detail tile (with the cube's statistics for the modes that need them).
@@ -842,7 +846,7 @@ impl Gpu {
     ) {
         let uniform = self.layer_uniform(f, rect, p, 1, alpha);
         let textures = self.textures(Some(cmap), Some(tile), None, Some(p));
-        f.draws.push(PendingDraw { uniform, cube_group: c.group.clone(), textures });
+        f.draws.push(PendingDraw { uniform, cube_group: c.group.clone(), textures, clip: f.clip });
     }
 
     /// A single-band raster (e.g. a Zeit result) through its own colormap and range.
@@ -875,7 +879,7 @@ impl Gpu {
     ) {
         let uniform = self.layer_uniform(f, rect, p, 1, alpha);
         let textures = self.textures(Some(cmap), Some(tex), None, Some(p));
-        f.draws.push(PendingDraw { uniform, cube_group: self.no_cube(), textures });
+        f.draws.push(PendingDraw { uniform, cube_group: self.no_cube(), textures, clip: f.clip });
     }
 
     /// An RGBA image blended by its own alpha × `alpha`, bilinear (or `nearest`), through a warp if given.
@@ -900,7 +904,7 @@ impl Gpu {
             p.warp = Some(w.clone());
         }
         let textures = self.textures(None, None, Some((tex, nearest)), Some(&p));
-        f.draws.push(PendingDraw { uniform: u, cube_group: self.no_cube(), textures });
+        f.draws.push(PendingDraw { uniform: u, cube_group: self.no_cube(), textures, clip: f.clip });
     }
 
     /// A rectangle of one colour (sRGB, alpha its opacity) blended over the map.
@@ -909,7 +913,7 @@ impl Gpu {
         u.source = 3;
         u.color = rgba;
         let textures = self.textures(None, None, None, None);
-        f.draws.push(PendingDraw { uniform: u, cube_group: self.no_cube(), textures });
+        f.draws.push(PendingDraw { uniform: u, cube_group: self.no_cube(), textures, clip: f.clip });
     }
 
     /// Draws the frame's draws in order, in one pass.
@@ -975,7 +979,15 @@ impl Gpu {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.display);
+            let [tw, th] = target.size;
             for (i, d) in f.draws.iter().enumerate() {
+                let [x, y, w, h] = d.clip.unwrap_or([0, 0, tw, th]);
+                let (x, y) = (x.min(tw), y.min(th));
+                let (w, h) = (w.min(tw - x), h.min(th - y));
+                if w == 0 || h == 0 {
+                    continue;
+                }
+                pass.set_scissor_rect(x, y, w, h);
                 pass.set_bind_group(0, &uniform_group, &[(i as u64 * UNIFORM_STRIDE) as u32]);
                 pass.set_bind_group(1, &d.cube_group, &[]);
                 pass.set_bind_group(2, &d.textures, &[]);
@@ -1014,5 +1026,68 @@ impl Gpu {
             out.extend_from_slice(&data[y * row as usize..y * row as usize + w as usize * 4]);
         }
         Some((w, h, out))
+    }
+}
+
+/// The parts of `full` (x0, y0, x1, y1 in a target's pixels) that none of `holes` covers, as scissor rectangles
+/// (x, y, w, h): what is drawn under tiles drawn over it, so that a translucent layer is blended once. Edges are
+/// rounded as the rasterizer covers pixels (a pixel's centre inside); rows of the same cut merge.
+pub fn uncovered(full: [f32; 4], holes: &[[f32; 4]]) -> Vec<[u32; 4]> {
+    let px = |v: f32| v.round().max(0.0) as u32;
+    let r = |q: &[f32; 4]| [px(q[0].min(q[2])), px(q[1].min(q[3])), px(q[0].max(q[2])), px(q[1].max(q[3]))];
+    let f = r(&full);
+    let holes: Vec<[u32; 4]> = holes.iter().map(r).filter(|h| h[0] < h[2] && h[1] < h[3]).collect();
+    let mut ys: Vec<u32> = vec![f[1], f[3]];
+    for h in &holes {
+        ys.extend([h[1].clamp(f[1], f[3]), h[3].clamp(f[1], f[3])]);
+    }
+    ys.sort_unstable();
+    ys.dedup();
+    let mut out: Vec<[u32; 4]> = Vec::new();
+    for b in ys.windows(2) {
+        let (y0, y1) = (b[0], b[1]);
+        // the holes across this band, as x intervals, and the gaps between them
+        let mut spans: Vec<(u32, u32)> =
+            holes.iter().filter(|h| h[1] <= y0 && h[3] >= y1).map(|h| (h[0].max(f[0]), h[2].min(f[2]))).collect();
+        spans.sort_unstable();
+        let mut x = f[0];
+        let mut gaps = Vec::new();
+        for (a, e) in spans {
+            if a > x {
+                gaps.push((x, a));
+            }
+            x = x.max(e);
+        }
+        if x < f[2] {
+            gaps.push((x, f[2]));
+        }
+        for (a, e) in gaps {
+            // the band above with the same gap grows down
+            match out.iter_mut().find(|o| o[0] == a && o[2] == e - a && o[1] + o[3] == y0) {
+                Some(o) => o[3] += y1 - y0,
+                None => out.push([a, y0, e - a, y1 - y0]),
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod uncovered_tests {
+    use super::uncovered;
+
+    #[test]
+    fn holes_cut_out() {
+        // nothing over it: the whole
+        assert_eq!(uncovered([0.0, 0.0, 100.0, 50.0], &[]), vec![[0, 0, 100, 50]]);
+        // a tile in the middle: four parts, their area the rest
+        let parts = uncovered([0.0, 0.0, 100.0, 100.0], &[[20.0, 30.0, 60.0, 70.0]]);
+        let area: u32 = parts.iter().map(|p| p[2] * p[3]).sum();
+        assert_eq!(area, 100 * 100 - 40 * 40);
+        // two tiles side by side covering all: nothing
+        assert!(uncovered([0.0, 0.0, 100.0, 100.0], &[[0.0, 0.0, 50.4, 100.0], [50.4, 0.0, 100.0, 100.0]]).is_empty());
+        // a tile past the edge
+        let parts = uncovered([10.0, 10.0, 50.0, 50.0], &[[-20.0, -20.0, 30.0, 30.0]]);
+        assert_eq!(parts.iter().map(|p| p[2] * p[3]).sum::<u32>(), 40 * 40 - 20 * 20);
     }
 }

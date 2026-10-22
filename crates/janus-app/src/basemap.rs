@@ -298,7 +298,7 @@ impl State {
             }
             return;
         }
-        dirty |= ui.add(egui::Slider::new(&mut bm.ui.opacity, 0.05..=1.0).text("opacity").fixed_decimals(2)).changed();
+        dirty |= ui.add(egui::Slider::new(&mut bm.ui.opacity, 0.0..=1.0).text("opacity").fixed_decimals(2)).changed();
         if bm.ui.source == "custom" {
             // applied when the field is left or Enter is pressed (not at each key)
             let r = ui

@@ -661,7 +661,7 @@ impl State {
                             r.build_ms
                         ));
                     }
-                    if ui.add(egui::Slider::new(&mut l.opacity, 0.05..=1.0).text("opacity").fixed_decimals(2)).changed()
+                    if ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity").fixed_decimals(2)).changed()
                     {
                         self.map.dirty = true;
                     }

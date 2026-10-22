@@ -1654,7 +1654,7 @@ Reading the data adds to it, mostly on spinning disks.",
                             });
                         }
                     }
-                    if ui.add(egui::Slider::new(&mut r.opacity, 0.05..=1.0).text("opacity").fixed_decimals(2)).changed()
+                    if ui.add(egui::Slider::new(&mut r.opacity, 0.0..=1.0).text("opacity").fixed_decimals(2)).changed()
                     {
                         *dirty = true;
                     }

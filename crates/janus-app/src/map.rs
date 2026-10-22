@@ -697,23 +697,43 @@ impl State {
                         to_px(m, w[0] / fx, w[1] / fy, w[2] / fx, w[3] / fy)
                     });
                 } else if let (true, Some(cube)) = (ready, &s.cube) {
-                    gpu.draw_cube(&mut f, cube, to_px(m, 0.0, 0.0, ow, oh), &params, cmap, alpha);
-                    if detail {
-                        let tiles: Vec<_> = if mode == Mode::Diff {
-                            s.tiles
-                                .visible_pairs(t, params.layers[1] as usize, &view)
-                                .into_iter()
-                                .map(|(a, b)| (a, Some(b)))
-                                .collect()
-                        } else {
-                            s.tiles.visible(t, &view).into_iter().map(|a| (a, None)).collect()
-                        };
-                        for (tile, reference) in tiles {
-                            params.tile2 = reference.map(|r| r.tex.clone());
-                            let r =
-                                to_px(m, tile.x / fx, tile.y / fy, (tile.x + tile.sw) / fx, (tile.y + tile.sh) / fy);
-                            gpu.draw_tile(&mut f, cube, &tile.tex, r, &params, cmap, alpha);
+                    let tiles: Vec<_> = if !detail {
+                        Vec::new()
+                    } else if mode == Mode::Diff {
+                        s.tiles
+                            .visible_pairs(t, params.layers[1] as usize, &view)
+                            .into_iter()
+                            .map(|(a, b)| (a, Some(b)))
+                            .collect()
+                    } else {
+                        s.tiles.visible(t, &view).into_iter().map(|a| (a, None)).collect()
+                    };
+                    let place =
+                        |x: f64, y: f64, sw: f64, sh: f64| to_px(m, x / fx, y / fy, (x + sw) / fx, (y + sh) / fy);
+                    let full = to_px(m, 0.0, 0.0, ow, oh);
+                    if alpha < 1.0 && !tiles.is_empty() {
+                        // translucent: the overview only where no tile goes, or the tiles' squares show darker
+                        let holes: Vec<[f32; 4]> =
+                            tiles.iter().map(|(tl, _)| place(tl.x, tl.y, tl.sw, tl.sh)).collect();
+                        for clip in janus_gpu::uncovered(full, &holes) {
+                            f.clip = Some(clip);
+                            gpu.draw_cube(&mut f, cube, full, &params, cmap, alpha);
                         }
+                        f.clip = None;
+                    } else {
+                        gpu.draw_cube(&mut f, cube, full, &params, cmap, alpha);
+                    }
+                    for (tile, reference) in tiles {
+                        params.tile2 = reference.map(|r| r.tex.clone());
+                        gpu.draw_tile(
+                            &mut f,
+                            cube,
+                            &tile.tex,
+                            place(tile.x, tile.y, tile.sw, tile.sh),
+                            &params,
+                            cmap,
+                            alpha,
+                        );
                     }
                 }
                 crate::zeit::draw_results(gpu, &mut f, &self.zeit.results, &s.info, &l.place, &to_map);

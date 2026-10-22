@@ -110,6 +110,9 @@ Developer options:
   --map-view          a map panel
   --swipe             the swipe
   --pin X,Y           a pin at source pixel (X, Y) (repeatable)
+  --view X,Y,S        the map centred on source pixel (X, Y), S screen pixels per source pixel (with
+                      --screenshot: once its full-resolution tiles are drawn)
+  --opacity A         the active layer's opacity (0 to 1)
   --roi X0,Y0,X1,Y1   an ROI rectangle (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline)
   --analysis seasonal|classes|scatter  the Analysis panel at that tab
@@ -280,6 +283,14 @@ fn main() -> eframe::Result<()> {
             "--swipe" => opts.swipe = true,
             "--zeit" => opts.zeit_tool = args.next(),
             "--zeit-run" => opts.zeit_run = true,
+            "--view" => {
+                let v: Vec<f64> =
+                    args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
+                if let [x, y, s] = v[..] {
+                    opts.view = Some([x, y, s]);
+                }
+            }
+            "--opacity" => opts.opacity = args.next().and_then(|v| v.parse().ok()),
             "--pin" => {
                 let v: Vec<usize> =
                     args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();

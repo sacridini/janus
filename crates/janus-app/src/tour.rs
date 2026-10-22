@@ -57,7 +57,7 @@ impl Tour {
 
 impl State {
     /// The map centred on source pixel (x, y) at `scale` screen pixels per source pixel.
-    fn view_at(&mut self, x: f64, y: f64, scale: f64) {
+    pub(crate) fn view_at(&mut self, x: f64, y: f64, scale: f64) {
         let Some(s) = &self.session else { return };
         let ov = &s.s.overview;
         let (fx, fy) = (s.info.width as f64 / ov.w as f64, s.info.height as f64 / ov.h as f64);

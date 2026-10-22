@@ -213,6 +213,13 @@ impl BandComposite {
         )
     }
 
+    /// The source window of the detail image drawn at t, if one is.
+    pub fn detail_window(&self, t: usize, n: usize) -> Option<[f64; 4]> {
+        let d = self.date_of(t, n);
+        (self.detail_t == Some(d)).then_some(())?;
+        self.detail.as_ref().filter(|i| i.key == self.key).map(|i| i.win)
+    }
+
     /// The images of date `d` (the map shows t), the detail over the overview's: f(texture, source window).
     pub fn draw(&mut self, t: usize, n: usize, mut f: impl FnMut(&GpuTexture, [f64; 4])) {
         let d = self.date_of(t, n);
@@ -376,7 +383,21 @@ impl State {
         alpha: f32,
         to_px: impl Fn([f64; 4]) -> [f32; 4],
     ) {
-        c.draw(t, n, |tex, win| gpu.draw_image(f, tex, to_px(win), alpha, None, true));
+        // translucent: the overview's image only outside the detail's, blended once
+        let detail = c.detail_window(t, n).filter(|_| alpha < 1.0).map(&to_px);
+        c.draw(t, n, |tex, win| {
+            let r = to_px(win);
+            match detail.filter(|d| *d != r) {
+                Some(d) => {
+                    for clip in janus_gpu::uncovered(r, &[d]) {
+                        f.clip = Some(clip);
+                        gpu.draw_image(f, tex, r, alpha, None, true);
+                    }
+                    f.clip = None;
+                }
+                None => gpu.draw_image(f, tex, r, alpha, None, true),
+            }
+        });
     }
 
     /// The Display panel's section, for series with three bands or more per date.
