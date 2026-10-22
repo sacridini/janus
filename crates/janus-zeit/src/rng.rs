@@ -129,9 +129,9 @@ fn seed_sequence(seed: u64, n_words32: usize) -> Vec<u32> {
         }
     }
     for &e in entropy.iter().skip(4) {
-        for dst in 0..4 {
+        for p in pool.iter_mut() {
             let h = hashmix(e);
-            pool[dst] = mix(pool[dst], h);
+            *p = mix(*p, h);
         }
     }
     let mut hc = INIT_B;

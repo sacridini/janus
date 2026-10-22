@@ -31,11 +31,11 @@ TRANSFORM = from_origin(500000.0, 7500000.0, 30.0, 30.0)
 CRS = "EPSG:32722"
 
 
-def write_stack(path, stack, nodata=np.nan, dtype="float32"):
-    """[T, H, W] as a GeoTIFF of T bands."""
-    t = stack.shape[0]
-    with rasterio.open(path, "w", driver="GTiff", width=W, height=H, count=t, dtype=dtype, crs=CRS,
-                       transform=TRANSFORM, nodata=nodata, compress="deflate") as d:
+def write_stack(path, stack, nodata=np.nan, dtype="float32", transform=TRANSFORM):
+    """[T, h, w] as a GeoTIFF of T bands."""
+    t, h, w = stack.shape
+    with rasterio.open(path, "w", driver="GTiff", width=w, height=h, count=t, dtype=dtype, crs=CRS,
+                       transform=transform, nodata=nodata, compress="deflate") as d:
         d.write(np.asarray(stack, dtype=dtype))
 
 
@@ -170,7 +170,25 @@ def som_cases(rng):
     return out
 
 
+def agreement_cases(rng):
+    out = []
+    for tol in (1, 0, 3):
+        base = rng.integers(1990, 2020, (H, W)).astype(np.float64)
+        base[rng.random((H, W)) < 0.3] = np.nan
+        a = base + rng.uniform(0, 0.99, (H, W))  # dates within the year
+        b = base + rng.choice([0, 1, -1, 4], (H, W))
+        b[rng.random((H, W)) < 0.2] = np.nan
+        # a third map on a coarser grid, shifted: put on the first one's grid by the warp
+        c = np.repeat(np.repeat(base, 2, axis=0), 2, axis=1)[:H // 2 + 1, :W // 2 + 1] + rng.choice([0, 2], (H // 2 + 1, W // 2 + 1))
+        maps = [("LandTrendr: Year of detection", a[None], TRANSFORM),
+                ("CCDC: First break date", b[None], TRANSFORM),
+                ("BFAST: Largest break date", c[None], from_origin(500000.0 + 15.0, 7500000.0 - 15.0, 60.0, 60.0))]
+        out.append({"params": {"tolerance": tol}, "maps": maps, "years": [], "days": None})
+    return out
+
+
 CASES = {
+    "agreement": agreement_cases,
     "som": som_cases,
     "twdtw": twdtw_cases,
     "phenology": phenology_cases,
@@ -202,9 +220,16 @@ def main():
             d = os.path.join(out_dir, f"{tool}-{k}")
             shutil.rmtree(d, ignore_errors=True)
             os.makedirs(os.path.join(d, "expected"))
-            write_stack(os.path.join(d, "input.tif"), case["input"])
-            spec = {"tool": tool, "params": case["params"], "input": "input.tif", "nodata": None,
+            spec = {"tool": tool, "params": case["params"], "input": "", "nodata": None,
                     "years": case["years"], "days": case["days"], "window": [0, 0, W, H], "threads": 1}
+            if "input" in case:
+                write_stack(os.path.join(d, "input.tif"), case["input"])
+                spec["input"] = "input.tif"
+            if "maps" in case:
+                spec["params"] = dict(case["params"], maps=[])
+                for m, (name, arr, transform) in enumerate(case["maps"]):
+                    write_stack(os.path.join(d, f"map_{m}.tif"), arr, transform=transform)
+                    spec["params"]["maps"].append({"name": name, "path": f"map_{m}.tif"})
             for key in ("shown", "map_year", "labels"):
                 if key in case:
                     spec[key] = case[key]
@@ -229,9 +254,13 @@ def main():
             if "bands" in run:
                 run["bands"] = {r: os.path.join(d, p) for r, p in run["bands"].items()}
             entry = tools[tool]
-            p = bridge.defaults(entry["manifest"], spec["params"])
+            if "maps" in case:
+                run["params"] = dict(spec["params"], maps=[dict(m, path=os.path.join(d, m["path"]))
+                                                           for m in spec["params"]["maps"]])
+            p = bridge.defaults(entry["manifest"], run["params"])
+            runner = bridge.run_layers if entry["manifest"].get("input") == "layers" else bridge.run_raster
             try:
-                result = bridge.run_raster(entry, p, run, lambda f, m="": None)
+                result = runner(entry, p, run, lambda f, m="": None)
                 for o in result["outputs"]:
                     o["path"] = os.path.basename(o["path"])
             except Exception as e:  # the native run must fail too

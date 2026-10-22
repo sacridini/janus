@@ -1,0 +1,45 @@
+{
+ "outputs": [
+  {
+   "id": "yod",
+   "name": "Consensus year",
+   "colormap": "Viridis",
+   "unit": "year",
+   "path": "agreement_yod.tif"
+  },
+  {
+   "id": "n_agree",
+   "name": "Maps that agree",
+   "colormap": "Viridis",
+   "unit": "count",
+   "path": "agreement_n_agree.tif"
+  },
+  {
+   "id": "share",
+   "name": "Share of the maps that agree",
+   "colormap": "Viridis",
+   "unit": "%",
+   "path": "agreement_share.tif"
+  },
+  {
+   "id": "n_detected",
+   "name": "Maps with a change",
+   "colormap": "Viridis",
+   "unit": "count",
+   "path": "agreement_n_detected.tif"
+  },
+  {
+   "id": "spread",
+   "name": "Spread of the years",
+   "colormap": "Plasma",
+   "unit": "years",
+   "path": "agreement_spread.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}

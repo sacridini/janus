@@ -508,6 +508,9 @@ pub fn run_job(
 ) -> Result<JobResult, String> {
     let tool = manifest().tool(&spec.tool).ok_or_else(|| format!("KeyError: '{}'", spec.tool))?;
     let p = Params::with_defaults(&spec.tool, &spec.params).unwrap_or_default();
+    if tool.input.as_deref() == Some("layers") {
+        return run_layers(spec, tool, &p, progress, cancel);
+    }
     let inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.raster_size();
     let window = spec.window.unwrap_or([0, 0, iw, ih]);
@@ -653,4 +656,90 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
         ((mt - b * mn).max(0.0), b)
     };
     Ok(Estimate { sec_per_px: per_px, sec_per_chunk: per_chunk, chunk_cells: cells })
+}
+
+/// A map on the grid of `reference` (nearest neighbour, NaN where it has no value): a WarpedVRT's work.
+fn warped_to(src: &Dataset, reference: &Dataset) -> Result<Dataset, String> {
+    let (w, h) = reference.raster_size();
+    let driver = DriverManager::get_driver_by_name("MEM").map_err(|e| e.to_string())?;
+    let mut dst = driver.create_with_band_type::<f32, _>("", w, h, 1).map_err(|e| e.to_string())?;
+    if let Ok(g) = reference.geo_transform() {
+        dst.set_geo_transform(&g).map_err(|e| e.to_string())?;
+    }
+    dst.set_projection(&reference.projection()).map_err(|e| e.to_string())?;
+    {
+        let mut b = dst.rasterband(1).map_err(|e| e.to_string())?;
+        b.set_no_data_value(Some(f64::NAN)).map_err(|e| e.to_string())?;
+        b.fill(f64::NAN, None).map_err(|e| e.to_string())?;
+    }
+    let rv = unsafe {
+        gdal_sys::GDALReprojectImage(
+            src.c_dataset(),
+            std::ptr::null(),
+            dst.c_dataset(),
+            std::ptr::null(),
+            gdal_sys::GDALResampleAlg::GRA_NearestNeighbour,
+            0.0,
+            0.0,
+            None,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if rv != gdal_sys::CPLErr::CE_None {
+        return Err("could not put a map on the grid of the first one".into());
+    }
+    Ok(dst)
+}
+
+/// A tool over maps Janus shows (its "layers" parameter) instead of the series (the bridge's `run_layers`): the
+/// outputs on the first map's grid, the others put on it.
+fn run_layers(
+    spec: &JobSpec,
+    tool: &Tool,
+    p: &Params,
+    progress: &(dyn Fn(f64, &str) + Sync),
+    cancel: &AtomicBool,
+) -> Result<JobResult, String> {
+    let lp = tool.params.iter().find(|q| q.kind == "layers").ok_or("no layers parameter")?;
+    let paths: Vec<String> = p
+        .0
+        .get(&lp.id)
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|m| m["path"].as_str().filter(|s| !s.is_empty()).map(str::to_string)).collect())
+        .unwrap_or_default();
+    if paths.len() < 2 {
+        return Err(format!("ValueError: choose at least two maps in '{}'", lp.label));
+    }
+    let dir = PathBuf::from(&spec.output_dir);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let reference = open(&paths[0])?;
+    let others: Vec<Dataset> =
+        paths[1..].iter().map(|q| open(q).and_then(|d| warped_to(&d, &reference))).collect::<Result<_, _>>()?;
+    let (w, h) = reference.raster_size();
+    let mut outs = Outputs::new(tool, &active_outputs(tool, p), &dir, &reference, [0, 0, w, h], spec)?;
+    let rows = rows_per_chunk(tool, w);
+    let mut r = 0;
+    while r < h {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".into());
+        }
+        let hh = rows.min(h - r);
+        let first = |d: &Dataset| -> Result<Vec<f64>, String> {
+            let band = d.rasterband(1).map_err(|e| e.to_string())?;
+            let buf: Buffer<f64> = band.read_as((0, r as isize), (w, hh), (w, hh), None).map_err(|e| e.to_string())?;
+            let nd = band.no_data_value();
+            Ok(buf.data().iter().map(|&v| if !v.is_finite() || nd == Some(v) { f64::NAN } else { v }).collect())
+        };
+        let mut maps = vec![first(&reference)?];
+        for o in &others {
+            maps.push(first(o)?);
+        }
+        outs.write(&crate::agreement::chunk(p, &maps), r, hh)?;
+        r += hh;
+        progress(r as f64 / h as f64, &format!("rows {r}/{h}"));
+    }
+    let outputs = outs.describe(p, None);
+    drop(outs);
+    Ok(JobResult { outputs, window: spec.window.unwrap_or([0, 0, w, h]) })
 }

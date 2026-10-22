@@ -100,6 +100,13 @@ fn raster_runs_match_the_bridge() {
         spec.nd_input = spec.nd_input.as_deref().map(abs);
         spec.qa_input = spec.qa_input.as_deref().map(abs);
         spec.bands = spec.bands.iter().map(|(r, p)| (r.clone(), abs(p))).collect();
+        // a tool on maps: their paths
+        if let Some(maps) = spec.params.get_mut("maps").and_then(Value::as_array_mut) {
+            for m in maps {
+                let path = abs(m["path"].as_str().unwrap_or(""));
+                m["path"] = Value::String(path);
+            }
+        }
         let out = tmp.join(&name);
         let _ = std::fs::remove_dir_all(&out);
         spec.output_dir = out.to_string_lossy().to_string();

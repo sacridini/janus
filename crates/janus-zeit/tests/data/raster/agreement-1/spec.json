@@ -1,0 +1,31 @@
+{
+ "tool": "agreement",
+ "params": {
+  "tolerance": 0,
+  "maps": [
+   {
+    "name": "LandTrendr: Year of detection",
+    "path": "map_0.tif"
+   },
+   {
+    "name": "CCDC: First break date",
+    "path": "map_1.tif"
+   },
+   {
+    "name": "BFAST: Largest break date",
+    "path": "map_2.tif"
+   }
+  ]
+ },
+ "input": "",
+ "nodata": null,
+ "years": [],
+ "days": null,
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ],
+ "threads": 1
+}

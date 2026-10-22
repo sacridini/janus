@@ -6,6 +6,7 @@
 //! The algorithms are zeit-core's. What Zeit keeps in Python and Janus needs (LandTrendr's events, ...) is in
 //! `upstream`, written to move into zeit-core as it is.
 
+mod agreement;
 pub mod bands;
 mod bfast;
 mod ccdc;
