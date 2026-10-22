@@ -82,7 +82,7 @@ jobs:
         run: cargo build --release --workspace
 
       - name: Tests
-        run: cargo test --release --workspace
+        run: cargo test --release --workspace --no-fail-fast
 
       - name: Test data
         run: python tools/make_selftest_data.py "$RUNNER_TEMP/td"

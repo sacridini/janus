@@ -61,6 +61,45 @@ fn compare(tool: &str) {
 struct Tol {
     curves: f64,
     rows: bool,
+    /// days a date may move (rows' dates and day counts, the curves' x in decimal years): for fits whose path
+    /// follows the last bit of the C library's exp, which differs between platforms (the fixtures were written on
+    /// Windows x86-64)
+    days: f64,
+}
+
+/// A date YYYY-MM-DD as days since 1970-01-01.
+fn day_of(t: &str) -> Option<i64> {
+    let mut it = t.split('-');
+    let (y, m, d): (i64, i64, i64) = (it.next()?.parse().ok()?, it.next()?.parse().ok()?, it.next()?.parse().ok()?);
+    if it.next().is_some() || t.len() != 10 {
+        return None;
+    }
+    // days_from_civil (H. Hinnant)
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    Some(era * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468)
+}
+
+/// Two texts word by word: dates and whole numbers (day counts) within `days`, decimals within 0.2%.
+fn words_near(a: &str, b: &str, days: f64) -> bool {
+    let (p, q): (Vec<&str>, Vec<&str>) = (a.split_whitespace().collect(), b.split_whitespace().collect());
+    p.len() == q.len()
+        && p.iter().zip(&q).all(|(x, y)| {
+            let (x, y) = (x.trim_end_matches(','), y.trim_end_matches(','));
+            if x == y {
+                return true;
+            }
+            if let (Some(i), Some(j)) = (day_of(x), day_of(y)) {
+                return ((i - j).abs() as f64) <= days;
+            }
+            match (x.parse::<f64>(), y.parse::<f64>()) {
+                (Ok(i), Ok(j)) if !x.contains('.') && !y.contains('.') => (i - j).abs() <= days,
+                (Ok(i), Ok(j)) => (i - j).abs() <= 2e-3 * i.abs().max(j.abs()),
+                _ => false,
+            }
+        })
 }
 
 fn close(a: &PixelResult, b: &PixelResult, tol: Tol) -> bool {
@@ -68,6 +107,11 @@ fn close(a: &PixelResult, b: &PixelResult, tol: Tol) -> bool {
     let num = |t: &str| t.split_whitespace().next().and_then(|w| w.parse::<f64>().ok());
     let row_near = |p: &[String; 2], q: &[String; 2]| {
         p == q
+            // the count of seasons the same, their dates within the days
+            || (tol.days > 0.0
+                && !p[0].starts_with("Seasons")
+                && words_near(&p[0], &q[0], tol.days)
+                && words_near(&p[1], &q[1], tol.days))
             || (tol.rows
                 && p[0] == q[0]
                 && match (num(&p[1]), num(&q[1])) {
@@ -83,7 +127,8 @@ fn close(a: &PixelResult, b: &PixelResult, tol: Tol) -> bool {
             let near = |x: f64, y: f64| x == y || (x - y).abs() <= tol.curves * scale;
             p.kind == q.kind
                 && p.label == q.label
-                && p.x == q.x
+                && p.x.len() == q.x.len()
+                && p.x.iter().zip(&q.x).all(|(x, y)| x == y || (x - y).abs() <= tol.days / 365.25 + 1e-9)
                 && p.y.len() == q.y.len()
                 && p.y.iter().zip(&q.y).all(|(x, y)| match (x, y) {
                     (Some(x), Some(y)) => near(*x, *y),
@@ -134,7 +179,7 @@ fn first_difference(got: &Result<PixelResult, String>, want: &Value) -> String {
 
 fn compare_within(tool: &str, tol: impl Fn(&Case) -> Tol) {
     let f: Fixtures = serde_json::from_str(&data(&format!("{tool}.json"))).unwrap();
-    let mut bad = 0;
+    let (mut bad, mut exact) = (0, 0);
     for (k, c) in f.cases.iter().enumerate() {
         let p = Params::with_defaults(tool, &c.params).unwrap();
         let input = PixelInput {
@@ -152,6 +197,7 @@ fn compare_within(tool: &str, tol: impl Fn(&Case) -> Tol) {
             (Err(_), Some(_)) => true,
             (Ok(r), None) => {
                 let want: PixelResult = serde_json::from_value(c.result.clone()).unwrap();
+                exact += usize::from(close(r, &want, Tol::default()));
                 close(r, &want, tol(c))
             }
             _ => false,
@@ -164,7 +210,7 @@ fn compare_within(tool: &str, tol: impl Fn(&Case) -> Tol) {
         }
     }
     assert_eq!(bad, 0, "{tool}: {bad} of {} cases differ from the bridge", f.cases.len());
-    println!("{tool}: {} cases as the bridge", f.cases.len());
+    println!("{tool}: {} cases as the bridge ({exact} with the same bits)", f.cases.len());
 }
 
 #[test]
@@ -183,7 +229,7 @@ fn smooth() {
     // of 61 and order 6); Whittaker: the same bits
     compare_within("smooth", |c| {
         let savgol = c.params.get("method").is_some_and(|m| m == "savgol");
-        Tol { curves: if savgol { 1e-7 } else { 0.0 }, rows: savgol }
+        Tol { curves: if savgol { 1e-7 } else { 0.0 }, rows: savgol, days: 0.0 }
     });
 }
 
@@ -191,17 +237,17 @@ fn smooth() {
 // the bridge), to rounding
 #[test]
 fn bfast() {
-    compare_within("bfast", |_| Tol { curves: 1e-8, rows: false });
+    compare_within("bfast", |_| Tol { curves: 1e-8, ..Tol::default() });
 }
 
 #[test]
 fn bfast_lite() {
-    compare_within("bfast_lite", |_| Tol { curves: 1e-8, rows: false });
+    compare_within("bfast_lite", |_| Tol { curves: 1e-8, ..Tol::default() });
 }
 
 #[test]
 fn bfast_monitor() {
-    compare_within("bfast_monitor", |_| Tol { curves: 1e-8, rows: false });
+    compare_within("bfast_monitor", |_| Tol { curves: 1e-8, ..Tol::default() });
 }
 
 #[test]
@@ -236,7 +282,9 @@ fn timedelta_days() {
 
 #[test]
 fn phenology() {
-    compare("phenology");
+    // the same bits where the fixtures were written; elsewhere (CI's runners) a day apart at most
+    let days = if std::env::var_os("CI").is_some() { 1.0 } else { 0.0 };
+    compare_within("phenology", |_| Tol { curves: if days > 0.0 { 2e-3 } else { 0.0 }, rows: false, days });
 }
 
 #[test]
@@ -248,12 +296,12 @@ fn twdtw() {
 // BLAS (dgemv): to rounding
 #[test]
 fn ccdc() {
-    compare_within("ccdc", |_| Tol { curves: 1e-12, rows: false });
+    compare_within("ccdc", |_| Tol { curves: 1e-12, ..Tol::default() });
 }
 
 #[test]
 fn ccdc_synthetic() {
-    compare_within("ccdc_synthetic", |_| Tol { curves: 1e-12, rows: false });
+    compare_within("ccdc_synthetic", |_| Tol { curves: 1e-12, ..Tol::default() });
 }
 
 /// "Copy Python": the first Zeit call of each fixture case as the bridge recorded it.
