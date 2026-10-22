@@ -37,17 +37,23 @@ fn descriptors_are_the_bridges() {
 
 /// Every case of a tool's fixtures, the same bits; the first differences are printed, then the test fails.
 fn compare(tool: &str) {
-    compare_within(tool, |_| 0.0);
+    compare_within(tool, |_| Tol::default());
 }
 
-/// Overlay values within `tol(case)` relative to the bridge's (for what Zeit leaves to scipy's LAPACK).
-fn close(a: &PixelResult, b: &PixelResult, tol: f64) -> bool {
-    let near = |x: f64, y: f64| x == y || (x - y).abs() <= tol * x.abs().max(y.abs()).max(1e-300);
+/// What may differ from the bridge, for what Zeit leaves to numpy's or scipy's LAPACK: the curves' values,
+/// relative to each curve's largest; the numbers the rows print (to their last digit).
+#[derive(Clone, Copy, Default)]
+struct Tol {
+    curves: f64,
+    rows: bool,
+}
+
+fn close(a: &PixelResult, b: &PixelResult, tol: Tol) -> bool {
     // a row's number printed to 4-5 digits may round the other way, a zero's noise differs
     let num = |t: &str| t.split_whitespace().next().and_then(|w| w.parse::<f64>().ok());
     let row_near = |p: &[String; 2], q: &[String; 2]| {
         p == q
-            || (tol > 0.0
+            || (tol.rows
                 && p[0] == q[0]
                 && match (num(&p[1]), num(&q[1])) {
                     (Some(x), Some(y)) => (x - y).abs() <= 1e-12 || (x - y).abs() <= 2e-4 * x.abs().max(y.abs()),
@@ -58,11 +64,12 @@ fn close(a: &PixelResult, b: &PixelResult, tol: f64) -> bool {
         && a.rows.iter().zip(&b.rows).all(|(p, q)| row_near(p, q))
         && a.overlays.len() == b.overlays.len()
         && a.overlays.iter().zip(&b.overlays).all(|(p, q)| {
+            let scale = q.y.iter().flatten().fold(0.0f64, |m, v| m.max(v.abs())).max(1e-300);
+            let near = |x: f64, y: f64| x == y || (x - y).abs() <= tol.curves * scale;
             p.kind == q.kind
                 && p.label == q.label
-                && p.x.len() == q.x.len()
+                && p.x == q.x
                 && p.y.len() == q.y.len()
-                && p.x.iter().zip(&q.x).all(|(&x, &y)| near(x, y))
                 && p.y.iter().zip(&q.y).all(|(x, y)| match (x, y) {
                     (Some(x), Some(y)) => near(*x, *y),
                     (None, None) => true,
@@ -71,7 +78,46 @@ fn close(a: &PixelResult, b: &PixelResult, tol: f64) -> bool {
         })
 }
 
-fn compare_within(tool: &str, tol: impl Fn(&Case) -> f64) {
+/// Where a native run and the bridge's answer part.
+fn first_difference(got: &Result<PixelResult, String>, want: &Value) -> String {
+    let (r, w) = match (got, serde_json::from_value::<PixelResult>(want.clone())) {
+        (Ok(r), Ok(w)) => (r, w),
+        (got, _) => return format!("native {got:?}, bridge {want}"),
+    };
+    if r.rows != w.rows {
+        return format!("rows\n  native {:?}\n  bridge {:?}", r.rows, w.rows);
+    }
+    let labels = |o: &[janus_zeit::Overlay]| o.iter().map(|o| o.label.clone()).collect::<Vec<_>>();
+    if r.overlays.len() != w.overlays.len() {
+        return format!("overlays {:?} vs {:?}", labels(&r.overlays), labels(&w.overlays));
+    }
+    // the overlay of the largest difference, relative to its curve's largest value
+    let mut worst = (0.0f64, String::new());
+    for (a, b) in r.overlays.iter().zip(&w.overlays) {
+        if a.label != b.label || a.x.len() != b.x.len() || a.y.len() != b.y.len() {
+            return format!("{} ({}, {}) vs {} ({}, {})", a.label, a.x.len(), a.y.len(), b.label, b.x.len(), b.y.len());
+        }
+        if a.x != b.x {
+            return format!("{}: x differs", a.label);
+        }
+        let scale = b.y.iter().flatten().fold(0.0f64, |m, v| m.max(v.abs())).max(1e-300);
+        for i in 0..a.y.len() {
+            match (a.y[i], b.y[i]) {
+                (Some(p), Some(q)) if (p - q).abs() / scale > worst.0 => {
+                    worst = ((p - q).abs() / scale, format!("{} [{i}]: {p} vs {q}", a.label));
+                }
+                (p, q) if p.is_some() != q.is_some() => return format!("{} [{i}]: {p:?} vs {q:?}", a.label),
+                _ => {}
+            }
+        }
+    }
+    if worst.0 > 0.0 {
+        return format!("{} (relative to the curve {:.2e})", worst.1, worst.0);
+    }
+    "the same".into()
+}
+
+fn compare_within(tool: &str, tol: impl Fn(&Case) -> Tol) {
     let f: Fixtures = serde_json::from_str(&data(&format!("{tool}.json"))).unwrap();
     let mut bad = 0;
     for (k, c) in f.cases.iter().enumerate() {
@@ -93,7 +139,7 @@ fn compare_within(tool: &str, tol: impl Fn(&Case) -> f64) {
         if !ok {
             bad += 1;
             if bad <= 3 {
-                println!("{tool} case {k} ({:?}):\n  native {got:?}\n  bridge {}", c.params, c.result);
+                println!("{tool} case {k} ({:?}): {}", c.params, first_difference(&got, &c.result));
             }
         }
     }
@@ -115,5 +161,25 @@ fn mann_kendall() {
 fn smooth() {
     // Savitzky-Golay: scipy's polynomials, to its rounding (LAPACK on an unscaled Vandermonde: ~1e-8 at a window
     // of 61 and order 6); Whittaker: the same bits
-    compare_within("smooth", |c| if c.params.get("method").is_some_and(|m| m == "savgol") { 1e-7 } else { 0.0 });
+    compare_within("smooth", |c| {
+        let savgol = c.params.get("method").is_some_and(|m| m == "savgol");
+        Tol { curves: if savgol { 1e-7 } else { 0.0 }, rows: savgol }
+    });
+}
+
+// BFAST: the breaks and rows the same bits; the models drawn are refitted by least squares (numpy's LAPACK in
+// the bridge), to rounding
+#[test]
+fn bfast() {
+    compare_within("bfast", |_| Tol { curves: 1e-8, rows: false });
+}
+
+#[test]
+fn bfast_lite() {
+    compare_within("bfast_lite", |_| Tol { curves: 1e-8, rows: false });
+}
+
+#[test]
+fn bfast_monitor() {
+    compare_within("bfast_monitor", |_| Tol { curves: 1e-8, rows: false });
 }

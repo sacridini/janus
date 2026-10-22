@@ -158,7 +158,51 @@ def smooth_cases(rng):
     return cases
 
 
-CASES = {"landtrendr": landtrendr_cases, "mann_kendall": mann_kendall_cases, "smooth": smooth_cases}
+def regular(first="2015-01-01", step=16, n=184):
+    days = np.datetime64(first) + np.arange(n) * step
+    return zc.decimal_years(days).tolist(), days.astype(np.int64).tolist()
+
+
+def seasonal_breaks(rng, days, k):
+    """A seasonal index with an abrupt drop (or two, or none), noise and cloudy gaps."""
+    t = np.asarray(days, dtype=np.float64)
+    v = 0.6 + 0.2 * np.sin(2 * np.pi * t / 365.25 + rng.uniform(0, 6)) + rng.normal(0, 0.03, t.size)
+    for at in rng.choice(np.arange(20, t.size - 20), k % 3, replace=False):
+        v[at:] -= rng.uniform(0.15, 0.4)
+    if k % 4 == 3:
+        v += np.linspace(0, rng.uniform(-0.2, 0.2), t.size)
+    v[rng.random(t.size) < rng.uniform(0, 0.25)] = np.nan
+    return v
+
+
+def bfast_family_cases(variants, monthly_too=True):
+    def cases(rng):
+        out = []
+        for k in range(16):
+            years, days = regular(n=int(rng.integers(60, 190)))
+            out.append({"params": variants[k % len(variants)], "years": years, "days": days,
+                        "values": seasonal_breaks(rng, days, k)})
+        if monthly_too:
+            for k in range(6):
+                years, days = monthly(2012, 8)
+                out.append({"params": variants[k % len(variants)], "years": years, "days": days,
+                            "values": seasonal_breaks(rng, days, k)})
+        years, days = regular(n=30)  # short
+        out.append({"params": {}, "years": years, "days": days, "values": seasonal_breaks(rng, days, 0)})
+        return out
+    return cases
+
+
+CASES = {
+    "landtrendr": landtrendr_cases,
+    "mann_kendall": mann_kendall_cases,
+    "smooth": smooth_cases,
+    "bfast": bfast_family_cases([{}, {"h": 0.25, "max_breaks_trend": 2}, {"order": 1, "level": 0.2},
+                                 {"max_iter": 2, "max_breaks_season": 1}, {"min_valid": 150}]),
+    "bfast_lite": bfast_family_cases([{}, {"max_breaks": 2, "order": 2}, {"h": 0.3}, {"min_valid": 150}]),
+    "bfast_monitor": bfast_family_cases([{}, {"monitor_start": 2019.5}, {"h": "0.5", "period": "4", "alpha": "0.01"},
+                                         {"monitor_start": 2016.0, "min_valid": 30}, {"h": "1.0", "order": 1}]),
+}
 
 
 def main():

@@ -139,6 +139,9 @@ pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResu
         "landtrendr" => crate::landtrendr::pixel(p, input),
         "mann_kendall" => crate::mann_kendall::pixel(p, input),
         "smooth" => crate::smooth::pixel(p, input),
+        "bfast" => crate::bfast::bfast_pixel(p, input),
+        "bfast_lite" => crate::bfast::lite_pixel(p, input),
+        "bfast_monitor" => crate::bfast::monitor_pixel(p, input),
         _ => Err(format!("{tool}: not available in this version")),
     }
 }
