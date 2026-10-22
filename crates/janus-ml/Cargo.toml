@@ -1,0 +1,15 @@
+[package]
+name = "janus-ml"
+description = "Janus: deep learning on the series (Burn): samples, TempCNN, L-TAE, Presto, U-TAE; trained and applied in the process, on the GPU (wgpu) or the CPU"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+burn = { version = "0.22.1", default-features = false, features = ["std", "optim", "autodiff", "store", "wgpu", "flex"] }
+gdal.workspace = true
+gdal-sys.workspace = true
+janus-cube = { path = "../janus-cube" }
+rayon = "1.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }

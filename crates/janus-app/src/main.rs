@@ -27,6 +27,7 @@ mod layers;
 mod map;
 mod measure;
 mod measure_vectors;
+mod ml;
 mod open;
 mod panels;
 mod platform;

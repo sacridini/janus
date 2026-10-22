@@ -436,6 +436,7 @@ impl State {
             }
             ui.separator();
         }
+        self.ml_menu(ui);
         if ui.add(egui::Button::selectable(self.zeit.show_tasks, "Tasks")).clicked() {
             self.zeit.show_tasks = !self.zeit.show_tasks;
             ui.close();
@@ -1046,7 +1047,7 @@ pub(crate) fn timestamp() -> String {
 }
 
 /// A file or folder name from the series' inputs.
-fn series_name(info: &CubeInfo, inputs: &[String]) -> String {
+pub(crate) fn series_name(info: &CubeInfo, inputs: &[String]) -> String {
     let p = std::path::PathBuf::from(if inputs.len() == 1 { inputs[0].clone() } else { info.first_path.clone() });
     let p = if inputs.len() == 1 { p } else { p.parent().map(|p| p.to_path_buf()).unwrap_or(p) };
     let n = p.file_stem().or(p.file_name()).map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
@@ -1073,7 +1074,7 @@ impl State {
     }
 
     /// The pixel window of a run's scope: the whole image, the visible area or the ROI.
-    fn run_window(&self, scope: usize) -> ([usize; 4], &'static str) {
+    pub(crate) fn run_window(&self, scope: usize) -> ([usize; 4], &'static str) {
         let Some(s) = &self.session else { return ([0, 0, 0, 0], "") };
         let (w, h) = (s.info.width, s.info.height);
         if scope == 1

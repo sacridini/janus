@@ -2,7 +2,8 @@
 //! (ProggyForever, the scalable face) and the Files panel revealing the opened file (70-72); the Log window following
 //! a file as it grows (73-74); the Analysis panel drawn on every tab (75-76); the layout scrambled and reset (77-78);
 //! a finished Zeit run with a series output and a class map with typical series (81); a SNIC run on the series, its
-//! segments, their mean series and their polygons (82-83).
+//! segments, their mean series and their polygons (82-83); deep learning: a TempCNN trained on pins given a class,
+//! kept in its file and applied, its class map, probability and uncertainty as layers (84-86).
 
 use super::UiTest;
 use crate::app::{LayoutCmd, State};
@@ -392,6 +393,112 @@ impl State {
                     st,
                     "SNIC: the segments (a colour each), their mean series as a layer, their polygons as a vector layer",
                 );
+            }
+            84 => {
+                // pins given a class: the west and the east of the series; a TempCNN of a few epochs on the CPU
+                let info = self.session.as_ref()?.info.clone();
+                self.clear_pins();
+                for k in 0..24 {
+                    let east = k % 2 == 1;
+                    let x = if east { info.width - 1 - (k * 7) % (info.width / 3) } else { (k * 7) % (info.width / 3) };
+                    self.add_pin(x, (k * 13) % info.height);
+                }
+                let pins: Vec<(u32, usize)> = self.series.pins.iter().map(|p| (p.id, p.x)).collect();
+                for (id, x) in pins {
+                    let c = if x > info.width / 2 { "East" } else { "West" };
+                    self.ml.pin_classes.insert(id, c.into());
+                }
+                self.ml.source = 3;
+                self.ml.arch = 0;
+                self.ml.cfg = janus_ml::TrainConfig { epochs: 5, ..janus_ml::TrainConfig::tempcnn() };
+                self.ml.gpu = false;
+                self.ml.scope = 0;
+                let stamp =
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+                let dir = std::env::temp_dir().join(format!("janus-selftest-ml-{stamp}"));
+                self.zeit.results_dir = Some(dir.clone());
+                st.run = Some((dir, self.layers.len(), self.active));
+                let (sites, classes) = match self.ml_sites() {
+                    Ok(s) => s,
+                    Err(e) => return fail(&format!("the pins should give samples: {e}")),
+                };
+                if classes != ["West", "East"] || sites.len() != 24 {
+                    return fail(&format!("24 pins in two classes, got {} in {classes:?}", sites.len()));
+                }
+                self.ml_train_now(ctx);
+                next(st, "deep learning: 24 pins given a class (West, East), a TempCNN training started");
+            }
+            85 => {
+                let run = self.ml.run.clone()?;
+                let r = run.lock().ok()?;
+                if !r.done {
+                    return None;
+                }
+                if !r.error.is_empty() {
+                    return fail(&format!("the training should finish: {}", r.error));
+                }
+                let h = r.header.clone()?;
+                let path = r.model_path.clone();
+                drop(r);
+                self.pump_ml();
+                let back = match janus_ml::Model::read_header(&path) {
+                    Ok(b) => b,
+                    Err(e) => return fail(&format!("the model file should read back: {e}")),
+                };
+                println!(
+                    "    {}: {} epochs, {} classes, validation accuracy {:.2}; {}",
+                    h.arch.name(),
+                    h.training["history"].as_array().map_or(0, Vec::len),
+                    h.classes.len(),
+                    h.training["validation"]["overall_accuracy"].as_f64().unwrap_or(f64::NAN),
+                    std::path::Path::new(&path).file_name()?.to_string_lossy()
+                );
+                if back != h || h.classes.len() != 2 || self.ml.model.as_ref().map(|m| &m.0) != Some(&path) {
+                    return fail("the trained model should be kept in its file and be the one to apply");
+                }
+                self.ml_apply_now(ctx);
+                next(st, "the model trained and kept in its file; applied to the whole image");
+            }
+            86 => {
+                let (dir, _, _) = st.run.clone()?;
+                let job = self.zeit.jobs.last()?;
+                let (state, error) = {
+                    let s = job.status.lock().ok()?;
+                    (s.state, s.error.clone())
+                };
+                match state {
+                    crate::zeit::JobState::Failed | crate::zeit::JobState::Cancelled => {
+                        return fail(&format!("the classification should finish: {error}"));
+                    }
+                    crate::zeit::JobState::Running => return None,
+                    crate::zeit::JobState::Done => {}
+                }
+                let tag = dir.to_string_lossy().into_owned();
+                let mine: Vec<usize> =
+                    (0..self.zeit.results.len()).filter(|&k| self.zeit.results[k].path.starts_with(&tag)).collect();
+                if mine.len() < 3
+                    || mine.iter().any(|&k| self.zeit.results[k].data.is_empty())
+                    || self.zeit.loads_pending()
+                {
+                    return None;
+                }
+                let class = mine.iter().map(|&k| &self.zeit.results[k]).find(|r| !r.classes.is_empty())?;
+                let n = class.data.iter().filter(|v| v.is_finite() && **v >= 1.0).count();
+                println!(
+                    "    class map: {:?}, {n} of {} pixels classified; with its probability and uncertainty",
+                    class.classes,
+                    class.data.len()
+                );
+                if class.classes != ["West", "East"] || n == 0 {
+                    return fail("the class map should load with the model's classes");
+                }
+                self.zeit.results.retain(|r| !r.path.starts_with(&tag));
+                self.zeit.jobs.retain(|j| !j.output_dir.starts_with(&tag));
+                self.zeit.results_dir = None;
+                self.ml = Default::default();
+                self.clear_pins();
+                let _ = std::fs::remove_dir_all(&dir);
+                next(st, "deep learning: the class map (its classes), its probability and uncertainty as layers");
                 st.stage = 7;
             }
             _ => {}

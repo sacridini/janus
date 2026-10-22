@@ -1,0 +1,998 @@
+//! Deep learning (IDEIAS.md, "IA"; janus-ml): Tools > Deep learning. Samples from what Janus already has (the
+//! interpretation's labels, a validation project's references, a vector layer's class column, pins given a class),
+//! their series read at full resolution; a TempCNN or an L-TAE trained on them in the background (Tools > Tasks),
+//! its curves and the validation samples' confusion matrix in the window; the model kept in a .janusmodel file and
+//! applied to the whole image, the visible area or the ROI, its class map, probability and uncertainty opening as
+//! result layers.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
+
+use egui::{ComboBox, Ui};
+use egui_plot::{Legend, Line, Plot, PlotPoints};
+use janus_cube::CubeInfo;
+use janus_geo::vectors::Kind;
+use janus_ml::model::shared_device;
+use janus_ml::{Arch, Calendar, Class, Epoch, Header, InputBand, Model, Norm, TrainConfig};
+use serde_json::{Value, json};
+
+use crate::app::State;
+use crate::zeit::{Job, JobLog, JobState, JobStatus};
+
+const ARCHS: [&str; 2] = ["TempCNN (Pelletier et al. 2019)", "L-TAE (Garnot & Landrieu 2020)"];
+const SOURCES: [&str; 4] =
+    ["Interpretation labels", "Validation project (reference)", "Vector layer (class column)", "Pins (a class each)"];
+const POLYGONS: [&str; 3] = ["Its centre", "Each pixel inside", "The mean of its pixels"];
+
+/// A place samples come from: its class and its pixels (in the active layer), one sample each or their mean.
+#[derive(Clone, Debug)]
+pub struct Site {
+    pub class: String,
+    pub pixels: Vec<(usize, usize)>,
+    pub mean: bool,
+}
+
+/// The samples of each class (or why there are none).
+type Counts = Result<Vec<(String, usize)>, String>;
+
+/// A training under way or done.
+#[derive(Default)]
+pub struct TrainRun {
+    pub arch: String,
+    pub epochs_asked: usize,
+    pub epochs: Vec<Epoch>,
+    pub done: bool,
+    pub error: String,
+    pub model_path: String,
+    pub header: Option<Header>,
+    pub message: String,
+}
+
+pub struct MlUi {
+    pub open: bool,
+    pub arch: usize,
+    pub source: usize,
+    /// the vector layer and its class field (source 2)
+    pub vector: u32,
+    pub field: usize,
+    pub polygons: usize,
+    /// at most this many pixels of a polygon
+    pub max_pixels: usize,
+    pub shown: bool,
+    pub bands: BTreeSet<i32>,
+    pub pin_classes: BTreeMap<u32, String>,
+    pub cfg: TrainConfig,
+    cfg_arch: usize,
+    pub min_valid: f64,
+    pub gpu: bool,
+    pub scope: usize,
+    pub run: Option<Arc<Mutex<TrainRun>>>,
+    /// the model to apply: its file and header
+    pub model: Option<(String, Header)>,
+    /// the samples' count by class, and when it was made
+    counted: Option<(Instant, Counts)>,
+}
+
+impl Default for MlUi {
+    fn default() -> Self {
+        MlUi {
+            open: false,
+            arch: 0,
+            source: 0,
+            vector: 0,
+            field: 0,
+            polygons: 0,
+            max_pixels: 50,
+            shown: true,
+            bands: BTreeSet::new(),
+            pin_classes: BTreeMap::new(),
+            cfg: TrainConfig::tempcnn(),
+            cfg_arch: 0,
+            min_valid: 50.0,
+            gpu: true,
+            scope: 0,
+            run: None,
+            model: None,
+            counted: None,
+        }
+    }
+}
+
+impl MlUi {
+    pub fn arch(&self) -> Arch {
+        match self.arch {
+            1 => Arch::LTae(Default::default()),
+            _ => Arch::TempCnn(Default::default()),
+        }
+    }
+
+    pub fn training(&self) -> bool {
+        self.run.as_ref().is_some_and(|r| !r.lock().unwrap().done)
+    }
+}
+
+/// Class k's colour: the Paired colormap's, as the class map shows it.
+pub fn class_color(k: usize) -> [u8; 3] {
+    let maps = janus_gpu::colormaps::all();
+    let cm = &maps[janus_gpu::colormaps::by_name("Paired").unwrap_or(0)];
+    let n = cm.keys().count().max(1);
+    let [r, g, b, _] = cm.sample(((k % n) as f32 + 0.5) / n as f32);
+    [r, g, b]
+}
+
+/// The pixels of a placed feature: its anchor, or those whose centres are inside (at most `max`, spread evenly).
+fn feature_pixels(
+    poly: &janus_geo::plane::Polygon,
+    anchor: [f64; 2],
+    kind: Kind,
+    every: bool,
+    max: usize,
+    info: &CubeInfo,
+) -> Vec<(usize, usize)> {
+    let inside = |x: f64, y: f64| x >= 0.0 && y >= 0.0 && (x as usize) < info.width && (y as usize) < info.height;
+    if kind == Kind::Area
+        && every
+        && let Some(b) = janus_geo::plane::bounds(poly)
+    {
+        let (w, h) = (info.width as f64, info.height as f64);
+        let (x0, y0) = (b[0].floor().clamp(0.0, w) as usize, b[1].floor().clamp(0.0, h) as usize);
+        let (x1, y1) = (b[2].ceil().clamp(0.0, w) as usize, b[3].ceil().clamp(0.0, h) as usize);
+        if x1 > x0 && y1 > y0 && (x1 - x0) * (y1 - y0) <= 4_000_000 {
+            let (pw, ph) = (x1 - x0, y1 - y0);
+            let m = janus_geo::plane::mask(poly, x0 as f64, y0 as f64, pw as f64, ph as f64, pw, ph);
+            let all: Vec<(usize, usize)> = (0..pw * ph).filter(|&i| m[i]).map(|i| (x0 + i % pw, y0 + i / pw)).collect();
+            if !all.is_empty() {
+                let step = all.len().div_ceil(max.max(1));
+                return all.into_iter().step_by(step.max(1)).collect();
+            }
+        }
+    }
+    if anchor[0].is_finite() && inside(anchor[0], anchor[1]) {
+        return vec![(anchor[0] as usize, anchor[1] as usize)];
+    }
+    vec![]
+}
+
+impl State {
+    /// The samples of the chosen source, as places in the active layer, and the classes in their order.
+    pub(crate) fn ml_sites(&self) -> Result<(Vec<Site>, Vec<String>), String> {
+        let info = &self.session.as_ref().ok_or("no series is open")?.info;
+        let ui = &self.ml;
+        let every = ui.polygons > 0;
+        let mean = ui.polygons == 2;
+        let max = if mean { 5000 } else { ui.max_pixels.max(1) };
+        let mut sites = vec![];
+        let mut order: Vec<String> = vec![];
+        let of_layer =
+            |id: u32, class: &dyn Fn(usize) -> Option<String>, sites: &mut Vec<Site>| -> Result<(), String> {
+                let v = self.vectors.iter().find(|v| v.id == id).ok_or("its vector layer is not open")?;
+                if v.px.is_empty() && !v.data.features.is_empty() {
+                    return Err(format!(
+                        "{} is not placed on the active layer{}",
+                        v.name,
+                        if v.why.is_empty() { String::new() } else { format!(": {}", v.why) }
+                    ));
+                }
+                for (i, f) in v.data.features.iter().enumerate() {
+                    let Some(c) = class(i).filter(|c| !c.is_empty()) else { continue };
+                    let (poly, anchor) =
+                        (v.px.get(i).cloned().unwrap_or_default(), v.anchor.get(i).copied().unwrap_or([f64::NAN; 2]));
+                    let pixels = feature_pixels(&poly, anchor, f.kind, every, max, info);
+                    if !pixels.is_empty() {
+                        sites.push(Site { class: c, pixels, mean: mean && f.kind == Kind::Area });
+                    }
+                }
+                Ok(())
+            };
+        match ui.source {
+            0 => {
+                let it = &self.labels;
+                let id = it.vector.ok_or("no interpretation is going on (Interpretation panel)")?;
+                order = it.classes.clone();
+                of_layer(id, &|i| it.entries.get(i).map(|l| l.label.clone()), &mut sites)?;
+            }
+            1 => {
+                let p = self.val.project.as_ref().ok_or("no validation project is open")?;
+                order = p.label_set.clone();
+                of_layer(
+                    self.val.vector_id,
+                    &|i| janus_validation::resolve(&p.labels, i).0.map(|l| l.label.clone()),
+                    &mut sites,
+                )?;
+            }
+            2 => {
+                let v = self.vectors.iter().find(|v| v.id == ui.vector).ok_or("choose a vector layer")?;
+                let field = ui.field;
+                if field >= v.data.fields.len() {
+                    return Err("choose its class column".into());
+                }
+                let data = v.data.clone();
+                of_layer(ui.vector, &|i| data.features.get(i).map(|f| f.values[field].trim().to_string()), &mut sites)?;
+            }
+            _ => {
+                for p in &self.series.pins {
+                    if let Some(c) = ui.pin_classes.get(&p.id).filter(|c| !c.trim().is_empty()) {
+                        sites.push(Site { class: c.trim().to_string(), pixels: vec![(p.x, p.y)], mean: false });
+                    }
+                }
+            }
+        }
+        // the classes: the label set's order, then the others as they come
+        let present: BTreeSet<&str> = sites.iter().map(|s| s.class.as_str()).collect();
+        let mut classes: Vec<String> = order.into_iter().filter(|c| present.contains(c.as_str())).collect();
+        for s in &sites {
+            if !classes.contains(&s.class) {
+                classes.push(s.class.clone());
+            }
+        }
+        Ok((sites, classes))
+    }
+
+    /// The values the model reads on each date.
+    fn ml_inputs(&self, info: &CubeInfo) -> Vec<InputBand> {
+        let mut v = vec![];
+        if self.ml.shown || info.bands_per_date <= 1 {
+            v.push(InputBand::shown(info));
+        }
+        for &b in &self.ml.bands {
+            if info.bands_per_date > 1 && b >= 1 && b as usize <= info.bands_per_date {
+                v.push(InputBand::source(info, b));
+            }
+        }
+        v
+    }
+
+    pub(crate) fn ml_menu(&mut self, ui: &mut Ui) {
+        ui.label(egui::RichText::new("Deep learning").weak().small());
+        if ui.add(egui::Button::selectable(self.ml.open, "Classify with deep learning (TempCNN, L-TAE)")).clicked() {
+            self.ml.open = !self.ml.open;
+            ui.close();
+        }
+        ui.separator();
+    }
+
+    pub(crate) fn ml_window(&mut self, ctx: &egui::Context) {
+        if !self.ml.open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new("Deep learning")
+            .id(egui::Id::new("ml window"))
+            .open(&mut open)
+            .default_size([460.0, 640.0])
+            .scroll(true)
+            .show(ctx, |ui| self.ml_ui(ui));
+        self.ml.open = open;
+        if self.ml.training() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
+    }
+
+    fn ml_ui(&mut self, ui: &mut Ui) {
+        ui.label(
+            "Classify every pixel by its whole series with a neural network trained on samples you already have \
+             in Janus. TempCNN reads the series as a sequence of fixed length; L-TAE weighs the dates by attention. \
+             Both as sits builds them, trained here on the GPU (or the CPU), without Python.",
+        );
+        let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else {
+            ui.colored_label(crate::theme::error(), "Open a series first.");
+            return;
+        };
+
+        crate::panels::section(ui, "Samples");
+        let mut changed = false;
+        ComboBox::from_id_salt("ml source").width(ui.available_width()).selected_text(SOURCES[self.ml.source]).show_ui(
+            ui,
+            |ui| {
+                for (i, s) in SOURCES.iter().enumerate() {
+                    changed |= ui.selectable_value(&mut self.ml.source, i, *s).changed();
+                }
+            },
+        );
+        match self.ml.source {
+            2 => {
+                let names: Vec<(u32, String, Vec<String>)> =
+                    self.vectors.iter().map(|v| (v.id, v.name.clone(), v.data.fields.clone())).collect();
+                if names.is_empty() {
+                    ui.weak("Open a vector file with a column of classes (points or polygons).");
+                }
+                let cur = names.iter().find(|n| n.0 == self.ml.vector);
+                ComboBox::from_id_salt("ml vector")
+                    .selected_text(cur.map_or("(choose a layer)", |n| n.1.as_str()))
+                    .show_ui(ui, |ui| {
+                        for n in &names {
+                            changed |= ui.selectable_value(&mut self.ml.vector, n.0, &n.1).changed();
+                        }
+                    });
+                if let Some(n) = names.iter().find(|n| n.0 == self.ml.vector) {
+                    ComboBox::from_id_salt("ml field")
+                        .selected_text(n.2.get(self.ml.field).map_or("(choose its class column)", |s| s.as_str()))
+                        .show_ui(ui, |ui| {
+                            for (k, f) in n.2.iter().enumerate() {
+                                changed |= ui.selectable_value(&mut self.ml.field, k, f).changed();
+                            }
+                        });
+                }
+            }
+            3 => {
+                if self.series.pins.is_empty() {
+                    ui.weak("Drop pins on places you know (a click on the map), then give each a class.");
+                }
+                let pins: Vec<(u32, egui::Color32)> = self.series.pins.iter().map(|p| (p.id, p.color)).collect();
+                for (id, color) in pins {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(color, format!("Pin {id}"));
+                        let c = self.ml.pin_classes.entry(id).or_default();
+                        changed |= ui.text_edit_singleline(c).changed();
+                    });
+                }
+            }
+            _ => {}
+        }
+        if self.ml.source != 3 {
+            ui.horizontal(|ui| {
+                ui.label("A polygon gives");
+                ComboBox::from_id_salt("ml polygons").selected_text(POLYGONS[self.ml.polygons]).show_ui(ui, |ui| {
+                    for (i, s) in POLYGONS.iter().enumerate() {
+                        changed |= ui.selectable_value(&mut self.ml.polygons, i, *s).changed();
+                    }
+                });
+            });
+            if self.ml.polygons == 1 {
+                changed |= ui
+                    .add(
+                        egui::Slider::new(&mut self.ml.max_pixels, 1..=1000)
+                            .logarithmic(true)
+                            .text("pixels at most each"),
+                    )
+                    .changed();
+            }
+        }
+        if changed || self.ml.counted.as_ref().is_none_or(|c| c.0.elapsed().as_secs_f64() > 1.0) {
+            let counts = self.ml_sites().map(|(sites, classes)| {
+                classes
+                    .iter()
+                    .map(|c| {
+                        let n = sites
+                            .iter()
+                            .filter(|s| &s.class == c)
+                            .map(|s| if s.mean { 1 } else { s.pixels.len() })
+                            .sum();
+                        (c.clone(), n)
+                    })
+                    .collect::<Vec<_>>()
+            });
+            self.ml.counted = Some((Instant::now(), counts));
+        }
+        let mut can_train = false;
+        match &self.ml.counted.as_ref().map(|c| &c.1) {
+            Some(Ok(c)) if !c.is_empty() => {
+                let total: usize = c.iter().map(|x| x.1).sum();
+                ui.label(format!("{total} samples in {} classes", c.len()));
+                ui.weak(c.iter().map(|(k, n)| format!("{k} ({n})")).collect::<Vec<_>>().join(", "));
+                can_train = c.len() >= 2 && total >= 10;
+                if !can_train {
+                    ui.colored_label(crate::theme::error(), "At least two classes and ten samples are needed.");
+                }
+            }
+            Some(Ok(_)) => {
+                ui.weak("No labelled samples yet.");
+            }
+            Some(Err(e)) => {
+                ui.colored_label(crate::theme::error(), e.as_str());
+            }
+            None => {}
+        }
+
+        crate::panels::section(ui, "Values read on each date");
+        if info.bands_per_date > 1 {
+            ui.checkbox(&mut self.ml.shown, format!("The series shown ({})", InputBand::shown(&info).name));
+            ui.horizontal_wrapped(|ui| {
+                for b in 1..=info.bands_per_date as i32 {
+                    let name = info.band_names.get(b as usize - 1).cloned().unwrap_or_else(|| format!("band {b}"));
+                    let mut on = self.ml.bands.contains(&b);
+                    if ui.checkbox(&mut on, name).changed() {
+                        if on {
+                            self.ml.bands.insert(b);
+                        } else {
+                            self.ml.bands.remove(&b);
+                        }
+                    }
+                }
+            });
+        } else {
+            ui.label(format!("The series shown ({})", InputBand::shown(&info).name));
+        }
+        let inputs = self.ml_inputs(&info);
+        if inputs.is_empty() {
+            can_train = false;
+            ui.colored_label(crate::theme::error(), "Choose at least one value.");
+        }
+        ui.weak(format!(
+            "{} dates: the model applies to series of the same {} dates (and, for TempCNN, their order).",
+            info.t(),
+            info.t()
+        ));
+
+        crate::panels::section(ui, "Model");
+        let before = self.ml.arch;
+        ComboBox::from_id_salt("ml arch").width(ui.available_width()).selected_text(ARCHS[self.ml.arch]).show_ui(
+            ui,
+            |ui| {
+                for (i, s) in ARCHS.iter().enumerate() {
+                    ui.selectable_value(&mut self.ml.arch, i, *s);
+                }
+            },
+        );
+        if self.ml.arch != before || self.ml.cfg_arch != self.ml.arch {
+            let seed = self.ml.cfg.seed;
+            self.ml.cfg = TrainConfig { seed, ..TrainConfig::for_arch(&self.ml.arch()) };
+            self.ml.cfg_arch = self.ml.arch;
+        }
+        egui::Grid::new("ml cfg").num_columns(2).show(ui, |ui| {
+            let c = &mut self.ml.cfg;
+            ui.label("Epochs at most");
+            ui.add(egui::DragValue::new(&mut c.epochs).range(1..=2000));
+            ui.end_row();
+            ui.label("Batch size");
+            ui.add(egui::DragValue::new(&mut c.batch_size).range(8..=4096));
+            ui.end_row();
+            ui.label("Learning rate");
+            ui.add(egui::DragValue::new(&mut c.lr).speed(1e-5).range(1e-6..=0.1).max_decimals(6));
+            ui.end_row();
+            ui.label("Weight decay");
+            ui.add(egui::DragValue::new(&mut c.weight_decay).speed(1e-6).range(0.0..=0.1).max_decimals(7));
+            ui.end_row();
+            ui.label("Validation share");
+            ui.add(egui::Slider::new(&mut c.validation_split, 0.05..=0.5).fixed_decimals(2));
+            ui.end_row();
+            ui.label("Patience (epochs)").on_hover_text(
+                "Training stops when the validation loss has not improved by min. delta for this many epochs",
+            );
+            ui.add(egui::DragValue::new(&mut c.patience).range(1..=500));
+            ui.end_row();
+            ui.label("Random seed");
+            ui.add(egui::DragValue::new(&mut c.seed).range(0..=1_000_000));
+            ui.end_row();
+            ui.label("Min dates with a value (%)")
+                .on_hover_text("Gaps are filled linearly in time; pixels with values on fewer dates are left out");
+            ui.add(egui::Slider::new(&mut self.ml.min_valid, 1.0..=100.0).fixed_decimals(0));
+            ui.end_row();
+        });
+        ui.checkbox(&mut self.ml.cfg.class_weights, "Weigh the classes (rare classes count more)");
+        let gpu_name = if self.ml.gpu { "the GPU (wgpu), else the CPU" } else { "the CPU" };
+        ui.checkbox(&mut self.ml.gpu, "Use the GPU").on_hover_text(format!("Trains and classifies on {gpu_name}"));
+        if ui.small_button("sits' defaults").clicked() {
+            self.ml.cfg = TrainConfig::for_arch(&self.ml.arch());
+        }
+        let training = self.ml.training();
+        if ui
+            .add_enabled(
+                can_train && !training,
+                egui::Button::new("Train").min_size(egui::vec2(ui.available_width(), 0.0)),
+            )
+            .clicked()
+        {
+            self.ml_train(&info, inputs.clone(), ui.ctx());
+        }
+        self.ml_progress_ui(ui);
+
+        crate::panels::section(ui, "Apply");
+        ui.horizontal(|ui| {
+            if ui.button("Open a model...").clicked()
+                && let Some(p) = rfd::FileDialog::new().add_filter("Janus model", &["janusmodel"]).pick_file()
+            {
+                let p = p.to_string_lossy().into_owned();
+                match Model::read_header(&p) {
+                    Ok(h) => self.ml.model = Some((p, h)),
+                    Err(e) => self.error_popup = Some(e),
+                }
+            }
+            if let Some((p, _)) = &self.ml.model
+                && ui.button("Save as...").clicked()
+                && let Some(to) = rfd::FileDialog::new()
+                    .add_filter("Janus model", &["janusmodel"])
+                    .set_file_name("model.janusmodel")
+                    .save_file()
+                && let Err(e) = std::fs::copy(p, &to)
+            {
+                self.error_popup = Some(format!("{}: {e}", to.display()));
+            }
+        });
+        let Some((path, header)) = self.ml.model.clone() else {
+            ui.weak("Train a model, or open one.");
+            return;
+        };
+        ui.label(format!(
+            "{}: {} classes, {} values on {} dates ({})",
+            header.arch.name(),
+            header.classes.len(),
+            header.inputs.len(),
+            header.calendar.len(),
+            std::path::Path::new(&path).file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned())
+        ))
+        .on_hover_text(&path);
+        let fits = check_fits(&header, &info);
+        if let Err(e) = &fits {
+            ui.colored_label(crate::theme::error(), format!("Not for this series: {e}"));
+        }
+        const SCOPES: [&str; 3] = ["Whole image", "Visible area", "ROI"];
+        if self.ml.scope == 2 && self.series.roi_rect.is_none() {
+            self.ml.scope = 0;
+        }
+        let roi = self.series.roi_rect.is_some();
+        ComboBox::from_id_salt("ml scope").width(ui.available_width()).selected_text(SCOPES[self.ml.scope]).show_ui(
+            ui,
+            |ui| {
+                for (i, s) in SCOPES.iter().enumerate() {
+                    if ui.add_enabled(i != 2 || roi, egui::Button::selectable(self.ml.scope == i, *s)).clicked() {
+                        self.ml.scope = i;
+                    }
+                }
+            },
+        );
+        if ui
+            .add_enabled(fits.is_ok(), egui::Button::new("Apply").min_size(egui::vec2(ui.available_width(), 0.0)))
+            .clicked()
+        {
+            self.ml_apply(&path, &header, ui.ctx());
+        }
+        ui.weak(
+            "Runs in the background; see Tools > Tasks. The class map, its probability and uncertainty open as layers.",
+        );
+    }
+
+    /// The training's curves, then its validation (confusion matrix, accuracies).
+    fn ml_progress_ui(&mut self, ui: &mut Ui) {
+        let Some(run) = self.ml.run.clone() else { return };
+        let r = run.lock().unwrap();
+        if !r.error.is_empty() {
+            ui.colored_label(crate::theme::error(), &r.error);
+        } else if !r.message.is_empty() {
+            ui.weak(&r.message);
+        }
+        if r.epochs.is_empty() {
+            return;
+        }
+        let line = |name: &str, f: &dyn Fn(&Epoch) -> f64| {
+            Line::new(name, PlotPoints::from_iter(r.epochs.iter().map(|e| [e.epoch as f64, f(e)])))
+        };
+        ui.label(format!("{}: epoch {} of at most {}", r.arch, r.epochs.len(), r.epochs_asked));
+        Plot::new("ml loss").height(130.0).legend(Legend::default()).allow_scroll(false).show(ui, |p| {
+            p.line(line("training loss", &|e| e.train_loss));
+            p.line(line("validation loss", &|e| e.val_loss));
+        });
+        Plot::new("ml accuracy").height(110.0).legend(Legend::default()).allow_scroll(false).include_y(1.0).show(
+            ui,
+            |p| {
+                p.line(line("training accuracy", &|e| e.train_acc));
+                p.line(line("validation accuracy", &|e| e.val_acc));
+            },
+        );
+        let Some(h) = &r.header else { return };
+        let v = &h.training["validation"];
+        let confusion: Vec<Vec<u64>> = v["confusion"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .map(|row| {
+                        row.as_array().map(|x| x.iter().map(|c| c.as_u64().unwrap_or(0)).collect()).unwrap_or_default()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if confusion.is_empty() {
+            return;
+        }
+        ui.label(format!(
+            "Validation: overall accuracy {:.1} % on {} samples (the model of epoch {})",
+            v["overall_accuracy"].as_f64().unwrap_or(f64::NAN) * 100.0,
+            h.training["samples"]["validation"],
+            h.training["best_epoch"]
+        ));
+        let pct =
+            |x: &Value| x.as_f64().filter(|v| v.is_finite()).map_or("-".to_string(), |v| format!("{:.0}%", v * 100.0));
+        egui::Grid::new("ml confusion").striped(true).show(ui, |ui| {
+            ui.weak("reference \\ model");
+            for c in &h.classes {
+                ui.weak(&c.name);
+            }
+            ui.weak("producer's");
+            ui.end_row();
+            for (i, row) in confusion.iter().enumerate() {
+                ui.label(&h.classes[i].name);
+                for (j, n) in row.iter().enumerate() {
+                    if i == j {
+                        ui.strong(n.to_string())
+                    } else {
+                        ui.label(n.to_string())
+                    };
+                }
+                ui.label(pct(&v["producers_accuracy"][i]));
+                ui.end_row();
+            }
+            ui.weak("user's");
+            for j in 0..h.classes.len() {
+                ui.label(pct(&v["users_accuracy"][j]));
+            }
+            ui.end_row();
+        });
+    }
+
+    /// Starts a training on the samples (Tools > Tasks follows it; the window shows its curves).
+    fn ml_train(&mut self, info: &Arc<CubeInfo>, inputs: Vec<InputBand>, ctx: &egui::Context) {
+        let (sites, classes) = match self.ml_sites() {
+            Ok(s) => s,
+            Err(e) => {
+                self.error_popup = Some(e);
+                return;
+            }
+        };
+        let arch = self.ml.arch();
+        let cfg = self.ml.cfg.clone();
+        let (min_valid, gpu) = (self.ml.min_valid, self.ml.gpu);
+        let layer_inputs = self.layers.get(self.active).map(|l| l.inputs.clone()).unwrap_or_default();
+        let name = crate::zeit::series_name(info, &layer_inputs);
+        let dir = self.results_dir().join("models");
+        let _ = std::fs::create_dir_all(&dir);
+        let stem = format!("{name}_{}_{}", arch.name().to_lowercase().replace('-', ""), crate::zeit::timestamp());
+        let model_path = dir.join(format!("{stem}.janusmodel")).to_string_lossy().into_owned();
+        let log = JobLog { path: dir.join(format!("{stem}.log")), t0: Instant::now() };
+        let run = Arc::new(Mutex::new(TrainRun {
+            arch: arch.name().into(),
+            epochs_asked: cfg.epochs,
+            message: "reading the samples' series".into(),
+            ..Default::default()
+        }));
+        self.ml.run = Some(run.clone());
+        let status = Arc::new(Mutex::new(JobStatus {
+            state: JobState::Running,
+            progress: 0.0,
+            message: "reading the samples' series".into(),
+            error: String::new(),
+            result: None,
+            seconds: 0.0,
+        }));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let n_sites = sites.len();
+        let title = format!("{} training - {n_sites} places, {} classes", arch.name(), classes.len());
+        log.write(&format!(
+            "=== {} {title}\nseries: {}\ninputs: {}\nconfig: {}\nmodel: {model_path}\n",
+            crate::zeit::timestamp_text(),
+            info.description,
+            inputs.iter().map(|b| b.name.clone()).collect::<Vec<_>>().join(", "),
+            serde_json::to_string(&cfg).unwrap_or_default()
+        ));
+        self.zeit.jobs.push(Job {
+            title,
+            tool: arch.name().into(),
+            cube: info.id,
+            output_dir: dir.to_string_lossy().into_owned(),
+            log_path: log.path.to_string_lossy().into_owned(),
+            started: Instant::now(),
+            status: status.clone(),
+            cancel: cancel.clone(),
+            loaded: false,
+        });
+        self.zeit.show_tasks = true;
+        let (info, c) = (info.clone(), ctx.clone());
+        std::thread::Builder::new()
+            .name("ml-train".into())
+            .spawn(move || {
+                let t0 = Instant::now();
+                let set = |f: f64, m: &str| {
+                    let mut s = status.lock().unwrap();
+                    s.progress = f;
+                    s.message = m.to_string();
+                    run.lock().unwrap().message = m.to_string();
+                    c.request_repaint();
+                };
+                let r = train_job(
+                    &info,
+                    &inputs,
+                    &sites,
+                    &classes,
+                    &arch,
+                    &cfg,
+                    min_valid,
+                    gpu,
+                    &model_path,
+                    &log,
+                    &run,
+                    &set,
+                    &cancel,
+                );
+                let mut s = status.lock().unwrap();
+                s.seconds = t0.elapsed().as_secs_f64();
+                let mut rr = run.lock().unwrap();
+                rr.done = true;
+                match r {
+                    Ok(header) => {
+                        s.state = JobState::Done;
+                        s.progress = 1.0;
+                        rr.model_path = model_path.clone();
+                        rr.header = Some(header);
+                        log.line("done");
+                    }
+                    Err(e) if e == "cancelled" => {
+                        s.state = JobState::Cancelled;
+                        rr.message = "cancelled".into();
+                        log.line("cancelled");
+                    }
+                    Err(e) => {
+                        log.line(&format!("error: {e}"));
+                        s.state = JobState::Failed;
+                        s.error = e.clone();
+                        rr.error = e;
+                    }
+                }
+                c.request_repaint();
+            })
+            .ok();
+    }
+
+    /// Trains on the chosen samples and values now (the Train button's; the UI test's).
+    pub(crate) fn ml_train_now(&mut self, ctx: &egui::Context) {
+        let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return };
+        let inputs = self.ml_inputs(&info);
+        self.ml_train(&info, inputs, ctx);
+    }
+
+    /// Applies the model to the chosen scope now (the Apply button's; the UI test's).
+    pub(crate) fn ml_apply_now(&mut self, ctx: &egui::Context) {
+        if let Some((path, header)) = self.ml.model.clone() {
+            self.ml_apply(&path, &header, ctx);
+        }
+    }
+
+    /// A finished training's model becomes the one to apply.
+    pub(crate) fn pump_ml(&mut self) {
+        let Some(run) = self.ml.run.clone() else { return };
+        let r = run.lock().unwrap();
+        if r.done
+            && let Some(h) = &r.header
+            && self.ml.model.as_ref().is_none_or(|m| m.0 != r.model_path)
+        {
+            self.ml.model = Some((r.model_path.clone(), h.clone()));
+        }
+    }
+
+    /// Applies the model to the scope (a task; its maps open as result layers).
+    fn ml_apply(&mut self, path: &str, header: &Header, ctx: &egui::Context) {
+        let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return };
+        let (window, scope_name) = self.run_window(self.ml.scope);
+        let layer_inputs = self.layers.get(self.active).map(|l| l.inputs.clone()).unwrap_or_default();
+        let name = crate::zeit::series_name(&info, &layer_inputs);
+        let arch = header.arch.name();
+        let out = self.results_dir().join(format!(
+            "{name}_{}_{}",
+            arch.to_lowercase().replace('-', ""),
+            crate::zeit::timestamp()
+        ));
+        if let Err(e) = std::fs::create_dir_all(&out) {
+            self.error_popup = Some(format!("could not create {}: {e}", out.display()));
+            return;
+        }
+        let title =
+            format!("{arch} classification - {scope_name} ({} x {} px)", window[2] - window[0], window[3] - window[1]);
+        let log = JobLog { path: out.join("job.log"), t0: Instant::now() };
+        log.write(&format!(
+            "=== {} {title}\nmodel: {path}\nwindow: {window:?}\noutput: {}\n",
+            crate::zeit::timestamp_text(),
+            out.display()
+        ));
+        let status = Arc::new(Mutex::new(JobStatus {
+            state: JobState::Running,
+            progress: 0.0,
+            message: "loading the model".into(),
+            error: String::new(),
+            result: None,
+            seconds: 0.0,
+        }));
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.zeit.jobs.push(Job {
+            title,
+            tool: arch.into(),
+            cube: info.id,
+            output_dir: out.to_string_lossy().into_owned(),
+            log_path: log.path.to_string_lossy().into_owned(),
+            started: Instant::now(),
+            status: status.clone(),
+            cancel: cancel.clone(),
+            loaded: false,
+        });
+        self.zeit.show_tasks = true;
+        let (path, gpu, c) = (path.to_string(), self.ml.gpu, ctx.clone());
+        let spec = janus_ml::apply::ApplySpec {
+            window,
+            output_dir: out.to_string_lossy().into_owned(),
+            stem: arch.to_lowercase().replace('-', ""),
+            batch: 0,
+        };
+        std::thread::Builder::new()
+            .name("ml-apply".into())
+            .spawn(move || {
+                let t0 = Instant::now();
+                let dev = shared_device(gpu);
+                log.line(&format!("device: {}", dev.1));
+                let progress = |f: f64, m: &str| {
+                    let mut s = status.lock().unwrap();
+                    s.progress = f;
+                    s.message = m.to_string();
+                    c.request_repaint();
+                };
+                let r = Model::load(&path, &dev.0)
+                    .and_then(|m| janus_ml::apply::apply(&spec, &info, &m, &progress, &cancel));
+                let mut s = status.lock().unwrap();
+                s.seconds = t0.elapsed().as_secs_f64();
+                match r {
+                    Ok(a) => {
+                        log.line(&format!("{} pixels classified", a.classified));
+                        for o in &a.outputs {
+                            log.line(&format!(
+                                "output: {} -> {}",
+                                o["name"].as_str().unwrap_or(""),
+                                o["path"].as_str().unwrap_or("")
+                            ));
+                        }
+                        log.line("done");
+                        s.state = JobState::Done;
+                        s.progress = 1.0;
+                        s.result = Some(janus_zeit::job::JobResult { outputs: a.outputs, window: a.window });
+                    }
+                    Err(e) if e == "cancelled" => {
+                        log.line("cancelled");
+                        s.state = JobState::Cancelled;
+                    }
+                    Err(e) => {
+                        log.line(&format!("error: {e}"));
+                        s.state = JobState::Failed;
+                        s.error = e;
+                    }
+                }
+                c.request_repaint();
+            })
+            .ok();
+    }
+}
+
+/// Whether a model applies to a series (its dates and values), and why not.
+pub fn check_fits(h: &Header, info: &CubeInfo) -> Result<(), String> {
+    if info.t() != h.calendar.len() {
+        return Err(format!("the model was trained on {} dates; this series has {}", h.calendar.len(), info.t()));
+    }
+    for b in &h.inputs {
+        b.find_in(info)?;
+    }
+    Ok(())
+}
+
+/// The samples' series (each pixel a sample, or each place's mean), gaps filled and scaled: the training samples
+/// and their classes, and the scaling.
+pub fn sample_series(
+    info: &Arc<CubeInfo>,
+    inputs: &[InputBand],
+    sites: &[Site],
+    classes: &[String],
+    min_valid: f64,
+) -> (janus_ml::Series, Vec<u32>, Norm, Vec<usize>) {
+    let pixels: Vec<(usize, usize)> = sites.iter().flat_map(|s| s.pixels.iter().copied()).collect();
+    let raw = janus_ml::data::read_points(info, inputs, &pixels);
+    let (t, b) = (raw.t, raw.b);
+    let mut values = vec![];
+    let mut y = vec![];
+    let mut at = 0;
+    for s in sites {
+        let k = classes.iter().position(|c| c == &s.class).unwrap_or(0) as u32;
+        let n = s.pixels.len();
+        if s.mean {
+            // the mean of each date's values over the pixels with one
+            let mut m = vec![f32::NAN; t * b];
+            for (j, v) in m.iter_mut().enumerate() {
+                let (mut sum, mut cnt) = (0f64, 0);
+                for i in at..at + n {
+                    let x = raw.values[i * t * b + j];
+                    if x.is_finite() {
+                        sum += x as f64;
+                        cnt += 1;
+                    }
+                }
+                if cnt > 0 {
+                    *v = (sum / cnt as f64) as f32;
+                }
+            }
+            values.extend(m);
+            y.push(k);
+        } else {
+            values.extend_from_slice(&raw.values[at * t * b..(at + n) * t * b]);
+            y.extend(std::iter::repeat_n(k, n));
+        }
+        at += n;
+    }
+    let mut s = janus_ml::Series { n: y.len(), t, b, values };
+    let keep = janus_ml::data::fill_gaps(&mut s, &Calendar::of(info).years, min_valid);
+    let idx: Vec<usize> = (0..s.n).filter(|&i| keep[i]).collect();
+    let mut s = s.select(&idx);
+    let y: Vec<u32> = idx.iter().map(|&i| y[i]).collect();
+    let mut per_class = vec![0usize; classes.len()];
+    for &k in &y {
+        per_class[k as usize] += 1;
+    }
+    let norm = Norm::fit(&s);
+    norm.apply(&mut s);
+    (s, y, norm, per_class)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn train_job(
+    info: &Arc<CubeInfo>,
+    inputs: &[InputBand],
+    sites: &[Site],
+    classes: &[String],
+    arch: &Arch,
+    cfg: &TrainConfig,
+    min_valid: f64,
+    gpu: bool,
+    model_path: &str,
+    log: &JobLog,
+    run: &Arc<Mutex<TrainRun>>,
+    set: &dyn Fn(f64, &str),
+    cancel: &AtomicBool,
+) -> Result<Header, String> {
+    let (x, y, norm, per_class) = sample_series(info, inputs, sites, classes, min_valid);
+    let left = sites.iter().map(|s| if s.mean { 1 } else { s.pixels.len() }).sum::<usize>() - x.n;
+    log.line(&format!(
+        "{} samples ({left} left out: too few dates with a value): {}",
+        x.n,
+        classes.iter().zip(&per_class).map(|(c, n)| format!("{c} {n}")).collect::<Vec<_>>().join(", ")
+    ));
+    if cancel.load(Ordering::Relaxed) {
+        return Err("cancelled".into());
+    }
+    let dev = shared_device(gpu);
+    log.line(&format!("device: {}", dev.1));
+    set(0.02, &format!("training on {} samples ({})", x.n, dev.1));
+    let calendar = Calendar::of(info);
+    let epochs = cfg.epochs;
+    let mut on_epoch = |e: &Epoch| {
+        log.line(&format!(
+            "epoch {:3}: training loss {:.4} accuracy {:.3}, validation loss {:.4} accuracy {:.3} ({:.1} s)",
+            e.epoch, e.train_loss, e.train_acc, e.val_loss, e.val_acc, e.seconds
+        ));
+        run.lock().unwrap().epochs.push(e.clone());
+        set(
+            0.02 + 0.97 * e.epoch as f64 / epochs as f64,
+            &format!("epoch {}: validation accuracy {:.1} %", e.epoch, e.val_acc * 100.0),
+        );
+    };
+    let trained = janus_ml::train::train(&x, &y, classes.len(), arch, &calendar, cfg, &dev.0, &mut on_epoch, cancel)?;
+    let (oa, _, _) = trained.accuracies();
+    log.line(&format!(
+        "best epoch {} of {}{}; validation overall accuracy {:.4}",
+        trained.best_epoch,
+        trained.history.len(),
+        if trained.stopped_early { " (stopped early)" } else { "" },
+        oa
+    ));
+    let mut training = trained.summary(cfg, &per_class);
+    training["device"] = json!(dev.1);
+    let header = Header {
+        format: 1,
+        janus: env!("CARGO_PKG_VERSION").into(),
+        arch: arch.clone(),
+        inputs: inputs.to_vec(),
+        calendar,
+        norm,
+        classes: classes.iter().enumerate().map(|(k, c)| Class { name: c.clone(), color: class_color(k) }).collect(),
+        min_valid,
+        series: info.description.clone(),
+        training,
+        created: crate::zeit::timestamp_text(),
+    };
+    let model = Model { header: header.clone(), net: trained.net, device: dev.0.clone() };
+    model.save(model_path)?;
+    log.line(&format!("model: {model_path}"));
+    Ok(header)
+}

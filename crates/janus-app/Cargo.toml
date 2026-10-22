@@ -30,6 +30,7 @@ janus-cache = { path = "../janus-cache" }
 janus-cube = { path = "../janus-cube" }
 janus-embed = { path = "../janus-embed" }
 janus-geo = { path = "../janus-geo" }
+janus-ml = { path = "../janus-ml" }
 janus-zeit = { path = "../janus-zeit" }
 janus-gpu = { path = "../janus-gpu" }
 janus-session = { path = "../janus-session" }

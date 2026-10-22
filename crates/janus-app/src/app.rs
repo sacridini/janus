@@ -306,6 +306,8 @@ pub struct State {
     pub(crate) embeddings_test: crate::embeddings_test::EmbeddingsTest,
     /// the validation: its design, its project, the Validation panel and the Chips window
     pub val: crate::validation::ValidationUi,
+    /// Tools > Deep learning
+    pub ml: crate::ml::MlUi,
     /// the export dialog and the animation being exported
     pub export: crate::export_map::ExportUi,
     /// the tests' layout command and the panels' places after it
@@ -602,6 +604,7 @@ impl JanusApp {
                 emb_download: Default::default(),
                 emb_downloads: Vec::new(),
                 val: Default::default(),
+                ml: Default::default(),
                 export: Default::default(),
                 layout_cmd: None,
                 layout_report: Default::default(),
@@ -1366,6 +1369,7 @@ impl eframe::App for JanusApp {
         s.pump_animation(&ctx);
         s.pump_chips(&ctx);
         s.pump_zeit_jobs(&ctx);
+        s.pump_ml();
         s.scripted_zeit_run(&ctx);
         let rc = if s.opts.dump_golden.is_some() {
             s.golden_step(&ctx)
@@ -1600,6 +1604,7 @@ impl eframe::App for JanusApp {
         self.state.settings_ui(&ctx);
         self.state.popups(&ctx);
         self.state.tool_windows(&ctx);
+        self.state.ml_window(&ctx);
         self.state.tasks_window(&ctx);
         self.state.exports_window(&ctx);
         self.state.extract_window(&ctx);

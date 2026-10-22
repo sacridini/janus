@@ -524,6 +524,24 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Desempenho: lotes do tamanho da memória da GPU (medida no início), leitura
   da próxima faixa enquanto a GPU processa a atual, CPU se não houver GPU.
 
+- **Feito (2026-10-22)**: o crate `janus-ml` (Burn 0.22, `wgpu` e `flex`) e
+  Tools → *Classify with deep learning* (`janus-app/src/ml.rs`). Amostras das
+  quatro fontes (os polígonos: o centro, cada pixel até um limite, ou a média,
+  o que serve aos segmentos do SNIC); os valores de cada data (a série mostrada
+  e as bandas, com a banda de qualidade), os buracos preenchidos no tempo, a
+  normalização do sits (q02–q98, limitada a 0,0001–1). Treino numa tarefa de
+  Tools → Tasks com as curvas e a matriz de confusão na janela; fica o modelo da
+  menor perda de validação. Com poucas amostras o lote diminui até haver 8
+  lotes por época: com menos, as estatísticas da normalização em lote não se
+  formam e o modelo classifica tudo igual (é o que o `sits_lighttae` faz nas 128
+  amostras de Rondônia: 23 % no teste). O `.janusmodel`: cabeçalho JSON e os
+  pesos em SafeTensors. A aplicação lê faixas de linhas (a próxima enquanto a
+  GPU classifica a atual) e escreve classe (Byte, cores e nomes no arquivo),
+  probabilidade e entropia normalizada, abertas como camadas de resultado. Os
+  modelos rodam num dispositivo do Burn na mesma GPU (não o do egui: compartilhar
+  é possível, `init_device(WgpuSetup)`, mas não foi preciso). Self-test da
+  interface: estágios 84–86 (pinos → treino → aplicação).
+
 **Fase 35 — TempCNN**
 - Pelletier et al. (2019): três convoluções 1D sobre o tempo (64 filtros,
   núcleo 5, normalização em lote, ReLU, dropout 0,2), densa de 256, softmax;
@@ -532,12 +550,28 @@ Windows sem Python nem conda, e chamável pela linha de comando
   `samples_matogrosso_mod13q1`) treinadas no Janus e no `sits_tempcnn`, com
   acurácia equivalente em validação cruzada (não bit a bit: geradores e
   frameworks diferentes).
+- **Feito (2026-10-22)**: `janus-ml/src/tempcnn.rs`, a arquitetura atual do
+  `sits_tempcnn` (núcleos 3, não 5; densa com normalização em lote e dropout
+  0,5; AdamW 5e-4, decaimento 0,95 por época). O `samples_matogrosso_mod13q1`
+  está no `sitsdata`, que não estava instalado; a conferência usa as amostras do
+  próprio sits (`samples_modis_ndvi`, 1218 amostras; `samples_l8_rondonia_2bands`),
+  80/20 estratificado, 3 sementes (`tools/ml_sits_reference.R`,
+  `janus-ml/tests/sits.rs`, `--ignored`). Acurácia no teste: MODIS, Janus 0,870
+  e sits 0,870; Rondônia, Janus 0,844 e sits 0,698. Na GPU, 2–3 s por treino
+  (o sits, na CPU: 20–30 s).
 
 **Fase 36 — L-TAE (Lightweight Temporal Attention Encoder)**
 - Garnot & Landrieu (2020): atenção temporal leve com codificação posicional
   pelo dia do ano, então aceita datas irregulares e séries de comprimentos
   diferentes; por pixel (`sits_lighttae`). Os padrões do sits.
 - Conferência como a da fase 35, contra o `sits_lighttae`.
+- **Feito (2026-10-22)**: `janus-ml/src/ltae.rs`, o `sits_lighttae` (MLP por
+  data, normalização sobre (d_model, datas), a codificação posicional dos dias
+  desde a primeira data, 16 cabeças com a consulta mestra aprendida, o
+  decodificador com BN e ReLU até nas saídas, como o sits). Como no sits, o
+  modelo tem o número de datas do treino (a normalização da convolução depende
+  dele): aplica-se a séries com o mesmo número de datas. Acurácia no teste:
+  MODIS, Janus 0,883 e sits 0,873; Rondônia, Janus 0,854 e sits 0,229.
 
 **Fase 37 — Presto (modelo pré-treinado)**
 - Tseng et al. (2023, NASA Harvest): transformer pequeno (~0,4 M parâmetros)
@@ -633,9 +667,9 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 31 | 0.37.0 | **Interpretação avançada**: galeria de recortes por data em volta do ponto, o quadrado do pixel, vários eventos por ponto, confiança, "não sei dizer", leitura antecipada dos próximos pontos, **vários intérpretes** (concordância, kappa, adjudicação, rótulos juntados de outra cópia) | concluída |
 | 32 | 0.37.0 | **Comparação de mapas** com a mesma amostra (LandTrendr × CCDC × BFAST × MapBiomas...), **área de mudança por ano ± IC**, acurácia das datas (± k anos, histograma das diferenças) | concluída |
 | 33 | — | **SNIC**: superpixels das trajetórias inteiras (`zeit-core`), grades de sementes do R `snic`, rótulos, médias e polígonos (ver "IA" em Decisões) | concluída (sem versão) |
-| 34 | — | **Infraestrutura de IA** (`janus-ml`, Burn sobre `wgpu`): amostras de treino de rótulos, projetos de validação, pinos e vetores; treino em tarefa com curvas e matriz de confusão; modelo em arquivo; aplicação em blocos na GPU (classes, probabilidade, entropia) | planejada |
-| 35 | — | **TempCNN** (Pelletier et al. 2019), conferido contra o `sits_tempcnn` | planejada |
-| 36 | — | **L-TAE** (Garnot & Landrieu 2020), datas irregulares pelo dia do ano, conferido contra o `sits_lighttae` | planejada |
+| 34 | — | **Infraestrutura de IA** (`janus-ml`, Burn sobre `wgpu`): amostras de treino de rótulos, projetos de validação, pinos e vetores; treino em tarefa com curvas e matriz de confusão; modelo em arquivo; aplicação em blocos na GPU (classes, probabilidade, entropia) | concluída (sem versão) |
+| 35 | — | **TempCNN** (Pelletier et al. 2019), conferido contra o `sits_tempcnn` | concluída (sem versão) |
+| 36 | — | **L-TAE** (Garnot & Landrieu 2020), datas irregulares pelo dia do ano, conferido contra o `sits_lighttae` | concluída (sem versão) |
 | 37 | — | **Presto** (Tseng et al. 2023), pré-treinado: embeddings no painel Embeddings e ajuste fino com poucas amostras | planejada |
 | 38 | — | **U-TAE** (Garnot & Landrieu 2021): segmentação espaço-temporal de recortes, janelas deslizantes, pesos do PASTIS para ajuste fino | planejada |
 

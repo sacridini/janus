@@ -429,6 +429,53 @@ the cursor; a raster run reads the series in bands of rows (from the
 full-resolution cache when it has the dates) and computes them on every
 processing thread. Nothing starts at startup and no Python runs.
 
+## Deep learning (TempCNN, L-TAE)
+
+**Tools > Classify with deep learning** trains a neural network on samples you
+already have in Janus and classifies every pixel by its whole series, without
+Python: **TempCNN** (Pelletier et al. 2019: convolutions over time) or
+**L-TAE** (Garnot & Landrieu 2020: attention over the dates), both as sits builds
+them (`sits_tempcnn`, `sits_lighttae`) and with sits' defaults, trained and
+applied on the GPU (the same wgpu as the map; the CPU without one).
+
+- **Samples** from the *interpretation's labels*, a *validation project's*
+  references (the adjudicated label, else the interpreters' when they agree),
+  a *vector layer's* class column (points, or polygons: their centre, each
+  pixel inside up to a number, or the mean of their pixels; SNIC's segments
+  are such polygons), or *pins* given a class in the window. The classes keep
+  the label set's order.
+- **Values read on each date**: the series shown (the band or normalized
+  difference, the quality band applied) and, with several bands per date, any
+  of the source bands (screened by the quality band too). Gaps are filled
+  linearly in time; pixels with values on fewer than *Min dates with a value*
+  are left out. Each value is scaled by its 2-98 % quantiles of the samples
+  (sits' normalization).
+- **Training** (a task in Tools > Tasks, cancellable): a validation share split
+  off each class (seeded), AdamW, the learning rate decayed by steps, the
+  classes optionally weighed, early stopping on the validation loss
+  (*Patience*); the model of the best validation loss is kept. With few samples
+  the batch is made smaller, so that an epoch has at least 8 batches (with
+  fewer, the batch normalizations' statistics are too rough and the model
+  classifies everything alike). The window draws the loss and accuracy curves
+  and, at the end, the validation samples' confusion matrix with the user's and
+  producer's accuracies.
+- **The model** is kept in a `.janusmodel` file (in the results folder's
+  `models`): its weights and what applying it needs (the architecture, the
+  values and dates, the scaling, the classes and their colours, the samples and
+  the training's history). *Open a model...* applies one to another series of
+  the same number of dates and the same values (bands by name); the window says
+  what does not fit.
+- **Apply** to the whole image, the visible area or the ROI: the class map
+  (Byte, with the classes' colours and names in the file), the probability of
+  the class given and the uncertainty (the entropy over that of equal
+  probabilities: 0 sure, 1 undecided) open as result layers, ready for the
+  validation (the uncertainty as a stratum, too).
+
+On sits' own samples (`samples_modis_ndvi`, `samples_l8_rondonia_2bands`), the
+same training and test samples give Janus the test accuracy of sits (within a
+point or two, over three seeds; `tools/ml_sits_reference.R` and
+`crates/janus-ml/tests/sits.rs`).
+
 ## Spectra (hyperspectral)
 
 A file whose bands carry their wavelength opens as a **spectrum** instead of a
