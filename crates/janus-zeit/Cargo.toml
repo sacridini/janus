@@ -1,0 +1,13 @@
+[package]
+name = "janus-zeit"
+description = "Janus: Zeit's tools in the process (zeit-core), as the Python bridge ran them: descriptors, pixel and raster runs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+janus-cube = { path = "../janus-cube" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+# Zeit 2.0.0 (its core is Rust only); the same revision as the Python the fixtures were recorded with
+zeit-core = { git = "https://github.com/sacridini/zeit-cdts", rev = "58e1b1e39e2bdb8826a199f275549596180a1086" }

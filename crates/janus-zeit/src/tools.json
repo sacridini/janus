@@ -1,0 +1,1820 @@
+{
+ "protocol": 1,
+ "zeit_version": "1.7.0",
+ "python": "3.12.8",
+ "tools": [
+  {
+   "id": "agreement",
+   "name": "Agreement of change maps",
+   "category": "Change detection",
+   "input": "layers",
+   "description": "Where and when several maps of change dates agree (Zeit's zeit.agreement): choose two or more results with dates (LandTrendr's year of detection, CCDC, BFAST or CODED break dates...), from this series or others. A change counts by its calendar year; maps agree when their years are at most the tolerance apart. Gives the consensus year and how many maps back it: changes found by several algorithms are the ones to trust. The maps are put on the grid of the first one.",
+   "requires": {
+    "time": "any",
+    "min_dates": 0
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "maps",
+     "label": "Maps of change dates",
+     "type": "layers",
+     "unit": "year",
+     "default": [],
+     "help": "Tool results whose values are dates. The outputs are on the grid of the first one checked."
+    },
+    {
+     "id": "tolerance",
+     "label": "Tolerance (years)",
+     "type": "int",
+     "default": 1,
+     "min": 0,
+     "max": 10,
+     "help": "Years two changes may be apart and still agree (0: the same year)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "yod",
+     "name": "Consensus year",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "n_agree",
+     "name": "Maps that agree",
+     "colormap": "Viridis",
+     "unit": "count"
+    },
+    {
+     "id": "share",
+     "name": "Share of the maps that agree",
+     "colormap": "Viridis",
+     "unit": "%"
+    },
+    {
+     "id": "n_detected",
+     "name": "Maps with a change",
+     "colormap": "Viridis",
+     "unit": "count"
+    },
+    {
+     "id": "spread",
+     "name": "Spread of the years",
+     "colormap": "Plasma",
+     "unit": "years"
+    }
+   ]
+  },
+  {
+   "id": "bfast",
+   "name": "BFAST",
+   "category": "Change detection",
+   "description": "Breaks For Additive Season and Trend (Verbesselt et al. 2010), as implemented in Zeit. Iteratively splits the series into trend and seasonal components and detects breaks in each. Needs a regular series with several observations per year and more than two years.",
+   "requires": {
+    "time": "regular",
+    "min_per_year": 2,
+    "min_dates": 20
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "h",
+     "label": "Min segment size",
+     "type": "float",
+     "default": 0.15,
+     "min": 0.05,
+     "max": 0.5,
+     "help": "Minimum segment length, as a fraction of the valid observations."
+    },
+    {
+     "id": "max_breaks_trend",
+     "label": "Max trend breaks",
+     "type": "int",
+     "default": 5,
+     "min": 1,
+     "max": 10,
+     "help": "Maximum number of breaks searched for in the trend component."
+    },
+    {
+     "id": "max_breaks_season",
+     "label": "Max season breaks",
+     "type": "int",
+     "default": 5,
+     "min": 1,
+     "max": 10,
+     "help": "Maximum number of breaks searched for in the seasonal component."
+    },
+    {
+     "id": "order",
+     "label": "Harmonic order",
+     "type": "int",
+     "default": 3,
+     "min": 1,
+     "max": 6,
+     "help": "Number of sine/cosine pairs in the seasonal model (capped at observations per year)."
+    },
+    {
+     "id": "level",
+     "label": "Significance level",
+     "type": "float",
+     "default": 0.05,
+     "min": 0.001,
+     "max": 0.5,
+     "help": "A component is only searched for breaks when the OLS-MOSUM stability test rejects at this level."
+    },
+    {
+     "id": "max_iter",
+     "label": "Max iterations",
+     "type": "int",
+     "default": 10,
+     "min": 1,
+     "max": 50,
+     "help": "Maximum trend/season re-estimation rounds (usually converges much earlier)."
+    },
+    {
+     "id": "min_valid",
+     "label": "Min observations",
+     "type": "int",
+     "default": 20,
+     "min": 5,
+     "max": 1000,
+     "help": "Pixels with fewer valid observations are not fitted."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "n_trend_breaks",
+     "name": "Trend breaks",
+     "colormap": "Viridis",
+     "unit": "count"
+    },
+    {
+     "id": "n_season_breaks",
+     "name": "Season breaks",
+     "colormap": "Viridis",
+     "unit": "count"
+    },
+    {
+     "id": "break_date",
+     "name": "Largest trend break date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "magnitude",
+     "name": "Largest trend break magnitude",
+     "colormap": "RdBu",
+     "unit": "value"
+    }
+   ],
+   "chunk_cells": 20000
+  },
+  {
+   "id": "bfast_lite",
+   "name": "BFAST Lite",
+   "category": "Change detection",
+   "description": "Single-pass multiple-break detection (Masiliunas et al. 2021), as implemented in Zeit. Fits one segmented trend + harmonic model and picks the number of breaks by LWZ. Faster than classic BFAST. Magnitude = the model after the break minus the model before it, on the first observation after the break.",
+   "requires": {
+    "time": "regular",
+    "min_per_year": 2,
+    "min_dates": 20
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "h",
+     "label": "Min segment size",
+     "type": "float",
+     "default": 0.15,
+     "min": 0.05,
+     "max": 0.5,
+     "help": "Minimum segment length, as a fraction of the valid observations."
+    },
+    {
+     "id": "max_breaks",
+     "label": "Max breaks",
+     "type": "int",
+     "default": 5,
+     "min": 1,
+     "max": 10,
+     "help": "Maximum number of breaks searched for and reported."
+    },
+    {
+     "id": "order",
+     "label": "Harmonic order",
+     "type": "int",
+     "default": 3,
+     "min": 1,
+     "max": 6,
+     "help": "Number of sine/cosine pairs in the seasonal model (capped at observations per year)."
+    },
+    {
+     "id": "min_valid",
+     "label": "Min observations",
+     "type": "int",
+     "default": 20,
+     "min": 5,
+     "max": 1000,
+     "help": "Pixels with fewer valid observations are not fitted."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "n_breaks",
+     "name": "Breaks",
+     "colormap": "Viridis",
+     "unit": "count"
+    },
+    {
+     "id": "break_date",
+     "name": "Largest break date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "magnitude",
+     "name": "Largest break magnitude",
+     "colormap": "RdBu",
+     "unit": "value"
+    },
+    {
+     "id": "first_break",
+     "name": "First break date",
+     "colormap": "Viridis",
+     "unit": "year"
+    }
+   ],
+   "chunk_cells": 20000
+  },
+  {
+   "id": "bfast_monitor",
+   "name": "BFAST Monitor",
+   "category": "Change detection",
+   "description": "Near-real-time disturbance monitoring (Verbesselt et al. 2012), as implemented in Zeit. Fits a stable trend + harmonic model on the history period and flags the first date in the monitoring period where the OLS-MOSUM process leaves its boundary. History = everything before the monitoring start.",
+   "requires": {
+    "time": "regular",
+    "min_per_year": 2,
+    "min_dates": 12
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "monitor_start",
+     "label": "Monitoring start (year)",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 3000.0,
+     "help": "Decimal year where monitoring begins (e.g. 2018.5). 0 = automatic: the last 25% of the series. Clamped so the history and at least one year of monitoring fit."
+    },
+    {
+     "id": "h",
+     "label": "MOSUM window",
+     "type": "enum",
+     "default": "0.25",
+     "options": [
+      "0.25",
+      "0.5",
+      "1.0"
+     ],
+     "labels": [
+      "0.25 of history",
+      "0.5 of history",
+      "1.0 of history"
+     ],
+     "help": "Moving-sum window as a fraction of the history length."
+    },
+    {
+     "id": "period",
+     "label": "Monitoring period",
+     "type": "enum",
+     "default": "10",
+     "options": [
+      "2",
+      "4",
+      "6",
+      "8",
+      "10"
+     ],
+     "labels": [
+      "2x history",
+      "4x history",
+      "6x history",
+      "8x history",
+      "10x history"
+     ],
+     "help": "Maximum monitoring length relative to the history (sets the critical boundary)."
+    },
+    {
+     "id": "order",
+     "label": "Harmonic order",
+     "type": "int",
+     "default": 3,
+     "min": 1,
+     "max": 6,
+     "help": "Number of sine/cosine pairs in the seasonal model (capped at observations per year)."
+    },
+    {
+     "id": "alpha",
+     "label": "Significance level",
+     "type": "enum",
+     "default": "0.05",
+     "options": [
+      "0.01",
+      "0.05",
+      "0.1"
+     ],
+     "labels": [
+      "0.01",
+      "0.05",
+      "0.10"
+     ],
+     "help": "Significance level of the monitoring boundary."
+    },
+    {
+     "id": "min_valid",
+     "label": "Min history obs.",
+     "type": "int",
+     "default": 10,
+     "min": 5,
+     "max": 1000,
+     "help": "Pixels with fewer valid observations in the history period are not fitted."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "break_date",
+     "name": "Break date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "magnitude",
+     "name": "Magnitude (median residual)",
+     "colormap": "RdBu",
+     "unit": "value"
+    },
+    {
+     "id": "has_break",
+     "name": "Break detected",
+     "colormap": "Greys",
+     "unit": "0/1"
+    }
+   ]
+  },
+  {
+   "id": "ccdc",
+   "name": "CCDC",
+   "category": "Change detection",
+   "description": "Continuous Change Detection and Classification (Zhu & Woodcock 2014), Zeit's port of the original MATLAB code. Fits harmonic models to every band of a surface-reflectance series (Landsat-style: blue, green, red, NIR, SWIR1, SWIR2, optional thermal) with a quality band, and starts a new model when consecutive clear observations depart from the current one. Needs several bands per date (map them to the roles below) and real dates; a quality band (Fmask or Landsat QA_PIXEL) is strongly recommended. Break magnitude = jump between the segment models at the break over the detection bands (reflectance x 10000).",
+   "requires": {
+    "time": "any",
+    "min_dates": 24,
+    "min_per_year": 4,
+    "bands": [
+     "blue",
+     "green",
+     "red",
+     "nir",
+     "swir1",
+     "swir2"
+    ],
+    "optional_bands": [
+     "thermal"
+    ]
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "units",
+     "label": "Reflectance units",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "x10000",
+      "unit",
+      "landsat_c2"
+     ],
+     "labels": [
+      "Automatic (from the values)",
+      "Reflectance x 10000",
+      "Reflectance 0-1",
+      "Landsat C2 L2 digital numbers"
+     ],
+     "help": "CCDC's thresholds are defined on reflectance x 10000. Automatic: median <= 2 -> reflectance 0-1; median >= 6500 -> Landsat Collection 2 Level-2 digital numbers (x 0.0000275 - 0.2); otherwise already x 10000. Janus applies the files' scale/offset metadata first, when present."
+    },
+    {
+     "id": "conseq_anom",
+     "label": "Consecutive anomalies",
+     "type": "int",
+     "default": 6,
+     "min": 3,
+     "max": 20,
+     "help": "Consecutive anomalous clear observations needed to flag a change (the original's 'conse')."
+    },
+    {
+     "id": "chi2_prob_threshold",
+     "label": "Change probability",
+     "type": "float",
+     "default": 0.99,
+     "min": 0.5,
+     "max": 0.999999,
+     "help": "Chi-square probability of the change threshold over the detection bands."
+    },
+    {
+     "id": "tmax_cg_prob_threshold",
+     "label": "Outlier probability",
+     "type": "float",
+     "default": 0.999999,
+     "min": 0.9,
+     "max": 0.99999999,
+     "help": "Chi-square probability above which a single observation is an outlier, not change."
+    },
+    {
+     "id": "num_c",
+     "label": "Max coefficients",
+     "type": "enum",
+     "default": "8",
+     "options": [
+      "4",
+      "6",
+      "8"
+     ],
+     "labels": [
+      "4 (trend + annual)",
+      "6 (+ semi-annual)",
+      "8 (+ 4-month)"
+     ],
+     "help": "Maximum number of harmonic model coefficients per band."
+    },
+    {
+     "id": "max_segments",
+     "label": "Max segments",
+     "type": "int",
+     "default": 8,
+     "min": 2,
+     "max": 20,
+     "help": "Segments kept per pixel."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "n_breaks",
+     "name": "Breaks",
+     "colormap": "Viridis",
+     "unit": "count"
+    },
+    {
+     "id": "largest_break",
+     "name": "Largest break date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "magnitude",
+     "name": "Largest break magnitude",
+     "colormap": "Plasma",
+     "unit": "refl x 10000"
+    },
+    {
+     "id": "ndvi_change",
+     "name": "NDVI change at largest break",
+     "colormap": "BrBG",
+     "unit": "NDVI"
+    },
+    {
+     "id": "first_break",
+     "name": "First break date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "last_break",
+     "name": "Last break date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "n_segments",
+     "name": "Segments",
+     "colormap": "Viridis",
+     "unit": "count"
+    }
+   ],
+   "chunk_cells": 20000
+  },
+  {
+   "id": "ccdc_synthetic",
+   "name": "CCDC synthetic image",
+   "category": "Change detection",
+   "description": "The image CCDC's harmonic models predict for one date (zeit.predict_synthetic_image): every band, in the series' units, and the quantity the series shows (e.g. NDVI), free of clouds, gaps and noise. Each pixel uses the segment that covers the date (before the first, the first; after the last, the last). Runs CCDC first, with the parameters below.",
+   "requires": {
+    "time": "any",
+    "min_dates": 24,
+    "min_per_year": 4,
+    "bands": [
+     "blue",
+     "green",
+     "red",
+     "nir",
+     "swir1",
+     "swir2"
+    ],
+    "optional_bands": [
+     "thermal"
+    ]
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "map_date": true,
+   "params": [
+    {
+     "id": "date",
+     "label": "Date",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 2200.0,
+     "unit": "decimal year",
+     "help": "Decimal year to predict (e.g. 2019.5 = early July 2019); 0: the date shown on the map."
+    },
+    {
+     "id": "units",
+     "label": "Reflectance units",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "x10000",
+      "unit",
+      "landsat_c2"
+     ],
+     "labels": [
+      "Automatic (from the values)",
+      "Reflectance x 10000",
+      "Reflectance 0-1",
+      "Landsat C2 L2 digital numbers"
+     ],
+     "help": "CCDC's thresholds are defined on reflectance x 10000. Automatic: median <= 2 -> reflectance 0-1; median >= 6500 -> Landsat Collection 2 Level-2 digital numbers (x 0.0000275 - 0.2); otherwise already x 10000. Janus applies the files' scale/offset metadata first, when present."
+    },
+    {
+     "id": "conseq_anom",
+     "label": "Consecutive anomalies",
+     "type": "int",
+     "default": 6,
+     "min": 3,
+     "max": 20,
+     "help": "Consecutive anomalous clear observations needed to flag a change (the original's 'conse')."
+    },
+    {
+     "id": "chi2_prob_threshold",
+     "label": "Change probability",
+     "type": "float",
+     "default": 0.99,
+     "min": 0.5,
+     "max": 0.999999,
+     "help": "Chi-square probability of the change threshold over the detection bands."
+    },
+    {
+     "id": "tmax_cg_prob_threshold",
+     "label": "Outlier probability",
+     "type": "float",
+     "default": 0.999999,
+     "min": 0.9,
+     "max": 0.99999999,
+     "help": "Chi-square probability above which a single observation is an outlier, not change."
+    },
+    {
+     "id": "num_c",
+     "label": "Max coefficients",
+     "type": "enum",
+     "default": "8",
+     "options": [
+      "4",
+      "6",
+      "8"
+     ],
+     "labels": [
+      "4 (trend + annual)",
+      "6 (+ semi-annual)",
+      "8 (+ 4-month)"
+     ],
+     "help": "Maximum number of harmonic model coefficients per band."
+    },
+    {
+     "id": "max_segments",
+     "label": "Max segments",
+     "type": "int",
+     "default": 8,
+     "min": 2,
+     "max": 20,
+     "help": "Segments kept per pixel."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "shown",
+     "name": "Synthetic (shown series)",
+     "colormap": "Viridis"
+    },
+    {
+     "id": "blue",
+     "name": "Synthetic blue",
+     "colormap": "Greys"
+    },
+    {
+     "id": "green",
+     "name": "Synthetic green",
+     "colormap": "Greys"
+    },
+    {
+     "id": "red",
+     "name": "Synthetic red",
+     "colormap": "Greys"
+    },
+    {
+     "id": "nir",
+     "name": "Synthetic nir",
+     "colormap": "Greys"
+    },
+    {
+     "id": "swir1",
+     "name": "Synthetic swir1",
+     "colormap": "Greys"
+    },
+    {
+     "id": "swir2",
+     "name": "Synthetic swir2",
+     "colormap": "Greys"
+    }
+   ],
+   "chunk_cells": 20000
+  },
+  {
+   "id": "coded",
+   "name": "CODED (degradation)",
+   "category": "Change detection",
+   "description": "Continuous Degradation Detection (Bullock et al. 2020), as implemented in Zeit: the NDFI of every observation (spectral unmixing, Souza et al. 2005) is modelled over a training period, and observations falling well below the model afterwards are a change. A change after which the land is still forest is degradation (selective logging, understory fire); otherwise it is deforestation. Needs Landsat-style surface reflectance (blue, green, red, NIR, SWIR1, SWIR2) with real dates; a quality band is strongly recommended.",
+   "requires": {
+    "time": "any",
+    "min_dates": 12,
+    "min_per_year": 2,
+    "bands": [
+     "blue",
+     "green",
+     "red",
+     "nir",
+     "swir1",
+     "swir2"
+    ]
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "units",
+     "label": "Reflectance units",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "x10000",
+      "unit",
+      "landsat_c2"
+     ],
+     "labels": [
+      "Automatic (from the values)",
+      "Reflectance x 10000",
+      "Reflectance 0-1",
+      "Landsat C2 L2 digital numbers"
+     ],
+     "help": "The unmixing endmembers are reflectances. Automatic: median <= 2 -> reflectance 0-1; median >= 6500 -> Landsat Collection 2 Level-2 digital numbers (x 0.0000275 - 0.2); otherwise already x 10000. Janus applies the files' scale/offset metadata first, when present."
+    },
+    {
+     "id": "monitor_start",
+     "label": "Monitoring start (year)",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 2100.0,
+     "help": "Year the monitoring starts; the training period is the years before it. 0 = the training period starts with the series."
+    },
+    {
+     "id": "train_years",
+     "label": "Training period (years)",
+     "type": "float",
+     "default": 3.0,
+     "min": 1.0,
+     "max": 20.0,
+     "help": "Years of the training period, whose NDFI model the monitoring compares with."
+    },
+    {
+     "id": "consec",
+     "label": "Consecutive observations",
+     "type": "int",
+     "default": 3,
+     "min": 1,
+     "max": 20,
+     "help": "Observations in a row beyond the threshold that make a change."
+    },
+    {
+     "id": "thresh",
+     "label": "Threshold (RMSEs)",
+     "type": "float",
+     "default": 3.0,
+     "min": 0.5,
+     "max": 20.0,
+     "help": "How far below the model, in RMSEs of the training fit, an observation must fall."
+    },
+    {
+     "id": "min_years",
+     "label": "Years after a change",
+     "type": "float",
+     "default": 3.0,
+     "min": 0.5,
+     "max": 20.0,
+     "help": "Years modelled as the land cover after a change, and the least time between two changes."
+    },
+    {
+     "id": "min_obs",
+     "label": "Min observations",
+     "type": "int",
+     "default": 6,
+     "min": 3,
+     "max": 100,
+     "help": "Least observations to fit a model (training, or after a change)."
+    },
+    {
+     "id": "direction",
+     "label": "Changes",
+     "type": "enum",
+     "default": "loss",
+     "options": [
+      "loss",
+      "both"
+     ],
+     "labels": [
+      "NDFI drops (CODED)",
+      "Drops and rises"
+     ],
+     "help": "Only drops of the NDFI (disturbances, as CODED), or rises too."
+    },
+    {
+     "id": "max_events",
+     "label": "Max changes",
+     "type": "int",
+     "default": 3,
+     "min": 1,
+     "max": 10,
+     "help": "Changes kept per pixel."
+    },
+    {
+     "id": "forest_ndfi",
+     "label": "Forest NDFI",
+     "type": "float",
+     "default": 0.5,
+     "min": -1.0,
+     "max": 1.0,
+     "help": "Forest where a model's mean NDFI is at least this (before: forest or not; after a change: degradation or deforestation). Closed forest is near 1; open woodlands are naturally lower."
+    },
+    {
+     "id": "cloud_threshold",
+     "label": "Max cloud fraction",
+     "type": "float",
+     "default": 0.05,
+     "min": 0.0,
+     "max": 1.0,
+     "help": "Observations whose unmixed cloud fraction is above this are left out (CODED: 0.05); 1 keeps them all."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "strata",
+     "name": "Strata",
+     "colormap": "Strata",
+     "unit": "class",
+     "classes": [
+      "Forest",
+      "Non-forest",
+      "Degradation",
+      "Deforestation",
+      "Disturbance"
+     ]
+    },
+    {
+     "id": "first_change",
+     "name": "First change date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "first_ndfi_change",
+     "name": "NDFI change at the first change",
+     "colormap": "BrBG",
+     "unit": "NDFI"
+    },
+    {
+     "id": "last_change",
+     "name": "Last change date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "n_events",
+     "name": "Changes",
+     "colormap": "Viridis",
+     "unit": "count"
+    },
+    {
+     "id": "ndfi_mean",
+     "name": "Mean NDFI of the training period",
+     "colormap": "NDVI",
+     "unit": "NDFI"
+    }
+   ],
+   "chunk_cells": 20000
+  },
+  {
+   "id": "landtrendr",
+   "name": "LandTrendr",
+   "category": "Change detection",
+   "description": "Temporal segmentation of annual series (Kennedy et al. 2010), as implemented in Zeit. Fits a sequence of straight segments and maps the greatest (or newest, fastest...) loss or gain event per pixel.",
+   "requires": {
+    "time": "annual",
+    "min_dates": 6
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "event_type",
+     "label": "Event",
+     "type": "enum",
+     "default": "loss",
+     "options": [
+      "loss",
+      "gain"
+     ],
+     "labels": [
+      "Loss (index drop)",
+      "Gain (index rise)"
+     ],
+     "help": "Direction of change of interest. Orients the segmentation (Zeit's direction) and selects which segments become events."
+    },
+    {
+     "id": "max_segments",
+     "label": "Max segments",
+     "type": "int",
+     "default": 6,
+     "min": 1,
+     "max": 10,
+     "help": "Maximum number of segments in the fitted trajectory."
+    },
+    {
+     "id": "pval_threshold",
+     "label": "p-value threshold",
+     "type": "float",
+     "default": 0.05,
+     "min": 0.001,
+     "max": 1.0,
+     "help": "Models with a worse p-value are rejected."
+    },
+    {
+     "id": "recovery_threshold",
+     "label": "Recovery threshold",
+     "type": "float",
+     "default": 0.25,
+     "min": 0.0,
+     "max": 10.0,
+     "help": "Maximum recovery rate per year (1/years)."
+    },
+    {
+     "id": "spike_threshold",
+     "label": "Spike threshold",
+     "type": "float",
+     "default": 0.9,
+     "min": 0.0,
+     "max": 1.0,
+     "help": "Desawtooth dampening of single-year spikes (1 = none)."
+    },
+    {
+     "id": "best_model_proportion",
+     "label": "Best model proportion",
+     "type": "float",
+     "default": 0.75,
+     "min": 0.0,
+     "max": 2.0,
+     "help": "Prefer the model with most vertices whose p-value is within (2 - this) times the best one."
+    },
+    {
+     "id": "vertex_count_overshoot",
+     "label": "Vertex count overshoot",
+     "type": "int",
+     "default": 3,
+     "min": 0,
+     "max": 10,
+     "help": "Extra candidate vertices before pruning."
+    },
+    {
+     "id": "min_observations_needed",
+     "label": "Min observations",
+     "type": "int",
+     "default": 6,
+     "min": 3,
+     "max": 100,
+     "help": "Pixels with fewer valid years are not fitted."
+    },
+    {
+     "id": "sort_by",
+     "label": "Pick event by",
+     "type": "enum",
+     "default": "greatest",
+     "options": [
+      "greatest",
+      "newest",
+      "fastest",
+      "longest",
+      "dsnr"
+     ],
+     "labels": [
+      "Greatest magnitude",
+      "Newest",
+      "Fastest",
+      "Longest",
+      "DSNR (magnitude / RMSE)"
+     ],
+     "help": "Which event is mapped when a pixel has several (raster runs)."
+    },
+    {
+     "id": "min_magnitude",
+     "label": "Min magnitude",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 1000000000.0,
+     "help": "Events smaller than this are ignored (raster runs)."
+    },
+    {
+     "id": "min_duration",
+     "label": "Min duration (years)",
+     "type": "int",
+     "default": 1,
+     "min": 1,
+     "max": 100,
+     "help": "Events shorter than this are ignored (raster runs)."
+    },
+    {
+     "id": "pre_val_threshold",
+     "label": "Pre-event value threshold",
+     "type": "float",
+     "default": 0.0,
+     "min": -1000000000.0,
+     "max": 1000000000.0,
+     "help": "Loss: ignore events starting below this value. Gain: ignore events starting above it. 0 = off."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "yod",
+     "name": "Year of detection",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "magnitude",
+     "name": "Magnitude",
+     "colormap": "Plasma",
+     "unit": "value"
+    },
+    {
+     "id": "duration",
+     "name": "Duration",
+     "colormap": "Viridis",
+     "unit": "years"
+    },
+    {
+     "id": "pre_val",
+     "name": "Pre-event value",
+     "colormap": "Viridis",
+     "unit": "value"
+    },
+    {
+     "id": "post_val",
+     "name": "Post-event value",
+     "colormap": "Viridis",
+     "unit": "value"
+    },
+    {
+     "id": "rate",
+     "name": "Rate",
+     "colormap": "Plasma",
+     "unit": "value/year"
+    },
+    {
+     "id": "dsnr",
+     "name": "DSNR",
+     "colormap": "Plasma",
+     "unit": "ratio"
+    }
+   ]
+  },
+  {
+   "id": "mann_kendall",
+   "name": "Mann-Kendall trend",
+   "category": "Trend",
+   "description": "Mann-Kendall monotonic trend test with Sen's slope, ported from pymannkendall to C++ in Zeit. Hamed-Rao and Yue-Wang correct the variance for serial correlation (usual in EO composites); the seasonal variant (Hirsch & Slack) tests sub-annual series per season. The first map shows Sen's slope only where the trend is significant.",
+   "requires": {
+    "time": "any",
+    "min_dates": 4
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "method",
+     "label": "Method",
+     "type": "enum",
+     "default": "hamed_rao",
+     "options": [
+      "hamed_rao",
+      "original",
+      "yue_wang",
+      "seasonal"
+     ],
+     "labels": [
+      "Hamed-Rao (autocorrelation-corrected)",
+      "Original",
+      "Yue-Wang (autocorrelation-corrected)",
+      "Seasonal (Hirsch & Slack)"
+     ],
+     "help": "Hamed-Rao is the usual choice for annual EO composites, which are serially correlated. Seasonal pools per-season tests for sub-annual series."
+    },
+    {
+     "id": "alpha",
+     "label": "Significance level",
+     "type": "float",
+     "default": 0.05,
+     "min": 0.0001,
+     "max": 0.5,
+     "help": "A trend is significant when its p-value is below this."
+    },
+    {
+     "id": "lag",
+     "label": "Autocorrelation lags",
+     "type": "int",
+     "default": -1,
+     "min": -1,
+     "max": 10000,
+     "help": "Hamed-Rao / Yue-Wang only: number of first lags used by the correction (-1 = all)."
+    },
+    {
+     "id": "period",
+     "label": "Seasons per year",
+     "type": "int",
+     "default": 0,
+     "min": 0,
+     "max": 366,
+     "help": "Seasonal method only: observations per cycle (12 monthly, 23 MODIS 16-day). 0 = automatic, from the dates."
+    },
+    {
+     "id": "min_valid",
+     "label": "Min valid observations",
+     "type": "int",
+     "default": 4,
+     "min": 3,
+     "max": 10000,
+     "help": "Pixels with fewer valid observations are left empty (raster runs)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "sig_slope",
+     "name": "Significant Sen's slope",
+     "colormap": "BrBG",
+     "unit": "value/step"
+    },
+    {
+     "id": "slope",
+     "name": "Sen's slope",
+     "colormap": "BrBG",
+     "unit": "value/step"
+    },
+    {
+     "id": "p",
+     "name": "p-value",
+     "colormap": "Plasma",
+     "unit": "p"
+    },
+    {
+     "id": "z",
+     "name": "Z statistic",
+     "colormap": "BrBG",
+     "unit": "z"
+    },
+    {
+     "id": "tau",
+     "name": "Kendall's tau",
+     "colormap": "BrBG",
+     "unit": "tau"
+    },
+    {
+     "id": "trend",
+     "name": "Trend (-1, 0, +1)",
+     "colormap": "RdBu",
+     "unit": "class"
+    },
+    {
+     "id": "intercept",
+     "name": "Intercept",
+     "colormap": "Viridis",
+     "unit": "value"
+    }
+   ]
+  },
+  {
+   "id": "ndfi",
+   "name": "NDFI (spectral unmixing)",
+   "category": "Indices",
+   "description": "Spectral mixture analysis (Zeit's zeit.unmix) of every observation into green vegetation, non-photosynthetic vegetation, soil, shade and cloud fractions, with the endmembers of Souza et al. (2005), and their NDFI: near 1 in closed forest, lower where logging or fire opened the canopy, below 0 on soil and pasture. Needs Landsat-style surface reflectance (blue, green, red, NIR, SWIR1, SWIR2) with real dates. A raster run writes the NDFI as a series and opens it as a new layer, ready for LandTrendr, BFAST and the other tools.",
+   "requires": {
+    "time": "any",
+    "min_dates": 1,
+    "bands": [
+     "blue",
+     "green",
+     "red",
+     "nir",
+     "swir1",
+     "swir2"
+    ]
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "units",
+     "label": "Reflectance units",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "x10000",
+      "unit",
+      "landsat_c2"
+     ],
+     "labels": [
+      "Automatic (from the values)",
+      "Reflectance x 10000",
+      "Reflectance 0-1",
+      "Landsat C2 L2 digital numbers"
+     ],
+     "help": "The endmembers are reflectances. Automatic: median <= 2 -> reflectance 0-1; median >= 6500 -> Landsat Collection 2 Level-2 digital numbers (x 0.0000275 - 0.2); otherwise already x 10000. Janus applies the files' scale/offset metadata first, when present."
+    },
+    {
+     "id": "cloud_threshold",
+     "label": "Max cloud fraction",
+     "type": "float",
+     "default": 0.05,
+     "min": 0.0,
+     "max": 1.0,
+     "help": "Observations whose cloud fraction is above this are left out (CODED: 0.05); 1 keeps every observation. The quality band, when set, is applied first."
+    },
+    {
+     "id": "fractions",
+     "label": "Also write the fractions",
+     "type": "bool",
+     "default": false,
+     "help": "Raster runs: also write the GV, NPV, soil and shade fractions, each as a series (opened as layers)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "ndfi",
+     "name": "NDFI",
+     "unit": "NDFI",
+     "series": true,
+     "dtype": "int16",
+     "scale": 0.0001
+    },
+    {
+     "id": "ndfi_mean",
+     "name": "Mean NDFI",
+     "colormap": "NDVI",
+     "unit": "NDFI"
+    },
+    {
+     "id": "ndfi_min",
+     "name": "Lowest NDFI",
+     "colormap": "NDVI",
+     "unit": "NDFI"
+    },
+    {
+     "id": "n_obs",
+     "name": "Observations used",
+     "colormap": "Viridis",
+     "unit": "count"
+    },
+    {
+     "id": "gv",
+     "name": "GV fraction",
+     "unit": "fraction",
+     "series": true,
+     "dtype": "int16",
+     "scale": 0.0001,
+     "when": "fractions"
+    },
+    {
+     "id": "npv",
+     "name": "NPV fraction",
+     "unit": "fraction",
+     "series": true,
+     "dtype": "int16",
+     "scale": 0.0001,
+     "when": "fractions"
+    },
+    {
+     "id": "soil",
+     "name": "Soil fraction",
+     "unit": "fraction",
+     "series": true,
+     "dtype": "int16",
+     "scale": 0.0001,
+     "when": "fractions"
+    },
+    {
+     "id": "shade",
+     "name": "Shade fraction",
+     "unit": "fraction",
+     "series": true,
+     "dtype": "int16",
+     "scale": 0.0001,
+     "when": "fractions"
+    }
+   ],
+   "chunk_cells": 50000
+  },
+  {
+   "id": "phenology",
+   "name": "Phenology",
+   "category": "Phenology",
+   "description": "Land surface phenology as implemented in Zeit (a port of phenofit): smooths the series, splits it into growing seasons, fits a curve to each season and derives its start (SOS), peak (POS) and end (EOS). Needs a sub-annual vegetation index series (e.g. NDVI/EVI, 8-16 day or monthly). Maps summarize the seasons per pixel (median, latest or a given year); dates are days of the year of the season's peak.",
+   "requires": {
+    "time": "any",
+    "min_per_year": 6,
+    "min_dates": 12
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "curve",
+     "label": "Curve",
+     "type": "enum",
+     "default": "elmore",
+     "options": [
+      "beck",
+      "elmore",
+      "gu",
+      "zhang",
+      "ag",
+      "klos",
+      "dl"
+     ],
+     "labels": [
+      "Beck (double logistic)",
+      "Elmore (double logistic + greendown)",
+      "Gu",
+      "Zhang (logistic)",
+      "AG (asymmetric Gaussian)",
+      "Klosterman",
+      "DL (double logistic, simple)"
+     ],
+     "help": "Function fitted to each season."
+    },
+    {
+     "id": "method",
+     "label": "Season start/end",
+     "type": "enum",
+     "default": "trs5",
+     "options": [
+      "trs5",
+      "trs2",
+      "trs6",
+      "der",
+      "zhang",
+      "gu"
+     ],
+     "labels": [
+      "Threshold 50% of amplitude",
+      "Threshold 20%",
+      "Threshold 60%",
+      "Derivative (fastest rise / fall)",
+      "Zhang (curvature: greenup / dormancy)",
+      "Gu (upturn / recession dates)"
+     ],
+     "help": "How SOS and EOS are read from the fitted curve. POS is always the curve's maximum."
+    },
+    {
+     "id": "smoothing",
+     "label": "Smoothing",
+     "type": "enum",
+     "default": "whittaker",
+     "options": [
+      "whittaker",
+      "hants",
+      "none"
+     ],
+     "labels": [
+      "Whittaker",
+      "HANTS (harmonics)",
+      "None"
+     ],
+     "help": "Smoothing used to find the seasons (the curves are fitted to the observations)."
+    },
+    {
+     "id": "lambda",
+     "label": "Whittaker lambda",
+     "type": "float",
+     "default": 10.0,
+     "min": 0.1,
+     "max": 10000.0,
+     "help": "Whittaker only: larger = smoother."
+    },
+    {
+     "id": "hants_frequencies",
+     "label": "HANTS frequencies",
+     "type": "int",
+     "default": 3,
+     "min": 1,
+     "max": 8,
+     "help": "HANTS only: number of harmonics per year."
+    },
+    {
+     "id": "min_pixel_amplitude",
+     "label": "Min pixel amplitude",
+     "type": "float",
+     "default": 0.1,
+     "min": 0.0,
+     "max": 1000000000.0,
+     "help": "Pixels whose series varies less than this (water, urban, bare soil) are skipped. Use the index scale (e.g. 0.1 for NDVI, 1000 for NDVI x 10000)."
+    },
+    {
+     "id": "min_amplitude",
+     "label": "Min season amplitude",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 1000000000.0,
+     "help": "Seasons with a smaller rise above their troughs are dropped."
+    },
+    {
+     "id": "min_season_length",
+     "label": "Min season length (days)",
+     "type": "int",
+     "default": 0,
+     "min": 0,
+     "max": 1000,
+     "help": "Seasons shorter than this (trough to trough) are dropped."
+    },
+    {
+     "id": "season",
+     "label": "Season mapped",
+     "type": "enum",
+     "default": "median",
+     "options": [
+      "median",
+      "latest",
+      "year"
+     ],
+     "labels": [
+      "Median of all seasons",
+      "Most recent season",
+      "Season peaking in the year below"
+     ],
+     "help": "Raster runs: how the seasons of each pixel become one map."
+    },
+    {
+     "id": "year",
+     "label": "Year",
+     "type": "int",
+     "default": 0,
+     "min": 0,
+     "max": 3000,
+     "help": "With 'Season peaking in the year below': calendar year of the peak (0 = latest)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "sos",
+     "name": "Start of season (SOS)",
+     "colormap": "Viridis",
+     "unit": "day of year"
+    },
+    {
+     "id": "pos",
+     "name": "Peak of season (POS)",
+     "colormap": "Viridis",
+     "unit": "day of year"
+    },
+    {
+     "id": "eos",
+     "name": "End of season (EOS)",
+     "colormap": "Viridis",
+     "unit": "day of year"
+    },
+    {
+     "id": "los",
+     "name": "Length of season (EOS - SOS)",
+     "colormap": "Plasma",
+     "unit": "days"
+    },
+    {
+     "id": "peak",
+     "name": "Peak value",
+     "colormap": "Viridis",
+     "unit": "value"
+    },
+    {
+     "id": "amplitude",
+     "name": "Amplitude",
+     "colormap": "Plasma",
+     "unit": "value"
+    },
+    {
+     "id": "r2",
+     "name": "Fit R2",
+     "colormap": "Viridis",
+     "unit": "R2"
+    },
+    {
+     "id": "n_seasons",
+     "name": "Seasons detected",
+     "colormap": "Viridis",
+     "unit": "count"
+    }
+   ],
+   "chunk_cells": 20000
+  },
+  {
+   "id": "smooth",
+   "name": "Smoothing",
+   "category": "Preprocessing",
+   "description": "Smoothed curve of the series on the chart, with Zeit's Whittaker smoother (penalises roughness, follows the real spacing of the dates and fills gaps with the curve) or Savitzky-Golay filter (local polynomial over evenly spaced dates; gaps are interpolated first).",
+   "requires": {
+    "time": "any",
+    "min_dates": 5
+   },
+   "modes": [
+    "pixel"
+   ],
+   "params": [
+    {
+     "id": "method",
+     "label": "Method",
+     "type": "enum",
+     "default": "whittaker",
+     "options": [
+      "whittaker",
+      "savgol"
+     ],
+     "labels": [
+      "Whittaker",
+      "Savitzky-Golay"
+     ],
+     "help": "Whittaker handles gaps and uneven dates and is a common choice for vegetation indices."
+    },
+    {
+     "id": "lmbda",
+     "label": "Whittaker lambda",
+     "type": "float",
+     "default": 10.0,
+     "min": 0.001,
+     "max": 10000000.0,
+     "help": "Larger = smoother (10 is light for a 16-day series, 1000 strong). Its meaning does not depend on the spacing of the dates."
+    },
+    {
+     "id": "window",
+     "label": "S-G window (dates)",
+     "type": "int",
+     "default": 7,
+     "min": 3,
+     "max": 999,
+     "help": "Odd number of observations in each local fit (made odd and capped at the series length)."
+    },
+    {
+     "id": "polyorder",
+     "label": "S-G polynomial order",
+     "type": "int",
+     "default": 2,
+     "min": 0,
+     "max": 6,
+     "help": "Order of the local polynomial (below the window length)."
+    }
+   ],
+   "outputs": []
+  },
+  {
+   "id": "som",
+   "name": "SOM clustering",
+   "category": "Classification",
+   "description": "Self-Organizing Map (Kohonen), as implemented in Zeit: unsupervised clustering of the pixels by their whole series. The map is trained on a sample of the area, then every pixel goes to the nearest neuron; neighbouring neurons hold similar series. The result is a cluster map; hover it to see the typical series of the cluster under the cursor on the chart. Good for a first look at what kinds of trajectories an area has.",
+   "requires": {
+    "time": "any",
+    "min_dates": 3
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "x",
+     "label": "Grid columns",
+     "type": "int",
+     "default": 3,
+     "min": 1,
+     "max": 12,
+     "help": "Neurons per row of the map: columns x rows clusters (at most 12)."
+    },
+    {
+     "id": "y",
+     "label": "Grid rows",
+     "type": "int",
+     "default": 3,
+     "min": 1,
+     "max": 12,
+     "help": "Rows of neurons of the map: columns x rows clusters (at most 12)."
+    },
+    {
+     "id": "sample",
+     "label": "Training sample (pixels)",
+     "type": "int",
+     "default": 20000,
+     "min": 500,
+     "max": 500000,
+     "help": "Pixels the map is trained on, drawn at random from rows spread over the area."
+    },
+    {
+     "id": "passes",
+     "label": "Training passes",
+     "type": "int",
+     "default": 20,
+     "min": 1,
+     "max": 200,
+     "help": "Passes over the sample (online training: one update per pixel and pass)."
+    },
+    {
+     "id": "gaps",
+     "label": "Dates without a value",
+     "type": "enum",
+     "default": "interpolate",
+     "options": [
+      "interpolate",
+      "skip"
+     ],
+     "labels": [
+      "Interpolate in time",
+      "Leave the pixel out"
+     ],
+     "help": "A pixel needs a value on every date: fill the gaps linearly between its neighbours in time (the first and last values repeat at the ends), or leave such pixels without a cluster."
+    },
+    {
+     "id": "min_valid",
+     "label": "Min dates with a value (%)",
+     "type": "float",
+     "default": 50.0,
+     "min": 1.0,
+     "max": 100.0,
+     "help": "When interpolating: pixels with values on fewer dates get no cluster."
+    },
+    {
+     "id": "seed",
+     "label": "Random seed",
+     "type": "int",
+     "default": 42,
+     "min": 0,
+     "max": 1000000,
+     "help": "Seed of the sample and of the training (same seed, same clusters)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "cluster",
+     "name": "Cluster",
+     "colormap": "Paired",
+     "unit": "class"
+    },
+    {
+     "id": "distance",
+     "name": "Distance to the typical series",
+     "colormap": "Plasma",
+     "unit": "value"
+    }
+   ],
+   "chunk_cells": 100000
+  },
+  {
+   "id": "tmask",
+   "name": "Tmask (cloud screening)",
+   "category": "Preprocessing",
+   "description": "Tmask (Zhu & Woodcock 2014), as implemented in Zeit: a robust harmonic model of each pixel's green and SWIR1 series flags the observations that are too bright in green (clouds) or too dark in SWIR (shadows) for their date, which a quality band often misses (haze, thin clouds, shadow edges). Needs the green and SWIR1 bands and real dates. A raster run writes the series shown without the flagged observations and opens it as a new layer. The model spans the whole series: after a sudden lasting change (a clearing) the observations can look like clouds to it, so check such pixels on the chart.",
+   "requires": {
+    "time": "any",
+    "min_dates": 6,
+    "min_per_year": 2,
+    "bands": [
+     "green",
+     "swir1"
+    ]
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "units",
+     "label": "Reflectance units",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "x10000",
+      "unit",
+      "landsat_c2"
+     ],
+     "labels": [
+      "Automatic (from the values)",
+      "Reflectance x 10000",
+      "Reflectance 0-1",
+      "Landsat C2 L2 digital numbers"
+     ],
+     "help": "Tmask's thresholds are in reflectance (0.04). Automatic: median <= 2 -> reflectance 0-1; median >= 6500 -> Landsat Collection 2 Level-2 digital numbers (x 0.0000275 - 0.2); otherwise already x 10000. Janus applies the files' scale/offset metadata first, when present."
+    },
+    {
+     "id": "write_series",
+     "label": "Write the screened series",
+     "type": "bool",
+     "default": true,
+     "help": "Raster runs: also write the series shown without the flagged observations (opened as a new layer)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "n_flagged",
+     "name": "Observations flagged",
+     "colormap": "Plasma",
+     "unit": "count"
+    },
+    {
+     "id": "flagged_share",
+     "name": "Share flagged",
+     "colormap": "Plasma",
+     "unit": "%"
+    },
+    {
+     "id": "series",
+     "name": "Screened series",
+     "unit": "value",
+     "series": true,
+     "when": "write_series"
+    }
+   ],
+   "chunk_cells": 100000
+  },
+  {
+   "id": "twdtw",
+   "name": "TWDTW classification",
+   "category": "Classification",
+   "description": "Time-Weighted Dynamic Time Warping (Maus et al. 2016), as implemented in Zeit (the distance of the R package twdtw). Each pixel gets the class of the most similar pattern: drop pins on places you know (forest, crop, pasture...), add them below as classes and name them. A pattern may match any stretch of the series; matching dates far apart in time is penalised by the time weight.",
+   "requires": {
+    "time": "any",
+    "min_dates": 6,
+    "min_per_year": 1
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "patterns",
+     "label": "Classes",
+     "type": "patterns",
+     "default": [],
+     "help": "One reference series per class, taken from a pin or the ROI mean. Drop a pin on a place whose class you know, choose it in the list and give the class a name. Several patterns may share a name (they are separate entries in the legend)."
+    },
+    {
+     "id": "steepness",
+     "label": "Time weight: steepness",
+     "type": "float",
+     "default": 0.1,
+     "min": 0.0001,
+     "max": 10.0,
+     "help": "Slope of the logistic time weight, per day (larger = sharper transition at the midpoint)."
+    },
+    {
+     "id": "midpoint",
+     "label": "Time weight: midpoint (days)",
+     "type": "float",
+     "default": 50.0,
+     "min": 0.0,
+     "max": 3650.0,
+     "help": "Time apart, in days, at which matching two dates costs half a unit more than matching the same date."
+    },
+    {
+     "id": "cycle",
+     "label": "Time measured",
+     "type": "enum",
+     "default": "none",
+     "options": [
+      "none",
+      "year"
+     ],
+     "labels": [
+      "Between the dates",
+      "Between days of the year"
+     ],
+     "help": "Between the dates: for patterns that cover the period of the series (a pin's whole series). Between days of the year (31 December and 1 January are a day apart): for patterns of one season, which then match that season in any year."
+    },
+    {
+     "id": "max_elapsed",
+     "label": "Max time apart (days)",
+     "type": "int",
+     "default": 365,
+     "min": 0,
+     "max": 3650,
+     "help": "Dates more than this apart are never matched. 0 = no limit. The time weight adds at most 1 per pair of dates: on series with large values (e.g. reflectance x 10000) only this limit keeps a pattern near its own dates."
+    },
+    {
+     "id": "max_distance",
+     "label": "Max distance",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 1000000000.0,
+     "help": "Pixels whose best distance is above this stay unclassified. 0 = classify every pixel."
+    },
+    {
+     "id": "min_valid",
+     "label": "Min valid observations",
+     "type": "int",
+     "default": 6,
+     "min": 2,
+     "max": 10000,
+     "help": "Pixels with fewer valid dates stay unclassified."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "class",
+     "name": "Class",
+     "colormap": "Dark",
+     "unit": "class",
+     "classes_param": "patterns"
+    },
+    {
+     "id": "distance",
+     "name": "Distance (best class)",
+     "colormap": "Plasma",
+     "unit": "distance"
+    },
+    {
+     "id": "margin",
+     "name": "Margin to the 2nd class",
+     "colormap": "Viridis",
+     "unit": "distance"
+    }
+   ],
+   "chunk_cells": 200000
+  }
+ ],
+ "errors": []
+}
