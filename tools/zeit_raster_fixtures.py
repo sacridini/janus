@@ -143,7 +143,23 @@ def phenology_cases(rng):
     return out
 
 
+def twdtw_cases(rng):
+    out = []
+    kinds = ["forest", "crop", "pasture"]
+    for k, extra in enumerate([{}, {"cycle": "year", "max_distance": 6.0}, {"max_elapsed": 0, "min_valid": 30}]):
+        years, days = zf.regular(first="2018-01-01", n=60)
+        pats = []
+        for j, kind in enumerate(kinds[: 2 + k % 2]):
+            pv = zf.class_series(rng, kind, days)
+            pats.append({"name": kind, "from": f"pin {j + 1}", "years": years, "days": days,
+                         "values": [None if not np.isfinite(x) else float(x) for x in pv]})
+        series = [zf.class_series(rng, kinds[j % 3], days) for j in range(H * W)]
+        out.append({"params": dict(extra, patterns=pats), "years": years, "days": days, "input": grid(series)})
+    return out
+
+
 CASES = {
+    "twdtw": twdtw_cases,
     "phenology": phenology_cases,
     "ccdc": ccdc_cases(False),
     "ccdc_synthetic": ccdc_cases(True),

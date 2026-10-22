@@ -65,7 +65,15 @@ fn date_numbers(days: &[i64], year_cycle: bool) -> Vec<i32> {
 }
 
 /// The distance of the series to every pattern (NaN where none), as zeit.twdtw's `distances`.
-pub fn distances(p: &Params, values: &[f64], days: &[i64], pats: &[Pattern]) -> Vec<f64> {
+/// The distance of every series of `values` (pixels x T) to every pattern: [pattern][pixel].
+pub fn distances_many(
+    p: &Params,
+    values: &[f64],
+    n: usize,
+    days: &[i64],
+    pats: &[Pattern],
+    n_jobs: i32,
+) -> Vec<Vec<f64>> {
     let year_cycle = p.str("cycle") != "none";
     let max_elapsed = p.f64("max_elapsed");
     let params = TwParams {
@@ -84,17 +92,19 @@ pub fn distances(p: &Params, values: &[f64], days: &[i64], pats: &[Pattern]) -> 
             order.sort_by_key(|&i| pat.days[i]);
             let pv: Vec<f64> = order.iter().map(|&i| pat.values[i]).collect();
             let pd = date_numbers(&order.iter().map(|&i| pat.days[i]).collect::<Vec<_>>(), year_cycle);
-            let d = batch(
+            batch(
                 values,
-                1,
+                n,
                 &dates,
                 1,
                 Series { values: &pv, dates: &pd, num_bands: 1 },
                 &params,
                 f64::INFINITY,
-                1,
-            )[0];
-            if d.is_finite() { d } else { f64::NAN }
+                n_jobs,
+            )
+            .into_iter()
+            .map(|d| if d.is_finite() { d } else { f64::NAN })
+            .collect()
         })
         .collect()
 }
@@ -117,7 +127,7 @@ pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
     let Some(days) = &input.days else {
         return fail("TWDTW needs dates (none were found in the file names or band descriptions)".into());
     };
-    let d = distances(p, vals, days, &pats);
+    let d: Vec<f64> = distances_many(p, vals, 1, days, &pats, 1).into_iter().map(|v| v[0]).collect();
     // the class: the first lowest distance; unclassified above the max distance
     let finite = d.iter().any(|x| x.is_finite());
     let best_k = (0..d.len()).fold(0, |b, i| if d[i].is_finite() && (d[b].is_nan() || d[b] > d[i]) { i } else { b });
@@ -165,4 +175,52 @@ pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
         }
     }
     Ok(PixelResult { overlays, rows })
+}
+
+/// The class (1..K or NaN), the best distance and the margin to the second of a pixel's distances (the bridge's
+/// `_run`); `enough`: the pixel has its minimum of valid dates.
+fn classify(p: &Params, d: &[f64], enough: bool) -> (f64, f64, f64) {
+    let finite = d.iter().any(|x| x.is_finite());
+    let k = (0..d.len()).fold(0, |b, i| if d[i].is_finite() && (d[b].is_nan() || d[b] > d[i]) { i } else { b });
+    let best = if finite { d[k] } else { f64::NAN };
+    let max_distance = p.f64("max_distance");
+    let mut class = if finite && enough { (k + 1) as f64 } else { f64::NAN };
+    if max_distance > 0.0 && best > max_distance {
+        class = f64::NAN;
+    }
+    let mut sorted: Vec<f64> = d.iter().map(|&x| if x.is_finite() { x } else { f64::INFINITY }).collect();
+    sorted.sort_by(f64::total_cmp);
+    let second = if d.len() > 1 { sorted[1] } else { f64::INFINITY };
+    let margin = if class.is_finite() && second.is_finite() { second - best } else { f64::NAN };
+    (class, if enough { best } else { f64::NAN }, margin)
+}
+
+pub fn chunk(p: &Params, chunk: &crate::job::Chunk, ctx: &crate::job::JobCtx) -> Result<crate::job::ChunkOut, String> {
+    let pats = patterns(p).map_err(|e| format!("ValueError: {e}"))?;
+    if pats.is_empty() {
+        return Err("ValueError: add at least one class pattern (from a pin or the ROI) in the tool window".into());
+    }
+    let days = ctx
+        .input
+        .days
+        .as_ref()
+        .ok_or("ValueError: TWDTW needs dates (none were found in the file names or band descriptions)")?;
+    let (t, n) = (chunk.t, chunk.pixels());
+    let values = chunk.by_pixel(&chunk.stack);
+    let dist = distances_many(p, &values, n, days, &pats, ctx.n_jobs);
+    let need = p.int("min_valid").max(2) as usize;
+    let mut res = crate::job::ChunkOut::new();
+    let (mut class, mut best, mut margin) = (Vec::with_capacity(n), Vec::with_capacity(n), Vec::with_capacity(n));
+    for px in 0..n {
+        let d: Vec<f64> = dist.iter().map(|v| v[px]).collect();
+        let enough = values[px * t..(px + 1) * t].iter().filter(|v| v.is_finite()).count() >= need;
+        let (c, b, m) = classify(p, &d, enough);
+        class.push(c);
+        best.push(b);
+        margin.push(m);
+    }
+    res.insert("class".into(), class);
+    res.insert("distance".into(), best);
+    res.insert("margin".into(), margin);
+    Ok(res)
 }

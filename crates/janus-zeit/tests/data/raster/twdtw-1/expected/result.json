@@ -1,0 +1,37 @@
+{
+ "outputs": [
+  {
+   "id": "class",
+   "name": "Class",
+   "colormap": "Dark",
+   "unit": "class",
+   "classes_param": "patterns",
+   "path": "twdtw_class.tif",
+   "classes": [
+    "forest",
+    "crop",
+    "pasture"
+   ]
+  },
+  {
+   "id": "distance",
+   "name": "Distance (best class)",
+   "colormap": "Plasma",
+   "unit": "distance",
+   "path": "twdtw_distance.tif"
+  },
+  {
+   "id": "margin",
+   "name": "Margin to the 2nd class",
+   "colormap": "Viridis",
+   "unit": "distance",
+   "path": "twdtw_margin.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}
