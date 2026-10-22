@@ -213,3 +213,8 @@ fn tmask() {
 fn ndfi() {
     compare("ndfi");
 }
+
+#[test]
+fn coded() {
+    compare("coded");
+}

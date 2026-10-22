@@ -207,8 +207,9 @@ def landsat_series(rng, n=None, first="2014-01-05", step=16, disturb=True):
     bands = {r: base[r] + amp[r] * season + rng.normal(0, 0.03 * base[r], n) for r in base}
     if disturb and rng.random() < 0.7:  # a clearing: soil
         at = int(rng.integers(n // 4, 3 * n // 4))
+        strength = rng.uniform(0.15, 1.0)  # light: degradation (still forest after it); strong: deforestation
         for r, d in {"blue": 400, "green": 500, "red": 900, "nir": -1400, "swir1": 1300, "swir2": 1100}.items():
-            bands[r][at:] += d * np.exp(-(t[at:] - t[at]) / rng.uniform(300, 3000))
+            bands[r][at:] += strength * d * np.exp(-(t[at:] - t[at]) / rng.uniform(300, 3000))
     qa = np.zeros(n)
     kind = rng.random(n)
     cloud, shadow = kind < 0.12, (kind >= 0.12) & (kind < 0.18)
@@ -270,6 +271,9 @@ def multiband_cases(roles, variants, n_cases=20, step=16):
 
 
 CASES = {
+    "coded": multiband_cases(zc.LANDSAT_ROLES, [{}, {"monitor_start": 2017.0}, {"direction": "both", "max_events": 5},
+                                                {"thresh": 2.0, "consec": 2, "forest_ndfi": 0.3}, {"cloud_threshold": 1.0},
+                                                {"train_years": 1.5, "min_obs": 4, "min_years": 1.0}], n_cases=30),
     "ndfi": multiband_cases(zc.LANDSAT_ROLES, [{}, {"cloud_threshold": 1.0}, {"cloud_threshold": 0.2}]),
     "tmask": multiband_cases(["green", "swir1"], [{}, {"units": "x10000"}, {"write_series": False}]),
     "landtrendr": landtrendr_cases,

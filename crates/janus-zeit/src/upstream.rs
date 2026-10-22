@@ -291,7 +291,7 @@ pub fn unmix_souza(bands: &[Vec<f64>], cloud_threshold: Option<f64>) -> Fraction
         // the threshold compared in float32 (numpy's weak Python scalar)
         let ct = ct as f32;
         for i in 0..t {
-            if !(f.cloud[i] <= ct) {
+            if f.cloud[i].is_nan() || f.cloud[i] > ct {
                 for v in [&mut f.gv, &mut f.shade, &mut f.npv, &mut f.soil, &mut f.cloud, &mut f.rmse, &mut f.ndfi] {
                     v[i] = f32::NAN;
                 }
