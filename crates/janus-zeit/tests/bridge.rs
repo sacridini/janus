@@ -208,3 +208,8 @@ fn bfast_monitor() {
 fn tmask() {
     compare("tmask");
 }
+
+#[test]
+fn ndfi() {
+    compare("ndfi");
+}

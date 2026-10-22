@@ -11,6 +11,7 @@ mod bfast;
 mod landtrendr;
 pub mod manifest;
 mod mann_kendall;
+mod ndfi;
 pub mod numeric;
 pub mod pixel;
 mod smooth;

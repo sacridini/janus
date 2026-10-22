@@ -270,6 +270,7 @@ def multiband_cases(roles, variants, n_cases=20, step=16):
 
 
 CASES = {
+    "ndfi": multiband_cases(zc.LANDSAT_ROLES, [{}, {"cloud_threshold": 1.0}, {"cloud_threshold": 0.2}]),
     "tmask": multiband_cases(["green", "swir1"], [{}, {"units": "x10000"}, {"write_series": False}]),
     "landtrendr": landtrendr_cases,
     "mann_kendall": mann_kendall_cases,

@@ -230,3 +230,73 @@ pub fn savgol(v: &[f64], window: usize, polyorder: usize) -> Vec<f64> {
     out[n - half..].copy_from_slice(&poly_fit_eval(&t, &v[n - window..], polyorder, &at));
     out
 }
+
+/// The endmembers of Souza et al. (2005) for Landsat's blue, green, red, NIR, SWIR1 and SWIR2, with CODED's
+/// cloud (zeit/_sma.py SOUZA_2005, reflectance x 10000), in the table's order.
+pub const SOUZA_2005: [(&str, [f64; 6]); 5] = [
+    ("gv", [500.0, 900.0, 400.0, 6100.0, 3000.0, 1000.0]),
+    ("shade", [0.0; 6]),
+    ("npv", [1400.0, 1700.0, 2200.0, 3000.0, 5500.0, 3000.0]),
+    ("soil", [2000.0, 3000.0, 3400.0, 5800.0, 6000.0, 5800.0]),
+    ("cloud", [9000.0, 9600.0, 8000.0, 7800.0, 7200.0, 6500.0]),
+];
+
+/// The fractions of every observation (float32, as zeit.unmix's Dataset), NaN where it was left out.
+#[derive(Clone, Debug, Default)]
+pub struct Fractions {
+    pub gv: Vec<f32>,
+    pub shade: Vec<f32>,
+    pub npv: Vec<f32>,
+    pub soil: Vec<f32>,
+    pub cloud: Vec<f32>,
+    pub rmse: Vec<f32>,
+    pub ndfi: Vec<f32>,
+}
+
+impl Fractions {
+    pub fn get(&self, name: &str) -> &[f32] {
+        match name {
+            "gv" => &self.gv,
+            "shade" => &self.shade,
+            "npv" => &self.npv,
+            "soil" => &self.soil,
+            "cloud" => &self.cloud,
+            "rmse" => &self.rmse,
+            _ => &self.ndfi,
+        }
+    }
+}
+
+/// `zeit.unmix(cube, "souza2005", scale=10000.0, cloud_threshold=...)` (zeit/_sma.py) of each observation:
+/// `bands` blue..swir2 (reflectance x 10000, one value per observation each), fully constrained; the NDFI of
+/// Souza et al. (2005) in float32, every fraction NaN where the cloud fraction is above `cloud_threshold`.
+pub fn unmix_souza(bands: &[Vec<f64>], cloud_threshold: Option<f64>) -> Fractions {
+    let t = bands.first().map_or(0, Vec::len);
+    // the table in reflectance (x 10000 / 10000), endmember x band
+    let e: Vec<f64> = SOUZA_2005.iter().flat_map(|(_, v)| v.iter().map(|x| x / 10000.0)).collect();
+    let flat: Vec<f64> = (0..t).flat_map(|i| bands.iter().map(move |b| b[i] / 10000.0)).collect();
+    let out = zeit_core::sma::unmix_batch(&flat, t, 6, &e, 5, true, true, 1000.0, 1);
+    let col = |j: usize| -> Vec<f32> { (0..t).map(|i| out[i * 6 + j] as f32).collect() };
+    let mut f =
+        Fractions { gv: col(0), shade: col(1), npv: col(2), soil: col(3), cloud: col(4), rmse: col(5), ndfi: vec![] };
+    // ndfi_of: in float32, GVs = GV / (1 - shade)
+    f.ndfi = (0..t)
+        .map(|i| {
+            let gvs = f.gv[i] / (1.0 - f.shade[i]);
+            let v = (gvs - (f.npv[i] + f.soil[i])) / (gvs + f.npv[i] + f.soil[i]);
+            if v.is_finite() { v } else { f32::NAN }
+        })
+        .collect();
+    if let Some(ct) = cloud_threshold {
+        // the threshold compared in float32 (numpy's weak Python scalar)
+        let ct = ct as f32;
+        for i in 0..t {
+            if !(f.cloud[i] <= ct) {
+                for v in [&mut f.gv, &mut f.shade, &mut f.npv, &mut f.soil, &mut f.cloud, &mut f.rmse, &mut f.ndfi] {
+                    v[i] = f32::NAN;
+                }
+            }
+        }
+    }
+    f
+}
