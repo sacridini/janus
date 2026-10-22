@@ -13,6 +13,7 @@ mod chart;
 mod chips;
 mod classes;
 mod composite;
+mod contents;
 mod display;
 mod emb_download;
 mod embeddings;
@@ -94,6 +95,7 @@ Developer options:
   --measure-startup   print startup timings and exit after the first frame
   --screenshot PNG    save the window once the series is ready, print its timings and exit
   --detach-map        the map in a window of its own (with --screenshot, both windows saved)
+  --settings          the Settings window open
   --profile-tour IN   a fixed tour of IN (overview, cursor series, dates, modes, zoom and pan at
                       full resolution, an ROI), timed stage by stage
   --tour-json FILE    with --profile-tour: the timings as JSON
@@ -330,6 +332,7 @@ fn main() -> eframe::Result<()> {
             "--measure-startup" => opts.measure_startup = true,
             "--screenshot" => opts.screenshot = args.next().map(Into::into),
             "--detach-map" => opts.detach_map = true,
+            "--settings" => opts.settings_open = true,
             "--profile-tour" => opts.profile_tour = true,
             "--measure-vectors" => opts.measure_vectors = true,
             "--selftest-embeddings-ui" => opts.selftest_embeddings_ui = true,
@@ -494,6 +497,7 @@ fn main() -> eframe::Result<()> {
         || opts.selftest_ui
         || opts.selftest_multidim
         || opts.shots.is_some();
+    opts.maximize = !test_window;
     if test_window {
         attach_console();
     }
@@ -522,7 +526,9 @@ fn main() -> eframe::Result<()> {
             } else {
                 [1400.0, 900.0]
             })
-            .with_maximized(!test_window)
+            // maximized once shown (State::ui, frame 1): eframe makes the window hidden and shows it after the
+            // first frame, and a hidden window made maximized on Windows opens at its normal size while it holds
+            // itself for maximized (the first double click on the title bar then "restores" it: nothing happens)
             .with_drag_and_drop(true)
             .with_icon(window_icon())
             // translucent panels (Settings) need a transparent window, made at the start

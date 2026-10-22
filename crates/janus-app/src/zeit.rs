@@ -1682,86 +1682,47 @@ Reading the data adds to it, mostly on spinning disks.",
         });
         self.zeit.log.show = open;
     }
+}
 
-    /// The result maps of a series, under it in the Layers panel.
-    /// The result maps of series `cube` (named `source`) as rows of the Layers panel, the last drawn (on top)
-    /// first; whether there were any.
-    pub(crate) fn results_ui(
-        ui: &mut Ui,
-        results: &mut Vec<ResultLayer>,
-        cube: u64,
-        source: &str,
-        dirty: &mut bool,
-    ) -> bool {
-        let mut remove = None;
-        let mut any = false;
-        for (i, r) in results.iter_mut().enumerate().rev().filter(|(_, r)| r.cube == cube) {
-            any = true;
-            ui.push_id(("result", i), |ui| {
-                // the button first: a long name runs past the panel, not the button
-                ui.horizontal(|ui| {
-                    if ui.small_button("x").on_hover_text("Remove this layer (the file stays on disk)").clicked() {
-                        remove = Some(i);
-                    }
-                    let tip = format!(
-                        "{}
-on {source}",
-                        r.path
-                    );
-                    if ui.checkbox(&mut r.visible, &r.name).on_hover_text(tip).changed() {
-                        *dirty = true;
-                    }
-                });
-                if !r.visible {
-                    return;
+/// A result map's settings (a row of the Layers panel unfolded): its colormap and range, or its classes' legend.
+pub(crate) fn result_details_ui(ui: &mut Ui, r: &mut ResultLayer, dirty: &mut bool) {
+    if r.is_segments() {
+        ui.weak("Each segment a colour (hover: its number)");
+    } else if r.classes.is_empty() {
+        let maps = janus_gpu::colormaps::all();
+        ComboBox::from_id_salt("rcmap").selected_text(maps[r.cmap].name).show_ui(ui, |ui| {
+            for (k, m) in maps.iter().enumerate() {
+                if ui.selectable_label(k == r.cmap, m.name).clicked() {
+                    r.cmap = k;
+                    *dirty = true;
                 }
-                ui.indent("result", |ui| {
-                    if r.is_segments() {
-                        ui.weak("Each segment a colour (hover: its number)");
-                    } else if r.classes.is_empty() {
-                        let maps = janus_gpu::colormaps::all();
-                        ComboBox::from_id_salt("rcmap").selected_text(maps[r.cmap].name).show_ui(ui, |ui| {
-                            for (k, m) in maps.iter().enumerate() {
-                                if ui.selectable_label(k == r.cmap, m.name).clicked() {
-                                    r.cmap = k;
-                                    *dirty = true;
-                                }
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            let speed = ((r.hi - r.lo) / 300.0).max(1e-6);
-                            *dirty |= ui.add(egui::DragValue::new(&mut r.lo).speed(speed).max_decimals(4)).changed();
-                            *dirty |= ui.add(egui::DragValue::new(&mut r.hi).speed(speed).max_decimals(4)).changed();
-                            if ui.button("Auto").clicked() {
-                                r.auto_range();
-                                *dirty = true;
-                            }
-                        });
-                    } else {
-                        // a class map's legend
-                        let cm = &janus_gpu::colormaps::all()[r.cmap];
-                        for (k, c) in r.classes.iter().enumerate() {
-                            ui.horizontal(|ui| {
-                                let [cr, cg, cb, _] = cm.sample((k as f32 + 0.5) / cm.keys().count() as f32);
-                                let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
-                                ui.painter().rect_filled(rect, 2.0, Color32::from_rgb(cr, cg, cb));
-                                ui.label(c);
-                            });
-                        }
-                    }
-                    if ui.add(egui::Slider::new(&mut r.opacity, 0.0..=1.0).text("opacity").fixed_decimals(2)).changed()
-                    {
-                        *dirty = true;
-                    }
-                });
+            }
+        });
+        ui.horizontal(|ui| {
+            let speed = ((r.hi - r.lo) / 300.0).max(1e-6);
+            *dirty |= ui.add(egui::DragValue::new(&mut r.lo).speed(speed).max_decimals(4)).changed();
+            *dirty |= ui.add(egui::DragValue::new(&mut r.hi).speed(speed).max_decimals(4)).changed();
+            if ui.button("Auto").clicked() {
+                r.auto_range();
+                *dirty = true;
+            }
+        });
+    } else {
+        // a class map's legend
+        let cm = &janus_gpu::colormaps::all()[r.cmap];
+        for (k, c) in r.classes.iter().enumerate() {
+            ui.horizontal(|ui| {
+                let [cr, cg, cb, _] = cm.sample((k as f32 + 0.5) / cm.keys().count() as f32);
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                ui.painter().rect_filled(rect, 2.0, Color32::from_rgb(cr, cg, cb));
+                ui.label(c);
             });
         }
-        if let Some(i) = remove {
-            results.remove(i);
-            *dirty = true;
-        }
-        any
     }
+    ui.horizontal(|ui| {
+        ui.weak("opacity");
+        *dirty |= ui.add(egui::Slider::new(&mut r.opacity, 0.0..=1.0).fixed_decimals(2)).changed();
+    });
 }
 
 /// A series' visible result maps over it, through its placement on the map.

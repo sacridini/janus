@@ -353,7 +353,10 @@ impl State {
     }
 
     fn settings_contents(&mut self, ui: &mut Ui) {
+        // what is laid out never wider than the window: a widget wider than the room it measured made the window
+        // grow, and the next frame's room with it, up to the screen's width
         let w = ui.available_width();
+        ui.set_max_width(w);
         section(ui, "Interface");
         let st = &mut self.settings;
         let mut changed = false;
@@ -374,7 +377,7 @@ impl State {
             );
         ui.weak("The map, its colour bars and exported figures keep their colours.");
         let mut panel = (st.s.panel_opacity * 100.0).round() as i32;
-        ui.spacing_mut().slider_width = w - 60.0;
+        fit_slider(ui, w, SLIDER_TEXT);
         if ui
             .add(Slider::new(&mut panel, 10..=100).custom_formatter(|v, _| format!("panels' background: {v}% opaque")))
             .on_hover_text(
@@ -388,6 +391,7 @@ impl State {
             changed = true;
         }
         let mut font = st.s.font_size;
+        fit_slider(ui, w, SLIDER_TEXT);
         if ui
             .add(
                 Slider::new(&mut font, theme::MIN_FONT_SIZE..=theme::MAX_FONT_SIZE)
@@ -421,6 +425,7 @@ impl State {
         let cores = logical_cores();
         let mut n = if st.s.threads > 0 { st.s.threads } else { janus_session::default_processing_threads() };
         let mut threads_changed = false;
+        fit_slider(ui, w, SLIDER_TEXT);
         if ui
             .add(
                 Slider::new(&mut n, 1..=cores)
@@ -461,6 +466,7 @@ impl State {
 
         section(ui, "Memory and caches");
         let st = &mut self.settings;
+        fit_slider(ui, w, SLIDER_TEXT);
         ui.add(
             Slider::new(&mut st.budget_ui, 128..=8192)
                 .logarithmic(true)
@@ -511,6 +517,7 @@ impl State {
             }
         } else {
             let mut v = st.s.cache_budget_gb;
+            fit_slider(ui, w, SLIDER_TEXT);
             if ui
                 .add(
                     Slider::new(&mut v, 8..=2048)
@@ -748,6 +755,17 @@ fn section(ui: &mut Ui, title: &str) {
         ui.strong(title);
         ui.add(egui::Separator::default().horizontal());
     });
+}
+
+/// The longest of the sliders' values: every slider of the window as long, their value boxes beside them.
+const SLIDER_TEXT: &str = "panels' background: 100% opaque";
+
+/// The slider's width for a row of `w`: what its value box (`widest`, its longest text) leaves.
+pub(crate) fn fit_slider(ui: &mut Ui, w: f32, widest: &str) {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let text = ui.painter().layout_no_wrap(widest.to_string(), font, egui::Color32::WHITE).size().x;
+    let pad = 2.0 * ui.spacing().button_padding.x + ui.spacing().item_spacing.x + 2.0;
+    ui.spacing_mut().slider_width = (w - text - pad).max(60.0);
 }
 
 #[cfg(test)]

@@ -136,6 +136,10 @@ pub struct Options {
     pub screenshot: Option<PathBuf>,
     /// the map opened in a window of its own (to check detached panels); with --screenshot, both windows saved
     pub detach_map: bool,
+    /// --settings: the Settings window open from the start (screenshots)
+    pub settings_open: bool,
+    /// the window maximized at the start (not for the tests and screenshots)
+    pub maximize: bool,
     /// --profile-tour: the C++'s fixed tour of the series, timed stage by stage
     pub profile_tour: bool,
     /// the tour's timings as JSON
@@ -308,6 +312,8 @@ pub struct State {
     pub val: crate::validation::ValidationUi,
     /// Tools > Deep learning
     pub ml: crate::ml::MlUi,
+    /// the Layers panel's filter and folded rows
+    pub contents: crate::contents::ContentsUi,
     /// the export dialog and the animation being exported
     pub export: crate::export_map::ExportUi,
     /// the tests' layout command and the panels' places after it
@@ -430,6 +436,8 @@ pub struct JanusApp {
     layout_checked: Instant,
     windows: Vec<Detached>,
     window_count: u64,
+    /// Ctrl+Shift+R pressed in a window of its own: the layout reset at the next frame
+    reset_from_window: bool,
     pub(crate) state: State,
 }
 
@@ -514,19 +522,7 @@ impl TabViewer for Tabs<'_> {
             Tab::Chips => self.s.chips_ui(ui),
             _ => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match tab {
-                    Tab::Layers => {
-                        self.s.layers_ui(ui);
-                        // embeddings of the visible area, added on top
-                        egui::CollapsingHeader::new("Embeddings")
-                            .id_salt("emb dl layers")
-                            .show(ui, |ui| self.s.embedding_download_ui(ui))
-                            .header_response
-                            .on_hover_text(
-                                "Foundation-model embeddings (AlphaEarth, TESSERA) of the visible area,\n\
-                                 downloaded and added as a layer",
-                            );
-                        self.s.basemap_ui(ui);
-                    }
+                    Tab::Layers => self.s.contents_ui(ui),
                     Tab::Display => self.s.display_ui(ui),
                     Tab::Files => self.s.files_ui(ui),
                     Tab::Statistics => self.s.statistics_ui(ui),
@@ -571,6 +567,7 @@ impl JanusApp {
             layout_checked: Instant::now(),
             windows: Vec::new(),
             window_count: 0,
+            reset_from_window: false,
             state: State {
                 opts,
                 t0,
@@ -605,6 +602,7 @@ impl JanusApp {
                 emb_downloads: Vec::new(),
                 val: Default::default(),
                 ml: Default::default(),
+                contents: Default::default(),
                 export: Default::default(),
                 layout_cmd: None,
                 layout_report: Default::default(),
@@ -658,6 +656,7 @@ impl JanusApp {
         if detach {
             app.detach_map();
         }
+        app.state.settings.show |= app.state.opts.settings_open;
         app
     }
 
@@ -1434,7 +1433,8 @@ impl eframe::App for JanusApp {
             let id = ViewportId::from_hash_of(("janus window", self.window_count));
             self.windows.push(Detached { id, dock: DockState::new(vec![Tab::Display]), at: None });
         }
-        if act.reset_layout || keys.reset_layout || cmd == Some(LayoutCmd::Reset) {
+        let from_window = std::mem::take(&mut self.reset_from_window);
+        if act.reset_layout || keys.reset_layout || from_window || cmd == Some(LayoutCmd::Reset) {
             self.dock = default_layout();
             for w in self.windows.drain(..) {
                 drop(w);
@@ -1570,6 +1570,7 @@ impl eframe::App for JanusApp {
         }
         let mut back = Vec::new();
         let state = &mut self.state;
+        let mut reset = false;
         self.windows.retain_mut(|w| {
             let title = w.dock.iter_all_tabs().map(|(_, t)| t.title()).collect::<Vec<_>>().join(", ");
             let mut builder =
@@ -1579,6 +1580,8 @@ impl eframe::App for JanusApp {
             }
             let style = style.clone();
             let closed = ctx.show_viewport_immediate(w.id, builder, |ui, _class| {
+                // the window's keys: each window has its own keyboard (the map's shortcuts work where the map is)
+                reset |= state.shortcuts(ui.ctx()).reset_layout;
                 egui::CentralPanel::default().frame(egui::Frame::new()).show(ui, |ui| {
                     DockArea::new(&mut w.dock)
                         .id(Id::new(("window dock", w.id)))
@@ -1600,6 +1603,7 @@ impl eframe::App for JanusApp {
         for t in back {
             self.dock.push_to_first_leaf(t);
         }
+        self.reset_from_window |= reset;
 
         self.state.settings_ui(&ctx);
         self.state.popups(&ctx);
@@ -1627,6 +1631,9 @@ impl eframe::App for JanusApp {
             }
         }
         let s = &mut self.state;
+        if s.frame == 1 && s.opts.maximize {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+        }
         s.perf.push(start.elapsed().as_secs_f64() * 1000.0);
         s.frame += 1;
         if s.frame <= 2 || s.opts.screenshot.is_some() && !s.screenshot_asked {

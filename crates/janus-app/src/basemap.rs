@@ -233,8 +233,6 @@ impl State {
 
     /// The Layers panel's section, below the layers (it is drawn under all of them).
     pub(crate) fn basemap_ui(&mut self, ui: &mut Ui) {
-        ui.separator();
-        ui.strong("Basemap");
         let presets = basemap::presets();
         let bm = &mut self.basemap;
         let current = match bm.ui.source.as_str() {

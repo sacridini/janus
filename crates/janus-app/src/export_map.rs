@@ -976,7 +976,7 @@ impl State {
         }
     }
 
-    fn open_export(&mut self, kind: usize) {
+    pub(crate) fn open_export(&mut self, kind: usize) {
         self.export.kind = kind;
         self.export.open = true;
     }

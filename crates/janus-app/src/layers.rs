@@ -5,7 +5,6 @@
 //! the shader). The active layer's state lives in the State's members (session, display, classes, composite) and is
 //! swapped in and out of its SeriesLayer when the active layer changes, as the C++'s display state is.
 
-use egui::Ui;
 use janus_cube::CubeInfo;
 use janus_geo::Reprojection;
 use janus_gpu::{GpuTexture, Warp};
@@ -15,7 +14,6 @@ use crate::classes::LayerClasses;
 use crate::composite::BandComposite;
 use crate::display::Display;
 use crate::session::Session;
-use crate::theme;
 
 /// Where a layer is drawn on the map: this layer's pixels -> the active layer's pixels, x' = ax + bx x,
 /// y' = ay + by y, or through a reprojection.
@@ -543,147 +541,6 @@ impl State {
             if became_on {
                 l.disp.mode = janus_gpu::Mode::Value;
             }
-        }
-    }
-
-    /// The Layers panel: every layer, top of the list drawn on top.
-    pub(crate) fn layers_ui(&mut self, ui: &mut Ui) {
-        if self.layers.is_empty() {
-            ui.weak("No layers. Open a series (File, drag and drop\nor the command line).");
-            self.vectors_ui(ui);
-            return;
-        }
-        let ctx = ui.ctx().clone();
-        ui.horizontal(|ui| {
-            if ui.button("Add layer...").on_hover_text("Open another series as a new layer (files)").clicked()
-                && let Some(files) = rfd::FileDialog::new().pick_files()
-            {
-                self.open_inputs(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), true, &ctx);
-            }
-            if ui
-                .button("Add folder...")
-                .on_hover_text("Open another series as a new layer (a folder, 1 file per date)")
-                .clicked()
-                && let Some(dir) = rfd::FileDialog::new().pick_folder()
-            {
-                self.open_inputs(vec![dir.to_string_lossy().into_owned()], true, &ctx);
-            }
-        });
-        ui.weak("Top of the list = drawn on top. Click a name to make it active.");
-        ui.separator();
-        self.vectors_ui(ui); // drawn over every raster layer
-        let (mut up, mut down, mut remove, mut activate) = (None, None, None, None);
-        let n = self.layers.len();
-        let active = self.active;
-        for i in (0..n).rev() {
-            let is_active = i == active;
-            // the active layer's session is the State's
-            let info = if is_active {
-                self.session.as_ref().map(|s| s.info.clone())
-            } else {
-                self.layers[i].session.as_ref().map(|s| s.info.clone())
-            };
-            let Some(info) = info else { continue };
-            let l = &mut self.layers[i];
-            ui.push_id(i, |ui| {
-                // the maps its runs made: layers of their own above it, shown or hidden apart from it
-                if State::results_ui(ui, &mut self.zeit.results, info.id, &l.name, &mut self.map.dirty) {
-                    ui.separator();
-                }
-                ui.horizontal(|ui| {
-                    if ui
-                        .checkbox(&mut l.visible, "")
-                        .on_hover_text(if l.visible { "Hide this layer" } else { "Show this layer" })
-                        .changed()
-                    {
-                        self.map.dirty = true;
-                    }
-                    let label = format!("{}{}", if is_active { "> " } else { "  " }, l.name);
-                    let text = if is_active {
-                        egui::RichText::new(label).color(theme::accent())
-                    } else {
-                        egui::RichText::new(label)
-                    };
-                    let w = (ui.available_width() - 76.0).max(40.0);
-                    // the name left-aligned over the row's width (as a menu's items)
-                    let h = ui.spacing().interact_size.y;
-                    let r = ui
-                        .allocate_ui_with_layout(
-                            egui::vec2(w, h),
-                            egui::Layout::top_down_justified(egui::Align::LEFT),
-                            |ui| ui.add(egui::Button::selectable(is_active, text)),
-                        )
-                        .inner
-                        .on_hover_text(format!(
-                            "{}\n{}, {} x {} px, {} dates ({} .. {})\nCRS: {}",
-                            if l.inputs.len() == 1 { &l.inputs[0] } else { &info.first_path },
-                            info.description,
-                            info.width,
-                            info.height,
-                            info.t(),
-                            info.layers[0].label,
-                            info.layers[info.t() - 1].label,
-                            if info.crs_authority.is_empty() { &info.crs_name } else { &info.crs_authority }
-                        ));
-                    if r.clicked() && !is_active {
-                        activate = Some(i);
-                    }
-                    if ui.add_enabled(i + 1 < n, egui::Button::new("^").small()).clicked() {
-                        up = Some(i);
-                    }
-                    if ui.add_enabled(i > 0, egui::Button::new("v").small()).clicked() {
-                        down = Some(i);
-                    }
-                    if ui.small_button("x").on_hover_text("Close this layer").clicked() {
-                        remove = Some(i);
-                    }
-                });
-                ui.indent("layer", |ui| {
-                    if !is_active && let Some(s) = &l.session {
-                        ui.weak(format!("date {}", info.layers[l.disp.t.min(info.t() - 1)].label));
-                        let ov = &s.s.overview;
-                        if !ov.complete() {
-                            ui.weak(format!("loading {}/{}", ov.layers_done(), info.t()));
-                        }
-                    }
-                    if !l.place.note.is_empty() {
-                        ui.colored_label(theme::warning(), &l.place.note);
-                    }
-                    if let Some((r, _)) = l.place.reproj.as_ref().filter(|_| !is_active) {
-                        let text = if r.same_crs {
-                            "rotated grid, placed on the map's".to_string()
-                        } else {
-                            format!("reprojected from {}", r.crs_text)
-                        };
-                        ui.weak(text).on_hover_text(format!(
-                            "Drawn through a grid of {} x {} points (interpolation error up to {} of\nits pixels, made \
-                             in {:.0} ms); cursor, pins and ROI use the exact\ntransformation (PROJ). Nearest \
-                             neighbour: the values are not changed.",
-                            r.grid_w,
-                            r.grid_h,
-                            janus_cube::multidim::format_g(r.grid_error, 2),
-                            r.build_ms
-                        ));
-                    }
-                    if ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity").fixed_decimals(2)).changed()
-                    {
-                        self.map.dirty = true;
-                    }
-                });
-                ui.separator();
-            });
-        }
-        if let Some(i) = up {
-            self.swap_layers(i, i + 1);
-        }
-        if let Some(i) = down {
-            self.swap_layers(i, i - 1);
-        }
-        if let Some(i) = activate {
-            self.set_active(i, &ctx);
-        }
-        if let Some(i) = remove {
-            self.remove_layer(i, &ctx);
         }
     }
 }

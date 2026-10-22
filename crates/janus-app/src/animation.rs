@@ -711,10 +711,15 @@ impl State {
     pub(crate) fn ffmpeg_settings_ui(&mut self, ui: &mut Ui) {
         crate::panels::section(ui, "Video export (ffmpeg)");
         ui.horizontal(|ui| {
+            // the button's own width left beside the field
+            let font = egui::TextStyle::Button.resolve(ui.style());
+            let button = ui.painter().layout_no_wrap("Browse...".into(), font, egui::Color32::WHITE).size().x
+                + 2.0 * ui.spacing().button_padding.x
+                + ui.spacing().item_spacing.x;
             let r = ui.add(
                 egui::TextEdit::singleline(&mut self.settings.s.ffmpeg)
                     .hint_text("next to Janus, else on PATH")
-                    .desired_width(ui.available_width() - 90.0),
+                    .desired_width((ui.available_width() - button).max(60.0)),
             );
             r.on_hover_text(
                 "The ffmpeg executable that writes MP4 and WebM animations (File > Export\nanimation). Empty: ffmpeg next to Janus, else the one on PATH.",

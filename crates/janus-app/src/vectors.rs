@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
 
-use egui::{Color32, Pos2, Rect, Shape, Stroke, Ui, vec2};
+use egui::{Color32, Pos2, Rect, Shape, Stroke, vec2};
 use janus_geo::plane::{self, Polygon, Ring};
 use janus_geo::vectors::{Kind, Placer, VectorData, csv_field, is_vector_path, load_vector_file};
 
@@ -513,7 +513,7 @@ impl State {
     }
 
     /// The whole of a vector layer in view.
-    fn zoom_to_vector(&mut self, li: usize) {
+    pub(crate) fn zoom_to_vector(&mut self, li: usize) {
         let Some(g) = self.grid() else { return };
         let v = &self.vectors[li];
         let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
@@ -576,153 +576,6 @@ impl State {
 
     /// The Layers panel's vector layers: shown, colour, name (its file, CRS and fields), Extract series,
     /// Interpret, Zoom to it, Remove.
-    pub(crate) fn vectors_ui(&mut self, ui: &mut Ui) {
-        if self.vectors.is_empty() && self.vector_loads.is_empty() {
-            if ui
-                .small_button("Add vector layer...")
-                .on_hover_text("GeoJSON, Shapefile, GeoPackage, KML, CSV of points (x/lon, y/lat columns)...")
-                .clicked()
-                && let Some(files) = rfd::FileDialog::new().pick_files()
-            {
-                self.add_vector_files(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), ui.ctx());
-            }
-            return;
-        }
-        crate::panels::section(ui, "Vector layers");
-        if !self.vector_loads.is_empty() {
-            ui.weak(format!("reading {} file(s)...", self.vector_loads.len()));
-        }
-        let (mut remove, mut extract, mut interpret, mut zoom) = (None, None, None, None);
-        let has = self.session.is_some();
-        for li in (0..self.vectors.len()).rev() {
-            // top-down, as drawn
-            let v = &mut self.vectors[li];
-            let d = v.data.clone();
-            ui.push_id(v.id, |ui| {
-                ui.horizontal(|ui| {
-                    let tip = if v.visible { "Hide this vector layer" } else { "Show this vector layer" };
-                    if ui.checkbox(&mut v.visible, "").on_hover_text(tip).changed() {
-                        self.map.dirty = true;
-                    }
-                    let mut c = v.color;
-                    if ui.color_edit_button_srgba(&mut c).changed() {
-                        v.color = c;
-                        self.map.dirty = true;
-                    }
-                    // the name left-aligned over the row's width, as the raster layers'
-                    let w = (ui.available_width() - 26.0).max(40.0);
-                    let r = ui
-                        .allocate_ui_with_layout(
-                            vec2(w, ui.spacing().interact_size.y),
-                            egui::Layout::top_down_justified(egui::Align::LEFT),
-                            |ui| ui.add(egui::Button::selectable(self.labels.vector == Some(v.id), &v.name)),
-                        )
-                        .inner;
-                    let r = r.on_hover_ui(|ui| {
-                        ui.label(&d.path);
-                        ui.label(format!("{}, {} vertices, read in {:.0} ms", d.kind_text(), d.vertices, d.load_ms));
-                        ui.label(format!(
-                            "CRS: {}{}",
-                            if d.crs_name.is_empty() { "none (read as the raster's)" } else { &d.crs_name },
-                            if d.lon_lat_assumed {
-                                " (none in the file: the coordinates are longitudes and latitudes)"
-                            } else {
-                                ""
-                            }
-                        ));
-                        if !d.fields.is_empty() {
-                            let mut f = d.fields.iter().take(12).cloned().collect::<Vec<_>>().join(", ");
-                            if d.fields.len() > 12 {
-                                f += ", ...";
-                            }
-                            ui.label(format!("Fields: {f}"));
-                        }
-                        if d.truncated {
-                            ui.colored_label(theme::warning(), "Read up to the vertex limit: the rest is left out.");
-                        }
-                        ui.weak("Right click: more");
-                    });
-                    r.context_menu(|ui| {
-                        if ui
-                            .add_enabled(has && v.why.is_empty(), egui::Button::new("Extract series to CSV..."))
-                            .clicked()
-                        {
-                            extract = Some(v.id);
-                        }
-                        if ui.add_enabled(has, egui::Button::new("Interpret (label) its features...")).clicked() {
-                            interpret = Some(v.id);
-                        }
-                        if ui.add_enabled(!v.px.is_empty(), egui::Button::new("Zoom to it")).clicked() {
-                            zoom = Some(li);
-                        }
-                        if ui.button("Remove").clicked() {
-                            remove = Some(li);
-                        }
-                    });
-                    if ui.small_button("x").on_hover_text("Remove this vector layer").clicked() {
-                        remove = Some(li);
-                    }
-                });
-                ui.indent("v", |ui| {
-                    ui.weak(format!(
-                        "{}{}",
-                        d.kind_text(),
-                        if d.crs_name.is_empty() { String::new() } else { format!(", {}", d.crs_name) }
-                    ));
-                    if !v.why.is_empty() {
-                        ui.colored_label(theme::warning(), &v.why);
-                    } else if v.off_map {
-                        ui.colored_label(theme::warning(), "nothing of it over the active layer");
-                    }
-                    if has && v.why.is_empty() {
-                        ui.horizontal(|ui| {
-                            if ui
-                                .small_button("Extract series...")
-                                .on_hover_text(
-                                    "The series of every feature (a point's pixel, a polygon's mean)\n\
-                                     of the active or every visible layer, as a CSV table",
-                                )
-                                .clicked()
-                            {
-                                extract = Some(v.id);
-                            }
-                            if ui
-                                .small_button("Interpret...")
-                                .on_hover_text("Go through its features one by one (N / Shift+N) and label them (1-9)")
-                                .clicked()
-                            {
-                                interpret = Some(v.id);
-                            }
-                        });
-                    }
-                });
-            });
-        }
-        if let Some(i) = remove {
-            self.remove_vector(i);
-            self.map.dirty = true;
-        }
-        if let Some(id) = extract {
-            self.open_extract(id);
-        }
-        if let Some(id) = interpret {
-            self.start_interpretation(id);
-        }
-        if let Some(li) = zoom {
-            self.zoom_to_vector(li);
-        }
-        if ui
-            .small_button("Add vector layer...")
-            .on_hover_text("GeoJSON, Shapefile, GeoPackage, KML, CSV of points (x/lon, y/lat columns)...")
-            .clicked()
-            && let Some(files) = rfd::FileDialog::new().pick_files()
-        {
-            self.add_vector_files(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), ui.ctx());
-        }
-        ui.weak("Alt + click a polygon: it becomes the ROI; a line: the transect.");
-        ui.separator();
-    }
-
     /// The Extract series dialog for a vector layer: its table's name in the export folder.
     pub fn open_extract(&mut self, id: u32) {
         let Some(li) = self.vector_index(id) else { return };
