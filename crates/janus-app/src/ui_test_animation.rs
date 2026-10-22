@@ -391,7 +391,7 @@ impl State {
                         return None;
                     }
                     let (key, modifiers, kind, ext) = keys[k];
-                    if st.frames % 2 == 0 {
+                    if st.frames.is_multiple_of(2) {
                         // keys down; read at the next frame
                         self.export.kind = 0;
                         self.export.shown = false;
