@@ -477,7 +477,10 @@ impl State {
                 self.layers[0].visible = true;
                 self.layers[1].visible = true;
                 self.map.dirty = true;
-                next(st, "layer drawing and visibility, a map panel");
+                if let Err(e) = self.test_transect(ctx) {
+                    return fail(&e);
+                }
+                next(st, "layer drawing and visibility, a map panel, transect");
             }
             6 => {
                 st.pin_x = self.series.pins.first()?.x;
@@ -729,7 +732,11 @@ impl State {
                     println!("    {k:<18} {v}");
                 }
                 self.map.dirty = true;
-                next(st, "map in class colours, class summary");
+                if let Err(e) = self.test_transect_classes() {
+                    return fail(&e);
+                }
+                self.clear_transect();
+                next(st, "map in class colours, class summary, transect in class colours");
                 if st.stage == 16 {
                     let Some(e) = input(3) else { return ok() };
                     self.open_inputs(vec![e], false, ctx);
@@ -750,6 +757,169 @@ impl State {
             _ => {}
         }
         None
+    }
+}
+
+impl State {
+    /// Waits (at most 30 s) for every date of the transect at full resolution, then takes them.
+    fn transect_read(&mut self) -> Result<f64, String> {
+        let w0 = std::time::Instant::now();
+        while self.transect_rows_read() < self.transect.t_n {
+            if w0.elapsed().as_secs_f64() > 30.0 {
+                return Err("timeout reading the transect at full resolution".into());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        self.update_transect_rows();
+        self.publish_transect();
+        Ok(w0.elapsed().as_secs_f64() * 1000.0)
+    }
+
+    /// The transect's image pixel (x, y), drawn w x h.
+    fn transect_pixel(&mut self, size: [u32; 2], x: u32, y: u32) -> Option<[u8; 3]> {
+        self.render_transect(size);
+        let (w, _, px) = self.gpu.as_ref()?.read_target(crate::transect::TRANSECT_SLOT)?;
+        let p = ((y * w + x) * 4) as usize;
+        Some([px[p], px[p + 1], px[p + 2]])
+    }
+
+    /// With A and B open, B active (src/app_selftest.cpp, selfTestCompare): a transect along B's row 100, columns
+    /// 10 to 290 (exact values 2 + 0.01 (x - 50) + 0.1 t), filled from the overview at once, then at full
+    /// resolution, drawn in the layer's colours; a polyline leaving B; the same line on A when A is made active.
+    fn test_transect(&mut self, ctx: &egui::Context) -> Result<(), String> {
+        let t_n = self.session.as_ref().ok_or("no series")?.info.t();
+        let exact = |x: i64, t: usize| 2.0 + 0.01 * (x - 50) as f64 + 0.1 * t as f64;
+        self.set_transect(vec![[10.5, 100.5], [290.5, 100.5]]);
+        let tr = &self.transect;
+        if !tr.on || tr.n != 281 || tr.t_n != t_n {
+            return Err("the transect should have 281 samples x every date".into());
+        }
+        println!(
+            "    transect: {} samples x {} dates, {:.0} {}, {} dates from the overview at once",
+            tr.n,
+            tr.t_n,
+            tr.length,
+            tr.unit,
+            tr.state.iter().filter(|&&s| s == 1).count()
+        );
+        if tr.unit != "m" || (tr.length - 280.0 * 30.0).abs() > 1e-6 {
+            return Err("the transect should be 8400 m long".into());
+        }
+        {
+            let s = self.session.as_ref().ok_or("no series")?;
+            let ov = &s.s.overview;
+            for t in 0..t_n {
+                let l = ov.layer(t).ok_or("no overview")?;
+                for i in 0..tr.n {
+                    let ox = ((tr.px[i] as f64 * ov.w as f64 / s.info.width as f64) as usize).min(ov.w - 1);
+                    let oy = ((tr.py[i] as f64 * ov.h as f64 / s.info.height as f64) as usize).min(ov.h - 1);
+                    if tr.state[t] == 0 || tr.values[t * tr.n + i].to_bits() != l[oy * ov.w + ox].to_bits() {
+                        return Err("the transect should be filled from the overview".into());
+                    }
+                }
+            }
+        }
+        let ms = self.transect_read()?;
+        let tr = &self.transect;
+        let mut max_err = 0f64;
+        for t in 0..t_n {
+            if tr.state[t] != 2 {
+                return Err("every date should be read at full resolution".into());
+            }
+            for i in 0..tr.n {
+                max_err = max_err.max((f64::from(tr.values[t * tr.n + i]) - exact(tr.px[i], t)).abs());
+            }
+        }
+        println!("    transect at full resolution in {ms:.0} ms, max error {max_err:.2e}");
+        if max_err > 1e-4 {
+            return Err("wrong full-resolution transect values".into());
+        }
+        // the image: cell (i, t) in the map's colours
+        let (i, t) = (140, 5);
+        let (n, v, x) = (tr.n, tr.values[t * tr.n + 140], tr.px[i]);
+        let px = self
+            .transect_pixel([(n * 2) as u32, (t_n * 2) as u32], 2 * i as u32 + 1, 2 * t as u32 + 1)
+            .ok_or("no image")?;
+        let (cmap, lo, hi) = self.transect_colors();
+        let e = janus_gpu::colormaps::all()[cmap].sample(((v - lo) / (hi - lo)).clamp(0.0, 1.0));
+        let label = &self.session.as_ref().ok_or("no series")?.info.layers[t].label;
+        println!(
+            "    transect image at ({x}, {label}): value {v:.3} -> rgb{px:?}, colormap rgb{:?}",
+            [e[0], e[1], e[2]]
+        );
+        if (0..3).any(|k| px[k].abs_diff(e[k]) > 4) {
+            return Err("the transect image should use the layer's colormap and range".into());
+        }
+        // a polyline on B: east along row 100, south along column 150, east again past B's edge (x = 300):
+        // distances add up segment by segment, the samples off the layer stay without data, the others are B's
+        self.set_transect(vec![[10.5, 100.5], [150.5, 100.5], [150.5, 180.5], [400.5, 180.5]]);
+        let tr = &self.transect;
+        if !tr.on || tr.pts.len() != 4 || tr.vdist.len() != 4 {
+            return Err("the polyline should keep its 4 vertices".into());
+        }
+        let want = [0.0, 140.0 * 30.0, 220.0 * 30.0, 470.0 * 30.0];
+        if tr.vdist.iter().zip(want).any(|(d, w)| (d - w).abs() > 1e-6) {
+            return Err("the polyline's distances should add up along it".into());
+        }
+        self.transect_read()?;
+        let tr = &self.transect;
+        let (mut off, mut bad, mut max_err) = (0, 0, 0f64);
+        for i in 0..tr.n {
+            let outside = tr.at[i][0] >= 300.0;
+            off += usize::from(tr.px[i] < 0);
+            bad += usize::from(outside != (tr.px[i] < 0));
+            for t in 0..t_n {
+                let v = tr.values[t * tr.n + i];
+                if tr.px[i] < 0 {
+                    bad += usize::from(!v.is_nan());
+                } else {
+                    max_err = max_err.max((f64::from(v) - exact(tr.px[i], t)).abs());
+                }
+            }
+        }
+        println!(
+            "    polyline transect: {} samples, {:.0} m, bends at {:.0} and {:.0} m, {off} samples off B, max error {max_err:.1e}",
+            tr.n, tr.length, tr.vdist[1], tr.vdist[2]
+        );
+        if tr.n != 471 || !(90..=110).contains(&off) || bad > 0 || max_err > 1e-5 {
+            return Err("the polyline should have 471 samples, ~100 off B (no data), B's values elsewhere".into());
+        }
+        // another active layer: the same line on its grid (A's pixels = B's + 100)
+        self.set_transect(vec![[10.5, 100.5], [290.5, 100.5]]);
+        self.transect_read()?;
+        let b = self.active;
+        self.set_active(1 - b, ctx);
+        self.pump_transect(ctx);
+        let (ax, an) = (self.transect.pts.first().map_or(f64::NAN, |p| p[0]), self.transect.n);
+        self.set_active(b, ctx);
+        self.pump_transect(ctx);
+        let (bx, bn) = (self.transect.pts.first().map_or(f64::NAN, |p| p[0]), self.transect.n);
+        println!(
+            "    transect: starts at x {ax:.1} on A ({an} samples, clipped to A), {bx:.1} on B again ({bn} samples)"
+        );
+        if !self.transect.on || (ax - 110.5).abs() > 1e-3 || an != 191 || (bx - 10.5).abs() > 1e-3 || bn != 281 {
+            return Err("the transect should follow the active layer".into());
+        }
+        Ok(())
+    }
+
+    /// D / E: pasture (15) left of column 40, forest (3) right of it, at the first date: the transect in the class
+    /// colours.
+    fn test_transect_classes(&mut self) -> Result<(), String> {
+        self.set_date(0);
+        self.set_transect(vec![[10.5, 60.5], [190.5, 60.5]]);
+        self.transect_read()?;
+        let (n, t_n) = (self.transect.n as u32, self.transect.t_n as u32);
+        for (i, cls) in [(5usize, 15), (100, 3)] {
+            let px = self.transect_pixel([n, t_n], i as u32, 0).ok_or("no image")?;
+            let e = self.classes.find(cls).ok_or("no such class")?.color;
+            let (x, v) = (self.transect.px[i], self.transect.values[i]);
+            println!("    transect at column {x}: class {v}, rgb{px:?}, class colour rgb{e:?}");
+            if v != cls as f32 || (0..3).any(|k| px[k].abs_diff(e[k]) > 2) {
+                return Err("the transect should be drawn in class colours".into());
+            }
+        }
+        Ok(())
     }
 }
 

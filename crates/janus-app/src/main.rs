@@ -27,6 +27,7 @@ mod session;
 mod settings;
 mod theme;
 mod tour;
+mod transect;
 mod ui_test;
 mod views;
 mod zeit;
@@ -65,6 +66,7 @@ Options:
   --swipe             the swipe once the series are open
   --pin X,Y           a pin at source pixel (X, Y) once the series is open (repeatable)
   --roi X0,Y0,X1,Y1   an ROI rectangle once the series is open (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
+  --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline) once the series is open
   --zeit TOOL         the Zeit tool fitted on the chart (e.g. landtrendr), its window open
   --zeit-run          and run on the raster (the ROI's window if --roi) once the series is loaded
   --selftest-ui A B [C [D [E]]]  the layers workflow on the test series of tools/make_selftest_data.py:
@@ -149,6 +151,10 @@ fn main() -> eframe::Result<()> {
                 } else if v.len() >= 6 && v.len().is_multiple_of(2) {
                     opts.roi_polygon = v;
                 }
+            }
+            "--transect" => {
+                opts.transect =
+                    args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
             }
             "--selftest-reproject" => opts.selftest_reproject = true,
             "--selftest-ui" => opts.selftest_ui = true,

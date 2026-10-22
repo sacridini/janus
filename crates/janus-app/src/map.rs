@@ -196,7 +196,7 @@ impl State {
         let shift = ui.input(|i| i.modifiers.shift);
         // R: a polygon's vertices or a freehand outline (no pan, no pin)
         let at_pointer = resp.interact_pointer_pos().or(resp.hover_pos()).map(|p| src_at(m, p));
-        let drawing = self.polygon_input(ui, resp, at_pointer);
+        let drawing = self.transect_input(ui, resp, at_pointer) || self.polygon_input(ui, resp, at_pointer);
         let poly_on = self.series.poly.on || drawing;
         let m = &mut self.map;
         // Shift + drag: an ROI rectangle (no pan, no pin)
@@ -323,6 +323,7 @@ impl State {
             painter.galley(tp, galley, pin.color);
         }
         self.draw_roi_marks(painter, rect, &at);
+        self.draw_transect_marks(painter, rect, &at);
     }
 
     /// A colour bar at the bottom left of a canvas: the colormap and its range's ends.

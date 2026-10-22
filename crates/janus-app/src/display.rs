@@ -78,6 +78,11 @@ impl Range {
     pub fn invalidate(&mut self) {
         self.key = u64::MAX;
     }
+
+    /// Computed from a sample, or set by hand.
+    pub fn is_set(&self) -> bool {
+        self.manual || self.key != u64::MAX
+    }
 }
 
 /// 0-1 until a sample sets it (the C++'s): a mode without values (no drop in the series) keeps it.
@@ -168,7 +173,7 @@ fn percentiles(s: &mut [f32], q_lo: f64, q_hi: f64) -> (f32, f32) {
 
 /// Automatic stretch of a sample: 2-98 %, symmetric around 0 for anomalies, differences and trends, 0-1 for R²,
 /// every date for the drop's date.
-fn auto_range(mode: Mode, s: &mut [f32]) -> (f32, f32) {
+pub(crate) fn auto_range(mode: Mode, s: &mut [f32]) -> (f32, f32) {
     match mode {
         Mode::R2 => (0.0, 1.0),
         Mode::DropDate => percentiles(s, 0.0, 1.0),

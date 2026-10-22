@@ -859,8 +859,22 @@ impl Gpu {
     ) {
         let mut p = LayerParams::new(Mode::Value, [0, 0, 0], range);
         p.warp = warp.cloned();
-        let uniform = self.layer_uniform(f, rect, &p, 1, alpha);
-        let textures = self.textures(Some(cmap), Some(tex), None, Some(&p));
+        self.draw_values(f, tex, rect, &p, cmap, alpha);
+    }
+
+    /// A float texture of values that belongs to no cube (a result map, a transect's image), drawn as a detail
+    /// tile in `p`'s range and class colours.
+    pub fn draw_values(
+        &self,
+        f: &mut MapFrame,
+        tex: &GpuTexture,
+        rect: [f32; 4],
+        p: &LayerParams,
+        cmap: usize,
+        alpha: f32,
+    ) {
+        let uniform = self.layer_uniform(f, rect, p, 1, alpha);
+        let textures = self.textures(Some(cmap), Some(tex), None, Some(p));
         f.draws.push(PendingDraw { uniform, cube_group: self.no_cube(), textures });
     }
 

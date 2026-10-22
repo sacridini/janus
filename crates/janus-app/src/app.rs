@@ -27,6 +27,8 @@ pub enum Tab {
     TimeSeries,
     Statistics,
     Performance,
+    /// while there is a transect, next to the time series
+    Transect,
 }
 
 impl Tab {
@@ -46,6 +48,7 @@ impl Tab {
             Tab::TimeSeries => "Time series",
             Tab::Statistics => "Statistics",
             Tab::Performance => "Performance",
+            Tab::Transect => "Transect",
         }
     }
 }
@@ -80,7 +83,7 @@ fn load_layout() -> Option<DockState<Tab>> {
 /// The dock as kept: the map panels left out.
 fn layout_text(dock: &DockState<Tab>) -> Option<String> {
     let mut d = dock.clone();
-    while let Some(p) = d.find_tab_from(|t| matches!(t, Tab::MapView(_))) {
+    while let Some(p) = d.find_tab_from(|t| matches!(t, Tab::MapView(_) | Tab::Transect)) {
         d.remove_tab(p);
     }
     serde_json::to_string(&d).ok()
@@ -120,6 +123,8 @@ pub struct Options {
     pub roi: Option<[i64; 4]>,
     /// --roi with more than two corners: a polygon's vertices (x, y, ...)
     pub roi_polygon: Vec<f64>,
+    /// --transect: its vertices (x, y, ...)
+    pub transect: Vec<f64>,
     /// --zeit TOOL: that Zeit tool fitted on the chart, its window open
     pub zeit_tool: Option<String>,
     /// --zeit-run: the --zeit tool run on the raster (its ROI if --roi, else the whole image) once the series is
@@ -204,6 +209,9 @@ pub struct State {
     pub map: MapView,
     /// the cursor's series, the pins, the ROI
     pub series: crate::series::SeriesState,
+    /// the space-time transect and the one being drawn
+    pub transect: crate::transect::Transect,
+    pub transect_draft: crate::transect::TransectDraft,
     pub chart: crate::chart::ChartOptions,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
@@ -334,12 +342,15 @@ impl TabViewer for Tabs<'_> {
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {
-        matches!(tab, Tab::MapView(_))
+        matches!(tab, Tab::MapView(_) | Tab::Transect)
     }
 
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
         if let Tab::MapView(id) = tab {
             self.s.close_map_view(*id);
+        }
+        if *tab == Tab::Transect {
+            self.s.clear_transect();
         }
         egui_dock::tab_viewer::OnCloseResponse::Close
     }
@@ -349,6 +360,7 @@ impl TabViewer for Tabs<'_> {
             Tab::Map => self.s.map_ui(ui),
             Tab::MapView(id) => self.s.map_view_ui(ui, *id),
             Tab::TimeSeries => self.s.series_ui(ui),
+            Tab::Transect => self.s.transect_ui(ui),
             _ => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match tab {
                     Tab::Layers => {
@@ -407,6 +419,8 @@ impl JanusApp {
                 classes: Default::default(),
                 map: MapView::default(),
                 series: Default::default(),
+                transect: Default::default(),
+                transect_draft: Default::default(),
                 chart: Default::default(),
                 band_sel: None,
                 spectral_index: 0,
@@ -598,6 +612,10 @@ impl State {
             }
             if !self.opts.roi_polygon.is_empty() {
                 self.set_roi_polygon(vec![self.opts.roi_polygon.clone()]);
+            }
+            if self.opts.transect.len() >= 4 {
+                let pts = self.opts.transect.as_chunks::<2>().0.to_vec();
+                self.set_transect(pts);
             }
             if let Some(id) = self.opts.zeit_tool.clone() {
                 self.zeit.tools.entry(id.clone()).or_default().open = true;
@@ -804,6 +822,7 @@ impl State {
             self.series.roi_drag = None;
         }
         self.roi_shortcuts(ctx);
+        self.transect_shortcuts(ctx);
         act
     }
 
@@ -882,6 +901,20 @@ impl State {
                 let mut swipe = self.swipe.is_some();
                 if ui.add_enabled(has, egui::Checkbox::new(&mut swipe, "Swipe (C)")).clicked() {
                     self.toggle_swipe();
+                }
+                let mut transect = self.transect_draft.mode;
+                if ui
+                    .add_enabled(has, egui::Checkbox::new(&mut transect, "Draw transect (T or Ctrl+drag)"))
+                    .on_hover_text(
+                        "Then drag: a straight line; or click its vertices: a polyline (double click\n\
+                         or Enter ends it).",
+                    )
+                    .clicked()
+                {
+                    self.transect_draft.mode = transect;
+                }
+                if item(ui, "Clear transect", "", self.transect.on) {
+                    self.clear_transect();
                 }
                 let mut poly = self.series.poly.on;
                 if ui.add_enabled(has, egui::Checkbox::new(&mut poly, "Draw ROI polygon (R)")).clicked() {
@@ -1050,6 +1083,7 @@ impl eframe::App for JanusApp {
         s.pump_basemap(&ctx);
         s.pump_composite(&ctx);
         s.pump_zeit(&ctx);
+        s.pump_transect(&ctx);
         s.pump_zeit_jobs(&ctx);
         s.scripted_zeit_run(&ctx);
         let rc = if s.opts.dump_golden.is_some() {
@@ -1103,6 +1137,18 @@ impl eframe::App for JanusApp {
             for w in self.windows.drain(..) {
                 drop(w);
             }
+        }
+        // the Transect panel while there is one, as a tab next to the time series
+        let transect_tab = self.dock.find_tab(&Tab::Transect);
+        if self.state.transect.on && transect_tab.is_none() {
+            if let Some(p) = self.dock.find_tab(&Tab::TimeSeries) {
+                self.dock.set_focused_node_and_surface(p.node_path());
+            }
+            self.dock.push_to_focused_leaf(Tab::Transect);
+        } else if !self.state.transect.on
+            && let Some(p) = transect_tab
+        {
+            self.dock.remove_tab(p);
         }
         // new map panels to the right of the main map (splitting its area); those closed by a key or the menu
         for id in std::mem::take(&mut self.state.views_added) {

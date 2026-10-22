@@ -37,7 +37,7 @@ pub(crate) fn start_roi(s: &Session, r: [usize; 4], poly: &Polygon) -> Arc<RoiDa
 
 impl State {
     /// Screen points per pixel of the active layer.
-    fn screen_per_px(&self) -> f64 {
+    pub(crate) fn screen_per_px(&self) -> f64 {
         self.grid().map_or(1.0, |g| self.map.scale / g.fx)
     }
 
