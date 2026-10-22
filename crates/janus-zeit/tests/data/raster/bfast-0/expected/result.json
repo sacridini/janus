@@ -1,0 +1,38 @@
+{
+ "outputs": [
+  {
+   "id": "n_trend_breaks",
+   "name": "Trend breaks",
+   "colormap": "Viridis",
+   "unit": "count",
+   "path": "bfast_n_trend_breaks.tif"
+  },
+  {
+   "id": "n_season_breaks",
+   "name": "Season breaks",
+   "colormap": "Viridis",
+   "unit": "count",
+   "path": "bfast_n_season_breaks.tif"
+  },
+  {
+   "id": "break_date",
+   "name": "Largest trend break date",
+   "colormap": "Viridis",
+   "unit": "year",
+   "path": "bfast_break_date.tif"
+  },
+  {
+   "id": "magnitude",
+   "name": "Largest trend break magnitude",
+   "colormap": "RdBu",
+   "unit": "value",
+   "path": "bfast_magnitude.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}

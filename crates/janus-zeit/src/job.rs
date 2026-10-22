@@ -436,6 +436,9 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
     match tool {
         "landtrendr" => crate::landtrendr::chunk(p, chunk, ctx),
         "mann_kendall" => crate::mann_kendall::chunk(p, chunk, ctx),
+        "bfast" => crate::bfast::bfast_chunk(p, chunk, ctx),
+        "bfast_lite" => crate::bfast::lite_chunk(p, chunk, ctx),
+        "bfast_monitor" => crate::bfast::monitor_chunk(p, chunk, ctx),
         _ => Err(format!("{tool}: raster runs not available in this version")),
     }
 }

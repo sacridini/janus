@@ -1,0 +1,38 @@
+{
+ "outputs": [
+  {
+   "id": "n_breaks",
+   "name": "Breaks",
+   "colormap": "Viridis",
+   "unit": "count",
+   "path": "bfast_lite_n_breaks.tif"
+  },
+  {
+   "id": "break_date",
+   "name": "Largest break date",
+   "colormap": "Viridis",
+   "unit": "year",
+   "path": "bfast_lite_break_date.tif"
+  },
+  {
+   "id": "magnitude",
+   "name": "Largest break magnitude",
+   "colormap": "RdBu",
+   "unit": "value",
+   "path": "bfast_lite_magnitude.tif"
+  },
+  {
+   "id": "first_break",
+   "name": "First break date",
+   "colormap": "Viridis",
+   "unit": "year",
+   "path": "bfast_lite_first_break.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}

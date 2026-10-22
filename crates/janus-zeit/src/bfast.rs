@@ -30,7 +30,7 @@ fn f32_of(v: f64) -> f64 {
 /// The decimal year of each observation of the series as Zeit dates its breaks (zeit/_series_api.py
 /// `_with_break_dates`): its dates, or the regular axis to the day without them.
 fn obs_dates(input: &PixelInput, start: f64, frequency: i32) -> Vec<f64> {
-    let n = input.values.len();
+    let n = input.years.len();
     match &input.days {
         Some(d) => d.iter().map(|&x| decimal_year(x)).collect(),
         None => {
@@ -440,4 +440,131 @@ pub fn monitor_pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, Stri
     rows.push(row("Magnitude (median residual)", if magnitude.is_finite() { g(magnitude, 5) } else { "-".into() }));
     rows.push(row("History residual sigma", if sigma.is_finite() { g(sigma, 5) } else { "-".into() }));
     Ok(PixelResult { overlays, rows })
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Raster runs
+// ---------------------------------------------------------------------------------------------------------------
+
+use crate::job::{Chunk, ChunkOut, JobCtx};
+
+/// Metric `m` of every pixel of a zeit-core batch (metrics x pixels), as Zeit's Dataset keeps it (float32).
+fn metric(out: &[f64], m: usize, n: usize) -> Vec<f64> {
+    out[m * n..(m + 1) * n].iter().map(|&v| f32_of(v)).collect()
+}
+
+fn days_of(ctx: &JobCtx) -> Result<&Vec<i64>, String> {
+    ctx.input.days.as_ref().ok_or_else(|| "ValueError: the time axis has no dates: pass dates=".to_string())
+}
+
+pub fn bfast_chunk(p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<ChunkOut, String> {
+    let (start, frequency) = regular_time(days_of(ctx)?)?;
+    let (k, ks) = (p.int("max_breaks_trend").max(0) as usize, p.int("max_breaks_season").max(0) as usize);
+    let params = bf::Params {
+        start_time: start,
+        frequency,
+        h: p.f64("h"),
+        max_breaks_trend: k as i32,
+        max_breaks_season: ks as i32,
+        max_iter: p.int("max_iter") as i32,
+        level: p.f64("level"),
+        min_valid: p.int("min_valid") as i32,
+    };
+    let n = chunk.pixels();
+    let out = bf::batch(&chunk.by_pixel(&chunk.stack), n, chunk.t, p.int("order") as i32, &params, ctx.n_jobs);
+    let dates = obs_dates(&ctx.input, start, frequency);
+    let valid = metric(&out, 6, n);
+    let mags: Vec<Vec<f64>> = (0..k).map(|j| metric(&out, 7 + k + ks + j, n)).collect();
+    let bdates: Vec<Vec<f64>> =
+        (0..k).map(|j| metric(&out, 7 + 2 * k + ks + j, n).iter().map(|&i| take(&dates, i)).collect()).collect();
+    let (n_trend, n_season) = (metric(&out, 0, n), metric(&out, 1, n));
+    let mut res = ChunkOut::new();
+    let (mut date, mut mag) = (vec![f64::NAN; n], vec![f64::NAN; n]);
+    for px in 0..n {
+        let m: Vec<f64> = mags.iter().map(|v| v[px]).collect();
+        let d: Vec<f64> = bdates.iter().map(|v| v[px]).collect();
+        (date[px], mag[px]) = largest(&m, &d);
+    }
+    let gate = |v: &[f64]| -> Vec<f64> { (0..n).map(|i| if valid[i] == 1.0 { v[i] } else { f64::NAN }).collect() };
+    res.insert("n_trend_breaks".into(), gate(&n_trend));
+    res.insert("n_season_breaks".into(), gate(&n_season));
+    res.insert("break_date".into(), gate(&date));
+    res.insert("magnitude".into(), gate(&mag));
+    Ok(res)
+}
+
+pub fn lite_chunk(p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<ChunkOut, String> {
+    let (start, frequency) = regular_time(days_of(ctx)?)?;
+    let k = p.int("max_breaks").max(0) as usize;
+    let n = chunk.pixels();
+    let out = bfl::batch(
+        &chunk.by_pixel(&chunk.stack),
+        n,
+        chunk.t,
+        start,
+        frequency,
+        p.int("order") as i32,
+        p.f64("h"),
+        k as i32,
+        p.int("min_valid") as i32,
+        ctx.n_jobs,
+    );
+    let dates = obs_dates(&ctx.input, start, frequency);
+    let valid = metric(&out, 4, n);
+    let mags: Vec<Vec<f64>> = (0..k).map(|j| metric(&out, 5 + k + j, n)).collect();
+    let bdates: Vec<Vec<f64>> =
+        (0..k).map(|j| metric(&out, 5 + 2 * k + j, n).iter().map(|&i| take(&dates, i)).collect()).collect();
+    let n_breaks = metric(&out, 0, n);
+    let (mut date, mut mag, mut first) = (vec![f64::NAN; n], vec![f64::NAN; n], vec![f64::NAN; n]);
+    for px in 0..n {
+        let m: Vec<f64> = mags.iter().map(|v| v[px]).collect();
+        let d: Vec<f64> = bdates.iter().map(|v| v[px]).collect();
+        (date[px], mag[px]) = largest(&m, &d);
+        // the first break: the earliest date
+        if d.iter().any(|x| x.is_finite()) {
+            first[px] = d.iter().copied().filter(|x| x.is_finite()).fold(f64::INFINITY, f64::min);
+        }
+    }
+    let gate = |v: &[f64]| -> Vec<f64> { (0..n).map(|i| if valid[i] == 1.0 { v[i] } else { f64::NAN }).collect() };
+    let mut res = ChunkOut::new();
+    res.insert("n_breaks".into(), gate(&n_breaks));
+    res.insert("break_date".into(), gate(&date));
+    res.insert("magnitude".into(), gate(&mag));
+    res.insert("first_break".into(), gate(&first));
+    Ok(res)
+}
+
+pub fn monitor_chunk(p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<ChunkOut, String> {
+    let input = &ctx.input;
+    let i = monitor_index(p, input);
+    let (start, freq) = (input.years[0], input.per_year());
+    let h: f64 = p.str("h").parse().map_err(|_| "ValueError: h")?;
+    let period = p.str("period").parse::<f64>().map_err(|_| "ValueError: period")? as i32;
+    let alpha: f64 = p.str("alpha").parse().map_err(|_| "ValueError: alpha")?;
+    let n = chunk.pixels();
+    let out = bfm::batch(
+        &chunk.by_pixel(&chunk.stack),
+        n,
+        chunk.t,
+        start,
+        start + (i as f64 - 0.5) / freq as f64,
+        freq as i32,
+        p.int("order") as i32,
+        h,
+        period,
+        alpha,
+        p.int("min_valid") as i32,
+        ctx.n_jobs,
+    )
+    .map_err(|e| format!("ValueError: {e}"))?;
+    let dates = obs_dates(input, start, freq as i32);
+    let (idx, magnitude, has, valid) = (metric(&out, 1, n), metric(&out, 2, n), metric(&out, 5, n), metric(&out, 6, n));
+    let mut res = ChunkOut::new();
+    res.insert(
+        "break_date".into(),
+        (0..n).map(|k| if valid[k] == 1.0 && has[k] == 1.0 { take(&dates, idx[k]) } else { f64::NAN }).collect(),
+    );
+    res.insert("magnitude".into(), (0..n).map(|k| if valid[k] == 1.0 { magnitude[k] } else { f64::NAN }).collect());
+    res.insert("has_break".into(), (0..n).map(|k| if valid[k] == 1.0 { has[k] } else { f64::NAN }).collect());
+    Ok(res)
 }

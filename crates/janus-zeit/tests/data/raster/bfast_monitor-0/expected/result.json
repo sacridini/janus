@@ -1,0 +1,31 @@
+{
+ "outputs": [
+  {
+   "id": "break_date",
+   "name": "Break date",
+   "colormap": "Viridis",
+   "unit": "year",
+   "path": "bfast_monitor_break_date.tif"
+  },
+  {
+   "id": "magnitude",
+   "name": "Magnitude (median residual)",
+   "colormap": "RdBu",
+   "unit": "value",
+   "path": "bfast_monitor_magnitude.tif"
+  },
+  {
+   "id": "has_break",
+   "name": "Break detected",
+   "colormap": "Greys",
+   "unit": "0/1",
+   "path": "bfast_monitor_has_break.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}

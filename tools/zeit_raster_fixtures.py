@@ -62,7 +62,24 @@ def mann_kendall_cases(rng):
     return out
 
 
-CASES = {"landtrendr": landtrendr_cases, "mann_kendall": mann_kendall_cases}
+def bfast_family_cases(variants):
+    def cases(rng):
+        out = []
+        for k, params in enumerate(variants):
+            years, days = zf.regular(n=120) if k % 2 == 0 else zf.monthly(2012, 8)
+            series = [zf.seasonal_breaks(rng, days, j) for j in range(H * W)]
+            out.append({"params": params, "years": years, "days": days, "input": grid(series)})
+        return out
+    return cases
+
+
+CASES = {
+    "landtrendr": landtrendr_cases,
+    "mann_kendall": mann_kendall_cases,
+    "bfast": bfast_family_cases([{}, {"h": 0.25, "max_breaks_trend": 2}]),
+    "bfast_lite": bfast_family_cases([{}, {"max_breaks": 2, "order": 2}]),
+    "bfast_monitor": bfast_family_cases([{}, {"monitor_start": 2016.5, "h": "0.5"}]),
+}
 
 
 def main():
