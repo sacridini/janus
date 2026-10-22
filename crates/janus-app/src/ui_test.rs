@@ -33,6 +33,8 @@ pub struct UiTest {
     /// the season checked (0: none of the dates, 1: some) and the statistics computed before it
     season: usize,
     stats_gen: u64,
+    /// the NDVI's bands (1-based) on the spectrum, for its layer
+    index_bands: (i32, i32),
     /// the exit code, once decided (the window takes another frame to close)
     result: Option<i32>,
 }
@@ -733,14 +735,264 @@ impl State {
                     self.open_inputs(vec![e], false, ctx);
                     next(st, "open E (categorical, plain values)");
                 } else {
-                    // F (another CRS): the polygonal ROI (110-114)
-                    if input(4).is_none() {
+                    // G: spectra (90-97); F (another CRS): the polygonal ROI (110-114)
+                    st.stage = if input(5).is_some() {
+                        90
+                    } else if input(4).is_some() {
+                        110
+                    } else {
                         return ok();
-                    }
-                    st.stage = 110;
+                    };
                 }
             }
+            90..=97 => return self.test_spectra(st, &input, t0, ctx),
             110..=114 => return self.test_roi_polygon(st, &input, t0, ctx),
+            _ => {}
+        }
+        None
+    }
+}
+
+/// G's wavelengths (tools/make_selftest_data.py): 420-1000 nm every 20, 1030-2440 every 30 but 1780-1930.
+fn g_wavelengths() -> Vec<f64> {
+    let mut nm: Vec<f64> = (420..=1000).step_by(20).map(f64::from).collect();
+    nm.extend((1030..=2440).step_by(30).filter(|&v| !(1780..=1930).contains(&v)).map(f64::from));
+    nm
+}
+
+/// G's reflectance at band t (nm[t]) of pixel (x, y): NaN in the water absorption.
+fn g_expected(nm: &[f64], t: usize, x: usize, y: usize) -> f64 {
+    if (1340.0..=1390.0).contains(&nm[t]) {
+        return f64::NAN;
+    }
+    let r = 0.03 + 0.4 * (x as f64 / 119.0) / (1.0 + (-(nm[t] - 720.0) / 25.0).exp()) + 0.001 * (y % 10) as f64;
+    (r * 10000.0).round() * 0.0001
+}
+
+impl State {
+    /// The spectrum open: its axis (sorted wavelengths in nm, the chart broken at the gap without bands), the
+    /// true-colour start at the near infrared, the values of every band, and that the Zeit tools do not apply.
+    fn check_spectrum(&self) -> Result<(), &'static str> {
+        let nm = g_wavelengths();
+        let s = self.session.as_ref().ok_or("no series")?;
+        let info = &s.info;
+        let runs = janus_cube::spectral::plot_runs(info);
+        let file = std::path::Path::new(&info.first_path).file_name().map(|f| f.to_string_lossy().to_string());
+        println!(
+            "    {}: {}, {} to {}, {} piece(s) on the chart",
+            file.unwrap_or_default(),
+            info.description,
+            info.layers[0].label,
+            info.layers[info.t() - 1].label,
+            runs.len()
+        );
+        if !info.spectral || info.time_is_date {
+            return Err("the file should open as a spectrum");
+        }
+        if info.t() != nm.len() {
+            return Err("one layer per band expected");
+        }
+        if info.layers.iter().zip(&nm).any(|(l, &w)| (l.time - w).abs() > 1e-6) {
+            return Err("wavelengths should be read in nm and sorted");
+        }
+        if info.layers[0].label != "420.0 nm" {
+            return Err("layers should be labelled by wavelength");
+        }
+        if runs.len() != 2 || info.layers[runs[1].0].time != 1960.0 {
+            return Err("the chart should break at 1750-1960 nm");
+        }
+        if self.classes.state != ClassState::Off {
+            return Err("reflectances are not classes");
+        }
+        let on_series = janus_zeit::manifest().tools.iter().filter(|t| t.input.as_deref() != Some("layers"));
+        if on_series.into_iter().any(|t| crate::zeit::applicability(t, info).is_none()) {
+            return Err("the Zeit tools work along time, not on a spectrum");
+        }
+        let rgb = janus_cube::spectral::composite_layers(info, &janus_cube::spectral::COMPOSITES[0]);
+        if rgb.is_none() || self.display.mode != Mode::Rgb || Some(self.display.rgb) != rgb {
+            return Err("a spectrum should open in true colour");
+        }
+        if info.layers[self.display.t].time != 860.0 {
+            return Err("a spectrum should open at the near infrared (860 nm)");
+        }
+        let (mut finite, mut missing) = (0, 0);
+        for [x, y] in [[5, 7], [60, 33], [119, 79], [90, 2]] {
+            let v = approx_series(s, x, y);
+            for (t, &v) in v.iter().enumerate() {
+                let e = g_expected(&nm, t, x, y);
+                if e.is_nan() != v.is_nan() || (!e.is_nan() && (e - f64::from(v)).abs() > 1e-5) {
+                    println!("    pixel ({x}, {y}) at {}: {v}, expected {e}", info.layers[t].label);
+                    return Err("the spectrum's values differ from the file");
+                }
+                finite += usize::from(!e.is_nan());
+                missing += usize::from(e.is_nan());
+            }
+        }
+        println!("    {finite} values as written, {missing} no-data (water absorption)");
+        Ok(())
+    }
+
+    /// Stages 90-97 (src/app_selftest.cpp, selfTestSpectra): G = synthetic spectra. 90 opens the ENVI file
+    /// (wavelengths in its header, longest first); 91 checks it; 92 opens G, which has no rasters but an EnMAP
+    /// product folder (GeoTIFF without wavelengths, METADATA.XML beside it, a quality layer that must not be
+    /// opened), as its zip extracts; 93 checks that the same spectrum comes out; 94-95 add its NDVI as a layer (one
+    /// dated map); 96-97 open G/series, three products as a series of scenes in NDVI. (The C++'s 98-100, the
+    /// spectrum's principal components and similarity, come with the embeddings.)
+    fn test_spectra(
+        &mut self,
+        st: &mut UiTest,
+        input: &dyn Fn(usize) -> Option<String>,
+        t0: std::time::Instant,
+        ctx: &egui::Context,
+    ) -> Option<i32> {
+        let fail = |what: &str| {
+            println!("FAIL: {what}");
+            Some(1)
+        };
+        let next = |st: &mut UiTest, done: &str| {
+            println!("[{:5.1} s] {done}", t0.elapsed().as_secs_f64());
+            st.stage += 1;
+            st.since = Some(std::time::Instant::now());
+        };
+        let g = std::path::PathBuf::from(input(5)?);
+        let nm = g_wavelengths();
+        let ready = |s: &State| {
+            s.opening.is_none()
+                && s.layers.len() == 1
+                && loaded(s.session.as_ref())
+                && s.classes.state != ClassState::Undecided
+        };
+        // the NDVI's bands (1-based) and the shown series of a pixel
+        let ndvi = |s: &State| -> Option<(i32, i32)> {
+            let info = &s.session.as_ref()?.info;
+            janus_cube::spectral::index_bands(&info.band_nm, &janus_cube::spectral::INDICES[0])
+        };
+        match st.stage {
+            90 => {
+                self.open_inputs(vec![g.join("envi").join("spectrum.bsq").to_string_lossy().into()], false, ctx);
+                next(st, "open G (ENVI spectrum)");
+            }
+            91 => {
+                if !ready(self) {
+                    return None;
+                }
+                if let Err(e) = self.check_spectrum() {
+                    return fail(e);
+                }
+                next(st, "ENVI spectrum: wavelengths, chart gaps, true colour, values");
+            }
+            92 => {
+                // G itself: no rasters, the product in a subfolder (as its zip extracts)
+                self.open_inputs(vec![g.to_string_lossy().into()], false, ctx);
+                next(st, "open G, whose subfolder is an EnMAP product (GeoTIFF + METADATA.XML)");
+            }
+            93 => {
+                if !ready(self) {
+                    return None;
+                }
+                let first = std::path::PathBuf::from(&self.session.as_ref()?.info.first_path);
+                if !janus_cube::remote::is_enmap_spectral_image(&first) {
+                    return fail("the folder should open its spectral image alone");
+                }
+                if let Err(e) = self.check_spectrum() {
+                    return fail(e);
+                }
+                next(st, "EnMAP product: wavelengths from METADATA.XML, quality layers left out");
+            }
+            94 => {
+                let spectrum_bands = ndvi(self);
+                if !self.add_spectral_index_layer(&janus_cube::spectral::INDICES[0], ctx) {
+                    return fail("NDVI should be offered on the spectrum");
+                }
+                st.index_bands = spectrum_bands.unwrap_or_default();
+                next(st, "add NDVI of the EnMAP scene as a layer");
+            }
+            95 => {
+                if self.opening.is_some() || self.layers.len() != 2 || !self.session.as_ref()?.s.overview.complete() {
+                    return None;
+                }
+                let s = self.session.as_ref()?;
+                let info = &s.info;
+                let (a, b) = st.index_bands;
+                let name = &self.layers.get(self.active)?.name;
+                println!("    {name}: {}, {}, {} date(s)", info.description, info.layers[0].label, info.t());
+                if info.spectral || info.t() != 1 || info.sel.band != a || info.sel.nd_band != b {
+                    return fail("the index should be one map of two bands");
+                }
+                if nm[a as usize - 1] != 860.0 || (nm[b as usize - 1] - 650.0).abs() != 10.0 {
+                    return fail("NDVI should use 860 and 640 or 660 nm");
+                }
+                if !info.time_is_date || info.layers[0].label != "2022-08-10" {
+                    return fail("the index should take the scene's date");
+                }
+                if !name.starts_with("NDVI - ") {
+                    return fail("the index layer should be named after it");
+                }
+                for [x, y] in [[5, 7], [60, 33], [119, 79]] {
+                    let (ea, eb) = (g_expected(&nm, a as usize - 1, x, y), g_expected(&nm, b as usize - 1, x, y));
+                    let e = (ea - eb) / (ea + eb);
+                    let v = approx_series(s, x, y);
+                    if v.len() != 1 || (f64::from(v[0]) - e).abs() > 1e-5 {
+                        println!("    ({x}, {y}): {:?}, expected {e}", v.first());
+                        return fail("the index's values differ");
+                    }
+                }
+                next(st, "NDVI of a scene: one map, dated, values of (NIR - red) / (NIR + red)");
+            }
+            96 => {
+                self.open_inputs(vec![g.join("series").to_string_lossy().into()], false, ctx);
+                next(st, "open G/series (three EnMAP products, a series of scenes)");
+            }
+            97 => {
+                if self.opening.is_some() || self.layers.len() != 1 || !self.session.as_ref()?.s.overview.complete() {
+                    return None;
+                }
+                let (a, b) = ndvi(self)?;
+                let s = self.session.as_ref()?;
+                let info = &s.info;
+                println!(
+                    "    {}; band names \"{}\"...; {} to {}",
+                    info.description,
+                    info.band_names.first()?,
+                    info.layers[0].label,
+                    info.layers[info.t() - 1].label
+                );
+                if info.spectral
+                    || info.t() != 3
+                    || !info.time_is_date
+                    || info.bands_per_date != nm.len()
+                    || info.band_nm.len() != nm.len()
+                {
+                    return fail("three dates of every band expected");
+                }
+                if info.layers[1].label != "2023-07-05" {
+                    return fail("the dates should come from the product names");
+                }
+                if !info.band_names[0].contains("420.0 nm") {
+                    return fail("band names should give the wavelength");
+                }
+                if info.sel.band != a || info.sel.nd_band != b {
+                    return fail("a series with wavelengths should open in NDVI");
+                }
+                for [x, y] in [[5, 7], [60, 33]] {
+                    let v = approx_series(s, x, y);
+                    for k in 0..3 {
+                        let ea = g_expected(&nm, a as usize - 1, x, y) + 0.01 * k as f64;
+                        let eb = g_expected(&nm, b as usize - 1, x, y) + 0.01 * k as f64;
+                        let e = (ea - eb) / (ea + eb);
+                        if v.len() != 3 || (f64::from(v[k]) - e).abs() > 1e-5 {
+                            println!("    ({x}, {y}) at {k}: {:?}, expected {e}", v.get(k));
+                            return fail("the series' NDVI differs");
+                        }
+                    }
+                }
+                next(st, "series of scenes: dates from the names, wavelengths in the band names, NDVI");
+                if input(4).is_none() {
+                    println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
+                    return Some(0);
+                }
+                st.stage = 110; // the polygonal ROI
+            }
             _ => {}
         }
         None

@@ -315,18 +315,30 @@ impl State {
         let r = ui
             .add_enabled(!busy, egui::Button::new("Add as a layer").min_size(vec2(ui.available_width(), 0.0)))
             .on_hover_text(format!(
-                "(A - B) / (A + B) with A = {:.1} nm and B = {:.1} nm (the nearest bands),
-as a map of its own on top                  of the spectrum",
+                "(A - B) / (A + B) with A = {:.1} nm and B = {:.1} nm (the nearest bands),\n\
+                 as a map of its own on top of the spectrum",
                 info.band_nm[a as usize - 1],
                 info.band_nm[b as usize - 1]
             ));
         if r.clicked() {
-            let ctx = ui.ctx().clone();
-            let sel = BandSelection { band: a, nd_band: b, chosen: true, ..Default::default() };
-            let mut o = crate::session::Opening::start_with(vec![info.first_path.clone()], true, sel, &ctx);
-            o.name = Some(format!("{} - {}", s.name, self.layers.get(self.active).map_or("", |l| l.name.as_str())));
-            self.opening = Some(o);
+            self.add_spectral_index_layer(s, ui.ctx());
         }
+    }
+
+    /// An index of the spectrum's bands opened as a layer above it (a map of its own); false if the spectrum does
+    /// not cover its bands.
+    pub(crate) fn add_spectral_index_layer(
+        &mut self,
+        s: &janus_cube::spectral::SpectralIndex,
+        ctx: &egui::Context,
+    ) -> bool {
+        let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return false };
+        let Some((a, b)) = index_bands(&info.band_nm, s) else { return false };
+        let sel = BandSelection { band: a, nd_band: b, chosen: true, ..Default::default() };
+        let mut o = crate::session::Opening::start_with(vec![info.first_path.clone()], true, sel, ctx);
+        o.name = Some(format!("{} - {}", s.name, self.layers.get(self.active).map_or("", |l| l.name.as_str())));
+        self.opening = Some(o);
+        true
     }
 
     /// The Display panel's band selection of a series with several bands per date (app.cpp, uiBands): the band
