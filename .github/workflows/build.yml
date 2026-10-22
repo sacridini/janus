@@ -1,20 +1,22 @@
-# Builds Janus on Windows, Linux and macOS, runs the self-tests and makes the
-# installers: janus-<version>-setup.exe (Inno Setup), janus-<version>-linux-x86_64.tar.xz
-# and janus-<version>-macos-arm64.dmg. A tag v<version> publishes them as a GitHub
-# Release. GDAL (and the Linux compiler and X11/OpenGL headers) come from a
-# conda-forge environment, as in a local build (README, Building from source).
+# Builds Janus on Windows, Linux and macOS, runs the tests and the self-tests and makes the packages
+# (tools/package.py): janus-<version>-setup.exe (Inno Setup), janus-<version>-linux-x86_64.tar.xz and
+# janus-<version>-macos-arm64.dmg. A tag v<version> publishes them as a GitHub Release. GDAL comes from a
+# conda-forge environment, as in a local build (docs/building.md).
 name: build
 
 on:
   push:
     branches: [main, "ci/**"]
     tags: ["v*"]
-    paths-ignore: ["**.md", "docs/**"]
+    paths-ignore: ["**.md", "docs/**", "site/**"]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   build:
@@ -23,22 +25,14 @@ jobs:
       matrix:
         include:
           - os: windows-2022
-            packages: gdal libgdal-netcdf libgdal-hdf5 numpy pip
-            configure: -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$CONDA_PREFIX/Library" -DPython3_EXECUTABLE="$CONDA_PREFIX/python.exe"
-            exe: build/Release/janus.exe
-            package: installer
+            packages: gdal libgdal-netcdf libgdal-hdf5 numpy
+            exe: target/release/janus.exe
           - os: ubuntu-24.04
-            packages: >-
-              cmake ninja cxx-compiler c-compiler pkg-config gdal libgdal-netcdf libgdal-hdf5 numpy pip
-              xorg-libx11 xorg-libxrandr xorg-libxinerama xorg-libxcursor xorg-libxi xorg-libxext libgl-devel
-            configure: -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DPython3_EXECUTABLE="$CONDA_PREFIX/bin/python" -DGLFW_BUILD_WAYLAND=OFF
-            exe: build/janus
-            package: package_linux
+            packages: gdal libgdal-netcdf libgdal-hdf5 numpy pkg-config patchelf
+            exe: target/release/janus
           - os: macos-15
-            packages: gdal libgdal-netcdf libgdal-hdf5 numpy pip
-            configure: -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DPython3_EXECUTABLE="$CONDA_PREFIX/bin/python"
-            exe: build/janus
-            package: package_macos
+            packages: gdal libgdal-netcdf libgdal-hdf5 numpy pkg-config
+            exe: target/release/janus
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     defaults:
@@ -54,14 +48,40 @@ jobs:
           init-shell: bash
           cache-environment: true
 
-      - name: Configure
-        run: cmake -S . -B build ${{ matrix.configure }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # gdal-sys: on Windows the import library under the name it links (gdal_i.lib, see
+      # .cargo/config.example.toml) and the DLLs on PATH; elsewhere pkg-config, and the environment's libraries
+      # found by the programs built (the packages carry their own).
+      - name: GDAL for the build
+        run: |
+          echo "GDAL_VERSION=$(python -c 'from osgeo import gdal; print(gdal.__version__)')" >> "$GITHUB_ENV"
+          case "$RUNNER_OS" in
+            Windows)
+              mkdir -p .cargo/gdal && cp "$CONDA_PREFIX/Library/lib/gdal.lib" .cargo/gdal/gdal_i.lib
+              echo "GDAL_LIB_DIR=$PWD/.cargo/gdal" >> "$GITHUB_ENV"
+              echo "GDAL_INCLUDE_DIR=$CONDA_PREFIX/Library/include" >> "$GITHUB_ENV"
+              echo "$(cygpath -w "$CONDA_PREFIX/Library/bin")" >> "$GITHUB_PATH" ;;
+            *)
+              echo "PKG_CONFIG_PATH=$CONDA_PREFIX/lib/pkgconfig" >> "$GITHUB_ENV"
+              echo "RUSTFLAGS=-C link-arg=-Wl,-rpath,$CONDA_PREFIX/lib" >> "$GITHUB_ENV" ;;
+          esac
+
+      - name: Format and lint
+        if: runner.os == 'Linux'
+        run: |
+          cargo fmt --all --check
+          cargo clippy --release --workspace --all-targets -- -D warnings
 
       - name: Build
-        run: cmake --build build --config Release --parallel 4
+        run: cargo build --release --workspace
 
-      - name: Zeit runtime
-        run: cmake --build build --config Release --target zeit_runtime
+      - name: Tests
+        run: cargo test --release --workspace
 
       - name: Test data
         run: python tools/make_selftest_data.py "$RUNNER_TEMP/td"
@@ -76,22 +96,21 @@ jobs:
       - name: Self-test (embedding kernels and PCA, no window)
         run: ${{ matrix.exe }} --selftest-embeddings
 
-      # Sampling design, strata, sample, project and estimators; the estimates against zeit.accuracy.
+      # Sampling design, strata, sample, project and estimators (against Olofsson et al. 2014).
       - name: Self-test (validation, no window)
         run: ${{ matrix.exe }} --selftest-validation
 
-      # A hidden window needs a GPU context: Mesa (llvmpipe) under Xvfb on Linux.
-      # The Windows runners only have OpenGL 1.1 and the macOS ones no usable
-      # Metal device, so the UI self-test runs on Linux (and locally everywhere).
+      # A window needs a GPU: Mesa's software Vulkan (lavapipe) under Xvfb on Linux. The Windows and macOS
+      # runners have no usable GPU device, so the UI self-test runs on Linux (and locally everywhere).
       - name: Self-test (UI, Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglx-mesa0
-          LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1920x1080x24" \
-            ${{ matrix.exe }} --selftest-ui "$RUNNER_TEMP/td/A" "$RUNNER_TEMP/td/B" "$RUNNER_TEMP/td/C" "$RUNNER_TEMP/td/D" "$RUNNER_TEMP/td/E" "$RUNNER_TEMP/td/F" "$RUNNER_TEMP/td/G"
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri libegl1
+          cd "$RUNNER_TEMP/td"
+          xvfb-run -a -s "-screen 0 1920x1080x24" "$GITHUB_WORKSPACE/${{ matrix.exe }}" --selftest-ui A B C D E F G
 
       - name: Package
-        run: cmake --build build --config Release --target ${{ matrix.package }}
+        run: python tools/package.py --no-build
 
       # From another folder, with a relative input: as a user calls it from a terminal.
       - name: Packaged program runs
@@ -99,7 +118,7 @@ jobs:
           cd "$RUNNER_TEMP"
           case "$RUNNER_OS" in
             Windows) ;; # the installer is checked by installing it below
-            Linux) tar -xJf "$GITHUB_WORKSPACE"/dist/*.tar.xz && ./janus-*/jn --selftest-zeit td/serie ;; # jn: the link
+            Linux) tar -xJf "$GITHUB_WORKSPACE"/dist/*.tar.xz && env -u LD_LIBRARY_PATH ./janus-*/janus --selftest-zeit td/serie ;;
             macOS) m=$(hdiutil attach -nobrowse -readonly "$GITHUB_WORKSPACE"/dist/*.dmg | tail -1 | awk -F'\t' '{print $NF}')
                    "$m/Janus.app/Contents/MacOS/janus" --selftest-zeit td/serie; rc=$?
                    hdiutil detach "$m"; exit $rc ;;
@@ -111,6 +130,8 @@ jobs:
         run: |
           $setup = Get-ChildItem dist\janus-*-setup.exe | Select-Object -First 1
           Start-Process $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', "/DIR=$env:RUNNER_TEMP\Janus" -Wait
+          # without the build environment: only what the installer put there
+          $env:PATH = "C:\Windows\system32;C:\Windows"
           & "$env:RUNNER_TEMP\Janus\jn.com" --version   # the command line (a console program)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # janus.exe is a GUI program: & would not wait for it.
@@ -125,38 +146,6 @@ jobs:
           name: janus-${{ runner.os }}
           path: dist/*
           if-no-files-found: error
-
-  # The Tracy build (-DJANUS_TRACY=ON, docs/building.md) kept compiling, and
-  # --profile-tour run with the client in (no profiler connected).
-  tracy:
-    name: tracy (ubuntu-24.04)
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        shell: bash -el {0}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: mamba-org/setup-micromamba@v2
-        with:
-          environment-name: janus
-          create-args: >-
-            -c conda-forge cmake ninja cxx-compiler c-compiler pkg-config gdal numpy
-            xorg-libx11 xorg-libxrandr xorg-libxinerama xorg-libxcursor xorg-libxi xorg-libxext libgl-devel
-          init-shell: bash
-          cache-environment: true
-
-      - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DGLFW_BUILD_WAYLAND=OFF -DJANUS_TRACY=ON
-
-      - name: Build
-        run: cmake --build build --target janus --parallel 4
-
-      - name: Profile tour
-        run: |
-          python tools/make_selftest_data.py "$RUNNER_TEMP/td"
-          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libgl1-mesa-dri libglx-mesa0
-          LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1920x1080x24" build/janus --profile-tour "$RUNNER_TEMP/td/serie"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

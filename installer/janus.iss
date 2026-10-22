@@ -1,15 +1,12 @@
 ; Janus installer (Inno Setup 6).
-; Built by the CMake "installer" target:  cmake --build build --config Release --target installer
-; or by hand:  ISCC /DAppVersion=0.39.0 /DBuildDir=..\build\Release installer\janus.iss
+; Built by tools/package.py from the files it assembles in target\package\janus-<version>,
+; or by hand:  ISCC /DAppVersion=1.0.0 /DBuildDir=..\target\package\janus-1.0.0 installer\janus.iss
 
 #ifndef AppVersion
-  #define AppVersion "0.39.0"
+  #define AppVersion "1.0.0"
 #endif
 #ifndef BuildDir
-  #define BuildDir "..\build\Release"
-#endif
-#ifndef RuntimeDir
-  #define RuntimeDir BuildDir + "\runtime"
+  #define BuildDir "..\target\package\janus-" + AppVersion
 #endif
 
 [Setup]
@@ -53,11 +50,9 @@ Source: "{#BuildDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\share\*"; DestDir: "{app}\share"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; GDAL drivers built as plugins (NetCDF, HDF5)
 Source: "{#BuildDir}\gdalplugins\*"; DestDir: "{app}\gdalplugins"; Flags: ignoreversion skipifsourcedoesntexist
-; Private Python runtime with Zeit (never added to PATH)
-Source: "{#RuntimeDir}\*"; DestDir: "{app}\runtime"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-[UninstallDelete]
-; bytecode caches written at run time
+[InstallDelete]
+; the private Python runtime of the versions before 1.0 (Zeit is part of the program now)
 Type: filesandordirs; Name: "{app}\runtime"
 
 [Icons]
@@ -80,24 +75,9 @@ Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.tiff\shell\Janus"; 
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.tiff\shell\Janus\command"; ValueType: string; ValueName: ""; ValueData: """{app}\janus.exe"" ""%1"""; Tasks: contextmenu
 
 [Run]
-; Warm-up: the first load of ~10k freshly installed files is slow (antivirus
-; scans them, measured ~15 s); doing it here makes the first tool use fast (~1 s).
-Filename: "{app}\runtime\python\python.exe"; Parameters: "-c ""import zeit"""; StatusMsg: "Preparing Zeit..."; Flags: runhidden waituntilterminated
 Filename: "{app}\janus.exe"; Description: "{cm:LaunchProgram,Janus}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-// The deepest file of the bundled Python runtime is ~105 characters below {app},
-// and Windows (without long paths enabled) stops at 260.
-function NextButtonClick(CurPageID: Integer): Boolean;
-begin
-  Result := True;
-  if (CurPageID = wpSelectDir) and (Length(ExpandConstant('{app}')) > 140) then
-  begin
-    MsgBox('Please choose a shorter installation folder (at most 140 characters).', mbError, MB_OK);
-    Result := False;
-  end;
-end;
-
 // tsv (Janus's name up to 0.16) is uninstalled first, silently, so that its
 // files, PATH entry and "Open in tsv" menu entries do not stay behind. Its data
 // folder (%LOCALAPPDATA%\tsv) is kept: Janus takes it over when it first starts.
@@ -114,14 +94,11 @@ begin
   Exec(RemoveQuotes(Cmd), '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART', '', SW_HIDE, ewWaitUntilTerminated, Code);
 end;
 
-// Also enforced for silent installs (/DIR=...), before anything is copied.
+// Before anything is copied (also for silent installs).
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
-  if Length(ExpandConstant('{app}')) > 140 then
-    Result := 'The installation folder is too long (more than 140 characters). Please choose a shorter one.'
-  else
-    UninstallOldTsv;
+  UninstallOldTsv;
 end;
 
 function EnvKey(Param: String): String;
