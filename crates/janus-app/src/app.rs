@@ -129,6 +129,10 @@ fn layout_text(dock: &DockState<Tab>) -> Option<String> {
 #[derive(Default, Clone)]
 pub struct Options {
     pub inputs: Vec<String>,
+    /// --band N: the band of each file when each file is one date (0: not given, the first)
+    pub band: i32,
+    /// --threads N: the processing threads of this run (None: Settings')
+    pub threads: Option<usize>,
     pub budget_mb: i64,
     pub measure_startup: bool,
     /// a PNG of the window once the series is ready, then exit
@@ -570,7 +574,8 @@ impl JanusApp {
             .iter()
             .cloned()
             .partition(|p| janus_geo::vectors::is_vector_path(p) && !std::path::Path::new(p).is_dir());
-        let opening = (!rasters.is_empty()).then(|| Opening::start(rasters, false, &cc.egui_ctx));
+        let sel = janus_cube::BandSelection { band: opts.band.max(1), ..Default::default() };
+        let opening = (!rasters.is_empty()).then(|| Opening::start_with(rasters, false, sel, &cc.egui_ctx));
         let detach = opts.detach_map;
         let scripted = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
         let mut app = JanusApp {
@@ -723,7 +728,7 @@ impl State {
         janus_session::SessionSettings {
             overview_budget_bytes: self.opts.budget_bytes.unwrap_or(mb << 20),
             max_texture: max_tex.min(16384),
-            threads: s.threads,
+            threads: self.opts.threads.unwrap_or(s.threads),
             full_res: s.full_res,
             cache_budget: s.cache_budget_gb << 30,
             ..Default::default()

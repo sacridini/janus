@@ -1,5 +1,5 @@
 """The reference of Janus's native Zeit (crates/janus-zeit): what the Python bridge
-(zeit_bridge/) answers, with Zeit's own Rust core, for pixel runs of every tool on
+(tools/zeit_bridge/, the Python bridge of the versions up to 0.39) answers, with Zeit's own Rust core, for pixel runs of every tool on
 made-up series, written as JSON fixtures that `cargo test -p janus-zeit` compares
 with the native runs.
 
@@ -15,7 +15,7 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "zeit_bridge"))
+sys.path.insert(0, os.path.join(HERE, "zeit_bridge"))
 
 import numpy as np  # noqa: E402
 

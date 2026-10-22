@@ -75,8 +75,8 @@ which ships with Janus: there is nothing else to install. Its command line is `j
   fitted live on the chart (BFAST and CCDC models drawn over the series) or
   run on the image (also CCDC's cloud-free synthetic image of a date), plus
   the agreement of several change maps. **Copy Python** gives the code that
-  reproduces a series and the tool's Zeit calls. A private Python runtime
-  ships with Janus.
+  reproduces a series and the tool's Zeit calls. Zeit's methods are part of
+  Janus: no Python to install, and a fit takes under a millisecond.
 - **Spectra** (hyperspectral, e.g. EnMAP): a file whose bands have
   wavelengths opens with the chart in nanometres, the spectrum of the cursor,
   pins and region, and true-colour, colour-infrared and SWIR composites;
@@ -85,7 +85,7 @@ which ships with Janus: there is nothing else to install. Its command line is `j
 - **Embeddings** of foundation models (AlphaEarth, TESSERA): downloaded for the
   visible area over any series, shown through their principal components (also
   local to a region, refitted as you move it), the similarity to the cursor or
-  a pin, and the change between years; computed in C++ with SIMD.
+  a pin, and the change between years; computed with SIMD kernels.
 - **Export**: maps as PNG figures, timelapse **animations** (GIF, MP4, WebM)
   with the date, legend and scale bar, values, views, Zeit results and
   embedding views as georeferenced GeoTIFFs, series as CSV.
@@ -97,7 +97,7 @@ which ships with Janus: there is nothing else to install. Its command line is `j
 
 Download the package for your system from the
 [latest release](https://github.com/sacridini/janus/releases/latest). Each one
-carries GDAL and the Python runtime with Zeit: nothing else to install.
+carries GDAL, and Zeit is part of the program: nothing else to install.
 
 | System | Package |
 |---|---|
@@ -135,22 +135,22 @@ Shortcuts and usage**.
 
 - [Usage](docs/usage.md): command line, every interaction, the Zeit tools, performance notes
 - [Installation](docs/install.md): details for Windows, macOS and Linux
-- [Building from source](docs/building.md): Windows, Linux and macOS, the Zeit runtime, packages
-- [Architecture](docs/architecture.md): how the cube flows from the files to the GPU, and the source files
+- [Building from source](docs/building.md): Windows, Linux and macOS, the tests, packages
+- [Architecture](docs/architecture.md): how the cube flows from the files to the GPU, and the crates
+- [RUST_MIGRATION.md](RUST_MIGRATION.md) (Portuguese): how Janus moved from C++ to Rust for 1.0, with the measurements
 - [IDEIAS.md](IDEIAS.md) (Portuguese): roadmap, design decisions and the measurements behind them
 
 ## Building
 
-Janus is C++17 with CMake. It needs GDAL (e.g. from conda-forge); GLFW, Dear
-ImGui, ImPlot and nlohmann/json are fetched by CMake.
+Janus is written in Rust. It needs GDAL (e.g. from conda-forge); everything
+else comes from crates.io.
 
 ```
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=<gdal-prefix>
-cmake --build build --config Release
+cargo build --release
 ```
 
-See [docs/building.md](docs/building.md) for each platform, the Zeit runtime
-and the installers.
+See [docs/building.md](docs/building.md) for pointing the build at GDAL on each
+platform, the tests and the packages.
 
 ## License
 
@@ -159,8 +159,8 @@ later ([LICENSE](LICENSE)), as is [Zeit](https://github.com/sacridini/zeit-cdts)
 
 ---
 
-Built with [Dear ImGui](https://github.com/ocornut/imgui),
-[ImPlot](https://github.com/epezent/implot), [GDAL](https://gdal.org) and
-[GLFW](https://www.glfw.org); OpenGL on Windows and Linux, Metal on macOS.
-Change detection by [Zeit](https://github.com/sacridini/zeit-cdts). Janus was
-called *tsv* up to version 0.16.
+Built with [egui](https://github.com/emilk/egui), [wgpu](https://wgpu.rs) and
+[GDAL](https://gdal.org); Direct3D 12 on Windows, Vulkan on Linux, Metal on
+macOS. Change detection by [Zeit](https://github.com/sacridini/zeit-cdts). Janus
+was written in C++ (Dear ImGui, ImPlot, GLFW) up to 0.39, and called *tsv* up
+to 0.16.

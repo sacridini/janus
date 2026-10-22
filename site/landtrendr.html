@@ -99,7 +99,7 @@
         <img src="assets/img/landtrendr/02-menu.png" alt="The Tools menu: change detection (agreement, BFAST, BFAST Lite, BFAST Monitor, CCDC, CCDC synthetic image, CODED, LandTrendr), trend, indices, phenology, preprocessing and classification tools, then Tasks and Log." loading="lazy">
         <figcaption><b>Tools menu.</b> The Zeit tools by category.</figcaption>
       </figure>
-      <p><span class="ui">Tools → LandTrendr</span> opens its window. The tools come from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a>, which runs in a Python runtime bundled with Janus: nothing to install. A tool that does not fit the series open is disabled, with the reason (LandTrendr on a monthly series: it needs one date per year).</p>
+      <p><span class="ui">Tools → LandTrendr</span> opens its window. The tools come from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a>, whose methods are part of Janus: nothing to install. A tool that does not fit the series open is disabled, with the reason (LandTrendr on a monthly series: it needs one date per year).</p>
     </section>
 
     <section id="chart">
@@ -171,7 +171,7 @@
 
     <section id="run">
       <h2><span class="n">06</span>Running it on the image</h2>
-      <p>Under <span class="ui">Run on the raster</span>, choose the scope: the <span class="ui">Whole image</span>, the <span class="ui">Visible area</span> of the map, or the <span class="ui">ROI</span>. Janus estimates the run time from a sample of the series (here about 6 s for 2.8 million pixels). <span class="ui">Run</span> starts a separate process on every core; its progress is in <span class="ui">Tools → Tasks</span>, and the map stays usable meanwhile.</p>
+      <p>Under <span class="ui">Run on the raster</span>, choose the scope: the <span class="ui">Whole image</span>, the <span class="ui">Visible area</span> of the map, or the <span class="ui">ROI</span>. Janus estimates the run time from a sample of the series (here about 6 s for 2.8 million pixels). <span class="ui">Run</span> starts the run in the background on every core; its progress is in <span class="ui">Tools → Tasks</span>, and the map stays usable meanwhile.</p>
       <figure class="fig narrow">
         <img src="assets/img/landtrendr/06-task.png" alt="The Tasks panel: LandTrendr on the whole image, 1686 by 1671 pixels, running at 31 percent, 512 of 1671 rows, about 10 seconds left, with the Log and Cancel buttons." loading="lazy">
         <figcaption><b>Tasks</b>, while the run goes: rows done, time left, <span class="ui">Log</span> and <span class="ui">Cancel</span>. Once done, <span class="ui">Folder</span> opens its outputs.</figcaption>
@@ -236,7 +236,7 @@
     <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
     <div>
       <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
-      <p>Built in C++17 with Dear ImGui, ImPlot and GDAL. OpenGL on Windows and Linux, Metal on macOS.</p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>

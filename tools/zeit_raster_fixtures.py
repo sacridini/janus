@@ -1,5 +1,5 @@
 """The reference of Janus's native Zeit raster runs (crates/janus-zeit, job.rs): small GeoTIFF stacks
-and job specs, run by the Python bridge (zeit_bridge/, run_raster) with Zeit's own Rust core; its
+and job specs, run by the Python bridge (tools/zeit_bridge/, the versions up to 0.39: run_raster) with Zeit's own Rust core; its
 GeoTIFFs are kept next to them, and `cargo test -p janus-zeit --test raster` runs the native job on
 the same spec and compares every pixel.
 
@@ -15,7 +15,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-sys.path.insert(0, os.path.join(HERE, "..", "zeit_bridge"))
+sys.path.insert(0, os.path.join(HERE, "zeit_bridge"))
 
 import numpy as np  # noqa: E402
 import rasterio  # noqa: E402

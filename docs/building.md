@@ -2,128 +2,97 @@
 
 [README](../README.md) · [Install](install.md) · [Usage](usage.md) · [Building](building.md) · [Architecture](architecture.md)
 
-Requirements: CMake ≥ 3.21, a C++17 compiler (Visual Studio 2022 on Windows,
-GCC or Clang elsewhere) and a GDAL installation with CMake config files, e.g. a
-conda-forge environment (`conda create -n geo -c conda-forge gdal libgdal-netcdf libgdal-hdf5`:
-the two plugins read NetCDF and HDF5; the build copies them to `gdalplugins/`). GLFW, Dear
-ImGui, ImPlot and nlohmann/json are downloaded by CMake (`FetchContent`).
+Janus is a Rust workspace (`crates/`, see [Architecture](architecture.md)). It needs
+[Rust](https://rustup.rs) 1.90 or later and GDAL, e.g. from a conda-forge environment:
+
+```
+conda create -n geo -c conda-forge gdal libgdal-netcdf libgdal-hdf5 numpy
+```
+
+(the two plugins read NetCDF and HDF5; numpy and GDAL's Python bindings are only for
+`tools/make_selftest_data.py`, which makes the self-tests' inputs). Everything else, from the
+interface (egui, wgpu) to Zeit's methods, comes from crates.io and the workspace. Zeit is part of
+the program: no Python runs at any time.
 
 ## Windows
 
-```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="<conda-env>\Library"
-cmake --build build --config Release
-.\build\Release\janus.exe
-```
-
-The post-build step (`cmake/deploy_runtime.cmake`) copies `gdal.dll` and all of
-its dependencies, plus `proj.db` and `share/gdal`, next to the executable, so the
-build runs on double click and never picks up another GDAL from `PATH`.
-
-Zeit runtime for local builds (downloads the embeddable Python and the pinned
-wheels from `zeit_bridge/requirements.txt`; the bridge script itself is copied
-on every build, so editing a tool needs no runtime rebuild):
+`gdal-sys` links GDAL's import library under the name the OSGeo builds give it, `gdal_i.lib`;
+conda-forge calls it `gdal.lib`. Copy it once, and tell Cargo where GDAL is in
+`.cargo/config.toml` (not committed; `.cargo/config.example.toml` is the template):
 
 ```powershell
-cmake --build build --config Release --target zeit_runtime   # -> build\Release\runtime
-.\build\Release\janus.exe --selftest-zeit <series>              # end-to-end check, no window
+mkdir .cargo\gdal; copy <conda-env>\Library\lib\gdal.lib .cargo\gdal\gdal_i.lib
+copy .cargo\config.example.toml .cargo\config.toml   # then set GDAL_INCLUDE_DIR and GDAL_VERSION
+cargo build --release
+$env:PATH = "<conda-env>\Library\bin;$env:PATH"      # gdal.dll and its dependencies
+.\target\release\janus.exe <series>
 ```
 
-To work on Zeit itself, point Janus at your own environment:
-`jn --zeit-python <env>\python.exe` (or `JANUS_ZEIT_PYTHON`).
+The program finds PROJ's and GDAL's data next to the GDAL on `PATH` (a development environment) or
+next to itself (a package).
 
-Installer (requires [Inno Setup 6](https://jrsoftware.org/isinfo.php)); it
-assembles its own copy of the runtime in `build\package`:
+## Linux and macOS
 
-```powershell
-cmake --build build --config Release --target installer   # -> dist\janus-<version>-setup.exe
-```
-
-## Profiling with Tracy
-
-`-DJANUS_TRACY=ON` builds in the [Tracy](https://github.com/wolfpld/tracy)
-client (v0.14.1): zones on the main loop, the UI steps, the job pools (threads
-`bg N`, `fg N`), GDAL reads, the overview, detail tiles, the full-resolution
-cache and the OpenGL work, plus plots of the job queues and tiles
-(`src/profiler.hpp`). Off (the default), the macros compile to nothing.
-
-```powershell
-cmake -S . -B build-tracy -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="<conda-env>\Library" -DJANUS_TRACY=ON
-cmake --build build-tracy --config Release --target janus
-```
-
-The profiler must be the same version: `windows-0.14.1.zip` from Tracy's
-[releases](https://github.com/wolfpld/tracy/releases/tag/v0.14.1).
-
-- **Live**: start `tracy-profiler.exe -a 127.0.0.1` (or click *Connect*), then
-  `build-tracy\Release\janus.exe <series>`. The client collects from the start,
-  so the profiler can also connect later.
-- **A fixed workload**: `janus.exe --profile-tour <series>` opens the series in
-  a hidden window and goes through the overview, cursor series, every date, the
-  display modes, a zoom and pan at full resolution and an ROI, printing each
-  stage's time (it also works without Tracy). Each stage is a span in Tracy's
-  timeline. To record it to a file instead:
-
-  ```powershell
-  tracy-capture.exe -o tour.tracy -a 127.0.0.1    # waits for the program
-  $env:TRACY_NO_EXIT = 1; .\build-tracy\Release\janus.exe --profile-tour <series>
-  tracy-csvexport.exe tour.tracy > zones.csv       # or open tour.tracy in tracy-profiler
-  ```
-
-## Linux
-
-Everything (compiler, GDAL, X11/OpenGL headers) can come from one conda-forge
-environment, so nothing needs to be installed system-wide:
+pkg-config finds GDAL in the environment; the programs built need its libraries at run time:
 
 ```bash
-conda create -n janus-linux -c conda-forge cmake ninja cxx-compiler c-compiler pkg-config gdal libgdal-netcdf libgdal-hdf5 \
-    xorg-libx11 xorg-libxrandr xorg-libxinerama xorg-libxcursor xorg-libxi xorg-libxext libgl-devel
-conda activate janus-linux
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DGLFW_BUILD_WAYLAND=OFF
-cmake --build build
-cmake --build build --target zeit_runtime     # -> build/runtime (python-build-standalone + Zeit)
-./build/janus --selftest-zeit <series>
-cmake --build build --target package_linux    # -> dist/janus-<version>-linux-x86_64.tar.xz
+conda activate geo
+export PKG_CONFIG_PATH="$CONDA_PREFIX/lib/pkgconfig"
+export RUSTFLAGS="-C link-arg=-Wl,-rpath,$CONDA_PREFIX/lib"   # or LD_LIBRARY_PATH / DYLD_FALLBACK_LIBRARY_PATH
+cargo build --release
+./target/release/janus <series>
 ```
 
-(`-DGLFW_BUILD_WAYLAND=OFF` skips GLFW's native Wayland backend, which needs
-`wayland-scanner`; on Wayland desktops Janus runs through XWayland.)
+The map draws through wgpu: Vulkan on Linux (any driver; Mesa's lavapipe without a GPU), Metal on
+macOS, Direct3D 12 on Windows (`WGPU_BACKEND` chooses another).
 
-## macOS (Apple Silicon)
-
-Builds with the Xcode command line tools (AppleClang) and GDAL from a conda
-environment; tested on macOS 26, UI and Zeit self-tests pass:
+## Tests
 
 ```bash
-conda create -n geo -c conda-forge gdal libgdal-netcdf libgdal-hdf5
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$HOME/miniconda3/envs/geo" \
-    -DPython3_EXECUTABLE="$HOME/miniconda3/envs/geo/bin/python3"
-cmake --build build -j
-cmake --build build --target zeit_runtime     # -> build/runtime (python-build-standalone + Zeit)
-./build/janus --selftest-zeit <series>
-ln -s "$PWD/build/janus" ~/.local/bin/jn       # jn from any terminal (runtime/ is found through the link)
-cmake --build build --target package_macos    # -> dist/janus-<version>-macos-arm64.dmg (Janus.app)
+cargo fmt --all --check
+cargo clippy --release --workspace --all-targets -- -D warnings
+cargo test --release --workspace
+python tools/make_selftest_data.py td           # the self-tests' inputs
+janus --selftest-zeit td/serie                  # every Zeit tool, pixel and raster, no window
+janus --selftest-zeit td/landsat                # the multiband ones (CCDC, CODED, NDFI, Tmask)
+janus --selftest-validation                     # the estimators against Olofsson et al. (2014)
+janus --selftest-embeddings                     # the embedding kernels and PCA
+cd td && janus --selftest-ui A B C D E F G      # the interface, frame by frame (a window)
 ```
 
-It renders through Metal (`JANUS_RENDERER=METAL`, the default on macOS): the cube
-and its statistics live in shared-memory buffers that the shaders read directly,
-so uploading a date is a copy in RAM, and the shaders are compiled at startup
-(the command line tools have no offline Metal compiler; the system caches them).
-The cube buffer *is* the overview's page-aligned array (`newBufferWithBytesNoCopy`):
-nothing is uploaded and the cube exists once in RAM, so `--budget` is the
-memory the overview takes in total (with OpenGL it is taken on the GPU and again
-in RAM, which on Apple Silicon is the same memory). With a 1 GB cube on an M4:
-1.2 GB footprint (OpenGL: 3.8 GB), loaded from the cache in 0.2 s.
-`-DJANUS_RENDERER=GL` builds the OpenGL path instead, e.g. to compare both.
+The UI self-test's *Copy Python* stages run the code they copy with a Python that has Zeit and
+rasterio (`JANUS_PYTHON`, else `python`); without one they are skipped.
 
-The build tree links GDAL from the conda environment through an absolute RPATH,
-so it breaks if that environment is removed; `package_macos` makes the
-self-contained app (`cmake/package_macos.cmake`: the library chain in
-`Contents/Frameworks`, data and runtime in `Contents/Resources`, ad hoc
-signature). The Zeit runtime re-signs (ad hoc) the native libraries it
-strips: on Apple Silicon a binary with an invalid signature is killed on load.
+`janus --profile-tour <series>` times a fixed tour of a series (the overview, cursor series, every
+date, the display modes, zoom and pan at full resolution, an ROI) stage by stage;
+`--tour-json FILE` writes the timings as JSON (`bench/` keeps the baselines).
 
-On a Retina display the map is drawn at the density of the screen it is on
-(2 pixels per point), and full-resolution tiles are chosen by screen pixels.
-The overview cache lives in `~/Library/Caches/Janus` (purgeable, skipped by Time
-Machine); the rest of the data in `~/Library/Application Support/Janus`.
+## Packages
+
+```bash
+python tools/package.py      # builds, then: dist/janus-<version>-setup.exe (Windows, Inno Setup 6),
+                             # dist/janus-<version>-linux-x86_64.tar.xz, dist/janus-<version>-macos-arm64.dmg
+```
+
+It takes GDAL's libraries, plugins and data from the conda environment (`$CONDA_PREFIX`, or
+`--prefix`): on Windows the DLLs the program imports, found by walking their import tables; on
+Linux what `ldd` finds there (RPATH `$ORIGIN/lib`, set with `patchelf`); on macOS what `otool`
+finds (RPATH `@executable_path/../Frameworks`, ad hoc signature). The Windows installer needs
+[Inno Setup 6](https://jrsoftware.org/isinfo.php); without it the files are left in
+`target/package`.
+
+The CI (`.github/workflows/build.yml`) does all of the above on Windows, Linux and macOS and
+publishes the three packages on a `v*` tag.
+
+## The guides' screenshots
+
+`janus --shots TOUR IN OUT` walks through a guide of the website in a window of 1680 × 1050 and
+saves its screenshots in OUT: `validation` (IN from `tools/make_tutorial_data.py`), `landtrendr`,
+`ccdc` and `coded` (`tools/make_guide_data.py`), `bfast` and `phenology` (an EVI series).
+
+## Data folders
+
+The overview and full-resolution caches, settings, layout, labels and results live in
+`%LOCALAPPDATA%\Janus` (Windows), `~/.local/share/janus` (Linux) and
+`~/Library/Application Support/Janus` (macOS; the overview cache in `~/Library/Caches/Janus`).
+The cache files are the same as the C++ versions' (up to 0.39), which Janus 1.0 reads.

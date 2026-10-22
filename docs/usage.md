@@ -157,8 +157,8 @@
   (segments, trend lines, break dates, seasons or CCDC models drawn on the chart),
   or run on the whole image, the visible area or an ROI, with the results
   (year of detection, magnitude, slope, p-value, break dates...) shown as map
-  layers; the NDFI and the series screened by Tmask open as new layers. Zeit
-  runs in a bundled, invisible Python runtime — nothing to install.
+  layers; the NDFI and the series screened by Tmask open as new layers. Zeit's
+  methods are part of Janus — nothing to install, no Python.
 
 ## Command line
 
@@ -182,43 +182,26 @@ Options:
   --band N            band used when each file is one date (default: 1)
   --budget MB         memory for the cube overview, this run only
                       (default: Settings, 1024)
-  --threads N         background reader threads, this run only (default: the
-                      processing threads in Settings, at most 12; HDD = 1);
+  --threads N         processing threads, this run only (default: Settings);
                       with --selftest-zeit, Zeit's threads
   -h, --help          show this help
   --version           show the version
 
-Developer options:
-  --zeit-python EXE   Python with Zeit to use instead of the bundled runtime
-                      (or set JANUS_ZEIT_PYTHON)
-  --zeit-bridge PY    bridge script to use (or set JANUS_ZEIT_BRIDGE)
-  --measure-startup   print startup timings and exit after the first frame
-  --measure-cache on|off IN  time exact series and ROI from the files, build the
-                      overview (and the full-resolution cache if on), time the
-                      reads again from the cache, in a hidden window
-  --profile-tour IN   a fixed tour of IN (overview, cursor series, dates, modes,
-                      zoom and pan at full resolution, an ROI), timed stage by
-                      stage, in a hidden window; for Tracy (-DJANUS_TRACY=ON)
+Developer options (all of them in jn --help):
   --describe IN       print how IN opens (dates, size, CRS, variables of a
                       NetCDF / Zarr, the series of the centre pixel) and exit
+  --profile-tour IN   a fixed tour of IN (overview, cursor series, dates, modes,
+                      zoom and pan at full resolution, an ROI), timed stage by stage
+  --measure-cache on|off IN  time exact series and ROI from the files, build the
+                      overview (and the full-resolution cache if on), time the
+                      reads again from the cache
   --selftest-zeit IN  run the Zeit tools end to end on IN without a window
-  --measure-validation IN  time the strata of the map IN (a buffer of 1 px), its
-                      areas, a sample of 1000 points and the estimators
   --selftest-validation  check the sampling design, strata, sample and accuracy
-                      estimators (Olofsson et al. 2014) and, with the runtime,
-                      the estimates against zeit.accuracy
-  --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT), in a hidden
-                      window: validation (IN: tools/make_tutorial_data.py's
-                      data), landtrendr, ccdc, coded, bfast, phenology (IN: the
-                      series)
-  --selftest-ui A B [C [D [E [F [G]]]]]  drive the layers workflow in a hidden window
-                      (A, then B as a layer; C: several bands per date;
-                      D, E: categorical, with and without a colour table;
-                      F: B in another CRS, reprojected over it; G: spectra,
-                      ENVI and an EnMAP product; then a polygonal ROI,
-                      vector layers, the interpretation, an animation and a
-                      validation project on D; the basemap is checked with
-                      local tiles, no network)
+                      estimators (Olofsson et al. 2014)
+  --selftest-ui A B [C [D [E [F [G]]]]]  drive the interface frame by frame on
+                      the series of tools/make_selftest_data.py
+  --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT): validation,
+                      landtrendr, ccdc, coded, bfast, phenology
 ```
 
 Examples:
@@ -285,7 +268,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Shortcuts on a Mac | `Command` instead of `Ctrl` (e.g. `Command+E`, `Command+Shift+S`) |
 | Series as text | **Copy CSV** in the Time series and Transect panels |
 | Zeit tools | **Tools** menu → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
-| Zeit logs | **Tools → Log** (or **Log** next to a task): the log of each raster run, followed live (what ran, Python's output, progress, outputs, the end), or `zeit.log`; Copy, open the file or its folder |
+| Zeit logs | **Tools → Log** (or **Log** next to a task): the log of each raster run, followed live (what ran, its progress, outputs, the end or the error); Copy, open the file or its folder |
 | Tool results | listed under their layer in the **Layers** panel: show/hide, colormap, range, opacity |
 | Embeddings | **View → Embeddings**: principal components as RGB (of every year, or *local* to the ROI), similarity to the cursor, a pin or the ROI, change between years; see [Embeddings](#embeddings) |
 | Add embeddings of the visible area | **Layers** panel → Embeddings (above the basemap): AlphaEarth or TESSERA, years, cell size, visible area or ROI, then **Add embeddings**; progress on the map, the layer comes on top when it is ready |
@@ -406,8 +389,8 @@ Each tool window has:
   the series (a fixed cost per block plus a cost per pixel, and the fit of
   tools that learn from a sample, such as the SOM; reading the data is not
   included).
-- **Run on the raster**: whole image, visible area or ROI. The run happens in a
-  separate process using the processing threads of [Settings](#settings)
+- **Run on the raster**: whole image, visible area or ROI. The run happens in
+  the background on the processing threads of [Settings](#settings)
   (every logical core but 2 by default), with progress and cancel in
   **Tools → Tasks**. Outputs are GeoTIFFs (default folder
   `%LOCALAPPDATA%\Janus\results`) loaded over the map and listed under their
@@ -416,27 +399,18 @@ Each tool window has:
   added as a layer over the others (the active layer stays).
 - **A log of every raster run**, `job.log` in the run's results folder (next to
   `job.json` and the outputs): the tool, its parameters, window and threads,
-  then everything Python writes (warnings, prints, tracebacks), the progress
-  (every 10% or 5 s), each output and how it ended. **Tools → Log** shows it
-  while it grows (pick the run, or `zeit.log`, in the list), as does the
-  **Log** button of each task.
+  the progress (every 10% or 5 s), each output, and how it ended (with the
+  error, if any). **Tools → Log** shows it while it grows (pick the run in the
+  list), as does the **Log** button of each task.
 
-How it works: Zeit runs in a separate Python process from a private runtime
-inside the installation (`runtime\`: embeddable Python 3.12 + Zeit from PyPI +
-numpy/scipy/rasterio/numba/dask/xarray/rioxarray, without PyTorch). It starts in the
-background once a series is open (~1 s), so it never delays startup. The bridge
-(`zeit_bridge/janus_zeit_bridge.py`) handles the protocol and reads/writes rasters
-in chunks with progress (the next chunk is read while the tool computes the
-current one, and the outputs are compressed on the processing threads: a
-Mann-Kendall run takes about half the time it did in 0.25, a LandTrendr run
-about 80%); each tool is a small module next to it
-(`zeit_bridge/tool_*.py`) that describes its parameters and outputs and calls
-Zeit's API for one series or one block of pixels. Adding a tool to Janus means
-adding a module there — no C++ change.
-Janus hands it the cube as a VRT (dates in order, nodata and scale applied).
-Logs: each raster run's `job.log` (above); `%LOCALAPPDATA%\Janus\zeit.log`
-for the process that fits the chart and estimates run times (its warnings and
-errors), with a line per raster run pointing to its log.
+How it works: Zeit's methods are compiled into Janus: zeit-core (the Rust core
+of [Zeit](https://github.com/sacridini/zeit-cdts)) with what Zeit's Python adds
+around it (bands by role, the NDFI's unmixing, the BFAST family's refits...),
+giving the same numbers as Zeit's Python API (the tests compare them tool by
+tool). A fit of the chart's series takes under a millisecond, so models follow
+the cursor; a raster run reads the series in bands of rows (from the
+full-resolution cache when it has the dates) and computes them on every
+processing thread. Nothing starts at startup and no Python runs.
 
 ## Spectra (hyperspectral)
 

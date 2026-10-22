@@ -318,7 +318,7 @@ def main():
     ap.add_argument("--no-build", action="store_true", help="package the release build as it is")
     ap.add_argument("--prefix", help="GDAL's installation prefix (default: the conda environment)")
     ap.add_argument("--out", default=str(ROOT / "target" / "package"), help="where the package is assembled")
-    ap.add_argument("--min-macos", default="12.0", help="macOS: the oldest system the app is for")
+    ap.add_argument("--min-macos", default="15.0", help="macOS: the oldest system the app is for")
     args = ap.parse_args()
     ver = version()
     if not args.no_build:

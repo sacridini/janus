@@ -227,7 +227,7 @@
     <div class="sec-head">
       <p class="eyebrow">Change detection</p>
       <h2>Breaks, trends and seasons, built in.</h2>
-      <p>The <a href="https://github.com/sacridini/zeit-cdts">Zeit</a> algorithms are fitted live on the cursor, pins and region, or run on the whole image, the visible area or a region, with the results added as map layers. Zeit runs in a private Python runtime that ships with Janus, so there is nothing else to install.</p>
+      <p>The <a href="https://github.com/sacridini/zeit-cdts">Zeit</a> algorithms are fitted live on the cursor, pins and region, or run on the whole image, the visible area or a region, with the results added as map layers. Zeit's methods are part of Janus, so there is nothing else to install, and a fit on the chart takes under a millisecond.</p>
     </div>
     <ul class="tool-list">
       <li><h3>LandTrendr</h3><p>Year of detection, magnitude, duration and rate of the chosen loss or gain event.</p><span>annual series</span></li>
@@ -275,7 +275,7 @@
     <div class="sec-head">
       <p class="eyebrow">Install · <span data-version>latest release</span></p>
       <h2>Nothing else to install.</h2>
-      <p>Each package carries GDAL, the PROJ and GDAL data and the Python runtime with Zeit. No Python or conda needed, and nothing is added to your Python installations.</p>
+      <p>Each package carries GDAL and the PROJ and GDAL data; Zeit is part of the program. No Python or conda needed.</p>
     </div>
     <div class="os-grid">
       <article class="os" data-os-card="win">
@@ -298,13 +298,13 @@
       <article class="os" data-os-card="linux">
         <h3>Linux <small>x86_64</small></h3>
         <div class="os-body">
-        <p>Extract the archive anywhere and run <code>jn</code> from that folder. It is portable: only glibc, OpenGL and X11 come from the system. <code>janus.desktop</code> is included for a menu entry.</p>
+        <p>Extract the archive anywhere and run <code>jn</code> from that folder. It is portable: only glibc, the graphics drivers and X11 or Wayland come from the system. <code>janus.desktop</code> is included for a menu entry.</p>
         <a class="btn btn-primary" data-dl="linux" href="https://github.com/sacridini/janus/releases/latest">Download .tar.xz</a>
         <p class="file" data-file="linux">janus-&lt;version&gt;-linux-x86_64.tar.xz · tested on Ubuntu 24.04</p>
               </div>
       </article>
     </div>
-    <p class="src">Prefer to build it yourself? <a href="https://github.com/sacridini/janus/blob/main/docs/building.md">Building from source</a> needs CMake, a C++17 compiler and GDAL.</p>
+    <p class="src">Prefer to build it yourself? <a href="https://github.com/sacridini/janus/blob/main/docs/building.md">Building from source</a> needs Rust and GDAL.</p>
   </div>
 </section>
 
@@ -353,7 +353,7 @@ jn "S2_*_NDVI.tif" --band 1
       </details>
       <details>
         <summary>Do I need Python for the Zeit tools?</summary>
-        <p>No. Zeit runs in a private, invisible Python runtime inside the installation. It starts in the background after a series opens, so it never slows the startup.</p>
+        <p>No. Zeit's methods are compiled into Janus: nothing runs in Python, and nothing starts until you use a tool.</p>
       </details>
       <details>
         <summary>Will a spinning hard disk be slow?</summary>
@@ -374,7 +374,7 @@ jn "S2_*_NDVI.tif" --band 1
     <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
     <div>
       <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
-      <p>Built in C++17 with Dear ImGui, ImPlot and GDAL. OpenGL on Windows and Linux, Metal on macOS.</p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
