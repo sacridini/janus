@@ -127,6 +127,9 @@ impl State {
             }
             58 => {
                 let c = &self.session.as_ref()?.s.full_res;
+                if !c.complete() && !c.building() {
+                    return fail(&format!("B's cache stopped at {} of its dates: {}", c.dates_done(), c.error()));
+                }
                 if !c.complete() {
                     return None;
                 }

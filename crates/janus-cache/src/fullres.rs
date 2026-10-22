@@ -814,10 +814,14 @@ impl FullResCache {
                 *w = None;
             }
         }
-        if read_ok && !ok && !self.stop.load(Ordering::Relaxed) {
+        if !ok && !self.stop.load(Ordering::Relaxed) {
             let mut st = self.state.lock().unwrap();
             if st.1.is_empty() {
-                st.1 = "could not write the cache (disk full?)".into();
+                st.1 = if read_ok {
+                    "could not write the cache (disk full?)".into()
+                } else {
+                    format!("could not read date {} of the source", t + 1)
+                };
             }
         }
         self.release(t, ok);
