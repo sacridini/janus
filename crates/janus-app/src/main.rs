@@ -24,6 +24,7 @@ mod session;
 mod settings;
 mod theme;
 mod tour;
+mod views;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -55,6 +56,8 @@ Options:
   --basemap ID|URL    a basemap under the series once it opens: esri, eox, osm or an XYZ URL
   --season A-B        a season (days of the year A to B, e.g. 152-243) once the series opens
   --layer IN          IN added as a layer once the series is open (repeatable)
+  --map-view          a map panel once the series are open
+  --swipe             the swipe once the series are open
   --pin X,Y           a pin at source pixel (X, Y) once the series is open (repeatable)
   --roi X0,Y0,X1,Y1   an ROI rectangle once the series is open
   --selftest-reproject B F A  F (B reprojected) drawn on B's grid where PROJ puts it; the cursor, a pin and
@@ -115,6 +118,8 @@ fn main() -> eframe::Result<()> {
             "--dump-golden" => opts.dump_golden = Some(Default::default()),
             "--basemap" => opts.basemap = args.next(),
             "--layer" => opts.extra_layers.extend(args.next()),
+            "--map-view" => opts.map_view = true,
+            "--swipe" => opts.swipe = true,
             "--pin" => {
                 let v: Vec<usize> =
                     args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();

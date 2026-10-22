@@ -108,6 +108,43 @@ impl Placement {
     }
 }
 
+impl Placement {
+    /// The map-space rectangle in the layer's own pixels (what to read of it) and the zoom there: target pixels per
+    /// layer pixel, at `px_per_map_px`.
+    pub fn view(&self, x0: f64, y0: f64, x1: f64, y1: f64, px_per_map_px: f64) -> janus_session::ViewRect {
+        use janus_session::ViewRect;
+        let Some((r, _)) = &self.reproj else {
+            return ViewRect {
+                x0: (x0 - self.ax) / self.bx,
+                y0: (y0 - self.ay) / self.by,
+                x1: (x1 - self.ax) / self.bx,
+                y1: (y1 - self.ay) / self.by,
+                scale: px_per_map_px * self.bx,
+            };
+        };
+        // reprojected: the bounding box of the view's edges in the layer's pixels
+        let p = r.polygon(x0, y0, x1, y1, 8);
+        let k = r.layer_px_per_map_px((x0 + x1) * 0.5, (y0 + y1) * 0.5);
+        if p.is_empty() || k.is_nan() || k <= 0.0 {
+            return ViewRect { x0: 0.0, y0: 0.0, x1: 0.0, y1: 0.0, scale: 0.0 }; // nothing to read
+        }
+        let mut v = ViewRect {
+            x0: f64::INFINITY,
+            y0: f64::INFINITY,
+            x1: f64::NEG_INFINITY,
+            y1: f64::NEG_INFINITY,
+            scale: px_per_map_px / k,
+        };
+        for q in p.as_chunks::<2>().0 {
+            v.x0 = v.x0.min(q[0]);
+            v.y0 = v.y0.min(q[1]);
+            v.x1 = v.x1.max(q[0]);
+            v.y1 = v.y1.max(q[1]);
+        }
+        v
+    }
+}
+
 /// An open series. The active one's session, display state, classes and composite are the State's (here None and
 /// defaults); the others keep theirs here.
 pub struct SeriesLayer {

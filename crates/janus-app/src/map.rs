@@ -1,8 +1,9 @@
-//! The map panel (src/app.cpp: drawMap, mapInput, drawMapMarks): the cube drawn by the GPU into the panel's
-//! target, shown as an image; the wheel zooms (smoothed, as the C++), a drag moves, a click drops a pin, the right
-//! button removes one; the cursor's pixel, the pins, the colour bar and the status are drawn over it.
+//! The map panel (src/app.cpp: uiMap, mapInput, drawMapMarks, renderMap): every layer drawn by the GPU into the
+//! panel's target, shown as an image; the wheel zooms (smoothed, as the C++), a drag moves, a click drops a pin, the
+//! right button removes one, Shift + drag draws an ROI; the cursor's pixel, the pins, the ROI, the colour bar and
+//! the status are drawn over it. The map panels and the swipe (views.rs) share its view and its input.
 
-use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Ui, vec2};
+use egui::{Align2, Color32, FontId, Pos2, Rect, Response, Sense, Stroke, Ui, vec2};
 use janus_gpu::Mode;
 use janus_session::ViewRect;
 
@@ -28,7 +29,6 @@ pub struct MapView {
     pub touched: bool,
     /// the map's size on the screen (points), last frame
     pub canvas: [f32; 2],
-    texture: Option<egui::TextureId>,
     /// what the target holds: the mode, dates, range, colormap, the image's place and the tiles on the GPU
     drawn: Option<DrawKey>,
     pub dirty: bool,
@@ -36,6 +36,11 @@ pub struct MapView {
     pub last_view: Option<ViewRect>,
     /// the detail tiles' level drawn (0 = full resolution), None: the overview
     pub detail_level: Option<u32>,
+    /// the main map was drawn again this frame: the panels and the swipe follow it
+    pub redrawn: bool,
+    /// the canvas the pointer is over this frame (0: the main map, else a panel's id), and the last frame's
+    pub pointer_panel: Option<u32>,
+    pub prev_pointer_panel: Option<u32>,
 }
 
 type DrawKey = (Mode, [i32; 3], [u32; 2], usize, [u32; 4], usize, Option<usize>);
@@ -58,38 +63,55 @@ impl MapView {
         self.fit_pending = false;
         self.dirty = true;
     }
+
+    /// A point of the overview on a canvas centred like the main map.
+    pub fn screen_of(&self, rect: Rect, ix: f64, iy: f64) -> Pos2 {
+        Pos2::new(
+            rect.center().x + ((ix - self.center[0]) * self.scale) as f32,
+            rect.center().y + ((iy - self.center[1]) * self.scale) as f32,
+        )
+    }
+
+    /// The overview's point under a screen point.
+    pub fn image_at(&self, rect: Rect, p: Pos2) -> [f64; 2] {
+        [
+            self.center[0] + f64::from(p.x - rect.center().x) / self.scale,
+            self.center[1] + f64::from(p.y - rect.center().y) / self.scale,
+        ]
+    }
+}
+
+/// The active layer's source pixels per overview pixel, and their counts.
+pub(crate) struct Grid {
+    pub ow: f64,
+    pub oh: f64,
+    pub w: f64,
+    pub h: f64,
+    pub fx: f64,
+    pub fy: f64,
 }
 
 impl State {
-    pub fn map_ui(&mut self, ui: &mut Ui) {
-        if self.session.is_none() {
-            let (rect, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
-            let msg = match (&self.opening, &self.error) {
-                (Some(o), _) if o.inputs.len() == 1 => format!("Opening {}...", o.inputs[0]),
-                (Some(o), _) => format!("Opening {} inputs...", o.inputs.len()),
-                (_, Some(e)) => e.clone(),
-                _ => "Open a time series: File > Open (Ctrl+O), drop files/a folder onto the window\nor call it from \
-                      the command line: jn <folder | series.tif | files_*.tif>"
-                    .to_string(),
-            };
-            let painter = ui.painter_at(rect);
-            painter.text(rect.center(), Align2::CENTER_CENTER, msg, FontId::proportional(13.0), theme::weak_text());
-            return;
-        }
-        self.time_bar(ui);
-        // the canvas, above a status line
-        let status_h = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
-        let avail = ui.available_size();
-        let (rect, resp) =
-            ui.allocate_exact_size(vec2(avail.x.max(64.0), (avail.y - status_h).max(64.0)), Sense::click_and_drag());
-        let painter = ui.painter_at(rect);
-        let Some(s) = &self.session else { return };
+    pub(crate) fn grid(&self) -> Option<Grid> {
+        let s = self.session.as_ref()?;
         let (ow, oh) = (s.s.overview.w as f64, s.s.overview.h as f64);
         let (w, h) = (s.info.width as f64, s.info.height as f64);
-        // the whole image with a margin, as the C++'s fitView
-        let fit = 0.98 * (f64::from(rect.width()) / ow).min(f64::from(rect.height()) / oh);
+        Some(Grid { ow, oh, w, h, fx: w / ow, fy: h / oh })
+    }
+
+    /// The pointer over a map canvas (the main map's or a panel's: they share the view, centred alike): the wheel
+    /// zooms about the cursor, a drag pans, Shift + drag draws an ROI, a click drops a pin, the right button
+    /// removes the one under the cursor, Delete the last one. Returns the source pixel under the cursor.
+    pub(crate) fn canvas_input(&mut self, ui: &Ui, rect: Rect, resp: &Response, main: bool) -> Option<(usize, usize)> {
+        let g = self.grid()?;
+        let (ow, oh, w, h, fx, fy) = (g.ow, g.oh, g.w, g.h, g.fx, g.fy);
         let m = &mut self.map;
-        m.canvas = [rect.width(), rect.height()];
+        if main {
+            m.canvas = [rect.width(), rect.height()];
+        }
+        // the whole image with a margin, as the C++'s fitView (of the main map's canvas)
+        let [cw, ch] = if m.canvas[0] > 0.0 { m.canvas } else { [rect.width(), rect.height()] };
+        let fit = 0.98 * (f64::from(cw) / ow).min(f64::from(ch) / oh);
         if m.fit_pending || m.scale <= 0.0 {
             m.center = [ow / 2.0, oh / 2.0];
             m.scale = fit;
@@ -99,14 +121,6 @@ impl State {
         }
         // up to 64 screen points per source pixel; down to the whole image
         let max_scale = 64.0 * ow / w;
-        let image_at = |m: &MapView, p: Pos2| -> [f64; 2] {
-            [
-                m.center[0] + f64::from(p.x - rect.center().x) / m.scale,
-                m.center[1] + f64::from(p.y - rect.center().y) / m.scale,
-            ]
-        };
-
-        // input: the wheel (and a trackpad's pinch) zooms about the cursor, a drag moves
         if resp.hovered() {
             // the wheel's own steps (in points), smoothed here as the C++ smooths them
             let (scroll, pinch) = ui.input(|i| {
@@ -134,32 +148,35 @@ impl State {
                 m.touched = true;
                 m.target_scale = (m.target_scale * factor).clamp(fit.min(max_scale), max_scale.max(fit));
                 if let Some(p) = resp.hover_pos() {
-                    m.anchor = Some((p, image_at(m, p)));
+                    m.anchor = Some((p - rect.center().to_vec2(), m.image_at(rect, p)));
                 }
             }
         }
-        let dt = f64::from(ui.input(|i| i.stable_dt)).min(0.1);
-        if (m.target_scale / m.scale).ln().abs() > 1e-4 {
-            let k = 1.0 - (-dt / ZOOM_TAU).exp();
-            m.scale *= (m.target_scale / m.scale).powf(k);
-            if let Some((sp, ip)) = m.anchor {
-                m.center = [
-                    ip[0] - f64::from(sp.x - rect.center().x) / m.scale,
-                    ip[1] - f64::from(sp.y - rect.center().y) / m.scale,
-                ];
-            }
-            ui.ctx().request_repaint();
-        } else if m.scale != m.target_scale {
-            m.scale = m.target_scale;
-            if m.scale <= fit * 1.0001 {
-                // zoomed out to the whole image: it ends centred
-                m.center = [ow / 2.0, oh / 2.0];
+        if main {
+            // the zoom's approach, once a frame (the anchor relative to the canvas' centre: any panel's wheel)
+            let dt = f64::from(ui.input(|i| i.stable_dt)).min(0.1);
+            if (m.target_scale / m.scale).ln().abs() > 1e-4 {
+                let k = 1.0 - (-dt / ZOOM_TAU).exp();
+                m.scale *= (m.target_scale / m.scale).powf(k);
+                if let Some((sp, ip)) = m.anchor {
+                    m.center = [ip[0] - f64::from(sp.x) / m.scale, ip[1] - f64::from(sp.y) / m.scale];
+                }
+                ui.ctx().request_repaint();
+            } else if m.scale != m.target_scale {
+                m.scale = m.target_scale;
+                if m.scale <= fit * 1.0001 {
+                    // zoomed out to the whole image: it ends centred
+                    m.center = [ow / 2.0, oh / 2.0];
+                }
             }
         }
-        // the source pixel under the pointer (the active layer's)
-        let (fx, fy) = (w / ow, h / oh);
+        // the swipe's divider takes the drag (no pan, pin or ROI)
+        if main && self.swipe_input(ui, rect, resp) {
+            return None;
+        }
+        let m = &mut self.map;
         let src_at = |m: &MapView, p: Pos2| -> [f64; 2] {
-            let [ix, iy] = image_at(m, p);
+            let [ix, iy] = m.image_at(rect, p);
             [ix * fx, iy * fy]
         };
         let shift = ui.input(|i| i.modifiers.shift);
@@ -171,7 +188,7 @@ impl State {
             let a = src_at(m, p);
             self.series.roi_drag = Some((a, a));
         }
-        if let Some((a, _)) = self.series.roi_drag {
+        if let Some((a, _)) = self.series.roi_drag.filter(|_| resp.is_pointer_button_down_on() || resp.drag_stopped()) {
             if let Some(p) = resp.interact_pointer_pos() {
                 self.series.roi_drag = Some((a, src_at(m, p)));
             }
@@ -198,20 +215,11 @@ impl State {
         let m = &mut self.map;
         // the image's centre stays on it
         m.center = [m.center[0].clamp(0.0, ow), m.center[1].clamp(0.0, oh)];
-
         // the pixel under the cursor
         let pointer = resp.hover_pos().map(|p| src_at(m, p));
         let inside =
             pointer.filter(|[x, y]| *x >= 0.0 && *y >= 0.0 && *x < w && *y < h).map(|[x, y]| (x as usize, y as usize));
-        let screen_of = |m: &MapView, ix: f64, iy: f64| -> Pos2 {
-            Pos2::new(
-                rect.center().x + ((ix - m.center[0]) * m.scale) as f32,
-                rect.center().y + ((iy - m.center[1]) * m.scale) as f32,
-            )
-        };
-        // a source pixel's point on the screen
-        let src_screen = |m: &MapView, x: f64, y: f64| screen_of(m, x / fx, y / fy);
-        let m_snapshot = (m.center, m.scale);
+        let view = (m.center, m.scale);
         if inside.is_some() && !self.opts.scripted() {
             self.set_hover(inside);
         }
@@ -225,12 +233,14 @@ impl State {
         if resp.secondary_clicked()
             && let Some(p) = resp.interact_pointer_pos()
         {
-            let mv = MapView { center: m_snapshot.0, scale: m_snapshot.1, ..Default::default() };
+            let mv = MapView { center: view.0, scale: view.1, ..Default::default() };
             let near = self
                 .series
                 .pins
                 .iter()
-                .map(|pin| (pin.id, src_screen(&mv, pin.x as f64 + 0.5, pin.y as f64 + 0.5).distance(p)))
+                .map(|pin| {
+                    (pin.id, mv.screen_of(rect, (pin.x as f64 + 0.5) / fx, (pin.y as f64 + 0.5) / fy).distance(p))
+                })
                 .filter(|(_, d)| *d < 12.0)
                 .min_by(|a, b| a.1.total_cmp(&b.1));
             if let Some((id, _)) = near {
@@ -243,26 +253,166 @@ impl State {
         {
             self.remove_pin(id);
         }
-        let m = &mut self.map;
+        inside
+    }
 
-        // the cube drawn into the panel's target, at the screen's pixels, the detail tiles over it
-        let ppp = ui.ctx().pixels_per_point();
-        let size = [(rect.width() * ppp).round() as u32, (rect.height() * ppp).round() as u32];
-        let Some(gpu) = self.gpu.as_mut() else { return };
-        if gpu.ensure_target(0, size) {
-            let t = gpu.target(0).unwrap();
+    /// Over a map canvas: the outline of the pixel under the cursor (when large enough), or a cross where the cursor
+    /// is on another canvas; the pins; the ROI.
+    pub(crate) fn map_marks(&self, painter: &egui::Painter, rect: Rect, inside: Option<(usize, usize)>, panel: u32) {
+        let Some(g) = self.grid() else { return };
+        let m = &self.map;
+        let at = |x: f64, y: f64| m.screen_of(rect, x / g.fx, y / g.fy);
+        if let Some((x, y)) = inside
+            && m.scale * g.ow / g.w >= 6.0
+        {
+            let r = Rect::from_min_max(at(x as f64, y as f64), at(x as f64 + 1.0, y as f64 + 1.0));
+            painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_white_alpha(200)), egui::StrokeKind::Middle);
+        }
+        if inside.is_none()
+            && let Some(h) = &self.series.hover
+        {
+            // the cursor is over another canvas: a cross at the same place here
+            let c = at(h.x as f64 + 0.5, h.y as f64 + 0.5);
+            if rect.contains(c) && self.map.prev_pointer_panel.is_some_and(|p| p != panel) {
+                for (col, w) in [(Color32::from_black_alpha(200), 3.0), (Color32::from_white_alpha(230), 1.0)] {
+                    let s = Stroke::new(w, col);
+                    painter.line_segment([c - vec2(9.0, 0.0), c - vec2(3.0, 0.0)], s);
+                    painter.line_segment([c + vec2(3.0, 0.0), c + vec2(9.0, 0.0)], s);
+                    painter.line_segment([c - vec2(0.0, 9.0), c - vec2(0.0, 3.0)], s);
+                    painter.line_segment([c + vec2(0.0, 3.0), c + vec2(0.0, 9.0)], s);
+                }
+            }
+        }
+        for pin in &self.series.pins {
+            // a dark ring and a white one: visible over any colormap
+            let c = at(pin.x as f64 + 0.5, pin.y as f64 + 0.5);
+            painter.circle_stroke(c, 8.5, Stroke::new(3.0, Color32::from_black_alpha(220)));
+            painter.circle_filled(c, 6.5, pin.color);
+            painter.circle_stroke(c, 6.5, Stroke::new(1.5, Color32::WHITE));
+            let galley = painter.layout_no_wrap(pin.id.to_string(), body_font(painter), pin.color);
+            let tp = c + vec2(11.0, -18.0);
+            painter.rect_filled(
+                Rect::from_min_max(tp - vec2(3.0, 1.0), tp + galley.size() + vec2(3.0, 1.0)),
+                3.0,
+                Color32::from_black_alpha(190),
+            );
+            painter.galley(tp, galley, pin.color);
+        }
+        let roi = crate::series::ROI_COLOR;
+        let outline = |r: [usize; 4], thick: f32| {
+            let rr = Rect::from_min_max(at(r[0] as f64, r[1] as f64), at(r[2] as f64, r[3] as f64));
+            let dark = Stroke::new(thick + 2.0, Color32::from_black_alpha(160));
+            painter.rect_stroke(rr, 0.0, dark, egui::StrokeKind::Middle);
+            painter.rect_stroke(rr, 0.0, Stroke::new(thick, roi), egui::StrokeKind::Middle);
+        };
+        let sr = &self.series;
+        if let Some((a, b)) = sr.roi_drag {
+            let rr = Rect::from_two_pos(at(a[0], a[1]), at(b[0], b[1]));
+            painter.rect_stroke(rr, 0.0, Stroke::new(2.0, roi), egui::StrokeKind::Middle);
+        } else if let Some(r) = sr.roi_rect {
+            let p = at(r[0] as f64, r[1] as f64) + vec2(4.0, 2.0);
+            if sr.roi_pending {
+                outline(r, 1.0);
+                painter.text(p, Align2::LEFT_TOP, "ROI: waiting for the overview (HDD)", body_font(painter), roi);
+            } else if let Some(d) = &sr.roi.data {
+                outline(r, 2.0);
+                let (done, n) = (d.done.load(std::sync::atomic::Ordering::Relaxed), d.per_t.len());
+                if done < n {
+                    painter.text(p, Align2::LEFT_TOP, format!("ROI {done}/{n}"), body_font(painter), roi);
+                }
+            }
+        }
+    }
+
+    /// A colour bar at the bottom left of a canvas: the colormap and its range's ends.
+    pub(crate) fn colour_bar(painter: &egui::Painter, rect: Rect, cmap: usize, lo: String, hi: String) {
+        let cm = &janus_gpu::colormaps::all()[cmap];
+        let b0 = rect.left_bottom() + vec2(10.0, -34.0);
+        let bar = Rect::from_min_size(b0, vec2(220.0, 10.0));
+        for i in 0..48 {
+            let c = cm.sample((i as f32 + 0.5) / 48.0);
+            let x0 = bar.min.x + bar.width() * i as f32 / 48.0;
+            let x1 = bar.min.x + bar.width() * (i + 1) as f32 / 48.0;
+            let r = Rect::from_min_max(Pos2::new(x0, bar.min.y), Pos2::new(x1, bar.max.y));
+            painter.rect_filled(r, 0.0, Color32::from_rgb(c[0], c[1], c[2]));
+        }
+        painter.rect_stroke(bar, 0.0, Stroke::new(1.0, Color32::BLACK), egui::StrokeKind::Outside);
+        let label = Color32::from_gray(230);
+        painter.text(b0 + vec2(0.0, 12.0), Align2::LEFT_TOP, lo, body_font(painter), label);
+        painter.text(bar.right_top() + vec2(0.0, 12.0), Align2::RIGHT_TOP, hi, body_font(painter), label);
+    }
+
+    /// A title at the top left of a canvas, over a shadow.
+    pub(crate) fn canvas_title(painter: &egui::Painter, rect: Rect, title: &str) {
+        let font = body_font(painter);
+        painter.text(rect.min + vec2(11.0, 9.0), Align2::LEFT_TOP, title, font.clone(), Color32::from_black_alpha(200));
+        painter.text(rect.min + vec2(10.0, 8.0), Align2::LEFT_TOP, title, font, Color32::WHITE);
+    }
+
+    /// A map target's egui texture, made or updated when the target is (re)made at `size`.
+    pub(crate) fn target_texture(&mut self, slot: i32, size: [u32; 2]) -> Option<(egui::TextureId, bool)> {
+        let gpu = self.gpu.as_mut()?;
+        let made = gpu.ensure_target(slot, size);
+        let known = self.map_textures.get(&slot).copied();
+        if made || known.is_none() {
+            let t = gpu.target(slot)?;
             let rs = &self.render_state;
             let mut r = rs.renderer.write();
-            match m.texture {
-                Some(id) => r.update_egui_texture_from_wgpu_texture(&rs.device, &t.view, wgpu::FilterMode::Nearest, id),
-                None => m.texture = Some(r.register_native_texture(&rs.device, &t.view, wgpu::FilterMode::Nearest)),
-            }
-            m.dirty = true;
+            let id = match known {
+                Some(id) => {
+                    r.update_egui_texture_from_wgpu_texture(&rs.device, &t.view, wgpu::FilterMode::Nearest, id);
+                    id
+                }
+                None => r.register_native_texture(&rs.device, &t.view, wgpu::FilterMode::Nearest),
+            };
+            self.map_textures.insert(slot, id);
+            return Some((id, true));
         }
+        known.map(|id| (id, false))
+    }
+
+    pub fn map_ui(&mut self, ui: &mut Ui) {
+        if self.session.is_none() {
+            let (rect, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
+            let msg = match (&self.opening, &self.error) {
+                (Some(o), _) if o.inputs.len() == 1 => format!("Opening {}...", o.inputs[0]),
+                (Some(o), _) => format!("Opening {} inputs...", o.inputs.len()),
+                (_, Some(e)) => e.clone(),
+                _ => "Open a time series: File > Open (Ctrl+O), drop files/a folder onto the window\nor call it from \
+                      the command line: jn <folder | series.tif | files_*.tif>"
+                    .to_string(),
+            };
+            let painter = ui.painter_at(rect);
+            painter.text(rect.center(), Align2::CENTER_CENTER, msg, body_font(&painter), theme::weak_text());
+            return;
+        }
+        self.time_bar(ui);
+        self.swipe_bar(ui);
+        // the canvas, above a status line
+        let status_h = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
+        let avail = ui.available_size();
+        let (rect, resp) =
+            ui.allocate_exact_size(vec2(avail.x.max(64.0), (avail.y - status_h).max(64.0)), Sense::click_and_drag());
+        let painter = ui.painter_at(rect);
+        if resp.hovered() {
+            self.map.pointer_panel = Some(0);
+        }
+        let inside = self.canvas_input(ui, rect, &resp, true);
+        let Some(g) = self.grid() else { return };
+        let (ow, oh, w, fx, fy) = (g.ow, g.oh, g.w, g.fx, g.fy);
+
+        // every layer drawn into the map's target, at the screen's pixels, the detail tiles over the active one
+        let ppp = ui.ctx().pixels_per_point();
+        let size = [(rect.width() * ppp).round() as u32, (rect.height() * ppp).round() as u32];
+        let Some((texture, remade)) = self.target_texture(0, size) else { return };
+        if remade {
+            self.map.dirty = true;
+        }
+        let Some(gpu) = self.gpu.as_mut() else { return };
+        let m = &mut self.map;
         let Some(s) = self.session.as_mut() else { return };
-        let (fx, fy) = (w / ow, h / oh); // source pixels per overview pixel
         let to_px = |m: &MapView, x0: f64, y0: f64, x1: f64, y1: f64| -> [f32; 4] {
-            let (a, b) = (screen_of(m, x0, y0), screen_of(m, x1, y1));
+            let (a, b) = (m.screen_of(rect, x0, y0), m.screen_of(rect, x1, y1));
             [(a.x - rect.min.x) * ppp, (a.y - rect.min.y) * ppp, (b.x - rect.min.x) * ppp, (b.y - rect.min.y) * ppp]
         };
         let mut params = self.display.layer_params(s);
@@ -274,7 +424,7 @@ impl State {
         let t = self.display.t;
         let ready = self.display.ready(s, &params);
         // the detail tiles of the view: the visible part in source pixels, at screen pixels per source pixel
-        let (v0, v1) = (image_at(m, rect.min), image_at(m, rect.max));
+        let (v0, v1) = (m.image_at(rect, rect.min), m.image_at(rect, rect.max));
         let view = ViewRect {
             x0: v0[0] * fx,
             y0: v0[1] * fy,
@@ -304,6 +454,7 @@ impl State {
             s.tiles.gpu_tiles(),
             params.class_lut.as_ref().map(|l| std::sync::Arc::as_ptr(l) as usize),
         );
+        m.redrawn = false;
         if m.dirty || m.drawn.as_ref() != Some(&key) {
             let bg = theme::map_background();
             let mut f = gpu.begin_map(0, size, bg);
@@ -350,76 +501,13 @@ impl State {
             gpu.end_map(f);
             m.drawn = Some(key);
             m.dirty = false;
+            m.redrawn = true;
         }
+        painter.image(texture, rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+        self.draw_swipe(ui, &painter, rect, ppp);
+        self.map_marks(&painter, rect, inside, 0);
+        let m = &self.map;
         let s = self.session.as_ref().unwrap();
-        if let Some(tex) = m.texture {
-            painter.image(tex, rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
-        }
-
-        // the outline of the pixel under the cursor (when large enough), the pins, the ROI
-        let src_scale = m.scale * ow / w;
-        let at = |x: f64, y: f64| screen_of(m, x / fx, y / fy);
-        if let Some((x, y)) = inside
-            && src_scale >= 6.0
-        {
-            let r = Rect::from_min_max(at(x as f64, y as f64), at(x as f64 + 1.0, y as f64 + 1.0));
-            painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_white_alpha(200)), egui::StrokeKind::Middle);
-        }
-        for pin in &self.series.pins {
-            // a dark ring and a white one: visible over any colormap
-            let c = at(pin.x as f64 + 0.5, pin.y as f64 + 0.5);
-            painter.circle_stroke(c, 8.5, Stroke::new(3.0, Color32::from_black_alpha(220)));
-            painter.circle_filled(c, 6.5, pin.color);
-            painter.circle_stroke(c, 6.5, Stroke::new(1.5, Color32::WHITE));
-            let font = FontId::proportional(13.0);
-            let galley = painter.layout_no_wrap(pin.id.to_string(), font, pin.color);
-            let tp = c + vec2(11.0, -18.0);
-            painter.rect_filled(
-                Rect::from_min_max(tp - vec2(3.0, 1.0), tp + galley.size() + vec2(3.0, 1.0)),
-                3.0,
-                Color32::from_black_alpha(190),
-            );
-            painter.galley(tp, galley, pin.color);
-        }
-        let roi = crate::series::ROI_COLOR;
-        let outline = |r: [usize; 4], thick: f32| {
-            let rr = Rect::from_min_max(at(r[0] as f64, r[1] as f64), at(r[2] as f64, r[3] as f64));
-            painter.rect_stroke(
-                rr,
-                0.0,
-                Stroke::new(thick + 2.0, Color32::from_black_alpha(160)),
-                egui::StrokeKind::Middle,
-            );
-            painter.rect_stroke(rr, 0.0, Stroke::new(thick, roi), egui::StrokeKind::Middle);
-        };
-        let sr = &self.series;
-        if let Some((a, b)) = sr.roi_drag {
-            let rr = Rect::from_two_pos(at(a[0], a[1]), at(b[0], b[1]));
-            painter.rect_stroke(rr, 0.0, Stroke::new(2.0, roi), egui::StrokeKind::Middle);
-        } else if let Some(r) = sr.roi_rect {
-            if sr.roi_pending {
-                outline(r, 1.0);
-                painter.text(
-                    at(r[0] as f64, r[1] as f64) + vec2(4.0, 2.0),
-                    Align2::LEFT_TOP,
-                    "ROI: waiting for the overview (HDD)",
-                    FontId::proportional(13.0),
-                    roi,
-                );
-            } else if let Some(d) = &sr.roi.data {
-                outline(r, 2.0);
-                let (done, n) = (d.done.load(std::sync::atomic::Ordering::Relaxed), d.per_t.len());
-                if done < n {
-                    painter.text(
-                        at(d.x0 as f64, d.y0 as f64) + vec2(4.0, 2.0),
-                        Align2::LEFT_TOP,
-                        format!("ROI {done}/{n}"),
-                        FontId::proportional(13.0),
-                        roi,
-                    );
-                }
-            }
-        }
 
         // the title (date and mode), a wait, the overview's progress, the colour bar
         let (zoom, detail_level) = (m.scale * ow / w, m.detail_level);
@@ -431,15 +519,8 @@ impl State {
             Some(c) => c.title(info, d.t),
             None => self.map_title(),
         };
-        let font = FontId::proportional(13.0);
-        painter.text(
-            rect.min + vec2(11.0, 9.0),
-            Align2::LEFT_TOP,
-            &title,
-            font.clone(),
-            Color32::from_black_alpha(200),
-        );
-        painter.text(rect.min + vec2(10.0, 8.0), Align2::LEFT_TOP, &title, font.clone(), Color32::WHITE);
+        State::canvas_title(&painter, rect, &title);
+        let font = body_font(&painter);
         let up = |t: usize| s.uploaded.get(t).copied().unwrap_or(false);
         let wait = if let Some(c) = composite {
             if !c.error.is_empty() {
@@ -487,36 +568,9 @@ impl State {
             );
         }
         if d.mode != Mode::Rgb && composite.is_none() {
-            let cm = &janus_gpu::colormaps::all()[d.cmap[d.mode as usize]];
-            let b0 = rect.left_bottom() + vec2(10.0, -34.0);
-            let bar = Rect::from_min_size(b0, vec2(220.0, 10.0));
-            for i in 0..48 {
-                let c = cm.sample((i as f32 + 0.5) / 48.0);
-                let x0 = bar.min.x + bar.width() * i as f32 / 48.0;
-                let x1 = bar.min.x + bar.width() * (i + 1) as f32 / 48.0;
-                painter.rect_filled(
-                    Rect::from_min_max(Pos2::new(x0, bar.min.y), Pos2::new(x1, bar.max.y)),
-                    0.0,
-                    Color32::from_rgb(c[0], c[1], c[2]),
-                );
-            }
-            painter.rect_stroke(bar, 0.0, Stroke::new(1.0, Color32::BLACK), egui::StrokeKind::Outside);
             let range = d.ranges[d.mode as usize];
-            let label = Color32::from_gray(230);
-            painter.text(
-                b0 + vec2(0.0, 12.0),
-                Align2::LEFT_TOP,
-                range_label(d.mode, range.lo, info),
-                font.clone(),
-                label,
-            );
-            painter.text(
-                bar.right_top() + vec2(0.0, 12.0),
-                Align2::RIGHT_TOP,
-                range_label(d.mode, range.hi, info),
-                font.clone(),
-                label,
-            );
+            let (lo, hi) = (range_label(d.mode, range.lo, info), range_label(d.mode, range.hi, info));
+            State::colour_bar(&painter, rect, d.cmap[d.mode as usize], lo, hi);
         }
 
         // the status line under the map: the zoom, its detail, the pixel and what the map shows there
@@ -579,6 +633,12 @@ impl State {
         self.basemap_note(&painter, rect);
         ui.weak(status);
     }
+}
+
+/// The interface's text size (the map's labels follow the font size setting, as in the C++).
+pub(crate) fn body_font(painter: &egui::Painter) -> FontId {
+    let size = painter.ctx().style_of(painter.ctx().theme()).text_styles[&egui::TextStyle::Body].size;
+    FontId::proportional(size)
 }
 
 impl State {

@@ -19,6 +19,8 @@ use crate::theme;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tab {
     Map,
+    /// a map panel ("Map <id>")
+    MapView(u32),
     Layers,
     Files,
     Display,
@@ -28,9 +30,16 @@ pub enum Tab {
 }
 
 impl Tab {
-    fn title(self) -> &'static str {
+    fn title(self) -> String {
         match self {
-            Tab::Map => "Map",
+            Tab::MapView(id) => format!("Map {id}"),
+            _ => self.name().to_string(),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Tab::Map | Tab::MapView(_) => "Map",
             Tab::Layers => "Layers",
             Tab::Files => "Files",
             Tab::Display => "Display",
@@ -80,6 +89,9 @@ pub struct Options {
     pub season: Option<(i32, i32)>,
     /// --layer: series added as layers once the first is open
     pub extra_layers: Vec<String>,
+    /// --map-view, --swipe: a map panel, the swipe, once every series is open (screenshots)
+    pub map_view: bool,
+    pub swipe: bool,
     /// --pin, --roi: pins and an ROI once the series is open (screenshots)
     pub pins: Vec<(usize, usize)>,
     pub roi: Option<[i64; 4]>,
@@ -169,6 +181,16 @@ pub struct State {
     pub help_popup: bool,
     /// Settings, kept between sessions
     pub settings: crate::settings::SettingsState,
+    /// the map targets' egui textures (by slot)
+    pub map_textures: std::collections::HashMap<i32, egui::TextureId>,
+    /// the map panels, the next one's number, those to dock (and to close) this frame
+    pub views: Vec<crate::views::ViewSetup>,
+    pub next_view: u32,
+    pub views_added: Vec<u32>,
+    pub views_closed: Vec<u32>,
+    /// the swipe (C), and its comparison when it was last turned off
+    pub swipe: Option<crate::views::Swipe>,
+    pub last_swipe: Option<crate::views::ViewSetup>,
     /// the Display panel's spectral index (among those the spectrum covers)
     pub spectral_index: usize,
     /// the Display panel's band selection being edited (for the cube id)
@@ -272,13 +294,21 @@ impl TabViewer for Tabs<'_> {
         Id::new(*tab)
     }
 
-    fn is_closeable(&self, _tab: &Tab) -> bool {
-        false
+    fn is_closeable(&self, tab: &Tab) -> bool {
+        matches!(tab, Tab::MapView(_))
+    }
+
+    fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
+        if let Tab::MapView(id) = tab {
+            self.s.close_map_view(*id);
+        }
+        egui_dock::tab_viewer::OnCloseResponse::Close
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
         match tab {
             Tab::Map => self.s.map_ui(ui),
+            Tab::MapView(id) => self.s.map_view_ui(ui, *id),
             Tab::TimeSeries => self.s.series_ui(ui),
             _ => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match tab {
@@ -336,6 +366,13 @@ impl JanusApp {
                 chart: Default::default(),
                 band_sel: None,
                 spectral_index: 0,
+                map_textures: Default::default(),
+                views: Vec::new(),
+                next_view: 2,
+                views_added: Vec::new(),
+                views_closed: Vec::new(),
+                swipe: None,
+                last_swipe: None,
                 open_ui: Default::default(),
                 files: crate::files::FileBrowser::new(favorites),
                 error_popup: None,
@@ -579,6 +616,19 @@ impl State {
             let next = self.opts.extra_layers.remove(0);
             self.open_inputs(vec![next], true, ctx);
         }
+        // --map-view, --swipe: once every series asked for is open
+        if (self.opts.map_view || self.opts.swipe)
+            && self.opening.is_none()
+            && self.opts.extra_layers.is_empty()
+            && self.session.as_ref().is_some_and(|s| s.s.overview.complete())
+        {
+            if std::mem::take(&mut self.opts.map_view) {
+                self.new_map_view();
+            }
+            if std::mem::take(&mut self.opts.swipe) {
+                self.toggle_swipe();
+            }
+        }
         self.pump_season();
         self.pump_layers(ctx);
         self.sync_layer_times();
@@ -634,6 +684,14 @@ impl State {
         if chord(Modifiers::COMMAND, Key::Comma) {
             self.settings.show = true;
         }
+        if self.session.is_some() && chord(Modifiers::COMMAND, Key::T) {
+            self.new_map_view();
+        }
+        // closes the panel under the pointer, else the last one opened (the main map stays)
+        if !self.views.is_empty() && chord(Modifiers::COMMAND, Key::W) {
+            let id = self.map.prev_pointer_panel.filter(|&p| p >= 2).unwrap_or(self.views.last().unwrap().id);
+            self.views_closed.push(id);
+        }
         if chord(shift_cmd, Key::R) {
             act.reset_layout = true;
         }
@@ -674,6 +732,9 @@ impl State {
         }
         if play {
             self.display.playing = !self.display.playing;
+        }
+        if ctx.input(|i| i.key_pressed(Key::C) && i.modifiers.is_none()) {
+            self.toggle_swipe();
         }
         if space && let Some(l) = self.layers.get_mut(self.active) {
             // shows / hides the active layer
@@ -750,6 +811,22 @@ impl State {
                 if item(ui, "Fit map to window", "F", has) {
                     self.map.fit();
                 }
+                if item(ui, "New map view", "Ctrl+T", has) {
+                    self.new_map_view();
+                }
+                if item(ui, "Close map view", "Ctrl+W", !self.views.is_empty()) {
+                    let id = self.views.last().unwrap().id;
+                    self.views_closed.push(id);
+                }
+                ui.separator();
+                let mut swipe = self.swipe.is_some();
+                if ui.add_enabled(has, egui::Checkbox::new(&mut swipe, "Swipe (C)")).clicked() {
+                    self.toggle_swipe();
+                }
+                if item(ui, "Clear ROI", "", self.series.roi_rect.is_some()) {
+                    self.clear_roi();
+                }
+                ui.separator();
                 let mut perf = perf_shown;
                 if ui.checkbox(&mut perf, "Performance").clicked() {
                     act.toggle_performance = true;
@@ -900,6 +977,7 @@ impl eframe::App for JanusApp {
         s.perf.last_cpu = frame.info().cpu_usage;
         let detached: Vec<ViewportId> = self.windows.iter().map(|w| w.id).collect();
         s.measurements(ui, &detached);
+        s.map.prev_pointer_panel = s.map.pointer_panel.take();
         s.pump_settings(&ctx);
         s.pump(&ctx);
         s.pump_basemap(&ctx);
@@ -953,6 +1031,27 @@ impl eframe::App for JanusApp {
             for w in self.windows.drain(..) {
                 drop(w);
             }
+        }
+        // new map panels to the right of the main map (splitting its area); those closed by a key or the menu
+        for id in std::mem::take(&mut self.state.views_added) {
+            match self.dock.find_tab(&Tab::Map) {
+                Some(p) => {
+                    let surface = &mut self.dock[p.surface];
+                    surface.split_right(p.node, 0.5, vec![Tab::MapView(id)]);
+                }
+                None => self.dock.push_to_focused_leaf(Tab::MapView(id)),
+            }
+        }
+        for id in std::mem::take(&mut self.state.views_closed) {
+            if let Some(p) = self.dock.find_tab(&Tab::MapView(id)) {
+                self.dock.remove_tab(p);
+            }
+            for w in &mut self.windows {
+                if let Some(p) = w.dock.find_tab(&Tab::MapView(id)) {
+                    w.dock.remove_tab(p);
+                }
+            }
+            self.state.close_map_view(id);
         }
         let style = theme::dock_style(ui.style());
         egui::CentralPanel::default().frame(egui::Frame::new()).show(ui, |ui| {

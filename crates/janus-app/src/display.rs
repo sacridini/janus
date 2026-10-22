@@ -247,6 +247,17 @@ impl Display {
 
     /// A sample of the values the mode shows: of date `t`, or of every date loaded.
     fn collect_sample(&self, s: &Session, t: Option<usize>, max_n: usize) -> Vec<f32> {
+        self.collect_sample_of(self.mode, s, t, max_n)
+    }
+
+    /// The automatic stretch of `mode` over every date (a map panel's own mode); None without values yet.
+    pub fn auto_range_of(&self, mode: Mode, s: &Session) -> Option<(f32, f32)> {
+        let mut sample = self.collect_sample_of(mode, s, None, 500_000);
+        (!sample.is_empty()).then(|| auto_range(mode, &mut sample))
+    }
+
+    /// A sample of the values `mode` shows: of date `t`, or of every date loaded.
+    fn collect_sample_of(&self, mode: Mode, s: &Session, t: Option<usize>, max_n: usize) -> Vec<f32> {
         let ov = &s.s.overview;
         let px = ov.w * ov.h;
         let mut out = Vec::new();
@@ -275,7 +286,7 @@ impl Display {
             out.extend((0..px).step_by(step).map(get).filter(|v| !v.is_nan()));
         };
         let layer = |l: usize, p: usize| ov.layer(l).map_or(f32::NAN, |d| d[p]);
-        match (self.mode, stats) {
+        match (mode, stats) {
             (Mode::Value | Mode::Rgb, _) => over_layers(&mut out, &layer),
             (Mode::Anomaly, Some(st)) => over_layers(&mut out, &|l, p| layer(l, p) - st.s0[p][0]),
             (Mode::Mean, Some(st)) => over_pixels(&mut out, &|p| st.s0[p][0]),
