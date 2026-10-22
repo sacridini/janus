@@ -158,7 +158,20 @@ def twdtw_cases(rng):
     return out
 
 
+def som_cases(rng):
+    out = []
+    kinds = ["forest", "crop", "pasture"]
+    for params in ({}, {"sample": 40, "x": 2, "y": 2, "seed": 7}, {"gaps": "skip", "passes": 5, "x": 4, "y": 3}):
+        years, days = zf.regular(first="2018-01-01", n=50)
+        series = [zf.class_series(rng, kinds[j % 3], days) for j in range(H * W)]
+        if params.get("gaps") == "skip":  # most pixels without a gap
+            series = [v if j % 4 == 0 else np.where(np.isfinite(v), v, 0.5) for j, v in enumerate(series)]
+        out.append({"params": params, "years": years, "days": days, "input": grid(series)})
+    return out
+
+
 CASES = {
+    "som": som_cases,
     "twdtw": twdtw_cases,
     "phenology": phenology_cases,
     "ccdc": ccdc_cases(False),

@@ -443,11 +443,55 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "ccdc" => crate::ccdc::chunk(p, chunk, ctx),
         "phenology" => crate::phenology::chunk(p, chunk, ctx),
         "twdtw" => crate::twdtw::chunk(p, chunk, ctx),
+        "som" => crate::som::chunk(p, chunk, ctx),
         "ccdc_synthetic" => crate::ccdc::synthetic_chunk(p, chunk, ctx),
         "bfast_lite" => crate::bfast::lite_chunk(p, chunk, ctx),
         "bfast_monitor" => crate::bfast::monitor_chunk(p, chunk, ctx),
         _ => Err(format!("{tool}: raster runs not available in this version")),
     }
+}
+
+/// Rows of the window a tool's fit samples (spread over it).
+const FIT_ROWS: usize = 64;
+
+/// Every pixel of `n_rows` full-width rows spread over the window, as one chunk of 1 x N (the bridge's
+/// `sample_rows`): what a tool fits its model on before the chunks.
+fn sample_rows(inputs: &Inputs, window: [usize; 4], n_rows: usize, progress: &dyn Fn(f64)) -> Result<Chunk, String> {
+    let [x0, y0, x1, y1] = window;
+    let (w, h) = (x1 - x0, y1 - y0);
+    let k = n_rows.min(h).max(1);
+    let mut rows: Vec<usize> = crate::numeric::linspace(y0 as f64, (y1 - 1) as f64, k)
+        .into_iter()
+        .map(|r| r.round_ties_even() as usize)
+        .collect();
+    rows.sort_unstable();
+    rows.dedup();
+    let chunks: Vec<Chunk> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, &r)| {
+            let c = inputs.read(x0, r, w, 1);
+            progress((i + 1) as f64 / rows.len() as f64);
+            c
+        })
+        .collect::<Result<_, _>>()?;
+    // [T][pixels] of each row, side by side
+    let t = inputs.spec.years.len();
+    let n = w * chunks.len();
+    let join = |get: &dyn Fn(&Chunk) -> &[f64]| -> Vec<f64> {
+        let mut out = vec![0.0; t * n];
+        for (ci, c) in chunks.iter().enumerate() {
+            let a = get(c);
+            for i in 0..t {
+                out[i * n + ci * w..i * n + (ci + 1) * w].copy_from_slice(&a[i * w..(i + 1) * w]);
+            }
+        }
+        out
+    };
+    let stack = join(&|c: &Chunk| &c.stack);
+    let bands = chunks[0].bands.keys().map(|r| (r.clone(), join(&|c: &Chunk| &c.bands[r]))).collect();
+    let qa = chunks[0].qa.as_ref().map(|_| join(&|c: &Chunk| c.qa.as_deref().unwrap()));
+    Ok(Chunk { t, h: 1, w: n, stack, bands, qa })
 }
 
 /// A run's result: the outputs written (paths and descriptions) and the window.
@@ -471,7 +515,17 @@ pub fn run_job(
     let (w, h) = (x1 - x0, y1 - y0);
     let dir = PathBuf::from(&spec.output_dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let ctx = JobCtx { input: spec.context(), n_jobs: spec.n_jobs(), ..Default::default() };
+    let mut ctx = JobCtx { input: spec.context(), n_jobs: spec.n_jobs(), ..Default::default() };
+    // a tool with a model of the whole window (a SOM) fits it first, on rows spread over it
+    let base = if spec.tool == "som" {
+        let sample =
+            sample_rows(&inputs, [x0, y0, x1, y1], FIT_ROWS, &|f| progress(0.05 * f, "reading a sample of the image"))?;
+        progress(0.05, &format!("fitting on a sample of {} pixels", sample.pixels()));
+        ctx.model = Some(crate::som::fit(&p, &sample, &ctx)?);
+        0.1
+    } else {
+        0.0
+    };
     let mut outs = Outputs::new(tool, &active_outputs(tool, &p), &dir, &inputs.input, window, spec)?;
     let rows = rows_per_chunk(tool, w);
     let bands: Vec<(usize, usize)> = (0..h).step_by(rows).map(|r| (r, rows.min(h - r))).collect();
@@ -499,7 +553,7 @@ pub fn run_job(
             done += hh;
             let el = t0.elapsed().as_secs_f64();
             progress(
-                done as f64 / h as f64,
+                base + (1.0 - base) * done as f64 / h as f64,
                 &format!("rows {done}/{h}, {el:.0} s elapsed, ~{:.0} s left", el / done as f64 * (h - done) as f64),
             );
         }
