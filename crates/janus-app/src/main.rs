@@ -18,6 +18,7 @@ mod panels;
 mod season;
 mod series;
 mod session;
+mod settings;
 mod theme;
 mod tour;
 
@@ -86,7 +87,8 @@ fn main() -> eframe::Result<()> {
         let _ = gdal::config::set_config_option("GDAL_CACHEMAX", "512");
     }
     gdal::DriverManager::register_all();
-    let mut opts = app::Options { budget_mb: 1024, ..Default::default() };
+    // --budget: this run only (0: the Settings value)
+    let mut opts = app::Options::default();
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -181,7 +183,9 @@ fn main() -> eframe::Result<()> {
             .with_title("Janus")
             .with_inner_size(if test_window { [1600.0, 950.0] } else { [1400.0, 900.0] })
             .with_maximized(!test_window)
-            .with_drag_and_drop(true),
+            .with_drag_and_drop(true)
+            // translucent panels (Settings) need a transparent window, made at the start
+            .with_transparent(settings::load().0.panel_opacity < 1.0),
         wgpu_options: WgpuConfiguration {
             wgpu_setup: WgpuSetup::CreateNew(setup),
             surface: SurfaceConfig {

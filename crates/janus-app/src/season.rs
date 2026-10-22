@@ -335,7 +335,7 @@ pub fn chart_background(ui: &Ui, tr: &egui_plot::PlotTransform, d: &Display, inf
     let mut shapes = vec![egui::Shape::Rect(egui::epaint::RectShape::new(
         frame,
         2,
-        v.extreme_bg_color,
+        theme::plot_fill(),
         v.widgets.noninteractive.bg_stroke,
         egui::StrokeKind::Inside,
     ))];

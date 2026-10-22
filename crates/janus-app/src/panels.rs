@@ -564,7 +564,7 @@ impl State {
                                 remove_pin = c.pin;
                             }
                         }
-                        ui.colored_label(c.color, egui::RichText::new(&c.name).strong());
+                        ui.colored_label(theme::on_window(c.color), egui::RichText::new(&c.name).strong());
                     });
                 }
                 ui.end_row();

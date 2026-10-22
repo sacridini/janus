@@ -305,10 +305,10 @@ impl State {
             params.class_lut.as_ref().map(|l| std::sync::Arc::as_ptr(l) as usize),
         );
         if m.dirty || m.drawn.as_ref() != Some(&key) {
-            let mut f = gpu.begin_map(0, size, MAP_BACKGROUND);
+            let bg = theme::map_background();
+            let mut f = gpu.begin_map(0, size, bg);
             // the basemap under the layers, in map space (the active layer's source pixels)
-            self.basemap
-                .draw(gpu, &mut f, &view, MAP_BACKGROUND, |q| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy));
+            self.basemap.draw(gpu, &mut f, &view, bg, |q| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy));
             let to_map = |q: [f64; 4]| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy);
             // every layer, bottom to top; the active one with its detail
             for li in 0..self.layers.len() {
@@ -601,12 +601,14 @@ impl State {
             }
             let mut t = d.t;
             let label = info.layers[d.t].label.clone();
-            ui.spacing_mut().slider_width = (ui.available_width() - 250.0).max(120.0);
+            // room for the date, the speed and the count after it, at the font's size
+            let k = ui.text_style_height(&egui::TextStyle::Body) / 13.0;
+            ui.spacing_mut().slider_width = (ui.available_width() - 330.0 * k).max(120.0);
             if ui.add(egui::Slider::new(&mut t, 0..=n - 1).show_value(false)).changed() {
                 set = Some(t);
             }
             ui.label(label);
-            ui.spacing_mut().slider_width = 100.0;
+            ui.spacing_mut().slider_width = 100.0 * k;
             let unit = if info.spectral { "bands/s" } else { "dates/s" };
             ui.add(
                 egui::Slider::new(&mut d.fps, 0.5..=30.0)

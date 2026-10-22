@@ -151,6 +151,8 @@ pub struct State {
     /// the cursor's series, the pins, the ROI
     pub series: crate::series::SeriesState,
     pub chart: crate::chart::ChartOptions,
+    /// Settings, kept between sessions
+    pub settings: crate::settings::SettingsState,
     /// the Display panel's band selection being edited (for the cube id)
     pub band_sel: Option<(u64, janus_cube::BandSelection)>,
     pub perf: Perf,
@@ -234,6 +236,7 @@ impl TabViewer for Tabs<'_> {
                     Tab::Statistics => self.s.statistics_ui(ui),
                     Tab::Performance => {
                         self.s.performance_ui(ui);
+                        self.s.cache_perf_ui(ui);
                         self.s.basemap_perf_ui(ui);
                     }
                     _ => {}
@@ -246,7 +249,11 @@ impl TabViewer for Tabs<'_> {
 impl JanusApp {
     pub fn new(cc: &eframe::CreationContext<'_>, opts: Options, t0: Instant, gdal_ms: f64) -> Self {
         let window_ms = t0.elapsed().as_secs_f64() * 1000.0;
-        theme::apply(&cc.egui_ctx);
+        // the settings kept (the C++'s the first time): the theme and the font before the first frame
+        let (settings, bm) = crate::settings::load();
+        theme::load_fonts(&cc.egui_ctx);
+        theme::apply(&cc.egui_ctx, settings.theme, settings.panel_opacity, settings.font_size);
+        let no_save = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
         let render_state = cc.wgpu_render_state.clone().expect("Janus draws with wgpu");
         let opening = (!opts.inputs.is_empty()).then(|| Opening::start(opts.inputs.clone(), false, &cc.egui_ctx));
         let detach = opts.detach_map;
@@ -272,6 +279,7 @@ impl JanusApp {
                 series: Default::default(),
                 chart: Default::default(),
                 band_sel: None,
+                settings: crate::settings::SettingsState::new(settings, no_save),
                 perf: Perf::default(),
                 frame: 0,
                 last_play: None,
@@ -285,6 +293,14 @@ impl JanusApp {
                 reproject_test: Default::default(),
             },
         };
+        // the basemap's setting (not whether it is shown: each session starts without it)
+        let ui = &mut app.state.basemap.ui;
+        ui.source = bm.source.unwrap_or(ui.source.clone());
+        ui.opacity = bm.opacity.unwrap_or(ui.opacity);
+        ui.url = bm.url.unwrap_or_default();
+        ui.max_zoom = bm.max_zoom.unwrap_or(ui.max_zoom);
+        ui.tile_size = bm.tile_size.unwrap_or(ui.tile_size);
+        ui.attribution = bm.attribution.unwrap_or_default();
         if detach {
             app.detach_map();
         }
@@ -322,12 +338,18 @@ impl State {
         self.opening = Some(o);
     }
 
-    /// The overview's settings of a series opened now.
+    /// The settings of a series opened now: the overview's memory (Settings, or --budget for this run), the
+    /// processing threads, the full-resolution cache, the disk cache budget.
     pub(crate) fn session_settings(&self) -> janus_session::SessionSettings {
         let max_tex = self.render_state.device.limits().max_texture_dimension_2d as usize;
+        let s = &self.settings.s;
+        let mb = if self.opts.budget_mb > 0 { self.opts.budget_mb } else { i64::from(s.overview_budget_mb) };
         janus_session::SessionSettings {
-            overview_budget_bytes: self.opts.budget_bytes.unwrap_or(self.opts.budget_mb << 20),
+            overview_budget_bytes: self.opts.budget_bytes.unwrap_or(mb << 20),
             max_texture: max_tex.min(16384),
+            threads: s.threads,
+            full_res: s.full_res,
+            cache_budget: s.cache_budget_gb << 30,
             ..Default::default()
         }
     }
@@ -487,6 +509,9 @@ impl State {
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Comma)) {
+            self.settings.show = true;
+        }
         if ctx.egui_wants_keyboard_input() {
             return;
         }
@@ -533,6 +558,10 @@ impl State {
         let mut reset_layout = false;
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
+                if ui.add(egui::Button::new("Settings...").shortcut_text("Ctrl+,")).clicked() {
+                    self.settings.show = true;
+                }
+                ui.separator();
                 if ui.button("Open folder...").clicked()
                     && let Some(dir) = rfd::FileDialog::new().pick_folder()
                 {
@@ -650,6 +679,11 @@ fn floating_tabs(dock: &mut DockState<Tab>) -> Vec<Vec<Tab>> {
 }
 
 impl eframe::App for JanusApp {
+    /// Translucent panels: nothing under them (the theme's clear colour, alpha 0).
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        theme::clear_color()
+    }
+
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let start = Instant::now();
         let ctx = ui.ctx().clone();
@@ -657,6 +691,7 @@ impl eframe::App for JanusApp {
         s.perf.last_cpu = frame.info().cpu_usage;
         let detached: Vec<ViewportId> = self.windows.iter().map(|w| w.id).collect();
         s.measurements(ui, &detached);
+        s.pump_settings(&ctx);
         s.pump(&ctx);
         s.pump_basemap(&ctx);
         s.pump_composite(&ctx);
@@ -753,6 +788,7 @@ impl eframe::App for JanusApp {
             self.dock.push_to_first_leaf(t);
         }
 
+        self.state.settings_ui(&ctx);
         let s = &mut self.state;
         s.perf.push(start.elapsed().as_secs_f64() * 1000.0);
         s.frame += 1;

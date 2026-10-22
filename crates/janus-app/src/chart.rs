@@ -178,6 +178,8 @@ impl Plotted<'_> {
         if vals.len() != n {
             return;
         }
+        // legible on the chart's background (the light themes darken the data colours)
+        let color = crate::theme::on_plot(color);
         let values = if self.categorical { 0 } else { self.o.values };
         let ys: Vec<f64> = vals.iter().map(|&v| shown(f64::from(v), st, values)).collect();
         let valid: Vec<[f64; 2]> = (0..n).filter(|&t| !ys[t].is_nan()).map(|t| [self.xs[t], ys[t]]).collect();
@@ -521,6 +523,7 @@ impl State {
                             return;
                         }
                         let ys: Vec<f64> = v.iter().map(|&x| shown(f64::from(x), st, o.values)).collect();
+                        let color = crate::theme::on_plot(color);
                         let c = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 217);
                         for piece in pieces(&lx, &ys, &lruns) {
                             plot.line(Line::new(name, PlotPoints::from(piece)).color(c).width(width));
