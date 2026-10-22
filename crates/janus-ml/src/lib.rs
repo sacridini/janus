@@ -5,8 +5,10 @@
 
 pub mod apply;
 pub mod data;
+pub mod fetch;
 pub mod ltae;
 pub mod model;
+pub mod presto;
 pub mod tempcnn;
 pub mod train;
 

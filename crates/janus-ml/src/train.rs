@@ -60,10 +60,25 @@ impl TrainConfig {
         }
     }
 
+    /// A head on Presto's encodings (zeit.ai.train's settings: 1e-3, 50 epochs, patience 10).
+    pub fn presto() -> TrainConfig {
+        TrainConfig {
+            epochs: 50,
+            batch_size: 64,
+            lr: 1e-3,
+            weight_decay: 0.0,
+            lr_decay_rate: 1.0,
+            patience: 10,
+            min_delta: 0.0,
+            ..TrainConfig::tempcnn()
+        }
+    }
+
     pub fn for_arch(arch: &Arch) -> TrainConfig {
         match arch {
             Arch::TempCnn(_) => TrainConfig::tempcnn(),
             Arch::LTae(_) => TrainConfig::lighttae(),
+            Arch::Presto(_) => TrainConfig::presto(),
         }
     }
 }
@@ -237,7 +252,11 @@ pub fn train(
     let batch_size = cfg.batch_size.min(train_idx.len() / 8).max(8);
     device.seed(cfg.seed);
     let ad = device.clone().autodiff();
-    let mut net = Net::new(arch, x.b, calendar, classes, &ad);
+    let mut net = match Net::new(arch, x.b, calendar, classes, &ad)? {
+        // Presto's encoder kept as pretrained: only the head learns
+        Net::Presto(p) => Net::Presto(p.freeze_encoder()),
+        n => n,
+    };
     let xs = Tensor::<3>::from_data(TensorData::new(x.values.clone(), [x.n, x.t, x.b]), &ad);
     let weights = cfg.class_weights.then(|| {
         let mut count = vec![0usize; classes];

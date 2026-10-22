@@ -15,13 +15,15 @@ use egui_plot::{Legend, Line, Plot, PlotPoints};
 use janus_cube::CubeInfo;
 use janus_geo::vectors::Kind;
 use janus_ml::model::shared_device;
+use janus_ml::presto::{PrestoHyper, PrestoInputs};
 use janus_ml::{Arch, Calendar, Class, Epoch, Header, InputBand, Model, Norm, TrainConfig};
 use serde_json::{Value, json};
 
 use crate::app::State;
 use crate::zeit::{Job, JobLog, JobState, JobStatus};
 
-const ARCHS: [&str; 2] = ["TempCNN (Pelletier et al. 2019)", "L-TAE (Garnot & Landrieu 2020)"];
+const ARCHS: [&str; 3] =
+    ["TempCNN (Pelletier et al. 2019)", "L-TAE (Garnot & Landrieu 2020)", "Presto (Tseng et al. 2023, pretrained)"];
 const SOURCES: [&str; 4] =
     ["Interpretation labels", "Validation project (reference)", "Vector layer (class column)", "Pins (a class each)"];
 const POLYGONS: [&str; 3] = ["Its centre", "Each pixel inside", "The mean of its pixels"];
@@ -66,6 +68,9 @@ pub struct MlUi {
     pub cfg: TrainConfig,
     cfg_arch: usize,
     pub min_valid: f64,
+    /// Presto: the year of its monthly composites (0: the series' last), or the series' own dates
+    pub presto_year: i32,
+    pub presto_dates: bool,
     pub gpu: bool,
     pub scope: usize,
     pub run: Option<Arc<Mutex<TrainRun>>>,
@@ -91,6 +96,8 @@ impl Default for MlUi {
             cfg: TrainConfig::tempcnn(),
             cfg_arch: 0,
             min_valid: 50.0,
+            presto_year: 0,
+            presto_dates: false,
             gpu: true,
             scope: 0,
             run: None,
@@ -104,8 +111,21 @@ impl MlUi {
     pub fn arch(&self) -> Arch {
         match self.arch {
             1 => Arch::LTae(Default::default()),
+            2 => Arch::Presto(PrestoHyper::default()),
             _ => Arch::TempCnn(Default::default()),
         }
+    }
+
+    /// The year of Presto's monthly composites (None: the series' own dates).
+    pub fn presto_year(&self, info: &CubeInfo) -> Option<i32> {
+        if self.presto_dates {
+            return None;
+        }
+        Some(if self.presto_year > 0 {
+            self.presto_year
+        } else {
+            info.decimal_year(info.t().saturating_sub(1)).floor() as i32
+        })
     }
 
     pub fn training(&self) -> bool {
@@ -246,7 +266,10 @@ impl State {
 
     pub(crate) fn ml_menu(&mut self, ui: &mut Ui) {
         ui.label(egui::RichText::new("Deep learning").weak().small());
-        if ui.add(egui::Button::selectable(self.ml.open, "Classify with deep learning (TempCNN, L-TAE)")).clicked() {
+        if ui
+            .add(egui::Button::selectable(self.ml.open, "Classify with deep learning (TempCNN, L-TAE, Presto)"))
+            .clicked()
+        {
             self.ml.open = !self.ml.open;
             ui.close();
         }
@@ -273,8 +296,10 @@ impl State {
     fn ml_ui(&mut self, ui: &mut Ui) {
         ui.label(
             "Classify every pixel by its whole series with a neural network trained on samples you already have \
-             in Janus. TempCNN reads the series as a sequence of fixed length; L-TAE weighs the dates by attention. \
-             Both as sits builds them, trained here on the GPU (or the CPU), without Python.",
+             in Janus. TempCNN reads the series as a sequence of fixed length; L-TAE weighs the dates by attention \
+             (both as sits builds them); Presto, pretrained on Sentinel-1 and -2 series worldwide, encodes a year \
+             of a pixel and a classifier learns from its encodings. Trained here on the GPU (or the CPU), \
+             without Python.",
         );
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else {
             ui.colored_label(crate::theme::error(), "Open a series first.");
@@ -387,7 +412,9 @@ impl State {
         }
 
         crate::panels::section(ui, "Values read on each date");
-        if info.bands_per_date > 1 {
+        if self.ml.arch == 2 {
+            can_train &= self.presto_inputs_ui(ui, &info);
+        } else if info.bands_per_date > 1 {
             ui.checkbox(&mut self.ml.shown, format!("The series shown ({})", InputBand::shown(&info).name));
             ui.horizontal_wrapped(|ui| {
                 for b in 1..=info.bands_per_date as i32 {
@@ -406,15 +433,17 @@ impl State {
             ui.label(format!("The series shown ({})", InputBand::shown(&info).name));
         }
         let inputs = self.ml_inputs(&info);
-        if inputs.is_empty() {
-            can_train = false;
-            ui.colored_label(crate::theme::error(), "Choose at least one value.");
+        if self.ml.arch != 2 {
+            if inputs.is_empty() {
+                can_train = false;
+                ui.colored_label(crate::theme::error(), "Choose at least one value.");
+            }
+            ui.weak(format!(
+                "{} dates: the model applies to series of the same {} dates (and, for TempCNN, their order).",
+                info.t(),
+                info.t()
+            ));
         }
-        ui.weak(format!(
-            "{} dates: the model applies to series of the same {} dates (and, for TempCNN, their order).",
-            info.t(),
-            info.t()
-        ));
 
         crate::panels::section(ui, "Model");
         let before = self.ml.arch;
@@ -478,6 +507,24 @@ impl State {
             self.ml_train(&info, inputs.clone(), ui.ctx());
         }
         self.ml_progress_ui(ui);
+
+        if self.ml.arch == 2 {
+            crate::panels::section(ui, "Presto embeddings");
+            ui.weak(
+                "Presto's encoding of every pixel (128 values) for the year: an embedding layer, viewed in the \
+                 Embeddings panel like TESSERA's and AlphaEarth's (principal components, similarity, change).",
+            );
+            if ui
+                .add_enabled(
+                    info.time_is_date,
+                    egui::Button::new("Make the embeddings").min_size(egui::vec2(ui.available_width(), 0.0)),
+                )
+                .on_hover_text("Of the scope chosen below")
+                .clicked()
+            {
+                self.ml_embed(ui.ctx());
+            }
+        }
 
         crate::panels::section(ui, "Apply");
         ui.horizontal(|ui| {
@@ -630,7 +677,10 @@ impl State {
                 return;
             }
         };
-        let arch = self.ml.arch();
+        let mut arch = self.ml.arch();
+        if let Arch::Presto(h) = &mut arch {
+            h.inputs.year = self.ml.presto_year(info);
+        }
         let cfg = self.ml.cfg.clone();
         let (min_valid, gpu) = (self.ml.min_valid, self.ml.gpu);
         let layer_inputs = self.layers.get(self.active).map(|l| l.inputs.clone()).unwrap_or_default();
@@ -941,7 +991,25 @@ fn train_job(
     set: &dyn Fn(f64, &str),
     cancel: &AtomicBool,
 ) -> Result<Header, String> {
-    let (x, y, norm, per_class) = sample_series(info, inputs, sites, classes, min_valid);
+    let mut arch = arch.clone();
+    let mut inputs = inputs.to_vec();
+    let (x, y, norm, per_class) = if let Arch::Presto(h) = &mut arch {
+        set(0.0, "Presto's weights");
+        let weights = janus_ml::presto::weights(&crate::settings::app_data_dir().join("weights"), &|_| {}, cancel)?;
+        let (x, y, per_class, pi) = presto_samples(info, sites, classes, h.inputs.year)?;
+        log.line(&format!(
+            "Presto's inputs: {}; reflectance x {}{}",
+            pi.read_bands().iter().map(|b| b.name.clone()).collect::<Vec<_>>().join(", "),
+            pi.reflectance_scale,
+            pi.year.map_or(", the series' dates".to_string(), |y| format!(", monthly composites of {y}"))
+        ));
+        inputs = pi.read_bands();
+        *h = PrestoHyper { inputs: pi, hidden: vec![], weights: Some(weights) };
+        (x, y, Norm::default(), per_class)
+    } else {
+        sample_series(info, &inputs, sites, classes, min_valid)
+    };
+    let arch = &arch;
     let left = sites.iter().map(|s| if s.mean { 1 } else { s.pixels.len() }).sum::<usize>() - x.n;
     log.line(&format!(
         "{} samples ({left} left out: too few dates with a value): {}",
@@ -982,7 +1050,7 @@ fn train_job(
         format: 1,
         janus: env!("CARGO_PKG_VERSION").into(),
         arch: arch.clone(),
-        inputs: inputs.to_vec(),
+        inputs,
         calendar,
         norm,
         classes: classes.iter().enumerate().map(|(k, c)| Class { name: c.clone(), color: class_color(k) }).collect(),
@@ -995,4 +1063,245 @@ fn train_job(
     model.save(model_path)?;
     log.line(&format!("model: {model_path}"));
     Ok(header)
+}
+
+/// Each sample's raw series (each pixel, or a place's mean), its class and a pixel of it (for its place).
+fn raw_samples(
+    info: &Arc<CubeInfo>,
+    read: &[InputBand],
+    sites: &[Site],
+    classes: &[String],
+) -> (janus_ml::Series, Vec<u32>, Vec<(f64, f64)>) {
+    let pixels: Vec<(usize, usize)> = sites.iter().flat_map(|s| s.pixels.iter().copied()).collect();
+    let raw = janus_ml::data::read_points(info, read, &pixels);
+    let (t, b) = (raw.t, raw.b);
+    let (mut values, mut y, mut at_px) = (vec![], vec![], vec![]);
+    let mut at = 0;
+    for s in sites {
+        let k = classes.iter().position(|c| c == &s.class).unwrap_or(0) as u32;
+        let n = s.pixels.len();
+        if s.mean {
+            // the mean of each date's values over the pixels with one
+            for j in 0..t * b {
+                let (mut sum, mut cnt) = (0f64, 0);
+                for i in at..at + n {
+                    let x = raw.values[i * t * b + j];
+                    if x.is_finite() {
+                        sum += x as f64;
+                        cnt += 1;
+                    }
+                }
+                values.push(if cnt > 0 { (sum / cnt as f64) as f32 } else { f32::NAN });
+            }
+            y.push(k);
+            at_px.push((s.pixels[0].0 as f64, s.pixels[0].1 as f64));
+        } else {
+            values.extend_from_slice(&raw.values[at * t * b..(at + n) * t * b]);
+            y.extend(std::iter::repeat_n(k, n));
+            at_px.extend(s.pixels.iter().map(|&(x, y)| (x as f64, y as f64)));
+        }
+        at += n;
+    }
+    (janus_ml::Series { n: y.len(), t, b, values }, y, at_px)
+}
+
+/// Each band's 2 % and 98 % quantiles in raw values (1-based bands of `read`), by band number.
+fn band_ranges(info: &CubeInfo, read: &[InputBand], raw: &janus_ml::Series) -> Vec<(f32, f32)> {
+    let mut ranges = vec![(0f32, 1f32); info.bands_per_date.max(1)];
+    for (k, b) in read.iter().enumerate() {
+        let mut v: Vec<f32> =
+            raw.values.iter().skip(k).step_by(raw.b.max(1)).copied().filter(|x| x.is_finite()).collect();
+        if v.is_empty() || b.band < 1 {
+            continue;
+        }
+        v.sort_by(f32::total_cmp);
+        let q = |p: f64| v[((v.len() - 1) as f64 * p).round() as usize];
+        ranges[b.band as usize - 1] = (q(0.02), q(0.98));
+    }
+    ranges
+}
+
+/// Presto's samples: its inputs found in the series (the units from the samples' values), each sample's input.
+fn presto_samples(
+    info: &Arc<CubeInfo>,
+    sites: &[Site],
+    classes: &[String],
+    year: Option<i32>,
+) -> Result<(janus_ml::Series, Vec<u32>, Vec<usize>, PrestoInputs), String> {
+    let first = PrestoInputs::of(info, &vec![(0.0, 1.0); info.bands_per_date.max(1)], year)?;
+    let read = first.read_bands();
+    let (raw, y, pixels) = raw_samples(info, &read, sites, classes);
+    let pi = PrestoInputs::of(info, &band_ranges(info, &read, &raw), year)?;
+    let (x, keep) = janus_ml::presto::classifier_input(info, &pi, &raw, &pixels)?;
+    let idx: Vec<usize> = (0..x.n).filter(|&i| keep[i]).collect();
+    let x = x.select(&idx);
+    let y: Vec<u32> = idx.iter().map(|&i| y[i]).collect();
+    let mut per_class = vec![0usize; classes.len()];
+    for &k in &y {
+        per_class[k as usize] += 1;
+    }
+    Ok((x, y, per_class, pi))
+}
+
+impl State {
+    /// Presto's inputs found in the series, and the dates it is given; whether it can be trained.
+    fn presto_inputs_ui(&mut self, ui: &mut Ui, info: &CubeInfo) -> bool {
+        let roles = janus_cube::roles::guess_band_roles(info);
+        let fallback = |input: &str| {
+            let role = match input {
+                "B2" => "blue",
+                "B3" => "green",
+                "B4" => "red",
+                "B8" => "nir",
+                "B11" => "swir1",
+                "B12" => "swir2",
+                _ => "",
+            };
+            roles.get(role).map(|&b| b as usize - 1)
+        };
+        let found = janus_ml::presto::match_names(&info.band_names, &fallback);
+        let matched: Vec<String> = found
+            .iter()
+            .enumerate()
+            .filter_map(|(k, b)| {
+                b.map(|b| {
+                    format!("{} <- {}", janus_ml::presto::INPUTS[k], info.band_names.get(b).map_or("?", |s| s.as_str()))
+                })
+            })
+            .collect();
+        let mut ok = true;
+        if matched.is_empty() {
+            ui.colored_label(
+                crate::theme::error(),
+                "None of the bands is one of Presto's inputs: name them as Sentinel-2 (blue, green, red, nir, B8A, \
+                 swir1...), Sentinel-1 (VV, VH), ERA5 or SRTM bands.",
+            );
+            ok = false;
+        } else {
+            ui.label(format!("Presto's inputs: {}", matched.join(", ")));
+            ui.weak("The units are found from the values (reflectance 0-1 or x 10000; dB or linear backscatter).");
+        }
+        if !info.time_is_date {
+            ui.colored_label(crate::theme::error(), "Presto needs the series' dates (it encodes their months).");
+            return false;
+        }
+        ui.checkbox(
+            &mut self.ml.presto_dates,
+            format!("The series' own dates (at most {})", janus_ml::presto::MAX_DATES),
+        );
+        if self.ml.presto_dates {
+            if info.t() > janus_ml::presto::MAX_DATES {
+                ui.colored_label(
+                    crate::theme::error(),
+                    format!("This series has {} dates: use the monthly composites of a year.", info.t()),
+                );
+                ok = false;
+            }
+        } else {
+            let (first, last) = (info.decimal_year(0).floor() as i32, info.decimal_year(info.t() - 1).floor() as i32);
+            let mut y = self.ml.presto_year(info).unwrap_or(last);
+            ui.horizontal(|ui| {
+                ui.label("Monthly composites of");
+                if ui.add(egui::DragValue::new(&mut y).range(first..=last)).changed() {
+                    self.ml.presto_year = y;
+                }
+            });
+            ui.weak("Each month: the median of its observations; months without one are missing (Presto takes that).");
+        }
+        ok
+    }
+
+    /// Presto's embeddings of the scope: a task, its file opening as an embedding layer.
+    fn ml_embed(&mut self, ctx: &egui::Context) {
+        let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return };
+        let year = self.ml.presto_year(&info);
+        let (window, scope_name) = self.run_window(self.ml.scope);
+        let layer_inputs = self.layers.get(self.active).map(|l| l.inputs.clone()).unwrap_or_default();
+        let name = crate::zeit::series_name(&info, &layer_inputs);
+        let out = self.results_dir().join(format!("{name}_presto_{}", crate::zeit::timestamp()));
+        if let Err(e) = std::fs::create_dir_all(&out) {
+            self.error_popup = Some(format!("could not create {}: {e}", out.display()));
+            return;
+        }
+        let file = out.join(format!("presto_{}.tif", year.map_or("dates".to_string(), |y| y.to_string())));
+        let title =
+            format!("Presto embeddings - {scope_name} ({} x {} px)", window[2] - window[0], window[3] - window[1]);
+        let log = JobLog { path: out.join("job.log"), t0: Instant::now() };
+        log.write(&format!("=== {} {title}\noutput: {}\n", crate::zeit::timestamp_text(), file.display()));
+        let status = Arc::new(Mutex::new(JobStatus {
+            state: JobState::Running,
+            progress: 0.0,
+            message: "Presto's weights".into(),
+            error: String::new(),
+            result: None,
+            seconds: 0.0,
+        }));
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.zeit.jobs.push(Job {
+            title,
+            tool: "Presto".into(),
+            cube: info.id,
+            output_dir: out.to_string_lossy().into_owned(),
+            log_path: log.path.to_string_lossy().into_owned(),
+            started: Instant::now(),
+            status: status.clone(),
+            cancel: cancel.clone(),
+            loaded: false,
+        });
+        self.zeit.show_tasks = true;
+        let (gpu, c) = (self.ml.gpu, ctx.clone());
+        std::thread::Builder::new()
+            .name("presto".into())
+            .spawn(move || {
+                let t0 = Instant::now();
+                let progress = |f: f64, m: &str| {
+                    let mut s = status.lock().unwrap();
+                    s.progress = f;
+                    s.message = m.to_string();
+                    c.request_repaint();
+                };
+                let r = (|| -> Result<usize, String> {
+                    let weights = janus_ml::presto::weights(&crate::settings::app_data_dir().join("weights"), &|_| {}, &cancel)?;
+                    // the units from a sample of the window
+                    let first = PrestoInputs::of(&info, &vec![(0.0, 1.0); info.bands_per_date.max(1)], year)?;
+                    let read = first.read_bands();
+                    let [x0, y0, x1, y1] = window;
+                    let pts: Vec<(usize, usize)> = (0..2000)
+                        .map(|i| (x0 + (i * 7919) % (x1 - x0).max(1), y0 + (i * 104729) % (y1 - y0).max(1)))
+                        .collect();
+                    let raw = janus_ml::data::read_points(&info, &read, &pts);
+                    let pi = PrestoInputs::of(&info, &band_ranges(&info, &read, &raw), year)?;
+                    log.line(&format!(
+                        "Presto's inputs: {}; reflectance x {}",
+                        pi.read_bands().iter().map(|b| b.name.clone()).collect::<Vec<_>>().join(", "),
+                        pi.reflectance_scale
+                    ));
+                    let dev = shared_device(gpu);
+                    log.line(&format!("device: {}", dev.1));
+                    janus_ml::presto::embed_window(&info, &pi, window, &weights, &file, &dev.0, &progress, &cancel)
+                })();
+                let mut s = status.lock().unwrap();
+                s.seconds = t0.elapsed().as_secs_f64();
+                match r {
+                    Ok(n) => {
+                        log.line(&format!("{n} pixels encoded; done"));
+                        s.state = JobState::Done;
+                        s.progress = 1.0;
+                        let o = json!({"id": "embeddings", "name": "Presto embeddings", "series": true, "path": file.to_string_lossy()});
+                        s.result = Some(janus_zeit::job::JobResult { outputs: vec![o], window });
+                    }
+                    Err(e) if e == "cancelled" => {
+                        log.line("cancelled");
+                        s.state = JobState::Cancelled;
+                    }
+                    Err(e) => {
+                        log.line(&format!("error: {e}"));
+                        s.state = JobState::Failed;
+                        s.error = e;
+                    }
+                }
+                c.request_repaint();
+            })
+            .ok();
+    }
 }

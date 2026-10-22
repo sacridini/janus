@@ -429,7 +429,7 @@ the cursor; a raster run reads the series in bands of rows (from the
 full-resolution cache when it has the dates) and computes them on every
 processing thread. Nothing starts at startup and no Python runs.
 
-## Deep learning (TempCNN, L-TAE)
+## Deep learning (TempCNN, L-TAE, Presto)
 
 **Tools > Classify with deep learning** trains a neural network on samples you
 already have in Janus and classifies every pixel by its whole series, without
@@ -470,6 +470,30 @@ applied on the GPU (the same wgpu as the map; the CPU without one).
   the class given and the uncertainty (the entropy over that of equal
   probabilities: 0 sure, 1 undecided) open as result layers, ready for the
   validation (the uncertainty as a stratum, too).
+
+**Presto** (Tseng et al. 2023) is pretrained by its authors on monthly series
+of Sentinel-1, Sentinel-2, ERA5 and SRTM worldwide. Janus runs its encoder with
+their weights (3 MB, downloaded once from their repository and checked against
+their SHA-256; without network, put `default_model.pt` in a folder and set
+`JANUS_WEIGHTS` to it): the series' bands are matched to Presto's inputs by
+name (blue, green, red, rededge1-3, nir, nir08 or B8A, swir1, swir2, VV, VH,
+elevation, slope, or the B02... names), their units found from the values
+(reflectance 0-1 or x 10000; dB or linear backscatter), and a year of monthly
+composites made (each month the median of its observations; *The series' own
+dates* gives it up to 24 dates as they are), with each pixel's latitude and
+longitude. Two uses:
+
+- *Make the embeddings*: Presto's encoding of every pixel of the scope (128
+  values) for the year, written as an embedding layer that opens in the
+  Embeddings panel like TESSERA's and AlphaEarth's (principal components,
+  similarity, change).
+- *Train*: a classifier on the encodings (the encoder kept as pretrained, a
+  linear head learning from your samples; Adam 1e-3, 50 epochs, as
+  `zeit.ai.train`), applied as the others. Few samples suffice where the
+  encodings separate the classes.
+
+Janus's encodings are those of the authors' code to float32's precision (a few
+millionths; `tools/presto_reference.py`, `crates/janus-ml/tests/presto.rs`).
 
 On sits' own samples (`samples_modis_ndvi`, `samples_l8_rondonia_2bands`), the
 same training and test samples give Janus the test accuracy of sits (within a

@@ -13,8 +13,8 @@ use gdal::{Dataset, DriverManager};
 use janus_cube::CubeInfo;
 use serde_json::{Value, json};
 
-use crate::data::{Series, fill_gaps, read_window};
-use crate::model::Model;
+use crate::data::{InputBand, Series, fill_gaps, read_window};
+use crate::model::{Arch, Model};
 
 /// A run's window (x0, y0, x1, y1 in the series' pixels) and where its maps go.
 #[derive(Clone, Debug, Default)]
@@ -94,6 +94,27 @@ fn describe_classes(ds: &mut Dataset, model: &Model) -> Result<(), String> {
     Ok(())
 }
 
+/// What the model reads of a window of the series (x, y, w, h): its inputs, and the pixels it classifies.
+pub fn input_of(
+    model: &Model,
+    info: &Arc<CubeInfo>,
+    read: &[InputBand],
+    win: (usize, usize, usize, usize),
+) -> Result<(Series, Vec<bool>), String> {
+    let mut sr = read_window(info, read, win);
+    if let Arch::Presto(h) = &model.header.arch {
+        let bands =
+            h.inputs.bands.iter().map(|b| b.as_ref().map(|b| b.find_in(info)).transpose()).collect::<Result<_, _>>()?;
+        let inputs = crate::presto::PrestoInputs { bands, ..h.inputs.clone() };
+        let pixels: Vec<(f64, f64)> =
+            (0..win.2 * win.3).map(|i| ((win.0 + i % win.2) as f64, (win.1 + i / win.2) as f64)).collect();
+        return crate::presto::classifier_input(info, &inputs, &sr, &pixels);
+    }
+    let keep = fill_gaps(&mut sr, &model.header.calendar.years, model.header.min_valid);
+    model.header.norm.apply(&mut sr);
+    Ok((sr, keep))
+}
+
 /// Classifies the window; `progress(fraction, message)`, `cancel` stops it between bands of rows ("cancelled").
 pub fn apply(
     spec: &ApplySpec,
@@ -116,21 +137,16 @@ pub fn apply(
     let batch = if spec.batch > 0 { spec.batch } else { batch_of(model) };
     let rows = (batch / w.max(1)).clamp(1, 256).min(h.max(1));
     let bands: Vec<(usize, usize)> = (0..h).step_by(rows).map(|r| (r, rows.min(h - r))).collect();
-    let years = &model.header.calendar.years;
-    let min_valid = model.header.min_valid;
     let ln_k = (k as f64).ln();
     let t0 = std::time::Instant::now();
     let mut classified = 0;
     std::thread::scope(|s| -> Result<(), String> {
         // the next band of rows read (and its gaps filled, its values scaled) while this one is classified
-        let (tx, rx) = std::sync::mpsc::sync_channel::<(Series, Vec<bool>)>(1);
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(Series, Vec<bool>), String>>(1);
         let (bands_r, inputs_r) = (&bands, &inputs);
         s.spawn(move || {
             for &(r, hh) in bands_r {
-                let mut sr = read_window(info, inputs_r, (x0, y0 + r, w, hh));
-                let keep = fill_gaps(&mut sr, years, min_valid);
-                model.header.norm.apply(&mut sr);
-                if tx.send((sr, keep)).is_err() {
+                if tx.send(input_of(model, info, inputs_r, (x0, y0 + r, w, hh))).is_err() {
                     break;
                 }
             }
@@ -140,7 +156,7 @@ pub fn apply(
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled".into());
             }
-            let (sr, keep) = rx.recv().map_err(|e| e.to_string())?;
+            let (sr, keep) = rx.recv().map_err(|e| e.to_string())??;
             let idx: Vec<usize> = (0..sr.n).filter(|&i| keep[i]).collect();
             let sel = sr.select(&idx);
             let p = model.predict(&sel.values, sel.n, batch);

@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-burn = { version = "0.22.1", default-features = false, features = ["std", "optim", "autodiff", "store", "wgpu", "flex"] }
+burn = { version = "0.22.1", default-features = false, features = ["std", "optim", "autodiff", "store", "safetensors", "pytorch", "wgpu", "flex"] }
 gdal.workspace = true
 gdal-sys.workspace = true
 janus-cube = { path = "../janus-cube" }

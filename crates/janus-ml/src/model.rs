@@ -14,6 +14,7 @@ use serde_json::Value;
 
 use crate::data::{Calendar, InputBand, Norm};
 use crate::ltae::{LTae, LTaeHyper};
+use crate::presto::{PrestoHyper, PrestoNet};
 use crate::tempcnn::{TempCnn, TempCnnHyper};
 
 const MAGIC: &[u8] = b"JANUSMODEL\x01";
@@ -24,6 +25,7 @@ const MAGIC: &[u8] = b"JANUSMODEL\x01";
 pub enum Arch {
     TempCnn(TempCnnHyper),
     LTae(LTaeHyper),
+    Presto(PrestoHyper),
 }
 
 impl Arch {
@@ -31,6 +33,7 @@ impl Arch {
         match self {
             Arch::TempCnn(_) => "TempCNN",
             Arch::LTae(_) => "L-TAE",
+            Arch::Presto(_) => "Presto",
         }
     }
 }
@@ -69,14 +72,16 @@ pub struct Header {
 pub enum Net {
     TempCnn(TempCnn),
     LTae(LTae),
+    Presto(PrestoNet),
 }
 
 impl Net {
-    pub fn new(arch: &Arch, bands: usize, calendar: &Calendar, classes: usize, device: &Device) -> Net {
-        match arch {
+    pub fn new(arch: &Arch, bands: usize, calendar: &Calendar, classes: usize, device: &Device) -> Result<Net, String> {
+        Ok(match arch {
             Arch::TempCnn(h) => Net::TempCnn(TempCnn::new(h, bands, calendar.len(), classes, device)),
             Arch::LTae(h) => Net::LTae(LTae::new(h, bands, &calendar.day_offsets(), classes, device)),
-        }
+            Arch::Presto(h) => Net::Presto(PrestoNet::new(h, classes, device)?),
+        })
     }
 
     /// [n, dates, values] -> the classes' scores [n, classes].
@@ -84,6 +89,7 @@ impl Net {
         match self {
             Net::TempCnn(m) => m.forward(x),
             Net::LTae(m) => m.forward(x),
+            Net::Presto(m) => m.forward(x),
         }
     }
 }
@@ -119,15 +125,25 @@ impl Model {
     pub fn load(path: &str, device: &Device) -> Result<Model, String> {
         let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
         let (header, weights) = split(&bytes, path)?;
-        let mut net = Net::new(&header.arch, header.inputs.len(), &header.calendar, header.classes.len(), device);
+        let mut net = Net::new(&header.arch, header.inputs.len(), &header.calendar, header.classes.len(), device)?;
         let mut store = SafetensorsStore::from_bytes(Some(weights.to_vec()));
         net.load_from(&mut store).map_err(|e| format!("{path}: its weights do not fit its network: {e}"))?;
         Ok(Model { header, net: net.valid(), device: device.clone() })
     }
 
-    /// The classes' probabilities [n][classes] of n pixels' scaled series (n x dates x values), in batches.
+    /// The steps and values a pixel's input has (the dates and values; Presto's months and channels).
+    pub fn input_shape(&self) -> (usize, usize) {
+        match &self.header.arch {
+            Arch::Presto(h) => {
+                (if h.inputs.year.is_some() { 12 } else { self.header.calendar.len() }, crate::presto::CHANNELS)
+            }
+            _ => (self.header.calendar.len(), self.header.inputs.len()),
+        }
+    }
+
+    /// The classes' probabilities [n][classes] of n pixels' inputs (n x steps x values), in batches.
     pub fn predict(&self, x: &[f32], n: usize, batch: usize) -> Vec<f32> {
-        let (t, b, k) = (self.header.calendar.len(), self.header.inputs.len(), self.header.classes.len());
+        let ((t, b), k) = (self.input_shape(), self.header.classes.len());
         let mut out = Vec::with_capacity(n * k);
         let net = self.net.valid();
         for s in (0..n).step_by(batch.max(1)) {
@@ -144,6 +160,11 @@ impl Model {
 
     /// The model's inputs in another series (by name), or why it cannot be applied there.
     pub fn inputs_in(&self, info: &CubeInfo) -> Result<Vec<InputBand>, String> {
+        if let Arch::Presto(h) = &self.header.arch {
+            // any series with the bands, and dates in the year of the composites
+            h.inputs.steps(info)?;
+            return self.header.inputs.iter().map(|b| b.find_in(info)).collect();
+        }
         if info.t() != self.header.calendar.len() {
             return Err(format!(
                 "the model was trained on a series of {} dates; this one has {}",

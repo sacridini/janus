@@ -589,6 +589,24 @@ Windows sem Python nem conda, e chamável pela linha de comando
   de exemplo, até a tolerância de float32 (as referências gravadas uma vez,
   para os testes).
 
+- **Feito (2026-10-22)**: `janus-ml/src/presto.rs`, o codificador como o
+  `zeit.ai.presto` o porta (os nomes dos pesos dos autores), lido do `.pt`
+  oficial pelo `PytorchStore` do Burn (sem o `burn-import`: o Burn 0.22 lê o
+  PyTorch direto). Os pesos baixados uma vez pelo `/vsicurl/` do GDAL (como os
+  embeddings), conferidos pelo SHA-256 (o do Zeit; um SHA-256 próprio em
+  `fetch.rs`), ou de `JANUS_WEIGHTS` / do cache do Zeit. Os tokens do Dynamic
+  World ficam de fora (o Janus não o tem, e mascarados não mudam nada), e a
+  atenção mascara as chaves em vez de ordenar e cortar os tokens: o mesmo
+  resultado. Entradas: bandas pelos nomes (os aliases do Zeit) e papéis, as
+  unidades pelos quantis, **composições mensais de um ano** (a mediana de cada
+  mês) ou as datas da série (até 24), lat/lon de cada pixel. Conferência: os
+  embeddings do Janus e os do PyTorch do Zeit nas mesmas séries brutas diferem
+  em até 4×10⁻⁶ (CPU e GPU). (a) *Make the embeddings*: GeoTIFF de 128 bandas
+  Int16 × 0,0001 com a etiqueta `ZEIT_EMBEDDING`, aberto como camada; (b) a
+  arquitetura `Presto` no treino: o codificador congelado e uma cabeça linear
+  (os padrões do `zeit.ai.train`). O ajuste fino do codificador inteiro fica
+  para depois.
+
 **Fase 38 — U-TAE (segmentação espaço-temporal)**
 - Garnot & Landrieu (2021, PASTIS): U-Net com atenção temporal (L-TAE) no
   gargalo; classifica recortes inteiros (p. ex. 128 × 128 pixels × datas ×
@@ -670,7 +688,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 34 | — | **Infraestrutura de IA** (`janus-ml`, Burn sobre `wgpu`): amostras de treino de rótulos, projetos de validação, pinos e vetores; treino em tarefa com curvas e matriz de confusão; modelo em arquivo; aplicação em blocos na GPU (classes, probabilidade, entropia) | concluída (sem versão) |
 | 35 | — | **TempCNN** (Pelletier et al. 2019), conferido contra o `sits_tempcnn` | concluída (sem versão) |
 | 36 | — | **L-TAE** (Garnot & Landrieu 2020), datas irregulares pelo dia do ano, conferido contra o `sits_lighttae` | concluída (sem versão) |
-| 37 | — | **Presto** (Tseng et al. 2023), pré-treinado: embeddings no painel Embeddings e ajuste fino com poucas amostras | planejada |
+| 37 | — | **Presto** (Tseng et al. 2023), pré-treinado: embeddings no painel Embeddings e ajuste fino com poucas amostras | concluída (sem versão) |
 | 38 | — | **U-TAE** (Garnot & Landrieu 2021): segmentação espaço-temporal de recortes, janelas deslizantes, pesos do PASTIS para ajuste fino | planejada |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
