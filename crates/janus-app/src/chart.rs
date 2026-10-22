@@ -18,8 +18,8 @@ const YEAR: f64 = 365.2425 * DAY;
 /// Marks of a date axis: the finest of days, months or years spaced enough for a label, and coarser ones.
 pub fn time_marks(input: GridInput) -> Vec<GridMark> {
     let (a, b) = input.bounds;
-    // a label needs about 12 times the smallest spacing egui asks for
-    let min_step = input.base_step_size * 12.0;
+    // egui asks for marks at least 8 points apart: the points of one value unit
+    let per_point = input.base_step_size / 8.0;
     let steps: [(f64, u32); 16] = [
         (DAY, 0),
         (2.0 * DAY, 0),
@@ -38,9 +38,23 @@ pub fn time_marks(input: GridInput) -> Vec<GridMark> {
         (100.0 * YEAR, 1200),
         (500.0 * YEAR, 6000),
     ];
-    let i = steps.iter().position(|s| s.0 >= min_step).unwrap_or(steps.len() - 1);
+    // the finest step whose labels (a year, a month or a day; ProggyClean's 7 points a character) fit apart, as
+    // ImPlot's: every 2 years over 40 on a chart of 800 points
+    let label = |months: u32| match months {
+        0 => 10.0,
+        m if m % 12 == 0 => 4.0,
+        _ => 7.0,
+    } * 7.0
+        + 4.0;
+    let i = steps.iter().position(|s| s.0 >= label(s.1) * per_point).unwrap_or(steps.len() - 1);
     let mut marks: Vec<GridMark> = Vec::new();
-    for &(step, months) in &steps[i..(i + 2).min(steps.len())] {
+    // and the next coarser step whose marks are among these (a stronger line on some of them)
+    let (s, m) = steps[i];
+    let nested = |c: &&(f64, u32)| {
+        if m == 0 { c.1 == 0 && (c.0 / s).fract() == 0.0 } else { c.1.is_multiple_of(m) }
+    };
+    let coarser = steps[i + 1..].iter().find(nested);
+    for &(step, months) in std::iter::once(&steps[i]).chain(coarser) {
         let mut level = Vec::new();
         if months == 0 {
             let k = (step / DAY) as i64;
@@ -74,6 +88,13 @@ pub fn time_marks(input: GridInput) -> Vec<GridMark> {
         }
     }
     marks
+}
+
+/// A date axis on `plot`: `time_marks`, labelled by `time_label` (all of them: the marks are already spaced for
+/// their labels, which egui_plot would hide under 60 points).
+pub fn time_axis(plot: Plot<'_>) -> Plot<'_> {
+    plot.x_grid_spacer(time_marks)
+        .custom_x_axes(vec![egui_plot::AxisHints::new_x().formatter(|m, _| time_label(m)).label_spacing(20.0..=21.0)])
 }
 
 /// A mark's label: a year, a month or a day, as fine as its step.
@@ -411,7 +432,7 @@ impl State {
                     .color_conflict_handling(egui_plot::ColorConflictHandling::PickFirst),
             );
         if dated {
-            plot = plot.x_grid_spacer(time_marks).x_axis_formatter(|m, _| time_label(m));
+            plot = time_axis(plot);
         } else {
             plot = plot.x_axis_label(if info.spectral { "wavelength (nm)" } else { "date (index)" });
         }
@@ -628,11 +649,12 @@ mod tests {
     fn years_and_months() {
         let a = days_from_civil(1985, 1, 1) as f64 * DAY;
         let b = days_from_civil(2025, 1, 1) as f64 * DAY;
-        // 40 years over ~400 points: marks every 5 years (base step ~ 1/25 year per 6 points)
+        // 40 years over ~800 points (egui's 8 points = 0.3 year): a mark every 2 years, every 10 a stronger one
         let marks = time_marks(GridInput { bounds: (a, b), base_step_size: YEAR * 0.3 });
-        let labels: Vec<String> = marks.iter().filter(|m| m.step_size >= 5.0 * YEAR).map(|m| time_label(*m)).collect();
-        assert_eq!(labels.first().map(String::as_str), Some("1985"));
-        assert!(labels.contains(&"2000".to_string()));
+        let labels: Vec<String> = marks.iter().map(|m| time_label(*m)).collect();
+        assert_eq!(labels.first().map(String::as_str), Some("1986"));
+        assert_eq!(labels.len(), 20);
+        assert_eq!(marks.iter().filter(|m| m.step_size >= 10.0 * YEAR).count(), 4);
         let marks = time_marks(GridInput { bounds: (a, a + 300.0 * DAY), base_step_size: 4.0 * DAY });
         assert!(marks.iter().any(|m| time_label(*m) == "1985-03"));
     }

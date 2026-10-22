@@ -534,9 +534,7 @@ impl State {
                     .allow_scroll(false)
                     .y_axis_label("% of the pixels");
                 if info.time_is_date {
-                    plot = plot
-                        .x_grid_spacer(crate::chart::time_marks)
-                        .x_axis_formatter(|m, _| crate::chart::time_label(m));
+                    plot = crate::chart::time_axis(plot);
                 } else {
                     plot = plot.x_axis_label(if info.spectral { "wavelength (nm)" } else { "date (index)" });
                 }

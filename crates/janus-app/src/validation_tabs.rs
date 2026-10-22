@@ -967,7 +967,7 @@ impl State {
         // --- error matrix ---
         let nc = a.classes.len();
         crate::panels::section(ui, "Error matrix");
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.radio_value(&mut v.matrix_mode, 0, "points");
             ui.radio_value(&mut v.matrix_mode, 1, "proportions of area");
             ui.weak("(rows: map, columns: reference; click a cell for its points)");
@@ -1030,8 +1030,9 @@ impl State {
             }
         });
         let fg = theme::on_plot(Color32::from_gray(200));
+        // ImPlot's first two colours (its Deep colormap), as the C++'s bars: filled
         let (mapped_c, adj_c) =
-            (theme::on_plot(Color32::from_rgb(138, 143, 152)), theme::on_plot(Color32::from_rgb(76, 114, 176)));
+            (theme::on_plot(Color32::from_rgb(76, 114, 176)), theme::on_plot(Color32::from_rgb(221, 132, 82)));
         let ticks: Vec<String> = a.classes.clone();
         Plot::new("areas")
             .height(200.0)
@@ -1049,9 +1050,10 @@ impl State {
             .allow_scroll(false)
             .show(ui, |pu| {
                 let mapped: Vec<Bar> =
-                    (0..nc).map(|c| Bar::new(c as f64 - 0.18, a.area[c].mapped).width(0.34)).collect();
-                let adj: Vec<Bar> =
-                    (0..nc).map(|c| Bar::new(c as f64 + 0.18, a.area[c].est.max(0.0)).width(0.34)).collect();
+                    (0..nc).map(|c| Bar::new(c as f64 - 0.18, a.area[c].mapped).width(0.34).fill(mapped_c)).collect();
+                let adj: Vec<Bar> = (0..nc)
+                    .map(|c| Bar::new(c as f64 + 0.18, a.area[c].est.max(0.0)).width(0.34).fill(adj_c))
+                    .collect();
                 pu.bar_chart(BarChart::new("mapped", mapped).color(mapped_c));
                 pu.bar_chart(BarChart::new("adjusted", adj).color(adj_c));
                 for c in 0..nc {
@@ -1178,9 +1180,9 @@ impl State {
                                 let bars: Vec<Bar> = g
                                     .diffs
                                     .iter()
-                                    .map(|(&k, &n)| Bar::new(f64::from(k), f64::from(n)).width(0.8))
+                                    .map(|(&k, &n)| Bar::new(f64::from(k), f64::from(n)).width(0.8).fill(mapped_c))
                                     .collect();
-                                pu.bar_chart(BarChart::new("points", bars).color(adj_c));
+                                pu.bar_chart(BarChart::new("points", bars).color(mapped_c));
                             });
                     }
                 });
@@ -1211,9 +1213,9 @@ impl State {
                                     .by_year
                                     .1
                                     .iter()
-                                    .map(|(y, ar)| Bar::new(f64::from(*y), ar.est).width(0.7))
+                                    .map(|(y, ar)| Bar::new(f64::from(*y), ar.est).width(0.7).fill(mapped_c))
                                     .collect();
-                                pu.bar_chart(BarChart::new("area", bars).color(adj_c));
+                                pu.bar_chart(BarChart::new("area", bars).color(mapped_c));
                                 for (y, ar) in &v.by_year.1 {
                                     pu.line(
                                         Line::new(

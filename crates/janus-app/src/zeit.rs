@@ -1610,12 +1610,13 @@ Reading the data adds to it, mostly on spinning disks.",
         let mut remove = None;
         for (i, r) in results.iter_mut().enumerate().filter(|(_, r)| r.cube == cube) {
             ui.push_id(("result", i), |ui| {
+                // the button first: a long name runs past the panel, not the button
                 ui.horizontal(|ui| {
-                    if ui.checkbox(&mut r.visible, &r.name).on_hover_text(&r.path).changed() {
-                        *dirty = true;
-                    }
                     if ui.small_button("x").on_hover_text("Remove this layer (the file stays on disk)").clicked() {
                         remove = Some(i);
+                    }
+                    if ui.checkbox(&mut r.visible, &r.name).on_hover_text(&r.path).changed() {
+                        *dirty = true;
                     }
                 });
                 if !r.visible {

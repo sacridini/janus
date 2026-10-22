@@ -37,12 +37,11 @@ pub enum Tab {
     Embeddings,
     /// Validation > Validation panel, next to the statistics
     Validation,
-    /// a Zeit tool (its index in the manifest) and the tasks, in the dock of a tour of the guides (--shots), and
-    /// the place kept for them while none is shown
+    /// a Zeit tool (its index in the manifest), the tasks and the chips, in the dock of a tour of the guides
+    /// (--shots)
     Tool(u16),
     Tasks,
     Chips,
-    Blank,
 }
 
 impl Tab {
@@ -70,7 +69,6 @@ impl Tab {
             Tab::Tool(i) => janus_zeit::manifest().tools.get(i as usize).map_or("Tool", |t| t.name.as_str()),
             Tab::Tasks => "Tasks",
             Tab::Chips => "Chips",
-            Tab::Blank => "",
         }
     }
 }
@@ -117,7 +115,6 @@ fn layout_text(dock: &DockState<Tab>) -> Option<String> {
                 | Tab::Tool(_)
                 | Tab::Tasks
                 | Tab::Chips
-                | Tab::Blank
         )
     }) {
         d.remove_tab(p);
@@ -452,26 +449,6 @@ impl TabViewer for Tabs<'_> {
         )
     }
 
-    /// The place kept for a tour's panels: no tab to be seen.
-    fn tab_style_override(&self, tab: &Tab, global: &egui_dock::TabStyle) -> Option<egui_dock::TabStyle> {
-        (*tab == Tab::Blank).then(|| {
-            let mut st = global.clone();
-            for s in [
-                &mut st.active,
-                &mut st.inactive,
-                &mut st.focused,
-                &mut st.hovered,
-                &mut st.active_with_kb_focus,
-                &mut st.inactive_with_kb_focus,
-                &mut st.focused_with_kb_focus,
-            ] {
-                (s.bg_fill, s.outline_color, s.text_color) =
-                    (egui::Color32::TRANSPARENT, egui::Color32::TRANSPARENT, egui::Color32::TRANSPARENT);
-            }
-            st
-        })
-    }
-
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
         if let Tab::MapView(id) = tab {
             self.s.close_map_view(*id);
@@ -521,11 +498,14 @@ impl TabViewer for Tabs<'_> {
                     }
                     _ => {}
                 });
-                // where the content ends (a tour's screenshot of the panel goes no lower)
-                self.s.shots_content(t, o.inner_rect.min.y + o.content_size.y);
+                // where the content ends (a tour's screenshot of the panel goes no lower), and how far it scrolls
+                self.s.shots_content(
+                    t,
+                    o.inner_rect.min.y + o.content_size.y,
+                    (o.content_size.y - o.inner_rect.height()).max(0.0),
+                );
             }
             Tab::Chips => self.s.chips_ui(ui),
-            Tab::Blank => {}
             _ => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match tab {
                     Tab::Layers => {
@@ -883,6 +863,11 @@ impl State {
         {
             self.gpu = Some(gpu);
             self.startup.gpu_ms = Some(ms);
+            // layers opened before the pipelines were placed without them (a reprojection needs its warp grid)
+            if !self.layers.is_empty() {
+                self.update_alignment();
+                self.map.dirty = true;
+            }
         }
         if let Some(o) = &self.opening
             && let Some(r) = o.poll()
@@ -1256,8 +1241,13 @@ impl State {
             let zeit_ready = !self.opts.zeit_run || self.zeit.runs_settled();
             // layers drawn as embeddings: the images of their dates made
             let emb_ready = self.state_embeddings_settled();
-            let ready =
-                self.session.as_ref().is_some_and(|s| s.ready_ms.is_some()) && basemap_ready && zeit_ready && emb_ready;
+            // an ROI asked for: its series read
+            let roi_ready = self.opts.roi.is_none() && self.opts.roi_polygon.is_empty() || self.series.roi.complete();
+            let ready = self.session.as_ref().is_some_and(|s| s.ready_ms.is_some())
+                && basemap_ready
+                && zeit_ready
+                && emb_ready
+                && roi_ready;
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
                 self.shots_pending += 1;

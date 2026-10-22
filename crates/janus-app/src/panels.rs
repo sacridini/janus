@@ -631,97 +631,105 @@ impl State {
         ];
         let (mut remove_pin, mut remove_roi) = (None, false);
         egui::ScrollArea::horizontal().show(ui, |ui| {
-            Grid::new("stats").striped(true).num_columns(1 + cols.len()).show(ui, |ui| {
-                ui.strong("Metric");
-                for c in &cols {
-                    ui.horizontal(|ui| {
-                        if (c.pin.is_some() || c.roi)
-                            && ui
-                                .small_button("x")
-                                .on_hover_text(if c.roi { "Remove the ROI" } else { "Remove this pin" })
-                                .clicked()
-                        {
-                            if c.roi {
-                                remove_roi = true;
-                            } else {
-                                remove_pin = c.pin;
-                            }
-                        }
-                        ui.colored_label(theme::on_window(c.color), egui::RichText::new(&c.name).strong());
-                    });
-                }
-                ui.end_row();
-                if let Some(ac) = active_classes {
-                    // categorical: class summaries (majority, changes...) instead of means and trends
-                    let summaries: Vec<Vec<(String, String)>> = cols
-                        .iter()
-                        .map(|c| match (c.classes, c.values) {
-                            (Some(cl), Some(v)) => cl.summary(c.cube.unwrap_or(&info), v, c.t),
-                            _ => Vec::new(),
-                        })
-                        .collect();
-                    let labels = ac.summary(&info, &[], 0);
-                    for (r, (label, _)) in labels.iter().enumerate() {
-                        ui.weak(label);
-                        for sm in &summaries {
-                            ui.label(sm.get(r).map_or("-", |x| x.1.as_str()));
-                        }
-                        ui.end_row();
-                    }
-                } else {
-                    for (label, f) in rows {
-                        ui.weak(label);
-                        for c in &cols {
-                            let cube = c.cube.unwrap_or(&info);
-                            ui.label(f(c.st, &|i| date(cube, i), &num, unit));
-                        }
-                        ui.end_row();
-                    }
-                    // the rows of the Zeit tool fitted on the chart, in the order they first appear
-                    if let Some(tool) = self.zeit.pixel_tool.as_deref().and_then(|id| janus_zeit::manifest().tool(id)) {
-                        let rows: Vec<Vec<(String, String)>> =
-                            cols.iter().map(|c| crate::zeit::fit_rows(c.fit)).collect();
-                        let mut names: Vec<&String> = vec![];
-                        for r in &rows {
-                            for (n, _) in r {
-                                if !names.contains(&n) {
-                                    names.push(n);
+            // rows of a line of text, as ImGui's table (egui's grid makes each as tall as a button)
+            let row = ui.text_style_height(&egui::TextStyle::Body);
+            let gap = egui::vec2(ui.spacing().item_spacing.x, 3.0);
+            Grid::new("stats").striped(true).num_columns(1 + cols.len()).min_row_height(row).spacing(gap).show(
+                ui,
+                |ui| {
+                    ui.strong("Metric");
+                    for c in &cols {
+                        ui.horizontal(|ui| {
+                            if (c.pin.is_some() || c.roi)
+                                && ui
+                                    .small_button("x")
+                                    .on_hover_text(if c.roi { "Remove the ROI" } else { "Remove this pin" })
+                                    .clicked()
+                            {
+                                if c.roi {
+                                    remove_roi = true;
+                                } else {
+                                    remove_pin = c.pin;
                                 }
                             }
+                            ui.colored_label(theme::on_window(c.color), egui::RichText::new(&c.name).strong());
+                        });
+                    }
+                    ui.end_row();
+                    if let Some(ac) = active_classes {
+                        // categorical: class summaries (majority, changes...) instead of means and trends
+                        let summaries: Vec<Vec<(String, String)>> = cols
+                            .iter()
+                            .map(|c| match (c.classes, c.values) {
+                                (Some(cl), Some(v)) => cl.summary(c.cube.unwrap_or(&info), v, c.t),
+                                _ => Vec::new(),
+                            })
+                            .collect();
+                        let labels = ac.summary(&info, &[], 0);
+                        for (r, (label, _)) in labels.iter().enumerate() {
+                            ui.weak(label);
+                            for sm in &summaries {
+                                ui.label(sm.get(r).map_or("-", |x| x.1.as_str()));
+                            }
+                            ui.end_row();
                         }
-                        ui.colored_label(theme::accent(), &tool.name);
-                        for c in &cols {
-                            match c.fit {
-                                Some(Err(e)) => ui.weak("error").on_hover_text(e),
-                                None => ui.weak("..."),
-                                Some(Ok(_)) => ui.label(""),
-                            };
+                    } else {
+                        for (label, f) in rows {
+                            ui.weak(label);
+                            for c in &cols {
+                                let cube = c.cube.unwrap_or(&info);
+                                ui.label(f(c.st, &|i| date(cube, i), &num, unit));
+                            }
+                            ui.end_row();
                         }
-                        ui.end_row();
-                        for n in names {
-                            ui.weak(n);
+                        // the rows of the Zeit tool fitted on the chart, in the order they first appear
+                        if let Some(tool) =
+                            self.zeit.pixel_tool.as_deref().and_then(|id| janus_zeit::manifest().tool(id))
+                        {
+                            let rows: Vec<Vec<(String, String)>> =
+                                cols.iter().map(|c| crate::zeit::fit_rows(c.fit)).collect();
+                            let mut names: Vec<&String> = vec![];
                             for r in &rows {
-                                ui.label(r.iter().find(|(k, _)| k == n).map_or("", |(_, v)| v.as_str()));
+                                for (n, _) in r {
+                                    if !names.contains(&n) {
+                                        names.push(n);
+                                    }
+                                }
+                            }
+                            ui.colored_label(theme::accent(), &tool.name);
+                            for c in &cols {
+                                match c.fit {
+                                    Some(Err(e)) => ui.weak("error").on_hover_text(e),
+                                    None => ui.weak("..."),
+                                    Some(Ok(_)) => ui.label(""),
+                                };
+                            }
+                            ui.end_row();
+                            for n in names {
+                                ui.weak(n);
+                                for r in &rows {
+                                    ui.label(r.iter().find(|(k, _)| k == n).map_or("", |(_, v)| v.as_str()));
+                                }
+                                ui.end_row();
+                            }
+                        }
+                        if self.display.mode == janus_gpu::Mode::Diff {
+                            // what the map shows, from each series (active layer)
+                            let r = self.display.diff_ref_date(t, info.t());
+                            ui.weak(format!("Difference vs {}", r.map_or("-", |r| info.layers[r].label.as_str())));
+                            for c in &cols {
+                                let v = c.values.or(c.roi.then_some(sr.roi.mean.as_slice()));
+                                let d = v
+                                    .filter(|_| c.cube.is_none())
+                                    .and_then(|v| Some(v.get(t)? - v.get(r?)?))
+                                    .filter(|d| !d.is_nan());
+                                ui.label(d.map_or("-".to_string(), |d| num(f64::from(d))));
                             }
                             ui.end_row();
                         }
                     }
-                    if self.display.mode == janus_gpu::Mode::Diff {
-                        // what the map shows, from each series (active layer)
-                        let r = self.display.diff_ref_date(t, info.t());
-                        ui.weak(format!("Difference vs {}", r.map_or("-", |r| info.layers[r].label.as_str())));
-                        for c in &cols {
-                            let v = c.values.or(c.roi.then_some(sr.roi.mean.as_slice()));
-                            let d = v
-                                .filter(|_| c.cube.is_none())
-                                .and_then(|v| Some(v.get(t)? - v.get(r?)?))
-                                .filter(|d| !d.is_nan());
-                            ui.label(d.map_or("-".to_string(), |d| num(f64::from(d))));
-                        }
-                        ui.end_row();
-                    }
-                }
-            });
+                },
+            );
         });
         if let Some(id) = remove_pin {
             self.remove_pin(id);

@@ -694,39 +694,37 @@ impl State {
         let mut go = None;
         let rows: Vec<usize> =
             if self.labels.filter.is_empty() { (0..n).collect() } else { self.labels.filter.clone() };
-        egui::ScrollArea::vertical().id_salt("interp rows").auto_shrink(false).show_rows(
-            ui,
-            row_h,
-            rows.len(),
-            |ui, range| {
-                egui::Grid::new("interp rows grid").num_columns(5).striped(true).show(ui, |ui| {
-                    for &i in &rows[range] {
-                        let Some(e) = self.labels.entries.get(i) else { continue };
-                        let r = ui.selectable_label(current == Some(i), (i + 1).to_string());
-                        if r.clicked() {
-                            go = Some(i);
-                        }
-                        if scroll && current == Some(i) {
-                            r.scroll_to_me(Some(egui::Align::Center));
-                        }
-                        ui.label(if e.events.is_empty() {
-                            e.label.clone()
-                        } else {
-                            format!("{} +{}", e.label, e.events.len())
-                        });
-                        ui.label(&e.date);
-                        ui.label(match e.confidence {
-                            1 => "low",
-                            2 => "med.",
-                            3 => "high",
-                            _ => "",
-                        });
-                        ui.label(&e.notes);
-                        ui.end_row();
+        let mut area = egui::ScrollArea::vertical().id_salt("interp rows").auto_shrink(false);
+        // show_rows lays out only the rows in view: a current row out of it is brought to the middle by the offset
+        if let Some(k) = current.filter(|_| scroll).and_then(|c| rows.iter().position(|&i| i == c)) {
+            let pitch = row_h + ui.spacing().item_spacing.y;
+            area = area.vertical_scroll_offset((k as f32 * pitch - (ui.available_height() - pitch) * 0.5).max(0.0));
+        }
+        area.show_rows(ui, row_h, rows.len(), |ui, range| {
+            egui::Grid::new("interp rows grid").num_columns(5).striped(true).show(ui, |ui| {
+                for &i in &rows[range] {
+                    let Some(e) = self.labels.entries.get(i) else { continue };
+                    let r = ui.selectable_label(current == Some(i), (i + 1).to_string());
+                    if r.clicked() {
+                        go = Some(i);
                     }
-                });
-            },
-        );
+                    ui.label(if e.events.is_empty() {
+                        e.label.clone()
+                    } else {
+                        format!("{} +{}", e.label, e.events.len())
+                    });
+                    ui.label(&e.date);
+                    ui.label(match e.confidence {
+                        1 => "low",
+                        2 => "med.",
+                        3 => "high",
+                        _ => "",
+                    });
+                    ui.label(&e.notes);
+                    ui.end_row();
+                }
+            });
+        });
         if let Some(i) = go {
             self.interp_go(i);
         }

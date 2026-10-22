@@ -204,7 +204,8 @@ impl State {
 
     pub(crate) fn chips_ui(&mut self, ui: &mut Ui) {
         let c = &mut self.val.chips;
-        ui.horizontal(|ui| {
+        // wrapped: a narrow panel does not grow wider than itself (and the chips with it)
+        ui.horizontal_wrapped(|ui| {
             ui.add(egui::Slider::new(&mut c.radius, 4..=40).text("radius (px)"));
             ui.add(egui::Slider::new(&mut c.size, 40.0..=220.0).fixed_decimals(0).text("size"));
             ui.checkbox(&mut c.per_year, "one per year")
@@ -348,7 +349,9 @@ impl State {
         let (cols, cell, tw, th, r) = (c.cols, c.cell as f32, c.tex_w as f32, c.tex_h as f32, c.radius);
         let mut go: Option<(usize, bool)> = None;
         egui::ScrollArea::both().id_salt("chips").auto_shrink(false).show(ui, |ui| {
-            let per_row = ((ui.available_width() / (sz + ui.spacing().item_spacing.x)) as usize).max(1);
+            // the chips that fit the panel's width (its clip: the Ui's own grows with wide content)
+            let width = ui.available_width().min(ui.clip_rect().width());
+            let per_row = ((width / (sz + ui.spacing().item_spacing.x)) as usize).max(1);
             for row in dates.chunks(per_row).enumerate() {
                 ui.horizontal(|ui| {
                     for (j, &t) in row.1.iter().enumerate() {

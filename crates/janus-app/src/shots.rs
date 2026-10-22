@@ -39,10 +39,13 @@ enum Crop {
     Missing,
 }
 
+/// The left column's share of the window: 0.25 of the C++'s 0.63 left of the right panels.
+const LEFT: f32 = 0.25 * 0.63;
+
 /// The layout made: the places of the panels on the right and of those with the statistics, and those panels.
 struct Places {
-    right: NodeIndex,
-    under: NodeIndex,
+    /// the map's node with the time series and the statistics under it: the panels on the right split it
+    mid: NodeIndex,
     right_tabs: Vec<Tab>,
     under_tabs: Vec<Tab>,
 }
@@ -72,6 +75,8 @@ pub struct Shots {
     pub(crate) docked: Vec<Tab>,
     rects: HashMap<Tab, Rect>,
     content: HashMap<Tab, f32>,
+    /// the panels' scroll range at the last frame
+    reach: HashMap<Tab, f32>,
     /// the menus' titles, and the items of the one open in this frame and in the last
     menus: HashMap<&'static str, Rect>,
     popup: Option<Rect>,
@@ -184,16 +189,18 @@ impl State {
     pub(crate) fn shots_scroll(&mut self, t: Tab) -> Option<f32> {
         let s = self.shots.as_mut()?;
         let (tab, y) = s.scroll?;
+        // egui keeps an offset past the end when the content fits (no scroll bar): the panel drawn empty
         (tab == t).then(|| {
             s.scroll = None;
-            y
+            y.min(s.reach.get(&t).copied().unwrap_or(0.0))
         })
     }
 
-    /// How far down a panel's content went (fitted crops).
-    pub(crate) fn shots_content(&mut self, t: Tab, bottom: f32) {
+    /// How far down a panel's content went (fitted crops), and how far it scrolls.
+    pub(crate) fn shots_content(&mut self, t: Tab, bottom: f32, reach: f32) {
         if let Some(s) = &mut self.shots {
             s.content.insert(t, bottom);
+            s.reach.insert(t, reach);
         }
     }
 
@@ -1209,45 +1216,49 @@ impl JanusApp {
     pub(crate) fn shots_dock(&mut self) {
         let Some(mut sh) = self.state.shots.take() else { return };
         if let Some((right_tabs, under_tabs)) = sh.layout.take() {
-            // src/app_shots.cpp, shotsDock: the panels on the right (0.37), Layers and Files above Display on the
-            // left (0.25 of the rest), the map above the time series, the statistics (and `under`) at their right
+            // src/app_shots.cpp, shotsDock: Layers and Files above Display on the left (0.25), the map above the
+            // time series, the statistics (and `under`) at their right; the panels on the right (0.37) while one is
+            // shown, as ImGui's empty dock node takes no room
             let mut d = DockState::new(vec![Tab::Map]);
             let s = d.main_surface_mut();
-            let [rest, right] = s.split_right(NodeIndex::root(), 0.63, vec![Tab::Blank]);
-            let [mid, left] = s.split_left(rest, 0.25, vec![Tab::Layers, Tab::Files]);
+            let [mid, left] = s.split_left(NodeIndex::root(), LEFT, vec![Tab::Layers, Tab::Files]);
             let [_, _] = s.split_below(left, 0.45, vec![Tab::Display]);
             let [_, bottom] = s.split_below(mid, 0.64, vec![Tab::TimeSeries]);
-            let [_, under] = s.split_right(bottom, 0.52, vec![Tab::Statistics]);
+            let [_, _] = s.split_right(bottom, 0.52, vec![Tab::Statistics]);
             self.dock = d;
-            sh.places = Some(Places { right, under, right_tabs, under_tabs });
+            sh.places = Some(Places { mid, right_tabs, under_tabs });
         }
         if let Some(p) = &sh.places {
-            for (node, tabs) in [(p.right, &p.right_tabs), (p.under, &p.under_tabs)] {
+            for (right, tabs) in [(true, &p.right_tabs), (false, &p.under_tabs)] {
                 for &t in tabs {
                     let found = self.dock.find_tab(&t);
                     if self.state.shown(t) && found.is_none() {
-                        // as a window docked when it appears: in front
+                        // as a window docked when it appears: in front, with the others of its place (the nodes
+                        // found by their tabs: removing a leaf renumbers them)
+                        let with = if right {
+                            tabs.iter().find_map(|o| self.dock.find_tab(o))
+                        } else {
+                            self.dock.find_tab(&Tab::Statistics)
+                        };
                         let s = self.dock.main_surface_mut();
-                        s[node].append_tab(t);
-                        let n = s[node].tabs_count();
-                        let _ = s.set_active_tab(node, TabIndex(n - 1));
+                        match with {
+                            Some(at) => {
+                                let node = at.node;
+                                s[node].append_tab(t);
+                                let n = s[node].tabs_count();
+                                let _ = s.set_active_tab(node, TabIndex(n - 1));
+                            }
+                            None => {
+                                // the map keeps 0.63 of the window less the left's; removing the right leaf
+                                // gives `mid` its subtree back
+                                let _ = s.split_right(p.mid, (0.63 - LEFT) / (1.0 - LEFT), vec![t]);
+                            }
+                        }
                     } else if !self.state.shown(t)
                         && let Some(at) = found
                     {
-                        if node == p.right && self.dock.main_surface()[node].tabs_count() == 1 {
-                            self.dock.main_surface_mut()[node].append_tab(Tab::Blank); // the place kept
-                        }
-                        if let Some(at) = self.dock.find_tab(&t).or(Some(at)) {
-                            self.dock.remove_tab(at);
-                        }
+                        self.dock.remove_tab(at);
                     }
-                }
-                // the blank only while nothing else is there
-                if node == p.right
-                    && self.dock.main_surface()[node].tabs_count() > 1
-                    && let Some(at) = self.dock.find_tab(&Tab::Blank)
-                {
-                    self.dock.remove_tab(at);
                 }
             }
         }

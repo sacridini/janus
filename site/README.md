@@ -15,10 +15,10 @@ Static site published to GitHub Pages by `.github/workflows/pages.yml`
 and `phenology.html` walk through a tool each, with screenshots in
 `assets/img/<guide>/` (and a card each in the Guides section of `index.html`).
 The screenshots come from the program itself: `janus --shots TOUR IN OUT`
-drives the guide's steps in a hidden window of 1680 x 1050 and saves the
-window and some panels as PNGs (`src/app_shots.cpp`; the validation's tour is
-in `src/app_validation.cpp`), so they can be made again after the interface
-changes.
+drives the guide's steps in a window of 1680 x 1050 and saves the window and
+some panels as PNGs (`crates/janus-app/src/shots.rs`; the validation's tour is
+in `crates/janus-app/src/shots_validation.rs`), so they can be made again after
+the interface changes.
 
 | Guide | Data (`IN`) | Prepared with |
 |---|---|---|

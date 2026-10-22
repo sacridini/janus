@@ -521,6 +521,7 @@ impl State {
             11 | 12 => {
                 // the estimates as the labels came, and the dates; the area of change by year
                 self.val.sections = Some(if sh.stage == 11 { 2 | 4 } else { 8 });
+                // to the end while the sections open
                 if sh.frames > 3 {
                     sh.scroll = Some((Tab::Validation, f32::MAX));
                 }

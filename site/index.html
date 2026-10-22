@@ -78,8 +78,8 @@
 <section class="shot">
   <div class="wrap">
     <figure>
-      <img src="assets/img/screenshot.jpg" alt="The Janus window: an NDVI map in the centre with two pins and a region of interest, the time series chart of the cursor, pins and ROI below it, and the statistics table on the right." width="1600" height="855" loading="lazy">
-      <figcaption><span>41 annual NDVI rasters, 1985 to 2025, read from a spinning hard disk.</span><span>Map · time series · statistics</span></figcaption>
+      <img src="assets/img/screenshot.jpg" alt="The Janus window: a Landsat map in the centre with two pins and a region of interest, the time series chart of the pins and of the ROI's mean below it, and the statistics table on the right." width="1600" height="950" loading="lazy">
+      <figcaption><span>41 annual Landsat composites, 1985 to 2025, of 7478 × 7319 pixels each.</span><span>Map · time series · statistics</span></figcaption>
     </figure>
   </div>
 </section>
@@ -121,10 +121,10 @@
       <figcaption>Illustration: a yearly NDVI cube and the series of one pixel, with the break found when the forest is cleared in 2006.</figcaption>
     </figure>
     <dl class="figures">
-      <div><dt>0.15 s</dt><dd>from launch to the first frame</dd></div>
+      <div><dt>0.3 s</dt><dd>from launch to the first frame</dd></div>
       <div><dt>0.3 ms</dt><dd>of CPU per frame; the app sleeps when nothing changes</dd></div>
-      <div><dt>90 ms</dt><dd>for the temporal statistics of 5.5 Mpx × 41 dates</dd></div>
-      <div><dt>0.2 s</dt><dd>to reopen a 1 GB cube from the overview cache (Apple M4)</dd></div>
+      <div><dt>0.1 s</dt><dd>for the temporal statistics of 5.5 Mpx × 41 dates, without stopping the window</dd></div>
+      <div><dt>0.6 s</dt><dd>to reopen 41 dates of 55 Mpx from the overview cache, statistics included</dd></div>
     </dl>
   </div>
 </section>

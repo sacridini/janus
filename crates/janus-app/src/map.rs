@@ -362,9 +362,15 @@ impl State {
             painter.rect_filled(r, 0.0, Color32::from_rgb(c[0], c[1], c[2]));
         }
         painter.rect_stroke(bar, 0.0, Stroke::new(1.0, Color32::BLACK), egui::StrokeKind::Outside);
-        let label = Color32::from_gray(230);
-        painter.text(b0 + vec2(0.0, 12.0), Align2::LEFT_TOP, lo, body_font(painter), label);
-        painter.text(bar.right_top() + vec2(0.0, 12.0), Align2::RIGHT_TOP, hi, body_font(painter), label);
+        State::shadowed(painter, b0 + vec2(0.0, 12.0), Align2::LEFT_TOP, &lo);
+        State::shadowed(painter, bar.right_top() + vec2(0.0, 12.0), Align2::RIGHT_TOP, &hi);
+    }
+
+    /// A label over the map, light over a shadow: readable over any image.
+    pub(crate) fn shadowed(painter: &egui::Painter, at: Pos2, align: Align2, text: &str) {
+        let font = body_font(painter);
+        painter.text(at + vec2(1.0, 1.0), align, text, font.clone(), Color32::from_black_alpha(200));
+        painter.text(at, align, text, font, Color32::from_gray(230));
     }
 
     /// A title at the top left of a canvas, over a shadow.
@@ -503,14 +509,32 @@ impl State {
             );
         }
         self.draw_embedding_notes(&painter, rect);
+        let mut bars = 0;
         if let Some((_, bar, _)) = &emb {
             if let Some((cmap, lo, hi)) = bar {
                 State::colour_bar(&painter, rect, *cmap, format_g(f64::from(*lo), 3), format_g(f64::from(*hi), 3));
+                bars = 1;
             }
         } else if d.mode != Mode::Rgb && composite.is_none() {
             let range = d.ranges[d.mode as usize];
             let (lo, hi) = (range_label(d.mode, range.lo, info), range_label(d.mode, range.hi, info));
             State::colour_bar(&painter, rect, d.cmap[d.mode as usize], lo, hi);
+            bars = 1;
+        }
+        // the topmost visible result map's, with its name, above it (app.cpp)
+        let mut top = None;
+        for (i, l) in self.layers.iter().enumerate() {
+            let Some(id) = self.layer_session(i).map(|s| s.info.id) else { continue };
+            if l.visible && l.place.aligned {
+                top = self.zeit.results.iter().rfind(|r| r.visible && r.cube == id).or(top);
+            }
+        }
+        if let Some(r) = top {
+            let up = vec2(0.0, -44.0 * bars as f32);
+            let at = Rect::from_min_max(rect.min, rect.max + up);
+            let (lo, hi) = (format_g(f64::from(r.lo), 4), format_g(f64::from(r.hi), 4));
+            State::colour_bar(&painter, at, r.cmap, lo, hi);
+            State::shadowed(&painter, at.left_bottom() + vec2(10.0, -50.0), Align2::LEFT_TOP, &r.name);
         }
 
         // the status line under the map: the zoom, its detail, the pixel and what the map shows there
