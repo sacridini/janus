@@ -419,6 +419,126 @@ Windows sem Python nem conda, e chamável pela linha de comando
   GeoPackage numa thread, um segundo depois da última mudança; os recortes e a
   série dos próximos pontos são lidos antes de o usuário chegar a eles.
 
+### IA: segmentação e classificação com redes neurais (fases 33–38, pedidas em 2026-10-22)
+- **Objetivo**: segmentar e classificar séries temporais dentro do Janus, com
+  os modelos que a literatura de sensoriamento remoto usa hoje (**TempCNN**,
+  **L-TAE**, **Presto**, **U-TAE**), treinados com as amostras que o próprio
+  Janus já produz (rótulos da interpretação, projetos de validação, pinos,
+  camadas vetoriais com uma coluna de classe) e aplicados como as ferramentas
+  do Zeit: uma tarefa em segundo plano cujo resultado vira camada e pode ir
+  direto para a validação (fases 29–32), que mede a acurácia e a área.
+- **Sem Python e só no Janus** (decidido em 2026-10-22): os modelos são
+  escritos em Rust com o **Burn** (aprendizado profundo em Rust puro: treino
+  com gradientes, backend `wgpu` na mesma GPU do mapa, DX12/Vulkan/Metal, sem
+  CUDA; backend `ndarray` como reserva na CPU). O Burn **não** entra no
+  `zeit-core`: o Zeit continua leve, e os módulos de IA ficam num crate do
+  Janus (`janus-ml`). O SNIC, que já está no `zeit-core` (`snic::segment`),
+  vem de lá.
+  - Por que o Burn: o Candle e o ONNX Runtime aplicam modelos, mas não treinam
+    (o ONNX Runtime traria ainda uma biblioteca nativa de dezenas de MB); o
+    Burn treina e aplica, e importa pesos do PyTorch (`burn-import`), o que o
+    Presto e os pesos do U-TAE pedem.
+  - Risco: o Burn usa a sua própria versão do `wgpu` (via CubeCL), que pode
+    não ser a do egui; então são dois `wgpu` no binário e dois dispositivos na
+    mesma GPU. Medir o tamanho e a memória antes de seguir (fase 34).
+- **Ordem** (do mais simples e mais reaproveitável ao mais pesado): SNIC (33),
+  a infraestrutura de treino e aplicação (34), TempCNN (35), L-TAE (36),
+  Presto (37), U-TAE (38). Cada fase termina com o seu autoteste e uma
+  conferência contra uma implementação de referência.
+
+**Fase 33 — SNIC (segmentação em superpixels)**
+- O `snic::segment` do `zeit-core` (Achanta & Süsstrunk 2017, porte do
+  `snic.cpp`, os mesmos rótulos da implementação de referência). Como no
+  `zeit.snic`: cada valor do pixel é um atributo (cada data, cada banda de cada
+  data), então dois pixels se parecem quando as **trajetórias inteiras** se
+  parecem (o `sits_segment` com o pacote R `snic`).
+- Sementes pelas grades do R `snic` (`snic_grid` do Zeit: retangular,
+  diamante, hexagonal, aleatória), portadas para Rust; a aleatória usa o
+  `default_rng().choice` do numpy, que o Janus já reproduz (PCG64, fase 5).
+- Parâmetros: espaçamento das sementes, compacidade (0,5 para refletância 0–1,
+  como o sits), margem, tamanho do bloco (blocos em paralelo; segmentos não
+  cruzam os blocos), dados ausentes.
+- Saídas: o raster dos rótulos (camada categórica), a média de cada segmento
+  por data e banda e os **polígonos** num GeoPackage (`snic_to_polygons`),
+  abertos como camada vetorial: servem à interpretação por objeto, à extração
+  de séries e à classificação por segmento (fase 34).
+- Na interface: uma ferramenta do menu Tools, só raster (imagem inteira, área
+  visível, ROI), com a estimativa de tempo e a tarefa em Tools → Tasks.
+- Conferência: os mesmos rótulos e médias que o `zeit.snic` nas mesmas
+  sementes (referências gravadas pela ponte, como as das fases 5 e 7).
+
+**Fase 34 — Infraestrutura de aprendizado (`janus-ml`)**
+- **Amostras de treino** de qualquer fonte que o Janus já tem: rótulos da
+  interpretação (fase 21), projetos de validação (rótulo final ou de um
+  intérprete), pinos com classe, camada vetorial com uma coluna de classe
+  (pontos; polígonos amostrados por pixel ou pela média, ou segmentos do
+  SNIC). O conjunto de classes é o "Label set" da interpretação.
+- **Atributos**: a série da camada ativa no ponto (datas × bandas, ou um
+  índice), lida em resolução total (cache da fase 13). Datas regulares para o
+  TempCNN (interpolação dos buracos, como o sits exige cubos regulares); dia
+  do ano para o L-TAE. Normalização por banda (quantis 2–98 % do treino, como
+  o sits), gravada com o modelo.
+- **Treino** numa tarefa (Tools → Tasks): divisão treino/validação
+  estratificada por classe com semente, pesos de classe, parada antecipada,
+  cancelamento; curvas de perda e acurácia no painel da ferramenta; matriz de
+  confusão da validação ao fim.
+- **Modelo em arquivo** (`.janusmodel`): os pesos do Burn e os metadados que a
+  aplicação precisa conferir (arquitetura e hiperparâmetros, bandas e datas ou
+  dias do ano esperados, normalização, classes e cores, amostras usadas,
+  versão do Janus). Um modelo treinado numa série é aplicado em outra se as
+  bandas e o calendário servem; o Janus diz o que não serve.
+- **Aplicação** como um job do Zeit: imagem inteira, área visível ou ROI, em
+  blocos lidos pelo `CubeReader` e enviados em lotes à GPU. Saídas: o mapa de
+  classes (UInt8 com tabela de cores e nomes, camada categórica), a
+  probabilidade da classe vencedora e a entropia (incerteza), que também
+  servem de estrato na validação.
+- Desempenho: lotes do tamanho da memória da GPU (medida no início), leitura
+  da próxima faixa enquanto a GPU processa a atual, CPU se não houver GPU.
+
+**Fase 35 — TempCNN**
+- Pelletier et al. (2019): três convoluções 1D sobre o tempo (64 filtros,
+  núcleo 5, normalização em lote, ReLU, dropout 0,2), densa de 256, softmax;
+  os padrões do `sits_tempcnn`. Série regular de comprimento fixo.
+- Conferência: as mesmas amostras públicas do sits (p. ex.
+  `samples_matogrosso_mod13q1`) treinadas no Janus e no `sits_tempcnn`, com
+  acurácia equivalente em validação cruzada (não bit a bit: geradores e
+  frameworks diferentes).
+
+**Fase 36 — L-TAE (Lightweight Temporal Attention Encoder)**
+- Garnot & Landrieu (2020): atenção temporal leve com codificação posicional
+  pelo dia do ano, então aceita datas irregulares e séries de comprimentos
+  diferentes; por pixel (`sits_lighttae`). Os padrões do sits.
+- Conferência como a da fase 35, contra o `sits_lighttae`.
+
+**Fase 37 — Presto (modelo pré-treinado)**
+- Tseng et al. (2023, NASA Harvest): transformer pequeno (~0,4 M parâmetros)
+  pré-treinado em séries mensais de Sentinel-1, Sentinel-2, ERA5, SRTM e
+  Dynamic World, com máscaras para o que falta. Pesos oficiais (PyTorch)
+  convertidos pelo `burn-import`.
+- Entradas a partir da série aberta: bandas pelos papéis do Janus
+  (`guess_band_roles`) e escalas, composição mensal (12 passos), latitude e
+  longitude do pixel, o resto mascarado.
+- Dois usos: (a) **embeddings**: o codificador dá um vetor por pixel e ano,
+  aberto no painel Embeddings como os do AlphaEarth e do TESSERA (visões,
+  similaridade, mudança); (b) **ajuste fino** de uma cabeça de classificação
+  com poucas amostras (infraestrutura da fase 34).
+- Conferência: os embeddings do Janus contra os do código oficial em entradas
+  de exemplo, até a tolerância de float32 (as referências gravadas uma vez,
+  para os testes).
+
+**Fase 38 — U-TAE (segmentação espaço-temporal)**
+- Garnot & Landrieu (2021, PASTIS): U-Net com atenção temporal (L-TAE) no
+  gargalo; classifica recortes inteiros (p. ex. 128 × 128 pixels × datas ×
+  bandas), então usa a vizinhança além do pixel (as bordas dos talhões).
+- Treino com rótulos densos (raster de classes, polígonos rasterizados, ou o
+  mapa de classes de outra ferramenta corrigido); aplicação em janelas
+  deslizantes com sobreposição, mediando as bordas. Pesos do PASTIS
+  (Sentinel-2, culturas na França) como ponto de partida para o ajuste fino.
+- O mais pesado em memória de GPU: tamanho do recorte e do lote escolhidos
+  pela memória medida.
+- Conferência: as saídas do Janus contra as da implementação oficial num
+  recorte do PASTIS, até a tolerância de float32.
+
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
@@ -483,6 +603,12 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 30 | 0.37.0 | **Acurácia ao vivo**: matriz de erro (pontos e proporção de área), acurácias global, do usuário e do produtor e **área ajustada ± IC** (Stehman 2014), tradução rótulo → classe do mapa, células da matriz que levam aos pontos, convergência do IC, pontos que faltam por estrato, *Copy Python* (`zeit.accuracy`), relatório (HTML + CSV) | concluída |
 | 31 | 0.37.0 | **Interpretação avançada**: galeria de recortes por data em volta do ponto, o quadrado do pixel, vários eventos por ponto, confiança, "não sei dizer", leitura antecipada dos próximos pontos, **vários intérpretes** (concordância, kappa, adjudicação, rótulos juntados de outra cópia) | concluída |
 | 32 | 0.37.0 | **Comparação de mapas** com a mesma amostra (LandTrendr × CCDC × BFAST × MapBiomas...), **área de mudança por ano ± IC**, acurácia das datas (± k anos, histograma das diferenças) | concluída |
+| 33 | — | **SNIC**: superpixels das trajetórias inteiras (`zeit-core`), grades de sementes do R `snic`, rótulos, médias e polígonos (ver "IA" em Decisões) | planejada |
+| 34 | — | **Infraestrutura de IA** (`janus-ml`, Burn sobre `wgpu`): amostras de treino de rótulos, projetos de validação, pinos e vetores; treino em tarefa com curvas e matriz de confusão; modelo em arquivo; aplicação em blocos na GPU (classes, probabilidade, entropia) | planejada |
+| 35 | — | **TempCNN** (Pelletier et al. 2019), conferido contra o `sits_tempcnn` | planejada |
+| 36 | — | **L-TAE** (Garnot & Landrieu 2020), datas irregulares pelo dia do ano, conferido contra o `sits_lighttae` | planejada |
+| 37 | — | **Presto** (Tseng et al. 2023), pré-treinado: embeddings no painel Embeddings e ajuste fino com poucas amostras | planejada |
+| 38 | — | **U-TAE** (Garnot & Landrieu 2021): segmentação espaço-temporal de recortes, janelas deslizantes, pesos do PASTIS para ajuste fino | planejada |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
