@@ -511,9 +511,13 @@ impl<T> Basemap<T> {
         if a.crs_wkt.is_empty() {
             return Err("the active layer has no CRS".into());
         }
-        let (Some(sa), Ok(mut sm)) = (srs(&a.crs_wkt), SpatialRef::from_epsg(3857)) else {
-            return Err("the active layer's CRS is not understood".into());
+        // GDAL's reason with the message: a PROJ that cannot read its database (another installation's proj.db)
+        // fails here for every CRS
+        let Some(sa) = srs(&a.crs_wkt) else {
+            return Err(format!("the active layer's CRS is not understood ({})", last_gdal_error()));
         };
+        let mut sm = SpatialRef::from_epsg(3857)
+            .map_err(|e| format!("Web Mercator (EPSG:3857) is not known to PROJ ({e}): its database (proj.db) is missing or of another version"))?;
         sm.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
         let ct = {
             let _q = Quiet::new();
@@ -850,6 +854,15 @@ fn tile_range(z: i32, b: &[f64; 4]) -> [i32; 4] {
         (((b[2] + E) / s - 1e-9).floor() as i32).clamp(0, n - 1),
         (((E - b[1]) / s - 1e-9).floor() as i32).clamp(0, n - 1),
     ]
+}
+
+/// GDAL's last error message (e.g. PROJ's, when its database cannot be read).
+fn last_gdal_error() -> String {
+    // SAFETY: GDAL returns a string it owns, valid until its next error on this thread; copied at once.
+    unsafe {
+        let p = gdal_sys::CPLGetLastErrorMsg();
+        if p.is_null() { String::new() } else { std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned() }
+    }
 }
 
 #[cfg(test)]

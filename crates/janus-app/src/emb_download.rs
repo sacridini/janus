@@ -92,7 +92,8 @@ impl State {
             let w = self.embedding_visible_window_active().ok_or("nothing of the layer is visible")?;
             w.map(|v| v as f64)
         };
-        let mut src = SpatialRef::from_wkt(&info.crs_wkt).map_err(|_| "the active layer's CRS is not understood")?;
+        let mut src = SpatialRef::from_wkt(&info.crs_wkt)
+            .map_err(|e| format!("the active layer's CRS is not understood ({e})"))?;
         let mut dst = SpatialRef::from_epsg(4326).map_err(|e| e.to_string())?;
         src.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
         dst.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
