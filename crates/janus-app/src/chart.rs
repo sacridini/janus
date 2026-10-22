@@ -430,6 +430,11 @@ impl State {
                 .auto_bounds(egui::Vec2b::new(true, false))
                 .default_y_bounds(f64::from(r.lo) - m, f64::from(r.hi) + m);
         }
+        // nothing to draw yet (no cursor, pin or ROI): 0 to 1, as ImPlot's empty plot, not the date line's span
+        let sr = &self.series;
+        if sr.pins.is_empty() && sr.hover.as_ref().is_none_or(|h| h.values.is_empty()) && sr.roi.mean.is_empty() {
+            plot = plot.include_y(0.0).include_y(1.0);
+        }
         // categorical: one tick per class, named
         if categorical && !self.classes.list.is_empty() && self.classes.list.len() <= 40 {
             let classes: Vec<(f64, String)> =

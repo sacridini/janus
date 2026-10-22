@@ -37,6 +37,12 @@ pub enum Tab {
     Embeddings,
     /// Validation > Validation panel, next to the statistics
     Validation,
+    /// a Zeit tool (its index in the manifest) and the tasks, in the dock of a tour of the guides (--shots), and
+    /// the place kept for them while none is shown
+    Tool(u16),
+    Tasks,
+    Chips,
+    Blank,
 }
 
 impl Tab {
@@ -61,6 +67,10 @@ impl Tab {
             Tab::Analysis => "Analysis",
             Tab::Embeddings => "Embeddings",
             Tab::Validation => "Validation",
+            Tab::Tool(i) => janus_zeit::manifest().tools.get(i as usize).map_or("Tool", |t| t.name.as_str()),
+            Tab::Tasks => "Tasks",
+            Tab::Chips => "Chips",
+            Tab::Blank => "",
         }
     }
 }
@@ -98,7 +108,16 @@ fn layout_text(dock: &DockState<Tab>) -> Option<String> {
     while let Some(p) = d.find_tab_from(|t| {
         matches!(
             t,
-            Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis | Tab::Embeddings | Tab::Validation
+            Tab::MapView(_)
+                | Tab::Transect
+                | Tab::Interpretation
+                | Tab::Analysis
+                | Tab::Embeddings
+                | Tab::Validation
+                | Tab::Tool(_)
+                | Tab::Tasks
+                | Tab::Chips
+                | Tab::Blank
         )
     }) {
         d.remove_tab(p);
@@ -157,6 +176,9 @@ pub struct Options {
     pub selftest_multidim: bool,
     /// --selftest-ui A B [C D E]: the layers workflow on the test series
     pub selftest_ui: bool,
+    /// --shots TOUR IN OUT: a guide's screenshots
+    pub shots: Option<String>,
+    pub shots_args: Vec<String>,
     /// --measure-vectors IN VEC...: the vector files measured over the series
     pub measure_vectors: bool,
     pub measure_vector_files: Vec<String>,
@@ -176,6 +198,7 @@ impl Options {
             || self.selftest_reproject
             || self.selftest_ui
             || self.selftest_multidim
+            || self.shots.is_some()
     }
 }
 
@@ -328,6 +351,8 @@ pub struct State {
     pub zeit: crate::zeit::ZeitUi,
     pub(crate) ui_test: crate::ui_test::UiTest,
     pub(crate) multidim_test: crate::open::MultidimTest,
+    /// --shots: the tour of a guide
+    pub(crate) shots: Option<Box<crate::shots::Shots>>,
 }
 
 /// What the menu or a key asks of the window's layout.
@@ -392,13 +417,13 @@ struct Detached {
 }
 
 pub struct JanusApp {
-    dock: DockState<Tab>,
+    pub(crate) dock: DockState<Tab>,
     /// the layout as kept, and when it was last compared with the dock
     layout_saved: String,
     layout_checked: Instant,
     windows: Vec<Detached>,
     window_count: u64,
-    state: State,
+    pub(crate) state: State,
 }
 
 struct Tabs<'a> {
@@ -421,6 +446,26 @@ impl TabViewer for Tabs<'_> {
             tab,
             Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis | Tab::Embeddings | Tab::Validation
         )
+    }
+
+    /// The place kept for a tour's panels: no tab to be seen.
+    fn tab_style_override(&self, tab: &Tab, global: &egui_dock::TabStyle) -> Option<egui_dock::TabStyle> {
+        (*tab == Tab::Blank).then(|| {
+            let mut st = global.clone();
+            for s in [
+                &mut st.active,
+                &mut st.inactive,
+                &mut st.focused,
+                &mut st.hovered,
+                &mut st.active_with_kb_focus,
+                &mut st.inactive_with_kb_focus,
+                &mut st.focused_with_kb_focus,
+            ] {
+                (s.bg_fill, s.outline_color, s.text_color) =
+                    (egui::Color32::TRANSPARENT, egui::Color32::TRANSPARENT, egui::Color32::TRANSPARENT);
+            }
+            st
+        })
     }
 
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
@@ -455,12 +500,28 @@ impl TabViewer for Tabs<'_> {
             Tab::Embeddings => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.s.embeddings_ui(ui));
             }
-            Tab::Interpretation => {
-                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.s.interpretation_ui(ui));
+            Tab::Interpretation | Tab::Validation | Tab::Tool(_) | Tab::Tasks => {
+                let t = *tab;
+                let mut area = egui::ScrollArea::vertical().auto_shrink(false);
+                if let Some(y) = self.s.shots_scroll(t) {
+                    area = area.vertical_scroll_offset(y);
+                }
+                let o = area.show(ui, |ui| match t {
+                    Tab::Interpretation => self.s.interpretation_ui(ui),
+                    Tab::Validation => self.s.validation_ui(ui),
+                    Tab::Tasks => self.s.tasks_ui(ui),
+                    Tab::Tool(i) => {
+                        if let Some(tool) = janus_zeit::manifest().tools.get(i as usize) {
+                            self.s.tool_window(ui, tool);
+                        }
+                    }
+                    _ => {}
+                });
+                // where the content ends (a tour's screenshot of the panel goes no lower)
+                self.s.shots_content(t, o.inner_rect.min.y + o.content_size.y);
             }
-            Tab::Validation => {
-                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.s.validation_ui(ui));
-            }
+            Tab::Chips => self.s.chips_ui(ui),
+            Tab::Blank => {}
             _ => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match tab {
                     Tab::Layers => {
@@ -496,7 +557,8 @@ impl JanusApp {
     pub fn new(cc: &eframe::CreationContext<'_>, opts: Options, t0: Instant, gdal_ms: f64) -> Self {
         let window_ms = t0.elapsed().as_secs_f64() * 1000.0;
         // the settings kept (the C++'s the first time): the theme and the font before the first frame
-        let (settings, bm) = crate::settings::load();
+        // the screenshots of the guides in the default settings: the user's are neither read nor written
+        let (settings, bm) = if opts.shots.is_some() { Default::default() } else { crate::settings::load() };
         theme::load_fonts(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx, settings.theme, settings.panel_opacity, settings.font_size);
         let no_save = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
@@ -584,8 +646,12 @@ impl JanusApp {
                 zeit: Default::default(),
                 ui_test: Default::default(),
                 multidim_test: Default::default(),
+                shots: None,
             },
         };
+        if let Some(tour) = &app.state.opts.shots {
+            app.state.shots = Some(Box::new(crate::shots::Shots::new(tour, &app.state.opts.shots_args)));
+        }
         if !vector_inputs.is_empty() {
             app.state.add_vector_files(vector_inputs, &cc.egui_ctx);
         }
@@ -1109,8 +1175,16 @@ impl State {
                     act.reset_layout = true;
                 }
             });
-            ui.menu_button("Tools", |ui| self.tools_menu(ui));
-            ui.menu_button("Validation", |ui| self.validation_menu(ui));
+            let r = ui.menu_button("Tools", |ui| {
+                self.tools_menu(ui);
+                ui.min_rect()
+            });
+            self.shots_menu("Tools", r.response.rect, r.inner);
+            let r = ui.menu_button("Validation", |ui| {
+                self.validation_menu(ui);
+                ui.min_rect()
+            });
+            self.shots_menu("Validation", r.response.rect, r.inner);
             ui.menu_button("Help", |ui| {
                 if ui.button("Shortcuts and usage").clicked() {
                     self.help_popup = true;
@@ -1246,6 +1320,10 @@ impl eframe::App for JanusApp {
         theme::clear_color()
     }
 
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.shots_input(raw);
+    }
+
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let start = Instant::now();
         let ctx = ui.ctx().clone();
@@ -1277,6 +1355,8 @@ impl eframe::App for JanusApp {
             s.reproject_selftest_step(&ctx)
         } else if s.opts.selftest_ui {
             s.ui_selftest_step(&ctx)
+        } else if s.opts.shots.is_some() {
+            s.shots_step(&ctx)
         } else if s.opts.selftest_multidim {
             s.multidim_selftest_step(&ctx)
         } else if s.opts.selftest_embeddings_ui {
@@ -1319,6 +1399,7 @@ impl eframe::App for JanusApp {
                 }
             }
         }
+        self.shots_dock();
         let cmd = self.state.layout_cmd.take();
         if cmd == Some(LayoutCmd::Scramble)
             && let Some(p) = self.dock.find_tab(&Tab::Display)
@@ -1507,6 +1588,7 @@ impl eframe::App for JanusApp {
         self.state.save_run_dialog(&ctx);
         self.state.animation_dialog(&ctx);
         self.state.log_window(&ctx);
+        self.shots_frame_end(&ctx);
         // the layout kept, every few seconds when it changed (not for the tests)
         if self.layout_checked.elapsed().as_secs_f64() > 3.0 && !self.state.settings.no_save {
             self.layout_checked = Instant::now();

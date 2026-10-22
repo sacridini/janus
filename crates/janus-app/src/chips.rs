@@ -192,7 +192,7 @@ impl State {
 
     /// The Chips window.
     pub(crate) fn chips_window(&mut self, ctx: &egui::Context) {
-        if !self.val.show_chips {
+        if !self.val.show_chips || self.docked(crate::app::Tab::Chips) {
             return;
         }
         let mut open = true;
@@ -202,7 +202,7 @@ impl State {
         }
     }
 
-    fn chips_ui(&mut self, ui: &mut Ui) {
+    pub(crate) fn chips_ui(&mut self, ui: &mut Ui) {
         let c = &mut self.val.chips;
         ui.horizontal(|ui| {
             ui.add(egui::Slider::new(&mut c.radius, 4..=40).text("radius (px)"));

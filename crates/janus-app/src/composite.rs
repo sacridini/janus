@@ -151,6 +151,11 @@ pub struct BandComposite {
 }
 
 impl BandComposite {
+    /// Bands of the series `cube_id` (1-based) as red, green and blue, on.
+    pub fn of(cube_id: u64, bands: [i32; 3]) -> Self {
+        BandComposite { on: true, bands, cube_id, ..Default::default() }
+    }
+
     fn clear_images(&mut self) {
         self.imgs.clear();
         self.detail = None;

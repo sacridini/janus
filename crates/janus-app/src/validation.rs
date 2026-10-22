@@ -311,6 +311,8 @@ pub struct ValidationUi {
     pub(crate) by_year: (u64, Vec<(i32, val::ClassArea)>),
     /// a tab to show (0 Design, 1 Accuracy, 2 Maps, 3 Interpreters, 4 Report)
     pub select_tab: Option<usize>,
+    /// the guides' screenshots: the Accuracy tab's sections open (bits, in order; None: as left)
+    pub(crate) sections: Option<u32>,
     pub(crate) tab: usize,
     /// the Maps tab's bins as typed, for the map selected
     pub(crate) bins_m: (Option<usize>, String),
@@ -377,6 +379,7 @@ impl Default for ValidationUi {
             conv: Conv::default(),
             by_year: (0, Vec::new()),
             select_tab: None,
+            sections: None,
             tab: 0,
             bins_m: (None, String::new()),
             placer: None,

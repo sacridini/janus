@@ -37,6 +37,8 @@ mod selftest_zeit;
 mod series;
 mod session;
 mod settings;
+mod shots;
+mod shots_validation;
 mod theme;
 mod tour;
 mod transect;
@@ -89,6 +91,9 @@ Options:
   --zeit-run          and run on the raster (the ROI's window if --roi) once the series is loaded
   --selftest-ui A B [C [D [E]]]  the layers workflow on the test series of tools/make_selftest_data.py:
                       layers, cursor, pins, the map, NDVI, change maps, composites, the season, classes
+  --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation
+                      (IN from tools/make_tutorial_data.py), landtrendr, ccdc, coded (tools/make_guide_data.py),
+                      bfast, phenology (an EVI series)
   --selftest-reproject B F A  F (B reprojected) drawn on B's grid where PROJ puts it; the cursor, a pin and
                       an ROI on B, A and F
   --selftest-multidim H/clim.nc  a NetCDF of two variables: the picker, its levels, in place
@@ -129,13 +134,48 @@ fn attach_console() {
     }
 }
 
-/// PROJ and GDAL data (src/main.cpp, configureBundledData): those shipped with the program (share/ next to it, or
-/// beside its lib/), else those next to the GDAL libraries on the PATH (a development environment), unless the
-/// environment names them.
+/// PROJ and GDAL data (src/main.cpp, configureBundledData): those shipped with the program (share/ next to it,
+/// beside its lib/, or in the macOS bundle's Resources), else those next to the GDAL libraries on the PATH (a
+/// development environment), unless the environment names them. The GDAL drivers built as plugins (NetCDF, HDF5):
+/// the bundled ones only. TLS certificates for GDAL's curl (src/basemap.cpp, curlCaBundle).
 fn configure_data() {
     let exe = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf()));
-    let mut shares: Vec<std::path::PathBuf> =
-        exe.iter().flat_map(|d| [d.join("share"), d.join("..").join("share")]).collect();
+    let mut shares: Vec<std::path::PathBuf> = exe
+        .iter()
+        .flat_map(|d| [d.join("share"), d.join("..").join("share"), d.join("..").join("Resources").join("share")])
+        .collect();
+    // next to the libraries: the program's folder (Windows), lib/ (Linux), the bundle's Frameworks (macOS)
+    if let Some(d) = &exe
+        && let Some(plugins) = [
+            d.join("gdalplugins"),
+            d.join("lib").join("gdalplugins"),
+            d.join("..").join("Frameworks").join("gdalplugins"),
+        ]
+        .into_iter()
+        .find(|p| p.is_dir())
+    {
+        let _ = gdal::config::set_config_option("GDAL_DRIVER_PATH", &plugins.to_string_lossy());
+    }
+    // the conda-built curl looks for its certificates at its build prefix: the system's bundle, else the one
+    // shipped in share/ssl (Windows: Schannel and the system's store)
+    if !cfg!(windows)
+        && ["CURL_CA_BUNDLE", "GDAL_CURL_CA_BUNDLE", "SSL_CERT_FILE"].iter().all(|k| std::env::var_os(k).is_none())
+    {
+        let system = [
+            "/etc/ssl/certs/ca-certificates.crt",
+            "/etc/pki/tls/certs/ca-bundle.crt",
+            "/etc/ssl/ca-bundle.pem",
+            "/etc/pki/tls/cacert.pem",
+            "/etc/ssl/cert.pem",
+        ]
+        .iter()
+        .map(std::path::PathBuf::from)
+        .find(|p| p.exists());
+        let shipped = shares.iter().map(|s| s.join("ssl").join("cacert.pem")).find(|p| p.exists());
+        if let Some(ca) = system.or(shipped) {
+            let _ = gdal::config::set_config_option("CURL_CA_BUNDLE", &ca.to_string_lossy());
+        }
+    }
     if let Some(path) = std::env::var_os("PATH") {
         let lib = if cfg!(windows) { "gdal.dll" } else { "libgdal.so" };
         shares
@@ -226,6 +266,7 @@ fn main() -> eframe::Result<()> {
             }
             "--selftest-reproject" => opts.selftest_reproject = true,
             "--selftest-ui" => opts.selftest_ui = true,
+            "--shots" => opts.shots = args.next(),
             "--selftest-multidim" => opts.selftest_multidim = true,
             "--season" => {
                 opts.season = args.next().and_then(|v| {
@@ -301,6 +342,15 @@ fn main() -> eframe::Result<()> {
             _ => opts.inputs.push(a),
         }
     }
+    if opts.shots.is_some() {
+        // the tour opens its input itself
+        opts.shots_args = std::mem::take(&mut opts.inputs);
+        if opts.shots_args.len() != 2 {
+            attach_console();
+            eprintln!("--shots TOUR needs its input and the output folder");
+            std::process::exit(2);
+        }
+    }
     if opts.selftest_ui && opts.inputs.len() >= 2 {
         // A opens, the others are opened by the test
         opts.extra_layers = opts.inputs.split_off(1);
@@ -329,7 +379,8 @@ fn main() -> eframe::Result<()> {
         || opts.selftest_composite
         || opts.selftest_reproject
         || opts.selftest_ui
-        || opts.selftest_multidim;
+        || opts.selftest_multidim
+        || opts.shots.is_some();
     if test_window {
         attach_console();
     }
@@ -347,14 +398,21 @@ fn main() -> eframe::Result<()> {
         required_limits: janus_gpu::required_limits(adapter),
         ..Default::default()
     });
+    let shots = opts.shots.is_some();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Janus")
-            .with_inner_size(if test_window { [1600.0, 950.0] } else { [1400.0, 900.0] })
+            .with_inner_size(if shots {
+                shots::SIZE
+            } else if test_window {
+                [1600.0, 950.0]
+            } else {
+                [1400.0, 900.0]
+            })
             .with_maximized(!test_window)
             .with_drag_and_drop(true)
             // translucent panels (Settings) need a transparent window, made at the start
-            .with_transparent(settings::load().0.panel_opacity < 1.0),
+            .with_transparent(!shots && settings::load().0.panel_opacity < 1.0),
         wgpu_options: WgpuConfiguration {
             wgpu_setup: WgpuSetup::CreateNew(setup),
             surface: SurfaceConfig {

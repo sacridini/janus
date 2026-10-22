@@ -904,34 +904,40 @@ impl State {
             val::map_classes(&m.rule, &d.values, &d.mapped).into_iter().map(|c| m.rule.class_name(c)).collect()
         };
         let mut changed = false;
-        egui::CollapsingHeader::new("Reference labels -> the map's classes").id_salt("tr").show(ui, |ui| {
-            egui::Grid::new("trgrid").striped(true).num_columns(2).show(ui, |ui| {
-                for l in &p.label_set {
-                    ui.label(l);
-                    let cur = match m.mapping.get(l) {
-                        None => "(not set)".to_string(),
-                        Some(t) if t.is_empty() => "(left out)".to_string(),
-                        Some(t) => t.clone(),
-                    };
-                    egui::ComboBox::from_id_salt(("t", l)).selected_text(cur).show_ui(ui, |ui| {
-                        for t in &targets {
-                            if ui.selectable_label(m.mapping.get(l) == Some(t), t).clicked() {
-                                m.mapping.insert(l.clone(), t.clone());
+        egui::CollapsingHeader::new("Reference labels -> the map's classes")
+            .id_salt("tr")
+            .open(v.sections.map(|s| s & 1 == 1))
+            .show(ui, |ui| {
+                egui::Grid::new("trgrid").striped(true).num_columns(2).show(ui, |ui| {
+                    for l in &p.label_set {
+                        ui.label(l);
+                        let cur = match m.mapping.get(l) {
+                            None => "(not set)".to_string(),
+                            Some(t) if t.is_empty() => "(left out)".to_string(),
+                            Some(t) => t.clone(),
+                        };
+                        egui::ComboBox::from_id_salt(("t", l)).selected_text(cur).show_ui(ui, |ui| {
+                            for t in &targets {
+                                if ui.selectable_label(m.mapping.get(l) == Some(t), t).clicked() {
+                                    m.mapping.insert(l.clone(), t.clone());
+                                    changed = true;
+                                }
+                            }
+                            if ui
+                                .selectable_label(m.mapping.get(l).is_some_and(|t| t.is_empty()), "(left out)")
+                                .clicked()
+                            {
+                                m.mapping.insert(l.clone(), String::new());
                                 changed = true;
                             }
-                        }
-                        if ui.selectable_label(m.mapping.get(l).is_some_and(|t| t.is_empty()), "(left out)").clicked() {
-                            m.mapping.insert(l.clone(), String::new());
-                            changed = true;
-                        }
-                    });
-                    ui.end_row();
+                        });
+                        ui.end_row();
+                    }
+                });
+                if m.rule.kind == MapKind::Events {
+                    ui.weak("A point is change when any of its events is; with periods, by the date of the first.");
                 }
             });
-            if m.rule.kind == MapKind::Events {
-                ui.weak("A point is change when any of its events is; with periods, by the date of the first.");
-            }
-        });
         if changed {
             v.meta_dirty = true;
             v.version += 1;
@@ -1058,159 +1064,176 @@ impl State {
 
         // --- the estimates as points came ---
         let conf = (v.confidence * 100.0).round() as u64;
-        egui::CollapsingHeader::new("As the labels came (convergence)").id_salt("conv").show(ui, |ui| {
-            v.conv_class = v.conv_class.clamp(-1, nc as i32 - 1);
-            let shown = if v.conv_class < 0 {
-                "overall accuracy".to_string()
-            } else {
-                format!("area of {}", a.classes[v.conv_class as usize])
-            };
-            egui::ComboBox::from_id_salt("convc").width(220.0).selected_text(shown).show_ui(ui, |ui| {
-                ui.selectable_value(&mut v.conv_class, -1, "overall accuracy");
-                for c in 0..nc {
-                    ui.selectable_value(&mut v.conv_class, c as i32, format!("area of {}", a.classes[c]));
-                }
-            });
-            let key = ((v.version.wrapping_mul(131) + v.selected as u64).wrapping_mul(131) + (v.conv_class + 1) as u64)
-                .wrapping_mul(131)
-                + conf;
-            if v.conv.key != key {
-                v.conv = crate::validation::Conv { key, ..Default::default() };
-                // the labelled points in the order of their labels' times, then the estimates at ~40 steps
-                let mut order: Vec<(String, usize)> = (0..p.points.len())
-                    .filter_map(|i| val::resolve(&p.labels, i).0.map(|l| (l.updated.clone(), i)))
-                    .collect();
-                order.sort();
-                let steps = order.len().min(40);
-                let mut use_ = vec![false; p.points.len()];
-                let mut next = 0;
-                for s in 1..=steps {
-                    let upto = order.len() * s / steps;
-                    while next < upto {
-                        use_[order[next].1] = true;
-                        next += 1;
+        egui::CollapsingHeader::new("As the labels came (convergence)")
+            .id_salt("conv")
+            .open(v.sections.map(|s| s >> 1 & 1 == 1))
+            .show(ui, |ui| {
+                v.conv_class = v.conv_class.clamp(-1, nc as i32 - 1);
+                let shown = if v.conv_class < 0 {
+                    "overall accuracy".to_string()
+                } else {
+                    format!("area of {}", a.classes[v.conv_class as usize])
+                };
+                egui::ComboBox::from_id_salt("convc").width(220.0).selected_text(shown).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut v.conv_class, -1, "overall accuracy");
+                    for c in 0..nc {
+                        ui.selectable_value(&mut v.conv_class, c as i32, format!("area of {}", a.classes[c]));
                     }
-                    let q = val::prepare(p, &p.maps[k], &d.values, &d.mapped, f64::from(v.confidence), &use_);
-                    let b = val::assess(&q.input);
-                    if b.n < 2 {
-                        continue;
-                    }
-                    v.conv.n.push(upto as f64);
-                    let (e, lo, hi) = if v.conv_class < 0 {
-                        (b.overall.est, b.overall.lo, b.overall.hi)
-                    } else {
-                        let name = &a.classes[v.conv_class as usize];
-                        match b.classes.iter().position(|c| c == name) {
-                            Some(c) => (b.area[c].est, b.area[c].lo, b.area[c].hi),
-                            None => (f64::NAN, f64::NAN, f64::NAN),
+                });
+                let key = ((v.version.wrapping_mul(131) + v.selected as u64).wrapping_mul(131)
+                    + (v.conv_class + 1) as u64)
+                    .wrapping_mul(131)
+                    + conf;
+                if v.conv.key != key {
+                    v.conv = crate::validation::Conv { key, ..Default::default() };
+                    // the labelled points in the order of their labels' times, then the estimates at ~40 steps
+                    let mut order: Vec<(String, usize)> = (0..p.points.len())
+                        .filter_map(|i| val::resolve(&p.labels, i).0.map(|l| (l.updated.clone(), i)))
+                        .collect();
+                    order.sort();
+                    let steps = order.len().min(40);
+                    let mut use_ = vec![false; p.points.len()];
+                    let mut next = 0;
+                    for s in 1..=steps {
+                        let upto = order.len() * s / steps;
+                        while next < upto {
+                            use_[order[next].1] = true;
+                            next += 1;
                         }
-                    };
-                    v.conv.est.push(e);
-                    v.conv.lo.push(lo);
-                    v.conv.hi.push(hi);
-                }
-            }
-            let col = theme::on_plot(Color32::from_rgb(77, 153, 255));
-            Plot::new("convplot")
-                .height(180.0)
-                .x_axis_label("labelled points")
-                .y_axis_label(if v.conv_class < 0 { "overall accuracy".to_string() } else { unit.clone() })
-                .allow_drag(false)
-                .allow_scroll(false)
-                .show(ui, |pu| {
-                    let c = &v.conv;
-                    let mut band: Vec<[f64; 2]> = c.n.iter().zip(&c.lo).map(|(x, y)| [*x, *y]).collect();
-                    band.extend(c.n.iter().zip(&c.hi).rev().map(|(x, y)| [*x, *y]));
-                    if band.len() >= 4 {
-                        pu.polygon(
-                            Polygon::new("interval", PlotPoints::new(band))
-                                .fill_color(col.gamma_multiply(0.25))
-                                .stroke(egui::Stroke::NONE),
-                        );
+                        let q = val::prepare(p, &p.maps[k], &d.values, &d.mapped, f64::from(v.confidence), &use_);
+                        let b = val::assess(&q.input);
+                        if b.n < 2 {
+                            continue;
+                        }
+                        v.conv.n.push(upto as f64);
+                        let (e, lo, hi) = if v.conv_class < 0 {
+                            (b.overall.est, b.overall.lo, b.overall.hi)
+                        } else {
+                            let name = &a.classes[v.conv_class as usize];
+                            match b.classes.iter().position(|c| c == name) {
+                                Some(c) => (b.area[c].est, b.area[c].lo, b.area[c].hi),
+                                None => (f64::NAN, f64::NAN, f64::NAN),
+                            }
+                        };
+                        v.conv.est.push(e);
+                        v.conv.lo.push(lo);
+                        v.conv.hi.push(hi);
                     }
-                    pu.line(
-                        Line::new("estimate", PlotPoints::new(c.n.iter().zip(&c.est).map(|(x, y)| [*x, *y]).collect()))
+                }
+                let col = theme::on_plot(Color32::from_rgb(77, 153, 255));
+                Plot::new("convplot")
+                    .height(180.0)
+                    .x_axis_label("labelled points")
+                    .y_axis_label(if v.conv_class < 0 { "overall accuracy".to_string() } else { unit.clone() })
+                    .allow_drag(false)
+                    .allow_scroll(false)
+                    .show(ui, |pu| {
+                        let c = &v.conv;
+                        let mut band: Vec<[f64; 2]> = c.n.iter().zip(&c.lo).map(|(x, y)| [*x, *y]).collect();
+                        band.extend(c.n.iter().zip(&c.hi).rev().map(|(x, y)| [*x, *y]));
+                        if band.len() >= 4 {
+                            pu.polygon(
+                                Polygon::new("interval", PlotPoints::new(band))
+                                    .fill_color(col.gamma_multiply(0.25))
+                                    .stroke(egui::Stroke::NONE),
+                            );
+                        }
+                        pu.line(
+                            Line::new(
+                                "estimate",
+                                PlotPoints::new(c.n.iter().zip(&c.est).map(|(x, y)| [*x, *y]).collect()),
+                            )
                             .color(col)
                             .width(1.5),
-                    );
-                });
-            ui.weak("The interval narrows as points are labelled: label until it is narrow enough.");
-        });
+                        );
+                    });
+                ui.weak("The interval narrows as points are labelled: label until it is narrow enough.");
+            });
 
         // --- dates ---
         if p.maps[k].rule.kind == MapKind::Events {
-            egui::CollapsingHeader::new("Dates of change").id_salt("dates").show(ui, |ui| {
-                ui.add(egui::Slider::new(&mut v.tolerance, 0.0..=5.0).step_by(1.0).text("tolerance (years)"));
-                let g = &d.dates;
-                if g.n == 0 {
-                    ui.weak("No point that both the map and the reference call change, with dates.");
-                } else {
-                    ui.label(format!(
-                        "Within +-{:.0} year(s): {}; mean difference {:.2} years ({} points)",
-                        g.tolerance,
-                        fmt_pm(&g.within),
-                        g.mean_diff.est,
-                        g.n
-                    ));
-                    Plot::new("ddiff")
-                        .height(150.0)
-                        .x_axis_label("map year - reference year")
-                        .y_axis_label("points")
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .show(ui, |pu| {
-                            let bars: Vec<Bar> = g
-                                .diffs
-                                .iter()
-                                .map(|(&k, &n)| Bar::new(f64::from(k), f64::from(n)).width(0.8))
-                                .collect();
-                            pu.bar_chart(BarChart::new("points", bars).color(adj_c));
-                        });
-                }
-            });
+            egui::CollapsingHeader::new("Dates of change")
+                .id_salt("dates")
+                .open(v.sections.map(|s| s >> 2 & 1 == 1))
+                .show(ui, |ui| {
+                    ui.add(egui::Slider::new(&mut v.tolerance, 0.0..=5.0).step_by(1.0).text("tolerance (years)"));
+                    let g = &d.dates;
+                    if g.n == 0 {
+                        ui.weak("No point that both the map and the reference call change, with dates.");
+                    } else {
+                        ui.label(format!(
+                            "Within +-{:.0} year(s): {}; mean difference {:.2} years ({} points)",
+                            g.tolerance,
+                            fmt_pm(&g.within),
+                            g.mean_diff.est,
+                            g.n
+                        ));
+                        Plot::new("ddiff")
+                            .height(150.0)
+                            .x_axis_label("map year - reference year")
+                            .y_axis_label("points")
+                            .allow_drag(false)
+                            .allow_scroll(false)
+                            .show(ui, |pu| {
+                                let bars: Vec<Bar> = g
+                                    .diffs
+                                    .iter()
+                                    .map(|(&k, &n)| Bar::new(f64::from(k), f64::from(n)).width(0.8))
+                                    .collect();
+                                pu.bar_chart(BarChart::new("points", bars).color(adj_c));
+                            });
+                    }
+                });
         }
         // --- area of change by year (the reference's dates) ---
         let any_change = p.maps[k].mapping.values().any(|t| t == val::CHANGE);
         if p.maps[k].rule.kind == MapKind::Events && any_change {
-            egui::CollapsingHeader::new("Area of change by year").id_salt("byyear").show(ui, |ui| {
-                let key = (v.version.wrapping_mul(131) + v.selected as u64).wrapping_mul(131) + conf;
-                if v.by_year.0 != key {
-                    v.by_year = (key, val::change_by_year(p, &p.maps[k], f64::from(v.confidence)));
-                }
-                if v.by_year.1.is_empty() {
-                    ui.weak("No dated change in the reference yet.");
-                } else {
-                    Plot::new("byyearplot")
-                        .height(190.0)
-                        .x_axis_label("year")
-                        .y_axis_label(unit.clone())
-                        .x_axis_formatter(|m, _| format!("{:.0}", m.value))
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .show(ui, |pu| {
-                            let bars: Vec<Bar> =
-                                v.by_year.1.iter().map(|(y, ar)| Bar::new(f64::from(*y), ar.est).width(0.7)).collect();
-                            pu.bar_chart(BarChart::new("area", bars).color(adj_c));
-                            for (y, ar) in &v.by_year.1 {
-                                pu.line(
-                                    Line::new(
-                                        "",
-                                        PlotPoints::new(vec![
-                                            [f64::from(*y), ar.est - ar.ci],
-                                            [f64::from(*y), ar.est + ar.ci],
-                                        ]),
-                                    )
-                                    .color(fg)
-                                    .width(1.0),
-                                );
-                            }
-                        });
-                    ui.weak(format!(
-                        "From the reference alone: the area whose first change (as this map's translation\n\
+            egui::CollapsingHeader::new("Area of change by year")
+                .id_salt("byyear")
+                .open(v.sections.map(|s| s >> 3 & 1 == 1))
+                .show(ui, |ui| {
+                    let key = (v.version.wrapping_mul(131) + v.selected as u64).wrapping_mul(131) + conf;
+                    if v.by_year.0 != key {
+                        v.by_year = (key, val::change_by_year(p, &p.maps[k], f64::from(v.confidence)));
+                    }
+                    if v.by_year.1.is_empty() {
+                        ui.weak("No dated change in the reference yet.");
+                    } else {
+                        Plot::new("byyearplot")
+                            .height(190.0)
+                            .x_axis_label("year")
+                            .y_axis_label(unit.clone())
+                            .x_axis_formatter(|m, _| format!("{:.0}", m.value))
+                            .allow_drag(false)
+                            .allow_scroll(false)
+                            .show(ui, |pu| {
+                                let bars: Vec<Bar> = v
+                                    .by_year
+                                    .1
+                                    .iter()
+                                    .map(|(y, ar)| Bar::new(f64::from(*y), ar.est).width(0.7))
+                                    .collect();
+                                pu.bar_chart(BarChart::new("area", bars).color(adj_c));
+                                for (y, ar) in &v.by_year.1 {
+                                    pu.line(
+                                        Line::new(
+                                            "",
+                                            PlotPoints::new(vec![
+                                                [f64::from(*y), ar.est - ar.ci],
+                                                [f64::from(*y), ar.est + ar.ci],
+                                            ]),
+                                        )
+                                        .color(fg)
+                                        .width(1.0),
+                                    );
+                                }
+                            });
+                        ui.weak(format!(
+                            "From the reference alone: the area whose first change (as this map's translation\n\
                          reads the labels) falls in each year, +- its {pct}% interval."
-                    ));
-                }
-            });
+                        ));
+                    }
+                });
         }
         if adjudicate {
             self.start_adjudication();

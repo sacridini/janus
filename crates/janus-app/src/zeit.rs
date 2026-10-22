@@ -438,11 +438,14 @@ impl State {
         ui.weak(format!("Zeit {} (native, zeit-core)", janus_zeit::ZEIT_VERSION));
     }
 
-    /// The open tools' windows.
+    /// The open tools' windows (those in the dock drawn there).
     pub(crate) fn tool_windows(&mut self, ctx: &egui::Context) {
         let open: Vec<String> = self.zeit.tools.iter().filter(|(_, u)| u.open).map(|(id, _)| id.clone()).collect();
         for id in open {
             let Some(tool) = manifest().tool(&id) else { continue };
+            if self.docked(crate::shots::tool_tab(&id)) {
+                continue;
+            }
             let mut keep = true;
             egui::Window::new(&tool.name)
                 .id(egui::Id::new(("zeit tool", &id)))
@@ -456,7 +459,7 @@ impl State {
         }
     }
 
-    fn tool_window(&mut self, ui: &mut Ui, tool: &'static Tool) {
+    pub(crate) fn tool_window(&mut self, ui: &mut Ui, tool: &'static Tool) {
         ui.label(&tool.description);
         let info = self.session.as_ref().map(|s| s.info.clone());
         let roles = self.active_roles();
@@ -1194,7 +1197,7 @@ Reading the data adds to it, mostly on spinning disks.",
     }
 
     /// Starts a raster run of the tool.
-    fn run_tool(&mut self, tool: &'static Tool, ctx: &egui::Context) {
+    pub(crate) fn run_tool(&mut self, tool: &'static Tool, ctx: &egui::Context) {
         let (mut spec, cube, scope_name, name) = match self.job_spec(tool) {
             Ok(s) => s,
             Err(e) => {
@@ -1418,13 +1421,19 @@ Reading the data adds to it, mostly on spinning disks.",
 
     /// Tools > Tasks: the raster runs, their progress, cancel, their folder.
     pub(crate) fn tasks_window(&mut self, ctx: &egui::Context) {
-        if !self.zeit.show_tasks {
+        if !self.zeit.show_tasks || self.docked(crate::app::Tab::Tasks) {
             return;
         }
         let mut open = true;
+        egui::Window::new("Tasks").open(&mut open).default_size([560.0, 300.0]).show(ctx, |ui| self.tasks_ui(ui));
+        self.zeit.show_tasks = open;
+    }
+
+    /// The runs: their progress, log, folder.
+    pub(crate) fn tasks_ui(&mut self, ui: &mut Ui) {
         let mut remove = None;
         let mut show_log = None;
-        egui::Window::new("Tasks").open(&mut open).default_size([560.0, 300.0]).show(ctx, |ui| {
+        {
             if self.zeit.jobs.is_empty() {
                 ui.weak("No tasks yet. Run a tool from the Tools menu.");
             }
@@ -1472,14 +1481,13 @@ Reading the data adds to it, mostly on spinning disks.",
                     ui.separator();
                 });
             }
-        });
+        }
         if let Some(i) = remove {
             self.zeit.jobs.remove(i);
         }
         if let Some(path) = show_log {
             (self.zeit.log.path, self.zeit.log.show) = (path, true);
         }
-        self.zeit.show_tasks = open;
     }
 
     /// Tasks > Log: a run's log, its end, followed as it grows (looked at 4 times a second).
@@ -1678,6 +1686,11 @@ pub(crate) fn draw_results(
 }
 
 impl ZeitUi {
+    /// Result maps or series of a run still being read.
+    pub fn loads_pending(&self) -> bool {
+        self.pending_loads > 0 || !self.loaded.lock().unwrap().is_empty() || !self.series_to_open.is_empty()
+    }
+
     /// Every run done and its maps loaded (or failed).
     pub fn runs_settled(&self) -> bool {
         !self.jobs.is_empty()
