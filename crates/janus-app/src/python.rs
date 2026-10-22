@@ -90,7 +90,8 @@ impl State {
         }
         let name = self.layers.get(self.active).map_or("the series".to_string(), |l| l.name.clone());
         let what = match which {
-            Which::Roi => "the ROI (a rectangle)".to_string(),
+            Which::Roi if self.series.roi_poly.is_empty() => "the ROI (a rectangle)".to_string(),
+            Which::Roi => "the ROI (a polygon)".to_string(),
             Which::Cursor => "the cursor's pixel".to_string(),
             Which::Pin(id) => format!("pin {id}"),
         };
@@ -133,7 +134,11 @@ impl State {
         if tool_calls.is_some() {
             o += " xarray zeit-cdts";
         }
-        o += "\n\"\"\"\nimport numpy as np\nimport rasterio\nfrom rasterio.windows import Window\nfrom rasterio.enums import Resampling\n";
+        o += "\n\"\"\"\nimport numpy as np\nimport rasterio\nfrom rasterio.windows import Window\n";
+        if roi.is_some() && !self.series.roi_poly.is_empty() {
+            o += "from rasterio.features import rasterize\n";
+        }
+        o += "from rasterio.enums import Resampling\n";
 
         // the series: each date's file and band
         let sel = info.sel;
@@ -184,11 +189,28 @@ impl State {
                     r.bw, r.bh
                 );
             }
-            let _ = writeln!(
-                o,
-                ".\nwindow = Window({}, {}, {w}, {h})\nshape = ({}, {})\ninside = np.ones(shape, dtype=bool)",
-                r.x0, r.y0, r.bh, r.bw
-            );
+            let _ = writeln!(o, ".\nwindow = Window({}, {}, {w}, {h})\nshape = ({}, {})", r.x0, r.y0, r.bh, r.bw);
+            if self.series.roi_poly.is_empty() {
+                o += "inside = np.ones(shape, dtype=bool)\n";
+            } else {
+                // the polygon in the window's cells: pixels whose centres are inside count
+                let (kx, ky) = (r.bw as f64 / w as f64, r.bh as f64 / h as f64);
+                o += "# Its polygon (rings in the window's cells, even-odd: holes are rings inside others);\n\
+                      # a cell counts when its centre is inside.\nrings = [\n";
+                for ring in &self.series.roi_poly {
+                    let pts: Vec<String> = ring
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|v| format!("({}, {})", num((v[0] - r.x0 as f64) * kx), num((v[1] - r.y0 as f64) * ky)))
+                        .collect();
+                    let _ = writeln!(o, "    [{}],", pts.join(", "));
+                }
+                o += "]\ninside = np.zeros(shape, dtype=bool)\n\
+                      for ring in rings:  # each ring flips what it covers (even-odd)\n    \
+                      inside ^= rasterize([{\"type\": \"Polygon\", \"coordinates\": [ring + ring[:1]]}], out_shape=shape,\n                        \
+                      fill=0, default_value=1, dtype=\"uint8\").astype(bool)\n";
+            }
             o += r#"
 mean, p10, p90 = (np.full(len(layers), np.nan) for _ in range(3))
 for t, layer in enumerate(layers):

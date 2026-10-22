@@ -118,6 +118,8 @@ pub struct Options {
     /// --pin, --roi: pins and an ROI once the series is open (screenshots)
     pub pins: Vec<(usize, usize)>,
     pub roi: Option<[i64; 4]>,
+    /// --roi with more than two corners: a polygon's vertices (x, y, ...)
+    pub roi_polygon: Vec<f64>,
     /// --zeit TOOL: that Zeit tool fitted on the chart, its window open
     pub zeit_tool: Option<String>,
     /// --zeit-run: the --zeit tool run on the raster (its ROI if --roi, else the whole image) once the series is
@@ -594,6 +596,9 @@ impl State {
             if let Some(r) = self.opts.roi {
                 self.set_roi_rect(r);
             }
+            if !self.opts.roi_polygon.is_empty() {
+                self.set_roi_polygon(vec![self.opts.roi_polygon.clone()]);
+            }
             if let Some(id) = self.opts.zeit_tool.clone() {
                 self.zeit.tools.entry(id.clone()).or_default().open = true;
                 self.zeit.pixel_tool = Some(id);
@@ -798,6 +803,7 @@ impl State {
         if esc {
             self.series.roi_drag = None;
         }
+        self.roi_shortcuts(ctx);
         act
     }
 
@@ -876,6 +882,10 @@ impl State {
                 let mut swipe = self.swipe.is_some();
                 if ui.add_enabled(has, egui::Checkbox::new(&mut swipe, "Swipe (C)")).clicked() {
                     self.toggle_swipe();
+                }
+                let mut poly = self.series.poly.on;
+                if ui.add_enabled(has, egui::Checkbox::new(&mut poly, "Draw ROI polygon (R)")).clicked() {
+                    self.toggle_polygon();
                 }
                 if item(ui, "Clear ROI", "", self.series.roi_rect.is_some()) {
                     self.clear_roi();

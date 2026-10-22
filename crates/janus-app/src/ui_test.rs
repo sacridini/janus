@@ -733,8 +733,183 @@ impl State {
                     self.open_inputs(vec![e], false, ctx);
                     next(st, "open E (categorical, plain values)");
                 } else {
-                    return ok();
+                    // F (another CRS): the polygonal ROI (110-114)
+                    if input(4).is_none() {
+                        return ok();
+                    }
+                    st.stage = 110;
                 }
+            }
+            110..=114 => return self.test_roi_polygon(st, &input, t0, ctx),
+            _ => {}
+        }
+        None
+    }
+}
+
+/// B's pixels (A's are B's + 100 in x). Concave (an L), so its bounding box is not the ROI.
+const L_POLY: [f64; 12] = [20.0, 30.0, 150.0, 30.0, 150.0, 80.0, 70.4, 80.0, 70.4, 170.0, 20.0, 170.0];
+
+impl State {
+    /// Stages 110-114 (src/app_roi.cpp, selfTestRoiPolygon): a concave polygon drawn on B (vertices clicked, the
+    /// last one twice as a double click does), its statistics on B, on A (same CRS, shifted) and on F (another
+    /// CRS) against the pixels whose centres are inside. (The C++'s 115, the outline in a PNG export, comes with
+    /// the exports.)
+    fn test_roi_polygon(
+        &mut self,
+        st: &mut UiTest,
+        input: &dyn Fn(usize) -> Option<String>,
+        t0: std::time::Instant,
+        ctx: &egui::Context,
+    ) -> Option<i32> {
+        let fail = |what: &str| {
+            println!("FAIL: {what}");
+            Some(1)
+        };
+        let next = |st: &mut UiTest, done: &str| {
+            println!("[{:5.1} s] {done}", t0.elapsed().as_secs_f64());
+            st.stage += 1;
+            st.since = Some(std::time::Instant::now());
+        };
+        let ready = |s: &State, n: usize| {
+            s.opening.is_none() && s.layers.len() == n && (0..n).all(|i| loaded(s.layer_session(i)))
+        };
+        match st.stage {
+            110 => {
+                self.open_inputs(vec![input(0)?], false, ctx);
+                next(st, "polygonal ROI: open B");
+            }
+            111 => {
+                if !ready(self, 1) {
+                    return None;
+                }
+                self.open_inputs(vec![self.opts.inputs.first()?.clone()], true, ctx);
+                next(st, "add A");
+            }
+            112 => {
+                if !ready(self, 2) {
+                    return None;
+                }
+                self.open_inputs(vec![input(4)?], true, ctx);
+                next(st, "add F (another CRS)");
+            }
+            113 => {
+                if !ready(self, 3) {
+                    return None;
+                }
+                self.set_active(0, ctx); // B
+                self.set_chart_layers(1);
+                self.test_fit();
+                // the vertices as clicked; the last one twice (a double click's two clicks)
+                self.series.poly.on = true;
+                self.series.poly.vertices = L_POLY.as_chunks::<2>().0.iter().map(|v| [v[0], v[1]]).collect();
+                let last = *self.series.poly.vertices.last()?;
+                self.series.poly.vertices.push(last);
+                self.finish_polygon();
+                let p = &self.series.roi_poly;
+                if self.series.poly.on || p.len() != 1 || p[0].len() != L_POLY.len() {
+                    return fail("closing the polygon should leave polygon mode with its 6 vertices as the ROI");
+                }
+                if self.series.roi_rect != Some([20, 30, 150, 170]) {
+                    return fail("the ROI's bounding box should be the polygon's");
+                }
+                if (janus_geo::plane::area(p) - (130.0 * 50.0 + 50.4 * 90.0)).abs() > 1e-3 {
+                    return fail("the area of the L");
+                }
+                if self.roi_contains(100.0, 120.0) || !self.roi_contains(30.0, 120.0) || !self.roi_contains(100.0, 50.0)
+                {
+                    return fail("roi_contains: inside the L, not in its bounding box's notch");
+                }
+                next(st, "polygon closed as the ROI of every layer");
+            }
+            114 => {
+                if !self.series.roi.complete()
+                    || !self.layers[1].series.roi.complete()
+                    || !self.layers[2].series.roi.complete()
+                {
+                    return None;
+                }
+                // the active layer: every date's statistics from the pixels whose centres are inside
+                let info = self.session.as_ref()?.info.clone();
+                let r = self.series.roi.data.clone()?;
+                let (x0, y0, w, h) = (r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
+                if r.sampled || r.bw != w {
+                    return fail("the L should be read at full resolution");
+                }
+                let poly = self.series.roi_poly.clone();
+                let mut reader = janus_cube::CubeReader::new(info.clone());
+                let mut buf = vec![0f32; w * h];
+                let (mut inside, mut worst) = (0, 0f32);
+                for t in 0..info.t() {
+                    if !reader.read_window(t, (x0, y0, w, h), &mut buf, (w, h)) {
+                        return fail("B cannot be read");
+                    }
+                    let mut v: Vec<f32> = (0..w * h)
+                        .filter(|k| {
+                            janus_geo::plane::contains(&poly, (x0 + k % w) as f64 + 0.5, (y0 + k / w) as f64 + 0.5)
+                        })
+                        .map(|k| buf[k])
+                        .collect();
+                    inside = v.len();
+                    let e = janus_cube::stats::sample_stats(&mut v);
+                    let g = r.per_t[t].get()?;
+                    if e.n != g.n {
+                        return fail("the ROI's pixel count on B differs from the pixels inside");
+                    }
+                    if e.n > 0 {
+                        worst = worst.max((e.mean - g.mean).abs()).max((e.p90 - g.p90).abs());
+                    }
+                }
+                println!(
+                    "    B: {inside} of {w} x {h} pixels of the bounding box inside the L, max |mean, p90 - CPU| {worst:.2e}"
+                );
+                if worst > 1e-5 {
+                    return fail("the ROI's statistics on B differ from the CPU's");
+                }
+                // A (B + 100 px) and F (UTM 22S): the cells of their masks against the centres inside
+                let check = |i: usize, name: &str, inside: &dyn Fn(f64, f64) -> bool, tolerance: f64| -> bool {
+                    let Some(r) = &self.layers[i].series.roi.data else { return false };
+                    let (mut ones, mut wrong) = (0usize, 0usize);
+                    for j in 0..r.bh {
+                        for k in 0..r.bw {
+                            let m = r.mask.is_empty() || r.mask[j * r.bw + k];
+                            ones += usize::from(m);
+                            wrong += usize::from(m != inside((r.x0 + k) as f64 + 0.5, (r.y0 + j) as f64 + 0.5));
+                        }
+                    }
+                    println!(
+                        "    {name}: {} x {} px read at ({}, {}), {ones} inside, {wrong} differ from the exact test",
+                        r.bw, r.bh, r.x0, r.y0
+                    );
+                    ones > 0 && wrong as f64 <= tolerance * ones as f64
+                };
+                if !check(1, "A", &|x, y| janus_geo::plane::contains(&poly, x - 100.0, y), 0.0) {
+                    return fail("A's ROI should be the L moved 100 px");
+                }
+                // F: the L's straight edges are curves there (16 points per side of its box)
+                let f = &self.layers[2].place;
+                let on_f = |x: f64, y: f64| {
+                    f.to_active(x, y).is_some_and(|(bx, by)| janus_geo::plane::contains(&poly, bx, by))
+                };
+                if f.reproj.is_none() || !check(2, "F", &on_f, 0.01) {
+                    return fail("F's ROI should be the L reprojected");
+                }
+                // Copy Python of the L: its rings rasterized give the same mean
+                if std::env::var_os("JANUS_PYTHON").is_some() || run_python("values = [0.0]").is_ok() {
+                    let code = self.python_snippet(crate::python::Which::Roi)?;
+                    let v = match run_python(&code) {
+                        Ok(v) => v,
+                        Err(e) => return fail(&format!("the polygon's code should run: {e}")),
+                    };
+                    if !code.contains("rasterize(") || same(&self.series.roi.mean, &v, 1e-5).is_none() {
+                        return fail("the polygon's code should give the ROI's mean at every date");
+                    }
+                    println!("    Copy Python of the L: its mean at {} dates as in Janus", v.len());
+                }
+                self.clear_roi();
+                next(st, "the L's statistics on B, A and F");
+                println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
+                return Some(0);
             }
             _ => {}
         }

@@ -194,8 +194,14 @@ impl State {
             [ix * fx, iy * fy]
         };
         let shift = ui.input(|i| i.modifiers.shift);
+        // R: a polygon's vertices or a freehand outline (no pan, no pin)
+        let at_pointer = resp.interact_pointer_pos().or(resp.hover_pos()).map(|p| src_at(m, p));
+        let drawing = self.polygon_input(ui, resp, at_pointer);
+        let poly_on = self.series.poly.on || drawing;
+        let m = &mut self.map;
         // Shift + drag: an ROI rectangle (no pan, no pin)
-        if resp.drag_started_by(egui::PointerButton::Primary)
+        if !drawing
+            && resp.drag_started_by(egui::PointerButton::Primary)
             && shift
             && let Some(p) = resp.interact_pointer_pos()
         {
@@ -219,7 +225,9 @@ impl State {
                 }
             }
             ui.ctx().request_repaint();
-        } else if resp.dragged_by(egui::PointerButton::Primary) || resp.dragged_by(egui::PointerButton::Middle) {
+        } else if (!drawing && resp.dragged_by(egui::PointerButton::Primary))
+            || resp.dragged_by(egui::PointerButton::Middle)
+        {
             let d = resp.drag_delta();
             m.touched |= d != egui::Vec2::ZERO;
             m.center[0] -= f64::from(d.x) / m.scale;
@@ -240,6 +248,7 @@ impl State {
         // a click drops a pin; the right button removes the one under the cursor; Delete the last one
         if resp.clicked()
             && !shift
+            && !poly_on
             && let Some((x, y)) = inside
         {
             self.add_pin(x, y);
@@ -262,6 +271,7 @@ impl State {
             }
         }
         if resp.hovered()
+            && !poly_on
             && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
             && let Some(id) = self.series.pins.last().map(|p| p.id)
         {
@@ -312,30 +322,7 @@ impl State {
             );
             painter.galley(tp, galley, pin.color);
         }
-        let roi = crate::series::ROI_COLOR;
-        let outline = |r: [usize; 4], thick: f32| {
-            let rr = Rect::from_min_max(at(r[0] as f64, r[1] as f64), at(r[2] as f64, r[3] as f64));
-            let dark = Stroke::new(thick + 2.0, Color32::from_black_alpha(160));
-            painter.rect_stroke(rr, 0.0, dark, egui::StrokeKind::Middle);
-            painter.rect_stroke(rr, 0.0, Stroke::new(thick, roi), egui::StrokeKind::Middle);
-        };
-        let sr = &self.series;
-        if let Some((a, b)) = sr.roi_drag {
-            let rr = Rect::from_two_pos(at(a[0], a[1]), at(b[0], b[1]));
-            painter.rect_stroke(rr, 0.0, Stroke::new(2.0, roi), egui::StrokeKind::Middle);
-        } else if let Some(r) = sr.roi_rect {
-            let p = at(r[0] as f64, r[1] as f64) + vec2(4.0, 2.0);
-            if sr.roi_pending {
-                outline(r, 1.0);
-                painter.text(p, Align2::LEFT_TOP, "ROI: waiting for the overview (HDD)", body_font(painter), roi);
-            } else if let Some(d) = &sr.roi.data {
-                outline(r, 2.0);
-                let (done, n) = (d.done.load(std::sync::atomic::Ordering::Relaxed), d.per_t.len());
-                if done < n {
-                    painter.text(p, Align2::LEFT_TOP, format!("ROI {done}/{n}"), body_font(painter), roi);
-                }
-            }
-        }
+        self.draw_roi_marks(painter, rect, &at);
     }
 
     /// A colour bar at the bottom left of a canvas: the colormap and its range's ends.

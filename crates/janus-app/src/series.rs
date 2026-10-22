@@ -149,8 +149,12 @@ pub struct SeriesState {
     approx_layers: usize,
     pub pins: Vec<SeriesView>,
     pub next_pin: u32,
-    /// the ROI rectangle in the active layer's pixels (x0, y0, x1, y1)
+    /// the ROI rectangle in the active layer's pixels (x0, y0, x1, y1): the polygon's bounding box if it has one
     pub roi_rect: Option<[usize; 4]>,
+    /// the ROI's polygon in the active layer's pixels (empty: the rectangle)
+    pub roi_poly: janus_geo::plane::Polygon,
+    /// R: a polygon being drawn
+    pub poly: crate::roi::PolygonDraft,
     /// waiting for an HDD's overview
     pub roi_pending: bool,
     pub roi: RoiSeries,
@@ -171,6 +175,8 @@ impl Default for SeriesState {
             pins: Vec::new(),
             next_pin: 1,
             roi_rect: None,
+            roi_poly: Vec::new(),
+            poly: Default::default(),
             roi_pending: false,
             roi: RoiSeries { seen: usize::MAX, ..Default::default() },
             roi_gen: 1,
@@ -237,6 +243,7 @@ impl State {
         sr.roi.clear();
         sr.roi_pending = false;
         sr.roi_rect = None;
+        sr.roi_poly.clear();
         sr.roi_gen += 1;
         for l in &mut self.layers {
             l.series.roi.clear();
@@ -247,6 +254,11 @@ impl State {
     /// A new ROI rectangle (active pixels, any corners): the active layer's statistics start (or wait for the HDD's
     /// overview); the other layers' follow.
     pub fn set_roi_rect(&mut self, r: [i64; 4]) {
+        self.set_roi_shape(r, Vec::new());
+    }
+
+    /// A new ROI: its bounding box and polygon (empty: the rectangle).
+    pub(crate) fn set_roi_shape(&mut self, r: [i64; 4], poly: janus_geo::plane::Polygon) {
         self.clear_roi();
         let Some(s) = &self.session else { return };
         let (w, h) = (s.info.width as i64, s.info.height as i64);
@@ -258,11 +270,12 @@ impl State {
         let rect = [x0 as usize, y0 as usize, x1 as usize, y1 as usize];
         let sr = &mut self.series;
         sr.roi_rect = Some(rect);
+        sr.roi_poly = poly;
         sr.roi_gen += 1;
         if s.s.defer_random_reads() {
             sr.roi_pending = true;
         } else {
-            sr.roi = RoiSeries::start(s.s.start_roi((rect[0], rect[1], rect[2], rect[3]), None), sr.roi_gen);
+            sr.roi = RoiSeries::start(crate::roi::start_roi(s, rect, &sr.roi_poly), sr.roi_gen);
         }
     }
 
@@ -385,7 +398,7 @@ impl State {
             if sr.roi_pending
                 && let Some(r) = sr.roi_rect
             {
-                sr.roi = RoiSeries::start(s.s.start_roi((r[0], r[1], r[2], r[3]), None), sr.roi_gen);
+                sr.roi = RoiSeries::start(crate::roi::start_roi(s, r, &sr.roi_poly), sr.roi_gen);
                 sr.roi_pending = false;
             }
         }
@@ -400,6 +413,18 @@ impl State {
     fn pump_other_series(&mut self) {
         let (rect, gen_, all) = (self.series.roi_rect, self.series.roi_gen, self.series.chart_layers == 1);
         let active = self.active;
+        // the ROI on each layer it starts on (a polygon there; empty: the rectangle, straight)
+        let polys: Vec<Option<janus_geo::plane::Polygon>> = self
+            .layers
+            .iter()
+            .enumerate()
+            .map(|(i, l)| {
+                let starts =
+                    i != active && rect.is_some() && all && l.visible && l.place.aligned && l.series.roi.gen_ != gen_;
+                starts.then(|| self.roi_on_layer(l))
+            })
+            .collect();
+        let straight = self.series.roi_poly.is_empty();
         for (i, l) in self.layers.iter_mut().enumerate() {
             let Some(s) = l.session.as_ref().filter(|_| i != active) else { continue };
             if let Some(h) = &mut l.series.hover {
@@ -418,22 +443,26 @@ impl State {
             {
                 l.series.roi.clear();
                 l.series.roi.gen_ = gen_;
-                if l.place.reproj.is_none() {
+                let poly = polys[i].clone().unwrap_or_default();
+                let bx = if !poly.is_empty() {
+                    janus_geo::plane::bounds(&poly)
+                } else if l.place.reproj.is_some() || !straight {
+                    None // nothing of it transforms onto this layer
+                } else {
                     let (a, b) =
                         (l.place.to_layer(r[0] as f64, r[1] as f64), l.place.to_layer(r[2] as f64, r[3] as f64));
-                    if let (Some(a), Some(b)) = (a, b) {
-                        let bx = [a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1)];
-                        // pixels whose centres are inside: [ceil(b0 - 0.5), ceil(b1 - 0.5))
-                        let lx0 = (bx[0] - 0.5).ceil().max(0.0) as usize;
-                        let ly0 = (bx[1] - 0.5).ceil().max(0.0) as usize;
-                        let lx1 = ((bx[2] - 0.5).ceil().max(0.0) as usize).min(s.info.width);
-                        let ly1 = ((bx[3] - 0.5).ceil().max(0.0) as usize).min(s.info.height);
-                        if lx1 > lx0 && ly1 > ly0 {
-                            l.series.roi = RoiSeries::start(s.s.start_roi((lx0, ly0, lx1, ly1), None), gen_);
-                        }
+                    a.zip(b).map(|(a, b)| [a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1)])
+                };
+                if let Some(bx) = bx {
+                    // pixels whose centres are inside: [ceil(b0 - 0.5), ceil(b1 - 0.5))
+                    let lx0 = (bx[0] - 0.5).ceil().max(0.0) as usize;
+                    let ly0 = (bx[1] - 0.5).ceil().max(0.0) as usize;
+                    let lx1 = ((bx[2] - 0.5).ceil().max(0.0) as usize).min(s.info.width);
+                    let ly1 = ((bx[3] - 0.5).ceil().max(0.0) as usize).min(s.info.height);
+                    if lx1 > lx0 && ly1 > ly0 {
+                        l.series.roi = RoiSeries::start(crate::roi::start_roi(s, [lx0, ly0, lx1, ly1], &poly), gen_);
                     }
                 }
-                // a reprojected layer: the ROI as a polygon on its grid (with the polygonal ROI, phase 6)
             }
             l.series.roi.update(&s.years);
         }

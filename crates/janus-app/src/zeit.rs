@@ -1023,7 +1023,7 @@ impl State {
         if scope == 2
             && let Some([x0, y0, x1, y1]) = self.series.roi_rect
         {
-            return ([x0, y0, x1, y1], "ROI");
+            return ([x0, y0, x1, y1], if self.series.roi_poly.is_empty() { "ROI" } else { "ROI's bounding box" });
         }
         ([0, 0, w, h], "whole image")
     }

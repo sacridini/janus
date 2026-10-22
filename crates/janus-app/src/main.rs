@@ -19,6 +19,7 @@ mod open;
 mod panels;
 mod platform;
 mod python;
+mod roi;
 mod season;
 mod selftest_zeit;
 mod series;
@@ -63,7 +64,7 @@ Options:
   --map-view          a map panel once the series are open
   --swipe             the swipe once the series are open
   --pin X,Y           a pin at source pixel (X, Y) once the series is open (repeatable)
-  --roi X0,Y0,X1,Y1   an ROI rectangle once the series is open
+  --roi X0,Y0,X1,Y1   an ROI rectangle once the series is open (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --zeit TOOL         the Zeit tool fitted on the chart (e.g. landtrendr), its window open
   --zeit-run          and run on the raster (the ROI's window if --roi) once the series is loaded
   --selftest-ui A B [C [D [E]]]  the layers workflow on the test series of tools/make_selftest_data.py:
@@ -141,10 +142,12 @@ fn main() -> eframe::Result<()> {
                 }
             }
             "--roi" => {
-                let v: Vec<i64> =
+                let v: Vec<f64> =
                     args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
                 if let [a, b, c, d] = v[..] {
-                    opts.roi = Some([a, b, c, d]);
+                    opts.roi = Some([a as i64, b as i64, c as i64, d as i64]);
+                } else if v.len() >= 6 && v.len().is_multiple_of(2) {
+                    opts.roi_polygon = v;
                 }
             }
             "--selftest-reproject" => opts.selftest_reproject = true,
