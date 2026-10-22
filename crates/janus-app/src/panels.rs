@@ -666,76 +666,121 @@ as a map of its own on top                  of the spectrum",
         }
     }
 
+    /// The Performance panel (app.cpp, uiPerf): the frame, the startup, the active layer's disk, threads, overview
+    /// and on-demand reads (the full-resolution and disk caches and the basemap follow).
     pub fn performance_ui(&mut self, ui: &mut Ui) {
+        let f = &self.perf;
+        if let Some((p50, p95, max)) = f.summary() {
+            ui.label(format!("Frame: {p50:.2} ms of CPU (p95 {p95:.2}, max {max:.2})")).on_hover_text(
+                "The interface's CPU time per frame, the last few hundred frames. The app only
+redraws when                  something changes (mouse, keyboard, new data); idle, the CPU sleeps.",
+            );
+        }
         let st = &self.startup;
-        Grid::new("perf").num_columns(2).striped(true).show(ui, |ui| {
-            let mut row = |k: &str, v: String| {
-                ui.weak(k);
-                ui.label(v);
-                ui.end_row();
+        let gpu = self.render_state.adapter.get_info();
+        ui.label(format!(
+            "Startup: window {:.0} ms, first frame {}",
+            st.window_ms,
+            st.first_frame_ms.map_or("-".into(), |v| format!("{v:.0} ms"))
+        ))
+        .on_hover_text(format!(
+            "Since process start: GDAL {:.0} ms ({}), window + wgpu {:.0} ms, first frame {};
+the map's shaders {}              (in the background). GPU: {} ({:?})",
+            st.gdal_ms,
+            janus_cube::gdal_version(),
+            st.window_ms,
+            st.first_frame_ms.map_or("-".into(), |v| format!("{v:.0} ms")),
+            st.gpu_ms.map_or("-".into(), |v| format!("{v:.0} ms")),
+            gpu.name,
+            gpu.backend
+        ));
+        if let Some(s) = &self.session {
+            let mb = 1024.0 * 1024.0;
+            let disk = if s.info.remote {
+                "remote (HTTP range requests)"
+            } else if s.s.rotational {
+                "spinning HDD"
+            } else {
+                "SSD / network"
             };
-            row("GDAL", format!("{} ms ({})", st.gdal_ms.round(), janus_cube::gdal_version()));
-            row("window + wgpu", format!("{} ms", st.window_ms.round()));
-            row("first frame", st.first_frame_ms.map_or("-".into(), |v| format!("{} ms", v.round())));
-            row("map shaders", st.gpu_ms.map_or("-".into(), |v| format!("{v:.0} ms")));
-            let info = self.render_state.adapter.get_info();
-            row("GPU", format!("{} ({:?})", info.name, info.backend));
-            if let Some(s) = &self.session {
-                row("open (metadata)", format!("{:.0} ms", s.open_ms));
-                let ov = &s.s.overview;
-                row(
-                    "overview",
-                    format!(
-                        "{}/{} dates{}",
-                        ov.layers_done(),
-                        ov.t,
-                        if ov.from_cache() { ", from its cache" } else { "" }
-                    ),
+            ui.label(format!("Disk: {disk}"));
+            ui.label(format!(
+                "Threads: {} background readers + {} interactive",
+                s.s.bg().threads(),
+                s.s.fg().threads()
+            ));
+            ui.label(format!("Open (metadata): {:.0} ms", s.open_ms));
+            section(ui, "Overview (GPU)");
+            let ov = &s.s.overview;
+            ui.label(format!("{} x {} x {} dates (1:{:.1})", ov.w, ov.h, ov.t, ov.factor));
+            let bytes = s.cube.as_ref().map_or(0, |c| c.bytes());
+            ui.label(format!("Memory: {:.0} MB (cube + statistics)", bytes as f64 / mb));
+            let secs = ov.build_seconds().unwrap_or(0.0);
+            if !ov.complete() {
+                ui.label(format!("Loading {}/{}...", ov.layers_done(), ov.t));
+            } else if ov.from_cache() {
+                ui.label(format!("Read from cache in {secs:.2} s"));
+            } else if ov.cached_layers() > 0 {
+                ui.label(format!("Built in {secs:.2} s ({} dates resumed from cache)", ov.cached_layers()));
+            } else if !ov.cache_error().is_empty() {
+                ui.colored_label(
+                    theme::warning(),
+                    format!("Built in {secs:.2} s, not saved to cache: {}", ov.cache_error()),
                 );
-                if let Some(b) = ov.build_seconds() {
-                    row("overview read", format!("{:.0} ms", b * 1000.0));
-                }
-                if let Some(stats) = &s.stats {
-                    row(
-                        "statistics (GPU + readback / copy)",
-                        format!("{:.1} + {:.1} ms", stats.gpu_ms, stats.ms - stats.gpu_ms),
-                    );
-                }
-                if let Some(r) = s.ready_ms {
-                    row("open to statistics", format!("{r:.0} ms"));
-                }
-                let c = &s.s.full_res;
-                row(
-                    "full-resolution cache",
-                    if c.started() {
-                        format!(
-                            "{}/{} dates, {:.2} GB, {}",
-                            c.dates_done(),
-                            s.info.t(),
-                            c.bytes() as f64 / 1e9,
-                            c.codec()
-                        )
-                    } else if c.error().is_empty() {
-                        "off (series on an SSD)".into()
-                    } else {
-                        c.error()
-                    },
-                );
-                if c.series_hits() > 0 {
-                    row(
-                        "series from the cache",
-                        format!("{} ({:.2} ms the last)", c.series_hits(), c.last_series_ms()),
-                    );
-                }
-                row("disk", if s.s.rotational { "spinning (HDD): one reader".into() } else { "SSD".to_string() });
+            } else {
+                ui.label(format!("Built in {secs:.2} s (saved to cache)"));
             }
-            let f = &self.perf;
-            if let Some((p50, p95, max)) = f.summary() {
-                row("frame CPU, interface (p50 / p95 / max)", format!("{p50:.2} / {p95:.2} / {max:.2} ms"));
+            if s.s.defer_random_reads() {
+                ui.weak("Pins, ROI and detail wait for the build (HDD)");
             }
-            if let Some(c) = f.last_cpu {
-                row("frame CPU, whole (eframe)", format!("{:.2} ms", c * 1000.0));
+            if ov.failed() > 0 {
+                ui.colored_label(theme::error(), format!("{} dates failed", ov.failed()));
             }
-        });
+            if let Some(stats) = &s.stats {
+                ui.label(format!("Temporal statistics: {:.1} ms", stats.ms)).on_hover_text(format!(
+                    "{:.1} ms on the GPU, {:.1} ms reading them back",
+                    stats.gpu_ms,
+                    stats.ms - stats.gpu_ms
+                ));
+            }
+            section(ui, "On-demand reads");
+            let t = &s.tiles;
+            ui.label(format!(
+                "Tiles: {} on GPU ({:.0} MB), {} reading",
+                t.gpu_tiles(),
+                t.gpu_bytes() as f64 / mb,
+                t.inflight()
+            ));
+            ui.label(format!("Average tile: {:.1} ms", t.avg_load_ms()));
+            let last = self.series.hover.as_ref().and_then(|h| s.exact(h.x, h.y)).map(|r| r.ms);
+            ui.label(format!(
+                "Exact series ({} dates): {}",
+                s.info.t(),
+                last.map_or("-".into(), |ms| format!("{ms:.1} ms"))
+            ));
+            if let Some(ms) = self.series.roi.data.as_ref().and_then(|d| d.ms()) {
+                ui.label(format!("ROI: {ms:.0} ms"));
+            }
+            ui.label(format!("Queue: {} (background), {} (interactive)", s.s.bg().pending(), s.s.fg().pending()));
+        }
+    }
+
+    /// The Performance panel's end: the processing threads, and the Settings.
+    pub fn performance_end_ui(&mut self, ui: &mut Ui) {
+        ui.separator();
+        let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+        let n = if self.settings.s.threads > 0 {
+            self.settings.s.threads
+        } else {
+            janus_session::default_processing_threads()
+        };
+        ui.label(format!("Processing threads: {n} of {cores}"));
+        if ui
+            .add_sized([ui.available_width(), 20.0], egui::Button::new("Settings..."))
+            .on_hover_text("Processing threads, overview memory, full-resolution cache (Ctrl+,)")
+            .clicked()
+        {
+            self.settings.show = true;
+        }
     }
 }

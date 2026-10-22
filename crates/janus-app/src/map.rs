@@ -123,7 +123,11 @@ impl State {
         let max_scale = 64.0 * ow / w;
         if resp.hovered() {
             // the wheel's own steps (in points), smoothed here as the C++ smooths them
-            let (scroll, pinch) = ui.input(|i| {
+            // macOS: a trackpad's two fingers (precise deltas, in points) pan, as the C++'s gestures do; a pinch
+            // zooms; a mouse wheel zooms everywhere
+            let trackpad_pans = cfg!(target_os = "macos");
+            let (scroll, pinch, pan) = ui.input(|i| {
+                let mut pan = egui::Vec2::ZERO;
                 let scroll: f32 = i
                     .raw
                     .events
@@ -132,17 +136,27 @@ impl State {
                         egui::Event::MouseWheel { unit, delta, modifiers, .. }
                             if !modifiers.ctrl && !modifiers.command =>
                         {
-                            Some(match unit {
-                                egui::MouseWheelUnit::Point => delta.y,
-                                egui::MouseWheelUnit::Line => delta.y * 50.0,
-                                egui::MouseWheelUnit::Page => delta.y * rect.height(),
-                            })
+                            match unit {
+                                egui::MouseWheelUnit::Point if trackpad_pans => {
+                                    pan += *delta;
+                                    None
+                                }
+                                egui::MouseWheelUnit::Point => Some(delta.y),
+                                egui::MouseWheelUnit::Line => Some(delta.y * 50.0),
+                                egui::MouseWheelUnit::Page => Some(delta.y * rect.height()),
+                            }
                         }
                         _ => None,
                     })
                     .sum();
-                (scroll, i.zoom_delta())
+                (scroll, i.zoom_delta(), pan)
             });
+            if pan != egui::Vec2::ZERO {
+                m.center[0] -= f64::from(pan.x) / m.scale;
+                m.center[1] -= f64::from(pan.y) / m.scale;
+                m.touched = true;
+                m.anchor = None;
+            }
             if scroll != 0.0 || pinch != 1.0 {
                 let factor = 1.25f64.powf(f64::from(scroll) / 50.0) * f64::from(pinch);
                 m.touched = true;

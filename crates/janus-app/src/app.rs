@@ -16,7 +16,7 @@ use crate::map::MapView;
 use crate::session::{Opening, Session};
 use crate::theme;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Tab {
     Map,
     /// a map panel ("Map <id>")
@@ -61,6 +61,29 @@ fn default_layout() -> DockState<Tab> {
     let [_, bottom] = s.split_below(map, 0.64, vec![Tab::TimeSeries]);
     let [_, _] = s.split_right(bottom, 0.66, vec![Tab::Statistics]);
     d
+}
+
+/// The layout of the panels kept between sessions (the C++ keeps it in ImGui's ini): the main window's dock,
+/// without the map panels (a session starts without them, as in the C++).
+fn layout_path() -> std::path::PathBuf {
+    crate::settings::app_data_dir().join("janus-rs-layout.json")
+}
+
+fn load_layout() -> Option<DockState<Tab>> {
+    let text = std::fs::read_to_string(layout_path()).ok()?;
+    let d: DockState<Tab> = serde_json::from_str(&text).ok()?;
+    // every panel the program has, once (a layout from another version may lack one)
+    let all = [Tab::Map, Tab::Layers, Tab::Files, Tab::Display, Tab::TimeSeries, Tab::Statistics];
+    all.iter().all(|t| d.find_tab(t).is_some()).then_some(d)
+}
+
+/// The dock as kept: the map panels left out.
+fn layout_text(dock: &DockState<Tab>) -> Option<String> {
+    let mut d = dock.clone();
+    while let Some(p) = d.find_tab_from(|t| matches!(t, Tab::MapView(_))) {
+        d.remove_tab(p);
+    }
+    serde_json::to_string(&d).ok()
 }
 
 /// Options of the command line.
@@ -274,6 +297,9 @@ struct Detached {
 
 pub struct JanusApp {
     dock: DockState<Tab>,
+    /// the layout as kept, and when it was last compared with the dock
+    layout_saved: String,
+    layout_checked: Instant,
     windows: Vec<Detached>,
     window_count: u64,
     state: State,
@@ -323,6 +349,7 @@ impl TabViewer for Tabs<'_> {
                         self.s.performance_ui(ui);
                         self.s.cache_perf_ui(ui);
                         self.s.basemap_perf_ui(ui);
+                        self.s.performance_end_ui(ui);
                     }
                     _ => {}
                 });
@@ -343,8 +370,12 @@ impl JanusApp {
         let render_state = cc.wgpu_render_state.clone().expect("Janus draws with wgpu");
         let opening = (!opts.inputs.is_empty()).then(|| Opening::start(opts.inputs.clone(), false, &cc.egui_ctx));
         let detach = opts.detach_map;
+        let scripted = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
         let mut app = JanusApp {
-            dock: default_layout(),
+            // the tests and screenshots in the C++'s default layout
+            dock: if scripted { default_layout() } else { load_layout().unwrap_or_else(default_layout) },
+            layout_saved: String::new(),
+            layout_checked: Instant::now(),
             windows: Vec::new(),
             window_count: 0,
             state: State {
@@ -1115,6 +1146,18 @@ impl eframe::App for JanusApp {
 
         self.state.settings_ui(&ctx);
         self.state.popups(&ctx);
+        // the layout kept, every few seconds when it changed (not for the tests)
+        if self.layout_checked.elapsed().as_secs_f64() > 3.0 && !self.state.settings.no_save {
+            self.layout_checked = Instant::now();
+            if let Some(text) = layout_text(&self.dock)
+                && text != self.layout_saved
+            {
+                let _ = std::fs::create_dir_all(crate::settings::app_data_dir());
+                if std::fs::write(layout_path(), &text).is_ok() {
+                    self.layout_saved = text;
+                }
+            }
+        }
         let s = &mut self.state;
         s.perf.push(start.elapsed().as_secs_f64() * 1000.0);
         s.frame += 1;
