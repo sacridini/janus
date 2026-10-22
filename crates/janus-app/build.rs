@@ -2,11 +2,9 @@
 
 fn main() {
     println!("cargo:rerun-if-changed=../../resources/janus.ico");
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
-        return;
-    }
+    // the build script runs on the host: a Windows host building for Windows
     #[cfg(windows)]
-    {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let mut r = winresource::WindowsResource::new();
         r.set_icon("../../resources/janus.ico")
             .set("FileDescription", "Janus - raster time series analysis")
