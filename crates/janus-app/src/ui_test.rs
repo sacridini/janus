@@ -14,6 +14,8 @@ use janus_gpu::Mode;
 mod animation;
 #[path = "ui_test_basemap.rs"]
 mod basemap;
+#[path = "ui_test_misc.rs"]
+mod misc;
 #[path = "ui_test_validation.rs"]
 mod validation;
 #[path = "ui_test_vectors.rs"]
@@ -54,6 +56,10 @@ pub struct UiTest {
     reveal: Option<std::path::PathBuf>,
     /// stages 130-137: the animations' files and options
     anim: animation::AnimTest,
+    /// stage 70: the font size before the test's; 81: the run's folder, the layers and the active one before it
+    font: i32,
+
+    run: Option<(std::path::PathBuf, usize, usize)>,
     /// the exit code, once decided (the window takes another frame to close)
     result: Option<i32>,
 }
@@ -539,6 +545,7 @@ impl State {
                     return fail("the pin should move to A's grid (+100)");
                 }
                 next(st, "active layer switched, pin remapped");
+                st.stage = 70; // font, Files, Log, Analysis, layout, exports, a Zeit run (70-81), then 7
             }
             7 => {
                 self.remove_layer(1, ctx);
@@ -800,6 +807,7 @@ impl State {
             110..=115 => return self.test_roi_polygon(st, &input, t0, ctx),
             120..=125 => return self.test_vectors(st, t0, ctx),
             50..=56 => return self.test_basemap(st, t0, ctx),
+            70..=78 | 81 => return self.test_misc(st, t0, ctx),
             130..=137 | 79 | 80 => return self.test_animation(st, &input, t0, ctx),
             170..=179 => return self.test_validation(st, &input, t0, ctx),
             _ => {}

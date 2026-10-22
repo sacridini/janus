@@ -4,10 +4,11 @@
 //! as the C++ builds it, on ImGui's colour slots; egui has fewer colours than ImGui's ~55 slots, so the slots are
 //! mapped onto egui's visuals (RUST_MIGRATION.md, "Aparência").
 
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, AtomicU32, AtomicUsize, Ordering};
 
-use egui::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
-use egui::{Color32, FontData, FontFamily, FontId, Margin, Stroke, TextStyle, Visuals};
+use egui::epaint::text::FontTweak;
+use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Margin, Stroke, TextStyle, Visuals};
 
 pub const NAMES: [&str; 7] = ["Dark", "Light", "Classic", "Janus", "Studio", "Graphite", "Matrix"];
 pub const DARK: usize = 0;
@@ -685,17 +686,44 @@ fn plot_background_of(p: &Palette) -> C {
     }
 }
 
-/// The fonts (once).
+/// The face in use: -1 none yet, 0 ProggyClean, 1 ProggyForever.
+static FACE: AtomicI32 = AtomicI32::new(-1);
+
+/// The fonts for the first frame (ImGui's at 13 px).
 pub fn load_fonts(ctx: &egui::Context) {
-    // ProggyClean (MIT, Tristan Grimmer): ImGui's bitmap font, drawn for 13 px
-    ctx.add_font(FontInsert::new(
-        "ProggyClean",
-        FontData::from_static(include_bytes!("../assets/ProggyClean.ttf")),
-        vec![
-            InsertFontFamily { family: FontFamily::Proportional, priority: FontPriority::Highest },
-            InsertFontFamily { family: FontFamily::Monospace, priority: FontPriority::Highest },
-        ],
-    ));
+    set_face(ctx, DEFAULT_FONT_SIZE);
+}
+
+/// As the C++'s applyFont: ProggyClean (MIT, Tristan Grimmer), ImGui's bitmap font, keeps the usual look at 13 px;
+/// ProggyForever (MIT, Disco Hello and Tristan Grimmer), its scalable companion, stays sharp at the other sizes.
+/// egui's fonts again only when the face changes.
+fn set_face(ctx: &egui::Context, font_px: i32) {
+    let vector = font_px != DEFAULT_FONT_SIZE;
+    if FACE.swap(i32::from(vector), Ordering::Relaxed) == i32::from(vector) {
+        return;
+    }
+    let mut defs = FontDefinitions::default();
+    defs.font_data
+        .insert("ProggyClean".into(), Arc::new(FontData::from_static(include_bytes!("../assets/ProggyClean.ttf"))));
+    // egui sizes text by its em, ImGui by its line: ProggyForever's line is 0.828 em, ProggyClean's 0.8125 (13 / 16,
+    // egui_font_size's factor), so it is drawn at 0.8125 / 0.828 to keep ImGui's line heights
+    defs.font_data.insert(
+        "ProggyForever".into(),
+        Arc::new(
+            FontData::from_static(include_bytes!("../assets/ProggyForever-Regular-minimal.ttf"))
+                .tweak(FontTweak { scale: 0.8125 / 0.828, ..Default::default() }),
+        ),
+    );
+    let first = if vector { "ProggyForever" } else { "ProggyClean" };
+    for family in [FontFamily::Proportional, FontFamily::Monospace] {
+        defs.families.entry(family).or_default().insert(0, first.to_string());
+    }
+    ctx.set_fonts(defs);
+}
+
+/// The face the interface is drawn with: true for the scalable one (sizes other than 13 px).
+pub fn scalable_face() -> bool {
+    FACE.load(Ordering::Relaxed) == 1
 }
 
 /// The style of every frame: theme `id`, its panels' opacity and the text at `font_px` (ImGui's pixels).
@@ -706,7 +734,9 @@ pub fn apply(ctx: &egui::Context, id: usize, opacity: f32, font_px: i32) {
     let dark = id != LIGHT && id != STUDIO;
     let theme = if dark { egui::Theme::Dark } else { egui::Theme::Light };
     ctx.set_theme(theme);
-    let size = egui_font_size(font_px.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE));
+    let font_px = font_px.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
+    set_face(ctx, font_px);
+    let size = egui_font_size(font_px);
     // the spacing grows with the text, as ImGui's frames follow its font
     let k = size / 16.0;
     ctx.style_mut_of(theme, |s| {

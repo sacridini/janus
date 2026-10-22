@@ -159,7 +159,8 @@ impl State {
         }
         let mut open = true;
         let mut remove = None;
-        egui::Window::new("Exports").open(&mut open).default_size([600.0, 260.0]).show(ctx, |ui| {
+        let w = egui::Window::new("Exports").id(egui::Id::new("Exports")).open(&mut open).default_size([600.0, 260.0]);
+        w.show(ctx, |ui| {
             if self.exports.is_empty() {
                 ui.weak("Nothing exported yet.");
             }

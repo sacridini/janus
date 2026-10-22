@@ -218,6 +218,24 @@ impl Perf {
     }
 }
 
+/// A change of the layout asked by the tests: a panel undocked, or the layout reset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayoutCmd {
+    Scramble,
+    Reset,
+}
+
+/// Where the tests find the panels: their dock nodes in the main window (None: not there), the windows of their
+/// own, the Exports window's rectangle.
+#[derive(Clone, Debug, Default)]
+pub struct LayoutReport {
+    pub display: Option<String>,
+    pub layers: Option<String>,
+    pub map: Option<String>,
+    pub detached: usize,
+    pub exports: Option<egui::Rect>,
+}
+
 pub struct State {
     pub opts: Options,
     t0: Instant,
@@ -262,6 +280,9 @@ pub struct State {
     pub val: crate::validation::ValidationUi,
     /// the export dialog and the animation being exported
     pub export: crate::export_map::ExportUi,
+    /// the tests' layout command and the panels' places after it
+    pub layout_cmd: Option<LayoutCmd>,
+    pub layout_report: LayoutReport,
     pub anim: crate::animation::AnimationUi,
     /// the embeddings download's choices, and the downloads under way
     pub emb_download: crate::emb_download::DownloadUi,
@@ -531,6 +552,8 @@ impl JanusApp {
                 emb_downloads: Vec::new(),
                 val: Default::default(),
                 export: Default::default(),
+                layout_cmd: None,
+                layout_report: Default::default(),
                 anim: Default::default(),
                 chart: Default::default(),
                 band_sel: None,
@@ -1296,11 +1319,35 @@ impl eframe::App for JanusApp {
                 }
             }
         }
-        if act.reset_layout || keys.reset_layout {
+        let cmd = self.state.layout_cmd.take();
+        if cmd == Some(LayoutCmd::Scramble)
+            && let Some(p) = self.dock.find_tab(&Tab::Display)
+        {
+            // Display in a window of its own, as when dragged out
+            self.dock.remove_tab(p);
+            self.window_count += 1;
+            let id = ViewportId::from_hash_of(("janus window", self.window_count));
+            self.windows.push(Detached { id, dock: DockState::new(vec![Tab::Display]), at: None });
+        }
+        if act.reset_layout || keys.reset_layout || cmd == Some(LayoutCmd::Reset) {
             self.dock = default_layout();
             for w in self.windows.drain(..) {
                 drop(w);
             }
+            // the floating windows (Exports, Tasks, Log, Settings) back to their first place and size
+            ctx.memory_mut(|m| m.reset_areas());
+            ctx.data_mut(|d| d.clear());
+        }
+        if self.state.opts.selftest_ui {
+            let node = |t: Tab| self.dock.find_tab(&t).filter(|p| p.surface.is_main()).map(|p| format!("{:?}", p.node));
+            let exports = ctx.memory(|m| m.area_rect(egui::Id::new("Exports")));
+            self.state.layout_report = LayoutReport {
+                display: node(Tab::Display),
+                layers: node(Tab::Layers),
+                map: node(Tab::Map),
+                detached: self.windows.len(),
+                exports,
+            };
         }
         // the Embeddings panel while it is shown, as a tab next to Display
         let emb_tab = self.dock.find_tab(&Tab::Embeddings);

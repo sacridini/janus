@@ -54,6 +54,8 @@ pub struct FileBrowser {
     reveal_dir: String,
     reveal_item: String,
     reveal_relist: bool,
+    /// the item revealed last (lower case)
+    revealed: String,
     show_all: bool,
     filter: String,
     /// the favourites changed (kept in the settings)
@@ -133,6 +135,7 @@ impl FileBrowser {
             reveal_dir: String::new(),
             reveal_item: String::new(),
             reveal_relist: false,
+            revealed: String::new(),
             show_all: false,
             filter: String::new(),
             favorites_changed: false,
@@ -168,6 +171,16 @@ impl FileBrowser {
             lower(&p.parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default())
         };
         self.reveal_relist = true;
+    }
+
+    /// A path is being revealed (the tree not yet there).
+    pub fn revealing(&self) -> bool {
+        !self.reveal_dir.is_empty()
+    }
+
+    /// The item revealed last (lower case).
+    pub fn revealed(&self) -> &str {
+        &self.revealed
     }
 
     fn visible(&self, e: &Entry) -> bool {
@@ -301,6 +314,9 @@ impl FileBrowser {
             }
             // revealed (its folder is listed), or the way there is gone: done
             if on_path && n.listed && (target || !next) {
+                if target {
+                    self.revealed = self.reveal_item.clone();
+                }
                 self.reveal_dir.clear();
                 self.reveal_item.clear();
             }

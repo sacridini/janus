@@ -373,8 +373,11 @@ impl State {
                         let _ = std::fs::remove_dir_all(&at.dir);
                     }
                     next(st, "cancel: no file left, the date restored");
-                    st.frames = 0;
-                    st.stage = 79; // the export shortcuts, then Save all outputs
+                    if self.opts.extra_layers.len() < 3 {
+                        println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
+                        return Some(0);
+                    }
+                    st.stage = 170; // validation, on D
                 }
                 79 => {
                     // the export shortcuts, as typed: each dialog opens, with a file name in the export folder
@@ -522,11 +525,7 @@ impl State {
                     let _ = std::fs::remove_dir_all(&at.run);
                     st.frames = 0;
                     next(st, "Save all outputs: both outputs of the run copied, named after the layer");
-                    if self.opts.extra_layers.len() < 3 {
-                        println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
-                        return Some(0);
-                    }
-                    st.stage = 170; // validation, on D
+                    st.stage = 81; // a Zeit run's series and class outputs, then 7
                 }
                 _ => {}
             }

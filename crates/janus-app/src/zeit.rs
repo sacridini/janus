@@ -874,6 +874,8 @@ impl JobLog {
 #[derive(Default)]
 pub struct LogView {
     pub show: bool,
+    /// a file of its own (not a run's log): kept while shown
+    pub external: bool,
     pub path: String,
     shown: String,
     text: String,
@@ -882,6 +884,26 @@ pub struct LogView {
     /// only the end of the file is shown
     cut: bool,
     checked: Option<Instant>,
+}
+
+impl LogView {
+    /// What it shows of its file.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// The file it shows, once read.
+    pub fn shown(&self) -> &str {
+        &self.shown
+    }
+}
+
+impl State {
+    /// The Log window on a file of its own (the tests; a run's log is picked in Tools > Tasks).
+    pub(crate) fn show_log_file(&mut self, path: &str) {
+        let v = &mut self.zeit.log;
+        (v.path, v.show, v.external) = (path.to_string(), true, true);
+    }
 }
 
 /// A map a run wrote, drawn over its series (src/results.hpp).
@@ -1469,7 +1491,7 @@ Reading the data adds to it, mostly on spinning disks.",
         let sources: Vec<(String, String)> =
             self.zeit.jobs.iter().rev().map(|j| (j.title.clone(), j.log_path.clone())).collect();
         let v = &mut self.zeit.log;
-        if !sources.iter().any(|s| s.1 == v.path) {
+        if !v.external && !sources.iter().any(|s| s.1 == v.path) {
             match sources.first() {
                 Some(s) => v.path = s.1.clone(),
                 None => {
