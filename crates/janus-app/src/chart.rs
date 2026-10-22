@@ -290,9 +290,12 @@ impl State {
         let years = s.years.clone();
         let categorical = self.classes.on();
 
-        // the chart's options
-        let o = &mut self.chart;
+        // the chart's options (taken out while the toolbar has the State)
+        let mut chart = std::mem::take(&mut self.chart);
+        let o = &mut chart;
         let mut chart_layers = self.series.chart_layers;
+        let (n_layers, has_roi, has_pins) =
+            (self.layers.len(), self.series.roi_rect.is_some(), !self.series.pins.is_empty());
         let (mut clear_pins, mut clear_roi, mut copy) = (false, false, false);
         ui.horizontal_wrapped(|ui| {
             const STYLES: [&str; 5] = ["Lines", "Lines + markers", "Markers", "Stems", "Stairs"];
@@ -331,7 +334,7 @@ impl State {
                 );
             ui.add_enabled(o.values == 0, egui::Checkbox::new(&mut o.y_from_map, "Y = map range"))
                 .on_hover_text("Locks the Y axis to the map's color range (compare without the axis jumping)");
-            if self.layers.len() > 1 {
+            if n_layers > 1 {
                 const LAYERS: [&str; 2] = ["Active layer", "All visible layers"];
                 ComboBox::from_id_salt("chart layers")
                     .width(140.0)
@@ -347,7 +350,7 @@ impl State {
                          marker per layer; other layers use their own dates)",
                     );
             }
-            if self.series.roi_rect.is_some() {
+            if has_roi {
                 const SPREAD: [&str; 3] = ["ROI: mean", "ROI: p10-p90", "ROI: box plot"];
                 ComboBox::from_id_salt("roi spread")
                     .width(120.0)
@@ -364,10 +367,11 @@ impl State {
                     );
             }
             copy = ui.button("Copy CSV").on_hover_text("Copies the series (cursor, pins, ROI) to the clipboard").clicked();
-            if !self.series.pins.is_empty() {
+            self.copy_python_ui(ui);
+            if has_pins {
                 clear_pins = ui.button("Clear pins").clicked();
             }
-            if self.series.roi_rect.is_some() {
+            if has_roi {
                 clear_roi = ui.button("Clear ROI").clicked();
             }
             ui.weak("(?)").on_hover_text(
@@ -378,6 +382,7 @@ impl State {
                  the x in the statistics table removes them.",
             );
         });
+        self.chart = chart;
         if copy {
             self.copy_csv(ui.ctx());
         }

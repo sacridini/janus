@@ -881,7 +881,7 @@ impl ResultLayer {
 
     /// The automatic range: min..max for years and durations, 2-98 % otherwise; a class map's colours one
     /// per class.
-    fn auto_range(&mut self) {
+    pub(crate) fn auto_range(&mut self) {
         if !self.classes.is_empty() {
             let colormaps = janus_gpu::colormaps::all();
             if self.classes.len() > colormaps[self.cmap].keys().count()
@@ -906,7 +906,7 @@ impl ResultLayer {
 }
 
 /// Band 1 of a result raster, downsampled (nearest) so its longer side is at most `max_dim`.
-fn load_result(path: &str, max_dim: usize) -> Result<(Vec<f32>, usize, usize), String> {
+pub(crate) fn load_result(path: &str, max_dim: usize) -> Result<(Vec<f32>, usize, usize), String> {
     let ds = gdal::Dataset::open(path).map_err(|e| format!("{path}: {e}"))?;
     let (w, h) = ds.raster_size();
     let s = (max_dim as f64 / w.max(h) as f64).min(1.0);
@@ -1088,16 +1088,7 @@ Reading the data adds to it, mostly on spinning disks.",
         let scope = self.zeit.tools.get(&tool.id).map_or(0, |u| u.scope);
         let work = crate::settings::app_data_dir().join("work");
         let _ = std::fs::create_dir_all(&work);
-        let mut spec = janus_zeit::job::JobSpec {
-            tool: tool.id.clone(),
-            params: params.clone(),
-            years: (0..info.t()).map(|t| info.decimal_year(t)).collect(),
-            days: info.time_is_date.then(|| (0..info.t()).map(|t| info.unix_day(t)).collect()),
-            labels: Some(info.layers.iter().map(|l| l.label.clone()).collect()),
-            map_year: Some(info.decimal_year(self.display.t)),
-            threads: (self.settings.s.threads > 0).then_some(self.settings.s.threads as i64),
-            ..Default::default()
-        };
+        let mut spec = base_spec(&info, tool, &params, self.display.t, self.settings.s.threads);
         let (mut window, scope_name) = self.run_window(scope);
         let mut scope_name = scope_name.to_string();
         let mut cube = info.id;
@@ -1121,33 +1112,8 @@ Reading the data adds to it, mostly on spinning disks.",
                 .sum();
             scope_name = format!("{n} maps");
         } else {
-            // the series as VRTs (the shown band, its normalized difference's other band, the quality band,
-            // each mapped role's band), as the C++ wrote them for the bridge
-            let stem = work.join(format!("{name}_{}", info.id));
-            let vrt = |suffix: &str, band: i32, raw: bool| -> Result<String, String> {
-                let path = format!("{}{suffix}.vrt", stem.display());
-                janus_cube::vrt::write_cube_vrt(&info, &path, band, raw).map(|_| path)
-            };
             let roles = self.active_roles();
-            let built = (|| -> Result<(), String> {
-                spec.input = vrt("", 0, false)?;
-                spec.shown = shown_of(&info, &roles);
-                if info.sel.nd_band > 0 {
-                    spec.nd_input = Some(vrt(&format!("_b{}", info.sel.nd_band), info.sel.nd_band, false)?);
-                }
-                if info.sel.qa_band > 0 {
-                    spec.qa_input = Some(vrt("_qa", info.sel.qa_band, true)?);
-                    spec.qa_rule = Some(info.sel.qa_rule.id().to_string());
-                }
-                let (needed, optional) = tool_roles(tool);
-                for role in needed.iter().chain(&optional) {
-                    if let Some(&b) = roles.get(role) {
-                        spec.bands.insert(role.clone(), vrt(&format!("_{role}"), b, false)?);
-                    }
-                }
-                Ok(())
-            })();
-            built?;
+            series_inputs(&info, tool, &roles, &work.join(format!("{name}_{}", info.id)), &mut spec)?;
         }
         spec.window = Some(window);
         Ok((spec, cube, scope_name, name))
@@ -1588,6 +1554,119 @@ impl State {
                 Line::new(&name, PlotPoints::from(pts)).color(theme::on_plot(Color32::from_rgb(cr, cg, cb))).width(2.5),
             );
             return; // one map's only
+        }
+    }
+}
+
+/// A run's spec on a series, without its inputs, window and output folder.
+pub(crate) fn base_spec(
+    info: &CubeInfo,
+    tool: &Tool,
+    params: &BTreeMap<String, Value>,
+    t: usize,
+    threads: usize,
+) -> janus_zeit::job::JobSpec {
+    janus_zeit::job::JobSpec {
+        tool: tool.id.clone(),
+        params: params.clone(),
+        years: (0..info.t()).map(|t| info.decimal_year(t)).collect(),
+        days: info.time_is_date.then(|| (0..info.t()).map(|t| info.unix_day(t)).collect()),
+        labels: Some(info.layers.iter().map(|l| l.label.clone()).collect()),
+        map_year: Some(info.decimal_year(t.min(info.t().saturating_sub(1)))),
+        threads: (threads > 0).then_some(threads as i64),
+        ..Default::default()
+    }
+}
+
+/// The series as VRTs at `stem`* (the shown band, its normalized difference's other band, the quality band, each
+/// mapped role's band), as the C++ wrote them for the bridge, into the spec.
+pub(crate) fn series_inputs(
+    info: &CubeInfo,
+    tool: &Tool,
+    roles: &BTreeMap<String, i32>,
+    stem: &std::path::Path,
+    spec: &mut janus_zeit::job::JobSpec,
+) -> Result<(), String> {
+    let vrt = |suffix: &str, band: i32, raw: bool| -> Result<String, String> {
+        let path = format!("{}{suffix}.vrt", stem.display());
+        janus_cube::vrt::write_cube_vrt(info, &path, band, raw).map(|_| path)
+    };
+    spec.input = vrt("", 0, false)?;
+    spec.shown = shown_of(info, roles);
+    if info.sel.nd_band > 0 {
+        spec.nd_input = Some(vrt(&format!("_b{}", info.sel.nd_band), info.sel.nd_band, false)?);
+    }
+    if info.sel.qa_band > 0 {
+        spec.qa_input = Some(vrt("_qa", info.sel.qa_band, true)?);
+        spec.qa_rule = Some(info.sel.qa_rule.id().to_string());
+    }
+    let (needed, optional) = tool_roles(tool);
+    for role in needed.iter().chain(&optional) {
+        if let Some(&b) = roles.get(role) {
+            spec.bands.insert(role.clone(), vrt(&format!("_{role}"), b, false)?);
+        }
+    }
+    Ok(())
+}
+
+/// The roles of a series' bands (guessed from their names).
+pub(crate) fn guess_roles(info: &CubeInfo) -> BTreeMap<String, i32> {
+    janus_cube::roles::guess_band_roles(info).into_iter().map(|(r, b)| (r.to_string(), b)).collect()
+}
+
+/// A series of a series' pixel as a pixel run gets it, its bands read (multiband tools).
+pub(crate) fn read_pixel_input(
+    info: &Arc<CubeInfo>,
+    tool: &Tool,
+    roles: &BTreeMap<String, i32>,
+    values: &[f32],
+    x: usize,
+    y: usize,
+    t: usize,
+) -> PixelInput {
+    let mut input = pixel_input(info, values, t, roles);
+    let (needed, optional) = tool_roles(tool);
+    if !needed.is_empty() {
+        let mut reader = CubeReader::new(info.clone());
+        let n = info.t();
+        let mut read = |band: i32, raw: bool| -> Vec<f64> {
+            (0..n)
+                .map(|t| reader.read_band_pixel(t, band, x, y, raw).map_or(f64::NAN, f64::from))
+                .map(|v| if v.is_finite() { v } else { f64::NAN })
+                .collect()
+        };
+        input.bands =
+            needed.iter().chain(&optional).filter_map(|r| roles.get(r).map(|&b| (r.clone(), read(b, false)))).collect();
+        if info.sel.qa_band > 0 {
+            input.qa = Some(read(info.sel.qa_band, true));
+        }
+    }
+    input
+}
+
+impl ResultLayer {
+    /// A result map read for a check (no series, no texture).
+    pub(crate) fn for_test(data: Vec<f32>, tw: usize, th: usize, unit: String) -> ResultLayer {
+        ResultLayer {
+            cube: 0,
+            name: String::new(),
+            path: String::new(),
+            unit,
+            cmap: janus_gpu::colormaps::VIRIDIS,
+            x0: 0,
+            y0: 0,
+            w: tw,
+            h: th,
+            tw,
+            th,
+            data,
+            tex: None,
+            lo: 0.0,
+            hi: 1.0,
+            visible: false,
+            opacity: 1.0,
+            classes: vec![],
+            class_series: vec![],
         }
     }
 }

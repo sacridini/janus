@@ -18,7 +18,9 @@ mod measure;
 mod open;
 mod panels;
 mod platform;
+mod python;
 mod season;
+mod selftest_zeit;
 mod series;
 mod session;
 mod settings;
@@ -72,6 +74,8 @@ Options:
   --selftest-composite C  the RGB composite of the test series C (five bands per date) against its files
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
                       C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
+  --selftest-zeit IN...  every Zeit tool on the series without a window: a pixel fit, its Python calls, the
+                      estimate and a raster run of 256 x 256 px, the outputs read back (timings)
   --describe IN       print how IN opens (dates, size, CRS, variables of a NetCDF / Zarr, the
                       series of the centre pixel) and exit
   --measure-cache on|off IN  time exact series and an ROI from the files, build the overview (and the
@@ -155,6 +159,11 @@ fn main() -> eframe::Result<()> {
                 // C (five bands per date) with an overview at 1:2, as the C++'s test opens it
                 opts.selftest_composite = true;
                 opts.budget_bytes = Some(10 * 100 * 60 * 4 + 4096);
+            }
+            "--selftest-zeit" => {
+                attach_console();
+                let threads = settings::load().0.threads;
+                std::process::exit(selftest_zeit::selftest_zeit(&args.by_ref().collect::<Vec<_>>(), threads));
             }
             "--describe" => {
                 attach_console();

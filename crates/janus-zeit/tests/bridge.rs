@@ -255,3 +255,30 @@ fn ccdc() {
 fn ccdc_synthetic() {
     compare_within("ccdc_synthetic", |_| Tol { curves: 1e-12, rows: false });
 }
+
+/// "Copy Python": the first Zeit call of each fixture case as the bridge recorded it.
+#[test]
+fn python_calls_as_the_bridge_recorded() {
+    let expected: Vec<Value> = serde_json::from_str(&data("python_calls.json")).unwrap();
+    let mut bad = 0;
+    for e in &expected {
+        let tool = e["tool"].as_str().unwrap();
+        let f: Fixtures = serde_json::from_str(&data(&format!("{tool}.json"))).unwrap();
+        let c = &f.cases[e["case"].as_u64().unwrap() as usize];
+        let p = Params::with_defaults(tool, &c.params).unwrap();
+        let input = PixelInput {
+            years: c.years.clone(),
+            days: c.days.clone(),
+            values: nan(&c.values),
+            bands: c.bands.iter().map(|(r, v)| (r.clone(), nan(v))).collect(),
+            ..Default::default()
+        };
+        let (code, _) = janus_zeit::python::calls(tool, &p, &input).unwrap();
+        let first = code.lines().next().unwrap_or("");
+        if first != e["first_call"].as_str().unwrap() {
+            bad += 1;
+            println!("{tool}:\n  native {first}\n  bridge {}", e["first_call"]);
+        }
+    }
+    assert_eq!(bad, 0, "{bad} of {} calls differ", expected.len());
+}

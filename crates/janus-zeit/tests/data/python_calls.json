@@ -1,0 +1,1307 @@
+[
+{
+"tool": "landtrendr",
+"case": 0,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 1,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='gain', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 2,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=3, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 3,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 4,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=1.0, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 5,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=1.0, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 6,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.2, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=1.0, vertex_count_overshoot=1, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 7,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=20)"
+},
+{
+"tool": "landtrendr",
+"case": 8,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 9,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='gain', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 10,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=3, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 11,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 12,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=1.0, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 13,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=1.0, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 14,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.2, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=1.0, vertex_count_overshoot=1, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 15,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=20)"
+},
+{
+"tool": "landtrendr",
+"case": 16,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 17,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='gain', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 18,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=3, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 19,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 20,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=1.0, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 21,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=1.0, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 22,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.2, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=1.0, vertex_count_overshoot=1, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 23,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=20)"
+},
+{
+"tool": "landtrendr",
+"case": 24,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 25,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='gain', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 26,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=3, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 27,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 28,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=1.0, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 29,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=1.0, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 30,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.2, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=1.0, vertex_count_overshoot=1, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 31,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=20)"
+},
+{
+"tool": "landtrendr",
+"case": 32,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 33,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='gain', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 34,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=3, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 35,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 36,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=1.0, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 37,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=1.0, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 38,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.2, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=1.0, vertex_count_overshoot=1, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 39,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=20)"
+},
+{
+"tool": "landtrendr",
+"case": 40,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=6, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "landtrendr",
+"case": 42,
+"first_call": "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction='loss', max_segments=3, pval_threshold=0.05, recovery_threshold=0.25, spike_threshold=0.9, best_model_proportion=0.75, vertex_count_overshoot=3, min_observations_needed=6)"
+},
+{
+"tool": "mann_kendall",
+"case": 0,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.05, lag=None, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 1,
+"first_call": "result1 = zeit.mann_kendall(series, method='original', alpha=0.05, lag=None, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 2,
+"first_call": "result1 = zeit.mann_kendall(series, method='yue_wang', alpha=0.05, lag=3, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 3,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.2, lag=0, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 4,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.05, lag=None, period=1, min_valid=30, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 5,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.05, lag=None, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 6,
+"first_call": "result1 = zeit.mann_kendall(series, method='original', alpha=0.05, lag=None, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 7,
+"first_call": "result1 = zeit.mann_kendall(series, method='yue_wang', alpha=0.05, lag=3, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 8,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.2, lag=0, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 9,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.05, lag=None, period=1, min_valid=30, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 10,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.05, lag=None, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 11,
+"first_call": "result1 = zeit.mann_kendall(series, method='original', alpha=0.05, lag=None, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 12,
+"first_call": "result1 = zeit.mann_kendall(series, method='yue_wang', alpha=0.05, lag=3, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 13,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.2, lag=0, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 14,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.05, lag=None, period=1, min_valid=30, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 15,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.05, lag=None, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 16,
+"first_call": "result1 = zeit.mann_kendall(series, method='original', alpha=0.05, lag=None, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 17,
+"first_call": "result1 = zeit.mann_kendall(series, method='yue_wang', alpha=0.05, lag=3, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 18,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.2, lag=0, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 19,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.05, lag=None, period=1, min_valid=30, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 20,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.05, lag=None, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 22,
+"first_call": "result1 = zeit.mann_kendall(series, method='yue_wang', alpha=0.05, lag=3, period=1, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 23,
+"first_call": "result1 = zeit.mann_kendall(series, method='seasonal', alpha=0.05, lag=None, period=12, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 24,
+"first_call": "result1 = zeit.mann_kendall(series, method='seasonal', alpha=0.05, lag=None, period=6, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 25,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.05, lag=None, period=12, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 26,
+"first_call": "result1 = zeit.mann_kendall(series, method='original', alpha=0.05, lag=None, period=12, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 27,
+"first_call": "result1 = zeit.mann_kendall(series, method='seasonal', alpha=0.05, lag=None, period=12, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 28,
+"first_call": "result1 = zeit.mann_kendall(series, method='seasonal', alpha=0.05, lag=None, period=6, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 29,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.05, lag=None, period=12, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 30,
+"first_call": "result1 = zeit.mann_kendall(series, method='original', alpha=0.05, lag=None, period=12, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 31,
+"first_call": "result1 = zeit.mann_kendall(series, method='seasonal', alpha=0.05, lag=None, period=12, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 32,
+"first_call": "result1 = zeit.mann_kendall(series, method='seasonal', alpha=0.05, lag=None, period=6, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 33,
+"first_call": "result1 = zeit.mann_kendall(series, method='hamed_rao', alpha=0.05, lag=None, period=12, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "mann_kendall",
+"case": 34,
+"first_call": "result1 = zeit.mann_kendall(series, method='original', alpha=0.05, lag=None, period=12, min_valid=4, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 0,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=10.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 1,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=1000.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 2,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=7, polyorder=2, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 3,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=9, polyorder=3, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 4,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=0.5, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 5,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=39, polyorder=6, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 6,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=10.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 7,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=1000.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 8,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=7, polyorder=2, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 9,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=9, polyorder=3, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 10,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=0.5, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 11,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=39, polyorder=6, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 12,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=10.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 14,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=7, polyorder=2, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 15,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=10.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 16,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=1000.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 17,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=7, polyorder=2, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 18,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=9, polyorder=3, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 19,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=0.5, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 20,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=61, polyorder=6, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 21,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=10.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 22,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=1000.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 23,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=7, polyorder=2, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 24,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=9, polyorder=3, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 25,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=0.5, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 26,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=59, polyorder=6, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 27,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=10.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 28,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=1000.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 29,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=7, polyorder=2, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 30,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=10.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 31,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=3, polyorder=2, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 32,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=10.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 33,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=3, polyorder=2, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 34,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=10.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "smooth",
+"case": 35,
+"first_call": "result1 = zeit.smooth(series, method='savgol', window=5, polyorder=2, nodata=None)"
+},
+{
+"tool": "smooth",
+"case": 36,
+"first_call": "result1 = zeit.smooth(series, method='whittaker', lmbda=10.0, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 0,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 1,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.25, max_breaks_trend=2, max_breaks_season=5, max_iter=10, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 2,
+"first_call": "result1 = zeit.bfast(series, order=1, h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10, level=0.2, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 3,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.15, max_breaks_trend=5, max_breaks_season=1, max_iter=2, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 4,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10, level=0.05, min_valid=150, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 5,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 6,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.25, max_breaks_trend=2, max_breaks_season=5, max_iter=10, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 7,
+"first_call": "result1 = zeit.bfast(series, order=1, h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10, level=0.2, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 8,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.15, max_breaks_trend=5, max_breaks_season=1, max_iter=2, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 10,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 11,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.25, max_breaks_trend=2, max_breaks_season=5, max_iter=10, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 12,
+"first_call": "result1 = zeit.bfast(series, order=1, h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10, level=0.2, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 13,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.15, max_breaks_trend=5, max_breaks_season=1, max_iter=2, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 15,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 16,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 17,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.25, max_breaks_trend=2, max_breaks_season=5, max_iter=10, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 18,
+"first_call": "result1 = zeit.bfast(series, order=1, h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10, level=0.2, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 19,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.15, max_breaks_trend=5, max_breaks_season=1, max_iter=2, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast",
+"case": 21,
+"first_call": "result1 = zeit.bfast(series, order=3, h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10, level=0.05, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 0,
+"first_call": "result1 = zeit.bfast_lite(series, order=3, h=0.15, max_breaks=5, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 1,
+"first_call": "result1 = zeit.bfast_lite(series, order=2, h=0.15, max_breaks=2, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 2,
+"first_call": "result1 = zeit.bfast_lite(series, order=3, h=0.3, max_breaks=5, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 4,
+"first_call": "result1 = zeit.bfast_lite(series, order=3, h=0.15, max_breaks=5, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 5,
+"first_call": "result1 = zeit.bfast_lite(series, order=2, h=0.15, max_breaks=2, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 6,
+"first_call": "result1 = zeit.bfast_lite(series, order=3, h=0.3, max_breaks=5, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 8,
+"first_call": "result1 = zeit.bfast_lite(series, order=3, h=0.15, max_breaks=5, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 9,
+"first_call": "result1 = zeit.bfast_lite(series, order=2, h=0.15, max_breaks=2, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 10,
+"first_call": "result1 = zeit.bfast_lite(series, order=3, h=0.3, max_breaks=5, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 12,
+"first_call": "result1 = zeit.bfast_lite(series, order=3, h=0.15, max_breaks=5, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 13,
+"first_call": "result1 = zeit.bfast_lite(series, order=2, h=0.15, max_breaks=2, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 14,
+"first_call": "result1 = zeit.bfast_lite(series, order=3, h=0.3, max_breaks=5, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 16,
+"first_call": "result1 = zeit.bfast_lite(series, order=3, h=0.15, max_breaks=5, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 17,
+"first_call": "result1 = zeit.bfast_lite(series, order=2, h=0.15, max_breaks=2, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 18,
+"first_call": "result1 = zeit.bfast_lite(series, order=3, h=0.3, max_breaks=5, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 20,
+"first_call": "result1 = zeit.bfast_lite(series, order=3, h=0.15, max_breaks=5, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_lite",
+"case": 21,
+"first_call": "result1 = zeit.bfast_lite(series, order=2, h=0.15, max_breaks=2, min_valid=20, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 0,
+"first_call": "result1 = zeit.bfast_monitor(series, 2017.3260869565217, start_time=2015.0, frequency=23, order=3, h=0.25, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 1,
+"first_call": "result1 = zeit.bfast_monitor(series, 2017.3695652173913, start_time=2015.0, frequency=23, order=3, h=0.25, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 2,
+"first_call": "result1 = zeit.bfast_monitor(series, 2018.108695652174, start_time=2015.0, frequency=23, order=3, h=0.5, period=4, alpha=0.01, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 3,
+"first_call": "result1 = zeit.bfast_monitor(series, 2015.9782608695652, start_time=2015.0, frequency=23, order=3, h=0.25, period=10, alpha=0.05, min_valid=30, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 4,
+"first_call": "result1 = zeit.bfast_monitor(series, 2020.5869565217392, start_time=2015.0, frequency=23, order=1, h=1.0, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 5,
+"first_call": "result1 = zeit.bfast_monitor(series, 2020.6304347826087, start_time=2015.0, frequency=23, order=3, h=0.25, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 6,
+"first_call": "result1 = zeit.bfast_monitor(series, 2019.4565217391305, start_time=2015.0, frequency=23, order=3, h=0.25, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 7,
+"first_call": "result1 = zeit.bfast_monitor(series, 2020.2391304347825, start_time=2015.0, frequency=23, order=3, h=0.5, period=4, alpha=0.01, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 8,
+"first_call": "result1 = zeit.bfast_monitor(series, 2015.9782608695652, start_time=2015.0, frequency=23, order=3, h=0.25, period=10, alpha=0.05, min_valid=30, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 9,
+"first_call": "result1 = zeit.bfast_monitor(series, 2019.5434782608695, start_time=2015.0, frequency=23, order=1, h=1.0, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 10,
+"first_call": "result1 = zeit.bfast_monitor(series, 2017.2391304347825, start_time=2015.0, frequency=23, order=3, h=0.25, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 11,
+"first_call": "result1 = zeit.bfast_monitor(series, 2016.8478260869565, start_time=2015.0, frequency=23, order=3, h=0.25, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 12,
+"first_call": "result1 = zeit.bfast_monitor(series, 2017.9782608695652, start_time=2015.0, frequency=23, order=3, h=0.5, period=4, alpha=0.01, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 13,
+"first_call": "result1 = zeit.bfast_monitor(series, 2015.9782608695652, start_time=2015.0, frequency=23, order=3, h=0.25, period=10, alpha=0.05, min_valid=30, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 14,
+"first_call": "result1 = zeit.bfast_monitor(series, 2020.3695652173913, start_time=2015.0, frequency=23, order=1, h=1.0, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 15,
+"first_call": "result1 = zeit.bfast_monitor(series, 2016.9347826086957, start_time=2015.0, frequency=23, order=3, h=0.25, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 16,
+"first_call": "result1 = zeit.bfast_monitor(series, 2017.9965846994535, start_time=2012.0382513661202, frequency=12, order=3, h=0.25, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 17,
+"first_call": "result1 = zeit.bfast_monitor(series, 2018.9965846994535, start_time=2012.0382513661202, frequency=12, order=3, h=0.25, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 18,
+"first_call": "result1 = zeit.bfast_monitor(series, 2017.9965846994535, start_time=2012.0382513661202, frequency=12, order=3, h=0.5, period=4, alpha=0.01, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 19,
+"first_call": "result1 = zeit.bfast_monitor(series, 2015.9965846994535, start_time=2012.0382513661202, frequency=12, order=3, h=0.25, period=10, alpha=0.05, min_valid=30, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 20,
+"first_call": "result1 = zeit.bfast_monitor(series, 2017.9965846994535, start_time=2012.0382513661202, frequency=12, order=1, h=1.0, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 21,
+"first_call": "result1 = zeit.bfast_monitor(series, 2017.9965846994535, start_time=2012.0382513661202, frequency=12, order=3, h=0.25, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "bfast_monitor",
+"case": 22,
+"first_call": "result1 = zeit.bfast_monitor(series, 2015.2826086956522, start_time=2015.0, frequency=23, order=3, h=0.25, period=10, alpha=0.05, min_valid=10, nodata=None, n_jobs=1)"
+},
+{
+"tool": "tmask",
+"case": 0,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 1,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 2,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 3,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 4,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 5,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 6,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 7,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 8,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 9,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 10,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 11,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 12,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 13,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 14,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 15,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 16,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 17,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 18,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 19,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "tmask",
+"case": 22,
+"first_call": "result1 = zeit.tmask(bands_cube, green='green', swir='swir1', scale=10000.0, nodata=None)"
+},
+{
+"tool": "ndfi",
+"case": 0,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 1,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 2,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.2, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 3,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 4,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 5,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.2, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 6,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 7,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 8,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.2, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 9,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 10,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 11,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.2, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 12,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 13,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 14,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.2, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 15,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 16,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 17,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.2, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 18,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 19,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ndfi",
+"case": 22,
+"first_call": "result1 = zeit.unmix(bands_cube, 'souza2005', scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 0,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 1,
+"first_call": "result1 = zeit.coded(bands_cube, start=2017.0, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 2,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='both', max_events=5, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 3,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=2, thresh=2.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.3, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 4,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 5,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=1.5, consec=3, thresh=3.0, min_years=1.0, min_obs=4, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 6,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 7,
+"first_call": "result1 = zeit.coded(bands_cube, start=2017.0, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 8,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='both', max_events=5, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 9,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=2, thresh=2.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.3, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 10,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 11,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=1.5, consec=3, thresh=3.0, min_years=1.0, min_obs=4, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 12,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 13,
+"first_call": "result1 = zeit.coded(bands_cube, start=2017.0, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 14,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='both', max_events=5, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 15,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=2, thresh=2.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.3, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 16,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 17,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=1.5, consec=3, thresh=3.0, min_years=1.0, min_obs=4, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 18,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 19,
+"first_call": "result1 = zeit.coded(bands_cube, start=2017.0, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 20,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='both', max_events=5, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 21,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=2, thresh=2.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.3, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 22,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 23,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=1.5, consec=3, thresh=3.0, min_years=1.0, min_obs=4, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 24,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 25,
+"first_call": "result1 = zeit.coded(bands_cube, start=2017.0, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 26,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='both', max_events=5, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 27,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=2, thresh=2.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.3, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 28,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 29,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=1.5, consec=3, thresh=3.0, min_years=1.0, min_obs=4, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "coded",
+"case": 32,
+"first_call": "result1 = zeit.coded(bands_cube, start=None, train_years=3.0, consec=3, thresh=3.0, min_years=3.0, min_obs=6, direction='loss', max_events=3, forest_ndfi=0.5, scale=10000.0, cloud_threshold=0.05, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 0,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=6, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.999999, num_c=8, thermal_band='thermal', nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 1,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=4, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.999999, num_c=6, thermal_band=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 2,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=3, conseq_anom=6, chi2_prob_threshold=0.9, tmax_cg_prob_threshold=0.999999, num_c=8, thermal_band=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 3,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=6, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.999999, num_c=4, thermal_band='thermal', nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 4,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=6, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.99, num_c=8, thermal_band=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 5,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=6, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.999999, num_c=8, thermal_band=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 7,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=3, conseq_anom=6, chi2_prob_threshold=0.9, tmax_cg_prob_threshold=0.999999, num_c=8, thermal_band=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 9,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=6, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.99, num_c=8, thermal_band='thermal', nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 10,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=6, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.999999, num_c=8, thermal_band=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 11,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=4, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.999999, num_c=6, thermal_band=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 12,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=3, conseq_anom=6, chi2_prob_threshold=0.9, tmax_cg_prob_threshold=0.999999, num_c=8, thermal_band='thermal', nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 14,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=6, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.99, num_c=8, thermal_band=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 16,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=4, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.999999, num_c=6, thermal_band=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 18,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=6, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.999999, num_c=4, thermal_band='thermal', nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 19,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=6, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.99, num_c=8, thermal_band=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 20,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=6, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.999999, num_c=8, thermal_band=None, nodata=None, n_jobs=1)"
+},
+{
+"tool": "ccdc",
+"case": 21,
+"first_call": "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments=8, conseq_anom=4, chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.999999, num_c=6, thermal_band='thermal', nodata=None, n_jobs=1)"
+}
+]

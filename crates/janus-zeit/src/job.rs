@@ -596,6 +596,8 @@ pub struct Estimate {
     pub sec_per_px: f64,
     pub sec_per_chunk: f64,
     pub chunk_cells: f64,
+    /// a tool's fit (sampling the window and fitting its model: a SOM)
+    pub sec_fixed: f64,
 }
 
 impl Estimate {
@@ -603,7 +605,7 @@ impl Estimate {
     pub fn seconds(&self, w: usize, h: usize) -> f64 {
         let rows = ((self.chunk_cells / w.max(1) as f64) as usize).clamp(8, 512);
         let chunks = h.div_ceil(rows);
-        chunks as f64 * self.sec_per_chunk + w as f64 * h as f64 * self.sec_per_px
+        self.sec_fixed + chunks as f64 * self.sec_per_chunk + w as f64 * h as f64 * self.sec_per_px
     }
 }
 
@@ -611,14 +613,23 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
     let tool = manifest().tool(&spec.tool).ok_or_else(|| format!("KeyError: '{}'", spec.tool))?;
     let cells = tool.chunk_cells.unwrap_or(4_000_000) as f64;
     if tool.input.as_deref() == Some("layers") {
-        return Ok(Estimate { sec_per_px: 5e-8, sec_per_chunk: 0.0, chunk_cells: cells });
+        return Ok(Estimate { sec_per_px: 5e-8, sec_per_chunk: 0.0, chunk_cells: cells, sec_fixed: 0.0 });
     }
     let p = Params::with_defaults(&spec.tool, &spec.params).unwrap_or_default();
     let inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.raster_size();
     let [x0, y0, x1, y1] = spec.window.unwrap_or([0, 0, iw, ih]);
     let (w, h) = (x1 - x0, y1 - y0);
-    let ctx = JobCtx { input: spec.context(), n_jobs: spec.n_jobs(), ..Default::default() };
+    let mut ctx = JobCtx { input: spec.context(), n_jobs: spec.n_jobs(), ..Default::default() };
+    let mut fixed = 0.0;
+    if spec.tool == "som" {
+        // fewer rows than a run reads
+        let t = std::time::Instant::now();
+        let sample = sample_rows(&inputs, [x0, y0, x1, y1], 16, &|_| {})?;
+        ctx.model = Some(crate::som::fit(&p, &sample, &ctx)?);
+        fixed = t.elapsed().as_secs_f64();
+    }
+    let ctx = ctx;
     let sample = |n: usize| -> Result<(f64, f64), String> {
         let (sw, sh) = (n.min(w), n.min(h));
         let chunk = inputs.read(x0 + (w - sw) / 2, y0 + (h - sh) / 2, sw, sh)?;
@@ -655,7 +666,7 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
             if sxx > 0.0 { (points.iter().map(|p| (p.1 - mn) * (p.0 - mt)).sum::<f64>() / sxx).max(0.0) } else { 0.0 };
         ((mt - b * mn).max(0.0), b)
     };
-    Ok(Estimate { sec_per_px: per_px, sec_per_chunk: per_chunk, chunk_cells: cells })
+    Ok(Estimate { sec_per_px: per_px, sec_per_chunk: per_chunk, chunk_cells: cells, sec_fixed: fixed })
 }
 
 /// A map on the grid of `reference` (nearest neighbour, NaN where it has no value): a WarpedVRT's work.

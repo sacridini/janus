@@ -19,6 +19,7 @@ mod ndfi;
 pub mod numeric;
 mod phenology;
 pub mod pixel;
+pub mod python;
 pub mod rng;
 mod smooth;
 mod som;
