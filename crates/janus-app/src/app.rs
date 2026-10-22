@@ -260,6 +260,9 @@ pub struct State {
     pub(crate) embeddings_test: crate::embeddings_test::EmbeddingsTest,
     /// the validation: its design, its project, the Validation panel and the Chips window
     pub val: crate::validation::ValidationUi,
+    /// the export dialog and the animation being exported
+    pub export: crate::export_map::ExportUi,
+    pub anim: crate::animation::AnimationUi,
     /// the embeddings download's choices, and the downloads under way
     pub emb_download: crate::emb_download::DownloadUi,
     pub emb_downloads: Vec<crate::emb_download::EmbDownload>,
@@ -527,6 +530,8 @@ impl JanusApp {
                 emb_download: Default::default(),
                 emb_downloads: Vec::new(),
                 val: Default::default(),
+                export: Default::default(),
+                anim: Default::default(),
                 chart: Default::default(),
                 band_sel: None,
                 spectral_index: 0,
@@ -896,6 +901,7 @@ impl State {
             return act;
         }
         self.interp_shortcuts(ctx);
+        self.export_shortcuts(ctx);
         let n = self.session.as_ref().map_or(0, |s| s.info.t());
         let (left, right, home, end, fit, play, satellite, space, esc) = ctx.input(|i| {
             (
@@ -991,6 +997,8 @@ impl State {
                 if item(ui, "Add layer: URL...", "", has) {
                     self.open_url_dialog(true);
                 }
+                ui.separator();
+                self.export_menu(ui);
                 ui.separator();
                 if item(ui, "Close active layer", "", has) {
                     self.remove_layer(self.active, &ctx);
@@ -1234,6 +1242,7 @@ impl eframe::App for JanusApp {
         s.pump_embeddings(&ctx);
         s.pump_embedding_downloads(&ctx);
         s.pump_validation(&ctx);
+        s.pump_animation(&ctx);
         s.pump_chips(&ctx);
         s.pump_zeit_jobs(&ctx);
         s.scripted_zeit_run(&ctx);
@@ -1447,6 +1456,9 @@ impl eframe::App for JanusApp {
         self.state.exports_window(&ctx);
         self.state.extract_window(&ctx);
         self.state.chips_window(&ctx);
+        self.state.export_dialog(&ctx);
+        self.state.save_run_dialog(&ctx);
+        self.state.animation_dialog(&ctx);
         self.state.log_window(&ctx);
         // the layout kept, every few seconds when it changed (not for the tests)
         if self.layout_checked.elapsed().as_secs_f64() > 3.0 && !self.state.settings.no_save {

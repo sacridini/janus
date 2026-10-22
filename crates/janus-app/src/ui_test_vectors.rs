@@ -264,7 +264,13 @@ impl State {
                 let a = self.extract_series(p, true, true, file(st, "plots_series.csv"), ctx)?;
                 let b = self.extract_series(g, false, false, file(st, "parcels_series.csv"), ctx)?;
                 st.jobs = vec![a, b];
-                next(st, "series extracted (points: every layer, wide; the polygon: long)");
+                let o =
+                    crate::export_map::PngOptions { marks: true, label: false, legend: false, ..Default::default() };
+                let Some(png) = self.export_png(file(st, "vectors.png"), o, ctx) else {
+                    return fail("the PNG did not start");
+                };
+                st.jobs.push(png);
+                next(st, "series extracted (points: every layer, wide; the polygon: long) and a PNG");
             }
             123 => {
                 for j in &st.jobs {
@@ -346,6 +352,45 @@ impl State {
                 );
                 if worst > 1e-4 {
                     return fail("the polygon's mean should be the ROI's");
+                }
+                // the PNG: a point in the GeoJSON's colour (the CSV's points are the GeoJSON's: the one on top shows)
+                {
+                    let Ok(ds) = gdal::Dataset::open(file(st, "vectors.png")) else {
+                        return fail("the PNG cannot be opened");
+                    };
+                    let (w, h) = ds.raster_size();
+                    let ppp = ctx.pixels_per_point();
+                    let g = self.grid()?;
+                    let rect = egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(self.map.canvas[0].floor(), self.map.canvas[1].floor()),
+                    );
+                    let q = self.map.screen_of(rect, PTS[2][0] / g.fx, PTS[2][1] / g.fy);
+                    let (x, y) = (((q.x * ppp) as usize).min(w - 1), ((q.y * ppp) as usize).min(h - 1));
+                    let c: Vec<u8> = (1..=3)
+                        .map(|b| {
+                            ds.rasterband(b)
+                                .and_then(|r| r.read_as::<u8>((x as isize, y as isize), (1, 1), (1, 1), None))
+                                .map_or(0, |v| v.data()[0])
+                        })
+                        .collect();
+                    let (pi, ci) = (self.vector_layer_of("plots.geojson")?, self.vector_layer_of("samples.csv")?);
+                    let e = self.vectors[pi.max(ci)].color;
+                    println!(
+                        "    PNG at the third point: rgb({}, {}, {}), its layer's colour rgb({}, {}, {})",
+                        c[0],
+                        c[1],
+                        c[2],
+                        e.r(),
+                        e.g(),
+                        e.b()
+                    );
+                    if (i32::from(c[0]) - i32::from(e.r())).abs() > 40
+                        || (i32::from(c[1]) - i32::from(e.g())).abs() > 40
+                        || (i32::from(c[2]) - i32::from(e.b())).abs() > 40
+                    {
+                        return fail("the PNG should show the point in its layer's colour");
+                    }
                 }
                 // interpretation of the points: the first one shown, its pin, the map on it
                 let p = self.vector_layer_of("plots.geojson")?;
@@ -489,11 +534,7 @@ impl State {
                     st,
                     "labels exported (GeoPackage with the geometries, CSV with lon/lat); a polygon interpreted as the ROI",
                 );
-                if self.opts.extra_layers.len() < 3 {
-                    println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
-                    return Some(0);
-                }
-                st.stage = 170; // validation, on D
+                st.stage = 130; // the animation export, then validation on D
                 return None;
             }
             _ => {}

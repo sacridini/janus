@@ -594,6 +594,10 @@ impl State {
             }
         }
 
+        let ffmpeg = self.settings.s.ffmpeg.clone();
+        self.ffmpeg_settings_ui(ui);
+        changed |= ffmpeg != self.settings.s.ffmpeg;
+
         section(ui, "Validation");
         let st = &mut self.settings;
         let who = std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default();

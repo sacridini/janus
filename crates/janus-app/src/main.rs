@@ -5,8 +5,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod analysis;
+mod animation;
 mod app;
 mod basemap;
+mod canvas;
 mod chart;
 mod chips;
 mod classes;
@@ -15,8 +17,10 @@ mod display;
 mod emb_download;
 mod embeddings;
 mod embeddings_test;
+mod export_map;
 mod exports;
 mod files;
+mod gif;
 mod golden;
 mod labels;
 mod layers;

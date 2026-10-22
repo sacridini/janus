@@ -114,7 +114,7 @@ void gifQuantize(const unsigned char* rgba, int w, int h, bool dither, GifPalett
         }
         if (best < 0) break;
         Box bx = boxes[best];
-        std::sort(bins.begin() + bx.begin, bins.begin() + bx.end,
+        std::stable_sort(bins.begin() + bx.begin, bins.begin() + bx.end, // stable: the same palette with any compiler
                   [&](int a, int b) { return chan(a, bx.axis) < chan(b, bx.axis); });
         uint64_t acc = 0;
         int cut = bx.begin + 1;

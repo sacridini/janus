@@ -10,6 +10,8 @@
 
 use janus_gpu::Mode;
 
+#[path = "ui_test_animation.rs"]
+mod animation;
 #[path = "ui_test_validation.rs"]
 mod validation;
 #[path = "ui_test_vectors.rs"]
@@ -48,6 +50,8 @@ pub struct UiTest {
     frames: usize,
     pin: Option<u32>,
     reveal: Option<std::path::PathBuf>,
+    /// stages 130-137: the animations' files and options
+    anim: animation::AnimTest,
     /// the exit code, once decided (the window takes another frame to close)
     result: Option<i32>,
 }
@@ -790,8 +794,9 @@ impl State {
                 }
             }
             90..=100 => return self.test_spectra(st, &input, t0, ctx),
-            110..=114 => return self.test_roi_polygon(st, &input, t0, ctx),
+            110..=115 => return self.test_roi_polygon(st, &input, t0, ctx),
             120..=125 => return self.test_vectors(st, t0, ctx),
+            130..=137 => return self.test_animation(st, &input, t0, ctx),
             170..=179 => return self.test_validation(st, &input, t0, ctx),
             _ => {}
         }
@@ -1531,8 +1536,58 @@ impl State {
                     }
                     println!("    Copy Python of the L: its mean at {} dates as in Janus", v.len());
                 }
-                self.clear_roi();
+                // the outline in a PNG with the marks
+                let o =
+                    crate::export_map::PngOptions { marks: true, label: false, legend: false, ..Default::default() };
+                let dir = std::env::temp_dir().join("janus-selftest-roi");
+                let _ = std::fs::create_dir_all(&dir);
+                let Some(job) = self.export_png(dir.join("roi.png").to_string_lossy().into_owned(), o, ctx) else {
+                    return fail("the PNG did not start");
+                };
+                st.jobs = vec![job];
                 next(st, "the L's statistics on B, A and F");
+            }
+            115 => {
+                let j = st.jobs[0].clone();
+                j.wait();
+                if j.state() != crate::exports::ExportState::Done {
+                    return fail(&format!("the PNG with the ROI should be written: {}", j.error()));
+                }
+                let Ok(ds) = gdal::Dataset::open(&j.path) else { return fail("the PNG cannot be opened") };
+                let (w, h) = ds.raster_size();
+                let band = |b: usize| -> Vec<u8> {
+                    ds.rasterband(b)
+                        .and_then(|r| r.read_as::<u8>((0, 0), (w, h), (w, h), None))
+                        .map(|b| b.into_shape_and_vec().1)
+                        .unwrap_or_default()
+                };
+                let (r, g, b) = (band(1), band(2), band(3));
+                // the middle of the notch's two edges (yellow), and the notch itself (the map's colours)
+                let ppp = ctx.pixels_per_point();
+                let grid = self.grid()?;
+                let rect = egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(self.map.canvas[0].floor(), self.map.canvas[1].floor()),
+                );
+                let yellow = |x: f64, y: f64| {
+                    let p = self.map.screen_of(rect, x / grid.fx, y / grid.fy);
+                    let (px, py) = (((p.x * ppp) as usize).min(w - 1), ((p.y * ppp) as usize).min(h - 1));
+                    let i = py * w + px;
+                    r[i] > 200 && g[i] > 160 && b[i] < 120
+                };
+                if !yellow(110.0, 80.0) || !yellow(70.4, 125.0) {
+                    return fail("the PNG should show the L's edges in yellow");
+                }
+                if yellow(110.0, 125.0) {
+                    return fail("the notch of the L should not be outlined");
+                }
+                drop(ds);
+                if let Some(d) = std::path::Path::new(&j.path).parent() {
+                    let _ = std::fs::remove_dir_all(d);
+                }
+                st.jobs.clear();
+                self.clear_roi();
+                next(st, "the L's outline in the exported PNG");
                 st.stage = 120; // vector layers
             }
             _ => {}

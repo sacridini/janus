@@ -41,6 +41,8 @@ pub struct MapView {
     /// the canvas the pointer is over this frame (0: the main map, else a panel's id), and the last frame's
     pub pointer_panel: Option<u32>,
     pub prev_pointer_panel: Option<u32>,
+    /// an export's background (None: the map's)
+    pub export_bg: Option<[f32; 4]>,
 }
 
 type DrawKey = (Mode, [i32; 3], [u32; 2], usize, [u32; 4], usize, Option<usize>);
@@ -641,7 +643,7 @@ impl State {
             m.redrawn = false;
         }
         if slot != 0 || m.dirty || m.drawn.as_ref() != Some(&key) {
-            let bg = theme::map_background();
+            let bg = m.export_bg.unwrap_or_else(theme::map_background);
             let mut f = gpu.begin_map(slot, size, bg);
             // the basemap under the layers, in map space (the active layer's source pixels)
             self.basemap.draw(gpu, &mut f, &view, bg, |q| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy));
@@ -755,7 +757,7 @@ impl State {
 
     /// What the map shows (app.cpp, the map's title): the dates of the RGB or the difference, the composite's
     /// window, the date and the mode, or the mode over the dates (and the season).
-    fn map_title(&self) -> String {
+    pub(crate) fn map_title(&self) -> String {
         let (Some(s), d) = (&self.session, &self.display) else { return String::new() };
         let info = &s.info;
         let label = |t: usize| info.layers[t.min(info.t() - 1)].label.as_str();
