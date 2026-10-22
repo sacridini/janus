@@ -32,10 +32,11 @@ fn apply(g: &[f64; 6], x: &mut f64, y: &mut f64) {
 }
 
 /// Points outside a projection's area of use fail one by one: expected, not logged.
-pub(crate) struct Quiet;
+pub struct Quiet;
 
 impl Quiet {
-    pub(crate) fn new() -> Self {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
         unsafe { gdal_sys::CPLPushErrorHandler(Some(gdal_sys::CPLQuietErrorHandler)) };
         Quiet
     }

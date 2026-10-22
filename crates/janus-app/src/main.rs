@@ -169,11 +169,17 @@ fn configure_data() {
         .iter()
         .flat_map(|d| [d.join("share"), d.join("..").join("share"), d.join("..").join("Resources").join("share")])
         .collect();
-    // the folders of the GDAL on the PATH (a conda environment's bin/)
+    // the folder of the GDAL loaded (Windows), then those of the GDALs on the PATH (a conda environment's bin/,
+    // an OSGeo installation)
     let lib = if cfg!(windows) { "gdal.dll" } else { "libgdal.so" };
-    let gdal_dirs: Vec<std::path::PathBuf> = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).filter(|d| d.join(lib).exists()).collect())
-        .unwrap_or_default();
+    let gdal_dirs: Vec<std::path::PathBuf> = loaded_gdal_dir()
+        .into_iter()
+        .chain(
+            std::env::var_os("PATH")
+                .map(|p| std::env::split_paths(&p).filter(|d| d.join(lib).exists()).collect::<Vec<_>>())
+                .unwrap_or_default(),
+        )
+        .collect();
     // next to the libraries: the program's folder (Windows), lib/ (Linux), the bundle's Frameworks (macOS); else
     // the environment's lib/gdalplugins (conda's activation names it, a PATH alone does not)
     let plugins = exe
@@ -185,7 +191,7 @@ fn configure_data() {
                 d.join("..").join("Frameworks").join("gdalplugins"),
             ]
         })
-        .chain(gdal_dirs.iter().map(|d| d.join("..").join("lib").join("gdalplugins")))
+        .chain(gdal_dirs.iter().flat_map(|d| [d.join("..").join("lib").join("gdalplugins"), d.join("gdalplugins")]))
         .find(|p| p.is_dir());
     if std::env::var_os("GDAL_DRIVER_PATH").is_none()
         && let Some(p) = plugins
@@ -213,20 +219,72 @@ fn configure_data() {
         }
     }
     shares.extend(gdal_dirs.iter().map(|d| d.join("..").join("share")));
-    if std::env::var_os("PROJ_DATA").is_none()
-        && std::env::var_os("PROJ_LIB").is_none()
-        && let Some(proj) = shares.iter().map(|s| s.join("proj")).find(|p| p.join("proj.db").exists())
-    {
-        let _ = gdal::config::set_config_option("PROJ_DATA", &proj.to_string_lossy());
-        let c = std::ffi::CString::new(proj.to_string_lossy().as_bytes()).unwrap_or_default();
-        let paths = [c.as_ptr(), std::ptr::null()];
-        unsafe { gdal_sys::OSRSetPROJSearchPaths(paths.as_ptr()) };
+    // PROJ's database: the package's, a conda environment's (share/proj), an OSGeo installation's (projlib next to
+    // gdal.dll); the environment's PROJ_DATA / PROJ_LIB first when set. Checked: a PROJ without its database, or
+    // with another version's, knows no EPSG code and every CRS fails ("not understood")
+    let mut projs: Vec<std::path::PathBuf> = shares
+        .iter()
+        .map(|s| s.join("proj"))
+        .chain(gdal_dirs.iter().flat_map(|d| [d.join("projlib"), d.join("share").join("proj")]))
+        .filter(|p| p.join("proj.db").exists())
+        .collect();
+    if let Some(env) = ["PROJ_DATA", "PROJ_LIB"].iter().find_map(std::env::var_os) {
+        projs.retain(|p| p.as_os_str() != env);
+        projs.insert(0, env.into());
     }
+    let proj_ok = || {
+        let _quiet = janus_geo::reproject::Quiet::new();
+        gdal::spatial_ref::SpatialRef::from_epsg(3857).is_ok()
+    };
+    for (k, proj) in projs.iter().enumerate() {
+        if k > 0 || std::env::var_os("PROJ_DATA").is_none() && std::env::var_os("PROJ_LIB").is_none() {
+            let _ = gdal::config::set_config_option("PROJ_DATA", &proj.to_string_lossy());
+            let c = std::ffi::CString::new(proj.to_string_lossy().as_bytes()).unwrap_or_default();
+            let paths = [c.as_ptr(), std::ptr::null()];
+            unsafe { gdal_sys::OSRSetPROJSearchPaths(paths.as_ptr()) };
+        }
+        if proj_ok() {
+            break;
+        }
+    }
+    let gdal_data = shares
+        .iter()
+        .map(|s| s.join("gdal"))
+        .chain(gdal_dirs.iter().map(|d| d.join("gdal-data")))
+        .find(|p| p.join("gdalvrt.xsd").exists());
     if std::env::var_os("GDAL_DATA").is_none()
-        && let Some(gdal) = shares.iter().map(|s| s.join("gdal")).find(|p| p.join("gdalvrt.xsd").exists())
+        && let Some(gdal) = gdal_data
     {
         let _ = gdal::config::set_config_option("GDAL_DATA", &gdal.to_string_lossy());
     }
+}
+
+/// The folder of the gdal.dll this process loaded (it may not be the one it was built with: the first on the
+/// PATH, e.g. an OSGeo installation's).
+#[cfg(windows)]
+fn loaded_gdal_dir() -> Option<std::path::PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    unsafe extern "system" {
+        fn GetModuleHandleW(name: *const u16) -> *mut std::ffi::c_void;
+        fn GetModuleFileNameW(module: *mut std::ffi::c_void, out: *mut u16, size: u32) -> u32;
+    }
+    let name: Vec<u16> = "gdal.dll".encode_utf16().chain([0]).collect();
+    // SAFETY: a NUL-terminated name; the buffer's size given.
+    unsafe {
+        let m = GetModuleHandleW(name.as_ptr());
+        if m.is_null() {
+            return None;
+        }
+        let mut buf = vec![0u16; 32768];
+        let n = GetModuleFileNameW(m, buf.as_mut_ptr(), buf.len() as u32) as usize;
+        let path = std::path::PathBuf::from(std::ffi::OsString::from_wide(&buf[..n.min(buf.len())]));
+        path.parent().map(|p| p.to_path_buf())
+    }
+}
+
+#[cfg(not(windows))]
+fn loaded_gdal_dir() -> Option<std::path::PathBuf> {
+    None
 }
 
 /// The window's icon (the taskbar, Alt+Tab; the program's own on Windows and in the macOS bundle).
