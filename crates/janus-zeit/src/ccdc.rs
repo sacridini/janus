@@ -5,7 +5,8 @@
 
 use std::f64::consts::PI;
 
-use crate::bands::{LANDSAT_ROLES, from_x10000, reflectance_units, to_x10000};
+use crate::bands::{LANDSAT_ROLES, fmask_codes, from_x10000, reflectance_units, to_x10000};
+use crate::job::{Chunk, ChunkOut, JobCtx};
 use crate::numeric::{civil, decimal_year, median, year_start};
 use crate::pixel::{Overlay, Params, PixelInput, PixelResult, g, row};
 
@@ -82,21 +83,8 @@ fn fmt(ordinal: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// The bands in Zeit's order (x 10000; the thermal band in deg C x 100), the roles and the unit mode.
-fn inputs(p: &Params, input: &PixelInput) -> (Vec<Vec<f64>>, Vec<&'static str>, String) {
-    let mut roles: Vec<&'static str> = LANDSAT_ROLES.to_vec();
-    let optical: Vec<&[f64]> = LANDSAT_ROLES.iter().map(|r| input.bands[*r].as_slice()).collect();
-    let mode = reflectance_units(p, &optical);
-    let mut vals: Vec<Vec<f64>> = optical.iter().map(|b| b.iter().map(|&v| to_x10000(v, &mode)).collect()).collect();
-    if let Some(th) = input.bands.get("thermal") {
-        roles.push("thermal");
-        vals.push(thermal_to_c100(th, &mode));
-    }
-    (vals, roles, mode)
-}
-
-/// One pixel's segments as zeit.ccdc's Dataset keeps them: dates as ordinal days (0 none), the models' coefficients
-/// (float32) per band.
+/// One pixel's segments as zeit.ccdc's Dataset keeps them: dates as ordinal days (0 none), the models'
+/// coefficients (float32) per band.
 struct Segments {
     count: usize,
     start: Vec<i64>,
@@ -106,33 +94,51 @@ struct Segments {
     coefs: Vec<Vec<[f64; 8]>>,
 }
 
+/// What CCDC gets of a chunk: the bands in Zeit's order (x 10000; the thermal band in deg C x 100), each
+/// [T][pixels]; the Fmask codes, a date where a band has no value unusable (4, as a cloud); the roles, the unit
+/// mode and the chunk's thermal values as they came (their units).
 struct Prepared {
     vals: Vec<Vec<f64>>,
     qa: Vec<i32>,
     roles: Vec<&'static str>,
     mode: String,
+    thermal: Vec<f64>,
 }
 
-/// The bands and Fmask codes CCDC gets: a date where a band has no value is unusable (4, as a cloud).
-fn prepare(p: &Params, input: &PixelInput) -> Prepared {
-    let (vals, roles, mode) = inputs(p, input);
-    let mut qa = crate::bands::fmask(input).unwrap_or_default();
-    for (t, q) in qa.iter_mut().enumerate() {
-        if !vals.iter().all(|b| b[t].is_finite()) {
+fn prepare(p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Prepared {
+    let mut roles: Vec<&'static str> = LANDSAT_ROLES.to_vec();
+    let optical: Vec<&[f64]> = LANDSAT_ROLES.iter().map(|r| chunk.bands[*r].as_slice()).collect();
+    let mode = ctx.once("units", || reflectance_units(p, &optical));
+    let mut vals: Vec<Vec<f64>> = optical.iter().map(|b| b.iter().map(|&v| to_x10000(v, &mode)).collect()).collect();
+    let thermal = chunk.bands.get("thermal").cloned().unwrap_or_default();
+    if !thermal.is_empty() {
+        roles.push("thermal");
+        vals.push(thermal_to_c100(&thermal, &mode));
+    }
+    let mut qa = fmask_codes(&chunk.bands, chunk.qa.as_deref(), ctx.input.qa_rule.as_deref()).unwrap_or_default();
+    for (i, q) in qa.iter_mut().enumerate() {
+        if !vals.iter().all(|b| b[i].is_finite()) {
             *q = 4;
         }
     }
-    Prepared { vals, qa, roles, mode }
+    Prepared { vals, qa, roles, mode, thermal }
 }
 
-fn segments(p: &Params, input: &PixelInput, pr: &Prepared) -> Result<Segments, String> {
+/// zeit.ccdc of every pixel of a prepared chunk.
+fn segments(p: &Params, ctx: &JobCtx, pr: &Prepared, t: usize, n: usize) -> Result<Vec<Segments>, String> {
     let s_max = p.int("max_segments").max(0) as usize;
     let nb = pr.vals.len();
-    // a date without a value is 0, out of the valid range: kept as one that cannot be used
-    let values: Vec<f64> =
-        pr.vals.iter().flat_map(|b| b.iter().map(|&v| if v.is_finite() { v } else { 0.0 })).collect();
+    // pixels x bands x T; a date without a value is 0, out of the valid range: kept as one that cannot be used
+    let mut values = Vec::with_capacity(n * nb * t);
+    let mut qa = Vec::with_capacity(n * t);
+    for px in 0..n {
+        for b in &pr.vals {
+            values.extend((0..t).map(|i| b[i * n + px]).map(|v| if v.is_finite() { v } else { 0.0 }));
+        }
+        qa.extend((0..t).map(|i| pr.qa[i * n + px]));
+    }
     let dates: Vec<i32> =
-        input.days.as_ref().ok_or("needs real dates")?.iter().map(|&d| (d + EPOCH_ORDINAL) as i32).collect();
+        ctx.input.days.as_ref().ok_or("needs real dates")?.iter().map(|&d| (d + EPOCH_ORDINAL) as i32).collect();
     let num_c: i32 = p.str("num_c").parse().map_err(|_| "ValueError: num_c")?;
     let params = zeit_core::ccdc::Params {
         conseq_anom: p.int("conseq_anom") as i32,
@@ -142,32 +148,36 @@ fn segments(p: &Params, input: &PixelInput, pr: &Prepared) -> Result<Segments, S
         thermal_band: pr.roles.iter().position(|r| *r == "thermal").map_or(-1, |i| i as i32),
         ..Default::default()
     };
-    let (segs, counts) = zeit_core::ccdc::fit_ccdc_batch(&values, &pr.qa, &dates, 1, nb, &params, s_max, true, 1)
+    let (segs, counts) = zeit_core::ccdc::fit_ccdc_batch(&values, &qa, &dates, n, nb, &params, s_max, true, ctx.n_jobs)
         .map_err(|e| format!("ValueError: {e}"))?;
-    let count = counts[0].max(0) as usize;
     let pps = 3 + nb * 9;
-    let date = |v: f64, k: usize| if k < count && v > 0.0 { v as i64 } else { 0 };
-    let mut out = Segments { count, start: vec![], end: vec![], brk: vec![], coefs: vec![] };
-    for k in 0..s_max {
-        let seg = &segs[k * pps..(k + 1) * pps];
-        out.start.push(date(seg[0], k));
-        out.end.push(date(seg[1], k));
-        out.brk.push(date(seg[2], k));
-        out.coefs.push(
-            (0..nb)
-                .map(|b| {
-                    let mut c = [f64::NAN; 8];
-                    for (i, ci) in c.iter_mut().enumerate() {
-                        if k < count {
-                            *ci = f64::from(seg[3 + b * 9 + 1 + i] as f32);
-                        }
-                    }
-                    c
-                })
-                .collect(),
-        );
-    }
-    Ok(out)
+    Ok((0..n)
+        .map(|px| {
+            let count = counts[px].max(0) as usize;
+            let date = |v: f64, k: usize| if k < count && v > 0.0 { v as i64 } else { 0 };
+            let mut out = Segments { count, start: vec![], end: vec![], brk: vec![], coefs: vec![] };
+            for k in 0..s_max {
+                let seg = &segs[(px * s_max + k) * pps..(px * s_max + k + 1) * pps];
+                out.start.push(date(seg[0], k));
+                out.end.push(date(seg[1], k));
+                out.brk.push(date(seg[2], k));
+                out.coefs.push(
+                    (0..nb)
+                        .map(|b| {
+                            let mut c = [f64::NAN; 8];
+                            for (i, ci) in c.iter_mut().enumerate() {
+                                if k < count {
+                                    *ci = f64::from(seg[3 + b * 9 + 1 + i] as f32);
+                                }
+                            }
+                            c
+                        })
+                        .collect(),
+                );
+            }
+            out
+        })
+        .collect())
 }
 
 /// Per break: the jump between the two segments' models at it over the detection bands, and the NDVI change.
@@ -198,7 +208,7 @@ fn shown_curve(coefs: &[[f64; 8]], pr: &Prepared, input: &PixelInput, t: &[f64])
                 .map(|&x| {
                     let v = model_at(&coefs[b], x);
                     if role == "thermal" {
-                        thermal_from_c100(v, &input.bands["thermal"], &pr.mode)
+                        thermal_from_c100(v, &pr.thermal, &pr.mode)
                     } else {
                         from_x10000(v, &pr.mode)
                     }
@@ -229,14 +239,15 @@ pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
         return fail(format!("map the bands first: {}", miss.join(", ")));
     }
     let Some(days) = &input.days else { return fail("needs real dates".into()) };
-    let pr = prepare(p, input);
+    let ctx = JobCtx::for_pixel(input);
+    let pr = prepare(p, &input.as_chunk(), &ctx);
     let t = pr.qa.len();
     let n_obs = (0..t).filter(|&i| pr.vals.iter().all(|b| b[i].is_finite())).count();
     let n_clear = pr.qa.iter().filter(|&&q| q < 2).count();
     if n_clear < 12 {
         return fail(format!("not enough clear observations ({n_clear}, need 12)"));
     }
-    let sg = segments(p, input, &pr)?;
+    let sg = segments(p, &ctx, &pr, t, 1)?.remove(0);
     let (mag, dndvi) = jumps(&sg);
     let n = sg.count.min(sg.start.len());
     let ordinals: Vec<i64> = days.iter().map(|&d| d + EPOCH_ORDINAL).collect();
@@ -306,15 +317,11 @@ pub fn synthetic_pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, St
     if !missing(input).is_empty() || input.days.is_none() || !res.rows.iter().any(|r| r[0] == "Segments") {
         return Ok(res);
     }
-    let pr = prepare(p, input);
-    let sg = segments(p, input, &pr)?;
+    let ctx = JobCtx::for_pixel(input);
+    let pr = prepare(p, &input.as_chunk(), &ctx);
+    let sg = segments(p, &ctx, &pr, pr.qa.len(), 1)?.remove(0);
     let (target, year) = target_ordinal(p, input);
-    // the segment covering the date; before the first, the first; after the last, the last
-    let used = |k: usize| k < sg.count;
-    let s_max = sg.start.len();
-    let covers = (0..s_max).find(|&k| used(k) && sg.start[k] <= target && sg.end[k] >= target);
-    let started = (0..s_max).rev().find(|&k| used(k) && sg.start[k] <= target);
-    let k = covers.or(started).unwrap_or(0);
+    let k = segment_at(&sg, target);
     let v: Vec<f64> =
         sg.coefs[k].iter().map(|c| if sg.count == 0 { f64::NAN } else { model_at(c, target as f64) }).collect();
     let by_role: Vec<(&str, f64)> = pr
@@ -322,26 +329,12 @@ pub fn synthetic_pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, St
         .iter()
         .zip(&v)
         .map(|(&r, &x)| {
-            (
-                r,
-                if r == "thermal" {
-                    thermal_from_c100(x, &input.bands["thermal"], &pr.mode)
-                } else {
-                    from_x10000(x, &pr.mode)
-                },
-            )
+            (r, if r == "thermal" { thermal_from_c100(x, &pr.thermal, &pr.mode) } else { from_x10000(x, &pr.mode) })
         })
         .collect();
     let mut rows = vec![row("Synthetic image of", format!("{} (segment {})", fmt(target), k + 1))];
     rows.extend(by_role.iter().map(|(r, x)| row(format!("  {r}"), g(*x, 5))));
-    let value = |role: &str| by_role.iter().find(|(r, _)| *r == role).map(|x| x.1);
-    let shown = input.shown.as_ref().and_then(|s| {
-        if let Some(nd) = s.nd.as_ref().filter(|nd| nd.len() == 2) {
-            let (a, b) = (value(&nd[0])?, value(&nd[1])?);
-            return Some(if a + b != 0.0 { (a - b) / (a + b) } else { f64::NAN });
-        }
-        value(s.band.as_deref()?)
-    });
+    let shown = shown_value(&by_role, input);
     let mut overlays = vec![Overlay::new("vlines", "Synthetic date", vec![year], vec![])];
     if let Some(s) = shown.filter(|s| s.is_finite()) {
         rows.push(row("  shown series", g(s, 5)));
@@ -350,5 +343,101 @@ pub fn synthetic_pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, St
     rows.append(&mut res.rows);
     res.rows = rows;
     res.overlays.extend(overlays);
+    Ok(res)
+}
+
+/// The shown series' value of the synthetic bands (its band, or the normalized difference of two).
+fn shown_value(by_role: &[(&str, f64)], input: &PixelInput) -> Option<f64> {
+    let value = |role: &str| by_role.iter().find(|(r, _)| *r == role).map(|x| x.1);
+    let s = input.shown.as_ref()?;
+    if let Some(nd) = s.nd.as_ref().filter(|nd| nd.len() == 2) {
+        let (a, b) = (value(&nd[0])?, value(&nd[1])?);
+        return Some(if a + b != 0.0 { (a - b) / (a + b) } else { f64::NAN });
+    }
+    value(s.band.as_deref()?)
+}
+
+/// The segment of a pixel covering an ordinal date: before the first, the first; after the last, the last.
+fn segment_at(sg: &Segments, target: i64) -> usize {
+    let used = |k: usize| k < sg.count;
+    let s_max = sg.start.len();
+    let covers = (0..s_max).find(|&k| used(k) && sg.start[k] <= target && sg.end[k] >= target);
+    let started = (0..s_max).rev().find(|&k| used(k) && sg.start[k] <= target);
+    covers.or(started).unwrap_or(0)
+}
+
+fn check_chunk(chunk: &Chunk, ctx: &JobCtx) -> Result<(), String> {
+    if LANDSAT_ROLES.iter().any(|r| !chunk.bands.contains_key(*r)) || ctx.input.days.is_none() {
+        return Err(format!("ValueError: CCDC needs the bands {} mapped and real dates", LANDSAT_ROLES.join(", ")));
+    }
+    Ok(())
+}
+
+pub fn chunk(p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<ChunkOut, String> {
+    check_chunk(chunk, ctx)?;
+    let pr = prepare(p, chunk, ctx);
+    let all = segments(p, ctx, &pr, chunk.t, chunk.pixels())?;
+    let names = ["n_breaks", "largest_break", "magnitude", "ndvi_change", "first_break", "last_break", "n_segments"];
+    let mut cols: Vec<Vec<f64>> = vec![Vec::with_capacity(all.len()); names.len()];
+    for sg in &all {
+        let (mag, dndvi) = jumps(sg);
+        let fitted = sg.count > 0;
+        let has: Vec<bool> = sg.brk.iter().map(|&b| b > 0).collect();
+        let years: Vec<f64> =
+            sg.brk.iter().map(|&b| if b > 0 { ordinal_decimal_year(b as f64) } else { f64::NAN }).collect();
+        let mut k = 0;
+        let score: Vec<f64> = mag.iter().map(|&m| if m.is_finite() { m } else { -1.0 }).collect();
+        for (i, &s) in score.iter().enumerate() {
+            if s > score[k] {
+                k = i;
+            }
+        }
+        let big = score.get(k).is_some_and(|&s| s >= 0.0);
+        let first = has.iter().position(|&h| h).map_or(f64::NAN, |i| years[i]);
+        let last = has.iter().rposition(|&h| h).map_or(f64::NAN, |i| years[i]);
+        let values = [
+            if fitted { has.iter().filter(|&&h| h).count() as f64 } else { f64::NAN },
+            if big { years[k] } else { f64::NAN },
+            if big { mag[k] } else { f64::NAN },
+            if big { dndvi[k] } else { f64::NAN },
+            first,
+            last,
+            if fitted { sg.count as f64 } else { f64::NAN },
+        ];
+        for (c, v) in cols.iter_mut().zip(values) {
+            c.push(v);
+        }
+    }
+    Ok(names.iter().map(|n| n.to_string()).zip(cols).collect())
+}
+
+pub fn synthetic_chunk(p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<ChunkOut, String> {
+    check_chunk(chunk, ctx)?;
+    let pr = prepare(p, chunk, ctx);
+    let all = segments(p, ctx, &pr, chunk.t, chunk.pixels())?;
+    let (target, _) = target_ordinal(p, &ctx.input);
+    let n = all.len();
+    let mut res: ChunkOut =
+        pr.roles.iter().filter(|r| **r != "thermal").map(|r| (r.to_string(), Vec::with_capacity(n))).collect();
+    let mut shown = Vec::with_capacity(n);
+    for sg in &all {
+        let k = segment_at(sg, target);
+        let by_role: Vec<(&str, f64)> = pr
+            .roles
+            .iter()
+            .zip(&sg.coefs[k])
+            .map(|(&r, c)| {
+                let x = if sg.count == 0 { f64::NAN } else { model_at(c, target as f64) };
+                (r, if r == "thermal" { thermal_from_c100(x, &pr.thermal, &pr.mode) } else { from_x10000(x, &pr.mode) })
+            })
+            .collect();
+        for (r, x) in &by_role {
+            if let Some(v) = res.get_mut(*r) {
+                v.push(*x);
+            }
+        }
+        shown.push(shown_value(&by_role, &ctx.input).unwrap_or(f64::NAN));
+    }
+    res.insert("shown".into(), shown);
     Ok(res)
 }

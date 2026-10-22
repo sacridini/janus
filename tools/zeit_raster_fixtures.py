@@ -100,7 +100,31 @@ def multiband_cases(roles, variants):
     return cases
 
 
+def ccdc_cases(synthetic):
+    def cases(rng):
+        out = []
+        variants = [{}, {"num_c": "6", "conseq_anom": 4}, {"max_segments": 3}]
+        for k, params in enumerate(variants):
+            years, days, bands, qa, shown = landsat_grid(rng, n_dates=150)
+            case = {"params": dict(params), "years": years, "days": days, "input": shown, "bands": dict(bands),
+                    "qa_input": qa, "qa_rule": "fmask", "shown": {"band": None, "nd": ["nir", "red"]}}
+            if k == 1:  # a thermal band in Kelvin; reflectance 0-1
+                season = np.sin(2 * np.pi * np.asarray(days)[:, None, None] / 365.25)
+                kelvin = 295.0 + 8.0 * season + rng.normal(0, 1, (len(days), H, W))
+                case["bands"] = {r: v / 10000.0 for r, v in case["bands"].items()}
+                case["bands"]["thermal"] = kelvin
+                case["shown"] = {"band": "thermal", "nd": None}
+            if synthetic:
+                case["params"]["date"] = [0.0, 2016.5, 2030.0][k]
+                case["map_year"] = 2017.25
+            out.append(case)
+        return out
+    return cases
+
+
 CASES = {
+    "ccdc": ccdc_cases(False),
+    "ccdc_synthetic": ccdc_cases(True),
     "coded": multiband_cases(zf.zc.LANDSAT_ROLES, [{}, {"direction": "both", "thresh": 2.0}, {"monitor_start": 2016.0}]),
     "ndfi": multiband_cases(zf.zc.LANDSAT_ROLES, [{}, {"fractions": True, "cloud_threshold": 1.0}, {"cloud_threshold": 0.2}]),
     "tmask": multiband_cases(["green", "swir1"], [{}, {"write_series": False}, {}]),

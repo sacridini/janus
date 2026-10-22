@@ -1,0 +1,59 @@
+{
+ "outputs": [
+  {
+   "id": "n_breaks",
+   "name": "Breaks",
+   "colormap": "Viridis",
+   "unit": "count",
+   "path": "ccdc_n_breaks.tif"
+  },
+  {
+   "id": "largest_break",
+   "name": "Largest break date",
+   "colormap": "Viridis",
+   "unit": "year",
+   "path": "ccdc_largest_break.tif"
+  },
+  {
+   "id": "magnitude",
+   "name": "Largest break magnitude",
+   "colormap": "Plasma",
+   "unit": "refl x 10000",
+   "path": "ccdc_magnitude.tif"
+  },
+  {
+   "id": "ndvi_change",
+   "name": "NDVI change at largest break",
+   "colormap": "BrBG",
+   "unit": "NDVI",
+   "path": "ccdc_ndvi_change.tif"
+  },
+  {
+   "id": "first_break",
+   "name": "First break date",
+   "colormap": "Viridis",
+   "unit": "year",
+   "path": "ccdc_first_break.tif"
+  },
+  {
+   "id": "last_break",
+   "name": "Last break date",
+   "colormap": "Viridis",
+   "unit": "year",
+   "path": "ccdc_last_break.tif"
+  },
+  {
+   "id": "n_segments",
+   "name": "Segments",
+   "colormap": "Viridis",
+   "unit": "count",
+   "path": "ccdc_n_segments.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}

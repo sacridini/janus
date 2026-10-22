@@ -1,0 +1,52 @@
+{
+ "outputs": [
+  {
+   "id": "shown",
+   "name": "Synthetic (shown series)",
+   "colormap": "Viridis",
+   "path": "ccdc_synthetic_shown.tif"
+  },
+  {
+   "id": "blue",
+   "name": "Synthetic blue",
+   "colormap": "Greys",
+   "path": "ccdc_synthetic_blue.tif"
+  },
+  {
+   "id": "green",
+   "name": "Synthetic green",
+   "colormap": "Greys",
+   "path": "ccdc_synthetic_green.tif"
+  },
+  {
+   "id": "red",
+   "name": "Synthetic red",
+   "colormap": "Greys",
+   "path": "ccdc_synthetic_red.tif"
+  },
+  {
+   "id": "nir",
+   "name": "Synthetic nir",
+   "colormap": "Greys",
+   "path": "ccdc_synthetic_nir.tif"
+  },
+  {
+   "id": "swir1",
+   "name": "Synthetic swir1",
+   "colormap": "Greys",
+   "path": "ccdc_synthetic_swir1.tif"
+  },
+  {
+   "id": "swir2",
+   "name": "Synthetic swir2",
+   "colormap": "Greys",
+   "path": "ccdc_synthetic_swir2.tif"
+  }
+ ],
+ "window": [
+  0,
+  0,
+  16,
+  10
+ ]
+}

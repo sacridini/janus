@@ -440,6 +440,8 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "tmask" => crate::tmask::chunk(p, chunk, ctx),
         "ndfi" => crate::ndfi::chunk(p, chunk, ctx),
         "coded" => crate::coded::chunk(p, chunk, ctx),
+        "ccdc" => crate::ccdc::chunk(p, chunk, ctx),
+        "ccdc_synthetic" => crate::ccdc::synthetic_chunk(p, chunk, ctx),
         "bfast_lite" => crate::bfast::lite_chunk(p, chunk, ctx),
         "bfast_monitor" => crate::bfast::monitor_chunk(p, chunk, ctx),
         _ => Err(format!("{tool}: raster runs not available in this version")),
