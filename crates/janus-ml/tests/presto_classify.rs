@@ -105,6 +105,7 @@ fn presto_classifies_and_embeds() {
         inputs: read.clone(),
         calendar,
         norm: Norm::default(),
+        standard: None,
         classes: ["forest", "crop", "bare"].iter().map(|n| Class { name: n.to_string(), color: [1, 2, 3] }).collect(),
         min_valid: 0.0,
         series: String::new(),

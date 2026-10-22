@@ -22,10 +22,22 @@ use serde_json::{Value, json};
 use crate::app::State;
 use crate::zeit::{Job, JobLog, JobState, JobStatus};
 
-const ARCHS: [&str; 3] =
-    ["TempCNN (Pelletier et al. 2019)", "L-TAE (Garnot & Landrieu 2020)", "Presto (Tseng et al. 2023, pretrained)"];
-const SOURCES: [&str; 4] =
-    ["Interpretation labels", "Validation project (reference)", "Vector layer (class column)", "Pins (a class each)"];
+const ARCHS: [&str; 4] = [
+    "TempCNN (Pelletier et al. 2019)",
+    "L-TAE (Garnot & Landrieu 2020)",
+    "Presto (Tseng et al. 2023, pretrained)",
+    "U-TAE (Garnot & Landrieu 2021, patches)",
+];
+/// The architecture that segments patches (dense labels)
+const UTAE: usize = 3;
+const PATCHES: [usize; 3] = [32, 64, 128];
+const SOURCES: [&str; 5] = [
+    "Interpretation labels",
+    "Validation project (reference)",
+    "Vector layer (class column)",
+    "Pins (a class each)",
+    "A class map (every pixel a label; U-TAE)",
+];
 const POLYGONS: [&str; 3] = ["Its centre", "Each pixel inside", "The mean of its pixels"];
 
 /// A place samples come from: its class and its pixels (in the active layer), one sample each or their mean.
@@ -71,6 +83,12 @@ pub struct MlUi {
     /// Presto: the year of its monthly composites (0: the series' last), or the series' own dates
     pub presto_year: i32,
     pub presto_dates: bool,
+    /// U-TAE: the patches' side, starting from PASTIS's weights, the class map giving the labels (its file)
+    pub patch: usize,
+    pub pastis: bool,
+    pub label_map: String,
+    /// U-TAE: only the labels inside the ROI
+    pub in_roi: bool,
     pub gpu: bool,
     pub scope: usize,
     pub run: Option<Arc<Mutex<TrainRun>>>,
@@ -98,6 +116,10 @@ impl Default for MlUi {
             min_valid: 50.0,
             presto_year: 0,
             presto_dates: false,
+            patch: 64,
+            pastis: false,
+            label_map: String::new(),
+            in_roi: false,
             gpu: true,
             scope: 0,
             run: None,
@@ -112,6 +134,12 @@ impl MlUi {
         match self.arch {
             1 => Arch::LTae(Default::default()),
             2 => Arch::Presto(PrestoHyper::default()),
+            UTAE => Arch::Utae(janus_ml::utae::UtaeHyper {
+                patch: self.patch,
+                overlap: self.patch / 4,
+                pastis: self.pastis,
+                ..Default::default()
+            }),
             _ => Arch::TempCnn(Default::default()),
         }
     }
@@ -180,9 +208,16 @@ impl State {
     pub(crate) fn ml_sites(&self) -> Result<(Vec<Site>, Vec<String>), String> {
         let info = &self.session.as_ref().ok_or("no series is open")?.info;
         let ui = &self.ml;
-        let every = ui.polygons > 0;
-        let mean = ui.polygons == 2;
-        let max = if mean { 5000 } else { ui.max_pixels.max(1) };
+        let dense = ui.arch == UTAE;
+        let every = ui.polygons > 0 || dense;
+        let mean = ui.polygons == 2 && !dense;
+        let max = if dense {
+            usize::MAX / 2
+        } else if mean {
+            5000
+        } else {
+            ui.max_pixels.max(1)
+        };
         let mut sites = vec![];
         let mut order: Vec<String> = vec![];
         let of_layer =
@@ -231,6 +266,13 @@ impl State {
                 let data = v.data.clone();
                 of_layer(ui.vector, &|i| data.features.get(i).map(|f| f.values[field].trim().to_string()), &mut sites)?;
             }
+            4 => {
+                if !dense {
+                    return Err("a class map gives a label to every pixel: for U-TAE, which learns from patches".into());
+                }
+                let r = self.zeit.results.iter().find(|r| r.path == ui.label_map).ok_or("choose the class map")?;
+                return Ok((vec![], r.classes.clone()));
+            }
             _ => {
                 for p in &self.series.pins {
                     if let Some(c) = ui.pin_classes.get(&p.id).filter(|c| !c.trim().is_empty()) {
@@ -267,7 +309,7 @@ impl State {
     pub(crate) fn ml_menu(&mut self, ui: &mut Ui) {
         ui.label(egui::RichText::new("Deep learning").weak().small());
         if ui
-            .add(egui::Button::selectable(self.ml.open, "Classify with deep learning (TempCNN, L-TAE, Presto)"))
+            .add(egui::Button::selectable(self.ml.open, "Classify with deep learning (TempCNN, L-TAE, Presto, U-TAE)"))
             .clicked()
         {
             self.ml.open = !self.ml.open;
@@ -341,6 +383,32 @@ impl State {
                         });
                 }
             }
+            4 => {
+                let maps: Vec<(String, String, usize)> = self
+                    .zeit
+                    .results
+                    .iter()
+                    .filter(|r| !r.classes.is_empty() && r.cube == info.id)
+                    .map(|r| (r.path.clone(), r.name.clone(), r.classes.len()))
+                    .collect();
+                if maps.is_empty() {
+                    ui.weak("Open a class map first (a classification's result: TempCNN's, SOM's, TWDTW's...).");
+                }
+                let cur = maps.iter().find(|m| m.0 == self.ml.label_map);
+                ComboBox::from_id_salt("ml label map")
+                    .selected_text(cur.map_or("(choose a class map)", |m| m.1.as_str()))
+                    .show_ui(ui, |ui| {
+                        for m in &maps {
+                            changed |= ui
+                                .selectable_value(
+                                    &mut self.ml.label_map,
+                                    m.0.clone(),
+                                    format!("{} ({} classes)", m.1, m.2),
+                                )
+                                .changed();
+                        }
+                    });
+            }
             3 => {
                 if self.series.pins.is_empty() {
                     ui.weak("Drop pins on places you know (a click on the map), then give each a class.");
@@ -356,7 +424,9 @@ impl State {
             }
             _ => {}
         }
-        if self.ml.source != 3 {
+        if self.ml.arch == UTAE {
+            ui.weak("U-TAE learns from patches: every pixel of a polygon is a label, the others none.");
+        } else if self.ml.source != 3 {
             ui.horizontal(|ui| {
                 ui.label("A polygon gives");
                 ComboBox::from_id_salt("ml polygons").selected_text(POLYGONS[self.ml.polygons]).show_ui(ui, |ui| {
@@ -402,6 +472,13 @@ impl State {
                     ui.colored_label(crate::theme::error(), "At least two classes and ten samples are needed.");
                 }
             }
+            Some(Ok(c)) if self.ml.source == 4 && self.ml.arch == UTAE => {
+                let _ = c;
+                if let Some(r) = self.zeit.results.iter().find(|r| r.path == self.ml.label_map) {
+                    ui.label(format!("{} classes: {}", r.classes.len(), r.classes.join(", ")));
+                    can_train = r.classes.len() >= 2;
+                }
+            }
             Some(Ok(_)) => {
                 ui.weak("No labelled samples yet.");
             }
@@ -414,6 +491,16 @@ impl State {
         crate::panels::section(ui, "Values read on each date");
         if self.ml.arch == 2 {
             can_train &= self.presto_inputs_ui(ui, &info);
+        } else if self.ml.arch == UTAE
+            && pastis_bands(&info).is_some()
+            && {
+                ui.checkbox(&mut self.ml.pastis, "Start from the authors' PASTIS weights (Sentinel-2 crops, 10 bands)")
+                .on_hover_text("U-TAE trained by its authors on PASTIS (France, 20 crop types): its weights as the starting point, its last layer made for your classes. Downloaded once (13 MB).");
+                self.ml.pastis
+            }
+        {
+            let b = pastis_bands(&info).unwrap_or_default();
+            ui.weak(format!("Its 10 bands: {}", b.iter().map(|x| x.name.clone()).collect::<Vec<_>>().join(", ")));
         } else if info.bands_per_date > 1 {
             ui.checkbox(&mut self.ml.shown, format!("The series shown ({})", InputBand::shown(&info).name));
             ui.horizontal_wrapped(|ui| {
@@ -432,8 +519,26 @@ impl State {
         } else {
             ui.label(format!("The series shown ({})", InputBand::shown(&info).name));
         }
-        let inputs = self.ml_inputs(&info);
-        if self.ml.arch != 2 {
+        let inputs = if self.ml.arch == UTAE && self.ml.pastis {
+            pastis_bands(&info).unwrap_or_default()
+        } else {
+            self.ml_inputs(&info)
+        };
+        if self.ml.arch == UTAE {
+            ui.horizontal(|ui| {
+                ui.label("Patches of");
+                ComboBox::from_id_salt("ml patch").selected_text(format!("{} px", self.ml.patch)).show_ui(ui, |ui| {
+                    for p in PATCHES {
+                        ui.selectable_value(&mut self.ml.patch, p, format!("{p} px"));
+                    }
+                });
+            });
+            ui.weak("The image is classified in windows of this side, overlapping by a quarter (their mean).");
+            if self.series.roi_rect.is_some() {
+                ui.checkbox(&mut self.ml.in_roi, "Only the labels inside the ROI");
+            }
+        }
+        if self.ml.arch != 2 && self.ml.arch != UTAE {
             if inputs.is_empty() {
                 can_train = false;
                 ui.colored_label(crate::theme::error(), "Choose at least one value.");
@@ -681,6 +786,17 @@ impl State {
         if let Arch::Presto(h) = &mut arch {
             h.inputs.year = self.ml.presto_year(info);
         }
+        // U-TAE's labels from a class map: its file and where it lies on the series
+        let label_map = (self.ml.arch == UTAE && self.ml.source == 4)
+            .then(|| {
+                self.zeit
+                    .results
+                    .iter()
+                    .find(|r| r.path == self.ml.label_map)
+                    .map(|r| (r.path.clone(), r.x0, r.y0, r.w, r.h))
+            })
+            .flatten();
+        let roi = (self.ml.arch == UTAE && self.ml.in_roi).then_some(self.series.roi_rect).flatten();
         let cfg = self.ml.cfg.clone();
         let (min_valid, gpu) = (self.ml.min_valid, self.ml.gpu);
         let layer_inputs = self.layers.get(self.active).map(|l| l.inputs.clone()).unwrap_or_default();
@@ -739,21 +855,40 @@ impl State {
                     run.lock().unwrap().message = m.to_string();
                     c.request_repaint();
                 };
-                let r = train_job(
-                    &info,
-                    &inputs,
-                    &sites,
-                    &classes,
-                    &arch,
-                    &cfg,
-                    min_valid,
-                    gpu,
-                    &model_path,
-                    &log,
-                    &run,
-                    &set,
-                    &cancel,
-                );
+                let r = if let Arch::Utae(h) = &arch {
+                    utae_job(
+                        &info,
+                        &inputs,
+                        &sites,
+                        label_map.as_ref(),
+                        roi,
+                        &classes,
+                        h,
+                        &cfg,
+                        gpu,
+                        &model_path,
+                        &log,
+                        &run,
+                        &set,
+                        &cancel,
+                    )
+                } else {
+                    train_job(
+                        &info,
+                        &inputs,
+                        &sites,
+                        &classes,
+                        &arch,
+                        &cfg,
+                        min_valid,
+                        gpu,
+                        &model_path,
+                        &log,
+                        &run,
+                        &set,
+                        &cancel,
+                    )
+                };
                 let mut s = status.lock().unwrap();
                 s.seconds = t0.elapsed().as_secs_f64();
                 let mut rr = run.lock().unwrap();
@@ -910,8 +1045,16 @@ impl State {
 
 /// Whether a model applies to a series (its dates and values), and why not.
 pub fn check_fits(h: &Header, info: &CubeInfo) -> Result<(), String> {
-    if info.t() != h.calendar.len() {
-        return Err(format!("the model was trained on {} dates; this series has {}", h.calendar.len(), info.t()));
+    match &h.arch {
+        // Presto: the year's dates; U-TAE: any dates (their positions are the series' own)
+        Arch::Presto(p) => {
+            p.inputs.steps(info)?;
+        }
+        Arch::Utae(_) => {}
+        _ if info.t() != h.calendar.len() => {
+            return Err(format!("the model was trained on {} dates; this series has {}", h.calendar.len(), info.t()));
+        }
+        _ => {}
     }
     for b in &h.inputs {
         b.find_in(info)?;
@@ -1053,6 +1196,7 @@ fn train_job(
         inputs,
         calendar,
         norm,
+        standard: None,
         classes: classes.iter().enumerate().map(|(k, c)| Class { name: c.clone(), color: class_color(k) }).collect(),
         min_valid,
         series: info.description.clone(),
@@ -1304,4 +1448,139 @@ impl State {
             })
             .ok();
     }
+}
+
+/// The series' 10 bands of PASTIS (Sentinel-2's B2...B12, by name), in PASTIS's order, when it has them all.
+fn pastis_bands(info: &CubeInfo) -> Option<Vec<InputBand>> {
+    let found = janus_ml::presto::match_names(&info.band_names, &|_| None);
+    // Presto's inputs 2..12 are PASTIS's bands, in its order
+    found[2..12].iter().map(|b| b.map(|k| InputBand::source(info, k as i32 + 1))).collect()
+}
+
+/// A U-TAE trained on dense labels: the labelled places' pixels (or a class map's), patches over them, each
+/// band standardized; from the authors' PASTIS weights if asked.
+#[allow(clippy::too_many_arguments)]
+fn utae_job(
+    info: &Arc<CubeInfo>,
+    inputs: &[InputBand],
+    sites: &[Site],
+    label_map: Option<&(String, usize, usize, usize, usize)>,
+    roi: Option<[usize; 4]>,
+    classes: &[String],
+    h: &janus_ml::utae::UtaeHyper,
+    cfg: &TrainConfig,
+    gpu: bool,
+    model_path: &str,
+    log: &JobLog,
+    run: &Arc<Mutex<TrainRun>>,
+    set: &dyn Fn(f64, &str),
+    cancel: &AtomicBool,
+) -> Result<Header, String> {
+    use janus_ml::dense::{NONE, Standard, read_patches, train_utae};
+    let (w, hh) = (info.width, info.height);
+    let mut labels = vec![NONE; w * hh];
+    if let Some((path, x0, y0, mw, mh)) = label_map {
+        // a class map: value k is class k (1-based)
+        let ds = gdal::Dataset::open(path).map_err(|e| format!("{path}: {e}"))?;
+        let (fw, fh) = ds.raster_size();
+        let band = ds.rasterband(1).map_err(|e| e.to_string())?;
+        let v = band.read_as::<f32>((0, 0), (fw, fh), (*mw, *mh), None).map_err(|e| format!("{path}: {e}"))?;
+        for (i, &c) in v.data().iter().enumerate() {
+            let (x, y) = (x0 + i % mw, y0 + i / mw);
+            if c.is_finite() && c >= 1.0 && (c as usize) <= classes.len() && x < w && y < hh {
+                labels[y * w + x] = c as u8 - 1;
+            }
+        }
+    } else {
+        for s in sites {
+            let k = classes.iter().position(|c| c == &s.class).unwrap_or(0) as u8;
+            for &(x, y) in &s.pixels {
+                labels[y * w + x] = k;
+            }
+        }
+    }
+    if let Some([x0, y0, x1, y1]) = roi {
+        for (i, l) in labels.iter_mut().enumerate() {
+            let (x, y) = (i % w, i / w);
+            if x < x0 || x >= x1 || y < y0 || y >= y1 {
+                *l = NONE;
+            }
+        }
+    }
+    let n_labels = labels.iter().filter(|&&l| l != NONE).count();
+    let mut per_class = vec![0usize; classes.len()];
+    for &l in labels.iter().filter(|&&l| l != NONE) {
+        per_class[l as usize] += 1;
+    }
+    log.line(&format!(
+        "{n_labels} labelled pixels: {}",
+        classes.iter().zip(&per_class).map(|(c, n)| format!("{c} {n}")).collect::<Vec<_>>().join(", ")
+    ));
+    let pastis = if h.pastis {
+        set(0.0, "U-TAE's PASTIS weights");
+        Some(janus_ml::utae::pastis_weights(&crate::settings::app_data_dir().join("weights"), &|_| {}, cancel)?)
+    } else {
+        None
+    };
+    set(0.01, "reading the patches");
+    let mut patches =
+        read_patches(info, inputs, &labels, h.patch, &|f| set(0.01 + 0.04 * f, "reading the patches"), cancel)?;
+    let standard = Standard::fit(&patches);
+    standard.apply(&mut patches.x, patches.c, h.patch * h.patch);
+    log.line(&format!("{} patches of {} px", patches.n, h.patch));
+    let dev = shared_device(gpu);
+    log.line(&format!("device: {}", dev.1));
+    set(0.05, &format!("training on {} patches ({})", patches.n, dev.1));
+    let calendar = Calendar::of(info);
+    let epochs = cfg.epochs;
+    let mut on_epoch = |e: &Epoch| {
+        log.line(&format!(
+            "epoch {:3}: training loss {:.4} accuracy {:.3}, validation loss {:.4} accuracy {:.3} ({:.1} s)",
+            e.epoch, e.train_loss, e.train_acc, e.val_loss, e.val_acc, e.seconds
+        ));
+        run.lock().unwrap().epochs.push(e.clone());
+        set(
+            0.05 + 0.94 * e.epoch as f64 / epochs as f64,
+            &format!("epoch {}: validation accuracy {:.1} %", e.epoch, e.val_acc * 100.0),
+        );
+    };
+    let trained = train_utae(
+        &patches,
+        classes.len(),
+        h,
+        &calendar.day_offsets(),
+        cfg,
+        pastis.as_ref(),
+        &dev.0,
+        &mut on_epoch,
+        cancel,
+    )?;
+    let (oa, _, _) = trained.accuracies();
+    log.line(&format!(
+        "best epoch {} of {}; validation overall accuracy {:.4} (pixels)",
+        trained.best_epoch,
+        trained.history.len(),
+        oa
+    ));
+    let mut training = trained.summary(cfg, &per_class);
+    training["device"] = json!(dev.1);
+    training["samples"]["patches"] = json!(patches.n);
+    let header = Header {
+        format: 1,
+        janus: env!("CARGO_PKG_VERSION").into(),
+        arch: Arch::Utae(h.clone()),
+        inputs: inputs.to_vec(),
+        calendar,
+        norm: Norm::default(),
+        standard: Some(standard),
+        classes: classes.iter().enumerate().map(|(k, c)| Class { name: c.clone(), color: class_color(k) }).collect(),
+        min_valid: 0.0,
+        series: info.description.clone(),
+        training,
+        created: crate::zeit::timestamp_text(),
+    };
+    let model = Model { header: header.clone(), net: trained.net, device: dev.0.clone() };
+    model.save(model_path)?;
+    log.line(&format!("model: {model_path}"));
+    Ok(header)
 }

@@ -608,6 +608,24 @@ Windows sem Python nem conda, e chamável pela linha de comando
   para depois.
 
 **Fase 38 — U-TAE (segmentação espaço-temporal)**
+- **Feito (2026-10-22)**: `janus-ml/src/utae.rs` (a rede, com os nomes do
+  `utae-paps`: os pesos dos autores entram como são, os índices dos
+  `Sequential` renomeados) e `dense.rs` (recortes, padronização, treino,
+  janelas). Pesos do PASTIS: a dobra 1 do zip do Zenodo 5172293 (13 MB, lida de
+  dentro do zip remoto pelo `/vsizip//vsicurl/`, SHA-256 conferido; o Zenodo
+  recusa pedidos sem `User-Agent`, que o Janus passa a mandar). Conferência: com
+  esses pesos, os escores do Janus e os do `zeit.ai.utae` (porte camada a camada
+  do oficial) nos mesmos recortes (um com datas sem observação) diferem em até
+  6×10⁻⁵ em escores de até 18 (CPU e GPU); não com um recorte do PASTIS (29 GB),
+  mas com recortes inventados nos mesmos pesos. A interpolação bilinear da
+  atenção é feita com seleções e pesos (o backend wgpu do Burn não tem o seu
+  gradiente). Rótulos densos: os pixels dos polígonos (ou pontos e pinos, um
+  pixel cada), ou um mapa de classes já no mapa, opcionalmente só dentro da ROI;
+  recortes de 32/64/128 px sobrepostos pela metade sobre os rótulos; a perda só
+  nos pixels rotulados; Adam 1e-3, lotes de 4 (os do autor). A aplicação em
+  janelas sobrepostas por um quarto, a média das probabilidades; as posições
+  das datas são as da série em que se aplica. Self-test da interface: estágios
+  87–89 (o U-TAE aprende o mapa do TempCNN numa ROI e a classifica).
 - Garnot & Landrieu (2021, PASTIS): U-Net com atenção temporal (L-TAE) no
   gargalo; classifica recortes inteiros (p. ex. 128 × 128 pixels × datas ×
   bandas), então usa a vizinhança além do pixel (as bordas dos talhões).
@@ -689,7 +707,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 35 | — | **TempCNN** (Pelletier et al. 2019), conferido contra o `sits_tempcnn` | concluída (sem versão) |
 | 36 | — | **L-TAE** (Garnot & Landrieu 2020), datas irregulares pelo dia do ano, conferido contra o `sits_lighttae` | concluída (sem versão) |
 | 37 | — | **Presto** (Tseng et al. 2023), pré-treinado: embeddings no painel Embeddings e ajuste fino com poucas amostras | concluída (sem versão) |
-| 38 | — | **U-TAE** (Garnot & Landrieu 2021): segmentação espaço-temporal de recortes, janelas deslizantes, pesos do PASTIS para ajuste fino | planejada |
+| 38 | — | **U-TAE** (Garnot & Landrieu 2021): segmentação espaço-temporal de recortes, janelas deslizantes, pesos do PASTIS para ajuste fino | concluída (sem versão) |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a

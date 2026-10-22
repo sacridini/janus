@@ -140,57 +140,87 @@ pub fn apply(
     let ln_k = (k as f64).ln();
     let t0 = std::time::Instant::now();
     let mut classified = 0;
-    std::thread::scope(|s| -> Result<(), String> {
-        // the next band of rows read (and its gaps filled, its values scaled) while this one is classified
-        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(Series, Vec<bool>), String>>(1);
-        let (bands_r, inputs_r) = (&bands, &inputs);
-        s.spawn(move || {
-            for &(r, hh) in bands_r {
-                if tx.send(input_of(model, info, inputs_r, (x0, y0 + r, w, hh))).is_err() {
-                    break;
-                }
-            }
-        });
-        let mut done = 0;
-        for &(r, hh) in &bands {
-            if cancel.load(Ordering::Relaxed) {
-                return Err("cancelled".into());
-            }
-            let (sr, keep) = rx.recv().map_err(|e| e.to_string())??;
-            let idx: Vec<usize> = (0..sr.n).filter(|&i| keep[i]).collect();
-            let sel = sr.select(&idx);
-            let p = model.predict(&sel.values, sel.n, batch);
-            let n = w * hh;
-            let (mut cls, mut prob, mut ent) = (vec![0u8; n], vec![f32::NAN; n], vec![f32::NAN; n]);
-            for (j, &i) in idx.iter().enumerate() {
-                let pj = &p[j * k..(j + 1) * k];
-                let (best, &pmax) = pj.iter().enumerate().fold((0, &f32::MIN), |a, b| if b.1 > a.1 { b } else { a });
-                cls[i] = best as u8 + 1;
-                prob[i] = pmax;
-                let hsum: f64 = pj.iter().filter(|&&q| q > 0.0).map(|&q| -(q as f64) * (q as f64).ln()).sum();
-                ent[i] = if ln_k > 0.0 { (hsum / ln_k) as f32 } else { 0.0 };
-            }
-            classified += idx.len();
-            let write = |ds: &mut Dataset, data: Vec<f32>| -> Result<(), String> {
-                let mut b = ds.rasterband(1).map_err(|e| e.to_string())?;
-                b.write((0, r as isize), (w, hh), &mut Buffer::new((w, hh), data)).map_err(|e| e.to_string())
-            };
-            class_ds
-                .rasterband(1)
+    let mut write_rows = |r: usize, hh: usize, cls: Vec<u8>, prob: Vec<f32>, ent: Vec<f32>| -> Result<(), String> {
+        class_ds
+            .rasterband(1)
+            .map_err(|e| e.to_string())?
+            .write((0, r as isize), (w, hh), &mut Buffer::new((w, hh), cls))
+            .map_err(|e| e.to_string())?;
+        for (ds, data) in [(&mut prob_ds, prob), (&mut entropy_ds, ent)] {
+            ds.rasterband(1)
                 .map_err(|e| e.to_string())?
-                .write((0, r as isize), (w, hh), &mut Buffer::new((w, hh), cls))
+                .write((0, r as isize), (w, hh), &mut Buffer::new((w, hh), data))
                 .map_err(|e| e.to_string())?;
-            write(&mut prob_ds, prob)?;
-            write(&mut entropy_ds, ent)?;
-            done += hh;
-            let el = t0.elapsed().as_secs_f64();
-            progress(
-                done as f64 / h as f64,
-                &format!("rows {done}/{h}, {el:.0} s elapsed, ~{:.0} s left", el / done as f64 * (h - done) as f64),
-            );
         }
         Ok(())
-    })?;
+    };
+    let summarize = |p: &[f32]| -> (u8, f32, f32) {
+        let (best, &pmax) = p.iter().enumerate().fold((0, &f32::MIN), |a, b| if b.1 > a.1 { b } else { a });
+        let hsum: f64 = p.iter().filter(|&&q| q > 0.0).map(|&q| -(q as f64) * (q as f64).ln()).sum();
+        (best as u8 + 1, pmax, if ln_k > 0.0 { (hsum / ln_k) as f32 } else { 0.0 })
+    };
+    if let Arch::Utae(_) = &model.header.arch {
+        let standard = model.header.standard.clone().unwrap_or_default();
+        crate::dense::classify_windows(
+            model,
+            info,
+            &inputs,
+            spec.window,
+            &standard,
+            progress,
+            cancel,
+            &mut |r, hh, probs| {
+                let n = w * hh;
+                let (mut cls, mut prob, mut ent) = (vec![0u8; n], vec![f32::NAN; n], vec![f32::NAN; n]);
+                for i in 0..n {
+                    let p = &probs[i * k..(i + 1) * k];
+                    if p[0].is_finite() {
+                        (cls[i], prob[i], ent[i]) = summarize(p);
+                        classified += 1;
+                    }
+                }
+                write_rows(r, hh, cls, prob, ent)
+            },
+        )?;
+    } else {
+        std::thread::scope(|s| -> Result<(), String> {
+            // the next band of rows read (and its gaps filled, its values scaled) while this one is classified
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(Series, Vec<bool>), String>>(1);
+            let (bands_r, inputs_r) = (&bands, &inputs);
+            s.spawn(move || {
+                for &(r, hh) in bands_r {
+                    if tx.send(input_of(model, info, inputs_r, (x0, y0 + r, w, hh))).is_err() {
+                        break;
+                    }
+                }
+            });
+            let mut done = 0;
+            for &(r, hh) in &bands {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err("cancelled".into());
+                }
+                let (sr, keep) = rx.recv().map_err(|e| e.to_string())??;
+                let idx: Vec<usize> = (0..sr.n).filter(|&i| keep[i]).collect();
+                let sel = sr.select(&idx);
+                let p = model.predict(&sel.values, sel.n, batch);
+                let n = w * hh;
+                let (mut cls, mut prob, mut ent) = (vec![0u8; n], vec![f32::NAN; n], vec![f32::NAN; n]);
+                for (j, &i) in idx.iter().enumerate() {
+                    (cls[i], prob[i], ent[i]) = summarize(&p[j * k..(j + 1) * k]);
+                }
+                classified += idx.len();
+                write_rows(r, hh, cls, prob, ent)?;
+                done += hh;
+                let el = t0.elapsed().as_secs_f64();
+                progress(
+                    done as f64 / h as f64,
+                    &format!("rows {done}/{h}, {el:.0} s elapsed, ~{:.0} s left", el / done as f64 * (h - done) as f64),
+                );
+            }
+            Ok(())
+        })?;
+    }
+    drop(write_rows);
     drop((class_ds, prob_ds, entropy_ds));
     let names: Vec<&str> = model.header.classes.iter().map(|c| c.name.as_str()).collect();
     let arch = model.header.arch.name();

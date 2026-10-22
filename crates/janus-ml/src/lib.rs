@@ -5,12 +5,14 @@
 
 pub mod apply;
 pub mod data;
+pub mod dense;
 pub mod fetch;
 pub mod ltae;
 pub mod model;
 pub mod presto;
 pub mod tempcnn;
 pub mod train;
+pub mod utae;
 
 pub use data::{Calendar, InputBand, Norm, Series};
 pub use model::{Arch, Class, Header, Model, Net};

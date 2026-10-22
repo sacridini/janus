@@ -3,7 +3,8 @@
 //! a file as it grows (73-74); the Analysis panel drawn on every tab (75-76); the layout scrambled and reset (77-78);
 //! a finished Zeit run with a series output and a class map with typical series (81); a SNIC run on the series, its
 //! segments, their mean series and their polygons (82-83); deep learning: a TempCNN trained on pins given a class,
-//! kept in its file and applied, its class map, probability and uncertainty as layers (84-86).
+//! kept in its file and applied, its class map, probability and uncertainty as layers (84-86); a U-TAE learning
+//! from that class map inside an ROI (dense labels, patches) and classifying the ROI in windows (87-89).
 
 use super::UiTest;
 use crate::app::{LayoutCmd, State};
@@ -492,13 +493,99 @@ impl State {
                 if class.classes != ["West", "East"] || n == 0 {
                     return fail("the class map should load with the model's classes");
                 }
+                let path = class.path.clone();
+                next(st, "deep learning: the class map (its classes), its probability and uncertainty as layers");
+                // U-TAE on that class map's labels, inside an ROI of 64 x 64 px: patches of 32 px, 2 epochs
+                self.set_roi_rect([40, 40, 104, 104]);
+                self.ml.arch = 3;
+                self.ml.source = 4;
+                self.ml.label_map = path;
+                self.ml.patch = 32;
+                self.ml.in_roi = true;
+                self.ml.cfg = janus_ml::TrainConfig { epochs: 2, ..janus_ml::dense::utae_config() };
+                self.ml.scope = 2;
+                self.ml.run = None;
+            }
+            87 => {
+                self.series.roi_rect?;
+                let (_, classes) = match self.ml_sites() {
+                    Ok(s) => s,
+                    Err(e) => return fail(&format!("the class map should give U-TAE's labels: {e}")),
+                };
+                if classes != ["West", "East"] {
+                    return fail(&format!("the class map's classes, got {classes:?}"));
+                }
+                self.ml_train_now(ctx);
+                next(st, "U-TAE: the class map's labels inside the ROI, a training started (patches of 32 px)");
+            }
+            88 => {
+                let run = self.ml.run.clone()?;
+                let r = run.lock().ok()?;
+                if !r.done {
+                    return None;
+                }
+                if !r.error.is_empty() {
+                    return fail(&format!("U-TAE's training should finish: {}", r.error));
+                }
+                let h = r.header.clone()?;
+                drop(r);
+                self.pump_ml();
+                println!(
+                    "    {}: {} patches, {} epochs; {}",
+                    h.arch.name(),
+                    h.training["samples"]["patches"],
+                    h.training["history"].as_array().map_or(0, Vec::len),
+                    if h.standard.is_some() { "each band standardized" } else { "NO STANDARDIZATION" }
+                );
+                if h.arch.name() != "U-TAE" || h.standard.is_none() || h.classes.len() != 2 {
+                    return fail("a U-TAE model with its standardization and the two classes");
+                }
+                self.ml_apply_now(ctx);
+                next(st, "U-TAE trained and kept in its file; the ROI classified in windows");
+            }
+            89 => {
+                let (dir, _, _) = st.run.clone()?;
+                let job = self.zeit.jobs.last()?;
+                let (state, error) = {
+                    let s = job.status.lock().ok()?;
+                    (s.state, s.error.clone())
+                };
+                match state {
+                    crate::zeit::JobState::Failed | crate::zeit::JobState::Cancelled => {
+                        return fail(&format!("U-TAE's classification should finish: {error}"));
+                    }
+                    crate::zeit::JobState::Running => return None,
+                    crate::zeit::JobState::Done => {}
+                }
+                let tag = dir.to_string_lossy().into_owned();
+                let utae: Vec<usize> = (0..self.zeit.results.len())
+                    .filter(|&k| {
+                        self.zeit.results[k].path.starts_with(&tag) && self.zeit.results[k].path.contains("utae")
+                    })
+                    .collect();
+                if utae.len() < 3
+                    || utae.iter().any(|&k| self.zeit.results[k].data.is_empty())
+                    || self.zeit.loads_pending()
+                {
+                    return None;
+                }
+                let class = utae.iter().map(|&k| &self.zeit.results[k]).find(|r| !r.classes.is_empty())?;
+                let n = class.data.iter().filter(|v| v.is_finite() && **v >= 1.0).count();
+                println!(
+                    "    U-TAE class map: {:?}, {} x {} px, {n} pixels classified",
+                    class.classes, class.w, class.h
+                );
+                if class.classes != ["West", "East"] || class.w != 64 || class.h != 64 || n != 64 * 64 {
+                    return fail("U-TAE's class map should cover the ROI with the model's classes");
+                }
                 self.zeit.results.retain(|r| !r.path.starts_with(&tag));
                 self.zeit.jobs.retain(|j| !j.output_dir.starts_with(&tag));
                 self.zeit.results_dir = None;
                 self.ml = Default::default();
                 self.clear_pins();
+                self.clear_roi();
                 let _ = std::fs::remove_dir_all(&dir);
-                next(st, "deep learning: the class map (its classes), its probability and uncertainty as layers");
+                next(st, "U-TAE: the ROI's class map (its classes), its probability and uncertainty as layers");
                 st.stage = 7;
             }
             _ => {}

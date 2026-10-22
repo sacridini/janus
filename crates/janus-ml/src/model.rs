@@ -16,6 +16,7 @@ use crate::data::{Calendar, InputBand, Norm};
 use crate::ltae::{LTae, LTaeHyper};
 use crate::presto::{PrestoHyper, PrestoNet};
 use crate::tempcnn::{TempCnn, TempCnnHyper};
+use crate::utae::{Utae, UtaeHyper};
 
 const MAGIC: &[u8] = b"JANUSMODEL\x01";
 
@@ -26,6 +27,7 @@ pub enum Arch {
     TempCnn(TempCnnHyper),
     LTae(LTaeHyper),
     Presto(PrestoHyper),
+    Utae(UtaeHyper),
 }
 
 impl Arch {
@@ -34,6 +36,7 @@ impl Arch {
             Arch::TempCnn(_) => "TempCNN",
             Arch::LTae(_) => "L-TAE",
             Arch::Presto(_) => "Presto",
+            Arch::Utae(_) => "U-TAE",
         }
     }
 }
@@ -55,6 +58,9 @@ pub struct Header {
     pub inputs: Vec<InputBand>,
     pub calendar: Calendar,
     pub norm: Norm,
+    /// U-TAE: each value's mean and deviation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standard: Option<crate::dense::Standard>,
     pub classes: Vec<Class>,
     /// a pixel needs values on this share of the dates (%), its gaps filled in time
     pub min_valid: f64,
@@ -73,6 +79,7 @@ pub enum Net {
     TempCnn(TempCnn),
     LTae(LTae),
     Presto(PrestoNet),
+    Utae(Utae),
 }
 
 impl Net {
@@ -81,15 +88,18 @@ impl Net {
             Arch::TempCnn(h) => Net::TempCnn(TempCnn::new(h, bands, calendar.len(), classes, device)),
             Arch::LTae(h) => Net::LTae(LTae::new(h, bands, &calendar.day_offsets(), classes, device)),
             Arch::Presto(h) => Net::Presto(PrestoNet::new(h, classes, device)?),
+            Arch::Utae(h) => Net::Utae(Utae::new(h, bands, classes, device)),
         })
     }
 
-    /// [n, dates, values] -> the classes' scores [n, classes].
+    /// [n, dates, values] -> the classes' scores [n, classes] (a pixel's networks: U-TAE classifies patches,
+    /// dense::classify_windows).
     pub fn forward(&self, x: Tensor<3>) -> Tensor<2> {
         match self {
             Net::TempCnn(m) => m.forward(x),
             Net::LTae(m) => m.forward(x),
             Net::Presto(m) => m.forward(x),
+            Net::Utae(_) => panic!("U-TAE classifies patches (dense::classify_windows), not pixels"),
         }
     }
 }
@@ -163,6 +173,10 @@ impl Model {
         if let Arch::Presto(h) = &self.header.arch {
             // any series with the bands, and dates in the year of the composites
             h.inputs.steps(info)?;
+            return self.header.inputs.iter().map(|b| b.find_in(info)).collect();
+        }
+        if matches!(self.header.arch, Arch::Utae(_)) {
+            // any dates: their positions are the series' own
             return self.header.inputs.iter().map(|b| b.find_in(info)).collect();
         }
         if info.t() != self.header.calendar.len() {

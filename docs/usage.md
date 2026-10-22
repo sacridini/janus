@@ -429,7 +429,7 @@ the cursor; a raster run reads the series in bands of rows (from the
 full-resolution cache when it has the dates) and computes them on every
 processing thread. Nothing starts at startup and no Python runs.
 
-## Deep learning (TempCNN, L-TAE, Presto)
+## Deep learning (TempCNN, L-TAE, Presto, U-TAE)
 
 **Tools > Classify with deep learning** trains a neural network on samples you
 already have in Janus and classifies every pixel by its whole series, without
@@ -494,6 +494,24 @@ longitude. Two uses:
 
 Janus's encodings are those of the authors' code to float32's precision (a few
 millionths; `tools/presto_reference.py`, `crates/janus-ml/tests/presto.rs`).
+
+**U-TAE** (Garnot & Landrieu 2021) segments whole patches (32, 64 or 128 px a
+side, every date): a U-Net encodes each date, a temporal attention fuses them at
+the bottleneck and weighs the dates of every scale, so a pixel's class comes
+from its neighbourhood too (the edges of fields). It learns from dense labels:
+every pixel of the polygons of the sources above (or of the pins and points:
+one pixel each), or *A class map* (every pixel of a classification already on
+the map, e.g. a TempCNN's corrected), optionally only *inside the ROI*. Each
+band is standardized (its mean and deviation); a date without observation is
+left out of the attention. With the ten Sentinel-2 bands (B2, B3, B4, B5, B6,
+B7, B8, B8A, B11, B12, by name) it can *start from the authors' PASTIS
+weights* (20 crop types in France; 13 MB taken once from their Zenodo record,
+CC-BY-4.0), its last layer made for your classes. The image (or the visible
+area, or the ROI) is classified in windows overlapping by a quarter, each pixel
+the mean of the windows' probabilities. With the authors' weights, Janus's
+U-TAE gives the scores of their code (zeit.ai.utae, a port of it layer for
+layer) to float32's precision (`tools/utae_reference.py`,
+`crates/janus-ml/tests/utae.rs`).
 
 On sits' own samples (`samples_modis_ndvi`, `samples_l8_rondonia_2bands`), the
 same training and test samples give Janus the test accuracy of sits (within a

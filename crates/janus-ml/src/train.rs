@@ -79,6 +79,7 @@ impl TrainConfig {
             Arch::TempCnn(_) => TrainConfig::tempcnn(),
             Arch::LTae(_) => TrainConfig::lighttae(),
             Arch::Presto(_) => TrainConfig::presto(),
+            Arch::Utae(_) => crate::dense::utae_config(),
         }
     }
 }
@@ -242,6 +243,9 @@ pub fn train(
     }
     if classes < 2 {
         return Err("at least two classes are needed".into());
+    }
+    if matches!(arch, Arch::Utae(_)) {
+        return Err("U-TAE trains on patches: dense::train_utae".into());
     }
     let (train_idx, val_idx) = split(y, classes, cfg.validation_split, cfg.seed);
     if train_idx.len() < 2 {

@@ -8,17 +8,33 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// A file over HTTP copied to `path`, through a temporary file.
 pub fn fetch(url: &str, path: &Path, progress: &dyn Fn(f64), cancel: &AtomicBool) -> Result<(), String> {
+    fetch_vsi(&format!("/vsicurl/{url}"), url, path, progress, cancel)
+}
+
+/// A file GDAL's virtual file systems reach (e.g. one member of a zip over HTTP: /vsizip/{/vsicurl/URL}/member,
+/// read by ranges) copied to `path`; `url` names it in the messages.
+pub fn fetch_vsi(vsi: &str, url: &str, path: &Path, progress: &dyn Fn(f64), cancel: &AtomicBool) -> Result<(), String> {
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
     }
     let tmp = path.with_extension("part");
-    let src = CString::new(format!("/vsicurl/{url}")).unwrap_or_default();
+    let src = CString::new(vsi).unwrap_or_default();
     let mode = CString::new("rb").unwrap_or_default();
+    // some servers (Zenodo) refuse a request that does not say who makes it
+    if gdal::config::get_config_option("GDAL_HTTP_USERAGENT", "").unwrap_or_default().is_empty() {
+        let _ = gdal::config::set_thread_local_config_option(
+            "GDAL_HTTP_USERAGENT",
+            concat!("Janus/", env!("CARGO_PKG_VERSION"), " (https://github.com/sacridini/janus)"),
+        );
+    }
     unsafe {
+        gdal_sys::CPLErrorReset();
         let f = gdal_sys::VSIFOpenL(src.as_ptr(), mode.as_ptr());
         if f.is_null() {
+            let why = std::ffi::CStr::from_ptr(gdal_sys::CPLGetLastErrorMsg()).to_string_lossy().into_owned();
             return Err(format!(
-                "could not reach {url}; without network access, download it elsewhere and set JANUS_WEIGHTS to its folder"
+                "could not reach {url}{}; without network access, download it elsewhere and set JANUS_WEIGHTS to its                  folder",
+                if why.is_empty() { String::new() } else { format!(" ({why})") }
             ));
         }
         let mut out = std::fs::File::create(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;

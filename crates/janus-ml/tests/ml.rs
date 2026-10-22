@@ -112,6 +112,7 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
         inputs: inputs.clone(),
         calendar: calendar.clone(),
         norm,
+        standard: None,
         classes: ["stable", "seasonal", "rise"]
             .iter()
             .map(|n| Class { name: n.to_string(), color: [10, 20, 30] })
