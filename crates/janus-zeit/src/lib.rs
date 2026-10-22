@@ -8,7 +8,9 @@
 
 mod landtrendr;
 pub mod manifest;
+mod mann_kendall;
 pub mod pixel;
+mod smooth;
 pub mod upstream;
 
 pub use manifest::{Manifest, Output, Param, Tool, manifest};

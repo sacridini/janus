@@ -95,7 +95,70 @@ def landtrendr_cases(rng):
     return cases
 
 
-CASES = {"landtrendr": landtrendr_cases}
+def monthly(first=2010, years=10):
+    days = np.array([f"{y}-{m:02d}-15" for y in range(first, first + years) for m in range(1, 13)],
+                    dtype="datetime64[D]")
+    return zc.decimal_years(days).tolist(), days.astype(np.int64).tolist()
+
+
+def monthly_series(rng, n, years=10):
+    """Seasonal series with a trend (up, down or none) and gaps."""
+    out = []
+    t = np.arange(12 * years)
+    for k in range(n):
+        v = 0.5 + 0.2 * np.sin(2 * np.pi * t / 12 + rng.uniform(0, 6)) + (k % 3 - 1) * rng.uniform(0, 0.003) * t
+        v += rng.normal(0, rng.uniform(0.01, 0.08), t.size)
+        v[rng.random(t.size) < rng.uniform(0, 0.3)] = np.nan
+        out.append(v)
+    return out
+
+
+def mann_kendall_cases(rng):
+    cases = []
+    years, days = annual()
+    variants = [{}, {"method": "original"}, {"method": "yue_wang", "lag": 3}, {"alpha": 0.2, "lag": 0},
+                {"min_valid": 30}]
+    for i, values in enumerate(annual_series(rng, 20)):
+        cases.append({"params": variants[i % len(variants)], "years": years, "days": days, "values": values})
+    m_years, m_days = monthly()
+    variants = [{"method": "seasonal"}, {"method": "seasonal", "period": 6}, {}, {"method": "original"}]
+    for i, values in enumerate(monthly_series(rng, 12)):
+        cases.append({"params": variants[i % len(variants)], "years": m_years, "days": m_days, "values": values})
+    return cases
+
+
+def sixteen_day(rng, first=2018, n=69):
+    """16-day dates with a few missing (uneven spacing)."""
+    days = np.datetime64(f"{first}-01-01") + np.arange(n) * 16
+    days = days[rng.random(n) > 0.1]
+    return zc.decimal_years(days).tolist(), days.astype(np.int64).tolist()
+
+
+def smooth_cases(rng):
+    cases = []
+    years, days = annual()
+    variants = [{}, {"lmbda": 1000.0}, {"method": "savgol"}, {"method": "savgol", "window": 8, "polyorder": 3},
+                {"lmbda": 0.5}, {"method": "savgol", "window": 999, "polyorder": 6}]
+    for i, values in enumerate(annual_series(rng, 12)):
+        cases.append({"params": variants[i % len(variants)], "years": years, "days": days, "values": values})
+    for i in range(12):
+        s_years, s_days = sixteen_day(rng)
+        t = np.array(s_days, dtype=np.float64)
+        v = 0.5 + 0.25 * np.sin(2 * np.pi * t / 365.25 + rng.uniform(0, 6)) + rng.normal(0, 0.04, t.size)
+        v[rng.random(t.size) < 0.2] = np.nan
+        cases.append({"params": variants[i % len(variants)], "years": s_years, "days": s_days, "values": v})
+    # no real dates: evenly spaced; and short series
+    m_years, _ = monthly(2015, 2)
+    for i, values in enumerate(monthly_series(rng, 4, 2)):
+        cases.append({"params": variants[i % 3], "years": m_years, "days": None, "values": values})
+    for t in (3, 4, 5):
+        y, d = annual(2000, 2000 + t - 1)
+        cases.append({"params": {"method": "savgol"}, "years": y, "days": d, "values": rng.uniform(0, 1, t)})
+        cases.append({"params": {}, "years": y, "days": d, "values": rng.uniform(0, 1, t)})
+    return cases
+
+
+CASES = {"landtrendr": landtrendr_cases, "mann_kendall": mann_kendall_cases, "smooth": smooth_cases}
 
 
 def main():

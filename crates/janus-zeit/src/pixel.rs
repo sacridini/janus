@@ -59,6 +59,18 @@ impl PixelInput {
     pub fn calendar_years(&self) -> Option<Vec<i32>> {
         self.days.as_ref().map(|d| d.iter().map(|&d| civil_year(d)).collect())
     }
+
+    /// Observations per year, from the median spacing of the dates (>= 1; the bridge's per_year).
+    pub fn per_year(&self) -> i64 {
+        let mut d: Vec<f64> = self.years.windows(2).filter(|w| w[1] > w[0]).map(|w| w[1] - w[0]).collect();
+        if d.is_empty() {
+            return 1;
+        }
+        d.sort_by(f64::total_cmp);
+        let med = d[d.len() / 2];
+        // Python's round(): halves to even
+        if med > 0.0 { ((1.0 / med).round_ties_even() as i64).max(1) } else { 1 }
+    }
 }
 
 /// The year of a day counted from 1970-01-01.
@@ -125,6 +137,8 @@ pub(crate) fn g(v: f64, n: usize) -> String {
 pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
     match tool {
         "landtrendr" => crate::landtrendr::pixel(p, input),
+        "mann_kendall" => crate::mann_kendall::pixel(p, input),
+        "smooth" => crate::smooth::pixel(p, input),
         _ => Err(format!("{tool}: not available in this version")),
     }
 }

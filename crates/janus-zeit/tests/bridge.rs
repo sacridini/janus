@@ -35,8 +35,43 @@ fn descriptors_are_the_bridges() {
     }
 }
 
-/// Every case of a tool's fixtures; the first differences are printed, then the test fails.
+/// Every case of a tool's fixtures, the same bits; the first differences are printed, then the test fails.
 fn compare(tool: &str) {
+    compare_within(tool, |_| 0.0);
+}
+
+/// Overlay values within `tol(case)` relative to the bridge's (for what Zeit leaves to scipy's LAPACK).
+fn close(a: &PixelResult, b: &PixelResult, tol: f64) -> bool {
+    let near = |x: f64, y: f64| x == y || (x - y).abs() <= tol * x.abs().max(y.abs()).max(1e-300);
+    // a row's number printed to 4-5 digits may round the other way, a zero's noise differs
+    let num = |t: &str| t.split_whitespace().next().and_then(|w| w.parse::<f64>().ok());
+    let row_near = |p: &[String; 2], q: &[String; 2]| {
+        p == q
+            || (tol > 0.0
+                && p[0] == q[0]
+                && match (num(&p[1]), num(&q[1])) {
+                    (Some(x), Some(y)) => (x - y).abs() <= 1e-12 || (x - y).abs() <= 2e-4 * x.abs().max(y.abs()),
+                    _ => false,
+                })
+    };
+    a.rows.len() == b.rows.len()
+        && a.rows.iter().zip(&b.rows).all(|(p, q)| row_near(p, q))
+        && a.overlays.len() == b.overlays.len()
+        && a.overlays.iter().zip(&b.overlays).all(|(p, q)| {
+            p.kind == q.kind
+                && p.label == q.label
+                && p.x.len() == q.x.len()
+                && p.y.len() == q.y.len()
+                && p.x.iter().zip(&q.x).all(|(&x, &y)| near(x, y))
+                && p.y.iter().zip(&q.y).all(|(x, y)| match (x, y) {
+                    (Some(x), Some(y)) => near(*x, *y),
+                    (None, None) => true,
+                    _ => false,
+                })
+        })
+}
+
+fn compare_within(tool: &str, tol: impl Fn(&Case) -> f64) {
     let f: Fixtures = serde_json::from_str(&data(&format!("{tool}.json"))).unwrap();
     let mut bad = 0;
     for (k, c) in f.cases.iter().enumerate() {
@@ -51,7 +86,7 @@ fn compare(tool: &str) {
             (Err(_), Some(_)) => true,
             (Ok(r), None) => {
                 let want: PixelResult = serde_json::from_value(c.result.clone()).unwrap();
-                *r == want
+                close(r, &want, tol(c))
             }
             _ => false,
         };
@@ -69,4 +104,16 @@ fn compare(tool: &str) {
 #[test]
 fn landtrendr() {
     compare("landtrendr");
+}
+
+#[test]
+fn mann_kendall() {
+    compare("mann_kendall");
+}
+
+#[test]
+fn smooth() {
+    // Savitzky-Golay: scipy's polynomials, to its rounding (LAPACK on an unscaled Vandermonde: ~1e-8 at a window
+    // of 61 and order 6); Whittaker: the same bits
+    compare_within("smooth", |c| if c.params.get("method").is_some_and(|m| m == "savgol") { 1e-7 } else { 0.0 });
 }
