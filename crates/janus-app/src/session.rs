@@ -18,8 +18,10 @@ pub struct Opening {
     pub add: bool,
     /// the layer whose session it replaces (the same files with another band selection)
     pub replace: Option<usize>,
+    /// the name of the layer it adds (None: from its files)
+    pub name: Option<String>,
     pub started: Instant,
-    rx: Receiver<Result<CubeInfo, String>>,
+    rx: Receiver<crate::open::OpenResult>,
 }
 
 impl Opening {
@@ -34,14 +36,14 @@ impl Opening {
         std::thread::Builder::new()
             .name("open".into())
             .spawn(move || {
-                let _ = tx.send(janus_cube::open_cube(&i, &sel));
+                let _ = tx.send(crate::open::open(i, &sel));
                 ctx.request_repaint();
             })
             .expect("thread");
-        Opening { inputs, add, replace: None, started: Instant::now(), rx }
+        Opening { inputs, add, replace: None, name: None, started: Instant::now(), rx }
     }
 
-    pub fn poll(&self) -> Option<Result<CubeInfo, String>> {
+    pub fn poll(&self) -> Option<crate::open::OpenResult> {
         self.rx.try_recv().ok()
     }
 }

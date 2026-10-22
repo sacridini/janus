@@ -10,11 +10,14 @@ mod chart;
 mod classes;
 mod composite;
 mod display;
+mod files;
 mod golden;
 mod layers;
 mod map;
 mod measure;
+mod open;
 mod panels;
+mod platform;
 mod season;
 mod series;
 mod session;
@@ -56,6 +59,7 @@ Options:
   --roi X0,Y0,X1,Y1   an ROI rectangle once the series is open
   --selftest-reproject B F A  F (B reprojected) drawn on B's grid where PROJ puts it; the cursor, a pin and
                       an ROI on B, A and F
+  --selftest-multidim H/clim.nc  a NetCDF of two variables: the picker, its levels, in place
   --selftest-composite C  the RGB composite of the test series C (five bands per date) against its files
   --dump-golden IN... OUT  the maps of the display modes and a sample of the statistics in OUT, as the
                       C++'s --dump-golden writes them (tools/compare_golden.py compares the two)
@@ -126,6 +130,7 @@ fn main() -> eframe::Result<()> {
                 }
             }
             "--selftest-reproject" => opts.selftest_reproject = true,
+            "--selftest-multidim" => opts.selftest_multidim = true,
             "--season" => {
                 opts.season = args.next().and_then(|v| {
                     let (a, b) = v.split_once('-')?;
@@ -160,7 +165,8 @@ fn main() -> eframe::Result<()> {
         || opts.profile_tour
         || opts.dump_golden.is_some()
         || opts.selftest_composite
-        || opts.selftest_reproject;
+        || opts.selftest_reproject
+        || opts.selftest_multidim;
     if test_window {
         attach_console();
     }

@@ -20,6 +20,7 @@ use crate::theme;
 pub enum Tab {
     Map,
     Layers,
+    Files,
     Display,
     TimeSeries,
     Statistics,
@@ -31,6 +32,7 @@ impl Tab {
         match self {
             Tab::Map => "Map",
             Tab::Layers => "Layers",
+            Tab::Files => "Files",
             Tab::Display => "Display",
             Tab::TimeSeries => "Time series",
             Tab::Statistics => "Statistics",
@@ -39,13 +41,14 @@ impl Tab {
     }
 }
 
-/// The C++'s default layout: Layers above Display and Performance on the left (0.21), the map in the centre, the
-/// time series and the statistics below it (0.36).
+/// The C++'s default layout (app.cpp, dockDefaultLayout): Layers and Files above Display on the left (0.21; the
+/// Performance panel, off by default, opens as a tab next to Display), the map in the centre, the time series and
+/// the statistics below it (0.36).
 fn default_layout() -> DockState<Tab> {
     let mut d = DockState::new(vec![Tab::Map]);
     let s = d.main_surface_mut();
-    let [map, left] = s.split_left(NodeIndex::root(), 0.21, vec![Tab::Layers]);
-    let [_, _] = s.split_below(left, 0.40, vec![Tab::Display, Tab::Performance]);
+    let [map, left] = s.split_left(NodeIndex::root(), 0.21, vec![Tab::Layers, Tab::Files]);
+    let [_, _] = s.split_below(left, 0.42, vec![Tab::Display]);
     let [_, bottom] = s.split_below(map, 0.64, vec![Tab::TimeSeries]);
     let [_, _] = s.split_right(bottom, 0.66, vec![Tab::Statistics]);
     d
@@ -82,12 +85,18 @@ pub struct Options {
     pub roi: Option<[i64; 4]>,
     /// --selftest-reproject B F: F reprojected on B's grid
     pub selftest_reproject: bool,
+    /// --selftest-multidim H/clim.nc: a NetCDF of two variables, its levels, opened in place
+    pub selftest_multidim: bool,
 }
 
 impl Options {
     /// A tour or a self-test drives the map: the pointer over the window is not the cursor.
     pub fn scripted(&self) -> bool {
-        self.profile_tour || self.dump_golden.is_some() || self.selftest_composite || self.selftest_reproject
+        self.profile_tour
+            || self.dump_golden.is_some()
+            || self.selftest_composite
+            || self.selftest_reproject
+            || self.selftest_multidim
     }
 }
 
@@ -151,8 +160,17 @@ pub struct State {
     /// the cursor's series, the pins, the ROI
     pub series: crate::series::SeriesState,
     pub chart: crate::chart::ChartOptions,
+    /// File > Open URL, the variable picker, the Display panel's variables
+    pub open_ui: crate::open::OpenUi,
+    /// the Files panel
+    pub files: crate::files::FileBrowser,
+    /// a message in a popup (an open that failed)
+    pub error_popup: Option<String>,
+    pub help_popup: bool,
     /// Settings, kept between sessions
     pub settings: crate::settings::SettingsState,
+    /// the Display panel's spectral index (among those the spectrum covers)
+    pub spectral_index: usize,
     /// the Display panel's band selection being edited (for the cube id)
     pub band_sel: Option<(u64, janus_cube::BandSelection)>,
     pub perf: Perf,
@@ -168,7 +186,43 @@ pub struct State {
     pub composite: Option<crate::composite::BandComposite>,
     pub(crate) composite_test: crate::composite::SelfTest,
     pub(crate) reproject_test: crate::layers::ReprojectTest,
+    pub(crate) multidim_test: crate::open::MultidimTest,
 }
+
+/// What the menu or a key asks of the window's layout.
+#[derive(Default)]
+struct MenuAction {
+    reset_layout: bool,
+    toggle_performance: bool,
+}
+
+/// Help > Shortcuts and usage (app.cpp, uiPopups), for what the Rust version has so far.
+const HELP: &str = "Open: Ctrl+O (files), Ctrl+Shift+O (folder), Ctrl+U (URL: COGs on the web, S3, GCS)
+      or drop onto the window (with Shift: as a layer); NetCDF / Zarr: a variable is
+      picked if there are several
+Command line: jn <folder | file.tif | pattern_*.tif | https://.../cog.tif ...>
+Add a layer: Ctrl+L (files), File > Add layer
+Settings: Ctrl+, (theme, font size, processing threads, memory and caches)
+Reset layout: Ctrl+Shift+R
+
+Map
+  drag ................ pan
+  mouse wheel ......... zoom
+  hover ............... pixel series (exact once the mouse rests)
+  click ............... drop a pin (compare pixels)
+  right click on pin .. remove it (Delete removes the last one)
+  Shift + drag ........ rectangular ROI (mean and p10-p90 per date; on every
+                        visible layer with 'All visible layers' on the chart)
+  S ................... satellite basemap on / off (Esri World Imagery, or the
+                        imagery source picked in the Layers panel)
+  space ............... show / hide the active layer
+  F ................... fit to window
+
+Time
+  left/right arrows ... previous / next date (in the season)
+  Home / End .......... first / last date
+  P ................... play / pause
+  click on the chart .. go to that date";
 
 /// A screenshot of a window, written as a PNG.
 fn save_png(img: &egui::ColorImage, path: &std::path::Path) {
@@ -233,6 +287,7 @@ impl TabViewer for Tabs<'_> {
                         self.s.basemap_ui(ui);
                     }
                     Tab::Display => self.s.display_ui(ui),
+                    Tab::Files => self.s.files_ui(ui),
                     Tab::Statistics => self.s.statistics_ui(ui),
                     Tab::Performance => {
                         self.s.performance_ui(ui);
@@ -254,6 +309,7 @@ impl JanusApp {
         theme::load_fonts(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx, settings.theme, settings.panel_opacity, settings.font_size);
         let no_save = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
+        let favorites = settings.favorites.clone();
         let render_state = cc.wgpu_render_state.clone().expect("Janus draws with wgpu");
         let opening = (!opts.inputs.is_empty()).then(|| Opening::start(opts.inputs.clone(), false, &cc.egui_ctx));
         let detach = opts.detach_map;
@@ -279,6 +335,11 @@ impl JanusApp {
                 series: Default::default(),
                 chart: Default::default(),
                 band_sel: None,
+                spectral_index: 0,
+                open_ui: Default::default(),
+                files: crate::files::FileBrowser::new(favorites),
+                error_popup: None,
+                help_popup: false,
                 settings: crate::settings::SettingsState::new(settings, no_save),
                 perf: Perf::default(),
                 frame: 0,
@@ -291,6 +352,7 @@ impl JanusApp {
                 composite: None,
                 composite_test: Default::default(),
                 reproject_test: Default::default(),
+                multidim_test: Default::default(),
             },
         };
         // the basemap's setting (not whether it is shown: each session starts without it)
@@ -330,10 +392,22 @@ impl State {
 
     /// Layer i's files again with another band selection, in place (finish_open replaces its session).
     pub fn reopen_layer(&mut self, i: usize, sel: janus_cube::BandSelection, ctx: &egui::Context) {
+        let Some(inputs) = self.layers.get(i).map(|l| l.inputs.clone()) else { return };
+        self.reopen_layer_inputs(i, inputs, sel, ctx);
+    }
+
+    /// Layer i opened again from `inputs` (another variable of its file) with `sel`, in place.
+    pub fn reopen_layer_inputs(
+        &mut self,
+        i: usize,
+        inputs: Vec<String>,
+        sel: janus_cube::BandSelection,
+        ctx: &egui::Context,
+    ) {
         if self.opening.is_some() || i >= self.layers.len() {
             return;
         }
-        let mut o = Opening::start_with(self.layers[i].inputs.clone(), true, sel, ctx);
+        let mut o = Opening::start_with(inputs, true, sel, ctx);
         o.replace = Some(i);
         self.opening = Some(o);
     }
@@ -357,6 +431,14 @@ impl State {
     /// The series opened: a new layer, made active (the others closed unless it is added).
     fn finish_open(&mut self, info: janus_cube::CubeInfo, o: Opening, ctx: &egui::Context) {
         if let Some(i) = o.replace.filter(|&i| i < self.layers.len()) {
+            if o.inputs != self.layers[i].inputs {
+                // another variable of the same file: named after it
+                self.layers[i].name.clear();
+                let name = self.layer_name(&info, &o.inputs);
+                let l = &mut self.layers[i];
+                l.inputs = o.inputs.clone();
+                l.name = name;
+            }
             self.replace_layer_session(i, info, &o, ctx);
             return;
         }
@@ -382,7 +464,7 @@ impl State {
         {
             disp.t = s.info.nearest_layer(a.info.layers[self.display.t].time);
         }
-        let name = self.layer_name(&s.info, &o.inputs);
+        let name = o.name.clone().unwrap_or_else(|| self.layer_name(&s.info, &o.inputs));
         self.layers.push(crate::layers::SeriesLayer {
             session: Some(s),
             inputs: o.inputs,
@@ -395,6 +477,20 @@ impl State {
             place: Default::default(),
             series: Default::default(),
         });
+        // the folder of the files (of a NetCDF variable's file) in the Files panel
+        if !self.layers.last().is_some_and(|l| l.session.as_ref().is_some_and(|s| s.info.remote)) {
+            let l = self.layers.last().unwrap();
+            let one = if l.inputs.len() == 1 {
+                l.inputs[0].clone()
+            } else {
+                l.session.as_ref().unwrap().info.first_path.clone()
+            };
+            let where_ = janus_cube::dataset_file(&one);
+            self.files.add_recent(where_);
+            if self.settings.s.reveal_opened {
+                self.files.reveal(where_);
+            }
+        }
         let first = self.layers.len() == 1;
         if first {
             self.map.fit();
@@ -461,8 +557,17 @@ impl State {
         {
             let o = self.opening.take().unwrap();
             match r {
-                Ok(info) => self.finish_open(info, o, ctx),
-                Err(e) => self.error = Some(e),
+                crate::open::OpenResult::Opened(info, inputs) => {
+                    let mut o = o;
+                    o.inputs = inputs;
+                    self.finish_open(*info, o, ctx);
+                }
+                // a container of several variables: which one, asked
+                crate::open::OpenResult::Variables(vars) => self.ask_variable(vars, o.inputs[0].clone(), o.add),
+                crate::open::OpenResult::Failed(e) => {
+                    self.error = Some(e.clone());
+                    self.error_popup = Some(e);
+                }
             }
         }
         // --layer: the next series added once the first is open (the self-tests add theirs themselves)
@@ -508,31 +613,49 @@ impl State {
         }
     }
 
-    fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Comma)) {
+    /// The keys of the whole window (app.cpp, handleShortcuts); the map's own (left, right, P, space, F, S) only
+    /// when no text field has them.
+    fn shortcuts(&mut self, ctx: &egui::Context) -> MenuAction {
+        use egui::{Key, Modifiers};
+        let mut act = MenuAction::default();
+        let chord = |m: Modifiers, k: Key| ctx.input_mut(|i| i.consume_key(m, k));
+        let shift_cmd = Modifiers::COMMAND | Modifiers::SHIFT;
+        if chord(shift_cmd, Key::O) {
+            self.open_folder_dialog(false, ctx);
+        } else if chord(Modifiers::COMMAND, Key::O) {
+            self.open_files_dialog(false, ctx);
+        }
+        if chord(Modifiers::COMMAND, Key::U) {
+            self.open_url_dialog(false);
+        }
+        if self.session.is_some() && chord(Modifiers::COMMAND, Key::L) {
+            self.open_files_dialog(true, ctx);
+        }
+        if chord(Modifiers::COMMAND, Key::Comma) {
             self.settings.show = true;
         }
-        if ctx.egui_wants_keyboard_input() {
-            return;
+        if chord(shift_cmd, Key::R) {
+            act.reset_layout = true;
+        }
+        if ctx.egui_wants_keyboard_input() || self.session.is_none() {
+            return act;
         }
         let n = self.session.as_ref().map_or(0, |s| s.info.t());
-        let (left, right, home, end, fit, play, satellite) = ctx.input(|i| {
-            use egui::Key;
+        let (left, right, home, end, fit, play, satellite, space, esc) = ctx.input(|i| {
             (
                 i.key_pressed(Key::ArrowLeft),
                 i.key_pressed(Key::ArrowRight),
                 i.key_pressed(Key::Home),
                 i.key_pressed(Key::End),
-                i.key_pressed(Key::F),
-                i.key_pressed(Key::P),
-                i.key_pressed(Key::S),
+                i.key_pressed(Key::F) && i.modifiers.is_none(),
+                i.key_pressed(Key::P) && i.modifiers.is_none(),
+                i.key_pressed(Key::S) && i.modifiers.is_none(),
+                i.key_pressed(Key::Space),
+                i.key_pressed(Key::Escape),
             )
         });
         if satellite {
             self.toggle_satellite();
-        }
-        if n == 0 {
-            return;
         }
         if left {
             self.step_date(-1);
@@ -552,47 +675,133 @@ impl State {
         if play {
             self.display.playing = !self.display.playing;
         }
+        if space && let Some(l) = self.layers.get_mut(self.active) {
+            // shows / hides the active layer
+            l.visible = !l.visible;
+            self.map.dirty = true;
+        }
+        if esc {
+            self.series.roi_drag = None;
+        }
+        act
     }
 
-    fn menu(&mut self, ui: &mut Ui) -> bool {
-        let mut reset_layout = false;
+    pub(crate) fn open_files_dialog(&mut self, add: bool, ctx: &egui::Context) {
+        if let Some(files) = rfd::FileDialog::new().pick_files() {
+            self.open_inputs(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), add, ctx);
+        }
+    }
+
+    pub(crate) fn open_folder_dialog(&mut self, add: bool, ctx: &egui::Context) {
+        if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+            self.open_inputs(vec![dir.to_string_lossy().into_owned()], add, ctx);
+        }
+    }
+
+    /// The menu bar (app.cpp, uiMenu).
+    fn menu(&mut self, ui: &mut Ui, perf_shown: bool) -> MenuAction {
+        let mut act = MenuAction::default();
+        let ctx = ui.ctx().clone();
+        let has = self.session.is_some();
+        let item = |ui: &mut Ui, label: &str, keys: &str, enabled: bool| {
+            ui.add_enabled(enabled, egui::Button::new(label).shortcut_text(keys)).clicked()
+        };
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
-                if ui.add(egui::Button::new("Settings...").shortcut_text("Ctrl+,")).clicked() {
+                if item(ui, "Open file(s)...", "Ctrl+O", true) {
+                    self.open_files_dialog(false, &ctx);
+                }
+                if item(ui, "Open folder...", "Ctrl+Shift+O", true) {
+                    self.open_folder_dialog(false, &ctx);
+                }
+                let r = ui.add(egui::Button::new("Open URL...").shortcut_text("Ctrl+U")).on_hover_text(
+                    "Cloud-optimized GeoTIFFs (and other rasters) straight from the web:\nhttps://, s3://, gs://, \
+                     az://. Only the blocks and overview levels\nshown are downloaded; one URL per line makes a series.",
+                );
+                if r.clicked() {
+                    self.open_url_dialog(false);
+                }
+                if item(ui, "Add layer: file(s)...", "Ctrl+L", has) {
+                    self.open_files_dialog(true, &ctx);
+                }
+                if item(ui, "Add layer: folder...", "", has) {
+                    self.open_folder_dialog(true, &ctx);
+                }
+                if item(ui, "Add layer: URL...", "", has) {
+                    self.open_url_dialog(true);
+                }
+                ui.separator();
+                if item(ui, "Close active layer", "", has) {
+                    self.remove_layer(self.active, &ctx);
+                }
+                if item(ui, "Close all", "", !self.layers.is_empty()) {
+                    self.close_all(&ctx);
+                }
+                ui.separator();
+                if item(ui, "Settings...", "Ctrl+,", true) {
                     self.settings.show = true;
                 }
                 ui.separator();
-                if ui.button("Open folder...").clicked()
-                    && let Some(dir) = rfd::FileDialog::new().pick_folder()
-                {
-                    self.open_inputs(vec![dir.to_string_lossy().into_owned()], false, ui.ctx());
-                }
-                if ui.button("Open files...").clicked()
-                    && let Some(files) =
-                        rfd::FileDialog::new().add_filter("rasters", &["tif", "tiff", "vrt", "img", "jp2"]).pick_files()
-                {
-                    self.open_inputs(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), false, ui.ctx());
-                }
-                ui.separator();
-                if ui.button("Quit").clicked() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                if item(ui, "Exit", "Alt+F4", true) {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
             ui.menu_button("View", |ui| {
-                if ui.button("Fit the map (F)").clicked() {
+                if item(ui, "Fit map to window", "F", has) {
                     self.map.fit();
                 }
-                if ui.button("Reset layout").clicked() {
-                    reset_layout = true;
+                let mut perf = perf_shown;
+                if ui.checkbox(&mut perf, "Performance").clicked() {
+                    act.toggle_performance = true;
+                }
+                ui.separator();
+                if ui
+                    .add(egui::Button::new("Reset layout").shortcut_text("Ctrl+Shift+R"))
+                    .on_hover_text("Every panel back where it was at the first start")
+                    .clicked()
+                {
+                    act.reset_layout = true;
                 }
             });
             ui.menu_button("Help", |ui| {
-                ui.label(format!("Janus {} in Rust (phase 1 of RUST_MIGRATION.md)", env!("CARGO_PKG_VERSION")));
-                ui.label("Wheel: zoom   drag: move   click: pin   right click: remove a pin");
-                ui.label("Left / Right: date   P: play   F: fit");
+                if ui.button("Shortcuts and usage").clicked() {
+                    self.help_popup = true;
+                }
             });
+            if let Some(s) = &self.session {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(8.0);
+                    ui.weak(&s.info.description);
+                });
+            }
         });
-        reset_layout
+        act
+    }
+
+    /// The popups: an error, the shortcuts, Open URL, the variable picker.
+    fn popups(&mut self, ctx: &egui::Context) {
+        self.open_dialogs(ctx);
+        if let Some(e) = self.error_popup.clone() {
+            let m = egui::Modal::new(egui::Id::new("error")).show(ctx, |ui| {
+                ui.heading("Error");
+                ui.set_max_width(560.0);
+                ui.add(egui::Label::new(&e).wrap());
+                ui.button("OK").clicked()
+            });
+            if m.inner || m.should_close() {
+                self.error_popup = None;
+            }
+        }
+        if self.help_popup {
+            let m = egui::Modal::new(egui::Id::new("help")).show(ctx, |ui| {
+                ui.heading("Shortcuts and usage");
+                ui.monospace(HELP);
+                ui.button("Close").clicked()
+            });
+            if m.inner || m.should_close() {
+                self.help_popup = false;
+            }
+        }
     }
 
     /// --measure-startup and --screenshot (of the main window and of the `detached` ones).
@@ -701,6 +910,8 @@ impl eframe::App for JanusApp {
             s.composite_selftest_step(&ctx)
         } else if s.opts.selftest_reproject {
             s.reproject_selftest_step(&ctx)
+        } else if s.opts.selftest_multidim {
+            s.multidim_selftest_step(&ctx)
         } else if s.opts.profile_tour {
             s.tour_step(&ctx)
         } else {
@@ -710,7 +921,7 @@ impl eframe::App for JanusApp {
             EXIT_CODE.store(rc, std::sync::atomic::Ordering::Relaxed);
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        s.shortcuts(&ctx);
+        let keys = s.shortcuts(&ctx);
         // files dropped on the window open as the series; with Shift held, as new layers
         let (dropped, shift): (Vec<String>, bool) = ctx.input(|i| {
             let f = i.raw.dropped_files.iter().map(|f| f.path().to_string_lossy().into_owned());
@@ -720,9 +931,24 @@ impl eframe::App for JanusApp {
             s.open_inputs(dropped, shift, &ctx);
         }
 
-        let mut reset = false;
-        egui::Panel::top("menu").show(ui, |ui| reset = self.state.menu(ui));
-        if reset {
+        let mut act = MenuAction::default();
+        let perf_shown = self.dock.find_tab(&Tab::Performance).is_some();
+        egui::Panel::top("menu").show(ui, |ui| act = self.state.menu(ui, perf_shown));
+        if act.toggle_performance {
+            // the Performance panel, off by default, as a tab next to Display
+            match self.dock.find_tab(&Tab::Performance) {
+                Some(p) => {
+                    self.dock.remove_tab(p);
+                }
+                None => {
+                    if let Some(p) = self.dock.find_tab(&Tab::Display) {
+                        self.dock.set_focused_node_and_surface(p.node_path());
+                    }
+                    self.dock.push_to_focused_leaf(Tab::Performance);
+                }
+            }
+        }
+        if act.reset_layout || keys.reset_layout {
             self.dock = default_layout();
             for w in self.windows.drain(..) {
                 drop(w);
@@ -789,6 +1015,7 @@ impl eframe::App for JanusApp {
         }
 
         self.state.settings_ui(&ctx);
+        self.state.popups(&ctx);
         let s = &mut self.state;
         s.perf.push(start.elapsed().as_secs_f64() * 1000.0);
         s.frame += 1;

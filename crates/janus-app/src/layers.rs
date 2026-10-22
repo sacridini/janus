@@ -559,8 +559,15 @@ impl State {
                         egui::RichText::new(label)
                     };
                     let w = (ui.available_width() - 76.0).max(40.0);
+                    // the name left-aligned over the row's width (as a menu's items)
+                    let h = ui.spacing().interact_size.y;
                     let r = ui
-                        .add(egui::Button::selectable(is_active, text).min_size(egui::vec2(w, 0.0)))
+                        .allocate_ui_with_layout(
+                            egui::vec2(w, h),
+                            egui::Layout::top_down_justified(egui::Align::LEFT),
+                            |ui| ui.add(egui::Button::selectable(is_active, text)),
+                        )
+                        .inner
                         .on_hover_text(format!(
                             "{}\n{}, {} x {} px, {} dates ({} .. {})\nCRS: {}",
                             if l.inputs.len() == 1 { &l.inputs[0] } else { &info.first_path },

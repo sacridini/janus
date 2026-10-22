@@ -286,10 +286,57 @@ impl State {
         }
     }
 
+    /// A spectrum: an index of its bands as a map of its own, added as a layer above it (app.cpp, uiSpectralIndex).
+    fn spectral_index_ui(&mut self, ui: &mut Ui, info: &janus_cube::CubeInfo) {
+        section(ui, "Index map");
+        let covered: Vec<&janus_cube::spectral::SpectralIndex> =
+            INDICES.iter().filter(|s| index_bands(&info.band_nm, s).is_some()).collect();
+        if covered.is_empty() {
+            ui.weak("No index fits these wavelengths.");
+            return;
+        }
+        self.spectral_index = self.spectral_index.min(covered.len() - 1);
+        let label = |s: &janus_cube::spectral::SpectralIndex| format!("{}  {}", s.name, s.what);
+        ComboBox::from_id_salt("spectral index")
+            .width(ui.available_width())
+            .selected_text(label(covered[self.spectral_index]))
+            .show_ui(ui, |ui| {
+                for (i, s) in covered.iter().enumerate() {
+                    ui.selectable_value(&mut self.spectral_index, i, label(s));
+                }
+            });
+        let s = covered[self.spectral_index];
+        let Some((a, b)) = index_bands(&info.band_nm, s) else { return };
+        let busy = self.opening.is_some();
+        let r = ui
+            .add_enabled(!busy, egui::Button::new("Add as a layer").min_size(vec2(ui.available_width(), 0.0)))
+            .on_hover_text(format!(
+                "(A - B) / (A + B) with A = {:.1} nm and B = {:.1} nm (the nearest bands),
+as a map of its own on top                  of the spectrum",
+                info.band_nm[a as usize - 1],
+                info.band_nm[b as usize - 1]
+            ));
+        if r.clicked() {
+            let ctx = ui.ctx().clone();
+            let sel = BandSelection { band: a, nd_band: b, chosen: true, ..Default::default() };
+            let mut o = crate::session::Opening::start_with(vec![info.first_path.clone()], true, sel, &ctx);
+            o.name = Some(format!("{} - {}", s.name, self.layers.get(self.active).map_or("", |l| l.name.as_str())));
+            self.opening = Some(o);
+        }
+    }
+
     /// The Display panel's band selection of a series with several bands per date (app.cpp, uiBands): the band
     /// shown, a normalized difference, a quality band; applied by reopening the layer.
     fn bands_ui(&mut self, ui: &mut Ui, info: &janus_cube::CubeInfo) {
-        if info.spectral || info.multidim || info.bands_per_date <= 1 {
+        if info.spectral {
+            self.spectral_index_ui(ui, info);
+            return;
+        }
+        if info.multidim {
+            self.multidim_ui(ui, info);
+            return;
+        }
+        if info.bands_per_date <= 1 {
             return;
         }
         if self.band_sel.as_ref().is_none_or(|(id, _)| *id != info.id) {

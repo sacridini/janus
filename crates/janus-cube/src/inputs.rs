@@ -13,6 +13,12 @@ pub fn is_raster_path(path: &Path) -> bool {
         .is_some_and(|e| RASTER_EXTENSIONS.iter().any(|x| e.eq_ignore_ascii_case(x)))
 }
 
+/// File names of vector data (points, lines, polygons) Janus opens as vector layers (src/vectors.cpp).
+pub fn is_vector_path(path: &Path) -> bool {
+    const EXTS: [&str; 12] = ["geojson", "json", "shp", "gpkg", "kml", "kmz", "gml", "fgb", "csv", "gpx", "tab", "geojsonl"];
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
 /// "Natural" order, img2 before img10: runs of digits by their value, the rest by letter without case.
 pub fn natural_cmp(a: &str, b: &str) -> Ordering {
     let (a, b) = (a.as_bytes(), b.as_bytes());
