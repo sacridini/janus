@@ -390,14 +390,23 @@ impl State {
                     s.gpu.as_mut()?.release_target(VIEW_SLOT as i32);
                     Some(img)
                 };
-                if panel(self, true)? != base {
+                // the same image, to the rounding of a software renderer (lavapipe on CI)
+                let same = |what: &str, x: &[u8], y: &[u8]| {
+                    let worst = x.iter().zip(y).map(|(p, q)| p.abs_diff(*q)).max().unwrap_or(0);
+                    if x.len() != y.len() || worst > 2 {
+                        println!("    {what}: largest difference {worst} from the main map's");
+                        return false;
+                    }
+                    true
+                };
+                if !same("map panel, basemap only", &panel(self, true)?, &base) {
                     return fail("a map panel with the basemap only should draw the basemap alone");
                 }
                 let of_b = panel(self, false)?;
                 self.layers[a].visible = false;
                 let b_only = self.basemap_render()?;
                 self.layers[a].visible = true;
-                if of_b != b_only {
+                if !same("map panel of B", &of_b, &b_only) {
                     return fail("a map panel of B should draw B over the basemap, as the main map");
                 }
                 let had = self.swipe.is_some();
@@ -411,7 +420,7 @@ impl State {
                 if !had {
                     self.toggle_swipe();
                 }
-                if img != base {
+                if !same("swipe, basemap only", &img, &base) {
                     return fail("the swipe's comparison should be able to show the basemap alone");
                 }
                 next(st, "map panel and swipe: the basemap alone, a layer over it");
