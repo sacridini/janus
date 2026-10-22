@@ -168,9 +168,94 @@ pub fn sample_stats(v: &mut Vec<f32>) -> SampleStats {
     SampleStats { n, mean, std, p10: q(0.10), p25: q(0.25), p50: q(0.50), p75: q(0.75), p90: q(0.90) }
 }
 
+/// The civil year and the day of that year (1 January = 1) of a time in Unix seconds.
+pub fn year_and_day(unix_seconds: f64) -> (i32, i32) {
+    let days = (unix_seconds / 86400.0).floor() as i64;
+    let (y, _, _) = crate::dates::civil_from_days(days);
+    (y, (days - crate::dates::days_from_civil(y, 1, 1)) as i32 + 1)
+}
+
+/// Observations per year of a series of times (Unix seconds), from the median spacing; 1 for one or none.
+pub fn observations_per_year(t: &[f64]) -> i32 {
+    let mut gaps: Vec<f64> = t.windows(2).filter(|w| w[1] > w[0]).map(|w| w[1] - w[0]).collect();
+    if gaps.is_empty() {
+        return 1;
+    }
+    let k = gaps.len() / 2;
+    let days = *gaps.select_nth_unstable_by(k, f64::total_cmp).1 / 86400.0;
+    if days > 0.0 { ((365.25 / days).round() as i32).max(1) } else { 1 }
+}
+
+/// A series by year and part of the year: `bins` parts of 366 days, the mean of the observations in each cell.
+#[derive(Clone, Debug, Default)]
+pub struct SeasonalGrid {
+    pub year0: i32,
+    pub years: usize,
+    pub bins: usize,
+    /// [year][bin], NaN = no observation
+    pub mean: Vec<f32>,
+    /// [year][bin] observations
+    pub n: Vec<usize>,
+}
+
+pub fn seasonal_grid(t: &[f64], v: &[f32], bins: usize) -> SeasonalGrid {
+    let bins = bins.max(1);
+    let mut g = SeasonalGrid { bins, ..Default::default() };
+    let yd: Vec<(i32, i32)> = t.iter().take(v.len()).map(|&x| year_and_day(x)).collect();
+    let (Some(y0), Some(y1)) = (yd.iter().map(|d| d.0).min(), yd.iter().map(|d| d.0).max()) else { return g };
+    g.year0 = y0;
+    g.years = (y1 - y0 + 1) as usize;
+    let mut sum = vec![0f64; g.years * bins];
+    g.n = vec![0; sum.len()];
+    for (&(y, d), &x) in yd.iter().zip(v) {
+        if !x.is_finite() {
+            continue;
+        }
+        let k = (y - y0) as usize * bins + ((d as usize - 1) * bins / 366).min(bins - 1);
+        sum[k] += f64::from(x);
+        g.n[k] += 1;
+    }
+    g.mean = sum.iter().zip(&g.n).map(|(&s, &n)| if n > 0 { (s / n as f64) as f32 } else { f32::NAN }).collect();
+    g
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The C++'s --selftest-ui stage 75 (selfTestAnalysis(0)).
+    #[test]
+    fn calendar() {
+        for (t, y, d) in [
+            (951868800.0, 2000, 61),
+            (1009756800.0, 2001, 365),
+            (1104451200.0, 2004, 366),
+            (-86400.0, 1969, 365),
+            (1262304000.0 + 43200.0, 2010, 1),
+        ] {
+            assert_eq!(year_and_day(t), (y, d), "{t}");
+        }
+        // monthly, 2009-2011, on the 15th: value = month + 100 x year index
+        let start = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+        let jan1 = [1230768000.0, 1262304000.0, 1293840000.0];
+        let (mut times, mut values) = (Vec::new(), Vec::new());
+        for (y, j) in jan1.iter().enumerate() {
+            for (m, s) in start.iter().enumerate() {
+                times.push(j + f64::from(s + 14) * 86400.0);
+                values.push((m + 1 + 100 * y) as f32);
+            }
+        }
+        assert_eq!(observations_per_year(&times), 12);
+        assert_eq!(observations_per_year(&jan1), 1);
+        let g = seasonal_grid(&times, &values, 12);
+        assert_eq!((g.year0, g.years, g.bins), (2009, 3, 12));
+        for y in 0..3 {
+            for m in 0..12 {
+                assert_eq!(g.mean[y * 12 + m], (m + 1 + 100 * y) as f32);
+                assert_eq!(g.n[y * 12 + m], 1);
+            }
+        }
+    }
 
     #[test]
     fn a_series() {

@@ -29,6 +29,10 @@ pub enum Tab {
     Performance,
     /// while there is a transect, next to the time series
     Transect,
+    /// while interpreting a vector layer, next to the statistics
+    Interpretation,
+    /// View > Analysis, next to the time series
+    Analysis,
 }
 
 impl Tab {
@@ -49,6 +53,8 @@ impl Tab {
             Tab::Statistics => "Statistics",
             Tab::Performance => "Performance",
             Tab::Transect => "Transect",
+            Tab::Interpretation => "Interpretation",
+            Tab::Analysis => "Analysis",
         }
     }
 }
@@ -83,7 +89,9 @@ fn load_layout() -> Option<DockState<Tab>> {
 /// The dock as kept: the map panels left out.
 fn layout_text(dock: &DockState<Tab>) -> Option<String> {
     let mut d = dock.clone();
-    while let Some(p) = d.find_tab_from(|t| matches!(t, Tab::MapView(_) | Tab::Transect)) {
+    while let Some(p) =
+        d.find_tab_from(|t| matches!(t, Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis))
+    {
         d.remove_tab(p);
     }
     serde_json::to_string(&d).ok()
@@ -125,6 +133,8 @@ pub struct Options {
     pub roi_polygon: Vec<f64>,
     /// --transect: its vertices (x, y, ...)
     pub transect: Vec<f64>,
+    /// --analysis: the Analysis panel at this tab
+    pub analysis: Option<usize>,
     /// --zeit TOOL: that Zeit tool fitted on the chart, its window open
     pub zeit_tool: Option<String>,
     /// --zeit-run: the --zeit tool run on the raster (its ROI if --roi, else the whole image) once the series is
@@ -136,12 +146,16 @@ pub struct Options {
     pub selftest_multidim: bool,
     /// --selftest-ui A B [C D E]: the layers workflow on the test series
     pub selftest_ui: bool,
+    /// --measure-vectors IN VEC...: the vector files measured over the series
+    pub measure_vectors: bool,
+    pub measure_vector_files: Vec<String>,
 }
 
 impl Options {
     /// A tour or a self-test drives the map: the pointer over the window is not the cursor.
     pub fn scripted(&self) -> bool {
         self.profile_tour
+            || self.measure_vectors
             || self.dump_golden.is_some()
             || self.selftest_composite
             || self.selftest_reproject
@@ -212,6 +226,20 @@ pub struct State {
     /// the space-time transect and the one being drawn
     pub transect: crate::transect::Transect,
     pub transect_draft: crate::transect::TransectDraft,
+    /// vector layers (drawn over every raster layer), the files being read, the feature under the cursor
+    pub vectors: Vec<crate::vectors::VectorLayer>,
+    pub vector_loads: crate::vectors::VectorLoads,
+    pub next_vector_id: u32,
+    pub hover_vector: Option<(usize, usize)>,
+    pub extract: crate::vectors::ExtractUi,
+    /// the interpretation of a vector layer's features
+    pub labels: crate::labels::Interpretation,
+    /// files written in the background (Exports window)
+    pub exports: Vec<std::sync::Arc<crate::exports::ExportJob>>,
+    pub show_exports: bool,
+    pub(crate) measure_vectors: crate::measure_vectors::MeasureVectors,
+    /// the Analysis panel's state
+    pub analysis: crate::analysis::AnalysisUi,
     pub chart: crate::chart::ChartOptions,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
@@ -342,7 +370,7 @@ impl TabViewer for Tabs<'_> {
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {
-        matches!(tab, Tab::MapView(_) | Tab::Transect)
+        matches!(tab, Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis)
     }
 
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
@@ -351,6 +379,12 @@ impl TabViewer for Tabs<'_> {
         }
         if *tab == Tab::Transect {
             self.s.clear_transect();
+        }
+        if *tab == Tab::Interpretation {
+            self.s.labels.show = false;
+        }
+        if *tab == Tab::Analysis {
+            self.s.analysis.show = false;
         }
         egui_dock::tab_viewer::OnCloseResponse::Close
     }
@@ -361,6 +395,10 @@ impl TabViewer for Tabs<'_> {
             Tab::MapView(id) => self.s.map_view_ui(ui, *id),
             Tab::TimeSeries => self.s.series_ui(ui),
             Tab::Transect => self.s.transect_ui(ui),
+            Tab::Analysis => self.s.analysis_ui(ui),
+            Tab::Interpretation => {
+                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.s.interpretation_ui(ui));
+            }
             _ => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match tab {
                     Tab::Layers => {
@@ -421,6 +459,16 @@ impl JanusApp {
                 series: Default::default(),
                 transect: Default::default(),
                 transect_draft: Default::default(),
+                vectors: Vec::new(),
+                vector_loads: Default::default(),
+                next_vector_id: 1,
+                hover_vector: None,
+                extract: Default::default(),
+                labels: Default::default(),
+                exports: Vec::new(),
+                show_exports: false,
+                measure_vectors: Default::default(),
+                analysis: Default::default(),
                 chart: Default::default(),
                 band_sel: None,
                 spectral_index: 0,
@@ -480,6 +528,8 @@ impl JanusApp {
 impl State {
     /// Opens a series in the background; `add` keeps the open ones and adds it as a new layer. One open at a time.
     pub fn open_inputs(&mut self, inputs: Vec<String>, add: bool, ctx: &egui::Context) {
+        // vector files become vector layers
+        let inputs = self.take_vector_inputs(inputs, ctx);
         if inputs.is_empty() || self.opening.is_some() {
             return;
         }
@@ -612,6 +662,9 @@ impl State {
             }
             if !self.opts.roi_polygon.is_empty() {
                 self.set_roi_polygon(vec![self.opts.roi_polygon.clone()]);
+            }
+            if let Some(tab) = self.opts.analysis {
+                (self.analysis.show, self.analysis.tab) = (true, tab);
             }
             if self.opts.transect.len() >= 4 {
                 let pts = self.opts.transect.as_chunks::<2>().0.to_vec();
@@ -775,6 +828,7 @@ impl State {
         if ctx.egui_wants_keyboard_input() || self.session.is_none() {
             return act;
         }
+        self.interp_shortcuts(ctx);
         let n = self.session.as_ref().map_or(0, |s| s.info.t());
         let (left, right, home, end, fit, play, satellite, space, esc) = ctx.input(|i| {
             (
@@ -924,6 +978,22 @@ impl State {
                     self.clear_roi();
                 }
                 ui.separator();
+                let mut analysis = self.analysis.show;
+                if ui
+                    .add_enabled(has, egui::Checkbox::new(&mut analysis, "Analysis"))
+                    .on_hover_text("Seasonal views, class shares and transitions, scatter of two layers or dates")
+                    .clicked()
+                {
+                    self.analysis.show = analysis;
+                }
+                let mut interp = self.labels.show;
+                if ui.checkbox(&mut interp, "Interpretation").clicked() {
+                    self.labels.show = interp;
+                }
+                let mut exports = self.show_exports;
+                if ui.checkbox(&mut exports, "Exports").clicked() {
+                    self.show_exports = exports;
+                }
                 let mut perf = perf_shown;
                 if ui.checkbox(&mut perf, "Performance").clicked() {
                     act.toggle_performance = true;
@@ -1084,6 +1154,8 @@ impl eframe::App for JanusApp {
         s.pump_composite(&ctx);
         s.pump_zeit(&ctx);
         s.pump_transect(&ctx);
+        s.pump_vectors();
+        s.pump_interpretation(&ctx);
         s.pump_zeit_jobs(&ctx);
         s.scripted_zeit_run(&ctx);
         let rc = if s.opts.dump_golden.is_some() {
@@ -1096,6 +1168,8 @@ impl eframe::App for JanusApp {
             s.ui_selftest_step(&ctx)
         } else if s.opts.selftest_multidim {
             s.multidim_selftest_step(&ctx)
+        } else if s.opts.measure_vectors {
+            s.measure_vectors_step(&ctx)
         } else if s.opts.profile_tour {
             s.tour_step(&ctx)
         } else {
@@ -1137,6 +1211,30 @@ impl eframe::App for JanusApp {
             for w in self.windows.drain(..) {
                 drop(w);
             }
+        }
+        // the Analysis panel while it is shown, as a tab next to the time series
+        let analysis_tab = self.dock.find_tab(&Tab::Analysis);
+        if self.state.analysis.show && analysis_tab.is_none() {
+            if let Some(p) = self.dock.find_tab(&Tab::TimeSeries) {
+                self.dock.set_focused_node_and_surface(p.node_path());
+            }
+            self.dock.push_to_focused_leaf(Tab::Analysis);
+        } else if !self.state.analysis.show
+            && let Some(p) = analysis_tab
+        {
+            self.dock.remove_tab(p);
+        }
+        // the Interpretation panel while it is shown, as a tab next to the statistics
+        let interp_tab = self.dock.find_tab(&Tab::Interpretation);
+        if self.state.labels.show && interp_tab.is_none() {
+            if let Some(p) = self.dock.find_tab(&Tab::Statistics) {
+                self.dock.set_focused_node_and_surface(p.node_path());
+            }
+            self.dock.push_to_focused_leaf(Tab::Interpretation);
+        } else if !self.state.labels.show
+            && let Some(p) = interp_tab
+        {
+            self.dock.remove_tab(p);
         }
         // the Transect panel while there is one, as a tab next to the time series
         let transect_tab = self.dock.find_tab(&Tab::Transect);
@@ -1235,6 +1333,8 @@ impl eframe::App for JanusApp {
         self.state.popups(&ctx);
         self.state.tool_windows(&ctx);
         self.state.tasks_window(&ctx);
+        self.state.exports_window(&ctx);
+        self.state.extract_window(&ctx);
         self.state.log_window(&ctx);
         // the layout kept, every few seconds when it changed (not for the tests)
         if self.layout_checked.elapsed().as_secs_f64() > 3.0 && !self.state.settings.no_save {

@@ -547,6 +547,7 @@ impl State {
     pub(crate) fn layers_ui(&mut self, ui: &mut Ui) {
         if self.layers.is_empty() {
             ui.weak("No layers. Open a series (File, drag and drop\nor the command line).");
+            self.vectors_ui(ui);
             return;
         }
         let ctx = ui.ctx().clone();
@@ -567,6 +568,7 @@ impl State {
         });
         ui.weak("Top of the list = drawn on top. Click a name to make it active.");
         ui.separator();
+        self.vectors_ui(ui); // drawn over every raster layer
         let (mut up, mut down, mut remove, mut activate) = (None, None, None, None);
         let n = self.layers.len();
         let active = self.active;

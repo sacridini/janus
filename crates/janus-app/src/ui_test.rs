@@ -10,6 +10,9 @@
 
 use janus_gpu::Mode;
 
+#[path = "ui_test_vectors.rs"]
+mod vectors;
+
 use crate::app::State;
 use crate::classes::ClassState;
 use crate::series::approx_series;
@@ -35,6 +38,14 @@ pub struct UiTest {
     stats_gen: u64,
     /// the NDVI's bands (1-based) on the spectrum, for its layer
     index_bands: (i32, i32),
+    /// stages 120-125: the vector files' folder, the points written, the exports, frames of a stage, the
+    /// interpretation's pin, its labels' file
+    dir: std::path::PathBuf,
+    pts: Vec<[f64; 2]>,
+    jobs: Vec<std::sync::Arc<crate::exports::ExportJob>>,
+    frames: usize,
+    pin: Option<u32>,
+    reveal: Option<std::path::PathBuf>,
     /// the exit code, once decided (the window takes another frame to close)
     result: Option<i32>,
 }
@@ -480,6 +491,27 @@ impl State {
                 if let Err(e) = self.test_transect(ctx) {
                     return fail(&e);
                 }
+                // Analysis: the scatter of A and B (B = A - 0.5)
+                let t = self.display.t;
+                let sc = self.compute_scatter(0, t, 1, t);
+                println!(
+                    "    scatter A x B at {}: {} pixels, r {:.6}, B = {:.4} + {:.4} A, mean(B - A) {:.4}",
+                    self.session.as_ref()?.info.layers[t].label,
+                    sc.n,
+                    sc.r,
+                    sc.a,
+                    sc.b,
+                    sc.mean_diff
+                );
+                if sc.n < 100
+                    || sc.r.is_nan()
+                    || sc.r <= 0.999
+                    || (sc.b - 1.0).abs() > 0.01
+                    || (sc.a + 0.5).abs() > 0.02
+                    || (sc.mean_diff + 0.5).abs() > 0.02
+                {
+                    return fail("the scatter of A and B should be the line B = A - 0.5");
+                }
                 next(st, "layer drawing and visibility, a map panel, transect");
             }
             6 => {
@@ -735,6 +767,9 @@ impl State {
                 if let Err(e) = self.test_transect_classes() {
                     return fail(&e);
                 }
+                if let Err(e) = self.test_class_analysis() {
+                    return fail(&e);
+                }
                 self.clear_transect();
                 next(st, "map in class colours, class summary, transect in class colours");
                 if st.stage == 16 {
@@ -754,6 +789,7 @@ impl State {
             }
             90..=97 => return self.test_spectra(st, &input, t0, ctx),
             110..=114 => return self.test_roi_polygon(st, &input, t0, ctx),
+            120..=125 => return self.test_vectors(st, t0, ctx),
             _ => {}
         }
         None
@@ -899,6 +935,65 @@ impl State {
         );
         if !self.transect.on || (ax - 110.5).abs() > 1e-3 || an != 191 || (bx - 10.5).abs() > 1e-3 || bn != 281 {
             return Err("the transect should follow the active layer".into());
+        }
+        Ok(())
+    }
+
+    /// Classes: 200 x 120 pixels; at the 1st date forest 11300, pasture 3900, urban 4800, water 4000; from the 5th
+    /// date the block is pasture (src/app_selftest.cpp, selfTestAnalysis(2)).
+    fn test_class_analysis(&mut self) -> Result<(), String> {
+        if !self.count_class_timeline(1e9) {
+            return Err("the class timeline should be complete".into());
+        }
+        let s = self.session.as_ref().ok_or("no series")?;
+        let (ow, oh) = (s.s.overview.w, s.s.overview.h);
+        let labels = (s.info.layers[0].label.clone(), s.info.layers[s.info.t() - 1].label.clone());
+        let c = &self.analysis.classes;
+        let t_n = c.counts.len();
+        let count = |t: usize, v: i32| c.values.iter().position(|&x| x == v).map_or(0.0, |k| f64::from(c.counts[t][k]));
+        let full = ow == 200 && oh == 120;
+        let px = (ow * oh) as f64;
+        let near = |got: f64, want: f64| if full { got == want } else { (got / px - want / 24000.0).abs() < 0.01 };
+        println!(
+            "    classes at {}: forest {}, pasture {}, urban {}, water {} (overview {ow} x {oh})",
+            labels.0,
+            count(0, 3),
+            count(0, 15),
+            count(0, 24),
+            count(0, 33)
+        );
+        if !near(count(0, 3), 11300.0)
+            || !near(count(0, 15), 3900.0)
+            || !near(count(0, 24), 4800.0)
+            || !near(count(0, 33), 4000.0)
+            || !near(count(t_n - 1, 3), 11200.0)
+            || !near(count(t_n - 1, 15), 4000.0)
+        {
+            return Err("the share of each class should follow the file".into());
+        }
+        let tr = self.count_transitions(0, t_n - 1);
+        let k_n = tr.values.len();
+        let (mut changed, mut forest_to_pasture) = (0u64, 0u64);
+        for i in 0..k_n {
+            for j in 0..k_n {
+                if i != j {
+                    changed += u64::from(tr.m[i * k_n + j]);
+                }
+                if tr.values[i] == 3 && tr.values[j] == 15 {
+                    forest_to_pasture = u64::from(tr.m[i * k_n + j]);
+                }
+            }
+        }
+        println!(
+            "    transitions {} -> {}: {changed} of {} pixels changed, forest -> pasture {forest_to_pasture}",
+            labels.0, labels.1, tr.both
+        );
+        if !tr.done
+            || changed != forest_to_pasture
+            || !near(forest_to_pasture as f64, 100.0)
+            || !near(tr.both as f64, 24000.0)
+        {
+            return Err("the only transition should be the forest block turning to pasture".into());
         }
         Ok(())
     }
@@ -1330,8 +1425,7 @@ impl State {
                 }
                 self.clear_roi();
                 next(st, "the L's statistics on B, A and F");
-                println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
-                return Some(0);
+                st.stage = 120; // vector layers
             }
             _ => {}
         }

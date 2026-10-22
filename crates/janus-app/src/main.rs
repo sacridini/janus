@@ -4,17 +4,21 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod analysis;
 mod app;
 mod basemap;
 mod chart;
 mod classes;
 mod composite;
 mod display;
+mod exports;
 mod files;
 mod golden;
+mod labels;
 mod layers;
 mod map;
 mod measure;
+mod measure_vectors;
 mod open;
 mod panels;
 mod platform;
@@ -29,6 +33,7 @@ mod theme;
 mod tour;
 mod transect;
 mod ui_test;
+mod vectors;
 mod views;
 mod zeit;
 
@@ -67,6 +72,7 @@ Options:
   --pin X,Y           a pin at source pixel (X, Y) once the series is open (repeatable)
   --roi X0,Y0,X1,Y1   an ROI rectangle once the series is open (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline) once the series is open
+  --analysis seasonal|classes|scatter  the Analysis panel at that tab
   --zeit TOOL         the Zeit tool fitted on the chart (e.g. landtrendr), its window open
   --zeit-run          and run on the raster (the ROI's window if --roi) once the series is loaded
   --selftest-ui A B [C [D [E]]]  the layers workflow on the test series of tools/make_selftest_data.py:
@@ -85,6 +91,8 @@ Options:
   --measure-cache on|off IN  time exact series and an ROI from the files, build the overview (and the
                       full-resolution cache if on), time the reads again from the cache, check them
                       against the files; without a window
+  --measure-vectors IN VEC...  a series and vector files over it: reading, placing, drawing, picking and
+                      extracting the series at every feature, timed
   -h, --help          show this help
   --version           show the version
 ";
@@ -100,8 +108,37 @@ fn attach_console() {
     }
 }
 
+/// PROJ and GDAL data (src/main.cpp, configureBundledData): those shipped with the program (share/ next to it, or
+/// beside its lib/), else those next to the GDAL libraries on the PATH (a development environment), unless the
+/// environment names them.
+fn configure_data() {
+    let exe = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf()));
+    let mut shares: Vec<std::path::PathBuf> =
+        exe.iter().flat_map(|d| [d.join("share"), d.join("..").join("share")]).collect();
+    if let Some(path) = std::env::var_os("PATH") {
+        let lib = if cfg!(windows) { "gdal.dll" } else { "libgdal.so" };
+        shares
+            .extend(std::env::split_paths(&path).filter(|d| d.join(lib).exists()).map(|d| d.join("..").join("share")));
+    }
+    if std::env::var_os("PROJ_DATA").is_none()
+        && std::env::var_os("PROJ_LIB").is_none()
+        && let Some(proj) = shares.iter().map(|s| s.join("proj")).find(|p| p.join("proj.db").exists())
+    {
+        let _ = gdal::config::set_config_option("PROJ_DATA", &proj.to_string_lossy());
+        let c = std::ffi::CString::new(proj.to_string_lossy().as_bytes()).unwrap_or_default();
+        let paths = [c.as_ptr(), std::ptr::null()];
+        unsafe { gdal_sys::OSRSetPROJSearchPaths(paths.as_ptr()) };
+    }
+    if std::env::var_os("GDAL_DATA").is_none()
+        && let Some(gdal) = shares.iter().map(|s| s.join("gdal")).find(|p| p.join("gdalvrt.xsd").exists())
+    {
+        let _ = gdal::config::set_config_option("GDAL_DATA", &gdal.to_string_lossy());
+    }
+}
+
 fn main() -> eframe::Result<()> {
     let t0 = Instant::now();
+    configure_data();
     // GDAL's block cache at 512 MB unless the environment sets it: closing a series of 41 files took 15-20 s with
     // GDAL's default (commit 9d6019c)
     if std::env::var_os("GDAL_CACHEMAX").is_none() {
@@ -128,6 +165,7 @@ fn main() -> eframe::Result<()> {
             "--screenshot" => opts.screenshot = args.next().map(Into::into),
             "--detach-map" => opts.detach_map = true,
             "--profile-tour" => opts.profile_tour = true,
+            "--measure-vectors" => opts.measure_vectors = true,
             "--tour-json" => opts.tour_json = args.next().map(Into::into),
             "--dump-golden" => opts.dump_golden = Some(Default::default()),
             "--basemap" => opts.basemap = args.next(),
@@ -150,6 +188,13 @@ fn main() -> eframe::Result<()> {
                     opts.roi = Some([a as i64, b as i64, c as i64, d as i64]);
                 } else if v.len() >= 6 && v.len().is_multiple_of(2) {
                     opts.roi_polygon = v;
+                }
+            }
+            "--analysis" => {
+                opts.analysis = match args.next().as_deref() {
+                    Some("classes") => Some(1),
+                    Some("scatter") => Some(2),
+                    _ => Some(0),
                 }
             }
             "--transect" => {
@@ -194,12 +239,17 @@ fn main() -> eframe::Result<()> {
         // B opens, F and A are added as layers by the test
         opts.extra_layers = opts.inputs.split_off(1);
     }
+    if opts.measure_vectors && opts.inputs.len() >= 2 {
+        // the series opens, the vector files are added by the measure
+        opts.measure_vector_files = opts.inputs.split_off(1);
+    }
     if opts.dump_golden.is_some() {
         opts.dump_golden = opts.inputs.pop().map(Into::into);
     }
     let test_window = opts.measure_startup
         || opts.screenshot.is_some()
         || opts.profile_tour
+        || opts.measure_vectors
         || opts.dump_golden.is_some()
         || opts.selftest_composite
         || opts.selftest_reproject

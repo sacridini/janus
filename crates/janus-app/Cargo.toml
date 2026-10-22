@@ -20,6 +20,7 @@ egui = "0.36"
 egui_dock = { version = "0.21", features = ["serde"] }
 egui_plot = "0.37"
 gdal.workspace = true
+gdal-sys.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }
 janus-cache = { path = "../janus-cache" }
 janus-cube = { path = "../janus-cube" }

@@ -246,7 +246,26 @@ impl State {
             self.set_hover(inside);
         }
         // a click drops a pin; the right button removes the one under the cursor; Delete the last one
+        // the feature of a vector layer under the cursor; Alt + click on a polygon: it becomes the ROI, on a line:
+        // the transect follows it
+        let alt = ui.input(|i| i.modifiers.alt);
+        if resp.hovered() {
+            self.hover_vector = match pointer {
+                Some([x, y]) if !self.vectors.is_empty() && !drawing => self.vector_feature_at(x, y, 6.0),
+                _ => None,
+            };
+            self.vector_tooltip(resp);
+        }
         if resp.clicked()
+            && alt
+            && let Some([x, y]) = pointer
+        {
+            if let Some((li, i)) = self.vector_feature_at(x, y, 6.0)
+                && !self.feature_as_roi(li, i)
+            {
+                self.feature_as_transect(li, i);
+            }
+        } else if resp.clicked()
             && !shift
             && !poly_on
             && let Some((x, y)) = inside
@@ -322,6 +341,7 @@ impl State {
             );
             painter.galley(tp, galley, pin.color);
         }
+        self.draw_vector_marks(painter, rect, &at); // under the pins and the ROI
         self.draw_roi_marks(painter, rect, &at);
         self.draw_transect_marks(painter, rect, &at);
     }
@@ -539,6 +559,9 @@ impl State {
             }
         }
         self.basemap_note(&painter, rect);
+        if let Some(v) = self.vector_status(ui.input(|i| i.modifiers.alt)) {
+            status += &v;
+        }
         ui.weak(status);
     }
 

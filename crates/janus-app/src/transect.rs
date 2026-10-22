@@ -109,7 +109,7 @@ pub struct Transect {
     /// 0 values, 1 anomaly (each place minus its mean through time)
     pub kind: usize,
     /// the plot's bounds set again (a new line)
-    fit: bool,
+    pub fit: bool,
     /// the cell hovered in the panel (marked on the map)
     pub hover_i: Option<usize>,
     drawn_key: u64,
