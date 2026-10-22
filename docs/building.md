@@ -6,8 +6,11 @@ Janus is a Rust workspace (`crates/`, see [Architecture](architecture.md)). It n
 [Rust](https://rustup.rs) 1.90 or later and GDAL, e.g. from a conda-forge environment:
 
 ```
-conda create -n geo -c conda-forge gdal libgdal-netcdf libgdal-hdf5 numpy
+conda create -n geo -c conda-forge gdal=3.11 libgdal-netcdf=3.11 libgdal-hdf5=3.11 numpy
 ```
+
+GDAL 3.11 or older: the `gdal-sys` crate carries bindings up to 3.11 (a newer GDAL
+needs its `bindgen` feature, and libclang).
 
 (the two plugins read NetCDF and HDF5; numpy and GDAL's Python bindings are only for
 `tools/make_selftest_data.py`, which makes the self-tests' inputs). Everything else, from the

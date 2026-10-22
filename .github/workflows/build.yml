@@ -20,18 +20,19 @@ env:
 
 jobs:
   build:
+    # GDAL 3.11, as the local builds: gdal-sys 0.12 has bindings up to 3.11 without bindgen
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-2022
-            packages: gdal libgdal-netcdf libgdal-hdf5 numpy
+            packages: gdal=3.11 libgdal-netcdf=3.11 libgdal-hdf5=3.11 numpy
             exe: target/release/janus.exe
           - os: ubuntu-24.04
-            packages: gdal libgdal-netcdf libgdal-hdf5 numpy pkg-config patchelf
+            packages: gdal=3.11 libgdal-netcdf=3.11 libgdal-hdf5=3.11 numpy pkg-config patchelf
             exe: target/release/janus
           - os: macos-15
-            packages: gdal libgdal-netcdf libgdal-hdf5 numpy pkg-config
+            packages: gdal=3.11 libgdal-netcdf=3.11 libgdal-hdf5=3.11 numpy pkg-config
             exe: target/release/janus
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
