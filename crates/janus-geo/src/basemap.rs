@@ -361,6 +361,8 @@ pub struct Basemap<T> {
     map: Option<(Reprojection, T)>,
     /// CubeInfo id of the active layer it was made for
     map_for: u64,
+    /// the part of the map placed (None: the layer and MARGIN around it)
+    around: Option<[f64; 4]>,
     map_version: u64,
     /// the frame's geotransform: left x, top y, pixel size (m)
     frame: [f64; 3],
@@ -409,6 +411,7 @@ impl<T> Basemap<T> {
             sh,
             map: None,
             map_for: 0,
+            around: None,
             map_version: 0,
             frame: [0.0, 0.0, 1.0],
             frame_w: 1,
@@ -498,10 +501,19 @@ impl<T> Basemap<T> {
     /// longer side around it), as a raster about as fine as the layer; Reprojection makes the grid from the
     /// layer's pixels to it, as for a layer in another CRS. Its uv stay small numbers (float in the shader) even
     /// for the finest tiles.
-    pub fn set_map(&mut self, a: &CubeInfo, make_grid: impl FnOnce(usize, usize, &[f32]) -> T) -> Result<(), String> {
-        if self.map.is_some() && self.map_for == a.id {
+    ///
+    /// `around`: the part of the map to cover instead (the active layer's pixels: x0, y0, x1, y1), when the view
+    /// is far from the layer or zoomed out beyond it.
+    pub fn set_map(
+        &mut self,
+        a: &CubeInfo,
+        around: Option<[f64; 4]>,
+        make_grid: impl FnOnce(usize, usize, &[f32]) -> T,
+    ) -> Result<(), String> {
+        if self.map.is_some() && self.map_for == a.id && self.around == around {
             return Ok(());
         }
+        self.around = around;
         self.map = None;
         self.map_for = 0;
         self.map_version += 1;
@@ -523,8 +535,7 @@ impl<T> Basemap<T> {
             let _q = Quiet::new();
             CoordTransform::new(&sa, &sm).map_err(|_| "no transformation to Web Mercator".to_string())?
         };
-        let m = MARGIN * a.width.max(a.height) as f64;
-        let around = [-m, -m, a.width as f64 + m, a.height as f64 + m];
+        let around = around.unwrap_or_else(|| Self::default_around(a));
         const N: usize = 33;
         let (mut xs, mut ys) = (Vec::new(), Vec::new());
         for j in 0..N {
@@ -575,7 +586,7 @@ impl<T> Basemap<T> {
             ..Default::default()
         };
         self.frame = [b[0], b[3], res];
-        let r = Reprojection::new(a, &f, MARGIN)?;
+        let r = Reprojection::new_around(a, &f, around)?;
         if !r.has_domain() {
             return Err("the layer is outside Web Mercator".into());
         }
@@ -585,6 +596,17 @@ impl<T> Basemap<T> {
         self.placed_at = now_ms();
         self.first_tile_ms = None;
         Ok(())
+    }
+
+    /// The part of the map placed by default: the layer and MARGIN times its longer side around it (its pixels).
+    pub fn default_around(a: &CubeInfo) -> [f64; 4] {
+        let m = MARGIN * a.width.max(a.height) as f64;
+        [-m, -m, a.width as f64 + m, a.height as f64 + m]
+    }
+
+    /// The part of the map placed now (None: the default).
+    pub fn around(&self) -> Option<[f64; 4]> {
+        self.around
     }
 
     /// Once per frame (whatever the number of map panels calling update()): requests not renewed for 2 frames are

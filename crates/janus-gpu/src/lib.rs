@@ -7,6 +7,9 @@
 
 pub mod colormaps;
 
+pub mod vector;
+pub use vector::{VectorFeatures, VectorGeometry, VectorKind, VectorPoint, VectorStyle, VectorView};
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -264,6 +267,8 @@ pub struct MapFrame {
     pub size: [u32; 2],
     clear: [f32; 4],
     draws: Vec<PendingDraw>,
+    /// the vector layers' draws, after the rasters
+    vdraws: Vec<vector::VectorDraw>,
     /// the draws pushed while set are cut to this rectangle (x, y, w, h in the target's pixels)
     pub clip: Option<[u32; 4]>,
 }
@@ -287,6 +292,7 @@ pub struct Gpu {
     dummy_rg32: GpuTexture,
     uniforms: RefCell<(wgpu::Buffer, u64)>,
     targets: HashMap<i32, Target>,
+    vector: vector::VectorPipelines,
 }
 
 /// The targets' format: the sRGB bytes as they are, blended as they are (GL's blending of the C++).
@@ -489,6 +495,7 @@ impl Gpu {
         let dummy_r32 = make(wgpu::TextureFormat::R32Float, 1, 1, &[0; 4]);
         let dummy_rgba = make(wgpu::TextureFormat::Rgba8Unorm, 1, 1, &[0; 4]);
         let dummy_rg32 = make(wgpu::TextureFormat::Rg32Float, 2, 2, &[0; 32]);
+        let uniform_layout_for_vectors = uniform_layout.clone();
         let uniforms = d.create_buffer(&wgpu::BufferDescriptor {
             label: Some("draws"),
             size: UNIFORM_STRIDE * 64,
@@ -513,6 +520,7 @@ impl Gpu {
             dummy_rg32,
             uniforms: RefCell::new((uniforms, 64)),
             targets: HashMap::new(),
+            vector: vector::VectorPipelines::new(d, &uniform_layout_for_vectors),
         };
         let empty = gpu.create_cube(1, 1, 1, &[0.0]);
         gpu.no_cube = Some(empty.group.clone());
@@ -763,7 +771,14 @@ impl Gpu {
     /// Starts a frame of the map in a target of `size` pixels (made if needed), cleared to `bg` (sRGB).
     pub fn begin_map(&mut self, slot: i32, size: [u32; 2], bg: [f32; 4]) -> MapFrame {
         self.ensure_target(slot, size);
-        MapFrame { slot, size: [size[0].max(1), size[1].max(1)], clear: bg, draws: Vec::new(), clip: None }
+        MapFrame {
+            slot,
+            size: [size[0].max(1), size[1].max(1)],
+            clear: bg,
+            draws: Vec::new(),
+            vdraws: Vec::new(),
+            clip: None,
+        }
     }
 
     fn uniform(&self, f: &MapFrame, rect: [f32; 4]) -> DrawUniform {
@@ -993,6 +1008,7 @@ impl Gpu {
                 pass.set_bind_group(2, &d.textures, &[]);
                 pass.draw(0..4, 0..1);
             }
+            self.record_vectors(&f, &mut pass, target.size);
         }
         self.queue.submit([enc.finish()]);
     }

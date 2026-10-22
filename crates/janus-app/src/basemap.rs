@@ -182,9 +182,27 @@ impl State {
             self.map.dirty = true;
         }
         let b = bm.b.as_mut().unwrap();
+        // the tiles placed around the layer, or around the view when it looks beyond (zoomed out, panned away): a
+        // frame about three times the view, placed again when the view leaves it or is much smaller than it (the
+        // warp grid's precision follows the frame's size)
+        let around = self.map.last_view.map(|v| [v.x0, v.y0, v.x1, v.y1]).and_then(|v| {
+            let inside = |a: &[f64; 4]| v[0] >= a[0] && v[1] >= a[1] && v[2] <= a[2] && v[3] <= a[3];
+            if inside(&Basemap::<janus_gpu::GpuTexture>::default_around(&s.info)) {
+                return None;
+            }
+            let area = |a: &[f64; 4]| (a[2] - a[0]) * (a[3] - a[1]);
+            if let Some(cur) = b.around()
+                && inside(&cur)
+                && area(&cur) < 64.0 * area(&v)
+            {
+                return Some(cur);
+            }
+            let (w, h) = (v[2] - v[0], v[3] - v[1]);
+            Some([v[0] - w, v[1] - h, v[2] + w, v[3] + h])
+        });
         if bm.failed_for != s.info.id {
             let had = b.has_map();
-            match b.set_map(&s.info, |w, h, rg| gpu.create_warp_grid(w as u32, h as u32, rg)) {
+            match b.set_map(&s.info, around, |w, h, rg| gpu.create_warp_grid(w as u32, h as u32, rg)) {
                 Ok(()) => {
                     bm.why.clear();
                     if !had {

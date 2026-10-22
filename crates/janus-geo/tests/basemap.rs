@@ -138,11 +138,11 @@ fn local_pyramid_lands_where_proj_puts_it() {
     let mut no_crs = info.clone();
     no_crs.crs_wkt.clear();
     let mut bm: Basemap<Vec<u8>> = Basemap::new(&src, &dir.join("cache"), Arc::new(|| {}));
-    let why = bm.set_map(&no_crs, |_, _, _| Vec::new()).unwrap_err();
+    let why = bm.set_map(&no_crs, None, |_, _, _| Vec::new()).unwrap_err();
     assert!(why.contains("no CRS"), "{why}");
 
     // the tiles of the view
-    bm.set_map(&info, |_, _, _| Vec::new()).unwrap();
+    bm.set_map(&info, None, |_, _, _| Vec::new()).unwrap();
     let r = bm.map().unwrap();
     println!("warp grid to Web Mercator: {} x {} nodes, error {:.3} px", r.grid_w, r.grid_h, r.grid_error);
     let start = Instant::now();

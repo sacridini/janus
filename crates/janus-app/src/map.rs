@@ -47,9 +47,12 @@ pub struct MapView {
     pub prev_pointer_panel: Option<u32>,
     /// an export's background (None: the map's)
     pub export_bg: Option<[f32; 4]>,
+    /// the active layer's CRS's area of use in its source pixels (west, north, east, south), for the layer of
+    /// that id (None: none known)
+    crs_extent: Option<(u64, Option<[f64; 4]>)>,
 }
 
-type DrawKey = (Mode, [i32; 3], [u32; 2], usize, [u32; 4], usize, Option<usize>);
+type DrawKey = (Mode, [i32; 3], [u32; 2], usize, [u32; 4], usize, Option<usize>, u64);
 
 /// The map's background where there is no data (the C++'s, app.cpp renderMap).
 pub(crate) const MAP_BACKGROUND: [f32; 4] = [0.10, 0.10, 0.115, 1.0];
@@ -87,6 +90,49 @@ impl MapView {
     }
 }
 
+/// The area of use of a series' CRS (PROJ's database: longitudes and latitudes), in the series' source pixels
+/// (x0, y0, x1, y1): its edges and a grid inside it transformed to the CRS (a projection curves them), then to the
+/// pixels by the inverse of the geotransform. None without georeferencing, or a CRS without an area.
+pub(crate) fn crs_extent_px(info: &janus_cube::CubeInfo) -> Option<[f64; 4]> {
+    use gdal::spatial_ref::{AxisMappingStrategy, CoordTransform, SpatialRef};
+    let g = info.geo_transform?;
+    let det = g[1] * g[5] - g[2] * g[4];
+    if info.crs_wkt.is_empty() || det == 0.0 {
+        return None;
+    }
+    let mut srs = SpatialRef::from_wkt(&info.crs_wkt).ok()?;
+    let (mut w, mut s, mut e, mut n) = (0.0, 0.0, 0.0, 0.0);
+    let ok =
+        unsafe { gdal_sys::OSRGetAreaOfUse(srs.to_c_hsrs(), &mut w, &mut s, &mut e, &mut n, std::ptr::null_mut()) };
+    if ok == 0 || w < -180.5 || e > 180.5 {
+        return None;
+    }
+    if e < w {
+        e += 360.0; // across the antimeridian
+    }
+    let mut wgs = SpatialRef::from_epsg(4326).ok()?;
+    srs.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
+    wgs.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
+    let ct = CoordTransform::new(&wgs, &srs).ok()?;
+    let k = 24;
+    let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+    for i in 0..=k {
+        for j in 0..=k {
+            let lon = w + (e - w) * i as f64 / k as f64;
+            let lat = s + (n - s) * j as f64 / k as f64;
+            let (mut x, mut y, mut z) = ([if lon > 180.0 { lon - 360.0 } else { lon }], [lat], [0.0]);
+            if ct.transform_coords(&mut x, &mut y, &mut z).is_err() || !x[0].is_finite() || !y[0].is_finite() {
+                continue;
+            }
+            let (dx, dy) = (x[0] - g[0], y[0] - g[3]);
+            let px = (g[5] * dx - g[2] * dy) / det;
+            let py = (-g[4] * dx + g[1] * dy) / det;
+            b = [b[0].min(px), b[1].min(py), b[2].max(px), b[3].max(py)];
+        }
+    }
+    (b[0] < b[2] && b[1] < b[3]).then_some(b)
+}
+
 /// The active layer's source pixels per overview pixel, and their counts.
 pub(crate) struct Grid {
     pub ow: f64,
@@ -98,6 +144,38 @@ pub(crate) struct Grid {
 }
 
 impl State {
+    /// How far the map goes, in the active layer's overview pixels: its CRS's area of use, the series and every
+    /// other layer placed on it (all of it reachable; the image itself when nothing else is known).
+    pub(crate) fn map_extent(&mut self, g: &Grid) -> [f64; 4] {
+        let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return [0.0, 0.0, g.ow, g.oh] };
+        if self.map.crs_extent.as_ref().is_none_or(|c| c.0 != info.id) {
+            self.map.crs_extent = Some((info.id, crs_extent_px(&info)));
+        }
+        let mut e = [0.0, 0.0, g.w, g.h];
+        let mut add = |x: f64, y: f64| {
+            if x.is_finite() && y.is_finite() {
+                e = [e[0].min(x), e[1].min(y), e[2].max(x), e[3].max(y)];
+            }
+        };
+        if let Some(c) = self.map.crs_extent.as_ref().and_then(|c| c.1) {
+            add(c[0], c[1]);
+            add(c[2], c[3]);
+        }
+        for (i, l) in self.layers.iter().enumerate() {
+            let Some(li) = l.session.as_ref().map(|s| &s.info).filter(|_| i != self.active) else { continue };
+            let (lw, lh) = (li.width as f64, li.height as f64);
+            for k in 0..=8 {
+                let f = k as f64 / 8.0;
+                for (x, y) in [(f * lw, 0.0), (f * lw, lh), (0.0, f * lh), (lw, f * lh)] {
+                    if let Some((ax, ay)) = l.place.to_active(x, y) {
+                        add(ax, ay);
+                    }
+                }
+            }
+        }
+        [e[0] / g.fx, e[1] / g.fy, e[2] / g.fx, e[3] / g.fy]
+    }
+
     pub(crate) fn grid(&self) -> Option<Grid> {
         let s = self.session.as_ref()?;
         let (ow, oh) = (s.s.overview.w as f64, s.s.overview.h as f64);
@@ -111,6 +189,8 @@ impl State {
     pub(crate) fn canvas_input(&mut self, ui: &Ui, rect: Rect, resp: &Response, main: bool) -> Option<(usize, usize)> {
         let g = self.grid()?;
         let (ow, oh, w, h, fx, fy) = (g.ow, g.oh, g.w, g.h, g.fx, g.fy);
+        // the map goes as far as the CRS's area of use and every layer, not only the image
+        let ext = self.map_extent(&g);
         let m = &mut self.map;
         if main {
             m.canvas = [rect.width(), rect.height()];
@@ -125,8 +205,10 @@ impl State {
             m.anchor = None;
             m.fit_pending = false;
         }
-        // up to MAX_ZOOM screen points per source pixel; down to the whole image
+        // up to MAX_ZOOM screen points per source pixel; down to the whole extent (F: the image)
         let max_scale = MAX_ZOOM * ow / w;
+        let (ew, eh) = ((ext[2] - ext[0]).max(1e-9), (ext[3] - ext[1]).max(1e-9));
+        let min_scale = (0.98 * (f64::from(cw) / ew).min(f64::from(ch) / eh)).min(fit);
         if resp.hovered() {
             // the wheel's own steps (in points), smoothed here as the C++ smooths them
             // macOS: a trackpad's two fingers (precise deltas, in points) pan, as the C++'s gestures do; a pinch
@@ -166,7 +248,7 @@ impl State {
             if scroll != 0.0 || pinch != 1.0 {
                 let factor = 1.25f64.powf(f64::from(scroll) / 50.0) * f64::from(pinch);
                 m.touched = true;
-                m.target_scale = (m.target_scale * factor).clamp(fit.min(max_scale), max_scale.max(fit));
+                m.target_scale = (m.target_scale * factor).clamp(min_scale.min(max_scale), max_scale.max(fit));
                 if let Some(p) = resp.hover_pos() {
                     m.anchor = Some((p - rect.center().to_vec2(), m.image_at(rect, p)));
                 }
@@ -184,9 +266,9 @@ impl State {
                 ui.ctx().request_repaint();
             } else if m.scale != m.target_scale {
                 m.scale = m.target_scale;
-                if m.scale <= fit * 1.0001 {
-                    // zoomed out to the whole image: it ends centred
-                    m.center = [ow / 2.0, oh / 2.0];
+                if m.scale <= min_scale * 1.0001 {
+                    // zoomed out to the whole extent: it ends centred
+                    m.center = [(ext[0] + ext[2]) / 2.0, (ext[1] + ext[3]) / 2.0];
                 }
             }
         }
@@ -241,8 +323,8 @@ impl State {
             m.anchor = None;
         }
         let m = &mut self.map;
-        // the image's centre stays on it
-        m.center = [m.center[0].clamp(0.0, ow), m.center[1].clamp(0.0, oh)];
+        // the centre stays on the extent
+        m.center = [m.center[0].clamp(ext[0], ext[2]), m.center[1].clamp(ext[1], ext[3])];
         // the pixel under the cursor
         let pointer = resp.hover_pos().map(|p| src_at(m, p));
         let inside =
@@ -421,8 +503,12 @@ impl State {
             painter.text(rect.center(), Align2::CENTER_CENTER, msg, body_font(&painter), theme::weak_text());
             return;
         }
-        self.time_bar(ui);
-        self.swipe_bar(ui);
+        // vector layers alone (on a canvas): no dates, no values
+        let vectors_only = self.vectors_only();
+        if !vectors_only {
+            self.time_bar(ui);
+            self.swipe_bar(ui);
+        }
         // the canvas, above a status line
         let status_h = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
         let avail = ui.available_size();
@@ -458,6 +544,7 @@ impl State {
         let composite = self.composite.as_ref().filter(|c| c.on);
         let emb = self.embedding_map_info();
         let title = match (composite, &emb) {
+            _ if vectors_only => "Vector layers".to_string(),
             (_, Some(e)) => e.0.clone(),
             (Some(c), None) => c.title(info, d.t),
             (None, None) => self.map_title(),
@@ -465,7 +552,9 @@ impl State {
         State::canvas_title(&painter, rect, &title);
         let font = body_font(&painter);
         let up = |t: usize| s.uploaded.get(t).copied().unwrap_or(false);
-        let wait = if let Some(e) = &emb {
+        let wait = if vectors_only {
+            String::new()
+        } else if let Some(e) = &emb {
             e.2.clone()
         } else if let Some(c) = composite {
             if !c.error.is_empty() {
@@ -494,7 +583,7 @@ impl State {
             painter.text(rect.center(), Align2::CENTER_CENTER, wait, font.clone(), Color32::from_gray(220));
         }
         let ov = &s.s.overview;
-        if !ov.complete() {
+        if !ov.complete() && !vectors_only {
             let what = if ov.from_cache() { " (cache)" } else { "" };
             let f = ov.layers_done() as f32 / n as f32;
             let p0 = rect.min + vec2(rect.width() - 250.0, 10.0);
@@ -519,7 +608,7 @@ impl State {
                 State::colour_bar(&painter, rect, *cmap, format_g(f64::from(*lo), 3), format_g(f64::from(*hi), 3));
                 bars = 1;
             }
-        } else if d.mode != Mode::Rgb && composite.is_none() {
+        } else if d.mode != Mode::Rgb && composite.is_none() && !vectors_only {
             let range = d.ranges[d.mode as usize];
             let (lo, hi) = (range_label(d.mode, range.lo, info), range_label(d.mode, range.hi, info));
             State::colour_bar(&painter, rect, d.cmap[d.mode as usize], lo, hi);
@@ -547,7 +636,12 @@ impl State {
             Some(l) => format!(" (detail 1:{})", 1u32 << l),
             None => format!(" (overview 1:{:.1})", ov.factor),
         };
-        if let Some((x, y)) = inside {
+        if let Some((x, y)) = inside.filter(|_| vectors_only) {
+            // the canvas' pixels mean nothing: only where it is
+            if let Some((gx, gy)) = info.pixel_to_geo(x as f64 + 0.5, y as f64 + 0.5) {
+                status += &format!("  |  x {gx:.6}  y {gy:.6}");
+            }
+        } else if let Some((x, y)) = inside {
             status += &format!("  |  col {x}  row {y}");
             if let Some((gx, gy)) = info.pixel_to_geo(x as f64 + 0.5, y as f64 + 0.5) {
                 status += &format!("  |  x {gx:.6}  y {gy:.6}");
@@ -618,6 +712,7 @@ impl State {
         let rect = Rect::from_min_size(Pos2::ZERO, vec2(canvas[0], canvas[1]));
         // each layer's date of its embeddings
         let emb_dates: Vec<usize> = (0..self.layers.len()).map(|i| self.layer_date(i)).collect();
+        let vector_sig = self.vector_gpu_sig();
         let Some(gpu) = self.gpu.as_mut() else { return };
         let m = &mut self.map;
         let Some(s) = self.session.as_mut() else { return };
@@ -633,6 +728,7 @@ impl State {
         let mode = params.mode;
         let t = self.display.t;
         let ready = self.display.ready(s, &params);
+        let vsig = vector_sig;
         // the detail tiles of the view: the visible part in source pixels, at screen pixels per source pixel
         let (v0, v1) = (m.image_at(rect, rect.min), m.image_at(rect, rect.max));
         let view = ViewRect {
@@ -665,6 +761,7 @@ impl State {
             to_px(m, 0.0, 0.0, ow, oh).map(f32::to_bits),
             s.tiles.gpu_tiles(),
             params.class_lut.as_ref().map(|l| std::sync::Arc::as_ptr(l) as usize),
+            vsig,
         );
         if slot == 0 {
             m.detail_level = level;
@@ -749,6 +846,19 @@ impl State {
                     }
                 }
                 crate::zeit::draw_results(gpu, &mut f, &self.zeit.results, &s.info, &l.place, &to_map);
+            }
+            // the vector layers over them, bottom to top
+            let vv = janus_gpu::VectorView {
+                a: [m.scale * f64::from(ppp) / fx, m.scale * f64::from(ppp) / fy],
+                centre: [m.center[0] * fx, m.center[1] * fy],
+                t0: [f64::from(canvas[0] * ppp) / 2.0, f64::from(canvas[1] * ppp) / 2.0],
+            };
+            let margin = 8.0 / vv.a[0].abs().max(1e-12);
+            let seen = [view.x0 - margin, view.y0 - margin, view.x1 + margin, view.y1 + margin];
+            for v in self.vectors.iter().filter(|v| v.visible && v.gpu.draws(v.placed_for)) {
+                if let Some(g) = &v.gpu.ready {
+                    g.draw(gpu, &mut f, &vv, seen, ppp, 0.0);
+                }
             }
             gpu.end_map(f);
             if slot == 0 {

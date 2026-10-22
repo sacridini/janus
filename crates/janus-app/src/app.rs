@@ -314,6 +314,10 @@ pub struct State {
     pub ml: crate::ml::MlUi,
     /// the Layers panel's filter and folded rows
     pub contents: crate::contents::ContentsUi,
+    /// series to open as layers of their own, one after the other (one open at a time)
+    pub pending_opens: Vec<Vec<String>>,
+    /// the canvases made for vector layers alone (their files' numbers)
+    pub canvas_count: u64,
     /// the export dialog and the animation being exported
     pub export: crate::export_map::ExportUi,
     /// the tests' layout command and the panels' places after it
@@ -376,11 +380,11 @@ struct MenuAction {
 }
 
 /// Help > Shortcuts and usage (app.cpp, uiPopups), for what the Rust version has so far.
-const HELP: &str = "Open: Ctrl+O (files), Ctrl+Shift+O (folder), Ctrl+U (URL: COGs on the web, S3, GCS)
-      or drop onto the window (with Shift: as a layer); NetCDF / Zarr: a variable is
-      picked if there are several
+const HELP: &str = "Open (each opens as a new layer of the map): Ctrl+O (files), Ctrl+Shift+O (folder),
+      Ctrl+U (URL: COGs on the web, S3, GCS) or drop onto the window (with Shift,
+      each dropped file a layer of its own); NetCDF / Zarr: a variable is picked if
+      there are several; File > Close all starts again
 Command line: jn <folder | file.tif | pattern_*.tif | https://.../cog.tif ...>
-Add a layer: Ctrl+L (files), File > Add layer
 Settings: Ctrl+, (theme, font size, processing threads, memory and caches)
 Reset layout: Ctrl+Shift+R
 
@@ -489,6 +493,17 @@ impl TabViewer for Tabs<'_> {
         match tab {
             Tab::Map => self.s.map_ui(ui),
             Tab::MapView(id) => self.s.map_view_ui(ui, *id),
+            // vector layers alone: no series to chart
+            Tab::TimeSeries | Tab::Transect if self.s.vectors_only() => {
+                let painter = ui.painter_at(ui.max_rect());
+                painter.text(
+                    ui.max_rect().center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Vector layers only: open a raster series (File > Open) to chart its values",
+                    crate::map::body_font(&painter),
+                    crate::theme::weak_text(),
+                );
+            }
             Tab::TimeSeries => self.s.series_ui(ui),
             Tab::Transect => self.s.transect_ui(ui),
             Tab::Analysis => self.s.analysis_ui(ui),
@@ -603,6 +618,8 @@ impl JanusApp {
                 val: Default::default(),
                 ml: Default::default(),
                 contents: Default::default(),
+                pending_opens: Vec::new(),
+                canvas_count: 0,
                 export: Default::default(),
                 layout_cmd: None,
                 layout_report: Default::default(),
@@ -757,7 +774,12 @@ impl State {
         {
             disp.t = s.info.nearest_layer(a.info.layers[self.display.t].time);
         }
-        let name = o.name.clone().unwrap_or_else(|| self.layer_name(&s.info, &o.inputs));
+        let canvas = crate::canvas_layer::is_canvas(&o.inputs);
+        let name = if canvas {
+            "Map (vector layers)".to_string()
+        } else {
+            o.name.clone().unwrap_or_else(|| self.layer_name(&s.info, &o.inputs))
+        };
         let emb = crate::embeddings::EmbeddingLayer::new(&s.info);
         self.layers.push(crate::layers::SeriesLayer {
             session: Some(s),
@@ -771,6 +793,7 @@ impl State {
             place: Default::default(),
             series: Default::default(),
             emb,
+            canvas,
         });
         // the panel comes up with the first layer of embeddings
         if self.layers.last().and_then(|l| l.emb.as_ref()).is_some_and(|e| !e.spectral) {
@@ -790,13 +813,18 @@ impl State {
                 self.files.reveal(where_);
             }
         }
-        let first = self.layers.len() == 1;
+        // the first series (the canvas of vector layers alone does not count): the map fitted to it
+        let first = self.layers.iter().filter(|l| !l.canvas).count() == usize::from(!canvas);
         if first {
             self.map.fit();
             self.map.touched = false;
         }
         self.display.playing = false;
         self.set_active(self.layers.len() - 1, ctx);
+        // a series opened over vector layers alone: the map stands on it, the canvas goes
+        if !canvas && let Some(c) = self.canvas_index() {
+            self.remove_layer(c, ctx);
+        }
         // a series a Zeit run wrote joins under the one studied, which stays active
         if let Some(k) = self.zeit.keep_active.take().filter(|&k| k < self.layers.len()) {
             self.set_active(k, ctx);
@@ -966,16 +994,14 @@ impl State {
         let mut act = MenuAction::default();
         let chord = |m: Modifiers, k: Key| ctx.input_mut(|i| i.consume_key(m, k));
         let shift_cmd = Modifiers::COMMAND | Modifiers::SHIFT;
+        // what is opened joins the map as a layer, as in a GIS (File > Close all starts again)
         if chord(shift_cmd, Key::O) {
-            self.open_folder_dialog(false, ctx);
-        } else if chord(Modifiers::COMMAND, Key::O) {
-            self.open_files_dialog(false, ctx);
+            self.open_folder_dialog(true, ctx);
+        } else if chord(Modifiers::COMMAND, Key::O) || chord(Modifiers::COMMAND, Key::L) {
+            self.open_files_dialog(true, ctx);
         }
         if chord(Modifiers::COMMAND, Key::U) {
-            self.open_url_dialog(false);
-        }
-        if self.session.is_some() && chord(Modifiers::COMMAND, Key::L) {
-            self.open_files_dialog(true, ctx);
+            self.open_url_dialog(true);
         }
         if chord(Modifiers::COMMAND, Key::Comma) {
             self.settings.show = true;
@@ -1069,27 +1095,32 @@ impl State {
         };
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
+                // each opens a series (an image, or files of dates) as a new layer of the map
                 if item(ui, "Open file(s)...", "Ctrl+O", true) {
-                    self.open_files_dialog(false, &ctx);
+                    self.open_files_dialog(true, &ctx);
                 }
                 if item(ui, "Open folder...", "Ctrl+Shift+O", true) {
-                    self.open_folder_dialog(false, &ctx);
+                    self.open_folder_dialog(true, &ctx);
                 }
                 let r = ui.add(egui::Button::new("Open URL...").shortcut_text("Ctrl+U")).on_hover_text(
                     "Cloud-optimized GeoTIFFs (and other rasters) straight from the web:\nhttps://, s3://, gs://, \
                      az://. Only the blocks and overview levels\nshown are downloaded; one URL per line makes a series.",
                 );
                 if r.clicked() {
-                    self.open_url_dialog(false);
-                }
-                if item(ui, "Add layer: file(s)...", "Ctrl+L", has) {
-                    self.open_files_dialog(true, &ctx);
-                }
-                if item(ui, "Add layer: folder...", "", has) {
-                    self.open_folder_dialog(true, &ctx);
-                }
-                if item(ui, "Add layer: URL...", "", has) {
                     self.open_url_dialog(true);
+                }
+                if ui
+                    .button("Open files as separate layers...")
+                    .on_hover_text("Each file a layer of its own (images that are not dates of one series)")
+                    .clicked()
+                    && let Some(files) = rfd::FileDialog::new().pick_files()
+                {
+                    self.pending_opens.extend(files.iter().map(|f| vec![f.to_string_lossy().into_owned()]));
+                }
+                if item(ui, "Open vector file...", "", true)
+                    && let Some(files) = rfd::FileDialog::new().pick_files()
+                {
+                    self.add_vector_files(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), &ctx);
                 }
                 ui.separator();
                 self.export_menu(ui);
@@ -1361,6 +1392,8 @@ impl eframe::App for JanusApp {
         s.pump_zeit(&ctx);
         s.pump_transect(&ctx);
         s.pump_vectors();
+        s.pump_canvas(&ctx);
+        s.pump_vector_gpu(&ctx);
         s.pump_interpretation(&ctx);
         s.pump_embeddings(&ctx);
         s.pump_embedding_downloads(&ctx);
@@ -1369,6 +1402,10 @@ impl eframe::App for JanusApp {
         s.pump_chips(&ctx);
         s.pump_zeit_jobs(&ctx);
         s.pump_ml();
+        if s.opening.is_none() && !s.pending_opens.is_empty() {
+            let next = s.pending_opens.remove(0);
+            s.open_inputs(next, true, &ctx);
+        }
         s.scripted_zeit_run(&ctx);
         let rc = if s.opts.dump_golden.is_some() {
             s.golden_step(&ctx)
@@ -1396,13 +1433,21 @@ impl eframe::App for JanusApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         let keys = s.shortcuts(&ctx);
-        // files dropped on the window open as the series; with Shift held, as new layers
+        // files dropped on the window open as a new layer (several files: one series of them; with Shift, a layer
+        // each)
         let (dropped, shift): (Vec<String>, bool) = ctx.input(|i| {
             let f = i.raw.dropped_files.iter().map(|f| f.path().to_string_lossy().into_owned());
             (f.collect(), i.modifiers.shift)
         });
         if !dropped.is_empty() {
-            s.open_inputs(dropped, shift, &ctx);
+            // with Shift, as before: each dropped file a layer of its own (else they make one series)
+            if shift && dropped.len() > 1 {
+                for f in dropped {
+                    s.pending_opens.push(vec![f]);
+                }
+            } else {
+                s.open_inputs(dropped, true, &ctx);
+            }
         }
 
         let mut act = MenuAction::default();

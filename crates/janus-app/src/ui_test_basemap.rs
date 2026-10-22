@@ -141,7 +141,7 @@ impl State {
                         cache_days: 0,
                     };
                     let mut bm = Basemap::<()>::new(&src, &dir, std::sync::Arc::new(|| {}));
-                    match bm.set_map(&c, |_, _, _| ()) {
+                    match bm.set_map(&c, None, |_, _, _| ()) {
                         Err(why) if why.contains("no CRS") => println!("    a layer without a CRS: \"{why}\""),
                         r => return fail(&format!("a layer without a CRS: {r:?}")),
                     }

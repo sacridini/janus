@@ -114,6 +114,73 @@ impl State {
                         self.screen_per_px()
                     );
                 }
+                // the GPU's drawing: the layers built (levels, pieces) and uploaded, then a frame drawn and finished
+                let t = Instant::now();
+                while self.vectors.iter().any(|v| !v.gpu.draws(v.placed_for)) {
+                    self.pump_vector_gpu(ctx);
+                    if ms(t) > 600_000.0 {
+                        println!("GPU: not built in 10 minutes");
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                for v in &self.vectors {
+                    if let Some(g) = &v.gpu.ready {
+                        println!(
+                            "{}: built for the GPU in {:.0} ms, {:.1} MB on the GPU; points of each level: {:?}",
+                            v.name,
+                            g.build_ms,
+                            g.bytes as f64 / 1048576.0,
+                            g.level_points
+                        );
+                    }
+                }
+                let size = [1600, 900];
+                for zoom in 0..3 {
+                    let k = match zoom {
+                        0 => 0.98 * (1600.0 / g.ow).min(900.0 / g.oh),
+                        1 => 8.0 * 0.98 * (1600.0 / g.ow).min(900.0 / g.oh),
+                        _ => 8.0 * g.fx,
+                    };
+                    self.map.set_view([g.ow / 2.0, g.oh / 2.0], k);
+                    let mut best = f64::INFINITY;
+                    for _ in 0..5 {
+                        self.map.dirty = true;
+                        let t = Instant::now();
+                        self.render_map(0, size, [1600.0, 900.0], 1.0);
+                        if let Some(gpu) = self.gpu.as_ref() {
+                            gpu.finish();
+                        }
+                        best = best.min(ms(t));
+                    }
+                    println!(
+                        "GPU draw, {} ({:.3} points per pixel): {best:.2} ms per frame (series and vectors, finished)",
+                        ["whole series", "8x closer", "zoomed in"][zoom],
+                        self.screen_per_px()
+                    );
+                }
+                // JANUS_MEASURE_PNG: the whole series' frame saved there
+                if let Ok(path) = std::env::var("JANUS_MEASURE_PNG") {
+                    self.map.set_view([g.ow / 2.0, g.oh / 2.0], 0.98 * (1600.0 / g.ow).min(900.0 / g.oh));
+                    self.map.dirty = true;
+                    self.render_map(0, size, [1600.0, 900.0], 1.0);
+                    if let Some((w, h, px)) = self.gpu.as_ref().and_then(|gpu| gpu.read_target(0)) {
+                        let _ = image::save_buffer(&path, &px, w, h, image::ColorType::Rgba8);
+                        println!("saved {path}");
+                    }
+                    // and as close as the map goes, at the first feature's first vertex
+                    let at = self.vectors[0].px.iter().flatten().find(|r| r.len() >= 2).map(|r| [r[0], r[1]]);
+                    if let Some(at) = at {
+                        self.map.set_view([at[0] / g.fx, at[1] / g.fy], crate::map::MAX_ZOOM * g.fx);
+                        self.map.dirty = true;
+                        self.render_map(0, size, [1600.0, 900.0], 1.0);
+                        if let Some((w, h, px)) = self.gpu.as_ref().and_then(|gpu| gpu.read_target(0)) {
+                            let close = path.replace(".png", "_close.png");
+                            let _ = image::save_buffer(&close, &px, w, h, image::ColorType::Rgba8);
+                            println!("saved {close} ({:.1} points per pixel)", self.screen_per_px());
+                        }
+                    }
+                }
                 let s = 0.98 * (1600.0 / g.ow).min(900.0 / g.oh);
                 self.map.set_view([g.ow / 2.0, g.oh / 2.0], s);
                 // picking: the feature under 2000 places

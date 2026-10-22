@@ -1499,7 +1499,11 @@ Reading the data adds to it, mostly on spinning disks.",
             return;
         }
         let mut open = true;
-        egui::Window::new("Tasks").open(&mut open).default_size([560.0, 300.0]).show(ctx, |ui| self.tasks_ui(ui));
+        egui::Window::new("Tasks")
+            .open(&mut open)
+            .default_size([560.0, 300.0])
+            .max_width(900.0)
+            .show(ctx, |ui| self.tasks_ui(ui));
         self.zeit.show_tasks = open;
     }
 
@@ -1526,8 +1530,12 @@ Reading the data adds to it, mostly on spinning disks.",
                         let bw = ui.text_style_height(&egui::TextStyle::Body) * 4.5;
                         // the bar takes what the buttons leave, exactly: a row wider than the panel grows a window
                         // that fits its content, frame after frame
-                        let buttons = if s.state == JobState::Running { 2.0 } else { 3.0 };
-                        let rest = buttons * (bw + ui.spacing().item_spacing.x);
+                        let labels: &[&str] = if s.state == JobState::Running {
+                            &["Log", "Cancel"]
+                        } else {
+                            &["Log", "Folder", "Remove"]
+                        };
+                        let rest = crate::panels::buttons_width(ui, labels, bw);
                         ui.add(
                             egui::ProgressBar::new(s.progress as f32)
                                 .desired_width((ui.available_width() - rest).max(60.0))

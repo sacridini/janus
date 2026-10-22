@@ -436,7 +436,7 @@ impl State {
         }
         let ctx = ui.ctx().clone();
         match act {
-            Action::Open(p) if !p.is_empty() => self.open_inputs(p, false, &ctx),
+            Action::Open(p) if !p.is_empty() => self.open_inputs(p, true, &ctx),
             Action::AddLayer(p) if !p.is_empty() => self.open_inputs(p, !self.layers.is_empty(), &ctx),
             _ => {}
         }

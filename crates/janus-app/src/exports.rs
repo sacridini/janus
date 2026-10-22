@@ -159,7 +159,11 @@ impl State {
         }
         let mut open = true;
         let mut remove = None;
-        let w = egui::Window::new("Exports").id(egui::Id::new("Exports")).open(&mut open).default_size([600.0, 260.0]);
+        let w = egui::Window::new("Exports")
+            .id(egui::Id::new("Exports"))
+            .open(&mut open)
+            .default_size([600.0, 260.0])
+            .max_width(900.0);
         w.show(ctx, |ui| {
             if self.exports.is_empty() {
                 ui.weak("Nothing exported yet.");
@@ -168,7 +172,7 @@ impl State {
                 ui.push_id(i, |ui| {
                     let st = j.state();
                     ui.label(&j.title);
-                    ui.weak(&j.path);
+                    crate::panels::path_label(ui, &j.path);
                     let name = match st {
                         ExportState::Running => "writing",
                         ExportState::Done => "done",
@@ -178,9 +182,13 @@ impl State {
                     ui.horizontal(|ui| {
                         let p = if st == ExportState::Done { 1.0 } else { j.progress() };
                         let bw = ui.text_style_height(&egui::TextStyle::Body) * 4.5;
+                        // the bar takes what the buttons leave (Cancel while it runs, Folder and Remove after)
+                        let labels: &[&str] =
+                            if st == ExportState::Running { &["Cancel"] } else { &["Folder", "Remove"] };
+                        let rest = crate::panels::buttons_width(ui, labels, bw);
                         ui.add(
                             egui::ProgressBar::new(p as f32)
-                                .desired_width((ui.available_width() - 2.0 * bw - 8.0).max(60.0))
+                                .desired_width((ui.available_width() - rest).max(60.0))
                                 .text(format!("{name}  {:.0}%  {:.1} s", p * 100.0, j.seconds())),
                         );
                         if st == ExportState::Running {

@@ -30,7 +30,7 @@ pub struct VectorLayer {
     pub color: Color32,
     pub visible: bool,
     /// each feature's parts in the active layer's pixels (empty: not placed)
-    pub px: Vec<Polygon>,
+    pub px: Arc<Vec<Polygon>>,
     /// each feature's box (x0, y0, x1, y1; x0 > x1: nothing placed)
     pub boxes: Vec<[f32; 4]>,
     /// a point on each feature (NaN: none)
@@ -43,6 +43,8 @@ pub struct VectorLayer {
     pub off_map: bool,
     /// a colour per feature (labels), else the layer's
     pub colors: Vec<Color32>,
+    /// drawn by the GPU (vector_gpu.rs)
+    pub gpu: crate::vector_gpu::LayerGpu,
 }
 
 /// Extract series: the dialog's choices.
@@ -148,31 +150,47 @@ impl State {
         let info = self.session.as_ref().map(|s| s.info.clone());
         let v = &mut self.vectors[i];
         v.placed_for = key;
-        (v.px, v.boxes, v.anchor) = (Vec::new(), Vec::new(), Vec::new());
+        (v.px, v.boxes, v.anchor) = (Arc::default(), Vec::new(), Vec::new());
         let Some(info) = info else {
             v.why = "drawn over a raster series: open one".into();
             return;
         };
-        let p = match Placer::new(&v.data, &info.crs_wkt, info.geo_transform) {
-            Ok(p) => p,
-            Err(e) => {
-                v.why = format!("not drawn: {e}");
-                return;
-            }
-        };
-        let mut on_map = 0;
-        for f in &v.data.features {
-            let px = p.placed(&f.parts);
-            let b = plane::bounds(&px);
-            v.boxes.push(b.map_or([1.0, 1.0, 0.0, 0.0], |b| b.map(|x| x as f32)));
-            let a = (f.kind != Kind::None).then(|| p.to_pixel(f.cx, f.cy)).flatten();
-            v.anchor.push(a.map_or([f64::NAN; 2], |(x, y)| [x, y]));
-            if b.is_some_and(|b| b[2] >= 0.0 && b[3] >= 0.0 && b[0] <= info.width as f64 && b[1] <= info.height as f64)
-            {
-                on_map += 1;
-            }
-            v.px.push(px);
+        if let Err(e) = Placer::new(&v.data, &info.crs_wkt, info.geo_transform) {
+            v.why = format!("not drawn: {e}");
+            return;
         }
+        // in parallel: a placer (its own transformation) per chunk of features
+        use rayon::prelude::*;
+        let data = v.data.clone();
+        let feats = &data.features;
+        let chunk = (feats.len() / (rayon::current_num_threads() * 4)).max(256);
+        let placed: Vec<(Polygon, [f32; 4], [f64; 2], bool)> = feats
+            .par_chunks(chunk)
+            .flat_map_iter(|fs| {
+                let p = Placer::new(&data, &info.crs_wkt, info.geo_transform).ok();
+                fs.iter()
+                    .map(|f| {
+                        let Some(p) = &p else { return (Vec::new(), [1.0, 1.0, 0.0, 0.0], [f64::NAN; 2], false) };
+                        let px = p.placed(&f.parts);
+                        let b = plane::bounds(&px);
+                        let a = (f.kind != Kind::None).then(|| p.to_pixel(f.cx, f.cy)).flatten();
+                        let on = b.is_some_and(|b| {
+                            b[2] >= 0.0 && b[3] >= 0.0 && b[0] <= info.width as f64 && b[1] <= info.height as f64
+                        });
+                        let bb = b.map_or([1.0, 1.0, 0.0, 0.0], |b| b.map(|x| x as f32));
+                        (px, bb, a.map_or([f64::NAN; 2], |(x, y)| [x, y]), on)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let on_map = placed.iter().filter(|p| p.3).count();
+        let mut px = Vec::with_capacity(placed.len());
+        for (p, b, a, _) in placed {
+            px.push(p);
+            v.boxes.push(b);
+            v.anchor.push(a);
+        }
+        v.px = Arc::new(px);
         v.why.clear();
         v.off_map = on_map == 0; // still drawn: it may be near
     }
@@ -211,13 +229,14 @@ impl State {
                     name,
                     color: Color32::from_rgb(c[0], c[1], c[2]),
                     visible: true,
-                    px: Vec::new(),
+                    px: Arc::default(),
                     boxes: Vec::new(),
                     anchor: Vec::new(),
                     placed_for: 0,
                     why: String::new(),
                     off_map: false,
                     colors: Vec::new(),
+                    gpu: Default::default(),
                 });
             }
             self.map.dirty = true;
@@ -275,8 +294,14 @@ impl State {
             if !v.visible || v.px.is_empty() {
                 continue;
             }
+            // drawn by the GPU: here only its highlighted feature
+            let on_gpu = v.gpu.draws(v.placed_for);
+            if on_gpu && self.hover_vector.map(|h| h.0) != Some(li) && interp != Some(li) {
+                continue;
+            }
             // many points in view: squares (fewer vertices than discs)
-            let squares = v.data.points > 2000
+            let squares = !on_gpu
+                && v.data.points > 2000
                 && v.px
                     .iter()
                     .enumerate()
@@ -286,7 +311,8 @@ impl State {
             // many lines and polygons in view: their outlines as plain quads in one mesh (ImGui's thin lines are not
             // feathered either; egui's antialiased strokes cost 3x more to tessellate), else antialiased strokes
             let shapes = v.data.lines + v.data.areas;
-            let quads = shapes > 2000
+            let quads = !on_gpu
+                && shapes > 2000
                 && v.px
                     .iter()
                     .enumerate()
@@ -311,6 +337,9 @@ impl State {
                 }
                 let f = &v.data.features[i];
                 let hot = self.hover_vector == Some((li, i)) || (interp == Some(li) && self.labels.current == Some(i));
+                if on_gpu && !hot {
+                    continue;
+                }
                 let col = v.colors.get(i).copied().unwrap_or(v.color);
                 if f.kind == Kind::Point {
                     for r in parts.iter().filter(|r| r.len() >= 2) {

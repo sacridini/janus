@@ -212,7 +212,7 @@ impl State {
         let ctx = ui.ctx().clone();
         let mut acts = vec![];
         self.contents_toolbar(ui);
-        let total = self.layers.len() + self.vectors.len();
+        let total = self.layers.iter().filter(|l| !l.canvas).count() + self.vectors.len();
         if total == 0 && self.vector_loads.is_empty() && self.opening.is_none() {
             ui.add_space(6.0);
             ui.weak("No layers. Open a series or a vector file (+ Add, File, drag and drop or the command line).");
@@ -234,8 +234,9 @@ impl State {
                 );
         }
 
-        if !self.layers.is_empty() {
-            let title = format!("Series ({})", self.layers.len());
+        let series = self.layers.iter().filter(|l| !l.canvas).count();
+        if series > 0 {
+            let title = format!("Series ({series})");
             egui::CollapsingHeader::new(RichText::new(title).strong())
                 .id_salt("contents series")
                 .default_open(true)
@@ -459,6 +460,9 @@ impl State {
                 self.layers[i].session.as_ref().map(|s| s.info.clone())
             };
             let Some(info) = info else { continue };
+            if self.layers[i].canvas {
+                continue;
+            }
             let name = self.layers[i].name.clone();
             let results: Vec<usize> =
                 (0..self.zeit.results.len()).filter(|&k| self.zeit.results[k].cube == info.id).collect();

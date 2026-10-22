@@ -736,7 +736,7 @@ impl State {
         }
         let found = self.find_ffmpeg();
         if !found.is_empty() {
-            ui.weak(format!("Using {found}"));
+            crate::panels::path_label(ui, &format!("Using {found}"));
         } else if !self.settings.s.ffmpeg.is_empty() {
             ui.colored_label(theme::warning(), "No such file: MP4 and WebM are off.");
         } else {

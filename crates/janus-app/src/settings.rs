@@ -344,6 +344,7 @@ impl State {
             .open(&mut open)
             .collapsible(false)
             .default_size([480.0, 560.0])
+            .max_width(720.0)
             .pivot(egui::Align2::CENTER_CENTER)
             .default_pos(ctx.content_rect().center())
             .show(ctx, |ui| {

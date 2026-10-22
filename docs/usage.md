@@ -134,11 +134,14 @@
   Classes and scatter count the overview's pixels (what the map shows before
   zooming in), so they are immediate on any series.
 - **Files panel**: a folder tree listing only rasters by default; double click
-  opens a series, right click adds it as a layer or to **Favorites** (listed on
+  opens a series as a new layer, right click adds it as a layer or to **Favorites** (listed on
   top, kept between sessions). A folder's tooltip says what it would open as
   ("41 rasters, 1985 to 2025, yearly", from the file names). Whatever is opened
   (from the panel, File → Open, a drop or the command line), the tree goes to
-  it. Dropping files with **Shift** held adds them as a layer.
+  it. Whatever is opened joins the map as a new layer, as in a GIS (*File → Close
+  all* starts again); dropping several files with **Shift** held makes each one a
+  layer of its own (*File → Open files as separate layers...* too), without it
+  they make one series.
 - **Detachable panels**: drag any panel out of the main window, e.g. the map on
   a second monitor and the charts on the first.
 - **Settings** (File → Settings, `Ctrl+,`): a colour theme (dark, light,
@@ -224,9 +227,9 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 
 | Action | How |
 |---|---|
-| Remote rasters (cloud) | **File → Open URL...** (`Ctrl+U`; *Add layer: URL...* adds one): one URL per line, several make a series. `https://`, `s3://`, `gs://`, `az://`: cloud-optimized GeoTIFFs (AWS Earth Search, Planetary Computer with a signed URL, USGS, ESA...) are read in place through GDAL's network file systems: only the header, the overview level the map needs and the blocks looked at (the cursor's pixel, the detail tiles) are downloaded. Public S3 and GCS buckets need no account; private ones use the usual credentials (`AWS_ACCESS_KEY_ID`, `~/.aws`, `GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_STORAGE_CONNECTION_STRING`...). Dates come from the file names, or from the folder each file sits in (Sentinel-2 COGs: `.../S2B_23KPQ_20230811_0_L2A/B04.tif`). The overview is cached on disk like any other |
+| Remote rasters (cloud) | **File → Open URL...** (`Ctrl+U`, a new layer): one URL per line, several make a series. `https://`, `s3://`, `gs://`, `az://`: cloud-optimized GeoTIFFs (AWS Earth Search, Planetary Computer with a signed URL, USGS, ESA...) are read in place through GDAL's network file systems: only the header, the overview level the map needs and the blocks looked at (the cursor's pixel, the detail tiles) are downloaded. Public S3 and GCS buckets need no account; private ones use the usual credentials (`AWS_ACCESS_KEY_ID`, `~/.aws`, `GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_STORAGE_CONNECTION_STRING`...). Dates come from the file names, or from the folder each file sits in (Sentinel-2 COGs: `.../S2B_23KPQ_20230811_0_L2A/B04.tif`). The overview is cached on disk like any other |
 | NetCDF, Zarr, HDF | open the file (or the `.zarr` folder): with several variables a list asks which one (name, shape, long name and units); the time axis is decoded from CF units (`days since 1970-01-01`, hours, months...) and calendars (`noleap`, `360_day`, `all_leap`...: a model's 30 February becomes the 28th/29th); hourly data are labelled with the hour. **Display** panel → *Variable*: another variable of the file, *level*: another value of the other dimensions (pressure level, depth, member); both reopen the layer in place. A lon/lat grid without a grid mapping is taken as WGS 84 |
-| Pan / zoom | drag / mouse wheel (zooming out stops at the image extent), `F` fits the map; trackpad: two fingers pan, pinch zooms |
+| Pan / zoom | drag / mouse wheel (zooming out goes as far as the CRS's area of use and every layer, the basemap under all of it), `F` fits the active layer; trackpad: two fingers pan, pinch zooms |
 | Pixel series | hover (exact once the mouse rests) |
 | Compare pixels | click to drop a pin |
 | Remove a pin | right click it (Mac: Control + click, or a two-finger click on the trackpad), `Delete` (last one) or the **x** in the statistics table |
@@ -249,10 +252,10 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Reset layout | **View → Reset layout** (`Ctrl+Shift+R`, Mac: `Command+Shift+R`): every panel docked where it was at the first start, the floating windows (Exports, Tasks, Log, Settings) back to their first size and place, map panels to the right of the main map; the panels open stay open |
 | Performance panel | **View → Performance** (hidden by default): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**), disk cache (what the caches take, their budget, the disk's free space) |
 | Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus, Studio, Graphite), font size, whether the Files panel follows what is opened, processing threads, overview memory, the disk cache budget (automatic or set by hand), full-resolution cache (when it is built) and clearing the caches; kept between sessions (see [Settings](#settings)) |
-| Several series | **Layers** panel (*+ Add*) or File → Add layer (`Ctrl+L`). The panel is a table of contents in sections that fold (*Vector layers*, *Series*, *Embeddings*, *Basemap*), top of the list drawn on top: a row a layer (show/hide, its name, its date or kind, a **...** menu); click a row to make it active (`Space` shows or hides it), double click to zoom to it, drag it onto another to reorder. **Right click** (or **...**): make active, zoom to it, opacity, move (to the top, up, down, to the bottom), **Export** (map as PNG, values or rendered view as GeoTIFF, animation), close; a vector layer's: colour, interpret, extract series, zoom to it, **Export as** GeoPackage, GeoJSON, Shapefile or CSV, remove. The arrow unfolds a series: its opacity, size and placement ("reprojected from EPSG:…"), and the maps its runs made as rows of their own (each with its colormap and range, or its classes' legend, when unfolded, and **Save as GeoTIFF** in its menu). With five or more, a filter by name keeps the list short |
+| Several series | **Layers** panel (*+ Add*) or File → Open (`Ctrl+O`): each opens as a new layer; several images that are not dates of one series: *File → Open files as separate layers...* or a drop with `Shift`. The panel is a table of contents in sections that fold (*Vector layers*, *Series*, *Embeddings*, *Basemap*), top of the list drawn on top: a row a layer (show/hide, its name, its date or kind, a **...** menu); click a row to make it active (`Space` shows or hides it), double click to zoom to it, drag it onto another to reorder. **Right click** (or **...**): make active, zoom to it, opacity, move (to the top, up, down, to the bottom), **Export** (map as PNG, values or rendered view as GeoTIFF, animation), close; a vector layer's: colour, interpret, extract series, zoom to it, **Export as** GeoPackage, GeoJSON, Shapefile or CSV, remove. The arrow unfolds a series: its opacity, size and placement ("reprojected from EPSG:…"), and the maps its runs made as rows of their own (each with its colormap and range, or its classes' legend, when unfolded, and **Save as GeoTIFF** in its menu). With five or more, a filter by name keeps the list short |
 | Basemap | **Layers** panel → Basemap (below the layers): pick a source (None = nothing downloaded), tick to show/hide, opacity; `S` shows or hides satellite imagery (Esri World Imagery, or the imagery source picked); *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. The source and its settings are kept between sessions, but it starts hidden, as does every series opened (tick to show); the map panels' and the swipe's layer list has *Basemap only* |
 | Browse files | **Files** panel: double click opens, right click → Add as layer or Add to favorites; Ctrl+click selects several files; hover a folder for what it would open as. Opening a series expands the tree down to it (Settings → *Files panel follows what is opened*) |
-| Add by dropping | drop files or a folder on the window with `Shift` held: a new layer (without Shift the drop replaces the series) |
+| Add by dropping | drop files or a folder on the window: a new layer (several files make one series of their dates; with `Shift` held, each file a layer of its own) |
 | Seasonal views, classes over time, scatter | **View → Analysis** (see above) |
 | Chart of several layers | Time series panel → *All visible layers* (one marker shape per layer) |
 | Second monitor | drag a panel's tab out of the main window |
@@ -651,11 +654,24 @@ CSV tables of points (columns named `x`/`lon`/`longitude`/`easting` and
 read as longitude and latitude).
 
 - **On the map**: drawn over every raster layer, on every map panel and the
-  swipe, in any CRS (placed on the active layer's grid through PROJ, again
-  whenever the active layer changes to another grid). Points are dots; lines
-  and polygons (with their holes) are outlines, thinned to about one vertex
-  per screen point. Each layer has a colour, can be hidden or removed; right
-  click its name for *Zoom to it*.
+  swipe, in any CRS (placed on the active layer's grid through PROJ, in
+  parallel, again whenever the active layer changes to another grid). Points
+  are dots; lines and polygons (with their holes) are outlines. Each layer has
+  a colour, can be hidden or removed; right click its name for *Zoom to it*.
+- **Without a raster**: vector files opened alone make a map of their own (an
+  empty canvas in their CRS over their extent, with the basemap under them);
+  it goes when a series is opened.
+- **Large layers**: the GPU draws them, as a GIS does. Once placed, a layer
+  is uploaded once (in the background, a moment for millions of vertices) as
+  levels of detail (each ring simplified with Douglas–Peucker, the tolerance
+  doubling from 1/32 of a pixel) in pieces along a Morton curve; each frame
+  draws the coarsest level within half a screen pixel of the exact outline,
+  and only the pieces in view. The 5572 municipalities of Brazil (IBGE 2021,
+  16.9 million vertices) draw in about 0.3 ms a frame, the whole country or
+  zoomed in to the street, against 45 ms (and an incomplete map) on the CPU;
+  read in 0.5 s, placed in 0.05 s (0.4 s reprojected to UTM), built for the
+  GPU in 0.4–1.2 s, 230–380 MB of GPU memory. Until a layer is uploaded, and
+  for the feature under the cursor, the CPU draws it.
 - **Attributes**: hovering a point shows its fields; for lines and polygons
   hold `Alt`. The status bar names the feature under the cursor.
 - **A polygon as the ROI**: `Alt` + click it. Its holes are left out; the

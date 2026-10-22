@@ -652,13 +652,14 @@ impl State {
             name,
             color: SAMPLE_COLOUR,
             visible: true,
-            px: Vec::new(),
+            px: Default::default(),
             boxes: Vec::new(),
             anchor: Vec::new(),
             placed_for: 0,
             why: String::new(),
             off_map: false,
             colors: Vec::new(),
+            gpu: Default::default(),
         });
         self.val.vector_id = id;
         self.val.colors_for = 0;

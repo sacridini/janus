@@ -159,6 +159,8 @@ pub struct SeriesLayer {
     pub series: crate::series::OtherSeries,
     /// a layer of embeddings (or a spectrum's analysis): its views
     pub emb: Option<Box<crate::embeddings::EmbeddingLayer>>,
+    /// the empty raster the map stands on when only vector layers are open (canvas_layer.rs): not listed
+    pub canvas: bool,
 }
 
 /// The map's options a layer does not keep (the C++'s App members): the season, the temporal composites' options,

@@ -61,17 +61,22 @@ impl State {
     /// histogram) and the detail at full resolution.
     pub fn display_ui(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
+        if self.vectors_only() {
+            ui.weak("Only vector layers are open: the map stands on their CRS and extent.");
+            ui.weak("Open a series (File > Open) to see its values; the vector layers stay.");
+            return;
+        }
         let Some(s) = &self.session else {
             ui.weak("No series open.");
             if ui.add_sized([ui.available_width(), 20.0], egui::Button::new("Open file(s)...")).clicked()
                 && let Some(files) = rfd::FileDialog::new().pick_files()
             {
-                self.open_inputs(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), false, &ctx);
+                self.open_inputs(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), true, &ctx);
             }
             if ui.add_sized([ui.available_width(), 20.0], egui::Button::new("Open folder...")).clicked()
                 && let Some(dir) = rfd::FileDialog::new().pick_folder()
             {
-                self.open_inputs(vec![dir.to_string_lossy().into_owned()], false, &ctx);
+                self.open_inputs(vec![dir.to_string_lossy().into_owned()], true, &ctx);
             }
             return;
         };
@@ -856,4 +861,25 @@ impl State {
             self.settings.show = true;
         }
     }
+}
+
+/// What buttons of these labels (each at least `min` wide) take at the end of a row, their spacing included: a
+/// widget before them gets the rest exactly. A row wider than its window makes a window that fits its content
+/// grow, and the next frame's row with it.
+pub(crate) fn buttons_width(ui: &Ui, labels: &[&str], min: f32) -> f32 {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let pad = 2.0 * ui.spacing().button_padding.x;
+    labels
+        .iter()
+        .map(|t| {
+            let text = ui.painter().layout_no_wrap(t.to_string(), font.clone(), egui::Color32::WHITE).size().x;
+            (text + pad).max(min) + ui.spacing().item_spacing.x
+        })
+        .sum()
+}
+
+/// A long text without spaces (a path) on one line, cut with "..." to the room it has (its whole on hover):
+/// it would not wrap, and would widen its window to its own length.
+pub(crate) fn path_label(ui: &mut Ui, text: &str) -> egui::Response {
+    ui.add(egui::Label::new(egui::RichText::new(text).weak()).truncate()).on_hover_text(text)
 }

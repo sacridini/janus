@@ -129,6 +129,13 @@ impl Reprojection {
     /// Err(why) if the two cannot be related (no georeferencing, unknown CRS, no transformation between the CRSs).
     /// The GPU grid covers the active layer and `margin` × its longer side around it (0.6 for layers).
     pub fn new(a: &CubeInfo, b: &CubeInfo, margin: f64) -> Result<Self, String> {
+        let m = margin * a.width.max(a.height) as f64;
+        Self::new_around(a, b, [-m, -m, a.width as f64 + m, a.height as f64 + m])
+    }
+
+    /// As `new`, its grid over `around` (the active layer's pixels: x0, y0, x1, y1) instead of the layer and a
+    /// margin: the part of the map looked at (a basemap far from the layer, zoomed out).
+    pub fn new_around(a: &CubeInfo, b: &CubeInfo, around: [f64; 4]) -> Result<Self, String> {
         let (Some(ga), Some(gb)) = (a.geo_transform, b.geo_transform) else {
             return Err("no georeferencing".into());
         };
@@ -174,7 +181,7 @@ impl Reprojection {
                 r.inv = Some(Transform(Mutex::new(inv)));
             }
         }
-        r.build_grid(a, margin);
+        r.build_grid(around);
         Ok(r)
     }
 
@@ -283,10 +290,8 @@ impl Reprojection {
     /// of an elongated image leaves free (`margin` × its longer side). 64 cells along the longer side; twice as
     /// many while the bilinear interpolation, checked at every cell's centre against the exact transformation, is
     /// off by more than 0.05 of the layer's pixels (up to 512).
-    fn build_grid(&mut self, a: &CubeInfo, margin: f64) {
+    fn build_grid(&mut self, around: [f64; 4]) {
         let t0 = Instant::now();
-        let m = margin * a.width.max(a.height) as f64;
-        let around = [-m, -m, a.width as f64 + m, a.height as f64 + m];
         // The layer's edges on the map, plus the points of a 17 × 17 lattice over that area which fall inside the
         // layer (its edges may not transform at all, e.g. a continent in geographic coordinates over a UTM scene).
         let (lw, lh) = (self.lw as f64, self.lh as f64);
