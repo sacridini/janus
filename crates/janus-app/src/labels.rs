@@ -3,14 +3,14 @@
 //! ROI), a label from the label set (keys 1-9), the date of the change (D: the date on the map) and notes, its
 //! confidence and more events. Labels are saved as they are given (in the app data, by file and layer: opening
 //! the same file again resumes the work) and exported as a table (CSV, GeoPackage, GeoJSON, Shapefile) with the
-//! file's own fields. (A validation project's sample, phase 8, saves them in its GeoPackage instead.)
+//! file's own fields. A validation project's sample saves them in its GeoPackage instead (validation.rs), under
+//! the interpreter's name, and can be gone through by a filter (a cell of the error matrix, the disagreements).
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use egui::{Ui, vec2};
 use janus_geo::vectors::{Kind, write_vector_table};
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::app::State;
@@ -28,53 +28,8 @@ const DEFAULT_CLASSES: [&str; 9] = [
     "Other",
 ];
 
-/// Another event at a feature (e.g. degraded, then cleared).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Event {
-    #[serde(default)]
-    pub label: String,
-    #[serde(default)]
-    pub date: String,
-}
-
-/// A feature's label (the C++'s val::Label).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Label {
-    /// a class of the label set ("" = not labelled)
-    #[serde(default)]
-    pub label: String,
-    /// the date of the change, as the series shows it ("" = none)
-    #[serde(default)]
-    pub date: String,
-    #[serde(default)]
-    pub notes: String,
-    /// 0 not given, 1 low, 2 medium, 3 high
-    #[serde(default)]
-    pub confidence: i32,
-    #[serde(default)]
-    pub events: Vec<Event>,
-    /// UTC, ISO 8601
-    #[serde(default)]
-    pub updated: String,
-}
-
-impl Label {
-    pub fn is_empty(&self) -> bool {
-        self.label.is_empty()
-            && self.date.is_empty()
-            && self.notes.is_empty()
-            && self.confidence == 0
-            && self.events.is_empty()
-    }
-}
-
-/// Now in UTC, ISO 8601.
-pub fn now_iso() -> String {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
-    let (y, m, d) = janus_zeit::numeric::civil(now.div_euclid(86400));
-    let s = now.rem_euclid(86400);
-    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", s / 3600, s / 60 % 60, s % 60)
-}
+/// A feature's label and its events (the validation's: a project keeps the same).
+pub use janus_validation::{Event, Label, now_iso};
 
 /// The interpretation going on.
 pub struct Interpretation {
@@ -104,6 +59,12 @@ pub struct Interpretation {
     scroll_to_current: bool,
     /// the Interpretation panel is shown
     pub show: bool,
+    /// the sample of a validation project: labels kept in it, as `who`
+    pub project: bool,
+    pub who: String,
+    /// only these features, in this order (empty: all), and what they are
+    pub filter: Vec<usize>,
+    pub filter_name: String,
 }
 
 impl Default for Interpretation {
@@ -124,6 +85,10 @@ impl Default for Interpretation {
             event_label: String::new(),
             scroll_to_current: false,
             show: false,
+            project: false,
+            who: String::new(),
+            filter: Vec::new(),
+            filter_name: String::new(),
         }
     }
 }
@@ -141,7 +106,13 @@ impl State {
         l.vector = Some(id);
         l.classes = DEFAULT_CLASSES.iter().map(|s| s.to_string()).collect();
         l.entries = vec![Label::default(); n];
-        self.load_labels();
+        if self.is_project_vector(id) {
+            self.labels.project = true;
+            self.labels.who = self.interpreter_name();
+            self.validation_entries();
+        } else {
+            self.load_labels();
+        }
         // where the work stopped: the first feature without a label
         let d = &self.vectors[li].data;
         let has = |i: usize| d.features[i].kind != Kind::None;
@@ -199,10 +170,32 @@ impl State {
         self.center_on_feature(li, i, f64::from(self.labels.zoom));
     }
 
-    /// The next (+1) or previous (-1) feature with a geometry (unlabelled ones only with "Skip labelled").
+    /// The next (+1) or previous (-1) feature with a geometry (unlabelled ones only with "Skip labelled"; only
+    /// the filter's, in its order, with one).
     pub fn interp_step(&mut self, dir: i64) {
         let Some(li) = self.interp_layer() else { return };
         let d = self.vectors[li].data.clone();
+        if !self.labels.filter.is_empty() {
+            let f = self.labels.filter.clone();
+            let pos = match self.labels.current.and_then(|c| f.iter().position(|&x| x == c)) {
+                Some(p) => p as i64,
+                None if dir > 0 => -1,
+                None => f.len() as i64,
+            };
+            let mut k = pos + dir;
+            while (0..f.len() as i64).contains(&k) {
+                let i = f[k as usize];
+                if i < self.labels.entries.len()
+                    && d.features[i].kind != Kind::None
+                    && !(self.labels.skip_labelled && !self.labels.entries[i].label.is_empty())
+                {
+                    self.interp_go(i);
+                    return;
+                }
+                k += dir;
+            }
+            return;
+        }
         let n = d.features.len() as i64;
         let mut i = self.labels.current.map_or(-1, |c| c as i64) + dir;
         while (0..n).contains(&i) {
@@ -238,13 +231,13 @@ impl State {
         self.interp_touched();
     }
 
-    fn interp_set_confidence(&mut self, v: i32) {
+    pub(crate) fn interp_set_confidence(&mut self, v: i32) {
         let Some(c) = self.labels.current.filter(|&c| c < self.labels.entries.len()) else { return };
         self.labels.entries[c].confidence = v.clamp(0, 3);
         self.interp_touched();
     }
 
-    fn interp_add_event(&mut self, label: String) {
+    pub(crate) fn interp_add_event(&mut self, label: String) {
         let Some(s) = &self.session else { return };
         let Some(c) = self.labels.current.filter(|&c| c < self.labels.entries.len()) else { return };
         if label.is_empty() {
@@ -261,6 +254,9 @@ impl State {
         l.entries[c].updated = now_iso();
         l.dirty = true;
         l.changed_at = Some(Instant::now());
+        if l.project {
+            self.validation_labels_changed(c);
+        }
     }
 
     /// N / Shift+N (Page Down / Up), 1-9 a label, 0 clears it, D / Shift+D the date, Shift+1-3 the confidence,
@@ -351,6 +347,10 @@ impl State {
 
     pub fn save_labels(&mut self) {
         self.labels.dirty = false;
+        if self.labels.project {
+            self.validation_save_labels();
+            return;
+        }
         let (Some(li), Some(path)) = (self.interp_layer(), self.labels_file()) else { return };
         let d = &self.vectors[li].data;
         let entries: Vec<Value> = self
@@ -360,7 +360,7 @@ impl State {
             .enumerate()
             .filter(|(_, e)| !e.is_empty())
             .map(|(i, e)| {
-                let mut o = serde_json::to_value(e).unwrap_or_default();
+                let mut o = e.to_json();
                 o["fid"] = json!(d.features[i].fid);
                 o
             })
@@ -386,7 +386,7 @@ impl State {
             d.features.iter().enumerate().map(|(i, f)| (f.fid, i)).collect();
         for e in j["entries"].as_array().into_iter().flatten() {
             if let Some(&i) = by_fid.get(&e["fid"].as_i64().unwrap_or(-1)) {
-                self.labels.entries[i] = serde_json::from_value(e.clone()).unwrap_or_default();
+                self.labels.entries[i] = Label::from_json(e);
             }
         }
     }
@@ -486,6 +486,9 @@ impl State {
                 .fixed_decimals(0)
                 .text("points per pixel on each"),
         );
+        if self.labels.project {
+            self.interpretation_project_ui(ui);
+        }
         if let Some(c) = self.labels.current.filter(|&c| c < n) {
             crate::panels::section(ui, "Label (keys 1-9, 0 clears)");
             let bw = (ui.available_width() - ui.spacing().item_spacing.x * 2.0) / 3.0;
@@ -600,6 +603,7 @@ impl State {
                 });
             }
         }
+        let mut set_changed = false;
         egui::CollapsingHeader::new("Label set").show(ui, |ui| {
             let l = &mut self.labels;
             let mut remove = None;
@@ -625,14 +629,32 @@ impl State {
                     changed = true;
                 }
             });
-            if changed {
+            if changed && l.project {
+                set_changed = true;
+            } else if changed {
                 l.dirty = true;
                 l.changed_at = Some(Instant::now());
             }
             ui.weak("Labels already given keep their text when the set changes.");
         });
-        crate::panels::section(ui, "Features");
+        if set_changed {
+            self.validation_label_set_changed();
+        }
+        let title = if self.labels.filter.is_empty() {
+            "Features".to_string()
+        } else {
+            format!("Features: {}", self.labels.filter_name)
+        };
+        crate::panels::section(ui, &title);
         ui.horizontal(|ui| {
+            if !self.labels.filter.is_empty() && ui.small_button("Show all").clicked() {
+                self.labels.filter.clear();
+                self.labels.filter_name.clear();
+            }
+            if self.labels.project {
+                ui.weak("saved in the project as you go").on_hover_text(&d.path);
+                return;
+            }
             if ui
                 .button("Export table...")
                 .on_hover_text(
@@ -665,39 +687,46 @@ impl State {
             let file = self.labels_file().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
             ui.weak("saved as you go").on_hover_text(file);
         });
-        // the rows: every feature
+        // the rows: every feature, or the filter's
         let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
         let current = self.labels.current;
         let scroll = std::mem::take(&mut self.labels.scroll_to_current);
         let mut go = None;
-        egui::ScrollArea::vertical().id_salt("interp rows").auto_shrink(false).show_rows(ui, row_h, n, |ui, range| {
-            egui::Grid::new("interp rows grid").num_columns(5).striped(true).show(ui, |ui| {
-                for i in range {
-                    let e = &self.labels.entries[i];
-                    let r = ui.selectable_label(current == Some(i), (i + 1).to_string());
-                    if r.clicked() {
-                        go = Some(i);
+        let rows: Vec<usize> =
+            if self.labels.filter.is_empty() { (0..n).collect() } else { self.labels.filter.clone() };
+        egui::ScrollArea::vertical().id_salt("interp rows").auto_shrink(false).show_rows(
+            ui,
+            row_h,
+            rows.len(),
+            |ui, range| {
+                egui::Grid::new("interp rows grid").num_columns(5).striped(true).show(ui, |ui| {
+                    for &i in &rows[range] {
+                        let Some(e) = self.labels.entries.get(i) else { continue };
+                        let r = ui.selectable_label(current == Some(i), (i + 1).to_string());
+                        if r.clicked() {
+                            go = Some(i);
+                        }
+                        if scroll && current == Some(i) {
+                            r.scroll_to_me(Some(egui::Align::Center));
+                        }
+                        ui.label(if e.events.is_empty() {
+                            e.label.clone()
+                        } else {
+                            format!("{} +{}", e.label, e.events.len())
+                        });
+                        ui.label(&e.date);
+                        ui.label(match e.confidence {
+                            1 => "low",
+                            2 => "med.",
+                            3 => "high",
+                            _ => "",
+                        });
+                        ui.label(&e.notes);
+                        ui.end_row();
                     }
-                    if scroll && current == Some(i) {
-                        r.scroll_to_me(Some(egui::Align::Center));
-                    }
-                    ui.label(if e.events.is_empty() {
-                        e.label.clone()
-                    } else {
-                        format!("{} +{}", e.label, e.events.len())
-                    });
-                    ui.label(&e.date);
-                    ui.label(match e.confidence {
-                        1 => "low",
-                        2 => "med.",
-                        3 => "high",
-                        _ => "",
-                    });
-                    ui.label(&e.notes);
-                    ui.end_row();
-                }
-            });
-        });
+                });
+            },
+        );
         if let Some(i) = go {
             self.interp_go(i);
         }

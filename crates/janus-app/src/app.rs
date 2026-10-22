@@ -35,6 +35,8 @@ pub enum Tab {
     Analysis,
     /// with a layer of embeddings (or a spectrum's analysis), next to Display
     Embeddings,
+    /// Validation > Validation panel, next to the statistics
+    Validation,
 }
 
 impl Tab {
@@ -58,6 +60,7 @@ impl Tab {
             Tab::Interpretation => "Interpretation",
             Tab::Analysis => "Analysis",
             Tab::Embeddings => "Embeddings",
+            Tab::Validation => "Validation",
         }
     }
 }
@@ -93,7 +96,10 @@ fn load_layout() -> Option<DockState<Tab>> {
 fn layout_text(dock: &DockState<Tab>) -> Option<String> {
     let mut d = dock.clone();
     while let Some(p) = d.find_tab_from(|t| {
-        matches!(t, Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis | Tab::Embeddings)
+        matches!(
+            t,
+            Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis | Tab::Embeddings | Tab::Validation
+        )
     }) {
         d.remove_tab(p);
     }
@@ -128,6 +134,8 @@ pub struct Options {
     pub extra_layers: Vec<String>,
     /// --map-view, --swipe: a map panel, the swipe, once every series is open (screenshots)
     pub map_view: bool,
+    /// a validation project opened: its panel on this tab (0 Design ... 4 Report)
+    pub validation_tab: Option<usize>,
     pub swipe: bool,
     /// --pin, --roi: pins and an ROI once the series is open (screenshots)
     pub pins: Vec<(usize, usize)>,
@@ -250,6 +258,8 @@ pub struct State {
     /// the Embeddings panel is shown
     pub show_embeddings: bool,
     pub(crate) embeddings_test: crate::embeddings_test::EmbeddingsTest,
+    /// the validation: its design, its project, the Validation panel and the Chips window
+    pub val: crate::validation::ValidationUi,
     /// the embeddings download's choices, and the downloads under way
     pub emb_download: crate::emb_download::DownloadUi,
     pub emb_downloads: Vec<crate::emb_download::EmbDownload>,
@@ -383,7 +393,10 @@ impl TabViewer for Tabs<'_> {
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {
-        matches!(tab, Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis | Tab::Embeddings)
+        matches!(
+            tab,
+            Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis | Tab::Embeddings | Tab::Validation
+        )
     }
 
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
@@ -402,6 +415,9 @@ impl TabViewer for Tabs<'_> {
         if *tab == Tab::Embeddings {
             self.s.show_embeddings = false;
         }
+        if *tab == Tab::Validation {
+            self.s.val.show = false;
+        }
         egui_dock::tab_viewer::OnCloseResponse::Close
     }
 
@@ -417,6 +433,9 @@ impl TabViewer for Tabs<'_> {
             }
             Tab::Interpretation => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.s.interpretation_ui(ui));
+            }
+            Tab::Validation => {
+                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.s.validation_ui(ui));
             }
             _ => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match tab {
@@ -459,7 +478,13 @@ impl JanusApp {
         let no_save = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
         let favorites = settings.favorites.clone();
         let render_state = cc.wgpu_render_state.clone().expect("Janus draws with wgpu");
-        let opening = (!opts.inputs.is_empty()).then(|| Opening::start(opts.inputs.clone(), false, &cc.egui_ctx));
+        // vector files (and validation projects) among the inputs become layers once the app is made
+        let (vector_inputs, rasters): (Vec<String>, Vec<String>) = opts
+            .inputs
+            .iter()
+            .cloned()
+            .partition(|p| janus_geo::vectors::is_vector_path(p) && !std::path::Path::new(p).is_dir());
+        let opening = (!rasters.is_empty()).then(|| Opening::start(rasters, false, &cc.egui_ctx));
         let detach = opts.detach_map;
         let scripted = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
         let mut app = JanusApp {
@@ -501,6 +526,7 @@ impl JanusApp {
                 embeddings_test: Default::default(),
                 emb_download: Default::default(),
                 emb_downloads: Vec::new(),
+                val: Default::default(),
                 chart: Default::default(),
                 band_sel: None,
                 spectral_index: 0,
@@ -532,6 +558,9 @@ impl JanusApp {
                 multidim_test: Default::default(),
             },
         };
+        if !vector_inputs.is_empty() {
+            app.state.add_vector_files(vector_inputs, &cc.egui_ctx);
+        }
         // the basemap's setting (not whether it is shown: each session starts without it)
         let ui = &mut app.state.basemap.ui;
         ui.source = bm.source.unwrap_or(ui.source.clone());
@@ -1050,6 +1079,7 @@ impl State {
                 }
             });
             ui.menu_button("Tools", |ui| self.tools_menu(ui));
+            ui.menu_button("Validation", |ui| self.validation_menu(ui));
             ui.menu_button("Help", |ui| {
                 if ui.button("Shortcuts and usage").clicked() {
                     self.help_popup = true;
@@ -1203,6 +1233,8 @@ impl eframe::App for JanusApp {
         s.pump_interpretation(&ctx);
         s.pump_embeddings(&ctx);
         s.pump_embedding_downloads(&ctx);
+        s.pump_validation(&ctx);
+        s.pump_chips(&ctx);
         s.pump_zeit_jobs(&ctx);
         s.scripted_zeit_run(&ctx);
         let rc = if s.opts.dump_golden.is_some() {
@@ -1285,6 +1317,18 @@ impl eframe::App for JanusApp {
         {
             self.dock.remove_tab(p);
         }
+        // the Validation panel while it is shown, as a tab next to the statistics
+        let val_tab = self.dock.find_tab(&Tab::Validation);
+        if self.state.val.show && val_tab.is_none() {
+            if let Some(p) = self.dock.find_tab(&Tab::Statistics) {
+                self.dock.set_focused_node_and_surface(p.node_path());
+            }
+            self.dock.push_to_focused_leaf(Tab::Validation);
+        } else if !self.state.val.show
+            && let Some(p) = val_tab
+        {
+            self.dock.remove_tab(p);
+        }
         // the Interpretation panel while it is shown, as a tab next to the statistics
         let interp_tab = self.dock.find_tab(&Tab::Interpretation);
         if self.state.labels.show && interp_tab.is_none() {
@@ -1296,6 +1340,12 @@ impl eframe::App for JanusApp {
             && let Some(p) = interp_tab
         {
             self.dock.remove_tab(p);
+        }
+        // a tab of the Validation panel asked for (the menu): the panel in front
+        if self.state.val.select_tab.is_some()
+            && let Some(p) = self.dock.find_tab(&Tab::Validation)
+        {
+            let _ = self.dock.set_active_tab(p);
         }
         // the Transect panel while there is one, as a tab next to the time series
         let transect_tab = self.dock.find_tab(&Tab::Transect);
@@ -1396,6 +1446,7 @@ impl eframe::App for JanusApp {
         self.state.tasks_window(&ctx);
         self.state.exports_window(&ctx);
         self.state.extract_window(&ctx);
+        self.state.chips_window(&ctx);
         self.state.log_window(&ctx);
         // the layout kept, every few seconds when it changed (not for the tests)
         if self.layout_checked.elapsed().as_secs_f64() > 3.0 && !self.state.settings.no_save {

@@ -8,6 +8,7 @@ mod analysis;
 mod app;
 mod basemap;
 mod chart;
+mod chips;
 mod classes;
 mod composite;
 mod display;
@@ -36,6 +37,8 @@ mod theme;
 mod tour;
 mod transect;
 mod ui_test;
+mod validation;
+mod validation_tabs;
 mod vectors;
 mod views;
 mod zeit;
@@ -71,6 +74,8 @@ Options:
   --season A-B        a season (days of the year A to B, e.g. 152-243) once the series opens
   --layer IN          IN added as a layer once the series is open (repeatable)
   --map-view          a map panel once the series are open
+  --validation-tab N  a validation project opened (a .gpkg input): its panel on tab N (0 Design, 1 Accuracy,
+                      2 Maps, 3 Interpreters, 4 Report)
   --swipe             the swipe once the series are open
   --pin X,Y           a pin at source pixel (X, Y) once the series is open (repeatable)
   --roi X0,Y0,X1,Y1   an ROI rectangle once the series is open (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
@@ -184,6 +189,7 @@ fn main() -> eframe::Result<()> {
             "--basemap" => opts.basemap = args.next(),
             "--layer" => opts.extra_layers.extend(args.next()),
             "--map-view" => opts.map_view = true,
+            "--validation-tab" => opts.validation_tab = args.next().and_then(|v| v.parse().ok()),
             "--swipe" => opts.swipe = true,
             "--zeit" => opts.zeit_tool = args.next(),
             "--zeit-run" => opts.zeit_run = true,

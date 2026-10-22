@@ -118,6 +118,11 @@ impl State {
 
     pub fn add_vector_files(&mut self, paths: Vec<String>, ctx: &egui::Context) {
         for path in paths {
+            if janus_validation::is_project(&path) {
+                // a validation project: its sample, labels and maps (validation.rs)
+                self.open_validation_project(&path, ctx);
+                continue;
+            }
             let (tx, rx) = channel();
             let c = ctx.clone();
             std::thread::spawn(move || {
@@ -129,7 +134,7 @@ impl State {
     }
 
     /// The active layer's grid (its CRS and geotransform): placing again when it changes.
-    fn vector_place_key(&self) -> u64 {
+    pub(crate) fn vector_place_key(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let Some(s) = &self.session else { return 0 };
         let mut h = std::collections::hash_map::DefaultHasher::new();

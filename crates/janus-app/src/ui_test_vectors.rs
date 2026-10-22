@@ -489,8 +489,12 @@ impl State {
                     st,
                     "labels exported (GeoPackage with the geometries, CSV with lon/lat); a polygon interpreted as the ROI",
                 );
-                println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
-                return Some(0);
+                if self.opts.extra_layers.len() < 3 {
+                    println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
+                    return Some(0);
+                }
+                st.stage = 170; // validation, on D
+                return None;
             }
             _ => {}
         }

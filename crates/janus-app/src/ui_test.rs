@@ -10,6 +10,8 @@
 
 use janus_gpu::Mode;
 
+#[path = "ui_test_validation.rs"]
+mod validation;
 #[path = "ui_test_vectors.rs"]
 mod vectors;
 
@@ -790,6 +792,7 @@ impl State {
             90..=100 => return self.test_spectra(st, &input, t0, ctx),
             110..=114 => return self.test_roi_polygon(st, &input, t0, ctx),
             120..=125 => return self.test_vectors(st, t0, ctx),
+            170..=179 => return self.test_validation(st, &input, t0, ctx),
             _ => {}
         }
         None

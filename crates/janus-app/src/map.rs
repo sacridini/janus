@@ -342,6 +342,7 @@ impl State {
             painter.galley(tp, galley, pin.color);
         }
         self.draw_vector_marks(painter, rect, &at); // under the pins and the ROI
+        self.draw_validation_marks(painter, &at);
         self.draw_roi_marks(painter, rect, &at);
         self.draw_transect_marks(painter, rect, &at);
     }
