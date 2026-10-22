@@ -114,11 +114,7 @@ fn fetch(url: &str, path: &Path, progress: &dyn Fn(f64), cancel: &AtomicBool) ->
         if f.is_null() {
             return Err(format!("could not reach {url}"));
         }
-        let mut size = 0u64;
-        let mut stat: gdal_sys::VSIStatBufL = std::mem::zeroed();
-        if gdal_sys::VSIStatL(src.as_ptr(), &mut stat) == 0 {
-            size = stat.st_size as u64;
-        }
+        let size = janus_gdal::vsi_stat(&format!("/vsicurl/{url}")).map_or(0, |s| s.0);
         let mut out = File::create(&tmp).map_err(|e| e.to_string())?;
         let mut buf = vec![0u8; 1 << 20];
         let mut got = 0u64;

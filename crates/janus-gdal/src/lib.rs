@@ -3,9 +3,6 @@
 
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 
-// gdal-sys links GDAL; nothing of it is used here but the link.
-use gdal_sys as _;
-
 type CompressionFunc = unsafe extern "C" fn(
     input: *const c_void,
     input_size: usize,
@@ -104,6 +101,25 @@ impl Codec {
             )
         };
         ok && size == out.len()
+    }
+}
+
+/// The size and modification time (seconds) of a file in one of GDAL's virtual file systems (VSIStatExL with
+/// VSI_STAT_SIZE_FLAG), None if it cannot be read. GDAL's VSIStatBufL is the C library's stat64 on Linux and stat
+/// on macOS, which the prebuilt bindings of gdal-sys leave opaque: libc's; on Windows the bindings' _stat64.
+pub fn vsi_stat(path: &str) -> Option<(u64, i64)> {
+    #[cfg(target_os = "linux")]
+    type Stat = libc::stat64;
+    #[cfg(all(unix, not(target_os = "linux")))]
+    type Stat = libc::stat;
+    #[cfg(not(unix))]
+    type Stat = gdal_sys::VSIStatBufL;
+    let c = CString::new(path).ok()?;
+    // SAFETY: a C string and a zeroed struct of the layout GDAL fills.
+    unsafe {
+        let mut st: Stat = std::mem::zeroed();
+        (gdal_sys::VSIStatExL(c.as_ptr(), (&raw mut st).cast(), 0x8) == 0)
+            .then_some((st.st_size as u64, st.st_mtime as i64))
     }
 }
 

@@ -91,17 +91,7 @@ pub fn cube_cache_key(info: &CubeInfo, salt: &[u8]) -> u64 {
 
 /// The size and modification time (seconds) of a file in one of GDAL's virtual file systems.
 fn vsi_stat(file: &str) -> (u64, i64) {
-    let Ok(c) = std::ffi::CString::new(file) else { return (0, 0) };
-    // SAFETY: a C string and a zeroed struct for GDAL to fill.
-    unsafe {
-        let mut st: gdal_sys::VSIStatBufL = std::mem::zeroed();
-        // VSI_STAT_SIZE_FLAG
-        if gdal_sys::VSIStatExL(c.as_ptr(), &mut st, 0x8) == 0 {
-            (st.st_size as u64, st.st_mtime as i64)
-        } else {
-            (0, 0)
-        }
-    }
+    janus_gdal::vsi_stat(file).unwrap_or((0, 0))
 }
 
 /// The overview's size: as large as `budget_bytes` allows for T floats per pixel plus 8 (statistics), never larger

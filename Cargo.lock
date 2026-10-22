@@ -1664,6 +1664,7 @@ dependencies = [
  "gdal",
  "gdal-sys",
  "janus-cube",
+ "janus-gdal",
  "parquet",
  "rayon",
  "serde_json",
@@ -1674,6 +1675,7 @@ name = "janus-gdal"
 version = "1.0.0"
 dependencies = [
  "gdal-sys",
+ "libc",
 ]
 
 [[package]]
