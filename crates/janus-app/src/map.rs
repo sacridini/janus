@@ -413,7 +413,6 @@ impl State {
         }
         let inside = self.canvas_input(ui, rect, &resp, true);
         let Some(g) = self.grid() else { return };
-        let (ow, oh, w, fx, fy) = (g.ow, g.oh, g.w, g.fx, g.fy);
 
         // every layer drawn into the map's target, at the screen's pixels, the detail tiles over the active one
         let ppp = ui.ctx().pixels_per_point();
@@ -422,101 +421,8 @@ impl State {
         if remade {
             self.map.dirty = true;
         }
-        let Some(gpu) = self.gpu.as_mut() else { return };
-        let m = &mut self.map;
-        let Some(s) = self.session.as_mut() else { return };
-        let to_px = |m: &MapView, x0: f64, y0: f64, x1: f64, y1: f64| -> [f32; 4] {
-            let (a, b) = (m.screen_of(rect, x0, y0), m.screen_of(rect, x1, y1));
-            [(a.x - rect.min.x) * ppp, (a.y - rect.min.y) * ppp, (b.x - rect.min.x) * ppp, (b.y - rect.min.y) * ppp]
-        };
-        let mut params = self.display.layer_params(s);
-        if self.classes.on() && params.mode == Mode::Value {
-            params.class_lut = self.classes.lut.clone();
-        }
-        let cmap = self.display.cmap[params.mode as usize];
-        let mode = params.mode;
-        let t = self.display.t;
-        let ready = self.display.ready(s, &params);
-        // the detail tiles of the view: the visible part in source pixels, at screen pixels per source pixel
-        let (v0, v1) = (m.image_at(rect, rect.min), m.image_at(rect, rect.max));
-        let view = ViewRect {
-            x0: v0[0] * fx,
-            y0: v0[1] * fy,
-            x1: v1[0] * fx,
-            y1: v1[1] * fy,
-            scale: m.scale * f64::from(ppp) / fx,
-        };
-        m.last_view = Some(view);
-        // an RGB composite reads its own detail
-        let composite = self.composite.as_ref().is_some_and(|c| c.on);
-        let detail = matches!(mode, Mode::Value | Mode::Diff) && !s.s.defer_random_reads() && !composite;
-        let prefetch = self.display.playing.then(|| (t + 1) % s.info.t());
-        let detail = detail && self.display.detail && (mode != Mode::Diff || ready);
-        m.detail_level = None;
-        if detail {
-            m.detail_level = s.tiles.update(s.s.fg(), t, &view, prefetch);
-            if mode == Mode::Diff {
-                s.tiles.update(s.s.fg(), params.layers[1] as usize, &view, None);
-            }
-        }
-        let key = (
-            mode,
-            params.layers,
-            params.range.map(f32::to_bits),
-            cmap,
-            to_px(m, 0.0, 0.0, ow, oh).map(f32::to_bits),
-            s.tiles.gpu_tiles(),
-            params.class_lut.as_ref().map(|l| std::sync::Arc::as_ptr(l) as usize),
-        );
-        m.redrawn = false;
-        if m.dirty || m.drawn.as_ref() != Some(&key) {
-            let bg = theme::map_background();
-            let mut f = gpu.begin_map(0, size, bg);
-            // the basemap under the layers, in map space (the active layer's source pixels)
-            self.basemap.draw(gpu, &mut f, &view, bg, |q| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy));
-            let to_map = |q: [f64; 4]| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy);
-            // every layer, bottom to top; the active one with its detail
-            for li in 0..self.layers.len() {
-                let l = &mut self.layers[li];
-                if !l.visible || !l.place.aligned {
-                    continue;
-                }
-                if li != self.active {
-                    State::draw_layer(l, gpu, &mut f, &to_map);
-                    continue;
-                }
-                let alpha = l.opacity;
-                if let Some(c) = self.composite.as_mut().filter(|c| c.on) {
-                    // three bands as RGB, in detail when zoomed in
-                    State::draw_composite(c, gpu, &mut f, t, s.info.t(), alpha, |w| {
-                        to_px(m, w[0] / fx, w[1] / fy, w[2] / fx, w[3] / fy)
-                    });
-                } else if let (true, Some(cube)) = (ready, &s.cube) {
-                    gpu.draw_cube(&mut f, cube, to_px(m, 0.0, 0.0, ow, oh), &params, cmap, alpha);
-                    if detail {
-                        let tiles: Vec<_> = if mode == Mode::Diff {
-                            s.tiles
-                                .visible_pairs(t, params.layers[1] as usize, &view)
-                                .into_iter()
-                                .map(|(a, b)| (a, Some(b)))
-                                .collect()
-                        } else {
-                            s.tiles.visible(t, &view).into_iter().map(|a| (a, None)).collect()
-                        };
-                        for (tile, reference) in tiles {
-                            params.tile2 = reference.map(|r| r.tex.clone());
-                            let r =
-                                to_px(m, tile.x / fx, tile.y / fy, (tile.x + tile.sw) / fx, (tile.y + tile.sh) / fy);
-                            gpu.draw_tile(&mut f, cube, &tile.tex, r, &params, cmap, alpha);
-                        }
-                    }
-                }
-            }
-            gpu.end_map(f);
-            m.drawn = Some(key);
-            m.dirty = false;
-            m.redrawn = true;
-        }
+        self.render_map(0, size, [rect.width(), rect.height()], ppp);
+        let (ow, w) = (g.ow, g.w);
         painter.image(texture, rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         self.draw_swipe(ui, &painter, rect, ppp);
         self.map_marks(&painter, rect, inside, 0);
@@ -646,6 +552,118 @@ impl State {
         }
         self.basemap_note(&painter, rect);
         ui.weak(status);
+    }
+
+    /// Every layer drawn into the GPU target `slot` (C++ renderMap): `size` pixels showing the main map's view on
+    /// a canvas of `canvas` points at `ppp` pixels per point, the basemap under them, the detail tiles over the
+    /// active one. The main map's target (slot 0) is drawn again only when what it shows changed; another slot
+    /// (the self-test's) always.
+    pub(crate) fn render_map(&mut self, slot: i32, size: [u32; 2], canvas: [f32; 2], ppp: f32) {
+        let Some(g) = self.grid() else { return };
+        let (ow, oh, fx, fy) = (g.ow, g.oh, g.fx, g.fy);
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(canvas[0], canvas[1]));
+        let Some(gpu) = self.gpu.as_mut() else { return };
+        let m = &mut self.map;
+        let Some(s) = self.session.as_mut() else { return };
+        let to_px = |m: &MapView, x0: f64, y0: f64, x1: f64, y1: f64| -> [f32; 4] {
+            let (a, b) = (m.screen_of(rect, x0, y0), m.screen_of(rect, x1, y1));
+            [(a.x - rect.min.x) * ppp, (a.y - rect.min.y) * ppp, (b.x - rect.min.x) * ppp, (b.y - rect.min.y) * ppp]
+        };
+        let mut params = self.display.layer_params(s);
+        if self.classes.on() && params.mode == Mode::Value {
+            params.class_lut = self.classes.lut.clone();
+        }
+        let cmap = self.display.cmap[params.mode as usize];
+        let mode = params.mode;
+        let t = self.display.t;
+        let ready = self.display.ready(s, &params);
+        // the detail tiles of the view: the visible part in source pixels, at screen pixels per source pixel
+        let (v0, v1) = (m.image_at(rect, rect.min), m.image_at(rect, rect.max));
+        let view = ViewRect {
+            x0: v0[0] * fx,
+            y0: v0[1] * fy,
+            x1: v1[0] * fx,
+            y1: v1[1] * fy,
+            scale: m.scale * f64::from(ppp) / fx,
+        };
+        if slot == 0 {
+            m.last_view = Some(view);
+        }
+        // an RGB composite reads its own detail
+        let composite = self.composite.as_ref().is_some_and(|c| c.on);
+        let detail = matches!(mode, Mode::Value | Mode::Diff) && !s.s.defer_random_reads() && !composite;
+        let prefetch = self.display.playing.then(|| (t + 1) % s.info.t());
+        let detail = detail && self.display.detail && (mode != Mode::Diff || ready);
+        let mut level = None;
+        if detail {
+            level = s.tiles.update(s.s.fg(), t, &view, prefetch);
+            if mode == Mode::Diff {
+                s.tiles.update(s.s.fg(), params.layers[1] as usize, &view, None);
+            }
+        }
+        let key = (
+            mode,
+            params.layers,
+            params.range.map(f32::to_bits),
+            cmap,
+            to_px(m, 0.0, 0.0, ow, oh).map(f32::to_bits),
+            s.tiles.gpu_tiles(),
+            params.class_lut.as_ref().map(|l| std::sync::Arc::as_ptr(l) as usize),
+        );
+        if slot == 0 {
+            m.detail_level = level;
+            m.redrawn = false;
+        }
+        if slot != 0 || m.dirty || m.drawn.as_ref() != Some(&key) {
+            let bg = theme::map_background();
+            let mut f = gpu.begin_map(slot, size, bg);
+            // the basemap under the layers, in map space (the active layer's source pixels)
+            self.basemap.draw(gpu, &mut f, &view, bg, |q| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy));
+            let to_map = |q: [f64; 4]| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy);
+            // every layer, bottom to top; the active one with its detail
+            for li in 0..self.layers.len() {
+                let l = &mut self.layers[li];
+                if !l.visible || !l.place.aligned {
+                    continue;
+                }
+                if li != self.active {
+                    State::draw_layer(l, gpu, &mut f, &to_map);
+                    continue;
+                }
+                let alpha = l.opacity;
+                if let Some(c) = self.composite.as_mut().filter(|c| c.on) {
+                    // three bands as RGB, in detail when zoomed in
+                    State::draw_composite(c, gpu, &mut f, t, s.info.t(), alpha, |w| {
+                        to_px(m, w[0] / fx, w[1] / fy, w[2] / fx, w[3] / fy)
+                    });
+                } else if let (true, Some(cube)) = (ready, &s.cube) {
+                    gpu.draw_cube(&mut f, cube, to_px(m, 0.0, 0.0, ow, oh), &params, cmap, alpha);
+                    if detail {
+                        let tiles: Vec<_> = if mode == Mode::Diff {
+                            s.tiles
+                                .visible_pairs(t, params.layers[1] as usize, &view)
+                                .into_iter()
+                                .map(|(a, b)| (a, Some(b)))
+                                .collect()
+                        } else {
+                            s.tiles.visible(t, &view).into_iter().map(|a| (a, None)).collect()
+                        };
+                        for (tile, reference) in tiles {
+                            params.tile2 = reference.map(|r| r.tex.clone());
+                            let r =
+                                to_px(m, tile.x / fx, tile.y / fy, (tile.x + tile.sw) / fx, (tile.y + tile.sh) / fy);
+                            gpu.draw_tile(&mut f, cube, &tile.tex, r, &params, cmap, alpha);
+                        }
+                    }
+                }
+            }
+            gpu.end_map(f);
+            if slot == 0 {
+                m.drawn = Some(key);
+                m.dirty = false;
+                m.redrawn = true;
+            }
+        }
     }
 }
 

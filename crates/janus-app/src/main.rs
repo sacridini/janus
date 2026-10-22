@@ -24,6 +24,7 @@ mod session;
 mod settings;
 mod theme;
 mod tour;
+mod ui_test;
 mod views;
 
 use std::sync::Arc;
@@ -60,6 +61,8 @@ Options:
   --swipe             the swipe once the series are open
   --pin X,Y           a pin at source pixel (X, Y) once the series is open (repeatable)
   --roi X0,Y0,X1,Y1   an ROI rectangle once the series is open
+  --selftest-ui A B [C [D [E]]]  the layers workflow on the test series of tools/make_selftest_data.py:
+                      layers, cursor, pins, the map, NDVI, change maps, composites, the season, classes
   --selftest-reproject B F A  F (B reprojected) drawn on B's grid where PROJ puts it; the cursor, a pin and
                       an ROI on B, A and F
   --selftest-multidim H/clim.nc  a NetCDF of two variables: the picker, its levels, in place
@@ -135,6 +138,7 @@ fn main() -> eframe::Result<()> {
                 }
             }
             "--selftest-reproject" => opts.selftest_reproject = true,
+            "--selftest-ui" => opts.selftest_ui = true,
             "--selftest-multidim" => opts.selftest_multidim = true,
             "--season" => {
                 opts.season = args.next().and_then(|v| {
@@ -158,6 +162,10 @@ fn main() -> eframe::Result<()> {
             _ => opts.inputs.push(a),
         }
     }
+    if opts.selftest_ui && opts.inputs.len() >= 2 {
+        // A opens, the others are opened by the test
+        opts.extra_layers = opts.inputs.split_off(1);
+    }
     if opts.selftest_reproject && opts.inputs.len() == 3 {
         // B opens, F and A are added as layers by the test
         opts.extra_layers = opts.inputs.split_off(1);
@@ -171,6 +179,7 @@ fn main() -> eframe::Result<()> {
         || opts.dump_golden.is_some()
         || opts.selftest_composite
         || opts.selftest_reproject
+        || opts.selftest_ui
         || opts.selftest_multidim;
     if test_window {
         attach_console();

@@ -122,6 +122,8 @@ pub struct Options {
     pub selftest_reproject: bool,
     /// --selftest-multidim H/clim.nc: a NetCDF of two variables, its levels, opened in place
     pub selftest_multidim: bool,
+    /// --selftest-ui A B [C D E]: the layers workflow on the test series
+    pub selftest_ui: bool,
 }
 
 impl Options {
@@ -131,6 +133,7 @@ impl Options {
             || self.dump_golden.is_some()
             || self.selftest_composite
             || self.selftest_reproject
+            || self.selftest_ui
             || self.selftest_multidim
     }
 }
@@ -231,6 +234,7 @@ pub struct State {
     pub composite: Option<crate::composite::BandComposite>,
     pub(crate) composite_test: crate::composite::SelfTest,
     pub(crate) reproject_test: crate::layers::ReprojectTest,
+    pub(crate) ui_test: crate::ui_test::UiTest,
     pub(crate) multidim_test: crate::open::MultidimTest,
 }
 
@@ -420,6 +424,7 @@ impl JanusApp {
                 composite: None,
                 composite_test: Default::default(),
                 reproject_test: Default::default(),
+                ui_test: Default::default(),
                 multidim_test: Default::default(),
             },
         };
@@ -642,6 +647,7 @@ impl State {
         if self.opening.is_none()
             && !self.layers.is_empty()
             && !self.opts.selftest_reproject
+            && !self.opts.selftest_ui
             && !self.opts.extra_layers.is_empty()
         {
             let next = self.opts.extra_layers.remove(0);
@@ -1019,6 +1025,8 @@ impl eframe::App for JanusApp {
             s.composite_selftest_step(&ctx)
         } else if s.opts.selftest_reproject {
             s.reproject_selftest_step(&ctx)
+        } else if s.opts.selftest_ui {
+            s.ui_selftest_step(&ctx)
         } else if s.opts.selftest_multidim {
             s.multidim_selftest_step(&ctx)
         } else if s.opts.profile_tour {

@@ -39,7 +39,7 @@ pub struct ViewSetup {
 }
 
 impl ViewSetup {
-    fn new(id: u32, cube: u64) -> Self {
+    pub(crate) fn new(id: u32, cube: u64) -> Self {
         ViewSetup {
             id,
             cube,
@@ -236,7 +236,7 @@ impl State {
     }
 
     /// A view drawn into its target (slot `v.id`, the main map's view centred on a canvas of `size` pixels).
-    fn render_view(&mut self, v: &mut ViewSetup, size: [u32; 2], ppp: f32, slot: i32) {
+    pub(crate) fn render_view(&mut self, v: &mut ViewSetup, size: [u32; 2], ppp: f32, slot: i32) {
         let Some(g) = self.grid() else { return };
         let (fx, fy) = (g.fx, g.fy);
         let i = self.layer_of(v.cube);

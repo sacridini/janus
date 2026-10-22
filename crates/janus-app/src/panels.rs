@@ -50,6 +50,13 @@ fn colormap_button(ui: &mut Ui, cmap: usize, width: f32) -> egui::Response {
 }
 
 impl State {
+    /// What the active series allows (C++ modeAvailable): class codes have no means or trends; a single date no
+    /// temporal statistics.
+    pub(crate) fn mode_available(&self, m: Mode) -> bool {
+        let n = self.session.as_ref().map_or(0, |s| s.info.t());
+        if self.classes.on() { m == Mode::Value } else { m == Mode::Value || m == Mode::Rgb || n >= 2 }
+    }
+
     /// The Display panel (app.cpp, uiLayer): the series, its bands, what the map shows (mode, colormap, stretch,
     /// histogram) and the detail at full resolution.
     pub fn display_ui(&mut self, ui: &mut Ui) {
@@ -88,20 +95,17 @@ impl State {
 
         section(ui, "Display");
         let Some(s) = &self.session else { return };
-        let classes_on = self.classes.on();
+        let available: Vec<bool> = MODE_ORDER.iter().map(|&m| self.mode_available(m)).collect();
         let d = &mut self.display;
-        // what the series allows: class codes have no means or trends; a single date no temporal statistics
-        let available =
-            |m: Mode| if classes_on { m == Mode::Value } else { m == Mode::Value || m == Mode::Rgb || n >= 2 };
         let mut dirty = false;
         ComboBox::from_id_salt("mode")
             .width(ui.available_width())
             .height(400.0)
             .selected_text(mode_name_of(d.mode, &info))
             .show_ui(ui, |ui| {
-                for m in MODE_ORDER {
+                for (k, m) in MODE_ORDER.into_iter().enumerate() {
                     dirty |= ui
-                        .add_enabled_ui(available(m), |ui| ui.selectable_value(&mut d.mode, m, mode_name_of(m, &info)))
+                        .add_enabled_ui(available[k], |ui| ui.selectable_value(&mut d.mode, m, mode_name_of(m, &info)))
                         .inner
                         .changed();
                 }
