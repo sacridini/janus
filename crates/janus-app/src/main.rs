@@ -26,6 +26,7 @@ mod theme;
 mod tour;
 mod ui_test;
 mod views;
+mod zeit;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -61,6 +62,7 @@ Options:
   --swipe             the swipe once the series are open
   --pin X,Y           a pin at source pixel (X, Y) once the series is open (repeatable)
   --roi X0,Y0,X1,Y1   an ROI rectangle once the series is open
+  --zeit TOOL         the Zeit tool fitted on the chart (e.g. landtrendr), its window open
   --selftest-ui A B [C [D [E]]]  the layers workflow on the test series of tools/make_selftest_data.py:
                       layers, cursor, pins, the map, NDVI, change maps, composites, the season, classes
   --selftest-reproject B F A  F (B reprojected) drawn on B's grid where PROJ puts it; the cursor, a pin and
@@ -123,6 +125,7 @@ fn main() -> eframe::Result<()> {
             "--layer" => opts.extra_layers.extend(args.next()),
             "--map-view" => opts.map_view = true,
             "--swipe" => opts.swipe = true,
+            "--zeit" => opts.zeit_tool = args.next(),
             "--pin" => {
                 let v: Vec<usize> =
                     args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();

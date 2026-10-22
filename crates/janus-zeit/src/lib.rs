@@ -23,5 +23,8 @@ mod tmask;
 mod twdtw;
 pub mod upstream;
 
+/// The Zeit whose zeit-core is linked (Cargo.toml's revision: the v2.0.0 tag).
+pub const ZEIT_VERSION: &str = "2.0.0";
+
 pub use manifest::{Manifest, Output, Param, Tool, manifest};
 pub use pixel::{Overlay, Params, PixelInput, PixelResult, run_pixel};

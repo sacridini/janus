@@ -13,7 +13,7 @@ use crate::display::{MODE_ORDER, mode_name_of, range_label};
 use crate::theme;
 
 /// A section's title with a line after it (ImGui's SeparatorText).
-fn section(ui: &mut Ui, title: &str) {
+pub(crate) fn section(ui: &mut Ui, title: &str) {
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         ui.strong(title);
@@ -465,6 +465,8 @@ as a map of its own on top                  of the spectrum",
             values: Option<&'a [f32]>,
             classes: Option<&'a crate::classes::LayerClasses>,
             t: usize,
+            /// the Zeit tool fitted on it
+            fit: Option<&'a Result<janus_zeit::PixelResult, String>>,
         }
         let sr = &self.series;
         let active_classes = self.classes.on().then_some(&self.classes);
@@ -482,6 +484,7 @@ as a map of its own on top                  of the spectrum",
                 values: Some(&h.values),
                 classes: active_classes,
                 t,
+                fit: self.zeit.fit_of(info.id, crate::zeit::Which::Hover, h.x, h.y),
             });
         }
         for p in &sr.pins {
@@ -496,6 +499,7 @@ as a map of its own on top                  of the spectrum",
                 values: Some(&p.values),
                 classes: active_classes,
                 t,
+                fit: self.zeit.fit_of(info.id, crate::zeit::Which::Pin(p.id), p.x, p.y),
             });
         }
         if !sr.roi.mean.is_empty() {
@@ -510,6 +514,7 @@ as a map of its own on top                  of the spectrum",
                 values: None,
                 classes: None,
                 t,
+                fit: self.roi_fit(),
             });
         }
         if sr.chart_layers == 1 {
@@ -528,6 +533,7 @@ as a map of its own on top                  of the spectrum",
                         values: Some(&h.values),
                         classes: lc,
                         t: l.disp.t,
+                        fit: self.zeit.fit_of(ls.info.id, crate::zeit::Which::Hover, h.x, h.y),
                     });
                 }
                 for p in &l.series.pins {
@@ -542,6 +548,7 @@ as a map of its own on top                  of the spectrum",
                         values: Some(&p.values),
                         classes: lc,
                         t: l.disp.t,
+                        fit: self.zeit.fit_of(ls.info.id, crate::zeit::Which::Pin(p.id), p.x, p.y),
                     });
                 }
                 if !l.series.roi.mean.is_empty() && lc.is_none() {
@@ -557,6 +564,7 @@ as a map of its own on top                  of the spectrum",
                         values: Some(&l.series.roi.mean),
                         classes: None,
                         t: l.disp.t,
+                        fit: None,
                     });
                 }
             }
@@ -644,6 +652,35 @@ as a map of its own on top                  of the spectrum",
                             ui.label(f(c.st, &|i| date(cube, i), &num, unit));
                         }
                         ui.end_row();
+                    }
+                    // the rows of the Zeit tool fitted on the chart, in the order they first appear
+                    if let Some(tool) = self.zeit.pixel_tool.as_deref().and_then(|id| janus_zeit::manifest().tool(id)) {
+                        let rows: Vec<Vec<(String, String)>> =
+                            cols.iter().map(|c| crate::zeit::fit_rows(c.fit)).collect();
+                        let mut names: Vec<&String> = vec![];
+                        for r in &rows {
+                            for (n, _) in r {
+                                if !names.contains(&n) {
+                                    names.push(n);
+                                }
+                            }
+                        }
+                        ui.colored_label(theme::accent(), &tool.name);
+                        for c in &cols {
+                            match c.fit {
+                                Some(Err(e)) => ui.weak("error").on_hover_text(e),
+                                None => ui.weak("..."),
+                                Some(Ok(_)) => ui.label(""),
+                            };
+                        }
+                        ui.end_row();
+                        for n in names {
+                            ui.weak(n);
+                            for r in &rows {
+                                ui.label(r.iter().find(|(k, _)| k == n).map_or("", |(_, v)| v.as_str()));
+                            }
+                            ui.end_row();
+                        }
                     }
                     if self.display.mode == janus_gpu::Mode::Diff {
                         // what the map shows, from each series (active layer)

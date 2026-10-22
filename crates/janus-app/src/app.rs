@@ -118,6 +118,8 @@ pub struct Options {
     /// --pin, --roi: pins and an ROI once the series is open (screenshots)
     pub pins: Vec<(usize, usize)>,
     pub roi: Option<[i64; 4]>,
+    /// --zeit TOOL: that Zeit tool fitted on the chart, its window open
+    pub zeit_tool: Option<String>,
     /// --selftest-reproject B F: F reprojected on B's grid
     pub selftest_reproject: bool,
     /// --selftest-multidim H/clim.nc: a NetCDF of two variables, its levels, opened in place
@@ -234,6 +236,8 @@ pub struct State {
     pub composite: Option<crate::composite::BandComposite>,
     pub(crate) composite_test: crate::composite::SelfTest,
     pub(crate) reproject_test: crate::layers::ReprojectTest,
+    /// Zeit's tools: their windows, the fits on the chart
+    pub zeit: crate::zeit::ZeitUi,
     pub(crate) ui_test: crate::ui_test::UiTest,
     pub(crate) multidim_test: crate::open::MultidimTest,
 }
@@ -424,6 +428,7 @@ impl JanusApp {
                 composite: None,
                 composite_test: Default::default(),
                 reproject_test: Default::default(),
+                zeit: Default::default(),
                 ui_test: Default::default(),
                 multidim_test: Default::default(),
             },
@@ -581,6 +586,11 @@ impl State {
             }
             if let Some(r) = self.opts.roi {
                 self.set_roi_rect(r);
+            }
+            if let Some(id) = self.opts.zeit_tool.clone() {
+                self.zeit.tools.entry(id.clone()).or_default().open = true;
+                self.zeit.pixel_tool = Some(id);
+                self.zeit.version += 1;
             }
             if let Some(b) = &self.opts.basemap {
                 if b.contains("://") {
@@ -877,6 +887,7 @@ impl State {
                     act.reset_layout = true;
                 }
             });
+            ui.menu_button("Tools", |ui| self.tools_menu(ui));
             ui.menu_button("Help", |ui| {
                 if ui.button("Shortcuts and usage").clicked() {
                     self.help_popup = true;
@@ -1019,6 +1030,7 @@ impl eframe::App for JanusApp {
         s.pump(&ctx);
         s.pump_basemap(&ctx);
         s.pump_composite(&ctx);
+        s.pump_zeit(&ctx);
         let rc = if s.opts.dump_golden.is_some() {
             s.golden_step(&ctx)
         } else if s.opts.selftest_composite {
@@ -1154,6 +1166,7 @@ impl eframe::App for JanusApp {
 
         self.state.settings_ui(&ctx);
         self.state.popups(&ctx);
+        self.state.tool_windows(&ctx);
         // the layout kept, every few seconds when it changed (not for the tests)
         if self.layout_checked.elapsed().as_secs_f64() > 3.0 && !self.state.settings.no_save {
             self.layout_checked = Instant::now();

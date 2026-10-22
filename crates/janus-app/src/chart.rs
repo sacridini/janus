@@ -477,6 +477,7 @@ impl State {
                 }
                 // the trend of a partially computed ROI would be misleading: wait for every date
                 pl.series(plot, name, &roi.mean, &roi.stats, (crate::series::ROI_COLOR, 2.0), roi.complete());
+                crate::zeit::draw_fit(plot, name, self.roi_fit(), &roi.stats, o.values, &info);
                 if o.roi_spread == 2 {
                     // a box per date: p25 to p75 with the median, whiskers to p10 and p90
                     let gap = xs.windows(2).map(|w| w[1] - w[0]).filter(|g| *g > 0.0).fold(f64::INFINITY, f64::min);
@@ -498,10 +499,14 @@ impl State {
             for p in &sr.pins {
                 let name = format!("Pin {} ({}, {}){}", p.id, p.x, p.y, if p.exact { "" } else { " approx." });
                 pl.series(plot, &name, &p.values, &p.stats, (p.color, 1.5), true);
+                let fit = self.zeit.fit_of(info.id, crate::zeit::Which::Pin(p.id), p.x, p.y);
+                crate::zeit::draw_fit(plot, &name, fit, &p.stats, o.values, &info);
             }
             if let Some(h) = &sr.hover {
                 let name = format!("Cursor ({}, {}){}", h.x, h.y, if h.exact { "" } else { " approx." });
                 pl.series(plot, &name, &h.values, &h.stats, (h.color, 2.0), true);
+                let fit = self.zeit.fit_of(info.id, crate::zeit::Which::Hover, h.x, h.y);
+                crate::zeit::draw_fit(plot, &name, fit, &h.stats, o.values, &info);
             }
             if sr.chart_layers == 1 {
                 // the other visible layers: their own dates on the same axis, a marker shape per layer
@@ -537,10 +542,14 @@ impl State {
                     for p in &l.series.pins {
                         let name = format!("Pin {} [{}]{}", p.id, l.name, if p.exact { "" } else { " approx." });
                         other(plot, &name, &p.values, &p.stats, p.color, 1.2);
+                        let fit = self.zeit.fit_of(li_info.id, crate::zeit::Which::Pin(p.id), p.x, p.y);
+                        crate::zeit::draw_fit(plot, &name, fit, &p.stats, o.values, li_info);
                     }
                     if let Some(h) = &l.series.hover {
                         let name = format!("Cursor [{}]{}", l.name, if h.exact { "" } else { " approx." });
                         other(plot, &name, &h.values, &h.stats, h.color, 1.6);
+                        let fit = self.zeit.fit_of(li_info.id, crate::zeit::Which::Hover, h.x, h.y);
+                        crate::zeit::draw_fit(plot, &name, fit, &h.stats, o.values, li_info);
                     }
                     let r = &l.series.roi;
                     if !r.mean.is_empty() && !l.classes.on() {
