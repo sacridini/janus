@@ -5,7 +5,9 @@
 //! need.
 
 use egui::{Color32, ComboBox, Ui};
-use egui_plot::{BoxElem, BoxPlot, BoxSpread, GridInput, GridMark, Line, MarkerShape, Plot, PlotPoints, Points, VLine};
+use egui_plot::{
+    Bar, BarChart, BoxElem, BoxPlot, BoxSpread, GridInput, GridMark, Line, MarkerShape, Plot, PlotPoints, Points, VLine,
+};
 use janus_cube::dates::{civil_from_days, days_from_civil};
 use janus_cube::stats::{SeriesStats, cusum, month_of, monthly_climatology};
 
@@ -111,7 +113,7 @@ pub fn time_label(mark: GridMark) -> String {
 
 /// The chart's options (the C++'s plotStyle_, plotValues_, trendKind_, yFromMap_, roiSpread_).
 pub struct ChartOptions {
-    /// 0 lines, 1 lines + markers, 2 markers, 3 stems, 4 stairs
+    /// 0 lines, 1 lines + markers, 2 markers, 3 stems, 4 stairs, 5 bars
     pub style: usize,
     /// 0 values, 1 anomaly (- the series' mean), 2 z-score, 3 seasonal anomaly (- the month's mean), 4 CUSUM of
     /// the anomalies (seasonal ones when dated)
@@ -122,24 +124,27 @@ pub struct ChartOptions {
     pub y_from_map: bool,
     /// the ROI: 0 mean only, 1 + the p10-p90 band, 2 + a box plot per date, 3 + a fan (p10-p90, p25-p75, median)
     pub roi_spread: usize,
+    /// a strip of the main series' values as colours under the chart (warming stripes)
+    pub stripes: bool,
 }
 
 impl Default for ChartOptions {
     fn default() -> Self {
-        ChartOptions { style: 1, values: 0, trend: 1, y_from_map: false, roi_spread: 1 }
+        ChartOptions { style: 1, values: 0, trend: 1, y_from_map: false, roi_spread: 1, stripes: false }
     }
 }
 
 impl ChartOptions {
-    /// Options as `--chart` gives them: style=N,values=N,trend=N,spread=N (those out of range left).
+    /// Options as `--chart` gives them: style=N,values=N,trend=N,spread=N,stripes=0|1 (those out of range left).
     pub fn set(&mut self, spec: &str) {
         for (k, v) in spec.split(',').filter_map(|kv| kv.split_once('=')) {
             let Ok(v) = v.trim().parse::<usize>() else { continue };
             match k.trim() {
-                "style" if v < 5 => self.style = v,
+                "style" if v < 6 => self.style = v,
                 "values" if v < VALUES.len() => self.values = v,
                 "trend" if v < 3 => self.trend = v,
                 "spread" if v < 4 => self.roi_spread = v,
+                "stripes" => self.stripes = v != 0,
                 _ => {}
             }
         }
@@ -220,13 +225,41 @@ impl AsShown {
         }
     }
 
-    /// Whether 0 is the series' level (stems from 0), not its mean.
+    /// Whether 0 is the series' level (stems and bars from 0, stripes symmetric about it), not its mean.
     fn relative(&self) -> bool {
         self.values != 0
     }
 }
 
-/// The smallest gap between consecutive dates (a box's width), if any.
+/// Each date's column on the chart (screen x): from halfway to the previous date to halfway to the next, the outer
+/// ones as wide on both sides; at least a point wide.
+fn date_columns(tr: &egui_plot::PlotTransform, xs: &[f64]) -> Vec<(f32, f32)> {
+    let sx = |x: f64| tr.position_from_point(&egui_plot::PlotPoint::new(x, 0.0)).x;
+    let n = xs.len();
+    let mid = |t: usize| 0.5 * (sx(xs[t]) + sx(xs[t + 1]));
+    let frame = tr.frame();
+    (0..n)
+        .map(|t| {
+            let left = if t > 0 {
+                mid(t - 1)
+            } else if n > 1 {
+                2.0 * sx(xs[0]) - mid(0)
+            } else {
+                frame.left()
+            };
+            let right = if t + 1 < n {
+                mid(t)
+            } else if n > 1 {
+                2.0 * sx(xs[n - 1]) - mid(n - 2)
+            } else {
+                frame.right()
+            };
+            (left, right.max(left + 1.0))
+        })
+        .collect()
+}
+
+/// The smallest gap between consecutive dates (a box's or a bar's width), if any.
 fn min_gap(xs: &[f64]) -> Option<f64> {
     let g = xs.windows(2).map(|w| w[1] - w[0]).filter(|g| *g > 0.0).fold(f64::INFINITY, f64::min);
     g.is_finite().then_some(g)
@@ -283,6 +316,11 @@ struct Plotted<'a> {
     categorical: bool,
     spectral: bool,
     dated: bool,
+    /// the bars' colours below and above the level (the map's anomaly colormap's ends)
+    bars: (Color32, Color32),
+    /// the series drawn as bars, side by side at each date, and the next one's place
+    bar_slots: usize,
+    bar_slot: std::cell::Cell<usize>,
 }
 
 impl Plotted<'_> {
@@ -346,7 +384,28 @@ impl Plotted<'_> {
                 }
                 plot.points(Points::new(name, PlotPoints::from(valid)).color(color).radius(2.5));
             }
-            _ => stairs(plot),
+            4 => stairs(plot),
+            _ => {
+                // bars from the level, coloured by side (a dry year, a wet one), the series' colour on their tops
+                let base = if sh.relative() { 0.0 } else { st.mean };
+                let w = min_gap(self.xs).map_or(1.0, |g| g * 0.8) / self.bar_slots.max(1) as f64;
+                let k = self.bar_slot.replace(self.bar_slot.get() + 1);
+                let dx = w * (k as f64 + 0.5 - self.bar_slots.max(1) as f64 * 0.5);
+                let valid: Vec<[f64; 2]> = valid.iter().map(|p| [p[0] + dx, p[1]]).collect();
+                let (below, above) = self.bars;
+                let bars = valid
+                    .iter()
+                    .map(|p| {
+                        Bar::new(p[0], p[1] - base)
+                            .base_offset(base)
+                            .width(w)
+                            .fill(if p[1] >= base { above } else { below }.gamma_multiply(0.8))
+                            .stroke(egui::Stroke::NONE)
+                    })
+                    .collect();
+                plot.bar_chart(BarChart::new(name, bars).color(color));
+                plot.points(Points::new(name, PlotPoints::from(valid)).color(color).radius(1.8));
+            }
         }
         if trend && self.o.trend != 0 && st.n >= 2 && !self.spectral && n >= 1 && self.o.values != 4 {
             let (a, b) =
@@ -406,6 +465,57 @@ impl State {
         ctx.copy_text(csv);
     }
 
+    /// The warming stripes under the chart: a colour per date of the main series (the cursor's, else the ROI's
+    /// mean, else the last pin's), each from halfway to the previous date to halfway to the next, on the chart's
+    /// time axis. Values in the map's colours and range; anomalies, z-scores and CUSUM in the anomaly colormap,
+    /// symmetric about 0.
+    fn stripes_ui(&self, ui: &mut Ui, pl: &Plotted<'_>, tr: &egui_plot::PlotTransform, height: f32) {
+        let sr = &self.series;
+        let main = sr
+            .hover
+            .as_ref()
+            .map(|h| (&h.values, &h.stats))
+            .or_else(|| (!sr.roi.mean.is_empty()).then_some((&sr.roi.mean, &sr.roi.stats)))
+            .or_else(|| sr.pins.last().map(|p| (&p.values, &p.stats)));
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
+        let Some((vals, st)) = main.filter(|(v, _)| v.len() == pl.xs.len()) else { return };
+        let sh = pl.shown(st, vals);
+        let ys = sh.series(pl.xs, vals);
+        let colour: Box<dyn Fn(f64) -> Color32> = if sh.relative() {
+            let cm = &janus_gpu::colormaps::all()[self.display.cmap[janus_gpu::Mode::Anomaly as usize]];
+            let a = ys.iter().filter(|y| y.is_finite()).fold(0f64, |m, y| m.max(y.abs()));
+            Box::new(move |y| {
+                let c = cm.sample(if a > 0.0 { (0.5 + 0.5 * y / a) as f32 } else { 0.5 });
+                Color32::from_rgb(c[0], c[1], c[2])
+            })
+        } else {
+            let cm = &janus_gpu::colormaps::all()[self.display.cmap[janus_gpu::Mode::Value as usize]];
+            let r = self.display.ranges[janus_gpu::Mode::Value as usize];
+            let (lo, span) = (f64::from(r.lo), f64::from(r.hi - r.lo));
+            Box::new(move |y| {
+                let c = cm.sample(if span > 0.0 { ((y - lo) / span).clamp(0.0, 1.0) as f32 } else { 0.5 });
+                Color32::from_rgb(c[0], c[1], c[2])
+            })
+        };
+        let frame = *tr.frame();
+        let painter = ui.painter_at(egui::Rect::from_x_y_ranges(frame.x_range(), rect.y_range()));
+        for (t, (left, right)) in date_columns(tr, pl.xs).into_iter().enumerate().filter(|(t, _)| ys[*t].is_finite()) {
+            painter.rect_filled(egui::Rect::from_x_y_ranges(left..=right, rect.y_range()), 0.0, colour(ys[t]));
+        }
+        if let Some(p) = resp.hover_pos().filter(|p| frame.x_range().contains(p.x)) {
+            let x = tr.value_from_position(p).x;
+            let Some(s) = &self.session else { return };
+            let t = s.info.nearest_layer(x);
+            if ys[t].is_finite() {
+                resp.on_hover_text_at_pointer(format!(
+                    "{}\n{}",
+                    s.info.layers[t].label,
+                    janus_cube::multidim::format_g(ys[t], 4)
+                ));
+            }
+        }
+    }
+
     pub fn series_ui(&mut self, ui: &mut Ui) {
         let Some(s) = &self.session else {
             ui.weak("Open a series and hover over the map.");
@@ -425,12 +535,22 @@ impl State {
             (self.layers.len(), self.series.roi_rect.is_some(), !self.series.pins.is_empty());
         let (mut clear_pins, mut clear_roi, mut copy) = (false, false, false);
         ui.horizontal_wrapped(|ui| {
-            const STYLES: [&str; 5] = ["Lines", "Lines + markers", "Markers", "Stems", "Stairs"];
-            ComboBox::from_id_salt("style").width(130.0).selected_text(STYLES[o.style]).show_ui(ui, |ui| {
-                for (i, n) in STYLES.iter().enumerate() {
-                    ui.selectable_value(&mut o.style, i, *n);
-                }
-            });
+            // a button moves to the next row whole, its text never wrapped in a sliver of the row's end
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            const STYLES: [&str; 6] = ["Lines", "Lines + markers", "Markers", "Stems", "Stairs", "Bars"];
+            ComboBox::from_id_salt("style")
+                .width(130.0)
+                .selected_text(STYLES[o.style])
+                .show_ui(ui, |ui| {
+                    for (i, n) in STYLES.iter().enumerate() {
+                        ui.selectable_value(&mut o.style, i, *n);
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Bars: from the mean (from 0 for anomalies, z-scores and CUSUM), in the map's anomaly colours \
+                     below and above it",
+                );
             let seasonal = info.time_is_date && !info.spectral;
             ComboBox::from_id_salt("values")
                 .width(160.0)
@@ -465,6 +585,11 @@ impl State {
                 );
             ui.add_enabled(o.values == 0, egui::Checkbox::new(&mut o.y_from_map, "Y = map range"))
                 .on_hover_text("Locks the Y axis to the map's color range (compare without the axis jumping)");
+            ui.add_enabled(!categorical, egui::Checkbox::new(&mut o.stripes, "Stripes")).on_hover_text(
+                "A strip of colours under the chart, one per date (warming stripes): the cursor's series (or the \
+                 ROI's, or the last pin's) as the map colours it; anomalies, z-scores and CUSUM in the map's anomaly \
+                 colours, symmetric about 0",
+            );
             if n_layers > 1 {
                 const LAYERS: [&str; 2] = ["Active layer", "All visible layers"];
                 ComboBox::from_id_salt("chart layers")
@@ -551,6 +676,12 @@ impl State {
         if o.values > 0 && !categorical {
             plot = plot.y_axis_label(["", "anomaly", "z-score", "seasonal anomaly", "CUSUM"][o.values]);
         }
+        // the stripes' strip under the chart
+        const STRIP: f32 = 12.0;
+        let stripes = o.stripes && !categorical;
+        if stripes {
+            plot = plot.height((ui.available_height() - STRIP - 4.0).max(40.0));
+        }
         if o.y_from_map && o.values == 0 {
             let r = self.display.ranges[janus_gpu::Mode::Value as usize];
             let m = f64::from(r.hi - r.lo) * 0.05;
@@ -561,10 +692,12 @@ impl State {
                 .default_y_bounds(f64::from(r.lo) - m, f64::from(r.hi) + m);
         }
         // the X axis from the first date to the last, no margin (after auto_bounds above, which would undo it); half
-        // a box beyond each end, which would be cut in two
+        // a box or a bar beyond each end, which would be cut in two
         if n > 1 {
             let half = if categorical {
                 0.0
+            } else if o.style == 5 {
+                0.4
             } else if self.series.roi_rect.is_some() && o.roi_spread == 2 {
                 0.3
             } else {
@@ -601,7 +734,23 @@ impl State {
             Some(if name.is_empty() { format!("{x}\n{:.4}", p.y) } else { format!("{name}\n{x}\n{:.4}", p.y) })
         });
         let runs = janus_cube::spectral::plot_runs(&info);
-        let pl = Plotted { xs: &xs, years: &years, runs: &runs, o, categorical, spectral: info.spectral, dated };
+        let colormap = |m: janus_gpu::Mode| &janus_gpu::colormaps::all()[self.display.cmap[m as usize]];
+        let rgb = |c: [u8; 4]| crate::theme::on_plot(Color32::from_rgb(c[0], c[1], c[2]));
+        let anomaly_cmap = colormap(janus_gpu::Mode::Anomaly);
+        let pl = Plotted {
+            xs: &xs,
+            years: &years,
+            runs: &runs,
+            o,
+            categorical,
+            spectral: info.spectral,
+            dated,
+            bars: (rgb(anomaly_cmap.sample(0.12)), rgb(anomaly_cmap.sample(0.88))),
+            bar_slots: usize::from(!self.series.roi.mean.is_empty() && !categorical)
+                + self.series.pins.len()
+                + usize::from(self.series.hover.is_some()),
+            bar_slot: std::cell::Cell::new(0),
+        };
         let t = self.display.t;
         let sr = &self.series;
         let background = ui.painter().add(egui::Shape::Noop);
@@ -747,6 +896,9 @@ impl State {
             );
             painter.rect_filled(r, 2.0, orange);
             painter.galley(r.min + egui::vec2(2.0, 1.0), galley, Color32::BLACK);
+        }
+        if stripes {
+            self.stripes_ui(ui, &pl, tr, STRIP);
         }
         // a click or a drag on the chart picks the nearest date
         if let Some(p) = response.inner {

@@ -299,32 +299,35 @@ if y.size >= 2:
     pub(crate) fn copy_python_ui(&mut self, ui: &mut egui::Ui) {
         let any = self.series.hover.is_some() || !self.series.pins.is_empty() || self.series.roi.complete();
         let mut chosen = None;
-        ui.add_enabled_ui(any, |ui| {
-            ui.menu_button("Copy Python", |ui| {
-                if let Some(h) = &self.series.hover
-                    && ui.button(format!("Cursor ({}, {})", h.x, h.y)).clicked()
-                {
-                    chosen = Some(Which::Cursor);
+        const HELP: &str = "Python (numpy, rasterio; xarray and zeit for a tool) that reads the same series\nfrom the \
+                            files, computes its statistics and, with a Zeit tool on the chart,\nmakes the same Zeit \
+                            calls with the same parameters";
+        // the button itself in the toolbar's row (in a child Ui of its own, it could neither move to the next row
+        // nor fit the end of this one)
+        if !any {
+            ui.add_enabled(false, egui::Button::new("Copy Python")).on_disabled_hover_text(HELP);
+            return;
+        }
+        ui.menu_button("Copy Python", |ui| {
+            if let Some(h) = &self.series.hover
+                && ui.button(format!("Cursor ({}, {})", h.x, h.y)).clicked()
+            {
+                chosen = Some(Which::Cursor);
+            }
+            for p in &self.series.pins {
+                if ui.button(format!("Pin {} ({}, {})", p.id, p.x, p.y)).clicked() {
+                    chosen = Some(Which::Pin(p.id));
                 }
-                for p in &self.series.pins {
-                    if ui.button(format!("Pin {} ({}, {})", p.id, p.x, p.y)).clicked() {
-                        chosen = Some(Which::Pin(p.id));
-                    }
-                }
-                if self.series.roi.complete() && ui.button("ROI (rectangle)").clicked() {
-                    chosen = Some(Which::Roi);
-                }
-                if let Some(t) = self.zeit.pixel_tool.as_deref().and_then(|id| janus_zeit::manifest().tool(id)) {
-                    ui.weak(format!("with {}", t.name));
-                }
-            })
-            .response
-            .on_hover_text(
-                "Python (numpy, rasterio; xarray and zeit for a tool) that reads the same series\nfrom the files, \
-                 computes its statistics and, with a Zeit tool on the chart,\nmakes the same Zeit calls with the same \
-                 parameters",
-            );
-        });
+            }
+            if self.series.roi.complete() && ui.button("ROI (rectangle)").clicked() {
+                chosen = Some(Which::Roi);
+            }
+            if let Some(t) = self.zeit.pixel_tool.as_deref().and_then(|id| janus_zeit::manifest().tool(id)) {
+                ui.weak(format!("with {}", t.name));
+            }
+        })
+        .response
+        .on_hover_text(HELP);
         if let Some(w) = chosen
             && let Some(code) = self.python_snippet(w)
         {

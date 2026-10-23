@@ -37,12 +37,15 @@
   layer): mean and p10–p90 per date, a box plot per date (p25–p75 box,
   median, whiskers to p10 and p90), a **fan** (p10–p90 and p25–p75 bands, the
   median dashed), of the pixels whose centres are inside.
-- **Chart**: from the first date to the last; lines, markers, stems or stairs;
-  raw values, anomaly, z-score, **seasonal anomaly** (each value minus the mean
-  of its calendar month over every year: the seasonal cycle taken out, a
-  drought stands out) or **CUSUM** (the running sum of the anomalies: a change
-  of slope is a change of level); OLS or Sen trend line per series; Y axis
-  locked to the map range if you want.
+- **Chart**: from the first date to the last; lines, markers, stems, stairs or
+  **bars** (from the mean, or from 0 for anomalies, in the map's anomaly colours
+  below and above it); raw values, anomaly, z-score, **seasonal anomaly** (each
+  value minus the mean of its calendar month over every year: the seasonal
+  cycle taken out, a drought stands out) or **CUSUM** (the running sum of the
+  anomalies: a change of slope is a change of level); OLS or Sen trend line per
+  series; Y axis locked to the map range if you want; **stripes** under the
+  chart (a colour per date of the cursor's, the ROI's or the last pin's series,
+  as the map colours it).
 - **Statistics** per series: n, mean, median, std, CV, min/max (with date),
   amplitude, OLS slope + R², Sen's slope, largest drop (with date) and, in the
   difference mode, the difference shown on the map (the Mann-Kendall test, with
@@ -268,7 +271,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Maps side by side | View → New map view (`Ctrl+T`): pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** or `Ctrl+W` (the focused panel, else the last one opened) |
 | Swipe | View → Swipe (`C`): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode, or *Basemap only*; **Swipe off** or `C` again closes it |
 | Space-time transect | `Ctrl` + drag a line on the map (Mac: `Command` + drag), or `T` / View → Draw transect, then drag; a **polyline** (a river, a road, a valley): `T`, then click its vertices, a double click or `Enter` ends it (`Backspace` undoes a vertex); **Alt + click** a line of a vector layer: the transect along it; `Esc` cancels. **Transect** panel: distance from A along the line (X; dashed verticals at the bends; no data where a polyline leaves the layer) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel |
-| Chart options | style, values/anomaly/z-score/seasonal anomaly/CUSUM, trend (OLS/Sen), Y = map range, the ROI's spread (p10–p90, box plot, fan) |
+| Chart options | style (lines ... bars), values/anomaly/z-score/seasonal anomaly/CUSUM, trend (OLS/Sen), Y = map range, stripes, the ROI's spread (p10–p90, box plot, fan) |
 | Map as a figure | File → Export map as PNG... (`Ctrl+E`): resolution (1×, 2×, 4×), background, date label, legend, scale bar, pins, ROI and vector layers; *Save to*: the file (a path, a name alone for the last export folder, or **Browse...**), then **Export** (or `Enter`) |
 | Data for QGIS | File → Export values as GeoTIFF... (`Ctrl+Shift+E`; the active layer at the date: visible area or whole image) or Export rendered view as GeoTIFF... (`Ctrl+Shift+V`; RGBA as shown, georeferenced) |
 | Save a tool result | right click it in the **Layers** panel → Save as GeoTIFF..., or File → Export Zeit result as GeoTIFF; `Ctrl+S` saves the result drawn on top. A copy of the result: Float32, full resolution, the series' grid and CRS, no data = NaN, named `<layer>_<tool>_<output>.tif` |
