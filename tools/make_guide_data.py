@@ -18,6 +18,16 @@ Then:  janus --shots ccdc OUT site/assets/img/ccdc   (and coded)
          with 0 outside the area it covers
   OUT    a VRT of it with 0 as no-data, so that the outside is not taken as values
 Then:  janus --shots landtrendr OUT.vrt site/assets/img/landtrendr
+
+       python tools/make_guide_data.py labels MAPBIOMAS SERIES OUT
+  MAPBIOMAS  a MapBiomas land cover map (collection 8, a year), any extent
+  SERIES     a file of the series (one date of the landsat folder): its grid
+  OUT        a folder: mapbiomas.tif (the map on the series' grid, in the guides'
+             five classes), samples.gpkg (points, `class`: up to 250 a class, at
+             pixels whose 5 x 5 neighbourhood is all of their class) and
+             areas.gpkg (the map's patches of 20 pixels or more as polygons,
+             `class`, in the western half only: the labels of U-TAE)
+Then:  janus --shots ml LANDSAT_FOLDER site/assets/img/ml   (and snic, presto)
 """
 import csv
 import math
@@ -82,6 +92,87 @@ def landsat(stack, dates_csv, out, box=None):
     print(f"{len(dates)} dates ({dates[0]} .. {dates[-1]}), {w} x {h}: {out}")
 
 
+# MapBiomas (collection 8) -> the guides' classes, in this order in the files: the class maps' colours (Paired,
+# a colour a class in their order) then are blue for water and urban, light green for pasture, dark green for forest
+CLASSES = {"Water": (33,), "Urban": (24,), "Pasture": (15,), "Forest": (3, 4, 6, 11), "Agriculture": (39, 41)}
+
+
+def labels(mapbiomas, series, out):
+    os.makedirs(out, exist_ok=True)
+    ref = gdal.Open(series)
+    w, h, gt = ref.RasterXSize, ref.RasterYSize, ref.GetGeoTransform()
+    warped = gdal.Warp("", mapbiomas, format="MEM", outputBounds=(gt[0], gt[3] + h * gt[5], gt[0] + w * gt[1], gt[3]),
+                       width=w, height=h, dstSRS=ref.GetProjection(), resampleAlg="near")
+    raw = warped.ReadAsArray()
+    cls = np.zeros_like(raw, dtype=np.uint8)
+    names = list(CLASSES)
+    for k, codes in enumerate(CLASSES.values()):
+        cls[np.isin(raw, codes)] = k + 1
+    drv = gdal.GetDriverByName("GTiff")
+    m = drv.Create(os.path.join(out, "mapbiomas.tif"), w, h, 1, gdal.GDT_Byte, ["COMPRESS=DEFLATE"])
+    m.SetGeoTransform(gt)
+    m.SetProjection(ref.GetProjection())
+    b = m.GetRasterBand(1)
+    b.WriteArray(cls)
+    b.SetNoDataValue(0)
+    b.SetCategoryNames(["none"] + names)
+    # cores: the 5 x 5 window all of one class
+    core = cls > 0
+    for dy in range(-2, 3):
+        for dx in range(-2, 3):
+            core &= np.roll(np.roll(cls, dy, 0), dx, 1) == cls
+    core[:2, :] = core[-2:, :] = core[:, :2] = core[:, -2:] = False
+    rng = np.random.default_rng(42)
+    srs = ref.GetSpatialRef()
+    vdrv = gdal.GetDriverByName("GPKG")
+    path = os.path.join(out, "samples.gpkg")
+    if os.path.exists(path):
+        vdrv.Delete(path)
+    vds = vdrv.Create(path, 0, 0, 0, gdal.GDT_Unknown)
+    from osgeo import ogr
+    lyr = vds.CreateLayer("samples", srs, ogr.wkbPoint)
+    lyr.CreateField(ogr.FieldDefn("class", ogr.OFTString))
+    for k, name in enumerate(names):
+        ys, xs = np.nonzero(core & (cls == k + 1))
+        pick = rng.choice(len(xs), min(250, len(xs)), replace=False) if len(xs) else []
+        for i in pick:
+            f = ogr.Feature(lyr.GetLayerDefn())
+            f.SetField("class", name)
+            x, y = gt[0] + (xs[i] + 0.5) * gt[1], gt[3] + (ys[i] + 0.5) * gt[5]
+            f.SetGeometry(ogr.CreateGeometryFromWkt(f"POINT ({x} {y})"))
+            lyr.CreateFeature(f)
+        print(f"{name}: {len(pick)} points of {len(xs)} core pixels")
+    vds = None
+    # the western half's patches as polygons
+    west = cls.copy()
+    west[:, w // 2:] = 0
+    mem = gdal.GetDriverByName("MEM").Create("", w, h, 1, gdal.GDT_Byte)
+    mem.SetGeoTransform(gt)
+    mem.SetProjection(ref.GetProjection())
+    mb = mem.GetRasterBand(1)
+    mb.WriteArray(west)
+    mb.SetNoDataValue(0)
+    gdal.SieveFilter(mb, mb, mb, 20, 4)
+    path = os.path.join(out, "areas.gpkg")
+    if os.path.exists(path):
+        vdrv.Delete(path)
+    tmp = gdal.GetDriverByName("Memory").Create("", 0, 0, 0, gdal.GDT_Unknown)
+    poly = tmp.CreateLayer("p", srs, ogr.wkbPolygon)
+    poly.CreateField(ogr.FieldDefn("code", ogr.OFTInteger))
+    gdal.Polygonize(mb, mb, poly, 0)
+    vds = vdrv.Create(path, 0, 0, 0, gdal.GDT_Unknown)
+    lyr = vds.CreateLayer("areas", srs, ogr.wkbPolygon)
+    lyr.CreateField(ogr.FieldDefn("class", ogr.OFTString))
+    # by class, in the classes' order (the order the classes are met in)
+    feats = sorted(poly, key=lambda f: f.GetField("code"))
+    for f in feats:
+        g = ogr.Feature(lyr.GetLayerDefn())
+        g.SetField("class", names[f.GetField("code") - 1])
+        g.SetGeometry(f.GetGeometryRef().Clone())
+        lyr.CreateFeature(g)
+    print(f"{lyr.GetFeatureCount()} polygons in the western half: {out}")
+
+
 def main():
     gdal.UseExceptions()
     gdal.SetConfigOption("GDAL_PAM_ENABLED", "NO")
@@ -89,6 +180,8 @@ def main():
     a = sys.argv[1:]
     if len(a) in (4, 8) and a[0] == "landsat":
         landsat(a[1], a[2], a[3], [float(v) for v in a[4:]] if len(a) == 8 else None)
+    elif len(a) == 4 and a[0] == "labels":
+        labels(a[1], a[2], a[3])
     elif len(a) == 3 and a[0] == "annual":
         annual(a[1], a[2])
     else:

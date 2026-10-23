@@ -42,6 +42,8 @@ pub enum Tab {
     Tool(u16),
     Tasks,
     Chips,
+    /// Tools > Deep learning, in the dock of a tour of the guides
+    DeepLearning,
 }
 
 impl Tab {
@@ -69,6 +71,7 @@ impl Tab {
             Tab::Tool(i) => janus_zeit::manifest().tools.get(i as usize).map_or("Tool", |t| t.name.as_str()),
             Tab::Tasks => "Tasks",
             Tab::Chips => "Chips",
+            Tab::DeepLearning => "Deep learning",
         }
     }
 }
@@ -115,6 +118,7 @@ fn layout_text(dock: &DockState<Tab>) -> Option<String> {
                 | Tab::Tool(_)
                 | Tab::Tasks
                 | Tab::Chips
+                | Tab::DeepLearning
         )
     }) {
         d.remove_tab(p);
@@ -510,7 +514,7 @@ impl TabViewer for Tabs<'_> {
             Tab::Embeddings => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.s.embeddings_ui(ui));
             }
-            Tab::Interpretation | Tab::Validation | Tab::Tool(_) | Tab::Tasks => {
+            Tab::Interpretation | Tab::Validation | Tab::Tool(_) | Tab::Tasks | Tab::DeepLearning => {
                 let t = *tab;
                 let mut area = egui::ScrollArea::vertical().auto_shrink(false);
                 if let Some(y) = self.s.shots_scroll(t) {
@@ -520,6 +524,7 @@ impl TabViewer for Tabs<'_> {
                     Tab::Interpretation => self.s.interpretation_ui(ui),
                     Tab::Validation => self.s.validation_ui(ui),
                     Tab::Tasks => self.s.tasks_ui(ui),
+                    Tab::DeepLearning => self.s.ml_ui(ui),
                     Tab::Tool(i) => {
                         if let Some(tool) = janus_zeit::manifest().tools.get(i as usize) {
                             self.s.tool_window(ui, tool);

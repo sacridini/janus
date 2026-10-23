@@ -60,7 +60,7 @@ pub struct Shots {
     since: Option<Instant>,
     /// the run started by the tour (in zeit.jobs), the stage that started it, the result maps before it
     pub(crate) job: Option<usize>,
-    job_stage: Option<usize>,
+    pub(crate) job_stage: Option<usize>,
     pub(crate) results: usize,
     /// the layout asked for: the panels on the right, and those with the statistics
     pub(crate) layout: Option<(Vec<Tab>, Vec<Tab>)>,
@@ -86,6 +86,8 @@ pub struct Shots {
     /// a panel scrolled to this offset (f32::MAX: its end)
     pub(crate) scroll: Option<(Tab, f32)>,
     pub(crate) val: crate::shots_validation::ValShots,
+    /// the stage whose summary was printed (shots_ml.rs)
+    pub(crate) printed: usize,
     /// the tour's end: its exit code
     done: Option<i32>,
 }
@@ -166,7 +168,7 @@ fn write_shot(path: &Path, img: &egui::ColorImage, crop: Crop) {
 
 impl State {
     /// Whether a panel of a tour is shown (its tool open, the tasks shown...).
-    fn shown(&self, t: Tab) -> bool {
+    pub(crate) fn shown(&self, t: Tab) -> bool {
         match t {
             Tab::Tool(i) => manifest()
                 .tools
@@ -176,6 +178,7 @@ impl State {
             Tab::Validation => self.val.show,
             Tab::Interpretation => self.labels.show,
             Tab::Chips => self.val.show_chips,
+            Tab::DeepLearning => self.ml.open,
             _ => true,
         }
     }
@@ -223,7 +226,7 @@ impl State {
         r
     }
 
-    fn shots_frame(&mut self, sh: &mut Shots, ctx: &Context) -> Option<i32> {
+    pub(crate) fn shots_frame(&mut self, sh: &mut Shots, ctx: &Context) -> Option<i32> {
         if sh.done.is_some() {
             return sh.done; // the window closing
         }
@@ -249,7 +252,11 @@ impl State {
             let _ = std::fs::create_dir_all(&sh.out);
         }
         sh.frames += 1;
-        sh.done = if sh.tour == "validation" { self.shots_validation(sh, ctx) } else { self.shots_tool(sh, ctx) };
+        sh.done = match sh.tour.as_str() {
+            "validation" => self.shots_validation(sh, ctx),
+            "snic" | "ml" | "presto" => self.shots_ml(sh, ctx),
+            _ => self.shots_tool(sh, ctx),
+        };
         sh.done
     }
 
@@ -274,7 +281,7 @@ impl State {
     }
 
     /// A tool's panel shown with its defaults and `params`, fitted on the chart.
-    fn shots_open_tool(&mut self, id: &str, params: Value) -> bool {
+    pub(crate) fn shots_open_tool(&mut self, id: &str, params: Value) -> bool {
         let Some(tool) = manifest().tool(id) else { return false };
         let u = self.zeit.tools.entry(id.to_string()).or_default();
         u.open = true;
@@ -287,7 +294,7 @@ impl State {
         true
     }
 
-    fn shots_set_params(&mut self, id: &str, params: Value) {
+    pub(crate) fn shots_set_params(&mut self, id: &str, params: Value) {
         let u = self.zeit.tools.entry(id.to_string()).or_default();
         if let Some(o) = params.as_object() {
             u.params.extend(o.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -296,7 +303,7 @@ impl State {
     }
 
     /// The tool's run on the raster (scope: 0 whole image, 1 visible area, 2 ROI).
-    fn shots_run(&mut self, sh: &mut Shots, id: &str, scope: usize, ctx: &Context) -> bool {
+    pub(crate) fn shots_run(&mut self, sh: &mut Shots, id: &str, scope: usize, ctx: &Context) -> bool {
         let Some(tool) = manifest().tool(id) else { return false };
         self.zeit.tools.entry(id.to_string()).or_default().scope = scope;
         let before = self.zeit.jobs.len();
@@ -310,7 +317,7 @@ impl State {
     }
 
     /// The run: -1 running (or its maps loading), 0 done with its maps on the map, 1 failed.
-    fn shots_ran(&self, sh: &Shots) -> i32 {
+    pub(crate) fn shots_ran(&self, sh: &Shots) -> i32 {
         let Some(j) = sh.job.and_then(|j| self.zeit.jobs.get(j)) else { return 1 };
         let state = j.status.lock().unwrap().state;
         match state {
@@ -321,12 +328,12 @@ impl State {
         }
     }
 
-    fn shots_job_error(&self, sh: &Shots) -> String {
+    pub(crate) fn shots_job_error(&self, sh: &Shots) -> String {
         sh.job.and_then(|j| self.zeit.jobs.get(j)).map_or(String::new(), |j| j.status.lock().unwrap().error.clone())
     }
 
     /// Only the result `name` (e.g. "Year of detection") of the last run drawn.
-    fn shots_show_result(&mut self, sh: &Shots, name: &str) -> bool {
+    pub(crate) fn shots_show_result(&mut self, sh: &Shots, name: &str) -> bool {
         let mut found = false;
         for (i, r) in self.zeit.results.iter_mut().enumerate() {
             r.visible = i >= sh.results && r.name.ends_with(name);
@@ -336,14 +343,14 @@ impl State {
         found
     }
 
-    fn shots_hide_results(&mut self) {
+    pub(crate) fn shots_hide_results(&mut self) {
         for r in &mut self.zeit.results {
             r.visible = false;
         }
         self.map.dirty = true;
     }
 
-    fn shots_colormap(&mut self, name: &str) {
+    pub(crate) fn shots_colormap(&mut self, name: &str) {
         if let Some(k) = janus_gpu::colormaps::by_name(name) {
             self.display.cmap[janus_gpu::Mode::Value as usize] = k;
         }
@@ -351,7 +358,7 @@ impl State {
     }
 
     /// A pin at (x, y) in the active layer's CRS.
-    fn shots_pin_at(&mut self, x: f64, y: f64) {
+    pub(crate) fn shots_pin_at(&mut self, x: f64, y: f64) {
         if let Some((px, py)) = self.session.as_ref().and_then(|s| s.info.geo_to_pixel(x, y))
             && px >= 0.0
             && py >= 0.0
@@ -361,26 +368,26 @@ impl State {
     }
 
     /// The map centred on the active layer's pixel (px, py), `scale` screen points per pixel.
-    fn shots_zoom_to(&mut self, px: f64, py: f64, scale: f64) {
+    pub(crate) fn shots_zoom_to(&mut self, px: f64, py: f64, scale: f64) {
         let Some(g) = self.grid() else { return };
         self.map.set_view([(px + 0.5) / g.fx, (py + 0.5) / g.fy], scale * g.fx);
         self.map.touched = true;
     }
 
-    fn shots_zoom_to_geo(&mut self, x: f64, y: f64, scale: f64) {
+    pub(crate) fn shots_zoom_to_geo(&mut self, x: f64, y: f64, scale: f64) {
         if let Some((px, py)) = self.session.as_ref().and_then(|s| s.info.geo_to_pixel(x, y)) {
             self.shots_zoom_to(px, py, scale);
         }
     }
 
     /// The first date whose label starts with `prefix` (e.g. "2025-01"), else the last.
-    fn shots_date_of(&self, prefix: &str) -> usize {
+    pub(crate) fn shots_date_of(&self, prefix: &str) -> usize {
         let Some(s) = &self.session else { return 0 };
         s.info.layers.iter().position(|l| l.label.starts_with(prefix)).unwrap_or(s.info.t() - 1)
     }
 
     /// The stages every tour of a raster run has: started (and its task shot), -1 running, 0 next, 1 failed.
-    fn shots_run_stage(
+    pub(crate) fn shots_run_stage(
         &mut self,
         sh: &mut Shots,
         id: &str,
@@ -408,7 +415,7 @@ impl State {
     }
 
     /// -1 running, 0 done (next stage), 1 failed.
-    fn shots_done_stage(&mut self, sh: &mut Shots) -> i32 {
+    pub(crate) fn shots_done_stage(&mut self, sh: &mut Shots) -> i32 {
         let r = self.shots_ran(sh);
         if r != 0 {
             return r;
@@ -445,21 +452,21 @@ impl State {
     }
 
     /// The Landsat series of the guides: NIR and red as NDVI (the quality band found by its name).
-    fn shots_open_landsat(&mut self, sh: &Shots, ctx: &Context) {
+    pub(crate) fn shots_open_landsat(&mut self, sh: &Shots, ctx: &Context) {
         let sel = BandSelection { band: 4, nd_band: 3, ..Default::default() };
         let input = sh.input.clone();
         self.shots_open(&input, sel, ctx);
     }
 
     /// The map in SWIR1 / NIR / red at the last date.
-    fn shots_landsat_view(&mut self) {
+    pub(crate) fn shots_landsat_view(&mut self) {
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return };
         self.composite = Some(BandComposite::of(info.id, [5, 4, 3]));
         self.set_date(info.t() - 1);
     }
 
     /// The tours of the Zeit tools (src/app_shots.cpp, shotsToolStep).
-    fn shots_tool(&mut self, sh: &mut Shots, ctx: &Context) -> Option<i32> {
+    pub(crate) fn shots_tool(&mut self, sh: &mut Shots, ctx: &Context) -> Option<i32> {
         let tour = sh.tour.clone();
         let fail = |sh: &Shots, what: &str| {
             println!("FAIL ({tour}, stage {}): {what}", sh.stage);
@@ -1206,7 +1213,7 @@ impl State {
             }
             return None;
         }
-        fail(sh, "unknown tour (validation, landtrendr, ccdc, coded, bfast, phenology)")
+        fail(sh, "unknown tour (validation, landtrendr, ccdc, coded, bfast, phenology, snic, ml, presto)")
     }
 }
 

@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Deep learning · Janus</title>
+<meta name="description" content="A step-by-step guide to deep learning in Janus: TempCNN, L-TAE and U-TAE trained on MapBiomas samples over a Landsat series, on the GPU and without Python, with the class map, its probability and its uncertainty.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Deep learning · Janus">
+<meta property="og:description" content="1250 MapBiomas samples, six years of Landsat, a TempCNN trained in 9 seconds: a land cover map of Rondônia with its uncertainty.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/ml/06-class.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Deep learning</p>
+    <p class="eyebrow">Classification · any series</p>
+    <h1>Deep learning, step by step.</h1>
+    <p class="lede">A pasture and a soybean field can look the same on one date and nothing alike over a year. The networks of the Deep learning window classify each pixel by its whole series: TempCNN and L-TAE pixel by pixel, U-TAE patch by patch. They are trained here, on the GPU, on samples you already have in Janus, without Python.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The networks</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#window">The window</a></li>
+      <li><a href="#train">Training</a></li>
+      <li><a href="#apply">The class map</a></li>
+      <li><a href="#ltae">L-TAE</a></li>
+      <li><a href="#utae">U-TAE</a></li>
+      <li><a href="#model">The model file</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The networks</h2>
+      <dl class="terms">
+        <dt>TempCNN</dt><dd>Pelletier et al. (2019): one-dimensional convolutions along time. The series is read as a sequence of fixed length, so the model applies to series of the same dates.</dd>
+        <dt>L-TAE</dt><dd>Garnot &amp; Landrieu (2020): a lightweight temporal attention encoder. Each date is encoded with when it was taken, and attention decides how much each date counts for the class.</dd>
+        <dt>U-TAE</dt><dd>Garnot &amp; Landrieu (2021): a U-Net over each date whose levels are collapsed through time by L-TAE's attention (computed at the coarsest level, applied at every one). It reads patches of the image, so a pixel is classified with its neighbours: fields come out whole.</dd>
+        <dt>Presto</dt><dd>A foundation model pretrained on Sentinel-1 and -2 series worldwide; a classifier learns on its encodings. It has <a href="presto.html">a guide of its own</a>.</dd>
+      </dl>
+      <p>TempCNN and L-TAE are built as in R's <strong>sits</strong> (the same layers, sizes and defaults), and checked against <code>sits_tempcnn</code> and <code>sits_lighttae</code> on sits' own samples. They run on <strong>Burn</strong>, a Rust deep learning framework, on the GPU through wgpu (Direct3D 12, Vulkan or Metal), or on the CPU.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>The Landsat 8/9 series of the <a href="ccdc.html">CCDC guide</a>: 125 dates, 2020 to 2026, 30 m, 1117 × 1079 pixels of Rondônia. The samples come from <strong>MapBiomas</strong> 2022 (collection 8): 250 points in each of five classes (water, urban, pasture, forest, agriculture), each at a pixel whose 5 × 5 neighbourhood is all of its class, in a GeoPackage with a <code>class</code> column.</p>
+      <figure class="fig">
+        <a href="assets/img/ml/01-samples.jpg"><img src="assets/img/ml/01-samples.jpg" alt="The Landsat image of Rondônia in SWIR1, NIR and red with 1250 sample points coloured by class: water along the rivers, urban in a town, pasture and forest everywhere, agriculture in the northeast." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>1250 samples</b> over the series, in their classes' colours: water (light blue), urban (blue), pasture (light green), forest (green), agriculture (pink).</figcaption>
+      </figure>
+      <div class="note">
+        <p class="h">Reproduce it</p>
+        <p><code>python tools/make_guide_data.py labels MAPBIOMAS.tif landsat/ls_2020-02-04.tif labels</code> makes the samples (and the areas U-TAE learns from) on the series' grid; <code>janus --shots ml landsat out</code> then runs this whole guide and saves these screenshots.</p>
+      </div>
+      <div class="note warn">
+        <p class="h">About the numbers</p>
+        <p>The samples sit inside large patches of one class, and the validation samples are drawn from the same set: the accuracies below show how the networks fit these samples, not how good a map of Rondônia they make. For that, validate the map with a sample of its own (<a href="validation.html">Validation guide</a>).</p>
+      </div>
+    </section>
+
+    <section id="window">
+      <h2><span class="n">03</span>The window</h2>
+      <p><span class="ui">Tools → Classify with deep learning</span>. The samples can come from a <strong>vector layer</strong> (points, or polygons: their centre, their pixels or their mean), an <strong>interpretation</strong> going on, a <strong>validation project</strong>, <strong>pins</strong> given a class, or a <strong>class map</strong> (for U-TAE). The window counts them by class as you choose.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/ml/02-window.png"><img src="assets/img/ml/02-window.png" alt="The Deep learning window: samples from the vector layer samples.gpkg and its class column, 1250 samples in 5 classes; the NDVI and the six reflectance bands read on each of the 125 dates; TempCNN with sits' defaults." loading="lazy"></a>
+        <figcaption><b>TempCNN on the samples</b>: the NDVI and the six reflectances of each date, sits' defaults.</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Setting</th><th>TempCNN</th><th>L-TAE</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Values read on each date</td><td colspan="2">the series shown</td><td>The band or index on the map, and any bands of each date: here NDVI, blue, green, red, NIR, SWIR1, SWIR2 (7 values × 125 dates).</td></tr>
+            <tr><td>Epochs at most</td><td class="num">150</td><td class="num">150</td><td>Passes over the training samples.</td></tr>
+            <tr><td>Batch size</td><td class="num">64</td><td class="num">128</td><td>Samples a step (lowered so that an epoch has at least 8 steps).</td></tr>
+            <tr><td>Learning rate</td><td class="num">0.0005</td><td class="num">0.0005</td><td>AdamW's step (TempCNN's decays by 5% each epoch, as in sits).</td></tr>
+            <tr><td>Weight decay</td><td class="num">1e-6</td><td class="num">7e-4</td><td>AdamW's regularization.</td></tr>
+            <tr><td>Validation share</td><td class="num">0.2</td><td class="num">0.2</td><td>Samples kept out of the training, by class, to choose the best epoch and report the accuracy.</td></tr>
+            <tr><td>Patience</td><td class="num">20</td><td class="num">20</td><td>Stops when the validation loss has not improved for this many epochs; the best epoch is kept.</td></tr>
+            <tr><td>Min dates with a value (%)</td><td colspan="2" class="num">50</td><td>Samples (and pixels) with values on fewer dates are left out; the gaps of the others are filled linearly in time.</td></tr>
+            <tr><td>Weigh the classes</td><td colspan="2" class="num">off</td><td>Rare classes count more in the loss.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The quality band leaves this series with few clear dates in the rainy season: at the default of 50%, only one of the 1250 samples is kept, and the window says so. The guide lowers <span class="ui">Min dates with a value</span> to 10%.</p>
+    </section>
+
+    <section id="train">
+      <h2><span class="n">04</span>Training</h2>
+      <p><span class="ui">Train</span>. The window draws the loss and the accuracy of every epoch, on the training samples and on the validation samples, as they come.</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/ml/03-training.png"><img src="assets/img/ml/03-training.png" alt="The training's curves after 25 epochs: the losses fall in the first three epochs, the accuracies reach about 98%." loading="lazy"></a>
+          <figcaption>The curves, under way.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/ml/04-validation.png"><img src="assets/img/ml/04-validation.png" alt="The validation after training: overall accuracy 98.4% on 250 samples, the model of epoch 18; the confusion matrix with producer's and user's accuracies." loading="lazy"></a>
+          <figcaption>Done: the confusion matrix of the validation samples.</figcaption>
+        </figure>
+      </div>
+      <p>TempCNN trained in <strong>9 seconds</strong> on an RTX 3060: 1000 training samples, 26 epochs, stopped early, the model of epoch 18 kept. On the 250 validation samples its <strong>overall accuracy is 98.4%</strong>. Two urban samples were taken for pasture and one for water, one forest sample for pasture.</p>
+    </section>
+
+    <section id="apply">
+      <h2><span class="n">05</span>The class map</h2>
+      <p>The trained model is the one to apply: <span class="ui">Apply</span> on the whole image classifies 1.2 million pixels in rows, in the background, in 78 seconds.</p>
+      <figure class="fig narrow">
+        <img src="assets/img/ml/05-task.png" alt="The Tasks panel: TempCNN training done in 9 seconds and the classification of the whole image under way." loading="lazy">
+        <figcaption><b>Tasks</b>: the training and the classification.</figcaption>
+      </figure>
+      <figure class="fig">
+        <a href="assets/img/ml/06-class.jpg"><img src="assets/img/ml/06-class.jpg" alt="The class map of the whole image: forest in dark green, pasture in light green, the rivers and a lake in light blue, a town in blue and agriculture in pink in the northeast." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The class map</b>: forest, pasture, water, the town and the soybean fields of the northeast.</figcaption>
+      </figure>
+      <p>Each run makes three maps, opened as layers: the <strong>class</strong>, the <strong>probability</strong> the network gives it, and the <strong>uncertainty</strong>, the entropy of the probabilities of every class (0 when the network is sure).</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/ml/07-probability.jpg"><img src="assets/img/ml/07-probability.jpg" alt="The probability of the class over the image: close to 1 almost everywhere, lower along the edges between classes." loading="lazy"></a>
+          <figcaption>The probability of the class.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/ml/08-uncertainty.jpg"><img src="assets/img/ml/08-uncertainty.jpg" alt="The uncertainty (entropy) over the image: dark almost everywhere, bright along roads, field edges and recent clearings." loading="lazy"></a>
+          <figcaption>The uncertainty: roads, edges, clearings.</figcaption>
+        </figure>
+      </div>
+      <p>The uncertainty points at what the samples did not cover: roads, the edges between forest and pasture, fields cleared during the series. That is where to add samples, or to look first when validating.</p>
+    </section>
+
+    <section id="ltae">
+      <h2><span class="n">06</span>L-TAE</h2>
+      <p>Choose <span class="ui">L-TAE</span> in <span class="ui">Model</span>: the settings change to sits' defaults for it, and <span class="ui">Train</span> again on the same samples. It trained in 21 seconds, 28 epochs (the model of epoch 25), to an <strong>overall accuracy of 98.8%</strong>: urban 96% and pasture 98% (producer's), the other classes 100%.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/ml/09-ltae.png"><img src="assets/img/ml/09-ltae.png" alt="L-TAE in the window: sits' defaults for it, the curves of 28 epochs and the validation's overall accuracy." loading="lazy"></a>
+        <figcaption><b>L-TAE</b>: slower to start (the attention learns which dates matter), as accurate.</figcaption>
+      </figure>
+    </section>
+
+    <section id="utae">
+      <h2><span class="n">07</span>U-TAE</h2>
+      <p>U-TAE learns from <strong>patches</strong> where every pixel can be a label. Here the labels are MapBiomas' patches of the western half of the image as polygons (<code>areas.gpkg</code>, 433 polygons): every pixel of a polygon is a label, the others none, and the network learns to map the eastern half. To keep the guide's run short, only the labels inside an ROI (yellow) are used, in patches of 32 pixels.</p>
+      <figure class="fig">
+        <a href="assets/img/ml/11-areas.jpg"><img src="assets/img/ml/11-areas.jpg" alt="MapBiomas' polygons over the western half of the image, an ROI in yellow, and the Deep learning window set for U-TAE: 594716 labelled pixels in 5 classes, patches of 32 px, only the labels inside the ROI." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The areas</b> and U-TAE's settings: patches of 32 px, the labels inside the ROI.</figcaption>
+      </figure>
+      <figure class="fig narrow">
+        <a href="assets/img/ml/10-utae.png"><img src="assets/img/ml/10-utae.png" alt="U-TAE in the window: 20 epochs at most, batches of 8 patches; the losses still falling at epoch 20; validation: 76.3% of the labelled pixels of 115 patches." loading="lazy"></a>
+        <figcaption><b>U-TAE after 20 epochs</b>: the losses still falling.</figcaption>
+      </figure>
+      <p>Its 576 patches (461 to train, 115 to validate) took 135 seconds an epoch, 45 minutes in all, and after 20 epochs U-TAE is right on <strong>76.3% of the labelled pixels</strong>: about what calling everything pasture would give. The curves tell why: the losses are still falling at the last epoch. Its authors train it for 100 epochs; the window's default is 80, with a patience of 10. Stopped this early, a U-Net's decoder still draws a fine pattern of one class every other pixel (here, water over pasture), the mark of transposed convolutions that have not learnt yet; it goes as the training goes on.</p>
+      <p>Where U-TAE shines is a series of few dates and many labelled fields, the case it was made for (crops in France, a date a week or two for a season): there, its maps have whole fields with clean edges, where a pixel classifier leaves a speckle.</p>
+      <div class="note warn">
+        <p class="h">Memory</p>
+        <p>U-TAE keeps every date of a patch in the GPU's memory: with 125 dates, patches of 64 px take most of 12 GB and an epoch slows to a crawl. Use patches of 32 px, fewer dates (a monthly series), or the authors' weights: with a Sentinel-2 series of the ten bands of PASTIS, <span class="ui">Start from the authors' PASTIS weights</span> loads U-TAE as its authors trained it on French crops, only its last layer made for your classes.</p>
+      </div>
+    </section>
+
+    <section id="model">
+      <h2><span class="n">08</span>The model file</h2>
+      <p>Every training is kept in a <code>.janusmodel</code> file (in the results folder; <span class="ui">Save as...</span> elsewhere): the network's weights and what it needs to be applied again: its inputs, the dates, how the values were scaled, the classes and their colours, and the training's history and validation. <span class="ui">Open a model...</span> applies it to another series of the same dates and bands, the next year's, or a neighbouring tile's.</p>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">09</span>What next</h2>
+      <ul>
+        <li><strong>Validate the map</strong>: the class map as the map of the <a href="validation.html">Validation guide</a>: strata, a sample, blind labels, accuracy and error-adjusted areas.</li>
+        <li><strong>Samples by object</strong>: <a href="snic.html">SNIC</a>'s segments as polygons, a sample a segment.</li>
+        <li><strong>Your own labels</strong>: interpret points with <span class="ui">Interpret...</span> (labels 1–9), then train on the interpretation.</li>
+        <li><strong>A pretrained model</strong>: <a href="presto.html">Presto</a>'s encodings, and a classifier on them.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">10</span>References</h2>
+      <ul class="refs">
+        <li>Pelletier, C., Webb, G. I., Petitjean, F. (2019). Temporal convolutional neural network for the classification of satellite image time series. <em>Remote Sensing</em>, 11(5), 523.</li>
+        <li>Garnot, V. S. F., Landrieu, L. (2020). Lightweight temporal self-attention for classifying satellite images time series. <em>Advanced Analytics and Learning on Temporal Data (AALTD)</em>, LNCS 12588, 171–181.</li>
+        <li>Garnot, V. S. F., Landrieu, L. (2021). Panoptic segmentation of satellite image time series with convolutional temporal attention networks. <em>IEEE/CVF International Conference on Computer Vision (ICCV)</em>, 4872–4881.</li>
+        <li>Simoes, R., Camara, G., Queiroz, G., Souza, F., Andrade, P. R., Santos, L., Carvalho, A., Ferreira, K. (2021). Satellite image time series analysis for big Earth observation data. <em>Remote Sensing</em>, 13(13), 2428. (<a href="https://e-sensing.github.io/sitsbook/">sits</a>)</li>
+        <li>Souza, C. M., et al. (2020). Reconstructing three decades of land use and land cover changes in Brazilian biomes with Landsat archive and Earth Engine. <em>Remote Sensing</em>, 12(17), 2735. (<a href="https://brasil.mapbiomas.org/">MapBiomas</a>)</li>
+        <li><a href="https://burn.dev">Burn</a>: the deep learning framework in Rust behind the window.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

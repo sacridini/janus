@@ -11,13 +11,15 @@ Static site published to GitHub Pages by `.github/workflows/pages.yml`
 
 ## The guides
 
-`validation.html`, `landtrendr.html`, `ccdc.html`, `coded.html`, `bfast.html`
-and `phenology.html` walk through a tool each, with screenshots in
+`validation.html`, `landtrendr.html`, `ccdc.html`, `coded.html`, `bfast.html`,
+`phenology.html`, `snic.html`, `deep-learning.html` and `presto.html` walk
+through a tool each, with screenshots in
 `assets/img/<guide>/` (and a card each in the Guides section of `index.html`).
 The screenshots come from the program itself: `janus --shots TOUR IN OUT`
 drives the guide's steps in a window of 1680 x 1050 and saves the window and
 some panels as PNGs (`crates/janus-app/src/shots.rs`; the validation's tour is
-in `crates/janus-app/src/shots_validation.rs`), so they can be made again after
+in `crates/janus-app/src/shots_validation.rs`, those of SNIC and deep learning in
+`crates/janus-app/src/shots_ml.rs`), so they can be made again after
 the interface changes.
 
 | Guide | Data (`IN`) | Prepared with |
@@ -26,6 +28,7 @@ the interface changes.
 | landtrendr | an annual NDVI stack of Rondônia, 1985–2024, as a VRT with 0 as no data | `python tools/make_guide_data.py annual STACK out.vrt` |
 | ccdc, coded | Landsat 8/9 Collection 2 Level-2 of Rondônia, 2020–2026, a GeoTIFF per date (from a Google Earth Engine stack and its CSV of dates) | `python tools/make_guide_data.py landsat STACK DATES folder WEST SOUTH EAST NORTH` (-63.36 -10.37 -63.06 -10.08) |
 | bfast, phenology | MODIS EVI every 16 days, 2001–2025, of western France (one GeoTIFF, a band per date) | used as it is |
+| snic, ml, presto | the Landsat folder of ccdc; for ml and presto, labels from MapBiomas 2022 (collection 8, Amazon) in a folder `labels` next to it | `python tools/make_guide_data.py labels MAPBIOMAS.tif LANDSAT/ls_2020-02-04.tif labels` |
 
 The data of the tool guides are the author's own stacks, not downloaded.
 

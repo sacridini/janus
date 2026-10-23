@@ -447,9 +447,19 @@ pub fn observed(x: &Series, i: usize) -> bool {
     (0..x.t).any(|s| (0..16).any(|k| px[s * 34 + 17 + k] == 0.0))
 }
 
-/// The encodings [n][128] of prepared inputs (n x steps x 34), their months and places, in batches.
+/// Pixels a batch at most so that the attention's scores (batch x heads x tokens x tokens) stay within 64 MB: a
+/// year of 12 months is up to 12 x 9 + 2 tokens a pixel, and 8192 pixels would ask the GPU for a buffer of 2.5 GB
+/// (more than wgpu gives).
+pub fn batch_for(steps: usize) -> usize {
+    let tokens = steps * GROUPS.len() + 2;
+    ((16 << 20) / (HEADS * tokens * tokens)).clamp(16, 8192)
+}
+
+/// The encodings [n][128] of prepared inputs (n x steps x 34), their months and places, in batches (at most
+/// `batch`, and at most batch_for's).
 pub fn encode(enc: &Encoder, x: &Series, months: &[i64], latlon: &[f32], batch: usize, device: &Device) -> Vec<f32> {
     let t = x.t;
+    let batch = batch.min(batch_for(t));
     let mut out = Vec::with_capacity(x.n * DIMS);
     for s in (0..x.n).step_by(batch.max(1)) {
         let m = batch.min(x.n - s);

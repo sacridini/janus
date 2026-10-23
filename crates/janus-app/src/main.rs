@@ -41,6 +41,7 @@ mod series;
 mod session;
 mod settings;
 mod shots;
+mod shots_ml;
 mod shots_validation;
 mod theme;
 mod tour;

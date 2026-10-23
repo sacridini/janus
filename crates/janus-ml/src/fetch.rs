@@ -6,9 +6,29 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// A file over HTTP copied to `path`, through a temporary file.
+/// A file over HTTP copied to `path`, through a temporary file (one request, streamed).
 pub fn fetch(url: &str, path: &Path, progress: &dyn Fn(f64), cancel: &AtomicBool) -> Result<(), String> {
-    fetch_vsi(&format!("/vsicurl/{url}"), url, path, progress, cancel)
+    fetch_vsi(&format!("/vsicurl_streaming/{url}"), url, path, progress, cancel)
+}
+
+/// GDAL's HTTP options of a download, unless set already: who asks (some servers, Zenodo, refuse a request that
+/// does not say), and limits so that a network that does not answer fails instead of waiting for ever (a CI
+/// runner waited hours on a connection that never came).
+fn http_options() {
+    let options = [
+        ("GDAL_HTTP_USERAGENT", concat!("Janus/", env!("CARGO_PKG_VERSION"), " (https://github.com/sacridini/janus)")),
+        ("GDAL_HTTP_CONNECTTIMEOUT", "30"),
+        // less than 1 byte a second for a minute: given up
+        ("GDAL_HTTP_LOW_SPEED_TIME", "60"),
+        ("GDAL_HTTP_LOW_SPEED_LIMIT", "1"),
+        ("GDAL_HTTP_MAX_RETRY", "3"),
+        ("GDAL_HTTP_RETRY_DELAY", "2"),
+    ];
+    for (key, value) in options {
+        if gdal::config::get_config_option(key, "").unwrap_or_default().is_empty() {
+            let _ = gdal::config::set_thread_local_config_option(key, value);
+        }
+    }
 }
 
 /// A file GDAL's virtual file systems reach (e.g. one member of a zip over HTTP: /vsizip/{/vsicurl/URL}/member,
@@ -20,20 +40,15 @@ pub fn fetch_vsi(vsi: &str, url: &str, path: &Path, progress: &dyn Fn(f64), canc
     let tmp = path.with_extension("part");
     let src = CString::new(vsi).unwrap_or_default();
     let mode = CString::new("rb").unwrap_or_default();
-    // some servers (Zenodo) refuse a request that does not say who makes it
-    if gdal::config::get_config_option("GDAL_HTTP_USERAGENT", "").unwrap_or_default().is_empty() {
-        let _ = gdal::config::set_thread_local_config_option(
-            "GDAL_HTTP_USERAGENT",
-            concat!("Janus/", env!("CARGO_PKG_VERSION"), " (https://github.com/sacridini/janus)"),
-        );
-    }
+    http_options();
     unsafe {
         gdal_sys::CPLErrorReset();
         let f = gdal_sys::VSIFOpenL(src.as_ptr(), mode.as_ptr());
         if f.is_null() {
             let why = std::ffi::CStr::from_ptr(gdal_sys::CPLGetLastErrorMsg()).to_string_lossy().into_owned();
             return Err(format!(
-                "could not reach {url}{}; without network access, download it elsewhere and set JANUS_WEIGHTS to its                  folder",
+                "could not reach {url}{}; without network access, download it elsewhere and set JANUS_WEIGHTS to its \
+                 folder",
                 if why.is_empty() { String::new() } else { format!(" ({why})") }
             ));
         }

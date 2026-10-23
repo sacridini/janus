@@ -161,6 +161,26 @@ impl MlUi {
     }
 }
 
+/// A job's work, a panic in it (a GPU out of memory, in Burn) its error: the job then fails with a message instead
+/// of running for ever.
+fn guarded<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|p| {
+        let what = p
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
+            .unwrap_or_default();
+        // Burn's messages run over many lines: the first and the cause at the bottom
+        let lines: Vec<&str> = what.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        let cause = lines.iter().rev().find(|l| !l.starts_with("Caused by") && !l.contains("backtrace"));
+        Err(match (lines.first(), cause) {
+            (Some(a), Some(b)) if a != b => format!("failed: {a} ({b})"),
+            (Some(a), _) => format!("failed: {a}"),
+            _ => "failed (a panic)".into(),
+        })
+    })
+}
+
 /// Class k's colour: the Paired colormap's, as the class map shows it.
 pub fn class_color(k: usize) -> [u8; 3] {
     let maps = janus_gpu::colormaps::all();
@@ -319,7 +339,7 @@ impl State {
     }
 
     pub(crate) fn ml_window(&mut self, ctx: &egui::Context) {
-        if !self.ml.open {
+        if !self.ml.open || self.docked(crate::app::Tab::DeepLearning) {
             return;
         }
         let mut open = true;
@@ -335,7 +355,7 @@ impl State {
         }
     }
 
-    fn ml_ui(&mut self, ui: &mut Ui) {
+    pub(crate) fn ml_ui(&mut self, ui: &mut Ui) {
         ui.label(
             "Classify every pixel by its whole series with a neural network trained on samples you already have \
              in Janus. TempCNN reads the series as a sequence of fixed length; L-TAE weighs the dates by attention \
@@ -855,40 +875,42 @@ impl State {
                     run.lock().unwrap().message = m.to_string();
                     c.request_repaint();
                 };
-                let r = if let Arch::Utae(h) = &arch {
-                    utae_job(
-                        &info,
-                        &inputs,
-                        &sites,
-                        label_map.as_ref(),
-                        roi,
-                        &classes,
-                        h,
-                        &cfg,
-                        gpu,
-                        &model_path,
-                        &log,
-                        &run,
-                        &set,
-                        &cancel,
-                    )
-                } else {
-                    train_job(
-                        &info,
-                        &inputs,
-                        &sites,
-                        &classes,
-                        &arch,
-                        &cfg,
-                        min_valid,
-                        gpu,
-                        &model_path,
-                        &log,
-                        &run,
-                        &set,
-                        &cancel,
-                    )
-                };
+                let r = guarded(|| {
+                    if let Arch::Utae(h) = &arch {
+                        utae_job(
+                            &info,
+                            &inputs,
+                            &sites,
+                            label_map.as_ref(),
+                            roi,
+                            &classes,
+                            h,
+                            &cfg,
+                            gpu,
+                            &model_path,
+                            &log,
+                            &run,
+                            &set,
+                            &cancel,
+                        )
+                    } else {
+                        train_job(
+                            &info,
+                            &inputs,
+                            &sites,
+                            &classes,
+                            &arch,
+                            &cfg,
+                            min_valid,
+                            gpu,
+                            &model_path,
+                            &log,
+                            &run,
+                            &set,
+                            &cancel,
+                        )
+                    }
+                });
                 let mut s = status.lock().unwrap();
                 s.seconds = t0.elapsed().as_secs_f64();
                 let mut rr = run.lock().unwrap();
@@ -933,6 +955,10 @@ impl State {
     }
 
     /// A finished training's model becomes the one to apply.
+    pub(crate) fn ml_embed_now(&mut self, ctx: &egui::Context) {
+        self.ml_embed(ctx);
+    }
+
     pub(crate) fn pump_ml(&mut self) {
         let Some(run) = self.ml.run.clone() else { return };
         let r = run.lock().unwrap();
@@ -1008,8 +1034,10 @@ impl State {
                     s.message = m.to_string();
                     c.request_repaint();
                 };
-                let r = Model::load(&path, &dev.0)
-                    .and_then(|m| janus_ml::apply::apply(&spec, &info, &m, &progress, &cancel));
+                let r = guarded(|| {
+                    Model::load(&path, &dev.0)
+                        .and_then(|m| janus_ml::apply::apply(&spec, &info, &m, &progress, &cancel))
+                });
                 let mut s = status.lock().unwrap();
                 s.seconds = t0.elapsed().as_secs_f64();
                 match r {
@@ -1161,6 +1189,12 @@ fn train_job(
     ));
     if cancel.load(Ordering::Relaxed) {
         return Err("cancelled".into());
+    }
+    if left > 0 && (x.n < 10 || per_class.iter().filter(|&&n| n > 0).count() < 2) {
+        return Err(format!(
+            "{left} of {} samples left out: they have a value on fewer than {min_valid:.0} % of the dates (clouds,              the quality band); lower 'Min dates with a value (%)'",
+            left + x.n
+        ));
     }
     let dev = shared_device(gpu);
     log.line(&format!("device: {}", dev.1));
@@ -1404,7 +1438,7 @@ impl State {
                     s.message = m.to_string();
                     c.request_repaint();
                 };
-                let r = (|| -> Result<usize, String> {
+                let r = guarded(|| -> Result<usize, String> {
                     let weights = janus_ml::presto::weights(&crate::settings::app_data_dir().join("weights"), &|_| {}, &cancel)?;
                     // the units from a sample of the window
                     let first = PrestoInputs::of(&info, &vec![(0.0, 1.0); info.bands_per_date.max(1)], year)?;
@@ -1423,7 +1457,7 @@ impl State {
                     let dev = shared_device(gpu);
                     log.line(&format!("device: {}", dev.1));
                     janus_ml::presto::embed_window(&info, &pi, window, &weights, &file, &dev.0, &progress, &cancel)
-                })();
+                });
                 let mut s = status.lock().unwrap();
                 s.seconds = t0.elapsed().as_secs_f64();
                 match r {

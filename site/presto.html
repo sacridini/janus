@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Presto · Janus</title>
+<meta name="description" content="A step-by-step guide to Presto in Janus: a pretrained foundation model encodes a year of every pixel of a Landsat series, the encodings explored as an embedding layer and a classifier trained on them.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Presto · Janus">
+<meta property="og:description" content="A foundation model's encodings of 1.2 million Landsat pixels of Rondônia, and a land cover map from a classifier trained on them in 13 seconds.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/presto/04-embeddings.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Presto</p>
+    <p class="eyebrow">Foundation model · a year of a series</p>
+    <h1>Presto, step by step.</h1>
+    <p class="lede">Presto has seen the monthly series of millions of pixels around the world. It turns a year of a pixel into 128 numbers that say what the pixel is like; Janus runs it on your series, shows the encodings as an embedding layer, and trains a small classifier on them in seconds.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#inputs">Presto's inputs</a></li>
+      <li><a href="#train">The classifier</a></li>
+      <li><a href="#embeddings">The embeddings</a></li>
+      <li><a href="#map">The class map</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p><strong>Presto</strong> (Tseng et al. 2023) is a small transformer pretrained, by masking parts of the series and learning to fill them back, on monthly series of single pixels: Sentinel-1, Sentinel-2, ERA5 weather, SRTM elevation and Dynamic World, any of which may be missing. Its encoder makes a token of each group of bands of each month, one of the elevation and one of the place, and averages them into an <strong>encoding of 128 values</strong>.</p>
+      <p>Two uses in Janus, both on the GPU and without Python:</p>
+      <dl class="terms">
+        <dt>Embeddings</dt><dd>The encoding of every pixel for a year, written as a 128-band GeoTIFF and opened as an embedding layer, viewed as TESSERA's and AlphaEarth's are (principal components, similarity to a place, change between years).</dd>
+        <dt>Classifier</dt><dd>The encoder kept as pretrained and a linear layer on its encodings, trained on your samples: few weights to learn, so few samples are needed.</dd>
+      </dl>
+      <p>The weights are the authors' (<code>nasaharvest/presto</code>, MIT): 3.3 MB, downloaded once and checked by their SHA-256. Janus' encoder gives the encodings of Zeit's port of Presto to within 4.4 × 10⁻⁶.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>The data of the <a href="deep-learning.html">deep learning guide</a>: the Landsat 8/9 series of Rondônia (125 dates, 2020–2026, 30 m) and 1250 samples of MapBiomas 2022 in five classes.</p>
+    </section>
+
+    <section id="inputs">
+      <h2><span class="n">03</span>Presto's inputs</h2>
+      <p>In <span class="ui">Tools → Classify with deep learning</span>, choose <span class="ui">Presto</span>. Its inputs are found among the series' bands by name (Sentinel-2's B2…B12, Sentinel-1's VV and VH, ERA5's and SRTM's names) and by role: here blue, green, red, NIR, SWIR1 and SWIR2 become B2, B3, B4, B8, B11 and B12. The units are found from the values (reflectance 0–1 or × 10000; backscatter in dB or linear), the latitude and longitude of each pixel from the series' CRS.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/presto/01-window.png"><img src="assets/img/presto/01-window.png" alt="The Deep learning window set for Presto: the samples, Presto's inputs B2 from Blue to B12 from SWIR2, the monthly composites of 2025, Presto's training settings and the Make the embeddings button." loading="lazy"></a>
+        <figcaption><b>Presto</b> on the samples: the six Landsat bands as Sentinel-2's, the monthly composites of 2025.</figcaption>
+      </figure>
+      <p>Presto reads a year month by month: Janus makes the <strong>monthly composites</strong> of the year chosen (each month the median of its observations; a month without one is missing, as Presto expects), or takes the series' own dates when it has 24 or fewer.</p>
+    </section>
+
+    <section id="train">
+      <h2><span class="n">04</span>The classifier</h2>
+      <p><span class="ui">Train</span>: the encodings of the 1250 samples are made once, then the linear layer learns on them. 50 epochs in <strong>13 seconds</strong>, to an <strong>overall accuracy of 96.8%</strong> on the 250 validation samples, from one year (2025) of the series where TempCNN read all six years.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/presto/02-validation.png"><img src="assets/img/presto/02-validation.png" alt="The training's curves of 50 epochs and the validation: overall accuracy 96.8% on 250 samples, the confusion matrix with producer's accuracies from 94% (forest) to 100% (water)." loading="lazy"></a>
+        <figcaption><b>The validation</b>: forest 94%, the other classes 96–100% (producer's).</figcaption>
+      </figure>
+      <p>Three forest samples were taken for pasture, two pasture samples for agriculture and two urban for pasture. A small head on a frozen encoder will not beat a network trained end to end on many samples (TempCNN, 98.4% here), but it needs far fewer samples to learn, and a year of data.</p>
+    </section>
+
+    <section id="embeddings">
+      <h2><span class="n">05</span>The embeddings</h2>
+      <p><span class="ui">Make the embeddings</span> encodes every pixel: 1.2 million in 207 seconds, written as <code>presto_2025.tif</code> (128 bands, tagged as Presto's) and opened as an embedding layer.</p>
+      <figure class="fig narrow">
+        <img src="assets/img/presto/03-task.png" alt="The Tasks panel: Presto's training done in 13 seconds and the embeddings of the whole image under way." loading="lazy">
+        <figcaption><b>Tasks</b>: the classifier, then the embeddings.</figcaption>
+      </figure>
+      <figure class="fig">
+        <a href="assets/img/presto/04-embeddings.jpg"><img src="assets/img/presto/04-embeddings.jpg" alt="The first three principal components of Presto's embeddings as RGB: forest in blue and purple, pasture in red, the rivers and the fields of the northeast in green; the Embeddings panel with the components' shares of the variance." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Presto's embeddings</b> of 2025, the first three principal components as red, green and blue.</figcaption>
+      </figure>
+      <p>Nothing was said to Presto about these classes, yet the components already part forest, pasture, rivers and fields: the encodings carry what the year of each pixel was like. The first component alone holds 68% of the variance, the first three 91%. From the <span class="ui">Embeddings</span> panel, <span class="ui">Similarity to a reference</span> shows the places like a pin or the ROI, and with embeddings of two years, <span class="ui">Change between years</span> maps where a place stopped being like itself.</p>
+    </section>
+
+    <section id="map">
+      <h2><span class="n">06</span>The class map</h2>
+      <p><span class="ui">Apply</span> on the whole image: the classifier on every pixel's encoding, 195 seconds; the class, its probability and its uncertainty as layers, as with the other networks.</p>
+      <figure class="fig">
+        <a href="assets/img/presto/05-class.jpg"><img src="assets/img/presto/05-class.jpg" alt="Presto's class map of the whole image: forest, pasture, water, the town and the agriculture of the northeast." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Presto's class map</b>, from the monthly composites of 2025.</figcaption>
+      </figure>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">07</span>What next</h2>
+      <ul>
+        <li><strong>Sentinel-1 and -2</strong>: with VV, VH and the red-edge bands, Presto gets the inputs it was pretrained on.</li>
+        <li><strong>Few samples</strong>: label a few dozen pins (<span class="ui">Pins (a class each)</span>) and train the classifier on them.</li>
+        <li><strong>Compare models</strong>: <a href="deep-learning.html">TempCNN, L-TAE and U-TAE</a> on the same samples, and the maps validated with a sample of their own (<a href="validation.html">Validation guide</a>).</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">08</span>References</h2>
+      <ul class="refs">
+        <li>Tseng, G., Cartuyvels, R., Zvonkov, I., Purohit, M., Rolnick, D., Kerner, H. (2023). Lightweight, pre-trained transformers for remote sensing timeseries. <em>arXiv</em>:2304.14065. (<a href="https://github.com/nasaharvest/presto">nasaharvest/presto</a>)</li>
+        <li>Souza, C. M., et al. (2020). Reconstructing three decades of land use and land cover changes in Brazilian biomes with Landsat archive and Earth Engine. <em>Remote Sensing</em>, 12(17), 2735. (<a href="https://brasil.mapbiomas.org/">MapBiomas</a>)</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: <code>zeit.ai.presto</code>, the port the encoder is checked against.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

@@ -81,7 +81,9 @@ jobs:
       - name: Build
         run: cargo build --release --workspace
 
+      # a test that waits on the network (pretrained weights) fails the step instead of holding the runner
       - name: Tests
+        timeout-minutes: 45
         run: cargo test --release --workspace --no-fail-fast
 
       - name: Test data

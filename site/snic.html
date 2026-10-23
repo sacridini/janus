@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SNIC segmentation · Janus</title>
+<meta name="description" content="A step-by-step guide to SNIC segmentation in Janus: a Landsat series divided into segments of pixels whose whole series are alike, their mean series as a layer and their polygons as a vector layer.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="SNIC segmentation · Janus">
+<meta property="og:description" content="Six years of Landsat over Rondônia cut into 8277 segments, each a field, a pasture or a patch of forest.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/snic/04-polygons.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / SNIC segmentation</p>
+    <p class="eyebrow">Objects · any series</p>
+    <h1>SNIC segmentation, step by step.</h1>
+    <p class="lede">A field, a pasture or a patch of forest is many pixels with one history. SNIC cuts the image into segments of pixels whose whole series are alike, so that the next steps work on objects instead of pixels: their mean series, their polygons, a sample per segment.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#params">The parameters</a></li>
+      <li><a href="#run">Running it</a></li>
+      <li><a href="#segments">The segments</a></li>
+      <li><a href="#mean">Their mean series</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p><strong>SNIC</strong> (Simple Non-Iterative Clustering, Achanta &amp; Süsstrunk 2017) grows superpixels from seeds on a grid. Each seed takes the pixel next to it that is closest, in a distance that adds how alike the values are and how near the pixel is; a priority queue decides which segment grows next, so every pixel is visited once.</p>
+      <p>In Janus the values compared are a pixel's <strong>whole series</strong>: every date of the band shown (or every band of every date). Two pixels are alike when they had the same history, not only the same colour on one date: a pasture cleared in 2022 and a pasture cleared in 2010 end in different segments. This is how <code>sits_segment</code> segments a data cube in R, with the seed grids of R's <code>snic</code> package.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>The Landsat 8/9 series of the <a href="ccdc.html">CCDC guide</a>: 125 dates from February 2020 to August 2026, 30 m, 1117 × 1079 pixels of Rondônia, where forest is cleared for pasture. The map shows SWIR1, NIR and red of the last date (forest green, pasture pink); the chart, the NDVI of the pin. The quality band (QA_PIXEL) removes clouds and shadows, so in the rainy season many dates have no value.</p>
+    </section>
+
+    <section id="params">
+      <h2><span class="n">03</span>The parameters</h2>
+      <p><span class="ui">Tools → SNIC segmentation</span>.</p>
+      <figure class="fig">
+        <a href="assets/img/snic/01-tool.jpg"><img src="assets/img/snic/01-tool.jpg" alt="The SNIC window with its parameters next to the map of Rondônia in SWIR1, NIR and red; the pin's NDVI on the chart." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>SNIC's window</b>: the seeds every 12 pixels, a pixel kept if it has a value on 10% of the dates.</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Values compared</td><td class="num">shown</td><td>The series on the map (the band or index of every date, the quality band applied), or every band of every date (more memory and time).</td></tr>
+            <tr><td>Seed spacing</td><td class="num">10</td><td>Pixels between seeds: about the side of a segment.</td></tr>
+            <tr><td>Seed grid</td><td class="num">rectangular</td><td>R snic's grids: rectangular, diamond, hexagonal or random.</td></tr>
+            <tr><td>Compactness</td><td class="num">0.5</td><td>Larger: more regular segments; smaller: segments follow the data. In the values' units: 0.5 for an index in 0–1, about 5000 for reflectance × 10000.</td></tr>
+            <tr><td>Margin</td><td class="num">0.5</td><td>The edges kept free of seeds, in seed spacings.</td></tr>
+            <tr><td>Tile size</td><td class="num">1024</td><td>Segmented in tiles of this side, in parallel; segments do not cross tiles. 0: the whole area at once.</td></tr>
+            <tr><td>Dates without a value</td><td class="num">interpolate</td><td>Fill gaps linearly in time, or leave such pixels out.</td></tr>
+            <tr><td>Min dates with a value (%)</td><td class="num">50</td><td>Pixels with values on fewer dates are left out.</td></tr>
+            <tr><td>Write the polygons</td><td class="num">on</td><td>The segments as polygons in a GeoPackage, with their size, centre and mean of every value.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>With a cloudy series, lower <span class="ui">Min dates with a value</span>: at 50%, almost every pixel of this series is left out and only 11 segments are made; at 10%, 8277.</p>
+    </section>
+
+    <section id="run">
+      <h2><span class="n">04</span>Running it</h2>
+      <p><span class="ui">Run</span> on the whole image: 1.2 million pixels of 125 dates in 8 seconds, in tiles on every core.</p>
+      <figure class="fig narrow">
+        <img src="assets/img/snic/02-task.png" alt="The Tasks panel: SNIC segmentation over the whole image, done in 8 seconds." loading="lazy">
+        <figcaption><b>Tasks</b>: the run and its time.</figcaption>
+      </figure>
+      <p>A run makes three things: the <strong>segments</strong> (a map of their numbers), each segment's <strong>mean series</strong> (opened as a new layer) and their <strong>polygons</strong> (opened as a vector layer).</p>
+    </section>
+
+    <section id="segments">
+      <h2><span class="n">05</span>The segments</h2>
+      <figure class="fig">
+        <a href="assets/img/snic/03-segments.jpg"><img src="assets/img/snic/03-segments.jpg" alt="The whole image divided into 8277 segments, a colour each; the Layers panel lists the polygons, the mean series and the segments." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>8277 segments</b>, a colour each (the colours repeat: they only tell neighbours apart).</figcaption>
+      </figure>
+      <p>Zoomed in on the clearing of the pin, the polygons over the image: the segments follow the fields' edges and the forest's, and a clearing is a segment of its own.</p>
+      <figure class="fig">
+        <a href="assets/img/snic/04-polygons.jpg"><img src="assets/img/snic/04-polygons.jpg" alt="The segments' polygons drawn over the Landsat image at 3 screen points per pixel: their outlines follow fields, pastures and the forest's edge." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The polygons</b> over the image: one outline a segment.</figcaption>
+      </figure>
+      <p>Each polygon carries <code>n_pixels</code>, its centre and the mean of every value compared, so the GeoPackage opens in QGIS as it is. In Janus, hover a polygon with <kbd>Alt</kbd> held for its attributes, or <kbd>Alt</kbd> + click it to make it the ROI.</p>
+    </section>
+
+    <section id="mean">
+      <h2><span class="n">06</span>Their mean series</h2>
+      <p>The mean series is a layer like any other: each pixel has its segment's mean NDVI of every date, gaps filled. The map is the image as objects; the chart, the pin's segment: one smooth curve where the pixel had scattered values, with the clearing of 2022 plain.</p>
+      <figure class="fig">
+        <a href="assets/img/snic/05-mean.jpg"><img src="assets/img/snic/05-mean.jpg" alt="The segments' mean NDVI of the last date with the polygons over it; the chart shows the mean series of the pin's segment." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>The segments' mean NDVI</b>, the last date: forest dark green, pasture brown.</figcaption>
+      </figure>
+      <figure class="fig narrow">
+        <a href="assets/img/snic/05-mean-chart.png"><img src="assets/img/snic/05-mean-chart.png" alt="The chart: the mean NDVI of the pin's segment, high until 2022, then low with the seasons of a pasture." loading="lazy"></a>
+        <figcaption>The pin's segment: forest until 2022, then pasture.</figcaption>
+      </figure>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">07</span>What next</h2>
+      <ul>
+        <li><strong>Run the tools on objects</strong>: make the mean series' layer active and run <a href="ccdc.html">CCDC</a>, <a href="landtrendr.html">LandTrendr</a> or <a href="bfast.html">BFAST</a> on it: a break a segment, with less noise than a pixel.</li>
+        <li><strong>Interpret by object</strong>: right click the polygons → <span class="ui">Interpret...</span>, one segment after the other, as TimeSync does.</li>
+        <li><strong>Classify</strong>: the polygons as samples of the <a href="deep-learning.html">deep learning guide</a>, or <span class="ui">Extract series</span> for R or Python.</li>
+        <li><strong>Script it</strong>: <code>zeit.snic</code> in Python.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">08</span>References</h2>
+      <ul class="refs">
+        <li>Achanta, R., Süsstrunk, S. (2017). Superpixels and polygons using simple non-iterative clustering. <em>IEEE Conference on Computer Vision and Pattern Recognition (CVPR)</em>, 4895–4904.</li>
+        <li>Simoes, R., Camara, G., Queiroz, G., Souza, F., Andrade, P. R., Santos, L., Carvalho, A., Ferreira, K. (2021). Satellite image time series analysis for big Earth observation data. <em>Remote Sensing</em>, 13(13), 2428. (<a href="https://e-sensing.github.io/sitsbook/">sits</a>, <code>sits_segment</code>)</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>
