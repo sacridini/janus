@@ -49,6 +49,7 @@ mod theme;
 mod tour;
 mod trajectory;
 mod transect;
+mod trend_test;
 mod ui_test;
 mod validation;
 mod validation_tabs;
@@ -124,8 +125,8 @@ Developer options:
   --opacity A         the active layer's opacity (0 to 1)
   --roi X0,Y0,X1,Y1   an ROI rectangle (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline)
-  --analysis seasonal|classes|scatter  the Analysis panel at that tab (seasonal,M: its years from month M;
-                      classes,flows: the flows between dates)
+  --analysis seasonal|classes|scatter|trend  the Analysis panel at that tab (seasonal,M: its years from month M;
+                      classes,flows: the flows between dates; trend,run: the trend test run, before --screenshot)
   --chart K=V,...     the chart's options: style (0 lines ... 5 bars), values (0 values, 1 anomaly, 2 z-score,
                       3 seasonal anomaly, 4 CUSUM), trend (0-2), spread (the ROI's, 0 mean ... 4 density),
                       stripes (0/1), layers (1: every visible layer's series)
@@ -386,6 +387,7 @@ fn main() -> eframe::Result<()> {
                 opts.analysis = match tab {
                     "classes" => Some(1),
                     "scatter" => Some(2),
+                    "trend" => Some(3),
                     _ => Some(0),
                 };
                 opts.analysis_view = month.trim().to_string();

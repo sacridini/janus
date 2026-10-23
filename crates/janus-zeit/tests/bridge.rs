@@ -41,8 +41,9 @@ fn data(name: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
-/// Tools Janus has and the bridge never had (their references are Zeit's own: tests/snic.rs).
-const AFTER_THE_BRIDGE: [&str; 1] = ["snic"];
+/// Tools Janus has and the bridge never had (their references are Zeit's own: tests/snic.rs, zeit-core's
+/// remotePARTS tests for ar_trend).
+const AFTER_THE_BRIDGE: [&str; 2] = ["snic", "ar_trend"];
 
 #[test]
 fn descriptors_are_the_bridges() {

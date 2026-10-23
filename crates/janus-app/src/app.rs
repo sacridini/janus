@@ -876,6 +876,10 @@ impl State {
                 if self.opts.analysis_view == "flows" {
                     self.analysis.class_view = 1;
                 }
+                // trend,run[,classes]: the test run (on the first categorical layer's classes)
+                let view: Vec<&str> = self.opts.analysis_view.split(',').map(str::trim).collect();
+                self.analysis.trend.auto_run = view.contains(&"run");
+                self.analysis.trend.auto_classes = view.contains(&"classes");
             }
             if let Some(spec) = self.opts.chart.clone()
                 && let Some(layers) = self.chart.set(&spec)
@@ -1337,7 +1341,8 @@ impl State {
                 && zeit_ready
                 && emb_ready
                 && roi_ready
-                && tiles_ready;
+                && tiles_ready
+                && self.trend_test_settled();
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
                 self.shots_pending += 1;
@@ -1433,6 +1438,7 @@ impl eframe::App for JanusApp {
         s.pump_animation(&ctx);
         s.pump_chips(&ctx);
         s.pump_zeit_jobs(&ctx);
+        s.pump_trend_test();
         s.pump_ml();
         if s.opening.is_none() && !s.pending_opens.is_empty() {
             let next = s.pending_opens.remove(0);

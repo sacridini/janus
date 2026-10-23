@@ -73,6 +73,16 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
                 series,
             )
         }
+        "ar_trend" => (
+            format!(
+                "result1 = zeit.ar_trend(series, time={}, harmonics={}, gaps={}, min_valid={}, nodata=None, n_jobs=1)",
+                s("time"),
+                i("harmonics"),
+                s("gaps"),
+                i("min_valid")
+            ),
+            series,
+        ),
         "smooth" => {
             if p.str("method") == "savgol" {
                 let t = input.values.len() as i64;

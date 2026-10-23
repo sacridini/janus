@@ -7,6 +7,7 @@
 //! `upstream`, written to move into zeit-core as it is.
 
 mod agreement;
+mod ar_trend;
 pub mod bands;
 mod bfast;
 mod ccdc;
@@ -25,10 +26,11 @@ mod smooth;
 pub mod snic;
 mod som;
 mod tmask;
+pub mod trend_test;
 mod twdtw;
 pub mod upstream;
 
-/// The Zeit whose zeit-core is linked (Cargo.toml's revision: the v2.0.0 tag).
+/// The Zeit whose zeit-core is linked (Cargo.toml's revision: 2.0.0 with remotePARTS's methods).
 pub const ZEIT_VERSION: &str = "2.0.0";
 
 pub use manifest::{Manifest, Output, Param, Tool, manifest};

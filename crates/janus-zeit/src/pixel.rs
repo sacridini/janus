@@ -155,6 +155,7 @@ pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResu
     match tool {
         "landtrendr" => crate::landtrendr::pixel(p, input),
         "mann_kendall" => crate::mann_kendall::pixel(p, input),
+        "ar_trend" => crate::ar_trend::pixel(p, input),
         "smooth" => crate::smooth::pixel(p, input),
         "tmask" => crate::tmask::pixel(p, input),
         "ndfi" => crate::ndfi::pixel(p, input),

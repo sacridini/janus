@@ -1963,6 +1963,129 @@
     }
    ],
    "chunk_cells": 2000000
+  },
+  {
+   "id": "ar_trend",
+   "name": "AR(1) trend (remotePARTS)",
+   "category": "Trend",
+   "description": "Linear trend with AR(1) errors fitted by REML (remotePARTS's fitAR, Ives et al. 2021), in Zeit: a t-test of the trend that accounts for the autocorrelation of the series, a parametric alternative to Mann-Kendall. The first map shows the slope only where it is significant. Analysis > Trend test (PARTS) tests these trends over a region, accounting for the spatial correlation of the pixels.",
+   "requires": {
+    "time": "any",
+    "min_dates": 4
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "time",
+     "label": "Trend per",
+     "type": "enum",
+     "default": "year",
+     "options": [
+      "year",
+      "step"
+     ],
+     "labels": [
+      "Year (decimal years of the dates)",
+      "Time step (t = 1, 2, ..., as remotePARTS)"
+     ],
+     "help": "The unit of the slope: per year of the dates, or per observation as remotePARTS's default."
+    },
+    {
+     "id": "harmonics",
+     "label": "Harmonics",
+     "type": "int",
+     "default": 0,
+     "min": 0,
+     "max": 3,
+     "help": "Pairs of harmonics (cos, sin) of the yearly cycle fitted with the trend, for sub-annual series (0 for annual composites)."
+    },
+    {
+     "id": "gaps",
+     "label": "Missing dates",
+     "type": "enum",
+     "default": "exact",
+     "options": [
+      "exact",
+      "ignore"
+     ],
+     "labels": [
+      "Exact (rho^k across k dates)",
+      "Ignored (as remotePARTS's fitAR)"
+     ],
+     "help": "Exact: observations k dates apart are correlated by rho^k. Ignored: the valid observations are taken as consecutive."
+    },
+    {
+     "id": "alpha",
+     "label": "Significance level",
+     "type": "float",
+     "default": 0.05,
+     "min": 0.0001,
+     "max": 0.5,
+     "help": "A trend is significant when its p-value is below this."
+    },
+    {
+     "id": "min_valid",
+     "label": "Min valid observations",
+     "type": "int",
+     "default": 4,
+     "min": 4,
+     "max": 10000,
+     "help": "Pixels with fewer valid observations are left empty (at least the model's terms + 2)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "sig_slope",
+     "name": "Significant slope",
+     "colormap": "BrBG",
+     "unit": "value/step"
+    },
+    {
+     "id": "slope",
+     "name": "Slope",
+     "colormap": "BrBG",
+     "unit": "value/step"
+    },
+    {
+     "id": "p",
+     "name": "p-value",
+     "colormap": "Plasma",
+     "unit": "p"
+    },
+    {
+     "id": "t",
+     "name": "t statistic",
+     "colormap": "BrBG",
+     "unit": "t"
+    },
+    {
+     "id": "se",
+     "name": "Slope's standard error",
+     "colormap": "Viridis",
+     "unit": "value/step"
+    },
+    {
+     "id": "rho",
+     "name": "AR(1) rho",
+     "colormap": "RdBu",
+     "unit": "rho"
+    },
+    {
+     "id": "intercept",
+     "name": "Intercept",
+     "colormap": "Viridis",
+     "unit": "value"
+    },
+    {
+     "id": "sd",
+     "name": "Residual SD",
+     "colormap": "Viridis",
+     "unit": "value"
+    }
+   ]
   }
  ],
  "errors": []

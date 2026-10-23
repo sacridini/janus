@@ -108,7 +108,7 @@ pub struct ScatterData {
 #[derive(Default)]
 pub struct AnalysisUi {
     pub show: bool,
-    /// 0 seasonal, 1 classes, 2 scatter
+    /// 0 seasonal, 1 classes, 2 scatter, 3 the trend test
     pub tab: usize,
     seasonal_source: String,
     /// 0 years overlaid, 1 the heatmap
@@ -135,6 +135,8 @@ pub struct AnalysisUi {
     pub trajectory: String,
     /// the scatter's density image (its key, the texture, the largest count)
     density: Option<(u64, egui::TextureHandle, f64)>,
+    /// the trend test (PARTS) over a region (trend_test.rs)
+    pub trend: crate::trend_test::TrendTestUi,
 }
 
 impl State {
@@ -145,7 +147,7 @@ impl State {
             return;
         }
         ui.horizontal(|ui| {
-            for (k, name) in ["Seasonal", "Classes", "Scatter"].iter().enumerate() {
+            for (k, name) in ["Seasonal", "Classes", "Scatter", "Trend test"].iter().enumerate() {
                 ui.selectable_value(&mut self.analysis.tab, k, *name);
             }
         });
@@ -153,7 +155,8 @@ impl State {
         match self.analysis.tab {
             0 => self.seasonal_ui(ui),
             1 => self.class_timeline_ui(ui),
-            _ => self.scatter_ui(ui),
+            2 => self.scatter_ui(ui),
+            _ => self.trend_test_ui(ui),
         }
     }
 

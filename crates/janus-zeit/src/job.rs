@@ -473,6 +473,10 @@ impl Outputs {
             .map(|(o, path, _)| {
                 let mut d = serde_json::to_value(o).unwrap_or_default();
                 d["path"] = json!(path.to_string_lossy());
+                // a trend per year of the dates (AR(1) trend's time parameter)
+                if o.unit.as_deref() == Some("value/step") && p.str("time") == "year" {
+                    d["unit"] = json!("value/year");
+                }
                 if let Some(param) = &o.classes_param {
                     let names: Vec<String> =
                         p.0.get(param)
@@ -518,6 +522,7 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
     match tool {
         "landtrendr" => crate::landtrendr::chunk(p, chunk, ctx),
         "mann_kendall" => crate::mann_kendall::chunk(p, chunk, ctx),
+        "ar_trend" => crate::ar_trend::chunk(p, chunk, ctx),
         "bfast" => crate::bfast::bfast_chunk(p, chunk, ctx),
         "tmask" => crate::tmask::chunk(p, chunk, ctx),
         "ndfi" => crate::ndfi::chunk(p, chunk, ctx),

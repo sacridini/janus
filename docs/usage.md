@@ -129,7 +129,7 @@
   from the overview and then at full resolution. Hover a cell for its distance,
   date and value (marked on the map), click to go to that date; values or
   anomalies; Copy CSV.
-- **Analysis panel** (View → Analysis), three tabs:
+- **Analysis panel** (View → Analysis), four tabs:
   - **Seasonal** (series with several dates a year): the cursor, a pin or the
     ROI mean by day of the year, one line per year (colour = year, the current
     date's year on top) with the mean of all years by month (± 1 standard
@@ -148,6 +148,18 @@
     cursor, a pin or the ROI mean between the two layers date by date
     (coloured by time, arrows the way it goes: a season's loop, a disturbance
     and its recovery).
+  - **Trend test**: whether the trend of a region (the ROI, the visible area or
+    the whole image), or of each class of a categorical layer, differs from 0,
+    and whether the classes' trends differ, by **PARTS** (Ives et al. 2021,
+    the R package remotePARTS): each pixel's AR(1) trend, the spatial
+    correlation of the pixels fitted to their residuals, and a GLS of the
+    trends in random partitions of the pixels, combined into tests that
+    account for the correlation between partitions. The table gives each
+    mean trend with its standard error, t and p, the chi-square test of the
+    classes, and, for comparison, how many pixels' own tests are significant
+    (which is no regional test: neighbours are correlated, and thousands of
+    tests run at once). Runs on a thread (seconds to a minute), reading the
+    region at full resolution (one pixel in k × k of a large one); Copy CSV.
 
   Classes and scatter count the overview's pixels (what the map shows before
   zooming in), so they are immediate on any series.
@@ -168,7 +180,9 @@
   2 by default, so the computer stays responsive during long runs).
 - **Zeit tools** ([Zeit](https://github.com/sacridini/zeit-cdts) change detection
   and time-series algorithms): **LandTrendr**, **Mann-Kendall** (with Sen's
-  slope; Hamed-Rao, Yue-Wang and seasonal variants), **BFAST**, **BFAST Lite**,
+  slope; Hamed-Rao, Yue-Wang and seasonal variants), the **AR(1) trend**
+  (remotePARTS's REML fit: a t-test of the trend that accounts for the
+  series' autocorrelation, what the Trend test tests over a region), **BFAST**, **BFAST Lite**,
   **BFAST Monitor**, **phenology** (season start/peak/end, length, amplitude),
   **CCDC** (multiband), **CODED** (forest degradation, multiband), the
   **NDFI** (spectral unmixing), **Tmask** (clouds the quality band missed),
@@ -311,6 +325,7 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 |---|---|---|
 | LandTrendr | annual (one date per year) | year of detection, magnitude, duration, pre/post value, rate, DSNR of the chosen loss/gain event |
 | Mann-Kendall | any (seasonal variant: several dates per year) | significant Sen's slope, slope, p-value, Z, tau, trend class, intercept |
+| AR(1) trend | any (harmonics: several dates per year) | significant slope, slope (per year or per time step), p-value, t, its standard error, AR(1) rho, intercept, residual SD |
 | BFAST | regular, ≥ 2 dates per year | trend/season break counts, date and magnitude of the largest trend break |
 | BFAST Lite | regular, ≥ 2 dates per year | break count, date and magnitude of the largest break, first break date |
 | BFAST Monitor | regular, ≥ 2 dates per year | first break date in the monitoring period, magnitude, break yes/no |
