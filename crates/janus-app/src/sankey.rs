@@ -1,0 +1,395 @@
+//! The Classes tab's flows (View > Analysis > Classes, Flows): a Sankey diagram of a categorical series between two
+//! to six dates. A column per date, a bar per class as tall as its pixels, a ribbon per change from one date to the
+//! next as wide as the pixels that made it, in the colour of the class they left. Counted on the overview, a pair of
+//! consecutive dates at a time: the ribbons of 1990 -> 2000 and 2000 -> 2010 meet at 2000's bars, but a pixel is not
+//! followed across them (two pixels going A -> B -> C and A -> D -> C draw the same as A -> B -> C and A -> D -> C
+//! swapped).
+
+use egui::epaint::Mesh;
+use egui::{Color32, Pos2, Rect, Sense, Stroke, Ui, vec2};
+
+use crate::analysis::Transitions;
+use crate::app::State;
+use crate::theme;
+
+/// The most dates a diagram shows.
+pub const MAX_DATES: usize = 6;
+
+/// A class's bar in a column, from `y0` to `y1` (points from the diagram's top).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Node {
+    pub k: usize,
+    pub y0: f32,
+    pub y1: f32,
+}
+
+/// The pixels that went from class `i` at column `col` to class `j` at the next: from `a` (top and bottom at the
+/// left) to `b` (at the right).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ribbon {
+    pub col: usize,
+    pub i: usize,
+    pub j: usize,
+    pub n: u32,
+    pub a: (f32, f32),
+    pub b: (f32, f32),
+}
+
+#[derive(Debug, Default)]
+pub struct Layout {
+    /// [column] the bars of the classes shown, in the classes' order
+    pub nodes: Vec<Vec<Node>>,
+    pub ribbons: Vec<Ribbon>,
+}
+
+/// The diagram of `mats` (a K x K matrix per pair of consecutive dates, rows = from) in `height` points, `gap`
+/// between bars; the classes not `shown` left out. A bar is as tall as the larger of the pixels coming to it and
+/// those leaving it (the two differ by the pixels without a value at the other date); one scale for every column, so
+/// that the fullest one fills the height.
+pub fn layout(mats: &[Vec<u32>], k_n: usize, shown: &[bool], height: f32, gap: f32) -> Layout {
+    let cols = mats.len() + 1;
+    let on = |k: usize| shown.get(k).copied().unwrap_or(true);
+    let size = |c: usize, k: usize| -> u64 {
+        let incoming: u64 =
+            if c > 0 { (0..k_n).filter(|&i| on(i)).map(|i| u64::from(mats[c - 1][i * k_n + k])).sum() } else { 0 };
+        let outgoing: u64 =
+            if c < cols - 1 { (0..k_n).filter(|&j| on(j)).map(|j| u64::from(mats[c][k * k_n + j])).sum() } else { 0 };
+        incoming.max(outgoing)
+    };
+    let sizes: Vec<Vec<u64>> =
+        (0..cols).map(|c| (0..k_n).map(|k| if on(k) { size(c, k) } else { 0 }).collect()).collect();
+    let mut scale = f32::INFINITY;
+    for s in &sizes {
+        let total: u64 = s.iter().sum();
+        let bars = s.iter().filter(|&&n| n > 0).count();
+        if total > 0 {
+            scale = scale.min((height - gap * bars.saturating_sub(1) as f32).max(1.0) / total as f32);
+        }
+    }
+    if !scale.is_finite() {
+        return Layout { nodes: vec![Vec::new(); cols], ribbons: Vec::new() };
+    }
+    let nodes: Vec<Vec<Node>> = sizes
+        .iter()
+        .map(|s| {
+            let mut y = 0.0;
+            let mut col = Vec::new();
+            for (k, &n) in s.iter().enumerate().filter(|(_, n)| **n > 0) {
+                let h = n as f32 * scale;
+                col.push(Node { k, y0: y, y1: y + h });
+                y += h + gap;
+            }
+            col
+        })
+        .collect();
+    let top = |c: usize, k: usize| nodes[c].iter().find(|n| n.k == k).map_or(0.0, |n| n.y0);
+    let mut ribbons = Vec::new();
+    for (c, m) in mats.iter().enumerate() {
+        // where the next ribbon leaves each bar of this column and comes into each of the next
+        let mut out: Vec<f32> = (0..k_n).map(|k| top(c, k)).collect();
+        let mut inc: Vec<f32> = (0..k_n).map(|k| top(c + 1, k)).collect();
+        for i in (0..k_n).filter(|&i| on(i)) {
+            for j in (0..k_n).filter(|&j| on(j)) {
+                let n = m[i * k_n + j];
+                if n == 0 {
+                    continue;
+                }
+                let h = n as f32 * scale;
+                ribbons.push(Ribbon { col: c, i, j, n, a: (out[i], out[i] + h), b: (inc[j], inc[j] + h) });
+                out[i] += h;
+            }
+        }
+        // into the next bars in the order of the classes they came from, so that ribbons do not cross inside a bar
+        let mut order: Vec<usize> = (0..ribbons.len()).filter(|&r| ribbons[r].col == c).collect();
+        order.sort_by_key(|&r| (ribbons[r].j, ribbons[r].i));
+        for r in order {
+            let rb = &mut ribbons[r];
+            let h = rb.b.1 - rb.b.0;
+            rb.b = (inc[rb.j], inc[rb.j] + h);
+            inc[rb.j] += h;
+        }
+    }
+    Layout { nodes, ribbons }
+}
+
+/// The dates of a diagram: up to four spread over the series (the first and the last among them).
+pub fn default_dates(t_n: usize) -> Vec<usize> {
+    let mut d: Vec<usize> = (0..4).map(|k| k * (t_n.saturating_sub(1)) / 3).collect();
+    d.dedup();
+    d
+}
+
+/// A ribbon's band from `a` to `b` between x0 and x1, an S curve, as a mesh.
+fn ribbon_mesh(x0: f32, x1: f32, a: (f32, f32), b: (f32, f32), color: Color32) -> Mesh {
+    const STEPS: usize = 24;
+    let mut mesh = Mesh::default();
+    for s in 0..=STEPS {
+        let u = s as f32 / STEPS as f32;
+        let e = u * u * (3.0 - 2.0 * u);
+        let x = x0 + (x1 - x0) * u;
+        mesh.colored_vertex(Pos2::new(x, a.0 + (b.0 - a.0) * e), color);
+        mesh.colored_vertex(Pos2::new(x, a.1 + (b.1 - a.1) * e), color);
+        if s > 0 {
+            let v = (2 * s) as u32;
+            mesh.add_triangle(v - 2, v - 1, v);
+            mesh.add_triangle(v - 1, v + 1, v);
+        }
+    }
+    mesh
+}
+
+impl State {
+    /// The Sankey diagram in a `size` area: the dates above it (a list of up to MAX_DATES), the diagram, a
+    /// tooltip on a bar or a ribbon.
+    pub(crate) fn class_flows_ui(&mut self, ui: &mut Ui, size: egui::Vec2) {
+        let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return };
+        let t_n = info.t();
+        if t_n < 2 {
+            ui.weak("One date: no flows.");
+            return;
+        }
+        let a = &mut self.analysis;
+        if a.flow_dates.len() < 2 || a.flow_dates.iter().any(|&t| t >= t_n) {
+            a.flow_dates = default_dates(t_n);
+        }
+        let w = ui.text_style_height(&egui::TextStyle::Body) * 6.5;
+        let (mut remove, mut add) = (None, false);
+        ui.horizontal_wrapped(|ui| {
+            let n = a.flow_dates.len();
+            for (k, t) in a.flow_dates.iter_mut().enumerate() {
+                egui::ComboBox::from_id_salt(("flow date", k)).width(w).selected_text(&info.layers[*t].label).show_ui(
+                    ui,
+                    |ui| {
+                        for (i, l) in info.layers.iter().enumerate() {
+                            ui.selectable_value(t, i, &l.label);
+                        }
+                    },
+                );
+                if n > 2 && ui.small_button("x").on_hover_text("Removes this date").clicked() {
+                    remove = Some(k);
+                }
+            }
+            if n < MAX_DATES {
+                add = ui.small_button("+").on_hover_text("Adds the current date").clicked();
+            }
+            ui.weak("(?)").on_hover_text(
+                "A column per date, a bar per class as tall as its pixels, a ribbon per change as wide as the \
+                 pixels that made it (in the colour of the class they left). Counted on the overview, one pair of \
+                 consecutive dates at a time: the ribbons meet at each date's bars, but a pixel is not followed \
+                 across several dates.",
+            );
+        });
+        if let Some(k) = remove {
+            a.flow_dates.remove(k);
+        }
+        if add {
+            a.flow_dates.push(self.display.t);
+        }
+        a.flow_dates.sort_unstable();
+        a.flow_dates.dedup();
+        // the pairs counted again when their dates or the classes change
+        let key = a.classes.key;
+        let dates = a.flow_dates.clone();
+        let pairs: Vec<(usize, usize)> = dates.windows(2).map(|w| (w[0], w[1])).collect();
+        let stale =
+            |tr: &Transitions, &(f, t): &(usize, usize)| tr.key != key || tr.from != f || tr.to != t || !tr.done;
+        if self.analysis.flows.len() != pairs.len()
+            || self.analysis.flows.iter().zip(&pairs).any(|(tr, p)| stale(tr, p))
+        {
+            let flows: Vec<Transitions> = pairs
+                .iter()
+                .enumerate()
+                .map(|(k, &(f, t))| match self.analysis.flows.get(k) {
+                    Some(tr) if !stale(tr, &(f, t)) => std::mem::take(&mut self.analysis.flows[k]),
+                    _ => {
+                        let mut tr = self.count_transitions(f, t);
+                        tr.key = key;
+                        tr
+                    }
+                })
+                .collect();
+            self.analysis.flows = flows;
+        }
+        let flows = &self.analysis.flows;
+        if flows.iter().any(|tr| !tr.done) {
+            ui.weak("Waiting for the dates in the overview...");
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+            return;
+        }
+        let Some(values) = flows.first().map(|tr| tr.values.clone()) else { return };
+        let k_n = values.len();
+        let shown: Vec<bool> = values.iter().map(|&v| self.classes.find(v).is_none_or(|e| e.visible)).collect();
+        let colour = |k: usize| {
+            self.classes
+                .find(values[k])
+                .map_or(Color32::from_gray(153), |e| Color32::from_rgb(e.color[0], e.color[1], e.color[2]))
+        };
+        let name = |k: usize| self.classes.find(values[k]).map_or(values[k].to_string(), |e| e.name.clone());
+
+        let body = ui.text_style_height(&egui::TextStyle::Body);
+        let (rect, resp) = ui.allocate_exact_size(vec2(size.x, ui.available_height().max(80.0)), Sense::hover());
+        // the class names beside the first and the last columns, the dates above
+        let side = (rect.width() * 0.18).min(body * 10.0);
+        let area = Rect::from_min_max(rect.min + vec2(side, body * 1.6), rect.max - vec2(side, 4.0));
+        let mats: Vec<Vec<u32>> = flows.iter().map(|tr| tr.m.clone()).collect();
+        let lay = layout(&mats, k_n, &shown, area.height(), 3.0);
+        let cols = dates.len();
+        const BAR: f32 = 10.0;
+        let x_of = |c: usize| area.left() + (area.width() - BAR) * c as f32 / (cols - 1).max(1) as f32;
+        let painter = ui.painter_at(rect);
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let text = ui.visuals().text_color();
+
+        // what the pointer is over: a bar (column, class) or a ribbon
+        let pointer = resp.hover_pos();
+        let over_node = pointer.and_then(|p| {
+            (0..cols).find_map(|c| {
+                let x = x_of(c);
+                (p.x >= x - 2.0 && p.x <= x + BAR + 2.0)
+                    .then(|| lay.nodes[c].iter().find(|n| p.y >= area.top() + n.y0 && p.y <= area.top() + n.y1))
+                    .flatten()
+                    .map(|n| (c, n.k))
+            })
+        });
+        let over_ribbon = pointer.filter(|_| over_node.is_none()).and_then(|p| {
+            lay.ribbons.iter().position(|r| {
+                let (x0, x1) = (x_of(r.col) + BAR, x_of(r.col + 1));
+                if p.x < x0 || p.x > x1 {
+                    return false;
+                }
+                let u = (p.x - x0) / (x1 - x0);
+                let e = u * u * (3.0 - 2.0 * u);
+                let (y0, y1) = (r.a.0 + (r.b.0 - r.a.0) * e, r.a.1 + (r.b.1 - r.a.1) * e);
+                p.y >= area.top() + y0 && p.y <= area.top() + y1.max(y0 + 1.0)
+            })
+        });
+        let lit = |r: &Ribbon| match (over_node, over_ribbon) {
+            (Some((c, k)), _) => (r.col == c && r.i == k) || (r.col + 1 == c && r.j == k),
+            (_, Some(o)) => std::ptr::eq(r, &lay.ribbons[o]),
+            _ => true,
+        };
+        let focus = over_node.is_some() || over_ribbon.is_some();
+        for r in &lay.ribbons {
+            let alpha = if !focus {
+                0.45
+            } else if lit(r) {
+                0.8
+            } else {
+                0.12
+            };
+            let (x0, x1) = (x_of(r.col) + BAR, x_of(r.col + 1));
+            let (a, b) = ((area.top() + r.a.0, area.top() + r.a.1), (area.top() + r.b.0, area.top() + r.b.1));
+            painter.add(ribbon_mesh(x0, x1, a, b, theme::on_plot(colour(r.i)).gamma_multiply(alpha)));
+        }
+        for (c, col) in lay.nodes.iter().enumerate() {
+            let x = x_of(c);
+            for n in col {
+                let r = Rect::from_x_y_ranges(x..=x + BAR, area.top() + n.y0..=area.top() + n.y1.max(n.y0 + 1.0));
+                painter.rect_filled(r, 1.0, colour(n.k));
+                painter.rect_stroke(r, 1.0, Stroke::new(0.5, text.gamma_multiply(0.5)), egui::StrokeKind::Inside);
+                // the names beside the outer columns, where the bar is tall enough
+                if (c == 0 || c == cols - 1) && n.y1 - n.y0 >= body * 0.8 {
+                    let (pos, align) = if c == 0 {
+                        (Pos2::new(x - 4.0, r.center().y), egui::Align2::RIGHT_CENTER)
+                    } else {
+                        (Pos2::new(x + BAR + 4.0, r.center().y), egui::Align2::LEFT_CENTER)
+                    };
+                    painter.text(pos, align, name(n.k), font.clone(), text);
+                }
+            }
+            painter.text(
+                Pos2::new(x + BAR * 0.5, rect.top() + body * 0.7),
+                egui::Align2::CENTER_CENTER,
+                &info.layers[dates[c]].label,
+                font.clone(),
+                text,
+            );
+        }
+        let pct = |n: u64, of: u64| crate::analysis::percent(n as f64 / of.max(1) as f64);
+        if let Some((c, k)) = over_node {
+            // the class at that date: its pixels, where they came from and went to
+            let at: u64 = if c < cols - 1 {
+                (0..k_n).map(|j| u64::from(flows[c].m[k * k_n + j])).sum()
+            } else {
+                (0..k_n).map(|i| u64::from(flows[c - 1].m[i * k_n + k])).sum()
+            };
+            let both = if c < cols - 1 { flows[c].both } else { flows[c - 1].both };
+            let mut tip = format!("{}: {}\n{} of the pixels", info.layers[dates[c]].label, name(k), pct(at, both));
+            if c > 0 {
+                let stayed = flows[c - 1].m[k * k_n + k];
+                let came: u64 = (0..k_n).filter(|&i| i != k).map(|i| u64::from(flows[c - 1].m[i * k_n + k])).sum();
+                tip += &format!(
+                    "\nsince {}: {} stayed, {} came from other classes",
+                    info.layers[dates[c - 1]].label,
+                    pct(u64::from(stayed), flows[c - 1].both),
+                    pct(came, flows[c - 1].both)
+                );
+            }
+            if c < cols - 1 {
+                let left: u64 = (0..k_n).filter(|&j| j != k).map(|j| u64::from(flows[c].m[k * k_n + j])).sum();
+                tip += &format!(
+                    "\nto {}: {} went to other classes",
+                    info.layers[dates[c + 1]].label,
+                    pct(left, flows[c].both)
+                );
+            }
+            resp.on_hover_text_at_pointer(tip);
+        } else if let Some(o) = over_ribbon {
+            let r = &lay.ribbons[o];
+            resp.on_hover_text_at_pointer(format!(
+                "{} -> {}\n{} -> {}: {} of the pixels\n{} pixels of the overview",
+                info.layers[dates[r.col]].label,
+                info.layers[dates[r.col + 1]].label,
+                name(r.i),
+                name(r.j),
+                pct(u64::from(r.n), flows[r.col].both),
+                r.n
+            ));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flows() {
+        // 3 classes, 3 dates: 0 forest, 1 pasture, 2 water (hidden in the last case)
+        let k = 3;
+        let m1 = vec![60, 30, 0, 0, 10, 0, 0, 0, 20]; // forest -> pasture 30
+        let m2 = vec![50, 10, 0, 5, 35, 0, 0, 0, 20]; // forest -> pasture 10, pasture -> forest 5
+        let l = layout(&[m1.clone(), m2.clone()], k, &[true; 3], 120.0, 0.0);
+        // one scale: 120 pixels at each date in 120 points
+        assert_eq!(
+            l.nodes[0],
+            vec![
+                Node { k: 0, y0: 0.0, y1: 90.0 },
+                Node { k: 1, y0: 90.0, y1: 100.0 },
+                Node { k: 2, y0: 100.0, y1: 120.0 }
+            ]
+        );
+        assert_eq!(l.nodes[1][0], Node { k: 0, y0: 0.0, y1: 60.0 });
+        assert_eq!(l.nodes[2][1], Node { k: 1, y0: 55.0, y1: 100.0 });
+        // forest -> pasture leaves forest's bar under forest -> forest and comes into pasture's over pasture ->
+        // pasture
+        let fp = l.ribbons.iter().find(|r| r.col == 0 && r.i == 0 && r.j == 1).unwrap();
+        assert_eq!((fp.a, fp.b), ((60.0, 90.0), (60.0, 90.0)));
+        let pp = l.ribbons.iter().find(|r| r.col == 0 && r.i == 1 && r.j == 1).unwrap();
+        assert_eq!(pp.b, (90.0, 100.0));
+        // every ribbon into a bar fills it
+        for c in 1..3 {
+            for n in &l.nodes[c] {
+                let h: f32 = l.ribbons.iter().filter(|r| r.col + 1 == c && r.j == n.k).map(|r| r.b.1 - r.b.0).sum();
+                assert!((h - (n.y1 - n.y0)).abs() < 1e-3);
+            }
+        }
+        // water hidden: 100 pixels in 100 points, with a gap of 2 between the two bars
+        let l = layout(&[m1, m2], k, &[true, true, false], 102.0, 2.0);
+        assert_eq!(l.nodes[0].len(), 2);
+        assert_eq!(l.nodes[0][1], Node { k: 1, y0: 92.0, y1: 102.0 });
+        assert!(l.ribbons.iter().all(|r| r.i != 2 && r.j != 2));
+        assert_eq!(default_dates(41), vec![0, 13, 26, 40]);
+        assert_eq!(default_dates(2), vec![0, 1]);
+    }
+}

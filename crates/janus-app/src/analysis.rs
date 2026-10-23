@@ -30,7 +30,7 @@ fn year_label(y: i32, start: usize) -> String {
     if start == 0 { format!("{y}") } else { format!("{y}/{:02}", (y + 1).rem_euclid(100)) }
 }
 
-fn percent(share: f64) -> String {
+pub(crate) fn percent(share: f64) -> String {
     if share >= 0.0995 { format!("{:.1}%", share * 100.0) } else { format!("{:.2}%", share * 100.0) }
 }
 
@@ -66,7 +66,7 @@ fn colour_scale(ui: &mut Ui, height: f32, cmap: usize, lo: f64, hi: f64, label: 
 /// The share of each class at every date, counted a few dates a frame.
 #[derive(Default)]
 pub struct ClassTimeline {
-    key: u64,
+    pub(crate) key: u64,
     pub values: Vec<i32>,
     /// [t][k]
     pub counts: Vec<Vec<u32>>,
@@ -78,7 +78,7 @@ pub struct ClassTimeline {
 /// Pixels that went from class i to class j between two dates.
 #[derive(Default)]
 pub struct Transitions {
-    key: u64,
+    pub(crate) key: u64,
     pub from: usize,
     pub to: usize,
     pub values: Vec<i32>,
@@ -117,6 +117,11 @@ pub struct AnalysisUi {
     pub seasonal_start: usize,
     pub classes: ClassTimeline,
     class_stacked: bool,
+    /// 0 the shares over time, 1 the flows between dates (sankey.rs)
+    pub class_view: usize,
+    /// the flows' dates (sorted) and their consecutive pairs' transitions
+    pub flow_dates: Vec<usize>,
+    pub flows: Vec<Transitions>,
     trans_from: usize,
     /// None: the current date
     trans_to: Option<usize>,
@@ -536,6 +541,13 @@ impl State {
         let names: HashMap<i32, String> = self.classes.list.iter().map(|e| (e.value, e.name.clone())).collect();
         let name_of = |v: i32| names.get(&v).cloned().unwrap_or_else(|| v.to_string());
         ui.horizontal(|ui| {
+            ui.radio_value(&mut self.analysis.class_view, 0, "Shares")
+                .on_hover_text("The share of each class at every date");
+            ui.radio_value(&mut self.analysis.class_view, 1, "Flows").on_hover_text(
+                "What became what between two to six dates (a Sankey diagram): the bars are the classes at each \
+                 date, the ribbons the pixels that changed",
+            );
+            ui.separator();
             ui.checkbox(&mut self.analysis.class_stacked, "Stacked")
                 .on_hover_text("Stacked areas (the shares add up to 100%), or one line per class");
             let c = &self.analysis.classes;
@@ -571,6 +583,10 @@ impl State {
         let h = ui.available_height();
         ui.horizontal_top(|ui| {
             ui.allocate_ui(vec2(chart_w, h), |ui| {
+                if self.analysis.class_view == 1 {
+                    ui.vertical(|ui| self.class_flows_ui(ui, vec2(chart_w, h)));
+                    return;
+                }
                 let c = &self.analysis.classes;
                 let n = c.next;
                 let mut plot = Plot::new("class shares")

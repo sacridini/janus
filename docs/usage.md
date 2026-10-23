@@ -137,7 +137,9 @@
   - **Classes** (categorical layers): the **share of each class at every date**
     (stacked areas or lines) and the **transitions** between two dates (the
     largest ones, the share of pixels that changed, the full matrix); Copy CSV
-    of both.
+    of both. *Flows*: a **Sankey diagram** between two to six dates (a bar per
+    class as tall as its pixels, a ribbon per change; hover for the shares),
+    counted a pair of consecutive dates at a time.
   - **Scatter**: two layers, or two dates of one, pixel by pixel in the ROI (or
     the whole image) as a density plot, with the 1:1 line, the least squares
     line, r, R², the mean difference and its RMS.
