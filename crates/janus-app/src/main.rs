@@ -123,6 +123,8 @@ Developer options:
   --roi X0,Y0,X1,Y1   an ROI rectangle (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline)
   --analysis seasonal|classes|scatter  the Analysis panel at that tab
+  --chart K=V,...     the chart's options: style (0 lines ... 4 stairs), values (0 values, 1 anomaly, 2 z-score,
+                      3 seasonal anomaly, 4 CUSUM), trend (0-2), spread (the ROI's, 0 mean ... 3 fan)
   --zeit TOOL         the Zeit tool fitted on the chart (e.g. landtrendr), its panel open
   --zeit-run          and run on the raster (the ROI's window if --roi) once the series is loaded
   --validation-tab N  a validation project (a .gpkg input) on tab N of its panel (0 Design, 1 Accuracy,
@@ -357,6 +359,7 @@ fn main() -> eframe::Result<()> {
                 }
             }
             "--opacity" => opts.opacity = args.next().and_then(|v| v.parse().ok()),
+            "--chart" => opts.chart = args.next(),
             "--pin" => {
                 let v: Vec<usize> =
                     args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();

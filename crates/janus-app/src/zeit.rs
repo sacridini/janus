@@ -9,7 +9,6 @@ use std::time::Instant;
 
 use egui::{Color32, ComboBox, Ui};
 use egui_plot::{Line, PlotPoints, PlotUi, Points, VLine};
-use janus_cube::stats::SeriesStats;
 use janus_cube::{CubeInfo, CubeReader};
 use janus_zeit::pixel::Shown;
 use janus_zeit::{Params, PixelInput, PixelResult, Tool, manifest, run_pixel};
@@ -758,24 +757,12 @@ pub(crate) fn draw_fit(
     plot: &mut PlotUi,
     name: &str,
     fit: Option<&Result<PixelResult, String>>,
-    st: &SeriesStats,
-    values: usize,
+    shown: &crate::chart::AsShown,
     info: &CubeInfo,
 ) {
     let Some(Ok(r)) = fit else { return };
     let col = theme::on_plot(Color32::from_rgb(242, 38, 242));
     let outline = Color32::from_rgba_unmultiplied(13, 13, 20, 230);
-    let shown = |v: f64| match values {
-        1 => v - st.mean,
-        2 => {
-            if st.std > 0.0 {
-                (v - st.mean) / st.std
-            } else {
-                0.0
-            }
-        }
-        _ => v,
-    };
     for o in &r.overlays {
         if o.kind == "vlines" {
             for &x in &o.x {
@@ -786,7 +773,13 @@ pub(crate) fn draw_fit(
             continue;
         }
         let pts: Vec<[f64; 2]> =
-            o.x.iter().zip(&o.y).map(|(&x, y)| [info.x_from_decimal_year(x), y.map_or(f64::NAN, shown)]).collect();
+            o.x.iter()
+                .zip(&o.y)
+                .map(|(&x, y)| {
+                    let x = info.x_from_decimal_year(x);
+                    [x, y.map_or(f64::NAN, |y| shown.at(y, x))]
+                })
+                .collect();
         if pts.is_empty() {
             continue;
         }
@@ -1841,7 +1834,7 @@ impl State {
 
     /// The typical series of the class under the cursor, from the topmost visible class map that has them (a
     /// SOM's clusters): its class colour over a dark outline, a model and not data.
-    pub(crate) fn draw_class_series(&self, plot: &mut PlotUi, st: &SeriesStats, values: usize) {
+    pub(crate) fn draw_class_series(&self, plot: &mut PlotUi, shown: &crate::chart::AsShown) {
         let (Some(s), Some(h)) = (&self.session, &self.series.hover) else { return };
         let info = &s.info;
         for r in self.zeit.results.iter().rev() {
@@ -1851,13 +1844,14 @@ impl State {
             let v = r.value_at(h.x, h.y);
             let k = if v.is_nan() { 0 } else { v.round() as usize };
             let Some((x, y)) = k.checked_sub(1).and_then(|i| r.class_series.get(i)) else { continue };
-            let shown = |v: f64| match values {
-                1 => v - st.mean,
-                2 if st.std > 0.0 => (v - st.mean) / st.std,
-                2 => 0.0,
-                _ => v,
-            };
-            let pts: Vec<[f64; 2]> = x.iter().zip(y).map(|(&x, &y)| [info.x_from_decimal_year(x), shown(y)]).collect();
+            let pts: Vec<[f64; 2]> = x
+                .iter()
+                .zip(y)
+                .map(|(&x, &y)| {
+                    let x = info.x_from_decimal_year(x);
+                    [x, shown.at(y, x)]
+                })
+                .collect();
             let name =
                 format!("{}: typical series", r.classes.get(k - 1).cloned().unwrap_or_else(|| format!("class {k}")));
             let cm = &janus_gpu::colormaps::all()[r.cmap];

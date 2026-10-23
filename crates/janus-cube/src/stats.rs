@@ -186,6 +186,41 @@ pub fn observations_per_year(t: &[f64]) -> i32 {
     if days > 0.0 { ((365.25 / days).round() as i32).max(1) } else { 1 }
 }
 
+/// The calendar month (0 January to 11 December) of a time in Unix seconds.
+pub fn month_of(unix_seconds: f64) -> usize {
+    let (_, m, _) = crate::dates::civil_from_days((unix_seconds / 86400.0).floor() as i64);
+    (m as usize).clamp(1, 12) - 1
+}
+
+/// The climatology of a dated series: the mean of each calendar month over every year, NaN for a month without
+/// observations. A value minus its month's mean is its anomaly without the seasonal cycle.
+pub fn monthly_climatology(t: &[f64], v: &[f32]) -> [f64; 12] {
+    let (mut sum, mut n) = ([0f64; 12], [0usize; 12]);
+    for (&x, &y) in t.iter().zip(v) {
+        if y.is_finite() {
+            let m = month_of(x);
+            sum[m] += f64::from(y);
+            n[m] += 1;
+        }
+    }
+    std::array::from_fn(|m| if n[m] > 0 { sum[m] / n[m] as f64 } else { f64::NAN })
+}
+
+/// The running sum of `v` (CUSUM): NaN where `v` is, the sum going on past it.
+pub fn cusum(v: &[f64]) -> Vec<f64> {
+    let mut s = 0.0;
+    v.iter()
+        .map(|&x| {
+            if x.is_finite() {
+                s += x;
+                s
+            } else {
+                f64::NAN
+            }
+        })
+        .collect()
+}
+
 /// A series by year and part of the year: `bins` parts of 366 days, the mean of the observations in each cell.
 #[derive(Clone, Debug, Default)]
 pub struct SeasonalGrid {
@@ -272,6 +307,31 @@ mod tests {
         assert!((s.sen_slope - 1.0).abs() < 1e-12);
         let (m, at) = largest_drop(&[f32::NAN, 2.0]);
         assert!(m.is_nan() && at.is_none());
+    }
+
+    #[test]
+    fn climatology_and_cusum() {
+        // monthly, 2009-2010, on the 15th: value = month (a seasonal cycle) + 10 the second year
+        let start = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+        let (mut t, mut v) = (Vec::new(), Vec::new());
+        for (y, jan1) in [1230768000.0, 1262304000.0].iter().enumerate() {
+            for (m, s) in start.iter().enumerate() {
+                t.push(jan1 + f64::from(s + 14) * 86400.0);
+                v.push(m as f32 + 10.0 * y as f32);
+            }
+        }
+        assert_eq!(month_of(t[0]), 0);
+        assert_eq!(month_of(t[23]), 11);
+        v[13] = f32::NAN; // February of the second year
+        let c = monthly_climatology(&t, &v);
+        assert_eq!(c[0], 5.0);
+        assert_eq!(c[1], 1.0);
+        // the anomalies: -5 the first year, +5 the second (the cycle gone); their running sum falls, then rises
+        let a: Vec<f64> = t.iter().zip(&v).map(|(&x, &y)| f64::from(y) - c[month_of(x)]).collect();
+        let s = cusum(&a);
+        assert_eq!(s[11], -55.0);
+        assert!(s[13].is_nan());
+        assert_eq!(s[23], 0.0);
     }
 
     #[test]

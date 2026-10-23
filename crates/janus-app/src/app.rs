@@ -178,6 +178,8 @@ pub struct Options {
     pub transect: Vec<f64>,
     /// --analysis: the Analysis panel at this tab
     pub analysis: Option<usize>,
+    /// --chart K=V,...: the chart's options
+    pub chart: Option<String>,
     /// --zeit TOOL: that Zeit tool fitted on the chart, its window open
     pub zeit_tool: Option<String>,
     /// --zeit-run: the --zeit tool run on the raster (its ROI if --roi, else the whole image) once the series is
@@ -866,6 +868,9 @@ impl State {
             }
             if let Some(tab) = self.opts.analysis {
                 (self.analysis.show, self.analysis.tab) = (true, tab);
+            }
+            if let Some(spec) = self.opts.chart.clone() {
+                self.chart.set(&spec);
             }
             if self.opts.transect.len() >= 4 {
                 let pts = self.opts.transect.as_chunks::<2>().0.to_vec();
