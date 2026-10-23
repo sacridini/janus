@@ -802,7 +802,8 @@ mod tests {
         let ctx = egui::Context::default();
         load_fonts(&ctx);
         apply(&ctx, DARK, 1.0, DEFAULT_FONT_SIZE);
-        let _ = ctx.run_ui(Default::default(), |_| {});
+        // the frame's font atlas not uploaded anywhere: egui 0.36 panics on a TexturesDelta dropped unapplied
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
         let g = ctx.fonts_mut(|f| {
             f.layout_no_wrap("MMMMMMMMMM".into(), FontId::proportional(egui_font_size(13)), Color32::WHITE)
         });
