@@ -122,7 +122,8 @@ pub struct ChartOptions {
     pub trend: usize,
     /// the Y axis locked to the map's colour range
     pub y_from_map: bool,
-    /// the ROI: 0 mean only, 1 + the p10-p90 band, 2 + a box plot per date, 3 + a fan (p10-p90, p25-p75, median)
+    /// the ROI: 0 mean only, 1 + the p10-p90 band, 2 + a box plot per date, 3 + a fan (p10-p90, p25-p75, median),
+    /// 4 + its values' density
     pub roi_spread: usize,
     /// a strip of the main series' values as colours under the chart (warming stripes)
     pub stripes: bool,
@@ -135,19 +136,23 @@ impl Default for ChartOptions {
 }
 
 impl ChartOptions {
-    /// Options as `--chart` gives them: style=N,values=N,trend=N,spread=N,stripes=0|1 (those out of range left).
-    pub fn set(&mut self, spec: &str) {
+    /// Options as `--chart` gives them: style=N,values=N,trend=N,spread=N,stripes=0|1 (those out of range left);
+    /// layers=0|1 (the active layer's series or every visible layer's) returned, the State's to set.
+    pub fn set(&mut self, spec: &str) -> Option<i32> {
+        let mut layers = None;
         for (k, v) in spec.split(',').filter_map(|kv| kv.split_once('=')) {
             let Ok(v) = v.trim().parse::<usize>() else { continue };
             match k.trim() {
                 "style" if v < 6 => self.style = v,
                 "values" if v < VALUES.len() => self.values = v,
                 "trend" if v < 3 => self.trend = v,
-                "spread" if v < 4 => self.roi_spread = v,
+                "spread" if v < 5 => self.roi_spread = v,
                 "stripes" => self.stripes = v != 0,
+                "layers" => layers = Some(i32::from(v != 0)),
                 _ => {}
             }
         }
+        layers
     }
 }
 
@@ -516,6 +521,54 @@ impl State {
         }
     }
 
+    /// The ROI's density at each date, under the series: its column split where its quantiles are (2.5 % of the
+    /// pixels between two), the more opaque the closer they are (the denser the values). Two groups of pixels (a
+    /// half cleared) show as two bright bands where the mean runs between them.
+    fn roi_density(&self, pl: &Plotted<'_>, tr: &egui_plot::PlotTransform) -> Vec<egui::Shape> {
+        let roi = &self.series.roi;
+        if roi.q.len() != pl.xs.len() {
+            return Vec::new();
+        }
+        let sh = pl.shown(&roi.stats, &roi.mean);
+        let sy = |x: f64, y: f64| tr.position_from_point(&egui_plot::PlotPoint::new(x, y)).y;
+        // a column's cells (y top, y bottom, density), in screen points
+        let cells: Vec<Vec<(f32, f32, f64)>> = roi
+            .q
+            .iter()
+            .zip(pl.xs)
+            .map(|(q, &x)| {
+                let v: Vec<f64> = q.iter().map(|&v| sh.at(f64::from(v), x)).collect();
+                if v.iter().any(|v| !v.is_finite()) {
+                    return Vec::new();
+                }
+                v.windows(2)
+                    .map(|w| {
+                        let (a, b) = (sy(x, w[0]), sy(x, w[1]));
+                        (b.min(a), a.max(b), 1.0 / f64::from((a - b).abs().max(0.5)))
+                    })
+                    .collect()
+            })
+            .collect();
+        // opaque from the 90th percentile of the densities up (a column of equal values would be infinitely dense)
+        let mut d: Vec<f64> = cells.iter().flatten().map(|c| c.2).collect();
+        if d.is_empty() {
+            return Vec::new();
+        }
+        let k = d.len() * 9 / 10;
+        let top = *d.select_nth_unstable_by(k, f64::total_cmp).1;
+        // light grey (darker on a light theme): the ROI's yellow mean stays legible over it
+        let fill = crate::theme::on_plot(Color32::from_gray(225));
+        let mut shapes = Vec::new();
+        for ((left, right), col) in date_columns(tr, pl.xs).into_iter().zip(&cells) {
+            for &(y0, y1, dens) in col {
+                let a = (dens / top).clamp(0.0, 1.0).powf(0.7) as f32 * 0.85;
+                let r = egui::Rect::from_x_y_ranges(left..=right, y0..=y1.max(y0 + 1.0));
+                shapes.push(egui::Shape::rect_filled(r, 0.0, fill.gamma_multiply(a)));
+            }
+        }
+        shapes
+    }
+
     pub fn series_ui(&mut self, ui: &mut Ui) {
         let Some(s) = &self.session else {
             ui.weak("Open a series and hover over the map.");
@@ -607,7 +660,7 @@ impl State {
                     );
             }
             if has_roi {
-                const SPREAD: [&str; 4] = ["ROI: mean", "ROI: p10-p90", "ROI: box plot", "ROI: fan"];
+                const SPREAD: [&str; 5] = ["ROI: mean", "ROI: p10-p90", "ROI: box plot", "ROI: fan", "ROI: density"];
                 ComboBox::from_id_salt("roi spread")
                     .width(120.0)
                     .selected_text(SPREAD[o.roi_spread])
@@ -621,7 +674,9 @@ impl State {
                         "Spread of the ROI's pixels at each date, around the mean:\np10-p90: a band between the 10th \
                          and 90th percentiles\nBox plot: a box from p25 to p75 with the median, whiskers to p10 and p90\n\
                          Fan: p10-p90 and p25-p75 as two bands, darker inside, and the median dashed (clearer than \
-                         boxes over many dates)\n(none with CUSUM: a running sum is of the mean only)",
+                         boxes over many dates)\nDensity: every pixel's value at each date as a shade, the brighter \
+                         the more pixels there (shows the ROI splitting in two where the mean runs between)\n(none with \
+                         CUSUM: a running sum is of the mean only)",
                     );
             }
             copy = ui.button("Copy CSV").on_hover_text("Copies the series (cursor, pins, ROI) to the clipboard").clicked();
@@ -710,6 +765,15 @@ impl State {
         }
         // nothing to draw yet (no cursor, pin or ROI): 0 to 1, as ImPlot's empty plot, not the date line's span
         let sr = &self.series;
+        // the ROI's density: from its lowest values to its highest
+        if o.roi_spread == 4 && !categorical && o.values != 4 && sr.roi.q.len() == n {
+            let sh = AsShown::new(o.values, &sr.roi.stats, &xs, &sr.roi.mean, dated);
+            let ends =
+                sr.roi.q.iter().zip(&xs).flat_map(|(q, &x)| [sh.at(f64::from(q[0]), x), sh.at(f64::from(q[40]), x)]);
+            for y in ends.filter(|y| y.is_finite()) {
+                plot = plot.include_y(y);
+            }
+        }
         if sr.pins.is_empty() && sr.hover.as_ref().is_none_or(|h| h.values.is_empty()) && sr.roi.mean.is_empty() {
             plot = plot.include_y(0.0).include_y(1.0);
         }
@@ -754,6 +818,7 @@ impl State {
         let t = self.display.t;
         let sr = &self.series;
         let background = ui.painter().add(egui::Shape::Noop);
+        let density = ui.painter().add(egui::Shape::Noop);
         let orange = Color32::from_rgb(255, 153, 51);
         let yellow = |a: u8| Color32::from_rgba_unmultiplied(255, 209, 61, a);
         let response = plot.show(ui, |plot| {
@@ -884,6 +949,10 @@ impl State {
         // the background and the season under the series; the date's tag on the axis
         let tr = &response.transform;
         ui.painter().set(background, crate::season::chart_background(ui, tr, &self.display, &info));
+        if self.chart.roi_spread == 4 && !categorical {
+            let shapes = self.roi_density(&pl, tr);
+            ui.painter().with_clip_rect(*tr.frame()).set(density, egui::Shape::Vec(shapes));
+        }
         let x = tr.position_from_point(&egui_plot::PlotPoint::new(xs[t], tr.bounds().min()[1])).x;
         let frame = *tr.frame();
         if (frame.left()..=frame.right()).contains(&x) {

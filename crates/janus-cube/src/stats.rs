@@ -140,8 +140,12 @@ pub fn series_stats(x_all: &[f64], v_all: &[f32]) -> SeriesStats {
     s
 }
 
+/// Quantiles a SampleStats keeps: every 2.5 % from the minimum to the maximum (2.5 % of the values between two
+/// consecutive ones: their spacing is the values' density).
+pub const QUANTILES: usize = 41;
+
 /// Statistics of a set of values (an ROI at one date).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SampleStats {
     pub n: usize,
     pub mean: f32,
@@ -151,6 +155,15 @@ pub struct SampleStats {
     pub p50: f32,
     pub p75: f32,
     pub p90: f32,
+    /// the k-th: the quantile k / (QUANTILES - 1)
+    pub q: [f32; QUANTILES],
+}
+
+impl Default for SampleStats {
+    fn default() -> Self {
+        let nan = f32::NAN;
+        SampleStats { n: 0, mean: nan, std: nan, p10: nan, p25: nan, p50: nan, p75: nan, p90: nan, q: [nan; QUANTILES] }
+    }
 }
 
 /// Reorders `v` (its NaN values dropped).
@@ -158,14 +171,21 @@ pub fn sample_stats(v: &mut Vec<f32>) -> SampleStats {
     v.retain(|x| !x.is_nan());
     let n = v.len();
     if n == 0 {
-        let nan = f32::NAN;
-        return SampleStats { n, mean: nan, std: nan, p10: nan, p25: nan, p50: nan, p75: nan, p90: nan };
+        return SampleStats::default();
     }
     let mean = (v.iter().map(|&x| f64::from(x)).sum::<f64>() / n as f64) as f32;
     let sq: f64 = v.iter().map(|&x| f64::from(x - mean) * f64::from(x - mean)).sum();
     let std = if n > 1 { (sq / (n - 1) as f64).sqrt() as f32 } else { 0.0 };
-    let mut q = |p: f64| *v.select_nth_unstable_by((p * (n - 1) as f64) as usize, f32::total_cmp).1;
-    SampleStats { n, mean, std, p10: q(0.10), p25: q(0.25), p50: q(0.50), p75: q(0.75), p90: q(0.90) }
+    // the quantiles in increasing order, each selected among the values above the one before (p: the value at
+    // index p (n - 1), rounded down)
+    let mut q = [f32::NAN; QUANTILES];
+    let mut lo = 0;
+    for (k, x) in q.iter_mut().enumerate() {
+        let i = (k as f64 / (QUANTILES - 1) as f64 * (n - 1) as f64) as usize;
+        *x = *v[lo..].select_nth_unstable_by(i - lo, f32::total_cmp).1;
+        lo = i;
+    }
+    SampleStats { n, mean, std, p10: q[4], p25: q[10], p50: q[20], p75: q[30], p90: q[36], q }
 }
 
 /// The civil year and the day of that year (1 January = 1) of a time in Unix seconds.
@@ -357,5 +377,10 @@ mod tests {
         let s = sample_stats(&mut v);
         assert_eq!((s.n, s.p10, s.p50, s.p90), (101, 10.0, 50.0, 90.0));
         assert_eq!(s.mean, 50.0);
+        assert_eq!((s.q[0], s.q[1], s.q[39], s.q[40]), (0.0, 2.0, 97.0, 100.0));
+        // two groups (a cleared half): the quantiles crowd at each, a gap between them
+        let mut v: Vec<f32> = (0..1000).map(|i| if i % 2 == 0 { 0.2 } else { 0.8 } + (i % 7) as f32 * 0.001).collect();
+        let s = sample_stats(&mut v);
+        assert!(s.q[19] < 0.21 && s.q[21] > 0.79);
     }
 }

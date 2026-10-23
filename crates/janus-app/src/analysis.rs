@@ -130,6 +130,9 @@ pub struct AnalysisUi {
     scatter_cube: [u64; 2],
     scatter_date: [i64; 2],
     pub scatter: ScatterData,
+    /// the series whose trajectory is drawn over the scatter (trajectory.rs): "off", "cursor" (also when empty),
+    /// "pin<id>", "roi"
+    pub trajectory: String,
     /// the scatter's density image (its key, the texture, the largest count)
     density: Option<(u64, egui::TextureHandle, f64)>,
 }
@@ -876,6 +879,13 @@ impl State {
             return;
         }
         let mut picked = [(0usize, 0usize); 2];
+        // the trajectory: the one chosen while it is there, else the first there is (the cursor, a pin, the ROI)
+        let sources = self.trajectory_sources();
+        let traj_key = sources
+            .iter()
+            .find(|s| s.0 == self.analysis.trajectory)
+            .or_else(|| sources.get(1))
+            .map_or("off".to_string(), |s| s.0.clone());
         ui.horizontal_wrapped(|ui| {
             for (k, id) in ["X", "Y"].iter().enumerate() {
                 let cube = self.analysis.scatter_cube[k];
@@ -883,9 +893,12 @@ impl State {
                     .iter()
                     .copied()
                     .find(|&i| self.layer_session(i).is_some_and(|s| s.info.id == cube))
+                    // none chosen: X the active layer, Y another one if there is (two layers compared, a place's
+                    // trajectory between them)
+                    .or_else(|| (k == 1).then(|| usable.iter().copied().find(|&i| i != self.active)).flatten())
                     .unwrap_or(self.active.min(self.layers.len() - 1));
+                // (the default not kept: Y goes to a layer added later)
                 let Some(info) = self.layer_session(li).map(|s| s.info.clone()) else { continue };
-                self.analysis.scatter_cube[k] = info.id;
                 ui.label(*id);
                 let mut chosen = li;
                 egui::ComboBox::from_id_salt(("scatter layer", k))
@@ -928,11 +941,49 @@ impl State {
                 picked[k] = (li, t);
                 ui.add_space(ui.text_style_height(&egui::TextStyle::Body));
             }
+            let a = &mut self.analysis;
+            let cur = sources.iter().position(|s| s.0 == traj_key);
+            ui.label("Trajectory");
+            egui::ComboBox::from_id_salt("scatter trajectory")
+                .width(ui.text_style_height(&egui::TextStyle::Body) * 9.0)
+                .selected_text(cur.map_or("Off", |k| sources[k].1.as_str()))
+                .show_ui(ui, |ui| {
+                    for (key, name) in &sources {
+                        if ui.selectable_label(cur.is_some_and(|k| sources[k].0 == *key), name).clicked() {
+                            a.trajectory = key.clone();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "A place's series on X's layer against its series on Y's, date by date, over the pixels: \
+                     coloured by time (dark to bright), arrows the way it goes, the current date ringed. A \
+                     season's loop, a disturbance leaving the cloud and the years it takes to come back.",
+                );
         });
         if usable.len() < self.layers.len() {
             ui.weak("Layers in another CRS are not listed (their pixels are not on this grid).");
         }
         let [(xl, tx), (yl, ty)] = picked;
+        let traj = (traj_key != "off").then(|| self.trajectory(&traj_key, xl, yl));
+        if let Some(Err(why)) = &traj
+            && !why.is_empty()
+        {
+            let mut on = false;
+            ui.horizontal(|ui| {
+                ui.weak(why);
+                if self.series.chart_layers == 0 {
+                    on = ui.small_button("Turn it on").clicked();
+                }
+            });
+            if on {
+                self.set_chart_layers(1);
+            }
+        }
+        let traj = traj.and_then(Result::ok).map(|mut t| {
+            t.name = format!("Trajectory: {}", sources.iter().find(|s| s.0 == traj_key).map_or("", |s| s.1.as_str()));
+            t
+        });
         let (Some(xs), Some(ys), Some(active)) =
             (self.layer_session(xl), self.layer_session(yl), self.session.as_ref())
         else {
@@ -985,6 +1036,12 @@ impl State {
                 hi[k] += 0.5;
             }
         }
+        // the plot's extent: the pixels' (the density's image) and the trajectory's
+        let (mut plo, mut phi) = (lo, hi);
+        for p in traj.iter().flat_map(|t| &t.pts) {
+            plo = [plo[0].min(p[0]), plo[1].min(p[1])];
+            phi = [phi[0].max(p[0]), phi[1].max(p[1])];
+        }
         // the density: 120 x 120 cells, an image in the plot (made again when the pixels change)
         const B: usize = 120;
         let (cw, ch) = ((hi[0] - lo[0]) / B as f64, (hi[1] - lo[1]) / B as f64);
@@ -1018,10 +1075,10 @@ impl State {
                     .height(size.y)
                     .x_axis_label(x_name)
                     .y_axis_label(y_name)
-                    .include_x(lo[0])
-                    .include_x(hi[0])
-                    .include_y(lo[1])
-                    .include_y(hi[1])
+                    .include_x(plo[0])
+                    .include_x(phi[0])
+                    .include_y(plo[1])
+                    .include_y(phi[1])
                     .set_margin_fraction(egui::Vec2::ZERO)
                     .show_background(false)
                     .allow_drag(false)
@@ -1045,6 +1102,9 @@ impl State {
                                     .color(theme::on_plot(ORANGE))
                                     .width(2.0),
                             );
+                        }
+                        if let Some(t) = &traj {
+                            crate::trajectory::draw(plot, t);
                         }
                     });
             });

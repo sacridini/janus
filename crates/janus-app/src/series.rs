@@ -89,6 +89,8 @@ pub struct RoiSeries {
     pub p25: Vec<f32>,
     pub p50: Vec<f32>,
     pub p75: Vec<f32>,
+    /// [t] the quantiles every 2.5 % (the density of the ROI's values)
+    pub q: Vec<[f32; janus_cube::stats::QUANTILES]>,
     pub stats: SeriesStats,
     /// the map's ROI generation it belongs to
     pub gen_: u64,
@@ -118,6 +120,7 @@ impl RoiSeries {
         for v in [&mut self.mean, &mut self.p10, &mut self.p90, &mut self.p25, &mut self.p50, &mut self.p75] {
             *v = vec![f32::NAN; n];
         }
+        self.q = vec![[f32::NAN; janus_cube::stats::QUANTILES]; n];
         for (t, st) in d.per_t.iter().enumerate() {
             let Some(st) = st.get().filter(|st| st.n > 0) else { continue };
             self.mean[t] = st.mean;
@@ -126,6 +129,7 @@ impl RoiSeries {
             self.p25[t] = st.p25;
             self.p50[t] = st.p50;
             self.p75[t] = st.p75;
+            self.q[t] = st.q;
         }
         self.stats = series_stats(years, &self.mean);
         true

@@ -877,8 +877,10 @@ impl State {
                     self.analysis.class_view = 1;
                 }
             }
-            if let Some(spec) = self.opts.chart.clone() {
-                self.chart.set(&spec);
+            if let Some(spec) = self.opts.chart.clone()
+                && let Some(layers) = self.chart.set(&spec)
+            {
+                self.set_chart_layers(layers);
             }
             if self.opts.transect.len() >= 4 {
                 let pts = self.opts.transect.as_chunks::<2>().0.to_vec();
@@ -1325,7 +1327,12 @@ impl State {
                 self.opts.view.is_none() || self.session.as_ref().is_some_and(|s| s.tiles.inflight() == 0);
             // an ROI asked for: its series read
             let roi_ready = self.opts.roi.is_none() && self.opts.roi_polygon.is_empty() || self.series.roi.complete();
+            // --layer: every one open and its overview read
+            let layers_ready = self.opts.extra_layers.is_empty()
+                && self.opening.is_none()
+                && self.layers.iter().all(|l| l.session.as_ref().is_none_or(|s| s.s.overview.complete()));
             let ready = self.session.as_ref().is_some_and(|s| s.ready_ms.is_some())
+                && layers_ready
                 && basemap_ready
                 && zeit_ready
                 && emb_ready
