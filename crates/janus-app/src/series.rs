@@ -362,7 +362,7 @@ impl State {
     }
 
     /// Once per frame: exact series that came, the cursor's read once it rests, the ROI's dates.
-    pub(crate) fn pump_series(&mut self) {
+    pub(crate) fn pump_series(&mut self, ctx: &egui::Context) {
         let Some(s) = &self.session else { return };
         s.collect_series(); // those read since the session's pump
         let sr = &mut self.series;
@@ -379,14 +379,22 @@ impl State {
             take_exact(s, p);
         }
         let mut request_others = false;
-        if sr.hover_since.is_some_and(|t| t.elapsed().as_secs_f64() >= 0.12) {
-            sr.hover_since = None;
-            if let Some(h) = &sr.hover
-                && !s.s.defer_random_reads()
-            {
-                s.request_hover(h.x, h.y);
+        const REST: f64 = 0.12;
+        if let Some(since) = sr.hover_since {
+            let rested = since.elapsed().as_secs_f64();
+            if rested >= REST {
+                sr.hover_since = None;
+                if let Some(h) = &sr.hover
+                    && !s.s.defer_random_reads()
+                {
+                    s.request_hover(h.x, h.y);
+                }
+                request_others = true;
+            } else {
+                // a frame once the cursor has rested, though nothing else happens (egui draws on input only): the
+                // exact series and the pixel tools' fits come without another event
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(REST - rested));
             }
-            request_others = true;
         }
         if !s.s.defer_random_reads() {
             // pins made while an HDD's overview was building

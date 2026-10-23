@@ -968,7 +968,7 @@ impl State {
         self.pump_season();
         self.pump_layers(ctx);
         self.sync_layer_times();
-        self.pump_series();
+        self.pump_series(ctx);
         let (Some(s), Some(gpu)) = (&mut self.session, &mut self.gpu) else { return };
         if s.pump(gpu, ctx) {
             self.map.dirty = true;

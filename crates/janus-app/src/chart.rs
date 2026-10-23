@@ -439,9 +439,6 @@ impl State {
         if o.values > 0 && !categorical {
             plot = plot.y_axis_label(if o.values == 1 { "anomaly" } else { "z-score" });
         }
-        // the whole series and 3 % of it beyond each end
-        let pad = if n > 1 { (xs[n - 1] - xs[0]) * 0.03 } else { 1.0 };
-        plot = plot.include_x(xs[0] - pad).include_x(xs[n - 1] + pad);
         if o.y_from_map && o.values == 0 {
             let r = self.display.ranges[janus_gpu::Mode::Value as usize];
             let m = f64::from(r.hi - r.lo) * 0.05;
@@ -450,6 +447,19 @@ impl State {
                 .include_y(f64::from(r.hi) + m)
                 .auto_bounds(egui::Vec2b::new(true, false))
                 .default_y_bounds(f64::from(r.lo) - m, f64::from(r.hi) + m);
+        }
+        // the X axis from the first date to the last, no margin (after auto_bounds above, which would undo it); half
+        // a box beyond each end with box plots, which would be cut in two
+        if n > 1 {
+            let pad = if self.series.roi_rect.is_some() && o.roi_spread == 2 && !categorical {
+                let gap = xs.windows(2).map(|w| w[1] - w[0]).filter(|g| *g > 0.0).fold(f64::INFINITY, f64::min);
+                if gap.is_finite() { gap * 0.3 } else { 0.0 }
+            } else {
+                0.0
+            };
+            plot = plot.default_x_bounds(xs[0] - pad, xs[n - 1] + pad);
+        } else {
+            plot = plot.include_x(xs[0] - 1.0).include_x(xs[0] + 1.0);
         }
         // nothing to draw yet (no cursor, pin or ROI): 0 to 1, as ImPlot's empty plot, not the date line's span
         let sr = &self.series;

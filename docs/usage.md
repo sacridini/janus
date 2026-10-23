@@ -36,8 +36,9 @@
   vertices or drag a freehand outline; or Alt + click a polygon of a vector
   layer): mean and p10–p90 per date, or a box plot per date (p25–p75 box,
   median, whiskers to p10 and p90), of the pixels whose centres are inside.
-- **Chart**: lines, markers, stems or stairs; raw values, anomaly or z-score;
-  OLS or Sen trend line per series; Y axis locked to the map range if you want.
+- **Chart**: from the first date to the last; lines, markers, stems or stairs;
+  raw values, anomaly or z-score; OLS or Sen trend line per series; Y axis
+  locked to the map range if you want.
 - **Statistics** per series: n, mean, median, std, CV, min/max (with date),
   amplitude, OLS slope + R², Sen's slope, largest drop (with date) and, in the
   difference mode, the difference shown on the map (the Mann-Kendall test, with
