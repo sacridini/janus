@@ -122,7 +122,7 @@ Developer options:
   --opacity A         the active layer's opacity (0 to 1)
   --roi X0,Y0,X1,Y1   an ROI rectangle (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline)
-  --analysis seasonal|classes|scatter  the Analysis panel at that tab
+  --analysis seasonal|classes|scatter  the Analysis panel at that tab (seasonal,M: its years from month M)
   --chart K=V,...     the chart's options: style (0 lines ... 5 bars), values (0 values, 1 anomaly, 2 z-score,
                       3 seasonal anomaly, 4 CUSUM), trend (0-2), spread (the ROI's, 0 mean ... 3 fan),
                       stripes (0/1)
@@ -378,11 +378,14 @@ fn main() -> eframe::Result<()> {
                 }
             }
             "--analysis" => {
-                opts.analysis = match args.next().as_deref() {
-                    Some("classes") => Some(1),
-                    Some("scatter") => Some(2),
+                let a = args.next().unwrap_or_default();
+                let (tab, month) = a.split_once(',').unwrap_or((&a, ""));
+                opts.analysis = match tab {
+                    "classes" => Some(1),
+                    "scatter" => Some(2),
                     _ => Some(0),
-                }
+                };
+                opts.analysis_view = month.trim().to_string();
             }
             "--transect" => {
                 opts.transect =

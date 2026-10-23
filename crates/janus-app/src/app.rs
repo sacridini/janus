@@ -176,8 +176,10 @@ pub struct Options {
     pub roi_polygon: Vec<f64>,
     /// --transect: its vertices (x, y, ...)
     pub transect: Vec<f64>,
-    /// --analysis: the Analysis panel at this tab
+    /// --analysis: the Analysis panel at this tab; after a comma, the tab's view (seasonal,M: its years from month
+    /// M, 1 January)
     pub analysis: Option<usize>,
+    pub analysis_view: String,
     /// --chart K=V,...: the chart's options
     pub chart: Option<String>,
     /// --zeit TOOL: that Zeit tool fitted on the chart, its window open
@@ -868,6 +870,9 @@ impl State {
             }
             if let Some(tab) = self.opts.analysis {
                 (self.analysis.show, self.analysis.tab) = (true, tab);
+                if let Ok(m @ 1..=12) = self.opts.analysis_view.parse::<usize>() {
+                    self.analysis.seasonal_start = m - 1;
+                }
             }
             if let Some(spec) = self.opts.chart.clone() {
                 self.chart.set(&spec);

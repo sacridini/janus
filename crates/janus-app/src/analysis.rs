@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use egui::{Color32, Pos2, Rect, Stroke, Ui, vec2};
 use egui_plot::{FilledArea, GridMark, Legend, Line, Plot, PlotPoint, PlotPoints, VLine};
 use janus_cube::multidim::format_g;
-use janus_cube::stats::{observations_per_year, seasonal_grid, year_and_day};
+use janus_cube::stats::{observations_per_year, season_year_and_day, seasonal_grid};
 use janus_gpu::Mode;
 
 use crate::app::State;
@@ -23,6 +23,11 @@ const ORANGE: Color32 = Color32::from_rgb(255, 153, 51);
 
 fn month_of(day: i32) -> usize {
     (0..11).take_while(|&m| f64::from(day) >= MONTH_START[m + 1]).count()
+}
+
+/// A seasonal year's name: 2019, or 2019/20 when it starts after January.
+fn year_label(y: i32, start: usize) -> String {
+    if start == 0 { format!("{y}") } else { format!("{y}/{:02}", (y + 1).rem_euclid(100)) }
 }
 
 fn percent(share: f64) -> String {
@@ -108,6 +113,8 @@ pub struct AnalysisUi {
     seasonal_source: String,
     /// 0 years overlaid, 1 the heatmap
     seasonal_view: usize,
+    /// the month the seasonal year starts in (0 January: the calendar year)
+    pub seasonal_start: usize,
     pub classes: ClassTimeline,
     class_stacked: bool,
     trans_from: usize,
@@ -184,6 +191,21 @@ impl State {
                 .on_hover_text("The series shown (the cursor follows the mouse over the map)");
             ui.radio_value(&mut a.seasonal_view, 0, "Years overlaid");
             ui.radio_value(&mut a.seasonal_view, 1, "Year x day heatmap");
+            ui.label("Year from");
+            egui::ComboBox::from_id_salt("seasonal start")
+                .width(ui.text_style_height(&egui::TextStyle::Body) * 4.0)
+                .selected_text(MONTHS[a.seasonal_start])
+                .show_ui(ui, |ui| {
+                    for (k, m) in MONTHS.iter().enumerate() {
+                        ui.selectable_value(&mut a.seasonal_start, k, *m);
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "The month the year starts in: January, the calendar year; July or August, a hydrological year \
+                     or a southern summer's crop (October to March) seen whole instead of split at the chart's \
+                     edges. A year is named after the one it starts in (2019/20).",
+                );
         });
         let v = &sources[src].2;
         let times: Vec<f64> = info.layers.iter().map(|l| l.time).collect();
@@ -196,29 +218,43 @@ impl State {
             ui.weak("(For series with several dates a year: monthly, 16-day composites...)");
             return;
         }
-        let (cur_year, cur_day) = year_and_day(times[self.display.t.min(times.len() - 1)]);
+        // the seasonal year: from the first day of its month, days 1 to 366 from there
+        let s0 = self.analysis.seasonal_start;
+        let start = MONTH_START[s0] as i32;
+        let off = MONTH_START[s0] - 1.0;
+        // a day of the calendar year (1 to 366) in the seasonal one
+        let shift = move |d: f64| if d - off < 1.0 { d - off + 366.0 } else { d - off };
+        let (cur_year, cur_day) = season_year_and_day(times[self.display.t.min(times.len() - 1)], start);
         let scale_w = ui.text_style_height(&egui::TextStyle::Body) * 6.0;
-        let months = |plot: Plot<'static>| {
-            plot.x_axis_label("day of the year")
-                .x_grid_spacer(|_| MONTH_START[..12].iter().map(|&v| GridMark { value: v, step_size: 30.0 }).collect())
-                .x_axis_formatter(|m, _| {
-                    MONTH_START[..12]
-                        .iter()
-                        .position(|&v| v == m.value)
-                        .map_or(String::new(), |k| MONTHS[k].to_string())
-                })
-                .include_x(1.0)
-                .include_x(367.0)
+        let months = move |plot: Plot<'static>| {
+            plot.x_grid_spacer(move |_| {
+                // in order along the axis, from the seasonal year's first month
+                (0..12).map(|k| GridMark { value: shift(MONTH_START[(k + s0) % 12]), step_size: 30.0 }).collect()
+            })
+            // every month named (egui_plot hides labels under 60 points apart: a narrow panel had none)
+            .custom_x_axes(vec![
+                egui_plot::AxisHints::new_x()
+                    .label(if s0 == 0 { "day of the year" } else { "day of the seasonal year" })
+                    .formatter(move |m, _| {
+                        (0..12)
+                            .find(|&k| shift(MONTH_START[k]) == m.value)
+                            .map_or(String::new(), |k| MONTHS[k].to_string())
+                    })
+                    .label_spacing(20.0..=21.0),
+            ])
+            .include_x(1.0)
+            .include_x(367.0)
         };
         if self.analysis.seasonal_view == 0 {
             // one line per year (colour = year), the current date's year on top; the mean of every year by month,
             // with +/- one standard deviation
-            let (y0, y1) = (year_and_day(times[0]).0, year_and_day(times[times.len() - 1]).0);
+            let (y0, y1) =
+                (season_year_and_day(times[0], start).0, season_year_and_day(times[times.len() - 1], start).0);
             let viridis = lut(janus_gpu::colormaps::VIRIDIS);
             let mut years: Vec<(i32, Vec<[f64; 2]>)> = Vec::new();
             let (mut m_sum, mut m_sq, mut m_n) = ([0f64; 12], [0f64; 12], [0usize; 12]);
             for (&t, &x) in times.iter().zip(v) {
-                let (y, d) = year_and_day(t);
+                let (y, d) = season_year_and_day(t, start);
                 if years.last().is_none_or(|l| l.0 != y) {
                     years.push((y, Vec::new()));
                 }
@@ -226,20 +262,22 @@ impl State {
                     continue;
                 }
                 years.last_mut().unwrap().1.push([f64::from(d), f64::from(x)]);
-                let m = month_of(d);
+                // its calendar month
+                let m = month_of((f64::from(d) + off - 1.0) as i32 % 366 + 1);
                 m_sum[m] += f64::from(x);
                 m_sq[m] += f64::from(x) * f64::from(x);
                 m_n[m] += 1;
             }
             let (mut mx, mut mean, mut lo, mut hi) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-            for m in 0..12 {
+            // in the seasonal year's order
+            for m in (0..12).map(|k| (k + s0) % 12) {
                 if m_n[m] == 0 {
                     continue;
                 }
                 let n = m_n[m] as f64;
                 let mu = m_sum[m] / n;
                 let sd = if m_n[m] > 1 { ((m_sq[m] - n * mu * mu) / (n - 1.0)).max(0.0).sqrt() } else { 0.0 };
-                mx.push(0.5 * (MONTH_START[m] + MONTH_START[m + 1]));
+                mx.push(shift(MONTH_START[m]) + 0.5 * (MONTH_START[m + 1] - MONTH_START[m]));
                 mean.push(mu);
                 lo.push(mu - sd);
                 hi.push(mu + sd);
@@ -276,7 +314,11 @@ impl State {
                                 let k = if y1 > y0 { (y - y0) as f32 / (y1 - y0) as f32 } else { 0.5 };
                                 let col = theme::on_plot(lut_at(&viridis, k));
                                 // only the current year in the legend (an item without a name has no entry)
-                                let name = if current { format!("{y} (current date)") } else { String::new() };
+                                let name = if current {
+                                    format!("{} (current date)", year_label(*y, s0))
+                                } else {
+                                    String::new()
+                                };
                                 let mut line = Line::new(name, PlotPoints::from(pts.clone()))
                                     .color(col)
                                     .width(if current { 2.5 } else { 1.0 });
@@ -286,7 +328,11 @@ impl State {
                                 plot.line(line);
                                 plot.points(
                                     egui_plot::Points::new(
-                                        if current { format!("{y} (current date)") } else { String::new() },
+                                        if current {
+                                            format!("{} (current date)", year_label(*y, s0))
+                                        } else {
+                                            String::new()
+                                        },
                                         PlotPoints::from(pts.clone()),
                                     )
                                     .color(col)
@@ -296,14 +342,14 @@ impl State {
                         });
                 });
                 colour_scale(ui, size.y, janus_gpu::colormaps::VIRIDIS, f64::from(y0), f64::from(y1), &|v| {
-                    format!("{v:.0}")
+                    year_label(v.round() as i32, s0)
                 });
             });
             return;
         }
         // heatmap: years (newest on top) x parts of the year, in the layer's colours
         let bins = (per_year as usize).clamp(2, 46);
-        let g = seasonal_grid(&times, v, bins);
+        let g = seasonal_grid(&times, v, bins, start);
         let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
         for &m in g.mean.iter().filter(|m| m.is_finite()) {
             lo = lo.min(m);
@@ -323,7 +369,7 @@ impl State {
                     .height(size.y)
                     .include_y(y0 - 0.5)
                     .include_y(y0 + years - 0.5)
-                    .y_axis_formatter(|m, _| format!("{:.0}", m.value))
+                    .y_axis_formatter(move |m, _| year_label(m.value.round() as i32, s0))
                     .set_margin_fraction(egui::Vec2::ZERO)
                     .show_background(false)
                     .show_grid(false)
@@ -369,7 +415,9 @@ impl State {
                 if let Some(k) = hover {
                     let (row, b) = (k / g.bins, k % g.bins);
                     let (d0, d1) = (1 + 366 * b / g.bins, 366 * (b + 1) / g.bins);
-                    let head = format!("{}, days {d0}-{d1} ({})", g.year0 + row as i32, MONTHS[month_of(d0 as i32)]);
+                    // the month of the part's first day, in the calendar
+                    let month = MONTHS[month_of((d0 as f64 + off - 1.0) as i32 % 366 + 1)];
+                    let head = format!("{}, days {d0}-{d1} ({month})", year_label(g.year0 + row as i32, s0));
                     let body = if g.mean[k].is_finite() {
                         format!("{} (mean of {})", format_g(f64::from(g.mean[k]), 4), g.n[k])
                     } else {

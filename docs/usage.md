@@ -131,7 +131,9 @@
   - **Seasonal** (series with several dates a year): the cursor, a pin or the
     ROI mean by day of the year, one line per year (colour = year, the current
     date's year on top) with the mean of all years by month (± 1 standard
-    deviation), or a **year × day-of-year heatmap** in the layer's colours.
+    deviation), or a **year × day-of-year heatmap** in the layer's colours;
+    the year can start in any month (*Year from*: July, a southern summer's
+    crop from October to March seen whole; years named 2019/20).
   - **Classes** (categorical layers): the **share of each class at every date**
     (stacked areas or lines) and the **transitions** between two dates (the
     largest ones, the share of pixels that changed, the full matrix); Copy CSV

@@ -175,6 +175,15 @@ pub fn year_and_day(unix_seconds: f64) -> (i32, i32) {
     (y, (days - crate::dates::days_from_civil(y, 1, 1)) as i32 + 1)
 }
 
+/// The year and the day of a seasonal year that starts on day `start` (1: 1 January; e.g. 182, 1 July, a
+/// hydrological year or a southern summer's crop seen whole): the year it starts in and the day from its start
+/// (1 to 366).
+pub fn season_year_and_day(unix_seconds: f64, start: i32) -> (i32, i32) {
+    let (y, d) = year_and_day(unix_seconds);
+    let d = d - (start.clamp(1, 366) - 1);
+    if d < 1 { (y - 1, d + 366) } else { (y, d) }
+}
+
 /// Observations per year of a series of times (Unix seconds), from the median spacing; 1 for one or none.
 pub fn observations_per_year(t: &[f64]) -> i32 {
     let mut gaps: Vec<f64> = t.windows(2).filter(|w| w[1] > w[0]).map(|w| w[1] - w[0]).collect();
@@ -221,7 +230,8 @@ pub fn cusum(v: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-/// A series by year and part of the year: `bins` parts of 366 days, the mean of the observations in each cell.
+/// A series by year and part of the year: `bins` parts of 366 days, the mean of the observations in each cell; the
+/// years start on day `start` (season_year_and_day).
 #[derive(Clone, Debug, Default)]
 pub struct SeasonalGrid {
     pub year0: i32,
@@ -233,10 +243,10 @@ pub struct SeasonalGrid {
     pub n: Vec<usize>,
 }
 
-pub fn seasonal_grid(t: &[f64], v: &[f32], bins: usize) -> SeasonalGrid {
+pub fn seasonal_grid(t: &[f64], v: &[f32], bins: usize, start: i32) -> SeasonalGrid {
     let bins = bins.max(1);
     let mut g = SeasonalGrid { bins, ..Default::default() };
-    let yd: Vec<(i32, i32)> = t.iter().take(v.len()).map(|&x| year_and_day(x)).collect();
+    let yd: Vec<(i32, i32)> = t.iter().take(v.len()).map(|&x| season_year_and_day(x, start)).collect();
     let (Some(y0), Some(y1)) = (yd.iter().map(|d| d.0).min(), yd.iter().map(|d| d.0).max()) else { return g };
     g.year0 = y0;
     g.years = (y1 - y0 + 1) as usize;
@@ -282,7 +292,7 @@ mod tests {
         }
         assert_eq!(observations_per_year(&times), 12);
         assert_eq!(observations_per_year(&jan1), 1);
-        let g = seasonal_grid(&times, &values, 12);
+        let g = seasonal_grid(&times, &values, 12, 1);
         assert_eq!((g.year0, g.years, g.bins), (2009, 3, 12));
         for y in 0..3 {
             for m in 0..12 {
@@ -290,6 +300,13 @@ mod tests {
                 assert_eq!(g.n[y * 12 + m], 1);
             }
         }
+        // years from 1 July: 2008/09 (January to June 2009) to 2011/12; July first, January seventh
+        assert_eq!(season_year_and_day(jan1[0], 182), (2008, 186));
+        assert_eq!(season_year_and_day(jan1[0] + 181.0 * 86400.0, 182), (2009, 1));
+        let g = seasonal_grid(&times, &values, 12, 182);
+        assert_eq!((g.year0, g.years), (2008, 4));
+        assert_eq!(g.mean[12], 7.0); // 2009/10's first part: July 2009
+        assert_eq!(g.mean[12 + 6], 101.0); // and its seventh: January 2010
     }
 
     #[test]
