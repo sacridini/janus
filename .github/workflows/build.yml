@@ -47,7 +47,9 @@ jobs:
           environment-name: janus
           create-args: -c conda-forge ${{ matrix.packages }}
           init-shell: bash
-          cache-environment: true
+          # the downloads cached, not the environment: the package cache (pkgs/) keeps each package's license
+          # texts, which THIRD_PARTY_NOTICES.txt carries (tools/notices.py)
+          cache-downloads: true
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -117,7 +119,7 @@ jobs:
           xvfb-run -a -s "-screen 0 1920x1080x24" "$GITHUB_WORKSPACE/${{ matrix.exe }}" --selftest-ui A B C D E F G
 
       - name: Package
-        run: python tools/package.py --no-build
+        run: python tools/package.py --no-build --strict-notices
 
       # From another folder, with a relative input: as a user calls it from a terminal.
       - name: Packaged program runs

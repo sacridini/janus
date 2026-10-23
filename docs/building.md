@@ -84,6 +84,13 @@ finds (RPATH `@executable_path/../Frameworks`, ad hoc signature). The Windows in
 [Inno Setup 6](https://jrsoftware.org/isinfo.php); without it the files are left in
 `target/package`.
 
+Every package carries Janus's `LICENSE` and a `THIRD_PARTY_NOTICES.txt` (`tools/notices.py`): the
+Rust crates compiled into the program (`cargo metadata`), the conda-forge packages its libraries
+and data come from (`conda-meta`), and the embedded fonts, each with its license's text. The
+conda packages' texts are read from the package cache (`pkgs/<package>/info/licenses`), which an
+environment restored from a cache may not have; `--strict-notices` (the CI's) fails then instead of
+leaving a work without its text.
+
 The CI (`.github/workflows/build.yml`) does all of the above on Windows, Linux and macOS and
 publishes the three packages on a `v*` tag.
 

@@ -46,6 +46,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
 [Files]
 Source: "{#BuildDir}\janus.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\jn.com"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BuildDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BuildDir}\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\share\*"; DestDir: "{app}\share"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; GDAL drivers built as plugins (NetCDF, HDF5)

@@ -5,19 +5,23 @@ GDAL and its whole chain (PROJ, GEOS, libtiff, curl...) come from the environmen
 (a conda-forge environment, docs/building.md): every library the program loads, the GDAL drivers built as plugins
 (NetCDF, HDF5), the PROJ and GDAL data and, off Windows, CA certificates for curl. The system's own libraries
 (Windows' DLLs; glibc, OpenGL and X11 on Linux; macOS's) are left to the system. Zeit is part of the program: there
-is no Python to ship.
+is no Python to ship. Every package has Janus's LICENSE and THIRD_PARTY_NOTICES.txt (tools/notices.py: the crates,
+libraries, data and fonts it distributes, with their licenses' texts).
 
-Usage: python tools/package.py [--no-build] [--prefix PREFIX] [--out DIR]
+Usage: python tools/package.py [--no-build] [--prefix PREFIX] [--out DIR] [--strict-notices]
   PREFIX  GDAL's installation prefix (default: the conda environment, $CONDA_PREFIX; on Windows its Library/)
   DIR     where the package is assembled (default: target/package)
+  --strict-notices  fails if a work has no license text in THIRD_PARTY_NOTICES.txt (the CI's releases)
 
 Layouts:
-  Windows  janus.exe, jn.com (the command line), the DLLs, gdalplugins/, share/gdal, share/proj; the installer
+  Windows  janus.exe, jn.com (the command line), the DLLs, gdalplugins/, share/gdal, share/proj, LICENSE,
+           THIRD_PARTY_NOTICES.txt; the installer
            (installer/janus.iss) puts them in Program Files or the user's folder, on PATH, in the context menu.
   Linux    janus-<version>/: janus (RPATH $ORIGIN/lib), jn (the command line), lib/ (lib/gdalplugins/), share/gdal,
-           share/proj, share/ssl/cacert.pem, janus.desktop, janus.png, README.md.
+           share/proj, share/ssl/cacert.pem, janus.desktop, janus.png, README.md, LICENSE, THIRD_PARTY_NOTICES.txt.
   macOS    Janus.app/Contents/: MacOS/janus and jn (RPATH @executable_path/../Frameworks), Frameworks/
-           (Frameworks/gdalplugins/), Resources/ (janus.icns, share/...), Info.plist; signed ad hoc.
+           (Frameworks/gdalplugins/), Resources/ (janus.icns, share/..., LICENSE, THIRD_PARTY_NOTICES.txt),
+           Info.plist; signed ad hoc. The two texts also beside the app in the disk image.
 """
 import argparse
 import os
@@ -31,8 +35,14 @@ import tarfile
 import time
 from pathlib import Path
 
+import notices
+
 ROOT = Path(__file__).resolve().parent.parent
 PLUGINS = ["gdal_netCDF", "gdal_HDF5"]
+# the files copied from GDAL's environment (their notices: the conda packages they come from)
+SHIPPED = []
+# --strict-notices
+STRICT = False
 
 
 def version():
@@ -59,6 +69,23 @@ def copy_data(prefix_share, share):
     (share / "proj").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(prefix_share / "proj" / "proj.db", share / "proj" / "proj.db")
     shutil.copytree(prefix_share / "gdal", share / "gdal", dirs_exist_ok=True)
+    SHIPPED.append(prefix_share / "proj" / "proj.db")
+    SHIPPED.extend(p for p in (prefix_share / "gdal").rglob("*") if p.is_file())
+
+
+def legal(*dirs):
+    """Janus's LICENSE and the third-party notices (of everything in SHIPPED) in each of `dirs`."""
+    prefix = os.environ.get("CONDA_PREFIX")
+    first = dirs[0] / "THIRD_PARTY_NOTICES.txt"
+    missing = notices.write(first, version(), SHIPPED,
+                            prefix if prefix and (Path(prefix) / "conda-meta").is_dir() else None)
+    if STRICT and missing:
+        sys.exit(f"package: {len(missing)} works without a license text (--strict-notices)")
+    for d in dirs:
+        d.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / "LICENSE", d / "LICENSE")
+        if d != dirs[0]:
+            shutil.copyfile(first, d / "THIRD_PARTY_NOTICES.txt")
 
 
 def megabytes(path):
@@ -141,13 +168,16 @@ def windows(args, ver, exe_dir):
             p = find(name)
             if p:
                 shutil.copyfile(p, stage / p.name)
+                SHIPPED.append(p)
                 todo.append(stage / p.name)
                 copied += 1
     for p in plugins:
         (stage / "gdalplugins").mkdir(exist_ok=True)
         shutil.copyfile(p, stage / "gdalplugins" / p.name)
+        SHIPPED.append(p)
     copy_data(prefix / "share", stage / "share")
     print(f"package: {copied} DLLs")
+    legal(stage)
 
     iscc = shutil.which("ISCC") or next(
         (str(p) for p in [Path(os.environ.get("ProgramFiles(x86)", "")) / "Inno Setup 6" / "ISCC.exe",
@@ -201,10 +231,12 @@ def linux(args, ver, exe_dir):
                 continue
             if not (stage / "lib" / soname).exists():
                 copy(path, stage / "lib" / soname)
+                SHIPPED.append(path)
                 copied += 1
     print(f"package: {copied} libraries")
     for p in plugins:
         copy(p, stage / "lib" / "gdalplugins" / p.name)
+        SHIPPED.append(p)
         run("patchelf", "--set-rpath", "$ORIGIN/..", stage / "lib" / "gdalplugins" / p.name)
     for exe in ["janus", "jn"]:
         copy(exe_dir / exe, stage / exe)
@@ -213,8 +245,10 @@ def linux(args, ver, exe_dir):
     copy_data(prefix / "share", stage / "share")
     if (prefix / "ssl" / "cacert.pem").exists():
         copy(prefix / "ssl" / "cacert.pem", stage / "share" / "ssl" / "cacert.pem")
+        SHIPPED.append(prefix / "ssl" / "cacert.pem")
     shutil.copyfile(ROOT / "resources" / "janus.png", stage / "janus.png")
     shutil.copyfile(ROOT / "README.md", stage / "README.md")
+    legal(stage)
     (stage / "janus.desktop").write_text(
         "[Desktop Entry]\nType=Application\nName=Janus\nComment=Raster time series analysis\n"
         "Exec=janus %F\nIcon=janus\nTerminal=false\nCategories=Science;Geography;Graphics;\nMimeType=image/tiff;\n"
@@ -267,12 +301,14 @@ def macos(args, ver, exe_dir):
                 continue
             seen.add(name)
             copy(p, app / "Frameworks" / name)
+            SHIPPED.append(p)
             todo.append(p)
             copied += 1
     print(f"package: {copied} libraries")
     for p in plugins:
         dst = app / "Frameworks" / "gdalplugins" / p.name
         copy(p, dst)
+        SHIPPED.append(p)
         subprocess.run(["install_name_tool", "-add_rpath", "@loader_path/..", str(dst)], capture_output=True)
     for exe in ["janus", "jn"]:
         copy(exe_dir / exe, app / "MacOS" / exe)
@@ -286,7 +322,10 @@ def macos(args, ver, exe_dir):
     copy_data(prefix / "share", app / "Resources" / "share")
     if (prefix / "ssl" / "cacert.pem").exists():
         copy(prefix / "ssl" / "cacert.pem", app / "Resources" / "share" / "ssl" / "cacert.pem")
+        SHIPPED.append(prefix / "ssl" / "cacert.pem")
     shutil.copyfile(ROOT / "resources" / "janus.icns", app / "Resources" / "janus.icns")
+    # in the bundle (sealed by its signature below) and beside it in the disk image
+    legal(app / "Resources", stage)
     plist = (ROOT / "resources" / "Info.plist.in").read_text(encoding="utf-8")
     (app / "Info.plist").write_text(plist.replace("@VERSION@", ver).replace("@MIN_MACOS@", args.min_macos))
     # install_name_tool invalidated the signatures (on Apple Silicon unsigned code is killed on load): every
@@ -319,7 +358,10 @@ def main():
     ap.add_argument("--prefix", help="GDAL's installation prefix (default: the conda environment)")
     ap.add_argument("--out", default=str(ROOT / "target" / "package"), help="where the package is assembled")
     ap.add_argument("--min-macos", default="15.0", help="macOS: the oldest system the app is for")
+    ap.add_argument("--strict-notices", action="store_true", help="fail if a work has no license text")
     args = ap.parse_args()
+    global STRICT
+    STRICT = args.strict_notices
     ver = version()
     if not args.no_build:
         run("cargo", "build", "--release", "-p", "janus-app", cwd=ROOT)

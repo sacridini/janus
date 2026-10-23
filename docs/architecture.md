@@ -69,7 +69,8 @@ runs on thread pools; a GDAL dataset is never shared between threads (each threa
 
 | Path | Role |
 |---|---|
-| `tools/package.py` | The packages: Windows installer (`installer/janus.iss`, Inno Setup), Linux `.tar.xz`, macOS `.dmg` |
+| `tools/package.py` | The packages: Windows installer (`installer/janus.iss`, Inno Setup), Linux `.tar.xz`, macOS `.dmg`; each with `LICENSE` and `THIRD_PARTY_NOTICES.txt` |
+| `tools/notices.py` | `THIRD_PARTY_NOTICES.txt`: the crates in the program, the conda-forge libraries and data a package carries, the fonts, with their license texts |
 | `tools/make_selftest_data.py` | Synthetic inputs for the self-tests |
 | `tools/make_tutorial_data.py`, `tools/make_guide_data.py` | Real data for the website's guides and their screenshots |
 | `tools/zeit_fixtures.py`, `tools/zeit_raster_fixtures.py` | The expected results of Zeit's Python, against which `janus-zeit`'s tests check the tools |
