@@ -9,7 +9,9 @@ each with its license and the license's text.
   license alone carries it; a GPL crate (Zeit's core) is under Janus's own LICENSE.
 - The libraries and data the package copies from the conda-forge environment (GDAL, PROJ, GEOS, libtiff, curl...,
   the MSVC runtime on Windows): the conda package each file belongs to (conda-meta/*.json), its texts those the
-  package keeps in its info/licenses folder (in the package cache).
+  package keeps in its info/licenses folder (in the package cache) and those it installs under share/licenses (GCC's
+  runtime libraries on Linux: the GCC Runtime Library Exception). The GPL-3.0's text, which no package carries, is
+  tools/licenses/GPL-3.0.txt (gnu.org's).
 - The fonts embedded in the program.
 
 The same text for several works (Apache-2.0 for hundreds of crates) is written once, with the list of its works.
@@ -50,6 +52,8 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 LICENSE_FILE = re.compile(r"^(licen[cs]e|copying|notice|unlicense|copyright)", re.I)
 # a fonts folder's licenses (egui's default fonts: OFL.txt, UFL.txt, Hack-Regular.txt...)
 FONT_LICENSE = re.compile(r"\.(txt|md)$", re.I)
+# the license files a conda package installs
+INSTALLED_LICENSE = re.compile(r"(^|/)share/licenses/", re.I)
 
 
 def host_triple():
@@ -128,6 +132,18 @@ def conda_packages(shipped, prefix):
     if os.environ.get("MAMBA_ROOT_PREFIX"):
         roots.append(Path(os.environ["MAMBA_ROOT_PREFIX"]) / "pkgs")
     roots += [prefix.parent.parent / "pkgs", prefix / "pkgs"]  # <root>/envs/<name>: <root>/pkgs
+
+    def license_files(rec):
+        stem = re.sub(r"\.(conda|tar\.bz2)$", "", rec.get("fn", ""))
+        dirs = [Path(rec["extracted_package_dir"])] if rec.get("extracted_package_dir") else []
+        dirs += [r / stem for r in roots if stem]
+        lic = next((d / "info" / "licenses" for d in dirs if (d / "info" / "licenses").is_dir()), None)
+        files = sorted(p for p in lic.rglob("*") if p.is_file()) if lic else []
+        # and those it installs (share/licenses/<name>/..., Library/share/licenses on Windows)
+        files += sorted(prefix / f for f in rec.get("files", []) if INSTALLED_LICENSE.search(f.replace("\\", "/"))
+                        and (prefix / f).is_file())
+        return files
+
     used, strays = {}, []
     for f in shipped:
         try:
@@ -141,13 +157,8 @@ def conda_packages(shipped, prefix):
             continue
         if rec["name"] in used:
             continue
-        stem = re.sub(r"\.(conda|tar\.bz2)$", "", rec.get("fn", ""))
-        dirs = [Path(rec["extracted_package_dir"])] if rec.get("extracted_package_dir") else []
-        dirs += [r / stem for r in roots if stem]
-        lic = next((d / "info" / "licenses" for d in dirs if (d / "info" / "licenses").is_dir()), None)
-        files = sorted(p for p in lic.rglob("*") if p.is_file()) if lic else []
         home = f"https://anaconda.org/conda-forge/{rec['name']}"
-        used[rec["name"]] = (rec["version"], rec.get("license") or "unknown", home, files)
+        used[rec["name"]] = (rec["version"], rec.get("license") or "unknown", home, license_files(rec))
     return used, sorted(set(strays))
 
 
@@ -200,6 +211,8 @@ def write(path, version, shipped, conda_prefix):
             ver, lic, home, files = pkgs[name]
             lines.append(f"  {name} {ver}: {lic} ({home})")
             work = f"{name} {ver}"
+            if "GPL-3.0" in lic and "LGPL-3.0" not in lic:
+                files = files + [ROOT / "tools" / "licenses" / "GPL-3.0.txt"]
             if files:
                 for f in files:
                     add(read(f), work)
