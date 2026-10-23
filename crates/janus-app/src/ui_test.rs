@@ -48,7 +48,7 @@ pub struct UiTest {
     stats_gen: u64,
     /// the NDVI's bands (1-based) on the spectrum, for its layer
     index_bands: (i32, i32),
-    /// stages 120-125: the vector files' folder, the points written, the exports, frames of a stage, the
+    /// stages 120-127: the vector files' folder, the points written, the exports, frames of a stage, the
     /// interpretation's pin, its labels' file
     dir: std::path::PathBuf,
     pts: Vec<[f64; 2]>,
@@ -859,7 +859,7 @@ impl State {
             }
             90..=100 => return self.test_spectra(st, &input, t0, ctx),
             110..=115 => return self.test_roi_polygon(st, &input, t0, ctx),
-            120..=125 => return self.test_vectors(st, t0, ctx),
+            120..=127 => return self.test_vectors(st, t0, ctx),
             50..=56 => return self.test_basemap(st, t0, ctx),
             57..=59 => return self.test_full_res(st, t0),
             70..=78 | 81..=89 => return self.test_misc(st, t0, ctx),

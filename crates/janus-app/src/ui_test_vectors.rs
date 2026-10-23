@@ -1,9 +1,10 @@
-//! `--selftest-ui` stages 120-125 (src/app_vectors.cpp, selfTestVectors): B active, A and F (UTM 22S) as layers.
+//! `--selftest-ui` stages 120-127 (src/app_vectors.cpp, selfTestVectors): B active, A and F (UTM 22S) as layers.
 //! Vector files written here: points in lon/lat (GeoJSON, one far away), a polygon with a hole and a line in UTM
 //! 22S (GeoPackage), points in a CSV without a CRS. Their places on B's grid, picking, a polygon as the ROI, the
 //! line as the transect, the series extracted (wide over every layer, long for the polygon) against the files; the
 //! drawing order (points moved under the series are covered by them); the interpretation: keys as typed, a label
-//! and its date, the labels saved, resumed and exported (GeoPackage, CSV).
+//! and its date, the labels saved, resumed and exported (GeoPackage, CSV); placed again on a thread when another
+//! grid is made active.
 //! (The C++'s PNGs of the vectors come with the exports.)
 
 use gdal::spatial_ref::{AxisMappingStrategy, CoordTransform, SpatialRef};
@@ -603,15 +604,66 @@ impl State {
                 if let Some(r) = st.reveal.take() {
                     let _ = std::fs::remove_file(r);
                 }
-                while !self.vectors.is_empty() {
-                    self.remove_vector(0);
-                }
                 self.clear_roi();
-                let _ = std::fs::remove_dir_all(&st.dir);
                 next(
                     st,
                     "labels exported (GeoPackage with the geometries, CSV with lon/lat); a polygon interpreted as the ROI",
                 );
+                st.frames = 0;
+            }
+            126 => {
+                // placing in the background: A made active (its grid 100 px from B's), the layers placed on a
+                // thread while the frames go on, not drawn meanwhile
+                let p = self.vector_layer_of("plots.geojson")?;
+                if st.frames == 0 {
+                    st.pts = self.vectors[p].anchor.iter().map(|a| [a[0], a[1]]).collect();
+                    self.set_active(1, ctx);
+                    let t = std::time::Instant::now();
+                    self.pump_vectors(ctx);
+                    let ms = t.elapsed().as_secs_f64() * 1000.0;
+                    let v = &self.vectors[p];
+                    println!("    A made active: the frame's placing took {ms:.2} ms, the layers placed on a thread");
+                    if v.placing.is_none() || !v.px.is_empty() || v.placed_for != 0 {
+                        return fail("the layers should be placed again on a thread, not drawn meanwhile");
+                    }
+                    st.frames = 1;
+                    return None;
+                }
+                let key = self.vector_place_key();
+                if self.vectors.iter().any(|v| v.placing.is_some() || v.placed_for != key) {
+                    return None;
+                }
+                let a = &self.vectors[p].anchor;
+                let worst = st
+                    .pts
+                    .iter()
+                    .zip(a)
+                    .filter(|(b, _)| b[0].is_finite() && b[0].abs() < 1e5)
+                    .map(|(b, a)| (a[0] - b[0] - 100.0).hypot(a[1] - b[1]))
+                    .fold(0f64, f64::max);
+                println!("    placed on A: the points 100 px further than on B (max {worst:.2e} px off)");
+                if worst > 1e-6 || a.len() != st.pts.len() {
+                    return fail("the points placed on A should be B's 100 px further");
+                }
+                self.set_active(0, ctx);
+                next(st, "placed again on a thread when another grid is made active, where it should be");
+            }
+            127 => {
+                let key = self.vector_place_key();
+                if self.vectors.iter().any(|v| v.placing.is_some() || v.placed_for != key) {
+                    return None;
+                }
+                let p = self.vector_layer_of("plots.geojson")?;
+                let back =
+                    st.pts.iter().zip(&self.vectors[p].anchor).all(|(b, a)| b == a || (b[0].is_nan() && a[0].is_nan()));
+                if !back {
+                    return fail("back on B, the points should be where they were");
+                }
+                while !self.vectors.is_empty() {
+                    self.remove_vector(0);
+                }
+                let _ = std::fs::remove_dir_all(&st.dir);
+                next(st, "back on B: placed where they were");
                 st.stage = 130; // the animation export, then validation on D
                 return None;
             }

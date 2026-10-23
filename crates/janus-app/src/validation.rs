@@ -664,6 +664,7 @@ impl State {
             off_map: false,
             colors: Vec::new(),
             gpu: Default::default(),
+            placing: None,
             z,
         });
         self.val.vector_id = id;

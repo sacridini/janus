@@ -1403,7 +1403,7 @@ impl eframe::App for JanusApp {
         s.pump_composite(&ctx);
         s.pump_zeit(&ctx);
         s.pump_transect(&ctx);
-        s.pump_vectors();
+        s.pump_vectors(&ctx);
         s.pump_canvas(&ctx);
         s.pump_vector_gpu(&ctx);
         s.pump_interpretation(&ctx);

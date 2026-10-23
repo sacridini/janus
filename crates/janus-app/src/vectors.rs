@@ -1,10 +1,11 @@
 //! Vector layers (src/app_vectors.cpp): field plots, samples, parcels... read through OGR (janus_geo::vectors) in
-//! the background, placed on the active layer's grid (any CRS, through PROJ; again whenever the active layer's
-//! grid changes) and drawn over every map panel with the painter's lines, cut to what is on screen and thinned to
+//! the background, placed on the active layer's grid in the background too (any CRS, through PROJ; again whenever
+//! the active layer's grid changes) and drawn over every map panel with the painter's lines, cut to what is on screen and thinned to
 //! about a vertex per screen point. A polygon becomes the ROI (Alt + click), a line the transect; the series at
 //! every feature are written to a CSV table (Extract series).
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 
 use egui::{Color32, Pos2, Rect, Shape, Stroke, vec2};
@@ -45,8 +46,99 @@ pub struct VectorLayer {
     pub colors: Vec<Color32>,
     /// drawn by the GPU (vector_gpu.rs)
     pub gpu: crate::vector_gpu::LayerGpu,
+    /// being placed on a thread (pump_placements)
+    pub placing: Option<PlaceJob>,
     /// its place in the drawing order of series and vector layers (order.rs)
     pub z: u64,
+}
+
+/// A layer being placed on a thread: for the grid `key`, of the layer's data `data`. Dropped (superseded),
+/// it stops.
+pub struct PlaceJob {
+    key: u64,
+    data: Arc<VectorData>,
+    rx: Receiver<Placed>,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Drop for PlaceJob {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+/// A layer placed: each feature's parts in the active layer's pixels, its box and its point; why it is not drawn;
+/// nothing of it over the active layer.
+#[derive(Default)]
+pub struct Placed {
+    px: Vec<Polygon>,
+    boxes: Vec<[f32; 4]>,
+    anchor: Vec<[f64; 2]>,
+    why: String,
+    off_map: bool,
+}
+
+/// `data` placed on the grid of `info` (None: no series), in parallel: a placer (its own transformation) per
+/// thread, over chunks of about as many vertices (a few features can hold most of them). `cancel` set: it stops
+/// (what it gives is then of no use).
+fn place(data: &VectorData, info: Option<&janus_cube::CubeInfo>, cancel: &AtomicBool) -> Placed {
+    use rayon::prelude::*;
+    let Some(info) = info else {
+        return Placed { why: "drawn over a raster series: open one".into(), ..Default::default() };
+    };
+    if let Err(e) = Placer::to_pixels(data, &info.crs_wkt, info.geo_transform) {
+        return Placed { why: format!("not drawn: {e}"), ..Default::default() };
+    }
+    let feats = &data.features;
+    let per = (data.vertices / (rayon::current_num_threads() * 8)).max(4096);
+    let mut chunks = vec![0];
+    let mut n = 0;
+    for (i, f) in feats.iter().enumerate() {
+        n += f.parts.iter().map(|r| r.len() / 2).sum::<usize>();
+        if n >= per {
+            chunks.push(i + 1);
+            n = 0;
+        }
+    }
+    if chunks.last() != Some(&feats.len()) {
+        chunks.push(feats.len());
+    }
+    let placed: Vec<(Polygon, [f32; 4], [f64; 2], bool)> = chunks
+        .par_windows(2)
+        .map_init(
+            || Placer::to_pixels(data, &info.crs_wkt, info.geo_transform).ok(),
+            |p, w| {
+                if cancel.load(Ordering::Relaxed) {
+                    return Vec::new();
+                }
+                feats[w[0]..w[1]]
+                    .iter()
+                    .map(|f| {
+                        let Some(p) = p.as_ref() else {
+                            return (Vec::new(), [1.0, 1.0, 0.0, 0.0], [f64::NAN; 2], false);
+                        };
+                        let px = p.placed(&f.parts);
+                        let b = plane::bounds(&px);
+                        let a = (f.kind != Kind::None).then(|| p.to_pixel(f.cx, f.cy)).flatten();
+                        let on = b.is_some_and(|b| {
+                            b[2] >= 0.0 && b[3] >= 0.0 && b[0] <= info.width as f64 && b[1] <= info.height as f64
+                        });
+                        let bb = b.map_or([1.0, 1.0, 0.0, 0.0], |b| b.map(|x| x as f32));
+                        (px, bb, a.map_or([f64::NAN; 2], |(x, y)| [x, y]), on)
+                    })
+                    .collect::<Vec<_>>()
+            },
+        )
+        .flatten_iter()
+        .collect();
+    let mut out = Placed { off_map: !placed.iter().any(|p| p.3), ..Default::default() }; // still drawn: it may be near
+    out.px.reserve(placed.len());
+    for (p, b, a, _) in placed {
+        out.px.push(p);
+        out.boxes.push(b);
+        out.anchor.push(a);
+    }
+    out
 }
 
 /// Extract series: the dialog's choices.
@@ -147,77 +239,83 @@ impl State {
         h.finish() | 1 // never 0 (not placed)
     }
 
+    /// Layer i placed on the active layer's grid now (on this thread; the map's own placing is on a thread of its
+    /// own: pump_vectors).
     pub fn place_vector(&mut self, i: usize) {
         let key = self.vector_place_key();
         let info = self.session.as_ref().map(|s| s.info.clone());
+        let p = place(&self.vectors[i].data, info.as_deref(), &AtomicBool::new(false));
+        self.vectors[i].placing = None;
+        self.apply_placement(i, key, p);
+    }
+
+    fn apply_placement(&mut self, i: usize, key: u64, p: Placed) {
         let v = &mut self.vectors[i];
         v.placed_for = key;
-        (v.px, v.boxes, v.anchor) = (Arc::default(), Vec::new(), Vec::new());
-        let Some(info) = info else {
-            v.why = "drawn over a raster series: open one".into();
-            return;
-        };
-        if let Err(e) = Placer::to_pixels(&v.data, &info.crs_wkt, info.geo_transform) {
-            v.why = format!("not drawn: {e}");
-            return;
-        }
-        // in parallel: a placer (its own transformation) per thread, over chunks of about as many vertices (a few
-        // features can hold most of them)
-        use rayon::prelude::*;
-        let data = v.data.clone();
-        let feats = &data.features;
-        let per = (data.vertices / (rayon::current_num_threads() * 8)).max(4096);
-        let mut chunks = vec![0];
-        let mut n = 0;
-        for (i, f) in feats.iter().enumerate() {
-            n += f.parts.iter().map(|r| r.len() / 2).sum::<usize>();
-            if n >= per {
-                chunks.push(i + 1);
-                n = 0;
+        (v.px, v.boxes, v.anchor) = (Arc::new(p.px), p.boxes, p.anchor);
+        (v.why, v.off_map) = (p.why, p.off_map);
+        self.hover_vector = None;
+        self.map.dirty = true;
+    }
+
+    /// Each layer placed again when the active layer's grid (or the layer's data) changed, on a thread: the map
+    /// goes on meanwhile without it (its old place is another grid's), the result kept if it is still the one
+    /// wanted.
+    fn pump_placements(&mut self, ctx: &egui::Context) {
+        let key = self.vector_place_key();
+        let mut info = None;
+        for i in 0..self.vectors.len() {
+            let v = &mut self.vectors[i];
+            if let Some(job) = &v.placing {
+                match job.rx.try_recv() {
+                    Ok(p) => {
+                        let current = job.key == key && Arc::ptr_eq(&job.data, &v.data);
+                        v.placing = None;
+                        if current {
+                            self.apply_placement(i, key, p);
+                            continue;
+                        }
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                    Err(_) => {
+                        v.placing = None;
+                        (v.placed_for, v.why) = (key, "not drawn: it could not be placed".into());
+                    }
+                }
             }
+            let v = &self.vectors[i];
+            let wanted = v.placed_for != key || (key == 0 && v.why.is_empty());
+            let started = v.placing.as_ref().is_some_and(|j| j.key == key && Arc::ptr_eq(&j.data, &v.data));
+            if !wanted || started {
+                continue;
+            }
+            if key == 0 {
+                self.place_vector(i); // nothing to place it on: at once
+                continue;
+            }
+            let info = info.get_or_insert_with(|| self.session.as_ref().map(|s| s.info.clone())).clone();
+            let v = &mut self.vectors[i];
+            let (tx, rx) = channel();
+            let cancel = Arc::new(AtomicBool::new(false));
+            let (data, stop, c) = (v.data.clone(), cancel.clone(), ctx.clone());
+            std::thread::Builder::new()
+                .name("vector-place".into())
+                .spawn(move || {
+                    let _ = tx.send(place(&data, info.as_deref(), &stop));
+                    c.request_repaint();
+                })
+                .ok();
+            v.placing = Some(PlaceJob { key, data: v.data.clone(), rx, cancel });
+            v.placed_for = 0;
+            (v.px, v.boxes, v.anchor) = (Arc::default(), Vec::new(), Vec::new());
+            v.why.clear();
+            self.hover_vector = None;
+            self.map.dirty = true;
         }
-        if chunks.last() != Some(&feats.len()) {
-            chunks.push(feats.len());
-        }
-        let placed: Vec<(Polygon, [f32; 4], [f64; 2], bool)> = chunks
-            .par_windows(2)
-            .map_init(
-                || Placer::to_pixels(&data, &info.crs_wkt, info.geo_transform).ok(),
-                |p, w| {
-                    feats[w[0]..w[1]]
-                        .iter()
-                        .map(|f| {
-                            let Some(p) = p.as_ref() else {
-                                return (Vec::new(), [1.0, 1.0, 0.0, 0.0], [f64::NAN; 2], false);
-                            };
-                            let px = p.placed(&f.parts);
-                            let b = plane::bounds(&px);
-                            let a = (f.kind != Kind::None).then(|| p.to_pixel(f.cx, f.cy)).flatten();
-                            let on = b.is_some_and(|b| {
-                                b[2] >= 0.0 && b[3] >= 0.0 && b[0] <= info.width as f64 && b[1] <= info.height as f64
-                            });
-                            let bb = b.map_or([1.0, 1.0, 0.0, 0.0], |b| b.map(|x| x as f32));
-                            (px, bb, a.map_or([f64::NAN; 2], |(x, y)| [x, y]), on)
-                        })
-                        .collect::<Vec<_>>()
-                },
-            )
-            .flatten_iter()
-            .collect();
-        let on_map = placed.iter().filter(|p| p.3).count();
-        let mut px = Vec::with_capacity(placed.len());
-        for (p, b, a, _) in placed {
-            px.push(p);
-            v.boxes.push(b);
-            v.anchor.push(a);
-        }
-        v.px = Arc::new(px);
-        v.why.clear();
-        v.off_map = on_map == 0; // still drawn: it may be near
     }
 
     /// Files read: new vector layers; every layer placed on the active layer's grid.
-    pub(crate) fn pump_vectors(&mut self) {
+    pub(crate) fn pump_vectors(&mut self, ctx: &egui::Context) {
         let mut done = Vec::new();
         self.vector_loads.pending.retain(|rx| match rx.try_recv() {
             Ok(r) => {
@@ -259,18 +357,13 @@ impl State {
                     off_map: false,
                     colors: Vec::new(),
                     gpu: Default::default(),
+                    placing: None,
                     z,
                 });
             }
             self.map.dirty = true;
         }
-        let key = self.vector_place_key();
-        for i in 0..self.vectors.len() {
-            let v = &self.vectors[i];
-            if v.placed_for != key || (key == 0 && v.why.is_empty()) {
-                self.place_vector(i);
-            }
-        }
+        self.pump_placements(ctx);
     }
 
     pub fn vector_index(&self, id: u32) -> Option<usize> {

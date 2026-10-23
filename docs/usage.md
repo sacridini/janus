@@ -658,7 +658,9 @@ read as longitude and latitude).
   series (a new vector layer on top; drag it under a series, or right click →
   *Move*, and the series covers it), on every map panel and the swipe, in any
   CRS (placed on the active layer's grid through PROJ, in
-  parallel, again whenever the active layer changes to another grid). Points
+  parallel and in the background, again whenever the active layer changes to
+  another grid: the map goes on meanwhile, the layer marked *placing...* in the
+  **Layers** panel). Points
   are dots; lines and polygons (with their holes) are outlines. Each layer has
   a colour, can be hidden or removed; right click its name for *Zoom to it*.
 - **Without a raster**: vector files opened alone make a map of their own (an

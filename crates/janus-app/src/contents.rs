@@ -358,7 +358,7 @@ impl State {
         ui.push_id(("vector", id), |ui| {
             let r = Row {
                 name: &name,
-                detail: d.kind_text(),
+                detail: if v.placing.is_some() { "placing...".into() } else { d.kind_text() },
                 active: interpreting,
                 warn,
                 indent: 0.0,
