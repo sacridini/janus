@@ -81,6 +81,10 @@ jobs:
       - name: Build
         run: cargo build --release --workspace
 
+      # built apart from their run, which has a limit (building janus-ml's tests takes ~30 minutes on Windows)
+      - name: Build the tests
+        run: cargo test --release --workspace --no-run
+
       # a test that waits on the network (pretrained weights) fails the step instead of holding the runner
       - name: Tests
         timeout-minutes: 45
