@@ -267,7 +267,7 @@ pub struct MapFrame {
     pub size: [u32; 2],
     clear: [f32; 4],
     draws: Vec<PendingDraw>,
-    /// the vector layers' draws, after the rasters
+    /// the vector layers' draws, each between the raster draws pushed before and after it
     vdraws: Vec<vector::VectorDraw>,
     /// the draws pushed while set are cut to this rectangle (x, y, w, h in the target's pixels)
     pub clip: Option<[u32; 4]>,
@@ -993,9 +993,18 @@ impl Gpu {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.display);
+            // the vector draws between the rasters, where they were pushed
+            let vectors = self.vector_uniforms(&f);
+            let mut k = 0;
             let [tw, th] = target.size;
             for (i, d) in f.draws.iter().enumerate() {
+                if let Some(g) = &vectors {
+                    while k < f.vdraws.len() && f.vdraws[k].after <= i {
+                        self.record_vector(&f, k, g, &mut pass, target.size);
+                        k += 1;
+                    }
+                }
+                pass.set_pipeline(&self.display);
                 let [x, y, w, h] = d.clip.unwrap_or([0, 0, tw, th]);
                 let (x, y) = (x.min(tw), y.min(th));
                 let (w, h) = (w.min(tw - x), h.min(th - y));
@@ -1008,7 +1017,11 @@ impl Gpu {
                 pass.set_bind_group(2, &d.textures, &[]);
                 pass.draw(0..4, 0..1);
             }
-            self.record_vectors(&f, &mut pass, target.size);
+            if let Some(g) = &vectors {
+                for k in k..f.vdraws.len() {
+                    self.record_vector(&f, k, g, &mut pass, target.size);
+                }
+            }
         }
         self.queue.submit([enc.finish()]);
     }

@@ -226,7 +226,7 @@ impl State {
                     let mut plain = Vec::new();
                     for &t in &at.dates {
                         self.display.t = t;
-                        let Some((img, pw, ph)) = self.render_export(1, false, None, ppp) else {
+                        let Some((img, pw, ph)) = self.render_export(1, false, None, false, ppp) else {
                             return fail("the map cannot be rendered");
                         };
                         if pw != w || ph != h {

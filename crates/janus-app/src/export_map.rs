@@ -254,20 +254,23 @@ impl State {
 
     /// The map rendered offscreen at `scale` x the screen's pixels: over `bg` (None: the map's), or transparent
     /// (drawn over black and over white: a pixel covered with opacity a reads c a over black and c a + 1 - a over
-    /// white, which gives a and c back with the renderer as it is).
+    /// white, which gives a and c back with the renderer as it is); with the vector layers or without them.
     pub(crate) fn render_export(
         &mut self,
         scale: i32,
         transparent: bool,
         bg: Option<[f32; 4]>,
+        vectors: bool,
         ppp: f32,
     ) -> Option<(Vec<u8>, usize, usize)> {
         let (canvas, size) = self.export_size(scale, ppp);
         let ps = ppp * scale as f32;
         let draw = |s: &mut State, bg: Option<[f32; 4]>| -> Option<Vec<u8>> {
             s.map.export_bg = bg;
+            s.map.export_no_vectors = !vectors;
             s.render_map(EXPORT_SLOT, size, canvas, ps);
             s.map.export_bg = None;
+            s.map.export_no_vectors = false;
             s.gpu.as_ref()?.read_target(EXPORT_SLOT).map(|t| t.2)
         };
         let out = if !transparent {
@@ -436,8 +439,9 @@ impl State {
         let mut cv = Canvas { w: w as i32, h: h as i32, px: img };
         let fs = FIGURE_FONT_SIZE * ps;
         if o.marks {
-            // vector layers under the ROI and the pins, as on the map
-            for v in self.vectors.iter().filter(|v| v.visible && !v.px.is_empty()) {
+            // vector layers under the ROI and the pins, as on the map: the ones the GPU drew are in the image
+            // already, in their place in the drawing order
+            for v in self.vectors.iter().filter(|v| v.visible && !v.px.is_empty() && !v.gpu.draws(v.placed_for)) {
                 let col: Rgba = v.color.to_array();
                 let dark = rgba(0, 0, 0, 170);
                 for (i, parts) in v.px.iter().enumerate() {
@@ -619,7 +623,7 @@ impl State {
         let ppp = ctx.pixels_per_point();
         let transparent = o.background == 2;
         let bg = (o.background == 1).then_some([1.0, 1.0, 1.0, 1.0]);
-        let (mut img, w, h) = self.render_export(o.scale, transparent, bg, ppp)?;
+        let (mut img, w, h) = self.render_export(o.scale, transparent, bg, o.marks, ppp)?;
         let fo = FigureOverlay { label: u8::from(o.label), legend: o.legend, marks: o.marks, scale_bar: o.scale_bar };
         self.draw_figure_overlay(&mut img, w, h, o.scale, fo, ppp);
         let title = format!("Map as PNG, {w} x {h} px");
@@ -733,7 +737,7 @@ impl State {
     /// The rendered view as an RGBA GeoTIFF in the active layer's CRS (transparent where nothing is drawn).
     pub fn export_view(&mut self, path: String, scale: i32, ctx: &egui::Context) -> Option<Arc<ExportJob>> {
         let ppp = ctx.pixels_per_point();
-        let (mut img, w, h) = self.render_export(scale, true, None, ppp)?;
+        let (mut img, w, h) = self.render_export(scale, true, None, true, ppp)?;
         let credit = self.basemap_attribution();
         {
             let mut cv = Canvas { w: w as i32, h: h as i32, px: &mut img };

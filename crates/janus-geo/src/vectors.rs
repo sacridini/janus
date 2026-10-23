@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use gdal::spatial_ref::{AxisMappingStrategy, CoordTransform, SpatialRef};
 use gdal_sys::OGRwkbGeometryType::*;
+use rayon::prelude::*;
 
 use crate::plane::{self, Polygon, Ring};
 use crate::reproject::{Transform, invert};
@@ -126,12 +127,16 @@ unsafe fn wkt2(s: gdal_sys::OGRSpatialReferenceH) -> String {
     }
 }
 
+/// A curve's points appended to `r`, in one call (x and y interleaved, 16 bytes apart).
 unsafe fn add_points(g: gdal_sys::OGRGeometryH, r: &mut Ring) {
-    let n = unsafe { gdal_sys::OGR_G_GetPointCount(g) };
-    r.reserve(n.max(0) as usize * 2);
-    for i in 0..n {
-        unsafe { r.extend([gdal_sys::OGR_G_GetX(g, i), gdal_sys::OGR_G_GetY(g, i)]) };
+    let n = unsafe { gdal_sys::OGR_G_GetPointCount(g) }.max(0) as usize;
+    if n == 0 {
+        return;
     }
+    let at = r.len();
+    r.resize(at + n * 2, 0.0);
+    let p = r[at..].as_mut_ptr();
+    unsafe { gdal_sys::OGR_G_GetPoints(g, p.cast(), 16, p.add(1).cast(), 16, null_mut(), 0) };
 }
 
 /// The parts of a (multi, collection, curved) geometry; `kind` the highest seen.
@@ -191,14 +196,17 @@ unsafe fn collect(g: gdal_sys::OGRGeometryH, f: &mut Feature) {
     }
 }
 
-/// The centroid of a geometry, if OGR gives one.
-unsafe fn centroid(g: gdal_sys::OGRGeometryH) -> Option<(f64, f64)> {
-    unsafe {
-        let c = gdal_sys::OGR_G_CreateGeometry(wkbPoint);
-        let ok = gdal_sys::OGR_G_Centroid(g, c) as i64 == 0;
-        let p = (gdal_sys::OGR_G_GetX(c, 0), gdal_sys::OGR_G_GetY(c, 0));
-        gdal_sys::OGR_G_DestroyGeometry(c);
-        ok.then_some(p)
+/// A point on a feature, in its coordinates: inside an area (plane::interior_point; its box's centre if it has
+/// none), a line's centroid, a point's own.
+fn anchor(f: &Feature) -> Option<(f64, f64)> {
+    match f.kind {
+        Kind::Area => plane::interior_point(&f.parts).or_else(|| {
+            let b = plane::bounds(&f.parts)?;
+            Some(((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0))
+        }),
+        Kind::Line => plane::line_centroid(&f.parts),
+        Kind::Point => Some((f.parts[0][0], f.parts[0][1])),
+        Kind::None => None,
     }
 }
 
@@ -289,32 +297,9 @@ pub fn load_vector_file(path: &str, max_vertices: usize) -> Result<Vec<VectorDat
                         }
                     })
                     .collect();
-                let g = gdal_sys::OGR_F_GetGeometryRef(f);
-                collect(g, &mut vf);
+                collect(gdal_sys::OGR_F_GetGeometryRef(f), &mut vf);
                 if vf.parts.is_empty() {
                     vf.kind = Kind::None;
-                }
-                match vf.kind {
-                    Kind::Area => {
-                        // a point inside (GEOS), else the centroid
-                        let p = gdal_sys::OGR_G_PointOnSurface(g);
-                        let on = (!p.is_null()
-                            && gdal_sys::OGR_GT_Flatten(gdal_sys::OGR_G_GetGeometryType(p)) == wkbPoint)
-                            .then(|| (gdal_sys::OGR_G_GetX(p, 0), gdal_sys::OGR_G_GetY(p, 0)));
-                        if !p.is_null() {
-                            gdal_sys::OGR_G_DestroyGeometry(p);
-                        }
-                        if let Some((x, y)) = on.or_else(|| centroid(g)) {
-                            (vf.cx, vf.cy) = (x, y);
-                        }
-                    }
-                    Kind::Line => {
-                        if let Some((x, y)) = centroid(g) {
-                            (vf.cx, vf.cy) = (x, y);
-                        }
-                    }
-                    Kind::Point => (vf.cx, vf.cy) = (vf.parts[0][0], vf.parts[0][1]),
-                    Kind::None => {}
                 }
                 gdal_sys::OGR_F_Destroy(f);
                 vertices += vf.parts.iter().map(|r| r.len() / 2).sum::<usize>();
@@ -333,6 +318,12 @@ pub fn load_vector_file(path: &str, max_vertices: usize) -> Result<Vec<VectorDat
             if v.features.is_empty() {
                 continue;
             }
+            // each feature's point (inside an area), in parallel
+            v.features.par_iter_mut().for_each(|f| {
+                if let Some((x, y)) = anchor(f) {
+                    (f.cx, f.cy) = (x, y);
+                }
+            });
             // no CRS (e.g. a CSV of points): lon/lat when every coordinate fits
             if v.crs_wkt.is_empty()
                 && v.features
@@ -390,6 +381,15 @@ pub struct Placer {
 impl Placer {
     /// `raster_wkt` empty: the raster has no CRS (placed only if the vector has none either).
     pub fn new(v: &VectorData, raster_wkt: &str, gt: Option<[f64; 6]>) -> Result<Placer, String> {
+        Self::make(v, raster_wkt, gt, true)
+    }
+
+    /// To pixels only (no `to_lon_lat`, a transformation less to make: one per thread placing a layer).
+    pub fn to_pixels(v: &VectorData, raster_wkt: &str, gt: Option<[f64; 6]>) -> Result<Placer, String> {
+        Self::make(v, raster_wkt, gt, false)
+    }
+
+    fn make(v: &VectorData, raster_wkt: &str, gt: Option<[f64; 6]>, lon_lat: bool) -> Result<Placer, String> {
         let gt = gt.ok_or("the raster has no georeferencing")?;
         let inv = invert(&gt).ok_or("the raster's geotransform cannot be inverted")?;
         let src = (!v.crs_wkt.is_empty()).then(|| crate::reproject::srs(&v.crs_wkt)).flatten();
@@ -406,7 +406,9 @@ impl Placer {
             _ => {}
         }
         // lon/lat for tables: from the file's CRS, else (none in the file) from the raster's
-        p.set_lon_lat(src.as_ref().or(dst.as_ref()));
+        if lon_lat {
+            p.set_lon_lat(src.as_ref().or(dst.as_ref()));
+        }
         Ok(p)
     }
 

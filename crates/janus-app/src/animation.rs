@@ -656,7 +656,7 @@ impl State {
         let (o, rw, rh) = (r.o, r.w, r.h);
         let ppp = ctx.pixels_per_point();
         let bg = (o.background == 1).then_some([1.0, 1.0, 1.0, 1.0]);
-        let Some((mut rgba, w, h)) = self.render_export(o.scale, false, bg, ppp) else {
+        let Some((mut rgba, w, h)) = self.render_export(o.scale, false, bg, o.marks, ppp) else {
             return end(self, "the map could not be rendered");
         };
         if w != rw || h != rh {

@@ -1,8 +1,8 @@
-//! The Layers panel as a table of contents: what the map draws, top of the list on top. Sections that fold, a
-//! row a layer (visibility, a swatch, its name, a short detail, a menu), the details of a layer when it is
-//! unfolded (its opacity, its placement, the maps its runs made as rows of their own), every action in the row's
-//! menu (right click, or its "..." button): make it active, opacity, move, export, close. Rows are dragged to
-//! reorder the series; a filter by name keeps a long list usable.
+//! The Layers panel as a table of contents: what the map draws, top of the list on top, series and vector layers
+//! in one order (order.rs). Sections that fold, a row a layer (visibility, a swatch, its name, a short detail, a
+//! menu), the details of a layer when it is unfolded (its opacity, its placement, the maps its runs made as rows of
+//! their own), every action in the row's menu (right click, or its "..." button): make it active, opacity, move,
+//! export, close. Any row is dragged onto another to reorder; a filter by name keeps a long list usable.
 
 use std::collections::HashSet;
 
@@ -10,6 +10,7 @@ use egui::{Align, Color32, Layout, Rect, Response, RichText, Sense, Shape, Strok
 use janus_geo::vectors::write_vector_table;
 
 use crate::app::State;
+use crate::order::Item;
 use crate::theme;
 
 /// The panel's own state: the filter, the rows unfolded.
@@ -161,10 +162,14 @@ pub(crate) fn row(ui: &mut Ui, visible: Option<&mut bool>, r: &Row) -> RowOut {
     out
 }
 
+/// A row being dragged: its place in the drawing order.
+struct Dragged(usize);
+
 /// What the panel asks for, done after it is drawn.
 enum Act {
     Activate(usize),
     Remove(usize),
+    /// from, to: places in the drawing order (bottom to top)
     Move(usize, usize),
     Export(usize, usize),
     Fit(usize),
@@ -187,26 +192,6 @@ const EXPORTS: [(&str, usize); 4] = [
 ];
 
 impl State {
-    /// Moves layer `from` to index `to` (the others shift), keeping the active one.
-    pub fn move_layer(&mut self, from: usize, to: usize) {
-        if from == to || from >= self.layers.len() || to >= self.layers.len() {
-            return;
-        }
-        let l = self.layers.remove(from);
-        self.layers.insert(to, l);
-        let a = self.active;
-        self.active = if a == from {
-            to
-        } else if from < a && to >= a {
-            a - 1
-        } else if from > a && to <= a {
-            a + 1
-        } else {
-            a
-        };
-        self.map.dirty = true;
-    }
-
     /// The Layers tab.
     pub(crate) fn contents_ui(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
@@ -218,34 +203,21 @@ impl State {
             ui.weak("No layers. Open a series or a vector file (+ Add, File, drag and drop or the command line).");
         }
 
-        // vector layers: drawn over every raster
-        if !self.vectors.is_empty() || !self.vector_loads.is_empty() {
-            let title = format!("Vector layers ({})", self.vectors.len());
-            egui::CollapsingHeader::new(RichText::new(title).strong())
-                .id_salt("contents vectors")
+        // series and vector layers in one drawing order
+        if total > 0 {
+            egui::CollapsingHeader::new(RichText::new(format!("Layers ({total})")).strong())
+                .id_salt("contents layers")
                 .default_open(true)
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 1.0;
-                    self.vector_rows(ui, &mut acts)
+                    self.layer_rows(ui, &mut acts)
                 })
                 .header_response
                 .on_hover_text(
-                    "Drawn over the series. Alt + click a polygon: it becomes the ROI; a line: the transect.",
+                    "Top of the list = drawn on top, series and vector layers alike: drag a row onto another to \
+                     reorder.\nClick a series to make it active. Alt + click a polygon on the map: it becomes the \
+                     ROI; a line: the transect.",
                 );
-        }
-
-        let series = self.layers.iter().filter(|l| !l.canvas).count();
-        if series > 0 {
-            let title = format!("Series ({series})");
-            egui::CollapsingHeader::new(RichText::new(title).strong())
-                .id_salt("contents series")
-                .default_open(true)
-                .show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 1.0;
-                    self.series_rows(ui, &mut acts)
-                })
-                .header_response
-                .on_hover_text("Top of the list = drawn on top. Click a row to make it active; drag it to reorder.");
         }
 
         egui::CollapsingHeader::new(RichText::new("Embeddings").strong())
@@ -269,7 +241,7 @@ impl State {
             match a {
                 Act::Activate(i) => self.set_active(i, &ctx),
                 Act::Remove(i) => self.remove_layer(i, &ctx),
-                Act::Move(from, to) => self.move_layer(from, to),
+                Act::Move(from, to) => self.move_in_order(from, to),
                 Act::Export(i, kind) => {
                     if i != self.active {
                         self.set_active(i, &ctx);
@@ -351,271 +323,253 @@ impl State {
         ui.add_space(2.0);
     }
 
-    fn vector_rows(&mut self, ui: &mut Ui, acts: &mut Vec<Act>) {
-        let has = self.session.is_some();
-        for li in (0..self.vectors.len()).rev() {
-            let name = self.vectors[li].name.clone();
-            if !self.contents.shows(&name) {
-                continue;
+    /// Every layer's row, top to bottom (the canvas of vector layers alone is not listed).
+    fn layer_rows(&mut self, ui: &mut Ui, acts: &mut Vec<Act>) {
+        let order = self.draw_order();
+        // the canvas stays at the bottom
+        let lo = usize::from(matches!(order.first(), Some(Item::Series(i)) if self.layers[*i].canvas));
+        let top = order.len() - 1;
+        for pos in (0..order.len()).rev() {
+            match order[pos] {
+                Item::Series(i) => self.series_row(ui, i, (pos, lo, top), acts),
+                Item::Vector(li) => self.vector_row(ui, li, (pos, lo, top), acts),
             }
-            let interpreting = self.labels.vector == Some(self.vectors[li].id);
-            let v = &mut self.vectors[li];
-            let d = v.data.clone();
-            let warn = if !v.why.is_empty() {
-                Some(v.why.clone())
-            } else if v.off_map {
-                Some("nothing of it over the active layer".to_string())
-            } else {
-                None
-            };
-            let id = v.id;
-            ui.push_id(("vector", id), |ui| {
-                let r = Row {
-                    name: &name,
-                    detail: d.kind_text(),
-                    active: interpreting,
-                    warn,
-                    indent: 0.0,
-                    swatch: Swatch::Color(v.color),
-                    fold: None,
-                };
-                let out = row(ui, Some(&mut v.visible), &r);
-                if out.visible_changed {
-                    self.map.dirty = true;
-                }
-                let tip = |ui: &mut Ui| {
-                    ui.label(&d.path);
-                    ui.label(format!("{}, {} vertices, read in {:.0} ms", d.kind_text(), d.vertices, d.load_ms));
-                    ui.label(format!(
-                        "CRS: {}{}",
-                        if d.crs_name.is_empty() { "none (read as the raster's)" } else { &d.crs_name },
-                        if d.lon_lat_assumed { " (none in the file: longitudes and latitudes)" } else { "" }
-                    ));
-                    if !d.fields.is_empty() {
-                        let mut f = d.fields.iter().take(12).cloned().collect::<Vec<_>>().join(", ");
-                        if d.fields.len() > 12 {
-                            f += ", ...";
-                        }
-                        ui.label(format!("Fields: {f}"));
-                    }
-                    if d.truncated {
-                        ui.colored_label(theme::warning(), "Read up to the vertex limit: the rest is left out.");
-                    }
-                };
-                let out_row = out.row.on_hover_ui(tip);
-                let mut menu = |ui: &mut Ui| {
-                    let mut c = v.color;
-                    ui.horizontal(|ui| {
-                        ui.label("Colour");
-                        if ui.color_edit_button_srgba(&mut c).changed() {
-                            v.color = c;
-                            self.map.dirty = true;
-                        }
-                    });
-                    ui.separator();
-                    if ui.add_enabled(has, egui::Button::new("Interpret (label) its features...")).clicked() {
-                        acts.push(Act::Interpret(id));
-                        ui.close();
-                    }
-                    if ui
-                        .add_enabled(has && v.why.is_empty(), egui::Button::new("Extract series to CSV..."))
-                        .on_hover_text("The series of every feature (a point's pixel, a polygon's mean)")
-                        .clicked()
-                    {
-                        acts.push(Act::ExtractVector(id));
-                        ui.close();
-                    }
-                    if ui.add_enabled(!v.px.is_empty(), egui::Button::new("Zoom to it")).clicked() {
-                        acts.push(Act::ZoomVector(li));
-                        ui.close();
-                    }
-                    ui.separator();
-                    if ui.button("Export as...").on_hover_text("GeoPackage, GeoJSON, Shapefile or CSV").clicked() {
-                        acts.push(Act::ExportVector(li));
-                        ui.close();
-                    }
-                    ui.separator();
-                    if ui.button("Remove").clicked() {
-                        acts.push(Act::RemoveVector(li));
-                        ui.close();
-                    }
-                };
-                out_row.context_menu(&mut menu);
-                egui::Popup::menu(&out.more).show(&mut menu);
-                if out_row.double_clicked() && !v.px.is_empty() {
-                    acts.push(Act::ZoomVector(li));
-                }
-            });
         }
     }
 
-    fn series_rows(&mut self, ui: &mut Ui, acts: &mut Vec<Act>) {
-        let n = self.layers.len();
-        let active = self.active;
-        for i in (0..n).rev() {
-            let is_active = i == active;
-            let info = if is_active {
-                self.session.as_ref().map(|s| s.info.clone())
-            } else {
-                self.layers[i].session.as_ref().map(|s| s.info.clone())
+    fn vector_row(&mut self, ui: &mut Ui, li: usize, place: (usize, usize, usize), acts: &mut Vec<Act>) {
+        let has = self.session.is_some();
+        let pos = place.0;
+        let name = self.vectors[li].name.clone();
+        if !self.contents.shows(&name) {
+            return;
+        }
+        let interpreting = self.labels.vector == Some(self.vectors[li].id);
+        let v = &mut self.vectors[li];
+        let d = v.data.clone();
+        let warn = if !v.why.is_empty() {
+            Some(v.why.clone())
+        } else if v.off_map {
+            Some("nothing of it over the active layer".to_string())
+        } else {
+            None
+        };
+        let id = v.id;
+        ui.push_id(("vector", id), |ui| {
+            let r = Row {
+                name: &name,
+                detail: d.kind_text(),
+                active: interpreting,
+                warn,
+                indent: 0.0,
+                swatch: Swatch::Color(v.color),
+                fold: None,
             };
-            let Some(info) = info else { continue };
-            if self.layers[i].canvas {
-                continue;
+            let out = row(ui, Some(&mut v.visible), &r);
+            if out.visible_changed {
+                self.map.dirty = true;
             }
-            let name = self.layers[i].name.clone();
-            let results: Vec<usize> =
-                (0..self.zeit.results.len()).filter(|&k| self.zeit.results[k].cube == info.id).collect();
-            let child_match = results.iter().any(|&k| self.contents.shows(&self.zeit.results[k].name));
-            if !self.contents.shows(&name) && !child_match {
-                continue;
-            }
-            let key = format!("s{}", info.id);
-            let open = self.contents.is_open(&key, !results.is_empty());
-            let t = if is_active { self.display.t } else { self.layers[i].disp.t };
-            let date = info.layers.get(t.min(info.t().saturating_sub(1))).map_or(String::new(), |l| l.label.clone());
-            let loading = if is_active {
-                self.session.as_ref().map(|s| &s.s.overview)
-            } else {
-                self.layers[i].session.as_ref().map(|s| &s.s.overview)
-            }
-            .filter(|o| !o.complete())
-            .map(|o| format!("loading {}/{}", o.layers_done(), info.t()));
-            let l = &mut self.layers[i];
-            ui.push_id(("series", i), |ui| {
-                let r = Row {
-                    name: &name,
-                    detail: loading.clone().unwrap_or_else(|| date.clone()),
-                    active: is_active,
-                    warn: (!l.place.note.is_empty()).then(|| l.place.note.clone()),
-                    indent: 0.0,
-                    swatch: Swatch::Series,
-                    fold: Some(open),
-                };
-                let out = row(ui, Some(&mut l.visible), &r);
-                if out.visible_changed {
-                    self.map.dirty = true;
-                }
-                if out.fold_clicked {
-                    self.contents.toggle(&key, !results.is_empty());
-                }
-                // dragged onto another row: moved there
-                if out.row.drag_started() {
-                    out.row.dnd_set_drag_payload(i);
-                }
-                if let Some(from) = out.row.dnd_hover_payload::<usize>()
-                    && *from != i
-                {
-                    let y = if *from < i { out.row.rect.top() } else { out.row.rect.bottom() };
-                    ui.painter().hline(out.row.rect.x_range(), y, Stroke::new(2.0, theme::accent()));
-                }
-                if let Some(from) = out.row.dnd_release_payload::<usize>() {
-                    acts.push(Act::Move(*from, i));
-                }
-                let tip = format!(
-                    "{}\n{}, {} x {} px, {} dates ({} .. {})\nCRS: {}",
-                    if l.inputs.len() == 1 { &l.inputs[0] } else { &info.first_path },
-                    info.description,
-                    info.width,
-                    info.height,
-                    info.t(),
-                    info.layers[0].label,
-                    info.layers[info.t() - 1].label,
-                    if info.crs_authority.is_empty() { &info.crs_name } else { &info.crs_authority }
-                );
-                let out_row = out.row.on_hover_text(tip);
-                if out_row.clicked() && !is_active {
-                    acts.push(Act::Activate(i));
-                }
-                if out_row.double_clicked() {
-                    acts.push(Act::Fit(i));
-                }
-                let mut menu = |ui: &mut Ui| {
-                    if ui.add_enabled(!is_active, egui::Button::new("Make active")).clicked() {
-                        acts.push(Act::Activate(i));
-                        ui.close();
+            let tip = |ui: &mut Ui| {
+                ui.label(&d.path);
+                ui.label(format!("{}, {} vertices, read in {:.0} ms", d.kind_text(), d.vertices, d.load_ms));
+                ui.label(format!(
+                    "CRS: {}{}",
+                    if d.crs_name.is_empty() { "none (read as the raster's)" } else { &d.crs_name },
+                    if d.lon_lat_assumed { " (none in the file: longitudes and latitudes)" } else { "" }
+                ));
+                if !d.fields.is_empty() {
+                    let mut f = d.fields.iter().take(12).cloned().collect::<Vec<_>>().join(", ");
+                    if d.fields.len() > 12 {
+                        f += ", ...";
                     }
-                    if ui.button("Zoom to it").clicked() {
-                        acts.push(Act::Fit(i));
-                        ui.close();
-                    }
-                    if ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity").fixed_decimals(2)).changed()
-                    {
+                    ui.label(format!("Fields: {f}"));
+                }
+                if d.truncated {
+                    ui.colored_label(theme::warning(), "Read up to the vertex limit: the rest is left out.");
+                }
+            };
+            let out_row = out.row.on_hover_ui(tip);
+            drag_to_reorder(ui, &out_row, pos, acts);
+            let mut menu = |ui: &mut Ui| {
+                let mut c = v.color;
+                ui.horizontal(|ui| {
+                    ui.label("Colour");
+                    if ui.color_edit_button_srgba(&mut c).changed() {
+                        v.color = c;
                         self.map.dirty = true;
                     }
-                    ui.separator();
-                    ui.menu_button("Move", |ui| {
-                        if ui.add_enabled(i + 1 < n, egui::Button::new("To the top")).clicked() {
-                            acts.push(Act::Move(i, n - 1));
-                            ui.close();
-                        }
-                        if ui.add_enabled(i + 1 < n, egui::Button::new("Up")).clicked() {
-                            acts.push(Act::Move(i, i + 1));
-                            ui.close();
-                        }
-                        if ui.add_enabled(i > 0, egui::Button::new("Down")).clicked() {
-                            acts.push(Act::Move(i, i - 1));
-                            ui.close();
-                        }
-                        if ui.add_enabled(i > 0, egui::Button::new("To the bottom")).clicked() {
-                            acts.push(Act::Move(i, 0));
-                            ui.close();
-                        }
-                    });
-                    ui.menu_button("Export", |ui| {
-                        for (label, kind) in EXPORTS {
-                            if ui.button(label).clicked() {
-                                acts.push(Act::Export(i, kind));
-                                ui.close();
-                            }
-                        }
-                    });
-                    ui.separator();
-                    if ui.button("Close").clicked() {
-                        acts.push(Act::Remove(i));
-                        ui.close();
-                    }
-                };
-                out_row.context_menu(&mut menu);
-                egui::Popup::menu(&out.more).show(&mut menu);
-            });
-            if !open {
-                continue;
+                });
+                ui.separator();
+                if ui.add_enabled(has, egui::Button::new("Interpret (label) its features...")).clicked() {
+                    acts.push(Act::Interpret(id));
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(has && v.why.is_empty(), egui::Button::new("Extract series to CSV..."))
+                    .on_hover_text("The series of every feature (a point's pixel, a polygon's mean)")
+                    .clicked()
+                {
+                    acts.push(Act::ExtractVector(id));
+                    ui.close();
+                }
+                if ui.add_enabled(!v.px.is_empty(), egui::Button::new("Zoom to it")).clicked() {
+                    acts.push(Act::ZoomVector(li));
+                    ui.close();
+                }
+                move_menu(ui, place, acts);
+                ui.separator();
+                if ui.button("Export as...").on_hover_text("GeoPackage, GeoJSON, Shapefile or CSV").clicked() {
+                    acts.push(Act::ExportVector(li));
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button("Remove").clicked() {
+                    acts.push(Act::RemoveVector(li));
+                    ui.close();
+                }
+            };
+            out_row.context_menu(&mut menu);
+            egui::Popup::menu(&out.more).show(&mut menu);
+            if out_row.double_clicked() && !v.px.is_empty() {
+                acts.push(Act::ZoomVector(li));
             }
-            // unfolded: its details, the maps its runs made
-            let l = &mut self.layers[i];
-            ui.push_id(("series details", i), |ui| {
-                ui.spacing_mut().item_spacing.y = 3.0;
-                ui.indent("details", |ui| {
-                    ui.horizontal(|ui| {
-                        ui.weak("opacity");
-                        if ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).fixed_decimals(2)).changed() {
-                            self.map.dirty = true;
+        });
+    }
+
+    fn series_row(&mut self, ui: &mut Ui, i: usize, place: (usize, usize, usize), acts: &mut Vec<Act>) {
+        let pos = place.0;
+        let is_active = i == self.active;
+        let info = if is_active {
+            self.session.as_ref().map(|s| s.info.clone())
+        } else {
+            self.layers[i].session.as_ref().map(|s| s.info.clone())
+        };
+        let Some(info) = info else { return };
+        if self.layers[i].canvas {
+            return;
+        }
+        let name = self.layers[i].name.clone();
+        let results: Vec<usize> =
+            (0..self.zeit.results.len()).filter(|&k| self.zeit.results[k].cube == info.id).collect();
+        let child_match = results.iter().any(|&k| self.contents.shows(&self.zeit.results[k].name));
+        if !self.contents.shows(&name) && !child_match {
+            return;
+        }
+        let key = format!("s{}", info.id);
+        let open = self.contents.is_open(&key, !results.is_empty());
+        let t = if is_active { self.display.t } else { self.layers[i].disp.t };
+        let date = info.layers.get(t.min(info.t().saturating_sub(1))).map_or(String::new(), |l| l.label.clone());
+        let loading = if is_active {
+            self.session.as_ref().map(|s| &s.s.overview)
+        } else {
+            self.layers[i].session.as_ref().map(|s| &s.s.overview)
+        }
+        .filter(|o| !o.complete())
+        .map(|o| format!("loading {}/{}", o.layers_done(), info.t()));
+        let l = &mut self.layers[i];
+        ui.push_id(("series", i), |ui| {
+            let r = Row {
+                name: &name,
+                detail: loading.clone().unwrap_or_else(|| date.clone()),
+                active: is_active,
+                warn: (!l.place.note.is_empty()).then(|| l.place.note.clone()),
+                indent: 0.0,
+                swatch: Swatch::Series,
+                fold: Some(open),
+            };
+            let out = row(ui, Some(&mut l.visible), &r);
+            if out.visible_changed {
+                self.map.dirty = true;
+            }
+            if out.fold_clicked {
+                self.contents.toggle(&key, !results.is_empty());
+            }
+            drag_to_reorder(ui, &out.row, pos, acts);
+            let tip = format!(
+                "{}\n{}, {} x {} px, {} dates ({} .. {})\nCRS: {}",
+                if l.inputs.len() == 1 { &l.inputs[0] } else { &info.first_path },
+                info.description,
+                info.width,
+                info.height,
+                info.t(),
+                info.layers[0].label,
+                info.layers[info.t() - 1].label,
+                if info.crs_authority.is_empty() { &info.crs_name } else { &info.crs_authority }
+            );
+            let out_row = out.row.on_hover_text(tip);
+            if out_row.clicked() && !is_active {
+                acts.push(Act::Activate(i));
+            }
+            if out_row.double_clicked() {
+                acts.push(Act::Fit(i));
+            }
+            let mut menu = |ui: &mut Ui| {
+                if ui.add_enabled(!is_active, egui::Button::new("Make active")).clicked() {
+                    acts.push(Act::Activate(i));
+                    ui.close();
+                }
+                if ui.button("Zoom to it").clicked() {
+                    acts.push(Act::Fit(i));
+                    ui.close();
+                }
+                if ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity").fixed_decimals(2)).changed() {
+                    self.map.dirty = true;
+                }
+                ui.separator();
+                move_menu(ui, place, acts);
+                ui.menu_button("Export", |ui| {
+                    for (label, kind) in EXPORTS {
+                        if ui.button(label).clicked() {
+                            acts.push(Act::Export(i, kind));
+                            ui.close();
                         }
-                    });
-                    ui.weak(format!("{} dates, {} x {} px", info.t(), info.width, info.height));
-                    if let Some((r, _)) = l.place.reproj.as_ref().filter(|_| !is_active) {
-                        let text = if r.same_crs {
-                            "rotated grid, placed on the map's".to_string()
-                        } else {
-                            format!("reprojected from {}", r.crs_text)
-                        };
-                        ui.weak(text).on_hover_text(format!(
-                            "Drawn through a grid of {} x {} points (interpolation error up to {} of\nits pixels); \
-                             cursor, pins and ROI use the exact transformation (PROJ).",
-                            r.grid_w,
-                            r.grid_h,
-                            janus_cube::multidim::format_g(r.grid_error, 2),
-                        ));
                     }
                 });
-            });
-            for &k in results.iter().rev() {
-                if !self.contents.shows(&self.zeit.results[k].name) && !self.contents.shows(&name) {
-                    continue;
+                ui.separator();
+                if ui.button("Close").clicked() {
+                    acts.push(Act::Remove(i));
+                    ui.close();
                 }
-                self.result_row(ui, k, acts);
+            };
+            out_row.context_menu(&mut menu);
+            egui::Popup::menu(&out.more).show(&mut menu);
+        });
+        if !open {
+            return;
+        }
+        // unfolded: its details, the maps its runs made
+        let l = &mut self.layers[i];
+        ui.push_id(("series details", i), |ui| {
+            ui.spacing_mut().item_spacing.y = 3.0;
+            ui.indent("details", |ui| {
+                ui.horizontal(|ui| {
+                    ui.weak("opacity");
+                    if ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).fixed_decimals(2)).changed() {
+                        self.map.dirty = true;
+                    }
+                });
+                ui.weak(format!("{} dates, {} x {} px", info.t(), info.width, info.height));
+                if let Some((r, _)) = l.place.reproj.as_ref().filter(|_| !is_active) {
+                    let text = if r.same_crs {
+                        "rotated grid, placed on the map's".to_string()
+                    } else {
+                        format!("reprojected from {}", r.crs_text)
+                    };
+                    ui.weak(text).on_hover_text(format!(
+                        "Drawn through a grid of {} x {} points (interpolation error up to {} of\nits pixels); \
+                         cursor, pins and ROI use the exact transformation (PROJ).",
+                        r.grid_w,
+                        r.grid_h,
+                        janus_cube::multidim::format_g(r.grid_error, 2),
+                    ));
+                }
+            });
+        });
+        for &k in results.iter().rev() {
+            if !self.contents.shows(&self.zeit.results[k].name) && !self.contents.shows(&name) {
+                continue;
             }
+            self.result_row(ui, k, acts);
         }
     }
 
@@ -699,4 +653,38 @@ impl State {
             self.error_popup = Some(e);
         }
     }
+}
+
+/// A row dragged onto another: moved to its place in the drawing order (a line shows where it goes).
+fn drag_to_reorder(ui: &Ui, row: &Response, pos: usize, acts: &mut Vec<Act>) {
+    if row.drag_started() {
+        row.dnd_set_drag_payload(Dragged(pos));
+    }
+    if let Some(from) = row.dnd_hover_payload::<Dragged>()
+        && from.0 != pos
+    {
+        let y = if from.0 < pos { row.rect.top() } else { row.rect.bottom() };
+        ui.painter().hline(row.rect.x_range(), y, Stroke::new(2.0, theme::accent()));
+    }
+    if let Some(from) = row.dnd_release_payload::<Dragged>() {
+        acts.push(Act::Move(from.0, pos));
+    }
+}
+
+/// A row's Move menu: `place` is its place in the drawing order, the lowest a layer can go and the top.
+fn move_menu(ui: &mut Ui, place: (usize, usize, usize), acts: &mut Vec<Act>) {
+    let (pos, lo, top) = place;
+    ui.menu_button("Move", |ui| {
+        for (label, ok, to) in [
+            ("To the top", pos < top, top),
+            ("Up", pos < top, pos + 1),
+            ("Down", pos > lo, pos.saturating_sub(1)),
+            ("To the bottom", pos > lo, lo),
+        ] {
+            if ui.add_enabled(ok, egui::Button::new(label)).clicked() {
+                acts.push(Act::Move(pos, to));
+                ui.close();
+            }
+        }
+    });
 }

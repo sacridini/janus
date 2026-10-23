@@ -2,7 +2,7 @@
 //! detail (relative to the origins of the layer's pieces, so float32 keeps its precision when zoomed in; the fills'
 //! triangles as indices into them), its features' colours and pieces in buffers of their own (the colours changed
 //! without uploading the geometry again); each frame only a transform and the ranges of the pieces in view. Drawn
-//! into a map frame after its rasters.
+//! into a map frame in the order pushed, between its rasters (a vector layer under a raster one, as in a GIS).
 
 use std::ops::Range;
 
@@ -103,6 +103,8 @@ pub(crate) struct VectorDraw {
     ranges: Vec<Range<u32>>,
     index: Option<wgpu::Buffer>,
     clip: Option<[u32; 4]>,
+    /// the raster draws pushed before it: drawn after them, before the next
+    pub(crate) after: usize,
 }
 
 /// The vector pipelines (lines, fills, points) and their layout.
@@ -305,7 +307,8 @@ impl Gpu {
             round: u32::from(matches!(kind, VectorKind::Points { round: true })),
             _pad: 0,
         };
-        f.vdraws.push(VectorDraw { uniform, group: g.group.clone(), kind, ranges, index, clip: f.clip });
+        let after = f.draws.len();
+        f.vdraws.push(VectorDraw { uniform, group: g.group.clone(), kind, ranges, index, clip: f.clip, after });
     }
 
     /// Waits for the GPU to finish what was submitted (measurements).
@@ -313,10 +316,10 @@ impl Gpu {
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
     }
 
-    /// The frame's vector draws, in order, after its rasters (in their render pass).
-    pub(crate) fn record_vectors(&self, f: &MapFrame, pass: &mut wgpu::RenderPass, size: [u32; 2]) {
+    /// The uniforms of the frame's vector draws, at UNIFORM_STRIDE each (None: no vector draw).
+    pub(crate) fn vector_uniforms(&self, f: &MapFrame) -> Option<wgpu::BindGroup> {
         if f.vdraws.is_empty() {
-            return;
+            return None;
         }
         let stride = crate::UNIFORM_STRIDE;
         let n = f.vdraws.len() as u64;
@@ -330,7 +333,7 @@ impl Gpu {
             contents: &bytes,
             usage: wgpu::BufferUsages::UNIFORM,
         });
-        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("vector draws"),
             layout: &self.uniform_layout,
             entries: &[wgpu::BindGroupEntry {
@@ -341,34 +344,46 @@ impl Gpu {
                     size: wgpu::BufferSize::new(size_of::<VectorUniform>() as u64),
                 }),
             }],
-        });
+        }))
+    }
+
+    /// The frame's vector draw `i` (its uniforms in `group`), in the map's render pass; the raster pipeline is set
+    /// again by the next raster draw.
+    pub(crate) fn record_vector(
+        &self,
+        f: &MapFrame,
+        i: usize,
+        group: &wgpu::BindGroup,
+        pass: &mut wgpu::RenderPass,
+        size: [u32; 2],
+    ) {
+        let stride = crate::UNIFORM_STRIDE;
+        let d = &f.vdraws[i];
         let [tw, th] = size;
-        for (i, d) in f.vdraws.iter().enumerate() {
-            let [x, y, w, h] = d.clip.unwrap_or([0, 0, tw, th]);
-            let (x, y) = (x.min(tw), y.min(th));
-            let (w, h) = (w.min(tw - x), h.min(th - y));
-            if w == 0 || h == 0 {
-                continue;
-            }
-            pass.set_scissor_rect(x, y, w, h);
-            pass.set_bind_group(0, &group, &[(i as u64 * stride) as u32]);
-            pass.set_bind_group(1, &d.group, &[]);
-            match d.kind {
-                VectorKind::Lines => pass.set_pipeline(&self.vector.lines),
-                VectorKind::Points { .. } => pass.set_pipeline(&self.vector.points),
-                VectorKind::Fill => {
-                    pass.set_pipeline(&self.vector.fill);
-                    if let Some(b) = &d.index {
-                        pass.set_index_buffer(b.slice(..), wgpu::IndexFormat::Uint32);
-                    }
+        let [x, y, w, h] = d.clip.unwrap_or([0, 0, tw, th]);
+        let (x, y) = (x.min(tw), y.min(th));
+        let (w, h) = (w.min(tw - x), h.min(th - y));
+        if w == 0 || h == 0 {
+            return;
+        }
+        pass.set_scissor_rect(x, y, w, h);
+        pass.set_bind_group(0, group, &[(i as u64 * stride) as u32]);
+        pass.set_bind_group(1, &d.group, &[]);
+        match d.kind {
+            VectorKind::Lines => pass.set_pipeline(&self.vector.lines),
+            VectorKind::Points { .. } => pass.set_pipeline(&self.vector.points),
+            VectorKind::Fill => {
+                pass.set_pipeline(&self.vector.fill);
+                if let Some(b) = &d.index {
+                    pass.set_index_buffer(b.slice(..), wgpu::IndexFormat::Uint32);
                 }
             }
-            for r in &d.ranges {
-                if d.kind == VectorKind::Fill {
-                    pass.draw_indexed(r.clone(), 0, 0..1);
-                } else {
-                    pass.draw(0..6, r.clone());
-                }
+        }
+        for r in &d.ranges {
+            if d.kind == VectorKind::Fill {
+                pass.draw_indexed(r.clone(), 0, 0..1);
+            } else {
+                pass.draw(0..6, r.clone());
             }
         }
     }

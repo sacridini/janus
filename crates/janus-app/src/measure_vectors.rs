@@ -73,6 +73,12 @@ impl State {
                         v.data.crs_name,
                         v.data.load_ms
                     );
+                    // the point on each polygon (its label's, the interpretation's): inside it
+                    let areas = v.data.features.iter().filter(|f| f.kind == janus_geo::vectors::Kind::Area);
+                    let inside = areas.clone().filter(|f| janus_geo::plane::contains(&f.parts, f.cx, f.cy)).count();
+                    if v.data.areas > 0 {
+                        println!("  the point on each polygon: {inside} of {} inside it", areas.count());
+                    }
                 }
                 // drawing: every layer, the whole series in view, then 8 points per pixel at its centre
                 let canvas = Rect::from_min_max(Pos2::ZERO, Pos2::new(1600.0, 900.0));
@@ -114,7 +120,11 @@ impl State {
                         self.screen_per_px()
                     );
                 }
-                // the GPU's drawing: the layers built (levels, pieces) and uploaded, then a frame drawn and finished
+                // the GPU's drawing: the layers built (levels, pieces) and uploaded, then a frame drawn and finished;
+                // built again from here (a build started earlier ran alongside the placements measured above)
+                for v in &mut self.vectors {
+                    v.gpu = Default::default();
+                }
                 let t = Instant::now();
                 while self.vectors.iter().any(|v| !v.gpu.draws(v.placed_for)) {
                     self.pump_vector_gpu(ctx);

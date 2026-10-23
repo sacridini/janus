@@ -12,7 +12,8 @@
 //!   way.
 //!
 //! Made on a thread (in parallel over the pieces) from the layer as placed on the active layer's grid; drawn into
-//! the map's frame after the rasters. Picking and the highlighted feature stay on the CPU (vectors.rs).
+//! the map's frame in the drawing order of the layers (order.rs). Picking and the highlighted feature stay on the
+//! CPU (vectors.rs).
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -69,18 +70,19 @@ pub struct VectorGpu {
     pub build_ms: f64,
 }
 
-/// Douglas-Peucker of an open polyline (its ends kept), into `out` (which gets every point but the last).
-fn dp(p: &[[f64; 2]], tol: f64, out: &mut Vec<[f64; 2]>) {
-    if p.len() <= 2 {
-        out.extend_from_slice(&p[..p.len().saturating_sub(1)]);
+/// Douglas-Peucker of an open polyline at every tolerance at once: into `keep2`, each point's largest tolerance
+/// (squared) at which it is kept (the ends: always). The splits do not depend on the tolerance (a segment splits
+/// at its farthest point), so at a tolerance t a point is kept when every split leading to it is beyond t: its
+/// value is the least of them.
+fn dp_tolerances(p: &[[f64; 2]], keep2: &mut [f64]) {
+    let n = p.len();
+    if n == 0 {
         return;
     }
-    let mut keep = vec![false; p.len()];
-    keep[0] = true;
-    keep[p.len() - 1] = true;
-    let mut stack = vec![(0usize, p.len() - 1)];
-    let t2 = tol * tol;
-    while let Some((a, b)) = stack.pop() {
+    keep2[0] = f64::INFINITY;
+    keep2[n - 1] = f64::INFINITY;
+    let mut stack = vec![(0usize, n - 1, f64::INFINITY)];
+    while let Some((a, b, cap)) = stack.pop() {
         if b <= a + 1 {
             continue;
         }
@@ -100,57 +102,72 @@ fn dp(p: &[[f64; 2]], tol: f64, out: &mut Vec<[f64; 2]>) {
                 (best, at) = (d2, i);
             }
         }
-        if best > t2 {
-            keep[at] = true;
-            stack.push((a, at));
-            stack.push((at, b));
-        }
+        let v = best.min(cap);
+        keep2[at] = v;
+        stack.push((a, at, v));
+        stack.push((at, b, v));
     }
-    out.extend(p[..p.len() - 1].iter().zip(&keep).filter(|(_, k)| **k).map(|(q, _)| *q));
 }
 
-/// A ring (x, y pairs) simplified at `tol` (0: as it is): its points, closed again for a closed one. Smaller than
-/// the tolerance: its first point twice (a dot).
-fn simplify(r: &[f64], tol: f64, closed: bool) -> Vec<[f64; 2]> {
-    let pts: Vec<[f64; 2]> = r.as_chunks::<2>().0.to_vec();
-    if pts.is_empty() {
-        return pts;
-    }
-    if tol <= 0.0 {
-        let mut p = pts;
-        if closed && p.first() != p.last() {
-            p.push(p[0]);
+/// A ring ready to be simplified at any tolerance: its points (a closed one closed again), the tolerance (squared)
+/// up to which Douglas-Peucker keeps each one, its box's longer side.
+struct Simplified {
+    pts: Vec<[f64; 2]>,
+    keep2: Vec<f64>,
+    size: f64,
+    closed: bool,
+}
+
+impl Simplified {
+    /// A ring (x, y pairs); a closed one split at the point farthest from its first: two open halves.
+    fn new(r: &[f64], closed: bool) -> Self {
+        let mut pts: Vec<[f64; 2]> = r.as_chunks::<2>().0.to_vec();
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+        for q in &pts {
+            (x0, y0, x1, y1) = (x0.min(q[0]), y0.min(q[1]), x1.max(q[0]), y1.max(q[1]));
         }
-        return p;
-    }
-    let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
-    for q in &pts {
-        (x0, y0, x1, y1) = (x0.min(q[0]), y0.min(q[1]), x1.max(q[0]), y1.max(q[1]));
-    }
-    if (x1 - x0).max(y1 - y0) < tol {
-        return vec![pts[0], pts[0]];
-    }
-    let mut out = Vec::new();
-    if closed {
-        // split at the point farthest from the first: two open halves
-        let far = (0..pts.len())
-            .max_by(|&a, &b| {
-                let d = |i: usize| (pts[i][0] - pts[0][0]).powi(2) + (pts[i][1] - pts[0][1]).powi(2);
-                d(a).total_cmp(&d(b))
-            })
-            .unwrap_or(0);
-        let mut ring = pts.clone();
-        if ring.first() != ring.last() {
-            ring.push(ring[0]);
+        let mut keep2 = vec![0.0; pts.len() + 1];
+        if closed && !pts.is_empty() {
+            let far = (0..pts.len())
+                .max_by(|&a, &b| {
+                    let d = |i: usize| (pts[i][0] - pts[0][0]).powi(2) + (pts[i][1] - pts[0][1]).powi(2);
+                    d(a).total_cmp(&d(b))
+                })
+                .unwrap_or(0);
+            if pts.first() != pts.last() {
+                pts.push(pts[0]);
+            }
+            dp_tolerances(&pts[..=far], &mut keep2[..=far]);
+            dp_tolerances(&pts[far..], &mut keep2[far..pts.len()]);
+        } else {
+            dp_tolerances(&pts, &mut keep2[..pts.len()]);
         }
-        dp(&ring[..=far], tol, &mut out);
-        dp(&ring[far..], tol, &mut out);
-        out.push(ring[0]);
-    } else {
-        dp(&pts, tol, &mut out);
-        out.push(*pts.last().unwrap());
+        keep2.truncate(pts.len());
+        Simplified { pts, keep2, size: (x1 - x0).max(y1 - y0), closed }
     }
-    out
+
+    /// Its points at `tol` (0: as it is), into `out`: closed again for a closed one; smaller than the tolerance,
+    /// its first point twice (a dot). False if it has none.
+    fn at(&self, tol: f64, out: &mut impl FnMut([f64; 2])) -> bool {
+        let p = &self.pts;
+        if p.is_empty() {
+            return false;
+        }
+        if tol <= 0.0 {
+            p.iter().for_each(|q| out(*q));
+        } else if self.size < tol {
+            out(p[0]);
+            out(p[0]);
+        } else {
+            let t2 = tol * tol;
+            let n = if self.closed { p.len() - 1 } else { p.len() };
+            p[..n].iter().zip(&self.keep2).filter(|(_, k)| **k > t2).for_each(|(q, _)| out(*q));
+            if self.closed {
+                out(p[0]);
+            }
+        }
+        true
+    }
 }
 
 /// Twice the signed area of a ring.
@@ -277,25 +294,36 @@ pub fn build(px: &[Polygon], kinds: &[Kind], fill: bool, key: u64) -> Built {
             for &i in feats.iter().filter(|&&i| kinds[i] == Kind::Point) {
                 points.extend(px[i].iter().filter(|r| r.len() >= 2).map(|r| rel([r[0], r[1]], i)));
             }
+            // each ring's Douglas-Peucker once, every level then a filter of it
+            let shapes: Vec<(usize, Vec<Simplified>)> = feats
+                .iter()
+                .filter(|&&i| matches!(kinds[i], Kind::Line | Kind::Area))
+                .map(|&i| (i, px[i].iter().map(|r| Simplified::new(r, kinds[i] == Kind::Area)).collect()))
+                .collect();
             let mut levels = Vec::with_capacity(tols.len());
-            let mut at = Vec::new();
+            let (mut at, mut ring) = (Vec::new(), Vec::new());
+            let mut rings: Vec<Vec<[f64; 2]>> = Vec::new();
             for &tol in &tols {
                 let (mut pts, mut tris) = (Vec::new(), Vec::new());
-                for &i in feats {
-                    if !matches!(kinds[i], Kind::Line | Kind::Area) {
-                        continue;
-                    }
-                    let closed = kinds[i] == Kind::Area;
-                    let rings: Vec<Vec<[f64; 2]>> =
-                        px[i].iter().map(|r| simplify(r, tol, closed)).filter(|r| !r.is_empty()).collect();
+                for (i, s) in &shapes {
+                    let filled = fill && kinds[*i] == Kind::Area;
                     // each ring a line of its own: a break after it
                     at.clear();
-                    for r in &rings {
-                        at.push(pts.len() as u32);
-                        pts.extend(r.iter().map(|q| rel(*q, i)));
+                    rings.clear();
+                    for r in s {
+                        let start = pts.len();
+                        if !r.at(tol, &mut |q| pts.push(rel(q, *i))) {
+                            continue;
+                        }
+                        at.push(start as u32);
+                        if filled {
+                            ring.clear();
+                            r.at(tol, &mut |q| ring.push(q));
+                            rings.push(ring.clone());
+                        }
                         pts.push(VectorPoint::BREAK);
                     }
-                    if fill && closed {
+                    if filled {
                         triangulate(&rings, &at, &mut tris);
                     }
                 }
@@ -526,5 +554,66 @@ impl crate::app::State {
             }
         }
         h
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Douglas-Peucker at one tolerance, directly (the ends kept).
+    fn dp(p: &[[f64; 2]], tol: f64) -> Vec<[f64; 2]> {
+        let mut keep = vec![false; p.len()];
+        keep[0] = true;
+        keep[p.len() - 1] = true;
+        let mut stack = vec![(0usize, p.len() - 1)];
+        while let Some((a, b)) = stack.pop() {
+            if b <= a + 1 {
+                continue;
+            }
+            let (dx, dy) = (p[b][0] - p[a][0], p[b][1] - p[a][1]);
+            let len2 = dx * dx + dy * dy;
+            let (mut best, mut at) = (-1.0, a);
+            for (i, q) in p.iter().enumerate().take(b).skip(a + 1) {
+                let (qx, qy) = (q[0] - p[a][0], q[1] - p[a][1]);
+                let d2 = if len2 > 0.0 { (qx * dy - qy * dx).powi(2) / len2 } else { qx * qx + qy * qy };
+                if d2 > best {
+                    (best, at) = (d2, i);
+                }
+            }
+            if best > tol * tol {
+                keep[at] = true;
+                stack.push((a, at));
+                stack.push((at, b));
+            }
+        }
+        p.iter().zip(&keep).filter(|(_, k)| **k).map(|(q, _)| *q).collect()
+    }
+
+    #[test]
+    fn every_tolerance_at_once_is_douglas_peucker() {
+        // a random walk (a xorshift's steps), open
+        let mut s = 0x9e37_79b9_7f4a_7c15u64;
+        let mut rnd = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            (s >> 11) as f64 / (1u64 << 53) as f64 - 0.5
+        };
+        let (mut x, mut y, mut r) = (0.0, 0.0, Vec::new());
+        for _ in 0..3000 {
+            (x, y) = (x + rnd(), y + rnd());
+            r.extend([x, y]);
+        }
+        let pts: Vec<[f64; 2]> = r.as_chunks::<2>().0.to_vec();
+        let s = Simplified::new(&r, false);
+        for tol in [1.0 / 32.0, 0.1, 0.5, 2.0, 8.0] {
+            let mut got = Vec::new();
+            s.at(tol, &mut |q| got.push(q));
+            assert_eq!(got, dp(&pts, tol), "tolerance {tol}");
+        }
+        let mut all = Vec::new();
+        s.at(0.0, &mut |q| all.push(q));
+        assert_eq!(all, pts);
     }
 }

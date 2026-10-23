@@ -4495,6 +4495,7 @@ dependencies = [
  "gdal-sys",
  "janus-cache",
  "janus-cube",
+ "rayon",
 ]
 
 [[package]]

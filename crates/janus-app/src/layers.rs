@@ -161,6 +161,8 @@ pub struct SeriesLayer {
     pub emb: Option<Box<crate::embeddings::EmbeddingLayer>>,
     /// the empty raster the map stands on when only vector layers are open (canvas_layer.rs): not listed
     pub canvas: bool,
+    /// its place in the drawing order of series and vector layers (order.rs)
+    pub z: u64,
 }
 
 /// The map's options a layer does not keep (the C++'s App members): the season, the temporal composites' options,
@@ -437,6 +439,9 @@ impl State {
     /// Layers i and j change places in the drawing order (the active one stays active).
     pub fn swap_layers(&mut self, i: usize, j: usize) {
         self.layers.swap(i, j);
+        let z = self.layers[i].z;
+        self.layers[i].z = self.layers[j].z;
+        self.layers[j].z = z;
         if self.active == i {
             self.active = j;
         } else if self.active == j {

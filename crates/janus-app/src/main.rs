@@ -31,6 +31,7 @@ mod measure;
 mod measure_vectors;
 mod ml;
 mod open;
+mod order;
 mod panels;
 mod platform;
 mod python;

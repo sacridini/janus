@@ -300,6 +300,8 @@ pub struct State {
     pub vector_loads: crate::vectors::VectorLoads,
     pub next_vector_id: u32,
     pub hover_vector: Option<(usize, usize)>,
+    /// the top of the drawing order (order.rs)
+    pub next_z: u64,
     pub extract: crate::vectors::ExtractUi,
     /// the interpretation of a vector layer's features
     pub labels: crate::labels::Interpretation,
@@ -610,6 +612,7 @@ impl JanusApp {
                 vector_loads: Default::default(),
                 next_vector_id: 1,
                 hover_vector: None,
+                next_z: 0,
                 extract: Default::default(),
                 labels: Default::default(),
                 exports: Vec::new(),
@@ -786,6 +789,7 @@ impl State {
             o.name.clone().unwrap_or_else(|| self.layer_name(&s.info, &o.inputs))
         };
         let emb = crate::embeddings::EmbeddingLayer::new(&s.info);
+        let z = if canvas { 0 } else { self.take_z() };
         self.layers.push(crate::layers::SeriesLayer {
             session: Some(s),
             inputs: o.inputs,
@@ -799,7 +803,10 @@ impl State {
             series: Default::default(),
             emb,
             canvas,
+            z,
         });
+        // over the other series, under the vector layers above them
+        self.place_new_series();
         // the panel comes up with the first layer of embeddings
         if self.layers.last().and_then(|l| l.emb.as_ref()).is_some_and(|e| !e.spectral) {
             self.show_embeddings = true;

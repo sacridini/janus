@@ -10,3 +10,4 @@ gdal.workspace = true
 gdal-sys.workspace = true
 janus-cache = { path = "../janus-cache" }
 janus-cube = { path = "../janus-cube" }
+rayon = "1.12"

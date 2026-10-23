@@ -45,6 +45,8 @@ pub struct VectorLayer {
     pub colors: Vec<Color32>,
     /// drawn by the GPU (vector_gpu.rs)
     pub gpu: crate::vector_gpu::LayerGpu,
+    /// its place in the drawing order of series and vector layers (order.rs)
+    pub z: u64,
 }
 
 /// Extract series: the dialog's choices.
@@ -155,33 +157,52 @@ impl State {
             v.why = "drawn over a raster series: open one".into();
             return;
         };
-        if let Err(e) = Placer::new(&v.data, &info.crs_wkt, info.geo_transform) {
+        if let Err(e) = Placer::to_pixels(&v.data, &info.crs_wkt, info.geo_transform) {
             v.why = format!("not drawn: {e}");
             return;
         }
-        // in parallel: a placer (its own transformation) per chunk of features
+        // in parallel: a placer (its own transformation) per thread, over chunks of about as many vertices (a few
+        // features can hold most of them)
         use rayon::prelude::*;
         let data = v.data.clone();
         let feats = &data.features;
-        let chunk = (feats.len() / (rayon::current_num_threads() * 4)).max(256);
-        let placed: Vec<(Polygon, [f32; 4], [f64; 2], bool)> = feats
-            .par_chunks(chunk)
-            .flat_map_iter(|fs| {
-                let p = Placer::new(&data, &info.crs_wkt, info.geo_transform).ok();
-                fs.iter()
-                    .map(|f| {
-                        let Some(p) = &p else { return (Vec::new(), [1.0, 1.0, 0.0, 0.0], [f64::NAN; 2], false) };
-                        let px = p.placed(&f.parts);
-                        let b = plane::bounds(&px);
-                        let a = (f.kind != Kind::None).then(|| p.to_pixel(f.cx, f.cy)).flatten();
-                        let on = b.is_some_and(|b| {
-                            b[2] >= 0.0 && b[3] >= 0.0 && b[0] <= info.width as f64 && b[1] <= info.height as f64
-                        });
-                        let bb = b.map_or([1.0, 1.0, 0.0, 0.0], |b| b.map(|x| x as f32));
-                        (px, bb, a.map_or([f64::NAN; 2], |(x, y)| [x, y]), on)
-                    })
-                    .collect::<Vec<_>>()
-            })
+        let per = (data.vertices / (rayon::current_num_threads() * 8)).max(4096);
+        let mut chunks = vec![0];
+        let mut n = 0;
+        for (i, f) in feats.iter().enumerate() {
+            n += f.parts.iter().map(|r| r.len() / 2).sum::<usize>();
+            if n >= per {
+                chunks.push(i + 1);
+                n = 0;
+            }
+        }
+        if chunks.last() != Some(&feats.len()) {
+            chunks.push(feats.len());
+        }
+        let placed: Vec<(Polygon, [f32; 4], [f64; 2], bool)> = chunks
+            .par_windows(2)
+            .map_init(
+                || Placer::to_pixels(&data, &info.crs_wkt, info.geo_transform).ok(),
+                |p, w| {
+                    feats[w[0]..w[1]]
+                        .iter()
+                        .map(|f| {
+                            let Some(p) = p.as_ref() else {
+                                return (Vec::new(), [1.0, 1.0, 0.0, 0.0], [f64::NAN; 2], false);
+                            };
+                            let px = p.placed(&f.parts);
+                            let b = plane::bounds(&px);
+                            let a = (f.kind != Kind::None).then(|| p.to_pixel(f.cx, f.cy)).flatten();
+                            let on = b.is_some_and(|b| {
+                                b[2] >= 0.0 && b[3] >= 0.0 && b[0] <= info.width as f64 && b[1] <= info.height as f64
+                            });
+                            let bb = b.map_or([1.0, 1.0, 0.0, 0.0], |b| b.map(|x| x as f32));
+                            (px, bb, a.map_or([f64::NAN; 2], |(x, y)| [x, y]), on)
+                        })
+                        .collect::<Vec<_>>()
+                },
+            )
+            .flatten_iter()
             .collect();
         let on_map = placed.iter().filter(|p| p.3).count();
         let mut px = Vec::with_capacity(placed.len());
@@ -223,6 +244,7 @@ impl State {
                 let stem = file.file_stem().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
                 let name = if several || stem != d.layer { format!("{fname}: {}", d.layer) } else { fname };
                 let c = COLORS[(id as usize - 1) % COLORS.len()].map(|v| (v * 255.0).round() as u8);
+                let z = self.take_z();
                 self.vectors.push(VectorLayer {
                     id,
                     data: Arc::new(d),
@@ -237,6 +259,7 @@ impl State {
                     off_map: false,
                     colors: Vec::new(),
                     gpu: Default::default(),
+                    z,
                 });
             }
             self.map.dirty = true;

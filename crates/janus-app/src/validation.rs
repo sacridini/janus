@@ -639,6 +639,10 @@ impl State {
 
     /// The sample's vector layer (placed on the active layer).
     fn add_sample_layer(&mut self) {
+        if self.val.project.is_none() {
+            return;
+        }
+        let z = self.take_z();
         let Some(p) = &self.val.project else { return };
         let id = self.next_vector_id;
         self.next_vector_id += 1;
@@ -660,6 +664,7 @@ impl State {
             off_map: false,
             colors: Vec::new(),
             gpu: Default::default(),
+            z,
         });
         self.val.vector_id = id;
         self.val.colors_for = 0;

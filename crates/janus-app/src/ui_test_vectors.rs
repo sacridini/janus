@@ -2,7 +2,8 @@
 //! Vector files written here: points in lon/lat (GeoJSON, one far away), a polygon with a hole and a line in UTM
 //! 22S (GeoPackage), points in a CSV without a CRS. Their places on B's grid, picking, a polygon as the ROI, the
 //! line as the transect, the series extracted (wide over every layer, long for the polygon) against the files; the
-//! interpretation: keys as typed, a label and its date, the labels saved, resumed and exported (GeoPackage, CSV).
+//! drawing order (points moved under the series are covered by them); the interpretation: keys as typed, a label
+//! and its date, the labels saved, resumed and exported (GeoPackage, CSV).
 //! (The C++'s PNGs of the vectors come with the exports.)
 
 use gdal::spatial_ref::{AxisMappingStrategy, CoordTransform, SpatialRef};
@@ -17,6 +18,9 @@ const PTS: [[f64; 2]; 4] = [[40.5, 50.5], [200.25, 120.75], [280.5, 10.5], [60.5
 const SHELL: [f64; 8] = [100.0, 40.0, 180.0, 40.0, 180.0, 110.0, 100.0, 110.0];
 const HOLE: [f64; 8] = [120.0, 60.0, 150.0, 60.0, 150.0, 90.0, 120.0, 90.0];
 const LINE: [f64; 4] = [20.0, 180.0, 90.0, 185.0];
+
+/// The GPU target of the drawing order's check.
+const ORDER_SLOT: i32 = 96;
 
 fn read_csv(path: &str) -> Vec<Vec<String>> {
     std::fs::read_to_string(path)
@@ -252,7 +256,10 @@ impl State {
                 next(st, "placed on B, picked; the polygon (with its hole) as the ROI, the line as the transect");
             }
             122 => {
-                if !self.series.roi.complete() {
+                // the PNGs and the drawing order's check need the vector layers on the GPU
+                if !self.series.roi.complete()
+                    || !self.vectors.iter().all(|v| v.px.is_empty() || v.gpu.draws(v.placed_for))
+                {
                     return None;
                 }
                 let inside = self.series.roi.data.as_ref()?.mask.iter().filter(|&&m| m).count();
@@ -270,7 +277,16 @@ impl State {
                     return fail("the PNG did not start");
                 };
                 st.jobs.push(png);
-                next(st, "series extracted (points: every layer, wide; the polygon: long) and a PNG");
+                // and without "Pins, ROI and vector layers"
+                let o = crate::export_map::PngOptions { marks: false, ..o };
+                let Some(png) = self.export_png(file(st, "vectors_off.png"), o, ctx) else {
+                    return fail("the PNG did not start");
+                };
+                st.jobs.push(png);
+                next(
+                    st,
+                    "series extracted (points: every layer, wide; the polygon: long) and PNGs with and without the vectors",
+                );
             }
             123 => {
                 for j in &st.jobs {
@@ -353,12 +369,9 @@ impl State {
                 if worst > 1e-4 {
                     return fail("the polygon's mean should be the ROI's");
                 }
-                // the PNG: a point in the GeoJSON's colour (the CSV's points are the GeoJSON's: the one on top shows)
+                // the PNGs: a point in the GeoJSON's colour (the CSV's points are the GeoJSON's: the one on top
+                // shows), none without the vector layers
                 {
-                    let Ok(ds) = gdal::Dataset::open(file(st, "vectors.png")) else {
-                        return fail("the PNG cannot be opened");
-                    };
-                    let (w, h) = ds.raster_size();
                     let ppp = ctx.pixels_per_point();
                     let g = self.grid()?;
                     let rect = egui::Rect::from_min_size(
@@ -366,30 +379,95 @@ impl State {
                         egui::vec2(self.map.canvas[0].floor(), self.map.canvas[1].floor()),
                     );
                     let q = self.map.screen_of(rect, PTS[2][0] / g.fx, PTS[2][1] / g.fy);
-                    let (x, y) = (((q.x * ppp) as usize).min(w - 1), ((q.y * ppp) as usize).min(h - 1));
-                    let c: Vec<u8> = (1..=3)
-                        .map(|b| {
+                    let at = |name: &str| -> Option<[i32; 3]> {
+                        let ds = gdal::Dataset::open(file(st, name)).ok()?;
+                        let (w, h) = ds.raster_size();
+                        let (x, y) = (((q.x * ppp) as usize).min(w - 1), ((q.y * ppp) as usize).min(h - 1));
+                        Some([1, 2, 3].map(|b| {
                             ds.rasterband(b)
                                 .and_then(|r| r.read_as::<u8>((x as isize, y as isize), (1, 1), (1, 1), None))
-                                .map_or(0, |v| v.data()[0])
-                        })
-                        .collect();
+                                .map_or(0, |v| i32::from(v.data()[0]))
+                        }))
+                    };
+                    let (Some(on), Some(off)) = (at("vectors.png"), at("vectors_off.png")) else {
+                        return fail("the PNGs cannot be opened");
+                    };
                     let (pi, ci) = (self.vector_layer_of("plots.geojson")?, self.vector_layer_of("samples.csv")?);
                     let e = self.vectors[pi.max(ci)].color;
+                    let e = [e.r(), e.g(), e.b()].map(i32::from);
+                    let near = |c: [i32; 3]| (0..3).all(|k| (c[k] - e[k]).abs() <= 40);
                     println!(
-                        "    PNG at the third point: rgb({}, {}, {}), its layer's colour rgb({}, {}, {})",
-                        c[0],
-                        c[1],
-                        c[2],
-                        e.r(),
-                        e.g(),
-                        e.b()
+                        "    PNG at the third point: rgb{on:?}, without the vector layers rgb{off:?}, its layer's colour rgb{e:?}"
                     );
-                    if (i32::from(c[0]) - i32::from(e.r())).abs() > 40
-                        || (i32::from(c[1]) - i32::from(e.g())).abs() > 40
-                        || (i32::from(c[2]) - i32::from(e.b())).abs() > 40
-                    {
+                    if !near(on) {
                         return fail("the PNG should show the point in its layer's colour");
+                    }
+                    if near(off) {
+                        return fail("the PNG without the vector layers should not show the point");
+                    }
+                }
+                // the drawing order: the points' layers moved under the series are covered by B where it has data,
+                // moved back to the top they show again
+                {
+                    let t = self.display.t;
+                    let Some(q) = PTS[..3]
+                        .iter()
+                        .find(|q| rb.read_pixel(t, q[0] as usize, q[1] as usize).is_some_and(|v| !v.is_nan()))
+                    else {
+                        return fail("B should have data at one of the points");
+                    };
+                    let size = [self.map.canvas[0].floor() as u32, self.map.canvas[1].floor() as u32];
+                    let draw = |s: &mut State| -> Option<[i32; 3]> {
+                        s.render_map(ORDER_SLOT, size, [size[0] as f32, size[1] as f32], 1.0);
+                        let (w, h, px) = s.gpu.as_ref()?.read_target(ORDER_SLOT)?;
+                        let g = s.grid()?;
+                        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w as f32, h as f32));
+                        let p = s.map.screen_of(rect, q[0] / g.fx, q[1] / g.fy);
+                        let at =
+                            ((p.y as usize).min(h as usize - 1) * w as usize + (p.x as usize).min(w as usize - 1)) * 4;
+                        Some([0, 1, 2].map(|k| i32::from(px[at + k])))
+                    };
+                    let points = [self.vector_layer_of("plots.geojson")?, self.vector_layer_of("samples.csv")?]
+                        .map(|i| self.vectors[i].id);
+                    let place = |s: &State, id: u32| {
+                        let i = s.vector_index(id)?;
+                        s.draw_order().iter().position(|it| *it == crate::order::Item::Vector(i))
+                    };
+                    let on_top = draw(self)?;
+                    for id in points {
+                        let from = place(self, id)?;
+                        self.move_in_order(from, 0);
+                    }
+                    let under = draw(self)?;
+                    let bottom_ok = (0..2).all(|k| {
+                        matches!(self.draw_order()[k], crate::order::Item::Vector(i) if points.contains(&self.vectors[i].id))
+                    });
+                    for id in points {
+                        let i = self.vector_index(id)?;
+                        self.vectors[i].visible = false;
+                    }
+                    let hidden = draw(self)?;
+                    for id in points {
+                        let i = self.vector_index(id)?;
+                        self.vectors[i].visible = true;
+                        let top = self.draw_order().len() - 1;
+                        let from = place(self, id)?;
+                        self.move_in_order(from, top);
+                    }
+                    let back = draw(self)?;
+                    if let Some(g) = self.gpu.as_mut() {
+                        g.release_target(ORDER_SLOT);
+                    }
+                    let same = |a: [i32; 3], b: [i32; 3]| (0..3).all(|k| (a[k] - b[k]).abs() <= 2);
+                    println!(
+                        "    drawing order at ({}, {}): on top rgb{on_top:?}, under the series rgb{under:?}, hidden rgb{hidden:?}, back on top rgb{back:?}",
+                        q[0], q[1]
+                    );
+                    if !bottom_ok || self.active != 0 || self.layers.len() != 3 {
+                        return fail("the points' layers should go to the bottom, the series staying as they were");
+                    }
+                    if !same(under, hidden) || same(on_top, hidden) || !same(back, on_top) {
+                        return fail("a vector layer under a series should be covered by it, and show on top");
                     }
                 }
                 // interpretation of the points: the first one shown, its pin, the map on it

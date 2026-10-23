@@ -66,6 +66,78 @@ pub fn area(p: &[Ring]) -> f64 {
     total
 }
 
+/// A point inside a polygon (even-odd rings), found as GEOS's InteriorPointArea finds one: on a horizontal line
+/// through the middle of its box, moved halfway to the nearest vertices above and below (so it meets no vertex),
+/// the middle of the widest stretch inside. Parts the line misses (islands around a gap): the line through each
+/// ring's box instead, the largest ring first. None if no line crosses a ring.
+pub fn interior_point(p: &[Ring]) -> Option<(f64, f64)> {
+    let boxes: Vec<Option<[f64; 4]>> = p.iter().map(|r| bounds(std::slice::from_ref(r))).collect();
+    let b = bounds(p)?;
+    if let Some(q) = widest_stretch(p, &boxes, p, b) {
+        return Some(q);
+    }
+    let mut by_size: Vec<usize> = (0..p.len()).filter(|&k| boxes[k].is_some()).collect();
+    let size = |k: usize| boxes[k].map_or(0.0, |b| (b[2] - b[0]) * (b[3] - b[1]));
+    by_size.sort_by(|&a, &c| size(c).total_cmp(&size(a)));
+    by_size.into_iter().find_map(|k| widest_stretch(p, &boxes, std::slice::from_ref(&p[k]), boxes[k]?))
+}
+
+/// The middle of the widest stretch of `p` inside on the line through the middle of `b`, moved off the vertices
+/// of `near` (`boxes`: each ring's, to skip the ones the line misses).
+fn widest_stretch(p: &[Ring], boxes: &[Option<[f64; 4]>], near: &[Ring], b: [f64; 4]) -> Option<(f64, f64)> {
+    let c = (b[1] + b[3]) / 2.0;
+    let (mut lo, mut hi) = (b[1], b[3]);
+    for r in near {
+        for v in r.as_chunks::<2>().0 {
+            if v[1] <= c && v[1] > lo {
+                lo = v[1];
+            } else if v[1] > c && v[1] < hi {
+                hi = v[1];
+            }
+        }
+    }
+    let y = (lo + hi) / 2.0;
+    let mut xs = Vec::new();
+    for (r, rb) in p.iter().zip(boxes) {
+        if rb.is_none_or(|rb| y < rb[1] || y > rb[3]) {
+            continue;
+        }
+        let v = r.as_chunks::<2>().0;
+        for i in 0..v.len() {
+            let (a, e) = (v[i], v[(i + 1) % v.len()]);
+            if (a[1] > y) != (e[1] > y) {
+                xs.push(a[0] + (y - a[1]) * (e[0] - a[0]) / (e[1] - a[1]));
+            }
+        }
+    }
+    xs.sort_by(f64::total_cmp);
+    xs.as_chunks::<2>()
+        .0
+        .iter()
+        .max_by(|s, t| (s[1] - s[0]).total_cmp(&(t[1] - t[0])))
+        .map(|s| ((s[0] + s[1]) / 2.0, y))
+}
+
+/// The centroid of lines (open rings): their segments' middles weighted by their lengths (their vertices' mean if
+/// they have no length), as GEOS's.
+pub fn line_centroid(p: &[Ring]) -> Option<(f64, f64)> {
+    let (mut sx, mut sy, mut sl) = (0.0, 0.0, 0.0);
+    let (mut mx, mut my, mut n) = (0.0, 0.0, 0usize);
+    for r in p {
+        let v = r.as_chunks::<2>().0;
+        for q in v {
+            (mx, my, n) = (mx + q[0], my + q[1], n + 1);
+        }
+        for s in v.windows(2) {
+            let l = (s[1][0] - s[0][0]).hypot(s[1][1] - s[0][1]);
+            sx += l * (s[0][0] + s[1][0]) / 2.0;
+            sy += l * (s[0][1] + s[1][1]) / 2.0;
+            sl += l;
+        }
+    }
+    if sl > 0.0 { Some((sx / sl, sy / sl)) } else { (n > 0).then(|| (mx / n as f64, my / n as f64)) }
+}
+
 /// Every vertex through f (in place; f returns None where it cannot); rings left with fewer than 3 points dropped.
 pub fn transform(p: &mut Polygon, f: impl Fn(f64, f64) -> Option<(f64, f64)>) {
     for r in p.iter_mut() {
@@ -240,5 +312,23 @@ mod tests {
         assert!(t[0].as_chunks::<2>().0.iter().all(|v| v[0] < 6.0));
         transform(&mut t, |_, _| None);
         assert!(t.is_empty());
+    }
+
+    #[test]
+    fn interior_point_and_line_centroid() {
+        // a U (its box's centre in the gap), a square with a hole in its middle, two islands
+        let u = vec![vec![0.0, 0.0, 30.0, 0.0, 30.0, 30.0, 20.0, 30.0, 20.0, 10.0, 10.0, 10.0, 10.0, 30.0, 0.0, 30.0]];
+        let holed =
+            vec![vec![0.0, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0], vec![3.0, 3.0, 7.0, 3.0, 7.0, 7.0, 3.0, 7.0]];
+        let islands = vec![vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0], vec![5.0, 5.0, 9.0, 5.0, 9.0, 9.0, 5.0, 9.0]];
+        for p in [u, holed, islands] {
+            let (x, y) = interior_point(&p).unwrap();
+            assert!(contains(&p, x, y), "({x}, {y}) outside {p:?}");
+        }
+        assert_eq!(interior_point(&[]), None);
+        // an L of lines: the long leg weighs three times the short one
+        let (x, y) = line_centroid(&[vec![0.0, 0.0, 3.0, 0.0], vec![3.0, 0.0, 3.0, 1.0]]).unwrap();
+        assert!((x - (1.5 * 3.0 + 3.0) / 4.0).abs() < 1e-12 && (y - 0.5 / 4.0).abs() < 1e-12);
+        assert_eq!(line_centroid(&[vec![2.0, 4.0, 2.0, 4.0]]), Some((2.0, 4.0)));
     }
 }

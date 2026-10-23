@@ -47,6 +47,8 @@ pub struct MapView {
     pub prev_pointer_panel: Option<u32>,
     /// an export's background (None: the map's)
     pub export_bg: Option<[f32; 4]>,
+    /// an export without the vector layers
+    pub export_no_vectors: bool,
     /// the active layer's CRS's area of use in its source pixels (west, north, east, south), for the layer of
     /// that id (None: none known)
     crs_extent: Option<(u64, Option<[f64; 4]>)>,
@@ -773,10 +775,32 @@ impl State {
             // the basemap under the layers, in map space (the active layer's source pixels)
             self.basemap.draw(gpu, &mut f, &view, bg, |q| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy));
             let to_map = |q: [f64; 4]| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy);
+            // the vector layers in the series' order (order.rs): each drawn before the first series above it
+            let vv = janus_gpu::VectorView {
+                a: [m.scale * f64::from(ppp) / fx, m.scale * f64::from(ppp) / fy],
+                centre: [m.center[0] * fx, m.center[1] * fy],
+                t0: [f64::from(canvas[0] * ppp) / 2.0, f64::from(canvas[1] * ppp) / 2.0],
+            };
+            let margin = 8.0 / vv.a[0].abs().max(1e-12);
+            let seen = [view.x0 - margin, view.y0 - margin, view.x1 + margin, view.y1 + margin];
+            let mut vi = 0;
+            let no_vectors = m.export_no_vectors;
+            let vectors = &self.vectors;
+            let mut vectors_under = |gpu: &mut janus_gpu::Gpu, f: &mut janus_gpu::MapFrame, z: u64| {
+                while let Some(v) = vectors.get(vi).filter(|v| v.z < z) {
+                    if let Some(g) =
+                        v.gpu.ready.as_ref().filter(|_| v.visible && !no_vectors && v.gpu.draws(v.placed_for))
+                    {
+                        g.draw(gpu, f, &vv, seen, ppp, 0.0);
+                    }
+                    vi += 1;
+                }
+            };
             // every layer, bottom to top; the active one with its detail
             for li in 0..self.layers.len() {
                 let t_emb = emb_dates.get(li).copied();
                 let l = &mut self.layers[li];
+                vectors_under(gpu, &mut f, l.z);
                 if !l.place.aligned {
                     continue;
                 }
@@ -847,19 +871,8 @@ impl State {
                 }
                 crate::zeit::draw_results(gpu, &mut f, &self.zeit.results, &s.info, &l.place, &to_map);
             }
-            // the vector layers over them, bottom to top
-            let vv = janus_gpu::VectorView {
-                a: [m.scale * f64::from(ppp) / fx, m.scale * f64::from(ppp) / fy],
-                centre: [m.center[0] * fx, m.center[1] * fy],
-                t0: [f64::from(canvas[0] * ppp) / 2.0, f64::from(canvas[1] * ppp) / 2.0],
-            };
-            let margin = 8.0 / vv.a[0].abs().max(1e-12);
-            let seen = [view.x0 - margin, view.y0 - margin, view.x1 + margin, view.y1 + margin];
-            for v in self.vectors.iter().filter(|v| v.visible && v.gpu.draws(v.placed_for)) {
-                if let Some(g) = &v.gpu.ready {
-                    g.draw(gpu, &mut f, &vv, seen, ppp, 0.0);
-                }
-            }
+            // the vector layers over the top series
+            vectors_under(gpu, &mut f, u64::MAX);
             gpu.end_map(f);
             if slot == 0 {
                 m.drawn = Some(key);
