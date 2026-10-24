@@ -9,11 +9,11 @@ use crate::upstream::{Event, SortBy, landtrendr_event};
 
 /// zeit.landtrendr on one pixel (zeit/_lt.py `_segment_block`): the vertices' years and values as its Dataset
 /// keeps them (int16 and float32, 0 and NaN past the last), their count and the fit's RMSE (float32).
-struct Segmentation {
-    vertex_year: Vec<i16>,
-    vertex_value: Vec<f32>,
-    n_vertices: u8,
-    rmse: f32,
+pub(crate) struct Segmentation {
+    pub vertex_year: Vec<i16>,
+    pub vertex_value: Vec<f32>,
+    pub n_vertices: u8,
+    pub rmse: f32,
 }
 
 fn lt_params(p: &Params) -> LtParams {
@@ -31,7 +31,7 @@ fn lt_params(p: &Params) -> LtParams {
 }
 
 /// The segmentation of every pixel of `values` (pixels x T).
-fn segment_many(p: &Params, years: &[i32], values: &[f64], pixels: usize, n_jobs: i32) -> Vec<Segmentation> {
+pub(crate) fn segment_many(p: &Params, years: &[i32], values: &[f64], pixels: usize, n_jobs: i32) -> Vec<Segmentation> {
     let params = lt_params(p);
     let max_v = (params.max_segments as i64 + 1).max(0) as usize;
     let (vertices, counts, rmse) = fit_trajectory_batch(values, pixels, years, &params, f64::NAN, n_jobs);
@@ -51,7 +51,7 @@ fn segment_many(p: &Params, years: &[i32], values: &[f64], pixels: usize, n_jobs
 }
 
 /// The calendar years of the series' dates, each once (zeit.landtrendr's requirement).
-fn annual_years(input: &PixelInput) -> Result<Vec<i32>, String> {
+pub(crate) fn annual_years(input: &PixelInput) -> Result<Vec<i32>, String> {
     let years = input.calendar_years().ok_or("ValueError: the time axis has no dates: pass years=")?;
     let mut sorted = years.clone();
     sorted.sort_unstable();
@@ -66,7 +66,7 @@ fn annual_years(input: &PixelInput) -> Result<Vec<i32>, String> {
 
 /// zeit.extract_events of a segmentation (metrics.py `_extract_dataset`): the vertex stack in float32, NaN
 /// values and the RMSE as 0.
-fn event(p: &Params, seg: &Segmentation) -> Result<Event, String> {
+pub(crate) fn event(p: &Params, seg: &Segmentation) -> Result<Event, String> {
     let ys: Vec<f32> = seg.vertex_year.iter().map(|&y| f32::from(y)).collect();
     let vs: Vec<f32> = seg.vertex_value.iter().map(|&v| if v.is_nan() { 0.0 } else { v }).collect();
     let rmse = if seg.rmse.is_nan() { 0.0 } else { seg.rmse };

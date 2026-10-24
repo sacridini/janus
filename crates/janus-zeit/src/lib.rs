@@ -21,6 +21,7 @@ pub mod numeric;
 mod phenology;
 pub mod pixel;
 pub mod python;
+pub mod recovery;
 pub mod rng;
 mod smooth;
 pub mod snic;

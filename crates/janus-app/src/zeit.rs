@@ -978,7 +978,11 @@ fn draw_fit(
                     Line::new(name, PlotPoints::from(piece.to_vec()))
                         .color(col.gamma_multiply(alpha))
                         .width(width)
-                        .style(style.line),
+                        .style(if o.style.as_deref() == Some("dashed") {
+                            egui_plot::LineStyle::dashed_loose()
+                        } else {
+                            style.line
+                        }),
                 );
             }
         }

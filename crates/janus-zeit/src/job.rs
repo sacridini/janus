@@ -523,6 +523,7 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "landtrendr" => crate::landtrendr::chunk(p, chunk, ctx),
         "mann_kendall" => crate::mann_kendall::chunk(p, chunk, ctx),
         "ar_trend" => crate::ar_trend::chunk(p, chunk, ctx),
+        "recovery" => crate::recovery::chunk(p, chunk, ctx),
         "bfast" => crate::bfast::bfast_chunk(p, chunk, ctx),
         "tmask" => crate::tmask::chunk(p, chunk, ctx),
         "ndfi" => crate::ndfi::chunk(p, chunk, ctx),

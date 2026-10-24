@@ -69,7 +69,8 @@ which ships with Janus: there is nothing else to install. Its command line is `j
   names and change summaries; **several bands per date** with normalized
   differences, cloud masks and **RGB composites** (true colour, colour
   infrared...) while the chart keeps the index.
-- **Change detection built in**: LandTrendr, Mann-Kendall, AR(1) trends and
+- **Change detection built in**: LandTrendr and the recovery after its
+  disturbances (Y2R, R80P, RRI), Mann-Kendall, AR(1) trends and
   their regional test (PARTS, after remotePARTS), BFAST, CCDC,
   CODED (forest degradation, with the NDFI), phenology, TWDTW, SOM clustering,
   SNIC segmentation, Tmask cloud screening and more from [Zeit](https://github.com/sacridini/zeit-cdts),

@@ -2086,6 +2086,240 @@
      "unit": "value"
     }
    ]
+  },
+  {
+   "id": "recovery",
+   "name": "Recovery (LandTrendr)",
+   "category": "Change detection",
+   "description": "How each pixel recovered after its disturbance, as in Zeit (zeit.recovery_metrics): LandTrendr segments the annual series, the greatest (or newest...) loss is the disturbance, and its fitted trajectory after the trough gives the years to recovery (Y2R), R80P, the relative recovery indicator (RRI), the absolute recovery (ARI) and the year-on-year recovery (YrYr) (Kennedy et al. 2012; White et al. 2017; Frazier et al. 2018).",
+   "requires": {
+    "time": "annual",
+    "min_dates": 6
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "event_type",
+     "label": "Event",
+     "type": "enum",
+     "default": "loss",
+     "options": [
+      "loss",
+      "gain"
+     ],
+     "labels": [
+      "Loss (the index drops with the disturbance)",
+      "Gain (the index rises with it)"
+     ],
+     "help": "Direction of the disturbance: loss for indices that drop (NBR, NDVI, TCW), gain for those that rise (SWIR bands). Gains need the recovery level 'Fraction of the loss'."
+    },
+    {
+     "id": "max_segments",
+     "label": "Max segments",
+     "type": "int",
+     "default": 6,
+     "min": 1,
+     "max": 10,
+     "help": "Maximum number of segments in the fitted trajectory."
+    },
+    {
+     "id": "pval_threshold",
+     "label": "p-value threshold",
+     "type": "float",
+     "default": 0.05,
+     "min": 0.001,
+     "max": 1.0,
+     "help": "Models with a worse p-value are rejected."
+    },
+    {
+     "id": "recovery_threshold",
+     "label": "Recovery threshold",
+     "type": "float",
+     "default": 0.25,
+     "min": 0.0,
+     "max": 10.0,
+     "help": "Maximum recovery rate per year (1/years)."
+    },
+    {
+     "id": "spike_threshold",
+     "label": "Spike threshold",
+     "type": "float",
+     "default": 0.9,
+     "min": 0.0,
+     "max": 1.0,
+     "help": "Desawtooth dampening of single-year spikes (1 = none)."
+    },
+    {
+     "id": "best_model_proportion",
+     "label": "Best model proportion",
+     "type": "float",
+     "default": 0.75,
+     "min": 0.0,
+     "max": 2.0,
+     "help": "Prefer the model with most vertices whose p-value is within (2 - this) times the best one."
+    },
+    {
+     "id": "vertex_count_overshoot",
+     "label": "Vertex count overshoot",
+     "type": "int",
+     "default": 3,
+     "min": 0,
+     "max": 10,
+     "help": "Extra candidate vertices before pruning."
+    },
+    {
+     "id": "min_observations_needed",
+     "label": "Min observations",
+     "type": "int",
+     "default": 6,
+     "min": 3,
+     "max": 100,
+     "help": "Pixels with fewer valid years are not fitted."
+    },
+    {
+     "id": "sort_by",
+     "label": "Pick event by",
+     "type": "enum",
+     "default": "greatest",
+     "options": [
+      "greatest",
+      "newest",
+      "fastest",
+      "longest",
+      "dsnr"
+     ],
+     "labels": [
+      "Greatest magnitude",
+      "Newest",
+      "Fastest",
+      "Longest",
+      "DSNR (magnitude / RMSE)"
+     ],
+     "help": "Which disturbance is measured when a pixel has several."
+    },
+    {
+     "id": "min_magnitude",
+     "label": "Min magnitude",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 1000000000.0,
+     "help": "Events smaller than this are ignored."
+    },
+    {
+     "id": "min_duration",
+     "label": "Min duration (years)",
+     "type": "int",
+     "default": 1,
+     "min": 1,
+     "max": 100,
+     "help": "Events shorter than this are ignored."
+    },
+    {
+     "id": "pre_val_threshold",
+     "label": "Pre-event value threshold",
+     "type": "float",
+     "default": 0.0,
+     "min": -1000000000.0,
+     "max": 1000000000.0,
+     "help": "Loss: ignore events starting below this value. Gain: ignore events starting above it. 0 = off."
+    },
+    {
+     "id": "horizon",
+     "label": "Horizon (years)",
+     "type": "int",
+     "default": 5,
+     "min": 1,
+     "max": 30,
+     "help": "Years after the trough at which the recovery is measured (ARI, RRI, R80P, YrYr): the best of the fitted values of years horizon - 1 and horizon (Frazier et al. 2018)."
+    },
+    {
+     "id": "target",
+     "label": "Recovered at (fraction)",
+     "type": "float",
+     "default": 0.8,
+     "min": 0.05,
+     "max": 1.0,
+     "help": "The fraction of the pre-disturbance value (or of the loss) a pixel must return to: 0.8 for the 80% of White et al. (2017)'s Y2R and R80P."
+    },
+    {
+     "id": "basis",
+     "label": "Recovery level",
+     "type": "enum",
+     "default": "pre_value",
+     "options": [
+      "pre_value",
+      "magnitude"
+     ],
+     "labels": [
+      "Fraction of the pre-disturbance value",
+      "Fraction of the loss regained"
+     ],
+     "help": "Pre-disturbance value: recovered at target x the value before (White et al. 2017; an index that is positive and drops, such as NBR). Loss regained: recovered once that fraction of the drop came back (any index, either direction)."
+    },
+    {
+     "id": "pre_years",
+     "label": "Pre-disturbance years",
+     "type": "int",
+     "default": 2,
+     "min": 1,
+     "max": 10,
+     "help": "Years averaged for the pre-disturbance value, up to the disturbance's start."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "y2r",
+     "name": "Years to recovery",
+     "colormap": "Viridis",
+     "unit": "years"
+    },
+    {
+     "id": "r80p",
+     "name": "R80P",
+     "colormap": "BrBG",
+     "unit": "ratio"
+    },
+    {
+     "id": "rri",
+     "name": "Relative recovery (RRI)",
+     "colormap": "BrBG",
+     "unit": "ratio"
+    },
+    {
+     "id": "ari",
+     "name": "Absolute recovery (ARI)",
+     "colormap": "Viridis",
+     "unit": "value"
+    },
+    {
+     "id": "yryr",
+     "name": "Year-on-year recovery",
+     "colormap": "Viridis",
+     "unit": "value/year"
+    },
+    {
+     "id": "magnitude",
+     "name": "Disturbance magnitude",
+     "colormap": "Plasma",
+     "unit": "value"
+    },
+    {
+     "id": "pre_val",
+     "name": "Pre-disturbance value",
+     "colormap": "Viridis",
+     "unit": "value"
+    },
+    {
+     "id": "yod",
+     "name": "Year of disturbance",
+     "colormap": "Viridis",
+     "unit": "year"
+    }
+   ]
   }
  ],
  "errors": []

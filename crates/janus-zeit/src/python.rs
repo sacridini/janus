@@ -58,6 +58,33 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
             ),
             series,
         ),
+        "recovery" => (
+            format!(
+                "result1 = zeit.landtrendr(series, nodata=None, n_jobs=1, direction={}, max_segments={}, pval_threshold={}, \
+                 recovery_threshold={}, spike_threshold={}, best_model_proportion={}, vertex_count_overshoot={}, \
+                 min_observations_needed={})\nresult2 = zeit.recovery_metrics(result1, event_type={}, sort_by={}, \
+                 min_magnitude={}, min_duration={}, pre_val_threshold={}, target={}, horizon={}, pre_years={}, \
+                 basis={}, n_jobs=1)",
+                s("event_type"),
+                i("max_segments"),
+                f("pval_threshold"),
+                f("recovery_threshold"),
+                f("spike_threshold"),
+                f("best_model_proportion"),
+                i("vertex_count_overshoot"),
+                i("min_observations_needed"),
+                s("event_type"),
+                s("sort_by"),
+                f("min_magnitude"),
+                i("min_duration"),
+                f("pre_val_threshold"),
+                f("target"),
+                i("horizon"),
+                i("pre_years"),
+                s("basis")
+            ),
+            series,
+        ),
         "mann_kendall" => {
             let lag = p.int("lag");
             let period = (if p.int("period") != 0 { p.int("period") } else { input.per_year() }).max(1);

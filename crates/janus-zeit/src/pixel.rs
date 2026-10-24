@@ -120,6 +120,9 @@ pub struct Overlay {
     /// opacity (a model's trend drawn lighter under it)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alpha: Option<f64>,
+    /// "dashed": a level or threshold, not a fit
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
 }
 
 impl Overlay {
@@ -156,6 +159,7 @@ pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResu
         "landtrendr" => crate::landtrendr::pixel(p, input),
         "mann_kendall" => crate::mann_kendall::pixel(p, input),
         "ar_trend" => crate::ar_trend::pixel(p, input),
+        "recovery" => crate::recovery::pixel(p, input),
         "smooth" => crate::smooth::pixel(p, input),
         "tmask" => crate::tmask::pixel(p, input),
         "ndfi" => crate::ndfi::pixel(p, input),
