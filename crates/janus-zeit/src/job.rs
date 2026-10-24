@@ -542,6 +542,7 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "mann_kendall" => crate::mann_kendall::chunk(p, chunk, ctx),
         "ar_trend" => crate::ar_trend::chunk(p, chunk, ctx),
         "recovery" => crate::recovery::chunk(p, chunk, ctx),
+        "ewmacd" => crate::ewmacd::chunk(p, chunk, ctx),
         "unmix" => crate::unmix::chunk(p, chunk, ctx),
         "unmix_spectrum" => crate::unmix::spectrum_chunk(p, chunk, ctx),
         "bfast" => crate::bfast::bfast_chunk(p, chunk, ctx),

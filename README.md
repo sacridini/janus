@@ -71,7 +71,8 @@ which ships with Janus: there is nothing else to install. Its command line is `j
   infrared...) while the chart keeps the index.
 - **Change detection built in**: LandTrendr and the recovery after its
   disturbances (Y2R, R80P, RRI), Mann-Kendall, AR(1) trends and
-  their regional test (PARTS, after remotePARTS), BFAST, CCDC,
+  their regional test (PARTS, after remotePARTS), BFAST, CCDC, EWMACD
+  (monitoring every observation with control charts: disturbance, recovery, gain),
   CODED (forest degradation, with the NDFI), spectral unmixing with endmembers
   from pins (of every date's bands, or of a hyperspectral scene), phenology, TWDTW, SOM clustering,
   SNIC segmentation, Tmask cloud screening and more from [Zeit](https://github.com/sacridini/zeit-cdts),

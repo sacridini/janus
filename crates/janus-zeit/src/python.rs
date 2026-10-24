@@ -304,6 +304,24 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
                 )
             }
         }
+        "ewmacd" => {
+            let d = crate::ewmacd::dates(input).ok()?;
+            let ep = crate::ewmacd::ewmacd_params(p, &d).ok()?;
+            (
+                format!(
+                    "result1 = zeit.ewmacd(series, train_end={}, order={}, lmbda={}, sigmas={}, persistence={}, \
+                     xbar_train={}, xbar_monitor={}, nodata=None, n_jobs=1)",
+                    ep.train_end,
+                    ep.harmonics,
+                    py_float(ep.lambda),
+                    py_float(ep.sigmas),
+                    ep.persistence,
+                    py_float(ep.xbar_train),
+                    py_float(ep.xbar_monitor)
+                ),
+                series,
+            )
+        }
         "ccdc" | "ccdc_synthetic" => (
             format!(
                 "result1 = zeit.ccdc(bands_cube, qa=fmask, max_segments={}, conseq_anom={}, chi2_prob_threshold={}, \

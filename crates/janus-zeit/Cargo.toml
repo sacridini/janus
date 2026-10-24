@@ -14,4 +14,4 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 # Zeit 2.0.0 (its core is Rust only) with remotePARTS's methods (ar_reml, gls, spatial, parts) and the recovery
 # metrics (recovery), and NNLS's step fixed for a spectrum equal to an endmember (NaN before); the bridge's
 # fixtures were recorded on 2.0.0 (58e1b1e), whose other results this revision leaves as they were
-zeit-core = { git = "https://github.com/sacridini/zeit-cdts", rev = "540992e7aa43b71ef5f884e4efa9e91c7f7fbb8d" }
+zeit-core = { git = "https://github.com/sacridini/zeit-cdts", rev = "5bf078339c9d9f0c46c897c1eaa5326a05d9cde2" }

@@ -2322,6 +2322,136 @@
    ]
   },
   {
+   "id": "ewmacd",
+   "name": "EWMACD (monitoring)",
+   "category": "Change detection",
+   "description": "Continuous monitoring of every observation (irregular, cloudy dates welcome) with EWMA control charts, as in Zeit (zeit.ewmacd; Brooks et al. 2014): a harmonic model of the training years, refitted without the clouds an X-bar chart screens; the residuals of every date after them smoothed by an EWMA, which signals when it stays beyond its control limits: a disturbance below, a gain above. Subtle shifts (thinning, drought, pests) as well as clearcuts; the date the pixel came back within its limits is its recovery. The flags are those of Brooks' EWMACD script (the paper's, Earth Engine's Ewmacd).",
+   "requires": {
+    "time": "any",
+    "min_dates": 12,
+    "min_per_year": 2
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "train_end",
+     "label": "Training ends before (year)",
+     "type": "int",
+     "default": 0,
+     "min": 0,
+     "max": 2100,
+     "help": "The first year after the training period: the model is fitted on the years before it and the monitoring starts with it. 0 = three years of training (Brooks' default). The training years should be stable: a pixel disturbed in them signals as soon as they end."
+    },
+    {
+     "id": "lambda",
+     "label": "EWMA weight (lambda)",
+     "type": "float",
+     "default": 0.3,
+     "min": 0.01,
+     "max": 1.0,
+     "help": "Weight of each new observation in the moving average: low values are slow and smooth (subtle changes, few false signals), 1 a chart of each date alone (Brooks et al.: 0.3; 0.1-0.5 comparable)."
+    },
+    {
+     "id": "sigmas",
+     "label": "Control limits (sigmas)",
+     "type": "float",
+     "default": 3.0,
+     "min": 0.5,
+     "max": 10.0,
+     "help": "The control limits in standard deviations of the EWMA; the flags count how many limits the EWMA is beyond."
+    },
+    {
+     "id": "persistence",
+     "label": "Persistence (dates)",
+     "type": "int",
+     "default": 3,
+     "min": 1,
+     "max": 30,
+     "help": "Consecutive dates a signal must last to count (Earth Engine's default 3); a shorter run keeps the state before it."
+    },
+    {
+     "id": "order",
+     "label": "Harmonic order",
+     "type": "int",
+     "default": 2,
+     "min": 1,
+     "max": 4,
+     "help": "Sine/cosine pairs of the seasonal model of the training years (Brooks et al.: 2)."
+    },
+    {
+     "id": "xbar_train",
+     "label": "Training screen (sigmas)",
+     "type": "float",
+     "default": 1.5,
+     "min": 0.5,
+     "max": 10.0,
+     "help": "Training dates farther than this from the model (clouds, shadows) are left out of the fit and of the chart (an X-bar chart)."
+    },
+    {
+     "id": "xbar_monitor",
+     "label": "Monitoring screen (sigmas)",
+     "type": "float",
+     "default": 20.0,
+     "min": 2.0,
+     "max": 1000.0,
+     "help": "Later dates farther than this from the model are left out as gross anomalies; the changes must stay in. A clearcut larger than this on a smooth series is screened until it comes back within it: raise it for such series."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "break_date",
+     "name": "Disturbance date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "severity",
+     "name": "Severity (control limits)",
+     "colormap": "Plasma",
+     "unit": "flag"
+    },
+    {
+     "id": "recovery_date",
+     "name": "Recovery date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "state",
+     "name": "State (last date)",
+     "colormap": "Monitoring",
+     "unit": "class",
+     "classes": [
+      "Stable",
+      "Disturbed",
+      "Recovered",
+      "Gain"
+     ]
+    },
+    {
+     "id": "gain_date",
+     "name": "Gain date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "last_flag",
+     "name": "Last flag",
+     "colormap": "RdBu",
+     "unit": "flag"
+    },
+    {
+     "id": "sigma",
+     "name": "Residual sigma",
+     "colormap": "Viridis",
+     "unit": "value"
+    }
+   ]
+  },
+  {
    "id": "unmix",
    "name": "Spectral unmixing (endmembers)",
    "category": "Indices",

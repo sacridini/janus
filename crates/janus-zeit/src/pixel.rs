@@ -160,6 +160,7 @@ pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResu
         "mann_kendall" => crate::mann_kendall::pixel(p, input),
         "ar_trend" => crate::ar_trend::pixel(p, input),
         "recovery" => crate::recovery::pixel(p, input),
+        "ewmacd" => crate::ewmacd::pixel(p, input),
         "unmix" => crate::unmix::pixel(p, input),
         "unmix_spectrum" => crate::unmix::spectrum_pixel(p, input),
         "smooth" => crate::smooth::pixel(p, input),
