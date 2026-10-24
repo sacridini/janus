@@ -14,11 +14,15 @@ use crate::bands::{series_overlay, shown_is_index};
 use crate::job::{Chunk, ChunkOut, JobCtx};
 use crate::pixel::{Overlay, Params, PixelInput, PixelResult, g, row};
 
-/// The endmembers of the "endmembers" parameter: their names and spectra (k x bands, in the data's units).
+/// The endmembers of the "endmembers" parameter: their names and spectra (k x bands, in the data's units, NaN
+/// where a band has no value).
 pub struct Endmembers {
     pub names: Vec<String>,
     pub spectra: Vec<f64>,
     pub bands: usize,
+    /// the bands unmixed: those with a value in every endmember (a scene's empty bands, EnMAP's 1331-1391 nm or
+    /// the water vapour's, left out)
+    pub used: Vec<usize>,
 }
 
 impl Endmembers {
@@ -39,7 +43,7 @@ pub fn endmembers(p: &Params) -> Result<Endmembers, String> {
     if list.len() < 2 {
         return Err("add at least two endmembers (pins on places of a known cover: vegetation, soil, water...)".into());
     }
-    let mut out = Endmembers { names: vec![], spectra: vec![], bands: 0 };
+    let mut out = Endmembers { names: vec![], spectra: vec![], bands: 0, used: vec![] };
     for (k, e) in list.iter().enumerate() {
         let name = e.get("name").and_then(Value::as_str).map_or_else(|| format!("Endmember {}", k + 1), str::to_string);
         let values: Vec<f64> = e
@@ -47,8 +51,8 @@ pub fn endmembers(p: &Params) -> Result<Endmembers, String> {
             .and_then(Value::as_array)
             .map(|a| a.iter().map(|v| v.as_f64().unwrap_or(f64::NAN)).collect())
             .unwrap_or_default();
-        if values.iter().any(|v| !v.is_finite()) || values.is_empty() {
-            return Err(format!("the endmember {name:?} has bands without a value: take it from another pin"));
+        if !values.iter().any(|v| v.is_finite()) {
+            return Err(format!("the endmember {name:?} has no value: take it from another pin"));
         }
         if k == 0 {
             out.bands = values.len();
@@ -61,6 +65,11 @@ pub fn endmembers(p: &Params) -> Result<Endmembers, String> {
         }
         out.names.push(name);
         out.spectra.extend(values);
+    }
+    let (b, k) = (out.bands, out.k());
+    out.used = (0..b).filter(|&i| (0..k).all(|j| out.spectra[j * b + i].is_finite())).collect();
+    if out.used.len() < 2 {
+        return Err("the endmembers have a value together in fewer than two bands: take them from other pins".into());
     }
     Ok(out)
 }
@@ -76,17 +85,17 @@ fn constraints(p: &Params) -> Result<(bool, bool), String> {
     }
 }
 
-/// zeit.unmix of `n` spectra (n x bands, the data's units): n x (k + 1), the fractions then the RMSE (in the
-/// scaled units). A spectrum with a band missing gives NaN.
+/// zeit.unmix of `n` spectra (n x bands, the data's units) on the endmembers' bands: n x (k + 1), the fractions
+/// then the RMSE (in the scaled units). A spectrum with one of those bands missing gives NaN.
 fn solve(p: &Params, e: &Endmembers, spectra: &[f64], n: usize, n_jobs: i32) -> Result<Vec<f64>, String> {
     let (sum_to_one, nonneg) = constraints(p)?;
     let s = e.scale();
-    let em: Vec<f64> = e.spectra.iter().map(|v| v / s).collect();
-    let y: Vec<f64> = spectra.iter().map(|v| v / s).collect();
-    let k = e.k();
-    let mut out = sma::unmix_batch(&y, n, e.bands, &em, k, sum_to_one, nonneg, 1000.0, n_jobs);
+    let (b, k, u) = (e.bands, e.k(), e.used.len());
+    let em: Vec<f64> = (0..k).flat_map(|j| e.used.iter().map(move |&i| e.spectra[j * b + i] / s)).collect();
+    let y: Vec<f64> = (0..n).flat_map(|r| e.used.iter().map(move |&i| spectra[r * b + i] / s)).collect();
+    let mut out = sma::unmix_batch(&y, n, u, &em, k, sum_to_one, nonneg, 1000.0, n_jobs);
     for i in 0..n {
-        if y[i * e.bands..(i + 1) * e.bands].iter().any(|v| !v.is_finite()) {
+        if y[i * u..(i + 1) * u].iter().any(|v| !v.is_finite()) {
             out[i * (k + 1)..(i + 1) * (k + 1)].fill(f64::NAN);
         }
     }
@@ -231,8 +240,8 @@ fn check_spectrum(e: &Endmembers, bands: usize) -> Result<(), String> {
             e.bands
         ));
     }
-    if e.k() > bands {
-        return Err(format!("{} endmembers for {bands} bands: fewer endmembers than bands", e.k()));
+    if e.k() > e.used.len() {
+        return Err(format!("{} endmembers for {} bands: fewer endmembers than bands", e.k(), e.used.len()));
     }
     Ok(())
 }
@@ -254,11 +263,14 @@ pub fn spectrum_pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, Str
     fraction_rows(&e, &out, &mut rows);
     // the spectrum the fractions rebuild, and each endmember's part of it
     let b = e.bands;
-    let model: Vec<Option<f64>> =
-        (0..b).map(|i| Some((0..k).map(|j| out[j] * e.spectra[j * b + i]).sum::<f64>())).collect();
+    // none on the bands left out, as the pin's spectrum breaks there
+    let model: Vec<Option<f64>> = (0..b)
+        .map(|i| Some((0..k).map(|j| out[j] * e.spectra[j * b + i]).sum::<f64>()).filter(|v| v.is_finite()))
+        .collect();
     let mut overlays = vec![Overlay::new("line", "Rebuilt spectrum", input.years.clone(), model)];
     for (j, name) in e.names.iter().enumerate() {
-        let part: Vec<Option<f64>> = (0..b).map(|i| Some(out[j] * e.spectra[j * b + i])).collect();
+        let part: Vec<Option<f64>> =
+            (0..b).map(|i| Some(out[j] * e.spectra[j * b + i]).filter(|v| v.is_finite())).collect();
         let mut o = Overlay::new("line", &format!("{name} x {}", g(out[j], 3)), input.years.clone(), part);
         o.style = Some("dashed".into());
         o.weight = Some(1.2);

@@ -138,6 +138,48 @@ fn raster_run_writes_one_output_per_endmember() {
 }
 
 #[test]
+fn empty_bands_are_left_out() {
+    // a band without a value in the scene and the endmembers (EnMAP's 1331-1391 nm): the same fractions
+    let (stack, t, w, h) = read("spectrum.tif");
+    let n = w * h;
+    let c = &cases()["spectrum_fcls"];
+    let want = run_chunk(
+        "unmix_spectrum",
+        &params("unmix_spectrum", c),
+        &Chunk { t, h, w, stack: stack.clone(), ..Default::default() },
+        &JobCtx::default(),
+    )
+    .unwrap();
+    let gap: Vec<f64> =
+        stack[..2 * n].iter().copied().chain(vec![f64::NAN; n]).chain(stack[2 * n..].iter().copied()).collect();
+    let ems: Vec<Value> = c
+        .names
+        .iter()
+        .zip(&c.spectra)
+        .map(|(name, s)| {
+            let v: Vec<Value> =
+                s[..2].iter().map(|&x| json!(x)).chain([Value::Null]).chain(s[2..].iter().map(|&x| json!(x))).collect();
+            json!({"name": name, "values": v})
+        })
+        .collect();
+    let p = Params::with_defaults(
+        "unmix_spectrum",
+        &BTreeMap::from([("endmembers".to_string(), json!(ems)), ("constraint".to_string(), json!(c.constraint))]),
+    )
+    .unwrap();
+    let got = run_chunk(
+        "unmix_spectrum",
+        &p,
+        &Chunk { t: t + 1, h, w, stack: gap, ..Default::default() },
+        &JobCtx::default(),
+    )
+    .unwrap();
+    for (k, v) in &want {
+        assert!(got[k].iter().zip(v).all(|(a, b)| a == b || (a.is_nan() && b.is_nan())), "{k}");
+    }
+}
+
+#[test]
 fn pixel_runs() {
     let all = cases();
     // the series: a pixel's bands at every date, the fractions drawn over an index

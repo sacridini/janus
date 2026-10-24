@@ -2549,13 +2549,14 @@
     "pixel",
     "raster"
    ],
+   "map_date": true,
    "params": [
     {
      "id": "endmembers",
      "label": "Endmembers",
      "type": "endmembers",
      "default": [],
-     "help": "The pure spectra the pixels are mixtures of: the bands of a pin at the map's date. Drop pins on places of a known, pure cover (dense vegetation, bare soil, water, shade...), add each here and name it. Two to six usually; at most one fewer than the bands without the sum-to-one constraint."
+     "help": "The pure spectra the pixels are mixtures of: the bands of a pin at the map's date. Drop pins on places of a known, pure cover (dense vegetation, bare soil, water, shade...), add each here and name it. Two to six usually; at most one fewer than the bands without the sum-to-one constraint. Bands without a value in one of them (the quality band, a scene's empty bands) are left out."
     },
     {
      "id": "constraint",
@@ -2628,7 +2629,7 @@
      "label": "Endmembers",
      "type": "endmembers",
      "default": [],
-     "help": "The pure spectra the pixels are mixtures of: the spectra of pins. Drop pins on places of a known, pure cover (dense vegetation, bare soil, water, shade...), add each here and name it. Two to six usually; at most one fewer than the bands without the sum-to-one constraint."
+     "help": "The pure spectra the pixels are mixtures of: the spectra of pins. Drop pins on places of a known, pure cover (dense vegetation, bare soil, water, shade...), add each here and name it. Two to six usually; at most one fewer than the bands without the sum-to-one constraint. Bands without a value in one of them (the quality band, a scene's empty bands) are left out."
     },
     {
      "id": "constraint",

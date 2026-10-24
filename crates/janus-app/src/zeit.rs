@@ -951,10 +951,15 @@ fn endmembers_ui(
                     if info.spectral {
                         add(format!("pin {id}"), values.iter().map(|&v| f64::from(v)).collect());
                     } else {
-                        // the pin's bands at the date shown
+                        // the pin's bands at the date shown; the quality band none (left out of the unmixing)
                         let mut reader = CubeReader::new(info.clone());
                         let bands = (1..=info.bands_per_date as i32)
-                            .map(|b| reader.read_band_pixel(t, b, *x, *y, false).map_or(f64::NAN, f64::from))
+                            .map(|b| {
+                                if b == info.sel.qa_band {
+                                    return f64::NAN;
+                                }
+                                reader.read_band_pixel(t, b, *x, *y, false).map_or(f64::NAN, f64::from)
+                            })
                             .collect();
                         add(format!("pin {id}, {date}"), bands);
                     }

@@ -104,8 +104,9 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
             let scale = py_float(e.scale());
             let _ = write!(
                 code,
-                "}}, index=list({data}.band.values)).T  # the pins' {what}, in the data's units\n\
-                 result1 = zeit.unmix({data}, endmembers / {scale}, bands=list({data}.band.values), sum_to_one={}, \
+                "}}, index=list({data}.band.values)).T.dropna(axis=1)  # the pins' {what}, in the data's units \
+                 (the bands without a value in one left out)\n\
+                 result1 = zeit.unmix({data}, endmembers / {scale}, bands=list(endmembers.columns), sum_to_one={}, \
                  nonneg={}, scale={scale}, ndfi=False, nodata=None, n_jobs=1)",
                 py_bool(sum_to_one),
                 py_bool(nonneg)
