@@ -2,7 +2,7 @@
 //! milliseconds and applied to every pixel of a year with the views' SIMD kernel. Two classifiers, both linear in
 //! the vector (a pixel's scores are k dot products):
 //! - multinomial logistic regression with an L2 penalty, on standardised dimensions, each class weighing the same
-//!   whatever its number of samples, solved by Nesterov's accelerated gradient: its score is the probability;
+//!   whatever its number of samples, solved by L-BFGS (scikit-learn's solver): its score is the probability;
 //! - the nearest centroid by cosine (each class's mean unit vector): its score is the cosine.
 
 use std::time::Instant;
@@ -115,27 +115,20 @@ fn fit_raw(
     let present = count.iter().filter(|&&c| c > 0).count().max(1) as f64;
     let z: Vec<f64> = xs.iter().flat_map(|x| (0..d).map(move |i| (f64::from(x[i]) - mu[i]) / sd[i])).collect();
     let om: Vec<f64> = ys.iter().map(|&y| 1.0 / (present * count[y] as f64)).collect();
-    // the gradient is Lipschitz with L <= 1/2 sum om |(z, 1)|^2 + lambda (softmax's Hessian is below 1/2 I)
-    let lip = 0.5
-        * (0..xs.len()).map(|i| om[i] * (z[i * d..(i + 1) * d].iter().map(|v| v * v).sum::<f64>() + 1.0)).sum::<f64>()
-        + lambda;
-    let kappa = lip / lambda.max(1e-12);
-    let beta = (kappa.sqrt() - 1.0) / (kappa.sqrt() + 1.0);
     let np = k * (d + 1); // W row by row, then b
-    let (mut th, mut v, mut g) = (vec![0f64; np], vec![0f64; np], vec![0f64; np]);
-    let mut s = vec![0f64; k];
-    let mut it = 0;
-    while it < 3000 {
-        it += 1;
-        // the gradient at v
+    // the objective, sum om CE + lambda / 2 |W|^2, and its gradient
+    let eval = |th: &[f64], g: &mut [f64]| -> f64 {
         g.fill(0.0);
+        let mut s = vec![0f64; k];
+        let mut f = 0.0;
         for i in 0..xs.len() {
             let zi = &z[i * d..(i + 1) * d];
             for c in 0..k {
-                s[c] = v[k * d + c] + v[c * d..(c + 1) * d].iter().zip(zi).map(|(a, b)| a * b).sum::<f64>();
+                s[c] = th[k * d + c] + th[c * d..(c + 1) * d].iter().zip(zi).map(|(a, b)| a * b).sum::<f64>();
             }
             let m = s.iter().copied().fold(f64::NEG_INFINITY, f64::max);
             let sum: f64 = s.iter().map(|&x| (x - m).exp()).sum();
+            f += om[i] * (m + sum.ln() - s[ys[i]]);
             for c in 0..k {
                 let r = om[i] * ((s[c] - m).exp() / sum - if c == ys[i] { 1.0 } else { 0.0 });
                 for (gw, &zz) in g[c * d..(c + 1) * d].iter_mut().zip(zi) {
@@ -145,18 +138,75 @@ fn fit_raw(
             }
         }
         for j in 0..k * d {
-            g[j] += lambda * v[j];
+            f += 0.5 * lambda * th[j] * th[j];
+            g[j] += lambda * th[j];
         }
-        let big = g.iter().fold(0f64, |a, &x| a.max(x.abs()));
-        // a step from v, then the momentum
-        for j in 0..np {
-            let new = v[j] - g[j] / lip;
-            v[j] = new + beta * (new - th[j]);
-            th[j] = new;
+        f
+    };
+    // L-BFGS (the last 10 steps) with a backtracking line search, until the largest gradient is below 1e-7
+    const MEM: usize = 10;
+    let (mut th, mut g) = (vec![0f64; np], vec![0f64; np]);
+    let (mut tn, mut gn, mut p) = (vec![0f64; np], vec![0f64; np], vec![0f64; np]);
+    let mut f = eval(&th, &mut g);
+    let (mut ss, mut yy, mut rho): (Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<f64>) = (vec![], vec![], vec![]);
+    let mut alpha = [0f64; MEM];
+    let dot = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(x, y)| x * y).sum::<f64>();
+    let mut it = 0;
+    while it < 3000 && g.iter().fold(0f64, |a, &x| a.max(x.abs())) >= 1e-7 {
+        it += 1;
+        // the direction: minus the inverse Hessian's estimate times the gradient (two loops)
+        p.copy_from_slice(&g);
+        for j in (0..ss.len()).rev() {
+            alpha[j] = rho[j] * dot(&ss[j], &p);
+            p.iter_mut().zip(&yy[j]).for_each(|(q, y)| *q -= alpha[j] * y);
         }
-        if big < 1e-7 {
+        let gamma = ss.last().map_or(1.0 / g.iter().fold(1f64, |a, &x| a.max(x.abs())), |s| {
+            dot(s, yy.last().unwrap()) / dot(yy.last().unwrap(), yy.last().unwrap())
+        });
+        p.iter_mut().for_each(|q| *q *= gamma);
+        for j in 0..ss.len() {
+            let beta = rho[j] * dot(&yy[j], &p);
+            p.iter_mut().zip(&ss[j]).for_each(|(q, s)| *q += (alpha[j] - beta) * s);
+        }
+        p.iter_mut().for_each(|q| *q = -*q);
+        let mut slope = dot(&g, &p);
+        if slope >= 0.0 {
+            // not a descent direction: the gradient's, afresh
+            (ss, yy, rho) = (vec![], vec![], vec![]);
+            p.iter_mut().zip(&g).for_each(|(q, &x)| *q = -x);
+            slope = -dot(&g, &g);
+        }
+        // Armijo's condition, the step halved until it holds
+        let mut step = 1.0;
+        let mut fnew;
+        loop {
+            tn.iter_mut().zip(th.iter().zip(&p)).for_each(|(t, (&a, &q))| *t = a + step * q);
+            fnew = eval(&tn, &mut gn);
+            if fnew <= f + 1e-4 * step * slope || step < 1e-20 {
+                break;
+            }
+            step *= 0.5;
+        }
+        let s_new: Vec<f64> = tn.iter().zip(&th).map(|(a, b)| a - b).collect();
+        let y_new: Vec<f64> = gn.iter().zip(&g).map(|(a, b)| a - b).collect();
+        let sy = dot(&s_new, &y_new);
+        if sy > 1e-12 * dot(&y_new, &y_new).sqrt() * dot(&s_new, &s_new).sqrt() {
+            if ss.len() == MEM {
+                ss.remove(0);
+                yy.remove(0);
+                rho.remove(0);
+            }
+            ss.push(s_new);
+            yy.push(y_new);
+            rho.push(1.0 / sy);
+        }
+        std::mem::swap(&mut th, &mut tn);
+        std::mem::swap(&mut g, &mut gn);
+        // the line search found no decrease: as close as doubles get
+        if step < 1e-20 {
             break;
         }
+        f = fnew;
     }
     // back to the layer's values: w = W / sd, b = b - sum W mu / sd
     let mut w = vec![0f32; k * d];
