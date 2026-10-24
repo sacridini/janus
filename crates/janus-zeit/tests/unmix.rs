@@ -49,10 +49,11 @@ fn params(tool: &str, c: &Case) -> Params {
     Params::with_defaults(tool, &given).unwrap()
 }
 
-/// zeit's float32 against a value of the chunk.
+/// zeit's float32 against a value of the chunk: the same float32, or within 1e-9 (a fraction of zero is a few ulps
+/// of 1 off it on another CPU's arithmetic: macOS on ARM).
 fn same(got: f64, want: &Option<f64>) -> bool {
     match want {
-        Some(w) => got as f32 == *w as f32,
+        Some(w) => got as f32 == *w as f32 || (got - w).abs() < 1e-9,
         None => got.is_nan(),
     }
 }

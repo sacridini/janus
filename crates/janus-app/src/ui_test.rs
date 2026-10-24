@@ -1191,9 +1191,12 @@ impl State {
         if self.classes.state != ClassState::Off {
             return Err("reflectances are not classes");
         }
+        // the tools on a series in time are not offered, those on a spectrum (unmixing) are
         let on_series = janus_zeit::manifest().tools.iter().filter(|t| t.input.as_deref() != Some("layers"));
-        if on_series.into_iter().any(|t| crate::zeit::applicability(t, info).is_none()) {
-            return Err("the Zeit tools work along time, not on a spectrum");
+        for t in on_series {
+            if crate::zeit::applicability(t, info).is_none() != (t.requires.time == "spectrum") {
+                return Err("the Zeit tools work along time, not on a spectrum (but the spectrum's own)");
+            }
         }
         let rgb = janus_cube::spectral::composite_layers(info, &janus_cube::spectral::COMPOSITES[0]);
         if rgb.is_none() || self.display.mode != Mode::Rgb || Some(self.display.rgb) != rgb {
