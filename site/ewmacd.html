@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EWMACD · Janus</title>
+<meta name="description" content="A step-by-step guide to EWMACD in Janus: every Landsat observation, cloudy dates included, checked against a harmonic model of its training years with EWMA control charts, with maps of the dates of disturbance, recovery and gain.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="EWMACD · Janus">
+<meta property="og:description" content="Thinning and harvests in pine stands of Mississippi, found by EWMA control charts on every Landsat date: on the chart, then over the image.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/ewmacd/03-fit.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / EWMACD</p>
+    <p class="eyebrow">Change detection · monitoring every date</p>
+    <h1>EWMACD, step by step.</h1>
+    <p class="lede">EWMACD watches a pixel the way a factory watches a production line. It learns what the pixel looks like through the seasons of a few training years. After that, it checks every new observation against the model, cloudy and irregular dates included, and raises a flag when the pixel drifts out of control. The flags give the date of a disturbance, how strong it was, when the pixel came back, and any gain.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#open">Opening the tool</a></li>
+      <li><a href="#chart">On the chart</a></li>
+      <li><a href="#params">The parameters</a></li>
+      <li><a href="#run">Running it on the image</a></li>
+      <li><a href="#maps">The maps</a></li>
+      <li><a href="#strict">How strict</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>EWMACD (Exponentially Weighted Moving Average Change Detection, Brooks et al. 2014) borrows its tools from statistical quality control. For each pixel it fits a <strong>harmonic model</strong> over the <strong>training years</strong>: a constant plus sine and cosine waves of the day of the year, which together describe the seasons of a stable pixel. Next, the model is fitted again without the training dates that sat far from it, since those are usually clouds and shadows. This step is a Shewhart <strong>X-bar chart</strong>.</p>
+      <p>From then on, every date has a <strong>residual</strong>: its value minus the model. The residuals are smoothed by an <strong>EWMA</strong>, a moving average in which each new date has weight λ and the older ones fade. While the pixel behaves like its training years, the EWMA stays between two <strong>control limits</strong>. When the EWMA stays beyond a limit, the pixel is out of control: below the lower limit is a <strong>disturbance</strong>, and above the upper limit is a <strong>gain</strong>.</p>
+      <dl class="terms">
+        <dt>Training years</dt><dd>The years the model is fitted on, assumed stable. Monitoring starts the year after them.</dd>
+        <dt>Screened date</dt><dd>A date left out of the chart by the X-bar screen: a cloud or shadow in the training years, or a gross anomaly later on.</dd>
+        <dt>Flag</dt><dd>The EWMA divided by its control limit, truncated toward zero. 0 means inside the limits; −1, −2… mean a loss of 1, 2… limits; positive values mean a gain.</dd>
+        <dt>Persistence</dt><dd>How many dates in a row a signal must last before it counts.</dd>
+        <dt>Disturbance</dt><dd>The first negative flag after the training years. Its <strong>severity</strong> is the most negative flag reached before the pixel recovers.</dd>
+        <dt>Recovery</dt><dd>The first date after a disturbance when the pixel is back within its limits (or above them).</dd>
+      </dl>
+      <p>An EWMA collects small shifts over several dates, so EWMACD picks up subtle changes such as thinning, drought or pests, as well as clearcuts. It uses every observation, at whatever spacing, so it does not need a regular series or a composite. It does need dates (the model is a function of the day of the year), at least 12 of them and two a year, and an index in which the change shows.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>The sample data that comes with Brooks' EWMACD script (v1.3.0): 51 Landsat dates from February 2005 to October 2011, irregular and with gaps (no date between February 2007 and January 2008), of 65 × 64 pixels (about 2 × 2 km) on the Mississippi–Alabama border (path/row 21/37). The index is the <strong>tasseled cap angle</strong> × 1000, the paper's index, in which denser vegetation gives higher values. The area is mostly loblolly pine stands, where the paper looked for thinning and harvests from 2009 to 2011.</p>
+      <figure class="fig">
+        <a href="assets/img/ewmacd/01-series.jpg"><img src="assets/img/ewmacd/01-series.jpg" alt="The Janus window with the angle index of February 2005 over the 65 by 64 pixel area, two pins, and their series on the chart: a strong yearly cycle from about 300 in winter to 600 in summer, and lower summers for pin 2 after 2009." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The series</b>, a GeoTIFF per date (<code>angle_2005-02-04.tif</code>…). Janus reads each date from its file name. Pin 1 and pin 2 are the two pixels this guide follows.</figcaption>
+      </figure>
+      <p>Opening the folder is enough: <span class="ui">File → Open folder...</span>, or <code>janus ewmacd_series</code> on the command line.</p>
+    </section>
+
+    <section id="open">
+      <h2><span class="n">03</span>Opening the tool</h2>
+      <figure class="fig narrow">
+        <img src="assets/img/ewmacd/02-tool.png" alt="The EWMACD (monitoring) window: its description, the seven parameters with their defaults, Reset to defaults, and the option to fit the cursor, pins and ROI series." loading="lazy">
+        <figcaption><b>The EWMACD window</b> with its defaults.</figcaption>
+      </figure>
+      <p><span class="ui">Tools → EWMACD (monitoring)</span>, among the change detection tools. The tool comes from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a> and is built into Janus, so there is nothing to install. If the series open has no dates, fewer than 12, or fewer than two a year, the tool is disabled and says why.</p>
+    </section>
+
+    <section id="chart">
+      <h2><span class="n">04</span>On the chart</h2>
+      <p>With <span class="ui">Fit the cursor, pins and ROI series</span> ticked, EWMACD runs on every series the chart shows and draws over each one: the <strong>harmonic model</strong> as a thin line, the <strong>EWMA</strong> as a thick line (drawn on top of the model), and the two <strong>control limits</strong> as dashed lines. Vertical lines mark the monitoring start, the disturbance and the recovery (or the gain), and dots mark the dates the X-bar screen left out. The numbers go to the <strong>Statistics</strong> table.</p>
+      <figure class="fig">
+        <a href="assets/img/ewmacd/03-fit.jpg"><img src="assets/img/ewmacd/03-fit.jpg" alt="EWMACD's window over the map; on the chart the series of pin 1 with the harmonic model, the EWMA, the dashed control limits and vertical lines in 2008, March 2009 and November 2010." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>Pin 1, a disturbance and a recovery.</b> The defaults: training on 2005–2007, monitoring from 2008.</figcaption>
+      </figure>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/ewmacd/03-fit-chart.png"><img src="assets/img/ewmacd/03-fit-chart.png" alt="The chart of pin 1: the yearly cycle of the angle index, the thin harmonic model repeating the training years' seasons, the thick EWMA falling below the lower dashed limit in early 2009 and back inside it at the end of 2010." loading="lazy"></a>
+          <figcaption><b>The chart</b>: the monitoring starts in 2008; the disturbance in March 2009; recovered in November 2010.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/ewmacd/03-fit-stats.png"><img src="assets/img/ewmacd/03-fit-stats.png" alt="The Statistics table: training 2005-2007, model R squared 0.9549 and RMSE 21.57, residual sigma 16.338, 47 of 51 dates charted (4 screened), disturbance 2009-03-19, severity -6 times the control limit, recovered 2010-11-17, no gain, state recovered, last flag 0." loading="lazy"></a>
+          <figcaption><b>Its numbers</b> in the Statistics table.</figcaption>
+        </figure>
+      </div>
+      <p>The model fits the training years closely (R² 0.95). The residuals' standard deviation, 16.3, sets the width of the control limits. 4 of the 51 dates were screened out. The pixel signals on <strong>19 March 2009</strong> (2009.21), with a <strong>severity of −6</strong>: at its lowest, the EWMA was six control limits below the model. It is back within its limits on <strong>17 November 2010</strong>, so its state at the last date is <em>recovered</em>.</p>
+      <p>Pin 2 did not come back:</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/ewmacd/04-disturbed-chart.png"><img src="assets/img/ewmacd/04-disturbed-chart.png" alt="The chart of pin 2: the angle index follows the model until 2009, then its summer 2010 peak only reaches about 350 against 600 for the model, and the EWMA stays far below the lower limit to the end." loading="lazy"></a>
+          <figcaption><b>Pin 2</b>: after 2009 its summers no longer reach the model.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/ewmacd/04-disturbed-stats.png"><img src="assets/img/ewmacd/04-disturbed-stats.png" alt="The Statistics table of pin 2: training 2005-2007, R squared 0.9682, residual sigma 17.54, disturbance 2009-01-30, severity -12 times the control limit, recovered none, gain none, state disturbed, last flag -11." loading="lazy"></a>
+          <figcaption>Disturbed on 30 January 2009, severity <b>−12</b>, still at −11 on the last date.</figcaption>
+        </figure>
+      </div>
+      <div class="note">
+        <p class="h">Fit first, run later</p>
+        <p>Drop pins on stands you know: one harvested, one thinned, one left alone. Then change the parameters until each reads the way it should. The run on the image uses exactly the parameters the window shows.</p>
+      </div>
+    </section>
+
+    <section id="params">
+      <h2><span class="n">05</span>The parameters</h2>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Training ends before (year)</td><td class="num">0</td><td>The first year after the training period. The model is fitted on the years before it, and monitoring starts with it. 0 means three years of training (Brooks' default), here 2005–2007. A pixel disturbed during its training years signals as soon as monitoring starts.</td></tr>
+            <tr><td>EWMA weight (lambda)</td><td class="num">0.3</td><td>The weight of each new date in the moving average. Low values give a slow, smooth chart (subtle changes, few false signals); 1 gives a chart of each date on its own. Brooks et al. found 0.1–0.5 comparable.</td></tr>
+            <tr><td>Control limits (sigmas)</td><td class="num">3</td><td>The width of the limits, in standard deviations of the EWMA. The flags count how many limits the EWMA is beyond.</td></tr>
+            <tr><td>Persistence (dates)</td><td class="num">3</td><td>How many dates in a row a signal must last (Earth Engine's default). A shorter run keeps the state before it.</td></tr>
+            <tr><td>Harmonic order</td><td class="num">2</td><td>Sine and cosine pairs in the seasonal model.</td></tr>
+            <tr><td>Training screen (sigmas)</td><td class="num">1.5</td><td>Training dates farther than this from the model (clouds, shadows) are left out of the fit and of the chart.</td></tr>
+            <tr><td>Monitoring screen (sigmas)</td><td class="num">20</td><td>Later dates farther than this are left out as gross anomalies. Changes have to stay in, so on a smooth series a clearcut bigger than this would be screened out until it comes back within it. Raise it for such series.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The training years matter most. They should be stable, and they should cover the whole year: the harmonic model only knows the seasons it was shown.</p>
+    </section>
+
+    <section id="run">
+      <h2><span class="n">06</span>Running it on the image</h2>
+      <p>Under <span class="ui">Run on the raster</span>, choose the <span class="ui">Whole image</span>, the <span class="ui">Visible area</span> or the <span class="ui">ROI</span>, then <span class="ui">Run</span>. The run happens in the background on every core, and the map stays usable meanwhile.</p>
+      <figure class="fig narrow">
+        <img src="assets/img/ewmacd/05-task.png" alt="The Tasks panel: EWMACD (monitoring) on the whole image, 65 by 64 pixels, done 100 percent in 0 seconds, with Log, Folder and Remove buttons." loading="lazy">
+        <figcaption><b>Tasks</b>: the 4160 pixels took 0.3 s.</figcaption>
+      </figure>
+      <p>The outputs are GeoTIFFs (in <code>%LOCALAPPDATA%\Janus\results</code> by default, next to the run's <code>job.json</code> and <code>job.log</code>). They open over the map and are listed under the series in the Layers panel; the first one, the disturbance date, is shown. Pixels with no event are transparent.</p>
+    </section>
+
+    <section id="maps">
+      <h2><span class="n">07</span>The maps</h2>
+      <figure class="fig">
+        <a href="assets/img/ewmacd/06-disturbance.jpg"><img src="assets/img/ewmacd/06-disturbance.jpg" alt="The disturbance date over the area, on a satellite basemap: dark purple for 2008, blue-green for 2009 and yellow for late 2010, with the undisturbed pixels showing the basemap through the dimmed series." width="990" height="448" loading="lazy"></a>
+        <figcaption><b>Disturbance date</b>, early 2008 (purple) to late 2010 (yellow), over the Esri imagery with the series dimmed (opacity 0.25). Undisturbed pixels are left without colour.</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Map</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Disturbance date</td><td>The first negative flag after the training years, as a decimal year.</td></tr>
+            <tr><td>Severity (control limits)</td><td>The most negative flag until the pixel recovered: −6 means six control limits below.</td></tr>
+            <tr><td>Recovery date</td><td>The first date back within the limits after the disturbance.</td></tr>
+            <tr><td>State (last date)</td><td>A class map: stable, disturbed, recovered (disturbed, then back) or gain.</td></tr>
+            <tr><td>Gain date</td><td>The first positive flag after the training years.</td></tr>
+            <tr><td>Last flag</td><td>The flag on the last date: where the pixel stands now.</td></tr>
+            <tr><td>Residual sigma</td><td>The standard deviation of the training residuals, which sets the width of the limits. High values belong to noisy pixels, whose limits are wide.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Over this area, 2192 of the 4160 pixels (53%) were disturbed at some point: 672 in 2008, 1303 in 2009 and 217 in 2010. At the last date, 732 pixels are stable, 609 disturbed, 1583 recovered and 1236 in gain. The pine stands are thinned and harvested in rotation, and EWMACD was built to catch the thinning. The 672 that signal in 2008, as soon as monitoring starts, need a closer look: a stand thinned just before 2008, or during the training years, signals right away (as the paper notes), and so does any pixel whose 2008 is unlike its 2005–2007.</p>
+      <p>The other maps are layers under the series in the Layers panel. Show one with its eye, or hover the map: the chart keeps the pixel's series and its EWMACD fit, so every colour can be checked against the chart behind it.</p>
+    </section>
+
+    <section id="strict">
+      <h2><span class="n">08</span>How strict</h2>
+      <p><span class="ui">Persistence</span> is the main trade-off between early detection and false alarms. With <strong>persistence 1</strong>, the flags are those of Brooks' EWMACD v1.3.0 script, the paper's own code. Zeit checks them date by date against the script, on synthetic series and on 400 pixels of this sample data. At that setting, a single date out of control is enough to start a disturbance:</p>
+      <figure class="fig">
+        <a href="assets/img/ewmacd/07-persistence-1.jpg"><img src="assets/img/ewmacd/07-persistence-1.jpg" alt="The disturbance date with persistence 1: more of the area is coloured, mostly dark purple for 2008." width="990" height="448" loading="lazy"></a>
+        <figcaption><b>Persistence 1</b> (Brooks' script): 2929 pixels disturbed instead of 2192, 995 of them in 2008.</figcaption>
+      </figure>
+      <p>Pin 1 shows what that means. With persistence 1 it signals in September 2008 on a single low date, and is back within the limits on the next one. With 3, the default, it waits until March 2009, when the pixel stays out of control. Wider control limits lower the count too: 1624 pixels at 4 sigmas. There is no right setting in general: check it against stands whose history you know.</p>
+      <p>On 10,000 pixels and 71 dates, Brooks' R script takes 2.8 s and Zeit 55 ms on one thread, about 50 times faster (7 ms on 19 threads). The same flags at persistence 1.</p>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">09</span>What next</h2>
+      <ul>
+        <li><strong>Other ways to read every date</strong>: <a href="ccdc.html">CCDC</a> models every band and finds breaks, and <a href="coded.html">CODED</a> separates degradation from deforestation with the NDFI.</li>
+        <li><strong>Compare it.</strong> <span class="ui">Tools → Agreement of change maps</span> takes several maps of dates (EWMACD's disturbance date, CCDC, <a href="bfast.html">BFAST</a>, <a href="landtrendr.html">LandTrendr</a>) and maps where and when they agree.</li>
+        <li><strong>Validate it.</strong> The disturbance date is a map of events: <a href="validation.html">the Validation guide</a> shows how to sample it and estimate its accuracy and areas.</li>
+        <li><strong>Script it.</strong> The same algorithm is <code>zeit.ewmacd</code> in Python.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">10</span>References</h2>
+      <ul class="refs">
+        <li>Brooks, E. B., Wynne, R. H., Thomas, V. A., Blinn, C. E., Coulston, J. W. (2014). On-the-fly massively multitemporal change detection using statistical quality control charts and Landsat data. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 52(6), 3316–3332.</li>
+        <li>Brooks, E. B. EWMACD v1.3.0, R script and sample data (the paper's code; in Earth Engine as <code>ee.Algorithms.TemporalSegmentation.Ewmacd</code>).</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the change detection library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

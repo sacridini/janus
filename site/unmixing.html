@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spectral unmixing · Janus</title>
+<meta name="description" content="A step-by-step guide to spectral unmixing in Janus: the fractions of forest, soil and water in every pixel and date of a Landsat series, and in every pixel of an EnMAP hyperspectral scene, from endmembers picked with pins.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Spectral unmixing · Janus">
+<meta property="og:description" content="Three pins, three endmembers: how much forest, soil and water is in each Landsat pixel of Rondônia, date by date, and in each EnMAP pixel of the Wadden Sea coast.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/unmixing/04-forest-2026.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Spectral unmixing</p>
+    <p class="eyebrow">Multiband series · hyperspectral scenes</p>
+    <h1>Spectral unmixing, step by step.</h1>
+    <p class="lede">A 30 m pixel is rarely one thing: part canopy, part soil, part shadow. Spectral unmixing finds how much of each pure material, or <em>endmember</em>, makes up the pixel's spectrum. Janus does it for every date of a multiband series and for every pixel of a hyperspectral scene, with endmembers taken from pins on the map.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#tools">Two tools</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#endmembers">Endmembers from pins</a></li>
+      <li><a href="#chart">On the chart</a></li>
+      <li><a href="#run">Running it on the series</a></li>
+      <li><a href="#constraints">The constraints</a></li>
+      <li><a href="#spectrum">A hyperspectral scene</a></li>
+      <li><a href="#speed">Against RStoolbox</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>Linear spectral mixture analysis (Adams et al. 1995) takes a pixel's reflectance in each band as the sum of the endmembers' reflectances, each weighted by the share of the pixel it covers. With a few endmembers and more bands than endmembers, the shares, or <strong>fractions</strong>, are what best rebuilds the pixel's spectrum. In the Amazon, the fractions of green vegetation, soil, dead vegetation and shade show logging and fire damage that a vegetation index misses (Souza et al. 2005).</p>
+      <dl class="terms">
+        <dt>Endmember</dt><dd>The spectrum of one pure material: dense vegetation, bare soil, water, shade. Here, a pin's bands on a place known to be that material.</dd>
+        <dt>Fraction</dt><dd>The share of an endmember in a pixel, from 0 to 1 with the default constraints.</dd>
+        <dt>FCLS</dt><dd>Fully constrained least squares (Heinz &amp; Chang 2001): the fractions are not negative and add up to one. Each pixel is solved exactly.</dd>
+        <dt>RMSE</dt><dd>The root mean square difference between the pixel's spectrum and the one the fractions rebuild, in reflectance. High where the endmembers do not describe the pixel.</dd>
+      </dl>
+    </section>
+
+    <section id="tools">
+      <h2><span class="n">02</span>Two tools</h2>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Tool</th><th>Series</th><th>Endmembers</th><th>Outputs</th></tr></thead>
+          <tbody>
+            <tr><td><span class="ui">Spectral unmixing (endmembers)</span></td><td>A multiband file per date (Landsat, Sentinel-2): every band of each date is read.</td><td>A pin's bands at the date shown.</td><td>A series of each fraction, their means over the dates, the mean RMSE and the number of observations unmixed.</td></tr>
+            <tr><td><span class="ui">Spectral unmixing (spectrum)</span></td><td>A hyperspectral scene, one band per wavelength (EnMAP, PRISMA, EMIT, AVIRIS).</td><td>A pin's spectrum.</td><td>A map of each fraction and the RMSE.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Both are under <span class="ui">Tools → Indices</span>, both run Zeit's <code>unmix</code>, and both are fitted live on the chart before they run on the image.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">03</span>The example</h2>
+      <p>125 Landsat 8/9 dates of central Rondônia, Brazil, from February 2020 to August 2026: 1690 × 1675 pixels of 30 m, a GeoTIFF per date with the six reflectance bands (blue, green, red, NIR, SWIR1, SWIR2), clouds, shadows and snow already set to no data from the QA_PIXEL band. The scale and offset of Collection 2 (0.0000275 and −0.2) are in the files, so Janus reads reflectance.</p>
+      <div class="note warn">
+        <p class="h">The quality band</p>
+        <p>The tool reads every band of each date but the quality band. When the files carry one (QA_PIXEL, Fmask, SCL), choose it as the <span class="ui">Quality band</span> in the Display panel, with its rule: it masks the clouds and shadows of each date, which are then left out of the unmixing, and it is not unmixed itself. Here the files hold the six reflectances only, already masked.</p>
+      </div>
+    </section>
+
+    <section id="endmembers">
+      <h2><span class="n">04</span>Endmembers from pins</h2>
+      <p><span class="ui">Tools → Spectral unmixing (endmembers)</span>. Go to a clear date (here the last, 23 August 2026, in the dry season) and drop pins on pure covers: a dense forest, a field cleared to bare soil, open water. <span class="ui">Add one from 2026-08-23...</span> adds a pin's six bands at that date as an endmember; name each in its box.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/unmixing/01-tool.png"><img src="assets/img/unmixing/01-tool.png" alt="The Spectral unmixing (endmembers) window: constraints non-negative, summing to one (FCLS); three endmembers, Forest, Soil and Water, from pins 1, 2 and 3 at 2026-08-23 with 6 bands each; Add one from 2026-08-23; Fit the cursor, pins and ROI series ticked; Run on the raster: whole image." loading="lazy"></a>
+        <figcaption><b>Three endmembers</b>, each the six bands of a pin on 23 August 2026.</figcaption>
+      </figure>
+      <p>Pick endmembers where the cover is pure over several pixels, and in the date you take them from: the soil pin here is a field cleared between 2020 and 2026, bare in August 2026 but forest in 2020. Two to six endmembers is usual; without the sum-to-one constraint, at most one fewer than the bands. Too many similar endmembers make the fractions unstable: the solver can trade one for the other at little cost.</p>
+    </section>
+
+    <section id="chart">
+      <h2><span class="n">05</span>On the chart</h2>
+      <p>With <span class="ui">Fit the cursor, pins and ROI series</span> ticked, every observation of the series under the cursor or a pin is unmixed and the fractions are drawn over its chart, when the chart shows an index (values in −1 to 1). Here the Display panel shows the NDVI: <span class="ui">Shown band</span> NIR, <span class="ui">Normalized difference with B</span> red, and <span class="ui">Apply</span>. A pin on a forest cleared during the series:</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/unmixing/02-chart.png"><img src="assets/img/unmixing/02-chart.png" alt="The chart of the pixel at (896, 333): the NDVI and, in magenta, the three fractions over 2020-2026: one fraction near 1 until 2022, falling through 2022 and dropping to 0 in 2023, then swinging between about 0.1 and 0.9 against a second fraction that mirrors it; the third stays near 0." loading="lazy"></a>
+          <figcaption><b>The fractions of one pixel</b>, 2020–2026: forest near 1, then the clearing.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/unmixing/03-stats.png"><img src="assets/img/unmixing/03-stats.png" alt="The Statistics table: observations unmixed 59 of 125; at the date 2026.641: forest fraction 0.2594, soil 0.6787, water 0.06199, sum of the fractions 1, RMSE 0.0246; mean forest fraction 0.6911, mean soil 0.2988, mean water 0.01008." loading="lazy"></a>
+          <figcaption>Its numbers at 23 August 2026, and the means.</figcaption>
+        </figure>
+      </div>
+      <p>59 of the 125 dates have a clear observation at this pixel. Until 2022 the <strong>forest fraction</strong> stays near 1; it falls through 2022 and drops to 0 in early 2023, when the <strong>soil fraction</strong> takes its place. From then on the two swing against each other with the seasons: a green pasture in the rainy season looks like the forest endmember to a model of three, and a dry one like soil. On 23 August 2026 the pixel is 26% forest, 68% soil and 6% water, rebuilt with an RMSE of 0.025 reflectance.</p>
+      <p>The three fractions are drawn in the tool's colour; the Statistics table names them and gives the values at the observation nearest the date shown (<em>At the date</em>), their sum and the means over all the observations.</p>
+      <div class="note">
+        <p class="h">A missing endmember</p>
+        <p>The swing of the pasture is the model's limit, not noise: dry grass is neither forest nor bare soil. An endmember of dry vegetation (non-photosynthetic vegetation), taken from a pasture in the dry season, would take that share and lower the RMSE there.</p>
+      </div>
+    </section>
+
+    <section id="run">
+      <h2><span class="n">06</span>Running it on the series</h2>
+      <p>Under <span class="ui">Run on the raster</span>, <span class="ui">Whole image</span> and <span class="ui">Run</span>: the 2.8 million pixels × 125 dates took 130 seconds. The run writes each fraction as a <strong>series</strong>, a GeoTIFF of one band per date (Int16, scale 0.0001), opened as a new layer that any other tool can take, and four maps listed under the series:</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/unmixing/07-layers.png"><img src="assets/img/unmixing/07-layers.png" alt="The Layers panel: three new series unmix_fraction_1 to 3 of 125 dates each, the forest one shown; under refl6, the results: the mean RMSE (reflectance) and the three mean fractions." loading="lazy"></a>
+          <figcaption><b>The outputs</b>: three fraction series, and the maps under the series.</figcaption>
+        </figure>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead><tr><th>Output</th><th>What it holds</th></tr></thead>
+            <tbody>
+              <tr><td>Fraction series</td><td>Each endmember's fraction at each date (no data where the date had none).</td></tr>
+              <tr><td>Mean fraction</td><td>Each endmember's mean over the dates.</td></tr>
+              <tr><td>Mean RMSE</td><td>The mean error of the rebuilt spectra.</td></tr>
+              <tr><td>Observations unmixed</td><td>How many dates each pixel had.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/unmixing/04-forest-2026.jpg"><img src="assets/img/unmixing/04-forest-2026.jpg" alt="The forest fraction on 23 August 2026 over the whole image, 0 in dark purple to 1 in yellow: forest blocks and strips along the streams in yellow, pastures in blue and green, the rivers dark." loading="lazy"></a>
+          <figcaption><b>Forest fraction</b>, 23 August 2026.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/unmixing/05-soil-2026.jpg"><img src="assets/img/unmixing/05-soil-2026.jpg" alt="The soil fraction on the same date: dark over the forest, green and yellow over the pastures, bright yellow over a block of bare fields near the top." loading="lazy"></a>
+          <figcaption><b>Soil fraction</b>, the same date: the cleared fields stand out.</figcaption>
+        </figure>
+      </div>
+      <figure class="fig">
+        <a href="assets/img/unmixing/06-rmse.jpg"><img src="assets/img/unmixing/06-rmse.jpg" alt="The mean RMSE from 0.007 to 0.042 reflectance: low over the forest and the water, high over many pastures." width="939" height="564" loading="lazy"></a>
+        <figcaption><b>Mean RMSE</b>, 0.007 to 0.042: low on the forest and the water, high on the pastures the three endmembers describe worst.</figcaption>
+      </figure>
+      <p>The fraction series are series like any other: open <a href="landtrendr.html">LandTrendr</a> or <a href="bfast.html">BFAST</a> on the forest fraction to date the clearings, or the soil fraction to find when fields were bare. They are large (a few hundred MB each here): run on the <span class="ui">Visible area</span> or an <span class="ui">ROI</span> while choosing the endmembers.</p>
+    </section>
+
+    <section id="constraints">
+      <h2><span class="n">07</span>The constraints</h2>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Constraints</th><th>Fractions</th><th>When</th></tr></thead>
+          <tbody>
+            <tr><td>Non-negative, summing to one (FCLS)</td><td>0 to 1, adding up to 1</td><td>The default: shares of the pixel.</td></tr>
+            <tr><td>Non-negative (NNLS)</td><td>0 or more, any sum</td><td>When brightness varies (illumination, slopes) and the sum should follow it.</td></tr>
+            <tr><td>Summing to one</td><td>Any sign, adding up to 1</td><td>To see where the endmembers fail: negative fractions and fractions above 1 point at materials not in the list.</td></tr>
+            <tr><td>None (least squares)</td><td>Any</td><td>The plain linear model, for comparison.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Without the constraints the fractions can be negative or above one where the endmembers do not describe the pixel; the RMSE shows where.</p>
+    </section>
+
+    <section id="spectrum">
+      <h2><span class="n">08</span>A hyperspectral scene</h2>
+      <p>An EnMAP scene (L2A, surface reflectance) of 10 August 2022 on the coast of Groningen, the Netherlands: 1335 × 1288 pixels of 30 m, 224 bands from 418 to 2446 nm. Janus opens the file as it is, as a spectrum, a series whose axis is the wavelength, and the chart draws each pixel's spectrum. <span class="ui">Tools → Spectral unmixing (spectrum)</span> takes pins' spectra as endmembers, the same way: here a green crop (vegetation), a bare field (soil) and the Wadden Sea (water).</p>
+      <div class="note warn">
+        <p class="h">Bands without data</p>
+        <p>EnMAP's L2A product leaves six bands, 1331 to 1391 nm in the water vapour absorption, without data in every pixel. The endmembers have no value there either, and the tool leaves those bands out on its own: the pixels are unmixed on the other 218, and the rebuilt spectrum breaks at the gap. Nothing to prepare.</p>
+      </div>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/unmixing/08-spectrum-tool.png"><img src="assets/img/unmixing/08-spectrum-tool.png" alt="The Spectral unmixing (spectrum) window: FCLS; three endmembers, Vegetation, Soil and Water, from pins 1, 2 and 3 with 224 bands each; Add an endmember from...; Run on the raster: whole image." loading="lazy"></a>
+          <figcaption><b>The endmembers</b>: three pins' spectra.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/unmixing/10-spectrum-stats.png"><img src="assets/img/unmixing/10-spectrum-stats.png" alt="The Statistics table of pin 4 at (443, 677): 218 valid values; vegetation fraction 0.4225, soil 0.2187, water 0.3588, sum 1, RMSE 0.006587." loading="lazy"></a>
+          <figcaption>A mixed pixel: 42% vegetation, 22% soil, 36% water.</figcaption>
+        </figure>
+      </div>
+      <figure class="fig">
+        <a href="assets/img/unmixing/09-spectrum-chart.png"><img src="assets/img/unmixing/09-spectrum-chart.png" alt="The chart of the pixel at (443, 677) against wavelength: its spectrum in green, low in the visible, a red edge near 700 nm, a plateau near 0.24 in the near infrared and two humps in the shortwave infrared; the rebuilt spectrum in magenta follows it closely and breaks, like it, at the bands without data near 1.4 µm; three dashed magenta curves, each endmember's part." loading="lazy"></a>
+        <figcaption><b>The spectrum and its rebuild</b>: the pixel (green), the spectrum the fractions rebuild (magenta) and each endmember's part of it, its spectrum times its fraction (dashed).</figcaption>
+      </figure>
+      <p>The rebuilt spectrum follows the pixel's over the whole range, with an RMSE of 0.0066 reflectance. The water endmember is nearly black beyond the visible, so on land it acts as <strong>shade</strong>: it takes the darkness of the pixel (wet soil, shadows, ditches) rather than standing water. Name it so when reading the maps.</p>
+      <p>Run on the whole scene, the tool took 9 seconds for its 1.7 million pixels of 218 bands. Each fraction and the RMSE are maps under the scene in the Layers panel:</p>
+      <figure class="fig">
+        <a href="assets/img/unmixing/11-spectrum-vegetation.jpg"><img src="assets/img/unmixing/11-spectrum-vegetation.jpg" alt="The vegetation fraction over the coast, 0 in purple to 1 in yellow: the sea and the mudflats at 0, the fields a patchwork of yellow (green crops) and purple (bare or harvested), the grassland of the south in green and yellow." width="1040" height="572" loading="lazy"></a>
+        <figcaption><b>Vegetation fraction</b>: green crops in yellow, harvested and bare fields in purple.</figcaption>
+      </figure>
+      <figure class="fig">
+        <a href="assets/img/unmixing/12-spectrum-rmse.jpg"><img src="assets/img/unmixing/12-spectrum-rmse.jpg" alt="The RMSE from 0.001 to 0.121 reflectance: low over the sea and many fields, high in yellow over a set of fields scattered over the farmland." width="1040" height="572" loading="lazy"></a>
+        <figcaption><b>RMSE</b>: the bright fields are a cover none of the three endmembers describes. Drop a pin on one, look at its spectrum, and add it as an endmember.</figcaption>
+      </figure>
+    </section>
+
+    <section id="speed">
+      <h2><span class="n">09</span>Against RStoolbox</h2>
+      <p>Zeit's solver against <code>mesma</code> of the R package RStoolbox, with its NNLS solver, on pixels mixed from 4 endmembers in 6 bands (Zeit's own benchmark, <code>benchmarks/vs_originals/unmix.py</code>):</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Pixels</th><th>RStoolbox</th><th>Zeit, 1 thread</th><th>Zeit, 19 threads</th><th>Agreement</th></tr></thead>
+          <tbody>
+            <tr><td>200 × 200</td><td class="num">0.84 s</td><td class="num">47 ms (18×)</td><td class="num">5.4 ms (157×)</td><td>fractions to 4e-4</td></tr>
+            <tr><td>1000 × 1000</td><td class="num">21.8 s</td><td class="num">1.25 s (17×)</td><td class="num">132 ms (165×)</td><td>fractions to 4e-4</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>mesma's NNLS stops at a tolerance, while Zeit solves each pixel exactly: the fractions agree to 4e-4 and Zeit's RMSE is never larger.</p>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">10</span>What next</h2>
+      <ul>
+        <li><strong>Date the change</strong>: <a href="landtrendr.html">LandTrendr</a> or <a href="bfast.html">BFAST</a> on a fraction series.</li>
+        <li><strong>Forest degradation</strong>: <span class="ui">Tools → NDFI (spectral unmixing)</span> unmixes Landsat with the fixed endmembers of Souza et al. (GV, NPV, soil, shade, cloud) into the NDFI, the index <a href="coded.html">CODED</a> uses for logging and fire.</li>
+        <li><strong>Validate it</strong>: classify the fractions and check the map with the <a href="validation.html">Validation guide</a>.</li>
+        <li><strong>Script it</strong>: the same unmixing is <code>zeit.unmix</code> in Python.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">11</span>References</h2>
+      <ul class="refs">
+        <li>Adams, J. B., Sabol, D. E., Kapos, V., Almeida Filho, R., Roberts, D. A., Smith, M. O., Gillespie, A. R. (1995). Classification of multispectral images based on fractions of endmembers: application to land-cover change in the Brazilian Amazon. <em>Remote Sensing of Environment</em>, 52(2), 137–154.</li>
+        <li>Heinz, D. C., Chang, C.-I. (2001). Fully constrained least squares linear spectral mixture analysis method for material quantification in hyperspectral imagery. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 39(3), 529–545.</li>
+        <li>Souza, C. M., Roberts, D. A., Cochrane, M. A. (2005). Combining spectral and spatial information to map canopy damage from selective logging and forest fires. <em>Remote Sensing of Environment</em>, 98(2–3), 329–343.</li>
+        <li>Guanter, L., et al. (2015). The EnMAP spaceborne imaging spectroscopy mission for Earth observation. <em>Remote Sensing</em>, 7(7), 8830–8857.</li>
+        <li>Leutner, B., Horning, N., Schwalb-Willmann, J. <a href="https://bleutner.github.io/RStoolbox/">RStoolbox</a>: remote sensing data analysis in R.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

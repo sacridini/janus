@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Emerging hot spots · Janus</title>
+<meta name="description" content="A step-by-step guide to emerging hot spot analysis in Janus: each year's Getis-Ord Gi*, the trend of every pixel's Gi* and its pattern (new, consecutive, intensifying, persistent, diminishing, sporadic, oscillating or historical hot or cold spot).">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Emerging hot spots · Janus">
+<meta property="og:description" content="Where forest and cleared land cluster in forty years of a Rondônia frontier, and how the clusters changed: Gi* hot and cold spots and their patterns.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/hotspots/04-detail.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Emerging hot spots</p>
+    <p class="eyebrow">Trend · space and time</p>
+    <h1>Emerging hot spots, step by step.</h1>
+    <p class="lede">A hot spot is a place where high values cluster more than chance would allow, and a cold spot is the same for low values. Emerging hot spot analysis finds them at every date and then reads each pixel's history: whether it is a hot spot that is new, one that has persisted for decades and is intensifying, or a cold spot that comes and goes. In Janus it runs on the whole series and gives a map of these patterns.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#open">Opening the tool</a></li>
+      <li><a href="#params">The parameters</a></li>
+      <li><a href="#run">Running it</a></li>
+      <li><a href="#patterns">The patterns</a></li>
+      <li><a href="#pixels">Reading a pixel</a></li>
+      <li><a href="#cube">Against the whole series</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>Emerging hot spot analysis is ESRI's Space Time Pattern Mining tool, also available in R as sfdep's <code>emerging_hotspot_analysis</code>. It has two steps.</p>
+      <p>First, at every date, it computes the <strong>Getis-Ord Gi*</strong> of each pixel (Getis &amp; Ord 1992). This statistic sums the values in the pixel's <strong>neighbourhood</strong> (the pixel included) and compares the sum with what the date's mean would give, as a z-score. A significantly positive Gi* makes the pixel a <strong>hot spot</strong> at that date, and a significantly negative one makes it a <strong>cold spot</strong>. The neighbourhood is the pixels within a radius, at that date and at the <strong>dates before</strong> it.</p>
+      <p>Second, each pixel's series of Gi* gets a <strong>Mann-Kendall trend test</strong>. Its dates as a hot or cold spot and its trend then give its <strong>pattern</strong>, as ESRI defines them.</p>
+      <dl class="terms">
+        <dt>Gi*</dt><dd>A z-score: how far the sum of a neighbourhood is from what the date's mean would give it. Beyond ±1.96 it is significant at 0.05.</dd>
+        <dt>Hot / cold spot</dt><dd>A date at which the pixel's Gi* is significantly positive / negative.</dd>
+        <dt>Trend of the Gi*</dt><dd>Whether the pixel's Gi* rises or falls over the dates (Mann-Kendall), which separates intensifying hot spots from diminishing ones.</dd>
+        <dt>Pattern</dt><dd>The pixel's history, summed up in one of 17 classes: no pattern, or one of eight kinds of hot spot and the same eight of cold spot.</dd>
+      </dl>
+      <p>The values can be anything that varies in space and time: an index, a loss, an anomaly, a count. The analysis needs the whole map (each pixel's neighbourhood), so it runs on the raster only, not on the chart.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>The data of the <a href="landtrendr.html">LandTrendr guide</a>: forty years of NDVI (× 10000), one composite a year from 1985 to 2024, over a circle of about 50 km in central Rondônia, Brazil. This is a forest frontier opened along roads and mostly cleared between 2000 and 2005. The stack is one GeoTIFF with a band per year, opened through a VRT that declares 0 (outside the circle) as no data. It covers 1686 × 1671 pixels of 30 m.</p>
+      <p>In NDVI, the forest is high and pasture is low, so the hot spots are clusters of forest and the cold spots are clusters of cleared land. The patterns tell how each one changed.</p>
+    </section>
+
+    <section id="open">
+      <h2><span class="n">03</span>Opening the tool</h2>
+      <figure class="fig narrow">
+        <img src="assets/img/hotspots/01-tool.png" alt="The Emerging hot spots window: its description, the parameters radius 3, neighbourhood circle, dates before 1, against each date's mean, significance level 0.05, trend test Hamed-Rao, and Run on the raster with Whole image." loading="lazy">
+        <figcaption><b>The window</b>, with the radius and neighbourhood used in this guide.</figcaption>
+      </figure>
+      <p><span class="ui">Tools → Emerging hot spots</span>, among the trend tools. The tool needs at least three dates, and comes from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a>, which is built into Janus.</p>
+    </section>
+
+    <section id="params">
+      <h2><span class="n">04</span>The parameters</h2>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Radius</td><td class="num">1 px</td><td>The neighbourhood: the pixels within this distance, the pixel included. With 1 and a square these are its 8 neighbours (queen contiguity, sfdep's default). A wider radius finds wider clusters.</td></tr>
+            <tr><td>Neighbourhood</td><td class="num">square</td><td>Square: (2 × radius + 1)² pixels. Circle: the pixels whose centres are within the radius.</td></tr>
+            <tr><td>Dates before</td><td class="num">1</td><td>The earlier dates also in each date's neighbourhood (sfdep's <code>k</code>, ESRI's neighbourhood time step). With 1, each Gi* is smoothed with the date before it.</td></tr>
+            <tr><td>Against</td><td class="num">each date's mean</td><td><em>Each date's mean</em> (as sfdep): a place is hot compared with the others at that date. <em>The whole series' mean</em>: every date is compared with all of them, so a date that is high everywhere is hot everywhere.</td></tr>
+            <tr><td>Significance level</td><td class="num">0.05</td><td>A Gi* is a hot or cold spot when its two-sided p-value is below this. The same level applies to its trend.</td></tr>
+            <tr><td>Trend test</td><td class="num">Hamed-Rao</td><td>The test of each pixel's Gi* series. Consecutive dates share neighbours, so the series is autocorrelated, and Hamed-Rao corrects for that. Also: the original Mann-Kendall (ESRI's and sfdep's) and Yue-Wang.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>At 30 m, the default radius of 1 px measures clusters of 3 × 3 pixels, and the map comes out speckled by single fields. This guide uses a <strong>radius of 3 in a circle</strong> (pixels within 90 m) and keeps the other defaults.</p>
+    </section>
+
+    <section id="run">
+      <h2><span class="n">05</span>Running it</h2>
+      <p>Under <span class="ui">Run on the raster</span>, choose the <span class="ui">Whole image</span>, the <span class="ui">Visible area</span> or the <span class="ui">ROI</span>, then <span class="ui">Run</span>. The run holds the values of the whole window in memory, along with their Gi*: about 40 bytes per value. If that would exceed 6 GB, Janus refuses and asks for a smaller area. Here the whole image, 40 dates of 2.8 million pixels, takes 4.2 GB, and it ran in 14 s, much of it spent reading the stack.</p>
+      <figure class="fig narrow">
+        <img src="assets/img/hotspots/02-task.png" alt="The Tasks panel: Emerging hot spots on the whole image, 1686 by 1671 pixels, done 100 percent in 14 seconds." loading="lazy">
+        <figcaption><b>Tasks</b>: the whole image in 14 s.</figcaption>
+      </figure>
+      <p>The outputs are GeoTIFFs in <code>%LOCALAPPDATA%\Janus\results</code> by default, opened as layers:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Output</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Pattern</td><td>A class map of the 17 patterns, in the Hotspots colours. It is the layer shown after the run.</td></tr>
+            <tr><td>Gi* z-score</td><td>The Gi* of every date, as a new series layer, opened hidden under the patterns.</td></tr>
+            <tr><td>Trend of the Gi* (z)</td><td>The z of the trend test: positive where the Gi* rises.</td></tr>
+            <tr><td>Dates a hot spot</td><td>How many dates the pixel was a significant hot spot.</td></tr>
+            <tr><td>Dates a cold spot</td><td>The same for cold spots.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="patterns">
+      <h2><span class="n">06</span>The patterns</h2>
+      <figure class="fig">
+        <a href="assets/img/hotspots/03-pattern.jpg"><img src="assets/img/hotspots/03-pattern.jpg" alt="The pattern map over the whole circle: red for intensifying hot spots on the forest blocks, pink for oscillating hot spots, purple for oscillating cold spots on the cleared land, grey for no pattern." width="872" height="539" loading="lazy"></a>
+        <figcaption><b>The patterns</b> over the whole circle (radius 3, circle, each date's mean).</figcaption>
+      </figure>
+      <p>Each pattern is tested on the hot dates first, then on the cold ones. The cold-spot patterns read the same way as the hot ones, with cold dates instead of hot dates. The last two columns give each pattern's share of the circle in this run.</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Pattern</th><th>Definition (hot; cold alike)</th><th>Hot</th><th>Cold</th></tr></thead>
+          <tbody>
+            <tr><td><span style="display:inline-block;width:.8em;height:.8em;margin-right:.3em;background:#8c000d"></span><span style="display:inline-block;width:.8em;height:.8em;margin-right:.5em;background:#08306b"></span>New</td><td>Hot at the last date, and only then.</td><td class="num">0.4%</td><td class="num">0.1%</td></tr>
+            <tr><td><span style="display:inline-block;width:.8em;height:.8em;margin-right:.3em;background:#cc1a1a"></span><span style="display:inline-block;width:.8em;height:.8em;margin-right:.5em;background:#2166ab"></span>Consecutive</td><td>Hot dates in a single run that reaches the last date, fewer than 90% of them.</td><td class="num">0.2%</td><td class="num">2.7%</td></tr>
+            <tr><td><span style="display:inline-block;width:.8em;height:.8em;margin-right:.3em;background:#f24026"></span><span style="display:inline-block;width:.8em;height:.8em;margin-right:.5em;background:#408cd9"></span>Intensifying</td><td>Hot on 90% of the dates or more, the last one included, with the Gi* rising significantly.</td><td class="num">11.5%</td><td class="num">0.2%</td></tr>
+            <tr><td><span style="display:inline-block;width:.8em;height:.8em;margin-right:.3em;background:#fa734d"></span><span style="display:inline-block;width:.8em;height:.8em;margin-right:.5em;background:#6badE6"></span>Persistent</td><td>The same, without a significant trend.</td><td class="num">0.7%</td><td class="num">2.7%</td></tr>
+            <tr><td><span style="display:inline-block;width:.8em;height:.8em;margin-right:.3em;background:#fca680"></span><span style="display:inline-block;width:.8em;height:.8em;margin-right:.5em;background:#9eccf2"></span>Diminishing</td><td>The same, with the Gi* falling significantly.</td><td class="num">0.0%</td><td class="num">2.4%</td></tr>
+            <tr><td><span style="display:inline-block;width:.8em;height:.8em;margin-right:.3em;background:#f29926"></span><span style="display:inline-block;width:.8em;height:.8em;margin-right:.5em;background:#33b3b3"></span>Sporadic</td><td>Hot at the last date, hot on and off before, never cold.</td><td class="num">6.2%</td><td class="num">1.0%</td></tr>
+            <tr><td><span style="display:inline-block;width:.8em;height:.8em;margin-right:.3em;background:#d966a6"></span><span style="display:inline-block;width:.8em;height:.8em;margin-right:.5em;background:#8073cc"></span>Oscillating</td><td>Hot at the last date, hot on and off before, cold at some earlier date.</td><td class="num">21.9%</td><td class="num">16.9%</td></tr>
+            <tr><td><span style="display:inline-block;width:.8em;height:.8em;margin-right:.3em;background:#fad1c7"></span><span style="display:inline-block;width:.8em;height:.8em;margin-right:.5em;background:#d1e6f7"></span>Historical</td><td>Hot on 90% of the dates or more, but not at the last.</td><td class="num">0.3%</td><td class="num">2.0%</td></tr>
+            <tr><td><span style="display:inline-block;width:.8em;height:.8em;margin-right:.5em;background:#c7c7c2"></span>No pattern</td><td>None of the above.</td><td class="num" colspan="2">30.7%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Everything depends on the <strong>last date</strong>. A pixel that was a cold spot for twenty years but not in 2024 has no pattern (unless it was cold on 90% of the dates, which makes it historical). Against each date's mean, the forest left standing becomes more distinct as the land around it is cleared. Its Gi* rises, so the large forest blocks are <em>intensifying hot spots</em> (red). The cleared land is mostly <em>oscillating cold</em> (purple): it was hot while it was forest, and cold since, with some years in between when it was not significantly cold.</p>
+    </section>
+
+    <section id="pixels">
+      <h2><span class="n">07</span>Reading a pixel</h2>
+      <figure class="fig">
+        <a href="assets/img/hotspots/04-detail.jpg"><img src="assets/img/hotspots/04-detail.jpg" alt="A zoom on the pattern map south-east of the centre, with three pins: pin 1 on a red forest block, pin 2 on purple cleared land, pin 3 on grey." width="1000" height="448" loading="lazy"></a>
+        <figcaption><b>Three pins</b> on the patterns: 1, a forest block; 2 and 3, land cleared in 2005.</figcaption>
+      </figure>
+      <figure class="fig">
+        <a href="assets/img/hotspots/04-detail-chart.png"><img src="assets/img/hotspots/04-detail-chart.png" alt="The NDVI of the three pins from 1985 to 2024: pin 1 stays near 8500, pins 2 and 3 fall from about 8000 to 4000-6000 in 2004-2005 and stay lower." loading="lazy"></a>
+        <figcaption><b>Their NDVI</b>: pin 1 forest throughout; pins 2 and 3 cleared in 2004–2005.</figcaption>
+      </figure>
+      <p>The patterns come from the Gi* series. The Gi* layer opens hidden under the patterns. Tick its eye in the Layers panel and the chart shows each pin's Gi* series:</p>
+      <figure class="fig">
+        <a href="assets/img/hotspots/05-gi.jpg"><img src="assets/img/hotspots/05-gi.jpg" alt="The Janus window with the hotspots_gi layer shown: the Gi* of 1985 on the map, low in the clearings already open, and the Gi* series of the three pins on the chart." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The Gi* layer</b>, here at 1985: the dark patches are the clearings already open then.</figcaption>
+      </figure>
+      <figure class="fig">
+        <a href="assets/img/hotspots/05-gi-chart.png"><img src="assets/img/hotspots/05-gi-chart.png" alt="The Gi* of the three pins: pin 1 rises from about 3 to 10; pins 2 and 3 are between 2 and 9 until 2004, then fall below zero, pin 3 to -13 by 2008 and back to about 0 in 2024, pin 2 between about 0 and -7." loading="lazy"></a>
+        <figcaption><b>The Gi* series.</b> Above 1.96, a hot spot; below −1.96, a cold spot.</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Pin 1</strong> (1221, 1363) is a hot spot on 39 of the 40 dates, and its Gi* rises from about 3 to 10 (trend z 6.7): an <em>intensifying hot spot</em>.</li>
+        <li><strong>Pin 2</strong> (1357, 1406) is a hot spot in 19 of the years up to 2004 and a cold spot at the end, but its cold years are broken by years near the date's mean (2008–2011, 2015, 2017–2018): an <em>oscillating cold spot</em>.</li>
+        <li><strong>Pin 3</strong> (1272, 1414) is a hot spot for 18 years and a cold spot for 18, from 2005 to 2021 and in 2023. In 2024 its Gi* is −0.1: with its NDVI back to 0.57, it is no longer significantly below that year's mean. Not cold at the last date, and not cold on 90% of the dates: <em>no pattern</em>.</li>
+      </ul>
+    </section>
+
+    <section id="cube">
+      <h2><span class="n">08</span>Against the whole series</h2>
+      <p>Against each date's mean, a place is only hot or cold compared with the rest of the map at that date. As the frontier opened, the mean NDVI fell, so the bar for a cold spot fell with it. <span class="ui">Against: The whole series' mean</span> uses one mean and one deviation for all forty years instead. The forest of 1985 is then hot everywhere, and the land cleared since is cold for good:</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/hotspots/06-cube.jpg"><img src="assets/img/hotspots/06-cube.jpg" alt="The pattern map against the whole series' mean over the circle: red forest blocks, the rest in purple and blue." width="872" height="539" loading="lazy"></a>
+          <figcaption><b>The whole circle</b>, against the whole series.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/hotspots/06-cube-detail.jpg"><img src="assets/img/hotspots/06-cube-detail.jpg" alt="The same zoom as before against the whole series' mean: pin 1 on red, pins 2 and 3 on purple and dark blue." width="1000" height="448" loading="lazy"></a>
+          <figcaption><b>The same three pins.</b></figcaption>
+        </figure>
+      </div>
+      <p>The cold spots now cover most of the circle: <em>oscillating cold</em> 37.3% and <em>consecutive cold</em> 15.8% (dark blue). The <em>intensifying</em> and <em>persistent hot spots</em> (15.2% and 4.3%) are the forest that still stands. Pin 3 becomes a <em>consecutive cold spot</em>: cold every year from 2005 to 2024, in one run. Pin 2 stays <em>oscillating</em>, because its Gi* of 2009 (−1.7) breaks the run. Pin 1 is still intensifying, hot at every date.</p>
+      <div class="note">
+        <p class="h">Which to choose</p>
+        <p>Each date's mean asks where values cluster compared with the rest of the map at that date, which is sfdep's question. The whole series' mean asks where they cluster compared with the whole period, so a change that affects everything shows up everywhere. With a lag (dates before), the Gi* of a date also counts earlier dates against that date's mean, so a rise everywhere lowers it.</p>
+      </div>
+      <p>The Gi* equals R sfdep's (0.2.5, queen neighbours, <code>k</code> the lag) to 1e-14, and the trend test equals Kendall's to its single precision. The patterns follow ESRI's definitions with the normal p-values of the Gi*. sfdep's differ: it takes each Gi*'s significance from 199 permutations and has rules of its own. On a grid of 50 × 50 cells and 12 dates, sfdep takes 13 minutes (28 s with 9 permutations); Zeit takes 4 to 7 ms.</p>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">09</span>What next</h2>
+      <ul>
+        <li><strong>Hot spots of change, not of state.</strong> Run the analysis on a series of yearly losses (the drop of the index from one year to the next) or of anomalies, to find where the changes themselves concentrate.</li>
+        <li><strong>Test a region's trend.</strong> The <a href="trend-test.html">trend test guide</a> asks whether a whole region is trending, taking the spatial correlation of its pixels into account.</li>
+        <li><strong>The events behind the patterns</strong>: <a href="landtrendr.html">LandTrendr</a> on the same series maps the year and magnitude of each clearing.</li>
+        <li><strong>Script it.</strong> The same analysis is <code>zeit.emerging_hotspots</code> in Python.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">10</span>References</h2>
+      <ul class="refs">
+        <li>Getis, A., Ord, J. K. (1992). The analysis of spatial association by use of distance statistics. <em>Geographical Analysis</em>, 24(3), 189–206.</li>
+        <li>Ord, J. K., Getis, A. (1995). Local spatial autocorrelation statistics: distributional issues and an application. <em>Geographical Analysis</em>, 27(4), 286–306.</li>
+        <li>Esri. How Emerging Hot Spot Analysis works. ArcGIS Pro documentation, Space Time Pattern Mining toolbox.</li>
+        <li>Hamed, K. H., Rao, A. R. (1998). A modified Mann-Kendall trend test for autocorrelated data. <em>Journal of Hydrology</em>, 204, 182–196.</li>
+        <li>Parry, J., Locke, D. sfdep: Spatial Dependence for Simple Features. R package.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the change detection library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

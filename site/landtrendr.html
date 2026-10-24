@@ -63,6 +63,7 @@
       <li><a href="#params">The parameters</a></li>
       <li><a href="#run">Running it on the image</a></li>
       <li><a href="#maps">The maps</a></li>
+      <li><a href="#recovery">Recovery</a></li>
       <li><a href="#next">What next</a></li>
       <li><a href="#refs">References</a></li>
     </ol>
@@ -207,8 +208,71 @@
       <p>Hover the map with a result on top: the chart still shows the pixel's series and its fit, so every colour can be checked against the trajectory behind it.</p>
     </section>
 
+    <section id="recovery">
+      <h2><span class="n">08</span>Recovery</h2>
+      <p>The maps above say when a forest was lost. <span class="ui">Tools → Recovery (LandTrendr)</span> asks what came after: it segments each series as LandTrendr does, takes the greatest loss as the <strong>disturbance</strong>, and measures the fitted trajectory after its lowest point, the <strong>trough</strong>. Measured on the fit, not on the yearly values, a dry year or a missed cloud does not end a recovery.</p>
+      <dl class="terms">
+        <dt>Pre-disturbance value</dt><dd>The mean of the years just before the disturbance (2 by default).</dd>
+        <dt>Y2R</dt><dd>Years to recovery: from the trough until the fit first gets back to 80% of the pre-disturbance value (White et al. 2017). 0 when it never fell below that; no value when it has not got back by the last year.</dd>
+        <dt>ARI</dt><dd>Absolute recovery: how much the fit rose from the trough after 5 years (the horizon), in the units of the series.</dd>
+        <dt>RRI</dt><dd>Relative recovery: ARI over the magnitude of the loss. 1 is all of it back.</dd>
+        <dt>R80P</dt><dd>The value after 5 years over 80% of the pre-disturbance value. 1 or more is recovered.</dd>
+        <dt>YrYr</dt><dd>Year-on-year recovery: the rise from the trough to year 5, per year.</dd>
+      </dl>
+      <p>The value after the horizon is the best of the fitted values of years 4 and 5 after the trough (Frazier et al. 2018). On the chart, the tool draws the LandTrendr fit, the recovery level as a dashed line from the trough, and a vertical line at the year the pixel recovered.</p>
+      <h3>Two pixels</h3>
+      <p>The tool was set as the LandTrendr run of section 06: a minimum magnitude of 2500 and a pre-event value of 7500, so that only clearings of forest count as disturbances. The forest cleared in 1998–1999 that grew back:</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/landtrendr/09-recovery-chart.png"><img src="assets/img/landtrendr/09-recovery-chart.png" alt="The chart of the regrowth pixel: NDVI near 8500 until 1998, down to about 6000 in 1999, then a fitted rise that crosses the dashed recovery level at 6937 in 2011, where a vertical line marks it, and goes on to about 7900 by 2024." loading="lazy"></a>
+          <figcaption><b>Recovered in 2011</b>: the fit crosses the dashed 80% level 12 years after the trough.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/landtrendr/09-recovery-stats.png"><img src="assets/img/landtrendr/09-recovery-stats.png" alt="The Statistics table of the recovery: disturbance 1998-1999, pre-disturbance value 8670.9, value at the trough 6058, magnitude 2612.9, years to recovery 12 (2011), value at +5 years 6425.7, ARI 367.69, RRI 0.14072, R80P 0.92633, YrYr 73.537 per year." loading="lazy"></a>
+          <figcaption>Its numbers: Y2R <b>12</b>, R80P 0.93, RRI 0.14.</figcaption>
+        </figure>
+      </div>
+      <p>Before the clearing the fit stood at 8670.9 (its mean over 1997 and 1998); the trough is 6058 in 1999, a loss of 2612.9. Five years later the fit had risen by 367.7 (ARI): 14% of the loss (RRI), 93% of the way to the recovery level of 6936.7 (R80P), 73.5 a year (YrYr). It got there in 2011: <strong>Y2R = 12</strong>.</p>
+      <p>The forest cleared from 2002 to 2009 and kept as pasture:</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/landtrendr/10-pasture-chart.png"><img src="assets/img/landtrendr/10-pasture-chart.png" alt="The chart of the pasture pixel: NDVI near 8200 until 2002, a fitted drop to about 3800 in 2009, then a slow rise to about 6200 by 2024, still under the dashed recovery level near 6600." loading="lazy"></a>
+          <figcaption><b>Not recovered</b>: the fit stays under the dashed level to the end.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/landtrendr/10-pasture-stats.png"><img src="assets/img/landtrendr/10-pasture-stats.png" alt="The Statistics table: disturbance 2002-2009, pre-disturbance value 8247.9, value at the trough 3786.1, magnitude 4461.8, years to recovery: not recovered by 2024, value at +5 years 4595.3, ARI 809.15, RRI 0.18135, R80P 0.69643, YrYr 161.83 per year." loading="lazy"></a>
+          <figcaption>Y2R: <b>not recovered by 2024</b>.</figcaption>
+        </figure>
+      </div>
+      <p>Here the loss is 4461.8, and the pasture's slow rise gives a larger ARI (809.2) and YrYr (161.8 a year) than the regrowth's, but only 18% of the loss (RRI) and 70% of the recovery level after five years (R80P). The level, 6598.3, is never reached: the pixel has no Y2R. Read the metrics together: a fast early rise is not a forest coming back.</p>
+      <h3>The parameters</h3>
+      <p>The tool has LandTrendr's parameters (section 05), which find the disturbance, and four of its own:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Horizon (years)</td><td class="num">5</td><td>Years after the trough at which ARI, RRI, R80P and YrYr are measured.</td></tr>
+            <tr><td>Recovered at (fraction)</td><td class="num">0.8</td><td>The fraction a pixel must get back to: 0.8 for White et al.'s Y2R and R80P.</td></tr>
+            <tr><td>Recovery level</td><td class="num">pre-disturbance value</td><td><em>Fraction of the pre-disturbance value</em>, for an index that is positive and drops (NDVI, NBR); or <em>Fraction of the loss regained</em>, for any index and either direction (gains need this one).</td></tr>
+            <tr><td>Pre-disturbance years</td><td class="num">2</td><td>Years averaged for the pre-disturbance value, up to the start of the disturbance.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>The maps</h3>
+      <p>Run on the whole image (about 10 seconds for its 2.8 million pixels), the tool writes eight maps: years to recovery, R80P, RRI, ARI, YrYr, and the disturbance's magnitude, pre-disturbance value and year. Of the image's 2.8 million pixels, 22.7% have a disturbance and 7.6% a years to recovery: the others had not got back to the level by 2024.</p>
+      <figure class="fig">
+        <a href="assets/img/landtrendr/11-y2r.jpg"><img src="assets/img/landtrendr/11-y2r.jpg" alt="The years to recovery over the 2024 NDVI, zoomed in around the regrowth pixel: a patch of about 12 years in teal at the pin, scattered pixels of 1 to 5 years in purple over the pastures, and the forest and most pastures without a value." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>Years to recovery</b>, 1 (purple) to 38 (yellow), over the 2024 NDVI. The patch at the pin took about 12 years.</figcaption>
+      </figure>
+      <p>The scattered pixels of 1 to 5 years in the pastures are cases to check on the chart before believing: a loss barely past the thresholds whose fit gets back to 80% within the year-to-year noise. A higher <span class="ui">Min magnitude</span>, or the <span class="ui">Pick event by</span> and <span class="ui">Min duration</span> filters, leave them out.</p>
+      <div class="note">
+        <p class="h">Against the original</p>
+        <p>Zeit's recovery metrics agree with the R package RecoverMetricsR to float32's precision (a relative difference of 6e-8). On 1000 × 1000 pixels of 21 years, RecoverMetricsR takes 52.4 s and Zeit 98 ms on one thread, 535 times faster.</p>
+      </div>
+    </section>
+
     <section id="next">
-      <h2><span class="n">08</span>What next</h2>
+      <h2><span class="n">09</span>What next</h2>
       <ul>
         <li><strong>Validate it.</strong> The year of detection is a map of events: <a href="validation.html">the Validation guide</a> stratifies it, draws a sample and estimates its accuracy and the area of loss by year, with confidence intervals.</li>
         <li><strong>Compare it.</strong> <span class="ui">Tools → Agreement of change maps</span> takes several maps of dates (LandTrendr, <a href="ccdc.html">CCDC</a>, <a href="bfast.html">BFAST</a>, <a href="coded.html">CODED</a>) and maps where and when they agree.</li>
@@ -218,10 +282,13 @@
     </section>
 
     <section id="refs">
-      <h2><span class="n">09</span>References</h2>
+      <h2><span class="n">10</span>References</h2>
       <ul class="refs">
         <li>Kennedy, R. E., Yang, Z., Cohen, W. B. (2010). Detecting trends in forest disturbance and recovery using yearly Landsat time series: 1. LandTrendr — Temporal segmentation algorithms. <em>Remote Sensing of Environment</em>, 114, 2897–2910.</li>
         <li>Kennedy, R. E. et al. (2018). Implementation of the LandTrendr algorithm on Google Earth Engine. <em>Remote Sensing</em>, 10(5), 691.</li>
+        <li>Kennedy, R. E., Yang, Z., Cohen, W. B., Pfaff, E., Braaten, J., Nelson, P. (2012). Spatial and temporal patterns of forest disturbance and regrowth within the area of the Northwest Forest Plan. <em>Remote Sensing of Environment</em>, 122, 117–133.</li>
+        <li>White, J. C., Wulder, M. A., Hermosilla, T., Coops, N. C., Hobart, G. W. (2017). A nationwide annual characterization of 25 years of forest disturbance and recovery for Canada using Landsat time series. <em>Remote Sensing of Environment</em>, 194, 303–321.</li>
+        <li>Frazier, R. J., Coops, N. C., Wulder, M. A., Hermosilla, T., White, J. C. (2018). Analyzing spatial and temporal variability in short-term rates of post-fire vegetation return from Landsat time series. <em>Remote Sensing of Environment</em>, 205, 32–45.</li>
         <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the change detection library behind the tools of Janus.</li>
       </ul>
     </section>

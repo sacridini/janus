@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Embeddings · Janus</title>
+<meta name="description" content="A step-by-step guide to embeddings in Janus: AlphaEarth's yearly vectors of Rondônia classified from nine pins in milliseconds, the changes between years as a table, and the direction of each change as colour.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Embeddings · Janus">
+<meta property="og:description" content="Nine pins, three classes, a map of every year in milliseconds: forest, pasture and water from AlphaEarth's embeddings, and where the forest went.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/embeddings/02-classes.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Embeddings</p>
+    <p class="eyebrow">Embeddings · AlphaEarth, TESSERA</p>
+    <h1>Embeddings, step by step.</h1>
+    <p class="lede">A foundation model sums up each 10 m pixel and year as a vector of 64 or 128 numbers. The numbers mean nothing on their own; what counts is that similar places get similar vectors. This guide turns them into a map of classes from a few pins, a table of what changed into what, and the direction of each change.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#views">The views</a></li>
+      <li><a href="#classes">Classes from pins</a></li>
+      <li><a href="#changes">What changed into what</a></li>
+      <li><a href="#direction">Direction of change</a></li>
+      <li><a href="#like">Like a pin's change</a></li>
+      <li><a href="#export">Saving the maps</a></li>
+      <li><a href="#speed">Against scikit-learn</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p><strong>AlphaEarth Foundations</strong> (Google DeepMind; 64 dimensions, from optical, radar, lidar and climate data) and <strong>TESSERA</strong> (128 dimensions, from Sentinel-1 and -2 series) give every 10 m pixel one vector a year. A forest and a pasture end up far apart; two pastures close together, wherever they are. Janus compares the vectors directly: no training of a network, and every view is computed again in milliseconds as you move the mouse or change a setting.</p>
+      <dl class="terms">
+        <dt>Embedding</dt><dd>A pixel's vector for a year. Its dimensions (<code>A00</code>, <code>A01</code>...) have no physical unit.</dd>
+        <dt>Cosine similarity</dt><dd>How alike two vectors point: 1 the same direction, 0 unrelated. 1 − cosine is the <strong>cosine distance</strong>.</dd>
+        <dt>Few-shot classification</dt><dd>Classes learnt from a handful of samples (here three each), which the embeddings make possible: the model that made them has done the hard part.</dd>
+        <dt>Difference vector</dt><dd>A pixel's vector one year minus its vector another year: the change itself, which has a direction as well as a size.</dd>
+      </dl>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>AlphaEarth's embeddings of a square of central Rondônia, Brazil, 6.6 km a side (659 × 665 pixels of 10 m), for each year from 2017 to 2024: one GeoTIFF a year of 64 bands, 231 MB in all. Forest, pastures opened in it, a river and a lake. (The AlphaEarth Foundations Satellite Embedding dataset is produced by Google and Google DeepMind, under CC-BY 4.0.)</p>
+      <p>To get them for your own area: in the <strong>Layers</strong> panel, unfold <span class="ui">Add embeddings</span>, pick the source (AlphaEarth or TESSERA), the years and the area (the visible area or the ROI), and <span class="ui">Add embeddings</span>. Janus downloads them in the background, without Python, into <code>%LOCALAPPDATA%\Janus\results\embeddings</code>, and adds them as a layer. A folder of such files (or Zeit's <code>save_raster</code> of embeddings) opens directly, like any series: Janus recognises them by their band names and opens the <strong>Embeddings</strong> panel.</p>
+    </section>
+
+    <section id="views">
+      <h2><span class="n">03</span>The views</h2>
+      <p>The <strong>Embeddings</strong> panel draws the layer in one of several views:</p>
+      <dl class="terms">
+        <dt>Principal components (RGB)</dt><dd>Three principal components as red, green and blue, stretched between the 2% and 98% percentiles. One PCA for every year, so a colour means the same in each year; <em>ROI (local)</em> fits it on the ROI's pixels only, to spread the colours over the differences inside it.</dd>
+        <dt>Similarity to a reference</dt><dd>The cosine similarity of every pixel to the vector under the cursor (live), a pin, or the ROI's mean, in the year shown or a fixed one.</dd>
+        <dt>Change between years</dt><dd>The cosine distance between each pixel's vectors in the year shown and the previous year, or a fixed year.</dd>
+        <dt>Direction of change</dt><dd>What kind of change, as colour (section 06).</dd>
+        <dt>Classes from pins</dt><dd>A class map from a few samples (section 04).</dd>
+      </dl>
+      <figure class="fig">
+        <a href="assets/img/embeddings/01-pca.jpg"><img src="assets/img/embeddings/01-pca.jpg" alt="The Janus window with the Embeddings panel: the 2024 embeddings drawn as their first three principal components, forest in red, pastures in dark blue and purple, the river in cyan and the lake in green; the panel gives PC1 57.7%, PC2 11.5%, PC3 5.1% of the variance, from 65536 vectors in 4.5 ms." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Principal components, 2024.</b> Forest in red, pasture in dark blue, the river in cyan, the lake in green: PC1 alone holds 57.7% of the variance.</figcaption>
+      </figure>
+      <p>The PCA takes up to 65,536 vectors of every year and here took 4.5 ms (AVX2 and FMA). The view is a quick way to see what the embeddings separate before classifying anything: if two covers you care about have the same colour in every combination of components, no classifier will part them.</p>
+    </section>
+
+    <section id="classes">
+      <h2><span class="n">04</span>Classes from pins</h2>
+      <p>Choose <span class="ui">Classes from pins</span>, go to a year (2024 here) and drop pins on places you know: three in the forest, three in pastures, three on the water. <span class="ui">New class from...</span> makes a class of a pin's vector in the year shown; each class's <span class="ui">+</span> adds another pin, or up to 200 pixels of the ROI, to it. Name the classes and pick their colours in the list.</p>
+      <figure class="fig">
+        <a href="assets/img/embeddings/02-classes.jpg"><img src="assets/img/embeddings/02-classes.jpg" alt="The 2024 class map of the square: forest in red, pasture in light blue, water in purple, with nine pins, three of each class; the panel lists the classes and their shares, and the chart shows one dimension of the pins' vectors over the years." width="1680" height="1340" loading="lazy"></a>
+        <figcaption><b>Three classes from nine pins</b>, 2024: forest (red), pasture (blue), water (purple).</figcaption>
+      </figure>
+      <figure class="fig narrow">
+        <a href="assets/img/embeddings/03-classes-panel.png"><img src="assets/img/embeddings/03-classes-panel.png" alt="The Classes part of the panel: Forest, Pasture and Water with 3 samples each; logistic regression with an L2 of 0.10; minimum probability 0; 100% of the samples right, 89% held out (leave-one-out), fitted in 1.3 ms; forest 32.9%, pasture 63.1%, water 4.1%, no class 0.0%; the changes since 2017." loading="lazy"></a>
+        <figcaption><b>The panel</b>: the classes, the classifier, the fit and the shares of the year.</figcaption>
+      </figure>
+      <dl class="terms">
+        <dt>Logistic regression (L2)</dt><dd>Multinomial logistic regression on the standardised dimensions, each class weighing the same whatever its number of samples, with an L2 penalty (0.1 by default; higher with fewer samples). Solved by L-BFGS, scikit-learn's solver. Its score is the probability.</dd>
+        <dt>Nearest centroid (cosine)</dt><dd>Each class's mean direction; a pixel takes the class it points closest to. Its score is the cosine.</dd>
+        <dt>Minimum probability</dt><dd>Below it a pixel has no class and is drawn grey: what the samples do not describe.</dd>
+      </dl>
+      <p>The fit took <strong>1.3 ms</strong>. All 9 samples are classified right, and <strong>89%</strong> when each is left out in turn (leave-one-out, up to 60 samples; 5-fold beyond): one sample of 9 lands in another class when the model has not seen it. In 2024, 32.9% of the square is forest, 63.1% pasture and 4.1% water.</p>
+      <div class="note warn">
+        <p class="h">Held-out, but close</p>
+        <p>Samples of one ROI are neighbours, and pixels of one field look alike: the held-out share is then optimistic. Check the map against places you know, or validate it with a sample of its own (<a href="validation.html">Validation guide</a>).</p>
+      </div>
+    </section>
+
+    <section id="changes">
+      <h2><span class="n">05</span>What changed into what</h2>
+      <p>The classifier fitted on the 2024 samples classifies every year: move to another year, or play the series, and the map follows. <span class="ui">Changes since</span> a year adds a table of the share of pixels going from each class then (rows) to each class in the year shown (columns).</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/embeddings/04-classes-2017.jpg"><img src="assets/img/embeddings/04-classes-2017.jpg" alt="The class map in 2017: forest in red over more of the square than in 2024, with large blocks in the centre and the east." loading="lazy"></a>
+          <figcaption><b>2017</b>: the same classifier.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/embeddings/05-classes-2024.jpg"><img src="assets/img/embeddings/05-classes-2024.jpg" alt="The class map in 2024: several of the forest blocks of 2017 are now pasture, notably in the south and the east." loading="lazy"></a>
+          <figcaption><b>2024</b>: forest blocks turned to pasture.</figcaption>
+        </figure>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>2017 \ 2024 (% of the pixels)</th><th>Forest</th><th>Pasture</th><th>Water</th></tr></thead>
+          <tbody>
+            <tr><td>Forest</td><td class="num">31.3</td><td class="num">5.0</td><td class="num">0.2</td></tr>
+            <tr><td>Pasture</td><td class="num">1.5</td><td class="num">58.0</td><td class="num">0.0</td></tr>
+            <tr><td>Water</td><td class="num">0.0</td><td class="num">0.1</td><td class="num">3.8</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Between 2017 and 2024, 5.0% of the square went from forest to pasture and 1.5% the other way: the forest fell from 36.5% to 32.9%. The diagonal is what stayed. The small off-diagonal cells (forest to water, water to pasture) are mostly pixels at the edges of the river, where a 10 m pixel is part of both.</p>
+    </section>
+
+    <section id="direction">
+      <h2><span class="n">06</span>Direction of change</h2>
+      <p>The change view says how much a pixel changed; <span class="ui">Direction of change</span> says what kind of change. It takes the <strong>difference vectors</strong> of the pixels that changed, every pair of years compared, and draws their first three principal components as RGB: the same colour for the same kind of change, whatever the year.</p>
+      <figure class="fig">
+        <a href="assets/img/embeddings/06-direction.jpg"><img src="assets/img/embeddings/06-direction.jpg" alt="The direction of change from 2017 to 2024: unchanged pixels in grey, the changed patches in colour, the clearings in green, cyan and blue, a few patches in red and orange; the panel gives an automatic threshold of 0.092 and 14698 changed pixels of 7 pairs of years, PC1-3 41.1%, 10.3% and 8.7% of their variance, in 35.9 ms." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>2024 compared with 2017</b>: grey where nothing changed beyond the threshold; the clearings of forest in green to blue, regrowth in red and orange.</figcaption>
+      </figure>
+      <dl class="terms">
+        <dt>Compared with</dt><dd>The previous year (each year against the one before) or a fixed year; here 2017.</dd>
+        <dt>Changed above</dt><dd>The cosine distance above which a pixel changed. <em>Automatic</em> sets it to the changes unusual for this layer: the median of the distances plus 4 times their spread (1.4826 × the median absolute deviation), since most pixels do not change from one year to the next. Here 0.092.</dd>
+        <dt>Principal directions (RGB)</dt><dd>The PCA of the changed pixels' differences: up to 65,536 of them, from all the pairs of years.</dd>
+      </dl>
+      <p>The fit used 14,698 changed pixels of the 7 pairs of years (5.7% of the pixels it looked at) in 35.9 ms; its first three components hold 41.1%, 10.3% and 8.7% of their variance. Checked against the class maps of section 05, the pixels that went from forest to pasture are green, cyan and blue, and those from pasture to forest red and orange: opposite changes get opposite colours.</p>
+    </section>
+
+    <section id="like">
+      <h2><span class="n">07</span>Like a pin's change</h2>
+      <p>To find every change of one kind, drop a pin on an example and choose <span class="ui">Like a pin's change</span>: each changed pixel gets the cosine of its difference vector to the pin's, 1 for the same kind of change, −1 for the opposite. Pixels that did not change stay empty.</p>
+      <figure class="fig">
+        <a href="assets/img/embeddings/07-direction-like.jpg"><img src="assets/img/embeddings/07-direction-like.jpg" alt="Change like pin 1, 2024 compared with 2017, cosine distance of the pin 0.563: the clearings in blue (like the pin), a few patches in red (the opposite), the rest empty; the colour scale goes from -0.724 to 0.976." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>Changes like pin 1's</b>, a forest cleared between 2017 and 2024: the other clearings in blue, the opposite change in red.</figcaption>
+      </figure>
+      <p>The pin sits in a forest cleared between 2017 and 2024; its own change has a cosine distance of 0.563, far above the threshold. Of the pixels the class maps call forest in 2017 and pasture in 2024, the ones that changed beyond the threshold are almost all blue, and the pasture that grew back is red. <span class="ui">Keep the pin's change of 2024</span> fixes the reference, so that playing the years looks for that same change in each of them: when else was forest cleared?</p>
+    </section>
+
+    <section id="export">
+      <h2><span class="n">08</span>Saving the maps</h2>
+      <p><span class="ui">Export GeoTIFF: visible area</span> or <span class="ui">Whole layer</span> (also File → Export embeddings as GeoTIFF...) writes the view shown at full resolution, computed again from the vectors in the files rather than from the reduced copy on screen, as Float32 on the layer's own grid:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>View</th><th>Bands</th></tr></thead>
+          <tbody>
+            <tr><td>Classes from pins</td><td>2: the class and its probability (or cosine); the class names and colours in the metadata.</td></tr>
+            <tr><td>Direction of change</td><td>3: the components of the change between the two years, named with their share of the variance.</td></tr>
+            <tr><td>Like a pin's change</td><td>1: the cosine of each change to the pin's.</td></tr>
+            <tr><td>Principal components</td><td>6: the scores along each component (not stretched).</td></tr>
+            <tr><td>Similarity, change</td><td>1: the cosine similarity, or the cosine distance.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The model, the years, the reference and the classifier go in the file's metadata. The class map can then be validated, or cleaned with <span class="ui">Tools → Post-processing (classes)</span> (<a href="deep-learning.html#post">Deep learning guide</a>).</p>
+    </section>
+
+    <section id="speed">
+      <h2><span class="n">09</span>Against scikit-learn</h2>
+      <p>The classifier solves the same problem as scikit-learn's <code>LogisticRegression</code> (multinomial, L2, L-BFGS) to the same gradient. <code>tools/bench_embeddings_sklearn.py</code> compares them on 1000 × 1000 pixels of 64 dimensions:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Step</th><th>Agreement</th><th>Janus vs scikit-learn</th></tr></thead>
+          <tbody>
+            <tr><td>Fit and held-out accuracy</td><td>the same probabilities (to 4e-7) and classes</td><td class="num">2–5× faster</td></tr>
+            <tr><td>Classes of a year (1 Mpx)</td><td>the same classes</td><td class="num">8× on one thread, 39× on 19</td></tr>
+            <tr><td>PCA of the direction of change</td><td>the same components</td><td class="num">2–4× faster</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">10</span>What next</h2>
+      <ul>
+        <li><strong>Validate the class map</strong>: export it and follow the <a href="validation.html">Validation guide</a>: strata, a sample, blind labels, accuracy and areas.</li>
+        <li><strong>A trained network</strong>: for more classes or less separable ones, the <a href="deep-learning.html">Deep learning guide</a> trains TempCNN or L-TAE on the series itself, and <a href="presto.html">Presto</a> makes embeddings of your own series.</li>
+        <li><strong>Hyperspectral scenes</strong>: the principal components and the similarity views also work on a scene of one band per wavelength (EnMAP, PRISMA, EMIT), each pixel's spectrum as its vector; its materials can be unmixed too (<a href="unmixing.html">Unmixing guide</a>).</li>
+        <li><strong>Script it</strong>: <code>zeit.load_embeddings</code>, <code>zeit.similarity</code> and <code>zeit.embedding_change</code> read the same files and compute the similarity and the change in Python.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">11</span>References</h2>
+      <ul class="refs">
+        <li>Brown, C. F., et al. (2025). AlphaEarth Foundations: An embedding field model for accurate and efficient global mapping from sparse label data. arXiv:2507.22291.</li>
+        <li>Feng, Z., et al. (2025). TESSERA: Temporal embeddings of surface spectra for Earth representation and analysis. arXiv:2506.20380. (<a href="https://geotessera.org">geotessera.org</a>)</li>
+        <li>Liu, D. C., Nocedal, J. (1989). On the limited memory BFGS method for large scale optimization. <em>Mathematical Programming</em>, 45, 503–528.</li>
+        <li>Pedregosa, F., et al. (2011). Scikit-learn: Machine learning in Python. <em>Journal of Machine Learning Research</em>, 12, 2825–2830.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

@@ -64,6 +64,8 @@
       <li><a href="#ltae">L-TAE</a></li>
       <li><a href="#utae">U-TAE</a></li>
       <li><a href="#model">The model file</a></li>
+      <li><a href="#post">Post-processing</a></li>
+      <li><a href="#aoa">Area of applicability</a></li>
       <li><a href="#next">What next</a></li>
       <li><a href="#refs">References</a></li>
     </ol>
@@ -199,8 +201,73 @@
       <p>Every training is kept in a <code>.janusmodel</code> file (in the results folder; <span class="ui">Save as...</span> elsewhere): the network's weights and what it needs to be applied again: its inputs, the dates, how the values were scaled, the classes and their colours, and the training's history and validation. <span class="ui">Open a model...</span> applies it to another series of the same dates and bands, the next year's, or a neighbouring tile's.</p>
     </section>
 
+    <section id="post">
+      <h2><span class="n">09</span>Post-processing</h2>
+      <p>A class map made pixel by pixel has a speckle: single pixels of pasture in the forest, a pixel of water on a road. Above <span class="ui">Apply</span>, two options clean the map as it is written, the way Zeit (and R's sits) do it:</p>
+      <dl class="terms">
+        <dt>Smooth the probabilities (Bayesian)</dt><dd>sits' Bayesian smoothing (<code>sits_smooth</code>, Zeit's <code>smooth_probs</code>): each class's probability is pulled towards those of its neighbours, the more where they agree. A pixel the network is sure of keeps its class; among uncertain pixels, the noise goes. The class is then the most probable one after smoothing.</dd>
+        <dt>Minimum mapping unit</dt><dd>Patches of fewer pixels than this (8-connected) are merged into the neighbouring class with which they share the longest border (Zeit's <code>mmu_sieve</code>). 0 is off; 11 Landsat pixels are about 1 ha.</dd>
+      </dl>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Setting</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Window</td><td class="num">9 px</td><td>The neighbourhood of the smoothing, odd (3 to 33).</td></tr>
+            <tr><td>Smoothness</td><td class="num">20</td><td>The prior's variance: higher smooths more.</td></tr>
+            <tr><td>Neighbours</td><td class="num">0.5</td><td>The fraction of the most probable neighbours whose mean is the prior.</td></tr>
+            <tr><td>Minimum mapping unit</td><td class="num">0 px</td><td>Patches smaller than this are merged into a neighbour.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The defaults are sits'. With smoothing on, the probability layer is the smoothed one (<em>Probability of the class (smoothed)</em>); the uncertainty stays the network's own. The class map's name and the run's log say what was done. The smoothing is computed in bands of rows that overlap by half a window, which gives what the whole map at once would, without holding it in memory.</p>
+      <h3>A map you already have</h3>
+      <p><span class="ui">Tools → Post-processing (classes)</span> cleans any categorical layer, one map or a map per date (a land cover series, a class map from another program), in three steps, each of which can be turned off:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Temporal: longest excursion</td><td class="num">1 date</td><td>A run of up to this many dates of one class between two runs of another (forest, pasture, forest) takes that class (forest three times). Needs 3 dates or more; 0 is off.</td></tr>
+            <tr><td>Majority window</td><td class="num">3 px</td><td>Each pixel takes the most common class of the window (its own on a tie); 0 is off.</td></tr>
+            <tr><td>Majority iterations</td><td class="num">1</td><td>How many times the majority filter runs; it stops early when nothing changes.</td></tr>
+            <tr><td>Minimum mapping unit</td><td class="num">6 px</td><td>Patches of fewer pixels are merged, the smallest first, into the neighbouring patch of the longest shared border. The map stays complete, as with GDAL's sieve.</td></tr>
+            <tr><td>Patches</td><td class="num">8-connected</td><td>Whether pixels that touch by a corner belong to one patch (8) or only by a side (4).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>A raster run writes the cleaned classes as a new layer with the original's class names and colours, and a map of how many dates of each pixel changed. On the chart, the tool shows the pixel's classes after the temporal step (the spatial steps need the neighbours, so only raster runs do them).</p>
+      <div class="note">
+        <p class="h">Against sits</p>
+        <p>Zeit's smoothing gives sits' probabilities to 1e-15. On 1000 × 1000 pixels of 4 classes, sits' smoothing takes 10.7 s and Zeit's 1.13 s on one thread.</p>
+      </div>
+    </section>
+
+    <section id="aoa">
+      <h2><span class="n">10</span>Area of applicability</h2>
+      <p>The validation tells how well the model does on places like its samples. A pixel unlike every sample, a crop the samples never had or a cloud the mask missed, still gets a class, and the network can be sure of it. The <strong>area of applicability</strong> (Meyer &amp; Pebesma 2021; Zeit's <code>aoa</code>, as R's CAST) marks where the inputs are close enough to the samples for the validation to hold.</p>
+      <dl class="terms">
+        <dt>Dissimilarity index (DI)</dt><dd>A pixel's distance to the nearest training sample, over the mean distance between the samples, on the values the network reads (each date's bands, gaps filled, scaled). The values all weigh the same: a network has no importance of its inputs to weigh them by.</dd>
+        <dt>Threshold</dt><dd>The samples' own DI, each to the nearest sample of another place (another polygon or pin, so that neighbouring pixels of one polygon do not vouch for each other), and the threshold the upper whisker of those: the 75% quantile plus 1.5 times the interquartile range.</dd>
+        <dt>AOA</dt><dd>The pixels whose DI is not above the threshold.</dd>
+      </dl>
+      <p>A <strong>TempCNN</strong> or <strong>L-TAE</strong> model keeps its samples' series in the model file, as the network read them: up to about a million values (a few MB), as many of each class as their share. Tick <span class="ui">Area of applicability</span> before <span class="ui">Apply</span>; its tooltip gives how many samples the model kept and its threshold. With it, the run writes two more maps, opened as layers:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>File</th><th>Map</th></tr></thead>
+          <tbody>
+            <tr><td><code>&lt;stem&gt;_di.tif</code></td><td>The dissimilarity index of each pixel (Float32), named with the threshold.</td></tr>
+            <tr><td><code>&lt;stem&gt;_aoa.tif</code></td><td>The area of applicability (Byte): 1 inside (blue), 0 outside (red), 255 not classified; the classes are named in the file.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><code>&lt;stem&gt;</code> is the run's name, the same as the class map's (<code>tempcnn_class.tif</code> and <code>tempcnn_aoa.tif</code>). Outside the AOA, the class is an extrapolation the validation says nothing about: add samples of what is there, or leave those pixels out of the area estimates. The uncertainty map and the AOA answer different questions: the first is the network's doubt between classes, the second whether the pixel resembles anything it learnt from.</p>
+      <div class="note warn">
+        <p class="h">Which models</p>
+        <p>Only TempCNN and L-TAE models trained by this version of Janus or later keep their samples. Older models, Presto's classifiers and U-TAE keep none; for them the tick is disabled, and its tooltip says why.</p>
+      </div>
+    </section>
+
     <section id="next">
-      <h2><span class="n">09</span>What next</h2>
+      <h2><span class="n">11</span>What next</h2>
       <ul>
         <li><strong>Validate the map</strong>: the class map as the map of the <a href="validation.html">Validation guide</a>: strata, a sample, blind labels, accuracy and error-adjusted areas.</li>
         <li><strong>Samples by object</strong>: <a href="snic.html">SNIC</a>'s segments as polygons, a sample a segment.</li>
@@ -210,7 +277,7 @@
     </section>
 
     <section id="refs">
-      <h2><span class="n">10</span>References</h2>
+      <h2><span class="n">12</span>References</h2>
       <ul class="refs">
         <li>Pelletier, C., Webb, G. I., Petitjean, F. (2019). Temporal convolutional neural network for the classification of satellite image time series. <em>Remote Sensing</em>, 11(5), 523.</li>
         <li>Garnot, V. S. F., Landrieu, L. (2020). Lightweight temporal self-attention for classifying satellite images time series. <em>Advanced Analytics and Learning on Temporal Data (AALTD)</em>, LNCS 12588, 171–181.</li>
