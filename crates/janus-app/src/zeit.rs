@@ -369,11 +369,12 @@ impl ZeitUi {
         (self.version, self.tools.get(id).map_or(0, |u| u.version))
     }
 
-    /// The tools on the chart, in order, with their looks.
+    /// The tools on the chart, in order, with their looks (a tool of the raster only is never on it).
     pub fn chart_tools(&self) -> Vec<(&'static Tool, FitStyle)> {
         self.pixel_tools
             .iter()
             .filter_map(|id| manifest().tool(id))
+            .filter(|t| t.modes.iter().any(|m| m == "pixel"))
             .map(|t| (t, FitStyle::of(self.tools.get(&t.id).map_or(0, |u| u.slot))))
             .collect()
     }
@@ -480,7 +481,7 @@ impl State {
     fn fit_requests(&mut self, tool: &'static Tool) -> Vec<Request> {
         let Some(s) = &self.session else { return vec![] };
         let info = s.info.clone();
-        if applicability(tool, &info).is_some() {
+        if !tool.modes.iter().any(|m| m == "pixel") || applicability(tool, &info).is_some() {
             return vec![];
         }
         let roles = self.active_roles();

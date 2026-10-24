@@ -13,6 +13,6 @@ janus-gdal = { path = "../janus-gdal" }
 rayon = "1.12"
 serde_json = "1"
 # the warp zeit puts a coarser TESSERA grid through (the same bits)
-zeit-core = { git = "https://github.com/sacridini/zeit-cdts", rev = "55f73183ff1cf198fb3db00215e074265811db16" }
+zeit-core = { git = "https://github.com/sacridini/zeit-cdts", rev = "d94be6a57356f3e2d88c8dbe89912883b26b526b" }
 # the AlphaEarth file index (a parquet file): rows read without Arrow
 parquet = { version = "57", default-features = false, features = ["snap"] }

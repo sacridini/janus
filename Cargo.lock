@@ -9612,7 +9612,7 @@ dependencies = [
 [[package]]
 name = "zeit-core"
 version = "1.7.0"
-source = "git+https://github.com/sacridini/zeit-cdts?rev=55f73183ff1cf198fb3db00215e074265811db16#55f73183ff1cf198fb3db00215e074265811db16"
+source = "git+https://github.com/sacridini/zeit-cdts?rev=d94be6a57356f3e2d88c8dbe89912883b26b526b#d94be6a57356f3e2d88c8dbe89912883b26b526b"
 dependencies = [
  "faer",
  "rayon",
