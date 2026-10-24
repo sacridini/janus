@@ -93,6 +93,8 @@ pub struct MlUi {
     pub scope: usize,
     /// the class map's post-processing when a model is applied
     pub post: janus_ml::post::PostProcess,
+    /// also the model's area of applicability (when it kept its samples)
+    pub aoa: bool,
     pub run: Option<Arc<Mutex<TrainRun>>>,
     /// the model to apply: its file and header
     pub model: Option<(String, Header)>,
@@ -125,6 +127,7 @@ impl Default for MlUi {
             gpu: true,
             scope: 0,
             post: Default::default(),
+            aoa: true,
             run: None,
             model: None,
             counted: None,
@@ -715,6 +718,22 @@ impl State {
             },
         );
         self.ml_post_ui(ui);
+        let kept = header.applicability.as_ref();
+        ui.add_enabled_ui(kept.is_some(), |ui| {
+            ui.checkbox(&mut self.ml.aoa, "Area of applicability").on_hover_text(match kept {
+                Some(a) => format!(
+                    "Where the model can be trusted (Meyer & Pebesma 2021, Zeit's aoa, CAST's): each pixel's \
+                     dissimilarity index to the training samples, as the network reads them (their distance to the \
+                     nearest sample over the samples' mean distance), and the area of applicability, where it is not \
+                     above the samples' own (to the nearest sample of another place): outside it the class is an \
+                     extrapolation the validation says nothing of. This model: {}.",
+                    a.describe()
+                ),
+                None => "This model kept no samples for its area of applicability: TempCNN and L-TAE models trained \
+                         by this version of Janus or later keep them."
+                    .into(),
+            });
+        });
         if ui
             .add_enabled(fits.is_ok(), egui::Button::new("Apply").min_size(egui::vec2(ui.available_width(), 0.0)))
             .clicked()
@@ -1046,6 +1065,9 @@ impl State {
             out.display(),
             if self.ml.post.on() { format!("post-processing: {}\n", self.ml.post.describe()) } else { String::new() }
         ));
+        if let (true, Some(a)) = (self.ml.aoa, &header.applicability) {
+            log.line(&format!("area of applicability: {}", a.describe()));
+        }
         let status = Arc::new(Mutex::new(JobStatus {
             state: JobState::Running,
             progress: 0.0,
@@ -1074,6 +1096,7 @@ impl State {
             stem: arch.to_lowercase().replace('-', ""),
             batch: 0,
             post: self.ml.post.clone(),
+            aoa: self.ml.aoa && header.applicability.is_some(),
         };
         std::thread::Builder::new()
             .name("ml-apply".into())
@@ -1144,21 +1167,22 @@ pub fn check_fits(h: &Header, info: &CubeInfo) -> Result<(), String> {
 }
 
 /// The samples' series (each pixel a sample, or each place's mean), gaps filled and scaled: the training samples
-/// and their classes, and the scaling.
+/// and their classes, the scaling, the count of each class and each sample's place.
 pub fn sample_series(
     info: &Arc<CubeInfo>,
     inputs: &[InputBand],
     sites: &[Site],
     classes: &[String],
     min_valid: f64,
-) -> (janus_ml::Series, Vec<u32>, Norm, Vec<usize>) {
+) -> (janus_ml::Series, Vec<u32>, Norm, Vec<usize>, Vec<usize>) {
     let pixels: Vec<(usize, usize)> = sites.iter().flat_map(|s| s.pixels.iter().copied()).collect();
     let raw = janus_ml::data::read_points(info, inputs, &pixels);
     let (t, b) = (raw.t, raw.b);
     let mut values = vec![];
     let mut y = vec![];
+    let mut place = vec![];
     let mut at = 0;
-    for s in sites {
+    for (si, s) in sites.iter().enumerate() {
         let k = classes.iter().position(|c| c == &s.class).unwrap_or(0) as u32;
         let n = s.pixels.len();
         if s.mean {
@@ -1179,9 +1203,11 @@ pub fn sample_series(
             }
             values.extend(m);
             y.push(k);
+            place.push(si);
         } else {
             values.extend_from_slice(&raw.values[at * t * b..(at + n) * t * b]);
             y.extend(std::iter::repeat_n(k, n));
+            place.extend(std::iter::repeat_n(si, n));
         }
         at += n;
     }
@@ -1190,13 +1216,14 @@ pub fn sample_series(
     let idx: Vec<usize> = (0..s.n).filter(|&i| keep[i]).collect();
     let mut s = s.select(&idx);
     let y: Vec<u32> = idx.iter().map(|&i| y[i]).collect();
+    let place: Vec<usize> = idx.iter().map(|&i| place[i]).collect();
     let mut per_class = vec![0usize; classes.len()];
     for &k in &y {
         per_class[k as usize] += 1;
     }
     let norm = Norm::fit(&s);
     norm.apply(&mut s);
-    (s, y, norm, per_class)
+    (s, y, norm, per_class, place)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1217,7 +1244,7 @@ fn train_job(
 ) -> Result<Header, String> {
     let mut arch = arch.clone();
     let mut inputs = inputs.to_vec();
-    let (x, y, norm, per_class) = if let Arch::Presto(h) = &mut arch {
+    let (x, y, norm, per_class, places) = if let Arch::Presto(h) = &mut arch {
         set(0.0, "Presto's weights");
         let weights = janus_ml::presto::weights(&crate::settings::app_data_dir().join("weights"), &|_| {}, cancel)?;
         let (x, y, per_class, pi) = presto_samples(info, sites, classes, h.inputs.year)?;
@@ -1229,9 +1256,10 @@ fn train_job(
         ));
         inputs = pi.read_bands();
         *h = PrestoHyper { inputs: pi, hidden: vec![], weights: Some(weights) };
-        (x, y, Norm::default(), per_class)
+        (x, y, Norm::default(), per_class, None)
     } else {
-        sample_series(info, &inputs, sites, classes, min_valid)
+        let (x, y, norm, per_class, places) = sample_series(info, &inputs, sites, classes, min_valid);
+        (x, y, norm, per_class, Some(places))
     };
     let arch = &arch;
     let left = sites.iter().map(|s| if s.mean { 1 } else { s.pixels.len() }).sum::<usize>() - x.n;
@@ -1276,6 +1304,20 @@ fn train_job(
     ));
     let mut training = trained.summary(cfg, &per_class);
     training["device"] = json!(dev.1);
+    // the samples kept for the area of applicability (the pixel networks: Presto's inputs are its encoder's)
+    let applicability = match places {
+        Some(places) => match janus_ml::aoa::Applicability::fit(&x, Some(&places), &y, -1) {
+            Ok(a) => {
+                log.line(&format!("area of applicability: {}", a.describe()));
+                Some(a)
+            }
+            Err(e) => {
+                log.line(&format!("no area of applicability: {e}"));
+                None
+            }
+        },
+        None => None,
+    };
     let header = Header {
         format: 1,
         janus: env!("CARGO_PKG_VERSION").into(),
@@ -1288,6 +1330,7 @@ fn train_job(
         min_valid,
         series: info.description.clone(),
         training,
+        applicability,
         created: crate::zeit::timestamp_text(),
     };
     let model = Model { header: header.clone(), net: trained.net, device: dev.0.clone() };
@@ -1664,6 +1707,7 @@ fn utae_job(
         min_valid: 0.0,
         series: info.description.clone(),
         training,
+        applicability: None,
         created: crate::zeit::timestamp_text(),
     };
     let model = Model { header: header.clone(), net: trained.net, device: dev.0.clone() };

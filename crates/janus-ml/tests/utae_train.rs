@@ -99,6 +99,7 @@ fn utae_learns_fields() {
         min_valid: 0.0,
         series: String::new(),
         training: serde_json::Value::Null,
+        applicability: None,
         created: String::new(),
     };
     let model = Model { header, net: trained.net, device: dev.clone() };
@@ -112,6 +113,7 @@ fn utae_learns_fields() {
         stem: "utae".into(),
         batch: 0,
         post: Default::default(),
+        aoa: false,
     };
     let res = apply(&spec, &info, &back, &|_, _| {}, &AtomicBool::new(false)).unwrap();
     let ds = gdal::Dataset::open(out.join("utae_class.tif")).unwrap();

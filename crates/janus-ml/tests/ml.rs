@@ -121,6 +121,7 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
         min_valid: 50.0,
         series: info.description.clone(),
         training: trained.summary(&cfg, &[0, 0, 0]),
+        applicability: Some(janus_ml::aoa::Applicability::fit(&s, None, &y, -1).unwrap()),
         created: String::new(),
     };
     let model = Model { header, net: trained.net, device: dev.clone() };
@@ -140,6 +141,7 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
         stem: tag.into(),
         batch: 300,
         post: Default::default(),
+        aoa: true,
     };
     let res = apply(&spec, &info, &back, &|_, _| {}, &AtomicBool::new(false)).unwrap();
     let ds = gdal::Dataset::open(out.join(format!("{tag}_class.tif"))).unwrap();
@@ -148,7 +150,28 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
     let acc = right as f64 / (W * H) as f64;
     println!("{tag}: {} of {} pixels classified, {:.3} right", res.classified, W * H, acc);
     assert!(acc > 0.9, "{tag}: the class map is {acc} right");
-    assert_eq!(res.outputs.len(), 3);
+    assert_eq!(res.outputs.len(), 5);
+
+    // the area of applicability: the image is like its samples, its DI that of Zeit's on the same inputs
+    let td = back.header.applicability.as_ref().unwrap().train_di().unwrap();
+    let ds = gdal::Dataset::open(out.join(format!("{tag}_aoa.tif"))).unwrap();
+    let band = ds.rasterband(1).unwrap();
+    assert_eq!(band.no_data_value(), Some(255.0));
+    let inside = band.read_as::<u8>((0, 0), (W, H), (W, H), None).unwrap();
+    let share = inside.data().iter().filter(|&&v| v == 1).count() as f64 / (W * H) as f64;
+    println!("{tag}: {:.3} of the image in the AOA (threshold {:.3})", share, td.threshold);
+    assert!(share > 0.9 && inside.data().iter().all(|&v| v <= 1 || v == 255), "{tag}: {share} in the AOA");
+    let ds = gdal::Dataset::open(out.join(format!("{tag}_di.tif"))).unwrap();
+    let di = ds.rasterband(1).unwrap().read_as::<f32>((0, 0), (W, H), (W, H), None).unwrap();
+    let (row, keep) = janus_ml::apply::input_of(&back, &info, &inputs, (0, 7, W, 1)).unwrap();
+    let d = zeit_core::aoa::di(&row.values.iter().map(|&v| v as f64).collect::<Vec<_>>(), W, &td, false, 1).0;
+    for x in (0..W).filter(|&x| keep[x]) {
+        assert!((di.data()[7 * W + x] as f64 - d[x]).abs() < 1e-5 * d[x].max(1.0), "{tag}: DI at {x}");
+        assert_eq!(inside.data()[7 * W + x], (d[x] <= td.threshold) as u8);
+    }
+    // far from the samples: outside
+    let far = vec![50f32; T * 2];
+    assert!(janus_ml::aoa::di(&far, 1, &td, 1)[0] > td.threshold);
 
     // post-processed (the probabilities smoothed, the small patches merged): at least as right
     let post = PostProcess { smooth: true, window: 5, min_size: 6, ..Default::default() };

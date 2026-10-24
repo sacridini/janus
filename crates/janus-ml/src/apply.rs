@@ -3,7 +3,9 @@
 //! classified in batches on the model's device. The outputs: the class map (Byte, 0 without a class, the classes'
 //! colours and names in the file), the probability of the class given, and the uncertainty (the entropy of the
 //! probabilities over that of K equal ones: 0 sure, 1 every class alike). The class map can then be post-processed
-//! (post.rs: sits' smoothing of the probabilities, a minimum mapping unit); the uncertainty stays the model's.
+//! (post.rs: sits' smoothing of the probabilities, a minimum mapping unit); the uncertainty stays the model's. With
+//! its samples kept (aoa.rs), the model's area of applicability: each pixel's dissimilarity index to them and whether
+//! it is within the threshold (1), or not (0).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -29,6 +31,8 @@ pub struct ApplySpec {
     pub batch: usize,
     /// the class map's post-processing
     pub post: PostProcess,
+    /// also the area of applicability (the dissimilarity index and the AOA), if the model kept its samples
+    pub aoa: bool,
 }
 
 /// The maps written (their descriptions as a Zeit run's outputs) and the window.
@@ -38,6 +42,9 @@ pub struct Applied {
     pub classified: usize,
 }
 
+/// The AOA map's nodata (0 is outside).
+const AOA_NODATA: u8 = 255;
+
 /// Pixels in a batch: about 256 MB of the network's activations.
 fn batch_of(model: &Model) -> usize {
     let t = model.header.calendar.len().max(1);
@@ -45,7 +52,15 @@ fn batch_of(model: &Model) -> usize {
     ((256usize << 20) / per_pixel).clamp(256, 65536)
 }
 
-fn create(path: &Path, w: usize, h: usize, byte: bool, info: &CubeInfo, win: [usize; 4]) -> Result<Dataset, String> {
+/// A GeoTIFF of the window: Byte (its nodata `byte`) or Float32 (NaN).
+fn create(
+    path: &Path,
+    w: usize,
+    h: usize,
+    byte: Option<u8>,
+    info: &CubeInfo,
+    win: [usize; 4],
+) -> Result<Dataset, String> {
     let driver = DriverManager::get_driver_by_name("GTiff").map_err(|e| e.to_string())?;
     let opts = RasterCreationOptions::from_iter([
         "COMPRESS=DEFLATE",
@@ -55,7 +70,7 @@ fn create(path: &Path, w: usize, h: usize, byte: bool, info: &CubeInfo, win: [us
         "BIGTIFF=IF_SAFER",
         "NUM_THREADS=ALL_CPUS",
     ]);
-    let mut ds = if byte {
+    let mut ds = if byte.is_some() {
         driver.create_with_band_type_with_options::<u8, _>(path, w, h, 1, &opts)
     } else {
         driver.create_with_band_type_with_options::<f32, _>(path, w, h, 1, &opts)
@@ -71,27 +86,31 @@ fn create(path: &Path, w: usize, h: usize, byte: bool, info: &CubeInfo, win: [us
     }
     ds.rasterband(1)
         .map_err(|e| e.to_string())?
-        .set_no_data_value(Some(if byte { 0.0 } else { f64::NAN }))
+        .set_no_data_value(Some(byte.map_or(f64::NAN, f64::from)))
         .map_err(|e| e.to_string())?;
     Ok(ds)
 }
 
 /// The class map's colours and names: value k is class k (1-based).
 fn describe_classes(ds: &mut Dataset, model: &Model) -> Result<(), String> {
+    let classes: Vec<(&str, [u8; 3])> = model.header.classes.iter().map(|c| (c.name.as_str(), c.color)).collect();
+    describe(ds, &[("", [0, 0, 0])].into_iter().chain(classes).collect::<Vec<_>>(), 0)
+}
+
+/// A byte map's colours and names, value by value (the nodata transparent).
+fn describe(ds: &mut Dataset, values: &[(&str, [u8; 3])], nodata: u16) -> Result<(), String> {
     let mut ct = ColorTable::default();
-    ct.set_color_entry(0, &ColorEntry::rgba(0, 0, 0, 0));
-    for (k, c) in model.header.classes.iter().enumerate() {
-        ct.set_color_entry(
-            k as u16 + 1,
-            &ColorEntry::rgba(c.color[0] as i16, c.color[1] as i16, c.color[2] as i16, 255),
-        );
+    for (k, (_, c)) in values.iter().enumerate() {
+        let a = if k as u16 == nodata { 0 } else { 255 };
+        ct.set_color_entry(k as u16, &ColorEntry::rgba(c[0] as i16, c[1] as i16, c[2] as i16, a));
+    }
+    if nodata as usize >= values.len() {
+        ct.set_color_entry(nodata, &ColorEntry::rgba(0, 0, 0, 0));
     }
     let mut band = ds.rasterband(1).map_err(|e| e.to_string())?;
     band.set_color_table(&ct);
-    let names: Vec<std::ffi::CString> = std::iter::once(String::new())
-        .chain(model.header.classes.iter().map(|c| c.name.clone()))
-        .map(|s| std::ffi::CString::new(s).unwrap_or_default())
-        .collect();
+    let names: Vec<std::ffi::CString> =
+        values.iter().map(|(n, _)| std::ffi::CString::new(*n).unwrap_or_default()).collect();
     let mut ptrs: Vec<*mut std::ffi::c_char> = names.iter().map(|s| s.as_ptr() as *mut _).collect();
     ptrs.push(std::ptr::null_mut());
     unsafe { gdal_sys::GDALSetRasterCategoryNames(band.c_rasterband(), ptrs.as_mut_ptr()) };
@@ -133,10 +152,25 @@ pub fn apply(
     let dir = PathBuf::from(&spec.output_dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let path = |id: &str| dir.join(format!("{}_{id}.tif", spec.stem));
-    let mut class_ds = create(&path("class"), w, h, true, info, spec.window)?;
+    let mut class_ds = create(&path("class"), w, h, Some(0), info, spec.window)?;
     describe_classes(&mut class_ds, model)?;
-    let mut prob_ds = create(&path("probability"), w, h, false, info, spec.window)?;
-    let mut entropy_ds = create(&path("entropy"), w, h, false, info, spec.window)?;
+    let mut prob_ds = create(&path("probability"), w, h, None, info, spec.window)?;
+    let mut entropy_ds = create(&path("entropy"), w, h, None, info, spec.window)?;
+    // the area of applicability: the samples the model kept, as the network read them
+    let applicability = match (&model.header.applicability, &model.header.arch) {
+        (Some(a), Arch::TempCnn(_) | Arch::LTae(_)) if spec.aoa => Some((a.train_di()?, a.threshold)),
+        _ if spec.aoa => return Err("the model kept no samples for its area of applicability".into()),
+        _ => None,
+    };
+    let mut aoa_ds = match &applicability {
+        Some(_) => {
+            let di = create(&path("di"), w, h, None, info, spec.window)?;
+            let mut a = create(&path("aoa"), w, h, Some(AOA_NODATA), info, spec.window)?;
+            describe(&mut a, &[("outside the AOA", [215, 48, 39]), ("inside the AOA", [69, 117, 180])], 255)?;
+            Some((di, a))
+        }
+        None => None,
+    };
     let k = model.header.classes.len();
     let batch = if spec.batch > 0 { spec.batch } else { batch_of(model) };
     let rows = (batch / w.max(1)).clamp(1, 256).min(h.max(1));
@@ -220,6 +254,26 @@ pub fn apply(
                 let sel = sr.select(&idx);
                 let p = model.predict(&sel.values, sel.n, batch);
                 let n = w * hh;
+                if let (Some((td, threshold)), Some((di_ds, aoa_ds))) = (&applicability, &mut aoa_ds) {
+                    let d = crate::aoa::di(&sel.values, sel.n, td, -1);
+                    let (mut di, mut inside) = (vec![f32::NAN; n], vec![AOA_NODATA; n]);
+                    for (j, &i) in idx.iter().enumerate() {
+                        if d[j].is_finite() {
+                            di[i] = d[j] as f32;
+                            inside[i] = (d[j] <= *threshold) as u8;
+                        }
+                    }
+                    di_ds
+                        .rasterband(1)
+                        .map_err(|e| e.to_string())?
+                        .write((0, r as isize), (w, hh), &mut Buffer::new((w, hh), di))
+                        .map_err(|e| e.to_string())?;
+                    aoa_ds
+                        .rasterband(1)
+                        .map_err(|e| e.to_string())?
+                        .write((0, r as isize), (w, hh), &mut Buffer::new((w, hh), inside))
+                        .map_err(|e| e.to_string())?;
+                }
                 let (mut cls, mut prob, mut ent) = (vec![0u8; n], vec![f32::NAN; n], vec![f32::NAN; n]);
                 for (j, &i) in idx.iter().enumerate() {
                     (cls[i], prob[i], ent[i]) = summarize(&p[j * k..(j + 1) * k]);
@@ -264,12 +318,12 @@ pub fn apply(
                 .map_err(|e| e.to_string())?;
         }
     }
-    drop((class_ds, prob_ds, entropy_ds));
+    drop((class_ds, prob_ds, entropy_ds, aoa_ds));
     let names: Vec<&str> = model.header.classes.iter().map(|c| c.name.as_str()).collect();
     let arch = model.header.arch.name();
     let post_name = if spec.post.on() { format!(" ({})", spec.post.describe()) } else { String::new() };
     let prob_name = if spec.post.smooth { "Probability of the class (smoothed)" } else { "Probability of the class" };
-    let outputs = vec![
+    let mut outputs = vec![
         json!({"id": "class", "name": format!("Class{post_name}"), "unit": "class", "colormap": "Paired",
                "classes": names, "class_colors": model.header.classes.iter().map(|c| c.color).collect::<Vec<_>>(),
                "path": path("class").to_string_lossy(), "model": arch}),
@@ -278,5 +332,12 @@ pub fn apply(
         json!({"id": "entropy", "name": "Uncertainty (entropy)", "unit": "entropy", "colormap": "Plasma",
                "path": path("entropy").to_string_lossy()}),
     ];
+    if let Some((_, threshold)) = applicability {
+        outputs.push(json!({"id": "di", "name": format!("Dissimilarity index (AOA threshold {threshold:.3})"),
+                            "unit": "DI", "colormap": "Hot", "path": path("di").to_string_lossy()}));
+        outputs.push(json!({"id": "aoa", "name": "Area of applicability", "unit": "class",
+                            "classes": ["outside the AOA", "inside the AOA"],
+                            "class_colors": [[215, 48, 39], [69, 117, 180]], "path": path("aoa").to_string_lossy()}));
+    }
     Ok(Applied { outputs, window: spec.window, classified })
 }

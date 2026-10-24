@@ -536,6 +536,19 @@ applied on the GPU (the same wgpu as the map; the CPU without one).
   merged into the neighbouring class of the longest border); the uncertainty
   stays the model's. For a map you already have, Tools > Classification >
   Post-processing (classes).
+- **Area of applicability** (Meyer & Pebesma 2021, as Zeit's `aoa` and R's
+  CAST): where the model can be trusted. A TempCNN or L-TAE model keeps its
+  samples' series as the network reads them (gaps filled, scaled; up to about
+  a million values, as many of each class as their share) and the threshold of
+  their dissimilarity: each sample's distance to the nearest sample of another
+  place (another polygon or pin), over the mean distance between samples, and
+  the threshold the upper whisker of those (75 % quantile + 1.5 IQR). Applied
+  with *Area of applicability* ticked, it also gives the **dissimilarity
+  index** of each pixel (its distance to the nearest sample over that mean)
+  and the **AOA** (Byte: 1 inside, 0 outside, 255 not classified): outside it
+  the class is an extrapolation the validation says nothing of. The tick's
+  tooltip gives the model's samples and threshold; older models, Presto's and
+  U-TAE's keep no samples.
 
 **Presto** (Tseng et al. 2023) is pretrained by its authors on monthly series
 of Sentinel-1, Sentinel-2, ERA5 and SRTM worldwide. Janus runs its encoder with

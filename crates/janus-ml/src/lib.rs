@@ -3,6 +3,7 @@
 //! scales them (`data`), sits' networks (`tempcnn`, `ltae`), their training (`train`), a model in a file with what
 //! applying it needs (`model`), and its application to a window of a series, as a Zeit run (`apply`).
 
+pub mod aoa;
 pub mod apply;
 pub mod data;
 pub mod dense;

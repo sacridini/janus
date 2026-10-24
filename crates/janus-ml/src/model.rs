@@ -69,6 +69,10 @@ pub struct Header {
     /// the samples, the training's settings, history and validation
     #[serde(default)]
     pub training: Value,
+    /// the samples as the network read them, for its area of applicability (none in older models, nor Presto's
+    /// and U-TAE's)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applicability: Option<crate::aoa::Applicability>,
     pub created: String,
 }
 
