@@ -75,11 +75,13 @@ which ships with Janus: there is nothing else to install. Its command line is `j
   (monitoring every observation with control charts: disturbance, recovery, gain),
   CODED (forest degradation, with the NDFI), spectral unmixing with endmembers
   from pins (of every date's bands, or of a hyperspectral scene), phenology, TWDTW, SOM clustering,
+  the post-processing of classifications (one-year flickers, majority, minimum mapping unit),
   SNIC segmentation, Tmask cloud screening and more from [Zeit](https://github.com/sacridini/zeit-cdts),
   fitted live on the chart (BFAST and CCDC models drawn over the series) or
   run on the image (also CCDC's cloud-free synthetic image of a date), plus
   the agreement of several change maps; **deep learning** (TempCNN, L-TAE, Presto, U-TAE)
-  trained on your samples and applied on the GPU, and Presto's pretrained embeddings, without Python. **Copy Python** gives the code that
+  trained on your samples and applied on the GPU (optionally with sits' Bayesian smoothing of the probabilities),
+  and Presto's pretrained embeddings, without Python. **Copy Python** gives the code that
   reproduces a series and the tool's Zeit calls. Zeit's methods are part of
   Janus: no Python to install, and a fit takes under a millisecond.
 - **Spectra** (hyperspectral, e.g. EnMAP): a file whose bands have

@@ -348,6 +348,7 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 | NDFI (spectral unmixing) | one file per date with blue, green, red, NIR, SWIR1, SWIR2 | the NDFI of every date as a **new layer** (and, if asked, the GV, NPV, soil and shade fractions), mean and lowest NDFI, observations used |
 | Tmask (cloud screening) | one file per date with green and SWIR1, ≥ 2 dates per year | observations flagged and their share; the series shown without them as a **new layer** |
 | TWDTW classification | dates | class map (one class per pattern, with a legend), distance, margin to the 2nd class |
+| Post-processing (classes) | a categorical layer (one map or a map per date) | the classes cleaned as a **new layer** with the layer's names and colours: each pixel's short excursions removed (A B A becomes A A A), then each date's map through a majority filter and a minimum mapping unit that merges the small patches into the neighbouring class; how many dates of each pixel changed |
 | SOM clustering | any | cluster map (the typical series of the cluster under the cursor is drawn on the chart), distance to it |
 | SNIC segmentation | any | segments (a colour each), each segment's mean series as a **new layer**, the segments' **polygons** (GeoPackage, opened as a vector layer) with their size, centre and mean of every value compared |
 | Agreement of change maps | maps of dates from other tools (any series) | consensus year, how many maps agree (and their share), maps with a change, spread of the years |
@@ -527,7 +528,14 @@ applied on the GPU (the same wgpu as the map; the CPU without one).
   (Byte, with the classes' colours and names in the file), the probability of
   the class given and the uncertainty (the entropy over that of equal
   probabilities: 0 sure, 1 undecided) open as result layers, ready for the
-  validation (the uncertainty as a stratum, too).
+  validation (the uncertainty as a stratum, too). Before applying, the class
+  map can be **post-processed** as Zeit does it: *Smooth the probabilities*
+  (sits' Bayesian smoothing, `sits_smooth`: each class's probability pulled
+  towards its neighbours', the more where they agree; window, smoothness and
+  neighbours as sits') and a *Minimum mapping unit* (patches of fewer pixels
+  merged into the neighbouring class of the longest border); the uncertainty
+  stays the model's. For a map you already have, Tools > Classification >
+  Post-processing (classes).
 
 **Presto** (Tseng et al. 2023) is pretrained by its authors on monthly series
 of Sentinel-1, Sentinel-2, ERA5 and SRTM worldwide. Janus runs its encoder with

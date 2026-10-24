@@ -4685,6 +4685,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "zeit-core",
 ]
 
 [[package]]
@@ -9611,7 +9612,7 @@ dependencies = [
 [[package]]
 name = "zeit-core"
 version = "1.7.0"
-source = "git+https://github.com/sacridini/zeit-cdts?rev=5bf078339c9d9f0c46c897c1eaa5326a05d9cde2#5bf078339c9d9f0c46c897c1eaa5326a05d9cde2"
+source = "git+https://github.com/sacridini/zeit-cdts?rev=7231fbe6eb96ea9e5b6f1ca44da39ae55832fdcd#7231fbe6eb96ea9e5b6f1ca44da39ae55832fdcd"
 dependencies = [
  "faer",
  "rayon",

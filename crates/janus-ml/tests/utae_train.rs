@@ -111,6 +111,7 @@ fn utae_learns_fields() {
         output_dir: out.to_string_lossy().into_owned(),
         stem: "utae".into(),
         batch: 0,
+        post: Default::default(),
     };
     let res = apply(&spec, &info, &back, &|_, _| {}, &AtomicBool::new(false)).unwrap();
     let ds = gdal::Dataset::open(out.join("utae_class.tif")).unwrap();

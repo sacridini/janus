@@ -1517,6 +1517,15 @@ Reading the data adds to it, mostly on spinning disks.",
         let work = crate::settings::app_data_dir().join("work");
         let _ = std::fs::create_dir_all(&work);
         let mut spec = base_spec(&info, tool, &params, self.display.t, self.settings.s.threads);
+        if self.classes.on() {
+            // a categorical layer: its classes' names and colours on the class series a run writes
+            spec.classes = self
+                .classes
+                .list
+                .iter()
+                .map(|c| janus_zeit::job::ClassDef { value: c.value, name: c.name.clone(), color: c.color })
+                .collect();
+        }
         let (mut window, scope_name) = self.run_window(scope);
         let mut scope_name = scope_name.to_string();
         let mut cube = info.id;

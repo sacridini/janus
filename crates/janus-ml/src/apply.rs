@@ -2,7 +2,8 @@
 //! model classifies this one), each pixel's gaps filled and its values scaled as for the training, the pixels
 //! classified in batches on the model's device. The outputs: the class map (Byte, 0 without a class, the classes'
 //! colours and names in the file), the probability of the class given, and the uncertainty (the entropy of the
-//! probabilities over that of K equal ones: 0 sure, 1 every class alike).
+//! probabilities over that of K equal ones: 0 sure, 1 every class alike). The class map can then be post-processed
+//! (post.rs: sits' smoothing of the probabilities, a minimum mapping unit); the uncertainty stays the model's.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -15,6 +16,7 @@ use serde_json::{Value, json};
 
 use crate::data::{InputBand, Series, fill_gaps, read_window};
 use crate::model::{Arch, Model};
+use crate::post::{self, PostProcess};
 
 /// A run's window (x0, y0, x1, y1 in the series' pixels) and where its maps go.
 #[derive(Clone, Debug, Default)]
@@ -25,6 +27,8 @@ pub struct ApplySpec {
     pub stem: String,
     /// pixels a batch (0: by the model's size)
     pub batch: usize,
+    /// the class map's post-processing
+    pub post: PostProcess,
 }
 
 /// The maps written (their descriptions as a Zeit run's outputs) and the window.
@@ -140,6 +144,17 @@ pub fn apply(
     let ln_k = (k as f64).ln();
     let t0 = std::time::Instant::now();
     let mut classified = 0;
+    // post-processing: the whole map's classes, and its probabilities to smooth
+    let mut all_cls = if spec.post.on() { vec![0u8; w * h] } else { vec![] };
+    let mut all_probs = if spec.post.smooth { vec![f32::NAN; w * h * k] } else { vec![] };
+    let mut kept = |r: usize, i: usize, c: u8, p: &[f32]| {
+        if !all_cls.is_empty() {
+            all_cls[r * w + i] = c;
+        }
+        if !all_probs.is_empty() {
+            all_probs[(r * w + i) * k..(r * w + i + 1) * k].copy_from_slice(p);
+        }
+    };
     let mut write_rows = |r: usize, hh: usize, cls: Vec<u8>, prob: Vec<f32>, ent: Vec<f32>| -> Result<(), String> {
         class_ds
             .rasterband(1)
@@ -176,6 +191,7 @@ pub fn apply(
                     let p = &probs[i * k..(i + 1) * k];
                     if p[0].is_finite() {
                         (cls[i], prob[i], ent[i]) = summarize(p);
+                        kept(r, i, cls[i], p);
                         classified += 1;
                     }
                 }
@@ -207,6 +223,7 @@ pub fn apply(
                 let (mut cls, mut prob, mut ent) = (vec![0u8; n], vec![f32::NAN; n], vec![f32::NAN; n]);
                 for (j, &i) in idx.iter().enumerate() {
                     (cls[i], prob[i], ent[i]) = summarize(&p[j * k..(j + 1) * k]);
+                    kept(r, i, cls[i], &p[j * k..(j + 1) * k]);
                 }
                 classified += idx.len();
                 write_rows(r, hh, cls, prob, ent)?;
@@ -221,14 +238,42 @@ pub fn apply(
         })?;
     }
     drop(write_rows);
+    drop(kept);
+    if spec.post.on() {
+        progress(1.0, &format!("post-processing: {}", spec.post.describe()));
+        let mut prob = None;
+        if spec.post.smooth {
+            let (c, p) = post::smooth(&all_probs, w, h, k, &spec.post);
+            drop(std::mem::take(&mut all_probs));
+            all_cls = c;
+            prob = Some(p);
+        }
+        if spec.post.min_size >= 2 {
+            post::sieve(&mut all_cls, w, h, spec.post.min_size);
+        }
+        class_ds
+            .rasterband(1)
+            .map_err(|e| e.to_string())?
+            .write((0, 0), (w, h), &mut Buffer::new((w, h), all_cls))
+            .map_err(|e| e.to_string())?;
+        if let Some(p) = prob {
+            prob_ds
+                .rasterband(1)
+                .map_err(|e| e.to_string())?
+                .write((0, 0), (w, h), &mut Buffer::new((w, h), p))
+                .map_err(|e| e.to_string())?;
+        }
+    }
     drop((class_ds, prob_ds, entropy_ds));
     let names: Vec<&str> = model.header.classes.iter().map(|c| c.name.as_str()).collect();
     let arch = model.header.arch.name();
+    let post_name = if spec.post.on() { format!(" ({})", spec.post.describe()) } else { String::new() };
+    let prob_name = if spec.post.smooth { "Probability of the class (smoothed)" } else { "Probability of the class" };
     let outputs = vec![
-        json!({"id": "class", "name": "Class", "unit": "class", "colormap": "Paired", "classes": names,
-               "class_colors": model.header.classes.iter().map(|c| c.color).collect::<Vec<_>>(),
+        json!({"id": "class", "name": format!("Class{post_name}"), "unit": "class", "colormap": "Paired",
+               "classes": names, "class_colors": model.header.classes.iter().map(|c| c.color).collect::<Vec<_>>(),
                "path": path("class").to_string_lossy(), "model": arch}),
-        json!({"id": "probability", "name": "Probability of the class", "unit": "probability", "colormap": "Viridis",
+        json!({"id": "probability", "name": prob_name, "unit": "probability", "colormap": "Viridis",
                "path": path("probability").to_string_lossy()}),
         json!({"id": "entropy", "name": "Uncertainty (entropy)", "unit": "entropy", "colormap": "Plasma",
                "path": path("entropy").to_string_lossy()}),

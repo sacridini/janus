@@ -1816,6 +1816,90 @@
    "chunk_cells": 200000
   },
   {
+   "id": "postproc",
+   "name": "Post-processing (classes)",
+   "category": "Classification",
+   "description": "Cleans a classification, a categorical layer of one map or a map per date (a land cover series, a model's class map), as Zeit's post-processing: the short excursions of each pixel's classes removed first (forest, pasture, forest becomes forest three times: zeit.desawtooth_classes), then each date's map through a majority filter (zeit.apply_majority_filter) and a minimum mapping unit that merges the patches under a size into the neighbouring class with which they share the longest border (zeit.mmu_sieve, as GDAL's sieve: the map stays complete). A raster run writes the cleaned classes, opened as a new layer with the layer's class names and colours, and how many dates of each pixel changed. On the chart: the pixel's classes after the temporal filter (the spatial filters need the neighbours: raster runs).",
+   "requires": {
+    "time": "any",
+    "min_dates": 1
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "max_length",
+     "label": "Temporal: longest excursion (dates)",
+     "type": "int",
+     "default": 1,
+     "min": 0,
+     "max": 50,
+     "help": "A run of up to this many dates of one class between two runs of another, the same before and after (A B A), takes that class (A A A). 0: off. Needs 3 dates or more."
+    },
+    {
+     "id": "majority",
+     "label": "Majority window",
+     "type": "int",
+     "default": 3,
+     "min": 0,
+     "max": 31,
+     "unit": "px",
+     "help": "Each pixel takes the most common class of this window (odd: 3 = 3 x 3), its own on a tie. 0: off."
+    },
+    {
+     "id": "iterations",
+     "label": "Majority iterations",
+     "type": "int",
+     "default": 1,
+     "min": 1,
+     "max": 20,
+     "help": "How many times the majority filter runs (it stops early when nothing changes)."
+    },
+    {
+     "id": "min_size",
+     "label": "Minimum mapping unit",
+     "type": "int",
+     "default": 6,
+     "min": 0,
+     "max": 1000000,
+     "unit": "px",
+     "help": "Patches of fewer pixels are merged, the smallest first, into the neighbouring patch of the longest shared border, taking its class (11 Landsat pixels are about 1 ha). 0: off."
+    },
+    {
+     "id": "connectivity",
+     "label": "Patches",
+     "type": "enum",
+     "default": "8",
+     "options": [
+      "8",
+      "4"
+     ],
+     "labels": [
+      "8-connected (diagonals join)",
+      "4-connected (sides only)"
+     ],
+     "help": "Whether pixels touching by a corner belong to one patch."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "classes",
+     "name": "Cleaned classes",
+     "unit": "class",
+     "series": true,
+     "dtype": "uint16"
+    },
+    {
+     "id": "changed",
+     "name": "Dates changed",
+     "colormap": "Plasma",
+     "unit": "count"
+    }
+   ]
+  },
+  {
    "id": "snic",
    "name": "SNIC segmentation",
    "category": "Segmentation",

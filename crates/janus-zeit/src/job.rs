@@ -59,6 +59,64 @@ pub struct JobSpec {
     /// CPU threads (Settings); none or <= 0: not limited
     #[serde(default)]
     pub threads: Option<i64>,
+    /// a categorical layer's classes: the names and colours of its class series outputs ("uint16")
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub classes: Vec<ClassDef>,
+}
+
+/// A class of a categorical layer: its value, name and colour.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct ClassDef {
+    pub value: i32,
+    pub name: String,
+    pub color: [u8; 3],
+}
+
+/// The classes' names and colours on a band of classes: an attribute table (value, name, red, green, blue; what
+/// Janus and QGIS read on any file, GDAL then gives no category names), and a colour table on a single band
+/// (GeoTIFF keeps none on several).
+fn describe_classes(band: &mut gdal::raster::RasterBand, classes: &[ClassDef], single: bool) {
+    use gdal::raster::{ColorEntry, ColorTable};
+    use gdal_sys::GDALRATFieldType::{GFT_Integer, GFT_String};
+    use gdal_sys::GDALRATFieldUsage::{GFU_Blue, GFU_Green, GFU_MinMax, GFU_Name, GFU_Red};
+    use std::ffi::CString;
+    let classes: Vec<&ClassDef> = classes.iter().filter(|c| (0..65535).contains(&c.value)).collect();
+    if classes.is_empty() {
+        return;
+    }
+    if single {
+        let mut ct = ColorTable::default();
+        for c in &classes {
+            let [r, g, b] = c.color.map(i16::from);
+            ct.set_color_entry(c.value as u16, &ColorEntry::rgba(r, g, b, 255));
+        }
+        band.set_color_table(&ct);
+    }
+    // SAFETY: the table lives until the call returns; GDAL copies it.
+    unsafe {
+        let rat = gdal_sys::GDALCreateRasterAttributeTable();
+        for (name, kind, usage) in [
+            (c"Value", GFT_Integer, GFU_MinMax),
+            (c"Class", GFT_String, GFU_Name),
+            (c"Red", GFT_Integer, GFU_Red),
+            (c"Green", GFT_Integer, GFU_Green),
+            (c"Blue", GFT_Integer, GFU_Blue),
+        ] {
+            gdal_sys::GDALRATCreateColumn(rat, name.as_ptr(), kind, usage);
+        }
+        gdal_sys::GDALRATSetRowCount(rat, classes.len() as i32);
+        for (row, c) in classes.iter().enumerate() {
+            let row = row as i32;
+            let name = CString::new(c.name.clone()).unwrap_or_default();
+            gdal_sys::GDALRATSetValueAsInt(rat, row, 0, c.value);
+            gdal_sys::GDALRATSetValueAsString(rat, row, 1, name.as_ptr());
+            for k in 0..3 {
+                gdal_sys::GDALRATSetValueAsInt(rat, row, 2 + k as i32, i32::from(c.color[k]));
+            }
+        }
+        gdal_sys::GDALSetDefaultRAT(band.c_rasterband(), rat);
+        gdal_sys::GDALDestroyRasterAttributeTable(rat);
+    }
 }
 
 impl JobSpec {
@@ -396,6 +454,7 @@ impl Outputs {
             let count = if o.series == Some(true) { labels.len() } else { 1 };
             let int16 = o.dtype.as_deref() == Some("int16");
             let int32 = o.dtype.as_deref() == Some("int32");
+            let uint16 = o.dtype.as_deref() == Some("uint16");
             let mut opts = vec![
                 "COMPRESS=DEFLATE".to_string(),
                 "TILED=YES".into(),
@@ -407,7 +466,7 @@ impl Outputs {
             if count > 1 {
                 opts.push("INTERLEAVE=BAND".into());
             }
-            if int16 || int32 {
+            if int16 || int32 || uint16 {
                 opts.push("PREDICTOR=2".into());
             }
             let options = RasterCreationOptions::from_iter(opts);
@@ -415,6 +474,8 @@ impl Outputs {
                 driver.create_with_band_type_with_options::<i16, _>(&path, w, h, count, &options)
             } else if int32 {
                 driver.create_with_band_type_with_options::<i32, _>(&path, w, h, count, &options)
+            } else if uint16 {
+                driver.create_with_band_type_with_options::<u16, _>(&path, w, h, count, &options)
             } else {
                 driver.create_with_band_type_with_options::<f32, _>(&path, w, h, count, &options)
             }
@@ -433,6 +494,8 @@ impl Outputs {
                     -32768.0
                 } else if int32 {
                     -1.0
+                } else if uint16 {
+                    65535.0
                 } else {
                     f64::NAN
                 };
@@ -443,6 +506,9 @@ impl Outputs {
                 if int16 {
                     band.set_scale(o.scale.unwrap_or(1.0)).map_err(|e| e.to_string())?;
                     band.set_offset(0.0).map_err(|e| e.to_string())?;
+                }
+                if uint16 {
+                    describe_classes(&mut band, &spec.classes, count == 1);
                 }
             }
             outs.push((o.clone(), path, ds));
@@ -466,6 +532,13 @@ impl Outputs {
                             let q = (v / scale).round_ties_even();
                             if q.is_finite() { q.clamp(-32767.0, 32767.0) as i16 } else { -32768 }
                         })
+                        .collect();
+                    band.write((0, r as isize), (w, h), &mut Buffer::new((w, h), data))
+                } else if o.dtype.as_deref() == Some("uint16") {
+                    // classes: 65535 without one
+                    let data: Vec<u16> = part
+                        .iter()
+                        .map(|&v| if v.is_finite() && (0.0..65535.0).contains(&v) { v as u16 } else { 65535 })
                         .collect();
                     band.write((0, r as isize), (w, h), &mut Buffer::new((w, h), data))
                 } else if o.dtype.as_deref() == Some("int32") {
@@ -628,6 +701,9 @@ pub fn run_job(
     if spec.tool == "snic" {
         return crate::snic::run(spec, tool, &p, progress, cancel);
     }
+    if spec.tool == "postproc" {
+        return crate::postproc::run(spec, tool, &p, progress, cancel);
+    }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();
     let window = spec.window.unwrap_or([0, 0, iw, ih]);
@@ -736,6 +812,11 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
     let p = Params::with_defaults(&spec.tool, &spec.params).unwrap_or_default();
     if spec.tool == "snic" {
         return crate::snic::estimate(spec, &p, cells);
+    }
+    if spec.tool == "postproc" {
+        // the window held whole: its filters measured at about 0.1 us a pixel and date
+        let t = spec.years.len().max(1) as f64;
+        return Ok(Estimate { sec_per_px: 1e-7 * t, sec_per_chunk: 0.0, chunk_cells: cells, sec_fixed: 0.0 });
     }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();

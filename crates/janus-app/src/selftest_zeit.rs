@@ -74,6 +74,9 @@ pub fn selftest_zeit(inputs: &[String], threads: usize) -> i32 {
         if layers_tool && date_maps.len() < 2 {
             why = Some("fewer than two maps of dates were made".into());
         }
+        if tool.id == "postproc" && !info.file_categorical {
+            why = Some("not a categorical series (no colour table, category names or attribute table)".into());
+        }
         let missing: Vec<&String> =
             tool.requires.bands.iter().flatten().filter(|r| !roles.contains_key(r.as_str())).collect();
         if why.is_none() && !missing.is_empty() {

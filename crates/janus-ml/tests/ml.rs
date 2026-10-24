@@ -10,6 +10,7 @@ use janus_ml::apply::{ApplySpec, apply};
 use janus_ml::data::{fill_gaps, read_points};
 use janus_ml::ltae::LTaeHyper;
 use janus_ml::model::{Header, Model, device};
+use janus_ml::post::PostProcess;
 use janus_ml::tempcnn::TempCnnHyper;
 use janus_ml::train::{Rng, TrainConfig, train};
 use janus_ml::{Arch, Calendar, Class, InputBand, Norm};
@@ -138,6 +139,7 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
         output_dir: out.to_string_lossy().into_owned(),
         stem: tag.into(),
         batch: 300,
+        post: Default::default(),
     };
     let res = apply(&spec, &info, &back, &|_, _| {}, &AtomicBool::new(false)).unwrap();
     let ds = gdal::Dataset::open(out.join(format!("{tag}_class.tif"))).unwrap();
@@ -147,6 +149,18 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
     println!("{tag}: {} of {} pixels classified, {:.3} right", res.classified, W * H, acc);
     assert!(acc > 0.9, "{tag}: the class map is {acc} right");
     assert_eq!(res.outputs.len(), 3);
+
+    // post-processed (the probabilities smoothed, the small patches merged): at least as right
+    let post = PostProcess { smooth: true, window: 5, min_size: 6, ..Default::default() };
+    let spec = ApplySpec { stem: format!("{tag}_post"), post, ..spec };
+    let res = apply(&spec, &info, &back, &|_, _| {}, &AtomicBool::new(false)).unwrap();
+    assert!(res.outputs[0]["name"].as_str().unwrap().contains("Bayesian smoothing"), "{}", res.outputs[0]["name"]);
+    let ds = gdal::Dataset::open(out.join(format!("{tag}_post_class.tif"))).unwrap();
+    let cls = ds.rasterband(1).unwrap().read_as::<u8>((0, 0), (W, H), (W, H), None).unwrap();
+    let right = cls.data().iter().enumerate().filter(|(p, c)| **c as u32 == class_at(p % W) + 1).count();
+    let acc_post = right as f64 / (W * H) as f64;
+    println!("{tag}: post-processed, {acc_post:.3} right");
+    assert!(acc_post >= acc, "{tag}: post-processed {acc_post} < {acc}");
 }
 
 #[test]

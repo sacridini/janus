@@ -91,6 +91,8 @@ pub struct MlUi {
     pub in_roi: bool,
     pub gpu: bool,
     pub scope: usize,
+    /// the class map's post-processing when a model is applied
+    pub post: janus_ml::post::PostProcess,
     pub run: Option<Arc<Mutex<TrainRun>>>,
     /// the model to apply: its file and header
     pub model: Option<(String, Header)>,
@@ -122,6 +124,7 @@ impl Default for MlUi {
             in_roi: false,
             gpu: true,
             scope: 0,
+            post: Default::default(),
             run: None,
             model: None,
             counted: None,
@@ -711,6 +714,7 @@ impl State {
                 }
             },
         );
+        self.ml_post_ui(ui);
         if ui
             .add_enabled(fits.is_ok(), egui::Button::new("Apply").min_size(egui::vec2(ui.available_width(), 0.0)))
             .clicked()
@@ -976,6 +980,47 @@ impl State {
         }
     }
 
+    /// The class map's post-processing after the model: sits' Bayesian smoothing of the probabilities and a minimum
+    /// mapping unit (Zeit's smooth_probs and mmu_sieve).
+    fn ml_post_ui(&mut self, ui: &mut Ui) {
+        let post = &mut self.ml.post;
+        ui.checkbox(&mut post.smooth, "Smooth the probabilities (Bayesian)").on_hover_text(
+            "sits' Bayesian smoothing (sits_smooth, Zeit's smooth_probs): each class's probability is pulled towards \
+             its neighbours', the more where they agree; a confident pixel keeps its class, the noise among uncertain \
+             ones goes. The class is then the most probable after smoothing.",
+        );
+        if post.smooth {
+            ui.horizontal(|ui| {
+                ui.label("Window");
+                let mut win = post.window;
+                if ui.add(egui::DragValue::new(&mut win).range(3..=33).speed(0.1).suffix(" px")).changed() {
+                    // odd: on from the even value it passed, the way it went
+                    post.window = if !win.is_multiple_of(2) {
+                        win
+                    } else if win > post.window {
+                        win + 1
+                    } else {
+                        win - 1
+                    };
+                }
+                ui.label("Smoothness");
+                ui.add(egui::DragValue::new(&mut post.smoothness).range(1.0..=1000.0).speed(0.5))
+                    .on_hover_text("The prior's variance: higher smooths more (sits' default 20).");
+                ui.label("Neighbours");
+                ui.add(egui::DragValue::new(&mut post.neigh_fraction).range(0.05..=1.0).speed(0.01)).on_hover_text(
+                    "The fraction of the most probable neighbours whose mean is the prior (sits' default 0.5).",
+                );
+            });
+        }
+        ui.horizontal(|ui| {
+            ui.label("Minimum mapping unit");
+            ui.add(egui::DragValue::new(&mut post.min_size).range(0..=100000).speed(0.2).suffix(" px")).on_hover_text(
+                "Patches of fewer pixels (8-connected) are merged into the neighbouring class with which they share \
+                 the longest border (Zeit's mmu_sieve); 0: off. 11 Landsat pixels are about 1 ha.",
+            );
+        });
+    }
+
     /// Applies the model to the scope (a task; its maps open as result layers).
     fn ml_apply(&mut self, path: &str, header: &Header, ctx: &egui::Context) {
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return };
@@ -996,9 +1041,10 @@ impl State {
             format!("{arch} classification - {scope_name} ({} x {} px)", window[2] - window[0], window[3] - window[1]);
         let log = JobLog { path: out.join("job.log"), t0: Instant::now() };
         log.write(&format!(
-            "=== {} {title}\nmodel: {path}\nwindow: {window:?}\noutput: {}\n",
+            "=== {} {title}\nmodel: {path}\nwindow: {window:?}\noutput: {}\n{}",
             crate::zeit::timestamp_text(),
-            out.display()
+            out.display(),
+            if self.ml.post.on() { format!("post-processing: {}\n", self.ml.post.describe()) } else { String::new() }
         ));
         let status = Arc::new(Mutex::new(JobStatus {
             state: JobState::Running,
@@ -1027,6 +1073,7 @@ impl State {
             output_dir: out.to_string_lossy().into_owned(),
             stem: arch.to_lowercase().replace('-', ""),
             batch: 0,
+            post: self.ml.post.clone(),
         };
         std::thread::Builder::new()
             .name("ml-apply".into())

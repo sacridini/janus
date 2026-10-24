@@ -304,6 +304,35 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
                 )
             }
         }
+        "postproc" => {
+            let max_length = p.int("max_length").max(0);
+            let window = p.int("majority").max(0);
+            let min_size = p.int("min_size").max(0);
+            let mut code = if max_length > 0 {
+                format!("result1 = zeit.desawtooth_classes(series, max_length={max_length})")
+            } else {
+                "result1 = series".into()
+            };
+            // each date's map: the spatial filters
+            let mut map = "m".to_string();
+            if window >= 2 {
+                map = format!(
+                    "zeit.apply_majority_filter({map}, {}, iterations={})",
+                    window | 1,
+                    p.int("iterations").max(1)
+                );
+            }
+            if min_size >= 2 {
+                map = format!(
+                    "zeit.mmu_sieve({map}, min_size={min_size}, connectivity={})",
+                    s("connectivity").trim_matches('\'')
+                );
+            }
+            if map != "m" {
+                code += &format!("\nresult2 = result1.copy(data=np.stack([{map} for m in result1.values]))");
+            }
+            (code, series)
+        }
         "ewmacd" => {
             let d = crate::ewmacd::dates(input).ok()?;
             let ep = crate::ewmacd::ewmacd_params(p, &d).ok()?;
