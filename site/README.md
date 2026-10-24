@@ -12,7 +12,8 @@ Static site published to GitHub Pages by `.github/workflows/pages.yml`
 ## The guides
 
 `validation.html`, `landtrendr.html`, `ccdc.html`, `coded.html`, `bfast.html`,
-`phenology.html`, `snic.html`, `deep-learning.html` and `presto.html` walk
+`phenology.html`, `snic.html`, `deep-learning.html`, `presto.html` and
+`trend-test.html` walk
 through a tool each, with screenshots in
 `assets/img/<guide>/` (and a card each in the Guides section of `index.html`).
 The screenshots come from the program itself: `janus --shots TOUR IN OUT`
@@ -29,6 +30,7 @@ the interface changes.
 | ccdc, coded | Landsat 8/9 Collection 2 Level-2 of Rondônia, 2020–2026, a GeoTIFF per date (from a Google Earth Engine stack and its CSV of dates) | `python tools/make_guide_data.py landsat STACK DATES folder WEST SOUTH EAST NORTH` (-63.36 -10.37 -63.06 -10.08) |
 | bfast, phenology | MODIS EVI every 16 days, 2001–2025, of western France (one GeoTIFF, a band per date) | used as it is |
 | snic, ml, presto | the Landsat folder of ccdc; for ml and presto, labels from MapBiomas 2022 (collection 8, Amazon) in a folder `labels` next to it | `python tools/make_guide_data.py labels MAPBIOMAS.tif LANDSAT/ls_2020-02-04.tif labels` |
+| trend-test | 41 annual Landsat medoid composites of Sergipe and Alagoas, 1985–2025 (`landsat_medoid_YYYY.tif`, EPSG:4326, 0 over the sea with no nodata declared) | `python tools/make_parts_guide.py data SERIES out` (VRTs with 0 as no data in `out/series`, the zones by distance to the sea in `out/zones.tif`) |
 
 The data of the tool guides are the author's own stacks, not downloaded.
 
@@ -40,3 +42,29 @@ QUALITY=90`); the panels are copied as PNG. For validation,
 1000 px, and the numbers quoted in the page come from that run
 (`out/work/report/*.csv`); the other guides quote the Statistics table and the
 legends of their screenshots.
+
+The trend test's screenshots are taken with `--screenshot` rather than a tour
+(the copy of `janus` run from `out`; the window 1600 x 950):
+
+    janus out/series --interface modern --zeit ar_trend --pin 1426,1199 --view 1426,1150,1.5 --screenshot ar_pixel.png
+    janus out/series --interface modern --zeit ar_trend --pin 1426,1199 --view 1426,1150,1.5 --detach-map --screenshot ar_pixel_d.png
+    janus out/series --interface modern --zeit ar_trend --zeit-run --roi 1000,500,1700,1200 --view 1350,850,0.6 --screenshot ar_map.png
+    janus out/series --interface modern --zeit ar_trend --roi 1000,500,1700,1200 --view 1350,850,0.6 --detach-map --screenshot ar_roi_d.png
+    janus out/series --interface modern --roi 1000,500,1700,1200 --view 1350,850,0.6 --analysis trend,run --screenshot roi.png
+    janus out/series --layer out/zones.tif --interface modern --analysis trend,run,classes --screenshot classes.png
+    janus out/series --layer out/zones.tif --interface modern --detach-map --analysis trend,run,classes --screenshot classes_d.png
+
+`02-ar-pixel.jpg`, `03-ar-map.jpg`, `04-test.jpg` and `08-classes.jpg` are
+`ar_pixel.png`, `ar_map.png`, `roi.png` and `classes.png` as JPEG (quality 90);
+the panels are crops (x0, y0, x1, y1) of the others: `02-ar-stats.png` of
+`ar_pixel_d.png` (1172, 38, 1470, 495), `02-ar-tool.png` of `ar_pixel_d.png`
+(15, 15, 457, 556), `03-roi-mean-stats.png` of `ar_roi_d.png` (1172, 38, 1470,
+495), `04-test-panel.png` of `roi.png` (343, 655, 1165, 930) and
+`08-classes-table.png` of `classes_d.png` (343, 70, 1165, 418). The figures
+that explain the method (`01-problem.png`, `05-correlation.png`,
+`06-partitions.png`, `07-calibration.png`) are made by
+`python tools/make_parts_guide.py figures site/assets/img/trend-test`, which
+runs Zeit's `ar_trend` and `parts` on simulated maps (about 3 minutes); the
+numbers the page quotes from Zeit (the ROI's correlation plot, the partition
+sizes) come from Zeit's documentation, `docs/scripts/make_parts_figures.py`
+there.

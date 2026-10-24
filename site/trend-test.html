@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trend test (PARTS) · Janus</title>
+<meta name="description" content="A step-by-step guide to the AR(1) trend and the Trend test in Janus: whether a region, or each class of a land-cover map, is really trending, by PARTS (Ives et al. 2021, remotePARTS), with the method explained from the start.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Trend test (PARTS) · Janus">
+<meta property="og:description" content="41 years of Landsat in north-eastern Brazil: a quarter of the pixels are significantly greening, and the region is not. Why, and how to test a region's trend.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/trend-test/04-test.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Trend test</p>
+    <p class="eyebrow">Trends · regions and classes</p>
+    <h1>Is the region really trending?</h1>
+    <p class="lede">A map of the pixels with a significant trend is not evidence that a region is greening or browning. The AR(1) trend tests one pixel's series. The Trend test, by PARTS (Ives et al. 2021), tests a whole region, or each class of a land-cover map, with p-values that account for neighbouring pixels moving together. This guide explains both from the start, on 41 years of Landsat.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#pixel">One pixel: the AR(1) trend</a></li>
+      <li><a href="#map">The map of trends</a></li>
+      <li><a href="#test">The Trend test</a></li>
+      <li><a href="#how">How it works</a></li>
+      <li><a href="#trust">How far to trust it</a></li>
+      <li><a href="#classes">Classes</a></li>
+      <li><a href="#read">Reading and reporting</a></li>
+      <li><a href="#settings">Settings and limits</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>A common way to describe a region's trend is to test every pixel and report the share of pixels with a significant trend, or to average the pixels' slopes and test the mean as if the pixels were independent measurements. Both mislead, for two reasons.</p>
+      <ul>
+        <li><strong>Thousands of tests.</strong> At a 5% level, about 5% of the pixels of a region with no trend at all come out significant.</li>
+        <li><strong>Neighbours move together.</strong> A drought or a wet year affects a whole landscape. Ten thousand correlated pixels carry far less information than ten thousand independent ones. A test that treats them as independent is far too confident.</li>
+      </ul>
+      <figure class="fig">
+        <a href="assets/img/trend-test/01-problem.png"><img src="assets/img/trend-test/01-problem.png" alt="A simulated map with no trend: each pixel's slope in orange and teal patches; the 6.6% of pixels with p below 0.05, in clusters; a naive test of the mean giving p = 1.5 × 10^-213 and PARTS giving p = 0.26." width="1949" height="684" loading="lazy"></a>
+        <figcaption><b>A map with no trend at all.</b> 10,000 simulated pixels whose year-to-year noise is shared by neighbours. 6.6% of the pixels test significant, in patches. A t-test of their slopes as if independent says p = 1.5 × 10<sup>−213</sup>, a confident and wrong "yes". PARTS says p = 0.26: no evidence of a trend, which is right.</figcaption>
+      </figure>
+      <p>PARTS (<em>Partitioned Autoregressive Time Series</em>) answers the regional question with one test instead of thousands. It measures how strongly pixels are correlated at each distance and builds that into the test. Janus has it in two places:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Where</th><th>Answers</th><th>Gives</th></tr></thead>
+          <tbody>
+            <tr><td><span class="ui">Tools → AR(1) trend</span></td><td>Does this pixel's series have a trend, allowing for the persistence of its errors from year to year?</td><td>On the chart: the line and its test. On the image: maps of the slope, p, t, its standard error, ρ.</td></tr>
+            <tr><td><span class="ui">View → Analysis → Trend test</span></td><td>Does the mean trend of the ROI, the visible area or the image differ from 0? Of each class of a land-cover layer? Do the classes differ?</td><td>A table of estimates, standard errors, t and p, and the chi-square test of the classes.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <dl class="terms">
+        <dt>Trend</dt><dd>The slope of a straight line through a pixel's series, in index units per year.</dd>
+        <dt>AR(1) ρ</dt><dd>How much of one year's departure from the line carries over to the next year (0: none, close to 1: long runs above or below the line).</dd>
+        <dt>Range</dt><dd>The distance over which pixels' departures stay correlated: the correlation is 0.37 at one range and 0.05 at three.</dd>
+        <dt>Nugget</dt><dd>The share of a pixel's variation that is its own, shared with no neighbour (sensor noise, a field ploughed one year).</dd>
+      </dl>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>41 annual Landsat medoid composites of a vegetation index, 1985 to 2025, over the coast of Sergipe and Alagoas in north-eastern Brazil, around the lower São Francisco river (path/row 215/067). One GeoTIFF per year, named <code>landsat_medoid_1985.tif</code> and so on (Janus reads the years from the names), in EPSG:4326 at about 30 m, 7478 × 7319 pixels.</p>
+      <p>The files mark the sea and the area outside the scene with 0 but declare no nodata value. A pixel that is 0 is then a value, and the sea would enter the test. The guide opens a VRT of each year with 0 declared as no data instead (a few lines of GDAL, in <code>tools/make_parts_guide.py</code>). The zones used in <a href="#classes">section 08</a> come from the same script.</p>
+      <div class="note warn">
+        <p class="h">Fill values</p>
+        <p>Before testing trends, check that water, the sea and the outside of the scene are no data, not 0. A layer's <span class="ui">Display</span> panel shows its nodata value, and GDAL's <code>gdalbuildvrt -srcnodata 0</code> or <code>gdal_edit -a_nodata 0</code> sets one.</p>
+      </div>
+    </section>
+
+    <section id="pixel">
+      <h2><span class="n">03</span>One pixel: the AR(1) trend</h2>
+      <p><span class="ui">Tools → AR(1) trend</span> fits each series on the chart (the cursor, the pins and the ROI mean) with a straight line whose errors follow an AR(1) process, by REML, as remotePARTS's <code>fitAR</code>. The line is drawn on the chart and its test goes into the <span class="ui">Statistics</span> table.</p>
+      <figure class="fig">
+        <a href="assets/img/trend-test/02-ar-pixel.jpg"><img src="assets/img/trend-test/02-ar-pixel.jpg" alt="The AR(1) trend window open, a pin on a pixel near the river, its 41-year series falling from about 0.1 to 0 on the chart, and the Statistics table." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>A pin near the river.</b> The index was high in the late 1980s, then low for decades.</figcaption>
+      </figure>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/trend-test/02-ar-tool.png"><img src="assets/img/trend-test/02-ar-tool.png" alt="The AR(1) trend window: trend per year, 0 harmonics, missing dates exact, significance level 0.05, minimum 4 valid observations, run on the whole image estimated at about 12 seconds." loading="lazy"></a>
+          <figcaption><b>The window</b>, at its defaults.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/trend-test/02-ar-stats.png"><img src="assets/img/trend-test/02-ar-stats.png" alt="The Statistics table of the pin: OLS trend -0.003493 per year, then AR(1) trend: no trend, not significant, p-value 0.055635, slope -0.003254 per year, standard error 0.0016494, t -1.9728, AR(1) rho 0.5976." loading="lazy"></a>
+          <figcaption><b>OLS and AR(1)</b>, side by side.</figcaption>
+        </figure>
+      </div>
+      <p>The ordinary least-squares line (<span class="ui">OLS trend</span>, −0.0035 per year) and the AR(1) line (−0.0033 per year) have nearly the same slope. The residuals of this pixel, however, come in long runs of years above or below the line: ρ = 0.60. Successive years that resemble each other carry less information than independent years. The AR(1) fit accounts for that, and its standard error (0.0016) is about twice what OLS assumes. The verdict is <strong>no trend</strong> (p = 0.056). Zeit, on the nearest pixel of a UTM grid, gives p = 0.00023 by OLS and 0.05 by AR(1).</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Trend per</td><td class="num">Year</td><td>The slope per year (decimal years of the dates), or per time step (t = 1, 2, …, as remotePARTS).</td></tr>
+            <tr><td>Harmonics</td><td class="num">0</td><td>Pairs of seasonal harmonics fitted with the line, for series with several dates a year (2 is typical for 16-day or monthly data).</td></tr>
+            <tr><td>Missing dates</td><td class="num">Exact</td><td>Exact: two observations k dates apart are correlated by ρ<sup>k</sup>, so a missing year counts. Ignore: the valid observations are taken as consecutive, as remotePARTS does.</td></tr>
+            <tr><td>Significance level</td><td class="num">0.05</td><td>The level of the test, for the verdict and the map of the significant slope.</td></tr>
+            <tr><td>Min valid observations</td><td class="num">4</td><td>Pixels with fewer valid observations are not fitted.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="map">
+      <h2><span class="n">04</span>The map of trends</h2>
+      <p>The same window runs on the image (<span class="ui">Run on the raster</span>): whole image, visible area or ROI. Over an ROI of 700 × 700 pixels (21 km across), the run took 2 seconds. The first map shows the slope where it is significant. The others are the slope, the p-value, t, the standard error, ρ, the intercept and the residual SD.</p>
+      <figure class="fig">
+        <a href="assets/img/trend-test/03-ar-map.jpg"><img src="assets/img/trend-test/03-ar-map.jpg" alt="The significant slope over a 700 by 700 pixel ROI: many patches of significant greening, a few of browning; the Tasks window with the run done in 2 seconds; the ROI mean series on the chart rising slowly with large year-to-year swings." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The significant slope in the ROI.</b> Patches of significant greening cover about a quarter of the ROI. Below, the ROI mean series swings from year to year far more than it rises.</figcaption>
+      </figure>
+      <p>A quarter of the ROI is significantly greening, and the usual next sentence would be "the area is greening". The ROI mean series on the chart suggests caution: it rises by 0.0013 per year (<span class="ui">OLS trend</span>), but its year-to-year swings are much larger. Its own AR(1) test, in the Statistics table, does not support a trend:</p>
+      <figure class="fig narrow">
+        <a href="assets/img/trend-test/03-roi-mean-stats.png"><img src="assets/img/trend-test/03-roi-mean-stats.png" alt="The Statistics table of the ROI mean: OLS trend 0.0012527 per year, then AR(1) trend: no trend, p-value 0.093763, slope 0.0012873 per year, standard error 0.00074941, rho 0.14619." loading="lazy"></a>
+        <figcaption><b>The ROI mean's AR(1) test</b>: +0.0013 ± 0.0007 per year, p = 0.094.</figcaption>
+      </figure>
+      <p>Testing the mean series is a fair check, but it only answers the question for one region, and it throws away information when the pixels' correlation is short compared with the region. The Trend test does better.</p>
+    </section>
+
+    <section id="test">
+      <h2><span class="n">05</span>The Trend test</h2>
+      <p><span class="ui">View → Analysis</span>, tab <span class="ui">Trend test</span>. Choose the <span class="ui">Region</span> (the ROI, the visible area or the whole image), leave <span class="ui">Classes</span> at <em>None (the region's mean)</em>, and press <span class="ui">Run the test</span>. The test runs on a thread, with its progress and a Cancel button. Here it took 13 to 17 seconds on a 20-thread CPU.</p>
+      <figure class="fig">
+        <a href="assets/img/trend-test/04-test.jpg"><img src="assets/img/trend-test/04-test.jpg" alt="The ROI over the image and, in the Analysis panel's Trend test tab, the region's result: 490000 pixels, trend 0.001538 per year, SE 0.001536, t 1.002, p 0.3165, 26% of pixels significantly up." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The Trend test on the ROI</b>, next to the ROI mean's statistics.</figcaption>
+      </figure>
+      <figure class="fig">
+        <a href="assets/img/trend-test/04-test-panel.png"><img src="assets/img/trend-test/04-test-panel.png" alt="The Trend test tab: region ROI, no classes, trend per year, 0 harmonics, missing dates kept apart, partitions of 1500 pixels, at most 100, nugget by maximum likelihood; the result line and the table." loading="lazy"></a>
+        <figcaption><b>The result.</b> Spatial correlation exp(−d / 21.94 km), nugget 0.11. Regional trend +0.0015 ± 0.0015 per year, p = 0.32.</figcaption>
+      </figure>
+      <p>Line by line:</p>
+      <ul>
+        <li><strong>490,000 pixels read, 490,000 with a trend, 150,000 tested in 100 partitions of 1500.</strong> Every pixel of the ROI got its AR(1) trend. 100 random groups of 1500 pixels were tested (see <a href="#how">section 06</a>).</li>
+        <li><strong>exp(−d / 21.94 km), nugget 0.1106.</strong> Pixels' departures from their trends stay correlated over about 22 km, as wide as the ROI itself. Only 11% of a pixel's variation is its own.</li>
+        <li><strong>Region: 0.001538 /yr, SE 0.001536, t 1.002, p 0.3165.</strong> The mean trend is positive, but its standard error is as large as the estimate: <strong>no evidence of a regional trend</strong>.</li>
+        <li><strong>Pixels up 125,871 (26%), down 2,088 (0%).</strong> The pixels' own AR(1) tests, counted for comparison. They are not a regional test.</li>
+      </ul>
+      <p>A quarter of the pixels significantly greening, and no regional trend, are not a contradiction. The whole ROI rises and falls together with wet and dry years, so its 490,000 pixels behave almost like a single pixel observed 41 times. Its mean rose over the period, but no more than such a strongly varying series often does by chance. The ROI mean's own test (p = 0.094) agrees.</p>
+      <p>Run again, the test gives exactly the same numbers: its random draws use a fixed seed.</p>
+    </section>
+
+    <section id="how">
+      <h2><span class="n">06</span>How it works</h2>
+      <p>The Trend test takes four steps.</p>
+      <ol class="steps">
+        <li><b>Each pixel's trend</b>The AR(1) trend of every pixel read, as in <a href="#pixel">section 03</a>.</li>
+        <li><b>The correlation</b>The residuals of 1000 sampled pixels, correlated pair by pair and fitted against distance.</li>
+        <li><b>Partitions</b>The pixels drawn into random groups; a regression of their trends that accounts for the correlation, in each.</li>
+        <li><b>Combined</b>The groups' estimates averaged; a standard error that accounts for the groups being correlated too.</li>
+        <li><b>Tests</b>A t-test of each mean against 0, and with classes, a chi-square test that they differ.</li>
+        <li><b>Counts</b>The pixels' own significant trends, for comparison.</li>
+      </ol>
+      <h3>Step 2: correlation against distance</h3>
+      <p>For each pair of the 1000 sampled pixels, Janus takes the correlation of their two residual series (observed minus the fitted line) and the distance between them. Through all those pairs (about half a million), it fits the curve exp(−d / range).</p>
+      <figure class="fig narrow">
+        <a href="assets/img/trend-test/05-correlation.png"><img src="assets/img/trend-test/05-correlation.png" alt="Correlation of the residual series of pairs of pixels against their distance, on a simulated map: the mean correlations fall from about 0.65 to 0 by 1.5 km, the fitted exponential close to the true curve." width="1056" height="650" loading="lazy"></a>
+        <figcaption><b>A simulated map</b> with a true correlation of 0.8 exp(−d / 450 m), that is a range of 450 m and a nugget of 0.2. The grey cloud is every pair of sampled pixels, the dots the mean at each distance. The fitted range is 366 m.</figcaption>
+      </figure>
+      <p>The curve does not include the nugget, which Janus estimates in step 3. As a result, a large nugget pulls the fitted range down: 366 m instead of 450 m here. <a href="#trust">Section 07</a> shows what that does to the p-values.</p>
+      <p>Real data rarely look this clean. In the ROI of this guide, the mean correlation drops to about 0.75 between close neighbours and then stays near 0.6 at every distance up to 28 km (Zeit's documentation plots it), because the whole area shares one interannual signal. An exponential curve fits that only roughly, which is why the fitted range (22 km) is as wide as the ROI.</p>
+      <h3>Step 3: a regression in partitions</h3>
+      <p>The right way to average correlated pixels is a generalised least squares regression (GLS). It gives less weight to pixels that repeat their neighbours' information. On 490,000 pixels, however, GLS would need a matrix of 490,000 × 490,000 numbers, about 2 TB. PARTS therefore draws the pixels into random <strong>partitions</strong> of 1500, fits a GLS in each (a matrix of 18 MB), and estimates each partition's nugget by maximum likelihood.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/trend-test/06-partitions.png"><img src="assets/img/trend-test/06-partitions.png" alt="Three random partitions of 600 pixels on a simulated map of 60 by 60 pixels, in blue, orange and green dots spread over the whole map." width="649" height="738" loading="lazy"></a>
+        <figcaption><b>Three of six random partitions</b> of a simulated map of 60 × 60 pixels. Each one is spread over the whole map.</figcaption>
+      </figure>
+      <p>On the ROI of this guide, run in Zeit, the 100 partitions' estimates agreed closely (standard deviation 0.00015). Treated as 100 independent measurements, they would give a standard error of about 0.00002 and a p-value close to 0. PARTS gives 0.0017, because every partition carries the same correlated signal.</p>
+      <h3>Step 4: combining the partitions</h3>
+      <p>The partitions are not independent, since a pixel in one partition has neighbours in the others. PARTS computes, from the fitted correlation, how correlated the estimates of 6 partitions are (15 pairs), and combines all the partitions' standard errors with that correlation. When the partitions are almost fully correlated, as here, the combined standard error stays close to a single partition's, however many partitions are added. That is why 100 partitions are enough. With classes, the partitions' F statistics are combined into a chi-square test of whether the classes differ, again allowing for the correlation (Imhof's method).</p>
+    </section>
+
+    <section id="trust">
+      <h2><span class="n">07</span>How far to trust it</h2>
+      <p>A test is calibrated if it says p &lt; 0.05 in 5% of the cases where there is nothing to find. To check this, <code>tools/make_parts_guide.py</code> simulated 300 maps with no trend, then 100 maps for each of several real trends, and ran both tests on each.</p>
+      <figure class="fig">
+        <a href="assets/img/trend-test/07-calibration.png"><img src="assets/img/trend-test/07-calibration.png" alt="Left: p-values over 300 maps with no trend, piled near 0 for the naive test and spread out for PARTS. Middle: the share of significant pixels per map, from 2% to over 20%. Right: how often each test detects a real trend as it grows." width="2173" height="642" loading="lazy"></a>
+        <figcaption><b>Left</b>: with no trend, the naive test says p &lt; 0.05 on 94% of the maps and PARTS on 14% (6.3% when given the true range instead of fitting it, a run not drawn here). <b>Middle</b>: the share of significant pixels on maps with no trend: 7.5% on average, above 16% on one map in twenty. <b>Right</b>: PARTS detects 57% of trends of 0.0005 per year and 90% of trends of 0.0008 per year (noise SD 0.03). The naive test says "yes" whatever the trend.</figcaption>
+      </figure>
+      <ul>
+        <li><strong>PARTS removes most of the problem</strong>: 14% false alarms instead of 94%.</li>
+        <li><strong>It is not perfect.</strong> The range fitted in step 2 tends to be too short (365 m against the true 450 m, the median over these maps), so the p-values are somewhat too small: 6.3% of the maps gave p &lt; 0.01. Treat p between 0.01 and 0.05 as weak evidence.</li>
+        <li><strong>The correlation model matters.</strong> When the correlation does not fall off like an exponential (smooth, Gaussian-like fields, or a regional signal that stays high at every distance, as in this example), the answer depends more on the settings. Try a second partition size: in Zeit, the same ROI gave p = 0.13 with partitions of 500 and 0.54 with 3000, the same conclusion either way.</li>
+      </ul>
+    </section>
+
+    <section id="classes">
+      <h2><span class="n">08</span>Classes</h2>
+      <p>With a categorical layer open on the same grid (a land-cover map, zones), choose it under <span class="ui">Classes</span>. Each class gets its own mean trend, tested against 0, and a last line says whether the classes' trends differ. The layer's class names and colours come from its legend (<span class="ui">Display → Categorical (classes)</span>). Pixels outside every class are left out.</p>
+      <p>Here, the zones are the distance to the sea, made by <code>tools/make_parts_guide.py data</code>: coastal (under 40 km), transition (40 to 100 km) and interior (beyond 100 km), with water as no class. The region is the whole image.</p>
+      <figure class="fig">
+        <a href="assets/img/trend-test/08-classes.jpg"><img src="assets/img/trend-test/08-classes.jpg" alt="The zones layer over the whole image, three bands of distance to the sea in shades of teal, and the Trend test with Classes set to zones." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>Zones by distance to the sea</b>, and the Trend test by class over the whole image.</figcaption>
+      </figure>
+      <figure class="fig">
+        <a href="assets/img/trend-test/08-classes-table.png"><img src="assets/img/trend-test/08-classes-table.png" alt="The Trend test's table by zone: coastal 0.0006129 per year, p 0.2309; transition 0.0004015, p 0.4197; interior 0.0005443, p 0.2702; no evidence that the classes' trends differ, p = 0.09232." loading="lazy"></a>
+        <figcaption><b>The table by zone</b> (taken with the map in a window of its own, where <em>Visible area</em> falls back to the whole image). 499,086 pixels read, one in 10.5 × 10.5; range 84.88 km, nugget 0.60.</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Zone</th><th>Pixels</th><th>Trend (/yr)</th><th>SE</th><th>p</th><th>Pixels up / down</th></tr></thead>
+          <tbody>
+            <tr><td>Coastal (&lt; 40 km)</td><td class="num">67,013</td><td class="num">0.0006129</td><td class="num">0.0005116</td><td class="num">0.2309</td><td class="num">20% / 8%</td></tr>
+            <tr><td>Transition (40–100 km)</td><td class="num">143,542</td><td class="num">0.0004015</td><td class="num">0.0004976</td><td class="num">0.4197</td><td class="num">3% / 5%</td></tr>
+            <tr><td>Interior (&gt; 100 km)</td><td class="num">248,806</td><td class="num">0.0005443</td><td class="num">0.0004937</td><td class="num">0.2702</td><td class="num">11% / 1%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>No zone's trend differs from 0, and the difference between the zones is not significant at 0.05 (p = 0.092, F = 1.52 with 2 and 1498 degrees of freedom).</p>
+      <p>The same question asked in Zeit, on the scene averaged to 300 m pixels instead of one 30 m pixel in 10.5 × 10.5, gave the same picture for each zone (p from 0.29 to 0.47) but p = 0.028 for the difference between zones. The two reads of the image differ (averaged pixels are smoother, so the nugget is lower: 0.32 against 0.60), and a p between 0.03 and 0.09 is borderline either way. Report such a result as weak evidence that the zones differ, and say how the image was read.</p>
+      <div class="note">
+        <p class="h">Differences can be easier to detect than trends</p>
+        <p>The regional signal (droughts, wet years) is shared by every class. It makes each class's mean uncertain, but it cancels when classes are compared. On real data, the chi-square test can be significant while no class differs from 0.</p>
+      </div>
+      <p>A class needs about 10 pixels per partition: classes with fewer than 10 × <em>pixels</em> / <em>partition size</em> pixels are left out and listed under the table. Merge small classes, or test a smaller region where they matter more.</p>
+    </section>
+
+    <section id="read">
+      <h2><span class="n">09</span>Reading and reporting</h2>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Result</th><th>Means</th><th>Does not mean</th></tr></thead>
+          <tbody>
+            <tr><td>Region: p &lt; 0.05</td><td>The region's mean trend differs from 0, in the direction of its sign.</td><td>That most pixels trend that way.</td></tr>
+            <tr><td>Region: p ≥ 0.05</td><td>No evidence of a regional mean trend.</td><td>That nothing trends anywhere: local trends can be real and average out.</td></tr>
+            <tr><td>A class: p &lt; 0.05</td><td>That class's mean trend differs from 0.</td><td>That it differs from the other classes.</td></tr>
+            <tr><td>Classes differ: p &lt; 0.05</td><td>The classes' mean trends are not all the same.</td><td>Which ones differ: compare the estimates, or test two classes alone.</td></tr>
+            <tr><td>Pixels up 26%</td><td>26% of the pixels' own tests have p &lt; 0.05 and a positive slope.</td><td>That 26% of the area is changing, or that the region is.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>For a report, give the estimate with its standard error (or the interval estimate ± 1.96 SE), t and p, the region, and the settings. <span class="ui">Copy CSV</span> copies the table (<code>class, pixels, trend_per_yr, se, t, p, significant_up, significant_down</code>, and the chi-square p with classes). For example:</p>
+      <div class="note">
+        <p class="h">A sentence for the methods and results</p>
+        <p>Per-pixel trends of the annual index (1985–2025) were fitted by REML with AR(1) errors, and the regional mean trend was tested with PARTS (Ives et al. 2021) in Janus (exponential spatial correlation fitted to 1000 pixels, range 21.9 km; 100 random partitions of 1500 pixels; maximum-likelihood nugget). The mean trend of the area was +0.0015 ± 0.0015 yr<sup>−1</sup> (t = 1.00, p = 0.32): not significantly different from 0, although 26% of the pixels had a significant positive trend individually.</p>
+      </div>
+      <div class="note warn">
+        <p class="h">Pitfalls</p>
+        <p>Fill values read as data (the sea as 0). Water, cities and bare ground mixed into a vegetation trend: mask them with the ROI, or make them classes of their own. Choosing the region, the partition size or the settings until p falls below 0.05. Reading the share of significant pixels as a regional result.</p>
+      </div>
+    </section>
+
+    <section id="settings">
+      <h2><span class="n">10</span>Settings and limits</h2>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Setting</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Region</td><td class="num">ROI</td><td>The ROI (its polygon), the visible area, or the whole image. Without an ROI, the whole image.</td></tr>
+            <tr><td>Classes</td><td class="num">None</td><td>A categorical layer on the same grid, at its current date: a mean per class, and the test that they differ.</td></tr>
+            <tr><td>Trend per</td><td class="num">year</td><td>Per year of the dates, or per time step.</td></tr>
+            <tr><td>Harmonics</td><td class="num">0</td><td>Seasonal harmonics fitted with each pixel's line (sub-annual series).</td></tr>
+            <tr><td>Missing dates kept apart</td><td class="num">on</td><td>Observations k dates apart correlated by ρ<sup>k</sup>; off, the valid ones are taken as consecutive (as remotePARTS).</td></tr>
+            <tr><td>Partitions of</td><td class="num">1500 pixels</td><td>The partition size (remotePARTS's authors use 1500 to 3000). Time grows as its cube, memory as its square: 36 MB per thread at 1500.</td></tr>
+            <tr><td>at most</td><td class="num">100</td><td>The number of partitions. More add little once they are strongly correlated with each other.</td></tr>
+            <tr><td>Nugget by maximum likelihood</td><td class="num">on</td><td>Each partition's own nugget; off, a nugget of 0 (every pixel's noise fully shared with its neighbours, which is rarely true).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li><strong>Large regions</strong> are read at full resolution up to 500,000 pixels (and 40 million values), and beyond that one pixel in k × k (nearest), as the whole image above: one in 10.5 × 10.5.</li>
+        <li><strong>Distances</strong> are in km. A projected CRS is used as it is. A geographic CRS (longitude and latitude, as here) is projected equirectangularly at the region's mean latitude. Without a georeference, distances are in pixels.</li>
+        <li><strong>Fixed choices</strong>: 1000 pixels sampled to fit the correlation, an exponential correlation, 6 partitions crossed, seed 1, the pixels' own tests at 0.05, and pixels with at least the design's columns + 2 valid observations. <a href="https://sacridini.github.io/zeit-cdts/tutorials/regional-trends/">Zeit</a> exposes all of them in Python.</li>
+        <li><strong>The active layer</strong> is tested: a series of values with 4 dates or more.</li>
+      </ul>
+      <div class="note">
+        <p class="h">Reproduce it</p>
+        <p><code>python tools/make_parts_guide.py data SERIES out</code> writes the VRTs and the zones; <code>python tools/make_parts_guide.py figures site/assets/img/trend-test</code> the figures of the method. The screenshots come from <code>janus out/series --interface modern</code> with <code>--roi 1000,500,1700,1200 --analysis trend,run</code>, or <code>--layer out/zones.tif --analysis trend,run,classes</code> (see <code>site/README.md</code>).</p>
+      </div>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">11</span>What next</h2>
+      <ul>
+        <li><strong>The method in depth</strong>, covariates, sensitivity checks and parity with remotePARTS: <a href="https://sacridini.github.io/zeit-cdts/tutorials/regional-trends/">Regional Trends (PARTS)</a> in Zeit's documentation, with <code>zeit.ar_trend</code> and <code>zeit.parts</code> in Python.</li>
+        <li><strong>A non-parametric pixel trend</strong>: <span class="ui">Tools → Mann-Kendall</span>, Sen's slope with the Hamed-Rao correction.</li>
+        <li><strong>When the land changed</strong>, not only whether it trends: <a href="landtrendr.html">LandTrendr</a> and <a href="bfast.html">BFAST</a>.</li>
+        <li><strong>Classes over time</strong>: <span class="ui">View → Analysis → Classes</span>.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">12</span>References</h2>
+      <ul class="refs">
+        <li>Ives, A. R., Zhu, L., Wang, F., Zhu, J., Morrow, C. J., Radeloff, V. C. (2021). Statistical inference for trends in spatiotemporal data. <em>Remote Sensing of Environment</em>, 266, 112678. <a href="https://doi.org/10.1016/j.rse.2021.112678">doi:10.1016/j.rse.2021.112678</a></li>
+        <li>Morrow, C. J., Ives, A. R. remotePARTS: Spatiotemporal autoregression analyses for large data sets. R package, version 1.0.4. <a href="https://CRAN.R-project.org/package=remotePARTS">CRAN</a></li>
+        <li>Imhof, J. P. (1961). Computing the distribution of quadratic forms in normal variables. <em>Biometrika</em>, 48(3/4), 419–426.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus, where <code>ar_trend</code> and <code>parts</code> implement these methods.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>
