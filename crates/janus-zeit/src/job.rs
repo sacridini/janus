@@ -623,6 +623,7 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "ndfi" => crate::ndfi::chunk(p, chunk, ctx),
         "coded" => crate::coded::chunk(p, chunk, ctx),
         "ccdc" => crate::ccdc::chunk(p, chunk, ctx),
+        "sccd" => crate::sccd::chunk(p, chunk, ctx),
         "phenology" => crate::phenology::chunk(p, chunk, ctx),
         "twdtw" => crate::twdtw::chunk(p, chunk, ctx),
         "som" => crate::som::chunk(p, chunk, ctx),

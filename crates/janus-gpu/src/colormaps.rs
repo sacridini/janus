@@ -313,6 +313,17 @@ pub fn all() -> &'static [Colormap] {
                     rgbf(0.12, 0.55, 0.30),
                 ],
             },
+            // a monitored pixel's alert (S-CCD): stable, change in progress, waiting for a model after a change, no model
+            Colormap {
+                name: "Alerts",
+                qualitative: true,
+                keys: vec![
+                    rgbf(0.62, 0.64, 0.60),
+                    rgbf(0.84, 0.12, 0.12),
+                    rgbf(0.96, 0.66, 0.15),
+                    rgbf(0.90, 0.90, 0.88),
+                ],
+            },
             // emerging hot spots' patterns: none, then new ... historical hot spots (reds), the same cold (blues)
             Colormap {
                 name: "Hotspots",

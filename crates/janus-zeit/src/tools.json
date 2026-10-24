@@ -669,6 +669,152 @@
    "chunk_cells": 20000
   },
   {
+   "id": "sccd",
+   "name": "S-CCD (stochastic CCDC)",
+   "category": "Change detection",
+   "description": "Stochastic Continuous Change Detection (Ye et al. 2021), as in Zeit (zeit.sccd): CCDC's harmonic models of every band (trend, annual and semiannual cycles), started on the first stable observations as CCDC's and then carried forward by a Kalman filter instead of refitted, so they follow slow changes and a new image costs one update. A change is several consecutive clear observations departing from the model over the detection bands (green to SWIR2); at the end of the series, the latest anomalous observations are a change in progress, not yet confirmed: the near-real-time state for monitoring. Needs the six Landsat-style reflectance bands mapped and real dates; a quality band (Fmask or Landsat QA_PIXEL) is strongly recommended. Faster than CCDC on long series.",
+   "requires": {
+    "time": "any",
+    "min_dates": 24,
+    "min_per_year": 4,
+    "bands": [
+     "blue",
+     "green",
+     "red",
+     "nir",
+     "swir1",
+     "swir2"
+    ]
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "units",
+     "label": "Reflectance units",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "x10000",
+      "unit",
+      "landsat_c2"
+     ],
+     "labels": [
+      "Automatic (from the values)",
+      "Reflectance x 10000",
+      "Reflectance 0-1",
+      "Landsat C2 L2 digital numbers"
+     ],
+     "help": "S-CCD's valid range and magnitudes are defined on reflectance x 10000. Automatic: median <= 2 -> reflectance 0-1; median >= 6500 -> Landsat Collection 2 Level-2 digital numbers (x 0.0000275 - 0.2); otherwise already x 10000. Janus applies the files' scale/offset metadata first, when present."
+    },
+    {
+     "id": "conse",
+     "label": "Consecutive anomalies",
+     "type": "int",
+     "default": 6,
+     "min": 3,
+     "max": 20,
+     "help": "Consecutive anomalous clear observations that make a change (the peek window)."
+    },
+    {
+     "id": "prob_threshold",
+     "label": "Change probability",
+     "type": "float",
+     "default": 0.99,
+     "min": 0.5,
+     "max": 0.999999,
+     "help": "Chi-square probability of the change threshold over the detection bands."
+    },
+    {
+     "id": "outlier_prob",
+     "label": "Outlier probability",
+     "type": "float",
+     "default": 0.99999,
+     "min": 0.9,
+     "max": 0.99999999,
+     "help": "Chi-square probability above which a single observation is an outlier, left out of the model."
+    },
+    {
+     "id": "max_angle",
+     "label": "Max angle (degrees)",
+     "type": "float",
+     "default": 30.0,
+     "min": 1.0,
+     "max": 90.0,
+     "help": "Largest mean angle of the anomalous observations' change vectors to their median: a change departs in a consistent direction, noise does not."
+    },
+    {
+     "id": "max_segments",
+     "label": "Max segments",
+     "type": "int",
+     "default": 6,
+     "min": 2,
+     "max": 20,
+     "help": "Segments kept per pixel."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "n_breaks",
+     "name": "Breaks",
+     "colormap": "Viridis",
+     "unit": "count"
+    },
+    {
+     "id": "first_break",
+     "name": "First break date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "last_break",
+     "name": "Last break date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "largest_break",
+     "name": "Largest break date",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "magnitude",
+     "name": "Largest break magnitude",
+     "colormap": "Plasma",
+     "unit": "refl x 10000"
+    },
+    {
+     "id": "state",
+     "name": "Monitoring state (last date)",
+     "colormap": "Alerts",
+     "unit": "class",
+     "classes": [
+      "Stable",
+      "Change in progress",
+      "Waiting for a model after a change",
+      "No model"
+     ]
+    },
+    {
+     "id": "n_anomalies",
+     "name": "Latest anomalies (change in progress)",
+     "colormap": "Plasma",
+     "unit": "count"
+    },
+    {
+     "id": "anomaly_start",
+     "name": "Anomalies since",
+     "colormap": "Viridis",
+     "unit": "year"
+    }
+   ],
+   "chunk_cells": 20000
+  },
+  {
    "id": "coded",
    "name": "CODED (degradation)",
    "category": "Change detection",

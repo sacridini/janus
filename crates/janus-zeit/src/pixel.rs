@@ -171,6 +171,7 @@ pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResu
         "phenology" => crate::phenology::pixel(p, input),
         "twdtw" => crate::twdtw::pixel(p, input),
         "ccdc" => crate::ccdc::pixel(p, input),
+        "sccd" => crate::sccd::pixel(p, input),
         "ccdc_synthetic" => crate::ccdc::synthetic_pixel(p, input),
         "bfast" => crate::bfast::bfast_pixel(p, input),
         "bfast_lite" => crate::bfast::lite_pixel(p, input),

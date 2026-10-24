@@ -26,6 +26,7 @@ pub mod postproc;
 pub mod python;
 pub mod recovery;
 pub mod rng;
+mod sccd;
 mod smooth;
 pub mod snic;
 mod som;

@@ -11,11 +11,11 @@ use crate::numeric::{civil, decimal_year, median, year_start};
 use crate::pixel::{Overlay, Params, PixelInput, PixelResult, g, row};
 
 /// Python's date.toordinal() of 1970-01-01.
-const EPOCH_ORDINAL: i64 = 719163;
+pub(crate) const EPOCH_ORDINAL: i64 = 719163;
 /// Green..SWIR2: Zeit's detection bands with 6 bands or more.
 const DETECT: [usize; 5] = [1, 2, 3, 4, 5];
-const UNITS: [&str; 4] = ["auto", "x10000", "unit", "landsat_c2"];
-const UNIT_LABELS: [&str; 4] =
+pub(crate) const UNITS: [&str; 4] = ["auto", "x10000", "unit", "landsat_c2"];
+pub(crate) const UNIT_LABELS: [&str; 4] =
     ["Automatic (from the values)", "Reflectance x 10000", "Reflectance 0-1", "Landsat C2 L2 digital numbers"];
 
 fn median_finite(v: &[f64]) -> f64 {
@@ -75,7 +75,7 @@ fn model_at(coefs: &[f64], ordinal: f64) -> f64 {
 }
 
 /// "YYYY-MM-DD" of a Python ordinal day; "-" for none.
-fn fmt(ordinal: i64) -> String {
+pub(crate) fn fmt(ordinal: i64) -> String {
     if ordinal <= 0 {
         return "-".into();
     }
@@ -224,11 +224,11 @@ fn shown_curve(coefs: &[[f64; 8]], pr: &Prepared, input: &PixelInput, t: &[f64])
     shown.band.as_deref().and_then(band)
 }
 
-fn ordinal_decimal_year(o: f64) -> f64 {
+pub(crate) fn ordinal_decimal_year(o: f64) -> f64 {
     if o.is_finite() && o > 0.0 { decimal_year(o as i64 - EPOCH_ORDINAL) } else { f64::NAN }
 }
 
-fn missing(input: &PixelInput) -> Vec<&'static str> {
+pub(crate) fn missing(input: &PixelInput) -> Vec<&'static str> {
     LANDSAT_ROLES.iter().copied().filter(|r| !input.bands.contains_key(*r)).collect()
 }
 
@@ -347,7 +347,7 @@ pub fn synthetic_pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, St
 }
 
 /// The shown series' value of the synthetic bands (its band, or the normalized difference of two).
-fn shown_value(by_role: &[(&str, f64)], input: &PixelInput) -> Option<f64> {
+pub(crate) fn shown_value(by_role: &[(&str, f64)], input: &PixelInput) -> Option<f64> {
     let value = |role: &str| by_role.iter().find(|(r, _)| *r == role).map(|x| x.1);
     let s = input.shown.as_ref()?;
     if let Some(nd) = s.nd.as_ref().filter(|nd| nd.len() == 2) {

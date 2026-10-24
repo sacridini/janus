@@ -365,6 +365,18 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
             ),
             vec!["bands_cube", "fmask"],
         ),
+        "sccd" => (
+            format!(
+                "result1 = zeit.sccd(bands_cube.sel(band=[b for b in order if b != 'thermal']), qa=fmask, \
+                 max_segments={}, conse={}, prob_threshold={}, outlier_prob={}, max_angle={}, nodata=None, n_jobs=1)",
+                i("max_segments"),
+                i("conse"),
+                f("prob_threshold"),
+                f("outlier_prob"),
+                f("max_angle")
+            ),
+            vec!["bands_cube", "fmask"],
+        ),
         _ => return None,
     })
 }
