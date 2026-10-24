@@ -24,7 +24,7 @@ impl State {
         };
         let apply_font = |s: &State, px: i32| {
             let st = &s.settings.s;
-            crate::theme::apply(ctx, st.theme, st.panel_opacity, px);
+            crate::theme::apply(ctx, st.look(), st.panel_opacity, px);
         };
         match st.stage {
             70 => {
@@ -47,7 +47,7 @@ impl State {
                         "    font size {px}: body {size:.1} pt, {} face",
                         if scalable { "scalable" } else { "pixel" }
                     );
-                    if (size - crate::theme::egui_font_size(px)).abs() > 0.01 || !scalable {
+                    if (size - crate::theme::text_size(px)).abs() > 0.01 || !scalable {
                         return fail("the font size should apply at the next frame, with the scalable face");
                     }
                     self.settings.s.font_size = st.font;
@@ -71,8 +71,9 @@ impl State {
             72 => {
                 let px = self.settings.s.font_size;
                 let size = ctx.style_of(ctx.theme()).text_styles[&egui::TextStyle::Body].size;
-                if (size - crate::theme::egui_font_size(px)).abs() > 0.01
-                    || crate::theme::scalable_face() != (px != crate::theme::DEFAULT_FONT_SIZE)
+                if (size - crate::theme::text_size(px)).abs() > 0.01
+                    || crate::theme::scalable_face()
+                        != (crate::theme::modern() || px != crate::theme::DEFAULT_FONT_SIZE)
                 {
                     return fail("the font size setting should be restored");
                 }

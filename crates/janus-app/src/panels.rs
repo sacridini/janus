@@ -2,7 +2,6 @@
 //! cursor's pixel) and Performance (the timings this phase is judged by, RUST_MIGRATION.md).
 
 use egui::{Color32, ComboBox, DragValue, Grid, Rect, Sense, Slider, Ui, vec2};
-use egui_plot::{Bar, BarChart, Plot, VLine};
 use janus_cube::multidim::format_g;
 use janus_cube::spectral::{COMPOSITES, INDICES, composite_layers, index_bands};
 use janus_cube::{BandSelection, QaRule};
@@ -254,32 +253,15 @@ impl State {
             {
                 d.ranges[d.mode as usize].invalidate();
             }
-            // the histogram of the values shown, with the stretch
-            let r = d.ranges[d.mode as usize];
-            let h = &d.hist;
-            if !h.xs.is_empty() {
-                let bars: Vec<Bar> = h.xs.iter().zip(&h.ys).map(|(&x, &y)| Bar::new(x, y).width(h.bar_w)).collect();
-                let drop_dates = d.mode == Mode::DropDate;
-                let info2 = info.clone();
-                let mut plot = Plot::new("hist")
-                    .height(130.0)
-                    .show_axes([true, false])
-                    .show_grid(false)
-                    .allow_drag(false)
-                    .allow_zoom(false)
-                    .allow_scroll(false)
-                    .show_x(false)
-                    .show_y(false);
-                if drop_dates {
-                    // date indices: labelled with the dates
-                    plot = plot.x_axis_formatter(move |m, _| range_label(Mode::DropDate, m.value as f32, &info2));
-                }
-                plot.show(ui, |p| {
-                    p.bar_chart(BarChart::new("values", bars).color(Color32::from_rgb(115, 158, 230)));
-                    for v in [r.lo, r.hi] {
-                        p.vline(VLine::new("range", f64::from(v)).color(Color32::from_rgb(255, 153, 51)).width(1.5));
-                    }
-                });
+            // the histogram of the values shown, in the colormap, with the stretch's ends to drag
+            if !d.hist.xs.is_empty() {
+                ui.add_space(4.0);
+                let cmap = (d.mode != Mode::Rgb).then(|| d.cmap[d.mode as usize]);
+                let discrete = d.mode == Mode::DropDate && d.hist.xs.len() == info.t();
+                let mode = d.mode;
+                let label = |v: f32| range_label(mode, v, &info);
+                let r = &mut d.ranges[d.mode as usize];
+                dirty |= crate::histogram::histogram_ui(ui, &d.hist, r, cmap, discrete, &label);
             }
         }
         section(ui, "Detail");

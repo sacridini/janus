@@ -22,13 +22,11 @@ impl State {
     fn shots_labels_layer(&mut self, file: &str) -> Option<u32> {
         let v = self.vectors.iter_mut().find(|v| v.data.path.ends_with(file) && v.placed_for != 0)?;
         let field = v.data.fields.iter().position(|f| f == "class")?;
+        v.read_table_now().ok()?;
         let mut order: Vec<String> = vec![];
-        v.colors = v
-            .data
-            .features
-            .iter()
-            .map(|f| {
-                let c = f.values[field].trim().to_string();
+        v.colors = (0..v.data.features.len())
+            .map(|i| {
+                let c = v.row(i).map_or("", |r| r[field].trim()).to_string();
                 let k = order.iter().position(|o| *o == c).unwrap_or_else(|| {
                     order.push(c);
                     order.len() - 1

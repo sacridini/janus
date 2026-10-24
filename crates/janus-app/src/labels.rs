@@ -592,14 +592,21 @@ impl State {
                 self.interp_touched();
             }
             if !d.fields.is_empty() {
-                egui::CollapsingHeader::new("Attributes").show(ui, |ui| {
-                    egui::Grid::new("interp attrs").num_columns(2).striped(true).show(ui, |ui| {
-                        for (f, v) in d.fields.iter().zip(&d.features[c].values) {
-                            ui.weak(f);
-                            ui.label(v);
-                            ui.end_row();
-                        }
-                    });
+                // read alone (attributes.rs), unless the layer's table is
+                let values = self.vectors.get(li).and_then(|v| v.values(c)).map(<[String]>::to_vec);
+                egui::CollapsingHeader::new("Attributes").show(ui, |ui| match values {
+                    None => {
+                        ui.weak("reading its fields...");
+                    }
+                    Some(values) => {
+                        egui::Grid::new("interp attrs").num_columns(2).striped(true).show(ui, |ui| {
+                            for (f, v) in d.fields.iter().zip(&values) {
+                                ui.weak(f);
+                                ui.label(v);
+                                ui.end_row();
+                            }
+                        });
+                    }
                 });
             }
         }

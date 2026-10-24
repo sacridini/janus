@@ -189,6 +189,10 @@ impl State {
                 if pv.data.fields != ["plot", "name"] {
                     return fail("the GeoJSON's fields");
                 }
+                // their geometries alone: the fields' values are read when asked
+                if [pv, gv, cv].iter().any(|v| v.table_ready() || v.values(0).is_some()) {
+                    return fail("vector layers should open without their fields' values");
+                }
                 let mut worst = 0f64;
                 for (i, q) in st.pts.iter().enumerate() {
                     let (a, b) = (&pv.px[i][0], &cv.px[i][0]);
@@ -254,21 +258,40 @@ impl State {
                     return fail("the transect should follow the line from end to end");
                 }
                 self.clear_transect();
+                // the parcels' attribute table shown (read on a thread), the third plot's fields read alone (as for
+                // its tooltip)
+                let gid = self.vectors[g].id;
+                self.open_attribute_table(gid);
+                self.vectors[p].ask_feature(2);
                 next(st, "placed on B, picked; the polygon (with its hole) as the ROI, the line as the transect");
             }
             122 => {
+                let (p, g) = (self.vector_layer_of("plots.geojson")?, self.vector_layer_of("parcels.gpkg")?);
                 // the PNGs and the drawing order's check need the vector layers on the GPU
                 if !self.series.roi.complete()
                     || !self.vectors.iter().all(|v| v.px.is_empty() || v.gpu.draws(v.placed_for))
+                    || !self.vectors[g].table_ready()
+                    || self.vectors[p].values(2).is_none()
                 {
                     return None;
                 }
+                let rows: Vec<_> = (0..2).map(|i| self.vectors[g].row(i).map(<[String]>::to_vec)).collect();
+                let plot = self.vectors[p].values(2).map(<[String]>::to_vec);
+                println!("    the parcels' attribute table {rows:?}; the third plot's fields read alone {plot:?}");
+                let s = |v: &[&str]| Some(v.iter().map(|x| x.to_string()).collect::<Vec<_>>());
+                if rows != [s(&["pasture"]), s(&["road"])]
+                    || plot != s(&["103", "p2"])
+                    || self.vectors[p].table_ready()
+                    || self.layout_report.attributes.is_none()
+                {
+                    return fail("the parcels' table (in its panel) and the third plot's fields, read when asked");
+                }
+                self.attr_table.show = false;
                 let inside = self.series.roi.data.as_ref()?.mask.iter().filter(|&&m| m).count();
                 if inside != 80 * 70 - 30 * 30 {
                     return fail("the ROI of the polygon should be its pixels less the hole's");
                 }
                 println!("    ROI: {inside} pixels (the 80 x 70 shell less the 30 x 30 hole)");
-                let (p, g) = (self.vector_layer_of("plots.geojson")?, self.vector_layer_of("parcels.gpkg")?);
                 let a = self.extract_series(p, true, true, file(st, "plots_series.csv"), ctx)?;
                 let b = self.extract_series(g, false, false, file(st, "parcels_series.csv"), ctx)?;
                 st.jobs = vec![a, b];

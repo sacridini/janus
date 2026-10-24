@@ -259,13 +259,8 @@ impl State {
             id => presets.iter().find(|p| p.id == id).map_or("None".into(), |p| p.name.clone()),
         };
         let mut dirty = false;
+        // shown or hidden by its row's eye (the Layers panel)
         ui.horizontal(|ui| {
-            ui.add_enabled_ui(bm.ui.source != "none", |ui| {
-                dirty |= ui
-                    .checkbox(&mut bm.ui.on, "")
-                    .on_hover_text(if bm.ui.on { "Hide the basemap" } else { "Show the basemap" })
-                    .changed();
-            });
             egui::ComboBox::from_id_salt("basemap source").selected_text(current).width(ui.available_width()).show_ui(
                 ui,
                 |ui| {

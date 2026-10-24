@@ -604,7 +604,7 @@ impl State {
                     .allow_scroll(false)
                     .y_axis_label("% of the pixels");
                 if info.time_is_date {
-                    plot = crate::chart::time_axis(plot);
+                    plot = crate::chart::time_axis(plot, None);
                 } else {
                     plot = plot.x_axis_label(if info.spectral { "wavelength (nm)" } else { "date (index)" });
                 }

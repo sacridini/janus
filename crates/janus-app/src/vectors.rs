@@ -10,7 +10,7 @@ use std::sync::mpsc::{Receiver, channel};
 
 use egui::{Color32, Pos2, Rect, Shape, Stroke, vec2};
 use janus_geo::plane::{self, Polygon, Ring};
-use janus_geo::vectors::{Kind, Placer, VectorData, csv_field, is_vector_path, load_vector_file};
+use janus_geo::vectors::{Kind, Placer, VectorData, csv_field, is_vector_path, load_vector_geometry};
 
 use crate::app::State;
 use crate::exports::{ExportJob, start_export_job, write_text_file};
@@ -50,6 +50,8 @@ pub struct VectorLayer {
     pub placing: Option<PlaceJob>,
     /// its place in the drawing order of series and vector layers (order.rs)
     pub z: u64,
+    /// its fields' values, read when asked (attributes.rs)
+    pub attrs: crate::attributes::LayerAttributes,
 }
 
 /// A layer being placed on a thread: for the grid `key`, of the layer's data `data`. Dropped (superseded),
@@ -222,7 +224,8 @@ impl State {
             let (tx, rx) = channel();
             let c = ctx.clone();
             std::thread::spawn(move || {
-                let _ = tx.send(load_vector_file(&path, MAX_VERTICES));
+                // the geometries alone: the fields' values are read when asked (attributes.rs)
+                let _ = tx.send(load_vector_geometry(&path, MAX_VERTICES));
                 c.request_repaint();
             });
             self.vector_loads.pending.push(rx);
@@ -359,6 +362,7 @@ impl State {
                     gpu: Default::default(),
                     placing: None,
                     z,
+                    attrs: Default::default(),
                 });
             }
             self.map.dirty = true;
@@ -405,6 +409,9 @@ impl State {
         let dark = Color32::from_black_alpha(170);
         let mut budget: usize = 2_000_000; // vertices per frame: beyond, the rest waits for a closer zoom
         let interp = self.labels.vector.and_then(|id| self.vector_index(id));
+        // the feature picked in the Attribute table
+        let picked = self.attr_table.picked.and_then(|i| Some((self.vector_index(self.attr_table.layer)?, i)));
+        let picked = picked.filter(|_| self.attr_table.show);
         let mut pts: Vec<Pos2> = Vec::new();
         for (li, v) in self.vectors.iter().enumerate() {
             if !v.visible || v.px.is_empty() {
@@ -412,7 +419,11 @@ impl State {
             }
             // drawn by the GPU: here only its highlighted feature
             let on_gpu = v.gpu.draws(v.placed_for);
-            if on_gpu && self.hover_vector.map(|h| h.0) != Some(li) && interp != Some(li) {
+            if on_gpu
+                && self.hover_vector.map(|h| h.0) != Some(li)
+                && interp != Some(li)
+                && picked.map(|p| p.0) != Some(li)
+            {
                 continue;
             }
             // many points in view: squares (fewer vertices than discs)
@@ -452,7 +463,9 @@ impl State {
                     continue;
                 }
                 let f = &v.data.features[i];
-                let hot = self.hover_vector == Some((li, i)) || (interp == Some(li) && self.labels.current == Some(i));
+                let hot = self.hover_vector == Some((li, i))
+                    || (interp == Some(li) && self.labels.current == Some(i))
+                    || picked == Some((li, i));
                 if on_gpu && !hot {
                     continue;
                 }
@@ -693,15 +706,26 @@ impl State {
             };
             ui.weak(format!("feature {}{hint}", f.fid));
             let shown = v.data.fields.len().min(16);
-            egui::Grid::new("attrs").num_columns(2).show(ui, |ui| {
-                for k in 0..shown {
-                    ui.weak(&v.data.fields[k]);
-                    ui.label(&f.values[k]);
-                    ui.end_row();
+            match v.values(i) {
+                // read alone when the tooltip first shows (attributes.rs)
+                None => {
+                    ui.weak("reading its fields...");
                 }
-            });
-            if v.data.fields.len() > shown {
-                ui.weak(format!("... {} more fields", v.data.fields.len() - shown));
+                Some(values) if values.len() < v.data.fields.len() => {
+                    ui.weak("its fields could not be read");
+                }
+                Some(values) => {
+                    egui::Grid::new("attrs").num_columns(2).show(ui, |ui| {
+                        for (name, value) in v.data.fields.iter().zip(values).take(shown) {
+                            ui.weak(name);
+                            ui.label(value);
+                            ui.end_row();
+                        }
+                    });
+                    if v.data.fields.len() > shown {
+                        ui.weak(format!("... {} more fields", v.data.fields.len() - shown));
+                    }
+                }
             }
         });
     }
@@ -849,7 +873,7 @@ impl State {
             return None;
         }
         let v = &self.vectors[li];
-        let data = v.data.clone();
+        let (data, table) = (v.data.clone(), v.table());
         let title = format!(
             "Series at {} features of {}, {} layer{}",
             data.features.len(),
@@ -976,7 +1000,12 @@ impl State {
                     j.set_progress(done as f64 / work as f64);
                 }
             }
-            // the table: the feature's fields, its place in lon/lat, then the values
+            // the table: the feature's fields (read now if the layer's table was not), its place in lon/lat, then
+            // the values
+            let rows = match table {
+                Some(t) => t,
+                None => Arc::new(janus_geo::vectors::attributes(&data)?),
+            };
             let ll = Placer::lon_lat(&data);
             let mut out = String::from("fid");
             for f in &data.fields {
@@ -1010,7 +1039,7 @@ impl State {
                     continue;
                 }
                 let mut head = f.fid.to_string();
-                for v in &f.values {
+                for v in &rows[i] {
                     head += &format!(",{}", csv_field(v));
                 }
                 head += &match ll.to_lon_lat(f.cx, f.cy) {

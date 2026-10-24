@@ -666,6 +666,7 @@ impl State {
             gpu: Default::default(),
             placing: None,
             z,
+            attrs: Default::default(),
         });
         self.val.vector_id = id;
         self.val.colors_for = 0;

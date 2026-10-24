@@ -29,11 +29,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# name, authors, home, license, its text: the MIT's under a copyright line, or a file's
 FONTS = [
-    ("ProggyClean", "Tristan Grimmer", "https://github.com/bluescan/proggyfonts",
+    ("ProggyClean", "Tristan Grimmer", "https://github.com/bluescan/proggyfonts", "MIT",
      "Copyright (c) 2004, 2005 Tristan Grimmer"),
     ("ProggyForever (minimal subset)", "Disco Hello, Tristan Grimmer", "https://github.com/ocornut/proggyforever",
-     "Copyright (c) Disco Hello, Tristan Grimmer"),
+     "MIT", "Copyright (c) Disco Hello, Tristan Grimmer"),
+    ("Inter Regular and SemiBold (Latin subsets)", "The Inter Project Authors", "https://github.com/rsms/inter",
+     "OFL-1.1", ROOT / "crates" / "janus-app" / "assets" / "Inter-OFL.txt"),
 ]
 
 MIT = """Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
@@ -181,9 +184,9 @@ def write(path, version, shipped, conda_prefix):
     warn = []
 
     lines += ["FONTS IN THE PROGRAM", ""]
-    for name, by, url, notice in FONTS:
-        lines.append(f"  {name}, by {by}: MIT ({url})")
-        add(f"{notice}\n\n{MIT}", f"font {name}")
+    for name, by, url, lic, text in FONTS:
+        lines.append(f"  {name}, by {by}: {lic} ({url})")
+        add(read(text) if isinstance(text, Path) else f"{text}\n\n{MIT}", f"font {name}")
     lines.append("")
 
     cs = crates()

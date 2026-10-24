@@ -7,6 +7,7 @@
 mod analysis;
 mod animation;
 mod app;
+mod attributes;
 mod basemap;
 mod canvas;
 mod canvas_layer;
@@ -24,6 +25,7 @@ mod exports;
 mod files;
 mod gif;
 mod golden;
+mod histogram;
 mod labels;
 mod layers;
 mod map;
@@ -103,6 +105,8 @@ Developer options:
   --screenshot PNG    save the window once the series is ready, print its timings and exit
   --detach-map        the map in a window of its own (with --screenshot, both windows saved)
   --settings          the Settings window open
+  --interface modern|classic[,THEME]  the interface of this run (and its theme, e.g. classic,Janus or
+                      modern,Light)
   --profile-tour IN   a fixed tour of IN (overview, cursor series, dates, modes, zoom and pan at
                       full resolution, an ROI), timed stage by stage
   --tour-json FILE    with --profile-tour: the timings as JSON
@@ -344,6 +348,7 @@ fn main() -> eframe::Result<()> {
             "--screenshot" => opts.screenshot = args.next().map(Into::into),
             "--detach-map" => opts.detach_map = true,
             "--settings" => opts.settings_open = true,
+            "--interface" => opts.interface = args.next(),
             "--profile-tour" => opts.profile_tour = true,
             "--measure-vectors" => opts.measure_vectors = true,
             "--selftest-embeddings-ui" => opts.selftest_embeddings_ui = true,

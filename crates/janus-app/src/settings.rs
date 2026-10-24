@@ -17,7 +17,11 @@ use crate::theme;
 /// The values kept between sessions.
 #[derive(Clone)]
 pub struct Settings {
+    /// the modern interface (Inter, the image editors' greys, rounded cards), else the classic one (ImGui's look)
+    pub modern: bool,
+    /// the classic interface's theme (theme::NAMES) and the modern one's (theme::MODERN_NAMES)
     pub theme: usize,
+    pub modern_theme: usize,
     /// ImGui's pixels (13: ProggyClean as ImGui draws it)
     pub font_size: i32,
     /// the panels' backgrounds (the desktop shows through) and the whole window
@@ -37,10 +41,31 @@ pub struct Settings {
     pub favorites: Vec<String>,
 }
 
+impl Settings {
+    /// The theme to draw with (theme::apply's id): the modern interface's or the classic one's.
+    pub fn look(&self) -> usize {
+        if self.modern { theme::MODERN + self.modern_theme } else { self.theme }
+    }
+
+    /// As --interface gives it: modern or classic, and a theme of that interface by name.
+    pub fn set_interface(&mut self, spec: &str) {
+        let mut parts = spec.split(',').map(str::trim);
+        self.modern = !parts.next().is_some_and(|i| i.eq_ignore_ascii_case("classic"));
+        if let Some(name) = parts.next() {
+            let names: &[&str] = if self.modern { &theme::MODERN_NAMES } else { &theme::NAMES };
+            if let Some(i) = names.iter().position(|n| n.eq_ignore_ascii_case(name)) {
+                *(if self.modern { &mut self.modern_theme } else { &mut self.theme }) = i;
+            }
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Settings {
+            modern: true,
             theme: theme::DARK,
+            modern_theme: theme::MODERN_DARK - theme::MODERN,
             font_size: theme::DEFAULT_FONT_SIZE,
             panel_opacity: 1.0,
             window_opacity: 1.0,
@@ -132,6 +157,12 @@ pub fn parse(text: &str) -> (Settings, BasemapSetting) {
                     s.theme = i;
                 }
             }
+            ("janus", "Interface") => s.modern = v != "Classic",
+            ("janus", "ModernTheme") => {
+                if let Some(i) = theme::MODERN_NAMES.iter().position(|n| *n == v) {
+                    s.modern_theme = i;
+                }
+            }
             ("basemap", "Source") => b.source = Some(v.to_string()),
             ("basemap", "Opacity") => b.opacity = v.trim().parse::<f32>().ok().map(|o| o.clamp(0.0, 1.0)),
             ("basemap", "Url") => b.url = Some(v.to_string()),
@@ -164,6 +195,12 @@ pub fn to_ini(s: &Settings, b: &crate::basemap::BasemapUi) -> String {
         s.ffmpeg,
         (s.panel_opacity * 100.0).round() as i32,
         (s.window_opacity * 100.0).round() as i32,
+    );
+    // the modern interface's keys after the C++'s
+    out += &format!(
+        "Interface={}\nModernTheme={}\n",
+        if s.modern { "Modern" } else { "Classic" },
+        theme::MODERN_NAMES[s.modern_theme]
     );
     if !s.interpreter.is_empty() {
         out += &format!("Interpreter={}\n", s.interpreter);
@@ -260,9 +297,9 @@ impl State {
     /// disk caches regulated (every minute, every 2 s while Settings or Performance show them).
     pub(crate) fn pump_settings(&mut self, ctx: &egui::Context) {
         let st = &mut self.settings;
-        let key = (st.s.theme, st.s.panel_opacity.to_bits(), st.s.font_size);
+        let key = (st.s.look(), st.s.panel_opacity.to_bits(), st.s.font_size);
         if st.applied != Some(key) {
-            theme::apply(ctx, st.s.theme, st.s.panel_opacity, st.s.font_size);
+            theme::apply(ctx, st.s.look(), st.s.panel_opacity, st.s.font_size);
             st.applied = Some(key);
             self.map.dirty = true;
             // the cursor's series in the theme's colour
@@ -361,21 +398,44 @@ impl State {
         section(ui, "Interface");
         let st = &mut self.settings;
         let mut changed = false;
-        egui::ComboBox::from_id_salt("theme")
-            .width(w)
-            .selected_text(theme::NAMES[st.s.theme])
-            .show_ui(ui, |ui| {
-                for (i, n) in theme::NAMES.iter().enumerate() {
-                    changed |= ui.selectable_value(&mut st.s.theme, i, *n).changed();
+        // the interface: two halves of one row, as a segmented control
+        ui.horizontal(|ui| {
+            let half = egui::vec2((w - ui.spacing().item_spacing.x) / 2.0, ui.spacing().interact_size.y);
+            for (modern, name, tip) in [
+                (
+                    true,
+                    "Modern",
+                    "The image editors' look (Photoshop, Lightroom): panels as cards on a darker ground, rounded \
+                     controls, a proportional font (Inter), four greys from darkest to light",
+                ),
+                (false, "Classic", "Dear ImGui's look, as the C++ version draws it: its pixel font and seven themes"),
+            ] {
+                let on = st.s.modern == modern;
+                if ui.add_sized(half, egui::Button::new(name).selected(on)).on_hover_text(tip).clicked() && !on {
+                    st.s.modern = modern;
+                    changed = true;
                 }
-            })
-            .response
-            .on_hover_text(
-                "Dark: ImGui's dark colours (the default). Light: dark text on light panels.\nClassic: ImGui's \
-                 original colours. Janus: the program's own colours\n(blue on navy panels, orange accents). Studio: \
-                 mid grey with dark text\nand dark chart displays. Graphite: dark grey with a yellow accent.\n\
-                 Matrix: phosphor green on black.",
-            );
+            }
+        });
+        if st.s.modern {
+            changed |= modern_themes(ui, w, &mut st.s.modern_theme);
+        } else {
+            egui::ComboBox::from_id_salt("theme")
+                .width(w)
+                .selected_text(theme::NAMES[st.s.theme])
+                .show_ui(ui, |ui| {
+                    for (i, n) in theme::NAMES.iter().enumerate() {
+                        changed |= ui.selectable_value(&mut st.s.theme, i, *n).changed();
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Dark: ImGui's dark colours (the default). Light: dark text on light panels.\nClassic: ImGui's \
+                     original colours. Janus: the program's own colours\n(blue on navy panels, orange accents). \
+                     Studio: mid grey with dark text\nand dark chart displays. Graphite: dark grey with a yellow \
+                     accent.\nMatrix: phosphor green on black.",
+                );
+        }
         ui.weak("The map, its colour bars and exported figures keep their colours.");
         let mut panel = (st.s.panel_opacity * 100.0).round() as i32;
         fit_slider(ui, w, SLIDER_TEXT);
@@ -400,7 +460,7 @@ impl State {
             )
             .on_hover_text(
                 "Size of the interface text (and of the labels on the map). 13 px: ImGui's\npixel font as the C++ \
-                 version draws it.",
+                 version draws it (the classic interface), Photoshop's panels' text (the modern one).",
             )
             .changed()
         {
@@ -750,6 +810,48 @@ fn clear_overview_cache(dir: &Path) {
 }
 
 /// A section's title with a line after it (ImGui's SeparatorText).
+/// The modern themes as swatches, as Photoshop's Color Theme: each a panel of its grey with its text; true when
+/// another was picked.
+fn modern_themes(ui: &mut Ui, w: f32, chosen: &mut usize) -> bool {
+    let n = theme::MODERN_NAMES.len();
+    let gap = ui.spacing().item_spacing.x;
+    let size = egui::vec2((w - gap * (n - 1) as f32) / n as f32, 34.0);
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        for (i, name) in theme::MODERN_NAMES.iter().enumerate() {
+            let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+            let (panel, text, bar) = theme::swatch(theme::MODERN + i);
+            let p = ui.painter();
+            p.rect_filled(rect, 6, panel);
+            p.rect_filled(
+                egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + 7.0)),
+                egui::CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 },
+                bar,
+            );
+            p.text(
+                rect.center() + egui::vec2(0.0, 3.0),
+                egui::Align2::CENTER_CENTER,
+                *name,
+                egui::FontId::proportional(11.5),
+                text,
+            );
+            let stroke = if *chosen == i {
+                egui::Stroke::new(2.0, ui.visuals().selection.bg_fill)
+            } else if resp.hovered() {
+                egui::Stroke::new(1.0, ui.visuals().widgets.hovered.fg_stroke.color)
+            } else {
+                egui::Stroke::new(1.0, ui.visuals().widgets.inactive.bg_stroke.color)
+            };
+            p.rect_stroke(rect, 6, stroke, egui::StrokeKind::Outside);
+            if resp.on_hover_text(format!("{name} theme")).clicked() && *chosen != i {
+                *chosen = i;
+                changed = true;
+            }
+        }
+    });
+    changed
+}
+
 fn section(ui: &mut Ui, title: &str) {
     ui.add_space(4.0);
     ui.horizontal(|ui| {
@@ -791,5 +893,10 @@ mod tests {
         let (s2, b2) = parse(&to_ini(&s, &bm));
         assert_eq!((s2.theme, s2.font_size, s2.threads, s2.full_res), (s.theme, s.font_size, s.threads, s.full_res));
         assert_eq!((b2.source, b2.tile_size), (Some("osm".into()), Some(512)));
+        // the C++'s settings have no interface: the modern one, its Dark theme; the classic one kept when chosen
+        assert_eq!(s.look(), theme::MODERN_DARK);
+        let classic = Settings { modern: false, modern_theme: 3, ..s };
+        let (s3, _) = parse(&to_ini(&classic, &bm));
+        assert_eq!((s3.modern, s3.modern_theme, s3.look()), (false, 3, theme::JANUS));
     }
 }

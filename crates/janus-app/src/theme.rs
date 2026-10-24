@@ -3,12 +3,19 @@
 //! cursor's series), translucent panels, and ImGui's ProggyClean at the size set in Settings. Each theme is built
 //! as the C++ builds it, on ImGui's colour slots; egui has fewer colours than ImGui's ~55 slots, so the slots are
 //! mapped onto egui's visuals (RUST_MIGRATION.md, "Aparência").
+//!
+//! The modern interface (Settings > Interface, the default) has themes of its own, the four greys of the image
+//! editors (Photoshop's and Lightroom's): the panels as cards on a darker ground, rounded controls, the selection in
+//! blue, soft shadows under the windows and menus, and Inter (OFL-1.1, Latin subsets) for the text. Their ids follow
+//! the classic ones (MODERN + 0..4), so a theme is one id wherever the colours are asked for.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, AtomicU32, AtomicUsize, Ordering};
 
 use egui::epaint::text::FontTweak;
-use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Margin, Stroke, TextStyle, Visuals};
+use egui::{
+    Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Shadow, Stroke, TextStyle, Visuals,
+};
 
 pub const NAMES: [&str; 7] = ["Dark", "Light", "Classic", "Janus", "Studio", "Graphite", "Matrix"];
 pub const DARK: usize = 0;
@@ -18,6 +25,27 @@ pub const JANUS: usize = 3;
 pub const STUDIO: usize = 4;
 pub const GRAPHITE: usize = 5;
 pub const MATRIX: usize = 6;
+
+/// The modern interface's themes, darkest to lightest (Photoshop's four), and the id of the first.
+pub const MODERN_NAMES: [&str; 4] = ["Darkest", "Dark", "Medium", "Light"];
+pub const MODERN: usize = NAMES.len();
+pub const MODERN_DARK: usize = MODERN + 1;
+pub const MODERN_LIGHT: usize = MODERN + 3;
+
+/// Whether theme `id` is one of the modern interface's.
+pub fn is_modern(id: usize) -> bool {
+    id >= MODERN
+}
+
+/// The interface drawn in the modern look.
+pub fn modern() -> bool {
+    is_modern(current())
+}
+
+/// Dark panels (light text).
+fn is_dark(id: usize) -> bool {
+    !matches!(id, LIGHT | STUDIO | MODERN_LIGHT)
+}
 
 /// The interface's text in ImGui's pixels (the C++'s FontSize setting): 13 is ImGui's ProggyClean as drawn.
 pub const DEFAULT_FONT_SIZE: i32 = 13;
@@ -30,8 +58,23 @@ pub fn egui_font_size(px: i32) -> f32 {
     px as f32 * 16.0 / 13.0
 }
 
+/// The body text's size in egui's points for the Font size setting `px`: ImGui's pixels in the classic interface,
+/// Inter's em in the modern one (13: Photoshop's and Lightroom's panels).
+pub fn text_size(px: i32) -> f32 {
+    if modern() { px as f32 } else { egui_font_size(px) }
+}
+
+/// The semibold face at `size` (headings, the tabs, the chart's tags); the regular one in the classic interface.
+pub fn strong_font(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name(SEMIBOLD.into()))
+}
+
+const SEMIBOLD: &str = "semibold";
+
 static CURRENT: AtomicUsize = AtomicUsize::new(DARK);
 static OPACITY: AtomicU32 = AtomicU32::new(0x3f80_0000); // 1.0
+/// the body text's size (the tabs' titles are made without a style at hand)
+static BODY_SIZE: AtomicU32 = AtomicU32::new(0x4180_0000); // 16.0
 
 /// An RGBA colour as ImGui keeps it: floats, alpha not premultiplied.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -432,7 +475,167 @@ fn matrix() -> Palette {
     p
 }
 
+/// A modern theme's greys and its accent.
+#[derive(Clone, Copy)]
+struct Shade {
+    /// between the panels, at the window's edge, and the map's empty area
+    gutter: C,
+    /// the menu bar and the tab bars
+    bar: C,
+    panel: C,
+    /// text fields and the charts, inset
+    field: C,
+    /// buttons, boxes and handles: at rest, under the pointer, pressed
+    control: C,
+    hover: C,
+    pressed: C,
+    /// the controls' and the windows' outline
+    border: C,
+    text: C,
+    /// headings, the active tab, a pressed control's text
+    bright: C,
+    weak: C,
+    /// what is selected, the focus, the sliders' filled part
+    accent: C,
+    /// the accent as text (links): legible on the panels
+    accent_text: C,
+    warning: C,
+    error: C,
+}
+
+/// The modern themes: Photoshop's Darkest, Dark (its default), Medium and Light greys, Adobe's blue.
+fn shade(id: usize) -> Shade {
+    let h = C::hex;
+    match id.saturating_sub(MODERN) {
+        0 => Shade {
+            gutter: h(0x0B0B0B),
+            bar: h(0x141414),
+            panel: h(0x1B1B1B),
+            field: h(0x101010),
+            control: h(0x2A2A2A),
+            hover: h(0x343434),
+            pressed: h(0x3E3E3E),
+            border: h(0x2E2E2E),
+            text: h(0xD8D8D8),
+            bright: h(0xF5F5F5),
+            weak: h(0x8E8E8E),
+            accent: h(0x2F7BF5),
+            accent_text: h(0x5AA2FF),
+            warning: h(0xF0A64B),
+            error: h(0xFF6E61),
+        },
+        2 => Shade {
+            gutter: h(0x3A3A3A),
+            bar: h(0x454545),
+            panel: h(0x535353),
+            field: h(0x404040),
+            control: h(0x636363),
+            hover: h(0x6E6E6E),
+            pressed: h(0x787878),
+            border: h(0x474747),
+            text: h(0xF0F0F0),
+            bright: h(0xFFFFFF),
+            weak: h(0xCFCFCF),
+            accent: h(0x2F7BF5),
+            accent_text: h(0xA9D1FF),
+            warning: h(0xFFD08A),
+            error: h(0xFFC2BA),
+        },
+        3 => Shade {
+            gutter: h(0xC9C9C9),
+            bar: h(0xE1E1E1),
+            panel: h(0xF2F2F2),
+            field: h(0xFFFFFF),
+            control: h(0xE6E6E6),
+            hover: h(0xDADADA),
+            pressed: h(0xCDCDCD),
+            border: h(0xC6C6C6),
+            text: h(0x1F1F1F),
+            bright: h(0x000000),
+            weak: h(0x5E5E5E),
+            accent: h(0x1473E6),
+            accent_text: h(0x0D5FC0),
+            warning: h(0x8F4E00),
+            error: h(0xC0261D),
+        },
+        _ => Shade {
+            gutter: h(0x161616),
+            bar: h(0x1F1F1F),
+            panel: h(0x282828),
+            field: h(0x1A1A1A),
+            control: h(0x383838),
+            hover: h(0x424242),
+            pressed: h(0x4C4C4C),
+            border: h(0x3A3A3A),
+            text: h(0xDADADA),
+            bright: h(0xFFFFFF),
+            weak: h(0x9C9C9C),
+            accent: h(0x2F7BF5),
+            accent_text: h(0x62A8FF),
+            warning: h(0xF2A852),
+            error: h(0xFF7468),
+        },
+    }
+}
+
+/// A modern theme's swatch (Settings): its panel's colour, its text's and its tab bar's.
+pub fn swatch(id: usize) -> (Color32, Color32, Color32) {
+    let s = shade(id);
+    (s.panel.color(), s.text.color(), s.bar.color())
+}
+
+/// A modern theme on ImGui's slots (what the rest of the module reads); its look is modern_visuals' and
+/// dock_style's.
+fn modern_palette(id: usize) -> Palette {
+    let s = shade(id);
+    let dark = is_dark(id);
+    Palette {
+        text: s.text,
+        text_disabled: s.weak,
+        window_bg: s.panel,
+        // menus and windows a step above the panels
+        popup_bg: if dark { s.panel.mix(s.control, 0.45) } else { s.field },
+        border: s.border,
+        frame_bg: s.control,
+        frame_bg_hovered: s.hover,
+        frame_bg_active: s.pressed,
+        title_bg: s.bar,
+        title_bg_active: s.bar,
+        menu_bar_bg: s.bar,
+        scrollbar_bg: s.panel,
+        scrollbar_grab: s.control,
+        scrollbar_grab_hovered: s.hover,
+        scrollbar_grab_active: s.pressed,
+        check_mark: s.bright,
+        slider_grab: s.bright,
+        slider_grab_active: s.accent,
+        button: s.control,
+        button_hovered: s.hover,
+        button_active: s.pressed,
+        header: s.control,
+        header_hovered: s.hover,
+        header_active: s.accent,
+        separator: s.border,
+        separator_hovered: s.accent,
+        separator_active: s.accent,
+        tab: s.bar,
+        tab_hovered: s.bar.mix(s.panel, 0.5),
+        tab_selected: s.panel,
+        tab_selected_overline: s.panel,
+        docking_empty_bg: s.gutter,
+        table_header_bg: s.panel.mix(s.bar, 0.5),
+        table_row_bg_alt: if dark { C(1.0, 1.0, 1.0, 0.03) } else { C(0.0, 0.0, 0.0, 0.035) },
+        text_selected_bg: s.accent.a(0.45),
+        text_link: s.accent_text,
+        plot_bg: Some(s.field),
+        plot_grid: None,
+    }
+}
+
 fn palette(id: usize) -> Palette {
+    if is_modern(id) {
+        return modern_palette(id);
+    }
     match id {
         LIGHT => imgui_light(),
         CLASSIC => imgui_classic(),
@@ -455,7 +658,18 @@ struct Status {
 
 fn status() -> Status {
     let white = C(0.95, 0.95, 0.95, 1.0);
-    match CURRENT.load(Ordering::Relaxed) {
+    let id = CURRENT.load(Ordering::Relaxed);
+    if is_modern(id) {
+        let s = shade(id);
+        return Status {
+            accent: s.accent_text,
+            warning: s.warning,
+            error: s.error,
+            cursor: if is_dark(id) { white } else { C::hex(0x1A1A1C) },
+            clear: s.gutter,
+        };
+    }
+    match id {
         LIGHT => Status {
             accent: C(0.05, 0.33, 0.68, 1.0),
             warning: C(0.60, 0.32, 0.0, 1.0),
@@ -607,7 +821,7 @@ pub fn plot_fill() -> Color32 {
 
 fn visuals(id: usize, opacity: f32) -> Visuals {
     let mut p = palette(id);
-    let dark = id != LIGHT && id != STUDIO;
+    let dark = is_dark(id);
     let mut v = if dark { Visuals::dark() } else { Visuals::light() };
     p.window_bg.3 = 1.0;
     // translucent panels: the backgrounds take the opacity (the fields and buttons part of it, so they still read
@@ -675,7 +889,51 @@ fn visuals(id: usize, opacity: f32) -> Visuals {
     v.selection.bg_fill = p.header_active.a(p.header_active.3 * 0.8).color();
     v.slider_trailing_fill = true;
     v.text_cursor.stroke = Stroke::new(1.0, text);
+    if is_modern(id) {
+        modern_visuals(&mut v, &p, id, opacity);
+    }
     v
+}
+
+/// The modern look over the colours: rounded controls on a hairline outline, the selection and the sliders in the
+/// accent, soft shadows under the windows and menus, the strong text brighter than the rest (the text's colour no
+/// longer forced).
+fn modern_visuals(v: &mut Visuals, p: &Palette, id: usize, opacity: f32) {
+    let s = shade(id);
+    let dark = is_dark(id);
+    // the fields take part of the panels' opacity, as the controls do
+    let soft = |c: C| if opacity < 1.0 { c.a(c.3 * (0.5 + 0.5 * opacity)) } else { c };
+    let (text, bright) = (s.text.color(), s.bright.color());
+    v.override_text_color = None;
+    v.weak_text_color = Some(s.weak.color());
+    v.window_corner_radius = 8.into();
+    v.menu_corner_radius = 6.into();
+    let (window, popup) = if dark { (120, 90) } else { (46, 34) };
+    v.window_shadow = Shadow { offset: [0, 8], blur: 26, spread: 0, color: Color32::from_black_alpha(window) };
+    v.popup_shadow = Shadow { offset: [0, 4], blur: 14, spread: 0, color: Color32::from_black_alpha(popup) };
+    v.window_stroke = Stroke::new(1.0, s.border.color());
+    v.text_edit_bg_color = Some(soft(s.field).color());
+    v.code_bg_color = soft(s.field).color();
+    v.selection.bg_fill = s.accent.color();
+    v.selection.stroke = Stroke::new(1.0, Color32::WHITE);
+    v.text_cursor.stroke = Stroke::new(1.5, s.accent_text.color());
+    let w = &mut v.widgets;
+    w.noninteractive.bg_stroke = Stroke::new(1.0, s.border.mix(s.panel, 0.35).color());
+    w.noninteractive.fg_stroke = Stroke::new(1.0, text);
+    w.noninteractive.corner_radius = 4.into();
+    for (w, fill, outline, fg) in [
+        (&mut w.inactive, p.button, s.border, text),
+        (&mut w.hovered, p.button_hovered, s.hover.mix(s.bright, 0.12), bright),
+        (&mut w.active, p.button_active, s.accent, bright),
+        (&mut w.open, p.button_hovered, s.border, bright),
+    ] {
+        w.bg_fill = fill.color();
+        w.weak_bg_fill = fill.color();
+        w.bg_stroke = Stroke::new(1.0, outline.color());
+        w.fg_stroke = Stroke::new(1.0, fg);
+        w.corner_radius = 4.into();
+        w.expansion = 0.0;
+    }
 }
 
 fn plot_background_of(p: &Palette) -> C {
@@ -686,68 +944,111 @@ fn plot_background_of(p: &Palette) -> C {
     }
 }
 
-/// The face in use: -1 none yet, 0 ProggyClean, 1 ProggyForever.
+/// The face in use: -1 none yet, 0 ProggyClean, 1 ProggyForever, 2 Inter.
 static FACE: AtomicI32 = AtomicI32::new(-1);
+const INTER: i32 = 2;
 
 /// The fonts for the first frame (ImGui's at 13 px).
 pub fn load_fonts(ctx: &egui::Context) {
-    set_face(ctx, DEFAULT_FONT_SIZE);
+    set_face(ctx, DEFAULT_FONT_SIZE, false);
 }
 
 /// As the C++'s applyFont: ProggyClean (MIT, Tristan Grimmer), ImGui's bitmap font, keeps the usual look at 13 px;
 /// ProggyForever (MIT, Disco Hello and Tristan Grimmer), its scalable companion, stays sharp at the other sizes.
-/// egui's fonts again only when the face changes.
-fn set_face(ctx: &egui::Context, font_px: i32) {
-    let vector = font_px != DEFAULT_FONT_SIZE;
-    if FACE.swap(i32::from(vector), Ordering::Relaxed) == i32::from(vector) {
+/// The modern interface: Inter (OFL-1.1, The Inter Project Authors; Latin, Greek and symbols, egui's fonts after it
+/// for the rest), Hack (egui's) for the monospaced text. egui's fonts again only when the face changes.
+fn set_face(ctx: &egui::Context, font_px: i32, modern: bool) {
+    let face = if modern { INTER } else { i32::from(font_px != DEFAULT_FONT_SIZE) };
+    if FACE.swap(face, Ordering::Relaxed) == face {
         return;
     }
     let mut defs = FontDefinitions::default();
-    defs.font_data
-        .insert("ProggyClean".into(), Arc::new(FontData::from_static(include_bytes!("../assets/ProggyClean.ttf"))));
-    // egui sizes text by its em, ImGui by its line: ProggyForever's line is 0.828 em, ProggyClean's 0.8125 (13 / 16,
-    // egui_font_size's factor), so it is drawn at 0.8125 / 0.828 to keep ImGui's line heights
-    defs.font_data.insert(
-        "ProggyForever".into(),
-        Arc::new(
-            FontData::from_static(include_bytes!("../assets/ProggyForever-Regular-minimal.ttf"))
-                .tweak(FontTweak { scale: 0.8125 / 0.828, ..Default::default() }),
-        ),
-    );
-    let first = if vector { "ProggyForever" } else { "ProggyClean" };
-    for family in [FontFamily::Proportional, FontFamily::Monospace] {
-        defs.families.entry(family).or_default().insert(0, first.to_string());
-    }
+    let (first, strong) = if modern {
+        defs.font_data.insert(
+            "Inter".into(),
+            Arc::new(FontData::from_static(include_bytes!("../assets/Inter-Regular-latin.ttf"))),
+        );
+        defs.font_data.insert(
+            "Inter SemiBold".into(),
+            Arc::new(FontData::from_static(include_bytes!("../assets/Inter-SemiBold-latin.ttf"))),
+        );
+        defs.families.entry(FontFamily::Proportional).or_default().insert(0, "Inter".into());
+        ("Inter", "Inter SemiBold")
+    } else {
+        defs.font_data
+            .insert("ProggyClean".into(), Arc::new(FontData::from_static(include_bytes!("../assets/ProggyClean.ttf"))));
+        // egui sizes text by its em, ImGui by its line: ProggyForever's line is 0.828 em, ProggyClean's 0.8125 (13 /
+        // 16, egui_font_size's factor), so it is drawn at 0.8125 / 0.828 to keep ImGui's line heights
+        defs.font_data.insert(
+            "ProggyForever".into(),
+            Arc::new(
+                FontData::from_static(include_bytes!("../assets/ProggyForever-Regular-minimal.ttf"))
+                    .tweak(FontTweak { scale: 0.8125 / 0.828, ..Default::default() }),
+            ),
+        );
+        let first = if face == 1 { "ProggyForever" } else { "ProggyClean" };
+        for family in [FontFamily::Proportional, FontFamily::Monospace] {
+            defs.families.entry(family).or_default().insert(0, first.to_string());
+        }
+        (first, first)
+    };
+    // the semibold family: Inter's, the pixel font itself in the classic interface; the regular face's fallbacks
+    let mut semibold = defs.families[&FontFamily::Proportional].clone();
+    semibold.retain(|f| f != first);
+    semibold.insert(0, strong.to_string());
+    defs.families.insert(FontFamily::Name(SEMIBOLD.into()), semibold);
     ctx.set_fonts(defs);
 }
 
-/// The face the interface is drawn with: true for the scalable one (sizes other than 13 px).
+/// The face the interface is drawn with: true for a scalable one (Inter, or ProggyForever at sizes other than 13 px).
 pub fn scalable_face() -> bool {
-    FACE.load(Ordering::Relaxed) == 1
+    FACE.load(Ordering::Relaxed) >= 1
 }
 
-/// The style of every frame: theme `id`, its panels' opacity and the text at `font_px` (ImGui's pixels).
+/// The style of every frame: theme `id` (a modern one: the modern interface), its panels' opacity and the text at
+/// `font_px` (ImGui's pixels; Inter's em in the modern interface).
 pub fn apply(ctx: &egui::Context, id: usize, opacity: f32, font_px: i32) {
-    let id = id.min(NAMES.len() - 1);
+    let id = id.min(MODERN + MODERN_NAMES.len() - 1);
     CURRENT.store(id, Ordering::Relaxed);
     OPACITY.store(opacity.clamp(0.1, 1.0).to_bits(), Ordering::Relaxed);
-    let dark = id != LIGHT && id != STUDIO;
-    let theme = if dark { egui::Theme::Dark } else { egui::Theme::Light };
+    let theme = if is_dark(id) { egui::Theme::Dark } else { egui::Theme::Light };
     ctx.set_theme(theme);
     let font_px = font_px.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
-    set_face(ctx, font_px);
-    let size = egui_font_size(font_px);
-    // the spacing grows with the text, as ImGui's frames follow its font
-    let k = size / 16.0;
+    let modern = is_modern(id);
+    set_face(ctx, font_px, modern);
+    let size = if modern { font_px as f32 } else { egui_font_size(font_px) };
+    BODY_SIZE.store(size.to_bits(), Ordering::Relaxed);
     ctx.style_mut_of(theme, |s| {
         s.visuals = visuals(id, opacity);
+        s.interaction.tooltip_delay = 0.3;
+        s.spacing.slider_rail_height = 4.0;
+        if modern {
+            // airier than ImGui's: Photoshop's controls, 22 points high at 13
+            let k = size / 13.0;
+            s.spacing.item_spacing = egui::vec2(8.0, 5.0);
+            s.spacing.button_padding = egui::vec2(8.0, 3.0) * k.max(1.0);
+            s.spacing.interact_size.y = (size + 9.0).max(20.0);
+            s.spacing.window_margin = Margin::same(12);
+            s.spacing.menu_margin = Margin::same(6);
+            s.spacing.scroll.bar_width = 8.0;
+            s.text_styles = [
+                (TextStyle::Small, FontId::proportional((size * 0.85).max(9.0))),
+                (TextStyle::Body, FontId::proportional(size)),
+                (TextStyle::Button, FontId::proportional(size)),
+                (TextStyle::Heading, strong_font(size + 2.0)),
+                (TextStyle::Monospace, FontId::monospace(size * 0.92)),
+            ]
+            .into();
+            return;
+        }
+        // the spacing grows with the text, as ImGui's frames follow its font
+        let k = size / 16.0;
         s.spacing.item_spacing = egui::vec2(8.0, 4.0);
         s.spacing.button_padding = egui::vec2(4.0, 3.0) * k.max(1.0);
         s.spacing.interact_size.y = (size + 6.0).max(19.0);
         s.spacing.window_margin = Margin::same(8);
         s.spacing.menu_margin = Margin::same(6);
-        s.spacing.slider_rail_height = 4.0;
-        s.interaction.tooltip_delay = 0.3;
+        s.spacing.scroll = Default::default();
         s.text_styles = [
             (TextStyle::Small, FontId::proportional(size)),
             (TextStyle::Body, FontId::proportional(size)),
@@ -759,13 +1060,46 @@ pub fn apply(ctx: &egui::Context, id: usize, opacity: f32, font_px: i32) {
     });
 }
 
-/// The map's empty background: the C++'s, or nothing (the panel's own, at its opacity) with translucent panels.
+/// The map's empty background: the C++'s (the modern dark themes' ground), or nothing (the panel's own, at its
+/// opacity) with translucent panels.
 pub fn map_background() -> [f32; 4] {
-    if panel_opacity() < 1.0 { [0.0; 4] } else { [0.10, 0.10, 0.115, 1.0] }
+    if panel_opacity() < 1.0 {
+        return [0.0; 4];
+    }
+    // the light theme's map stays dark: the map's labels are light on a dark outline
+    if modern() && current() != MODERN_LIGHT {
+        let g = shade(current()).gutter;
+        return [g.0, g.1, g.2, 1.0];
+    }
+    [0.10, 0.10, 0.115, 1.0]
 }
 
-/// The dock's look: tabs and separators as ImGui draws them in the theme.
+/// The menu bar's frame: the panels' in the classic interface, the tab bars' grey in the modern one.
+pub fn menu_bar_frame(style: &egui::Style) -> egui::Frame {
+    if !modern() {
+        return egui::Frame::side_top_panel(style);
+    }
+    let bar = shade(current()).bar;
+    let o = panel_opacity();
+    egui::Frame::new().fill(bar.a(if o < 1.0 { o } else { 1.0 }).color()).inner_margin(Margin::symmetric(8, 4))
+}
+
+/// A panel's title on its tab: semibold in the modern interface.
+pub fn tab_title(title: String) -> egui::WidgetText {
+    if modern() {
+        let size = f32::from_bits(BODY_SIZE.load(Ordering::Relaxed));
+        egui::RichText::new(title).font(strong_font(size)).into()
+    } else {
+        title.into()
+    }
+}
+
+/// The dock's look: tabs and separators as ImGui draws them in the theme; the modern interface's panels as
+/// rounded cards on the theme's ground, their tabs on a darker bar, the active one the panel's colour.
 pub fn dock_style(style: &egui::Style) -> egui_dock::Style {
+    if modern() {
+        return modern_dock_style(style);
+    }
     let p = palette(current());
     let mut st = egui_dock::Style::from_egui(style);
     let o = panel_opacity();
@@ -792,6 +1126,51 @@ pub fn dock_style(style: &egui::Style) -> egui_dock::Style {
     st
 }
 
+fn modern_dock_style(style: &egui::Style) -> egui_dock::Style {
+    let s = shade(current());
+    let mut st = egui_dock::Style::from_egui(style);
+    let o = panel_opacity();
+    let fade = |c: C| if o < 1.0 { c.a(c.3 * o) } else { c };
+    // the cards' corners: the tab bar's top ones, the body's bottom ones
+    let top = CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 };
+    st.dock_area_padding = Some(Margin::same(4));
+    st.tab_bar.bg_fill = fade(s.bar).color();
+    st.tab_bar.hline_color = Color32::TRANSPARENT;
+    st.tab_bar.corner_radius = top;
+    st.tab_bar.height = (style.text_styles[&TextStyle::Body].size + 14.0).max(24.0);
+    st.tab.minimum_width = Some(56.0);
+    let tab = |fill: C, text: C| egui_dock::TabInteractionStyle {
+        outline_color: Color32::TRANSPARENT,
+        corner_radius: CornerRadius { nw: 5, ne: 5, sw: 0, se: 0 },
+        bg_fill: fade(fill).color(),
+        text_color: text.color(),
+    };
+    st.tab.active = tab(s.panel, s.bright);
+    st.tab.focused = tab(s.panel, s.bright);
+    st.tab.inactive = tab(s.bar, s.weak);
+    st.tab.hovered = tab(s.bar.mix(s.panel, 0.5), s.text);
+    st.tab.active_with_kb_focus = st.tab.active.clone();
+    st.tab.focused_with_kb_focus = st.tab.focused.clone();
+    st.tab.inactive_with_kb_focus = st.tab.hovered.clone();
+    st.tab.hline_below_active_tab_name = false;
+    st.tab.tab_body.bg_fill = style.visuals.panel_fill;
+    st.tab.tab_body.stroke = Stroke::NONE;
+    st.tab.tab_body.corner_radius = CornerRadius { nw: 0, ne: 0, sw: 6, se: 6 };
+    st.tab.tab_body.inner_margin = Margin::symmetric(10, 8);
+    st.buttons.close_tab_color = s.weak.color();
+    st.buttons.close_tab_active_color = s.bright.color();
+    st.buttons.close_tab_bg_fill = s.hover.color();
+    // the ground between the cards: where a separator is dragged, in the accent
+    st.separator.width = 4.0;
+    st.separator.extra_interact_width = 2.0;
+    st.separator.color_idle = fade(s.gutter).color();
+    st.separator.color_hovered = s.accent.color();
+    st.separator.color_dragged = s.accent.color();
+    st.overlay.selection_color = s.accent.a(0.25).color();
+    st.main_surface_border_stroke = Stroke::NONE;
+    st
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -800,6 +1179,8 @@ mod tests {
     #[test]
     fn imgui_font_size() {
         let ctx = egui::Context::default();
+        // the fonts loaded into this context whatever another test left as the face in use
+        FACE.store(-1, Ordering::Relaxed);
         load_fonts(&ctx);
         apply(&ctx, DARK, 1.0, DEFAULT_FONT_SIZE);
         // the frame's font atlas not uploaded anywhere: egui 0.36 panics on a TexturesDelta dropped unapplied
@@ -808,6 +1189,18 @@ mod tests {
             f.layout_no_wrap("MMMMMMMMMM".into(), FontId::proportional(egui_font_size(13)), Color32::WHITE)
         });
         assert!((g.size().x - 70.0).abs() < 0.5 && (g.size().y - 13.0).abs() < 0.5, "{:?}", g.size());
+        // the modern interface (in the same test: the face in use is the process's): Inter, proportional, its
+        // semibold wider, the body at the setting's size
+        apply(&ctx, MODERN_DARK, 1.0, DEFAULT_FONT_SIZE);
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let width =
+            |text: &str, font: FontId| ctx.fonts_mut(|f| f.layout_no_wrap(text.into(), font, Color32::WHITE)).size().x;
+        let body = FontId::proportional(13.0);
+        assert!(width("iiiiiiiiii", body.clone()) < 0.6 * width("MMMMMMMMMM", body.clone()));
+        assert!(width("Time series", strong_font(13.0)) > width("Time series", body));
+        let size = ctx.style_of(egui::Theme::Dark).text_styles[&TextStyle::Body].size;
+        assert_eq!(size, 13.0);
+        apply(&ctx, DARK, 1.0, DEFAULT_FONT_SIZE);
     }
 
     /// Every theme keeps the text and the data colours legible (WCAG: 4.5:1 for text, 3:1 for chart series), and
@@ -820,7 +1213,7 @@ mod tests {
             Color32::from_rgb(115, 158, 230),
             Color32::from_rgb(242, 38, 242),
         ];
-        for (id, name) in NAMES.iter().enumerate() {
+        for (id, name) in NAMES.iter().chain(&MODERN_NAMES).enumerate() {
             CURRENT.store(id, Ordering::Relaxed);
             OPACITY.store(1f32.to_bits(), Ordering::Relaxed);
             let p = palette(id);

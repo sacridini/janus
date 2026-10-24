@@ -105,7 +105,7 @@
   Planet: with your key and under the provider's terms). Off by default:
   nothing is downloaded until you pick a source, and each session and each
   series opened start with it hidden (the source is remembered; adding a layer
-  keeps it) until you tick it. Only the tiles in view, at the
+  keeps it) until you show it (its eye in the Layers panel). Only the tiles in view, at the
   screen's zoom level, are read in the background (coarser ones fill in while
   they arrive) and kept in the cache folder; the map never waits for them. It
   is drawn under every layer (lower a layer's opacity to see the ground), on the
@@ -267,12 +267,13 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Remove a pin | right click it (Mac: Control + click, or a two-finger click on the trackpad), `Delete` (last one) or the **x** in the statistics table |
 | ROI | `Shift` + drag: rectangular ROI, mean and p10–p90 per date (or a box plot per date: the *ROI* list above the chart); with *All visible layers* on the chart, also on every visible layer (its own pixels under the rectangle, reprojected if needed) |
 | Polygonal ROI | `R` (or View → Draw ROI polygon), then click the vertices and close it on the first one, with a double click or `Enter` (`Backspace` undoes a vertex, `Esc` cancels); or, after `R`, drag a freehand outline (lasso), closed when you let go. The statistics, the local PCA of embeddings, the similarity to the ROI and the scatter use the pixels whose centres are inside; a Zeit run on the ROI covers its bounding box. **Alt + click** a polygon of a vector layer (holes included) to make it the ROI; View → Clear ROI |
-| Vector layers | File → Add vector layer..., the **Layers** panel (*Add vector layer...*), a drop or the command line: GeoJSON, Shapefile, GeoPackage (each of its layers), KML, FlatGeobuf, GML, GPX or a CSV of points; listed in the **Layers** panel with the series (a new one on top): show/hide, colour, move, remove; right click → Zoom to it, Extract series, Interpret. Hovering a point shows its attributes (lines and polygons: hold `Alt`); see [Vector layers](#vector-layers) |
+| Vector layers | File → Add vector layer..., the **Layers** panel (*Add vector layer...*), a drop or the command line: GeoJSON, Shapefile, GeoPackage (each of its layers), KML, FlatGeobuf, GML, GPX or a CSV of points; listed in the **Layers** panel with the series (a new one on top): show/hide, colour, move, remove; right click → Zoom to it, Attribute table, Extract series, Interpret. Hovering a point shows its attributes (lines and polygons: hold `Alt`); see [Vector layers](#vector-layers) |
 | Series at points or polygons | a vector layer → **Extract series...**: the active layer or every visible one, a row per feature (a column per date) or a row per feature and date; CSV |
 | Interpretation (labelling) | a vector layer → **Interpret...** (the **Interpretation** panel): `N` / `Shift+N` (or Page Down / Page Up) next / previous feature, `1`–`9` its label, `0` clears it, `D` the date of the change (the date on the map), `Shift+D` none; notes; *Export table...* |
 | Animation | File → Export animation (`Ctrl+Shift+A`): dates (from, to, step), frame rate, resolution, GIF / MP4 / WebM, date stamp, legend, scale bar, pins, ROI and vector layers; see [Animation](#animation-gif-mp4-webm) |
 | Time | `←`/`→` previous/next date, `P` play/pause, click or drag on the chart |
-| Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or drag it) |
+| Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or typed, or dragged on the histogram) |
+| Histogram | **Display** panel, under the range: the values shown (0.5–99.5% of them) filled in the colours the map gives them, dimmed outside the range, the colormap strip under it; drag a triangle (or its line) to move an end of the range, between them to move both, double click for the automatic range again; the pointer over it shows a bar's values and share |
 | Change between dates | **Display** panel → *Difference (value - reference)*: pick the *Reference* (a date, or *Previous date (t-1)*); diverging colours centered at 0, follows the time bar |
 | Temporal composite | **Display** panel → *Temporal composite*: median, mean, maximum, minimum or number of observations of each pixel over a window: the shown date's year (the arrows and playback then go year by year), some days around the date (a moving window) or the whole series; with the season, only its dates. Computed in the map shader over the overview's dates each time the map is drawn (the median of up to 64 values: every k-th one beyond) |
 | Season | **Display** panel → Season → *Only part of the year*: a window of days of the year (presets by months: DJF, JJA, Apr–Sep...; a start after the end wraps over the new year and belongs to the year it ends in). The dates outside it are left out of the temporal statistics (mean, trend, std...), the composites, playback and the arrow keys; the chart shades the season. Applies to every layer with dates |
@@ -282,10 +283,10 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | RGB of three bands | **Display** panel → RGB composite (one file per date with several bands): *Three bands of each date as RGB*, a preset (true colour, colour infrared, SWIR, agriculture, land/water: bands found by their names or wavelengths) or any three bands, the map's date or a fixed one, the stretch of each channel (2–98% of the first image, kept for every date; *Stretch to this image*). The chart, the cursor and the tools keep the series' band or index; zoomed in, the visible area is read again at full resolution; map panels, the swipe, PNGs and animations show it too |
 | Python of a series | Time series panel → **Copy Python** → the cursor, a pin or the ROI: code (numpy, rasterio) that reads the same series from the files (band, normalized difference, quality mask; the ROI's pixels inside it), prints its statistics and, with a Zeit tool on the chart, makes the same Zeit calls with the same parameters (as the tool made them: recorded, not rewritten) |
 | Reset layout | **View → Reset layout** (`Ctrl+Shift+R`, Mac: `Command+Shift+R`): every panel docked where it was at the first start, the floating windows (Exports, Tasks, Log, Settings) back to their first size and place, map panels to the right of the main map; the panels open stay open |
-| Performance panel | **View → Performance** (hidden by default): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**), disk cache (what the caches take, their budget, the disk's free space) |
-| Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): interface theme (Dark, Light, Classic, Janus, Studio, Graphite), font size, whether the Files panel follows what is opened, processing threads, overview memory, the disk cache budget (automatic or set by hand), full-resolution cache (when it is built) and clearing the caches; kept between sessions (see [Settings](#settings)) |
-| Several series | **Layers** panel (*+ Add*) or File → Open (`Ctrl+O`): each opens as a new layer; several images that are not dates of one series: *File → Open files as separate layers...* or a drop with `Shift`. The panel is a table of contents in sections that fold (*Layers*, *Embeddings*, *Basemap*), top of the list drawn on top: series and vector layers in one order, as in a GIS (a new series goes over the other series but under the vector layers, a new vector layer on top; a vector layer can then be moved under a raster one, or a raster over it); a row a layer (show/hide, its name, its date or kind, a **...** menu); click a series to make it active (`Space` shows or hides it), double click to zoom to it, drag any row onto another to reorder. **Right click** (or **...**): make active, zoom to it, opacity, move (to the top, up, down, to the bottom), **Export** (map as PNG, values or rendered view as GeoTIFF, animation), close; a vector layer's: colour, interpret, extract series, zoom to it, **Export as** GeoPackage, GeoJSON, Shapefile or CSV, remove. The arrow unfolds a series: its opacity, size and placement ("reprojected from EPSG:…"), and the maps its runs made as rows of their own (each with its colormap and range, or its classes' legend, when unfolded, and **Save as GeoTIFF** in its menu). With five or more, a filter by name keeps the list short |
-| Basemap | **Layers** panel → Basemap (below the layers): pick a source (None = nothing downloaded), tick to show/hide, opacity; `S` shows or hides satellite imagery (Esri World Imagery, or the imagery source picked); *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. The source and its settings are kept between sessions, but it starts hidden, as does every series opened (tick to show); the map panels' and the swipe's layer list has *Basemap only* |
+| Performance panel | **View → Performance** (hidden by default, and not kept open from one session to the next): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**), disk cache (what the caches take, their budget, the disk's free space) |
+| Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): the interface (Modern or Classic) and its theme, font size, whether the Files panel follows what is opened, processing threads, overview memory, the disk cache budget (automatic or set by hand), full-resolution cache (when it is built) and clearing the caches; kept between sessions (see [Settings](#settings)) |
+| Several series | **Layers** panel (*+ Add*) or File → Open (`Ctrl+O`): each opens as a new layer; several images that are not dates of one series: *File → Open files as separate layers...* or a drop with `Shift`. The panel is a table of contents: the active layer's opacity on top, then one list, top of the list drawn on top, the basemap its last row (under every layer); *Add embeddings* folds under it: series and vector layers in one order, as in a GIS (a new series goes over the other series but under the vector layers, a new vector layer on top; a vector layer can then be moved under a raster one, or a raster over it); a row a layer (the eye shows or hides it, a picture of it in its colormap or geometry, its name over its dates or kind, the date shown at its right, a **⋯** menu while the pointer is over it); click a series to make it active (`Space` shows or hides it), double click to zoom to it, drag any row onto another to reorder. **Right click** (or **...**): make active, zoom to it, opacity, move (to the top, up, down, to the bottom), **Export** (map as PNG, values or rendered view as GeoTIFF, animation), close; a vector layer's: colour, attribute table, interpret, extract series, zoom to it, **Export as** GeoPackage, GeoJSON, Shapefile or CSV, remove. The arrow unfolds a series with tool results: the maps its runs made as rows of their own (each with its colormap and range, or its classes' legend, when unfolded, and **Save as GeoTIFF** in its menu). With five or more, a filter by name keeps the list short |
+| Basemap | **Layers** panel → Basemap (the list's last row): its eye shows or hides it; click the row (or its arrow) to pick a source (None = nothing downloaded); opacity in its **⋯** menu; `S` shows or hides satellite imagery (Esri World Imagery, or the imagery source picked); *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. The source and its settings are kept between sessions, but it starts hidden, as does every series opened (its eye shows it); the map panels' and the swipe's layer list has *Basemap only* |
 | Browse files | **Files** panel: double click opens, right click → Add as layer or Add to favorites; Ctrl+click selects several files; hover a folder for what it would open as. Opening a series expands the tree down to it (Settings → *Files panel follows what is opened*) |
 | Add by dropping | drop files or a folder on the window: a new layer (several files make one series of their dates; with `Shift` held, each file a layer of its own) |
 | Seasonal views, classes over time, scatter | **View → Analysis** (see above) |
@@ -309,7 +310,11 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Embeddings | **View → Embeddings**: principal components as RGB (of every year, or *local* to the ROI), similarity to the cursor, a pin or the ROI, change between years; see [Embeddings](#embeddings) |
 | Add embeddings of the visible area | **Layers** panel → Embeddings (above the basemap): AlphaEarth or TESSERA, years, cell size, visible area or ROI, then **Add embeddings**; progress on the map, the layer comes on top when it is ready |
 
-Clicking a legend entry hides/shows that series together with its trend line.
+Clicking a legend entry hides/shows that series together with its trend line. Hovering the chart shows the
+date under the pointer: a dashed line, each series' value marked on it, and a card with the values (the ROI's
+p10 and p90 under its mean; the class's name for a categorical layer). The main series (the cursor's, else the
+ROI's mean, else the last pin's) has an area fading under it; trend lines are dashed; with Lines + markers the
+markers are left out when the dates are closer than 7 points.
 
 ## Zeit tools
 
@@ -697,7 +702,9 @@ read as longitude and latitude).
   a colour, can be hidden or removed; right click its name for *Zoom to it*.
 - **Without a raster**: vector files opened alone make a map of their own (an
   empty canvas in their CRS over their extent, with the basemap under them);
-  it goes when a series is opened.
+  it goes when a series is opened. The **Time series** and **Statistics**
+  panels are left out until then: they come with the first raster series
+  (where they were, if nothing else was moved) and go with the last one.
 - **Large layers**: the GPU draws them, as a GIS does. Once placed, a layer
   is uploaded once (in the background, a moment for millions of vertices) as
   levels of detail (each ring simplified with Douglas–Peucker, the tolerance
@@ -709,8 +716,18 @@ read as longitude and latitude).
   read in 0.5 s, placed in 0.05 s (0.4 s reprojected to UTM), built for the
   GPU in 0.4–1.2 s, 230–380 MB of GPU memory. Until a layer is uploaded, and
   for the feature under the cursor, the CPU draws it.
-- **Attributes**: hovering a point shows its fields; for lines and polygons
-  hold `Alt`. The status bar names the feature under the cursor.
+- **Attributes**: a file opens with its geometries alone (OGR skips the
+  fields: 200 000 polygons of 16 fields read in 0.23 s from a GeoPackage
+  instead of 1.07 s, 0.68 s instead of 1.85 s from a Shapefile); the fields
+  are read when asked. Hovering a point shows its fields (read for it alone);
+  for lines and polygons hold `Alt`. The status bar names the feature under
+  the cursor.
+- **Attribute table** (right click → *Attribute table*, or View → Attribute
+  table): the layer's rows in a panel next to the chart (below the map without
+  a series), read from the file in the background the first time; a filter
+  (a text in any field), a click on a column's header sorts by it (numbers as
+  numbers; again: descending, then as read), a click on a row highlights its
+  feature on the map, a double click zooms to it.
 - **A polygon as the ROI**: `Alt` + click it. Its holes are left out; the
   statistics, box plots, embeddings' local PCA and the scatter use the pixels
   whose centres are inside, on every layer.
@@ -943,10 +960,11 @@ once and is kept in the layout file, next to the other data of Janus
 
 | Setting | What it does |
 |---|---|
-| Theme | **Dark** (the default), **Light**, **Classic** (ImGui's original colours), **Janus** (the program's colours: blue on navy panels, orange accents), **Studio** (mid grey with dark text and dark chart displays) **Graphite** (dark grey with a yellow accent) or **Matrix** (phosphor green on black). Status text and chart series are adjusted to stay legible on each; the map, its colour bars and exported figures keep their colours |
+| Interface | **Modern** (the default): the look of the image editors (Photoshop, Lightroom): the panels as rounded cards on a darker ground, their tabs on a darker bar, rounded controls, the selection in blue, soft shadows under windows and menus, and a proportional font (Inter); its themes are Photoshop's four greys, **Darkest**, **Dark** (the default), **Medium** and **Light**, picked from their swatches. **Classic**: Dear ImGui's look, as the C++ version draws it (its pixel font and the seven themes below). Everything else (the panels, their places, the menus, the shortcuts) is the same in both; `--interface modern|classic[,THEME]` chooses for one run |
+| Theme (classic) | **Dark** (the default), **Light**, **Classic** (ImGui's original colours), **Janus** (the program's colours: blue on navy panels, orange accents), **Studio** (mid grey with dark text and dark chart displays) **Graphite** (dark grey with a yellow accent) or **Matrix** (phosphor green on black). Status text and chart series are adjusted to stay legible on each; the map, its colour bars and exported figures keep their colours |
 | Panels' background | How opaque the panels' backgrounds are, 10 to 100% (100% by default): below 100% the desktop (or whatever is behind the window) shows through the panels, the menus and the map's empty area, while text, chart lines, controls and the map's data stay opaque; in every window, the detached panels' included. Contrast is kept on the theme's own colours |
 | Whole window | The opacity of the whole window, 20 to 100% (the system's window transparency: text and map included), and of every detached panel |
-| Font size | Size of the interface text, 10 to 28 px (13 by default: ImGui's pixel font; other sizes use its scalable font). Widgets keep their widths; exported figures keep their text as at 13 px |
+| Font size | Size of the interface text, 10 to 28 px (13 by default: ImGui's pixel font in the classic interface, other sizes its scalable font; Inter in the modern one). Widgets keep their widths; exported figures keep their text as at 13 px |
 | Files panel follows what is opened | On by default: opening a series, a file or a folder (from anywhere) expands the Files panel down to it and scrolls there; its folder is listed again, so new files show up |
 | Processing threads | How many CPU threads Janus and Zeit may use, shown as *N of M* logical cores; default: all but 2 (at least 1), so the computer stays responsive during long runs. Applies to the readers of the open series (they shrink or grow at once), the full-resolution cache, exports (GeoTIFF compression, PNG) and Zeit: raster jobs started from then on (as `OMP_NUM_THREADS`, `NUMBA_NUM_THREADS`, the BLAS limits and Zeit's `n_jobs`; jobs already running keep theirs) and the process that fits the chart and estimates run times (replaced in the background once idle) |
 | Overview memory | Memory for the cube overview (1024 MB by default); **Apply** reopens the active layer. `--budget` overrides it for one run |

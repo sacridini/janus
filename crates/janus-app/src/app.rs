@@ -37,6 +37,8 @@ pub enum Tab {
     Embeddings,
     /// Validation > Validation panel, next to the statistics
     Validation,
+    /// a vector layer's rows (its menu, or View > Attribute table), next to the time series (else below the map)
+    Attributes,
     /// a Zeit tool (its index in the manifest), the tasks and the chips, in the dock of a tour of the guides
     /// (--shots)
     Tool(u16),
@@ -68,6 +70,7 @@ impl Tab {
             Tab::Analysis => "Analysis",
             Tab::Embeddings => "Embeddings",
             Tab::Validation => "Validation",
+            Tab::Attributes => "Attribute table",
             Tab::Tool(i) => janus_zeit::manifest().tools.get(i as usize).map_or("Tool", |t| t.name.as_str()),
             Tab::Tasks => "Tasks",
             Tab::Chips => "Chips",
@@ -78,7 +81,7 @@ impl Tab {
 
 /// The C++'s default layout (app.cpp, dockDefaultLayout): Layers and Files above Display on the left (0.21; the
 /// Performance panel, off by default, opens as a tab next to Display), the map in the centre, the time series and
-/// the statistics below it (0.36).
+/// the statistics below it (0.36; while a raster series is open: JanusApp::series_panels).
 fn default_layout() -> DockState<Tab> {
     let mut d = DockState::new(vec![Tab::Map]);
     let s = d.main_surface_mut();
@@ -97,33 +100,69 @@ fn layout_path() -> std::path::PathBuf {
 
 fn load_layout() -> Option<DockState<Tab>> {
     let text = std::fs::read_to_string(layout_path()).ok()?;
-    let d: DockState<Tab> = serde_json::from_str(&text).ok()?;
-    // every panel the program has, once (a layout from another version may lack one)
-    let all = [Tab::Map, Tab::Layers, Tab::Files, Tab::Display, Tab::TimeSeries, Tab::Statistics];
+    let mut d: DockState<Tab> = serde_json::from_str(&text).ok()?;
+    // a panel shown for a while kept by an older version (Performance): out, a session starts without it
+    d.retain_tabs(|t| !transient(t));
+    // the panels always there, once (a layout from another version may lack one); the series panels may be out
+    let all = [Tab::Map, Tab::Layers, Tab::Files, Tab::Display];
     all.iter().all(|t| d.find_tab(t).is_some()).then_some(d)
 }
 
-/// The dock as kept: the map panels left out.
+/// The panels shown for a while (a map panel, those of the menus, Performance), not kept in the layout.
+fn transient(t: &Tab) -> bool {
+    matches!(
+        t,
+        Tab::MapView(_)
+            | Tab::Performance
+            | Tab::Transect
+            | Tab::Interpretation
+            | Tab::Analysis
+            | Tab::Embeddings
+            | Tab::Validation
+            | Tab::Attributes
+            | Tab::Tool(_)
+            | Tab::Tasks
+            | Tab::Chips
+            | Tab::DeepLearning
+    )
+}
+
+/// The panels of a raster series: its chart and its statistics, in the dock while one is open.
+fn series_panel(t: &Tab) -> bool {
+    matches!(t, Tab::TimeSeries | Tab::Statistics)
+}
+
+/// The dock as kept: the transient panels left out.
 fn layout_text(dock: &DockState<Tab>) -> Option<String> {
-    let mut d = dock.clone();
-    while let Some(p) = d.find_tab_from(|t| {
-        matches!(
-            t,
-            Tab::MapView(_)
-                | Tab::Transect
-                | Tab::Interpretation
-                | Tab::Analysis
-                | Tab::Embeddings
-                | Tab::Validation
-                | Tab::Tool(_)
-                | Tab::Tasks
-                | Tab::Chips
-                | Tab::DeepLearning
-        )
-    }) {
-        d.remove_tab(p);
+    serde_json::to_string(&dock.filter_tabs(|t| !transient(t))).ok()
+}
+
+/// The main window's dock as a text of its nodes (their splits and tabs, not their sizes on the screen nor the tab
+/// in front): two docks of the same text have their panels in the same places.
+fn dock_shape(d: &DockState<Tab>) -> String {
+    use egui_dock::Node;
+    let node = |n: &Node<Tab>| match n {
+        Node::Empty => "-".to_string(),
+        Node::Leaf(l) => format!("{:?}", l.tabs),
+        Node::Vertical(s) => format!("V{:.4}", s.fraction),
+        Node::Horizontal(s) => format!("H{:.4}", s.fraction),
+    };
+    d.main_surface().iter().map(node).collect::<Vec<_>>().join(" ")
+}
+
+/// `tab` in the dock: next to the first of `near` found in the main window, else below the map.
+fn dock_near(dock: &mut DockState<Tab>, tab: Tab, near: &[Tab]) {
+    if let Some(p) = near.iter().find_map(|t| dock.find_tab(t).filter(|p| p.surface.is_main())) {
+        dock.set_focused_node_and_surface(p.node_path());
+        dock.push_to_focused_leaf(tab);
+        return;
     }
-    serde_json::to_string(&d).ok()
+    match dock.find_tab(&Tab::Map).filter(|p| p.surface.is_main()) {
+        Some(p) => {
+            dock.main_surface_mut().split_below(p.node, 0.64, vec![tab]);
+        }
+        None => dock.push_to_first_leaf(tab),
+    }
 }
 
 /// Options of the command line.
@@ -142,6 +181,8 @@ pub struct Options {
     pub detach_map: bool,
     /// --settings: the Settings window open from the start (screenshots)
     pub settings_open: bool,
+    /// --interface modern|classic[,THEME]: the interface (and its theme) of this run (screenshots)
+    pub interface: Option<String>,
     /// the window maximized at the start (not for the tests and screenshots)
     pub maximize: bool,
     /// --profile-tour: the C++'s fixed tour of the series, timed stage by stage
@@ -272,6 +313,9 @@ pub struct LayoutReport {
     pub display: Option<String>,
     pub layers: Option<String>,
     pub map: Option<String>,
+    /// the chart and the statistics in the dock, the attribute table's node
+    pub series_panels: bool,
+    pub attributes: Option<String>,
     pub detached: usize,
     pub exports: Option<egui::Rect>,
 }
@@ -304,6 +348,8 @@ pub struct State {
     pub vector_loads: crate::vectors::VectorLoads,
     pub next_vector_id: u32,
     pub hover_vector: Option<(usize, usize)>,
+    /// the Attribute table panel
+    pub attr_table: crate::attributes::AttributeTableUi,
     /// the top of the drawing order (order.rs)
     pub next_z: u64,
     pub extract: crate::vectors::ExtractUi,
@@ -445,6 +491,8 @@ struct Detached {
 
 pub struct JanusApp {
     pub(crate) dock: DockState<Tab>,
+    /// the layout with the series panels, kept while they are out (no raster series open)
+    series_layout: Option<DockState<Tab>>,
     /// the layout as kept, and when it was last compared with the dock
     layout_saved: String,
     layout_checked: Instant,
@@ -463,7 +511,7 @@ impl TabViewer for Tabs<'_> {
     type Tab = Tab;
 
     fn title(&mut self, tab: &mut Tab) -> WidgetText {
-        tab.title().into()
+        theme::tab_title(tab.title())
     }
 
     fn id(&mut self, tab: &mut Tab) -> Id {
@@ -473,7 +521,13 @@ impl TabViewer for Tabs<'_> {
     fn is_closeable(&self, tab: &Tab) -> bool {
         matches!(
             tab,
-            Tab::MapView(_) | Tab::Transect | Tab::Interpretation | Tab::Analysis | Tab::Embeddings | Tab::Validation
+            Tab::MapView(_)
+                | Tab::Transect
+                | Tab::Interpretation
+                | Tab::Analysis
+                | Tab::Embeddings
+                | Tab::Validation
+                | Tab::Attributes
         )
     }
 
@@ -495,6 +549,9 @@ impl TabViewer for Tabs<'_> {
         }
         if *tab == Tab::Validation {
             self.s.val.show = false;
+        }
+        if *tab == Tab::Attributes {
+            self.s.attr_table.show = false;
         }
         egui_dock::tab_viewer::OnCloseResponse::Close
     }
@@ -546,6 +603,7 @@ impl TabViewer for Tabs<'_> {
                 );
             }
             Tab::Chips => self.s.chips_ui(ui),
+            Tab::Attributes => self.s.attribute_table_ui(ui),
             _ => {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match tab {
                     Tab::Layers => self.s.contents_ui(ui),
@@ -570,9 +628,12 @@ impl JanusApp {
         let window_ms = t0.elapsed().as_secs_f64() * 1000.0;
         // the settings kept (the C++'s the first time): the theme and the font before the first frame
         // the screenshots of the guides in the default settings: the user's are neither read nor written
-        let (settings, bm) = if opts.shots.is_some() { Default::default() } else { crate::settings::load() };
+        let (mut settings, bm) = if opts.shots.is_some() { Default::default() } else { crate::settings::load() };
+        if let Some(spec) = &opts.interface {
+            settings.set_interface(spec);
+        }
         theme::load_fonts(&cc.egui_ctx);
-        theme::apply(&cc.egui_ctx, settings.theme, settings.panel_opacity, settings.font_size);
+        theme::apply(&cc.egui_ctx, settings.look(), settings.panel_opacity, settings.font_size);
         let no_save = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
         let favorites = settings.favorites.clone();
         let render_state = cc.wgpu_render_state.clone().expect("Janus draws with wgpu");
@@ -589,6 +650,7 @@ impl JanusApp {
         let mut app = JanusApp {
             // the tests and screenshots in the C++'s default layout
             dock: if scripted { default_layout() } else { load_layout().unwrap_or_else(default_layout) },
+            series_layout: None,
             layout_saved: String::new(),
             layout_checked: Instant::now(),
             windows: Vec::new(),
@@ -616,6 +678,7 @@ impl JanusApp {
                 vector_loads: Default::default(),
                 next_vector_id: 1,
                 hover_vector: None,
+                attr_table: Default::default(),
                 next_z: 0,
                 extract: Default::default(),
                 labels: Default::default(),
@@ -687,6 +750,78 @@ impl JanusApp {
         }
         app.state.settings.show |= app.state.opts.settings_open;
         app
+    }
+
+    /// The series panels (the chart and the statistics) in the dock while a raster series is open, out otherwise
+    /// (nothing open, or vector layers alone): the layout with them kept meanwhile and given back as it was if
+    /// nothing else moved, else the chart below the map (with the panels there) and the statistics at its right.
+    fn series_panels(&mut self) {
+        // a tour of the guides lays its panels out itself
+        if self.state.shots.is_some() {
+            return;
+        }
+        let want = self.state.layers.iter().any(|l| !l.canvas);
+        let there = |app: &JanusApp, t: Tab| {
+            app.dock.find_tab(&t).is_some() || app.windows.iter().any(|w| w.dock.find_tab(&t).is_some())
+        };
+        let (chart, stats) = (there(self, Tab::TimeSeries), there(self, Tab::Statistics));
+        if !want {
+            if chart || stats {
+                if self.dock.find_tab(&Tab::TimeSeries).is_some() {
+                    self.series_layout = Some(self.dock.filter_tabs(|t| !transient(t)));
+                }
+                self.dock.retain_tabs(|t| !series_panel(t));
+                for w in &mut self.windows {
+                    w.dock.retain_tabs(|t| !series_panel(t));
+                }
+            }
+            return;
+        }
+        if chart && stats {
+            return;
+        }
+        if !chart
+            && !stats
+            && let Some(mut l) = self.series_layout.take()
+            && dock_shape(&l.filter_tabs(|t| !series_panel(t))) == dock_shape(&self.dock)
+        {
+            // as they were, with the tabs in front that are now
+            let front: std::collections::HashMap<Vec<Tab>, egui_dock::TabIndex> = self
+                .dock
+                .main_surface()
+                .iter()
+                .filter_map(|n| n.get_leaf())
+                .map(|l| (l.tabs.clone(), l.active))
+                .collect();
+            for leaf in l.main_surface_mut().iter_mut().filter_map(|n| n.get_leaf_mut()) {
+                if let Some(&a) = front.get(&leaf.tabs) {
+                    leaf.active = a;
+                }
+            }
+            self.dock = l;
+        }
+        let main = |d: &DockState<Tab>, t: Tab| d.find_tab(&t).filter(|p| p.surface.is_main());
+        if !there(self, Tab::TimeSeries) {
+            dock_near(&mut self.dock, Tab::TimeSeries, &[Tab::Attributes, Tab::Transect, Tab::Analysis]);
+        }
+        if !there(self, Tab::Statistics) {
+            let near = [Tab::Interpretation, Tab::Validation];
+            match main(&self.dock, Tab::TimeSeries) {
+                Some(p) if near.iter().all(|&t| main(&self.dock, t).is_none()) => {
+                    self.dock.main_surface_mut().split_right(p.node, 0.66, vec![Tab::Statistics]);
+                }
+                _ => dock_near(&mut self.dock, Tab::Statistics, &near),
+            }
+        }
+    }
+
+    /// The layout to keep: with the series panels where they would come back.
+    fn kept_layout(&self) -> &DockState<Tab> {
+        let without = |d: &DockState<Tab>| dock_shape(&d.filter_tabs(|t| !series_panel(t) && !transient(t)));
+        match &self.series_layout {
+            Some(l) if self.dock.find_tab(&Tab::TimeSeries).is_none() && without(l) == without(&self.dock) => l,
+            _ => &self.dock,
+        }
     }
 
     /// The map in a window of its own from the start (--detach-map).
@@ -1225,6 +1360,14 @@ impl State {
                 if ui.checkbox(&mut interp, "Interpretation").clicked() {
                     self.labels.show = interp;
                 }
+                let mut table = self.attr_table.show;
+                if ui
+                    .add_enabled(!self.vectors.is_empty(), egui::Checkbox::new(&mut table, "Attribute table"))
+                    .on_hover_text("A vector layer's features and their fields (read from its file when shown)")
+                    .clicked()
+                {
+                    self.attr_table.show = table;
+                }
                 let mut exports = self.show_exports;
                 if ui.checkbox(&mut exports, "Exports").clicked() {
                     self.show_exports = exports;
@@ -1431,6 +1574,7 @@ impl eframe::App for JanusApp {
         s.pump_vectors(&ctx);
         s.pump_canvas(&ctx);
         s.pump_vector_gpu(&ctx);
+        s.pump_attributes(&ctx);
         s.pump_interpretation(&ctx);
         s.pump_embeddings(&ctx);
         s.pump_embedding_downloads(&ctx);
@@ -1490,7 +1634,9 @@ impl eframe::App for JanusApp {
 
         let mut act = MenuAction::default();
         let perf_shown = self.dock.find_tab(&Tab::Performance).is_some();
-        egui::Panel::top("menu").show(ui, |ui| act = self.state.menu(ui, perf_shown));
+        egui::Panel::top("menu")
+            .frame(theme::menu_bar_frame(ui.style()))
+            .show(ui, |ui| act = self.state.menu(ui, perf_shown));
         if act.toggle_performance {
             // the Performance panel, off by default, as a tab next to Display
             match self.dock.find_tab(&Tab::Performance) {
@@ -1519,6 +1665,7 @@ impl eframe::App for JanusApp {
         let from_window = std::mem::take(&mut self.reset_from_window);
         if act.reset_layout || keys.reset_layout || from_window || cmd == Some(LayoutCmd::Reset) {
             self.dock = default_layout();
+            self.series_layout = None;
             for w in self.windows.drain(..) {
                 drop(w);
             }
@@ -1533,75 +1680,55 @@ impl eframe::App for JanusApp {
                 display: node(Tab::Display),
                 layers: node(Tab::Layers),
                 map: node(Tab::Map),
+                series_panels: false,
+                attributes: None,
                 detached: self.windows.len(),
                 exports,
             };
         }
-        // the Embeddings panel while it is shown, as a tab next to Display
-        let emb_tab = self.dock.find_tab(&Tab::Embeddings);
-        if self.state.show_embeddings && emb_tab.is_none() {
-            if let Some(p) = self.dock.find_tab(&Tab::Display) {
-                self.dock.set_focused_node_and_surface(p.node_path());
-            }
-            self.dock.push_to_focused_leaf(Tab::Embeddings);
-        } else if !self.state.show_embeddings
-            && let Some(p) = emb_tab
-        {
-            self.dock.remove_tab(p);
+        self.series_panels();
+        if self.state.opts.selftest_ui {
+            self.state.layout_report.series_panels = self.dock.find_tab(&Tab::TimeSeries).is_some();
         }
-        // the Analysis panel while it is shown, as a tab next to the time series
-        let analysis_tab = self.dock.find_tab(&Tab::Analysis);
-        if self.state.analysis.show && analysis_tab.is_none() {
-            if let Some(p) = self.dock.find_tab(&Tab::TimeSeries) {
-                self.dock.set_focused_node_and_surface(p.node_path());
+        // the panels shown for a while, each as a tab next to the first of its neighbours there (else below the
+        // map): Embeddings next to Display, Analysis and the transect next to the time series, Validation and
+        // Interpretation next to the statistics, the attribute table next to the time series
+        let s = &self.state;
+        let shown = [
+            (Tab::Embeddings, s.show_embeddings, &[Tab::Display][..]),
+            (Tab::Analysis, s.analysis.show, &[Tab::TimeSeries][..]),
+            (Tab::Validation, s.val.show, &[Tab::Statistics, Tab::Interpretation, Tab::Attributes][..]),
+            (Tab::Interpretation, s.labels.show, &[Tab::Statistics, Tab::Validation, Tab::Attributes][..]),
+            (Tab::Transect, s.transect.on, &[Tab::TimeSeries][..]),
+            (
+                Tab::Attributes,
+                s.attr_table.show,
+                &[Tab::TimeSeries, Tab::Analysis, Tab::Interpretation, Tab::Validation][..],
+            ),
+        ];
+        for (tab, on, near) in shown {
+            match self.dock.find_tab(&tab) {
+                None if on => dock_near(&mut self.dock, tab, near),
+                Some(p) if !on => {
+                    self.dock.remove_tab(p);
+                }
+                _ => {}
             }
-            self.dock.push_to_focused_leaf(Tab::Analysis);
-        } else if !self.state.analysis.show
-            && let Some(p) = analysis_tab
-        {
-            self.dock.remove_tab(p);
         }
-        // the Validation panel while it is shown, as a tab next to the statistics
-        let val_tab = self.dock.find_tab(&Tab::Validation);
-        if self.state.val.show && val_tab.is_none() {
-            if let Some(p) = self.dock.find_tab(&Tab::Statistics) {
-                self.dock.set_focused_node_and_surface(p.node_path());
-            }
-            self.dock.push_to_focused_leaf(Tab::Validation);
-        } else if !self.state.val.show
-            && let Some(p) = val_tab
-        {
-            self.dock.remove_tab(p);
-        }
-        // the Interpretation panel while it is shown, as a tab next to the statistics
-        let interp_tab = self.dock.find_tab(&Tab::Interpretation);
-        if self.state.labels.show && interp_tab.is_none() {
-            if let Some(p) = self.dock.find_tab(&Tab::Statistics) {
-                self.dock.set_focused_node_and_surface(p.node_path());
-            }
-            self.dock.push_to_focused_leaf(Tab::Interpretation);
-        } else if !self.state.labels.show
-            && let Some(p) = interp_tab
-        {
-            self.dock.remove_tab(p);
-        }
-        // a tab of the Validation panel asked for (the menu): the panel in front
+        // a tab of the Validation panel asked for (the menu), the attribute table of a layer: the panel in front
         if self.state.val.select_tab.is_some()
             && let Some(p) = self.dock.find_tab(&Tab::Validation)
         {
             let _ = self.dock.set_active_tab(p);
         }
-        // the Transect panel while there is one, as a tab next to the time series
-        let transect_tab = self.dock.find_tab(&Tab::Transect);
-        if self.state.transect.on && transect_tab.is_none() {
-            if let Some(p) = self.dock.find_tab(&Tab::TimeSeries) {
-                self.dock.set_focused_node_and_surface(p.node_path());
-            }
-            self.dock.push_to_focused_leaf(Tab::Transect);
-        } else if !self.state.transect.on
-            && let Some(p) = transect_tab
+        if std::mem::take(&mut self.state.attr_table.focus)
+            && let Some(p) = self.dock.find_tab(&Tab::Attributes)
         {
-            self.dock.remove_tab(p);
+            let _ = self.dock.set_active_tab(p);
+        }
+        if self.state.opts.selftest_ui {
+            self.state.layout_report.attributes =
+                self.dock.find_tab(&Tab::Attributes).filter(|p| p.surface.is_main()).map(|p| format!("{:?}", p.node));
         }
         // new map panels to the right of the main map (splitting its area); those closed by a key or the menu
         for id in std::mem::take(&mut self.state.views_added) {
@@ -1704,7 +1831,7 @@ impl eframe::App for JanusApp {
         // the layout kept, every few seconds when it changed (not for the tests)
         if self.layout_checked.elapsed().as_secs_f64() > 3.0 && !self.state.settings.no_save {
             self.layout_checked = Instant::now();
-            if let Some(text) = layout_text(&self.dock)
+            if let Some(text) = layout_text(self.kept_layout())
                 && text != self.layout_saved
             {
                 let _ = std::fs::create_dir_all(crate::settings::app_data_dir());

@@ -283,8 +283,14 @@ impl State {
                 if field >= v.data.fields.len() {
                     return Err("choose its class column".into());
                 }
-                let data = v.data.clone();
-                of_layer(ui.vector, &|i| data.features.get(i).map(|f| f.values[field].trim().to_string()), &mut sites)?;
+                // the table read on a thread while the window shows the layer (pump_attributes)
+                if !v.table_ready() {
+                    return Err(match &v.attrs.table {
+                        crate::attributes::Table::Failed(e) => format!("its attributes could not be read: {e}"),
+                        _ => format!("reading the attributes of {}...", v.name),
+                    });
+                }
+                of_layer(ui.vector, &|i| v.row(i).map(|r| r[field].trim().to_string()), &mut sites)?;
             }
             4 => {
                 if !dense {

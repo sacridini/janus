@@ -44,9 +44,16 @@ impl State {
                     return None;
                 }
                 let Some(d) = input(2) else { return fail("D is the fourth input") };
-                self.close_validation_project();
-                self.stop_interpretation();
-                self.close_all(ctx);
+                if self.layers.iter().any(|l| !l.canvas) {
+                    self.close_validation_project();
+                    self.stop_interpretation();
+                    self.close_all(ctx);
+                    return None; // a frame without a raster series
+                }
+                if self.layout_report.series_panels {
+                    return fail("the chart and the statistics should go with the last raster series");
+                }
+                println!("    no raster series open: the chart and the statistics out of the dock");
                 let stamp =
                     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
                 st.dir = std::env::temp_dir().join(format!("janus-selftest-validation-ui-{stamp}"));
@@ -168,6 +175,9 @@ impl State {
                 let n: i32 = p.strata.strata.iter().map(|s| s.n).sum();
                 if p.points.len() != n as usize || n < 60 {
                     return fail("the project should have the points allocated");
+                }
+                if !self.layout_report.series_panels {
+                    return fail("the chart and the statistics should come with a raster series");
                 }
                 let vi = self.vector_index(self.val.vector_id);
                 if vi.is_none_or(|i| self.vectors[i].data.features.len() != p.points.len()) {

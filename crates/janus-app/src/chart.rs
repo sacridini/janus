@@ -4,7 +4,7 @@
 //! axis is a date axis: its marks fall on days, months or years (ImPlot's time axis), labelled as precisely as they
 //! need.
 
-use egui::{Color32, ComboBox, Ui};
+use egui::{Color32, ComboBox, FontId, Ui};
 use egui_plot::{
     Bar, BarChart, BoxElem, BoxPlot, BoxSpread, GridInput, GridMark, Line, MarkerShape, Plot, PlotPoints, Points, VLine,
 };
@@ -93,10 +93,13 @@ pub fn time_marks(input: GridInput) -> Vec<GridMark> {
 }
 
 /// A date axis on `plot`: `time_marks`, labelled by `time_label` (all of them: the marks are already spaced for
-/// their labels, which egui_plot would hide under 60 points).
-pub fn time_axis(plot: Plot<'_>) -> Plot<'_> {
-    plot.x_grid_spacer(time_marks)
-        .custom_x_axes(vec![egui_plot::AxisHints::new_x().formatter(|m, _| time_label(m)).label_spacing(20.0..=21.0)])
+/// their labels, which egui_plot would hide under 60 points), in `color` if given.
+pub fn time_axis(plot: Plot<'_>, color: Option<Color32>) -> Plot<'_> {
+    let mut axis = egui_plot::AxisHints::new_x().formatter(|m, _| time_label(m)).label_spacing(20.0..=21.0);
+    if let Some(c) = color {
+        axis = axis.tick_label_color(c);
+    }
+    plot.x_grid_spacer(time_marks).custom_x_axes(vec![axis])
 }
 
 /// A mark's label: a year, a month or a day, as fine as its step.
@@ -326,6 +329,9 @@ struct Plotted<'a> {
     /// the series drawn as bars, side by side at each date, and the next one's place
     bar_slots: usize,
     bar_slot: std::cell::Cell<usize>,
+    /// "Lines + markers": the markers drawn (the dates far enough apart for them), ringed in the chart's background
+    markers: bool,
+    halo: Color32,
 }
 
 impl Plotted<'_> {
@@ -379,7 +385,11 @@ impl Plotted<'_> {
             0 => lines(plot),
             1 => {
                 lines(plot);
-                plot.points(Points::new(name, PlotPoints::from(valid)).color(color).radius(2.5));
+                if self.markers {
+                    // after the lines: the legend takes the series' colour from its first item
+                    plot.points(Points::new(name, PlotPoints::from(valid.clone())).color(self.halo).radius(4.0));
+                    plot.points(Points::new(name, PlotPoints::from(valid)).color(color).radius(2.6));
+                }
             }
             2 => plot.points(Points::new(name, PlotPoints::from(valid)).color(color).radius(3.5)),
             3 => {
@@ -417,10 +427,50 @@ impl Plotted<'_> {
                 if self.o.trend == 1 { (st.ols_intercept, st.ols_slope) } else { (st.sen_intercept, st.sen_slope) };
             let y = |yr: f64| sh.trend(a + b * yr);
             let pts = vec![[self.xs[0], y(self.years[0])], [self.xs[n - 1], y(self.years[n - 1])]];
-            let c = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 153);
-            plot.line(Line::new(name, PlotPoints::from(pts)).color(c).width(1.2));
+            // dashed: a model of the series, not data
+            let c = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 190);
+            plot.line(
+                Line::new(name, PlotPoints::from(pts)).color(c).width(1.4).style(egui_plot::LineStyle::dashed_loose()),
+            );
         }
     }
+}
+
+/// The legend's colour of the series `name` whose first item is not its line (a band under it): a line of one of
+/// its points (nothing drawn; egui_plot leaves out an empty one).
+fn legend_colour(plot: &mut egui_plot::PlotUi, name: &str, color: Color32, xs: &[f64], ys: &[f64]) {
+    if let Some(t) = (0..xs.len().min(ys.len())).find(|&t| ys[t].is_finite()) {
+        let point = PlotPoints::from(vec![[xs[t], ys[t]]]);
+        plot.line(Line::new(name, point).color(crate::theme::on_plot(color)).width(2.0));
+    }
+}
+
+/// A series at the date under the pointer (the chart's inspector): its colour, its name (the legend's), its value
+/// as shown and at which x (another layer's own date), a line under it (the ROI's spread).
+struct HoverRow {
+    color: Color32,
+    name: String,
+    value: f64,
+    x: f64,
+    note: Option<String>,
+}
+
+/// The legend's names of the series (a hidden one is left out of the inspector and the area under it).
+fn cursor_name(h: &crate::series::SeriesView) -> String {
+    format!("Cursor ({}, {}){}", h.x, h.y, if h.exact { "" } else { " approx." })
+}
+
+fn pin_name(p: &crate::series::SeriesView) -> String {
+    format!("Pin {} ({}, {}){}", p.id, p.x, p.y, if p.exact { "" } else { " approx." })
+}
+
+fn roi_name(r: &crate::series::RoiSeries) -> &'static str {
+    if r.sampled() { "ROI mean (subsampled)" } else { "ROI mean" }
+}
+
+/// A value as the inspector writes it.
+fn value_text(v: f64) -> String {
+    if v.is_finite() { janus_cube::multidim::format_g(v, 5) } else { "no data".into() }
 }
 
 impl State {
@@ -474,16 +524,219 @@ impl State {
     /// mean, else the last pin's), each from halfway to the previous date to halfway to the next, on the chart's
     /// time axis. Values in the map's colours and range; anomalies, z-scores and CUSUM in the anomaly colormap,
     /// symmetric about 0.
-    fn stripes_ui(&self, ui: &mut Ui, pl: &Plotted<'_>, tr: &egui_plot::PlotTransform, height: f32) {
+    /// The chart's main series: the cursor's, else the ROI's mean, else the last pin's (values, statistics, colour,
+    /// the legend's name).
+    fn main_series(&self) -> Option<(&[f32], &SeriesStats, Color32, String)> {
         let sr = &self.series;
-        let main = sr
-            .hover
+        sr.hover
             .as_ref()
-            .map(|h| (&h.values, &h.stats))
-            .or_else(|| (!sr.roi.mean.is_empty()).then_some((&sr.roi.mean, &sr.roi.stats)))
-            .or_else(|| sr.pins.last().map(|p| (&p.values, &p.stats)));
+            .map(|h| (&h.values[..], &h.stats, h.color, cursor_name(h)))
+            .or_else(|| {
+                (!sr.roi.mean.is_empty())
+                    .then(|| (&sr.roi.mean[..], &sr.roi.stats, crate::series::ROI_COLOR, roi_name(&sr.roi).to_string()))
+            })
+            .or_else(|| sr.pins.last().map(|p| (&p.values[..], &p.stats, p.color, pin_name(p))))
+    }
+
+    /// The area under the main series (its lines' styles): its colour fading to nothing at the chart's bottom, as
+    /// one gradient over the chart's height (a mesh of two vertices a date).
+    fn area_under(&self, pl: &Plotted<'_>, tr: &egui_plot::PlotTransform, hidden: &[egui::Id]) -> egui::Shape {
+        let Some((vals, st, color, name)) = self.main_series() else { return egui::Shape::Noop };
+        if pl.categorical || pl.o.style > 1 || vals.len() != pl.xs.len() || hidden.contains(&egui::Id::new(&name)) {
+            return egui::Shape::Noop;
+        }
+        // the ROI's mean with its spread: the band is its area
+        if self.series.hover.is_none() && !self.series.roi.mean.is_empty() && pl.o.roi_spread > 0 {
+            return egui::Shape::Noop;
+        }
+        let ys = pl.shown(st, vals).series(pl.xs, vals);
+        let frame = *tr.frame();
+        let c = crate::theme::on_plot(color);
+        let top = if crate::theme::modern() { 0.30 } else { 0.22 };
+        let shade = |y: f32| {
+            let a = top * ((frame.bottom() - y) / frame.height()).clamp(0.0, 1.0);
+            Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (a * 255.0) as u8)
+        };
+        let mut mesh = egui::Mesh::default();
+        for piece in pieces(pl.xs, &ys, pl.runs) {
+            let first = mesh.vertices.len() as u32;
+            for (k, p) in piece.iter().enumerate() {
+                let s = tr.position_from_point(&egui_plot::PlotPoint::new(p[0], p[1]));
+                mesh.colored_vertex(s, shade(s.y));
+                mesh.colored_vertex(egui::pos2(s.x, frame.bottom()), Color32::TRANSPARENT);
+                if k > 0 {
+                    let i = first + 2 * k as u32;
+                    mesh.add_triangle(i - 2, i - 1, i);
+                    mesh.add_triangle(i - 1, i + 1, i);
+                }
+            }
+        }
+        egui::Shape::mesh(mesh)
+    }
+
+    /// Each series at date `t` of the active layer (the pointer's x; another layer's at its own nearest date), as
+    /// shown, those hidden in the legend left out.
+    fn hover_rows(&self, pl: &Plotted<'_>, x: f64, t: usize, hidden: &[egui::Id]) -> Vec<HoverRow> {
+        let sr = &self.series;
+        let mut rows = Vec::new();
+        let class_name = |v: f64| self.classes.list.iter().find(|c| f64::from(c.value) == v).map(|c| c.name.clone());
+        let row = |rows: &mut Vec<HoverRow>, name: String, color: Color32, vals: &[f32], st: &SeriesStats| {
+            if vals.len() != pl.xs.len() || hidden.contains(&egui::Id::new(&name)) {
+                return;
+            }
+            let value = pl.shown(st, vals).series(pl.xs, vals)[t];
+            let note = pl.categorical.then(|| class_name(value)).flatten();
+            rows.push(HoverRow { color, name, value, x: pl.xs[t], note });
+        };
+        if let Some(h) = &sr.hover {
+            row(&mut rows, cursor_name(h), h.color, &h.values, &h.stats);
+        }
+        for p in &sr.pins {
+            row(&mut rows, pin_name(p), p.color, &p.values, &p.stats);
+        }
+        let roi = &sr.roi;
+        if !roi.mean.is_empty() && !pl.categorical {
+            let before = rows.len();
+            row(&mut rows, roi_name(roi).to_string(), crate::series::ROI_COLOR, &roi.mean, &roi.stats);
+            // its spread, as the chart draws it
+            if rows.len() > before && pl.o.roi_spread > 0 && pl.o.values != 4 && roi.p10.len() == pl.xs.len() {
+                let sh = pl.shown(&roi.stats, &roi.mean);
+                let (lo, hi) = (sh.at(f64::from(roi.p10[t]), pl.xs[t]), sh.at(f64::from(roi.p90[t]), pl.xs[t]));
+                if lo.is_finite() && hi.is_finite() {
+                    rows[before].note = Some(format!("p10 {}  p90 {}", value_text(lo), value_text(hi)));
+                }
+            }
+        }
+        if sr.chart_layers == 1 {
+            for (li, l) in self.layers.iter().enumerate() {
+                let Some(ls) = l.session.as_ref().filter(|_| li != self.active && l.visible) else { continue };
+                let info = &ls.info;
+                if info.t() == 0 || info.time_is_date != pl.dated || info.spectral != pl.spectral {
+                    continue;
+                }
+                let lx: Vec<f64> = info.layers.iter().map(|l| l.time).collect();
+                let lt = info.nearest_layer(x);
+                let values = if l.classes.on() { 0 } else { pl.o.values };
+                let mut other = |name: String, color: Color32, v: &[f32], st: &SeriesStats| {
+                    if v.len() == lx.len() && !hidden.contains(&egui::Id::new(&name)) {
+                        let value = AsShown::new(values, st, &lx, v, info.time_is_date).series(&lx, v)[lt];
+                        rows.push(HoverRow { color, name, value, x: lx[lt], note: None });
+                    }
+                };
+                if let Some(h) = &l.series.hover {
+                    other(
+                        format!("Cursor [{}]{}", l.name, if h.exact { "" } else { " approx." }),
+                        h.color,
+                        &h.values,
+                        &h.stats,
+                    );
+                }
+                for p in &l.series.pins {
+                    let name = format!("Pin {} [{}]{}", p.id, l.name, if p.exact { "" } else { " approx." });
+                    other(name, p.color, &p.values, &p.stats);
+                }
+                let r = &l.series.roi;
+                if !r.mean.is_empty() && !l.classes.on() {
+                    let name = format!("ROI mean [{}]{}", l.name, if r.sampled() { " (subsampled)" } else { "" });
+                    other(name, crate::series::ROI_COLOR, &r.mean, &r.stats);
+                }
+            }
+        }
+        rows
+    }
+
+    /// The inspector under the pointer: a dashed line at the nearest date, each series' value marked on it, and a
+    /// card with the date and the values (in place of egui_plot's coordinates).
+    fn inspector(
+        &self,
+        ui: &Ui,
+        pl: &Plotted<'_>,
+        tr: &egui_plot::PlotTransform,
+        pointer: egui::Pos2,
+        hidden: &[egui::Id],
+    ) {
+        let Some(s) = &self.session else { return };
+        let frame = *tr.frame();
+        let x = tr.value_from_position(pointer).x;
+        let t = s.info.nearest_layer(x);
+        let rows = self.hover_rows(pl, x, t, hidden);
+        let v = ui.visuals();
+        let screen = |x: f64, y: f64| tr.position_from_point(&egui_plot::PlotPoint::new(x, y));
+        let painter = ui.painter_at(frame.expand(6.0));
+        let gx = screen(pl.xs[t], 0.0).x;
+        let guide = v.weak_text_color().gamma_multiply(0.8);
+        painter.extend(egui::Shape::dashed_line(
+            &[egui::pos2(gx, frame.top()), egui::pos2(gx, frame.bottom())],
+            egui::Stroke::new(1.0, guide),
+            4.0,
+            3.0,
+        ));
+        let ring =
+            if crate::theme::plot_fill() == Color32::TRANSPARENT { v.panel_fill } else { crate::theme::plot_fill() };
+        for r in rows.iter().filter(|r| r.value.is_finite()) {
+            let p = screen(r.x, r.value);
+            if frame.contains(p) {
+                painter.circle(p, 4.5, crate::theme::on_plot(r.color), egui::Stroke::new(2.0, ring));
+            }
+        }
+        // the card: the date, then a row a series (a dot, its name, its value on the right)
+        let body = egui::TextStyle::Body.resolve(ui.style());
+        let small = egui::TextStyle::Small.resolve(ui.style());
+        let strong = crate::theme::strong_font(body.size);
+        let date = if pl.dated || pl.spectral { s.info.layers[t].label.clone() } else { format!("date {}", t + 1) };
+        let lay = |text: String, font: FontId, color: Color32| ui.painter().layout_no_wrap(text, font, color);
+        let head = lay(date, strong, v.strong_text_color());
+        let text = v.text_color();
+        let weak = v.weak_text_color();
+        let lines: Vec<_> = rows
+            .iter()
+            .map(|r| {
+                let value = r.note.clone().filter(|_| pl.categorical).unwrap_or_else(|| value_text(r.value));
+                let note = r.note.clone().filter(|_| !pl.categorical).map(|n| lay(n, small.clone(), weak));
+                (r.color, lay(r.name.clone(), body.clone(), weak), lay(value, body.clone(), text), note)
+            })
+            .collect();
+        let (pad, dot, gap) = (10.0, 14.0, 18.0);
+        let names = lines.iter().map(|l| l.1.size().x).fold(0.0, f32::max);
+        let values = lines.iter().map(|l| l.2.size().x).fold(0.0, f32::max);
+        let notes = lines.iter().filter_map(|l| l.3.as_ref()).map(|g| g.size().x).fold(0.0, f32::max);
+        let row_h = body.size + 6.0;
+        let w = (pad * 2.0 + dot + names + gap + values).max(pad * 2.0 + dot + notes).max(head.size().x + pad * 2.0);
+        let h = pad * 2.0
+            + head.size().y
+            + if lines.is_empty() { 0.0 } else { 6.0 }
+            + lines.iter().map(|l| row_h + l.3.as_ref().map_or(0.0, |g| g.size().y + 2.0)).sum::<f32>();
+        let mut left = pointer.x + 18.0;
+        if left + w > frame.right() {
+            left = (pointer.x - 18.0 - w).max(frame.left());
+        }
+        let top = (pointer.y - h * 0.5).clamp(frame.top() + 4.0, (frame.bottom() - h - 4.0).max(frame.top() + 4.0));
+        let card = egui::Rect::from_min_size(egui::pos2(left, top), egui::vec2(w, h));
+        let layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("chart inspector"));
+        let p = ui.ctx().layer_painter(layer);
+        let corner = v.menu_corner_radius;
+        p.add(v.popup_shadow.as_shape(card, corner));
+        p.rect(card, corner, v.window_fill, v.window_stroke, egui::StrokeKind::Inside);
+        let mut y = card.top() + pad;
+        p.galley(egui::pos2(card.left() + pad, y), head.clone(), v.strong_text_color());
+        y += head.size().y + 6.0;
+        for (color, name, value, note) in lines {
+            let mid = y + row_h * 0.5;
+            p.circle_filled(egui::pos2(card.left() + pad + 4.0, mid), 4.0, crate::theme::on_plot(color));
+            p.galley(egui::pos2(card.left() + pad + dot, mid - name.size().y * 0.5), name, weak);
+            let vx = card.right() - pad - value.size().x;
+            p.galley(egui::pos2(vx, mid - value.size().y * 0.5), value, text);
+            y += row_h;
+            if let Some(n) = note {
+                p.galley(egui::pos2(card.left() + pad + dot, y - 2.0), n.clone(), weak);
+                y += n.size().y + 2.0;
+            }
+        }
+    }
+
+    fn stripes_ui(&self, ui: &mut Ui, pl: &Plotted<'_>, tr: &egui_plot::PlotTransform, height: f32) {
         let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
-        let Some((vals, st)) = main.filter(|(v, _)| v.len() == pl.xs.len()) else { return };
+        let Some((vals, st, _, _)) = self.main_series().filter(|m| m.0.len() == pl.xs.len()) else { return };
         let sh = pl.shown(st, vals);
         let ys = sh.series(pl.xs, vals);
         let colour: Box<dyn Fn(f64) -> Color32> = if sh.relative() {
@@ -711,22 +964,32 @@ impl State {
 
         let o = &self.chart;
         let dated = info.time_is_date;
+        // the axes' numbers and the grid in the weak text's colour, the grid's finer lines fainter; the values
+        // under the pointer in the inspector (egui_plot's coordinates off)
+        let weak = ui.visuals().weak_text_color();
         let mut plot = Plot::new(("series", info.id))
             .allow_drag(false)
             .allow_scroll(false)
             .allow_boxed_zoom(false)
             .show_background(false)
+            .show_x(false)
+            .show_y(false)
+            .grid_color(weak.gamma_multiply(0.55))
+            .grid_fade(0.9)
+            .custom_y_axes(vec![egui_plot::AxisHints::new_y().tick_label_color(weak)])
             .legend(
                 egui_plot::Legend::default()
                     .position(egui_plot::Corner::LeftTop)
-                    .background_alpha(0.6)
+                    .background_alpha(0.75)
                     // a series and its trend (thinner, fainter) are one entry, in the series' colour
                     .color_conflict_handling(egui_plot::ColorConflictHandling::PickFirst),
             );
         if dated {
-            plot = time_axis(plot);
+            plot = time_axis(plot, Some(weak));
         } else {
-            plot = plot.x_axis_label(if info.spectral { "wavelength (nm)" } else { "date (index)" });
+            plot = plot
+                .custom_x_axes(vec![egui_plot::AxisHints::new_x().tick_label_color(weak)])
+                .x_axis_label(if info.spectral { "wavelength (nm)" } else { "date (index)" });
         }
         if o.values > 0 && !categorical {
             plot = plot.y_axis_label(["", "anomaly", "z-score", "seasonal anomaly", "CUSUM"][o.values]);
@@ -788,15 +1051,6 @@ impl State {
                     classes.iter().find(|(v, _)| *v == m.value).map_or_else(String::new, |(_, n)| n.clone())
                 });
         }
-        let info2 = info.clone();
-        plot = plot.label_formatter(move |h| {
-            let (name, p) = match h {
-                egui_plot::HoverPosition::NearDataPoint { plot_name, position, .. } => (*plot_name, position),
-                egui_plot::HoverPosition::Elsewhere { position } => ("", position),
-            };
-            let x = if info2.time_is_date { info2.format_time(p.x) } else { format!("{:.1}", p.x) };
-            Some(if name.is_empty() { format!("{x}\n{:.4}", p.y) } else { format!("{name}\n{x}\n{:.4}", p.y) })
-        });
         let runs = janus_cube::spectral::plot_runs(&info);
         let colormap = |m: janus_gpu::Mode| &janus_gpu::colormaps::all()[self.display.cmap[m as usize]];
         let rgb = |c: [u8; 4]| crate::theme::on_plot(Color32::from_rgb(c[0], c[1], c[2]));
@@ -814,18 +1068,28 @@ impl State {
                 + self.series.pins.len()
                 + usize::from(self.series.hover.is_some()),
             bar_slot: std::cell::Cell::new(0),
+            // a marker every 7 points at least (the chart's width less its Y axis)
+            markers: (ui.available_width() - 60.0) / n.max(1) as f32 >= 7.0,
+            halo: if crate::theme::plot_fill() == Color32::TRANSPARENT {
+                ui.visuals().panel_fill
+            } else {
+                crate::theme::plot_fill()
+            },
         };
         let t = self.display.t;
         let sr = &self.series;
+        // under the series: the background and the season, the ROI's density, the area under the main series
         let background = ui.painter().add(egui::Shape::Noop);
         let density = ui.painter().add(egui::Shape::Noop);
+        let area = ui.painter().add(egui::Shape::Noop);
         let orange = Color32::from_rgb(255, 153, 51);
         let yellow = |a: u8| Color32::from_rgba_unmultiplied(255, 209, 61, a);
         let response = plot.show(ui, |plot| {
             let roi = &sr.roi;
             if !roi.mean.is_empty() && !categorical {
-                let name = if roi.sampled() { "ROI mean (subsampled)" } else { "ROI mean" };
+                let name = roi_name(roi);
                 let sh = pl.shown(&roi.stats, &roi.mean);
+                legend_colour(plot, name, crate::series::ROI_COLOR, &xs, &sh.series(&xs, &roi.mean));
                 // the percentiles as the mean is shown (none with CUSUM)
                 let f = |v: &[f32]| -> Vec<f64> { xs.iter().zip(v).map(|(&x, &p)| sh.at(f64::from(p), x)).collect() };
                 match o.roi_spread {
@@ -867,14 +1131,14 @@ impl State {
                 }
             }
             for p in &sr.pins {
-                let name = format!("Pin {} ({}, {}){}", p.id, p.x, p.y, if p.exact { "" } else { " approx." });
+                let name = pin_name(p);
                 let sh = pl.shown(&p.stats, &p.values);
                 pl.series(plot, &name, &p.values, (&p.stats, &sh), (p.color, 1.5), true);
                 let fit = self.zeit.fit_of(info.id, crate::zeit::Which::Pin(p.id), p.x, p.y);
                 crate::zeit::draw_fit(plot, &name, fit, &sh, &info);
             }
             if let Some(h) = &sr.hover {
-                let name = format!("Cursor ({}, {}){}", h.x, h.y, if h.exact { "" } else { " approx." });
+                let name = cursor_name(h);
                 let sh = pl.shown(&h.stats, &h.values);
                 pl.series(plot, &name, &h.values, (&h.stats, &sh), (h.color, 2.0), true);
                 let fit = self.zeit.fit_of(info.id, crate::zeit::Which::Hover, h.x, h.y);
@@ -932,6 +1196,7 @@ impl State {
                     if !r.mean.is_empty() && !l.classes.on() {
                         let name = format!("ROI mean [{}]{}", l.name, if r.sampled() { " (subsampled)" } else { "" });
                         let sh = shown(&r.stats, &r.mean);
+                        legend_colour(plot, &name, crate::series::ROI_COLOR, &lx, &sh.series(&lx, &r.mean));
                         if o.roi_spread > 0 {
                             let f = |v: &[f32]| -> Vec<f64> {
                                 lx.iter().zip(v).map(|(&x, &p)| sh.at(f64::from(p), x)).collect()
@@ -942,29 +1207,41 @@ impl State {
                     }
                 }
             }
+            // the date's line in a soft glow (after it: the legend takes the line's colour)
             plot.vline(VLine::new("date", xs[t]).color(orange).width(1.5).allow_hover(false));
+            plot.vline(VLine::new("date", xs[t]).color(orange.gamma_multiply(0.22)).width(6.0).allow_hover(false));
             let primary = plot.response().is_pointer_button_down_on() && plot.ctx().input(|i| i.pointer.primary_down());
             primary.then(|| plot.pointer_coordinate()).flatten()
         });
         // the background and the season under the series; the date's tag on the axis
         let tr = &response.transform;
+        let frame = *tr.frame();
+        // the series hidden in the legend (by its items' ids, their names)
+        let hidden: Vec<egui::Id> = egui_plot::PlotMemory::load(ui.ctx(), response.response.id)
+            .map(|m| m.hidden_items.into_iter().collect())
+            .unwrap_or_default();
         ui.painter().set(background, crate::season::chart_background(ui, tr, &self.display, &info));
         if self.chart.roi_spread == 4 && !categorical {
             let shapes = self.roi_density(&pl, tr);
-            ui.painter().with_clip_rect(*tr.frame()).set(density, egui::Shape::Vec(shapes));
+            ui.painter().with_clip_rect(frame).set(density, egui::Shape::Vec(shapes));
         }
+        ui.painter().with_clip_rect(frame).set(area, self.area_under(&pl, tr, &hidden));
         let x = tr.position_from_point(&egui_plot::PlotPoint::new(xs[t], tr.bounds().min()[1])).x;
-        let frame = *tr.frame();
         if (frame.left()..=frame.right()).contains(&x) {
+            // the date's tag at the foot of its line
             let painter = ui.painter_at(frame.expand(1.0));
-            let galley =
-                painter.layout_no_wrap(info.layers[t].label.clone(), egui::FontId::proportional(12.0), Color32::BLACK);
+            let font = crate::theme::strong_font(if crate::theme::modern() { 11.0 } else { 12.0 });
+            let galley = painter.layout_no_wrap(info.layers[t].label.clone(), font, Color32::BLACK);
             let r = egui::Rect::from_min_size(
-                egui::pos2(x + 2.0, frame.bottom() - galley.size().y - 2.0),
-                galley.size() + egui::vec2(4.0, 2.0),
+                egui::pos2(x + 3.0, frame.bottom() - galley.size().y - 5.0),
+                galley.size() + egui::vec2(8.0, 3.0),
             );
-            painter.rect_filled(r, 2.0, orange);
-            painter.galley(r.min + egui::vec2(2.0, 1.0), galley, Color32::BLACK);
+            painter.rect_filled(r, 3.0, orange);
+            painter.galley(r.min + egui::vec2(4.0, 1.5), galley, Color32::BLACK);
+        }
+        if let Some(p) = response.response.hover_pos().filter(|p| frame.contains(*p)) {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+            self.inspector(ui, &pl, tr, p, &hidden);
         }
         if stripes {
             self.stripes_ui(ui, &pl, tr, STRIP);
