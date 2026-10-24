@@ -1008,11 +1008,14 @@ impl State {
                 if let Ok(m @ 1..=12) = self.opts.analysis_view.parse::<usize>() {
                     self.analysis.seasonal_start = m - 1;
                 }
-                if self.opts.analysis_view == "flows" {
-                    self.analysis.class_view = 1;
-                }
-                // trend,run[,classes]: the test run (on the first categorical layer's classes)
+                // trend,run[,classes]: the test run (on the first categorical layer's classes); flows[,changes][,zoom=N]
                 let view: Vec<&str> = self.opts.analysis_view.split(',').map(str::trim).collect();
+                if view.contains(&"flows") {
+                    self.analysis.class_view = 1;
+                    self.analysis.flow_changes = view.contains(&"changes");
+                    self.analysis.flow_zoom =
+                        view.iter().find_map(|v| v.strip_prefix("zoom=").and_then(|z| z.parse().ok())).unwrap_or(1.0);
+                }
                 self.analysis.trend.auto_run = view.contains(&"run");
                 self.analysis.trend.auto_classes = view.contains(&"classes");
             }
@@ -1025,10 +1028,13 @@ impl State {
                 let pts = self.opts.transect.as_chunks::<2>().0.to_vec();
                 self.set_transect(pts);
             }
-            if let Some(id) = self.opts.zeit_tool.clone() {
-                self.zeit.tools.entry(id.clone()).or_default().open = true;
-                self.zeit.pixel_tool = Some(id);
-                self.zeit.version += 1;
+            if let Some(ids) = self.opts.zeit_tool.clone() {
+                // several: each fitted, in its colour
+                self.zeit.fit_only(None);
+                for id in ids.split(',').map(str::trim).filter(|id| !id.is_empty()) {
+                    self.zeit.tools.entry(id.to_string()).or_default().open = true;
+                    self.zeit.set_fitted(id, true);
+                }
             }
             if let Some(b) = &self.opts.basemap {
                 if b.contains("://") {
@@ -1723,6 +1729,11 @@ impl eframe::App for JanusApp {
         }
         if std::mem::take(&mut self.state.attr_table.focus)
             && let Some(p) = self.dock.find_tab(&Tab::Attributes)
+        {
+            let _ = self.dock.set_active_tab(p);
+        }
+        if std::mem::take(&mut self.state.analysis.focus)
+            && let Some(p) = self.dock.find_tab(&Tab::Analysis)
         {
             let _ = self.dock.set_active_tab(p);
         }

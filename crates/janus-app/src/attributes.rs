@@ -374,7 +374,7 @@ impl State {
                     let k = r.done.load(Ordering::Relaxed);
                     ui.add(
                         egui::ProgressBar::new(k as f32 / n.max(1) as f32)
-                            .desired_width(320.0)
+                            .desired_width(ui.available_width().min(320.0))
                             .text(format!("Reading the attributes: {k} of {n} rows")),
                     );
                 }

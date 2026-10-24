@@ -130,11 +130,13 @@ Developer options:
   --roi X0,Y0,X1,Y1   an ROI rectangle (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline)
   --analysis seasonal|classes|scatter|trend  the Analysis panel at that tab (seasonal,M: its years from month M;
-                      classes,flows: the flows between dates; trend,run: the trend test run, before --screenshot)
+                      classes,flows[,changes][,zoom=N]: the flows between dates; trend,run: the trend test run,
+                      before --screenshot)
   --chart K=V,...     the chart's options: style (0 lines ... 5 bars), values (0 values, 1 anomaly, 2 z-score,
                       3 seasonal anomaly, 4 CUSUM), trend (0-2), spread (the ROI's, 0 mean ... 4 density),
-                      stripes (0/1), layers (1: every visible layer's series)
-  --zeit TOOL         the Zeit tool fitted on the chart (e.g. landtrendr), its panel open
+                      stripes (0/1), layers (1: every visible layer's series), classes (a categorical layer:
+                      0 steps + markers, 1 steps, 2 markers, 3 class blocks)
+  --zeit TOOL[,TOOL]  the Zeit tools fitted on the chart (e.g. landtrendr), their panels open
   --zeit-run          and run on the raster (the ROI's window if --roi) once the series is loaded
   --validation-tab N  a validation project (a .gpkg input) on tab N of its panel (0 Design, 1 Accuracy,
                       2 Maps, 3 Interpreters, 4 Report)

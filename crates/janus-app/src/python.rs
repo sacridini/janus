@@ -101,27 +101,35 @@ impl State {
             Which::Pin(id) => crate::zeit::Which::Pin(id),
             Which::Roi => crate::zeit::Which::Roi,
         };
-        let fitted = match (&view, which) {
-            (_, Which::Roi) => self.roi_fit().is_some_and(|r| r.is_ok()),
-            (Some(v), _) => self.zeit.fit_of(info.id, fit_key, v.x, v.y).is_some_and(|r| r.is_ok()),
-            _ => false,
-        };
-        let tool_calls = self.zeit.pixel_tool.clone().filter(|_| fitted).and_then(|id| {
-            let tool = janus_zeit::manifest().tool(&id)?;
-            let params = janus_zeit::Params::with_defaults(&id, self.zeit.params(tool)).unwrap_or_default();
-            let values = view.as_ref().map_or_else(|| self.series.roi.mean.clone(), |v| v.values.clone());
-            let roles: std::collections::BTreeMap<String, Vec<f64>> =
-                self.zeit.roles.keys().map(|r| (r.clone(), vec![])).collect();
-            let input = janus_zeit::PixelInput {
-                years: (0..t_n).map(|t| info.decimal_year(t)).collect(),
-                days: info.time_is_date.then(|| (0..t_n).map(|t| info.unix_day(t)).collect()),
-                values: values.iter().map(|&v| f64::from(v)).collect(),
-                bands: roles,
-                ..Default::default()
-            };
-            let (code, inputs) = janus_zeit::python::calls(&id, &params, &input)?;
-            Some((tool.name.clone(), code, inputs))
-        });
+        // the tools fitted on this series, in the chart's order
+        let fitted: Vec<String> = match (&view, which) {
+            (_, Which::Roi) => self.roi_fits(),
+            (Some(v), _) => self.zeit.fits_of(info.id, fit_key, v.x, v.y),
+            _ => vec![],
+        }
+        .into_iter()
+        .filter(|f| f.result.is_some_and(|r| r.is_ok()))
+        .map(|f| f.tool.id.clone())
+        .collect();
+        let tool_calls: Vec<(String, String, Vec<&str>)> = fitted
+            .into_iter()
+            .filter_map(|id| {
+                let tool = janus_zeit::manifest().tool(&id)?;
+                let params = janus_zeit::Params::with_defaults(&id, self.zeit.params(tool)).unwrap_or_default();
+                let values = view.as_ref().map_or_else(|| self.series.roi.mean.clone(), |v| v.values.clone());
+                let roles: std::collections::BTreeMap<String, Vec<f64>> =
+                    self.zeit.roles.keys().map(|r| (r.clone(), vec![])).collect();
+                let input = janus_zeit::PixelInput {
+                    years: (0..t_n).map(|t| info.decimal_year(t)).collect(),
+                    days: info.time_is_date.then(|| (0..t_n).map(|t| info.unix_day(t)).collect()),
+                    values: values.iter().map(|&v| f64::from(v)).collect(),
+                    bands: roles,
+                    ..Default::default()
+                };
+                let (code, inputs) = janus_zeit::python::calls(&id, &params, &input)?;
+                Some((tool.name.clone(), code, inputs))
+            })
+            .collect();
 
         let mut o = String::new();
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
@@ -131,7 +139,7 @@ impl State {
             "\"\"\"Janus {} ({y:04}-{m:02}-{d:02}): {what} of {name},\nreproduced outside Janus. Needs: pip install numpy rasterio",
             env!("CARGO_PKG_VERSION")
         );
-        if tool_calls.is_some() {
+        if !tool_calls.is_empty() {
             o += " xarray zeit-cdts";
         }
         o += "\n\"\"\"\nimport numpy as np\nimport rasterio\nfrom rasterio.windows import Window\n";
@@ -244,11 +252,14 @@ if y.size >= 2:
     sen = np.median((y[j] - y[i])[keep] / (t[j] - t[i])[keep])  # Sen's slope, per year
     print("OLS slope", slope, "Sen's slope", sen)
 "#;
-        if let Some((tool_name, code, inputs)) = tool_calls {
+        if !tool_calls.is_empty() {
+            let names: Vec<&str> = tool_calls.iter().map(|c| c.0.as_str()).collect();
+            let inputs: Vec<&str> = tool_calls.iter().flat_map(|c| c.2.iter().copied()).collect();
             let _ = writeln!(
                 o,
-                "\n# {tool_name}, fitted on the chart with these parameters: the same Zeit calls Janus makes\n\
-                 # (its model is drawn from their results).\nimport xarray as xr\nimport zeit\n"
+                "\n# {}, fitted on the chart with these parameters: the same Zeit calls Janus makes\n\
+                 # (its model is drawn from their results).\nimport xarray as xr\nimport zeit\n",
+                names.join(", ")
             );
             let time = if info.time_is_date { "dates.astype(\"datetime64[ns]\")" } else { "np.arange(len(values))" };
             if inputs.contains(&"series") {
@@ -289,8 +300,13 @@ if y.size >= 2:
                 }
                 o += "fmask = fmask_codes.astype(np.int32)[:, None, None]\n";
             }
-            o += &code;
-            o += "\nprint(result1)\n";
+            for (name, code, _) in &tool_calls {
+                if tool_calls.len() > 1 {
+                    let _ = writeln!(o, "\n# {name}");
+                }
+                o += code;
+                o += "\nprint(result1)\n";
+            }
         }
         Some(o)
     }
@@ -322,8 +338,9 @@ if y.size >= 2:
             if self.series.roi.complete() && ui.button("ROI (rectangle)").clicked() {
                 chosen = Some(Which::Roi);
             }
-            if let Some(t) = self.zeit.pixel_tool.as_deref().and_then(|id| janus_zeit::manifest().tool(id)) {
-                ui.weak(format!("with {}", t.name));
+            let tools: Vec<String> = self.zeit.chart_tools().iter().map(|(t, _)| t.name.clone()).collect();
+            if !tools.is_empty() {
+                ui.weak(format!("with {}", tools.join(", ")));
             }
         })
         .response

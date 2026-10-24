@@ -179,30 +179,27 @@ impl State {
                         ExportState::Cancelled => "cancelled",
                         ExportState::Failed => "failed",
                     };
-                    ui.horizontal(|ui| {
-                        let p = if st == ExportState::Done { 1.0 } else { j.progress() };
-                        let bw = ui.text_style_height(&egui::TextStyle::Body) * 4.5;
-                        // the bar takes what the buttons leave (Cancel while it runs, Folder and Remove after)
-                        let labels: &[&str] =
-                            if st == ExportState::Running { &["Cancel"] } else { &["Folder", "Remove"] };
-                        let rest = crate::panels::buttons_width(ui, labels, bw);
-                        ui.add(
-                            egui::ProgressBar::new(p as f32)
-                                .desired_width((ui.available_width() - rest).max(60.0))
-                                .text(format!("{name}  {:.0}%  {:.1} s", p * 100.0, j.seconds())),
-                        );
+                    let p = if st == ExportState::Done { 1.0 } else { j.progress() };
+                    let bw = ui.text_style_height(&egui::TextStyle::Body) * 4.5;
+                    let bar = egui::ProgressBar::new(p as f32).text(format!(
+                        "{name}  {:.0}%  {:.1} s",
+                        p * 100.0,
+                        j.seconds()
+                    ));
+                    // the buttons from the right (Cancel while it runs, Folder and Remove after), the bar in the rest
+                    crate::panels::progress_row(ui, bar, |ui| {
                         if st == ExportState::Running {
                             if ui.add(egui::Button::new("Cancel").min_size(egui::vec2(bw, 0.0))).clicked() {
                                 j.cancel.store(true, Ordering::Relaxed);
                             }
                         } else {
+                            if ui.add(egui::Button::new("Remove").min_size(egui::vec2(bw, 0.0))).clicked() {
+                                remove = Some(i);
+                            }
                             if ui.add(egui::Button::new("Folder").min_size(egui::vec2(bw, 0.0))).clicked()
                                 && let Some(d) = std::path::Path::new(&j.path).parent()
                             {
                                 crate::platform::open_in_explorer(&d.to_string_lossy());
-                            }
-                            if ui.add(egui::Button::new("Remove").min_size(egui::vec2(bw, 0.0))).clicked() {
-                                remove = Some(i);
                             }
                         }
                     });

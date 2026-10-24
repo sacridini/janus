@@ -121,6 +121,18 @@ impl State {
         if turned_on {
             d.mode = Mode::Value;
         }
+        if self.classes.on()
+            && ui
+                .add_sized([ui.available_width(), 0.0], egui::Button::new("Classes over time..."))
+                .on_hover_text(
+                    "Analysis > Classes: the share of each class at every date, what became what between dates (a \
+                     Sankey diagram) and the transitions' table",
+                )
+                .clicked()
+        {
+            // as State::open_class_timeline (the display is borrowed)
+            (self.analysis.show, self.analysis.tab, self.analysis.focus) = (true, 1, true);
+        }
         if d.mode == Mode::Composite && crate::season::temporal_options_ui(ui, d, &info) {
             dirty = true;
         }
@@ -476,8 +488,8 @@ impl State {
             values: Option<&'a [f32]>,
             classes: Option<&'a crate::classes::LayerClasses>,
             t: usize,
-            /// the Zeit tool fitted on it
-            fit: Option<&'a Result<janus_zeit::PixelResult, String>>,
+            /// the Zeit tools fitted on it (the chart's tools, in order)
+            fits: Vec<crate::zeit::ToolFit<'a>>,
         }
         let sr = &self.series;
         let active_classes = self.classes.on().then_some(&self.classes);
@@ -495,7 +507,7 @@ impl State {
                 values: Some(&h.values),
                 classes: active_classes,
                 t,
-                fit: self.zeit.fit_of(info.id, crate::zeit::Which::Hover, h.x, h.y),
+                fits: self.zeit.fits_of(info.id, crate::zeit::Which::Hover, h.x, h.y),
             });
         }
         for p in &sr.pins {
@@ -510,7 +522,7 @@ impl State {
                 values: Some(&p.values),
                 classes: active_classes,
                 t,
-                fit: self.zeit.fit_of(info.id, crate::zeit::Which::Pin(p.id), p.x, p.y),
+                fits: self.zeit.fits_of(info.id, crate::zeit::Which::Pin(p.id), p.x, p.y),
             });
         }
         if !sr.roi.mean.is_empty() {
@@ -525,7 +537,7 @@ impl State {
                 values: None,
                 classes: None,
                 t,
-                fit: self.roi_fit(),
+                fits: self.roi_fits(),
             });
         }
         if sr.chart_layers == 1 {
@@ -544,7 +556,7 @@ impl State {
                         values: Some(&h.values),
                         classes: lc,
                         t: l.disp.t,
-                        fit: self.zeit.fit_of(ls.info.id, crate::zeit::Which::Hover, h.x, h.y),
+                        fits: self.zeit.fits_of(ls.info.id, crate::zeit::Which::Hover, h.x, h.y),
                     });
                 }
                 for p in &l.series.pins {
@@ -559,7 +571,7 @@ impl State {
                         values: Some(&p.values),
                         classes: lc,
                         t: l.disp.t,
-                        fit: self.zeit.fit_of(ls.info.id, crate::zeit::Which::Pin(p.id), p.x, p.y),
+                        fits: self.zeit.fits_of(ls.info.id, crate::zeit::Which::Pin(p.id), p.x, p.y),
                     });
                 }
                 if !l.series.roi.mean.is_empty() && lc.is_none() {
@@ -575,7 +587,7 @@ impl State {
                         values: Some(&l.series.roi.mean),
                         classes: None,
                         t: l.disp.t,
-                        fit: None,
+                        fits: vec![],
                     });
                 }
             }
@@ -669,12 +681,11 @@ impl State {
                             }
                             ui.end_row();
                         }
-                        // the rows of the Zeit tool fitted on the chart, in the order they first appear
-                        if let Some(tool) =
-                            self.zeit.pixel_tool.as_deref().and_then(|id| janus_zeit::manifest().tool(id))
-                        {
+                        // the rows of each Zeit tool fitted on the chart, in the order they first appear
+                        for (k, (tool, style)) in self.zeit.chart_tools().into_iter().enumerate() {
+                            let fits: Vec<_> = cols.iter().map(|c| c.fits.get(k).and_then(|f| f.result)).collect();
                             let rows: Vec<Vec<(String, String)>> =
-                                cols.iter().map(|c| crate::zeit::fit_rows(c.fit)).collect();
+                                fits.iter().map(|f| crate::zeit::fit_rows(*f)).collect();
                             let mut names: Vec<&String> = vec![];
                             for r in &rows {
                                 for (n, _) in r {
@@ -683,9 +694,15 @@ impl State {
                                     }
                                 }
                             }
-                            ui.colored_label(theme::accent(), &tool.name);
-                            for c in &cols {
-                                match c.fit {
+                            ui.horizontal(|ui| {
+                                crate::zeit::fit_swatch(ui, style);
+                                ui.colored_label(
+                                    theme::on_window(style.color),
+                                    egui::RichText::new(&tool.name).strong(),
+                                );
+                            });
+                            for f in &fits {
+                                match f {
                                     Some(Err(e)) => ui.weak("error").on_hover_text(e),
                                     None => ui.weak("..."),
                                     Some(Ok(_)) => ui.label(""),
@@ -845,19 +862,21 @@ impl State {
     }
 }
 
-/// What buttons of these labels (each at least `min` wide) take at the end of a row, their spacing included: a
-/// widget before them gets the rest exactly. A row wider than its window makes a window that fits its content
-/// grow, and the next frame's row with it.
-pub(crate) fn buttons_width(ui: &Ui, labels: &[&str], min: f32) -> f32 {
-    let font = egui::TextStyle::Button.resolve(ui.style());
-    let pad = 2.0 * ui.spacing().button_padding.x;
-    labels
-        .iter()
-        .map(|t| {
-            let text = ui.painter().layout_no_wrap(t.to_string(), font.clone(), egui::Color32::WHITE).size().x;
-            (text + pad).max(min) + ui.spacing().item_spacing.x
+/// A progress bar with buttons after it on one row: the buttons laid from the row's right end (`buttons` adds them
+/// right to left, the last one first), the bar taking exactly the room they leave. A row wider than its window
+/// makes a window that fits its content grow, and the next frame's row with it: measured instead (the labels'
+/// widths, the paddings), the row came out a fraction of a point too wide in the modern interface's font, and the
+/// Tasks window grew frame after frame.
+pub(crate) fn progress_row<R>(ui: &mut Ui, bar: egui::ProgressBar, buttons: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let r = buttons(ui);
+            ui.add(bar.desired_width(ui.available_width().max(0.0)));
+            r
         })
-        .sum()
+        .inner
+    })
+    .inner
 }
 
 /// A long text without spaces (a path) on one line, cut with "..." to the room it has (its whole on hover):

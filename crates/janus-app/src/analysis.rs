@@ -108,6 +108,8 @@ pub struct ScatterData {
 #[derive(Default)]
 pub struct AnalysisUi {
     pub show: bool,
+    /// brought to the front (a button elsewhere opened one of its tabs)
+    pub focus: bool,
     /// 0 seasonal, 1 classes, 2 scatter, 3 the trend test
     pub tab: usize,
     seasonal_source: String,
@@ -122,6 +124,11 @@ pub struct AnalysisUi {
     /// the flows' dates (sorted) and their consecutive pairs' transitions
     pub flow_dates: Vec<usize>,
     pub flows: Vec<Transitions>,
+    /// the flows: only the pixels that changed class; the zoom (1: the whole diagram in the panel's height) and
+    /// how far down it is scrolled (points of the zoomed diagram)
+    pub flow_changes: bool,
+    pub flow_zoom: f32,
+    pub flow_pan: f32,
     trans_from: usize,
     /// None: the current date
     trans_to: Option<usize>,
@@ -140,6 +147,13 @@ pub struct AnalysisUi {
 }
 
 impl State {
+    /// Analysis > Classes in front: the categorical layer's classes over time.
+    pub(crate) fn open_class_timeline(&mut self) {
+        self.analysis.show = true;
+        self.analysis.tab = 1;
+        self.analysis.focus = true;
+    }
+
     /// The Analysis panel's tabs.
     pub(crate) fn analysis_ui(&mut self, ui: &mut Ui) {
         if self.session.is_none() {

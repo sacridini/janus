@@ -68,6 +68,45 @@ pub struct UiTest {
     run_vectors: usize,
     /// the exit code, once decided (the window takes another frame to close)
     result: Option<i32>,
+    /// each window's width at the last frame and how many frames in a row it grew (a window must not widen by
+    /// itself: a row a fraction of a point wider than it grows it frame after frame)
+    widths: std::collections::HashMap<egui::Id, (f32, usize)>,
+}
+
+/// Frames in a row a window may widen (its content changed) before it is a window growing by itself.
+const GROWING: usize = 30;
+
+/// A window (Tasks, Exports, a tool's...) widening at every frame for GROWING frames: its id, else None.
+fn growing_window(
+    ctx: &egui::Context,
+    widths: &mut std::collections::HashMap<egui::Id, (f32, usize)>,
+) -> Option<String> {
+    let rects: Vec<(egui::Id, f32)> = ctx.memory(|m| {
+        m.layer_ids()
+            .filter(|l| l.order == egui::Order::Middle)
+            .filter_map(|l| m.area_rect(l.id).map(|r| (l.id, r.width())))
+            .collect()
+    });
+    for (id, w) in rects {
+        let e = widths.entry(id).or_insert((w, 0));
+        e.1 = if w > e.0 + 1e-4 { e.1 + 1 } else { 0 };
+        e.0 = w;
+        if e.1 >= GROWING {
+            // its title, when it is one of these
+            let titles = ["Tasks", "Exports", "Log", "Settings", "Chips", "Self-test files"];
+            let tools =
+                janus_zeit::manifest().tools.iter().map(|t| (egui::Id::new(("zeit tool", &t.id)), t.name.as_str()));
+            let name = titles
+                .iter()
+                .map(|t| (egui::Id::new(*t), *t))
+                .chain([(egui::Id::new("ml window"), "Deep learning")])
+                .chain(tools)
+                .find(|(i, _)| *i == id)
+                .map_or_else(|| format!("{id:?}"), |(_, t)| t.to_string());
+            return Some(format!("{name} ({w:.1} points wide)"));
+        }
+    }
+    None
 }
 
 fn loaded(s: Option<&Session>) -> bool {
@@ -81,6 +120,12 @@ impl State {
             return self.ui_test.result;
         }
         let mut st = std::mem::take(&mut self.ui_test);
+        if let Some(name) = growing_window(ctx, &mut st.widths) {
+            println!("FAIL: the window {name} widens by itself, frame after frame");
+            self.ui_test = st;
+            self.ui_test.result = Some(1);
+            return Some(1);
+        }
         let r = self.ui_selftest_stage(&mut st, ctx);
         st.result = r;
         self.ui_test = st;
@@ -676,15 +721,17 @@ impl State {
                 self.add_pin(150, 30);
                 let mk = janus_zeit::manifest().tool("mann_kendall")?;
                 *self.zeit.params(mk) = mk.params.iter().map(|q| (q.id.clone(), q.default.clone())).collect();
-                self.zeit.pixel_tool = Some(mk.id.clone());
-                self.zeit.version += 1;
+                self.zeit.fit_only(Some(&mk.id));
                 st.stage = 30;
             }
             30 => {
                 let pin = self.series.pins.last()?.clone();
                 let id = self.session.as_ref()?.info.id;
                 if !pin.exact
-                    || !self.zeit.fit_of(id, crate::zeit::Which::Pin(pin.id), pin.x, pin.y).is_some_and(|r| r.is_ok())
+                    || !self
+                        .zeit
+                        .fit_of("mann_kendall", id, crate::zeit::Which::Pin(pin.id), pin.x, pin.y)
+                        .is_some_and(|r| r.is_ok())
                 {
                     return None;
                 }
@@ -706,8 +753,7 @@ impl State {
                 if nan == 0 {
                     return fail("the pin should have dates masked by the quality band");
                 }
-                self.zeit.pixel_tool = None;
-                self.zeit.version += 1;
+                self.zeit.fit_only(None);
                 self.set_roi_rect([20, 10, 120, 100]);
                 next(st, "Copy Python of the pin: the same series, and the tool's call");
             }
@@ -746,15 +792,17 @@ impl State {
                     return fail("CCDC should be among the tools");
                 };
                 *self.zeit.params(ccdc) = ccdc.params.iter().map(|q| (q.id.clone(), q.default.clone())).collect();
-                self.zeit.pixel_tool = Some(ccdc.id.clone());
-                self.zeit.version += 1;
+                self.zeit.fit_only(Some(&ccdc.id));
                 next(st, "the Landsat series (six bands and Fmask per date), CCDC on a pin");
             }
             33 => {
                 let pin = self.series.pins.last()?.clone();
                 let id = self.session.as_ref()?.info.id;
                 if !pin.exact
-                    || !self.zeit.fit_of(id, crate::zeit::Which::Pin(pin.id), pin.x, pin.y).is_some_and(|r| r.is_ok())
+                    || !self
+                        .zeit
+                        .fit_of("ccdc", id, crate::zeit::Which::Pin(pin.id), pin.x, pin.y)
+                        .is_some_and(|r| r.is_ok())
                 {
                     return None;
                 }
@@ -771,8 +819,7 @@ impl State {
                     return fail("the code should call zeit.ccdc on the bands and their Fmask codes");
                 }
                 println!("    CCDC: the bands by role in reflectance x 10000 and the Fmask codes; zeit.ccdc ran");
-                self.zeit.pixel_tool = None;
-                self.zeit.version += 1;
+                self.zeit.fit_only(None);
                 self.clear_pins();
                 next(st, "the CCDC code: its bands, Fmask codes and call");
                 return self.test_open_d(st, &input, t0, ctx);

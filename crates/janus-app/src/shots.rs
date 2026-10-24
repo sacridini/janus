@@ -289,8 +289,7 @@ impl State {
         if let Some(o) = params.as_object() {
             u.params.extend(o.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
-        self.zeit.pixel_tool = tool.modes.iter().any(|m| m == "pixel").then(|| id.to_string());
-        self.zeit.version += 1;
+        self.zeit.fit_only(tool.modes.iter().any(|m| m == "pixel").then_some(id));
         true
     }
 
@@ -299,7 +298,7 @@ impl State {
         if let Some(o) = params.as_object() {
             u.params.extend(o.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
-        self.zeit.version += 1;
+        u.version += 1;
     }
 
     /// The tool's run on the raster (scope: 0 whole image, 1 visible area, 2 ROI).

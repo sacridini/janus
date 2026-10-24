@@ -601,10 +601,12 @@ impl State {
                 )
                 .clicked();
             if v.strata_job.busy() {
-                ui.add(egui::ProgressBar::new(v.strata_prog.done() as f32).desired_width(ui.available_width() - 60.0));
-                if ui.small_button("Cancel").clicked() {
-                    v.strata_prog.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-                }
+                // Cancel at the row's end, the bar in what it leaves (never wider than the panel)
+                crate::panels::progress_row(ui, egui::ProgressBar::new(v.strata_prog.done() as f32), |ui| {
+                    if ui.small_button("Cancel").clicked() {
+                        v.strata_prog.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                });
             } else if stale {
                 ui.colored_label(theme::warning(), "the maps or the limit changed");
             }

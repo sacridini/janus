@@ -141,7 +141,11 @@
     largest ones, the share of pixels that changed, the full matrix); Copy CSV
     of both. *Flows*: a **Sankey diagram** between two to six dates (a bar per
     class as tall as its pixels, a ribbon per change; hover for the shares),
-    counted a pair of consecutive dates at a time.
+    counted a pair of consecutive dates at a time. *Changes only* leaves out
+    the pixels that kept their class: only what changed, at a scale of its
+    own (a class that changed nowhere disappears). The wheel zooms on the
+    pointer (up to 40x), a drag moves the diagram, a double click (or *Fit*)
+    shows it whole; the names follow the part of each bar in view.
   - **Scatter**: two layers, or two dates of one, pixel by pixel in the ROI (or
     the whole image) as a density plot, with the 1:1 line, the least squares
     line, r, R², the mean difference and its RMS; the **trajectory** of the
@@ -160,6 +164,8 @@
     (which is no regional test: neighbours are correlated, and thousands of
     tests run at once). Runs on a thread (seconds to a minute), reading the
     region at full resolution (one pixel in k × k of a large one); Copy CSV.
+    A guide with screenshots, the method step by step and how to read the
+    results: [Trend test](https://sacridini.github.io/janus/trend-test.html).
 
   Classes and scatter count the overview's pixels (what the map shows before
   zooming in), so they are immediate on any series.
@@ -278,7 +284,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Temporal composite | **Display** panel → *Temporal composite*: median, mean, maximum, minimum or number of observations of each pixel over a window: the shown date's year (the arrows and playback then go year by year), some days around the date (a moving window) or the whole series; with the season, only its dates. Computed in the map shader over the overview's dates each time the map is drawn (the median of up to 64 values: every k-th one beyond) |
 | Season | **Display** panel → Season → *Only part of the year*: a window of days of the year (presets by months: DJF, JJA, Apr–Sep...; a start after the end wraps over the new year and belongs to the year it ends in). The dates outside it are left out of the temporal statistics (mean, trend, std...), the composites, playback and the arrow keys; the chart shades the season. Applies to every layer with dates |
 | Largest drop | **Display** panel → *Largest drop: date* or *magnitude*: the largest decrease between consecutive valid observations (no-data dates skipped), dated at the lower one; the colour bar shows dates. Exact values for the cursor and pins in the **Statistics** panel |
-| Classes (categorical data) | **Display** panel → *Categorical (classes)*: legend with colours, names and shares (click a colour to change it, untick a class to hide it); detection can be switched off or forced |
+| Classes (categorical data) | **Display** panel → *Categorical (classes)*: legend with colours, names and shares (click a colour to change it, untick a class to hide it); detection can be switched off or forced. **Classes over time...** (under the legend, and on the chart's toolbar) opens View → Analysis → Classes: each class's share at every date, the flows between dates (Sankey) and the transitions. On the chart, a categorical layer's series has styles of its own: *Steps + markers* (the markers in the classes' colours), *Steps*, *Markers* or *Class blocks* (a block per date in its class's colour); every class is named on the Y axis. Values, trend and *Y = map range* do not apply to class codes and are disabled |
 | Band, index, cloud mask | **Display** panel → Bands (one file per date with several bands): band A, optional normalized difference with B, quality band; **Apply** reopens the layer in place |
 | RGB of three bands | **Display** panel → RGB composite (one file per date with several bands): *Three bands of each date as RGB*, a preset (true colour, colour infrared, SWIR, agriculture, land/water: bands found by their names or wavelengths) or any three bands, the map's date or a fixed one, the stretch of each channel (2–98% of the first image, kept for every date; *Stretch to this image*). The chart, the cursor and the tools keep the series' band or index; zoomed in, the visible area is read again at full resolution; map panels, the swipe, PNGs and animations show it too |
 | Python of a series | Time series panel → **Copy Python** → the cursor, a pin or the ROI: code (numpy, rasterio) that reads the same series from the files (band, normalized difference, quality mask; the ROI's pixels inside it), prints its statistics and, with a Zeit tool on the chart, makes the same Zeit calls with the same parameters (as the tool made them: recorded, not rewritten) |
@@ -295,7 +301,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Maps side by side | View → New map view (`Ctrl+T`): pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** or `Ctrl+W` (the focused panel, else the last one opened) |
 | Swipe | View → Swipe (`C`): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode, or *Basemap only*; **Swipe off** or `C` again closes it |
 | Space-time transect | `Ctrl` + drag a line on the map (Mac: `Command` + drag), or `T` / View → Draw transect, then drag; a **polyline** (a river, a road, a valley): `T`, then click its vertices, a double click or `Enter` ends it (`Backspace` undoes a vertex); **Alt + click** a line of a vector layer: the transect along it; `Esc` cancels. **Transect** panel: distance from A along the line (X; dashed verticals at the bends; no data where a polyline leaves the layer) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel |
-| Chart options | style (lines ... bars), values/anomaly/z-score/seasonal anomaly/CUSUM, trend (OLS/Sen), Y = map range, stripes, the ROI's spread (p10–p90, box plot, fan, density) |
+| Chart options | style (lines ... bars; a categorical layer: steps, markers, class blocks), values/anomaly/z-score/seasonal anomaly/CUSUM, trend (OLS/Sen), Y = map range, stripes, the ROI's spread (p10–p90, box plot, fan, density) |
 | Map as a figure | File → Export map as PNG... (`Ctrl+E`): resolution (1×, 2×, 4×), background, date label, legend, scale bar, pins, ROI and vector layers; *Save to*: the file (a path, a name alone for the last export folder, or **Browse...**), then **Export** (or `Enter`) |
 | Data for QGIS | File → Export values as GeoTIFF... (`Ctrl+Shift+E`; the active layer at the date: visible area or whole image) or Export rendered view as GeoTIFF... (`Ctrl+Shift+V`; RGBA as shown, georeferenced) |
 | Save a tool result | right click it in the **Layers** panel → Save as GeoTIFF..., or File → Export Zeit result as GeoTIFF; `Ctrl+S` saves the result drawn on top. A copy of the result: Float32, full resolution, the series' grid and CRS, no data = NaN, named `<layer>_<tool>_<output>.tif` |
@@ -324,7 +330,8 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 [CCDC](https://sacridini.github.io/janus/ccdc.html),
 [CODED and the NDFI](https://sacridini.github.io/janus/coded.html),
 [BFAST](https://sacridini.github.io/janus/bfast.html),
-[Phenology](https://sacridini.github.io/janus/phenology.html)):
+[Phenology](https://sacridini.github.io/janus/phenology.html),
+[the AR(1) trend and the Trend test](https://sacridini.github.io/janus/trend-test.html)):
 
 | Tool | Series | Maps |
 |---|---|---|
@@ -438,11 +445,21 @@ Each tool window has:
 - **Parameters**, generated from the tool description sent by Zeit (hover a
   field for help). Tools that do not fit the open series are disabled with the
   reason (e.g. LandTrendr needs an annual series).
-- **On the chart**: fits the model to the cursor, pin and ROI series and draws it
-  over them in the same color (LandTrendr segments and vertices, Sen's line,
-  vertical lines at break dates); the model's numbers are added to the
-  Statistics table. With *All visible layers* on the chart, single-band tools
-  are also fitted to the other layers' cursor and pin series.
+- **On the chart**: on as soon as the tool is opened (closing its window takes
+  it off): fits the model to the cursor, pin and ROI series and draws it over
+  them (LandTrendr segments and vertices, Sen's line, vertical lines at break
+  dates); the model's numbers are added to the Statistics table. Several tools
+  can be fitted at once (e.g. LandTrendr, Mann-Kendall and the AR(1) trend, or
+  phenology and smoothing): each in its own colour and line (solid, dashed,
+  dotted), named in the chart's legend (a click there hides that tool's
+  models; hiding a series hides its models), the same line shown next to the
+  checkbox and over the tool's rows in the Statistics table; changing one
+  tool's parameters fits only that tool again. On a series that does not suit
+  the tool (e.g. LandTrendr on a monthly series) the checkbox is off and
+  disabled, with the reason; it fits again on a series that does. With *All
+  visible layers* on the chart, single-band tools are also fitted to the other
+  layers' cursor and pin series. **Copy Python** writes the calls of every tool
+  fitted on the series.
 - **Estimated run time** for the chosen scope, measured by Zeit on samples of
   the series (a fixed cost per block plus a cost per pixel, and the fit of
   tools that learn from a sample, such as the SOM; reading the data is not

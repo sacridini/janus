@@ -25,17 +25,22 @@ pub enum Which {
     Roi,
 }
 
+/// A fit: of a tool (its place in the manifest) on a series of a layer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FitKey {
     pub cube: u64,
     pub which: Which,
+    pub tool: u16,
 }
+
+/// The settings a fit was made with: every tool's (the bands), the tool's own (its parameters, the map's date).
+type Version = (u64, u64);
 
 /// A fit asked for or done: of the series at (x, y) with the tool's settings of `version`.
 pub struct Fit {
     x: usize,
     y: usize,
-    version: u64,
+    version: Version,
     pub result: Option<Result<PixelResult, String>>,
 }
 
@@ -45,6 +50,10 @@ pub struct ToolUi {
     pub open: bool,
     pub params: BTreeMap<String, Value>,
     pub scope: usize,
+    /// bumped when its parameters change: its fits are made again
+    pub version: u64,
+    /// its colour and line on the chart (the first free when it is fitted)
+    pub slot: usize,
     /// the run's time measured on a sample (for the series, parameters and bands of `est_key`), the measure under
     /// way, and when they changed last (measured once they stay for a moment)
     est: Option<Result<janus_zeit::job::Estimate, String>>,
@@ -64,7 +73,7 @@ struct Request {
     key: FitKey,
     x: usize,
     y: usize,
-    version: u64,
+    version: Version,
     tool: String,
     params: Params,
     input: PixelInput,
@@ -75,7 +84,7 @@ struct Reply {
     key: FitKey,
     x: usize,
     y: usize,
-    version: u64,
+    version: Version,
     result: Result<PixelResult, String>,
     ms: f64,
 }
@@ -86,9 +95,9 @@ type FullCopy = (String, Vec<f32>, usize, usize);
 #[derive(Default)]
 pub struct ZeitUi {
     pub tools: HashMap<String, ToolUi>,
-    /// the tool fitted on the chart
-    pub pixel_tool: Option<String>,
-    /// bumped when the tool, its parameters or its bands change: the fits are made again
+    /// the tools fitted on the chart, in the order they were turned on (a tool opened is fitted)
+    pub pixel_tools: Vec<String>,
+    /// bumped when the bands change: every fit is made again
     pub version: u64,
     pub fits: HashMap<FitKey, Fit>,
     /// the active layer's bands for each role (multiband tools), and the cube they were guessed for
@@ -252,17 +261,124 @@ fn pixel_input(info: &CubeInfo, values: &[f32], t: usize, roles: &BTreeMap<Strin
     }
 }
 
+/// A tool's place in the manifest (a fit's key, a panel's tab).
+pub fn tool_index(id: &str) -> u16 {
+    manifest().tools.iter().position(|t| t.id == id).unwrap_or(0) as u16
+}
+
+/// The colours of the tools fitted on the chart, each with its line (solid, dashed, dotted...): none a series'
+/// (the pins' are vivid, the ROI's yellow, the date's orange), over a dark outline.
+const FIT_COLOURS: [Color32; 6] = [
+    Color32::from_rgb(242, 38, 242),
+    Color32::from_rgb(236, 236, 236),
+    Color32::from_rgb(0, 214, 255),
+    Color32::from_rgb(196, 255, 0),
+    Color32::from_rgb(255, 120, 60),
+    Color32::from_rgb(150, 120, 255),
+];
+
+/// A fitted tool's look on the chart: its colour and its line.
+#[derive(Clone, Copy)]
+pub struct FitStyle {
+    pub color: Color32,
+    pub line: egui_plot::LineStyle,
+}
+
+impl FitStyle {
+    pub fn of(slot: usize) -> Self {
+        let line = match slot % 4 {
+            0 => egui_plot::LineStyle::Solid,
+            1 => egui_plot::LineStyle::Dashed { length: 9.0 },
+            2 => egui_plot::LineStyle::Dotted { spacing: 6.0 },
+            _ => egui_plot::LineStyle::dashed_dense(),
+        };
+        FitStyle { color: theme::on_plot(FIT_COLOURS[slot % FIT_COLOURS.len()]), line }
+    }
+}
+
+/// A fit of a series by one of the tools on the chart (None: asked for, not done yet).
+pub struct ToolFit<'a> {
+    pub tool: &'static Tool,
+    pub style: FitStyle,
+    pub result: Option<&'a Result<PixelResult, String>>,
+}
+
 impl ZeitUi {
-    /// A layer's fit of a series, if it is of that place and of the tool's current settings.
-    pub fn fit_of(&self, cube: u64, which: Which, x: usize, y: usize) -> Option<&Result<PixelResult, String>> {
-        self.pixel_tool.as_ref()?;
-        let f = self.fits.get(&FitKey { cube, which })?;
-        (f.x == x && f.y == y && f.version == self.version).then_some(f.result.as_ref()).flatten()
+    /// Whether the tool is fitted on the chart.
+    pub fn fitted(&self, id: &str) -> bool {
+        self.pixel_tools.iter().any(|t| t == id)
+    }
+
+    /// The tool fitted on the chart or not; fitted, it takes the first colour no other fitted tool has.
+    pub fn set_fitted(&mut self, id: &str, on: bool) {
+        if on == self.fitted(id) {
+            return;
+        }
+        if on {
+            let used: Vec<usize> = self.pixel_tools.iter().filter_map(|t| self.tools.get(t)).map(|u| u.slot).collect();
+            let slot = (0..).find(|k| !used.contains(k)).unwrap_or(0);
+            let u = self.tools.entry(id.to_string()).or_default();
+            u.slot = slot;
+            u.version += 1;
+            self.pixel_tools.push(id.to_string());
+        } else {
+            self.pixel_tools.retain(|t| t != id);
+            let k = tool_index(id);
+            self.fits.retain(|key, _| key.tool != k);
+        }
+    }
+
+    /// Only this tool on the chart (the tours, the tests, --zeit).
+    pub fn fit_only(&mut self, id: Option<&str>) {
+        for t in self.pixel_tools.clone() {
+            self.set_fitted(&t, false);
+        }
+        if let Some(id) = id {
+            self.set_fitted(id, true);
+        }
+    }
+
+    /// The settings a tool's fits are made with now.
+    fn version_of(&self, id: &str) -> Version {
+        (self.version, self.tools.get(id).map_or(0, |u| u.version))
+    }
+
+    /// The tools on the chart, in order, with their looks.
+    pub fn chart_tools(&self) -> Vec<(&'static Tool, FitStyle)> {
+        self.pixel_tools
+            .iter()
+            .filter_map(|id| manifest().tool(id))
+            .map(|t| (t, FitStyle::of(self.tools.get(&t.id).map_or(0, |u| u.slot))))
+            .collect()
+    }
+
+    /// A tool's fit of a layer's series, if it is of that place and of the tool's current settings.
+    pub fn fit_of(
+        &self,
+        tool: &str,
+        cube: u64,
+        which: Which,
+        x: usize,
+        y: usize,
+    ) -> Option<&Result<PixelResult, String>> {
+        if !self.fitted(tool) {
+            return None;
+        }
+        let f = self.fits.get(&FitKey { cube, which, tool: tool_index(tool) })?;
+        (f.x == x && f.y == y && f.version == self.version_of(tool)).then_some(f.result.as_ref()).flatten()
+    }
+
+    /// Every chart tool's fit of a layer's series (the tools' order).
+    pub fn fits_of(&self, cube: u64, which: Which, x: usize, y: usize) -> Vec<ToolFit<'_>> {
+        self.chart_tools()
+            .into_iter()
+            .map(|(tool, style)| ToolFit { tool, style, result: self.fit_of(&tool.id, cube, which, x, y) })
+            .collect()
     }
 
     /// Whether a fit of that series is wanted (the tool's settings or the place changed).
-    fn wanted(&self, key: FitKey, x: usize, y: usize) -> bool {
-        self.fits.get(&key).is_none_or(|f| f.x != x || f.y != y || f.version != self.version)
+    fn wanted(&self, key: FitKey, x: usize, y: usize, version: Version) -> bool {
+        self.fits.get(&key).is_none_or(|f| f.x != x || f.y != y || f.version != version)
     }
 
     fn send(&mut self, ctx: &egui::Context, r: Request) {
@@ -316,24 +432,38 @@ impl State {
                 }
             }
         }
-        let Some(id) = self.zeit.pixel_tool.clone() else { return };
-        let Some(tool) = manifest().tool(&id) else { return };
-        let Some(s) = &self.session else { return };
+        // tools on the map's date are fitted again when it changes
+        if self.zeit.map_t != Some(self.display.t) {
+            self.zeit.map_t = Some(self.display.t);
+            for id in self.zeit.pixel_tools.clone() {
+                if manifest().tool(&id).is_some_and(|t| t.map_date == Some(true)) {
+                    self.zeit.tools.entry(id).or_default().version += 1;
+                }
+            }
+        }
+        for id in self.zeit.pixel_tools.clone() {
+            let Some(tool) = manifest().tool(&id) else { continue };
+            for r in self.fit_requests(tool) {
+                self.zeit.send(ctx, r);
+            }
+        }
+    }
+
+    /// A tool's fits wanted: of the cursor, the pins and the ROI, and of the other layers' on the chart (none if
+    /// the series does not suit it).
+    fn fit_requests(&mut self, tool: &'static Tool) -> Vec<Request> {
+        let Some(s) = &self.session else { return vec![] };
         let info = s.info.clone();
         if applicability(tool, &info).is_some() {
-            return;
+            return vec![];
         }
         let roles = self.active_roles();
         let (needed, optional) = tool_roles(tool);
         let multiband = !needed.is_empty();
         if multiband && needed.iter().any(|r| !roles.contains_key(r)) {
-            return;
+            return vec![];
         }
-        // a tool on the map's date is fitted again when it changes
-        if tool.map_date == Some(true) && self.zeit.map_t != Some(self.display.t) {
-            self.zeit.map_t = Some(self.display.t);
-            self.zeit.version += 1;
-        }
+        let id = tool.id.clone();
         let params = Params::with_defaults(&id, self.zeit.params(tool)).unwrap_or_default();
         let t = self.display.t;
         let bands = || {
@@ -344,15 +474,16 @@ impl State {
             })
         };
         let mut requests = vec![];
-        let version = self.zeit.version;
+        let version = self.zeit.version_of(&id);
+        let k = tool_index(&id);
         let mut ask = |zeit: &ZeitUi,
                        cube: &CubeInfo,
                        which: Which,
                        view: &crate::series::SeriesView,
                        t: usize,
                        b: Option<BandRead>| {
-            let key = FitKey { cube: cube.id, which };
-            if view.exact && zeit.wanted(key, view.x, view.y) {
+            let key = FitKey { cube: cube.id, which, tool: k };
+            if view.exact && zeit.wanted(key, view.x, view.y, version) {
                 requests.push(Request {
                     key,
                     x: view.x,
@@ -389,9 +520,9 @@ impl State {
         // the ROI: the mean of the shown series (single-band tools)
         let roi = &self.series.roi;
         if !multiband && roi.complete() && !roi.mean.is_empty() {
-            let key = FitKey { cube: info.id, which: Which::Roi };
+            let key = FitKey { cube: info.id, which: Which::Roi, tool: k };
             let roi_gen = self.series.roi_gen as usize;
-            if self.zeit.wanted(key, roi_gen, 0) {
+            if self.zeit.wanted(key, roi_gen, 0, version) {
                 requests.push(Request {
                     key,
                     x: roi_gen,
@@ -404,15 +535,13 @@ impl State {
                 });
             }
         }
-        for r in requests {
-            self.zeit.send(ctx, r);
-        }
+        requests
     }
 
-    /// The ROI's fit, if it is of the current ROI.
-    pub(crate) fn roi_fit(&self) -> Option<&Result<PixelResult, String>> {
-        let s = self.session.as_ref()?;
-        self.zeit.fit_of(s.info.id, Which::Roi, self.series.roi_gen as usize, 0)
+    /// The chart tools' fits of the ROI, those of the current ROI.
+    pub(crate) fn roi_fits(&self) -> Vec<ToolFit<'_>> {
+        let Some(s) = self.session.as_ref() else { return vec![] };
+        self.zeit.fits_of(s.info.id, Which::Roi, self.series.roi_gen as usize, 0)
     }
 
     /// The Tools menu: Zeit's tools by category (each opens its window).
@@ -429,7 +558,7 @@ impl State {
             for t in m.tools.iter().filter(|t| t.category == c) {
                 let open = self.zeit.tools.get(&t.id).is_some_and(|u| u.open);
                 if ui.add(egui::Button::selectable(open, &t.name)).clicked() {
-                    self.zeit.tools.entry(t.id.clone()).or_default().open = !open;
+                    self.set_tool_open(t, !open);
                     ui.close();
                 }
             }
@@ -441,6 +570,15 @@ impl State {
             ui.close();
         }
         ui.weak(format!("Zeit {} (native, zeit-core)", janus_zeit::ZEIT_VERSION));
+    }
+
+    /// A tool's window opened or closed: opened, a tool of the chart is fitted on it (if the series suits it);
+    /// closed, its fits go.
+    pub(crate) fn set_tool_open(&mut self, tool: &Tool, open: bool) {
+        self.zeit.tools.entry(tool.id.clone()).or_default().open = open;
+        if tool.modes.iter().any(|m| m == "pixel") {
+            self.zeit.set_fitted(&tool.id, open);
+        }
     }
 
     /// The open tools' windows (those in the dock drawn there).
@@ -459,7 +597,7 @@ impl State {
                 .scroll(true)
                 .show(ctx, |ui| self.tool_window(ui, tool));
             if !keep {
-                self.zeit.tools.entry(id).or_default().open = false;
+                self.set_tool_open(tool, false);
             }
         }
     }
@@ -509,7 +647,8 @@ impl State {
                                 } else {
                                     self.zeit.roles.insert(role.clone(), b);
                                 }
-                                changed = true;
+                                // every tool reads these bands
+                                self.zeit.version += 1;
                             }
                         }
                     });
@@ -533,21 +672,31 @@ impl State {
             *self.zeit.params(tool) = tool.params.iter().map(|p| (p.id.clone(), p.default.clone())).collect();
             changed = true;
         }
-        if changed && self.zeit.pixel_tool.as_deref() == Some(&tool.id) {
-            self.zeit.version += 1;
+        if changed {
+            self.zeit.tools.entry(tool.id.clone()).or_default().version += 1;
         }
 
         if tool.modes.iter().any(|m| m == "pixel") {
             crate::panels::section(ui, "On the chart");
-            let mut on = self.zeit.pixel_tool.as_deref() == Some(&tool.id);
-            if ui
-                .add_enabled(why.is_none(), egui::Checkbox::new(&mut on, "Fit the cursor, pins and ROI series"))
-                .changed()
-            {
-                self.zeit.pixel_tool = on.then(|| tool.id.clone());
-                self.zeit.version += 1;
-            }
-            ui.weak("Runs on every exact series; the model is drawn over it\nand its numbers are added to the Statistics table.");
+            // on while the series suits the tool (kept on: it fits again on a series that does)
+            let fitted = self.zeit.fitted(&tool.id);
+            let mut on = fitted && why.is_none();
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(why.is_none(), egui::Checkbox::new(&mut on, "Fit the cursor, pins and ROI series"))
+                    .changed()
+                {
+                    self.zeit.set_fitted(&tool.id, on);
+                }
+                // its line on the chart, as in the legend
+                if let Some((_, style)) = self.zeit.chart_tools().into_iter().find(|(t, _)| t.id == tool.id) {
+                    fit_swatch(ui, style).on_hover_text("Its model on the chart (the legend names it)");
+                }
+            });
+            ui.weak(
+                "Runs on every exact series; the model is drawn over it in its own\ncolour and line, named in the \
+                 chart's legend, and its numbers are\nadded to the Statistics table. Other tools can be fitted too.",
+            );
         }
         if tool.modes.iter().any(|m| m == "raster") && self.session.is_some() {
             self.raster_run_ui(ui, tool, why.is_some());
@@ -751,24 +900,47 @@ fn layers_param_ui(ui: &mut Ui, p: &janus_zeit::Param, v: &mut Value, results: &
     changed
 }
 
-/// The fitted model's overlays on the chart, under the series' legend entry (hiding the series hides its
-/// model). Every model in the same colour, used by no series, over a dark outline: never mistaken for data.
-pub(crate) fn draw_fit(
+/// The fitted models' overlays on a series, each under its tool's name in the legend (a click there hides that
+/// tool's models), in its colour and line over a dark outline: never mistaken for data. A series hidden in the
+/// legend hides its models.
+pub(crate) fn draw_fits(
     plot: &mut PlotUi,
-    name: &str,
-    fit: Option<&Result<PixelResult, String>>,
+    series_hidden: bool,
+    fits: &[ToolFit<'_>],
     shown: &crate::chart::AsShown,
     info: &CubeInfo,
 ) {
-    let Some(Ok(r)) = fit else { return };
-    let col = theme::on_plot(Color32::from_rgb(242, 38, 242));
+    if series_hidden {
+        return;
+    }
+    for f in fits {
+        let Some(Ok(r)) = f.result else { continue };
+        draw_fit(plot, &f.tool.name, f.style, r, shown, info);
+    }
+}
+
+fn draw_fit(
+    plot: &mut PlotUi,
+    name: &str,
+    style: FitStyle,
+    r: &PixelResult,
+    shown: &crate::chart::AsShown,
+    info: &CubeInfo,
+) {
+    let col = style.color;
     let outline = Color32::from_rgba_unmultiplied(13, 13, 20, 230);
+    // the legend takes the colour of the first item of a name: the tool's, not its outline's
+    let mut named = false;
     for o in &r.overlays {
         if o.kind == "vlines" {
             for &x in &o.x {
                 let x = info.x_from_decimal_year(x);
+                if !named {
+                    plot.vline(VLine::new(name, x).color(col).width(1.5));
+                    named = true;
+                }
                 plot.vline(VLine::new(name, x).color(outline).width(3.5));
-                plot.vline(VLine::new(name, x).color(col.gamma_multiply(0.85)).width(1.5));
+                plot.vline(VLine::new(name, x).color(col.gamma_multiply(0.85)).width(1.5).style(style.line));
             }
             continue;
         }
@@ -780,6 +952,10 @@ pub(crate) fn draw_fit(
                     [x, y.map_or(f64::NAN, |y| shown.at(y, x))]
                 })
                 .collect();
+        if !named && let Some(p) = pts.iter().find(|p| p[1].is_finite()) {
+            plot.line(Line::new(name, PlotPoints::from(vec![*p])).color(col).width(2.0));
+            named = true;
+        }
         if pts.is_empty() {
             continue;
         }
@@ -799,11 +975,39 @@ pub(crate) fn draw_fit(
                         .width(width + 2.5),
                 );
                 plot.line(
-                    Line::new(name, PlotPoints::from(piece.to_vec())).color(col.gamma_multiply(alpha)).width(width),
+                    Line::new(name, PlotPoints::from(piece.to_vec()))
+                        .color(col.gamma_multiply(alpha))
+                        .width(width)
+                        .style(style.line),
                 );
             }
         }
     }
+}
+
+/// A fitted tool's line, as the chart draws it, 28 points wide.
+pub(crate) fn fit_swatch(ui: &mut Ui, style: FitStyle) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 12.0), egui::Sense::hover());
+    let (a, b) = (rect.left_center(), rect.right_center());
+    let p = ui.painter();
+    p.line_segment([a, b], egui::Stroke::new(4.0, Color32::from_rgba_unmultiplied(13, 13, 20, 230)));
+    match style.line {
+        egui_plot::LineStyle::Solid => {
+            p.line_segment([a, b], egui::Stroke::new(2.0, style.color));
+        }
+        egui_plot::LineStyle::Dotted { spacing } => {
+            p.extend(egui::Shape::dotted_line(&[a, b], style.color, spacing * 0.6, 1.2));
+        }
+        egui_plot::LineStyle::Dashed { length } => {
+            p.extend(egui::Shape::dashed_line(
+                &[a, b],
+                egui::Stroke::new(2.0, style.color),
+                length * 0.6,
+                length * 0.4,
+            ));
+        }
+    }
+    resp
 }
 
 /// The rows a column's fit adds to the Statistics table, by name.
@@ -1519,36 +1723,26 @@ Reading the data adds to it, mostly on spinning disks.",
                         JobState::Cancelled => "cancelled",
                         JobState::Failed => "failed",
                     };
-                    ui.horizontal(|ui| {
-                        let bw = ui.text_style_height(&egui::TextStyle::Body) * 4.5;
-                        // the bar takes what the buttons leave, exactly: a row wider than the panel grows a window
-                        // that fits its content, frame after frame
-                        let labels: &[&str] = if s.state == JobState::Running {
-                            &["Log", "Cancel"]
-                        } else {
-                            &["Log", "Folder", "Remove"]
-                        };
-                        let rest = crate::panels::buttons_width(ui, labels, bw);
-                        ui.add(
-                            egui::ProgressBar::new(s.progress as f32)
-                                .desired_width((ui.available_width() - rest).max(60.0))
-                                .text(format!("{name}  {:.0}%  {el:.0} s", s.progress * 100.0)),
-                        );
-                        let log = ui.add(egui::Button::new("Log").min_size(egui::vec2(bw, 0.0)));
-                        if log.on_hover_text(&j.log_path).clicked() {
-                            show_log = Some(j.log_path.clone());
-                        }
+                    let bw = ui.text_style_height(&egui::TextStyle::Body) * 4.5;
+                    let bar = egui::ProgressBar::new(s.progress as f32)
+                        .text(format!("{name}  {:.0}%  {el:.0} s", s.progress * 100.0));
+                    // the buttons from the right (Log, then Cancel or Folder and Remove), the bar in what they leave
+                    crate::panels::progress_row(ui, bar, |ui| {
                         if s.state == JobState::Running {
                             if ui.add(egui::Button::new("Cancel").min_size(egui::vec2(bw, 0.0))).clicked() {
                                 j.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
                             }
                         } else {
-                            if ui.add(egui::Button::new("Folder").min_size(egui::vec2(bw, 0.0))).clicked() {
-                                crate::platform::open_in_explorer(&j.output_dir);
-                            }
                             if ui.add(egui::Button::new("Remove").min_size(egui::vec2(bw, 0.0))).clicked() {
                                 remove = Some(i);
                             }
+                            if ui.add(egui::Button::new("Folder").min_size(egui::vec2(bw, 0.0))).clicked() {
+                                crate::platform::open_in_explorer(&j.output_dir);
+                            }
+                        }
+                        let log = ui.add(egui::Button::new("Log").min_size(egui::vec2(bw, 0.0)));
+                        if log.on_hover_text(&j.log_path).clicked() {
+                            show_log = Some(j.log_path.clone());
                         }
                     });
                     if s.state == JobState::Running && !s.message.is_empty() {
@@ -1769,7 +1963,9 @@ impl State {
         if !self.opts.zeit_run || !self.zeit.jobs.is_empty() {
             return;
         }
-        let Some(tool) = self.opts.zeit_tool.as_deref().and_then(|id| manifest().tool(id)) else { return };
+        // the first of several
+        let first = self.opts.zeit_tool.as_deref().and_then(|ids| ids.split(',').next());
+        let Some(tool) = first.and_then(|id| manifest().tool(id.trim())) else { return };
         if !self.session.as_ref().is_some_and(|s| s.ready_ms.is_some()) {
             return;
         }

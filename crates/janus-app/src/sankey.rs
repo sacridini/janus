@@ -15,6 +15,9 @@ use crate::theme;
 /// The most dates a diagram shows.
 pub const MAX_DATES: usize = 6;
 
+/// The most a diagram is zoomed (a class of a few pixels among millions: a sliver still).
+const MAX_ZOOM: f32 = 40.0;
+
 /// A class's bar in a column, from `y0` to `y1` (points from the diagram's top).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Node {
@@ -172,11 +175,31 @@ impl State {
             if n < MAX_DATES {
                 add = ui.small_button("+").on_hover_text("Adds the current date").clicked();
             }
+            ui.separator();
+            ui.checkbox(&mut a.flow_changes, "Changes only").on_hover_text(
+                "Leaves out the pixels that kept their class: the bars and ribbons are the pixels that changed, at \
+                 a scale of their own (the shares in the tooltips stay of all the pixels)",
+            );
+            ui.separator();
+            let z = a.flow_zoom.max(1.0);
+            if ui.add_enabled(z > 1.0, egui::Button::new("-").small()).on_hover_text("Zoom out").clicked() {
+                a.flow_zoom = (z / 1.5).max(1.0);
+                a.flow_pan /= 1.5;
+            }
+            ui.label(format!("{z:.1}x")).on_hover_text("The diagram's zoom");
+            if ui.add_enabled(z < MAX_ZOOM, egui::Button::new("+").small()).on_hover_text("Zoom in").clicked() {
+                a.flow_zoom = (z * 1.5).min(MAX_ZOOM);
+                a.flow_pan *= 1.5;
+            }
+            if ui.add_enabled(z > 1.0, egui::Button::new("Fit").small()).on_hover_text("The whole diagram").clicked() {
+                (a.flow_zoom, a.flow_pan) = (1.0, 0.0);
+            }
             ui.weak("(?)").on_hover_text(
                 "A column per date, a bar per class as tall as its pixels, a ribbon per change as wide as the \
                  pixels that made it (in the colour of the class they left). Counted on the overview, one pair of \
                  consecutive dates at a time: the ribbons meet at each date's bars, but a pixel is not followed \
-                 across several dates.",
+                 across several dates.\nThe wheel zooms on the pointer, a drag moves the diagram, a double click \
+                 shows it whole.",
             );
         });
         if let Some(k) = remove {
@@ -227,16 +250,67 @@ impl State {
         let name = |k: usize| self.classes.find(values[k]).map_or(values[k].to_string(), |e| e.name.clone());
 
         let body = ui.text_style_height(&egui::TextStyle::Body);
-        let (rect, resp) = ui.allocate_exact_size(vec2(size.x, ui.available_height().max(80.0)), Sense::hover());
+        let (rect, resp) =
+            ui.allocate_exact_size(vec2(size.x, ui.available_height().max(80.0)), Sense::click_and_drag());
         // the class names beside the first and the last columns, the dates above
         let side = (rect.width() * 0.18).min(body * 10.0);
         let area = Rect::from_min_max(rect.min + vec2(side, body * 1.6), rect.max - vec2(side, 4.0));
-        let mats: Vec<Vec<u32>> = flows.iter().map(|tr| tr.m.clone()).collect();
-        let lay = layout(&mats, k_n, &shown, area.height(), 3.0);
+        let changes = self.analysis.flow_changes;
+        let mats: Vec<Vec<u32>> = flows
+            .iter()
+            .map(|tr| {
+                let mut m = tr.m.clone();
+                if changes {
+                    // the pixels that kept their class out
+                    for k in 0..k_n {
+                        m[k * k_n + k] = 0;
+                    }
+                }
+                m
+            })
+            .collect();
+        // zoomed (the wheel on the pointer, the buttons), moved by a drag, whole again on a double click
+        let (mut zoom, mut pan) = (self.analysis.flow_zoom.max(1.0), self.analysis.flow_pan);
+        if resp.double_clicked() {
+            (zoom, pan) = (1.0, 0.0);
+        }
+        if let Some(p) = resp.hover_pos().filter(|p| area.y_range().contains(p.y)) {
+            let wheel = ui.input(|i| i.smooth_scroll_delta.y);
+            if wheel != 0.0 {
+                let z = (zoom * (wheel / 200.0).exp()).clamp(1.0, MAX_ZOOM);
+                let at = p.y - area.top();
+                pan = (pan + at) * z / zoom - at;
+                zoom = z;
+            }
+        }
+        if resp.dragged() {
+            pan -= resp.drag_delta().y;
+        }
+        let height = area.height() * zoom;
+        pan = pan.clamp(0.0, (height - area.height()).max(0.0));
+        (self.analysis.flow_zoom, self.analysis.flow_pan) = (zoom, pan);
+        if zoom > 1.0 && (resp.hovered() || resp.dragged()) {
+            ui.ctx().set_cursor_icon(if resp.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
+        }
+        let lay = layout(&mats, k_n, &shown, height, 3.0);
+        if lay.nodes.iter().all(|c| c.is_empty()) {
+            ui.painter().text(
+                area.center(),
+                egui::Align2::CENTER_CENTER,
+                if changes { "No pixel changed class between these dates." } else { "No pixels." },
+                egui::TextStyle::Body.resolve(ui.style()),
+                ui.visuals().weak_text_color(),
+            );
+            return;
+        }
+        // the diagram's y on the screen
+        let top = area.top() - pan;
         let cols = dates.len();
         const BAR: f32 = 10.0;
         let x_of = |c: usize| area.left() + (area.width() - BAR) * c as f32 / (cols - 1).max(1) as f32;
-        let painter = ui.painter_at(rect);
+        // the diagram clipped to its area (the names beside it too), the dates above it
+        let painter = ui.painter_at(Rect::from_x_y_ranges(rect.x_range(), area.top() - 2.0..=area.bottom() + 2.0));
+        let header = ui.painter_at(rect);
         let font = egui::TextStyle::Body.resolve(ui.style());
         let text = ui.visuals().text_color();
 
@@ -246,7 +320,7 @@ impl State {
             (0..cols).find_map(|c| {
                 let x = x_of(c);
                 (p.x >= x - 2.0 && p.x <= x + BAR + 2.0)
-                    .then(|| lay.nodes[c].iter().find(|n| p.y >= area.top() + n.y0 && p.y <= area.top() + n.y1))
+                    .then(|| lay.nodes[c].iter().find(|n| p.y >= top + n.y0 && p.y <= top + n.y1))
                     .flatten()
                     .map(|n| (c, n.k))
             })
@@ -260,9 +334,14 @@ impl State {
                 let u = (p.x - x0) / (x1 - x0);
                 let e = u * u * (3.0 - 2.0 * u);
                 let (y0, y1) = (r.a.0 + (r.b.0 - r.a.0) * e, r.a.1 + (r.b.1 - r.a.1) * e);
-                p.y >= area.top() + y0 && p.y <= area.top() + y1.max(y0 + 1.0)
+                p.y >= top + y0 && p.y <= top + y1.max(y0 + 1.0)
             })
         });
+        let (over_node, over_ribbon) = if area.y_range().contains(pointer.map_or(0.0, |p| p.y)) && !resp.dragged() {
+            (over_node, over_ribbon)
+        } else {
+            (None, None)
+        };
         let lit = |r: &Ribbon| match (over_node, over_ribbon) {
             (Some((c, k)), _) => (r.col == c && r.i == k) || (r.col + 1 == c && r.j == k),
             (_, Some(o)) => std::ptr::eq(r, &lay.ribbons[o]),
@@ -278,26 +357,40 @@ impl State {
                 0.12
             };
             let (x0, x1) = (x_of(r.col) + BAR, x_of(r.col + 1));
-            let (a, b) = ((area.top() + r.a.0, area.top() + r.a.1), (area.top() + r.b.0, area.top() + r.b.1));
+            if top + r.a.0.min(r.b.0) > area.bottom() || top + r.a.1.max(r.b.1) < area.top() {
+                continue;
+            }
+            let (a, b) = ((top + r.a.0, top + r.a.1), (top + r.b.0, top + r.b.1));
             painter.add(ribbon_mesh(x0, x1, a, b, theme::on_plot(colour(r.i)).gamma_multiply(alpha)));
         }
         for (c, col) in lay.nodes.iter().enumerate() {
             let x = x_of(c);
             for n in col {
-                let r = Rect::from_x_y_ranges(x..=x + BAR, area.top() + n.y0..=area.top() + n.y1.max(n.y0 + 1.0));
+                let r = Rect::from_x_y_ranges(x..=x + BAR, top + n.y0..=top + n.y1.max(n.y0 + 1.0));
                 painter.rect_filled(r, 1.0, colour(n.k));
                 painter.rect_stroke(r, 1.0, Stroke::new(0.5, text.gamma_multiply(0.5)), egui::StrokeKind::Inside);
-                // the names beside the outer columns, where the bar is tall enough
-                if (c == 0 || c == cols - 1) && n.y1 - n.y0 >= body * 0.8 {
+                // the names beside the outer columns, where the bar is tall enough; a class at neither (changes
+                // only: what changed in between) named beside its bars inside, over a backdrop
+                let outer = |c: usize| lay.nodes[c].iter().any(|m| m.k == n.k);
+                let inner = c > 0 && c < cols - 1 && !outer(0) && !outer(cols - 1);
+                // at the middle of what is seen of the bar (zoomed in)
+                let (y0, y1) = (r.top().max(area.top()), r.bottom().min(area.bottom()));
+                if (c == 0 || c == cols - 1 || inner) && y1 - y0 >= body * 0.8 {
+                    let y = (y0 + y1) * 0.5;
                     let (pos, align) = if c == 0 {
-                        (Pos2::new(x - 4.0, r.center().y), egui::Align2::RIGHT_CENTER)
+                        (Pos2::new(x - 4.0, y), egui::Align2::RIGHT_CENTER)
                     } else {
-                        (Pos2::new(x + BAR + 4.0, r.center().y), egui::Align2::LEFT_CENTER)
+                        (Pos2::new(x + BAR + 4.0, y), egui::Align2::LEFT_CENTER)
                     };
+                    if inner {
+                        let g = painter.layout_no_wrap(name(n.k), font.clone(), text);
+                        let bg = align.anchor_size(pos, g.size()).expand2(vec2(3.0, 1.0));
+                        painter.rect_filled(bg, 3.0, ui.visuals().window_fill.gamma_multiply(0.8));
+                    }
                     painter.text(pos, align, name(n.k), font.clone(), text);
                 }
             }
-            painter.text(
+            header.text(
                 Pos2::new(x + BAR * 0.5, rect.top() + body * 0.7),
                 egui::Align2::CENTER_CENTER,
                 &info.layers[dates[c]].label,

@@ -130,16 +130,19 @@ pub struct ChartOptions {
     pub roi_spread: usize,
     /// a strip of the main series' values as colours under the chart (warming stripes)
     pub stripes: bool,
+    /// a categorical layer's series: 0 steps + markers, 1 steps, 2 markers, 3 a block per date (CLASS_STYLES)
+    pub class_style: usize,
 }
 
 impl Default for ChartOptions {
     fn default() -> Self {
-        ChartOptions { style: 1, values: 0, trend: 1, y_from_map: false, roi_spread: 1, stripes: false }
+        ChartOptions { style: 1, values: 0, trend: 1, y_from_map: false, roi_spread: 1, stripes: false, class_style: 0 }
     }
 }
 
 impl ChartOptions {
-    /// Options as `--chart` gives them: style=N,values=N,trend=N,spread=N,stripes=0|1 (those out of range left);
+    /// Options as `--chart` gives them: style=N,values=N,trend=N,spread=N,stripes=0|1,classes=N (those out of range
+    /// left);
     /// layers=0|1 (the active layer's series or every visible layer's) returned, the State's to set.
     pub fn set(&mut self, spec: &str) -> Option<i32> {
         let mut layers = None;
@@ -151,6 +154,7 @@ impl ChartOptions {
                 "trend" if v < 3 => self.trend = v,
                 "spread" if v < 5 => self.roi_spread = v,
                 "stripes" => self.stripes = v != 0,
+                "classes" if v < CLASS_STYLES.len() => self.class_style = v,
                 "layers" => layers = Some(i32::from(v != 0)),
                 _ => {}
             }
@@ -158,6 +162,9 @@ impl ChartOptions {
         layers
     }
 }
+
+/// A categorical layer's styles (ChartOptions::class_style): its classes are codes, so no line between them.
+const CLASS_STYLES: [&str; 4] = ["Steps + markers", "Steps", "Markers", "Class blocks"];
 
 /// One marker shape per layer (the other layers' series).
 fn layer_marker(i: usize) -> MarkerShape {
@@ -332,6 +339,19 @@ struct Plotted<'a> {
     /// "Lines + markers": the markers drawn (the dates far enough apart for them), ringed in the chart's background
     markers: bool,
     halo: Color32,
+    /// a categorical layer's classes: their values and colours, and a block's half height
+    classes: Vec<(f64, Color32)>,
+    class_h: f64,
+}
+
+/// A class block's half height: a third of a class apart, at least a fortieth of the classes' span (codes far apart:
+/// MapBiomas' 3 to 33).
+fn class_block(list: &[crate::classes::ClassEntry]) -> f64 {
+    let span = match (list.first(), list.last()) {
+        (Some(a), Some(b)) => f64::from(b.value - a.value),
+        _ => 0.0,
+    };
+    (span * 0.025).max(0.32)
 }
 
 impl Plotted<'_> {
@@ -371,9 +391,42 @@ impl Plotted<'_> {
             plot.line(Line::new(name, PlotPoints::from(pts)).color(color).width(width));
         };
         if self.categorical {
-            // a class holds until the next date: steps, no trend
-            stairs(plot);
-            plot.points(Points::new(name, PlotPoints::from(valid)).color(color).radius(2.5));
+            // a class holds until the next date: steps, no trend; markers in their class's colour
+            let class_colour = |v: f64| self.classes.iter().find(|c| c.0 == v).map_or(color, |c| c.1);
+            let markers = |plot: &mut egui_plot::PlotUi, r: f32| {
+                // the series' colour first (the legend's), each class's over it
+                plot.points(Points::new(name, PlotPoints::from(valid.clone())).color(color).radius(r + 1.2));
+                for &(v, c) in &self.classes {
+                    let pts: Vec<[f64; 2]> = valid.iter().filter(|p| p[1] == v).copied().collect();
+                    if !pts.is_empty() {
+                        plot.points(Points::new(name, PlotPoints::from(pts)).color(c).radius(r));
+                    }
+                }
+            };
+            match self.o.class_style {
+                1 => stairs(plot),
+                2 => markers(plot, 3.5),
+                3 => {
+                    // a block per date in its class's colour, from it to the next date, the steps over them
+                    let gap = min_gap(self.xs).unwrap_or(1.0);
+                    stairs(plot);
+                    for (k, p) in valid.iter().enumerate() {
+                        let x1 = valid.get(k + 1).map_or(p[0] + gap, |q| q[0]);
+                        let (y0, y1) = (p[1] - self.class_h, p[1] + self.class_h);
+                        let block = vec![[p[0], y0], [x1, y0], [x1, y1], [p[0], y1]];
+                        let c = class_colour(p[1]);
+                        plot.polygon(
+                            egui_plot::Polygon::new(name, PlotPoints::from(block))
+                                .fill_color(c.gamma_multiply(0.85))
+                                .stroke(egui::Stroke::new(1.0, c)),
+                        );
+                    }
+                }
+                _ => {
+                    stairs(plot);
+                    markers(plot, 2.8);
+                }
+            }
             return;
         }
         let lines = |plot: &mut egui_plot::PlotUi| {
@@ -840,10 +893,26 @@ impl State {
         let (n_layers, has_roi, has_pins) =
             (self.layers.len(), self.series.roi_rect.is_some(), !self.series.pins.is_empty());
         let (mut clear_pins, mut clear_roi, mut copy) = (false, false, false);
+        let mut open_classes = false;
         ui.horizontal_wrapped(|ui| {
             // a button moves to the next row whole, its text never wrapped in a sliver of the row's end
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             const STYLES: [&str; 6] = ["Lines", "Lines + markers", "Markers", "Stems", "Stairs", "Bars"];
+            if categorical {
+                ComboBox::from_id_salt("class style")
+                    .width(130.0)
+                    .selected_text(CLASS_STYLES[o.class_style])
+                    .show_ui(ui, |ui| {
+                        for (i, n) in CLASS_STYLES.iter().enumerate() {
+                            ui.selectable_value(&mut o.class_style, i, *n);
+                        }
+                    })
+                    .response
+                    .on_hover_text(
+                        "A categorical layer's series: its class at each date (the class holds until the next \
+                         date), the markers and blocks in the classes' colours",
+                    );
+            } else {
             ComboBox::from_id_salt("style")
                 .width(130.0)
                 .selected_text(STYLES[o.style])
@@ -857,7 +926,12 @@ impl State {
                     "Bars: from the mean (from 0 for anomalies, z-scores and CUSUM), in the map's anomaly colours \
                      below and above it",
                 );
+            }
             let seasonal = info.time_is_date && !info.spectral;
+            // classes are codes: no anomaly, trend or map range of them
+            const FOR_CLASSES: &str = "Not for a categorical layer: its values are class codes (Display > \
+                                       Categorical). Its classes over time: Classes over time...";
+            ui.add_enabled_ui(!categorical, |ui| {
             ComboBox::from_id_salt("values")
                 .width(160.0)
                 .selected_text(VALUES[o.values])
@@ -874,7 +948,8 @@ impl State {
                      out: a drought, an El Nino stand out)\nCUSUM: the running sum of the anomalies (seasonal ones \
                      for dated series); a change of slope marks a change of level, a slow degradation that the raw \
                      series hides in its noise",
-                );
+                )
+                .on_disabled_hover_text(FOR_CLASSES);
             const TRENDS: [&str; 3] = ["No trend", "OLS trend", "Sen trend"];
             ComboBox::from_id_salt("trend")
                 .width(110.0)
@@ -888,9 +963,23 @@ impl State {
                 .on_hover_text(
                     "Trend line of each series (same color, thinner)\nOLS: least squares, sensitive to outliers\nSen: \
                      median of pairwise slopes, robust to outliers",
-                );
+                )
+                .on_disabled_hover_text(FOR_CLASSES);
             ui.add_enabled(o.values == 0, egui::Checkbox::new(&mut o.y_from_map, "Y = map range"))
-                .on_hover_text("Locks the Y axis to the map's color range (compare without the axis jumping)");
+                .on_hover_text("Locks the Y axis to the map's color range (compare without the axis jumping)")
+                .on_disabled_hover_text(FOR_CLASSES);
+            });
+            if categorical
+                && ui
+                    .button("Classes over time...")
+                    .on_hover_text(
+                        "Analysis > Classes: the share of each class at every date (stacked areas or lines), what \
+                         became what between dates (a Sankey diagram) and the transitions' table",
+                    )
+                    .clicked()
+            {
+                open_classes = true;
+            }
             ui.add_enabled(!categorical, egui::Checkbox::new(&mut o.stripes, "Stripes")).on_hover_text(
                 "A strip of colours under the chart, one per date (warming stripes): the cursor's series (or the \
                  ROI's, or the last pin's) as the map colours it; anomalies, z-scores and CUSUM in the map's anomaly \
@@ -958,6 +1047,9 @@ impl State {
         if clear_roi {
             self.clear_roi();
         }
+        if open_classes {
+            self.open_class_timeline();
+        }
         if chart_layers != self.series.chart_layers {
             self.set_chart_layers(chart_layers);
         }
@@ -1000,7 +1092,7 @@ impl State {
         if stripes {
             plot = plot.height((ui.available_height() - STRIP - 4.0).max(40.0));
         }
-        if o.y_from_map && o.values == 0 {
+        if o.y_from_map && o.values == 0 && !categorical {
             let r = self.display.ranges[janus_gpu::Mode::Value as usize];
             let m = f64::from(r.hi - r.lo) * 0.05;
             plot = plot
@@ -1046,10 +1138,22 @@ impl State {
                 self.classes.list.iter().map(|c| (f64::from(c.value), c.name.clone())).collect();
             let marks = classes.clone();
             plot = plot
-                .y_grid_spacer(move |_| marks.iter().map(|(v, _)| GridMark { value: *v, step_size: 1.0 }).collect())
+                .y_grid_spacer(move |_| {
+                    // each mark as strong as it is far from its neighbours (codes far apart keep their names)
+                    let gap = |k: usize| {
+                        let d = |j: Option<&(f64, String)>| j.map_or(f64::INFINITY, |(v, _)| (v - marks[k].0).abs());
+                        d(k.checked_sub(1).and_then(|j| marks.get(j))).min(d(marks.get(k + 1))).clamp(1.0, 1e6)
+                    };
+                    (0..marks.len()).map(|k| GridMark { value: marks[k].0, step_size: gap(k) }).collect()
+                })
                 .y_axis_formatter(move |m, _| {
                     classes.iter().find(|(v, _)| *v == m.value).map_or_else(String::new, |(_, n)| n.clone())
                 });
+        }
+        // categorical: every class on the axis, whichever the series go through (the blocks' height beyond them)
+        let class_h = class_block(&self.classes.list);
+        if categorical && let (Some(lo), Some(hi)) = (self.classes.list.first(), self.classes.list.last()) {
+            plot = plot.include_y(f64::from(lo.value) - 2.0 * class_h).include_y(f64::from(hi.value) + 2.0 * class_h);
         }
         let runs = janus_cube::spectral::plot_runs(&info);
         let colormap = |m: janus_gpu::Mode| &janus_gpu::colormaps::all()[self.display.cmap[m as usize]];
@@ -1075,6 +1179,13 @@ impl State {
             } else {
                 crate::theme::plot_fill()
             },
+            classes: if categorical {
+                let c = |c: [u8; 3]| crate::theme::on_plot(Color32::from_rgb(c[0], c[1], c[2]));
+                self.classes.list.iter().map(|e| (f64::from(e.value), c(e.color))).collect()
+            } else {
+                vec![]
+            },
+            class_h,
         };
         let t = self.display.t;
         let sr = &self.series;
@@ -1084,6 +1195,10 @@ impl State {
         let area = ui.painter().add(egui::Shape::Noop);
         let orange = Color32::from_rgb(255, 153, 51);
         let yellow = |a: u8| Color32::from_rgba_unmultiplied(255, 209, 61, a);
+        // the series hidden in the legend at the last frame: their tools' models are not drawn
+        let hidden_id = egui::Id::new("chart hidden series");
+        let was_hidden: Vec<egui::Id> = ui.data(|d| d.get_temp(hidden_id)).unwrap_or_default();
+        let off = |name: &str| was_hidden.contains(&egui::Id::new(name));
         let response = plot.show(ui, |plot| {
             let roi = &sr.roi;
             if !roi.mean.is_empty() && !categorical {
@@ -1112,7 +1227,7 @@ impl State {
                 }
                 // the trend of a partially computed ROI would be misleading: wait for every date
                 pl.series(plot, name, &roi.mean, (&roi.stats, &sh), (crate::series::ROI_COLOR, 2.0), roi.complete());
-                crate::zeit::draw_fit(plot, name, self.roi_fit(), &sh, &info);
+                crate::zeit::draw_fits(plot, off(name), &self.roi_fits(), &sh, &info);
                 if o.roi_spread == 2 {
                     // a box per date: p25 to p75 with the median, whiskers to p10 and p90
                     let width = min_gap(&xs).map_or(0.6, |g| g * 0.6);
@@ -1134,15 +1249,15 @@ impl State {
                 let name = pin_name(p);
                 let sh = pl.shown(&p.stats, &p.values);
                 pl.series(plot, &name, &p.values, (&p.stats, &sh), (p.color, 1.5), true);
-                let fit = self.zeit.fit_of(info.id, crate::zeit::Which::Pin(p.id), p.x, p.y);
-                crate::zeit::draw_fit(plot, &name, fit, &sh, &info);
+                let fits = self.zeit.fits_of(info.id, crate::zeit::Which::Pin(p.id), p.x, p.y);
+                crate::zeit::draw_fits(plot, off(&name), &fits, &sh, &info);
             }
             if let Some(h) = &sr.hover {
                 let name = cursor_name(h);
                 let sh = pl.shown(&h.stats, &h.values);
                 pl.series(plot, &name, &h.values, (&h.stats, &sh), (h.color, 2.0), true);
-                let fit = self.zeit.fit_of(info.id, crate::zeit::Which::Hover, h.x, h.y);
-                crate::zeit::draw_fit(plot, &name, fit, &sh, &info);
+                let fits = self.zeit.fits_of(info.id, crate::zeit::Which::Hover, h.x, h.y);
+                crate::zeit::draw_fits(plot, off(&name), &fits, &sh, &info);
                 self.draw_class_series(plot, &sh);
             }
             if sr.chart_layers == 1 {
@@ -1182,15 +1297,15 @@ impl State {
                         let name = format!("Pin {} [{}]{}", p.id, l.name, if p.exact { "" } else { " approx." });
                         let sh = shown(&p.stats, &p.values);
                         other(plot, &name, &p.values, &sh, p.color, 1.2);
-                        let fit = self.zeit.fit_of(li_info.id, crate::zeit::Which::Pin(p.id), p.x, p.y);
-                        crate::zeit::draw_fit(plot, &name, fit, &sh, li_info);
+                        let fits = self.zeit.fits_of(li_info.id, crate::zeit::Which::Pin(p.id), p.x, p.y);
+                        crate::zeit::draw_fits(plot, off(&name), &fits, &sh, li_info);
                     }
                     if let Some(h) = &l.series.hover {
                         let name = format!("Cursor [{}]{}", l.name, if h.exact { "" } else { " approx." });
                         let sh = shown(&h.stats, &h.values);
                         other(plot, &name, &h.values, &sh, h.color, 1.6);
-                        let fit = self.zeit.fit_of(li_info.id, crate::zeit::Which::Hover, h.x, h.y);
-                        crate::zeit::draw_fit(plot, &name, fit, &sh, li_info);
+                        let fits = self.zeit.fits_of(li_info.id, crate::zeit::Which::Hover, h.x, h.y);
+                        crate::zeit::draw_fits(plot, off(&name), &fits, &sh, li_info);
                     }
                     let r = &l.series.roi;
                     if !r.mean.is_empty() && !l.classes.on() {
@@ -1220,6 +1335,10 @@ impl State {
         let hidden: Vec<egui::Id> = egui_plot::PlotMemory::load(ui.ctx(), response.response.id)
             .map(|m| m.hidden_items.into_iter().collect())
             .unwrap_or_default();
+        if hidden != was_hidden {
+            ui.data_mut(|d| d.insert_temp(hidden_id, hidden.clone()));
+            ui.ctx().request_repaint();
+        }
         ui.painter().set(background, crate::season::chart_background(ui, tr, &self.display, &info));
         if self.chart.roi_spread == 4 && !categorical {
             let shapes = self.roi_density(&pl, tr);
