@@ -230,6 +230,9 @@ pub struct Options {
     pub zeit_run: bool,
     /// --zeit-param TOOL.ID=JSON|@FILE: a Zeit tool's parameter (repeatable)
     pub zeit_params: Vec<String>,
+    /// --embedding-view VIEW: the embeddings' view (pca, similarity, change, direction, direction-like, classes: a
+    /// class from each pin), the Embeddings panel open
+    pub embedding_view: Option<String>,
     /// --selftest-reproject B F: F reprojected on B's grid
     pub selftest_reproject: bool,
     /// --selftest-multidim H/clim.nc: a NetCDF of two variables, its levels, opened in place
@@ -1499,6 +1502,7 @@ impl State {
                 && self.layers.iter().all(|l| l.session.as_ref().is_none_or(|s| s.s.overview.complete()));
             let ready = self.session.as_ref().is_some_and(|s| s.ready_ms.is_some())
                 && layers_ready
+                && self.opts.embedding_view.is_none()
                 && basemap_ready
                 && zeit_ready
                 && emb_ready

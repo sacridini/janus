@@ -233,7 +233,7 @@ pub fn fit_pca(
 }
 
 /// A view's output split in disjoint chunks, written in parallel.
-fn par_chunks<T: Send>(
+pub(crate) fn par_chunks<T: Send>(
     pool: &ThreadPool,
     out: &mut [T],
     per: usize,

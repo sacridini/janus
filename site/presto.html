@@ -74,7 +74,7 @@
       <p><strong>Presto</strong> (Tseng et al. 2023) is a small transformer pretrained, by masking parts of the series and learning to fill them back, on monthly series of single pixels: Sentinel-1, Sentinel-2, ERA5 weather, SRTM elevation and Dynamic World, any of which may be missing. Its encoder makes a token of each group of bands of each month, one of the elevation and one of the place, and averages them into an <strong>encoding of 128 values</strong>.</p>
       <p>Two uses in Janus, both on the GPU and without Python:</p>
       <dl class="terms">
-        <dt>Embeddings</dt><dd>The encoding of every pixel for a year, written as a 128-band GeoTIFF and opened as an embedding layer, viewed as TESSERA's and AlphaEarth's are (principal components, similarity to a place, change between years).</dd>
+        <dt>Embeddings</dt><dd>The encoding of every pixel for a year, written as a 128-band GeoTIFF and opened as an embedding layer, viewed as TESSERA's and AlphaEarth's are (principal components, similarity to a place, change between years and its direction, classes from a few pins).</dd>
         <dt>Classifier</dt><dd>The encoder kept as pretrained and a linear layer on its encodings, trained on your samples: few weights to learn, so few samples are needed.</dd>
       </dl>
       <p>The weights are the authors' (<code>nasaharvest/presto</code>, MIT): 3.3 MB, downloaded once and checked by their SHA-256. Janus' encoder gives the encodings of Zeit's port of Presto to within 4.4 × 10⁻⁶.</p>
@@ -116,7 +116,7 @@
         <a href="assets/img/presto/04-embeddings.jpg"><img src="assets/img/presto/04-embeddings.jpg" alt="The first three principal components of Presto's embeddings as RGB: forest in blue and purple, pasture in red, the rivers and the fields of the northeast in green; the Embeddings panel with the components' shares of the variance." width="1680" height="1050" loading="lazy"></a>
         <figcaption><b>Presto's embeddings</b> of 2025, the first three principal components as red, green and blue.</figcaption>
       </figure>
-      <p>Nothing was said to Presto about these classes, yet the components already part forest, pasture, rivers and fields: the encodings carry what the year of each pixel was like. The first component alone holds 68% of the variance, the first three 91%. From the <span class="ui">Embeddings</span> panel, <span class="ui">Similarity to a reference</span> shows the places like a pin or the ROI, and with embeddings of two years, <span class="ui">Change between years</span> maps where a place stopped being like itself.</p>
+      <p>Nothing was said to Presto about these classes, yet the components already part forest, pasture, rivers and fields: the encodings carry what the year of each pixel was like. The first component alone holds 68% of the variance, the first three 91%. From the <span class="ui">Embeddings</span> panel, <span class="ui">Similarity to a reference</span> shows the places like a pin or the ROI, and with embeddings of two years, <span class="ui">Change between years</span> maps where a place stopped being like itself and <span class="ui">Direction of change</span> what it became, in one colour per kind of change. <span class="ui">Classes from pins</span> fits a logistic regression on the embeddings of a few pins or of the ROI in milliseconds: a class map of every year, its areas and the transitions between years.</p>
     </section>
 
     <section id="map">

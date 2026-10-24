@@ -89,7 +89,11 @@ which ships with Janus: there is nothing else to install. Its command line is `j
 - **Embeddings** of foundation models (AlphaEarth, TESSERA): downloaded for the
   visible area over any series, shown through their principal components (also
   local to a region, refitted as you move it), the similarity to the cursor or
-  a pin, and the change between years; computed with SIMD kernels.
+  a pin, the change between years and its direction (a PCA of the changes, the
+  same colour for the same kind of change, or how like a pin's change each is),
+  and classes from a few pins or a region (a logistic regression or centroids
+  fitted in milliseconds, with their areas and the transitions between years);
+  computed with SIMD kernels.
 - **Export**: maps as PNG figures, timelapse **animations** (GIF, MP4, WebM)
   with the date, legend and scale bar, values, views, Zeit results and
   embedding views as georeferenced GeoTIFFs, series as CSV.

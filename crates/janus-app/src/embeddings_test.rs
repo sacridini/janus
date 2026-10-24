@@ -1,7 +1,8 @@
 //! `--selftest-embeddings-ui DIR [OUT]` (src/app_embeddings.cpp, selfTestEmbeddingStep): a series of embeddings in
 //! the window: the principal components of every year (against a plain PCA of the same sample), the local PCA of an
-//! ROI, the similarity to a pin, the change from the previous year, every year in turn; each view also written as a
-//! GeoTIFF of the whole layer at full resolution and checked against the image shown. (The C++'s PNG figures come
+//! ROI, the similarity to a pin, the change from the previous year, the direction of change, classes from three pins,
+//! every year in turn; each view also written as a GeoTIFF of the whole layer at full resolution and checked against
+//! the image shown (the direction and the classes also as PNGs of the map). (The C++'s PNG figures come
 //! with the exports, its download stage with the native downloads.)
 
 use std::collections::BTreeSet;
@@ -59,6 +60,18 @@ impl State {
         seen.len()
     }
 
+    /// The map drawn at 800 x 600 into a PNG.
+    fn save_map_png(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let g = self.grid().ok_or("no grid")?;
+        let sc = 0.98 * (800.0 / g.ow).min(600.0 / g.oh);
+        self.map.set_view([g.ow / 2.0, g.oh / 2.0], sc);
+        self.render_map(SLOT, [800, 600], [800.0, 600.0], 1.0);
+        let (w, h, px) = self.gpu.as_ref().and_then(|gpu| gpu.read_target(SLOT)).ok_or("no image of the map")?;
+        image::save_buffer(path, &px, w, h, image::ColorType::Rgba8).map_err(|e| e.to_string())?;
+        println!("    {}", path.display());
+        Ok(())
+    }
+
     /// The GeoTIFF's grid, then its values at the source pixel of every store pixel of a grid: the image's
     /// (similarity, change) or the scores of the store's vector (principal components), within the store's Int8
     /// steps.
@@ -83,6 +96,12 @@ impl State {
         let saturated = |t: usize, p: usize| s.valid(t, p) && s.vec(t, p).iter().any(|&c| c == 127 || c == -127);
         let (mut worst, mut bound, mut n, mut clipped) = (0f64, 0f64, 0usize, 0usize);
         let mut v = vec![0f32; s.d];
+        // the direction and the classes: a pixel near the threshold (or a tie of two classes) may fall either side of
+        // it in the store's Int8 steps; a few such pixels are allowed
+        let lenient = matches!(spec.kind, ExportKind::Direction | ExportKind::Classes);
+        // a pixel missing in both (unchanged, below the minimum score) agrees too
+        let (mut misses, mut blank) = (0usize, 0usize);
+        let pair = matches!(spec.kind, ExportKind::Change | ExportKind::Direction | ExportKind::ChangeLike);
         for band in 0..k {
             let b = ds.rasterband(band + 1).map_err(|er| er.to_string())?;
             let data = b
@@ -93,9 +112,8 @@ impl State {
                 for i in 0..16 {
                     let (sx, sy) = ((s.w - 1) * i / 15, (s.h - 1) * j / 15);
                     let p = sy * s.w + sx;
-                    let change = spec.kind == ExportKind::Change;
                     let sat =
-                        usize::from(saturated(spec.t, p)) + usize::from(change && saturated(spec.t0.unwrap_or(0), p));
+                        usize::from(saturated(spec.t, p)) + usize::from(pair && saturated(spec.t0.unwrap_or(0), p));
                     if sat > 0 {
                         // a change reads two vectors per pixel: each counts
                         clipped += if band == 0 { sat } else { 0 };
@@ -117,13 +135,52 @@ impl State {
                             step += c.abs() * f64::from(r.scale[d]) * 0.5;
                         }
                         (sc as f32, step as f32 + 1e-4)
+                    } else if spec.kind == ExportKind::Direction {
+                        let t0 = spec.t0.ok_or("no year compared with")?;
+                        let bs = spec.direction.as_ref().ok_or("no directions")?;
+                        if !s.valid(spec.t, p) || !s.valid(t0, p) {
+                            continue;
+                        }
+                        let mut c = vec![0f32; s.d];
+                        s.dequant(spec.t, p, &mut v);
+                        s.dequant(t0, p, &mut c);
+                        let dot: f64 = v.iter().zip(&c).map(|(&a, &b)| f64::from(a) * f64::from(b)).sum();
+                        let cos = dot / (f64::from(s.norm(spec.t, p)) * f64::from(s.norm(t0, p)));
+                        if 1.0 - cos <= f64::from(bs.threshold) {
+                            (f32::NAN, 0.0)
+                        } else {
+                            let (mut sc, mut step) = (0f64, 0f64);
+                            for d in 0..s.d {
+                                let w = f64::from(bs.comps[band * s.d + d]);
+                                sc += (f64::from(v[d] - c[d]) - f64::from(bs.mean[d])) * w;
+                                step += w.abs() * f64::from(r.scale[d]);
+                            }
+                            (sc as f32, step as f32 + 1e-4)
+                        }
+                    } else if spec.kind == ExportKind::Classes {
+                        let img = &e.img[spec.t];
+                        if band == 0 {
+                            let k = img.classes[p];
+                            (if k == janus_embed::classify::NONE { f32::NAN } else { f32::from(k) + 1.0 }, 0.0)
+                        } else {
+                            (img.values[p], 0.03)
+                        }
                     } else {
                         (e.img[spec.t].values[p], 0.02)
                     };
                     if want.is_finite() != got.is_finite() {
+                        if lenient {
+                            misses += 1;
+                            continue;
+                        }
                         return Err("the GeoTIFF's missing values should be the image's".into());
                     }
                     if !want.is_finite() {
+                        blank += 1;
+                        continue;
+                    }
+                    if lenient && (got - want).abs() > tol {
+                        misses += 1;
                         continue;
                     }
                     worst = worst.max(f64::from((got - want).abs()));
@@ -138,16 +195,24 @@ impl State {
                 }
             }
         }
-        if n == 0 {
+        // a layer that hardly changed: its direction is missing almost everywhere, as it should be
+        if n == 0 && !(lenient && blank > 0) {
             return Err("no value of the GeoTIFF could be compared".into());
         }
-        let vectors = 256 * if spec.kind == ExportKind::Change { 2 } else { 1 }; // looked at
+        let looked = n + misses + blank;
+        if misses * 20 > looked {
+            return Err(format!("{misses} of {looked} values of the GeoTIFF differ from the image's"));
+        }
+        if misses > 0 {
+            println!("    {misses} of {looked} values on the other side of the threshold (or of a tie)");
+        }
+        let vectors = 256 * if pair { 2 } else { 1 }; // looked at
         if clipped > vectors / 10 {
             return Err("the store's ranges should hold the vectors of every year".into());
         }
         let name = std::path::Path::new(path).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
         println!(
-            "    {name}: {} x {} px, {k} band(s), {n} values within {worst:.4} of the image (at most {bound:.4}); {clipped} clipped vectors left out",
+            "    {name}: {} x {} px, {k} band(s), {n} values within {worst:.4} of the image (at most {bound:.4}), {blank} missing in both; {clipped} clipped vectors left out",
             info.width, info.height
         );
         Ok(())
@@ -479,12 +544,143 @@ impl State {
                     1 => return fail("export"),
                     _ => {}
                 }
+                // the direction of change, of the year shown from the previous one (one year: on to the classes)
+                if self.layers[li?].emb.as_ref()?.info.t() < 2 {
+                    next(st, "change.tif");
+                    st.stage = 10;
+                    return None;
+                }
+                self.layers[li?].emb.as_mut()?.view = View::Direction;
+                self.map.dirty = true;
+                next(st, "change.tif");
+            }
+            9 => {
+                let i = li?;
+                let e = self.layers[i].emb.as_ref()?;
+                if e.dir_basis.is_none() || e.busy() || !current(self) || st.frames < 3 {
+                    return None;
+                }
+                let b = e.dir_basis.clone()?;
+                let pct = |c: usize| 100.0 * b.eig.get(c).copied().unwrap_or(0.0) / b.total.max(1e-30);
+                println!(
+                    "    direction: {} changed vectors of {} pairs ({:.1}% above {:.3}) in {:.1} ms; PC1-3 {:.1}% {:.1}% {:.1}%; image {:.1} ms",
+                    b.samples,
+                    b.pairs,
+                    100.0 * b.changed,
+                    b.threshold,
+                    b.ms,
+                    pct(0),
+                    pct(1),
+                    pct(2),
+                    e.img[lt].ms
+                );
+                if b.samples < 3 {
+                    // a layer that does not change: nothing to draw or write
+                    println!("    no pixel changed above the threshold: no direction to draw");
+                    next(st, "direction of change");
+                    st.stage = 10;
+                    return None;
+                }
+                if let Err(e) = self.save_map_png(&st.out.join("direction.png")) {
+                    return fail(&e);
+                }
+                // the changes are the exception: a few colours over the grey (where 1% of the pixels changed)
+                let colours = self.map_colours();
+                println!("    {colours} distinct colours on a 23 x 23 grid of the map");
+                if b.changed >= 0.01 && colours < 3 {
+                    return fail("the directions of change should colour the map");
+                }
+                if let Err(e) = export(self, st, "direction.tif") {
+                    return fail(&e);
+                }
+                next(st, "direction of change");
+            }
+            10 => {
+                match exported(self, st) {
+                    -1 => return None,
+                    1 => return fail("export"),
+                    _ => {}
+                }
+                // three classes from three pins of the year shown (where the principal components differ most)
+                let info = self.session.as_ref()?.info.clone();
+                let (w, h) = (info.width, info.height);
+                self.clear_pins();
+                for (x, y) in [(w / 5, h / 5), (4 * w / 5, h / 2), (w / 2, 4 * h / 5)] {
+                    self.add_pin(x, y);
+                }
+                let i = li?;
+                let ids: Vec<u32> = self.series.pins.iter().map(|p| p.id).collect();
+                self.layers[i].emb.as_mut()?.view = View::Classes;
+                for id in ids {
+                    let Some((v, src)) = self.class_samples(i, crate::embeddings::ClassSource::Pin(id)) else {
+                        return fail("a pin without a vector");
+                    };
+                    let e = self.layers[i].emb.as_mut()?;
+                    let k = e.classes.len();
+                    e.classes.push(crate::embeddings::EmbClass {
+                        name: format!("pin {id}"),
+                        color: [egui::Color32::RED, egui::Color32::GREEN, egui::Color32::BLUE][k % 3],
+                        samples: v,
+                        sources: vec![src],
+                    });
+                    e.cls_gen += 1;
+                }
+                self.map.dirty = true;
+                next(st, "direction.tif");
+            }
+            11 => {
+                let i = li?;
+                let e = self.layers[i].emb.as_ref()?;
+                if e.classifier.is_none() || e.busy() || !current(self) || st.frames < 3 {
+                    if !e.cls_error.is_empty() && !e.busy() {
+                        return fail(&format!("classifier: {}", e.cls_error));
+                    }
+                    return None;
+                }
+                let c = e.classifier.clone()?;
+                let img = &e.img[lt];
+                let total: usize = img.counts.iter().sum();
+                let shares: Vec<String> =
+                    img.counts.iter().map(|&n| format!("{:.1}%", 100.0 * n as f64 / total.max(1) as f64)).collect();
+                println!(
+                    "    classes: fitted in {:.2} ms ({} iterations), {:.0}% of the samples right; shares {}; image {:.1} ms",
+                    c.ms,
+                    c.iterations,
+                    100.0 * c.train_acc,
+                    shares.join(" "),
+                    img.ms
+                );
+                // each pin's pixel in its own class
+                for (k, pin) in self.series.pins.clone().iter().enumerate() {
+                    let p = self.embedding_pixel(i, pin.x as f64 + 0.5, pin.y as f64 + 0.5)?;
+                    let got = self.layers[i].emb.as_ref()?.img[lt].classes[p];
+                    if usize::from(got) != k {
+                        return fail(&format!("pin {} classified as {got}, not as its own class {k}", pin.id));
+                    }
+                }
+                if img.counts.iter().take(3).filter(|&&n| n > 0).count() < 3 {
+                    return fail("every class should have pixels");
+                }
+                if let Err(e) = self.save_map_png(&st.out.join("classes.png")) {
+                    return fail(&e);
+                }
+                if let Err(e) = export(self, st, "classes.tif") {
+                    return fail(&e);
+                }
+                next(st, "classes from three pins");
+            }
+            12 => {
+                match exported(self, st) {
+                    -1 => return None,
+                    1 => return fail("export"),
+                    _ => {}
+                }
                 // every year in the principal components, as when playing: time per image
                 let e = self.layers[li?].emb.as_mut()?;
                 (e.view, e.scope) = (View::Pca, 0);
                 self.set_date(0);
                 self.map.dirty = true;
-                next(st, "change.tif");
+                next(st, "classes.tif");
             }
             100 => {
                 // the download: its progress, then the layer on top, the series still active

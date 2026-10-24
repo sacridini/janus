@@ -6,6 +6,8 @@
 // the kernels and loops index their arrays as the C++ does (several arrays at once)
 #![allow(clippy::needless_range_loop)]
 
+pub mod classify;
+pub mod direction;
 pub mod download;
 pub mod eigen;
 pub mod engine;
@@ -21,6 +23,7 @@ use rayon::ThreadPool;
 use rayon::prelude::*;
 use serde_json::Value;
 
+pub use direction::{DirectionBasis, fit_direction, render_change_like, render_direction};
 pub use engine::EmbeddingEngine;
 pub use export::{EmbeddingExport, ExportKind, compute_embedding_export};
 pub use store::EmbeddingStore;

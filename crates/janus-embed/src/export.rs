@@ -6,6 +6,8 @@ use std::sync::Arc;
 use gdal::Dataset;
 use janus_cube::CubeInfo;
 
+use crate::classify::Classifier;
+use crate::direction::DirectionBasis;
 use crate::store::{BlockReader, band_info};
 use crate::views::PcaBasis;
 use crate::{parallel_for, thread_pool};
@@ -15,6 +17,12 @@ pub enum ExportKind {
     Pca,
     Similarity,
     Change,
+    /// the change's principal directions (3 bands: the scores, NaN where it did not change)
+    Direction,
+    /// the change's likeness to a difference vector (`reference`)
+    ChangeLike,
+    /// the classes (2 bands: the class, 1 to k, NaN below the minimum score; the score)
+    Classes,
 }
 
 pub struct EmbeddingExport {
@@ -25,8 +33,12 @@ pub struct EmbeddingExport {
     pub t0: Option<usize>,
     /// Pca: every component of it, one band each
     pub basis: Option<Arc<PcaBasis>>,
-    /// Similarity: the reference vector (D values)
+    /// Similarity: the reference vector (D values); ChangeLike: the difference vector
     pub reference: Vec<f32>,
+    pub direction: Option<Arc<DirectionBasis>>,
+    pub classifier: Option<Arc<Classifier>>,
+    /// Direction, ChangeLike: the cosine distance above which a pixel changed; Classes: the minimum score
+    pub threshold: f32,
     /// the store's dimensions without data, read as 0
     pub skip: Vec<u8>,
     /// x0, y0, x1, y1 in the layer's pixels
@@ -40,7 +52,12 @@ pub struct EmbeddingExport {
 
 impl EmbeddingExport {
     pub fn bands(&self) -> usize {
-        if self.kind == ExportKind::Pca { self.basis.as_ref().map_or(0, |b| b.k) } else { 1 }
+        match self.kind {
+            ExportKind::Pca => self.basis.as_ref().map_or(0, |b| b.k),
+            ExportKind::Direction => 3,
+            ExportKind::Classes => 2,
+            _ => 1,
+        }
     }
 }
 
@@ -60,13 +77,15 @@ pub fn compute_embedding_export(
     }
     let w = x1 - x0;
     if (e.kind == ExportKind::Pca && e.basis.as_ref().is_none_or(|b| b.mean.len() != d))
-        || (e.kind == ExportKind::Similarity && e.reference.len() != d)
+        || (matches!(e.kind, ExportKind::Similarity | ExportKind::ChangeLike) && e.reference.len() != d)
+        || (e.kind == ExportKind::Direction && e.direction.as_ref().is_none_or(|b| b.mean.len() != d))
+        || (e.kind == ExportKind::Classes && e.classifier.as_ref().is_none_or(|c| c.d != d))
     {
         return Err("the view does not match the layer's dimensions".into());
     }
     // one file per year (two for the change), read in their own type a block row at a time
-    let years: Vec<usize> =
-        if e.kind == ExportKind::Change { vec![e.t, e.t0.ok_or("no year to compare with")?] } else { vec![e.t] };
+    let pair = matches!(e.kind, ExportKind::Change | ExportKind::Direction | ExportKind::ChangeLike);
+    let years: Vec<usize> = if pair { vec![e.t, e.t0.ok_or("no year to compare with")?] } else { vec![e.t] };
     let mut dss = Vec::new();
     for &t in &years {
         let l = info.layers.get(t).ok_or("no such year")?;
@@ -99,7 +118,7 @@ pub fn compute_embedding_export(
                 *w = if rn > 0.0 { (f64::from(r) / rn) as f32 } else { 0.0 };
             }
         }
-        ExportKind::Change => {}
+        _ => {}
     }
     let pool = thread_pool(threads);
     let bh = rds[0].bh;
@@ -122,6 +141,44 @@ pub fn compute_embedding_export(
                     continue;
                 }
                 let na: f64 = a.iter().map(|&v| f64::from(v) * f64::from(v)).sum();
+                if e.kind == ExportKind::Classes {
+                    let c = e.classifier.as_ref().unwrap();
+                    let (cl, score) = c.predict(&a);
+                    if score >= e.threshold {
+                        local.push((i, (cl + 1) as f32));
+                    }
+                    local.push((plane + i, score));
+                    continue;
+                }
+                if matches!(e.kind, ExportKind::Direction | ExportKind::ChangeLike) {
+                    wins[1].vector(px, py, &mut c);
+                    if !c.iter().all(|v| v.is_finite()) {
+                        continue;
+                    }
+                    let nc: f64 = c.iter().map(|&v| f64::from(v) * f64::from(v)).sum();
+                    let dot: f64 = a.iter().zip(&c).map(|(&x, &y)| f64::from(x) * f64::from(y)).sum();
+                    if na <= 0.0 || nc <= 0.0 || 1.0 - dot / (na * nc).sqrt() <= f64::from(e.threshold) {
+                        continue;
+                    }
+                    let delta: Vec<f64> = a.iter().zip(&c).map(|(&x, &y)| f64::from(x) - f64::from(y)).collect();
+                    if e.kind == ExportKind::ChangeLike {
+                        let rn: f64 = e.reference.iter().map(|&r| f64::from(r) * f64::from(r)).sum::<f64>().sqrt();
+                        let dn: f64 = delta.iter().map(|v| v * v).sum::<f64>().sqrt();
+                        let s: f64 = delta.iter().zip(&e.reference).map(|(x, &r)| x * f64::from(r)).sum();
+                        if rn > 0.0 && dn > 0.0 {
+                            local.push((i, (s / (rn * dn)) as f32));
+                        }
+                    } else {
+                        let b = e.direction.as_ref().unwrap();
+                        for kk in 0..3 {
+                            let s: f64 = (0..d)
+                                .map(|j| (delta[j] - f64::from(b.mean[j])) * f64::from(b.comps[kk * d + j]))
+                                .sum();
+                            local.push((kk * plane + i, s as f32));
+                        }
+                    }
+                    continue;
+                }
                 if e.kind == ExportKind::Change {
                     wins[1].vector(px, py, &mut c);
                     if !c.iter().all(|v| v.is_finite()) {
