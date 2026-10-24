@@ -313,6 +313,30 @@ pub fn all() -> &'static [Colormap] {
                     rgbf(0.12, 0.55, 0.30),
                 ],
             },
+            // emerging hot spots' patterns: none, then new ... historical hot spots (reds), the same cold (blues)
+            Colormap {
+                name: "Hotspots",
+                qualitative: true,
+                keys: vec![
+                    rgbf(0.78, 0.78, 0.76),
+                    rgbf(0.55, 0.00, 0.05),
+                    rgbf(0.80, 0.10, 0.10),
+                    rgbf(0.95, 0.25, 0.15),
+                    rgbf(0.98, 0.45, 0.30),
+                    rgbf(0.99, 0.65, 0.50),
+                    rgbf(0.95, 0.60, 0.15),
+                    rgbf(0.85, 0.40, 0.65),
+                    rgbf(0.98, 0.82, 0.78),
+                    rgbf(0.03, 0.19, 0.42),
+                    rgbf(0.13, 0.40, 0.67),
+                    rgbf(0.25, 0.55, 0.85),
+                    rgbf(0.42, 0.68, 0.90),
+                    rgbf(0.62, 0.80, 0.95),
+                    rgbf(0.20, 0.70, 0.70),
+                    rgbf(0.50, 0.45, 0.80),
+                    rgbf(0.82, 0.90, 0.97),
+                ],
+            },
         ]
     })
 }

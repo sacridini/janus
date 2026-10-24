@@ -84,6 +84,9 @@ pub struct Output {
     /// a series of the run's dates, opened as a new layer
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub series: Option<bool>,
+    /// a series opened hidden, under the maps (to hover for its pixels' series): the run's maps stay in view
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
     /// "int16" with `scale`: stored in 2 bytes
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dtype: Option<String>,

@@ -704,6 +704,9 @@ pub fn run_job(
     if spec.tool == "postproc" {
         return crate::postproc::run(spec, tool, &p, progress, cancel);
     }
+    if spec.tool == "hotspots" {
+        return crate::hotspots::run(spec, tool, &p, progress, cancel);
+    }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();
     let window = spec.window.unwrap_or([0, 0, iw, ih]);
@@ -817,6 +820,11 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
         // the window held whole: its filters measured at about 0.1 us a pixel and date
         let t = spec.years.len().max(1) as f64;
         return Ok(Estimate { sec_per_px: 1e-7 * t, sec_per_chunk: 0.0, chunk_cells: cells, sec_fixed: 0.0 });
+    }
+    if spec.tool == "hotspots" {
+        // the window held whole: Gi* and the trend test measured at about 0.05 us a pixel and date
+        let t = spec.years.len().max(1) as f64;
+        return Ok(Estimate { sec_per_px: 5e-8 * t, sec_per_chunk: 0.0, chunk_cells: cells, sec_fixed: 0.0 });
     }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();

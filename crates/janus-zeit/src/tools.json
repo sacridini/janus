@@ -2666,6 +2666,149 @@
     }
    ],
    "chunk_cells": 200000
+  },
+  {
+   "id": "hotspots",
+   "name": "Emerging hot spots",
+   "category": "Trend",
+   "description": "Emerging hot spot analysis (ESRI's Space Time Pattern Mining; sfdep's emerging_hotspot_analysis), as zeit.emerging_hotspots: at every date the Getis-Ord Gi* z-score of each pixel (its neighbourhood within a radius, at that date and the dates before it, against the date's mean), a hot spot where it is significantly high, a cold spot where significantly low; then the Mann-Kendall trend of each pixel's Gi* and its pattern as ESRI defines them: new, consecutive, intensifying, persistent, diminishing, sporadic, oscillating or historical hot or cold spot. Where the values (losses, an anomaly, a count) concentrate and how that changed. A raster run writes the patterns (a categorical map), the Gi* of every date (opened as a new layer: hover it for a pixel's Gi* series), its trend and how many dates each pixel was a hot or cold spot. The neighbourhoods need the whole map: raster runs only.",
+   "requires": {
+    "time": "any",
+    "min_dates": 3
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "radius",
+     "label": "Radius",
+     "type": "int",
+     "default": 1,
+     "min": 1,
+     "max": 100,
+     "unit": "px",
+     "help": "The neighbourhood: the pixels within this distance, the pixel among them (1 and a square: the 8 neighbours, queen contiguity, sfdep's default). Wider finds wider clusters."
+    },
+    {
+     "id": "shape",
+     "label": "Neighbourhood",
+     "type": "enum",
+     "default": "square",
+     "options": [
+      "square",
+      "circle"
+     ],
+     "labels": [
+      "Square",
+      "Circle"
+     ],
+     "help": "Square: (2 radius + 1) x (2 radius + 1) pixels. Circle: those whose centres are within the radius."
+    },
+    {
+     "id": "lag",
+     "label": "Dates before",
+     "type": "int",
+     "default": 1,
+     "min": 0,
+     "max": 50,
+     "help": "The dates before each date also in its neighbourhood (sfdep's k, ESRI's neighbourhood time step): 1 smooths each Gi* with the date before."
+    },
+    {
+     "id": "reference",
+     "label": "Against",
+     "type": "enum",
+     "default": "date",
+     "options": [
+      "date",
+      "cube"
+     ],
+     "labels": [
+      "Each date's mean",
+      "The whole series' mean"
+     ],
+     "help": "Each date's mean and deviation (as sfdep: a place hot against the others at that date), or those of every date together (a date high everywhere is hot everywhere)."
+    },
+    {
+     "id": "alpha",
+     "label": "Significance level",
+     "type": "float",
+     "default": 0.05,
+     "min": 0.0001,
+     "max": 0.5,
+     "help": "A Gi* is a hot or cold spot when its two-sided p-value is below this; the same level for its trend."
+    },
+    {
+     "id": "trend",
+     "label": "Trend test",
+     "type": "enum",
+     "default": "hamed_rao",
+     "options": [
+      "hamed_rao",
+      "original",
+      "yue_wang"
+     ],
+     "labels": [
+      "Hamed-Rao (autocorrelation-corrected)",
+      "Mann-Kendall (ESRI's, sfdep's)",
+      "Yue-Wang (autocorrelation-corrected)"
+     ],
+     "help": "The test of each pixel's Gi* series (intensifying, diminishing or persistent). The Gi* of consecutive dates share neighbours, so their series are autocorrelated: Hamed-Rao corrects for it."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "pattern",
+     "name": "Pattern",
+     "colormap": "Hotspots",
+     "unit": "class",
+     "classes": [
+      "No pattern",
+      "New hot spot",
+      "Consecutive hot spot",
+      "Intensifying hot spot",
+      "Persistent hot spot",
+      "Diminishing hot spot",
+      "Sporadic hot spot",
+      "Oscillating hot spot",
+      "Historical hot spot",
+      "New cold spot",
+      "Consecutive cold spot",
+      "Intensifying cold spot",
+      "Persistent cold spot",
+      "Diminishing cold spot",
+      "Sporadic cold spot",
+      "Oscillating cold spot",
+      "Historical cold spot"
+     ]
+    },
+    {
+     "id": "gi",
+     "name": "Gi* z-score",
+     "colormap": "RdBu",
+     "unit": "z",
+     "series": true,
+     "hidden": true
+    },
+    {
+     "id": "trend_z",
+     "name": "Trend of the Gi* (z)",
+     "colormap": "RdBu",
+     "unit": "z"
+    },
+    {
+     "id": "n_hot",
+     "name": "Dates a hot spot",
+     "colormap": "Hot",
+     "unit": "dates"
+    },
+    {
+     "id": "n_cold",
+     "name": "Dates a cold spot",
+     "colormap": "Cool",
+     "unit": "dates"
+    }
+   ]
   }
  ],
  "errors": []

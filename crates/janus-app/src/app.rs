@@ -985,6 +985,11 @@ impl State {
         if let Some(k) = self.zeit.keep_active.take().filter(|&k| k < self.layers.len()) {
             self.set_active(k, ctx);
         }
+        if std::mem::take(&mut self.zeit.open_hidden)
+            && let Some(l) = self.layers.last_mut()
+        {
+            l.visible = false;
+        }
         if first {
             // test runs: a season, a basemap
             if let Some((a, b)) = self.opts.season {

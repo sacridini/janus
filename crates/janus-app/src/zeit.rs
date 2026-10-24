@@ -118,8 +118,10 @@ pub struct ZeitUi {
     /// where runs write (None: the app's results folder)
     pub results_dir: Option<std::path::PathBuf>,
     /// series outputs to open as layers, and the layer to keep active meanwhile
-    pub series_to_open: Vec<String>,
+    pub series_to_open: Vec<(String, bool)>,
     pub keep_active: Option<usize>,
+    /// the series a run wrote, being opened, goes hidden
+    pub open_hidden: bool,
     /// result maps read (on threads)
     loaded: Arc<std::sync::Mutex<Vec<Result<ResultLayer, String>>>>,
     /// shown results' copies at full resolution read (path, data, width, height)
@@ -1692,8 +1694,8 @@ Reading the data adds to it, mostly on spinning disks.",
                     continue;
                 }
                 if o["series"].as_bool() == Some(true) {
-                    // e.g. the NDFI of every date: a new layer
-                    self.zeit.series_to_open.push(path);
+                    // e.g. the NDFI of every date: a new layer (hidden: the Gi* under the hot spots' patterns)
+                    self.zeit.series_to_open.push((path, o["hidden"].as_bool() == Some(true)));
                     continue;
                 }
                 let colormap = o["colormap"].as_str().unwrap_or("Viridis");
@@ -1784,8 +1786,9 @@ Reading the data adds to it, mostly on spinning disks.",
         self.upgrade_results(ctx);
         // series outputs join as layers, one at a time; the series being studied stays active
         if !self.zeit.series_to_open.is_empty() && self.opening.is_none() && !self.layers.is_empty() {
-            let path = self.zeit.series_to_open.remove(0);
+            let (path, hidden) = self.zeit.series_to_open.remove(0);
             self.zeit.keep_active = Some(self.active);
+            self.zeit.open_hidden = hidden;
             self.open_inputs(vec![path], true, ctx);
         }
     }

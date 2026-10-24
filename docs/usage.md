@@ -188,7 +188,10 @@
   and time-series algorithms): **LandTrendr**, **Mann-Kendall** (with Sen's
   slope; Hamed-Rao, Yue-Wang and seasonal variants), the **AR(1) trend**
   (remotePARTS's REML fit: a t-test of the trend that accounts for the
-  series' autocorrelation, what the Trend test tests over a region), **BFAST**, **BFAST Lite**,
+  series' autocorrelation, what the Trend test tests over a region), **emerging hot spots**
+  (the Getis-Ord Gi* of every date and the Mann-Kendall trend of each pixel's Gi*: ESRI's patterns, new,
+  consecutive, intensifying, persistent, diminishing, sporadic, oscillating or historical hot or cold
+  spot; the Gi* equals R sfdep's), **BFAST**, **BFAST Lite**,
   **BFAST Monitor**, **phenology** (season start/peak/end, length, amplitude),
   **CCDC** (multiband), **CODED** (forest degradation, multiband), the
   **NDFI** (spectral unmixing), **Tmask** (clouds the quality band missed),
@@ -337,6 +340,7 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 |---|---|---|
 | LandTrendr | annual (one date per year) | year of detection, magnitude, duration, pre/post value, rate, DSNR of the chosen loss/gain event |
 | Mann-Kendall | any (seasonal variant: several dates per year) | significant Sen's slope, slope, p-value, Z, tau, trend class, intercept |
+| Emerging hot spots | any, ≥ 3 dates (raster runs) | the pattern (no pattern, 8 kinds of hot spot, 8 of cold spot, named and coloured), the Gi* of every date as a **new layer** (hidden: show it, or hover it for a pixel's Gi* series), the trend of the Gi* (z), the dates a hot / cold spot |
 | AR(1) trend | any (harmonics: several dates per year) | significant slope, slope (per year or per time step), p-value, t, its standard error, AR(1) rho, intercept, residual SD |
 | BFAST | regular, ≥ 2 dates per year | trend/season break counts, date and magnitude of the largest trend break |
 | BFAST Lite | regular, ≥ 2 dates per year | break count, date and magnitude of the largest break, first break date |

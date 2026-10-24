@@ -13,6 +13,7 @@ mod bfast;
 mod ccdc;
 mod coded;
 pub mod ewmacd;
+pub mod hotspots;
 pub mod job;
 mod landtrendr;
 pub mod manifest;
