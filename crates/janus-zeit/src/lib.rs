@@ -29,6 +29,7 @@ mod som;
 mod tmask;
 pub mod trend_test;
 mod twdtw;
+mod unmix;
 pub mod upstream;
 
 /// The Zeit whose zeit-core is linked (Cargo.toml's revision: 2.0.0 with remotePARTS's methods).

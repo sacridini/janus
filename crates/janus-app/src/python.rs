@@ -258,8 +258,13 @@ if y.size >= 2:
             let _ = writeln!(
                 o,
                 "\n# {}, fitted on the chart with these parameters: the same Zeit calls Janus makes\n\
-                 # (its model is drawn from their results).\nimport xarray as xr\nimport zeit\n",
-                names.join(", ")
+                 # (its model is drawn from their results).\n{}import xarray as xr\nimport zeit\n",
+                names.join(", "),
+                if inputs.contains(&"bands_all") || inputs.contains(&"spectrum") {
+                    "import pandas as pd\n"
+                } else {
+                    ""
+                }
             );
             let time = if info.time_is_date { "dates.astype(\"datetime64[ns]\")" } else { "np.arange(len(values))" };
             if inputs.contains(&"series") {
@@ -299,6 +304,26 @@ if y.size >= 2:
                     o += "fmask_codes = np.where(complete, 0, 255)  # no quality band: every complete observation is clear\n";
                 }
                 o += "fmask = fmask_codes.astype(np.int32)[:, None, None]\n";
+            }
+            if inputs.contains(&"bands_all") {
+                let bases: Vec<String> = info.layers.iter().map(|l| l.band_base.to_string()).collect();
+                let _ = writeln!(
+                    o,
+                    "# Every band of each date (b001, b002...: the bands of its file), left out where the shown series is.\n\
+                     n_bands = {}\nbases = [{}]  # each date's first band in its file, less 1\n\
+                     cube = np.array([[read(layer[0], base + b, Window(col, row, 1, 1))[0, 0] for b in range(1, n_bands + 1)]\n                 \
+                     for layer, base in zip(layers, bases)])\n\
+                     cube[~np.isfinite(values)] = np.nan\n\
+                     bands_all = xr.DataArray(cube[:, :, None, None], dims=(\"time\", \"band\", \"y\", \"x\"),\n                         \
+                     coords={{\"time\": {time}, \"band\": [f\"b{{b:03d}}\" for b in range(1, n_bands + 1)]}})",
+                    info.bands_per_date,
+                    bases.join(", ")
+                );
+            }
+            if inputs.contains(&"spectrum") {
+                o += "# The spectrum: one value per wavelength (b001 the first).\n\
+                      spectrum = xr.DataArray(values[:, None, None], dims=(\"band\", \"y\", \"x\"),\n                        \
+                      coords={\"band\": [f\"b{i + 1:03d}\" for i in range(len(values))]})\n";
             }
             for (name, code, _) in &tool_calls {
                 if tool_calls.len() > 1 {

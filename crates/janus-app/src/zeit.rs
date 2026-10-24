@@ -176,8 +176,15 @@ pub fn applicability(tool: &Tool, info: &CubeInfo) -> Option<String> {
             "a layer of embeddings has no physical unit nor seasonal signal (see the Embeddings panel)".into(),
         );
     }
-    if info.spectral {
-        return Some("a spectrum (one band per wavelength), not a series in time".into());
+    if info.spectral != (tool.requires.time == "spectrum") {
+        return Some(if info.spectral {
+            "a spectrum (one band per wavelength), not a series in time".into()
+        } else {
+            "needs a scene of one band per wavelength (a hyperspectral image)".into()
+        });
+    }
+    if tool.requires.all_bands == Some(true) && info.bands_per_date < 2 {
+        return Some("needs one file per date with several bands (e.g. surface reflectance)".into());
     }
     let bands = tool.requires.bands.clone().unwrap_or_default();
     if !bands.is_empty() && info.bands_per_date < bands.len() {
@@ -234,6 +241,21 @@ fn tool_roles(tool: &Tool) -> (Vec<String>, Vec<String>) {
     (tool.requires.bands.clone().unwrap_or_default(), tool.requires.optional_bands.clone().unwrap_or_default())
 }
 
+/// Whether a tool reads bands of each date besides the shown series (multiband tools).
+fn reads_bands(tool: &Tool) -> bool {
+    tool.requires.all_bands == Some(true) || tool.requires.bands.as_ref().is_some_and(|b| !b.is_empty())
+}
+
+/// The bands a multiband tool reads, (role, band of each date): every band (b001, b002...) for a tool on all of
+/// them, else its roles' mapped bands.
+fn tool_bands(tool: &Tool, info: &CubeInfo, roles: &BTreeMap<String, i32>) -> Vec<(String, i32)> {
+    if tool.requires.all_bands == Some(true) {
+        return (1..=info.bands_per_date as i32).map(|b| (format!("b{b:03}"), b)).collect();
+    }
+    let (needed, optional) = tool_roles(tool);
+    needed.iter().chain(&optional).filter_map(|r| roles.get(r).map(|&b| (r.clone(), b))).collect()
+}
+
 /// What the shown series is in band roles (multiband series).
 fn shown_of(info: &CubeInfo, roles: &BTreeMap<String, i32>) -> Option<Shown> {
     if info.bands_per_date <= 1 {
@@ -250,12 +272,14 @@ fn shown_of(info: &CubeInfo, roles: &BTreeMap<String, i32>) -> Option<Shown> {
 
 /// A series of a layer as a pixel run gets it.
 fn pixel_input(info: &CubeInfo, values: &[f32], t: usize, roles: &BTreeMap<String, i32>) -> PixelInput {
+    // a spectrum's axis: the wavelengths (nm), as the chart draws it
+    let x = |i: usize| if info.spectral { info.layers[i].time } else { info.decimal_year(i) };
     PixelInput {
-        years: (0..info.t()).map(|i| info.decimal_year(i)).collect(),
+        years: (0..info.t()).map(x).collect(),
         days: info.time_is_date.then(|| (0..info.t()).map(|i| info.unix_day(i)).collect()),
         values: values.iter().map(|&v| if v.is_finite() { f64::from(v) } else { f64::NAN }).collect(),
         shown: shown_of(info, roles),
-        map_year: Some(info.decimal_year(t.min(info.t().saturating_sub(1)))),
+        map_year: Some(x(t.min(info.t().saturating_sub(1)))),
         qa_rule: (info.sel.qa_band > 0).then(|| info.sel.qa_rule.id().to_string()),
         ..Default::default()
     }
@@ -458,9 +482,9 @@ impl State {
             return vec![];
         }
         let roles = self.active_roles();
-        let (needed, optional) = tool_roles(tool);
-        let multiband = !needed.is_empty();
-        if multiband && needed.iter().any(|r| !roles.contains_key(r)) {
+        let (needed, _) = tool_roles(tool);
+        let multiband = reads_bands(tool);
+        if needed.iter().any(|r| !roles.contains_key(r)) {
             return vec![];
         }
         let id = tool.id.clone();
@@ -469,7 +493,7 @@ impl State {
         let bands = || {
             multiband.then(|| BandRead {
                 info: info.clone(),
-                roles: needed.iter().chain(&optional).filter_map(|r| roles.get(r).map(|b| (r.clone(), *b))).collect(),
+                roles: tool_bands(tool, &info, &roles),
                 qa_band: info.sel.qa_band,
             })
         };
@@ -711,6 +735,7 @@ impl State {
         let roi = self.series.roi.complete().then(|| self.series.roi.mean.clone()).filter(|m| !m.is_empty());
         let info = self.session.as_ref().map(|s| s.info.clone());
         let results: Vec<(String, String, String)> = self.zeit_result_maps();
+        let shown_t = self.display.t;
         let values = self.zeit.params(tool);
         egui::Grid::new(("params", &tool.id)).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
             for p in &tool.params {
@@ -768,19 +793,25 @@ impl State {
                             },
                         );
                     }
-                    "patterns" => {
-                        ui.end_row();
-                        changed |= patterns_ui(ui, p, v, &pins, roi.as_deref(), info.as_deref());
-                    }
                     "layers" => {
                         ui.end_row();
                         changed |= layers_param_ui(ui, p, v, &results);
                     }
+                    // lists of spectra: below the grid, the window's width
+                    "patterns" | "endmembers" => continue,
                     _ => {}
                 }
                 ui.end_row();
             }
         });
+        for p in tool.params.iter().filter(|p| p.kind == "patterns" || p.kind == "endmembers") {
+            let v = values.entry(p.id.clone()).or_insert_with(|| p.default.clone());
+            changed |= if p.kind == "patterns" {
+                patterns_ui(ui, p, v, &pins, roi.as_deref(), info.as_deref())
+            } else {
+                endmembers_ui(ui, p, v, &pins, roi.as_deref(), info.as_ref(), shown_t)
+            };
+        }
         changed
     }
 }
@@ -849,6 +880,90 @@ fn patterns_ui(
                 add("ROI".into(), r);
             }
             if pins.is_empty() && roi.is_none() {
+                ui.weak("Click the map to drop pins first.");
+            }
+        });
+    });
+    changed
+}
+
+/// An "endmembers" parameter (spectral unmixing): the spectra of pure covers, each named. On a hyperspectral scene
+/// a pin's series is its spectrum (the ROI mean too); on a series of multiband dates, the pin's bands at the date
+/// shown. Value: [{"name", "from", "values"}].
+fn endmembers_ui(
+    ui: &mut Ui,
+    p: &janus_zeit::Param,
+    v: &mut Value,
+    pins: &[(u32, usize, usize, bool, Vec<f32>)],
+    roi: Option<&[f32]>,
+    info: Option<&Arc<CubeInfo>>,
+    t: usize,
+) -> bool {
+    if !v.is_array() {
+        *v = json!([]);
+    }
+    let mut changed = false;
+    ui.vertical(|ui| {
+        ui.label(&p.label).on_hover_text(&p.help);
+        let list = v.as_array_mut().unwrap();
+        let mut remove = None;
+        for (k, e) in list.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                let mut name = e["name"].as_str().unwrap_or("").to_string();
+                if ui.add(egui::TextEdit::singleline(&mut name).desired_width(160.0)).changed() {
+                    e["name"] = json!(name);
+                    changed = true;
+                }
+                let n = e["values"].as_array().map_or(0, Vec::len);
+                ui.weak(format!("{}, {n} bands", e["from"].as_str().unwrap_or("")));
+                if ui.small_button("x").clicked() {
+                    remove = Some(k);
+                }
+            });
+        }
+        if let Some(k) = remove {
+            list.remove(k);
+            changed = true;
+        }
+        if list.is_empty() {
+            ui.weak("No endmembers yet: drop pins on pure covers (vegetation, soil, water...), then add them here.");
+        }
+        let Some(info) = info else { return };
+        let t = t.min(info.t().saturating_sub(1));
+        let mut add = |from: String, values: Vec<f64>| {
+            let n = list.len() + 1;
+            list.push(json!({
+                "name": format!("Endmember {n}"),
+                "from": from,
+                "values": values.iter().map(|&x| if x.is_finite() { json!(x) } else { Value::Null }).collect::<Vec<_>>(),
+            }));
+            changed = true;
+        };
+        let date = info.layers.get(t).map(|l| l.label.clone()).unwrap_or_default();
+        let text = if info.spectral { "Add an endmember from...".to_string() } else { format!("Add one from {date}...") };
+        ComboBox::from_id_salt(("add endmember", &p.id)).width(260.0).selected_text(text).show_ui(ui, |ui| {
+            for (id, x, y, exact, values) in pins {
+                let label = format!("Pin {id} ({x}, {y}){}", if *exact { "" } else { " - reading..." });
+                if ui.add_enabled(*exact, egui::Button::selectable(false, label)).clicked() {
+                    if info.spectral {
+                        add(format!("pin {id}"), values.iter().map(|&v| f64::from(v)).collect());
+                    } else {
+                        // the pin's bands at the date shown
+                        let mut reader = CubeReader::new(info.clone());
+                        let bands = (1..=info.bands_per_date as i32)
+                            .map(|b| reader.read_band_pixel(t, b, *x, *y, false).map_or(f64::NAN, f64::from))
+                            .collect();
+                        add(format!("pin {id}, {date}"), bands);
+                    }
+                }
+            }
+            if info.spectral
+                && ui.add_enabled(roi.is_some(), egui::Button::selectable(false, "ROI mean")).clicked()
+                && let Some(r) = roi
+            {
+                add("ROI".into(), r.iter().map(|&v| f64::from(v)).collect());
+            }
+            if pins.is_empty() {
                 ui.weak("Click the map to drop pins first.");
             }
         });
@@ -2112,10 +2227,11 @@ pub(crate) fn series_inputs(
         spec.qa_input = Some(vrt("_qa", info.sel.qa_band, true)?);
         spec.qa_rule = Some(info.sel.qa_rule.id().to_string());
     }
-    let (needed, optional) = tool_roles(tool);
-    for role in needed.iter().chain(&optional) {
-        if let Some(&b) = roles.get(role) {
-            spec.bands.insert(role.clone(), vrt(&format!("_{role}"), b, false)?);
+    for (role, b) in tool_bands(tool, info, roles) {
+        spec.bands.insert(role.clone(), vrt(&format!("_{role}"), b, false)?);
+        if tool.requires.all_bands == Some(true) {
+            spec.band_names
+                .insert(role, info.band_names.get(b as usize - 1).cloned().unwrap_or_else(|| format!("band {b}")));
         }
     }
     if tool.id == "snic" && spec.params.get("features").and_then(Value::as_str) == Some("bands") {
@@ -2145,8 +2261,7 @@ pub(crate) fn read_pixel_input(
     t: usize,
 ) -> PixelInput {
     let mut input = pixel_input(info, values, t, roles);
-    let (needed, optional) = tool_roles(tool);
-    if !needed.is_empty() {
+    if reads_bands(tool) {
         let mut reader = CubeReader::new(info.clone());
         let n = info.t();
         let mut read = |band: i32, raw: bool| -> Vec<f64> {
@@ -2155,8 +2270,7 @@ pub(crate) fn read_pixel_input(
                 .map(|v| if v.is_finite() { v } else { f64::NAN })
                 .collect()
         };
-        input.bands =
-            needed.iter().chain(&optional).filter_map(|r| roles.get(r).map(|&b| (r.clone(), read(b, false)))).collect();
+        input.bands = tool_bands(tool, info, roles).into_iter().map(|(r, b)| (r, read(b, false))).collect();
         if info.sel.qa_band > 0 {
             input.qa = Some(read(info.sel.qa_band, true));
         }

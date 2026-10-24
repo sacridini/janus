@@ -38,7 +38,7 @@ pub struct Tool {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct Requires {
-    /// "any", "annual" or "regular"
+    /// "any", "annual", "regular", or "spectrum" (a scene of one band per wavelength, not a series)
     pub time: String,
     pub min_dates: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -47,6 +47,9 @@ pub struct Requires {
     pub bands: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub optional_bands: Option<Vec<String>>,
+    /// every band of each date, whatever its role (spectral unmixing's endmembers)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all_bands: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -96,6 +99,10 @@ pub struct Output {
     pub classes: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub classes_param: Option<String>,
+    /// one output per entry of this list parameter (an endmember's fraction): the id `{id}_{k}` (from 1), the
+    /// name with `{}` as the entry's name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub each: Option<String>,
 }
 
 /// Every tool's descriptor (read once).

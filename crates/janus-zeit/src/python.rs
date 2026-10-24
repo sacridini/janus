@@ -85,6 +85,33 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
             ),
             series,
         ),
+        "unmix" | "unmix_spectrum" => {
+            let e = crate::unmix::endmembers(p).ok()?;
+            let (sum_to_one, nonneg) = match p.str("constraint") {
+                "nnls" => (false, true),
+                "scls" => (true, false),
+                "ols" => (false, false),
+                _ => (true, true),
+            };
+            let py_bool = |b: bool| if b { "True" } else { "False" };
+            let b = e.bands;
+            let mut code = String::from("endmembers = pd.DataFrame({\n");
+            for (j, name) in e.names.iter().enumerate() {
+                let v: Vec<String> = e.spectra[j * b..(j + 1) * b].iter().map(|&x| py_float(x)).collect();
+                let _ = writeln!(code, "    {}: [{}],", py_str(name), v.join(", "));
+            }
+            let (data, what) = if tool == "unmix" { ("bands_all", "bands") } else { ("spectrum", "spectra") };
+            let scale = py_float(e.scale());
+            let _ = write!(
+                code,
+                "}}, index=list({data}.band.values)).T  # the pins' {what}, in the data's units\n\
+                 result1 = zeit.unmix({data}, endmembers / {scale}, bands=list({data}.band.values), sum_to_one={}, \
+                 nonneg={}, scale={scale}, ndfi=False, nodata=None, n_jobs=1)",
+                py_bool(sum_to_one),
+                py_bool(nonneg)
+            );
+            (code, vec![if tool == "unmix" { "bands_all" } else { "spectrum" }])
+        }
         "mann_kendall" => {
             let lag = p.int("lag");
             let period = (if p.int("period") != 0 { p.int("period") } else { input.per_year() }).max(1);

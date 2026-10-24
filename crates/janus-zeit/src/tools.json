@@ -2320,6 +2320,138 @@
      "unit": "year"
     }
    ]
+  },
+  {
+   "id": "unmix",
+   "name": "Spectral unmixing (endmembers)",
+   "category": "Indices",
+   "description": "Linear spectral mixture analysis with endmembers of the image, as in Zeit (zeit.unmix with a table of endmembers): the fraction of each endmember (vegetation, soil, water, shade...) in every pixel and date, from all the bands of each date, and the RMSE of the rebuilt spectrum (Adams et al. 1995). The endmembers are the bands of pins at the map's date. Observations the chart leaves out (no data, the quality band's mask) are left out. A raster run writes each fraction as a series, opened as a new layer for LandTrendr, BFAST and the other tools, and their means as maps.",
+   "requires": {
+    "time": "any",
+    "min_dates": 1,
+    "all_bands": true
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "endmembers",
+     "label": "Endmembers",
+     "type": "endmembers",
+     "default": [],
+     "help": "The pure spectra the pixels are mixtures of: the bands of a pin at the map's date. Drop pins on places of a known, pure cover (dense vegetation, bare soil, water, shade...), add each here and name it. Two to six usually; at most one fewer than the bands without the sum-to-one constraint."
+    },
+    {
+     "id": "constraint",
+     "label": "Constraints",
+     "type": "enum",
+     "default": "fcls",
+     "options": [
+      "fcls",
+      "nnls",
+      "scls",
+      "ols"
+     ],
+     "labels": [
+      "Non-negative, summing to one (FCLS)",
+      "Non-negative (NNLS)",
+      "Summing to one",
+      "None (least squares)"
+     ],
+     "help": "Fully constrained least squares (Heinz & Chang 2001) gives fractions from 0 to 1 that add up to one; without the constraints the fractions can be negative or above one where the endmembers do not describe the pixel (the RMSE shows where)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "fraction",
+     "name": "{} fraction",
+     "unit": "fraction",
+     "series": true,
+     "dtype": "int16",
+     "scale": 0.0001,
+     "each": "endmembers"
+    },
+    {
+     "id": "mean",
+     "name": "Mean {} fraction",
+     "colormap": "Viridis",
+     "unit": "fraction",
+     "each": "endmembers"
+    },
+    {
+     "id": "rmse",
+     "name": "Mean RMSE",
+     "colormap": "Plasma",
+     "unit": "reflectance"
+    },
+    {
+     "id": "n_obs",
+     "name": "Observations unmixed",
+     "colormap": "Viridis",
+     "unit": "count"
+    }
+   ],
+   "chunk_cells": 50000
+  },
+  {
+   "id": "unmix_spectrum",
+   "name": "Spectral unmixing (spectrum)",
+   "category": "Indices",
+   "description": "Linear spectral mixture analysis of a scene of one band per wavelength (hyperspectral: EnMAP, PRISMA, EMIT, AVIRIS...), as in Zeit (zeit.unmix): the fraction of each endmember in every pixel and the RMSE of the rebuilt spectrum. The endmembers are the spectra of pins. The chart draws the spectrum the fractions rebuild and each endmember's part of it.",
+   "requires": {
+    "time": "spectrum",
+    "min_dates": 2
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "endmembers",
+     "label": "Endmembers",
+     "type": "endmembers",
+     "default": [],
+     "help": "The pure spectra the pixels are mixtures of: the spectra of pins. Drop pins on places of a known, pure cover (dense vegetation, bare soil, water, shade...), add each here and name it. Two to six usually; at most one fewer than the bands without the sum-to-one constraint."
+    },
+    {
+     "id": "constraint",
+     "label": "Constraints",
+     "type": "enum",
+     "default": "fcls",
+     "options": [
+      "fcls",
+      "nnls",
+      "scls",
+      "ols"
+     ],
+     "labels": [
+      "Non-negative, summing to one (FCLS)",
+      "Non-negative (NNLS)",
+      "Summing to one",
+      "None (least squares)"
+     ],
+     "help": "Fully constrained least squares (Heinz & Chang 2001) gives fractions from 0 to 1 that add up to one; without the constraints the fractions can be negative or above one where the endmembers do not describe the pixel (the RMSE shows where)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "fraction",
+     "name": "{} fraction",
+     "colormap": "Viridis",
+     "unit": "fraction",
+     "each": "endmembers"
+    },
+    {
+     "id": "rmse",
+     "name": "RMSE",
+     "colormap": "Plasma",
+     "unit": "reflectance"
+    }
+   ],
+   "chunk_cells": 200000
   }
  ],
  "errors": []

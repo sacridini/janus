@@ -106,6 +106,29 @@ pub fn selftest_zeit(inputs: &[String], threads: usize) -> i32 {
                     .collect();
                 params.insert(p.id.clone(), json!(pats));
             }
+            if p.kind == "endmembers" {
+                // three pixels, as pins: a scene's spectra, else the bands of the latest date they all have
+                let ems: Vec<Value> = (0..3)
+                    .map(|k| {
+                        let (x, y) = (info.width * (2 * k + 1) / 6, info.height / 2);
+                        let vals: Vec<f64> = if info.spectral {
+                            (0..n).map(|t| reader.read_pixel(t, x, y).map_or(f64::NAN, f64::from)).collect()
+                        } else {
+                            (0..n)
+                                .rev()
+                                .map(|t| {
+                                    (1..=info.bands_per_date as i32)
+                                        .map(|b| reader.read_band_pixel(t, b, x, y, false).map_or(f64::NAN, f64::from))
+                                        .collect::<Vec<_>>()
+                                })
+                                .find(|v| v.iter().all(|x| x.is_finite()))
+                                .unwrap_or_default()
+                        };
+                        json!({"name": format!("Endmember {} ({x}, {y})", k + 1), "from": "selftest", "values": vals})
+                    })
+                    .collect();
+                params.insert(p.id.clone(), json!(ems));
+            }
             if p.kind == "layers" {
                 params.insert(p.id.clone(), json!(date_maps));
             }

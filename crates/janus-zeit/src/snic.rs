@@ -233,8 +233,8 @@ pub(crate) fn run(
     let dir = PathBuf::from(&spec.output_dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let wanted = active_outputs(tool, p);
-    let rasters: Vec<_> = wanted.iter().copied().filter(|o| o.vector != Some(true)).collect();
-    let polygons = wanted.iter().copied().find(|o| o.vector == Some(true));
+    let rasters: Vec<_> = wanted.iter().filter(|o| o.vector != Some(true)).cloned().collect();
+    let polygons = wanted.iter().find(|o| o.vector == Some(true));
     let mut outs = Outputs::new(tool, &rasters, &dir, inputs.input.ds(), window, spec)?;
     let mean_out = rasters.iter().any(|o| o.id == "mean");
     let keep_means = polygons.is_some() && f_n <= MAX_MEAN_COLUMNS;

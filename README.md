@@ -72,7 +72,8 @@ which ships with Janus: there is nothing else to install. Its command line is `j
 - **Change detection built in**: LandTrendr and the recovery after its
   disturbances (Y2R, R80P, RRI), Mann-Kendall, AR(1) trends and
   their regional test (PARTS, after remotePARTS), BFAST, CCDC,
-  CODED (forest degradation, with the NDFI), phenology, TWDTW, SOM clustering,
+  CODED (forest degradation, with the NDFI), spectral unmixing with endmembers
+  from pins (of every date's bands, or of a hyperspectral scene), phenology, TWDTW, SOM clustering,
   SNIC segmentation, Tmask cloud screening and more from [Zeit](https://github.com/sacridini/zeit-cdts),
   fitted live on the chart (BFAST and CCDC models drawn over the series) or
   run on the image (also CCDC's cloud-free synthetic image of a date), plus

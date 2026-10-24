@@ -327,9 +327,27 @@ impl Inputs {
 // Outputs
 // ---------------------------------------------------------------------------------------------------------------
 
-/// The outputs a run writes (one with "when" only if that bool parameter is on).
-pub fn active_outputs<'a>(tool: &'a Tool, p: &Params) -> Vec<&'a Output> {
-    tool.outputs.iter().filter(|o| o.when.as_deref().is_none_or(|w| p.bool(w))).collect()
+/// The outputs a run writes (one with "when" only if that bool parameter is on; one with "each" once per entry
+/// of its list).
+pub fn active_outputs(tool: &Tool, p: &Params) -> Vec<Output> {
+    let mut out = vec![];
+    for o in tool.outputs.iter().filter(|o| o.when.as_deref().is_none_or(|w| p.bool(w))) {
+        let Some(list) = &o.each else {
+            out.push(o.clone());
+            continue;
+        };
+        let entries = p.0.get(list).and_then(Value::as_array).cloned().unwrap_or_default();
+        for (k, e) in entries.iter().enumerate() {
+            let name = e.get("name").and_then(Value::as_str).map_or_else(|| format!("{}", k + 1), str::to_string);
+            out.push(Output {
+                id: format!("{}_{}", o.id, k + 1),
+                name: if o.name.contains("{}") { o.name.replace("{}", &name) } else { format!("{name} {}", o.name) },
+                each: None,
+                ..o.clone()
+            });
+        }
+    }
+    out
 }
 
 /// One label per date for a series output's band descriptions: Janus's, else ISO dates, else decimal years.
@@ -357,7 +375,7 @@ pub(crate) struct Outputs {
 impl Outputs {
     pub(crate) fn new(
         tool: &Tool,
-        outputs: &[&Output],
+        outputs: &[Output],
         dir: &Path,
         src: &Dataset,
         window: [usize; 4],
@@ -427,7 +445,7 @@ impl Outputs {
                     band.set_offset(0.0).map_err(|e| e.to_string())?;
                 }
             }
-            outs.push(((*o).clone(), path, ds));
+            outs.push((o.clone(), path, ds));
         }
         Ok(Outputs { w, outs })
     }
@@ -524,6 +542,8 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "mann_kendall" => crate::mann_kendall::chunk(p, chunk, ctx),
         "ar_trend" => crate::ar_trend::chunk(p, chunk, ctx),
         "recovery" => crate::recovery::chunk(p, chunk, ctx),
+        "unmix" => crate::unmix::chunk(p, chunk, ctx),
+        "unmix_spectrum" => crate::unmix::spectrum_chunk(p, chunk, ctx),
         "bfast" => crate::bfast::bfast_chunk(p, chunk, ctx),
         "tmask" => crate::tmask::chunk(p, chunk, ctx),
         "ndfi" => crate::ndfi::chunk(p, chunk, ctx),

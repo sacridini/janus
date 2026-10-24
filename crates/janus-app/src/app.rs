@@ -228,6 +228,8 @@ pub struct Options {
     /// --zeit-run: the --zeit tool run on the raster (its ROI if --roi, else the whole image) once the series is
     /// loaded
     pub zeit_run: bool,
+    /// --zeit-param TOOL.ID=JSON|@FILE: a Zeit tool's parameter (repeatable)
+    pub zeit_params: Vec<String>,
     /// --selftest-reproject B F: F reprojected on B's grid
     pub selftest_reproject: bool,
     /// --selftest-multidim H/clim.nc: a NetCDF of two variables, its levels, opened in place
@@ -1035,6 +1037,17 @@ impl State {
                     self.zeit.tools.entry(id.to_string()).or_default().open = true;
                     self.zeit.set_fitted(id, true);
                 }
+            }
+            for a in self.opts.zeit_params.clone() {
+                let Some((key, text)) = a.split_once('=') else { continue };
+                let Some((tool, id)) = key.split_once('.') else { continue };
+                let Some(tool) = janus_zeit::manifest().tools.iter().find(|t| t.id == tool) else { continue };
+                let text = match text.strip_prefix('@') {
+                    Some(path) => std::fs::read_to_string(path).unwrap_or_default(),
+                    None => text.to_string(),
+                };
+                let v = serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text));
+                self.zeit.params(tool).insert(id.to_string(), v);
             }
             if let Some(b) = &self.opts.basemap {
                 if b.contains("://") {

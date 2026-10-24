@@ -138,6 +138,7 @@ Developer options:
                       0 steps + markers, 1 steps, 2 markers, 3 class blocks)
   --zeit TOOL[,TOOL]  the Zeit tools fitted on the chart (e.g. landtrendr), their panels open
   --zeit-run          and run on the raster (the ROI's window if --roi) once the series is loaded
+  --zeit-param TOOL.ID=JSON|@FILE  a parameter of a --zeit tool (repeatable; @FILE: its JSON in FILE)
   --validation-tab N  a validation project (a .gpkg input) on tab N of its panel (0 Design, 1 Accuracy,
                       2 Maps, 3 Interpreters, 4 Report)
   --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation
@@ -363,6 +364,7 @@ fn main() -> eframe::Result<()> {
             "--swipe" => opts.swipe = true,
             "--zeit" => opts.zeit_tool = args.next(),
             "--zeit-run" => opts.zeit_run = true,
+            "--zeit-param" => opts.zeit_params.extend(args.next()),
             "--view" => {
                 let v: Vec<f64> =
                     args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
