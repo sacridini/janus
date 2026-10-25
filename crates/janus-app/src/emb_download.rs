@@ -57,12 +57,16 @@ impl Default for DownloadUi {
     }
 }
 
-/// A download under way: its job (also in Tasks), its folder, whether it was opened.
+/// A download under way (embeddings, a STAC series): its job (also in Tasks), its folder, the layer's name (None:
+/// the folder's), whether it was opened.
 pub struct EmbDownload {
     pub title: String,
     pub status: Arc<Mutex<JobStatus>>,
     pub started: Instant,
     pub folder: String,
+    pub name: Option<String>,
+    /// the active layer stays active when it is added (embeddings beside the series studied)
+    pub keep_active: bool,
     pub opened: bool,
     pub ended: Option<Instant>,
 }
@@ -255,6 +259,8 @@ impl State {
             status,
             started: Instant::now(),
             folder,
+            name: None,
+            keep_active: true,
             opened: false,
             ended: None,
         });
@@ -271,14 +277,17 @@ impl State {
             }
             if st == JobState::Done && !d.opened && open.is_none() && self.opening.is_none() {
                 d.opened = true;
-                open = Some(d.folder.clone());
+                open = Some((d.folder.clone(), d.name.clone(), d.keep_active));
             }
         }
-        if let Some(folder) = open {
-            if !self.layers.is_empty() {
+        if let Some((folder, name, keep)) = open {
+            if keep && !self.layers.is_empty() {
                 self.zeit.keep_active = Some(self.active);
             }
             self.open_inputs(vec![folder], true, ctx);
+            if let Some(o) = self.opening.as_mut() {
+                o.name = name;
+            }
         }
         self.emb_downloads.retain(|d| {
             let running = d.status.lock().unwrap().state == JobState::Running;

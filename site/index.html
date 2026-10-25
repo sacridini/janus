@@ -144,6 +144,12 @@
         <p class="spec">YYYY-MM-DD · YYYYMMDD · YYYY_MM · YYYY · A2001001</p>
       </article>
       <article>
+        <p class="tag">Catalogs</p>
+        <h3>Series from STAC</h3>
+        <p>Search Earth Search, Planetary Computer, the Brazil Data Cube or any STAC API for an area, two dates and a cloud cover, and open the scenes as a series read in place: a mosaic per date on one grid, clouds masked. Or download them as GeoTIFFs. <a href="stac.html">Step-by-step guide</a>.</p>
+        <p class="spec">Sentinel-2 · Landsat · BDC cubes · SCL · QA_PIXEL</p>
+      </article>
+      <article>
         <p class="tag">Map</p>
         <h3>Statistics on the GPU</h3>
         <p>Value at date, anomaly, mean, standard deviation, linear trend, minimum, maximum, amplitude, trend R² and a multitemporal RGB. Changing the date, colormap or stretch is instant.</p>
@@ -293,6 +299,7 @@
       <li><a href="snic.html"><span>Landsat, every date</span><h3>SNIC segmentation</h3><p>Segments of pixels with the same history, their mean series as a layer and their polygons.</p></a></li>
       <li><a href="deep-learning.html"><span>Landsat, every date</span><h3>Deep learning</h3><p>TempCNN, L-TAE and U-TAE trained on MapBiomas samples: a land cover map with its probability and uncertainty, smoothed, and where the model can be trusted.</p></a></li>
       <li><a href="presto.html"><span>Landsat, a year</span><h3>Presto</h3><p>A pretrained foundation model's encodings of every pixel: embeddings to explore, and a classifier on them.</p></a></li>
+      <li><a href="stac.html"><span>Sentinel-2, Landsat, BDC</span><h3>STAC catalogs</h3><p>An area, two dates, a cloud cover: 375 Sentinel-2 scenes of five dry seasons as a series of 107 dates, read in place from Planetary Computer with the clouds masked, or downloaded.</p></a></li>
       <li><a href="embeddings.html"><span>AlphaEarth, TESSERA</span><h3>Embeddings</h3><p>Forest, pasture and water from nine pins in milliseconds, what changed into what since 2017, and the direction of every change.</p></a></li>
     </ul>
   </div>
@@ -380,7 +387,7 @@ jn "S2_*_NDVI.tif" --band 1
       </details>
       <details>
         <summary>Which files can it open?</summary>
-        <p>Anything GDAL reads, as a folder of rasters (one date per file), a multiband file (one date per band), a list of files or a wildcard pattern. Cloud-optimized GeoTIFFs open fastest the first time.</p>
+        <p>Anything GDAL reads, as a folder of rasters (one date per file), a multiband file (one date per band), a list of files or a wildcard pattern; also cloud-optimized GeoTIFFs by URL, and the scenes of a STAC catalog (File → Search STAC catalog...). Cloud-optimized GeoTIFFs open fastest the first time.</p>
       </details>
       <details>
         <summary>Do I need Python for the Zeit tools?</summary>

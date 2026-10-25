@@ -4629,7 +4629,9 @@ version = "1.3.0"
 dependencies = [
  "gdal",
  "gdal-sys",
+ "janus-gdal",
  "regex",
+ "serde_json",
 ]
 
 [[package]]

@@ -8,4 +8,6 @@ license.workspace = true
 [dependencies]
 gdal.workspace = true
 gdal-sys.workspace = true
+janus-gdal = { path = "../janus-gdal" }
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl"] }
+serde_json = "1"

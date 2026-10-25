@@ -11,6 +11,8 @@ mod reader;
 pub mod remote;
 pub mod roles;
 pub mod spectral;
+pub mod stac;
+pub mod stac_vrt;
 pub mod stats;
 pub mod vrt;
 
@@ -49,6 +51,9 @@ pub enum QaRule {
     LandsatC2,
     /// a generic mask: 0 = masked, anything else usable
     NonZero,
+    /// Sentinel-2's scene classification (SCL): 4 vegetation, 5 bare soil, 6 water usable; no data, saturated,
+    /// shadows, clouds, cirrus, snow and unclassified masked
+    Scl,
 }
 
 impl QaRule {
@@ -62,6 +67,7 @@ impl QaRule {
             QaRule::Fmask => "fmask",
             QaRule::LandsatC2 => "landsat_c2",
             QaRule::NonZero => "nonzero",
+            QaRule::Scl => "scl",
             QaRule::None => "none",
         }
     }
@@ -71,6 +77,7 @@ impl QaRule {
             QaRule::Fmask => "Fmask codes (0 clear, 1 water)",
             QaRule::LandsatC2 => "Landsat C2 QA_PIXEL bits",
             QaRule::NonZero => "Mask (0 = invalid)",
+            QaRule::Scl => "Sentinel-2 SCL classes",
             QaRule::None => "None",
         }
     }
@@ -81,6 +88,7 @@ impl QaRule {
             // bits 0 fill, 1 dilated cloud, 3 cloud, 4 cloud shadow, 5 snow
             QaRule::LandsatC2 => code & 0x3B == 0,
             QaRule::NonZero => code != 0,
+            QaRule::Scl => (4..=6).contains(&code),
             QaRule::None => true,
         }
     }
@@ -166,6 +174,9 @@ pub struct CubeInfo {
     pub md_levels: Vec<String>,
     /// read over the network
     pub remote: bool,
+    /// local files whose data are read over the network (a STAC series' VRTs, `remote` false): a pixel of a date
+    /// is a few round trips, so a pixel's dates are read several at once
+    pub network_sources: bool,
 }
 
 impl CubeInfo {
@@ -392,6 +403,8 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
     if files.is_empty() {
         return Err("No raster files found.".into());
     }
+    // a STAC series from Planetary Computer: its containers signed before anything is read
+    stac::sign_vrt_inputs(&files);
     let open = |f: &str| {
         open_raster(f).map_err(|e| {
             let mut m = format!("{f}: {e}");
@@ -410,6 +423,7 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         height,
         first_path: files[0].clone(),
         remote: is_remote_path(&files[0]),
+        network_sources: is_remote_path(&files[0]) || remote::vrt_reads_network(&files[0]),
         bands_per_date: 1,
         ..Default::default()
     };
@@ -609,7 +623,7 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         info.description = format!("1 file, {n} bands (1 band = 1 date)");
     } else {
         info.bands_per_date = n;
-        info.band_nm = spectral::band_wavelengths(&first, &files[0]);
+        info.band_nm = spectral::series_band_wavelengths(&first, &files[0]);
         info.band_names = spectral::band_names_with_nm(&first, &info.band_nm);
         info.sel = *sel;
         // bands with wavelengths (e.g. a series of EnMAP scenes): NDVI rather than the first band (418 nm on
@@ -630,6 +644,8 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
                     QaRule::Fmask
                 } else if l.contains("qa_pixel") {
                     QaRule::LandsatC2
+                } else if l == "scl" || l.starts_with("scl ") {
+                    QaRule::Scl
                 } else {
                     QaRule::None
                 };
@@ -909,6 +925,9 @@ mod tests {
         // Landsat C2: bit 3 (cloud) masks, bit 6 (clear) does not
         assert!(!QaRule::LandsatC2.usable(1 << 3) && QaRule::LandsatC2.usable(1 << 6));
         assert!(QaRule::NonZero.usable(7) && !QaRule::NonZero.usable(0));
+        // SCL: vegetation, soil and water kept; cloud shadow (3), clouds (8, 9), cirrus (10), snow (11) masked
+        assert!([4, 5, 6].iter().all(|&c| QaRule::Scl.usable(c)));
+        assert!([0, 1, 2, 3, 7, 8, 9, 10, 11].iter().all(|&c| !QaRule::Scl.usable(c)));
     }
 
     #[test]

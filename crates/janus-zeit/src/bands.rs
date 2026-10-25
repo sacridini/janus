@@ -47,6 +47,16 @@ pub fn fmask_codes(
                         }
                         f
                     }
+                    // Sentinel-2 SCL classes: vegetation, soil clear; water; shadows; snow; clouds, cirrus and
+                    // unclassified as clouds; no data and saturated as fill
+                    "scl" => match code {
+                        4 | 5 => 0,
+                        6 => 1,
+                        2 | 3 => 2,
+                        11 => 3,
+                        7..=10 => 4,
+                        _ => 255,
+                    },
                     _ => {
                         if code != 0 {
                             0

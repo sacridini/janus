@@ -104,6 +104,72 @@ impl Codec {
     }
 }
 
+/// cpl_http.h's CPLHTTPResult.
+#[repr(C)]
+struct CplHttpResult {
+    status: c_int,
+    content_type: *mut c_char,
+    err_buf: *mut c_char,
+    data_len: c_int,
+    data_alloc: c_int,
+    data: *mut u8,
+    headers: *mut *mut c_char,
+    mime_part_count: c_int,
+    mime_parts: *mut c_void,
+}
+
+unsafe extern "C" {
+    fn CPLHTTPFetch(url: *const c_char, options: *const *const c_char) -> *mut CplHttpResult;
+    fn CPLHTTPDestroyResult(result: *mut CplHttpResult);
+}
+
+/// An HTTP request through GDAL's libcurl (its certificates, proxy and retry settings): a GET, or a POST of `post`
+/// (JSON). `options` are CPLHTTPFetch's ("TIMEOUT=30", "HEADERS=..."). The body, or why there is none (curl's
+/// error, the HTTP code and the start of the server's answer).
+pub fn http_fetch(url: &str, post: Option<&str>, options: &[&str]) -> Result<Vec<u8>, String> {
+    let mut opts: Vec<CString> = options.iter().filter_map(|o| CString::new(*o).ok()).collect();
+    if let Some(body) = post {
+        opts.push(CString::new(format!("POSTFIELDS={body}")).map_err(|e| e.to_string())?);
+        opts.push(CString::new("HEADERS=Content-Type: application/json\r\nAccept: application/json").unwrap());
+    }
+    let mut ptrs: Vec<*const c_char> = opts.iter().map(|o| o.as_ptr()).collect();
+    ptrs.push(std::ptr::null());
+    let c_url = CString::new(url).map_err(|e| e.to_string())?;
+    // SAFETY: C strings alive for the call; GDAL returns a result we own and free once.
+    unsafe {
+        let r = CPLHTTPFetch(c_url.as_ptr(), ptrs.as_ptr());
+        if r.is_null() {
+            return Err(format!("{url}: no answer"));
+        }
+        let res = &*r;
+        let body = if res.data.is_null() || res.data_len <= 0 {
+            Vec::new()
+        } else {
+            std::slice::from_raw_parts(res.data, res.data_len as usize).to_vec()
+        };
+        let err = (!res.err_buf.is_null()).then(|| CStr::from_ptr(res.err_buf).to_string_lossy().into_owned());
+        CPLHTTPDestroyResult(r);
+        match err {
+            Some(e) => {
+                let text = String::from_utf8_lossy(&body[..body.len().min(300)]).trim().to_string();
+                Err(if text.is_empty() { e } else { format!("{e}: {text}") })
+            }
+            None => Ok(body),
+        }
+    }
+}
+
+/// A configuration option for the paths under `prefix` only (VSISetPathSpecificOption): credentials of a
+/// bucket, GDAL_DISABLE_READDIR_ON_OPEN for a host. `None` removes it.
+pub fn set_path_option(prefix: &str, key: &str, value: Option<&str>) {
+    let (Ok(p), Ok(k)) = (CString::new(prefix), CString::new(key)) else { return };
+    let v = value.and_then(|v| CString::new(v).ok());
+    // SAFETY: C strings alive for the call; GDAL copies them.
+    unsafe {
+        gdal_sys::VSISetPathSpecificOption(p.as_ptr(), k.as_ptr(), v.as_ref().map_or(std::ptr::null(), |v| v.as_ptr()))
+    }
+}
+
 /// The size and modification time (seconds) of a file in one of GDAL's virtual file systems (VSIStatExL with
 /// VSI_STAT_SIZE_FLAG), None if it cannot be read. GDAL's VSIStatBufL is the C library's stat64 on Linux and stat
 /// on macOS, which the prebuilt bindings of gdal-sys leave opaque: libc's; on Windows the bindings' _stat64.

@@ -233,6 +233,11 @@ pub struct Options {
     /// --embedding-view VIEW: the embeddings' view (pca, similarity, change, direction, direction-like, classes: a
     /// class from each pin), the Embeddings panel open
     pub embedding_view: Option<String>,
+    /// --stac CATALOG;COLLECTION;W,S,E,N;START;END[;CLOUD]: the Search STAC catalog window filled in and its search
+    /// run (screenshots)
+    pub stac: Option<String>,
+    /// --stac-open: its series opened as a layer once found
+    pub stac_open: bool,
     /// --selftest-reproject B F: F reprojected on B's grid
     pub selftest_reproject: bool,
     /// --selftest-multidim H/clim.nc: a NetCDF of two variables, its levels, opened in place
@@ -388,6 +393,8 @@ pub struct State {
     /// the embeddings download's choices, and the downloads under way
     pub emb_download: crate::emb_download::DownloadUi,
     pub emb_downloads: Vec<crate::emb_download::EmbDownload>,
+    /// File > Search STAC catalog
+    pub stac: crate::stac::StacUi,
     pub chart: crate::chart::ChartOptions,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
@@ -695,6 +702,7 @@ impl JanusApp {
                 embeddings_test: Default::default(),
                 emb_download: Default::default(),
                 emb_downloads: Vec::new(),
+                stac: Default::default(),
                 val: Default::default(),
                 ml: Default::default(),
                 contents: Default::default(),
@@ -754,6 +762,12 @@ impl JanusApp {
             app.detach_map();
         }
         app.state.settings.show |= app.state.opts.settings_open;
+        if let Some(spec) = app.state.opts.stac.clone()
+            && let Err(e) = app.state.stac.apply_option(&spec)
+        {
+            eprintln!("--stac: {e}");
+        }
+        app.state.stac.open_after = app.state.opts.stac_open;
         app
     }
 
@@ -1303,6 +1317,17 @@ impl State {
                     self.open_url_dialog(true);
                 }
                 if ui
+                    .button("Search STAC catalog...")
+                    .on_hover_text(
+                        "Satellite series from a catalog (Earth Search, Planetary Computer, Brazil
+Data Cube or                          another STAC API): scenes over the area and dates, opened
+in place or downloaded",
+                    )
+                    .clicked()
+                {
+                    self.stac.show = true;
+                }
+                if ui
                     .button("Open files as separate layers...")
                     .on_hover_text("Each file a layer of its own (images that are not dates of one series)")
                     .clicked()
@@ -1501,6 +1526,8 @@ impl State {
                 self.opts.view.is_none() || self.session.as_ref().is_some_and(|s| s.tiles.inflight() == 0);
             // an ROI asked for: its series read
             let roi_ready = self.opts.roi.is_none() && self.opts.roi_polygon.is_empty() || self.series.roi.complete();
+            // --pin: their series read from the files (a remote series takes seconds)
+            let pins_ready = self.series.pins.iter().all(|p| p.exact);
             // --layer: every one open and its overview read
             let layers_ready = self.opts.extra_layers.is_empty()
                 && self.opening.is_none()
@@ -1512,8 +1539,13 @@ impl State {
                 && zeit_ready
                 && emb_ready
                 && roi_ready
+                && pins_ready
                 && tiles_ready
-                && self.trend_test_settled();
+                && self.trend_test_settled()
+                && (self.opts.stac.is_none()
+                    || self.stac.settled()
+                        && !self.stac.open_after
+                        && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()));
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
                 self.shots_pending += 1;
@@ -1606,6 +1638,7 @@ impl eframe::App for JanusApp {
         s.pump_interpretation(&ctx);
         s.pump_embeddings(&ctx);
         s.pump_embedding_downloads(&ctx);
+        s.pump_stac(&ctx);
         s.pump_validation(&ctx);
         s.pump_animation(&ctx);
         s.pump_chips(&ctx);
@@ -1852,6 +1885,7 @@ impl eframe::App for JanusApp {
         self.state.popups(&ctx);
         self.state.tool_windows(&ctx);
         self.state.ml_window(&ctx);
+        self.state.stac_window(&ctx);
         self.state.tasks_window(&ctx);
         self.state.exports_window(&ctx);
         self.state.extract_window(&ctx);

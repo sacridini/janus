@@ -38,6 +38,8 @@ def usable(q, rule):
         return ok & ((c == 0) | (c == 1))
     if rule == "landsat_c2":     # QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow, 5 snow
         return ok & ((c & 0x3B) == 0)
+    if rule == "scl":            # Sentinel-2 SCL: 4 vegetation, 5 bare soil, 6 water
+        return ok & (c >= 4) & (c <= 6)
     return ok & (c != 0)         # a 0/1 mask
 "#;
 

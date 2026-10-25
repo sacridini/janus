@@ -436,7 +436,7 @@ impl State {
                 .width(ui.available_width())
                 .selected_text(sel.qa_rule.label())
                 .show_ui(ui, |ui| {
-                    for r in [QaRule::Fmask, QaRule::LandsatC2, QaRule::NonZero] {
+                    for r in [QaRule::Fmask, QaRule::LandsatC2, QaRule::Scl, QaRule::NonZero] {
                         ui.selectable_value(&mut sel.qa_rule, r, r.label());
                     }
                 })

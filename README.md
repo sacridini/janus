@@ -37,6 +37,12 @@ which ships with Janus: there is nothing else to install. Its command line is `j
 - **Cloud-native**: cloud-optimized GeoTIFFs straight from `https://`, `s3://`,
   `gs://` or `az://` (File → Open URL, or `jn https://...`), reading only the
   blocks and overview levels on screen.
+- **STAC catalogs**: File → Search STAC catalog... finds the Sentinel-2,
+  Landsat or Brazil Data Cube scenes of an area between two dates (Earth
+  Search, Planetary Computer, BDC or any STAC API), below a cloud cover, and
+  opens them as a series read in place (a mosaic per date, on one grid, the
+  quality band masking clouds) or downloads them as GeoTIFFs. Step by step:
+  [Series from a STAC catalog](https://sacridini.github.io/janus/stac.html).
 - **Climate cubes**: NetCDF, Zarr and HDF variables with CF time (model
   calendars included), levels and a variable picker.
 - **14 map modes on the GPU**: value, anomaly, difference to a reference date,

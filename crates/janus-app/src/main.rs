@@ -47,6 +47,7 @@ mod settings;
 mod shots;
 mod shots_ml;
 mod shots_validation;
+mod stac;
 mod theme;
 mod tour;
 mod trajectory;
@@ -141,6 +142,9 @@ Developer options:
   --zeit-param TOOL.ID=JSON|@FILE  a parameter of a --zeit tool (repeatable; @FILE: its JSON in FILE)
   --embedding-view VIEW  a layer of embeddings drawn as pca, similarity (to pin 1), change, direction,
                       direction-like (pin 1's change) or classes (a class from each --pin)
+  --stac CATALOG;COLLECTION;W,S,E,N;START;END[;CLOUD]  the Search STAC catalog window filled in (CATALOG:
+                      earth-search, planetary-computer, bdc or an API's URL) and its search run
+  --stac-open         and the series found opened as a layer (its bands at first, every date)
   --validation-tab N  a validation project (a .gpkg input) on tab N of its panel (0 Design, 1 Accuracy,
                       2 Maps, 3 Interpreters, 4 Report)
   --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation
@@ -368,6 +372,8 @@ fn main() -> eframe::Result<()> {
             "--zeit-run" => opts.zeit_run = true,
             "--zeit-param" => opts.zeit_params.extend(args.next()),
             "--embedding-view" => opts.embedding_view = args.next(),
+            "--stac" => opts.stac = args.next(),
+            "--stac-open" => opts.stac_open = true,
             "--view" => {
                 let v: Vec<f64> =
                     args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();

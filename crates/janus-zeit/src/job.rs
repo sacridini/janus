@@ -212,6 +212,7 @@ pub fn qa_usable(rule: Option<&str>, qa: f64) -> bool {
         Some("fmask") => code == 0 || code == 1,
         Some("landsat_c2") => code & 0x3B == 0,
         Some("nonzero") => code != 0,
+        Some("scl") => (4..=6).contains(&code),
         _ => true,
     };
     ok && keep

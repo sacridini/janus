@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>STAC catalogs · Janus</title>
+<meta name="description" content="A step-by-step guide to series from STAC catalogs in Janus: five years of Sentinel-2 over Rondônia found on Planetary Computer, opened as a layer read in place with clouds masked, and downloaded as GeoTIFFs.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="STAC catalogs · Janus">
+<meta property="og:description" content="An area, two dates, a cloud cover: 375 Sentinel-2 scenes of five dry seasons as a series of 107 dates, read in place from Planetary Computer, the clouds masked by the scene classification.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/stac/01-search.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / STAC catalogs</p>
+    <p class="eyebrow">Data · Sentinel-2, Landsat, Brazil Data Cube</p>
+    <h1>A series from a STAC catalog, step by step.</h1>
+    <p class="lede">The scenes of Sentinel-2 and Landsat sit in the cloud as files anyone can read, listed by catalogs that answer one question: which scenes cover this area between these dates? This guide asks Planetary Computer for five dry seasons of a square of Rondônia, opens the answer as a series read in place, with the clouds masked, and downloads it.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#catalogs">The catalogs</a></li>
+      <li><a href="#search">Searching</a></li>
+      <li><a href="#bands">Bands and cells</a></li>
+      <li><a href="#open">Open as a layer</a></li>
+      <li><a href="#grid">One grid for every date</a></li>
+      <li><a href="#download">Download as GeoTIFFs</a></li>
+      <li><a href="#footprints">Footprints</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>A <strong>STAC</strong> catalog (SpatioTemporal Asset Catalog) describes each scene as a GeoJSON feature: its outline, its date, its cloud cover, and links to its files, one per band. Those files are <strong>cloud-optimized GeoTIFFs</strong>: tiled, with overviews, so a program can read just the part of a scene it needs. Janus asks the catalog for the scenes, groups them by day, and makes each day one image of the area on one grid. Nothing is downloaded until it is drawn, and then only the blocks and the overview level on screen.</p>
+      <dl class="terms">
+        <dt>Collection</dt><dd>A product of the catalog: Sentinel-2 L2A, Landsat Collection 2 Level-2, a data cube.</dd>
+        <dt>Item (scene)</dt><dd>One acquisition of one tile of a collection: <code>S2B_MSIL2A_20190610T142759_..._T20LNP</code>.</dd>
+        <dt>Asset</dt><dd>A file of an item: a band (<code>B04</code>, <code>red</code>), the quality band, a thumbnail. Janus uses the single-band GeoTIFFs.</dd>
+        <dt>STAC API</dt><dd>The catalog's search: a <code>POST /search</code> with the collection, the area, the dates and a limit, answered page by page.</dd>
+      </dl>
+    </section>
+
+    <section id="catalogs">
+      <h2><span class="n">02</span>The catalogs</h2>
+      <p><span class="ui">File → Search STAC catalog...</span> opens a window with three catalogs ready, each with the collections a series of reflectances needs, and any other STAC API by its URL:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Catalog</th><th>Collections</th><th>Access</th></tr></thead>
+          <tbody>
+            <tr><td>Earth Search (Element 84, AWS)</td><td>Sentinel-2 Collection 1 L2A, 10–60 m, every 5 days, 2015 on</td><td>public, no account</td></tr>
+            <tr><td>Planetary Computer (Microsoft)</td><td>Sentinel-2 L2A; Landsat Collection 2 Level-2 (Landsat 4 to 9, 30 m, 1982 on)</td><td>short-lived tokens (SAS) that Janus asks for and renews, no account</td></tr>
+            <tr><td>Brazil Data Cube (INPE)</td><td>16-day cubes of Sentinel-2 (10 m), Landsat (30 m) and CBERS-4 WFI (64 m) on a regular grid</td><td>public, no account</td></tr>
+            <tr><td>Another STAC API</td><td>any, from <span class="ui">List all</span> (its <code>/collections</code>)</td><td>public files</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><span class="ui">List all</span> also lists the other collections of the three catalogs (Harmonized Landsat Sentinel, MODIS...). Janus finds their bands from the items: their names, their wavelengths (<code>eo:bands</code>), their scale, offset and nodata (<code>raster:bands</code>).</p>
+    </section>
+
+    <section id="search">
+      <h2><span class="n">03</span>Searching</h2>
+      <p>The example: Planetary Computer's Sentinel-2 L2A over a square of central Rondônia, Brazil, 8.8 km a side (63.00° to 62.92° W, 10.00° to 9.92° S), from June 2019 to September 2024, scenes with 5% of clouds at most.</p>
+      <dl class="terms">
+        <dt>Area</dt><dd><em>Visible area</em> (the map's extent), the <em>ROI</em>, or a <em>Box</em> in degrees (west, south, east, north). With no layer open, the box.</dd>
+        <dt>From, to</dt><dd>The dates, inclusive (YYYY-MM-DD). The last 365 days at first.</dd>
+        <dt>Clouds at most</dt><dd>The scenes' cloud cover (<code>eo:cloud_cover</code>) as the catalog gives it: of the whole scene, not of the area. 100 keeps them all.</dd>
+      </dl>
+      <p><span class="ui">Search</span> found <strong>375 scenes on 107 dates</strong>. The square sits where four Sentinel-2 tiles meet, so a date has up to four scenes. Each date is listed with its scenes and their mean cloud cover, all ticked: untick the ones you do not want, or <span class="ui">Clearest (&lt; 10%)</span> keeps the dates under 10%.</p>
+      <figure class="fig">
+        <a href="assets/img/stac/01-search.jpg"><img src="assets/img/stac/01-search.jpg" alt="The Search STAC catalog window over the Janus window: Planetary Computer, Sentinel-2 L2A, a box from 63.00 W 10.00 S to 62.92 W 9.92 S (8.8 x 8.8 km), from 2019-06-01 to 2024-09-30, 5% clouds at most; 375 scenes on 107 dates, the first ones 2019-06-05 with 4 scenes and 1% clouds, 2019-06-10 with 3 scenes and 0%. Behind it the series opened as NDVI over the Esri imagery: fields and pastures in blue and green, forest in yellow on the east, and the chart of the pixel under the cursor from 2019 to 2024." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The search</b>: 375 scenes of Sentinel-2 on 107 dates, and the series behind the window, as NDVI.</figcaption>
+      </figure>
+    </section>
+
+    <section id="bands">
+      <h2><span class="n">04</span>Bands and cells</h2>
+      <p>Under the dates, the collection's bands, in the order of their wavelengths. Blue, green, red, NIR, the two SWIR and the quality band come ticked: enough for every index Janus computes, the RGB composites and the cloud mask, and a third of what all the bands would weigh.</p>
+      <dl class="terms">
+        <dt>Quality band</dt><dd>Sentinel-2's scene classification (<code>SCL</code>): classes 4, 5 and 6 (vegetation, bare soil, water) are kept, clouds, their shadows, cirrus and snow are masked. Landsat's <code>QA_PIXEL</code>: its fill, cloud, dilated cloud, cloud shadow and snow bits. Janus picks it as the layer's quality band.</dd>
+        <dt>Cells</dt><dd><em>Finest of the bands</em> (10 m for Sentinel-2), or 20 to 250 m: coarser cells average the reflectances (the quality band takes the nearest code), for large areas. The window gives the size of the series: here 877 × 886 cells of 10 m, 107 dates × 7 bands.</dd>
+      </dl>
+      <div class="note">
+        <p class="h">Sentinel-2's offset</p>
+        <p>Since processing baseline 04.00 (January 2022), ESA's L2A reflectances carry an offset of −0.1: a value of 1000 is a reflectance of 0. Planetary Computer's items do not say so; Janus reads each scene's baseline and gives its bands the scale and offset that make every date comparable, so the NDVI does not jump in 2022.</p>
+      </div>
+    </section>
+
+    <section id="open">
+      <h2><span class="n">05</span>Open as a layer</h2>
+      <p><span class="ui">Open as a layer</span> runs as a task (<span class="ui">Tools → Tasks</span>): it writes one VRT per date under <code>%LOCALAPPDATA%\Janus\results\stac</code>, each a mosaic of that day's scenes pointing at the catalog's files, and opens the folder as a layer. With red and NIR among the bands the layer opens on the NDVI, with the quality band masking clouds, like any Landsat or Sentinel series on disk.</p>
+      <figure class="fig">
+        <a href="assets/img/stac/02-series.jpg"><img src="assets/img/stac/02-series.jpg" alt="The series opened as a layer over the Esri imagery: 107 dates from 2019-06-05 to 2024-09-11, 877 x 886 cells of 10 m in UTM zone 20 S, NDVI of NIR (B08) and red (B04) with SCL as the quality band. Two pins in the south-west of the square: pin 1 in a forest, its NDVI around 0.8 all through, falling to 0.25 at the end of the 2024 dry season; pin 2 in a pasture, between 0.25 and 0.75, down every dry season; the cursor's series in white." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>107 dates, read in place</b>: a forest (pin 1, red) and a pasture (pin 2, blue), each date's clouds masked by the scene classification.</figcaption>
+      </figure>
+      <p>Pin 1 sits in a forest: its NDVI stays around 0.8 (mean 0.80 over 101 dates) and only falls, to 0.25, at the end of the 2024 dry season, its largest drop. Pin 2 is a pasture: green in the wet months, down to 0.25 every dry season. Six of pin 1's 107 dates are missing: the scene classification called that pixel cloud, shadow or cirrus on them, and the mask left them out, though the scenes had 5% of clouds at most.</p>
+      <p>The map's overview of the 107 dates was read in 98 s: every date opens its scenes over the network and reads one of their overview levels. It is then cached on disk like any series: opening the folder again, the overview took 0.1 s. A pixel's series reads every date from the catalog's files, a few round trips each, so Janus reads twelve dates at once: the two pins' 107 dates came in under a minute (one date at a time, they took nine). Zoomed in, the map reads the blocks on screen at full resolution, as for any cloud-optimized GeoTIFF.</p>
+      <div class="note warn">
+        <p class="h">Read in place: online</p>
+        <p>The layer reads the catalog's files as you zoom in and look at pixels, so it needs the connection while you work. Planetary Computer's files are read with tokens that expire within the hour: Janus renews them in the background, and asks for new ones when the folder is opened again another day. For offline work, download the series (section 07).</p>
+      </div>
+    </section>
+
+    <section id="grid">
+      <h2><span class="n">06</span>One grid for every date</h2>
+      <p>Scenes come in tiles, each in its own projection, and bands come at 10, 20 or 60 m. A series needs one grid. Janus makes it from the scenes found:</p>
+      <dl class="terms">
+        <dt>Projection</dt><dd>The one most scenes have: here UTM zone 20 S. The area's corners and edges are projected to it.</dd>
+        <dt>Cells</dt><dd>The finest band's, aligned on the scenes' own pixels, so a 10 m band is read without resampling.</dd>
+        <dt>Mosaic</dt><dd>A date's scenes are drawn clearest on top, each clipped to its pixels in the area. The quality band of a 20 m scene is taken at the nearest cell; reflectances at coarser cells are averaged.</dd>
+        <dt>Another UTM zone</dt><dd>A scene in another projection (where the area crosses a zone boundary, as along 60° W) is warped onto the grid by GDAL's warped VRT, still read in place.</dd>
+      </dl>
+      <p>Brazil Data Cube's cubes are already on a regular grid of their own (BDC's Albers), and give one image every 16 days: the best observation of each pixel. Their items have no projection metadata; Janus reads it from one file of each tile.</p>
+    </section>
+
+    <section id="download">
+      <h2><span class="n">07</span>Download as GeoTIFFs</h2>
+      <p><span class="ui">Download as GeoTIFFs</span> makes the same series and reads it once, writing one cloud-optimized GeoTIFF per date (DEFLATE, the bands of the date, their wavelengths, scales and nodata kept) into a folder under <code>results\stac</code>, then opens it. Its progress is in <span class="ui">Tools → Tasks</span>, where it can be cancelled; a date is written to a <code>.part</code> file first, so a folder never holds a half-written date.</p>
+      <p>The window gives the size before you start: here 877 × 886 cells, 107 dates × 7 bands, about 1.2 GB uncompressed, less on disk. For a larger area or a longer series, coarser <span class="ui">Cells</span> or fewer bands make it lighter; the <span class="ui">Clearest</span> dates alone too.</p>
+    </section>
+
+    <section id="footprints">
+      <h2><span class="n">08</span>Footprints</h2>
+      <p><span class="ui">Footprints as a vector layer</span> adds the scenes found as polygons, with their id, date, cloud cover and tile in the attribute table: where each tile lies, and which dates cover only part of the area.</p>
+      <figure class="fig">
+        <a href="assets/img/stac/03-footprints.jpg"><img src="assets/img/stac/03-footprints.jpg" alt="The map zoomed out to about 60 km over the Esri imagery: the footprints of the 375 scenes as outlines, the Sentinel-2 tiles' edges as vertical and horizontal strips where neighbouring tiles overlap, a diagonal line where an orbit's swath ends, and the series' square of NDVI at the corner where four tiles meet." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The 375 footprints</b>: the square lies where four Sentinel-2 tiles overlap; the diagonal is the edge of an orbit's swath.</figcaption>
+      </figure>
+      <p>The strips are the tiles' overlaps (Sentinel-2's 110 km tiles overlap by 10 km): the square sits inside four of them, which is why a date has up to four scenes, the same pixels in several. Where an orbit's swath ends, a scene covers part of its tile only (the diagonal): on such dates the mosaic takes the rest from the other scenes of the day, or leaves it empty.</p>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">09</span>What next</h2>
+      <ul>
+        <li><strong>Detect change on it</strong>: a series of every date suits <a href="ccdc.html">CCDC</a>, <a href="sccd.html">S-CCD</a> and <a href="ewmacd.html">EWMACD</a>; a regular one (Brazil Data Cube's 16 days) <a href="bfast.html">BFAST</a> and <a href="beast.html">BEAST</a>.</li>
+        <li><strong>Classify it</strong>: the <a href="deep-learning.html">Deep learning guide</a> trains TempCNN or L-TAE on samples over the series.</li>
+        <li><strong>Its embeddings</strong>: AlphaEarth or TESSERA of the same area, from the Layers panel (<a href="embeddings.html">Embeddings guide</a>).</li>
+        <li><strong>Script it</strong>: the VRTs open in GDAL, QGIS or Python (<code>rasterio.open</code>) like the files they point at; Planetary Computer's need a signed URL there (<code>planetary_computer.sign</code>).</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">10</span>References</h2>
+      <ul class="refs">
+        <li>STAC: the SpatioTemporal Asset Catalog specification and its API, <a href="https://stacspec.org">stacspec.org</a>.</li>
+        <li>Earth Search by Element 84, <a href="https://element84.com/earth-search/">element84.com/earth-search</a>; Sentinel-2 Collection 1 L2A, Copernicus Sentinel data (ESA).</li>
+        <li>Microsoft Planetary Computer, <a href="https://planetarycomputer.microsoft.com">planetarycomputer.microsoft.com</a>.</li>
+        <li>Ferreira, K. R., et al. (2020). Earth observation data cubes for Brazil: Requirements, methodology and products. <em>Remote Sensing</em>, 12(24), 4033.</li>
+        <li>ESA (2022). Sentinel-2: new processing baseline 04.00 and the radiometric offset of the L1C and L2A products.</li>
+        <li>U.S. Geological Survey. Landsat Collection 2 Level-2 Science Products.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

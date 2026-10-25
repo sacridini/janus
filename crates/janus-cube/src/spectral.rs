@@ -119,9 +119,27 @@ fn enmap_wavelengths(path: &str, bands: usize) -> Vec<f64> {
     nm
 }
 
-/// The wavelength (nm) of every band of a file, from the band metadata (ENVI's "wavelength" and
-/// "wavelength_units"), GDAL's IMAGERY domain (CENTRAL_WAVELENGTH_UM) or EnMAP's METADATA.XML; empty unless each
-/// band has one, at least 3 and all different.
+/// A band's wavelength (nm) from its metadata: ENVI's "wavelength" and "wavelength_units" (the dataset's units
+/// when the band has none), or GDAL's IMAGERY domain (CENTRAL_WAVELENGTH_UM); 0 without one.
+fn band_wavelength(rb: &gdal::raster::RasterBand, ds_units: Option<&String>) -> f64 {
+    if let Some(w) = rb.metadata_item("wavelength", "") {
+        let v = w.trim().parse::<f64>().unwrap_or(0.0);
+        let u = rb.metadata_item("wavelength_units", "").or_else(|| ds_units.cloned()).unwrap_or_default();
+        let mut f = to_nanometres(&u);
+        if f == 0.0 {
+            // no unit: micrometres are small numbers
+            f = if v < 30.0 { 1000.0 } else { 1.0 };
+        }
+        v * f
+    } else if let Some(um) = rb.metadata_item("CENTRAL_WAVELENGTH_UM", "IMAGERY") {
+        um.trim().parse::<f64>().unwrap_or(0.0) * 1000.0
+    } else {
+        0.0
+    }
+}
+
+/// The wavelength (nm) of every band of a file, from the band metadata (band_wavelength) or EnMAP's
+/// METADATA.XML; empty unless each band has one, at least 3 and all different.
 pub fn band_wavelengths(ds: &Dataset, path: &str) -> Vec<f64> {
     let n = ds.raster_count();
     if n < 3 {
@@ -132,19 +150,7 @@ pub fn band_wavelengths(ds: &Dataset, path: &str) -> Vec<f64> {
     let mut all = true;
     for b in 1..=n {
         let Ok(rb) = ds.rasterband(b) else { return Vec::new() };
-        let mut v = 0.0;
-        if let Some(w) = rb.metadata_item("wavelength", "") {
-            v = w.trim().parse::<f64>().unwrap_or(0.0);
-            let u = rb.metadata_item("wavelength_units", "").or_else(|| ds_units.clone()).unwrap_or_default();
-            let mut f = to_nanometres(&u);
-            if f == 0.0 {
-                // no unit: micrometres are small numbers
-                f = if v < 30.0 { 1000.0 } else { 1.0 };
-            }
-            v *= f;
-        } else if let Some(um) = rb.metadata_item("CENTRAL_WAVELENGTH_UM", "IMAGERY") {
-            v = um.trim().parse::<f64>().unwrap_or(0.0) * 1000.0;
-        }
+        let v = band_wavelength(&rb, ds_units.as_ref());
         nm[b - 1] = v;
         all = v > 0.0;
         if !all {
@@ -166,6 +172,27 @@ pub fn band_wavelengths(ds: &Dataset, path: &str) -> Vec<f64> {
     nm
 }
 
+/// The wavelengths of the bands of each date's file in a series of files: as band_wavelengths, but a band without
+/// one (a quality band, an index) is 0 as long as two others have one (a STAC series: reflectance bands and SCL),
+/// so the indices can still be picked by wavelength.
+pub fn series_band_wavelengths(ds: &Dataset, path: &str) -> Vec<f64> {
+    let all = band_wavelengths(ds, path);
+    if !all.is_empty() {
+        return all;
+    }
+    let ds_units = ds.metadata_item("wavelength_units", "");
+    let nm: Vec<f64> = (1..=ds.raster_count())
+        .map(|b| ds.rasterband(b).map_or(0.0, |rb| band_wavelength(&rb, ds_units.as_ref())))
+        .map(|v| if v.is_nan() || v < 0.0 { 0.0 } else { v })
+        .collect();
+    let mut known: Vec<f64> = nm.iter().copied().filter(|v| *v > 0.0).collect();
+    known.sort_by(f64::total_cmp);
+    if known.len() < 2 || known.windows(2).any(|w| w[0] == w[1]) {
+        return Vec::new();
+    }
+    nm
+}
+
 /// The bands' descriptions ("Band N" without one), with the wavelength when they have one and the description
 /// does not say it.
 pub fn band_names_with_nm(ds: &Dataset, nm: &[f64]) -> Vec<String> {
@@ -173,7 +200,7 @@ pub fn band_names_with_nm(ds: &Dataset, nm: &[f64]) -> Vec<String> {
         .map(|b| {
             let d = ds.rasterband(b).ok().and_then(|rb| rb.description().ok()).unwrap_or_default();
             let mut n = if d.is_empty() { format!("Band {b}") } else { d };
-            if b <= nm.len() && !n.contains("nm") {
+            if b <= nm.len() && nm[b - 1] > 0.0 && !n.contains("nm") {
                 n += &format!(" ({:.1} nm)", nm[b - 1]);
             }
             n

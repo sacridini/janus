@@ -161,6 +161,8 @@ pub struct SeriesState {
     pub poly: crate::roi::PolygonDraft,
     /// waiting for an HDD's overview
     pub roi_pending: bool,
+    /// pins made while an HDD's overview was building: their series asked for once it is done
+    pub pins_pending: bool,
     pub roi: RoiSeries,
     /// every new or cleared ROI
     pub roi_gen: u64,
@@ -182,6 +184,7 @@ impl Default for SeriesState {
             roi_poly: Vec::new(),
             poly: Default::default(),
             roi_pending: false,
+            pins_pending: false,
             roi: RoiSeries { seen: usize::MAX, ..Default::default() },
             roi_gen: 1,
             roi_drag: None,
@@ -220,7 +223,9 @@ impl State {
         let id = self.series.next_pin;
         self.series.next_pin += 1;
         let p = view(s, id, x, y, pin_color(id));
-        if !s.s.defer_random_reads() {
+        if s.s.defer_random_reads() {
+            self.series.pins_pending = true;
+        } else {
             s.request_pin(x, y);
         }
         self.add_other_pins(&p);
@@ -401,9 +406,10 @@ impl State {
             }
         }
         if !s.s.defer_random_reads() {
-            // pins made while an HDD's overview was building
-            for p in sr.pins.iter().filter(|p| !p.exact) {
-                if s.exact(p.x, p.y).is_none() {
+            // pins made while an HDD's overview was building, asked for once (a remote pixel's series takes seconds:
+            // asking every frame queued hundreds of reads)
+            if std::mem::take(&mut sr.pins_pending) {
+                for p in sr.pins.iter().filter(|p| !p.exact && s.exact(p.x, p.y).is_none()) {
                     s.request_pin(p.x, p.y);
                 }
             }
@@ -492,6 +498,7 @@ impl State {
                 view(s, id, x, y, color)
             })
             .collect();
+        self.series.pins_pending = s.s.defer_random_reads();
         for l in &mut self.layers {
             l.series.pins.clear();
             l.series.hover = None;

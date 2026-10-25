@@ -6,7 +6,7 @@ pub mod hdd;
 pub mod tiles;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -242,15 +242,45 @@ impl Session {
             let mut got = vec![false; t];
             let cached = full.read_series(x, y, &mut values, &mut got);
             if cached < t {
-                let gone = with_thread_reader(&info, |r| {
-                    for i in (0..t).filter(|&i| !got[i]) {
-                        if stale() {
-                            return true;
+                let todo: Vec<usize> = (0..t).filter(|&i| !got[i]).collect();
+                let gone = if info.network_sources && todo.len() > 1 {
+                    // over the network a date is a few round trips: 12 dates at once (a STAC series' pixel of 107
+                    // dates, 4.6 s a date one at a time)
+                    let (next, gone) = (AtomicUsize::new(0), AtomicBool::new(false));
+                    let read: Vec<AtomicU32> = todo.iter().map(|_| AtomicU32::new(f32::NAN.to_bits())).collect();
+                    std::thread::scope(|sc| {
+                        for _ in 0..todo.len().min(12) {
+                            sc.spawn(|| {
+                                loop {
+                                    let k = next.fetch_add(1, Ordering::Relaxed);
+                                    if k >= todo.len() || gone.load(Ordering::Relaxed) {
+                                        break;
+                                    }
+                                    if stale() {
+                                        gone.store(true, Ordering::Relaxed);
+                                        break;
+                                    }
+                                    let v = with_thread_reader(&info, |r| r.read_pixel(todo[k], x, y));
+                                    read[k].store(v.unwrap_or(f32::NAN).to_bits(), Ordering::Relaxed);
+                                }
+                            });
                         }
-                        values[i] = r.read_pixel(i, x, y).unwrap_or(f32::NAN);
+                    });
+                    for (k, &i) in todo.iter().enumerate() {
+                        values[i] = f32::from_bits(read[k].load(Ordering::Relaxed));
                     }
-                    false
-                });
+                    gone.into_inner()
+                } else {
+                    with_thread_reader(&info, |r| {
+                        for &i in &todo {
+                            if stale() {
+                                return true;
+                            }
+                            values[i] = r.read_pixel(i, x, y).unwrap_or(f32::NAN);
+                        }
+                        false
+                    })
+                };
                 if gone {
                     return;
                 }

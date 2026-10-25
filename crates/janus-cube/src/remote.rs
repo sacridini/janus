@@ -102,6 +102,13 @@ pub fn configure_remote_access() {
     set_default("GDAL_HTTP_MERGE_CONSECUTIVE_RANGES", "YES");
     set_default("CPL_VSIL_CURL_CACHE_SIZE", "268435456"); // 256 MB of downloaded blocks (default 16 MB)
     set_default("CPL_VSIL_CURL_CHUNK_SIZE", "65536");
+    // remote files opened by others than open_raster (the sources of a VRT: a STAC series) are not looked for
+    // side-cars either: a listing of their "folder" can take seconds a file
+    for prefix in ["/vsicurl/", "/vsis3/", "/vsigs/", "/vsiaz/"] {
+        if get_config_option("GDAL_DISABLE_READDIR_ON_OPEN", "").unwrap_or_default().is_empty() {
+            janus_gdal::set_path_option(prefix, "GDAL_DISABLE_READDIR_ON_OPEN", Some("EMPTY_DIR"));
+        }
+    }
     // Public buckets (Landsat, Sentinel-2 COGs...) without an account: unsigned requests unless credentials are
     // configured.
     let has = |k: &str| !get_config_option(k, "").unwrap_or_default().is_empty();
@@ -116,6 +123,20 @@ pub fn configure_remote_access() {
     if !(has("GOOGLE_APPLICATION_CREDENTIALS") || has("GS_SECRET_ACCESS_KEY") || has("GS_OAUTH2_REFRESH_TOKEN")) {
         set_default("GS_NO_SIGN_REQUEST", "YES");
     }
+}
+
+/// Whether a local VRT reads files over the network (its sources' paths in GDAL's network file systems or URLs):
+/// the first 64 KB of it looked at.
+pub fn vrt_reads_network(path: &str) -> bool {
+    if !path.to_ascii_lowercase().ends_with(".vrt") || is_remote_path(path) {
+        return false;
+    }
+    let Ok(f) = std::fs::File::open(path) else { return false };
+    let mut text = String::new();
+    let _ = std::io::Read::read_to_string(&mut std::io::Read::take(f, 1 << 16), &mut text);
+    ["/vsicurl/", "/vsis3/", "/vsigs/", "/vsiaz/", "/vsiadls/", "/vsioss/", "/vsiswift/", "http://", "https://"]
+        .iter()
+        .any(|p| text.contains(p))
 }
 
 #[cfg(test)]
