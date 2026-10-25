@@ -365,6 +365,27 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
             ),
             vec!["bands_cube", "fmask"],
         ),
+        "beast" => {
+            let o = crate::beast::options(p, input).ok()?;
+            let dt = p.f64("deltat");
+            (
+                format!(
+                    "result1 = zeit.beast(series, season={}, deltat={}, tcp_minmax=(0, {}), scp_minmax=(0, {}), \
+                     torder_minmax=(0, {}), samples={}, chains={}, burnin={}, thin={}, seed={}, nodata=None, n_jobs=1)",
+                    if o.season { "'harmonic'" } else { "'none'" },
+                    if dt > 0.0 { py_float(dt) } else { "None".into() },
+                    o.tcp.1,
+                    o.scp.1,
+                    o.torder.1,
+                    o.samples,
+                    o.chains,
+                    o.burnin,
+                    o.thin,
+                    o.seed
+                ),
+                vec!["series"],
+            )
+        }
         "sccd" => (
             format!(
                 "result1 = zeit.sccd(bands_cube.sel(band=[b for b in order if b != 'thermal']), qa=fmask, \

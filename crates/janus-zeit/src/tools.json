@@ -375,6 +375,159 @@
    ]
   },
   {
+   "id": "beast",
+   "name": "BEAST (Bayesian changepoints)",
+   "category": "Change detection",
+   "description": "Bayesian Estimator of Abrupt change, Seasonal change and Trend (Zhao et al. 2019), as in Zeit (zeit.beast, a port of Rbeast's C code, the same results from the same seed): the series is decomposed into a piecewise trend and a piecewise harmonic season whose changepoints, how many and where, are sampled by MCMC and averaged over all the models instead of one chosen. What comes out is the probability of a change at each date, the most probable changepoints with their probability and jump, and the trend with its 95% interval: an alternative to BFAST that says how sure each break is, robust to noise and gaps. Irregular dates are averaged onto a regular grid first. Every pixel is its own MCMC: a whole image is slow; try the visible area, an ROI or fewer samples first.",
+   "requires": {
+    "time": "any",
+    "min_dates": 12
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "season",
+     "label": "Season",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "harmonic",
+      "none"
+     ],
+     "labels": [
+      "Automatic (harmonic with 4 or more dates a year)",
+      "Harmonic (a year)",
+      "None (annual series)"
+     ],
+     "help": "A harmonic season of a year fitted with the trend, and its own changepoints; none for annual series."
+    },
+    {
+     "id": "deltat",
+     "label": "Grid step (years)",
+     "type": "float",
+     "default": 0.0,
+     "min": 0.0,
+     "max": 10.0,
+     "help": "The step of the regular grid the dates are averaged onto, in years: 1/12 monthly, 1/23 16-day, 1 annual. 0 = chosen from the dates as Rbeast does (a day, half a month, a month or a week)."
+    },
+    {
+     "id": "tcp_max",
+     "label": "Max trend changepoints",
+     "type": "int",
+     "default": 10,
+     "min": 0,
+     "max": 50,
+     "help": "The most changepoints the trend may have (Rbeast's tcp.minmax)."
+    },
+    {
+     "id": "scp_max",
+     "label": "Max season changepoints",
+     "type": "int",
+     "default": 10,
+     "min": 0,
+     "max": 50,
+     "help": "The most changepoints the season may have (scp.minmax)."
+    },
+    {
+     "id": "torder_max",
+     "label": "Max trend order",
+     "type": "int",
+     "default": 1,
+     "min": 0,
+     "max": 5,
+     "help": "The highest polynomial degree of a trend segment: 1 linear, 0 flat."
+    },
+    {
+     "id": "samples",
+     "label": "MCMC samples",
+     "type": "int",
+     "default": 2000,
+     "min": 100,
+     "max": 100000,
+     "help": "Samples kept per chain (Rbeast's default 8000): more are steadier and slower; a pixel takes about 10 ms per 1000 samples and chain."
+    },
+    {
+     "id": "chains",
+     "label": "Chains",
+     "type": "int",
+     "default": 2,
+     "min": 1,
+     "max": 10,
+     "help": "Independent MCMC chains, averaged (Rbeast's default 3)."
+    },
+    {
+     "id": "burnin",
+     "label": "Burn-in",
+     "type": "int",
+     "default": 200,
+     "min": 0,
+     "max": 100000,
+     "help": "Samples discarded at the start of each chain."
+    },
+    {
+     "id": "thin",
+     "label": "Thinning",
+     "type": "int",
+     "default": 5,
+     "min": 1,
+     "max": 100,
+     "help": "One sample kept every this many."
+    },
+    {
+     "id": "seed",
+     "label": "Seed",
+     "type": "int",
+     "default": 42,
+     "min": 0,
+     "max": 2147483647,
+     "help": "The random seed: the same seed gives the same result (Rbeast's too)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "trend_ncp",
+     "name": "Trend changepoints (mean)",
+     "colormap": "Viridis",
+     "unit": "count"
+    },
+    {
+     "id": "cp_date",
+     "name": "Most probable trend changepoint",
+     "colormap": "Viridis",
+     "unit": "year"
+    },
+    {
+     "id": "cp_prob",
+     "name": "Its probability",
+     "colormap": "Plasma",
+     "unit": "probability"
+    },
+    {
+     "id": "cp_abrupt",
+     "name": "Its jump",
+     "colormap": "RdBu",
+     "unit": "value"
+    },
+    {
+     "id": "season_ncp",
+     "name": "Season changepoints (mean)",
+     "colormap": "Viridis",
+     "unit": "count"
+    },
+    {
+     "id": "r2",
+     "name": "R² of the fit",
+     "colormap": "Viridis",
+     "unit": "value"
+    }
+   ],
+   "chunk_cells": 2000
+  },
+  {
    "id": "ccdc",
    "name": "CCDC",
    "category": "Change detection",

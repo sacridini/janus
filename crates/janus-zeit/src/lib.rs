@@ -9,6 +9,7 @@
 mod agreement;
 mod ar_trend;
 pub mod bands;
+mod beast;
 mod bfast;
 mod ccdc;
 mod coded;
