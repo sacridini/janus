@@ -253,6 +253,7 @@
       <li><h3>BFAST Monitor</h3><p>First break in the monitoring period, its magnitude, break yes or no.</p><span>≥ 2 dates per year</span></li>
       <li><h3>Phenology</h3><p>Start, peak and end of season, length, amplitude, for a typical year or a chosen one.</p><span>≥ 6 dates per year</span></li>
       <li><h3>CCDC</h3><p>Break count, largest break, NDVI change and segments from every reflectance band.</p><span>one file per date, multiband</span></li>
+      <li><h3>S-CCD</h3><p>CCDC's models carried forward by a Kalman filter: the breaks, and the state of every pixel at the last date (stable, change in progress and since when, waiting for a model).</p><span>one file per date, multiband</span></li>
       <li><h3>CODED</h3><p>Forest degradation and deforestation from the NDFI of every observation, as strata and change dates.</p><span>one file per date, multiband</span></li>
       <li><h3>NDFI</h3><p>Spectral unmixing of every date into a new layer of the NDFI, ready for the other tools.</p><span>one file per date, multiband</span></li>
       <li><h3>Spectral unmixing</h3><p>The fraction of each cover (vegetation, soil, water...) whose spectrum you take from pins, at every date or in a hyperspectral scene.</p><span>multiband or spectrum</span></li>
@@ -278,6 +279,7 @@
     <ul class="guide-list">
       <li><a href="landtrendr.html"><span>Annual series</span><h3>LandTrendr</h3><p>Forty years of a Rondônia forest frontier as straight segments: the year, magnitude and duration of every clearing, and how long the forest took to recover.</p></a></li>
       <li><a href="ccdc.html"><span>Landsat, every date</span><h3>CCDC</h3><p>Harmonic models of every band, breaks when the land changes, and a cloud-free image of any date.</p></a></li>
+      <li><a href="sccd.html"><span>Landsat, every date</span><h3>S-CCD</h3><p>CCDC's models carried forward by a Kalman filter: a forest cleared in 2023, and one being cleared now, shown as a change in progress before it is confirmed.</p></a></li>
       <li><a href="coded.html"><span>Landsat, every date</span><h3>CODED and the NDFI</h3><p>Forest degradation apart from deforestation, from the NDFI of every observation.</p></a></li>
       <li><a href="ewmacd.html"><span>Landsat, every date</span><h3>EWMACD</h3><p>Thinning and harvests in pine stands found by EWMA control charts on every date, cloudy ones included: when, how strong, and when they recovered.</p></a></li>
       <li><a href="bfast.html"><span>Regular series</span><h3>BFAST</h3><p>Breaks in trend and season of a 16-day EVI series: BFAST, BFAST Lite and BFAST Monitor.</p></a></li>

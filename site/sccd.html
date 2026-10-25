@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>S-CCD · Janus</title>
+<meta name="description" content="A step-by-step guide to S-CCD in Janus: CCDC's harmonic models of every band carried forward by a Kalman filter, with the breaks and the near-real-time state of every pixel: stable, a change in progress, or waiting for a model after a change.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="S-CCD · Janus">
+<meta property="og:description" content="A Rondônia forest cleared in July 2023, and one being cleared in June 2026 that S-CCD shows as a change in progress before it is confirmed: on the chart, then over the image.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/sccd/06-state.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / S-CCD</p>
+    <p class="eyebrow">Change detection · near real time</p>
+    <h1>S-CCD, step by step.</h1>
+    <p class="lede">S-CCD is CCDC made for monitoring. It starts the same harmonic model of every band on a pixel's first stable observations. After that, a Kalman filter updates the model a little with each new image, instead of fitting it again. The model follows slow changes, and a new image costs one small update. At the last date, S-CCD also says which pixels have started to depart from their model, before enough images have come in to confirm a change.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#open">Opening the tool</a></li>
+      <li><a href="#chart">A confirmed change</a></li>
+      <li><a href="#alert">A change in progress</a></li>
+      <li><a href="#params">The parameters</a></li>
+      <li><a href="#run">Running it on the image</a></li>
+      <li><a href="#maps">The maps</a></li>
+      <li><a href="#ccdc">S-CCD or CCDC</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p><a href="ccdc.html">CCDC</a> models each band of a pixel as a <strong>harmonic</strong>: a trend plus the annual and semiannual cycles. It looks for a change when several clear observations in a row depart from the model. Each time the segment grows, CCDC fits the model again on all its observations.</p>
+      <p>S-CCD (Stochastic Continuous Change Detection, Ye et al. 2021) starts its models in the same way, with 18 clear observations over at least a year. After that, the coefficients become the state of a <strong>Kalman filter</strong>, and they may drift a little from one observation to the next. Each observation that fits the model updates it once, so the model follows a forest growing or a season shifting without being fitted again. The test of a change is CCDC's:</p>
+      <dl class="terms">
+        <dt>Statistic</dt><dd>An observation's departure from the model's prediction, scaled by each band's RMSE and summed over the five detection bands (green to SWIR2).</dd>
+        <dt>Anomaly</dt><dd>An observation whose statistic is above the change threshold: 15.09 for five bands at a probability of 0.99.</dd>
+        <dt>Break</dt><dd>Six anomalies in a row (<span class="ui">Consecutive anomalies</span>), departing in the same direction. The break is dated on the first of them, and a new model starts after it.</dd>
+        <dt>Outlier</dt><dd>A single observation far beyond the threshold (30.9) and not followed by others, such as a cloud the quality band missed. It is left out of the model.</dd>
+        <dt>Change in progress</dt><dd>At the last date: the latest observations are anomalies, but fewer than six of them. It may become a break with the next images.</dd>
+        <dt>Waiting for a model</dt><dd>After a break, a pixel needs 18 new clear observations over at least a year before it is monitored again.</dd>
+      </dl>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>The series of the <a href="ccdc.html">CCDC guide</a>: 125 Landsat 8 and 9 dates of central Rondônia, February 2020 to August 2026, 1690 × 1675 pixels. Two Landsat paths are interleaved, so each pixel is seen on about 60 of the dates. Clear images come almost only from May to October, about nine a year. Here each date is a GeoTIFF of the six reflectance bands, with the pixels that <code>QA_PIXEL</code> marks as cloud or shadow already set to no data. With the <code>QA_PIXEL</code> band in the files instead, choose it as the <span class="ui">Quality band</span> in the Display panel.</p>
+      <figure class="fig">
+        <a href="assets/img/sccd/02-fit.jpg"><img src="assets/img/sccd/02-fit.jpg" alt="The Janus window: the NDVI of 23 August 2026 over the Rondônia scene, forest in yellow and pasture in blue and green, one pin, its NDVI series on the chart with S-CCD's model in magenta, and S-CCD's numbers in the Statistics table." width="1599" height="1238" loading="lazy"></a>
+        <figcaption><b>The series</b> in NDVI (NIR as the band, red for the normalized difference), on its last date, 23 August 2026. Pin 1 is the first pixel of this guide; S-CCD is drawn over its series.</figcaption>
+      </figure>
+    </section>
+
+    <section id="open">
+      <h2><span class="n">03</span>Opening the tool</h2>
+      <figure class="fig narrow">
+        <img src="assets/img/sccd/01-tool.png" alt="The S-CCD (stochastic CCDC) window: its description, the six bands mapped to blue, green, red, NIR, SWIR1 and SWIR2, a note that no quality band is set, and the first parameters." width="441" height="547" loading="lazy">
+        <figcaption><b>The S-CCD window.</b> Janus maps the bands from their names.</figcaption>
+      </figure>
+      <p><span class="ui">Tools → S-CCD (stochastic CCDC)</span>, among the change detection tools. The tool needs real dates and the six Landsat-style reflectance bands. They are mapped from the band names when it can. It comes from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a> (<code>zeit.sccd</code>) and is built into Janus, so there is nothing to install. The units are found from the values: reflectance 0–1, reflectance × 10,000 or Collection 2 digital numbers.</p>
+      <p>The window notes that there is no quality band. In this series the clouds are already no data, so nothing is lost. In a series with its <code>QA_PIXEL</code> band, set that band as the quality band.</p>
+    </section>
+
+    <section id="chart">
+      <h2><span class="n">04</span>A confirmed change</h2>
+      <p>With the tool open, S-CCD runs on every series the chart shows: the cursor, the pins and the ROI. Over each one it draws the <strong>filtered model</strong> (in the units of the series shown, here NDVI) and a vertical line at each break. The numbers go to the <strong>Statistics</strong> table.</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/sccd/02-fit-chart.png"><img src="assets/img/sccd/02-fit-chart.png" alt="The chart of pin 1: NDVI near 0.85 every dry season from 2020 to 2023, a vertical line in July 2023, then NDVI between 0.4 and 0.85 with a deeper seasonal cycle, and the magenta model following each segment." width="874" height="375" loading="lazy"></a>
+          <figcaption><b>Pin 1</b>, a forest cleared in July 2023. The model of the pasture starts after the break.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/sccd/02-fit-stats.png"><img src="assets/img/sccd/02-fit-stats.png" alt="The Statistics table: 2 segments, 58 clear observations, segment 1 from 2020-05-26 to 2023-06-28 with 22 observations and a break on 2023-07-06 of magnitude 1874, segment 2 from 2023-07-22 to 2026-08-23 with 28 observations, monitoring, latest anomalies 0 of 6, last statistic 12.14." width="451" height="387" loading="lazy"></a>
+          <figcaption><b>Its numbers</b>: the segments, the break and the state at the last date.</figcaption>
+        </figure>
+      </div>
+      <p>The forest's model runs from 26 May 2020 to 28 June 2023 on 22 observations. On <strong>6 July 2023</strong> the pixel departs from it, and the next observations confirm the change. The <strong>magnitude</strong>, 1874, is the length of the change over the five detection bands, in reflectance × 10,000: the NIR fell and the SWIR rose. A second model, the pasture, starts with the observation of 22 July and covers the three years since.</p>
+      <p>At the last date pixel 1 is <em>monitoring</em> with <strong>0 of 6</strong> anomalies. Its last statistic, 12.14, is below the threshold of 15.09. Some of its 2026 observations sit off the model, but anomalies count only in a row up to the last image, and the latest one fits.</p>
+    </section>
+
+    <section id="alert">
+      <h2><span class="n">05</span>A change in progress</h2>
+      <p>A second pixel, about 11 km to the north-west (pixel 378, 778):</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/sccd/03-alert-chart.png"><img src="assets/img/sccd/03-alert-chart.png" alt="The chart of the second pixel: NDVI between 0.7 and 0.9 every year from 2020 to 2025, the magenta model following its seasons, then five observations from late June 2026 falling to between 0.4 and 0.55." width="874" height="375" loading="lazy"></a>
+          <figcaption><b>A forest</b> whose last five observations fall far below its model.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/sccd/03-alert-stats.png"><img src="assets/img/sccd/03-alert-stats.png" alt="The Statistics table: 1 segment, 56 clear observations, segment 1 from 2020-05-26 to 2026-06-04 with 48 observations, monitoring, latest anomalies 5 of 6 since 2026-06-28, last statistic 243.7." width="451" height="355" loading="lazy"></a>
+          <figcaption><b>5 of 6</b> anomalies, since 28 June 2026.</figcaption>
+        </figure>
+      </div>
+      <p>For six years this pixel follows its model, through dry seasons that differ from year to year. Then, from <strong>28 June 2026</strong>, its NDVI falls from about 0.8 to 0.5. The NIR drops by a third and the SWIR1 rises, which is what a clearing looks like. Each of the five observations since then is far beyond the threshold: the last statistic is <strong>243.7</strong>, sixteen times the threshold of 15.09. S-CCD has not yet confirmed a change, because it needs six anomalies. The pixel is a <strong>change in progress</strong>: 5 of 6 anomalies, since 28 June. One more image like these would confirm a break dated 28 June.</p>
+      <p>Batch CCDC on the same data has no such state. At the end of a series it either dates a break of the last segment from the partial change, or leaves the pixel in its model.</p>
+      <div class="note">
+        <p class="h">Check a few pins first</p>
+        <p>Drop pins on places you know, such as a clearing, a forest left alone and a pasture. Read their charts before running the image. Look for outliers that are clouds the quality band missed: in this stack, the image of 12 February 2023 has clouds left in it. Where a real change follows such an outlier, the break can be dated on the cloud.</p>
+      </div>
+    </section>
+
+    <section id="params">
+      <h2><span class="n">06</span>The parameters</h2>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Reflectance units</td><td class="num">auto</td><td>The units of the six bands. S-CCD's valid range and magnitudes are in reflectance × 10,000. Automatic reads them from the values; the files' scale and offset are applied first.</td></tr>
+            <tr><td>Consecutive anomalies</td><td class="num">6</td><td>Anomalies in a row that make a change. Fewer means earlier breaks and more false ones. It also sets how long a change stays "in progress". It counts clear observations, so in this series six of them are six weeks in the dry season but can span a whole rainy season.</td></tr>
+            <tr><td>Change probability</td><td class="num">0.99</td><td>The chi-square probability of the change threshold over the five detection bands (15.09). A lower value is more sensitive.</td></tr>
+            <tr><td>Outlier probability</td><td class="num">0.99999</td><td>Above this threshold (30.9), a single observation is an outlier, left out of the model.</td></tr>
+            <tr><td>Max angle (degrees)</td><td class="num">30</td><td>The largest mean angle between the anomalies' departures and their median one. A change departs in one direction and noise does not, so a wider angle accepts more as change.</td></tr>
+            <tr><td>Max segments</td><td class="num">6</td><td>Segments kept per pixel.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="run">
+      <h2><span class="n">07</span>Running it on the image</h2>
+      <p>Under <span class="ui">Run on the raster</span>, choose the <span class="ui">Whole image</span>, the <span class="ui">Visible area</span> or the <span class="ui">ROI</span>, then <span class="ui">Run</span>. The run happens in the background on every core, and the map stays usable meanwhile. This guide runs it on a 16 × 16 km ROI around both pins:</p>
+      <figure class="fig narrow">
+        <img src="assets/img/sccd/04-task.png" alt="The Tasks panel: S-CCD (stochastic CCDC) on the ROI, 596 by 596 pixels, done 100 percent in 10 seconds, with Log, Folder and Remove buttons." width="560" height="97" loading="lazy">
+        <figcaption><b>Tasks</b>: the 355,216 pixels of the ROI, with 61 dates each, took 10 s.</figcaption>
+      </figure>
+      <p>The outputs are GeoTIFFs, saved by default in <code>%LOCALAPPDATA%\Janus\results</code> next to the run's <code>job.json</code> and <code>job.log</code>. They open over the map and are listed under the series in the Layers panel, and the first one, the number of breaks, is shown. The maps below are drawn over the Esri imagery, with the series dimmed to 25%.</p>
+    </section>
+
+    <section id="maps">
+      <h2><span class="n">08</span>The maps</h2>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Map</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Breaks</td><td>The number of confirmed breaks.</td></tr>
+            <tr><td>First / last / largest break date</td><td>The date of the first, the last and the largest break, as a decimal year.</td></tr>
+            <tr><td>Largest break magnitude</td><td>The length of the largest break over the five detection bands, in reflectance × 10,000.</td></tr>
+            <tr><td>Monitoring state (last date)</td><td>A class map: <em>stable</em> (monitoring, with no anomaly among the latest observations), <em>change in progress</em> (one or more), <em>waiting for a model after a change</em>, or <em>no model</em> (never enough clear observations).</td></tr>
+            <tr><td>Latest anomalies</td><td>How many of the latest observations in a row are anomalies, up to <span class="ui">Consecutive anomalies</span>.</td></tr>
+            <tr><td>Anomalies since</td><td>The date of the first of them.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/sccd/05-breaks.jpg"><img src="assets/img/sccd/05-breaks.jpg" alt="The number of breaks over the ROI: most of it purple for none, large teal patches for one break, scattered yellow for two." width="1020" height="720" loading="lazy"></a>
+          <figcaption><b>Breaks</b>: none (purple), one (teal) or two (yellow).</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/sccd/09-largest.jpg"><img src="assets/img/sccd/09-largest.jpg" alt="The date of the largest break, from 2022 in purple to 2026 in yellow, with fields of one colour each and no colour where there was no break." width="1020" height="720" loading="lazy"></a>
+          <figcaption><b>Largest break date</b>, 2022 (purple) to 2026 (yellow).</figcaption>
+        </figure>
+      </div>
+      <p>41% of the pixels have at least one break: 36.5% one and 4.5% two. Most of the largest breaks are in 2023 (50,347 pixels) and 2024 (50,055). The breaks follow field edges, but many fall on a few dates: 23 August and 8 September 2023 each hold a few percent of the pixels. That looks like the drought and fires of 2023 on the pastures more than like new clearings. S-CCD reports any lasting departure from a pixel's own seasons, not only a change of land cover. The magnitude map and the charts tell them apart.</p>
+      <figure class="fig">
+        <a href="assets/img/sccd/06-state.jpg"><img src="assets/img/sccd/06-state.jpg" alt="The monitoring state on 23 August 2026: grey for stable over most of the ROI, red patches for a change in progress, mostly in the north, orange fields waiting for a model after a change, and a few near-white pixels with no model; the two pins." width="1020" height="720" loading="lazy"></a>
+        <figcaption><b>Monitoring state</b> on 23 August 2026, with the <span class="ui">Alerts</span> colormap: stable (grey), change in progress (red), waiting for a model after a change (orange), no model (near-white).</figcaption>
+      </figure>
+      <p>On the last date, 58.1% of the ROI is stable, 13.4% has a change in progress, 27.3% is waiting for a model after a change, and 1.2% has no model.</p>
+      <ul>
+        <li><strong>Waiting is long with dry-season data.</strong> A new model needs 18 clear observations over at least a year. With nine a year, that means two dry seasons, so every pixel that broke in 2025 or 2026 is still orange. Until it has a model again, such a pixel cannot signal a new change.</li>
+        <li><strong>Not every red pixel is a clearing.</strong> A change in progress starts with a single anomaly. The two maps below say how far along it is and since when.</li>
+      </ul>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/sccd/07-anomalies.jpg"><img src="assets/img/sccd/07-anomalies.jpg" alt="The latest anomalies, 0 in dark blue over most of the ROI, up to 5 in yellow, in patches mostly in the north and along field edges." width="1020" height="720" loading="lazy"></a>
+          <figcaption><b>Latest anomalies</b>, 0 (blue) to 5 (yellow).</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/sccd/08-since.jpg"><img src="assets/img/sccd/08-since.jpg" alt="The date of the first of the latest anomalies, over the Esri imagery: blue and green for June and July 2026, yellow for August 2026, scattered across the ROI." width="1020" height="720" loading="lazy"></a>
+          <figcaption><b>Anomalies since</b>, June (blue) to August 2026 (yellow); the range set by hand, 2026.42 to 2026.65.</figcaption>
+        </figure>
+      </div>
+      <p>29,058 pixels (8.2%) have three or more anomalies. Their first anomalies cluster on a few dates: 14 July (12,654 pixels) and 7 August 2026 (9,761). When so many start on the same day, the whole landscape is departing at once: pastures drying faster than in the years their models learned, or smoke from the season's fires. A clearing such as the second pin's stands out by its size: five anomalies far beyond the threshold, with the NIR down and the SWIR up. Read the state with its anomalies and its chart, or wait for the next images.</p>
+      <p>The other maps are layers under the series in the Layers panel. Show one with its eye, or hover the map: the chart keeps the pixel's series and its S-CCD model, so every colour can be checked against the chart behind it.</p>
+    </section>
+
+    <section id="ccdc">
+      <h2><span class="n">09</span>S-CCD or CCDC</h2>
+      <p>Both tools take the same series and the same bands, and their models start in the same way. The differences:</p>
+      <ul>
+        <li><strong>The model.</strong> CCDC's model is the best fit of a whole segment. S-CCD's is a running estimate that gives more weight to recent observations, so it often absorbs a dry season unlike the others rather than opening a new segment. On this ROI, 41% of the pixels have an S-CCD break, against 54% with CCDC (both run in Zeit, on the same pixels).</li>
+        <li><strong>The end of the series.</strong> CCDC dates a change that is not yet complete at the last date as a break. S-CCD reports it as a change in progress, with its anomalies and their start, and dates a break only once it is confirmed.</li>
+        <li><strong>Speed.</strong> On this series of about 60 dates the two are close: in Zeit, 14 s for these pixels against 20 s for CCDC, because starting each model takes the same work in both. On long, dense series, S-CCD is about ten times faster than CCDC: each new image costs one update per pixel.</li>
+        <li><strong>A cloud-free image of any date, and classifying the segments</strong>, are in the <a href="ccdc.html">CCDC tool</a>.</li>
+      </ul>
+      <p>The algorithm was written in Zeit from the paper. The authors' package, pyxccd, served only as a black box to compare against. On 4096 pixels of this stack, 85% of the pixels have as many breaks in both, and three quarters of pyxccd's breaks are within one observation of Zeit's. The magnitudes of the breaks both find correlate at 0.99. Zeit finds about 20% more breaks, all of them near the threshold. pyxccd takes 10.1 s on those pixels, and Zeit 1.1 s on one thread.</p>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">10</span>What next</h2>
+      <ul>
+        <li><strong>Other ways to read every date</strong>: <a href="ccdc.html">CCDC</a> for the whole history and its synthetic images, <a href="ewmacd.html">EWMACD</a> for control charts on one index, and <a href="coded.html">CODED</a> to tell degradation from deforestation with the NDFI.</li>
+        <li><strong>Compare it.</strong> <span class="ui">Tools → Agreement of change maps</span> takes several maps of dates (S-CCD's largest break date, CCDC, <a href="landtrendr.html">LandTrendr</a>) and maps where and when they agree.</li>
+        <li><strong>Validate it.</strong> The break dates make a map of events. <a href="validation.html">The Validation guide</a> shows how to sample it and estimate its accuracy and areas.</li>
+        <li><strong>Script it.</strong> The same algorithm is <code>zeit.sccd</code> in Python; Zeit's <a href="https://sacridini.github.io/zeit-cdts/tutorials/sccd/">S-CCD tutorial</a> follows the same pixels.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">11</span>References</h2>
+      <ul class="refs">
+        <li>Ye, S., Rogan, J., Zhu, Z., Eastman, J. R. (2021). A near-real-time approach for monitoring forest disturbance using Landsat time series: stochastic continuous change detection. <em>Remote Sensing of Environment</em>, 252, 112167.</li>
+        <li>Zhu, Z., Woodcock, C. E. (2014). Continuous change detection and classification of land cover using all available Landsat data. <em>Remote Sensing of Environment</em>, 144, 152–171.</li>
+        <li>Zhu, Z., Zhang, J., Yang, Z., Aljaddani, A. H., Cohen, W. B., Qiu, S., Zhou, C. (2020). Continuous monitoring of land disturbance based on Landsat time series. <em>Remote Sensing of Environment</em>, 238, 111116.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the change detection library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>
