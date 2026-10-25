@@ -129,6 +129,9 @@ pub struct AnalysisUi {
     pub flow_changes: bool,
     pub flow_zoom: f32,
     pub flow_pan: f32,
+    /// the classes grouped as Other: an index of sankey::SMALL; the diagram in a window of its own
+    pub flow_small: usize,
+    pub flow_window: bool,
     trans_from: usize,
     /// None: the current date
     trans_to: Option<usize>,
@@ -595,6 +598,12 @@ impl State {
             ));
         });
         let avail = ui.available_width();
+        // the flows: the panel's whole width (the matrix of two dates is in their tooltips)
+        if self.analysis.class_view == 1 {
+            let h = ui.available_height();
+            ui.vertical(|ui| self.class_flows_ui(ui, vec2(avail, h), false));
+            return;
+        }
         let chart_w = (avail * 0.55).max(avail - ui.text_style_height(&egui::TextStyle::Body) * 34.0);
         let xs: Vec<f64> = info.layers.iter().map(|l| l.time).collect();
         let stacked = self.analysis.class_stacked;
@@ -603,10 +612,6 @@ impl State {
         let h = ui.available_height();
         ui.horizontal_top(|ui| {
             ui.allocate_ui(vec2(chart_w, h), |ui| {
-                if self.analysis.class_view == 1 {
-                    ui.vertical(|ui| self.class_flows_ui(ui, vec2(chart_w, h)));
-                    return;
-                }
                 let c = &self.analysis.classes;
                 let n = c.next;
                 let mut plot = Plot::new("class shares")

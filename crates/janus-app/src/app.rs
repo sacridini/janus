@@ -1032,13 +1032,21 @@ impl State {
                 if let Ok(m @ 1..=12) = self.opts.analysis_view.parse::<usize>() {
                     self.analysis.seasonal_start = m - 1;
                 }
-                // trend,run[,classes]: the test run (on the first categorical layer's classes); flows[,changes][,zoom=N]
+                // trend,run[,classes]: the test run (on the first categorical layer's classes);
+                // flows[,changes][,zoom=N][,small=PCT][,window]
                 let view: Vec<&str> = self.opts.analysis_view.split(',').map(str::trim).collect();
                 if view.contains(&"flows") {
                     self.analysis.class_view = 1;
                     self.analysis.flow_changes = view.contains(&"changes");
                     self.analysis.flow_zoom =
                         view.iter().find_map(|v| v.strip_prefix("zoom=").and_then(|z| z.parse().ok())).unwrap_or(1.0);
+                    self.analysis.flow_window = view.contains(&"window");
+                    if let Some(i) = view.iter().find_map(|v| v.strip_prefix("small=")) {
+                        self.analysis.flow_small = crate::sankey::SMALL
+                            .iter()
+                            .position(|&x| i.parse::<f64>().is_ok_and(|v| v == x))
+                            .unwrap_or(0);
+                    }
                 }
                 self.analysis.trend.auto_run = view.contains(&"run");
                 self.analysis.trend.auto_classes = view.contains(&"classes");
@@ -1886,6 +1894,7 @@ impl eframe::App for JanusApp {
         self.state.tool_windows(&ctx);
         self.state.ml_window(&ctx);
         self.state.stac_window(&ctx);
+        self.state.class_flows_window(&ctx);
         self.state.tasks_window(&ctx);
         self.state.exports_window(&ctx);
         self.state.extract_window(&ctx);

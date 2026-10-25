@@ -139,13 +139,18 @@
   - **Classes** (categorical layers): the **share of each class at every date**
     (stacked areas or lines) and the **transitions** between two dates (the
     largest ones, the share of pixels that changed, the full matrix); Copy CSV
-    of both. *Flows*: a **Sankey diagram** between two to six dates (a bar per
-    class as tall as its pixels, a ribbon per change; hover for the shares),
-    counted a pair of consecutive dates at a time. *Changes only* leaves out
-    the pixels that kept their class: only what changed, at a scale of its
-    own (a class that changed nowhere disappears). The wheel zooms on the
-    pointer (up to 40x), a drag moves the diagram, a double click (or *Fit*)
-    shows it whole; the names follow the part of each bar in view.
+    of both. *Flows*: a **Sankey diagram** between two to six dates across
+    the panel's width, or *Open in a window* for one as large as you make it
+    (a bar per class as tall as its pixels, a few points at least; a ribbon
+    per change shaded from the class it left to the one it joined, the pixels
+    that kept their class fainter; the outer columns named with their shares;
+    hover for the rest), counted a pair of consecutive dates at a time.
+    *Other < 0.5%* groups the classes under that share at every date (0.5 to
+    5%, or none) as one grey class, its tooltip naming them. *Changes only*
+    leaves out the pixels that kept their class: only what changed, at a scale
+    of its own (a class that changed nowhere disappears). The wheel zooms on
+    the pointer (up to 40x), a drag moves the diagram, a double click (or
+    *Fit*) shows it whole; the names follow the part of each bar in view.
   - **Scatter**: two layers, or two dates of one, pixel by pixel in the ROI (or
     the whole image) as a density plot, with the 1:1 line, the least squares
     line, r, R², the mean difference and its RMS; the **trajectory** of the
@@ -281,7 +286,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Series at points or polygons | a vector layer → **Extract series...**: the active layer or every visible one, a row per feature (a column per date) or a row per feature and date; CSV |
 | Interpretation (labelling) | a vector layer → **Interpret...** (the **Interpretation** panel): `N` / `Shift+N` (or Page Down / Page Up) next / previous feature, `1`–`9` its label, `0` clears it, `D` the date of the change (the date on the map), `Shift+D` none; notes; *Export table...* |
 | Animation | File → Export animation (`Ctrl+Shift+A`): dates (from, to, step), frame rate, resolution, GIF / MP4 / WebM, date stamp, legend, scale bar, pins, ROI and vector layers; see [Animation](#animation-gif-mp4-webm) |
-| Time | `←`/`→` previous/next date, `P` play/pause, click or drag on the chart |
+| Time | `←`/`→` previous/next date, `P` play/pause, click or drag on the chart; the time bar above the map (play, the date slider, the speed) shows with a series of two dates or more, not with a single image or vector layers alone |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or typed, or dragged on the histogram) |
 | Histogram | **Display** panel, under the range: the values shown (0.5–99.5% of them) filled in the colours the map gives them, dimmed outside the range, the colormap strip under it; drag a triangle (or its line) to move an end of the range, between them to move both, double click for the automatic range again; the pointer over it shows a bar's values and share |
 | Change between dates | **Display** panel → *Difference (value - reference)*: pick the *Reference* (a date, or *Previous date (t-1)*); diverging colours centered at 0, follows the time bar |

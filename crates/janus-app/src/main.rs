@@ -131,7 +131,8 @@ Developer options:
   --roi X0,Y0,X1,Y1   an ROI rectangle (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline)
   --analysis seasonal|classes|scatter|trend  the Analysis panel at that tab (seasonal,M: its years from month M;
-                      classes,flows[,changes][,zoom=N]: the flows between dates; trend,run: the trend test run,
+                      classes,flows[,changes][,zoom=N][,small=PCT][,window]: the flows between dates
+                      (small=0: no Other; window: in a window of its own); trend,run: the trend test run,
                       before --screenshot)
   --chart K=V,...     the chart's options: style (0 lines ... 5 bars), values (0 values, 1 anomaly, 2 z-score,
                       3 seasonal anomaly, 4 CUSUM), trend (0-2), spread (the ROI's, 0 mean ... 4 density),

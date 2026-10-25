@@ -505,10 +505,15 @@ impl State {
             painter.text(rect.center(), Align2::CENTER_CENTER, msg, body_font(&painter), theme::weak_text());
             return;
         }
-        // vector layers alone (on a canvas): no dates, no values
+        // vector layers alone (on a canvas): no dates, no values; a single image: no dates to step through, so no
+        // time bar (it comes with a series of two dates or more)
         let vectors_only = self.vectors_only();
         if !vectors_only {
-            self.time_bar(ui);
+            if self.session.as_ref().is_some_and(|s| s.info.t() > 1) {
+                self.time_bar(ui);
+            } else {
+                self.display.playing = false;
+            }
             self.swipe_bar(ui);
         }
         // the canvas, above a status line
