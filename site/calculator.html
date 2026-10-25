@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Raster calculator · Janus</title>
+<meta name="description" content="A step-by-step guide to the raster calculator of Janus: the 275 Awesome Spectral Indices on any series, expressions over the open layers by short names, reductions over time and rules, on five years of Sentinel-2 over Rondônia.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Raster calculator · Janus">
+<meta property="og:description" content="EVI, MNDWI, NBR or any expression on a series in place; the open layers combined by short names, a series reduced over time to an image, classes by rules: on 107 dates of Sentinel-2.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/calculator/02-calculator.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Raster calculator</p>
+    <p class="eyebrow">Analysis · spectral indices, expressions, time</p>
+    <h1>Band math over time, step by step.</h1>
+    <p class="lede">A series of Sentinel-2 or Landsat comes as bands: red, NIR, SWIR... Most questions need a formula of them, and many need time: the greenest date of each pixel, how often it was bare, how far a date fell from the usual. This guide puts the 275 indices of the Awesome Spectral Indices on a series, then writes expressions over the open layers, reduces five years of Sentinel-2 to an image and draws classes by rules.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The data</a></li>
+      <li><a href="#indices">An index on the series</a></li>
+      <li><a href="#window">The calculator</a></li>
+      <li><a href="#language">The language</a></li>
+      <li><a href="#time">Over time</a></li>
+      <li><a href="#rules">Rules</a></li>
+      <li><a href="#layers">Several layers</a></li>
+      <li><a href="#result">The result</a></li>
+      <li><a href="#checked">Checked against the originals</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>A calculator in a GIS combines rasters cell by cell and writes a file before you see anything. Janus computes as it reads: an expression becomes a small program, compiled once and evaluated over blocks of 4096 pixels wherever the series is read, the map's overview, the tiles you zoom into, a pixel's series under the cursor, a region, a Zeit tool. Nothing is written until you ask for it.</p>
+      <dl class="terms">
+        <dt>An index</dt><dd>On the <span class="ui">Display</span> panel, the series shown as an index of its bands: EVI, SAVI, MNDWI, NBR, any of the 275 of the Awesome Spectral Indices the series has the bands for, or a formula of your own.</dd>
+        <dt>The calculator</dt><dd><span class="ui">Tools → Raster calculator...</span>: an expression over every open layer, each by a short name, a series with an image, two series matched by date, a series reduced over time, rules. The result is a new layer.</dd>
+      </dl>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The data</h2>
+      <p>The series of the <a href="stac.html">STAC guide</a>: Planetary Computer's Sentinel-2 L2A over a square of central Rondônia, Brazil, 8.8 km a side, the 107 dates from June 2019 to September 2024 whose scenes had 5% of clouds at most (most of them in the dry seasons), the clouds left masked by the scene classification (SCL). Here it was downloaded as GeoTIFFs: blue, green, red, NIR, the two SWIR and SCL, 877 × 886 cells of 10 m. The calculator works the same on the series read in place from the catalog; only the reading is slower.</p>
+      <p>Two pins follow the guide: pin 1 in a forest in the north-east (its NDVI around 0.8 every year), pin 2 in a pasture in the west (green in the wet months, lower every dry season: 0.18 at its lowest, in September 2024).</p>
+    </section>
+
+    <section id="indices">
+      <h2><span class="n">03</span>An index on the series</h2>
+      <p>The <span class="ui">Display</span> panel has, under the bands, <span class="ui">Index or expression</span>. Its list holds the indices of the <a href="https://github.com/awesome-spectral-indices/awesome-spectral-indices">Awesome Spectral Indices</a> (Montero et al. 2023) the series can compute, searched by name or domain (vegetation, water, burn, urban, soil, snow). Each index names its bands by role: <code>N</code> the NIR, <code>R</code> the red, <code>S1</code> the first SWIR, <code>RE1</code> the first red edge. Janus finds the series' band for each role by its wavelength or its name (<code>B08</code>, <code>NIR</code>, <code>nir08</code>, <code>SR_B5</code>), so an index of Sentinel-2 works on Landsat too. Its constants take the catalogue's defaults (<code>L = 0.5</code> for SAVI), its wavelengths (<code>lambdaN</code>) those of the series' bands.</p>
+      <figure class="fig">
+        <a href="assets/img/calculator/01-index.jpg"><img src="assets/img/calculator/01-index.jpg" alt="Janus with the Sentinel-2 series of Rondônia shown as EVI: the Display panel's Index or expression list on EVI, its formula 2.5 * (N - R) / (N + 6 * R - 7.5 * B + 1) below and the bands it reads (band 4 NIR as N, band 3 red as R, band 1 blue as B); the map of EVI at the first date between 0.13 and 0.68, fields in blue and green, forest in yellow; the chart of the two pins' EVI from 2019 to 2024, the forest's around 0.5, the pasture's between 0.25 and 0.7 every year; the title bar says EVI with QA SCL of each file." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>EVI on the series</b>: picked from the list, its formula over the bands' roles, the clouds still masked by SCL; the forest (pin 1, red) steady around 0.5, the pasture (pin 2, blue) down every dry season.</figcaption>
+      </figure>
+      <p>The formula can be edited, or typed: <code>2.5 * (N - R) / (N + 6*R - 7.5*B + 1)</code>, <code>nd(nir, swir1)</code>, <code>(B08 - B04) / (B08 + B04)</code>. It is checked as you type, and <span class="ui">Apply</span> shows the series as the expression: the map at every date and in every mode, the chart, the pins, the region, the exports, the Zeit tools and <span class="ui">Copy Python</span>, which writes the same formula in numpy. From the command line: <code>jn SERIES --expr EVI</code>, or <code>--expr "(N - S1) / (N + S1)"</code>.</p>
+      <div class="note">
+        <p class="h">The quality band still applies</p>
+        <p>The expression is computed from the bands with their scale and offset, then the quality band masks it: a cloudy date is no data in the EVI as in the NDVI.</p>
+      </div>
+    </section>
+
+    <section id="window">
+      <h2><span class="n">04</span>The calculator</h2>
+      <p><span class="ui">Tools → Raster calculator...</span> (or <span class="ui">Open in calculator</span> from the Display panel) opens a window with an editor on the left and, on the right, four lists: the open <span class="ui">Layers</span> with their short names and bands, the <span class="ui">Functions</span>, the <span class="ui">Indices</span> and the <span class="ui">History</span>.</p>
+      <figure class="fig">
+        <a href="assets/img/calculator/02-calculator.jpg"><img src="assets/img/calculator/02-calculator.jpg" alt="The Raster calculator window over Janus: a toolbar with Run (Ctrl+Enter), the output's name count_ndvi, Virtual layer, a star, Examples and Clear; the editor with three numbered lines, a comment, ndvi = (N - R) / (N + R) and count(ndvi &lt; 0.4), coloured by kind; under it One image, 877 x 886 cells of 10 m (the grid of s2ro), Reads s2ro, Over time: count, and the options; on the right the Layers list, s2ro with its seven bands and their roles (B, G, R, N, S1, S2, band7 for SCL) and the new count_ndvi; the status says count_ndvi was added as a layer. Behind the window, the map of the result." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The calculator</b>: the text, what it will make (one image of 877 × 886 cells), the layers by their short names with each band's role; run, its result joins as a layer (behind the window).</figcaption>
+      </figure>
+      <dl class="terms">
+        <dt>Short names</dt><dd>Each open layer gets one from its name (<code>s2</code>, <code>dem</code>, <code>l8</code>); a band is <code>s2.nir</code>, <code>s2.B08</code>, <code>s2.band4</code> or <code>s2[4]</code>, a role <code>s2.N</code>. Bare names (<code>N</code>, <code>nir</code>, <code>B04</code>) are the bands of the active layer, or of the layer chosen under <span class="ui">Options</span>.</dd>
+        <dt>As you type</dt><dd>The text is coloured by what each name is (a layer, a band, a function, a variable of your own); a list completes names (<kbd>Tab</kbd> or <kbd>Enter</kbd>, <kbd>Ctrl</kbd>+<kbd>Space</kbd> to call it); the pointer over a name says what it is (a layer's dates and grid, a band's wavelength, a function's arguments); an error is underlined where it is, and clicking its message puts the cursor there.</dd>
+        <dt>Before running</dt><dd>Under the editor, what the result will be: a series of 107 dates or an image, its grid, its CRS, the layers read.</dd>
+        <dt>Run</dt><dd><kbd>Ctrl</kbd>+<kbd>Enter</kbd> or <span class="ui">Run</span>. The text goes to the history; a star keeps it among the favourites.</dd>
+      </dl>
+      <figure class="fig">
+        <a href="assets/img/calculator/03-editor.png"><img src="assets/img/calculator/03-editor.png" alt="The calculator with a mistake: in ndmi = (N - swir) / (N + swir) the first swir is underlined in red, and under the editor: line 2, column 13: 'swir' could be S1 (SWIR 1 (B11)) or S2 (SWIR 2 (B12)) of s2ro: write one of them. Run is greyed out." width="978" height="596" loading="lazy"></a>
+        <figcaption><b>An error as you type</b>: <code>swir</code> fits two bands of this series; the message says where and what to write, and <span class="ui">Run</span> waits.</figcaption>
+      </figure>
+    </section>
+
+    <section id="language">
+      <h2><span class="n">05</span>The language</h2>
+      <p>One statement a line (or apart by <code>;</code>), <code>#</code> for comments. A line <code>name = expression</code> names a value for the lines after it; the last line is the result.</p>
+      <div class="tbl-wrap">
+        <table class="tbl keys">
+          <thead><tr><th>Write</th><th>Means</th></tr></thead>
+          <tbody>
+            <tr><td><code>+ - * / % ^</code></td><td>arithmetic (<code>**</code> is <code>^</code>)</td></tr>
+            <tr><td><code>&lt; &lt;= &gt; &gt;= == !=</code></td><td>comparisons: 1 or 0</td></tr>
+            <tr><td><code>&amp;&amp; || !</code>, <code>and or not</code></td><td>logic</td></tr>
+            <tr><td><code>nd(a, b)</code></td><td>normalized difference, <code>(a - b) / (a + b)</code></td></tr>
+            <tr><td><code>where(c, a, b)</code>, <code>coalesce(x, 0)</code>, <code>clamp(x, lo, hi)</code>, <code>in(x, 3, 4, 5)</code></td><td>choices: <code>a</code> where <code>c</code> holds; the first value that is not no data; limits; one of some classes</td></tr>
+            <tr><td><code>bit(q, 3)</code>, <code>bits(q, 8, 2)</code>, <code>qa(x, q, "scl")</code></td><td>bits of a quality band; <code>x</code> where a quality code is usable (<code>"fmask"</code>, <code>"landsat_c2"</code>, <code>"scl"</code>)</td></tr>
+            <tr><td><code>sqrt abs exp log log10 round floor sin atan2</code>...</td><td>mathematics</td></tr>
+            <tr><td><code>nan</code>, <code>x == nan</code>, <code>isvalid(x)</code></td><td>no data, and the tests for it</td></tr>
+            <tr><td><code>year month day doy decyear t</code></td><td>the date being computed (<code>t</code> its number, from 0)</td></tr>
+            <tr><td><code>max(s) min mean median sum std count percentile(s, 90)</code></td><td>a series reduced over time to an image (section 06)</td></tr>
+            <tr><td><code>condition = value</code></td><td>a rule (section 07)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>No data is not a number that spreads: arithmetic on it gives no data, a reduction skips it, a comparison with it is no data, and <code>coalesce</code> or a rule <code>x == nan = 0</code> fills it.</p>
+    </section>
+
+    <section id="time">
+      <h2><span class="n">06</span>Over time</h2>
+      <p>A series has dates. An expression of a series is a series: <code>(N - R) / (N + R)</code> is a new value at each of the 107 dates. A reduction with one argument turns it into an image, over every date with a value:</p>
+      <div class="code-wrap">
+<div class="code-bar">Raster calculator</div>
+<pre class="code"><code><span class="c"># how many of the 107 dates had little vegetation</span>
+ndvi = (N - R) / (N + R)
+count(ndvi &lt; 0.4)</code></pre>
+      </div>
+      <figure class="fig">
+        <a href="assets/img/calculator/04-count.jpg"><img src="assets/img/calculator/04-count.jpg" alt="The result opened over the series: an image of 877 x 886 cells, the number of dates with an NDVI under 0.4, from 1 (dark purple) to 71 (yellow); the forests in purple, the pastures and fields in green and yellow, roads and field edges bright; pin 1 in the forest at 1, pin 2 in the pasture at 8 (the Statistics panel)." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>How often it was bare</b>: <code>count(ndvi &lt; 0.4)</code> over the 107 dates; the forest of pin 1 once (the end of the 2024 dry season, its NDVI at 0.28), the pasture of pin 2 eight times, the most worked fields up to 71.</figcaption>
+      </figure>
+      <p>With more than one argument the same functions work pixel by pixel at each date: <code>max(B04, B03, B02)</code> is the brightest visible band of each date. A series and its reduction mix: <code>ndvi - mean(ndvi)</code> is each date's departure from the pixel's mean, a series again; <code>(ndvi - mean(ndvi)) / std(ndvi)</code> its z-score.</p>
+    </section>
+
+    <section id="rules">
+      <h2><span class="n">07</span>Rules</h2>
+      <p>A line <code>condition = value</code> changes the pixels where the condition holds and keeps the others. The result starts as the condition's first operand, or as what <code>result = ...</code> made it, and each rule works on what the rules before left:</p>
+      <div class="code-wrap">
+<div class="code-bar">Raster calculator</div>
+<pre class="code"><code><span class="c"># the median NDVI of the five years, in three classes</span>
+m = median(nd(N, R))
+result = m
+m &lt; 0.45 = 1
+m &gt;= 0.45 &amp;&amp; m &lt; 0.7 = 2
+m &gt;= 0.7 = 3</code></pre>
+      </div>
+      <figure class="fig">
+        <a href="assets/img/calculator/05-rules.jpg"><img src="assets/img/calculator/05-rules.jpg" alt="The three classes of the rules as a layer: Janus shows it as categorical, class 1 in blue (40.8% of the pixels), class 2 in orange (17.2%), class 3 in green (42.0%); the forests of the north-east and the centre in green, the pastures in blue with orange edges; pin 1 in class 3, pin 2 in class 2." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>Three classes by rules</b>: the median NDVI under 0.45 (1, 40.8% of the square), up to 0.7 (2, 17.2%), above (3, the forests, 42.0%). A result of a few whole values opens as classes.</figcaption>
+      </figure>
+      <p>Rules are short for <code>where</code>: <code>img &gt; 0 = 1</code> is <code>where(img &gt; 0, 1, img)</code>. So <code>img == nan = 0</code> fills the gaps with 0, <code>result == 0 = nan</code> makes 0 no data, and <code>img.band1 &gt; 1 &amp;&amp; img.band2 &gt;= 5 = 0</code> zeroes a stack's pixels where two of its bands agree.</p>
+    </section>
+
+    <section id="layers">
+      <h2><span class="n">08</span>Several layers</h2>
+      <p>The expression may use any open layer, in any grid or CRS:</p>
+      <dl class="terms">
+        <dt>A series and an image</dt><dd>The image is used at every date: <code>s2.nir / dem</code>, <code>ndvi / max(ndvi)</code>.</dd>
+        <dt>Two series</dt><dd>Matched by date (<span class="ui">Options → Match dates</span>): the same day, the nearest within some days (Sentinel-2 with Landsat), the same month or the same year. A date with no match is no data there.</dd>
+        <dt>Another grid</dt><dd>A layer of other cells (Landsat's 30 m with Sentinel-2's 10 m) is resampled onto the result's grid, a layer in another CRS reprojected; the result takes the grid of the layer chosen under <span class="ui">Grid of</span>, else that of the series whose dates it has.</dd>
+        <dt>A stack</dt><dd>One file of several bands that are not dates (a DEM with its slope, a classification with its probabilities) is an image whose bands are named: <code>terrain.slope</code>, <code>terrain.band2</code>.</dd>
+      </dl>
+    </section>
+
+    <section id="result">
+      <h2><span class="n">09</span>The result</h2>
+      <p>The result is a layer like any other: the map, the chart, pins, regions, the Zeit tools, exports. It is written in a folder of its own under <code>%LOCALAPPDATA%\Janus\results\calc</code>, as one of two things:</p>
+      <dl class="terms">
+        <dt>A layer of VRTs</dt><dd>The default: one small VRT per date whose band is computed by Janus's pixel function from the layers' files when it is read. It costs nothing to make; the map computes the overview and the tiles as it shows them.</dd>
+        <dt>GeoTIFFs</dt><dd><span class="ui">Write GeoTIFFs</span>: the VRTs read once into cloud-optimized GeoTIFFs (DEFLATE, overviews), several dates at a time, as a task in <span class="ui">Tools → Tasks</span>. For a result to keep, to share or to open in another program.</dd>
+      </dl>
+      <p>The folder keeps the text and the layers it was computed from (<code>calc.json</code>) and the task's log. From the command line, <code>jn SERIES --calc "max(nd(N, R))" --calc-run</code> opens the series, runs the text and adds the result.</p>
+    </section>
+
+    <section id="checked">
+      <h2><span class="n">10</span>Checked against the originals</h2>
+      <p>The calculator was run against the Python libraries it stands in for, on the same files, comparing the values and the time each took (<code>tools/bench_calc_vs_originals.py</code>; the numbers in <code>bench/calc-vs-originals.json</code>). It was run on a 20-thread laptop, so the times move by about a tenth from one run to the next.</p>
+      <dl class="terms">
+        <dt>The indices, against spyndex 0.12</dt><dd>spyndex computes the same Awesome Spectral Indices catalogue with NumPy. All 184 indices that both can compute from six bands (two more need a second NIR band that spyndex does not default) were run over 2048 × 2048 random reflectances. Janus matched spyndex within 3 × 10⁻⁷ relative to its value (MSAVI the farthest, the rounding of single precision) and had no data on the same pixels. Together they took 3.7 s in Janus on one thread against 6.6 s in spyndex.</dd>
+        <dt>The reductions, against xarray 2025.12</dt><dd>A series of 48 monthly dates of 1024 × 1024 pixels with a fifth of every date clouded (NaN). xarray read the files with rasterio, Janus through the result's VRT as a GeoTIFF translation reads it; the times include the reading.</dd>
+      </dl>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Janus</th><th>In xarray</th><th class="num">xarray</th><th class="num">Janus</th><th class="num">Faster</th><th class="num">Largest difference</th></tr></thead>
+          <tbody>
+            <tr><td><code>max(s)</code></td><td><code>max("time")</code></td><td class="num">388 ms</td><td class="num">270 ms</td><td class="num">1.4×</td><td class="num">0</td></tr>
+            <tr><td><code>mean(s)</code></td><td><code>mean("time")</code></td><td class="num">806 ms</td><td class="num">188 ms</td><td class="num">4.3×</td><td class="num">2.4 × 10⁻⁷</td></tr>
+            <tr><td><code>median(s)</code></td><td><code>median("time")</code></td><td class="num">4609 ms</td><td class="num">489 ms</td><td class="num">9.4×</td><td class="num">0</td></tr>
+            <tr><td><code>std(s)</code></td><td><code>std("time")</code></td><td class="num">1169 ms</td><td class="num">449 ms</td><td class="num">2.6×</td><td class="num">6 × 10⁻⁸</td></tr>
+            <tr><td><code>count(s &gt; 0.5)</code></td><td><code>(da &gt; 0.5).sum("time")</code></td><td class="num">431 ms</td><td class="num">473 ms</td><td class="num">0.9×</td><td class="num">0</td></tr>
+            <tr><td><code>percentile(s, 90)</code></td><td><code>quantile(0.9, "time")</code></td><td class="num">103.8 s</td><td class="num">755 ms</td><td class="num">137×</td><td class="num">3 × 10⁻⁸</td></tr>
+            <tr><td><code>s - mean(s)</code>, the last date</td><td><code>(da - da.mean("time"))</code></td><td class="num">874 ms</td><td class="num">293 ms</td><td class="num">3.0×</td><td class="num">2.4 × 10⁻⁷</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Every result had no data on the same pixels as xarray's. A count is a sum of comparisons, cheap for both; it is as fast as reading the 48 files, which is the same work on each side. xarray's quantile with NaNs sorts the values of every pixel one by one; Janus selects the rank in place.</p>
+      <p>On the map, an expression costs little over a band. Reading the overview of 24 dates of 2048 × 2048 pixels took 29 ms for a band, 65 ms for NDVI as a normalized difference, 76 ms for NDVI written as an expression, and 276 ms for EVI, whose three bands are read at every date. On the five years of Sentinel-2 of this guide, the count of section 06, <code>count(ndvi &lt; 0.4)</code> over its 107 dates, is on the map in 2 s; a pin's value at the 107 dates takes under half a second.</p>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">11</span>References</h2>
+      <ul class="refs">
+        <li>Montero, D., Aybar, C., Mahecha, M. D., Martinuzzi, F., Söchting, M., &amp; Wieneke, S. (2023). A standardized catalogue of spectral indices to advance the use of remote sensing in Earth system research. <em>Scientific Data</em>, 10, 197. The catalogue: <a href="https://github.com/awesome-spectral-indices/awesome-spectral-indices">awesome-spectral-indices</a> (MIT); in Python, <a href="https://github.com/awesome-spectral-indices/spyndex">spyndex</a>.</li>
+        <li>Huete, A., Didan, K., Miura, T., Rodriguez, E. P., Gao, X., &amp; Ferreira, L. G. (2002). Overview of the radiometric and biophysical performance of the MODIS vegetation indices. <em>Remote Sensing of Environment</em>, 83(1–2), 195–213.</li>
+        <li>Hoyer, S., &amp; Hamman, J. (2017). xarray: N-D labeled arrays and datasets in Python. <em>Journal of Open Research Software</em>, 5(1), 10.</li>
+        <li>GDAL: VRT derived bands and pixel functions, <a href="https://gdal.org/en/stable/drivers/raster/vrt.html">gdal.org/drivers/raster/vrt</a>.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

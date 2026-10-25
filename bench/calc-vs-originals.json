@@ -1,0 +1,1352 @@
+{
+ "spyndex": "0.12.0",
+ "xarray": "2025.12.0",
+ "indices": {
+  "compared": 184,
+  "max_rel_err": 2.980232238769531e-07,
+  "worst": "MSAVI",
+  "nan_agree_min": 1.0,
+  "spyndex_s": 6.579985400036094,
+  "janus_s": 3.6582537000000004,
+  "rows": [
+   {
+    "name": "AFRI1600",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 31.483500002650544,
+    "janus_ms": 3.76
+   },
+   {
+    "name": "AFRI2100",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 29.126599998562597,
+    "janus_ms": 3.6941
+   },
+   {
+    "name": "ANDWI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 64.97089999902528,
+    "janus_ms": 7.0895
+   },
+   {
+    "name": "ARVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 56.000299999141134,
+    "janus_ms": 4.5009999999999994
+   },
+   {
+    "name": "ATSAVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 48.821799995494075,
+    "janus_ms": 3.636
+   },
+   {
+    "name": "AVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 130.94960000307765,
+    "janus_ms": 64.02239999999999
+   },
+   {
+    "name": "AWEInsh",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 33.56879999046214,
+    "janus_ms": 4.821899999999999
+   },
+   {
+    "name": "AWEIsh",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 38.73800000292249,
+    "janus_ms": 5.3453
+   },
+   {
+    "name": "BAI",
+    "rel_err": 2.143438473991839e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 32.19600000011269,
+    "janus_ms": 54.0677
+   },
+   {
+    "name": "BaI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 14.135799996438436,
+    "janus_ms": 3.2207999999999997
+   },
+   {
+    "name": "BAIM",
+    "rel_err": 2.0363691456677978e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 32.63270000752527,
+    "janus_ms": 55.6187
+   },
+   {
+    "name": "BCC",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 22.647999998298474,
+    "janus_ms": 3.9493
+   },
+   {
+    "name": "BI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 44.62770000100136,
+    "janus_ms": 4.5839
+   },
+   {
+    "name": "BITM",
+    "rel_err": 5.960464477539063e-08,
+    "nan_agree": 1.0,
+    "spyndex_ms": 45.32930000277702,
+    "janus_ms": 88.38
+   },
+   {
+    "name": "BIXS",
+    "rel_err": 5.960464477539063e-08,
+    "nan_agree": 1.0,
+    "spyndex_ms": 30.918900010874495,
+    "janus_ms": 66.2841
+   },
+   {
+    "name": "BLFEI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 61.283800008823164,
+    "janus_ms": 5.285299999999999
+   },
+   {
+    "name": "BNDVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 20.41669999016449,
+    "janus_ms": 3.4115
+   },
+   {
+    "name": "bNIRv",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 26.936800000839867,
+    "janus_ms": 3.7559
+   },
+   {
+    "name": "BRBA",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 9.581800011801533,
+    "janus_ms": 2.4363
+   },
+   {
+    "name": "BWDRVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 38.83420000784099,
+    "janus_ms": 3.6182
+   },
+   {
+    "name": "CI1SWIR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 30.91909999784548,
+    "janus_ms": 5.1222
+   },
+   {
+    "name": "CI1woSWIR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 24.30659999663476,
+    "janus_ms": 4.4386
+   },
+   {
+    "name": "CI2SWIR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 36.774000007426366,
+    "janus_ms": 5.711
+   },
+   {
+    "name": "CI2woSWIR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 23.416900003212504,
+    "janus_ms": 4.4484
+   },
+   {
+    "name": "CIG",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 15.028900001198053,
+    "janus_ms": 2.7559
+   },
+   {
+    "name": "CLOSDI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 46.194399998057634,
+    "janus_ms": 4.6617999999999995
+   },
+   {
+    "name": "CRI550",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 16.640200003166683,
+    "janus_ms": 3.2307
+   },
+   {
+    "name": "CSI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 8.126399989123456,
+    "janus_ms": 2.4482000000000004
+   },
+   {
+    "name": "CSISWIR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 12.281899995286949,
+    "janus_ms": 3.0312
+   },
+   {
+    "name": "CSIwoSWIR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 1.0408999951323494,
+    "janus_ms": 1.7502
+   },
+   {
+    "name": "CVI",
+    "rel_err": 2.149715657110034e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.709500003955327,
+    "janus_ms": 24.2229
+   },
+   {
+    "name": "DBSI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 51.6877000045497,
+    "janus_ms": 5.715
+   },
+   {
+    "name": "DSI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 7.822400002623908,
+    "janus_ms": 2.4315
+   },
+   {
+    "name": "DSWI1",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 10.817499991389923,
+    "janus_ms": 2.4769
+   },
+   {
+    "name": "DSWI2",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 7.2106000006897375,
+    "janus_ms": 2.5046999999999997
+   },
+   {
+    "name": "DSWI3",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 11.289499991107732,
+    "janus_ms": 2.488
+   },
+   {
+    "name": "DSWI4",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 10.657400009222329,
+    "janus_ms": 2.4383999999999997
+   },
+   {
+    "name": "DSWI5",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 20.564400008879602,
+    "janus_ms": 4.072100000000001
+   },
+   {
+    "name": "DVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 7.539999991422519,
+    "janus_ms": 2.4284
+   },
+   {
+    "name": "DVIplus",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 28.216100006829947,
+    "janus_ms": 3.7617000000000003
+   },
+   {
+    "name": "EBI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 41.67750000488013,
+    "janus_ms": 4.9498
+   },
+   {
+    "name": "EMBI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 133.83570000587497,
+    "janus_ms": 7.7574000000000005
+   },
+   {
+    "name": "ENDVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 40.912299999035895,
+    "janus_ms": 4.1651
+   },
+   {
+    "name": "EVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 43.740799999795854,
+    "janus_ms": 4.8078
+   },
+   {
+    "name": "EVI2",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 34.08699999272358,
+    "janus_ms": 3.8285
+   },
+   {
+    "name": "EVIv",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 58.62170000909828,
+    "janus_ms": 4.9885
+   },
+   {
+    "name": "ExG",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 17.240799992578104,
+    "janus_ms": 3.3712999999999997
+   },
+   {
+    "name": "ExGR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 36.51689999969676,
+    "janus_ms": 4.2479
+   },
+   {
+    "name": "ExR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 13.903500002925284,
+    "janus_ms": 3.0469999999999997
+   },
+   {
+    "name": "FAI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 29.907400006777607,
+    "janus_ms": 3.5574
+   },
+   {
+    "name": "FCVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 23.477700000512414,
+    "janus_ms": 4.6547
+   },
+   {
+    "name": "FWEI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 51.13339998933952,
+    "janus_ms": 5.392799999999999
+   },
+   {
+    "name": "GARI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 46.859499998390675,
+    "janus_ms": 4.7397
+   },
+   {
+    "name": "GBNDVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 31.78499999921769,
+    "janus_ms": 3.9503000000000004
+   },
+   {
+    "name": "GCC",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 18.28679999744054,
+    "janus_ms": 3.68
+   },
+   {
+    "name": "GDVI",
+    "rel_err": 1.7881393432617188e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 39.9524999957066,
+    "janus_ms": 44.6773
+   },
+   {
+    "name": "GEMI",
+    "rel_err": 1.1920928955078125e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 162.31359999801498,
+    "janus_ms": 121.9611
+   },
+   {
+    "name": "GLI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 44.47460001392756,
+    "janus_ms": 11.7245
+   },
+   {
+    "name": "GNDVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 20.155200007138774,
+    "janus_ms": 10.2623
+   },
+   {
+    "name": "GOSAVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 28.664500001468696,
+    "janus_ms": 9.9907
+   },
+   {
+    "name": "GRARI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 89.60590000788216,
+    "janus_ms": 13.3553
+   },
+   {
+    "name": "GRNDVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 33.675600003334694,
+    "janus_ms": 10.7049
+   },
+   {
+    "name": "GRVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 7.46429999708198,
+    "janus_ms": 6.1671
+   },
+   {
+    "name": "GSAVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 31.366700000944547,
+    "janus_ms": 9.9732
+   },
+   {
+    "name": "GVMI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 39.16499999468215,
+    "janus_ms": 9.9807
+   },
+   {
+    "name": "IAVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 54.68760000076145,
+    "janus_ms": 10.9284
+   },
+   {
+    "name": "IBI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 194.31669999903534,
+    "janus_ms": 28.5744
+   },
+   {
+    "name": "IKAW",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.726600003195927,
+    "janus_ms": 9.247
+   },
+   {
+    "name": "IPVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 13.692300010006875,
+    "janus_ms": 9.0779
+   },
+   {
+    "name": "IRGBVI",
+    "rel_err": 1.7881393432617188e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 116.0193999967305,
+    "janus_ms": 151.3384
+   },
+   {
+    "name": "LSWI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.108399996184744,
+    "janus_ms": 8.9561
+   },
+   {
+    "name": "MBI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 34.767499993904494,
+    "janus_ms": 11.321100000000001
+   },
+   {
+    "name": "MBWI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 34.16899999137968,
+    "janus_ms": 20.5737
+   },
+   {
+    "name": "MCARI1",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 32.999700008076616,
+    "janus_ms": 11.757800000000001
+   },
+   {
+    "name": "MCARI2",
+    "rel_err": 2.2923802655401605e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 114.87140000099316,
+    "janus_ms": 176.1318
+   },
+   {
+    "name": "MGRVI",
+    "rel_err": 1.7881393432617188e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 39.79539999272674,
+    "janus_ms": 100.3199
+   },
+   {
+    "name": "MI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 20.6188000011025,
+    "janus_ms": 9.5402
+   },
+   {
+    "name": "MIRBI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 25.65080000204034,
+    "janus_ms": 7.6591000000000005
+   },
+   {
+    "name": "MLSWI26",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 32.43369999108836,
+    "janus_ms": 9.304599999999999
+   },
+   {
+    "name": "MLSWI27",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 28.364800004055724,
+    "janus_ms": 11.1214
+   },
+   {
+    "name": "MNDVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.16009999695234,
+    "janus_ms": 9.0055
+   },
+   {
+    "name": "MNDWI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 22.47650000208523,
+    "janus_ms": 10.431899999999999
+   },
+   {
+    "name": "MNLI",
+    "rel_err": 8.940696716308594e-08,
+    "nan_agree": 1.0,
+    "spyndex_ms": 43.86999999405816,
+    "janus_ms": 54.83
+   },
+   {
+    "name": "MRBVI",
+    "rel_err": 2.384185791015625e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 38.94459998991806,
+    "janus_ms": 117.03429999999999
+   },
+   {
+    "name": "MSAVI",
+    "rel_err": 2.980232238769531e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 57.22050000622403,
+    "janus_ms": 125.9438
+   },
+   {
+    "name": "MSI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 11.609900000621565,
+    "janus_ms": 6.5417000000000005
+   },
+   {
+    "name": "MSR",
+    "rel_err": 2.204069262876586e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 46.975200006272644,
+    "janus_ms": 59.0973
+   },
+   {
+    "name": "MTVI1",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 33.63350000290666,
+    "janus_ms": 10.0692
+   },
+   {
+    "name": "MTVI2",
+    "rel_err": 2.6256263759923227e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 100.45870000612922,
+    "janus_ms": 157.84470000000002
+   },
+   {
+    "name": "MuWIR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 127.16709999949671,
+    "janus_ms": 35.6173
+   },
+   {
+    "name": "MVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.531300000380725,
+    "janus_ms": 10.1154
+   },
+   {
+    "name": "NBAI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 34.39499999512918,
+    "janus_ms": 12.9871
+   },
+   {
+    "name": "NBR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 22.0337000064319,
+    "janus_ms": 9.0863
+   },
+   {
+    "name": "NBR2",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.668900000397116,
+    "janus_ms": 9.2759
+   },
+   {
+    "name": "NBRSWIR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 27.937399994698353,
+    "janus_ms": 3.9989
+   },
+   {
+    "name": "NBSIMS",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 40.183999997680075,
+    "janus_ms": 22.5823
+   },
+   {
+    "name": "NDBI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 20.317300004535355,
+    "janus_ms": 9.3166
+   },
+   {
+    "name": "NDDI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 90.52820000215434,
+    "janus_ms": 17.566399999999998
+   },
+   {
+    "name": "NDGI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 54.82720000145491,
+    "janus_ms": 13.7831
+   },
+   {
+    "name": "NDGlaI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.944800005760044,
+    "janus_ms": 9.5491
+   },
+   {
+    "name": "NDII",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.870299991453066,
+    "janus_ms": 9.5338
+   },
+   {
+    "name": "NDMI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 20.66910000576172,
+    "janus_ms": 9.5784
+   },
+   {
+    "name": "NDPI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 52.78510000789538,
+    "janus_ms": 12.3642
+   },
+   {
+    "name": "NDPonI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 21.0499999957392,
+    "janus_ms": 9.481399999999999
+   },
+   {
+    "name": "NDSaII",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 22.014100002706982,
+    "janus_ms": 9.2251
+   },
+   {
+    "name": "NDSI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.798399996943772,
+    "janus_ms": 10.093100000000002
+   },
+   {
+    "name": "NDSII",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.30460000585299,
+    "janus_ms": 9.6395
+   },
+   {
+    "name": "NDSIITM",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 20.090399993932806,
+    "janus_ms": 11.0285
+   },
+   {
+    "name": "NDSInw",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 24.56259999598842,
+    "janus_ms": 15.216800000000001
+   },
+   {
+    "name": "NDSoI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 20.307700004195794,
+    "janus_ms": 10.4802
+   },
+   {
+    "name": "NDSWIR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 21.365299995522946,
+    "janus_ms": 9.8867
+   },
+   {
+    "name": "NDTI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 23.96339998813346,
+    "janus_ms": 9.1524
+   },
+   {
+    "name": "NDTillI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 22.294099995633587,
+    "janus_ms": 9.095799999999999
+   },
+   {
+    "name": "NDVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 21.939099999144673,
+    "janus_ms": 9.3191
+   },
+   {
+    "name": "NDVIMNDWI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 54.86659999587573,
+    "janus_ms": 17.372
+   },
+   {
+    "name": "NDWI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.77189999888651,
+    "janus_ms": 10.4282
+   },
+   {
+    "name": "NDWIns",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 15.24500000232365,
+    "janus_ms": 11.4392
+   },
+   {
+    "name": "NDYI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 22.33669999986887,
+    "janus_ms": 10.0836
+   },
+   {
+    "name": "NGRDI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 20.574199996190146,
+    "janus_ms": 11.6768
+   },
+   {
+    "name": "NIRv",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 26.87030000379309,
+    "janus_ms": 13.395900000000001
+   },
+   {
+    "name": "NIRvH2",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 13.337700002011843,
+    "janus_ms": 6.4288
+   },
+   {
+    "name": "NLI",
+    "rel_err": 1.7881393432617188e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 28.981399998883717,
+    "janus_ms": 53.8951
+   },
+   {
+    "name": "NMDI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 31.733099996927194,
+    "janus_ms": 10.9726
+   },
+   {
+    "name": "NormG",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 24.324300000444055,
+    "janus_ms": 10.7977
+   },
+   {
+    "name": "NormNIR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 23.78470000985544,
+    "janus_ms": 10.4747
+   },
+   {
+    "name": "NormR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 25.584699993487448,
+    "janus_ms": 10.249400000000001
+   },
+   {
+    "name": "NRFIg",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 21.63269999437034,
+    "janus_ms": 9.0471
+   },
+   {
+    "name": "NRFIr",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 21.37339999899268,
+    "janus_ms": 9.8007
+   },
+   {
+    "name": "NSDS",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 23.68660000502132,
+    "janus_ms": 9.868
+   },
+   {
+    "name": "NSDSI1",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 13.068100000964478,
+    "janus_ms": 9.216800000000001
+   },
+   {
+    "name": "NSDSI2",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 14.942999987397343,
+    "janus_ms": 8.6075
+   },
+   {
+    "name": "NSDSI3",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 22.71949998976197,
+    "janus_ms": 9.1267
+   },
+   {
+    "name": "NWI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 43.595600000116974,
+    "janus_ms": 12.558200000000001
+   },
+   {
+    "name": "OCVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 83.87060000677593,
+    "janus_ms": 75.0901
+   },
+   {
+    "name": "OSAVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 25.121800004853867,
+    "janus_ms": 12.0422
+   },
+   {
+    "name": "OSI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 12.739300000248477,
+    "janus_ms": 9.0532
+   },
+   {
+    "name": "PI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 13.630200002808124,
+    "janus_ms": 9.701400000000001
+   },
+   {
+    "name": "PISI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 22.870200002216734,
+    "janus_ms": 7.4608
+   },
+   {
+    "name": "RCC",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 21.59899999969639,
+    "janus_ms": 11.5634
+   },
+   {
+    "name": "RDVI",
+    "rel_err": 5.960464477539063e-08,
+    "nan_agree": 1.0,
+    "spyndex_ms": 27.626900002360344,
+    "janus_ms": 67.1219
+   },
+   {
+    "name": "RGBVI",
+    "rel_err": 1.7881393432617188e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 42.25640000368003,
+    "janus_ms": 57.7297
+   },
+   {
+    "name": "RGRI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 8.17329999699723,
+    "janus_ms": 6.2096
+   },
+   {
+    "name": "RI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 20.39879999938421,
+    "janus_ms": 11.492799999999999
+   },
+   {
+    "name": "RI4XS",
+    "rel_err": 1.927550322556271e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 64.84449999697972,
+    "janus_ms": 107.07260000000001
+   },
+   {
+    "name": "RNDVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 24.47960000426974,
+    "janus_ms": 10.340300000000001
+   },
+   {
+    "name": "RWI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 143.50620000914205,
+    "janus_ms": 84.71090000000001
+   },
+   {
+    "name": "S3",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 43.51590000442229,
+    "janus_ms": 13.219
+   },
+   {
+    "name": "SARVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 57.48380000295583,
+    "janus_ms": 13.4024
+   },
+   {
+    "name": "SAVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 28.093300003092736,
+    "janus_ms": 9.9456
+   },
+   {
+    "name": "SAVI2",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 15.501599991694093,
+    "janus_ms": 6.0796
+   },
+   {
+    "name": "SCoWI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 46.56819999217987,
+    "janus_ms": 12.5588
+   },
+   {
+    "name": "SEVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 27.181099998415448,
+    "janus_ms": 10.3097
+   },
+   {
+    "name": "SI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 89.0854000026593,
+    "janus_ms": 55.43470000000001
+   },
+   {
+    "name": "SLAVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 13.879899997846223,
+    "janus_ms": 9.4714
+   },
+   {
+    "name": "SNDTI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 32.08579999045469,
+    "janus_ms": 10.1701
+   },
+   {
+    "name": "sNIRvLSWI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 29.514600013499148,
+    "janus_ms": 9.5278
+   },
+   {
+    "name": "sNIRvNDPI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 62.88270000368357,
+    "janus_ms": 12.0043
+   },
+   {
+    "name": "sNIRvNDVILSWIP",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 49.55290000361856,
+    "janus_ms": 15.890600000000001
+   },
+   {
+    "name": "sNIRvNDVILSWIS",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 57.03470000298694,
+    "janus_ms": 23.7084
+   },
+   {
+    "name": "sNIRvSWIR",
+    "rel_err": 2.9802322387695312e-08,
+    "nan_agree": 1.0,
+    "spyndex_ms": 52.88180000206921,
+    "janus_ms": 62.0386
+   },
+   {
+    "name": "SR",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 7.112299994332716,
+    "janus_ms": 6.5333
+   },
+   {
+    "name": "SR2",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 7.707899989327416,
+    "janus_ms": 5.9765
+   },
+   {
+    "name": "SRVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 46.324499999172986,
+    "janus_ms": 14.299100000000001
+   },
+   {
+    "name": "SRWI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 41.873299996950664,
+    "janus_ms": 12.950899999999999
+   },
+   {
+    "name": "STI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 8.35910000023432,
+    "janus_ms": 6.1651
+   },
+   {
+    "name": "SWI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 41.92240000702441,
+    "janus_ms": 11.7394
+   },
+   {
+    "name": "SWM",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.609299997682683,
+    "janus_ms": 10.904300000000001
+   },
+   {
+    "name": "TDVI",
+    "rel_err": 1.1920928955078125e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 41.76530000404455,
+    "janus_ms": 133.9245
+   },
+   {
+    "name": "TGI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 34.62979999312665,
+    "janus_ms": 8.8016
+   },
+   {
+    "name": "TriVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 32.24679999402724,
+    "janus_ms": 8.5404
+   },
+   {
+    "name": "TSAVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 52.37370000395458,
+    "janus_ms": 9.7377
+   },
+   {
+    "name": "TVI",
+    "rel_err": 1.1877721705693099e-07,
+    "nan_agree": 1.0,
+    "spyndex_ms": 46.67470000276808,
+    "janus_ms": 85.1636
+   },
+   {
+    "name": "UI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 18.176500001573004,
+    "janus_ms": 8.9316
+   },
+   {
+    "name": "VARI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 25.83490000688471,
+    "janus_ms": 12.2233
+   },
+   {
+    "name": "VgNIRBI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 20.61870000034105,
+    "janus_ms": 10.3701
+   },
+   {
+    "name": "VIBI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 66.30629999563098,
+    "janus_ms": 19.532500000000002
+   },
+   {
+    "name": "VIG",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 20.12460000696592,
+    "janus_ms": 11.3463
+   },
+   {
+    "name": "VrNIRBI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.76029999786988,
+    "janus_ms": 9.6655
+   },
+   {
+    "name": "WDRVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 30.310399990412407,
+    "janus_ms": 9.91
+   },
+   {
+    "name": "WDVI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 11.147500001243316,
+    "janus_ms": 6.3103
+   },
+   {
+    "name": "WI1",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.178100003045984,
+    "janus_ms": 9.019499999999999
+   },
+   {
+    "name": "WI2",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 21.031000011134893,
+    "janus_ms": 10.4113
+   },
+   {
+    "name": "WI2015",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 58.16230000345968,
+    "janus_ms": 23.5643
+   },
+   {
+    "name": "WRI",
+    "rel_err": 0.0,
+    "nan_agree": 1.0,
+    "spyndex_ms": 19.53799999319017,
+    "janus_ms": 11.2651
+   }
+  ]
+ },
+ "reductions": {
+  "max": {
+   "max_abs_err": 0.0,
+   "nan_agree": 1.0,
+   "xarray_ms": 387.7956000069389,
+   "janus_ms": 270.2668
+  },
+  "mean": {
+   "max_abs_err": 2.384185791015625e-07,
+   "nan_agree": 1.0,
+   "xarray_ms": 805.5044000066118,
+   "janus_ms": 188.0152
+  },
+  "median": {
+   "max_abs_err": 0.0,
+   "nan_agree": 1.0,
+   "xarray_ms": 4608.715800000937,
+   "janus_ms": 489.12280000000004
+  },
+  "std": {
+   "max_abs_err": 5.960464477539063e-08,
+   "nan_agree": 1.0,
+   "xarray_ms": 1168.8099000020884,
+   "janus_ms": 448.9307
+  },
+  "count": {
+   "max_abs_err": 0.0,
+   "nan_agree": 1.0,
+   "xarray_ms": 430.525600007968,
+   "janus_ms": 472.5068
+  },
+  "p90": {
+   "max_abs_err": 2.9802322498717615e-08,
+   "nan_agree": 1.0,
+   "xarray_ms": 103806.57339999743,
+   "janus_ms": 755.4276
+  },
+  "anomaly_last": {
+   "max_abs_err": 2.384185791015625e-07,
+   "nan_agree": 1.0,
+   "xarray_ms": 874.4939000025624,
+   "janus_ms": 293.4919
+  }
+ },
+ "shown": {
+  "band": 28.7855,
+  "evi_expr": 275.88430000000005,
+  "nd": 65.0686,
+  "ndvi_expr": 76.3168
+ }
+}

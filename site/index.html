@@ -150,6 +150,12 @@
         <p class="spec">Sentinel-2 · Landsat · BDC cubes · SCL · QA_PIXEL</p>
       </article>
       <article>
+        <p class="tag">Calculator</p>
+        <h3>Band math over time</h3>
+        <p>The 275 Awesome Spectral Indices on any series, or an expression of its bands; Tools → Raster calculator combines the open layers by short names, reduces a series over time and reclassifies by rules, computed as the map reads it. <a href="calculator.html">Step-by-step guide</a>.</p>
+        <p class="spec">EVI · MNDWI · max(ndvi) · count(ndvi &lt; 0.3) · ndvi &lt; 0.2 = 0</p>
+      </article>
+      <article>
         <p class="tag">Map</p>
         <h3>Statistics on the GPU</h3>
         <p>Value at date, anomaly, mean, standard deviation, linear trend, minimum, maximum, amplitude, trend R² and a multitemporal RGB. Changing the date, colormap or stretch is instant.</p>
@@ -299,6 +305,7 @@
       <li><a href="snic.html"><span>Landsat, every date</span><h3>SNIC segmentation</h3><p>Segments of pixels with the same history, their mean series as a layer and their polygons.</p></a></li>
       <li><a href="deep-learning.html"><span>Landsat, every date</span><h3>Deep learning</h3><p>TempCNN, L-TAE and U-TAE trained on MapBiomas samples: a land cover map with its probability and uncertainty, smoothed, and where the model can be trusted.</p></a></li>
       <li><a href="presto.html"><span>Landsat, a year</span><h3>Presto</h3><p>A pretrained foundation model's encodings of every pixel: embeddings to explore, and a classifier on them.</p></a></li>
+      <li><a href="calculator.html"><span>Any series of bands</span><h3>Raster calculator</h3><p>EVI and the 275 Awesome Spectral Indices on a Sentinel-2 series, the open layers combined by short names, 107 dates reduced to an image, classes by rules.</p></a></li>
       <li><a href="stac.html"><span>Sentinel-2, Landsat, BDC</span><h3>STAC catalogs</h3><p>An area, two dates, a cloud cover: 375 Sentinel-2 scenes of five dry seasons as a series of 107 dates, read in place from Planetary Computer with the clouds masked, or downloaded.</p></a></li>
       <li><a href="embeddings.html"><span>AlphaEarth, TESSERA</span><h3>Embeddings</h3><p>Forest, pasture and water from nine pins in milliseconds, what changed into what since 2017, and the direction of every change.</p></a></li>
     </ul>

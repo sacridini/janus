@@ -53,7 +53,9 @@ def read(path, band, window, out_shape=None, raw=False):
         if not raw:
             a = a * src.scales[band - 1] + src.offsets[band - 1]
         return np.ma.filled(a, np.nan)
+"#;
 
+const SHOWN_FUNCTION: &str = r#"
 
 def shown(layer, window, out_shape=None):
     """What the series shows at a date: the band, or the normalized difference, masked by the quality band."""
@@ -159,9 +161,28 @@ impl State {
             info.description,
             if selection.is_empty() { String::new() } else { format!(": {selection}") }
         );
-        o += "# Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).\nlayers = [\n";
         let qa_on = sel.qa_band > 0 && sel.qa_rule != QaRule::None;
-        for l in &info.layers {
+        if let Some(e) = &info.expr {
+            o += "# Each date: (file, the bands its expression reads, quality band, its date's year, month, day,\n\
+                  # day of the year, decimal year and place).\nlayers = [\n";
+            for (t, l) in info.layers.iter().enumerate() {
+                let bands: Vec<String> = e.bands.iter().map(|b| (b + l.band_base).to_string()).collect();
+                let vars: Vec<String> =
+                    janus_cube::calc::plan::date_vars(&info, t).0.iter().map(|&x| num(f64::from(x))).collect();
+                let _ = writeln!(
+                    o,
+                    "    ({}, [{}], {}, ({})),",
+                    py_str(&l.path),
+                    bands.join(", "),
+                    py_band(if qa_on { sel.qa_band + l.band_base } else { 0 }),
+                    vars.join(", ")
+                );
+            }
+        } else {
+            o += "# Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).\n\
+                  layers = [\n";
+        }
+        for l in info.layers.iter().filter(|_| info.expr.is_none()) {
             let base = l.band_base;
             let _ = writeln!(
                 o,
@@ -188,6 +209,27 @@ impl State {
         let _ = writeln!(o, "qa_rule = {}", py_str(sel.qa_rule.id()));
         o += QA_FUNCTIONS;
         o += READ_FUNCTIONS;
+        if let Some(e) = &info.expr {
+            o += janus_cube::calc::python::NUMPY_PRELUDE;
+            let (stmts, r) = janus_cube::calc::python::numpy(&e.program, &|k| format!("b[{k}]"), "    ");
+            let _ = write!(
+                o,
+                "\n\ndef expression(b, year, month, day, doy, decyear, t):\n    \
+                 \"\"\"{}: the bands read (in the order of the layers' lists) to the value shown.\"\"\"\n\
+                 {stmts}    return _out({r})\n\n\n\
+                 def shown(layer, window, out_shape=None):\n    \
+                 \"\"\"What the series shows at a date: the expression over its bands, masked by the quality band.\"\"\"\n    \
+                 path, bands, qa_band, date = layer\n    \
+                 with np.errstate(all=\"ignore\"):\n        \
+                 v = expression([read(path, k, window, out_shape) for k in bands], *date)\n    \
+                 if qa_band:\n        \
+                 v = np.where(usable(read(path, qa_band, window, out_shape, raw=True), qa_rule), v, np.nan)\n    \
+                 return v\n",
+                e.text.replace('\n', "; ").replace('"', "'")
+            );
+        } else {
+            o += SHOWN_FUNCTION;
+        }
         if let Some(r) = &roi {
             let (w, h) = (r.x1 - r.x0, r.y1 - r.y0);
             let _ =

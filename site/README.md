@@ -68,3 +68,21 @@ runs Zeit's `ar_trend` and `parts` on simulated maps (about 3 minutes); the
 numbers the page quotes from Zeit (the ROI's correlation plot, the partition
 sizes) come from Zeit's documentation, `docs/scripts/make_parts_figures.py`
 there.
+
+The raster calculator's screenshots are taken with `--screenshot` too, on the
+Sentinel-2 series of the STAC guide downloaded as GeoTIFFs (Planetary
+Computer, Sentinel-2 L2A, 63.00 to 62.92 W, 10.00 to 9.92 S, 2019-06-01 to
+2024-09-30, 5% of clouds at most: 107 dates, `s2ro`), with `--pin 776,270
+--pin 128,548`:
+
+    janus s2ro --interface modern --expr EVI --pin ... --screenshot index.png
+    janus s2ro --interface modern --pin ... --calc $'# how many of the 107 dates had little vegetation\nndvi = (N - R) / (N + R)\ncount(ndvi < 0.4)' --calc-run --screenshot calculator.png
+    janus s2ro --interface modern --calc $'# the moisture index of the dry seasons\nndmi = (N - swir) / (N + swir)\nmedian(ndmi)' --screenshot editor.png
+    janus s2ro --interface modern --calc $'# the median NDVI of the five years, in three classes\nm = median(nd(N, R))\nresult = m\nm < 0.45 = 1\nm >= 0.45 && m < 0.7 = 2\nm >= 0.7 = 3' --calc-run --screenshot rules_w.png
+    janus s2ro --layer RESULTS/calc/count_ndvi_*/result.vrt --interface modern --pin ... --screenshot count.png
+    janus s2ro --layer RESULTS/calc/calc_*/result.vrt --interface modern --pin ... --screenshot rules.png
+
+(`RESULTS` is `%LOCALAPPDATA%\Janus\results`.) `01-index.jpg`,
+`02-calculator.jpg`, `04-count.jpg` and `05-rules.jpg` are `index.png`,
+`calculator.png`, `count.png` and `rules.png` as JPEG (quality 90);
+`03-editor.png` is the window of `editor.png` (17, 17, 995, 613).

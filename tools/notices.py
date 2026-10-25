@@ -39,6 +39,13 @@ FONTS = [
      "OFL-1.1", ROOT / "crates" / "janus-app" / "assets" / "Inter-OFL.txt"),
 ]
 
+# data compiled into the program: name, authors, home, license, its copyright line (under the MIT's text)
+DATA = [
+    ("Awesome Spectral Indices (the raster calculator's catalogue of indices: formulas, bands, constants)",
+     "David Montero Loaiza and contributors", "https://github.com/awesome-spectral-indices/awesome-spectral-indices",
+     "MIT", "Copyright (c) 2021 David Montero Loaiza"),
+]
+
 MIT = """Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
 rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
@@ -187,6 +194,12 @@ def write(path, version, shipped, conda_prefix):
     for name, by, url, lic, text in FONTS:
         lines.append(f"  {name}, by {by}: {lic} ({url})")
         add(read(text) if isinstance(text, Path) else f"{text}\n\n{MIT}", f"font {name}")
+    lines.append("")
+
+    lines += ["DATA IN THE PROGRAM", ""]
+    for name, by, url, lic, text in DATA:
+        lines.append(f"  {name}, by {by}: {lic} ({url})")
+        add(f"{text}\n\n{MIT}", f"data {name.split(' (')[0]}")
     lines.append("")
 
     cs = crates()

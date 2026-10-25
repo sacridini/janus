@@ -45,6 +45,15 @@ which ships with Janus: there is nothing else to install. Its command line is `j
   [Series from a STAC catalog](https://sacridini.github.io/janus/stac.html).
 - **Climate cubes**: NetCDF, Zarr and HDF variables with CF time (model
   calendars included), levels and a variable picker.
+- **Raster calculator and spectral indices**: the 275 indices of the Awesome
+  Spectral Indices (EVI, SAVI, NDRE, MNDWI...) or any expression over a
+  series' bands, shown in place; Tools → Raster calculator combines the open
+  layers by short names (a series with an image, series matched by date,
+  layers of other grids and CRSs), reduces a series over time (`max(ndvi)`,
+  `count(ndvi < 0.3)`, `ndvi - mean(ndvi)`) and reclassifies with rules
+  (`ndvi < 0.2 = 0`); an editor that colours, completes and points at errors
+  as you type, `Ctrl+Enter` to run, the result a layer like any other. Step by
+  step: [Raster calculator](https://sacridini.github.io/janus/calculator.html).
 - **14 map modes on the GPU**: value, anomaly, difference to a reference date,
   temporal statistics, trend, largest drop (date and magnitude), multitemporal
   RGB, temporal composites (median, mean, max... of a year or a moving window);

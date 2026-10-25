@@ -48,6 +48,8 @@ pub struct UiTest {
     stats_gen: u64,
     /// the NDVI's bands (1-based) on the spectrum, for its layer
     index_bands: (i32, i32),
+    /// stages 160-162: C's NDVI at the pin (as a normalized difference)
+    ndvi: Vec<f32>,
     /// stages 120-127: the vector files' folder, the points written, the exports, frames of a stage, the
     /// interpretation's pin, its labels' file
     dir: std::path::PathBuf,
@@ -100,6 +102,7 @@ fn growing_window(
                 .iter()
                 .map(|t| (egui::Id::new(*t), *t))
                 .chain([(egui::Id::new("ml window"), "Deep learning")])
+                .chain([(egui::Id::new("calculator window"), "Raster calculator")])
                 .chain(tools)
                 .find(|(i, _)| *i == id)
                 .map_or_else(|| format!("{id:?}"), |(_, t)| t.to_string());
@@ -687,10 +690,85 @@ impl State {
                 if let Err(e) = self.check_composites() {
                     return fail(e);
                 }
+                st.ndvi = self.series.pins[0].values.clone();
+                next(st, "reopened in place: name, pin and view kept, values are NDVI, clouds masked; composites");
+                st.stage = 160; // the NDVI as an expression, the raster calculator (160-162), then 12
+            }
+            160 => {
+                // the Display panel's expression in place of the normalized difference
+                let mut sel = self.session.as_ref()?.info.sel;
+                (sel.band, sel.nd_band) = (1, 0);
+                sel.expr = janus_cube::calc::ExprId::intern("NDVI", "(N - R) / (N + R)");
+                self.reopen_layer(self.active, sel, ctx);
+                next(st, "reopen C with the expression (N - R) / (N + R)");
+            }
+            161 => {
+                let s = self.session.as_ref()?;
+                if self.opening.is_some()
+                    || s.info.expr.is_none()
+                    || !loaded(Some(s))
+                    || !self.series.pins.first().is_some_and(|p| p.exact)
+                {
+                    return None;
+                }
+                let pin = &self.series.pins[0];
+                let same = pin.values.len() == st.ndvi.len()
+                    && pin.values.iter().zip(&st.ndvi).all(|(a, b)| (a - b).abs() < 1e-6 || (a.is_nan() && b.is_nan()));
+                println!(
+                    "    {}: the pin's {} dates as the normalized difference",
+                    s.info.selection_text(),
+                    st.ndvi.len()
+                );
+                if !same {
+                    return fail("the expression's series should be the normalized difference's");
+                }
+                if !s.info.selection_text().contains("NDVI") {
+                    return fail("the layer should be described by its expression's name");
+                }
+                // the raster calculator over it: the maximum over time, a layer of its own
+                self.calc.show = true;
+                self.calc.text = "ndvi = (N - R) / (N + R)\nmax(ndvi)".into();
+                self.calc.primary = None;
+                self.calc.cog = false;
+                self.calc_run(ctx);
+                next(st, "the expression's series is the NDVI; the calculator runs max(ndvi)");
+            }
+            162 => {
+                if self.opening.is_some() || self.layers.len() != 2 || !loaded(self.layer_session(1)) {
+                    if self
+                        .emb_downloads
+                        .iter()
+                        .any(|d| d.status.lock().unwrap().state == crate::zeit::JobState::Failed)
+                    {
+                        return fail("the calculator's run failed (Tools > Tasks > Log)");
+                    }
+                    return None;
+                }
+                if self.active != 0 {
+                    return fail("the series should stay active when the calculator's result is added");
+                }
+                let pin = self.series.pins.first()?.clone();
+                let info = self.layer_session(1)?.info.clone();
+                let v = janus_cube::with_thread_reader(&info, |r| r.read_pixel(0, pin.x, pin.y))?;
+                let want = st.ndvi.iter().copied().filter(|v| v.is_finite()).fold(f32::NAN, f32::max);
+                println!(
+                    "    \"{}\": {} image, max(ndvi) at the pin {v:.4} (its series' maximum {want:.4})",
+                    self.layers[1].name,
+                    info.t()
+                );
+                if info.t() != 1 || (v - want).abs() > 1e-5 {
+                    return fail("the calculator's max(ndvi) should be the pin's maximum NDVI");
+                }
+                if !self.calc.planned() {
+                    return fail("the calculator should plan its text");
+                }
+                self.calc.show = false;
+                self.remove_layer(1, ctx);
                 st.season = 0;
                 st.stats_gen = self.session.as_ref()?.stats_gen;
                 self.set_test_season(0)?;
-                next(st, "reopened in place: name, pin and view kept, values are NDVI, clouds masked; composites");
+                next(st, "the calculator's result: an image, the maximum NDVI at the pin; closed");
+                st.stage = 12;
             }
             // the season's statistics computed again (pump_season), then checked; the other season, then none
             12 => {

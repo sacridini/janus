@@ -393,8 +393,82 @@ impl State {
         if self.band_sel.as_ref().is_none_or(|(id, _)| *id != info.id) {
             self.band_sel = Some((info.id, info.sel));
         }
-        let Some((_, sel)) = self.band_sel.as_mut() else { return };
+        let Some((_, mut sel_now)) = self.band_sel else { return };
+        let sel = &mut sel_now;
+        let expr_on = sel.expr.is_some();
         section(ui, "Bands");
+        if expr_on {
+            ui.weak("Shown: the expression below (bands A and B are not used)");
+        }
+        ui.add_enabled_ui(!expr_on, |ui| self.bands_ab_ui(ui, info, sel));
+        section(ui, "Index or expression");
+        self.expression_ui(ui, info, sel);
+        self.band_sel = Some((info.id, *sel));
+        let name = |b: i32| {
+            format!("{b}: {}", info.band_names.get((b - 1).max(0) as usize).filter(|_| b >= 1).map_or("?", |s| s))
+        };
+        let band_combo = |ui: &mut Ui, id: &str, b: &mut i32, none: Option<&str>| {
+            let text = if *b > 0 { name(*b) } else { none.unwrap_or("?").to_string() };
+            ComboBox::from_id_salt(id).width(ui.available_width()).selected_text(text).show_ui(ui, |ui| {
+                if let Some(none) = none {
+                    ui.selectable_value(b, 0, none);
+                }
+                for k in 1..=info.bands_per_date as i32 {
+                    ui.selectable_value(b, k, name(k));
+                }
+            });
+        };
+        section(ui, "Quality");
+        ui.weak("Quality band");
+        band_combo(ui, "qa band", &mut sel.qa_band, Some("None"));
+        if sel.qa_band > 0 {
+            if sel.qa_rule == QaRule::None {
+                sel.qa_rule = QaRule::Fmask;
+            }
+            ComboBox::from_id_salt("qa rule")
+                .width(ui.available_width())
+                .selected_text(sel.qa_rule.label())
+                .show_ui(ui, |ui| {
+                    for r in [QaRule::Fmask, QaRule::LandsatC2, QaRule::Scl, QaRule::NonZero] {
+                        ui.selectable_value(&mut sel.qa_rule, r, r.label());
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Dates whose quality code is not usable (cloud, shadow, snow, fill)\nbecome no-data in the map, \
+                     the charts and the tools.",
+                );
+        } else {
+            sel.qa_rule = QaRule::None;
+        }
+        self.band_sel = Some((info.id, *sel));
+        let same = sel.band == info.sel.band
+            && sel.nd_band == info.sel.nd_band
+            && sel.qa_band == info.sel.qa_band
+            && sel.qa_rule == info.sel.qa_rule
+            && sel.expr == info.sel.expr;
+        if !same {
+            let sel = *sel;
+            let busy = self.opening.is_some();
+            if ui
+                .add_enabled(
+                    !busy,
+                    egui::Button::new("Apply (reopens the layer)").min_size(egui::vec2(ui.available_width(), 0.0)),
+                )
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.reopen_layer(self.active, BandSelection { chosen: true, ..sel }, &ctx);
+            }
+            if ui.small_button("Revert").clicked() {
+                self.band_sel = Some((info.id, info.sel));
+                self.calc.draft = None;
+            }
+        }
+    }
+
+    /// Band A shown, or the normalized difference of A and B (an index of two bands by wavelength).
+    fn bands_ab_ui(&mut self, ui: &mut Ui, info: &janus_cube::CubeInfo, sel: &mut BandSelection) {
         if !info.band_nm.is_empty() {
             // bands with wavelengths: indices by name
             let current = INDICES
@@ -449,49 +523,6 @@ impl State {
         }
         if nd {
             band_combo(ui, "nd band", &mut sel.nd_band, None);
-        }
-        ui.weak("Quality band");
-        band_combo(ui, "qa band", &mut sel.qa_band, Some("None"));
-        if sel.qa_band > 0 {
-            if sel.qa_rule == QaRule::None {
-                sel.qa_rule = QaRule::Fmask;
-            }
-            ComboBox::from_id_salt("qa rule")
-                .width(ui.available_width())
-                .selected_text(sel.qa_rule.label())
-                .show_ui(ui, |ui| {
-                    for r in [QaRule::Fmask, QaRule::LandsatC2, QaRule::Scl, QaRule::NonZero] {
-                        ui.selectable_value(&mut sel.qa_rule, r, r.label());
-                    }
-                })
-                .response
-                .on_hover_text(
-                    "Dates whose quality code is not usable (cloud, shadow, snow, fill)\nbecome no-data in the map, \
-                     the charts and the tools.",
-                );
-        } else {
-            sel.qa_rule = QaRule::None;
-        }
-        let same = sel.band == info.sel.band
-            && sel.nd_band == info.sel.nd_band
-            && sel.qa_band == info.sel.qa_band
-            && sel.qa_rule == info.sel.qa_rule;
-        if !same {
-            let sel = *sel;
-            let busy = self.opening.is_some();
-            if ui
-                .add_enabled(
-                    !busy,
-                    egui::Button::new("Apply (reopens the layer)").min_size(egui::vec2(ui.available_width(), 0.0)),
-                )
-                .clicked()
-            {
-                let ctx = ui.ctx().clone();
-                self.reopen_layer(self.active, BandSelection { chosen: true, ..sel }, &ctx);
-            }
-            if ui.small_button("Revert").clicked() {
-                self.band_sel = Some((info.id, info.sel));
-            }
         }
     }
 

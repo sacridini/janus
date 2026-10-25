@@ -945,8 +945,8 @@ nova.
 | 36 | — | **L-TAE** (Garnot & Landrieu 2020), datas irregulares pelo dia do ano, conferido contra o `sits_lighttae` | concluída (sem versão) |
 | 37 | — | **Presto** (Tseng et al. 2023), pré-treinado: embeddings no painel Embeddings e ajuste fino com poucas amostras | concluída (sem versão) |
 | 38 | — | **U-TAE** (Garnot & Landrieu 2021): segmentação espaço-temporal de recortes, janelas deslizantes, pesos do PASTIS para ajuste fino | concluída (sem versão) |
-| 39 | — | **Calculadora de bandas e biblioteca de índices** (Awesome Spectral Indices por papel da banda, expressões livres no leitor) | planejada |
-| 39b | — | **Calculadora temporal** (reduções, grupos de calendário, janelas em dias, defasagens, anomalias, eventos; tipos série/imagem/data; ao vivo e progressiva, a série da expressão no gráfico) | planejada |
+| 39 | — | **Calculadora de bandas e biblioteca de índices**: os 275 índices do Awesome Spectral Indices por papel da banda e expressões livres no leitor (painel Display, série inteira, Copy Python); Tools → Raster calculator com as camadas abertas por nomes curtos (série × imagem, séries casadas por data, outras grades e CRSs), regras `cond = valor`, editor que colore, completa e aponta erros, `Ctrl+Enter`, resultado em VRT ou COG | concluída (sem versão) |
+| 39b | — | **Calculadora temporal** (reduções, grupos de calendário, janelas em dias, defasagens, anomalias, eventos; tipos série/imagem/data; ao vivo e progressiva, a série da expressão no gráfico) | parcial: reduções (`max`, `min`, `mean`, `median`, `sum`, `std`, `count`, `percentile`), série − redução (`ndvi - mean(ndvi)`), variáveis de data (`year`, `doy`...); faltam `argmax`, recortes de calendário, `by year`, janelas, defasagens, anomalia por climatologia, eventos, a redução progressiva e as subexpressões no gráfico |
 | 40 | — | **Regularização e preenchimento de lacunas** (passo fixo, mediana/medoide, linear/Whittaker), uma pasta de COGs regulares | planejada |
 | 41 | — | **Poligonizar** mapas de mudança e de classes (área em ha, data, magnitude, área mínima) em GeoPackage | planejada |
 | 42 | — | **Área de mudança e de classes por data** (área do pixel correta, barras, CSV) | planejada |
@@ -1077,6 +1077,33 @@ termina.
   compartilhada (hoje: cópias e junção por ponto).
 - A galeria de recortes com o basemap de alta resolução de cada ano (Esri
   Wayback) quando houver.
+
+### Depois da fase 39 (calculadora, 2026-10-25)
+- Medido: os 184 índices que o `spyndex` calcula na mesma grade, todos a no
+  máximo 3e-7 (relativo) dele e com o mesmo no data, em metade do tempo; as
+  reduções iguais às do xarray (até 2,4e-7), de 1× (`count`) a 8× (`median`)
+  mais rápidas, e o `percentile` 100× (o `quantile` do xarray ordena tudo).
+  Scripts: `tools/bench_calc_vs_originals.py`, `bench/calc-vs-originals.json`.
+- O que tornou a redução real 6× mais rápida (`count` de 107 datas no
+  overview: 12,2 → 2,05 s; um pixel 3,3 → 0,4 s):
+  - fonte `SimpleSource` quando o no data é NaN (o `ComplexSource` com
+    `NODATA` testa cada valor e é várias vezes mais lento);
+  - `GDAL_MAX_DATASET_POOL_SIZE` acima do número de arquivos da série (no
+    padrão, 100, uma série de 107 datas reabre arquivos a cada bloco, ~0,46 ms
+    por fonte e bloco); o app o põe na metade do limite de arquivos abertos;
+  - blocos do VRT de redução com 32 MB de fontes no máximo (128 px para 428
+    fontes), e a redução bloco a bloco com acumuladores fixos (Welford sem
+    desvios, mediana e percentil por `select_nth_unstable`);
+  - a leitura de um VRT da calculadora em faixas de linhas de blocos, uma por
+    thread (até 8), cada uma com o seu dataset, com janela em ponto flutuante
+    (`GDALRasterIOEx`) para dar os mesmos pixels que uma leitura só.
+- O limite que ficou: o pool de datasets do GDAL (proxy pool) tem uma trava
+  global, e mais threads além de ~4 quase não ganham. Um avaliador próprio dos
+  VRTs do Janus (ler os arquivos da série direto, sem o VRT do GDAL no meio,
+  como o leitor das séries já faz) tiraria a trava e o XML do caminho.
+- Ainda da fase 39b: `argmax`, recortes de calendário, `by year`, janelas em
+  dias, defasagens, anomalia por climatologia, eventos, a redução progressiva
+  na tela e as subexpressões no gráfico.
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).

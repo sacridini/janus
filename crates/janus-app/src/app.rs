@@ -261,6 +261,12 @@ pub struct Options {
     pub stac: Option<String>,
     /// --stac-open: its series opened as a layer once found
     pub stac_open: bool,
+    /// --expr TEXT|INDEX: the inputs opened showing an expression of their bands (or an index of the library)
+    pub expr: Option<String>,
+    /// --calc TEXT: the raster calculator open with this text (statements apart by ;)
+    pub calc: Option<String>,
+    /// --calc-run: and run once the layers are open
+    pub calc_run: bool,
     /// --selftest-reproject B F: F reprojected on B's grid
     pub selftest_reproject: bool,
     /// --selftest-multidim H/clim.nc: a NetCDF of two variables, its levels, opened in place
@@ -418,6 +424,8 @@ pub struct State {
     pub emb_downloads: Vec<crate::emb_download::EmbDownload>,
     /// File > Search STAC catalog
     pub stac: crate::stac::StacUi,
+    /// Tools > Raster calculator
+    pub calc: crate::calculator::CalcUi,
     pub chart: crate::chart::ChartOptions,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
@@ -678,7 +686,13 @@ impl JanusApp {
             .iter()
             .cloned()
             .partition(|p| janus_geo::vectors::is_vector_path(p) && !std::path::Path::new(p).is_dir());
-        let sel = janus_cube::BandSelection { band: opts.band.max(1), ..Default::default() };
+        let mut sel = janus_cube::BandSelection { band: opts.band.max(1), ..Default::default() };
+        if let Some(e) = &opts.expr {
+            // an index of the library by its name, else a text
+            let name = janus_cube::calc::indices::find(e.trim()).map_or(String::new(), |i| i.name.clone());
+            // not `chosen`: the quality band is still found by its name
+            sel.expr = janus_cube::calc::ExprId::intern(&name, e.trim());
+        }
         let opening = (!rasters.is_empty()).then(|| Opening::start_with(rasters, false, sel, &cc.egui_ctx));
         let detach = opts.detach_map;
         let scripted = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
@@ -726,6 +740,7 @@ impl JanusApp {
                 emb_download: Default::default(),
                 emb_downloads: Vec::new(),
                 stac: Default::default(),
+                calc: Default::default(),
                 val: Default::default(),
                 ml: Default::default(),
                 contents: Default::default(),
@@ -791,6 +806,11 @@ impl JanusApp {
             eprintln!("--stac: {e}");
         }
         app.state.stac.open_after = app.state.opts.stac_open;
+        if let Some(text) = app.state.opts.calc.clone() {
+            app.state.calc.text = text;
+            app.state.calc.show = true;
+            app.state.calc.run_pending = app.state.opts.calc_run;
+        }
         app
     }
 
@@ -1350,9 +1370,9 @@ impl State {
                 if ui
                     .button("Search STAC catalog...")
                     .on_hover_text(
-                        "Satellite series from a catalog (Earth Search, Planetary Computer, Brazil
-Data Cube or                          another STAC API): scenes over the area and dates, opened
-in place or downloaded",
+                        "Satellite series from a catalog (Earth Search, Planetary Computer, Brazil\n\
+                         Data Cube or another STAC API): scenes over the area and dates, opened\n\
+                         in place or downloaded",
                     )
                     .clicked()
                 {
@@ -1576,7 +1596,9 @@ in place or downloaded",
                 && (self.opts.stac.is_none()
                     || self.stac.settled()
                         && !self.stac.open_after
-                        && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()));
+                        && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()))
+                && (!self.opts.calc_run
+                    || !self.calc.run_pending && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()));
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
                 self.shots_pending += 1;
@@ -1670,6 +1692,7 @@ impl eframe::App for JanusApp {
         s.pump_embeddings(&ctx);
         s.pump_embedding_downloads(&ctx);
         s.pump_stac(&ctx);
+        s.pump_calculator(&ctx);
         s.pump_validation(&ctx);
         s.pump_animation(&ctx);
         s.pump_chips(&ctx);
@@ -1917,6 +1940,7 @@ impl eframe::App for JanusApp {
         self.state.tool_windows(&ctx);
         self.state.ml_window(&ctx);
         self.state.stac_window(&ctx);
+        self.state.calculator_window(&ctx);
         self.state.class_flows_window(&ctx);
         self.state.tasks_window(&ctx);
         self.state.exports_window(&ctx);

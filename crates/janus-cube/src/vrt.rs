@@ -15,13 +15,11 @@ fn g17(v: f64) -> String {
 /// each date (> 0); with the files' scale, offset and NoData applied (NoData as NaN), unless `raw` (the quality
 /// band's codes as they are).
 pub fn write_cube_vrt(info: &CubeInfo, path: &str, source_band: i32, raw: bool) -> Result<(), String> {
-    let mut srs = open_raster(&info.first_path)
-        .ok()
-        .and_then(|ds| ds.spatial_ref().ok())
-        .and_then(|s| s.to_wkt().ok())
-        .unwrap_or_default();
-    if srs.is_empty() {
-        srs = info.crs_wkt.clone(); // assumed (a lon/lat NetCDF without a grid mapping)
+    let srs = dataset_srs(info);
+    if source_band <= 0
+        && let Some(e) = &info.expr
+    {
+        return write_expr_vrt(info, e, &srs, path);
     }
     let mut x = format!("<VRTDataset rasterXSize=\"{}\" rasterYSize=\"{}\">\n", info.width, info.height);
     if !srs.is_empty() {
@@ -77,5 +75,49 @@ pub fn write_cube_vrt(info: &CubeInfo, path: &str, source_band: i32, raw: bool) 
         x += "  </VRTRasterBand>\n";
     }
     x += "</VRTDataset>\n";
+    std::fs::write(path, x).map_err(|e| format!("could not write {path}: {e}"))
+}
+
+/// The WKT of a cube's first file (its CRS as assumed when the file has none).
+pub fn dataset_srs(info: &CubeInfo) -> String {
+    let srs = open_raster(&info.first_path)
+        .ok()
+        .and_then(|ds| ds.spatial_ref().ok())
+        .and_then(|s| s.to_wkt().ok())
+        .unwrap_or_default();
+    // assumed (a lon/lat NetCDF without a grid mapping)
+    if srs.is_empty() { info.crs_wkt.clone() } else { srs }
+}
+
+/// The shown series of an expression: a derived band per date over the bands it reads (the calculator's pixel
+/// function), what Zeit reads.
+fn write_expr_vrt(info: &CubeInfo, e: &crate::calc::LayerExpr, srs: &str, path: &str) -> Result<(), String> {
+    use crate::calc::vrt::{Band, Grid, Source, block_side, date_args, register, vrt_xml};
+    register();
+    let expr = crate::calc::canonical::canonical(&e.program);
+    let mut metas: std::collections::HashMap<(String, i32), BandMeta> = std::collections::HashMap::new();
+    let mut bands = Vec::with_capacity(info.t());
+    for (t, l) in info.layers.iter().enumerate() {
+        let mut sources = Vec::new();
+        for &b in &e.bands {
+            let fb = b + l.band_base;
+            let meta = if fb == l.band {
+                l.meta
+            } else {
+                *metas.entry((l.path.clone(), fb)).or_insert_with(|| {
+                    open_raster(&l.path)
+                        .ok()
+                        .and_then(|ds| ds.rasterband(fb as usize).ok().map(|x| band_meta(&x)))
+                        .unwrap_or_default()
+                })
+            };
+            let path = l.path.clone();
+            sources.push(Some(Source { path, band: fb, meta, raw: false, rects: None, resampling: None }));
+        }
+        let vars = crate::calc::plan::date_vars(info, t);
+        bands.push(Band { description: l.label.clone(), sources, args: date_args(&expr, e.bands.len(), &vars) });
+    }
+    let grid = Grid { w: info.width, h: info.height, gt: info.geo_transform, srs: srs.to_string() };
+    let x = vrt_xml(&grid, &bands, block_side(e.bands.len()));
     std::fs::write(path, x).map_err(|e| format!("could not write {path}: {e}"))
 }

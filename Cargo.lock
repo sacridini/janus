@@ -4601,6 +4601,7 @@ dependencies = [
  "janus-session",
  "janus-validation",
  "janus-zeit",
+ "libc",
  "mimalloc",
  "rayon",
  "rfd",

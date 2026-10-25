@@ -9,6 +9,7 @@ mod animation;
 mod app;
 mod attributes;
 mod basemap;
+mod calculator;
 mod canvas;
 mod canvas_layer;
 mod chart;
@@ -146,6 +147,10 @@ Developer options:
   --stac CATALOG;COLLECTION;W,S,E,N;START;END[;CLOUD]  the Search STAC catalog window filled in (CATALOG:
                       earth-search, planetary-computer, bdc or an API's URL) and its search run
   --stac-open         and the series found opened as a layer (its bands at first, every date)
+  --expr TEXT|INDEX   the inputs shown as an expression of their bands, e.g. \"(N - R) / (N + R)\", or an
+                      index of the Awesome Spectral Indices by name (EVI, NDWI, NBR...)
+  --calc TEXT         Tools > Raster calculator open with TEXT (statements apart by ;)
+  --calc-run          and run once the layers are open: its result added as a layer
   --validation-tab N  a validation project (a .gpkg input) on tab N of its panel (0 Design, 1 Accuracy,
                       2 Maps, 3 Interpreters, 4 Report)
   --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation
@@ -327,6 +332,30 @@ fn window_icon() -> Arc<egui::IconData> {
     ))
 }
 
+/// How many files this process may open: on Unix its soft limit, raised first to the hard one (at most 8192;
+/// macOS starts programs at 256); on Windows, as many as the pool will want.
+fn open_files_limit() -> usize {
+    #[cfg(unix)]
+    {
+        // SAFETY: getrlimit / setrlimit with a valid struct.
+        unsafe {
+            let mut r = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+            if libc::getrlimit(libc::RLIMIT_NOFILE, &mut r) != 0 {
+                return 256;
+            }
+            let want = r.rlim_max.min(8192);
+            if r.rlim_cur < want && libc::setrlimit(libc::RLIMIT_NOFILE, &libc::rlimit { rlim_cur: want, ..r }) == 0 {
+                r.rlim_cur = want;
+            }
+            r.rlim_cur as usize
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        4000
+    }
+}
+
 fn main() -> eframe::Result<()> {
     let t0 = Instant::now();
     configure_data();
@@ -334,6 +363,13 @@ fn main() -> eframe::Result<()> {
     // GDAL's default (commit 9d6019c)
     if std::env::var_os("GDAL_CACHEMAX").is_none() {
         let _ = gdal::config::set_config_option("GDAL_CACHEMAX", "512");
+    }
+    // GDAL's pool of the files VRTs read (100 by default): a calculator's band over a series of more dates closed
+    // and reopened its files block after block (a reduction over 107 dates: 6 s instead of 3); half of the files
+    // this process may open
+    if std::env::var_os("GDAL_MAX_DATASET_POOL_SIZE").is_none() {
+        let n = (open_files_limit() / 2).clamp(100, 2000);
+        let _ = gdal::config::set_config_option("GDAL_MAX_DATASET_POOL_SIZE", &n.to_string());
     }
     gdal::DriverManager::register_all();
     // --budget: this run only (0: the Settings value)
@@ -375,6 +411,9 @@ fn main() -> eframe::Result<()> {
             "--embedding-view" => opts.embedding_view = args.next(),
             "--stac" => opts.stac = args.next(),
             "--stac-open" => opts.stac_open = true,
+            "--expr" => opts.expr = args.next(),
+            "--calc" => opts.calc = args.next(),
+            "--calc-run" => opts.calc_run = true,
             "--view" => {
                 let v: Vec<f64> =
                     args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();

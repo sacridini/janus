@@ -615,7 +615,12 @@ impl State {
                 State::colour_bar(&painter, rect, *cmap, format_g(f64::from(*lo), 3), format_g(f64::from(*hi), 3));
                 bars = 1;
             }
-        } else if d.mode != Mode::Rgb && composite.is_none() && !vectors_only {
+        } else if d.mode != Mode::Rgb
+            && composite.is_none()
+            && !vectors_only
+            && !(self.classes.on() && d.mode == Mode::Value)
+        {
+            // (classes are drawn in their colours, listed in the Display panel: no colour bar)
             let range = d.ranges[d.mode as usize];
             let (lo, hi) = (range_label(d.mode, range.lo, info), range_label(d.mode, range.hi, info));
             State::colour_bar(&painter, rect, d.cmap[d.mode as usize], lo, hi);

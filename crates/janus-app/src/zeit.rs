@@ -265,7 +265,10 @@ fn shown_of(info: &CubeInfo, roles: &BTreeMap<String, i32>) -> Option<Shown> {
     }
     let role_of = |b: i32| roles.iter().find(|(_, v)| **v == b).map(|(r, _)| r.clone());
     let sel = &info.sel;
-    Some(if sel.nd_band > 0 {
+    Some(if info.expr.is_some() {
+        // an expression: neither a band nor a normalized difference of the roles
+        Shown { band: None, nd: None }
+    } else if sel.nd_band > 0 {
         Shown { band: None, nd: role_of(sel.band).zip(role_of(sel.nd_band)).map(|(a, b)| vec![a, b]) }
     } else {
         Shown { band: role_of(sel.band), nd: None }
@@ -592,6 +595,17 @@ impl State {
             ui.separator();
         }
         self.ml_menu(ui);
+        if ui
+            .add(egui::Button::selectable(self.calc.show, "Raster calculator..."))
+            .on_hover_text(
+                "An expression over the open layers: bands, indices, a series with an image,\n\
+                 series matched by date, reductions over time (max, median, count...), rules",
+            )
+            .clicked()
+        {
+            self.calc.show = !self.calc.show;
+            ui.close();
+        }
         if ui.add(egui::Button::selectable(self.zeit.show_tasks, "Tasks")).clicked() {
             self.zeit.show_tasks = !self.zeit.show_tasks;
             ui.close();

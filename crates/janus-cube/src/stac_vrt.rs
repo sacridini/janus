@@ -186,7 +186,7 @@ fn last_error(what: &str) -> String {
 
 /// A warped VRT of a file of grid `g` onto `grid` (XML, its source to be filled in): made from a stand-in of the
 /// same grid, without the file.
-fn warp_template(g: &Geom, grid: &Grid, resampling: &str) -> Result<String, String> {
+pub fn warp_template(g: &Geom, grid: &Grid, resampling: &str) -> Result<String, String> {
     let mut stub = format!(
         "<VRTDataset rasterXSize=\"{}\" rasterYSize=\"{}\"><SRS>{}</SRS><GeoTransform>{}</GeoTransform>\
          <VRTRasterBand dataType=\"{}\" band=\"1\">",
@@ -512,83 +512,143 @@ pub fn sanitize(s: &str) -> String {
 struct Progress<'a> {
     f: &'a dyn Fn(f64),
     cancel: &'a AtomicBool,
+    /// a second flag that stops it (the user's, with `cancel` another date's failure)
+    also: &'a AtomicBool,
+}
+
+impl Progress<'_> {
+    fn stopped(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed) || self.also.load(Ordering::Relaxed)
+    }
 }
 
 unsafe extern "C" fn on_progress(done: f64, _msg: *const c_char, data: *mut c_void) -> c_int {
     // SAFETY: `data` is the Progress given with the callback, alive during the call that uses it.
     let p = unsafe { &*(data as *const Progress) };
     (p.f)(done);
-    c_int::from(!p.cancel.load(Ordering::Relaxed))
+    c_int::from(!p.stopped())
 }
 
+/// Dates written at once by `download`: each date is read on one thread by GDAL (a calculator's band computed, a
+/// catalog's blocks fetched one after another), its compression on all of them.
+const DOWNLOAD_THREADS: usize = 4;
+
 /// The series' VRTs written as cloud-optimized GeoTIFFs (DEFLATE, overviews) into `out`, under a temporary name
-/// renamed when complete: everything read once (the download). The files, in order.
+/// renamed when complete: everything read once (the download), a few dates at a time. The files, in order.
 pub fn download(
     files: &[String],
     out: &Path,
-    progress: &dyn Fn(f64, &str),
+    progress: &(dyn Fn(f64, &str) + Sync),
     cancel: &AtomicBool,
 ) -> Result<Vec<String>, String> {
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
-    let mut written = Vec::new();
-    for (i, f) in files.iter().enumerate() {
-        let stem = Path::new(f).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let dst = out.join(format!("{stem}.tif"));
-        let part = out.join(format!("{stem}.tif.part"));
-        let src = crate::open_raster(f).map_err(|e| format!("{f}: {e}"))?;
-        let mut a: Vec<String> = [
-            "-of",
-            "COG",
-            "-co",
-            "COMPRESS=DEFLATE",
-            "-co",
-            "PREDICTOR=2",
-            "-co",
-            "BIGTIFF=IF_SAFER",
-            "-co",
-            "NUM_THREADS=ALL_CPUS",
-            "-co",
-            "OVERVIEW_RESAMPLING=NEAREST",
-        ]
-        .map(String::from)
-        .to_vec();
-        // a GeoTIFF has one data type: the one that holds every band's (reflectances and a byte of SCL codes)
-        let types: Vec<gdal_sys::GDALDataType::Type> =
-            (1..=src.raster_count()).filter_map(|b| src.rasterband(b).ok()).map(|b| b.band_type() as _).collect();
-        if types.windows(2).any(|w| w[0] != w[1]) {
-            // SAFETY: GDAL's pure functions on data type values.
-            let name = unsafe {
-                let t = types.iter().fold(types[0], |u, &t| gdal_sys::GDALDataTypeUnion(u, t));
-                std::ffi::CStr::from_ptr(gdal_sys::GDALGetDataTypeName(t)).to_string_lossy().into_owned()
-            };
-            a.extend(["-ot".into(), name]);
+    let n = files.len();
+    // each date's share done, the dates finished, and a failure stopping the others
+    let done = std::sync::Mutex::new((vec![0f64; n], 0usize));
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let failed = AtomicBool::new(false);
+    let results: Vec<std::sync::Mutex<Option<Result<String, String>>>> =
+        (0..n).map(|_| std::sync::Mutex::new(None)).collect();
+    std::thread::scope(|sc| {
+        for _ in 0..DOWNLOAD_THREADS.min(n) {
+            sc.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    if i >= n || failed.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let f = &files[i];
+                    let stem = Path::new(f).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                    // under the lock: the fractions given in order
+                    let report = |d: f64| {
+                        let mut g = done.lock().unwrap();
+                        if d >= 1.0 && g.0[i] < 1.0 {
+                            g.1 += 1;
+                        }
+                        g.0[i] = d;
+                        let frac = g.0.iter().sum::<f64>() / n as f64;
+                        progress(frac, &format!("{} of {n} dates: {stem}", g.1));
+                    };
+                    let p = Progress { f: &report, cancel: &failed, also: cancel };
+                    let r = download_one(f, out, &stem, &p);
+                    if r.is_err() {
+                        failed.store(true, Ordering::Relaxed);
+                    }
+                    *results[i].lock().unwrap() = Some(r);
+                }
+            });
         }
-        let args = Args::new(&a);
-        let n = files.len() as f64;
-        let msg = format!("{} of {} dates: {stem}", i + 1, files.len());
-        let report = |d: f64| progress((i as f64 + d) / n, &msg);
-        let p = Progress { f: &report, cancel };
-        let c_dst = CString::new(part.to_string_lossy().as_ref()).map_err(|e| e.to_string())?;
-        // SAFETY: GDAL's C utility on a live handle; the progress data outlives the call.
-        let ok = unsafe {
-            gdal_sys::CPLErrorReset();
-            let to = gdal_sys::GDALTranslateOptionsNew(args.p.as_ptr() as *mut *mut c_char, std::ptr::null_mut());
-            gdal_sys::GDALTranslateOptionsSetProgress(to, Some(on_progress), &p as *const Progress as *mut c_void);
-            let h = gdal_sys::GDALTranslate(c_dst.as_ptr(), src.c_dataset(), to, std::ptr::null_mut());
-            gdal_sys::GDALTranslateOptionsFree(to);
-            if !h.is_null() {
-                gdal_sys::GDALClose(h);
-            }
-            !h.is_null()
-        };
-        if !ok || cancel.load(Ordering::Relaxed) {
-            let _ = std::fs::remove_file(&part);
-            return Err(if cancel.load(Ordering::Relaxed) { "cancelled".into() } else { last_error(&stem) });
-        }
-        std::fs::rename(&part, &dst).map_err(|e| format!("{}: {e}", dst.display()))?;
-        written.push(dst.to_string_lossy().into_owned());
+    });
+    if cancel.load(Ordering::Relaxed) {
+        return Err("cancelled".into());
     }
-    Ok(written)
+    // the first date that failed (the others were stopped by it)
+    let results: Vec<Option<Result<String, String>>> = results.into_iter().map(|r| r.into_inner().unwrap()).collect();
+    if let Some(Some(Err(e))) = results.iter().find(|r| matches!(r, Some(Err(e)) if e != "stopped")) {
+        return Err(e.clone());
+    }
+    results.into_iter().map(|r| r.unwrap_or_else(|| Err("stopped".into()))).collect()
+}
+
+/// One date of `download`.
+fn download_one(f: &str, out: &Path, stem: &str, p: &Progress) -> Result<String, String> {
+    let dst = out.join(format!("{stem}.tif"));
+    let part = out.join(format!("{stem}.tif.part"));
+    let src = crate::open_raster(f).map_err(|e| format!("{f}: {e}"))?;
+    let mut a: Vec<String> = [
+        "-of",
+        "COG",
+        "-co",
+        "COMPRESS=DEFLATE",
+        "-co",
+        "PREDICTOR=2",
+        "-co",
+        "BIGTIFF=IF_SAFER",
+        "-co",
+        "NUM_THREADS=ALL_CPUS",
+        "-co",
+        "OVERVIEW_RESAMPLING=NEAREST",
+    ]
+    .map(String::from)
+    .to_vec();
+    // a GeoTIFF has one data type: the one that holds every band's (reflectances and a byte of SCL codes)
+    let types: Vec<gdal_sys::GDALDataType::Type> =
+        (1..=src.raster_count()).filter_map(|b| src.rasterband(b).ok()).map(|b| b.band_type() as _).collect();
+    if types.windows(2).any(|w| w[0] != w[1]) {
+        // SAFETY: GDAL's pure functions on data type values.
+        let name = unsafe {
+            let t = types.iter().fold(types[0], |u, &t| gdal_sys::GDALDataTypeUnion(u, t));
+            std::ffi::CStr::from_ptr(gdal_sys::GDALGetDataTypeName(t)).to_string_lossy().into_owned()
+        };
+        a.extend(["-ot".into(), name]);
+    }
+    let args = Args::new(&a);
+    let c_dst = CString::new(part.to_string_lossy().as_ref()).map_err(|e| e.to_string())?;
+    // SAFETY: GDAL's C utility on a live handle; the progress data outlives the call.
+    let ok = unsafe {
+        gdal_sys::CPLErrorReset();
+        let to = gdal_sys::GDALTranslateOptionsNew(args.p.as_ptr() as *mut *mut c_char, std::ptr::null_mut());
+        gdal_sys::GDALTranslateOptionsSetProgress(to, Some(on_progress), p as *const Progress as *mut c_void);
+        let h = gdal_sys::GDALTranslate(c_dst.as_ptr(), src.c_dataset(), to, std::ptr::null_mut());
+        gdal_sys::GDALTranslateOptionsFree(to);
+        if !h.is_null() {
+            gdal_sys::GDALClose(h);
+        }
+        !h.is_null()
+    };
+    if !ok || p.stopped() {
+        let _ = std::fs::remove_file(&part);
+        return Err(if p.also.load(Ordering::Relaxed) {
+            "cancelled".into()
+        } else if p.cancel.load(Ordering::Relaxed) {
+            "stopped".into()
+        } else {
+            last_error(stem)
+        });
+    }
+    std::fs::rename(&part, &dst).map_err(|e| format!("{}: {e}", dst.display()))?;
+    (p.f)(1.0);
+    Ok(dst.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]

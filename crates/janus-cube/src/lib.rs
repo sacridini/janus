@@ -4,6 +4,7 @@
 //! each), a single multiband file (one band per date or per wavelength), a file of embeddings, a variable of a
 //! NetCDF / Zarr / HDF file, and the same over the network.
 
+pub mod calc;
 pub mod dates;
 pub mod inputs;
 pub mod multidim;
@@ -18,6 +19,7 @@ pub mod vrt;
 
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use gdal::{Dataset, DatasetOptions, GdalOpenFlags, Metadata};
@@ -107,11 +109,21 @@ pub struct BandSelection {
     pub qa_rule: QaRule,
     /// set by the user: no automatic quality band or index
     pub chosen: bool,
+    /// an expression over the date's bands (an index of the library, one typed): shown instead of the band or
+    /// normalized difference, before the quality mask
+    pub expr: calc::ExprId,
 }
 
 impl Default for BandSelection {
     fn default() -> Self {
-        BandSelection { band: 1, nd_band: 0, qa_band: 0, qa_rule: QaRule::None, chosen: false }
+        BandSelection {
+            band: 1,
+            nd_band: 0,
+            qa_band: 0,
+            qa_rule: QaRule::None,
+            chosen: false,
+            expr: calc::ExprId::NONE,
+        }
     }
 }
 
@@ -177,6 +189,8 @@ pub struct CubeInfo {
     /// local files whose data are read over the network (a STAC series' VRTs, `remote` false): a pixel of a date
     /// is a few round trips, so a pixel's dates are read several at once
     pub network_sources: bool,
+    /// sel.expr compiled over the bands (the reader evaluates it)
+    pub expr: Option<Arc<calc::LayerExpr>>,
 }
 
 impl CubeInfo {
@@ -258,7 +272,10 @@ impl CubeInfo {
                 format!("band {b}")
             }
         };
-        let mut s = if self.sel.nd_band > 0 {
+        let mut s = if self.expr.is_some() {
+            let l = self.sel.expr.label();
+            if l.chars().count() > 40 { format!("{}...", l.chars().take(37).collect::<String>()) } else { l }
+        } else if self.sel.nd_band > 0 {
             format!("ND({}, {})", name(self.sel.band), name(self.sel.nd_band))
         } else {
             name(self.sel.band)
@@ -399,6 +416,8 @@ fn is_dim(s: &str) -> bool {
 /// Interprets the inputs: a folder, a wildcard pattern (*, ?), a list of files or a single file (multiband = 1
 /// band per date). `sel` chooses the band(s) used when each file is one date.
 pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, String> {
+    // the calculator's VRTs compute with a pixel function of ours
+    calc::vrt::register();
     let files = inputs::expand_inputs(inputs);
     if files.is_empty() {
         return Err("No raster files found.".into());
@@ -508,6 +527,13 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         info.sel.qa_band = 0;
         info.sel.qa_rule = QaRule::None;
         info.sel.band = info.sel.band.clamp(1, packed_dims as i32);
+        if sel.expr.is_some() {
+            let e = compile_expr(&info, sel)?;
+            info.sel.expr = resolved_expr(&info, sel.expr);
+            info.sel.band = e.bands.first().copied().unwrap_or(1).clamp(1, packed_dims as i32);
+            info.sel.nd_band = 0;
+            info.expr = Some(Arc::new(e));
+        }
         for (g, prefix) in packed_prefix.iter().enumerate() {
             let base = (g * packed_dims) as i32;
             let band = base + info.sel.band;
@@ -539,26 +565,37 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         info.spectral = !nm.is_empty();
         // an index of a spectrum (picked in the Display panel): one map, the normalized difference of two of its
         // bands, dated by the file's name
-        if info.spectral && sel.chosen && sel.nd_band > 0 {
+        if info.spectral && (sel.chosen && sel.nd_band > 0 || sel.expr.is_some()) {
             info.spectral = false;
             info.bands_per_date = n;
             info.band_names = spectral::band_names_with_nm(&first, &nm);
             info.sel = BandSelection {
                 band: sel.band.clamp(1, n as i32),
-                nd_band: sel.nd_band.clamp(1, n as i32),
+                nd_band: if sel.expr.is_some() { 0 } else { sel.nd_band.clamp(1, n as i32) },
                 qa_band: 0,
                 qa_rule: QaRule::None,
                 chosen: true,
+                expr: sel.expr,
             };
+            if sel.expr.is_some() {
+                let e = compile_expr(&info, sel)?;
+                info.sel.expr = resolved_expr(&info, sel.expr);
+                info.sel.band = e.bands.first().copied().unwrap_or(1);
+                info.expr = Some(Arc::new(e));
+            }
             let rb = first.rasterband(info.sel.band as usize).map_err(|e| e.to_string())?;
-            let nd = first.rasterband(info.sel.nd_band as usize).map_err(|e| e.to_string())?;
+            let nd_meta = if info.sel.nd_band > 0 {
+                band_meta(&first.rasterband(info.sel.nd_band as usize).map_err(|e| e.to_string())?)
+            } else {
+                BandMeta::default()
+            };
             let label = display_name(&files[0]);
             info.layers.push(Layer {
                 path: files[0].clone(),
                 band: info.sel.band,
                 label: label.clone(),
                 meta: band_meta(&rb),
-                nd_meta: band_meta(&nd),
+                nd_meta,
                 ..Default::default()
             });
             info.description = format!("1 file, {} of a spectrum of {n} bands", info.selection_text());
@@ -662,6 +699,14 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         if info.sel.qa_rule == QaRule::None {
             info.sel.qa_band = 0;
         }
+        // an expression: compiled over the bands' names, the first band it reads stands for the shown one
+        if sel.expr.is_some() {
+            let e = compile_expr(&info, sel)?;
+            info.sel.expr = resolved_expr(&info, sel.expr);
+            info.sel.band = e.bands.first().copied().unwrap_or(1);
+            info.sel.nd_band = 0;
+            info.expr = Some(Arc::new(e));
+        }
         if let Some(t) = first.metadata_item("ZEIT_EMBEDDING", "") {
             info.embedding_tag = t;
         }
@@ -698,7 +743,7 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
                     inputs::display_name(f)
                 ));
             }
-            let need = s.band.max(s.nd_band).max(s.qa_band);
+            let need = s.band.max(s.nd_band).max(s.qa_band).max(info.expr.as_ref().map_or(0, |e| e.max_band()));
             if need as usize > ds.raster_count() {
                 return Err(format!("{f}: has no band {need}."));
             }
@@ -767,6 +812,35 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         }
     }
     Ok(info)
+}
+
+/// An index of the library given by its name (--expr EVI) as its formula over the cube's bands, under its name:
+/// what the Display panel shows and edits.
+fn resolved_expr(info: &CubeInfo, expr: calc::ExprId) -> calc::ExprId {
+    let text = expr.text();
+    let Some(ix) = calc::indices::find(text.trim()) else { return expr };
+    match ix.formula_for(&calc::BandNames::of(info), &info.band_nm) {
+        Some(f) => calc::ExprId::intern(&ix.name, &f),
+        None => expr,
+    }
+}
+
+/// The selection's expression compiled over the cube's bands (an error says where).
+fn compile_expr(info: &CubeInfo, sel: &BandSelection) -> Result<calc::LayerExpr, String> {
+    let names = calc::BandNames::of(info);
+    let mut text = sel.expr.text();
+    // an index of the library by its name (--expr EVI): its formula over these bands
+    if let Some(ix) = calc::indices::find(text.trim()) {
+        if !ix.usable(&names) {
+            return Err(format!("{} needs bands this series lacks: {}", ix.title(), ix.missing(&names).join(", ")));
+        }
+        text =
+            ix.formula_for(&names, &info.band_nm).ok_or_else(|| format!("{} needs a value no band gives", ix.name))?;
+    }
+    calc::LayerExpr::compile(&text, &names).map_err(|e| {
+        let (line, col) = e.line_col(&text);
+        format!("the expression {text:?}: {} (line {line}, column {col})", e.message)
+    })
 }
 
 /// A NetCDF / Zarr variable: one level's bands, by their time coordinate.

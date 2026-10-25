@@ -548,6 +548,11 @@ impl State {
             if became_on {
                 l.disp.mode = janus_gpu::Mode::Value;
             }
+            // its own stretch as its dates load: a layer added without being active (a calculator's result, a
+            // Zeit run's series) kept 0-1 until it was
+            if l.disp.update(s) {
+                self.map.dirty = true;
+            }
         }
     }
 }
