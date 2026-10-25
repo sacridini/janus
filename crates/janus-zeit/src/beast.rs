@@ -83,6 +83,13 @@ fn field<'a>(layout: &Layout, row: &'a [f32], name: &str) -> Option<&'a [f32]> {
     Some(&row[*off..*off + shape.iter().product::<usize>()])
 }
 
+/// Three significant digits, or the whole integer part (a jump of -1749, not -1.75e+03).
+fn short(v: f32) -> String {
+    let v = f64::from(v);
+    let digits = if v.is_finite() && v.abs() >= 1.0 { v.abs().log10().floor() as usize + 1 } else { 0 };
+    g(v, digits.max(3))
+}
+
 fn finite(v: f32) -> Option<f64> {
     v.is_finite().then_some(f64::from(v))
 }
@@ -103,7 +110,10 @@ pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
     let mut rows = vec![
         row(
             "Grid",
-            format!("{} dates, every {} years from {}", ax.n, g(f64::from(ax.dt), 4), g(f64::from(ax.start), 6)),
+            match ax.dt {
+                1.0 => format!("{} dates, every year from {}", ax.n, g(f64::from(ax.start), 6)),
+                dt => format!("{} dates, every {} years from {}", ax.n, g(f64::from(dt), 4), g(f64::from(ax.start), 6)),
+            },
         ),
         row("R²", g(f64::from(r2), 4)),
         row("RMSE", g(f64::from(get("rmse").map_or(f32::NAN, |v| v[0])), 4)),
@@ -135,7 +145,7 @@ pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
         rows.push(row(format!("{title} changepoints"), format!("{} on average", g(f64::from(ncp[0]), 3))));
         let abrupt = get(&format!("{comp}_cp_abrupt")).unwrap_or_default();
         for (k, (&c, &pp)) in cp.iter().zip(pr).enumerate().take_while(|(_, (c, _))| c.is_finite()).take(5) {
-            let jump = abrupt.get(k).filter(|v| v.is_finite()).map(|&v| format!(", jump {}", g(f64::from(v), 3)));
+            let jump = abrupt.get(k).filter(|v| v.is_finite()).map(|&v| format!(", jump {}", short(v)));
             rows.push(row(
                 format!("  {}", g(f64::from(c), 6)),
                 format!("probability {:.0}%{}", 100.0 * pp, jump.unwrap_or_default()),
@@ -149,7 +159,7 @@ pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
         let last = ax.n - 1;
         rows.push(row(
             "Slope at the end",
-            format!("{} per year, P(positive) {:.0}%", g(f64::from(s[last]), 3), 100.0 * pos[last]),
+            format!("{} per year, P(positive) {:.0}%", short(s[last]), 100.0 * pos[last]),
         ));
     }
     if !drawn.is_empty() {

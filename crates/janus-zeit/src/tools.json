@@ -448,7 +448,7 @@
      "default": 2000,
      "min": 100,
      "max": 100000,
-     "help": "Samples kept per chain (Rbeast's default 8000): more are steadier and slower; a pixel takes about 10 ms per 1000 samples and chain."
+     "help": "Samples kept per chain (Rbeast's default 8000): more are steadier and slower; a pixel takes about 4 ms per 1000 samples and chain on an annual series of 40 years, some 40 ms on a 16-day series of 25 years."
     },
     {
      "id": "chains",

@@ -1329,6 +1329,12 @@ impl ResultLayer {
             (self.lo, self.hi) = (mn, mx.max(mn + 1.0));
         } else {
             (self.lo, self.hi) = janus_cube::stats::sample_percentiles(&v, 2_000_000, 0.02, 0.98);
+            // a diverging colormap across 0: its middle colour at 0
+            let diverging = matches!(janus_gpu::colormaps::all()[self.cmap].name, "RdBu" | "BrBG" | "PiYG");
+            if diverging && self.lo < 0.0 && self.hi > 0.0 {
+                let m = self.hi.max(-self.lo);
+                (self.lo, self.hi) = (-m, m);
+            }
         }
     }
 }
