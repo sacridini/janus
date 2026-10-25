@@ -152,7 +152,6 @@ pub struct SeriesState {
     /// overview dates its approximation had
     approx_layers: usize,
     pub pins: Vec<SeriesView>,
-    pub next_pin: u32,
     /// the ROI rectangle in the active layer's pixels (x0, y0, x1, y1): the polygon's bounding box if it has one
     pub roi_rect: Option<[usize; 4]>,
     /// the ROI's polygon in the active layer's pixels (empty: the rectangle)
@@ -179,7 +178,6 @@ impl Default for SeriesState {
             hover_since: None,
             approx_layers: 0,
             pins: Vec::new(),
-            next_pin: 1,
             roi_rect: None,
             roi_poly: Vec::new(),
             poly: Default::default(),
@@ -220,8 +218,8 @@ impl State {
 
     pub fn add_pin(&mut self, x: usize, y: usize) {
         let Some(s) = self.session.as_ref().filter(|s| x < s.info.width && y < s.info.height) else { return };
-        let id = self.series.next_pin;
-        self.series.next_pin += 1;
+        // the smallest number free: pin 1 deleted, the next one is pin 1 again
+        let id = (1..).find(|&i| self.series.pins.iter().all(|p| p.id != i)).unwrap_or(1);
         let p = view(s, id, x, y, pin_color(id));
         if s.s.defer_random_reads() {
             self.series.pins_pending = true;

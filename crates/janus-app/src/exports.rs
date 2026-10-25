@@ -159,56 +159,57 @@ impl State {
         }
         let mut open = true;
         let mut remove = None;
-        let w = egui::Window::new("Exports")
+        let w = crate::panels::fitted_window("Exports", ctx, 600.0)
             .id(egui::Id::new("Exports"))
             .open(&mut open)
-            .default_size([600.0, 260.0])
             .max_width(900.0);
         w.show(ctx, |ui| {
-            if self.exports.is_empty() {
-                ui.weak("Nothing exported yet.");
-            }
-            for (i, j) in self.exports.iter().enumerate() {
-                ui.push_id(i, |ui| {
-                    let st = j.state();
-                    ui.label(&j.title);
-                    crate::panels::path_label(ui, &j.path);
-                    let name = match st {
-                        ExportState::Running => "writing",
-                        ExportState::Done => "done",
-                        ExportState::Cancelled => "cancelled",
-                        ExportState::Failed => "failed",
-                    };
-                    let p = if st == ExportState::Done { 1.0 } else { j.progress() };
-                    let bw = ui.text_style_height(&egui::TextStyle::Body) * 4.5;
-                    let bar = egui::ProgressBar::new(p as f32).text(format!(
-                        "{name}  {:.0}%  {:.1} s",
-                        p * 100.0,
-                        j.seconds()
-                    ));
-                    // the buttons from the right (Cancel while it runs, Folder and Remove after), the bar in the rest
-                    crate::panels::progress_row(ui, bar, |ui| {
-                        if st == ExportState::Running {
-                            if ui.add(egui::Button::new("Cancel").min_size(egui::vec2(bw, 0.0))).clicked() {
-                                j.cancel.store(true, Ordering::Relaxed);
+            crate::panels::fitted_body(ui, |ui| {
+                if self.exports.is_empty() {
+                    ui.weak("Nothing exported yet.");
+                }
+                for (i, j) in self.exports.iter().enumerate() {
+                    ui.push_id(i, |ui| {
+                        let st = j.state();
+                        ui.label(&j.title);
+                        crate::panels::path_label(ui, &j.path);
+                        let name = match st {
+                            ExportState::Running => "writing",
+                            ExportState::Done => "done",
+                            ExportState::Cancelled => "cancelled",
+                            ExportState::Failed => "failed",
+                        };
+                        let p = if st == ExportState::Done { 1.0 } else { j.progress() };
+                        let bw = ui.text_style_height(&egui::TextStyle::Body) * 4.5;
+                        let bar = egui::ProgressBar::new(p as f32).text(format!(
+                            "{name}  {:.0}%  {:.1} s",
+                            p * 100.0,
+                            j.seconds()
+                        ));
+                        // the buttons from the right (Cancel while it runs, Folder and Remove after), the bar in the rest
+                        crate::panels::progress_row(ui, bar, |ui| {
+                            if st == ExportState::Running {
+                                if ui.add(egui::Button::new("Cancel").min_size(egui::vec2(bw, 0.0))).clicked() {
+                                    j.cancel.store(true, Ordering::Relaxed);
+                                }
+                            } else {
+                                if ui.add(egui::Button::new("Remove").min_size(egui::vec2(bw, 0.0))).clicked() {
+                                    remove = Some(i);
+                                }
+                                if ui.add(egui::Button::new("Folder").min_size(egui::vec2(bw, 0.0))).clicked()
+                                    && let Some(d) = std::path::Path::new(&j.path).parent()
+                                {
+                                    crate::platform::open_in_explorer(&d.to_string_lossy());
+                                }
                             }
-                        } else {
-                            if ui.add(egui::Button::new("Remove").min_size(egui::vec2(bw, 0.0))).clicked() {
-                                remove = Some(i);
-                            }
-                            if ui.add(egui::Button::new("Folder").min_size(egui::vec2(bw, 0.0))).clicked()
-                                && let Some(d) = std::path::Path::new(&j.path).parent()
-                            {
-                                crate::platform::open_in_explorer(&d.to_string_lossy());
-                            }
+                        });
+                        if st == ExportState::Failed {
+                            ui.colored_label(theme::error(), j.error());
                         }
+                        ui.separator();
                     });
-                    if st == ExportState::Failed {
-                        ui.colored_label(theme::error(), j.error());
-                    }
-                    ui.separator();
-                });
-            }
+                }
+            })
         });
         if let Some(i) = remove {
             self.exports.remove(i);

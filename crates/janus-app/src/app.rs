@@ -99,10 +99,13 @@ fn layout_path() -> std::path::PathBuf {
 }
 
 fn load_layout() -> Option<DockState<Tab>> {
-    let text = std::fs::read_to_string(layout_path()).ok()?;
-    let mut d: DockState<Tab> = serde_json::from_str(&text).ok()?;
+    parse_layout(&std::fs::read_to_string(layout_path()).ok()?)
+}
+
+fn parse_layout(text: &str) -> Option<DockState<Tab>> {
+    let mut d: DockState<Tab> = serde_json::from_str(text).ok()?;
     // a panel shown for a while kept by an older version (Performance): out, a session starts without it
-    d.retain_tabs(|t| !transient(t));
+    retain_tabs(&mut d, |t| !transient(t));
     // the panels always there, once (a layout from another version may lack one); the series panels may be out
     let all = [Tab::Map, Tab::Layers, Tab::Files, Tab::Display];
     all.iter().all(|t| d.find_tab(t).is_some()).then_some(d)
@@ -134,7 +137,27 @@ fn series_panel(t: &Tab) -> bool {
 
 /// The dock as kept: the transient panels left out.
 fn layout_text(dock: &DockState<Tab>) -> Option<String> {
-    serde_json::to_string(&dock.filter_tabs(|t| !transient(t))).ok()
+    serde_json::to_string(&filter_tabs(dock, |t| !transient(t))).ok()
+}
+
+/// Tabs taken out of the dock, each panel left on a tab it still has: egui_dock's own `retain_tabs` keeps a
+/// panel's index of the tab in front, past its last tab once that one is out (Analysis in front of the time
+/// series, kept without it: the panel came back empty).
+fn retain_tabs(d: &mut DockState<Tab>, keep: impl Fn(&Tab) -> bool) {
+    for (_, leaf) in d.iter_leaves_mut() {
+        let a = leaf.active.0.min(leaf.tabs.len());
+        let before = leaf.tabs[..a].iter().filter(|t| keep(t)).count();
+        let left = leaf.tabs.iter().filter(|t| keep(t)).count();
+        leaf.active = egui_dock::TabIndex(before.min(left.saturating_sub(1)));
+    }
+    d.retain_tabs(|t| keep(t));
+}
+
+/// A copy of the dock without some tabs (as `retain_tabs`).
+fn filter_tabs(d: &DockState<Tab>, keep: impl Fn(&Tab) -> bool) -> DockState<Tab> {
+    let mut d = d.clone();
+    retain_tabs(&mut d, keep);
+    d
 }
 
 /// The main window's dock as a text of its nodes (their splits and tabs, not their sizes on the screen nor the tab
@@ -787,11 +810,11 @@ impl JanusApp {
         if !want {
             if chart || stats {
                 if self.dock.find_tab(&Tab::TimeSeries).is_some() {
-                    self.series_layout = Some(self.dock.filter_tabs(|t| !transient(t)));
+                    self.series_layout = Some(filter_tabs(&self.dock, |t| !transient(t)));
                 }
-                self.dock.retain_tabs(|t| !series_panel(t));
+                retain_tabs(&mut self.dock, |t| !series_panel(t));
                 for w in &mut self.windows {
-                    w.dock.retain_tabs(|t| !series_panel(t));
+                    retain_tabs(&mut w.dock, |t| !series_panel(t));
                 }
             }
             return;
@@ -1924,6 +1947,39 @@ impl eframe::App for JanusApp {
         s.frame += 1;
         if s.frame <= 2 || s.opts.screenshot.is_some() && !s.screenshot_asked {
             ctx.request_repaint();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tabs_taken_out_leave_a_tab_in_front() {
+        // Analysis in front of the time series, kept without it
+        let mut d = DockState::new(vec![Tab::Map]);
+        let s = d.main_surface_mut();
+        let [_, b] = s.split_below(egui_dock::NodeIndex::root(), 0.6, vec![Tab::TimeSeries, Tab::Analysis]);
+        s[b].get_leaf_mut().unwrap().active = egui_dock::TabIndex(1);
+        let kept = filter_tabs(&d, |t| !transient(t));
+        let leaf = kept.main_surface().iter().filter_map(|n| n.get_leaf()).find(|l| l.tabs == [Tab::TimeSeries]);
+        assert_eq!(leaf.unwrap().active.0, 0);
+        // the tab in front kept: still in front, after the ones before it went out
+        let mut d = DockState::new(vec![Tab::Analysis, Tab::Transect, Tab::TimeSeries, Tab::Statistics]);
+        d.main_surface_mut()[egui_dock::NodeIndex::root()].get_leaf_mut().unwrap().active = egui_dock::TabIndex(2);
+        retain_tabs(&mut d, |t| !transient(t));
+        let leaf = d.main_surface().iter().find_map(|n| n.get_leaf()).unwrap();
+        assert_eq!(leaf.tabs[leaf.active.0], Tab::TimeSeries);
+    }
+
+    #[test]
+    fn a_layout_kept_with_its_tab_in_front_out() {
+        // kept by 1.3.0 with Analysis in front of the time series: the series panel's tab index past its only tab
+        let text = r#"{"surfaces":[{"Main":{"nodes":[{"Horizontal":{"rect":{"min":{"x":0.0,"y":27.0},"max":{"x":2560.0,"y":1369.0}},"fraction":0.21,"fully_collapsed":false,"collapsed_leaf_count":0}},{"Vertical":{"rect":{"min":{"x":0.0,"y":27.0},"max":{"x":537.0,"y":1369.0}},"fraction":0.42,"fully_collapsed":false,"collapsed_leaf_count":0}},{"Vertical":{"rect":{"min":{"x":538.0,"y":27.0},"max":{"x":2560.0,"y":1369.0}},"fraction":0.64,"fully_collapsed":false,"collapsed_leaf_count":0}},{"Leaf":{"rect":{"min":{"x":0.0,"y":27.0},"max":{"x":537.0,"y":590.0}},"viewport":{"min":{"x":0.0,"y":51.0},"max":{"x":537.0,"y":590.0}},"tabs":["Layers","Files"],"active":0,"scroll":0.0,"collapsed":false,"tab_bar_hidden":false}},{"Leaf":{"rect":{"min":{"x":0.0,"y":591.0},"max":{"x":537.0,"y":1369.0}},"viewport":{"min":{"x":0.0,"y":615.0},"max":{"x":537.0,"y":1369.0}},"tabs":["Display"],"active":0,"scroll":0.0,"collapsed":false,"tab_bar_hidden":false}},{"Leaf":{"rect":{"min":{"x":538.0,"y":27.0},"max":{"x":2560.0,"y":885.0}},"viewport":{"min":{"x":538.0,"y":51.0},"max":{"x":2560.0,"y":885.0}},"tabs":["Map"],"active":0,"scroll":0.0,"collapsed":false,"tab_bar_hidden":false}},{"Horizontal":{"rect":{"min":{"x":538.0,"y":886.0},"max":{"x":2560.0,"y":1369.0}},"fraction":0.66,"fully_collapsed":false,"collapsed_leaf_count":0}},"Empty","Empty","Empty","Empty","Empty","Empty",{"Leaf":{"rect":{"min":{"x":538.0,"y":886.0},"max":{"x":1872.0,"y":1369.0}},"viewport":{"min":{"x":538.0,"y":910.0},"max":{"x":1872.0,"y":1369.0}},"tabs":["TimeSeries"],"active":1,"scroll":0.0,"collapsed":false,"tab_bar_hidden":false}},{"Leaf":{"rect":{"min":{"x":1873.0,"y":886.0},"max":{"x":2560.0,"y":1369.0}},"viewport":{"min":{"x":1873.0,"y":910.0},"max":{"x":2560.0,"y":1369.0}},"tabs":["Statistics"],"active":0,"scroll":0.0,"collapsed":false,"tab_bar_hidden":false}}],"focused_node":5,"collapsed":false,"collapsed_leaf_count":0}}],"focused_surface":0}"#;
+        let d = parse_layout(text).unwrap();
+        for leaf in d.main_surface().iter().filter_map(|n| n.get_leaf()) {
+            assert!(leaf.active.0 < leaf.tabs.len(), "{:?}", leaf.tabs);
         }
     }
 }

@@ -1019,6 +1019,9 @@ impl State {
         key = key
             .wrapping_add(active.info.id.wrapping_mul(7919))
             .wrapping_add(xs.s.overview.layers_done() as u64 * 13 + ys.s.overview.layers_done() as u64);
+        // its dates sampled once uploaded: computed before, it stayed at 0 pixels
+        let up = |s: &crate::session::Session| s.uploaded.iter().filter(|&&u| u).count() as u64;
+        key = key.wrapping_mul(1_000_003).wrapping_add(up(xs) * 7 + up(ys));
         let (xs, ys) = (xs.info.clone(), ys.info.clone());
         if self.analysis.scatter.key != key {
             let mut sc = self.compute_scatter(xl, tx, yl, ty);

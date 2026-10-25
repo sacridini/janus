@@ -638,6 +638,243 @@ Windows sem Python nem conda, e chamável pela linha de comando
 - Conferência: as saídas do Janus contra as da implementação oficial num
   recorte do PASTIS, até a tolerância de float32.
 
+### Raster pelo GDAL e análise de séries (fases 39–47, planejadas em 2026-10-25)
+
+Levantamento pedido depois da fase 13 do plano de ferramentas (STAC). Só entram
+as ideias de encaixe **alto** ou **muito alto** no perfil do Janus (séries,
+mudança, validação). Ficaram de fora, por encaixe médio: camadas OGC
+(WMS/WFS/OGC API), comparação com alertas oficiais (DETER, GLAD, RADD), modo em
+lote sem janela, gráficos em SVG/PDF; por puxar para SIG: terreno (hillshade,
+declividade), curvas de nível, pansharpening, edição de vetores.
+
+**Por que é barato pelo GDAL:** o Janus já leva a biblioteca inteira (todos os
+drivers, o PROJ) e já chama `GDALWarp` (VRTs reprojetados da fase 13, em
+`stac_vrt.rs`) e `GDALTranslate` (download em COG, com progresso, cancelamento
+e `.part` renomeado). As funções que faltarem nas bindings do `gdal-sys`
+(`GDALPolygonize`, `GDALRasterize`, `GDALBuildVRT`...) são declaradas à mão em
+`janus-gdal`, como `CPLHTTPFetch`. Nenhuma dependência nova, binário do mesmo
+tamanho. O trabalho está na interface e na integração: janela, tarefa em
+Tools → Tasks (o esquema do `EmbDownload`/`zeit::Job`), resultado aberto como
+camada, séries tratadas data a data.
+
+**Regras de sempre:** testes em arquivos locais gerados no próprio teste (como
+`tests/stac_local.rs`); comparar com o original (CLI do GDAL, Python/R) em
+resultado **e em tempo** (`benchmarks/vs_originals`); um guia no site com
+capturas tiradas pelo Janus em dados reais; `--selftest-ui` cobrindo a janela
+nova.
+
+#### Ordem e dependências
+
+| Fase | Conteúdo | Encaixe | Esforço | Depende de |
+|---|---|---|---|---|
+| 39 | Calculadora de bandas e biblioteca de índices | muito alto | médio | — |
+| 39b | Calculadora temporal (o tempo como eixo da expressão) | muito alto | médio/grande | 39 (analisador), 40 (blocos pixels × datas) |
+| 40 | Regularização e preenchimento de lacunas da série | muito alto | médio | — |
+| 41 | Poligonizar mapas de mudança e de classes | muito alto | pequeno | — |
+| 42 | Área de mudança e de classes por data | alto | pequeno/médio | 41 (área do pixel) |
+| 43 | Reprojetar, reamostrar, recortar, alinhar à grade | alto | médio | — |
+| 44 | Rasterizar vetores na grade da série | alto | pequeno | — |
+| 45 | Estatística zonal no tempo | alto | médio | 44, 42 |
+| 46 | Montar uma série e salvar a série | alto | pequeno/médio | 43 |
+| 47 | Sentinel-1 (radar) pelo STAC | alto | médio | 39, 40 |
+
+#### Fase 39 — Calculadora de bandas e biblioteca de índices
+- **Por quê:** numa série STAC (ou qualquer série de várias bandas por data) só
+  dá para ver uma banda ou a diferença normalizada de duas (NDVI, NDMI, NBR).
+  EVI, SAVI, NDRE, MNDWI, NDFI fora do CODED... pedem uma expressão.
+- **Biblioteca:** os índices do *Awesome Spectral Indices* (JSON com fórmula e
+  bandas por papel: `N`, `R`, `G`, `B`, `S1`, `S2`, `RE1`...; licença MIT),
+  embutido; as bandas ligadas pelos papéis que o `roles.rs` já reconhece
+  ("Red (B04)", "NIR", "SWIR 1"). No painel Display, uma lista com busca
+  ("EVI — Enhanced Vegetation Index"); só os índices cujas bandas a série tem.
+- **Expressão livre:** `(B8 - B4) / (B8 + B4)`, `2.5 * (N - R) / (N + 6*R - 7.5*B + 1)`,
+  com nomes de banda, papéis, constantes, `+ - * / ^`, `sqrt`, `log10`, `abs`,
+  `min`, `max`, `where(c, a, b)`. Analisador próprio pequeno → bytecode avaliado
+  sobre fatias `f32` no leitor (`reader.rs`, onde hoje sai a diferença
+  normalizada), depois da escala/offset e antes da máscara de qualidade: vale
+  para o overview, os tiles, a série de um pixel, a ROI e as ferramentas do
+  Zeit sem mudar mais nada. `BandSelection` ganha a expressão (no lugar de
+  `band`/`nd_band` quando usada) e entra na chave do cache.
+- **Entre datas:** a diferença para uma data ou para a anterior já existe (modo
+  Δ, na GPU); dNBR = Δ do NBR. Não duplicar.
+- **Teste/comparação:** índices contra o `spyndex` (Python, mesma biblioteca)
+  numa série sintética; tempo do overview com expressão contra NDVI.
+- **Saída:** a série com o índice como camada; Copy Python com a fórmula.
+
+#### Fase 39b — Calculadora temporal
+- **Por quê:** a calculadora do QGIS é álgebra pixel a pixel entre camadas
+  soltas (`"a@1" - "b@1"`): não conhece o tempo, grava um arquivo inteiro antes
+  de mostrar algo. O ArcGIS Pro tem ferramentas multidimensionais (Aggregate
+  Multidimensional Raster, Find Argument Statistics, Generate Multidimensional
+  Anomaly), mas cada uma é uma ferramenta, não se compõem numa expressão. Earth
+  Engine e openEO compõem `reduce`/`apply_dimension`, mas por código ou grafo,
+  num servidor. Falta uma linguagem curta em que o tempo é de primeira classe,
+  avaliada ao vivo e localmente, com o gráfico do pixel ao lado.
+- **A linguagem** (a da fase 39, mais o eixo do tempo):
+  - por data: `ndvi = (N - R) / (N + R)` (fase 39);
+  - série → imagem: `max(ndvi)`, `median`, `std`, `count(valid)`;
+    `argmax(ndvi)` dá a **data** do máximo;
+  - recorte por calendário: `median(ndvi[2019-06 .. 2019-09])`;
+  - série → nova série: `max(ndvi) by year`, `mean(ndvi) by month` (datas novas);
+  - janela móvel em dias, não em índices: `mean(ndvi, 90d)`;
+  - defasagem: `ndvi[-1]` (a observação anterior), `lag(ndvi, 1y)` (o valor de
+    um ano antes, a data mais próxima dentro de uma tolerância);
+  - anomalia contra a climatologia: `anomaly(ndvi, base=2015..2019, by=month)`
+    (z-score; `by=doy` com janela);
+  - eventos: `first(t where ndvi < 0.3 and t > 2020)` (data do primeiro),
+    `count(ndvi < 0.3)`, `longest(ndvi < 0.3)` (maior sequência, em dias),
+    `persist(ndvi < 0.3, 3)` (abaixo em 3 observações seguidas).
+- **Tipos com forma e unidade:** `Série` ou `Imagem`; número, bool, data,
+  duração. `argmax` sai como camada de datas (legenda de datas, como os anos
+  de quebra do LandTrendr); `by year` sai como série. Erros enquanto se digita,
+  apontando a coluna ("soma de uma série com uma data").
+- **Ausência explícita:** a observação mascarada pela qualidade não existe (não
+  é zero nem NaN que contamina): as reduções a pulam, `lag` e as janelas usam
+  as datas reais de uma série irregular, `count(valid)` diz quantas sobraram.
+- **Ao vivo e progressiva:** avaliada no leitor na resolução do overview; uma
+  redução se atualiza na tela à medida que as datas chegam ("máximo até
+  agora"), em vez de esperar as 107 datas. Resolução cheia nos tiles visíveis
+  e na tarefa de gravação.
+- **No gráfico:** no cursor (e nos pinos, na ROI), a série da expressão e a de
+  cada subexpressão (clicar num trecho da expressão); o porquê do valor de um
+  pixel: o `first(...)` caiu em tal data porque o NDVI passou de 0.31 a 0.28.
+- **Vale para o Janus inteiro:** o resultado é uma camada como as outras; uma
+  série da expressão alimenta o BFAST, o BEAST, a ROI, Classes > Flows, a
+  exportação. Expressões salvas na sessão e numa lista de favoritas.
+- **Como:** analisador Pratt próprio (o da fase 39) → AST → verificação de tipo
+  e forma → plano: trechos por data fundidos num bytecode sobre fatias `f32`
+  de ~4096 (interpretação diluída, perto do nativo; ou WGSL para a exibição,
+  onde o modo Δ já roda) e operadores temporais (`reduce`, `group`, `window`,
+  `scan`, `lag`) como nós. Execução em blocos pixels × datas com o tempo
+  contíguo por pixel (o layout da fase 40); grupos de calendário (data → ano,
+  mês, estação) calculados uma vez por série, não por pixel; janelas móveis por
+  somas prefixadas ou deque monotônico (O(n)); rayon por bloco. O hash da
+  expressão entra na chave do cache.
+- **Teste/comparação:** cada operador contra o xarray (`groupby("time.year")`,
+  `rolling` por tempo, `resample`, `idxmax`) numa série sintética irregular com
+  lacunas, em resultado e em tempo (`benchmarks/vs_originals`); tempo do
+  overview com uma redução contra o NDVI.
+- **Saída:** a imagem ou a série como camada; gravação em COG (uma por data
+  numa pasta que abre como série, ou uma imagem); *Copy Python* com o
+  equivalente em xarray.
+
+#### Fase 40 — Regularização e preenchimento de lacunas
+- **Por quê:** a série do STAC é irregular (107 datas em 5 anos no guia, com
+  buracos de nuvem); BFAST, BEAST, fenologia e as redes (TempCNN, L-TAE em
+  parte) pedem passo regular. Hoje a suavização só existe no gráfico.
+- **O quê:** Tools → Regularize series: passo (8, 16 dias, mensal, anual ou
+  um número de dias), método por período (mediana, medoide entre as bandas,
+  como `zeit.regularize_time_series`; ou a observação mais limpa) e
+  preenchimento dos períodos vazios (nenhum, linear entre vizinhos, Whittaker
+  com λ, limite de lacuna em dias). Máscara de qualidade aplicada antes.
+- **Como:** tarefa em blocos de linhas (todas as datas de um bloco na memória),
+  em paralelo; grava um COG por data regular numa pasta que abre como série
+  (o nome do arquivo é a data). Medoide e Whittaker do `zeit-core` se
+  existirem lá; senão, portados.
+- **Teste/comparação:** contra `zeit.regularize_time_series` (mediana e medoide)
+  e o `sits_regularize` do R em resultado e tempo; preenchimento contra o
+  `whittaker` do Zeit.
+
+#### Fase 41 — Poligonizar mapas de mudança e de classes
+- **Por quê:** o produto que o usuário entrega: polígonos de desmatamento com
+  ano e área, como os do PRODES, a partir do mapa de qualquer ferramenta
+  (ano da perda do LandTrendr, data da quebra do CCDC, classes).
+- **O quê:** no menu de uma camada de resultado ou categórica, *Polygonize...*:
+  valor/classe por polígono, conectividade 4 ou 8, área mínima (a peneira do
+  pós-processamento da fase 7 antes), simplificação opcional (tolerância em
+  m), atributos: valor, nome da classe, data, **área em ha**, perímetro, e a
+  média de outra camada no polígono (a magnitude, por exemplo). Saída em
+  GeoPackage, aberta como camada vetorial.
+- **Como:** `GDALPolygonize` (máscara: os pixels com valor), depois OGR para os
+  atributos; área geodésica (`OGR_G_GeodesicArea`, GDAL ≥ 3.9) ou da
+  projeção quando for de área igual.
+- **Teste/comparação:** contra `gdal_polygonize` (mesmos polígonos) e
+  `rasterio.features.shapes` em tempo.
+
+#### Fase 42 — Área de mudança e de classes por data
+- **Por quê:** "quanto desmatou por ano, em ha?": a área mapeada (contagem de
+  pixels × área do pixel), ao lado da área ajustada da validação.
+- **O quê:** no painel Analysis, Classes: a área (ha, km², %) de cada classe a
+  cada data, e de um mapa de datas de mudança por ano, em barras, com CSV; na
+  ROI ou na camada toda; em resolução total (não no overview), numa tarefa.
+- **Como:** área do pixel correta: constante numa projeção de área igual; por
+  linha (geodésica) em coordenadas geográficas; fator de escala da projeção
+  (`proj_factors`) nas demais (UTM: erro < 0,1%, mas informado).
+- **Teste:** área de um retângulo conhecido em EPSG:4326 e em UTM contra a
+  área geodésica; contagens contra a passada dos estratos da validação.
+  Ligação com a validação: "área mapeada" aqui, "área ajustada ± IC" lá.
+
+#### Fase 43 — Reprojetar, reamostrar, recortar, alinhar à grade
+- **Por quê:** combinar MapBiomas, PRODES e a série na mesma grade antes de
+  validar, treinar ou comparar; recortar uma série grande para uma área.
+- **O quê:** Tools → Raster → Reproject / Resample / Clip: CRS de destino (EPSG,
+  o de outra camada, **ou a grade de outra camada**: mesmo CRS, origem, pixel
+  e extent), tamanho do pixel, reamostragem (nearest, bilinear, cubic,
+  average, **mode** padrão para categóricas, min, max, med), área (camada,
+  visível, ROI, polígono de uma camada vetorial como recorte), nodata, tipo,
+  formato (COG ou GeoTIFF). Séries data a data numa pasta; opção **virtual**
+  (VRTs reprojetados, sem gravar pixels, pronta na hora, como na fase 13).
+- **Como:** `GDALWarp` (`-t_srs -tr -te -r -cutline -multi -wo NUM_THREADS`),
+  progresso pelo callback; tarefa como o download do STAC.
+- **Teste/comparação:** contra `gdalwarp` na linha de comando (bit a bit) e o
+  tempo contra ele e o `rioxarray.reproject`.
+
+#### Fase 44 — Rasterizar vetores na grade da série
+- **Por quê:** máscaras (UCs, TIs, imóveis do CAR), estratos da validação a
+  partir de polígonos, amostras de treino de polígonos, e a base da fase 45.
+- **O quê:** no menu de uma camada vetorial, *Rasterize on the series' grid*:
+  queimar um atributo (classe, número), o índice do elemento ou 1/0;
+  *all touched* ou o centro do pixel; resultado como camada (categórica com os
+  nomes quando o atributo é texto) e utilizável como máscara do escopo das
+  ferramentas do Zeit.
+- **Como:** `GDALRasterize` na grade da camada ativa (CRS, origem, pixel).
+- **Teste/comparação:** contra `gdal_rasterize` e `rasterio.features.rasterize`.
+
+#### Fase 45 — Estatística zonal no tempo
+- **Por quê:** a pergunta mais comum no Brasil: "quanto mudou neste imóvel,
+  município, UC, ano a ano?". Hoje a extração por vetores dá a série média de
+  cada polígono (contínua); falta a área por classe e por ano de mudança.
+- **O quê:** no menu de uma camada vetorial, *Zonal statistics over time*:
+  para séries contínuas, média, mediana, p10–p90 e n válidos por data; para
+  categóricas, a área de cada classe por data e as transições entre duas
+  datas; para mapas de datas de mudança, a área por ano. Tabela longa ou larga
+  (CSV, GeoPackage com os atributos de volta nos polígonos), e o gráfico do
+  polígono selecionado no painel Analysis.
+- **Como:** os índices dos elementos rasterizados uma vez (fase 44), uma
+  passada por data acumulando contagens por (elemento, classe) em paralelo;
+  área do pixel da fase 42. Cobertura parcial dos pixels (estilo
+  `exactextract`) como opção depois.
+- **Teste/comparação:** contra `exactextract` e `rasterstats` (resultado com
+  centro do pixel e tempo).
+
+#### Fase 46 — Montar uma série e salvar a série
+- **Montar:** File → Build series...: arquivos soltos agrupados por data (a
+  data lida do nome, como na abertura), bandas separadas empilhadas num VRT
+  por data (`GDALBuildVRT -separate`), tiles da mesma data mosaicados; prévia
+  das datas e das bandas antes; uma pasta de VRTs (na hora) ou de COGs.
+- **Salvar:** File → Save series as...: a série ativa (bandas cruas, ou o
+  índice com a máscara aplicada) num **COG multibanda** (uma banda por data,
+  com a data na descrição: abre de volta como série) ou em **NetCDF CF /
+  Zarr** com o eixo de tempo (API multidimensional do GDAL); a área (camada,
+  visível, ROI) e o recorte da fase 43.
+- **Teste:** ida e volta (montar → abrir → salvar → abrir) com as mesmas datas
+  e valores; o NetCDF lido pelo `xarray`.
+
+#### Fase 47 — Sentinel-1 (radar) pelo STAC
+- **Por quê:** o radar enxerga através das nuvens: na Amazônia, onde o óptico
+  falha meses seguidos, é o que dá uma série densa de desmatamento.
+- **O quê:** a coleção `sentinel-1-rtc` do Planetary Computer (γ⁰ VV e VH já
+  com correção de terreno; conferir o acesso com o token SAS) na janela do
+  STAC; filtro por **órbita** (ascendente/descendente, órbita relativa:
+  misturar geometrias cria degraus falsos); exibição em **dB**
+  (`10·log10`, pela calculadora da fase 39), razão VH/VV; filtro de speckle
+  temporal (multitemporal de Quegan) ou espacial (Lee) como opção de leitura;
+  sem banda de qualidade (nenhuma máscara de nuvem).
+- **Depois:** regularizar (fase 40) para as ferramentas de passo regular;
+  CUSUM e BEAST no dB funcionam como estão.
+- **Teste/comparação:** os valores em dB contra o `stackstac` + `numpy` no
+  mesmo item; uma área de desmatamento conhecido no guia.
+
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
@@ -708,6 +945,16 @@ Windows sem Python nem conda, e chamável pela linha de comando
 | 36 | — | **L-TAE** (Garnot & Landrieu 2020), datas irregulares pelo dia do ano, conferido contra o `sits_lighttae` | concluída (sem versão) |
 | 37 | — | **Presto** (Tseng et al. 2023), pré-treinado: embeddings no painel Embeddings e ajuste fino com poucas amostras | concluída (sem versão) |
 | 38 | — | **U-TAE** (Garnot & Landrieu 2021): segmentação espaço-temporal de recortes, janelas deslizantes, pesos do PASTIS para ajuste fino | concluída (sem versão) |
+| 39 | — | **Calculadora de bandas e biblioteca de índices** (Awesome Spectral Indices por papel da banda, expressões livres no leitor) | planejada |
+| 39b | — | **Calculadora temporal** (reduções, grupos de calendário, janelas em dias, defasagens, anomalias, eventos; tipos série/imagem/data; ao vivo e progressiva, a série da expressão no gráfico) | planejada |
+| 40 | — | **Regularização e preenchimento de lacunas** (passo fixo, mediana/medoide, linear/Whittaker), uma pasta de COGs regulares | planejada |
+| 41 | — | **Poligonizar** mapas de mudança e de classes (área em ha, data, magnitude, área mínima) em GeoPackage | planejada |
+| 42 | — | **Área de mudança e de classes por data** (área do pixel correta, barras, CSV) | planejada |
+| 43 | — | **Reprojetar, reamostrar, recortar, alinhar à grade** de outra camada (`GDALWarp`, série data a data ou virtual) | planejada |
+| 44 | — | **Rasterizar vetores** na grade da série (atributo, índice, máscara) | planejada |
+| 45 | — | **Estatística zonal no tempo** (série por polígono, área por classe e por ano de mudança) | planejada |
+| 46 | — | **Montar uma série** de arquivos soltos e **salvar a série** (COG multibanda, NetCDF/Zarr) | planejada |
+| 47 | — | **Sentinel-1** pelo STAC (RTC do Planetary Computer, órbita, dB, speckle) | planejada |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a

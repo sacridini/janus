@@ -12,6 +12,30 @@ use crate::display::{MODE_ORDER, mode_name_of, range_label};
 use crate::theme;
 
 /// A section's title with a line after it (ImGui's SeparatorText).
+/// A window whose height follows its content (what a search or a choice adds below grows it, and it shrinks back),
+/// up to the screen's; past that its content scrolls. The width stays the user's to change. Its content goes in
+/// `fitted_body`.
+pub(crate) fn fitted_window<'a>(
+    title: impl Into<egui::WidgetText>,
+    ctx: &egui::Context,
+    width: f32,
+) -> egui::Window<'a> {
+    let max_h = fitted_height(ctx);
+    egui::Window::new(title).resizable([true, false]).default_width(width).default_height(max_h).max_height(max_h)
+}
+
+/// The tallest a fitted window can be: the screen less the menu bar and a gap at the bottom (the window's own
+/// limit takes its title bar off).
+fn fitted_height(ctx: &egui::Context) -> f32 {
+    (ctx.content_rect().height() - 56.0).max(120.0)
+}
+
+/// The content of a `fitted_window`: as tall as it is, up to the screen's height, then scrolled.
+pub(crate) fn fitted_body<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let max_h = fitted_height(ui.ctx());
+    egui::ScrollArea::vertical().auto_shrink([false, true]).max_height(max_h).show(ui, add).inner
+}
+
 pub(crate) fn section(ui: &mut Ui, title: &str) {
     ui.add_space(4.0);
     ui.horizontal(|ui| {

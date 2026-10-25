@@ -158,12 +158,10 @@ impl State {
             return;
         }
         let mut open = true;
-        egui::Window::new("Search STAC catalog")
+        crate::panels::fitted_window("Search STAC catalog", ctx, 480.0)
             .id(egui::Id::new("stac window"))
             .open(&mut open)
-            .default_size([480.0, 640.0])
-            .scroll(true)
-            .show(ctx, |ui| self.stac_ui(ui));
+            .show(ctx, |ui| crate::panels::fitted_body(ui, |ui| self.stac_ui(ui)));
         self.stac.show = open;
     }
 

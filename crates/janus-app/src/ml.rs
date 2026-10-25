@@ -355,12 +355,10 @@ impl State {
             return;
         }
         let mut open = true;
-        egui::Window::new("Deep learning")
+        crate::panels::fitted_window("Deep learning", ctx, 460.0)
             .id(egui::Id::new("ml window"))
             .open(&mut open)
-            .default_size([460.0, 640.0])
-            .scroll(true)
-            .show(ctx, |ui| self.ml_ui(ui));
+            .show(ctx, |ui| crate::panels::fitted_body(ui, |ui| self.ml_ui(ui)));
         self.ml.open = open;
         if self.ml.training() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));

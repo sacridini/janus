@@ -617,12 +617,10 @@ impl State {
                 continue;
             }
             let mut keep = true;
-            egui::Window::new(&tool.name)
+            crate::panels::fitted_window(&tool.name, ctx, 440.0)
                 .id(egui::Id::new(("zeit tool", &id)))
                 .open(&mut keep)
-                .default_size([440.0, 560.0])
-                .scroll(true)
-                .show(ctx, |ui| self.tool_window(ui, tool));
+                .show(ctx, |ui| crate::panels::fitted_body(ui, |ui| self.tool_window(ui, tool)));
             if !keep {
                 self.set_tool_open(tool, false);
             }
@@ -1839,11 +1837,10 @@ Reading the data adds to it, mostly on spinning disks.",
             return;
         }
         let mut open = true;
-        egui::Window::new("Tasks")
+        crate::panels::fitted_window("Tasks", ctx, 560.0)
             .open(&mut open)
-            .default_size([560.0, 300.0])
             .max_width(900.0)
-            .show(ctx, |ui| self.tasks_ui(ui));
+            .show(ctx, |ui| crate::panels::fitted_body(ui, |ui| self.tasks_ui(ui)));
         self.zeit.show_tasks = open;
     }
 

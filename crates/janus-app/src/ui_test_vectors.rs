@@ -523,7 +523,8 @@ impl State {
                         return fail("N should go to the next point");
                     }
                     let pin = self.series.pins.iter().find(|q| Some(q.id) == self.labels.pin);
-                    let old_gone = !self.series.pins.iter().any(|q| Some(q.id) == st.pin);
+                    // its number freed and taken again: a pin of that number only on the new point
+                    let old_gone = self.series.pins.iter().all(|q| Some(q.id) != st.pin || (q.x == 200 && q.y == 120));
                     if pin.is_none_or(|q| q.x != 200 || q.y != 120) || !old_gone {
                         return fail("the pin should move to the point");
                     }

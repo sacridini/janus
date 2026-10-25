@@ -377,16 +377,13 @@ impl State {
             return;
         }
         let mut open = true;
-        egui::Window::new("Settings")
+        crate::panels::fitted_window("Settings", ctx, 480.0)
             .open(&mut open)
             .collapsible(false)
-            .default_size([480.0, 560.0])
             .max_width(720.0)
             .pivot(egui::Align2::CENTER_CENTER)
             .default_pos(ctx.content_rect().center())
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| self.settings_contents(ui));
-            });
+            .show(ctx, |ui| crate::panels::fitted_body(ui, |ui| self.settings_contents(ui)));
         self.settings.show = open;
     }
 
