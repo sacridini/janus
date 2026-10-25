@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BEAST · Janus</title>
+<meta name="description" content="A step-by-step guide to BEAST in Janus: the trend and the season of a series averaged over thousands of models, with the probability of a changepoint at each date, the trend's 95% interval, and maps of the number of changepoints and of the most probable one.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="BEAST · Janus">
+<meta property="og:description" content="A Rondônia forest cleared in 1999, a rise BEAST gives 61%, a forest where it claims no change, and a French field whose trend and season both changed in 2013: on the chart, then over the image.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/beast/08-prob.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / BEAST</p>
+    <p class="eyebrow">Change detection · with probabilities</p>
+    <h1>BEAST, step by step.</h1>
+    <p class="lede">Most change detection tools choose one model of a series: so many breaks, at these dates. BEAST does not choose. It samples thousands of models of the trend and the season, with every number and position of changepoints, and averages them. So it can say how sure it is: this clearing in 1999 is certain, this rise in 2012 has 61%, and this forest most likely never changed.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#open">Opening the tool</a></li>
+      <li><a href="#chart">A clearing, and a maybe</a></li>
+      <li><a href="#forest">No change</a></li>
+      <li><a href="#season">A series with seasons</a></li>
+      <li><a href="#params">The parameters</a></li>
+      <li><a href="#run">Running it on the image</a></li>
+      <li><a href="#maps">The maps</a></li>
+      <li><a href="#others">BEAST or the others</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>BEAST (a Bayesian estimator of abrupt change, seasonal change and trend; Zhao et al. 2019) writes a series as a <strong>trend</strong> made of straight segments, plus a <strong>season</strong> made of harmonic segments, plus noise. A model is a choice of where each component changes, and how many times.</p>
+      <p>Instead of testing for breaks, BEAST runs a <strong>Markov chain</strong> (reversible-jump MCMC) through the models. At each step it adds, removes or moves a changepoint, and keeps the new model in proportion to how much better it fits. A model with one more changepoint must fit enough better to be kept, so there is no threshold to set. After a few thousand steps, the models the chain has visited say how likely each answer is:</p>
+      <dl class="terms">
+        <dt>Probability of a changepoint</dt><dd>At each date, the share of the sampled models with a changepoint there.</dd>
+        <dt>Changepoints</dt><dd>The most probable ones, listed with their probability (summed over the dates around each peak) and the <strong>jump</strong> of the trend there.</dd>
+        <dt>Number of changepoints</dt><dd>The mean over the models, and the probability of 0, 1, 2... of them.</dd>
+        <dt>Trend</dt><dd>The average of the models' trends, with its <strong>95% interval</strong>: narrow where the models agree, wide where they do not.</dd>
+      </dl>
+      <p>It is a slower kind of tool: a Markov chain per pixel, a few hundredths of a second for an annual series and about a second for a long 16-day one.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>The series of the <a href="landtrendr.html">LandTrendr guide</a>: one Landsat NDVI value per year from 1985 to 2024 (× 10,000), over about 50 km of a forest frontier in Rondônia, Brazil. It opens as a VRT of 40 bands named <code>yr1985</code> to <code>yr2024</code>, with 0 as no data. Later, for a series with seasons, the 16-day MODIS EVI of the <a href="bfast.html">BFAST guide</a>.</p>
+      <figure class="fig">
+        <a href="assets/img/beast/02-pixel.jpg"><img src="assets/img/beast/02-pixel.jpg" alt="The Janus window: the NDVI of 2024 over the circular Rondônia scene, one pin, its NDVI series on the chart with BEAST's trend in magenta, its 95% interval dashed and two vertical lines at the changepoints, and BEAST's numbers in the Statistics table." width="2000" height="1300" loading="lazy"></a>
+        <figcaption><b>The series</b> in 2024, and pin 1 (pixel 306, 913) with BEAST on its chart.</figcaption>
+      </figure>
+    </section>
+
+    <section id="open">
+      <h2><span class="n">03</span>Opening the tool</h2>
+      <figure class="fig narrow">
+        <img src="assets/img/beast/01-tool.png" alt="The BEAST (Bayesian changepoints) window: its description and the parameters Season, Grid step, Max trend and season changepoints, Max trend order, MCMC samples 2000, Chains 2, Burn-in 200, Thinning 5 and Seed 42." width="439" height="559" loading="lazy">
+        <figcaption><b>The BEAST window</b> and its parameters.</figcaption>
+      </figure>
+      <p><span class="ui">Tools → BEAST (Bayesian changepoints)</span>, among the change detection tools. It takes any series of one band with at least 12 dates. It comes from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a> (<code>zeit.beast</code>, a port of the C code of the R package Rbeast) and is built into Janus, so there is nothing to install.</p>
+      <p><span class="ui">Season</span> is automatic: a harmonic season of one year when the series has dates and four or more a year, none for an annual series like this one. The tool runs 2000 samples on 2 chains, a quarter of Rbeast's default (8000 on 3): enough for the probabilities, and four to five times faster on an image.</p>
+    </section>
+
+    <section id="chart">
+      <h2><span class="n">04</span>A clearing, and a maybe</h2>
+      <p>With the tool open, BEAST runs on every series the chart shows: the cursor, the pins and the ROI. Over each it draws the trend (or the fit, trend plus season, when there is a season) with its 95% interval dashed, and a vertical line at each trend changepoint more likely than not. The numbers go to the <strong>Statistics</strong> table.</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/beast/02-pixel-chart.png"><img src="assets/img/beast/02-pixel-chart.png" alt="The chart of pin 1: NDVI near 8200 until 1998, a drop to about 6100 in 1999, a step up in 2012 and a rise to about 8000 in 2024; the magenta trend with its dashed interval, vertical lines at 1999 and 2012." width="1037" height="398" loading="lazy"></a>
+          <figcaption><b>Pin 1</b>: the trend, its 95% interval, and lines at 1999 and 2012.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/beast/02-pixel-stats.png"><img src="assets/img/beast/02-pixel-stats.png" alt="BEAST in the Statistics table: grid of 40 dates every year from 1985, R² 0.8232, RMSE 341.6, 2.66 trend changepoints on average; 1999 probability 100% jump −1743, 2012 61% jump 385, 2018 41% jump 128, 1991 28% jump −88, 2005 13% jump 18.1; slope at the end 37.4 per year, P(positive) 57%." width="530" height="184" loading="lazy"></a>
+          <figcaption><b>Its numbers</b>: the changepoints, most probable first.</figcaption>
+        </figure>
+      </div>
+      <p>In <strong>1999</strong> the NDVI fell from 0.85 to 0.61: a clearing. Every sampled model has a changepoint there (100%), and the trend drops by 1743 (0.17 NDVI). In <strong>2012</strong> the NDVI rose from 0.59 to 0.74 and stayed higher: 61% of the models put a changepoint there, the others explain the rise with a steeper slope. That is why the 95% interval is wide around 2012. 2018, 1991 and 2005 are each in a minority of the models (41% down to 13%), so the chart draws no line for them.</p>
+      <p>The trend has <strong>2.66 changepoints on average</strong>. Two is the most likely number, three almost as likely. At the end, the trend rises by 37 a year, and 57% of the models have it rising: the regrowth is more likely than not still going on.</p>
+      <p><a href="landtrendr.html">LandTrendr</a> on this pixel draws one model: the clearing, then a single line of regrowth from 1999 to 2024, across the step of 2012. BEAST shows the clearing as certain and the step as a fair possibility.</p>
+    </section>
+
+    <section id="forest">
+      <h2><span class="n">05</span>No change</h2>
+      <p>A second pin, 2 km to the south-west (pixel 250, 966), on a forest:</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/beast/03-forest-chart.png"><img src="assets/img/beast/03-forest-chart.png" alt="The chart of pin 2: NDVI between 7800 and 8700 every year, zigzagging, and BEAST's trend a straight line rising slowly from 8120 to 8490, its interval dashed, with no vertical line." width="1037" height="398" loading="lazy"></a>
+          <figcaption><b>A forest</b>: no line, a slow rise (the scale is narrow: 7800 to 8700).</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/beast/03-forest-stats.png"><img src="assets/img/beast/03-forest-stats.png" alt="BEAST in the Statistics table: grid of 40 dates every year from 1985, R² 0.3979, RMSE 187.5, 0.768 trend changepoints on average; 2002 probability 16%, 1994 14%, 2012 11%, 2007 7%, 2018 7%; slope at the end 7.93 per year, P(positive) 75%." width="530" height="184" loading="lazy"></a>
+          <figcaption><b>0.77 changepoints</b> on average, none above 16%.</figcaption>
+        </figure>
+      </div>
+      <p>The NDVI zigzags from year to year, but no changepoint reaches 16%, and zero changepoints is the most likely answer. BEAST does not claim a change it cannot see. The R² is low, 0.40, and that is right too: once the slow rise is drawn, little but noise is left to explain.</p>
+      <div class="note">
+        <p class="h">Read the probability with the date</p>
+        <p>The table always lists the most probable changepoints, even when none is likely. A date alone says little: a changepoint at 16% is a date most models do without. Use 0.5 (more likely than not) to call a change, and keep the probability with the map.</p>
+      </div>
+    </section>
+
+    <section id="season">
+      <h2><span class="n">06</span>A series with seasons</h2>
+      <p>With several dates a year, BEAST fits a season too, with changepoints of its own. Here is pin 1 of the <a href="bfast.html">BFAST guide</a>: MODIS EVI every 16 days from 2001 to 2025, a field of western France. <span class="ui">Season</span> stays automatic (harmonic, 23 dates a year), and <span class="ui">Grid step</span> is set to 1/23 = 0.0435: MODIS dates are 16 days apart within a year but closer across the new year, so the series is not quite regular, and with 0 BEAST would average it onto a half-month grid instead.</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/beast/04-season-chart.png"><img src="assets/img/beast/04-season-chart.png" alt="The chart of the EVI pin: sharp yearly peaks up to 0.7 until 2012, lower and gentler waves from 2013; BEAST's fit in magenta follows them, its trend steps down in 2013, with vertical lines at the trend changepoints in 2006 to 2008, 2013 and 2019." width="1087" height="472" loading="lazy"></a>
+          <figcaption><b>The fit</b>, trend plus season, and the trend changepoints.</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/beast/04-season-stats.png"><img src="assets/img/beast/04-season-stats.png" alt="BEAST in the Statistics table: 575 dates every 0.04348 years from 2001, R² 0.8188, 8.27 trend changepoints on average, 2013.18 at 99% with a jump of −0.0401, 2006.74 96%, 2008.35 87%, 2007.78 87%, 2019.78 76%; 6.55 season changepoints on average, 2013 at 94%, 2022.05 84%, 2023.09 82%, 2025.44 68%." width="542" height="235" loading="lazy"></a>
+          <figcaption><b>Trend and season</b> changepoints, apart.</figcaption>
+        </figure>
+      </div>
+      <p>Until 2012 the field has a sharp peak each spring; from 2013 its level is lower and its season a gentler wave. BEAST splits that change between its components: the <strong>trend</strong> drops by 0.04 in March 2013 (2013.18, 99%), and the <strong>season</strong> changes at the start of 2013 (94%). <a href="bfast.html">BFAST</a> on this pin finds two trend breaks, September 2006 and April 2013: BEAST has both, at 96% and 99%.</p>
+      <p>The trend also steps up and down in 2006–2008 (87% to 96%): the whole of 2007 sits higher than the years around it, as a field that changes crops can do, and with up to 10 changepoints allowed the trend takes it. On crop land, lower <span class="ui">Max trend changepoints</span> when such steps are not what you look for. In Zeit, with at most 3, only the drop of 2013 stays above 50%.</p>
+      <div class="note">
+        <p class="h">A season needs dates all year</p>
+        <p>With Landsat in the Amazon there are clear images only in the dry season, and little to fit a season on: a clearing can then be read as a change of the season rather than of the trend. For such series, use one value a year (Season none), or <a href="sccd.html">S-CCD</a> and <a href="ccdc.html">CCDC</a> on every observation.</p>
+      </div>
+    </section>
+
+    <section id="params">
+      <h2><span class="n">07</span>The parameters</h2>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Season</td><td class="num">auto</td><td>Harmonic (a season of one year) when the series has dates and four or more a year; none for annual series.</td></tr>
+            <tr><td>Grid step (years)</td><td class="num">0</td><td>BEAST works on a regular grid; irregular dates are averaged onto it. 0 lets it choose, as Rbeast: a regular series keeps its own step, otherwise the nearest of a day, half a month, a month and a week. Set 1/23 = 0.0435 for 16-day composites, 1/12 for monthly, 1 for annual.</td></tr>
+            <tr><td>Max trend changepoints</td><td class="num">10</td><td>The most changepoints the trend may have. It is part of the prior: lower it when a series changes rarely.</td></tr>
+            <tr><td>Max season changepoints</td><td class="num">10</td><td>The same for the season.</td></tr>
+            <tr><td>Max trend order</td><td class="num">1</td><td>1: flat or sloping segments; 2: curves too; 0: flat only.</td></tr>
+            <tr><td>MCMC samples, Chains</td><td class="num">2000, 2</td><td>Samples kept per chain, and chains averaged. More are steadier and take longer in proportion; Rbeast's defaults are 8000 and 3.</td></tr>
+            <tr><td>Burn-in, Thinning</td><td class="num">200, 5</td><td>Steps left out at the start of each chain, and one sample kept every this many.</td></tr>
+            <tr><td>Seed</td><td class="num">42</td><td>The same seed gives the same result, in Janus, in Zeit and in Rbeast.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="run">
+      <h2><span class="n">08</span>Running it on the image</h2>
+      <p>Under <span class="ui">Run on the raster</span>, choose the <span class="ui">Whole image</span>, the <span class="ui">Visible area</span> or the <span class="ui">ROI</span>, then <span class="ui">Run</span>. Every pixel is its own Markov chain, so start with a window: this guide runs a 300 × 300 pixel ROI (9 × 9 km) around both pins.</p>
+      <figure class="fig narrow">
+        <img src="assets/img/beast/05-task.png" alt="The Tasks panel: BEAST (Bayesian changepoints) on the ROI, 300 by 300 pixels, done 100 percent in 63 seconds, with Log, Folder and Remove buttons." width="559" height="95" loading="lazy">
+        <figcaption><b>Tasks</b>: the 90,000 pixels of the ROI took 63 s.</figcaption>
+      </figure>
+      <p>63 s on every core of a 20-thread laptop, with Janus taken out of Windows' power throttling; launched from a terminal and left in the background, Windows slowed the same run to more than twice that. The whole 1686 × 1671 image would take about half an hour. The run happens in the background and the map stays usable meanwhile.</p>
+      <p>The outputs are GeoTIFFs, saved by default in <code>%LOCALAPPDATA%\Janus\results</code> next to the run's <code>job.json</code> and <code>job.log</code>. They open over the map, listed under the series in the Layers panel. They are the same numbers as Zeit's: <code>zeit.beast</code> with the same parameters on the same window gives every pixel of every map to the last bit. The maps below are drawn over the Esri imagery, with the series dimmed to 25%.</p>
+    </section>
+
+    <section id="maps">
+      <h2><span class="n">09</span>The maps</h2>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Map</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Trend changepoints (mean)</td><td>The number of trend changepoints, averaged over the models.</td></tr>
+            <tr><td>Most probable trend changepoint</td><td>Its date, as a decimal year: for an annual series, the first year of the new segment.</td></tr>
+            <tr><td>Its probability</td><td>How many of the models have it.</td></tr>
+            <tr><td>Its jump</td><td>The jump of the trend there, in the units of the series.</td></tr>
+            <tr><td>Season changepoints (mean)</td><td>The same for the season; empty for an annual series, which has none.</td></tr>
+            <tr><td>R² of the fit</td><td>How much of the series the model explains.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/beast/06-ncp.jpg"><img src="assets/img/beast/06-ncp.jpg" alt="The mean number of trend changepoints over the ROI: mostly dark blue and teal, from 1.4, with yellow patches of more than 3 changepoints along field edges and in small fields." width="1150" height="727" loading="lazy"></a>
+          <figcaption><b>Trend changepoints (mean)</b>, 1.4 (purple) to 3.9 (yellow).</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/beast/08-prob.jpg"><img src="assets/img/beast/08-prob.jpg" alt="The probability of the most probable changepoint: large fields in yellow, near 1, and others in purple, near 0.3, with the pins on a yellow field and on a purple forest." width="1150" height="727" loading="lazy"></a>
+          <figcaption><b>Its probability</b>, 0.27 (purple) to 1 (yellow).</figcaption>
+        </figure>
+      </div>
+      <p>Over the ROI the median pixel has <strong>2.0 changepoints</strong> on average. The probability map is the one to read first: 67% of the pixels have a changepoint more likely than not, and 39% one above 90%, whole fields at once. The purple ones, like pin 2's forest, have no change BEAST will vouch for.</p>
+      <div class="fig-pair">
+        <figure class="fig">
+          <a href="assets/img/beast/07-year.jpg"><img src="assets/img/beast/07-year.jpg" alt="The year of the most probable changepoint, from 1989 in purple to 2021 in yellow: whole fields in one colour, mostly teal for the early 2000s, with yellow fields of the 2010s." width="1150" height="727" loading="lazy"></a>
+          <figcaption><b>Most probable trend changepoint</b>, 1989 (purple) to 2021 (yellow).</figcaption>
+        </figure>
+        <figure class="fig">
+          <a href="assets/img/beast/09-jump.jpg"><img src="assets/img/beast/09-jump.jpg" alt="The jump of the trend at the most probable changepoint, on a red-blue scale from −2785 to 2785, white at zero: red fields for drops, white for little or no change, a few blue specks for rises." width="1150" height="727" loading="lazy"></a>
+          <figcaption><b>Its jump</b>, −2785 (red) to +2785 (blue), white at zero.</figcaption>
+        </figure>
+      </div>
+      <p>The dates follow the fields: each was cleared in one year, and 2004, 2006 and 2003 hold the most (8.5%, 7.8% and 6.2% of the ROI, among the changepoints above 50%). 93% of those changepoints are drops, a median of 0.1 NDVI: this frontier's history is one of clearings. Rises are rare and small.</p>
+      <ul>
+        <li><strong>The date and the jump maps are not masked.</strong> Every pixel has a most probable changepoint, even one at 15%. Read them with the probability map, or keep the dates where it is above 0.5 with a mask.</li>
+        <li><strong>White is no change.</strong> The jump's colours are RdBu, and its automatic range is symmetric about zero: here from −2785 to 2785. To see the small jumps, narrow it in the layer's settings (its arrow in the Layers panel), to −1000 and 1000 for example; keep the two ends opposite so that white stays at zero.</li>
+      </ul>
+      <figure class="fig">
+        <a href="assets/img/beast/10-r2.jpg"><img src="assets/img/beast/10-r2.jpg" alt="The R² of the fit over the ROI, from 0.11 in purple to 0.88 in yellow: yellow over the cleared fields, purple and blue over the forests." width="1150" height="727" loading="lazy"></a>
+        <figcaption><b>R² of the fit</b>, 0.11 (purple) to 0.88 (yellow).</figcaption>
+      </figure>
+      <p>The R² is high where something happened (a clearing leaves a lot for the trend to explain) and low over forest, where the NDVI only moves with noise. A low R² is not a bad fit there. Hover the map with any of these layers on top: the chart keeps the pixel's series with BEAST's trend, to check a colour against what the series did.</p>
+    </section>
+
+    <section id="others">
+      <h2><span class="n">10</span>BEAST or the others</h2>
+      <ul>
+        <li><strong><a href="landtrendr.html">LandTrendr</a></strong> draws one straight-segment model of an annual series, fast, with recovery after each loss. On this ROI the two agree on the year of a fast loss: of LandTrendr's one-year losses, 70% have a BEAST drop (above 50%, 0.1 NDVI or more) within a year, 81% of those over 0.3 NDVI. They disagree on slow ones: a decline over five years or more is a vertex for LandTrendr but a slope for BEAST, which only 6% of the time puts a changepoint there.</li>
+        <li><strong><a href="bfast.html">BFAST and BFAST Lite</a></strong> choose the best model of the breaks of a regular series, with a test, in a fraction of the time. BEAST gives the same kind of answer with its probability, and takes irregular dates.</li>
+        <li><strong>Speed.</strong> BEAST is the slowest of the change detection tools: a few hundredths of a second for an annual pixel, about a second for 25 years of 16-day data. On one series, Zeit's port is as fast as Rbeast's generic code (Rbeast's AVX2 code is about a third faster); on a cube of pixels, it is 1.5 to 1.9 times faster than Rbeast's <code>beast123()</code>.</li>
+      </ul>
+      <p>The algorithm is Rbeast's own: Zeit ports its C code, with its random numbers and its arithmetic, and from the same seed returns the same numbers as Rbeast's <code>beast()</code> with its generic kernels, to the last bit. That is checked on six series in Zeit's tests, and holds on the pins of this guide.</p>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">11</span>What next</h2>
+      <ul>
+        <li><strong>Other ways to date a change</strong>: <a href="landtrendr.html">LandTrendr</a> and its recovery metrics for annual series, <a href="bfast.html">BFAST</a> for regular series, <a href="ccdc.html">CCDC</a> and <a href="sccd.html">S-CCD</a> on every observation.</li>
+        <li><strong>Compare it.</strong> <span class="ui">Tools → Agreement of change maps</span> takes several maps of dates (BEAST's most probable changepoint, LandTrendr's year of detection) and maps where and when they agree.</li>
+        <li><strong>Validate it.</strong> The changepoint dates make a map of events. <a href="validation.html">The Validation guide</a> shows how to sample it and estimate its accuracy and areas.</li>
+        <li><strong>Script it.</strong> The same algorithm is <code>zeit.beast</code> in Python; Zeit's <a href="https://sacridini.github.io/zeit-cdts/tutorials/beast/">BEAST tutorial</a> follows the same pixels, with every output (the probability of each number of changepoints, the season's changepoints, the slope's sign).</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">12</span>References</h2>
+      <ul class="refs">
+        <li>Zhao, K., Wulder, M. A., Hu, T., Bright, R., Wu, Q., Qin, H., Li, Y., Toman, E., Mallick, B., Zhang, X., Brown, M. (2019). Detecting change-point, trend, and seasonality in satellite time series data to track abrupt changes and nonlinear dynamics: A Bayesian ensemble algorithm. <em>Remote Sensing of Environment</em>, 232, 111181.</li>
+        <li>Green, P. J. (1995). Reversible jump Markov chain Monte Carlo computation and Bayesian model determination. <em>Biometrika</em>, 82, 711–732.</li>
+        <li><a href="https://github.com/zhaokg/Rbeast">Rbeast</a>: the authors' R, Python and MATLAB package.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the change detection library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>
