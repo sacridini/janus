@@ -574,7 +574,8 @@ impl State {
         self.zeit.fits_of(s.info.id, Which::Roi, self.series.roi_gen as usize, 0)
     }
 
-    /// The Tools menu: Zeit's tools by category (each opens its window).
+    /// The Tools menu: a submenu per category, its tools beside it (each opens its window); deep learning with
+    /// the classifications.
     pub(crate) fn tools_menu(&mut self, ui: &mut Ui) {
         let m = manifest();
         let mut categories: Vec<&str> = vec![];
@@ -584,17 +585,30 @@ impl State {
             }
         }
         for c in categories {
-            ui.label(egui::RichText::new(c).weak().small());
-            for t in m.tools.iter().filter(|t| t.category == c) {
-                let open = self.zeit.tools.get(&t.id).is_some_and(|u| u.open);
-                if ui.add(egui::Button::selectable(open, &t.name)).clicked() {
-                    self.set_tool_open(t, !open);
-                    ui.close();
+            let tools: Vec<&Tool> = m.tools.iter().filter(|t| t.category == c).collect();
+            // a category with a tool open is marked
+            let any_open = tools.iter().any(|t| self.zeit.tools.get(&t.id).is_some_and(|u| u.open))
+                || c == "Classification" && self.ml.open;
+            let label = format!("{c}{}", if any_open { "  \u{25cf}" } else { "" });
+            ui.menu_button(label, |ui| {
+                for t in tools {
+                    let open = self.zeit.tools.get(&t.id).is_some_and(|u| u.open);
+                    let mut b = ui.add(egui::Button::selectable(open, &t.name));
+                    if !t.description.is_empty() {
+                        b = b.on_hover_text(&t.description);
+                    }
+                    if b.clicked() {
+                        self.set_tool_open(t, !open);
+                        ui.close();
+                    }
                 }
-            }
-            ui.separator();
+                if c == "Classification" {
+                    ui.separator();
+                    self.ml_menu(ui);
+                }
+            });
         }
-        self.ml_menu(ui);
+        ui.separator();
         if ui
             .add(egui::Button::selectable(self.calc.show, "Raster calculator..."))
             .on_hover_text(

@@ -506,7 +506,7 @@ processing thread. Nothing starts at startup and no Python runs.
 
 ## Deep learning (TempCNN, L-TAE, Presto, U-TAE)
 
-**Tools > Classify with deep learning** trains a neural network on samples you
+**Tools > Classification > Deep learning** trains a neural network on samples you
 already have in Janus and classifies every pixel by its whole series, without
 Python: **TempCNN** (Pelletier et al. 2019: convolutions over time) or
 **L-TAE** (Garnot & Landrieu 2020: attention over the dates), both as sits builds

@@ -339,15 +339,11 @@ impl State {
     }
 
     pub(crate) fn ml_menu(&mut self, ui: &mut Ui) {
-        ui.label(egui::RichText::new("Deep learning").weak().small());
-        if ui
-            .add(egui::Button::selectable(self.ml.open, "Classify with deep learning (TempCNN, L-TAE, Presto, U-TAE)"))
-            .clicked()
+        if ui.add(egui::Button::selectable(self.ml.open, "Deep learning (TempCNN, L-TAE, Presto, U-TAE)...")).clicked()
         {
             self.ml.open = !self.ml.open;
             ui.close();
         }
-        ui.separator();
     }
 
     pub(crate) fn ml_window(&mut self, ctx: &egui::Context) {
