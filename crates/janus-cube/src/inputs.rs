@@ -70,8 +70,8 @@ fn path_string(p: &Path) -> String {
 }
 
 /// The files of the inputs, each folder's and pattern's in natural order. The paths are spelt as the C++ spells
-/// them (the folder as given, then the file name), which the caches' keys depend on. URLs, subdataset names and
-/// Zarr stores (folders) are one input each; an EnMAP product's folder opens its spectral image alone.
+/// them (the folder as given, then the file name), which the caches' keys depend on. URLs, subdataset names, vrt://
+/// connections and Zarr stores (folders) are one input each; an EnMAP product's folder opens its spectral image alone.
 pub fn expand_inputs(inputs: &[String]) -> Vec<String> {
     use crate::remote::{dataset_file, gdal_path, is_enmap_spectral_image, is_remote_path, is_zarr_store};
     let list = |dir: &Path, keep: &dyn Fn(&Path) -> bool| -> Vec<String> {
@@ -85,6 +85,11 @@ pub fn expand_inputs(inputs: &[String]) -> Vec<String> {
     };
     let mut files = Vec::new();
     for input in inputs {
+        // GDAL's vrt:// connection (a band of a file: vrt://f.tif?bands=3), its "?" not a wildcard
+        if input.starts_with("vrt://") {
+            files.push(input.clone());
+            continue;
+        }
         if is_remote_path(input) || dataset_file(input) != input {
             files.push(gdal_path(input));
             continue;
@@ -151,6 +156,9 @@ mod tests {
         assert!(wildcard_match(b"S2_*_NDVI.tif", b"s2_20230811_ndvi.TIF"));
         assert!(wildcard_match(b"a?c", b"abc"));
         assert!(!wildcard_match(b"a?c", b"ac"));
+        // a band of a file through vrt://: one input, its "?" not a wildcard
+        let band = "vrt://D:/data/stack.tif?bands=3".to_string();
+        assert_eq!(expand_inputs(std::slice::from_ref(&band)), [band]);
     }
 
     #[test]

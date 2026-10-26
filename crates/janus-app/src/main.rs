@@ -129,9 +129,11 @@ Developer options:
   --view X,Y,S        the map centred on source pixel (X, Y), S screen pixels per source pixel (with
                       --screenshot: once its full-resolution tiles are drawn)
   --opacity A         the active layer's opacity (0 to 1)
+  --date N            the date (a stack's band) shown, from 1
   --roi X0,Y0,X1,Y1   an ROI rectangle (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline)
   --analysis seasonal|classes|scatter|trend  the Analysis panel at that tab (seasonal,M: its years from month M;
+                      classes,transitions: the matrix of two dates;
                       classes,flows[,changes][,zoom=N][,small=PCT][,window]: the flows between dates
                       (small=0: no Other; window: in a window of its own); trend,run: the trend test run,
                       before --screenshot)
@@ -422,6 +424,7 @@ fn main() -> eframe::Result<()> {
                 }
             }
             "--opacity" => opts.opacity = args.next().and_then(|v| v.parse().ok()),
+            "--date" => opts.date = args.next().and_then(|v| v.parse().ok()),
             "--chart" => opts.chart = args.next(),
             "--pin" => {
                 let v: Vec<usize> =

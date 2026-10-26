@@ -881,6 +881,13 @@ impl State {
             return;
         };
         let info = s.info.clone();
+        if info.stack {
+            ui.weak(
+                "A stack of variables: its bands are different variables (each in its own units), not a series to \
+                 draw.\nThe value of every band at the cursor, the pins and the ROI is in Statistics.",
+            );
+            return;
+        }
         let n = info.t();
         let xs: Vec<f64> = info.layers.iter().map(|l| l.time).collect();
         let years = s.years.clone();

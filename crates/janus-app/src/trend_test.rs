@@ -314,7 +314,7 @@ impl State {
         self.pump_trend_test();
         let Some(s) = &self.session else { return };
         // the series tested: the active layer's, a series of values
-        let series = |s: &crate::session::Session, categorical: bool| s.info.t() >= 4 && !categorical;
+        let series = |s: &crate::session::Session, categorical: bool| s.info.t() >= 4 && !categorical && !s.info.stack;
         if !series(s, self.classes.on()) {
             let name = self.layers.get(self.active).map_or(String::new(), |l| l.name.clone());
             let other = (0..self.layers.len()).find(|&i| {
@@ -330,7 +330,13 @@ impl State {
             ui.weak(format!(
                 "The trend test runs on the active layer's series, and {name} is {}: make a series of values with \
                  4 dates or more active (click it in Layers).",
-                if s.info.t() < 4 { format!("{} date(s)", s.info.t()) } else { "categorical".into() }
+                if s.info.stack {
+                    "a stack of variables, not a series".to_string()
+                } else if s.info.t() < 4 {
+                    format!("{} date(s)", s.info.t())
+                } else {
+                    "categorical".into()
+                }
             ));
             return;
         }

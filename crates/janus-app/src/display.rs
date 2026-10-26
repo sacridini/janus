@@ -28,7 +28,11 @@ pub fn mode_name(m: Mode) -> &'static str {
 
 /// A spectrum's RGB mode by its name (app.cpp, modeName).
 pub fn mode_name_of(m: Mode, info: &janus_cube::CubeInfo) -> &'static str {
-    if m == Mode::Rgb && info.spectral { "RGB composite (3 bands)" } else { mode_name(m) }
+    match m {
+        Mode::Rgb if info.spectral || info.stack => "RGB composite (3 bands)",
+        Mode::Value if info.stack => "Value of the band",
+        _ => mode_name(m),
+    }
 }
 
 /// The order of the modes in the menus (the enum's numbers are fixed by the shaders).
@@ -124,6 +128,10 @@ pub struct Display {
     pub season: Season,
     pub hist: Histogram,
     pub playing: bool,
+    /// a stack of variables: each band's range of the values (a stretch of its own, set by hand or not), and the
+    /// band `ranges` holds now
+    pub(crate) band_ranges: Vec<Range>,
+    pub(crate) range_band: Option<usize>,
 }
 
 impl Default for Display {
@@ -151,6 +159,8 @@ impl Default for Display {
             season: Season::default(),
             hist: Histogram::default(),
             playing: false,
+            band_ranges: Vec::new(),
+            range_band: None,
         }
     }
 }
@@ -335,6 +345,18 @@ impl Display {
         if self.mode.needs_stats() && s.stats.is_none() {
             return false;
         }
+        // a stack of variables: the values' range of the band shown, the other bands' kept
+        let mut changed = false;
+        if s.info.stack && self.range_band != Some(self.t) {
+            let v = Mode::Value as usize;
+            self.band_ranges.resize(s.info.t(), Range::default());
+            if let Some(b) = self.range_band.filter(|&b| b < self.band_ranges.len()) {
+                self.band_ranges[b] = self.ranges[v];
+            }
+            self.ranges[v] = self.band_ranges[self.t.min(s.info.t() - 1)];
+            self.range_band = Some(self.t);
+            changed = true;
+        }
         // the composite's numbers change with its options and the season (not with the date: the stretch is kept
         // so the years compare); the statistics' with each computation (a season)
         let comp_key = if self.mode == Mode::Composite {
@@ -350,14 +372,14 @@ impl Display {
         let time_dep = time_dependent(self.mode);
         // the reference changes the values; a range per date follows the date
         let ref_key = if self.mode == Mode::Diff { (self.diff_ref + 2) as u64 * 7919 } else { 0 };
-        let range_t = (self.per_date_range && time_dep).then_some(self.t);
+        let per_date = self.per_date_range || s.info.stack;
+        let range_t = (per_date && time_dep).then_some(self.t);
         let rkey = version
             .wrapping_mul(1000003)
             .wrapping_add(range_t.map_or(0, |t| t as u64 + 1) * 8)
-            .wrapping_add(u64::from(self.per_date_range))
+            .wrapping_add(u64::from(per_date))
             .wrapping_add(ref_key.wrapping_mul(65536))
             .wrapping_add((self.mode as u64) << 56);
-        let mut changed = false;
         let r = &mut self.ranges[self.mode as usize];
         if !r.manual && r.key != rkey {
             let mut sample = self.collect_sample(s, range_t, 2_000_000);

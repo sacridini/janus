@@ -308,7 +308,17 @@ enum Act {
     ZoomVector(usize),
     ExportVector(usize),
     AttributeTable(u32),
+    /// a series' date, a stack's band: shown on the map (the layer made active and visible)
+    ShowStep(usize, usize),
+    HideLayer(usize),
+    /// shown, then the export dialog of that kind
+    ExportStep(usize, usize, usize),
+    OpenStep(usize, usize),
 }
+
+/// A date's or a band's export menu: label, the export dialog's kind (what the map shows at that date).
+const STEP_EXPORTS: [(&str, usize); 3] =
+    [("Values as GeoTIFF...", 2), ("Map as PNG...", 1), ("Rendered view as GeoTIFF...", 3)];
 
 /// The export menu's items: label, the export dialog's kind.
 const EXPORTS: [(&str, usize); 4] = [
@@ -398,6 +408,16 @@ impl State {
                 Act::ZoomVector(i) => self.zoom_to_vector(i),
                 Act::ExportVector(i) => self.export_vector(i),
                 Act::AttributeTable(id) => self.open_attribute_table(id),
+                Act::ShowStep(i, t) => self.show_step(i, t, &ctx),
+                Act::HideLayer(i) => {
+                    self.layers[i].visible = false;
+                    self.map.dirty = true;
+                }
+                Act::ExportStep(i, t, kind) => {
+                    self.show_step(i, t, &ctx);
+                    self.open_export(kind);
+                }
+                Act::OpenStep(i, t) => self.open_step_as_layer(i, t, &ctx),
             }
         }
     }
@@ -676,7 +696,9 @@ impl State {
             return;
         }
         let key = format!("s{}", info.id);
-        let open = self.contents.is_open(&key, !results.is_empty());
+        // unfolded from the start: the maps its runs made, or a stack's bands (what it holds)
+        let unfolded = !results.is_empty() || (info.stack && info.t() <= 16);
+        let open = self.contents.is_open(&key, unfolded);
         let t = if is_active { self.display.t } else { self.layers[i].disp.t };
         let date = info.layers.get(t.min(info.t().saturating_sub(1))).map_or(String::new(), |l| l.label.clone());
         let loading = if is_active {
@@ -689,7 +711,7 @@ impl State {
         // its picture in the colours the map draws it with (red, green and blue for a composite of three dates)
         let d = if is_active { &self.display } else { &self.layers[i].disp };
         let cmap = (d.mode != janus_gpu::Mode::Rgb).then(|| d.cmap[d.mode as usize]);
-        let what = if info.spectral { "bands" } else { "dates" };
+        let what = info.steps_noun();
         let detail = loading.clone().unwrap_or_else(|| {
             let n = info.t();
             if n > 1 {
@@ -708,14 +730,14 @@ impl State {
                 warn: (!l.place.note.is_empty()).then(|| l.place.note.clone()),
                 indent: 0.0,
                 swatch: Swatch::Stack(cmap),
-                fold: (!results.is_empty()).then_some(open),
+                fold: (!results.is_empty() || info.t() > 1).then_some(open),
             };
             let out = row(ui, Some(&mut l.visible), &r);
             if out.visible_changed {
                 self.map.dirty = true;
             }
             if out.fold_clicked {
-                self.contents.toggle(&key, !results.is_empty());
+                self.contents.toggle(&key, unfolded);
             }
             drag_to_reorder(ui, &out.row, pos, acts);
             let mut tip = format!(
@@ -785,13 +807,118 @@ impl State {
         if !open {
             return;
         }
-        // unfolded: the maps its runs made
+        // unfolded: its dates (a stack's bands), then the maps its runs made
+        if info.t() > 1 {
+            self.step_rows(ui, i, &info, is_active, acts);
+        }
         for &k in results.iter().rev() {
             if !self.contents.shows(&self.zeit.results[k].name) && !self.contents.shows(&name) {
                 continue;
             }
             self.result_row(ui, k, acts);
         }
+    }
+
+    /// An unfolded series' dates, or a stack's bands, a row each: the map shows one at a time, the one whose eye is
+    /// open (a click on the row or its eye shows it, the eye of the one shown hides the layer); its menu exports it
+    /// alone or opens it as a layer of its own.
+    fn step_rows(&mut self, ui: &mut Ui, i: usize, info: &janus_cube::CubeInfo, is_active: bool, acts: &mut Vec<Act>) {
+        let d = if is_active { &self.display } else { &self.layers[i].disp };
+        let (t_now, cmap) = (d.t, d.cmap[janus_gpu::Mode::Value as usize]);
+        let layer_visible = self.layers[i].visible;
+        let noun = if info.stack || info.spectral { "band" } else { "date" };
+        let all = self.contents.shows(&self.layers[i].name);
+        let row_h = ui.text_style_height(&egui::TextStyle::Body) + 14.0;
+        egui::ScrollArea::vertical()
+            .id_salt(("steps", info.id))
+            .max_height(row_h * 10.0)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for (t, l) in info.layers.iter().enumerate() {
+                    if !all && !self.contents.shows(&l.label) {
+                        continue;
+                    }
+                    let can_open = step_input(info, t).is_some();
+                    let mut shown = layer_visible && t == t_now;
+                    let r = Row {
+                        name: &l.label,
+                        detail: String::new(),
+                        badge: if info.stack { format!("{}", t + 1) } else { String::new() },
+                        active: is_active && t == t_now,
+                        warn: None,
+                        indent: 18.0,
+                        swatch: Swatch::Ramp(cmap),
+                        fold: None,
+                    };
+                    ui.push_id(("step", i, t), |ui| {
+                        let out = row(ui, Some(&mut shown), &r);
+                        if out.visible_changed {
+                            acts.push(if shown { Act::ShowStep(i, t) } else { Act::HideLayer(i) });
+                        }
+                        let resp = out.row.on_hover_text(format!(
+                            "{} {} of {}: {}\nClick, or its eye: shown on the map (one {noun} at a time).\nIts menu: \
+                             export it alone, or open it as a layer of its own.",
+                            if info.stack || info.spectral { "Band" } else { "Date" },
+                            t + 1,
+                            info.t(),
+                            l.label
+                        ));
+                        if resp.clicked() && !(is_active && t == t_now && layer_visible) {
+                            acts.push(Act::ShowStep(i, t));
+                        }
+                        let mut menu = |ui: &mut Ui| {
+                            if ui.button("Show on the map").clicked() {
+                                acts.push(Act::ShowStep(i, t));
+                                ui.close();
+                            }
+                            ui.menu_button(format!("Export this {noun}"), |ui| {
+                                for (label, kind) in STEP_EXPORTS {
+                                    if ui.button(label).clicked() {
+                                        acts.push(Act::ExportStep(i, t, kind));
+                                        ui.close();
+                                    }
+                                }
+                            });
+                            if ui
+                                .add_enabled(can_open, egui::Button::new("Open as a layer of its own"))
+                                .on_hover_text(format!("This {noun} alone, as a new layer (an image of one {noun})"))
+                                .clicked()
+                            {
+                                acts.push(Act::OpenStep(i, t));
+                                ui.close();
+                            }
+                        };
+                        resp.context_menu(&mut menu);
+                        egui::Popup::menu(&out.more).show(&mut menu);
+                    });
+                }
+            });
+    }
+
+    /// Layer i shown at date (band) t: made active and visible.
+    fn show_step(&mut self, i: usize, t: usize, ctx: &egui::Context) {
+        if i != self.active {
+            self.set_active(i, ctx);
+        }
+        self.set_date(t);
+        self.layers[i].visible = true;
+        self.map.dirty = true;
+    }
+
+    /// Date (band) t of layer i opened as a layer of its own, named after both.
+    fn open_step_as_layer(&mut self, i: usize, t: usize, ctx: &egui::Context) {
+        let info = if i == self.active {
+            self.session.as_ref().map(|s| s.info.clone())
+        } else {
+            self.layers[i].session.as_ref().map(|s| s.info.clone())
+        };
+        let Some((input, sel)) = info.as_ref().and_then(|info| step_input(info, t)) else { return };
+        if self.opening.is_some() {
+            return;
+        }
+        let mut o = crate::session::Opening::start_with(vec![input], true, sel, ctx);
+        o.name = info.map(|info| format!("{} [{}]", self.layers[i].name, info.layers[t].label));
+        self.opening = Some(o);
     }
 
     /// A map a run made, under its series.
@@ -922,4 +1049,20 @@ fn move_menu(ui: &mut Ui, place: (usize, usize, usize), acts: &mut Vec<Act>) {
             }
         }
     });
+}
+
+/// What opens date (band) t of a series alone: its file as the series reads it, or a band of a file of several
+/// dates through GDAL's vrt:// connection (None: a NetCDF variable's level, or embeddings' dimensions).
+fn step_input(info: &janus_cube::CubeInfo, t: usize) -> Option<(String, janus_cube::BandSelection)> {
+    let l = info.layers.get(t)?;
+    let one_file = info.layers.iter().all(|x| x.path == l.path);
+    if info.multidim || l.band_base != 0 || (one_file && info.bands_per_date > 1) {
+        return None;
+    }
+    if one_file {
+        let path = l.path.replace('\\', "/");
+        Some((format!("vrt://{path}?bands={}", l.band), janus_cube::BandSelection::default()))
+    } else {
+        Some((l.path.clone(), info.sel))
+    }
 }

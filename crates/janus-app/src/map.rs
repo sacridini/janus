@@ -907,6 +907,37 @@ impl State {
         let n = info.t();
         let d = &mut self.display;
         let (mut step, mut set) = (0i64, None);
+        if info.stack {
+            // a stack of variables: its bands by name, one at a time (no playback: they are not a sequence)
+            d.playing = false;
+            ui.horizontal(|ui| {
+                if ui.button("<").on_hover_text("The band before").clicked() {
+                    step = -1;
+                }
+                let w = (ui.text_style_height(&egui::TextStyle::Body) * 18.0).min(ui.available_width() - 80.0);
+                egui::ComboBox::from_id_salt("stack band").width(w).selected_text(&info.layers[d.t].label).show_ui(
+                    ui,
+                    |ui| {
+                        for (t, l) in info.layers.iter().enumerate() {
+                            if ui.selectable_label(t == d.t, format!("{}  {}", t + 1, l.label)).clicked() {
+                                set = Some(t);
+                            }
+                        }
+                    },
+                );
+                if ui.button(">").on_hover_text("The band after").clicked() {
+                    step = 1;
+                }
+                ui.weak(format!("band {}/{n}", d.t + 1));
+            });
+            if step != 0 {
+                let t = (d.t as i64 + step).clamp(0, n as i64 - 1) as usize;
+                self.set_date(t);
+            } else if let Some(t) = set {
+                self.set_date(t);
+            }
+            return;
+        }
         ui.horizontal(|ui| {
             if ui.button("<").clicked() {
                 step = -1;
@@ -956,12 +987,14 @@ impl State {
                 format!("{} - {}  |  Difference", label(d.t), d.diff_ref_date(d.t, info.t()).map_or("(none)", label))
             }
             Mode::Composite => d.temporal_text(info, d.t),
-            m if crate::display::time_dependent(m) => format!("{}  |  {}", label(d.t), crate::display::mode_name(m)),
+            m if crate::display::time_dependent(m) => {
+                format!("{}  |  {}", label(d.t), crate::display::mode_name_of(m, info))
+            }
             m => format!(
                 "{}  |  {} {}{}",
                 crate::display::mode_name(m),
                 info.t(),
-                if info.spectral { "bands" } else { "dates" },
+                info.steps_noun(),
                 if d.season.active(info) { format!("  |  {}", d.season.text()) } else { String::new() }
             ),
         }

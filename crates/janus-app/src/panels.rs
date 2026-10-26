@@ -74,10 +74,12 @@ fn colormap_button(ui: &mut Ui, cmap: usize, width: f32) -> egui::Response {
 
 impl State {
     /// What the active series allows (C++ modeAvailable): class codes have no means or trends; a single date no
-    /// temporal statistics.
+    /// temporal statistics; a stack of variables neither (a mean of different variables means nothing), only its
+    /// bands one at a time or three as RGB.
     pub(crate) fn mode_available(&self, m: Mode) -> bool {
         let n = self.session.as_ref().map_or(0, |s| s.info.t());
-        if self.classes.on() { m == Mode::Value } else { m == Mode::Value || m == Mode::Rgb || n >= 2 }
+        let stack = self.session.as_ref().is_some_and(|s| s.info.stack);
+        if self.classes.on() { m == Mode::Value } else { m == Mode::Value || m == Mode::Rgb || (n >= 2 && !stack) }
     }
 
     /// The Display panel (app.cpp, uiLayer): the series, its bands, what the map shows (mode, colormap, stretch,
@@ -110,13 +112,31 @@ impl State {
         }
         section(ui, "Series");
         ui.add(egui::Label::new(&info.description).wrap());
-        let what = if info.spectral { "bands" } else { "dates" };
+        let what = info.steps_noun();
         ui.label(format!("{n} {what}: {} to {}", info.layers[0].label, info.layers[n - 1].label));
         ui.label(format!("{} x {} px, {}", info.width, info.height, info.data_type));
         let crs = if info.crs_name.is_empty() { "(no CRS)" } else { &info.crs_name };
         ui.add(egui::Label::new(format!("CRS: {crs} {}", info.crs_authority)).wrap());
         if let Some(g) = info.geo_transform {
             ui.label(format!("Pixel: {} x {}", format_g(g[1], 6), format_g(g[5].abs(), 6)));
+        }
+        // one file of several bands without dates: a stack of variables or a series, as its bands' names say
+        // unless set here
+        let one_file = info.layers.iter().all(|l| l.path == info.layers[0].path);
+        if n > 1 && one_file && !info.spectral && !info.time_is_date && !info.multidim && info.bands_per_date <= 1 {
+            let mut stack = info.stack;
+            if ui
+                .checkbox(&mut stack, "A stack of variables")
+                .on_hover_text(
+                    "On: each band is a variable of its own (its own stretch, its own classes), shown one at a \
+                     time; no temporal statistics, trends or playback.\nOff: the bands are a series (dates in \
+                     order).\nSet from the bands' names (each named: a stack); opens the file again.",
+                )
+                .changed()
+            {
+                let sel = janus_cube::BandSelection { stack: Some(stack), ..info.sel };
+                self.reopen_layer(self.active, sel, &ctx);
+            }
         }
         self.bands_ui(ui, &info);
         self.composite_ui(ui);
@@ -138,7 +158,7 @@ impl State {
                         .changed();
                 }
             });
-        let (changed, turned_on) = self.classes.ui(ui, s);
+        let (changed, turned_on) = self.classes.ui(ui, s, d.t);
         if changed {
             self.map.dirty = true;
         }
@@ -281,7 +301,9 @@ impl State {
                     r.invalidate();
                 }
             });
+            // a stack: each band has its own range
             if crate::display::time_dependent(d.mode)
+                && !info.stack
                 && ui
                     .checkbox(&mut d.per_date_range, "Per-date range")
                     .on_hover_text("Off: same range for every date (colors comparable through time)")
@@ -710,7 +732,28 @@ impl State {
                         });
                     }
                     ui.end_row();
-                    if let Some(ac) = active_classes {
+                    if info.stack {
+                        // a stack of variables: each band's value (a mean or a trend over different variables
+                        // means nothing), the band shown in bold and by its class when it has classes
+                        for (k, l) in info.layers.iter().enumerate() {
+                            let label = egui::RichText::new(&l.label);
+                            if k == t {
+                                ui.label(label.strong());
+                            } else {
+                                ui.weak(label);
+                            }
+                            for c in &cols {
+                                let values = if c.roi { Some(&sr.roi.mean[..]) } else { c.values };
+                                let v = values.filter(|_| c.cube.is_none()).and_then(|v| v.get(k)).copied();
+                                ui.label(match (v, active_classes) {
+                                    (Some(x), Some(ac)) if x.is_finite() && k == t => ac.name_of(x),
+                                    (Some(x), _) if x.is_finite() => num(f64::from(x)),
+                                    _ => "-".to_string(),
+                                });
+                            }
+                            ui.end_row();
+                        }
+                    } else if let Some(ac) = active_classes {
                         // categorical: class summaries (majority, changes...) instead of means and trends
                         let summaries: Vec<Vec<(String, String)>> = cols
                             .iter()

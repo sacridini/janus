@@ -235,6 +235,8 @@ pub struct Options {
     /// active layer's (screenshots)
     pub view: Option<[f64; 3]>,
     pub opacity: Option<f32>,
+    /// --date N: the date (or band) shown, from 1
+    pub date: Option<usize>,
     pub roi: Option<[i64; 4]>,
     /// --roi with more than two corners: a polygon's vertices (x, y, ...)
     pub roi_polygon: Vec<f64>,
@@ -1059,6 +1061,11 @@ impl State {
                 self.view_at(x, y, scale);
                 self.map.touched = true;
             }
+            if let Some(t) = self.opts.date
+                && let Some(n) = self.session.as_ref().map(|s| s.info.t())
+            {
+                self.set_date(t.clamp(1, n) - 1);
+            }
             if let Some(o) = self.opts.opacity
                 && let Some(l) = self.layers.get_mut(self.active)
             {
@@ -1076,8 +1083,11 @@ impl State {
                     self.analysis.seasonal_start = m - 1;
                 }
                 // trend,run[,classes]: the test run (on the first categorical layer's classes);
-                // flows[,changes][,zoom=N][,small=PCT][,window]
+                // transitions; flows[,changes][,zoom=N][,small=PCT][,window]
                 let view: Vec<&str> = self.opts.analysis_view.split(',').map(str::trim).collect();
+                if view.contains(&"transitions") {
+                    self.analysis.class_view = 2;
+                }
                 if view.contains(&"flows") {
                     self.analysis.class_view = 1;
                     self.analysis.flow_changes = view.contains(&"changes");
@@ -1219,7 +1229,7 @@ impl State {
         if s.pump(gpu, ctx) {
             self.map.dirty = true;
         }
-        let (changed, became_on) = self.classes.update(s, gpu);
+        let (changed, became_on) = self.classes.update(s, gpu, self.display.t);
         if changed {
             self.map.dirty = true;
         }
@@ -1312,7 +1322,8 @@ impl State {
         if fit {
             self.map.fit();
         }
-        if play {
+        // a stack's bands are not a sequence to play
+        if play && !self.session.as_ref().is_some_and(|s| s.info.stack) {
             self.display.playing = !self.display.playing;
         }
         if ctx.input(|i| i.key_pressed(Key::C) && i.modifiers.is_none()) {

@@ -112,6 +112,9 @@ pub struct BandSelection {
     /// an expression over the date's bands (an index of the library, one typed): shown instead of the band or
     /// normalized difference, before the quality mask
     pub expr: calc::ExprId,
+    /// a single file of several bands without dates: Some(true) a stack of variables, Some(false) a series, None
+    /// as its bands' names say (each named: a stack)
+    pub stack: Option<bool>,
 }
 
 impl Default for BandSelection {
@@ -123,6 +126,7 @@ impl Default for BandSelection {
             qa_rule: QaRule::None,
             chosen: false,
             expr: calc::ExprId::NONE,
+            stack: None,
         }
     }
 }
@@ -163,6 +167,9 @@ pub struct CubeInfo {
     pub time_is_date: bool,
     /// one file whose bands are wavelengths (hyperspectral): the axis is the spectrum, layers' time in nm
     pub spectral: bool,
+    /// one file whose bands are different variables (each named, none a date): a stack, not a series; each band is
+    /// a map of its own (its own stretch, its own classes) and the axis is the bands', not time
+    pub stack: bool,
     /// each band's wavelength (nm), in the file's band order, when the bands carry one
     pub band_nm: Vec<f64>,
     pub granularity: TimeGranularity,
@@ -196,6 +203,11 @@ pub struct CubeInfo {
 impl CubeInfo {
     pub fn t(&self) -> usize {
         self.layers.len()
+    }
+
+    /// The axis is bands (a spectrum, a stack of variables) rather than dates: "bands", else "dates".
+    pub fn steps_noun(&self) -> &'static str {
+        if self.spectral || self.stack { "bands" } else { "dates" }
     }
 
     /// The text of a time on the cube's axis: a date at the series' granularity, a wavelength, or the index from 1.
@@ -469,6 +481,9 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
 
     // where each layer's date is looked for
     let mut time_texts: Vec<String> = Vec::new();
+    // one file whose every band has a name of its own: a stack, unless the names are dates (or the user said
+    // otherwise)
+    let (mut may_stack, mut named_bands) = (false, false);
     let n = first.raster_count();
     // one file of embeddings: a year with D bands, or zeit.save_raster's every year in one file (bands
     // "<date>_<dimension>", date after date)
@@ -576,6 +591,7 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
                 qa_rule: QaRule::None,
                 chosen: true,
                 expr: sel.expr,
+                stack: None,
             };
             if sel.expr.is_some() {
                 let e = compile_expr(&info, sel)?;
@@ -614,12 +630,16 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         {
             return open_multidim(info, first, &files[0], md, sel);
         }
+        let mut names = std::collections::HashSet::new();
+        may_stack = n > 1 && !info.spectral;
+        named_bands = may_stack;
         for b in 1..=n {
             let rb = first.rasterband(b).map_err(|e| e.to_string())?;
             if b == 1 && !info.spectral {
                 read_class_info(&rb, &mut info);
             }
             let desc = rb.description().unwrap_or_default();
+            named_bands &= !desc.trim().is_empty() && names.insert(desc.trim().to_lowercase());
             let mut text = desc.clone();
             for item in rb.metadata_domain("").unwrap_or_default() {
                 text.push(' ');
@@ -809,6 +829,11 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
     } else {
         for (i, l) in info.layers.iter_mut().enumerate() {
             l.time = i as f64;
+        }
+        if may_stack && sel.stack.unwrap_or(named_bands) {
+            info.stack = true;
+            info.sel.stack = Some(true);
+            info.description = format!("1 file, a stack of {} bands", info.t());
         }
     }
     Ok(info)

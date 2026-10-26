@@ -69,6 +69,10 @@ pub struct LayerClasses {
     pub lut: Option<GpuTexture>,
     lut_dirty: bool,
     error: String,
+    /// a stack of variables: each band is categorical or not on its own; the band the fields above are for, and
+    /// the other bands' (their state, whether complete, their classes)
+    band: Option<usize>,
+    bands: BTreeMap<usize, (ClassState, bool, Vec<ClassEntry>)>,
 }
 
 /// Counts of the whole values (every `stride`-th); None if a finite value is not whole or there are more than
@@ -97,6 +101,16 @@ impl LayerClasses {
 
     pub fn find(&self, value: i32) -> Option<&ClassEntry> {
         self.list.binary_search_by_key(&value, |c| c.value).ok().map(|i| &self.list[i])
+    }
+
+    /// Shows or hides a class on the map (a legend outside the Display panel).
+    pub fn set_visible(&mut self, value: i32, visible: bool) {
+        if let Ok(i) = self.list.binary_search_by_key(&value, |c| c.value)
+            && self.list[i].visible != visible
+        {
+            self.list[i].visible = visible;
+            self.lut_dirty = true;
+        }
     }
 
     /// A value's class as shown: "Forest (3)".
@@ -148,48 +162,75 @@ impl LayerClasses {
         self.lut_dirty = true;
     }
 
-    /// Counts the classes over every date read (subsampled to MAX_SAMPLES values).
-    fn count_all(s: &Session, max: usize) -> Option<BTreeMap<i32, usize>> {
+    /// Counts the classes over every date read (subsampled to MAX_SAMPLES values); a stack's over the band `t`.
+    fn count_all(s: &Session, t: usize, max: usize) -> Option<BTreeMap<i32, usize>> {
         let ov = &s.s.overview;
         let per = ov.w * ov.h;
-        let loaded = s.uploaded.iter().filter(|&&u| u).count();
-        if loaded == 0 || per == 0 {
+        let dates: Vec<usize> = if s.info.stack { vec![t] } else { (0..ov.t).collect() };
+        let dates: Vec<usize> = dates.into_iter().filter(|&t| s.uploaded.get(t).copied().unwrap_or(false)).collect();
+        if dates.is_empty() || per == 0 {
             return None;
         }
-        let stride = (per * loaded / MAX_SAMPLES).max(1);
+        let stride = (per * dates.len() / MAX_SAMPLES).max(1);
         let mut counts = BTreeMap::new();
-        for t in (0..ov.t).filter(|&t| s.uploaded[t]) {
+        for t in dates {
             count_classes(ov.layer(t)?, stride, max, &mut counts)?;
         }
         Some(counts)
     }
 
+    /// A stack: the classes of band `t` in front, the band shown before kept. True if they changed.
+    fn follow_band(&mut self, s: &Session, t: usize) -> bool {
+        if !s.info.stack || self.band == Some(t) {
+            return false;
+        }
+        if let Some(b) = self.band {
+            let list = std::mem::take(&mut self.list);
+            self.bands.insert(b, (self.state, self.complete, list));
+        }
+        (self.state, self.complete, self.list) = self.bands.remove(&t).unwrap_or_default();
+        self.band = Some(t);
+        self.error.clear();
+        self.lut_dirty = true;
+        true
+    }
+
     /// Per frame: decides whether the layer is categorical (Some(true) then: the map shows values), completes the
-    /// class list once every date is read, refreshes the GPU's table. Returns whether the map changed.
-    pub fn update(&mut self, s: &Session, gpu: &Gpu) -> (bool, bool) {
-        let mut changed = false;
+    /// class list once every date is read, refreshes the GPU's table. A stack decides for each band, the one shown
+    /// (`t`). Returns whether the map changed.
+    pub fn update(&mut self, s: &Session, gpu: &Gpu, t: usize) -> (bool, bool) {
+        let mut changed = self.follow_band(s, t);
         let mut became_on = false;
         let info = &s.info;
+        let first = if info.stack {
+            Some(t).filter(|&t| s.uploaded.get(t).copied().unwrap_or(false))
+        } else {
+            (0..info.t()).find(|&t| s.uploaded[t])
+        };
         if self.state == ClassState::Undecided
-            && let Some(first) = (0..info.t()).find(|&t| s.uploaded[t])
+            && let Some(first) = first
             && let Some(layer) = s.s.overview.layer(first)
         {
             let mut counts = BTreeMap::new();
             let max = if info.file_categorical { MAX_CLASSES } else { MAX_DETECTED };
             let few = count_classes(layer, 1, max, &mut counts).is_some();
             // declared by the file: classes even if a date has many values; reflectances never classes
-            if (info.file_categorical || few) && !counts.is_empty() && !info.spectral {
+            // a stack: the file's colour table or names are its first band's
+            let declared = info.file_categorical && (!info.stack || first == 0);
+            if (declared || few) && !counts.is_empty() && !info.spectral {
                 self.state = ClassState::On;
                 self.set(info, &counts);
                 became_on = true;
             } else {
                 self.state = ClassState::Off;
             }
+            // a stack's band is counted whole at once
+            self.complete = info.stack;
             changed = true;
         }
         if self.on() && !self.complete && s.s.overview.complete() {
             // every date read: the classes that appear later in the series too
-            if let Some(counts) = Self::count_all(s, MAX_CLASSES) {
+            if let Some(counts) = Self::count_all(s, t, MAX_CLASSES) {
                 self.set(info, &counts);
             }
             self.complete = true;
@@ -210,7 +251,7 @@ impl LayerClasses {
 
     /// The Display panel's switch and legend (colours, visibility and names editable). Returns whether the map
     /// changed and whether classes were turned on (the map then shows values).
-    pub fn ui(&mut self, ui: &mut Ui, s: &Session) -> (bool, bool) {
+    pub fn ui(&mut self, ui: &mut Ui, s: &Session, t: usize) -> (bool, bool) {
         if self.state == ClassState::Undecided {
             return (false, false);
         }
@@ -223,10 +264,10 @@ impl LayerClasses {
         );
         if r.changed() {
             if on {
-                match Self::count_all(s, MAX_CLASSES).filter(|c| !c.is_empty()) {
+                match Self::count_all(s, t, MAX_CLASSES).filter(|c| !c.is_empty()) {
                     Some(counts) => {
                         self.state = ClassState::On;
-                        self.complete = s.s.overview.complete();
+                        self.complete = s.s.overview.complete() || s.info.stack;
                         self.set(&s.info, &counts);
                         turned_on = true;
                     }

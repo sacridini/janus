@@ -6,6 +6,7 @@
 //! any series.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use egui::{Color32, Pos2, Rect, Stroke, Ui, vec2};
 use egui_plot::{FilledArea, GridMark, Legend, Line, Plot, PlotPoint, PlotPoints, VLine};
@@ -61,6 +62,140 @@ fn colour_scale(ui: &mut Ui, height: f32, cmap: usize, lo: f64, hi: f64, label: 
     let col = ui.visuals().text_color();
     p.text(Pos2::new(bar.right() + 4.0, bar.top()), egui::Align2::LEFT_CENTER, label(hi), font.clone(), col);
     p.text(Pos2::new(bar.right() + 4.0, bar.bottom()), egui::Align2::LEFT_CENTER, label(lo), font, col);
+}
+
+/// A class's swatch: filled when the class is shown, its outline when it is hidden.
+fn class_swatch(ui: &Ui, r: Rect, color: [u8; 3], visible: bool) {
+    let col = Color32::from_rgb(color[0], color[1], color[2]);
+    if visible {
+        ui.painter().rect_filled(r.shrink(1.0), 2.0, col);
+    } else {
+        ui.painter().rect_stroke(r.shrink(1.5), 2.0, Stroke::new(1.5, col), egui::StrokeKind::Inside);
+    }
+}
+
+/// A line of text cut with "…" at `max_w`.
+fn fitted(painter: &egui::Painter, text: &str, font: &egui::FontId, color: Color32, max_w: f32) -> Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), font.clone(), color);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(max_w.max(1.0));
+    painter.layout_job(job)
+}
+
+/// The transition matrix as a heatmap: a row per class at "from", a column per class at "to" (the classes with
+/// pixels at either), each cell shaded by its share of the pixels (the changes in the accent colour, the pixels
+/// that kept their class in grey, each on a square-root scale of the largest), the share written in it when the
+/// classes are few; the exact values in each cell's tooltip.
+fn transition_matrix(ui: &mut Ui, tr: &Transitions, classes: &crate::classes::LayerClasses) {
+    let k_n = tr.values.len();
+    let rows: Vec<usize> = (0..k_n).filter(|&i| (0..k_n).any(|j| tr.m[i * k_n + j] > 0)).collect();
+    let cols: Vec<usize> = (0..k_n).filter(|&j| (0..k_n).any(|i| tr.m[i * k_n + j] > 0)).collect();
+    if rows.is_empty() || cols.is_empty() {
+        return;
+    }
+    let at = |i: usize, j: usize| tr.m[i * k_n + j];
+    let both = tr.both.max(1) as f64;
+    let entry = |k: usize| classes.find(tr.values[k]);
+    let name_of = |k: usize| entry(k).map_or(tr.values[k].to_string(), |e| e.name.clone());
+    let color_of = |k: usize| entry(k).map_or([153, 153, 153], |e| e.color);
+    let s = ui.text_style_height(&egui::TextStyle::Body);
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let small = egui::FontId::proportional(font.size * 0.85);
+    let v = ui.visuals().clone();
+    let avail = ui.available_width();
+    // the names: as long as the longest, within reason (cut with "…" past it)
+    let painter = ui.painter().clone();
+    let longest = rows
+        .iter()
+        .chain(&cols)
+        .map(|&k| painter.layout_no_wrap(name_of(k), font.clone(), v.text_color()).size().x)
+        .fold(0f32, f32::max);
+    let name_w = longest.min(s * 12.0);
+    let head_h = longest.min(s * 9.0) + s + 8.0;
+    let left = s + 6.0 + name_w + 6.0;
+    // cells wide enough for a share when there is room for them, small squares when the classes are many
+    let fit = (avail - left) / cols.len() as f32;
+    let with_text = fit >= s * 3.0;
+    let cell = if with_text { vec2(fit.min(s * 4.2), s * 1.6) } else { vec2(s * 1.5, s * 1.5) };
+    let size = vec2(left + cell.x * cols.len() as f32, head_h + cell.y * rows.len() as f32);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let p = ui.painter_at(rect);
+    let origin = rect.min + vec2(left, head_h);
+    // the axes' names in the corner
+    p.text(
+        rect.min + vec2(0.0, head_h - 4.0),
+        egui::Align2::LEFT_BOTTOM,
+        "from \\ to",
+        small.clone(),
+        v.weak_text_color(),
+    );
+    // the columns: a swatch under the name, written upwards
+    for (c, &j) in cols.iter().enumerate() {
+        let x = origin.x + cell.x * (c as f32 + 0.5);
+        class_swatch(ui, Rect::from_center_size(Pos2::new(x, origin.y - s / 2.0 - 3.0), vec2(s, s)), color_of(j), true);
+        let g = fitted(&p, &name_of(j), &font, v.text_color(), head_h - s - 8.0);
+        let at = Pos2::new(x - g.size().y / 2.0, origin.y - s - 6.0);
+        p.add(egui::epaint::TextShape::new(at, g, v.text_color()).with_angle(-std::f32::consts::FRAC_PI_2));
+    }
+    // the rows: a swatch before the name
+    for (r, &i) in rows.iter().enumerate() {
+        let y = origin.y + cell.y * (r as f32 + 0.5);
+        class_swatch(ui, Rect::from_center_size(Pos2::new(rect.left() + s / 2.0, y), vec2(s, s)), color_of(i), true);
+        let g = fitted(&p, &name_of(i), &font, v.text_color(), name_w);
+        p.galley(Pos2::new(rect.left() + s + 6.0, y - g.size().y / 2.0), g, v.text_color());
+    }
+    let (mut max_kept, mut max_moved) = (1u32, 1u32);
+    for &i in &rows {
+        for &j in &cols {
+            let m = at(i, j);
+            if i == j { max_kept = max_kept.max(m) } else { max_moved = max_moved.max(m) }
+        }
+    }
+    let accent = theme::accent();
+    let hover = resp.hover_pos().and_then(|q| {
+        let d = q - origin;
+        (d.x >= 0.0 && d.y >= 0.0).then(|| ((d.y / cell.y) as usize, (d.x / cell.x) as usize))
+    });
+    let hover = hover.filter(|&(r, c)| r < rows.len() && c < cols.len());
+    for (r, &i) in rows.iter().enumerate() {
+        for (c, &j) in cols.iter().enumerate() {
+            let cr = Rect::from_min_size(origin + vec2(cell.x * c as f32, cell.y * r as f32), cell).shrink(1.0);
+            let m = at(i, j);
+            if m == 0 {
+                p.rect_filled(cr, 1.0, v.faint_bg_color);
+                continue;
+            }
+            let fill = if i == j {
+                v.weak_text_color().gamma_multiply(0.15 + 0.6 * (f64::from(m) / f64::from(max_kept)).sqrt() as f32)
+            } else {
+                accent.gamma_multiply(0.15 + 0.85 * (f64::from(m) / f64::from(max_moved)).sqrt() as f32)
+            };
+            p.rect_filled(cr, 1.0, fill);
+            if with_text {
+                p.text(
+                    cr.center(),
+                    egui::Align2::CENTER_CENTER,
+                    percent(f64::from(m) / both),
+                    small.clone(),
+                    v.text_color(),
+                );
+            }
+        }
+    }
+    if let Some((r, c)) = hover {
+        let (i, j) = (rows[r], cols[c]);
+        let cr = Rect::from_min_size(origin + vec2(cell.x * c as f32, cell.y * r as f32), cell);
+        p.rect_stroke(cr, 1.0, Stroke::new(1.5, v.strong_text_color()), egui::StrokeKind::Inside);
+        let m = at(i, j);
+        let row_n: u64 = (0..k_n).map(|j| u64::from(at(i, j))).sum();
+        let what = if i == j { "kept their class".to_string() } else { format!("-> {}", name_of(j)) };
+        resp.on_hover_text_at_pointer(format!(
+            "{} {what}\n{} of the pixels ({m} pixels of the overview)\n{} of the pixels of {}",
+            name_of(i),
+            percent(f64::from(m) / both),
+            percent(f64::from(m) / row_n.max(1) as f64),
+            name_of(i)
+        ));
+    }
 }
 
 /// The share of each class at every date, counted a few dates a frame.
@@ -119,7 +254,7 @@ pub struct AnalysisUi {
     pub seasonal_start: usize,
     pub classes: ClassTimeline,
     class_stacked: bool,
-    /// 0 the shares over time, 1 the flows between dates (sankey.rs)
+    /// 0 the shares over time, 1 the flows between dates (sankey.rs), 2 the transitions between two dates
     pub class_view: usize,
     /// the flows' dates (sorted) and their consecutive pairs' transitions
     pub flow_dates: Vec<usize>,
@@ -183,6 +318,10 @@ impl State {
 
     fn seasonal_ui(&mut self, ui: &mut Ui) {
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return };
+        if info.stack {
+            ui.weak("A stack of variables: its bands have no dates.");
+            return;
+        }
         if !info.time_is_date {
             ui.weak("The dates of this series are not known (it is ordered by index).");
             return;
@@ -559,22 +698,49 @@ impl State {
             ));
             ui.ctx().request_repaint();
         }
+        // one date: its shares, nothing changes; a stack of variables: the shares of the band shown (its bands are
+        // different variables, a class of one is not a class of another)
+        let single = t_n < 2 || info.stack;
+        if single {
+            self.analysis.class_view = 0;
+        }
         let c = &self.analysis.classes;
         let k_n = c.values.len();
         let names: HashMap<i32, String> = self.classes.list.iter().map(|e| (e.value, e.name.clone())).collect();
         let name_of = |v: i32| names.get(&v).cloned().unwrap_or_else(|| v.to_string());
         ui.horizontal(|ui| {
-            ui.radio_value(&mut self.analysis.class_view, 0, "Shares")
-                .on_hover_text("The share of each class at every date");
-            ui.radio_value(&mut self.analysis.class_view, 1, "Flows").on_hover_text(
-                "What became what between two to six dates (a Sankey diagram): the bars are the classes at each \
-                 date, the ribbons the pixels that changed",
-            );
+            ui.radio_value(&mut self.analysis.class_view, 0, "Shares").on_hover_text(if single {
+                "The share of each class"
+            } else {
+                "The share of each class at every date"
+            });
+            let why = if info.stack {
+                "A stack of variables: no change between its bands"
+            } else {
+                "One date: nothing changes"
+            };
+            ui.add_enabled_ui(!single, |ui| {
+                ui.radio_value(&mut self.analysis.class_view, 2, "Transitions")
+                    .on_hover_text(
+                        "What became what between two dates: the classes at one date (rows) by the classes at \
+                         the other (columns)",
+                    )
+                    .on_disabled_hover_text(why);
+                ui.radio_value(&mut self.analysis.class_view, 1, "Flows")
+                    .on_hover_text(
+                        "What became what between two to six dates (a Sankey diagram): the bars are the classes \
+                         at each date, the ribbons the pixels that changed",
+                    )
+                    .on_disabled_hover_text(why);
+            });
             ui.separator();
-            ui.checkbox(&mut self.analysis.class_stacked, "Stacked")
-                .on_hover_text("Stacked areas (the shares add up to 100%), or one line per class");
-            let c = &self.analysis.classes;
-            if ui.button("Copy CSV").on_hover_text("Copies the share (%) of each class at every date").clicked() {
+            if self.analysis.class_view == 0 && !single {
+                ui.checkbox(&mut self.analysis.class_stacked, "Stacked")
+                    .on_hover_text("Stacked areas (the shares add up to 100%), or one line per class");
+            }
+            if self.analysis.class_view == 0
+                && ui.button("Copy CSV").on_hover_text("Copies the share (%) of each class at every date").clicked()
+            {
                 let mut csv = String::from("date");
                 for &v in &c.values {
                     csv += &format!(",{}", name_of(v));
@@ -598,18 +764,34 @@ impl State {
             ));
         });
         let avail = ui.available_width();
-        // the flows: the panel's whole width (the matrix of two dates is in their tooltips)
-        if self.analysis.class_view == 1 {
-            let h = ui.available_height();
-            ui.vertical(|ui| self.class_flows_ui(ui, vec2(avail, h), false));
+        let h = ui.available_height();
+        match self.analysis.class_view {
+            // the flows: the panel's whole width (the matrix of two dates is in their tooltips)
+            1 => {
+                ui.vertical(|ui| self.class_flows_ui(ui, vec2(avail, h), false));
+                return;
+            }
+            2 => {
+                ui.vertical(|ui| self.transitions_ui(ui, t_n));
+                return;
+            }
+            _ => {}
+        }
+        if single {
+            let t = if info.stack { self.display.t.min(t_n - 1) } else { 0 };
+            if info.stack {
+                ui.weak(format!("Band {}: {}", t + 1, info.layers[t].label));
+            }
+            self.class_bars_ui(ui, t);
             return;
         }
-        let chart_w = (avail * 0.55).max(avail - ui.text_style_height(&egui::TextStyle::Body) * 34.0);
+        // the chart, its legend beside it (inside, a legend of 20 or 30 classes covered the chart)
+        let legend_w = (ui.text_style_height(&egui::TextStyle::Body) * 16.0).min(avail * 0.4);
+        let chart_w = (avail - legend_w - ui.spacing().item_spacing.x).max(100.0);
         let xs: Vec<f64> = info.layers.iter().map(|l| l.time).collect();
         let stacked = self.analysis.class_stacked;
         let t_now = self.display.t;
         let mut pick = None;
-        let h = ui.available_height();
         ui.horizontal_top(|ui| {
             ui.allocate_ui(vec2(chart_w, h), |ui| {
                 let c = &self.analysis.classes;
@@ -617,7 +799,6 @@ impl State {
                 let mut plot = Plot::new("class shares")
                     .width(chart_w)
                     .height(h)
-                    .legend(Legend::default().position(egui_plot::Corner::RightTop).background_alpha(0.6))
                     .show_background(false)
                     .allow_drag(false)
                     .allow_scroll(false)
@@ -691,16 +872,135 @@ impl State {
                     }
                 }
             });
-            ui.vertical(|ui| self.transitions_ui(ui, t_n));
+            ui.vertical(|ui| {
+                ui.set_width(legend_w);
+                self.class_legend_ui(ui, h, t_now);
+            });
         });
         if let Some(t) = pick {
             self.set_date(t);
         }
     }
 
+    /// The legend beside the shares' chart: a class a row, its swatch (a click shows or hides the class, on the map
+    /// too), its name and its share at the date shown.
+    fn class_legend_ui(&mut self, ui: &mut Ui, height: f32, t: usize) {
+        let c = &self.analysis.classes;
+        let s = ui.text_style_height(&egui::TextStyle::Body);
+        let date = self.session.as_ref().and_then(|x| x.info.layers.get(t)).map_or(String::new(), |l| l.label.clone());
+        ui.weak(date).on_hover_text("The shares at the date shown");
+        let mut toggle = None;
+        egui::ScrollArea::vertical().id_salt("class legend").max_height(height).auto_shrink([false, true]).show(
+            ui,
+            |ui| {
+                for (k, &v) in c.values.iter().enumerate() {
+                    let Some(e) = self.classes.find(v) else { continue };
+                    let share = (t < c.next && c.valid[t] > 0).then(|| f64::from(c.counts[t][k]) / c.valid[t] as f64);
+                    ui.horizontal(|ui| {
+                        let (r, resp) = ui.allocate_exact_size(vec2(s, s), egui::Sense::click());
+                        class_swatch(ui, r, e.color, e.visible);
+                        if resp
+                            .on_hover_text(if e.visible {
+                                "Hide this class (map and chart)"
+                            } else {
+                                "Show this class"
+                            })
+                            .clicked()
+                        {
+                            toggle = Some((v, !e.visible));
+                        }
+                        // the name in what the share leaves (cut with "…")
+                        let name_w = (ui.available_width() - s * 3.8).max(s);
+                        let layout = egui::Layout::left_to_right(egui::Align::Center);
+                        ui.allocate_ui_with_layout(vec2(name_w, s), layout, |ui| {
+                            ui.set_width(name_w);
+                            let name = egui::RichText::new(&e.name);
+                            let name = if e.visible { name } else { name.weak() };
+                            ui.add(egui::Label::new(name).truncate()).on_hover_text(format!("{} ({v})", e.name));
+                        });
+                        ui.weak(share.map_or(String::new(), percent));
+                    });
+                }
+            },
+        );
+        if let Some((v, on)) = toggle {
+            self.classes.set_visible(v, on);
+        }
+    }
+
+    /// One date: a bar per class as long as its share, the largest first (a click shows or hides the class).
+    fn class_bars_ui(&mut self, ui: &mut Ui, t: usize) {
+        let c = &self.analysis.classes;
+        if t >= c.next || c.valid[t] == 0 {
+            return;
+        }
+        let total = c.valid[t] as f64;
+        let mut order: Vec<usize> = (0..c.values.len()).filter(|&k| c.counts[t][k] > 0).collect();
+        order.sort_by_key(|&k| std::cmp::Reverse(c.counts[t][k]));
+        let largest = order.first().map_or(1.0, |&k| f64::from(c.counts[t][k]));
+        let s = ui.text_style_height(&egui::TextStyle::Body);
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let (text, weak) = (ui.visuals().text_color(), ui.visuals().weak_text_color());
+        let mut toggle = None;
+        egui::ScrollArea::vertical().id_salt("class bars").auto_shrink([false, false]).show(ui, |ui| {
+            let w = ui.available_width();
+            let longest = order
+                .iter()
+                .filter_map(|&k| self.classes.find(c.values[k]))
+                .map(|e| ui.painter().layout_no_wrap(e.name.clone(), font.clone(), text).size().x)
+                .fold(0f32, f32::max);
+            let name_w = longest.min(s * 14.0).min(w * 0.35);
+            let share_w = s * 4.0;
+            for &k in &order {
+                let v = c.values[k];
+                let Some(e) = self.classes.find(v) else { continue };
+                let (rect, resp) = ui.allocate_exact_size(vec2(w, s + 6.0), egui::Sense::click());
+                let col = Color32::from_rgb(e.color[0], e.color[1], e.color[2]);
+                let sw = Rect::from_center_size(Pos2::new(rect.left() + s / 2.0, rect.center().y), vec2(s, s));
+                class_swatch(ui, sw, e.color, e.visible);
+                let p = ui.painter();
+                let name = Rect::from_min_max(
+                    Pos2::new(sw.right() + 6.0, rect.top()),
+                    Pos2::new(sw.right() + 6.0 + name_w, rect.bottom()),
+                );
+                let g = fitted(p, &e.name, &font, if e.visible { text } else { weak }, name_w);
+                p.galley(Pos2::new(name.left(), rect.center().y - g.size().y / 2.0), g, text);
+                let share = f64::from(c.counts[t][k]) / total;
+                let x0 = name.right() + 6.0;
+                let full = (rect.right() - share_w - x0).max(10.0);
+                let bar = Rect::from_min_size(
+                    Pos2::new(x0, rect.top() + 3.0),
+                    vec2((full * (f64::from(c.counts[t][k]) / largest) as f32).max(1.0), rect.height() - 6.0),
+                );
+                p.rect_filled(bar, 2.0, if e.visible { col } else { col.gamma_multiply(0.3) });
+                p.text(
+                    Pos2::new(bar.right() + 4.0, rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    percent(share),
+                    font.clone(),
+                    weak,
+                );
+                if resp
+                    .on_hover_text(format!(
+                        "{} ({v})\n{} of the pixels with a class ({} pixels of the overview)\nClick: {} it on the map",
+                        e.name,
+                        percent(share),
+                        c.counts[t][k],
+                        if e.visible { "hide" } else { "show" }
+                    ))
+                    .clicked()
+                {
+                    toggle = Some((v, !e.visible));
+                }
+            }
+        });
+        if let Some((v, on)) = toggle {
+            self.classes.set_visible(v, on);
+        }
+    }
+
     fn transitions_ui(&mut self, ui: &mut Ui, t_n: usize) {
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return };
-        ui.label("Transitions");
         let a = &mut self.analysis;
         a.trans_from = a.trans_from.min(t_n - 1);
         let to = a.trans_to.map_or(self.display.t, |t| t.min(t_n - 1));
@@ -756,74 +1056,45 @@ impl State {
         moves.sort_by_key(|m| std::cmp::Reverse(m.0));
         let both = tr.both.max(1) as f64;
         let name_of = |k: usize| self.classes.find(tr.values[k]).map_or(tr.values[k].to_string(), |e| e.name.clone());
-        ui.label(format!("Changed: {} of the pixels with a class at both dates", percent(changed as f64 / both)));
-        for &(m, i, j) in moves.iter().take(6) {
-            ui.label(format!("  - {} -> {}: {}", name_of(i), name_of(j), percent(f64::from(m) / both)));
-        }
-        if ui
-            .small_button("Copy CSV")
-            .on_hover_text("Copies the matrix (pixel counts: rows = from, columns = to)")
-            .clicked()
-        {
-            let mut csv = String::from("from \\ to");
-            for j in 0..k_n {
-                csv += &format!(",{}", name_of(j));
-            }
-            csv.push('\n');
-            for i in 0..k_n {
-                csv += &name_of(i);
-                for j in 0..k_n {
-                    csv += &format!(",{}", tr.m[i * k_n + j]);
+        let side_w = (ui.text_style_height(&egui::TextStyle::Body) * 18.0).min(ui.available_width() * 0.35);
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(side_w);
+                ui.label(format!("Changed: {}", percent(changed as f64 / both)))
+                    .on_hover_text("Of the pixels with a class at both dates");
+                if !moves.is_empty() {
+                    ui.weak("The largest changes:");
                 }
-                csv.push('\n');
-            }
-            ui.ctx().copy_text(csv);
-        }
-        // the matrix: rows = the class at "from", columns = at "to", % of the pixels
-        let rows: Vec<usize> = (0..k_n).filter(|&i| (0..k_n).any(|j| tr.m[i * k_n + j] > 0)).collect();
-        let cols: Vec<usize> = (0..k_n).filter(|&j| (0..k_n).any(|i| tr.m[i * k_n + j] > 0)).collect();
-        if cols.len() > 30 {
-            ui.weak(format!("{} classes: too many for a table (Copy CSV has them all).", cols.len()));
-            return;
-        }
-        let accent = theme::accent();
-        egui::ScrollArea::both().id_salt("transitions").show(ui, |ui| {
-            egui::Grid::new("transitions grid").striped(false).show(ui, |ui| {
-                ui.weak("from \\ to");
-                for &j in &cols {
-                    ui.weak(name_of(j));
+                for &(m, i, j) in moves.iter().take(8) {
+                    let text = format!("{} -> {}: {}", name_of(i), name_of(j), percent(f64::from(m) / both));
+                    ui.add(egui::Label::new(&text).truncate()).on_hover_text(&text);
                 }
-                ui.end_row();
-                for &i in &rows {
-                    ui.horizontal(|ui| {
-                        if let Some(e) = self.classes.find(tr.values[i]) {
-                            let s = ui.text_style_height(&egui::TextStyle::Body);
-                            let (r, _) = ui.allocate_exact_size(vec2(s, s), egui::Sense::hover());
-                            ui.painter().rect_filled(r, 2.0, Color32::from_rgb(e.color[0], e.color[1], e.color[2]));
-                        }
-                        ui.label(name_of(i));
-                    });
-                    for &j in &cols {
-                        let n = tr.m[i * k_n + j];
-                        if n == 0 {
-                            ui.label("");
-                            continue;
-                        }
-                        let s = f64::from(n) / both;
-                        let text = egui::RichText::new(percent(s));
-                        let r = if i != j {
-                            // changes stand out, the stronger the more
-                            let a = 0.15 + 0.6 * s.sqrt() as f32;
-                            let bg =
-                                Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), (a * 255.0) as u8);
-                            ui.label(text.background_color(bg))
-                        } else {
-                            ui.label(text)
-                        };
-                        r.on_hover_text(format!("{} -> {}\n{n} pixels of the overview", name_of(i), name_of(j)));
+                if ui
+                    .small_button("Copy CSV")
+                    .on_hover_text("Copies the matrix (pixel counts: rows = from, columns = to)")
+                    .clicked()
+                {
+                    let mut csv = String::from("from \\ to");
+                    for j in 0..k_n {
+                        csv += &format!(",{}", name_of(j));
                     }
-                    ui.end_row();
+                    csv.push('\n');
+                    for i in 0..k_n {
+                        csv += &name_of(i);
+                        for j in 0..k_n {
+                            csv += &format!(",{}", tr.m[i * k_n + j]);
+                        }
+                        csv.push('\n');
+                    }
+                    ui.ctx().copy_text(csv);
                 }
+            });
+            ui.separator();
+            ui.vertical(|ui| {
+                egui::ScrollArea::both()
+                    .id_salt("transitions")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| transition_matrix(ui, tr, &self.classes));
             });
         });
     }

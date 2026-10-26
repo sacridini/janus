@@ -541,7 +541,7 @@ impl State {
             if s.pump(gpu, ctx) {
                 self.map.dirty = true;
             }
-            let (changed, became_on) = l.classes.update(s, gpu);
+            let (changed, became_on) = l.classes.update(s, gpu, l.disp.t);
             if changed {
                 self.map.dirty = true;
             }
