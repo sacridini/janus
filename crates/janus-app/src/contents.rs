@@ -13,16 +13,60 @@ use crate::app::State;
 use crate::order::Item;
 use crate::theme;
 
-/// The panel's own state: the filter, the rows unfolded.
+/// A layer's row in the selection: a series by its cube's id, a vector layer by its id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum Sel {
+    Series(u64),
+    Vector(u32),
+}
+
+/// The panel's own state: the filter, the rows unfolded, the rows selected.
 #[derive(Default)]
 pub struct ContentsUi {
     pub filter: String,
     /// rows unfolded (by key: "s" + cube id, "r" + a result's file); `folded`: the ones folded by hand
     expanded: HashSet<String>,
     folded: HashSet<String>,
+    /// rows selected (a click; Ctrl + click adds or takes one, Shift + click a run of them): Delete or Ctrl+D closes
+    /// them; `anchor`: where a run starts
+    pub(crate) selected: HashSet<Sel>,
+    anchor: Option<Sel>,
+    /// the layers' rows as last drawn, top to bottom (Shift + click's run), and the ones being drawn
+    order: Vec<Sel>,
+    drawing: Vec<Sel>,
+    /// the last click was on the list: Delete and Ctrl+D are its keys
+    pub(crate) focused: bool,
 }
 
 impl ContentsUi {
+    /// A click on a layer's row, with the keys held: the selection as a file manager's.
+    pub(crate) fn click(&mut self, s: Sel, m: egui::Modifiers) {
+        self.focused = true;
+        if m.shift
+            && let Some(a) = self.anchor
+            && let (Some(i), Some(j)) =
+                (self.order.iter().position(|&x| x == a), self.order.iter().position(|&x| x == s))
+        {
+            if !m.command {
+                self.selected.clear();
+            }
+            self.selected.extend(self.order[i.min(j)..=i.max(j)].iter().copied());
+            return;
+        }
+        if !m.command {
+            self.selected.clear();
+            self.selected.insert(s);
+        } else if !self.selected.remove(&s) {
+            self.selected.insert(s);
+        }
+        self.anchor = Some(s);
+    }
+
+    /// The row's Close item: the selection when the row is in it with others (how many), else the row alone.
+    fn closes_selection(&self, s: Sel) -> Option<usize> {
+        (self.selected.len() > 1 && self.selected.contains(&s)).then_some(self.selected.len())
+    }
+
     fn is_open(&self, key: &str, default: bool) -> bool {
         if default { !self.folded.contains(key) } else { self.expanded.contains(key) }
     }
@@ -60,6 +104,8 @@ pub(crate) struct Row<'a> {
     /// on the right of the name (the date shown)
     pub badge: String,
     pub active: bool,
+    /// in the selection (outlined)
+    pub selected: bool,
     pub warn: Option<String>,
     pub indent: f32,
     pub swatch: Swatch,
@@ -189,12 +235,19 @@ pub(crate) fn row(ui: &mut Ui, visible: Option<&mut bool>, r: &Row) -> RowOut {
     let v = ui.visuals().clone();
     let id = resp.id;
     let shown = visible.as_ref().is_none_or(|v| **v);
-    // the background: the active row tinted, a bar of the accent at its left; the row under the pointer lighter
-    if r.active {
+    // the background: the active row and the selected ones tinted, a bar of the accent at the active one's left, the
+    // selected ones outlined; the row under the pointer lighter
+    if r.active || r.selected {
         ui.painter().rect_filled(rect, 3.0, v.selection.bg_fill.gamma_multiply(0.30));
-        ui.painter().rect_filled(Rect::from_min_size(rect.min, vec2(3.0, rect.height())), 1.0, theme::accent());
     } else if resp.hovered() || resp.context_menu_opened() {
         ui.painter().rect_filled(rect, 3.0, v.widgets.hovered.weak_bg_fill.gamma_multiply(0.55));
+    }
+    if r.selected {
+        let edge = Stroke::new(1.0, theme::accent().gamma_multiply(0.8));
+        ui.painter().rect_stroke(rect, 3.0, edge, egui::StrokeKind::Inside);
+    }
+    if r.active {
+        ui.painter().rect_filled(Rect::from_min_size(rect.min, vec2(3.0, rect.height())), 1.0, theme::accent());
     }
     let mut out = RowOut { row: resp.clone(), visible_changed: false, fold_clicked: false, more: resp.clone() };
     let mid = rect.center().y;
@@ -295,6 +348,8 @@ struct Dragged(usize);
 enum Act {
     Activate(usize),
     Remove(usize),
+    /// the rows selected
+    RemoveSelected,
     /// from, to: places in the drawing order (bottom to top)
     Move(usize, usize),
     Export(usize, usize),
@@ -339,11 +394,12 @@ impl State {
         // the list: series and vector layers in one drawing order, the basemap under them all
         list_header(ui, "Layers", &total.to_string()).on_hover_text(
             "Top of the list = drawn on top, series and vector layers alike: drag a row onto another to \
-             reorder.\nClick a series to make it active; the eye shows or hides a layer. Alt + click a polygon on \
-             the map: it becomes the ROI; a line: the transect.",
+             reorder.\nClick a series to make it active; the eye shows or hides a layer. Ctrl + click, Shift + \
+             click: select several; Delete or Ctrl+D closes the ones selected.\nAlt + click a polygon on the map: it \
+             becomes the ROI; a line: the transect.",
         );
         let v = ui.visuals();
-        egui::Frame::new()
+        let list = egui::Frame::new()
             .fill(v.extreme_bg_color)
             .stroke(v.widgets.noninteractive.bg_stroke)
             .corner_radius(4)
@@ -366,7 +422,13 @@ impl State {
                 }
                 self.layer_rows(ui, &mut acts);
                 self.basemap_row(ui);
-            });
+            })
+            .response
+            .rect;
+        // a click elsewhere: Delete and Ctrl+D go back to the map (its pins) and the other panels
+        if ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !list.contains(p))) {
+            self.contents.focused = false;
+        }
         ui.add_space(6.0);
         egui::CollapsingHeader::new(RichText::new("Add embeddings").strong())
             .id_salt("emb dl layers")
@@ -378,6 +440,7 @@ impl State {
             match a {
                 Act::Activate(i) => self.set_active(i, &ctx),
                 Act::Remove(i) => self.remove_layer(i, &ctx),
+                Act::RemoveSelected => self.remove_selected(&ctx),
                 Act::Move(from, to) => self.move_in_order(from, to),
                 Act::Export(i, kind) => {
                     if i != self.active {
@@ -508,6 +571,7 @@ impl State {
             detail: source,
             badge: if none || bm.on { String::new() } else { "hidden".into() },
             active: false,
+            selected: false,
             warn: None,
             indent: 0.0,
             swatch: Swatch::Basemap,
@@ -554,18 +618,49 @@ impl State {
     /// Every layer's row, top to bottom (the canvas of vector layers alone is not listed).
     fn layer_rows(&mut self, ui: &mut Ui, acts: &mut Vec<Act>) {
         let order = self.draw_order();
-        if order.is_empty() {
-            return;
-        }
-        // the canvas stays at the bottom
-        let lo = usize::from(matches!(order.first(), Some(Item::Series(i)) if self.layers[*i].canvas));
-        let top = order.len() - 1;
-        for pos in (0..order.len()).rev() {
-            match order[pos] {
-                Item::Series(i) => self.series_row(ui, i, (pos, lo, top), acts),
-                Item::Vector(li) => self.vector_row(ui, li, (pos, lo, top), acts),
+        self.contents.drawing.clear();
+        if !order.is_empty() {
+            // the canvas stays at the bottom
+            let lo = usize::from(matches!(order.first(), Some(Item::Series(i)) if self.layers[*i].canvas));
+            let top = order.len() - 1;
+            for pos in (0..order.len()).rev() {
+                match order[pos] {
+                    Item::Series(i) => self.series_row(ui, i, (pos, lo, top), acts),
+                    Item::Vector(li) => self.vector_row(ui, li, (pos, lo, top), acts),
+                }
             }
         }
+        // the selection: the rows on the list (a layer closed, or filtered out, leaves it)
+        let c = &mut self.contents;
+        c.order = std::mem::take(&mut c.drawing);
+        c.selected.retain(|s| c.order.contains(s));
+        if c.anchor.is_some_and(|a| !c.order.contains(&a)) {
+            c.anchor = None;
+        }
+    }
+
+    /// The layers selected on the list closed, series and vector layers alike (Delete, Ctrl+D, a row's menu).
+    pub(crate) fn remove_selected(&mut self, ctx: &egui::Context) {
+        let sel = std::mem::take(&mut self.contents.selected);
+        self.contents.anchor = None;
+        if sel.is_empty() {
+            return;
+        }
+        let series: Vec<usize> = (0..self.layers.len())
+            .filter(|&i| {
+                !self.layers[i].canvas && self.layer_session(i).is_some_and(|s| sel.contains(&Sel::Series(s.info.id)))
+            })
+            .collect();
+        let vectors: Vec<usize> =
+            (0..self.vectors.len()).filter(|&i| sel.contains(&Sel::Vector(self.vectors[i].id))).collect();
+        // from the last, the places of the others kept
+        for &i in vectors.iter().rev() {
+            self.remove_vector(i);
+        }
+        for &i in series.iter().rev() {
+            self.remove_layer(i, ctx);
+        }
+        self.map.dirty = true;
     }
 
     fn vector_row(&mut self, ui: &mut Ui, li: usize, place: (usize, usize, usize), acts: &mut Vec<Act>) {
@@ -586,12 +681,18 @@ impl State {
             None
         };
         let id = v.id;
+        let me = Sel::Vector(id);
+        self.contents.drawing.push(me);
+        let selected = self.contents.selected.contains(&me);
+        let closes = self.contents.closes_selection(me);
+        let contents = &mut self.contents;
         ui.push_id(("vector", id), |ui| {
             let r = Row {
                 name: &name,
                 detail: if v.placing.is_some() { "placing...".into() } else { d.kind_text() },
                 badge: if interpreting { "interpreting".into() } else { String::new() },
                 active: interpreting,
+                selected,
                 warn,
                 indent: 0.0,
                 swatch: Swatch::Vector { color: v.color, points: d.points > 0, lines: d.lines > 0, areas: d.areas > 0 },
@@ -619,8 +720,10 @@ impl State {
                 if d.truncated {
                     ui.colored_label(theme::warning(), "Read up to the vertex limit: the rest is left out.");
                 }
+                ui.weak("Click: select it (Ctrl, Shift: several). Delete or Ctrl+D: close the ones selected.");
             };
             let out_row = out.row.on_hover_ui(tip);
+            select_on_click(ui, &out_row, &out.more, me, contents);
             drag_to_reorder(ui, &out_row, pos, acts);
             let mut menu = |ui: &mut Ui| {
                 let mut c = v.color;
@@ -663,10 +766,7 @@ impl State {
                     ui.close();
                 }
                 ui.separator();
-                if ui.button("Remove").clicked() {
-                    acts.push(Act::RemoveVector(li));
-                    ui.close();
-                }
+                close_item(ui, "Remove", closes, Act::RemoveVector(li), acts);
             };
             out_row.context_menu(&mut menu);
             egui::Popup::menu(&out.more).show(&mut menu);
@@ -720,6 +820,10 @@ impl State {
                 format!("{} x {} px", info.width, info.height)
             }
         });
+        let me = Sel::Series(info.id);
+        self.contents.drawing.push(me);
+        let selected = self.contents.selected.contains(&me);
+        let closes = self.contents.closes_selection(me);
         let l = &mut self.layers[i];
         ui.push_id(("series", i), |ui| {
             let r = Row {
@@ -727,6 +831,7 @@ impl State {
                 detail,
                 badge: if loading.is_some() || info.t() < 2 { String::new() } else { date.clone() },
                 active: is_active,
+                selected,
                 warn: (!l.place.note.is_empty()).then(|| l.place.note.clone()),
                 indent: 0.0,
                 swatch: Swatch::Stack(cmap),
@@ -765,9 +870,12 @@ impl State {
                     janus_cube::multidim::format_g(r.grid_error, 2),
                 );
             }
-            tip += "\n\nClick: make it active. Double click: zoom to it. Drag: reorder.";
+            tip += "\n\nClick: make it active. Double click: zoom to it. Drag: reorder.\nCtrl + click, Shift + click: \
+                    select several. Delete or Ctrl+D: close the ones selected.";
             let out_row = out.row.on_hover_text(tip);
-            if out_row.clicked() && !is_active {
+            select_on_click(ui, &out_row, &out.more, me, &mut self.contents);
+            // Ctrl or Shift: the selection alone
+            if out_row.clicked() && !is_active && !ui.input(|i| i.modifiers.command || i.modifiers.shift) {
                 acts.push(Act::Activate(i));
             }
             if out_row.double_clicked() {
@@ -796,10 +904,7 @@ impl State {
                     }
                 });
                 ui.separator();
-                if ui.button("Close").clicked() {
-                    acts.push(Act::Remove(i));
-                    ui.close();
-                }
+                close_item(ui, "Close", closes, Act::Remove(i), acts);
             };
             out_row.context_menu(&mut menu);
             egui::Popup::menu(&out.more).show(&mut menu);
@@ -845,6 +950,7 @@ impl State {
                         detail: String::new(),
                         badge: if info.stack { format!("{}", t + 1) } else { String::new() },
                         active: is_active && t == t_now,
+                        selected: false,
                         warn: None,
                         indent: 18.0,
                         swatch: Swatch::Ramp(cmap),
@@ -934,6 +1040,7 @@ impl State {
                 detail: if r.classes.is_empty() { r.unit.clone() } else { format!("{} classes", r.classes.len()) },
                 badge: String::new(),
                 active: false,
+                selected: false,
                 warn: None,
                 indent: 22.0,
                 swatch,
@@ -1017,6 +1124,25 @@ fn list_header(ui: &mut Ui, title: &str, right: &str) -> Response {
     .response
 }
 
+/// A click on a layer's row selects it (Ctrl: adds or takes it, Shift: the run from the last one clicked); a right
+/// click, or its menu's button, on a row out of the selection selects it alone.
+fn select_on_click(ui: &Ui, row: &Response, more: &Response, me: Sel, contents: &mut ContentsUi) {
+    if row.clicked() {
+        contents.click(me, ui.input(|i| i.modifiers));
+    } else if (row.secondary_clicked() || more.clicked()) && !contents.selected.contains(&me) {
+        contents.click(me, egui::Modifiers::NONE);
+    }
+}
+
+/// A row's Close (Remove) item, Delete its key: the selection when the row is in it with others.
+fn close_item(ui: &mut Ui, label: &str, closes: Option<usize>, alone: Act, acts: &mut Vec<Act>) {
+    let text = closes.map_or(label.to_string(), |n| format!("{label} the {n} selected"));
+    if ui.add(egui::Button::new(text).shortcut_text("Del")).clicked() {
+        acts.push(if closes.is_some() { Act::RemoveSelected } else { alone });
+        ui.close();
+    }
+}
+
 /// A row dragged onto another: moved to its place in the drawing order (a line shows where it goes).
 fn drag_to_reorder(ui: &Ui, row: &Response, pos: usize, acts: &mut Vec<Act>) {
     if row.drag_started() {
@@ -1064,5 +1190,34 @@ fn step_input(info: &janus_cube::CubeInfo, t: usize) -> Option<(String, janus_cu
         Some((format!("vrt://{path}?bands={}", l.band), janus_cube::BandSelection::default()))
     } else {
         Some((l.path.clone(), info.sel))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::Modifiers;
+
+    /// The list's selection as a file manager's: a click, Ctrl + click, Shift + click (a run from the last click).
+    #[test]
+    fn selection_by_clicks() {
+        let rows = [Sel::Series(1), Sel::Vector(7), Sel::Series(2), Sel::Series(3)];
+        let mut c = ContentsUi { order: rows.to_vec(), ..Default::default() };
+        let sel = |c: &ContentsUi| rows.iter().filter(|r| c.selected.contains(r)).copied().collect::<Vec<_>>();
+        c.click(rows[1], Modifiers::NONE);
+        assert!(c.focused);
+        assert_eq!(sel(&c), [rows[1]]);
+        c.click(rows[3], Modifiers::COMMAND);
+        assert_eq!(sel(&c), [rows[1], rows[3]]);
+        c.click(rows[1], Modifiers::COMMAND);
+        assert_eq!(sel(&c), [rows[3]]);
+        // the run from the last one clicked (rows[1], taken off) to this one
+        c.click(rows[3], Modifiers::SHIFT);
+        assert_eq!(sel(&c), [rows[1], rows[2], rows[3]]);
+        c.click(rows[0], Modifiers::NONE);
+        c.click(rows[2], Modifiers::SHIFT);
+        assert_eq!(sel(&c), [rows[0], rows[1], rows[2]]);
+        assert_eq!(c.closes_selection(rows[1]), Some(3));
+        assert_eq!(c.closes_selection(rows[3]), None);
     }
 }

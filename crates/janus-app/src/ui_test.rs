@@ -601,16 +601,25 @@ impl State {
                 next(st, "active layer switched, pin remapped");
                 st.stage = 70; // font, Files, Log, Analysis, layout, exports, a Zeit run (70-81), then 7
             }
+            // B closed from the Layers list: its row clicked, then Delete (taken in this frame's shortcuts)
             7 => {
-                self.remove_layer(1, ctx);
+                let id = self.layer_session(1)?.info.id;
+                self.contents.click(crate::contents::Sel::Series(id), egui::Modifiers::NONE);
+                vectors::key(ctx, egui::Key::Delete, egui::Modifiers::NONE);
+                next(st, "B selected on the list, Delete");
+            }
+            8 => {
                 if self.layers.len() != 1 || self.active != 0 {
-                    return fail("closing B should leave A active");
+                    return fail("Delete on the list should close B and leave A active");
+                }
+                if !self.contents.selected.is_empty() {
+                    return fail("closing the selected layers should empty the selection");
                 }
                 next(st, "layer closed");
                 let Some(c) = input(1) else { return ok() };
                 self.basemap.ui.on = true; // ticked: opening another series hides it again
                 self.open_inputs(vec![c], false, ctx);
-                next(st, "open C (bands per date)");
+                println!("[{:5.1} s] open C (bands per date)", t0.elapsed().as_secs_f64());
             }
             9 => {
                 if self.opening.is_some()

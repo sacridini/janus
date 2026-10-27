@@ -4595,6 +4595,7 @@ dependencies = [
  "janus-cache",
  "janus-cube",
  "janus-embed",
+ "janus-gdal",
  "janus-geo",
  "janus-gpu",
  "janus-ml",

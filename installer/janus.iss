@@ -78,6 +78,9 @@ Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.tiff\shell\Janus\co
 
 [Run]
 Filename: "{app}\janus.exe"; Description: "{cm:LaunchProgram,Janus}"; Flags: nowait postinstall skipifsilent
+; an update from Janus itself (Help > Check for updates runs this installer silently with /RELAUNCH): Janus opened
+; again, as the user and not as the administrator an install for all users asked for
+Filename: "{app}\janus.exe"; Flags: nowait runasoriginaluser; Check: Relaunch
 
 [Code]
 // tsv (Janus's name up to 0.16) is uninstalled first, silently, so that its
@@ -101,6 +104,12 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
   UninstallOldTsv;
+end;
+
+// Run by Janus to update itself (update.rs): open it again once installed.
+function Relaunch: Boolean;
+begin
+  Result := Pos('/RELAUNCH', Uppercase(GetCmdTail)) > 0;
 end;
 
 function EnvKey(Param: String): String;

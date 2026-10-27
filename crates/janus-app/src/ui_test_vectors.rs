@@ -37,7 +37,7 @@ fn srs(epsg: u32) -> Result<SpatialRef, String> {
     Ok(s)
 }
 
-fn key(ctx: &egui::Context, key: egui::Key, modifiers: egui::Modifiers) {
+pub(super) fn key(ctx: &egui::Context, key: egui::Key, modifiers: egui::Modifiers) {
     ctx.input_mut(|i| {
         i.events.push(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers })
     });

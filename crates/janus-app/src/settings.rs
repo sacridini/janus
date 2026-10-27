@@ -29,6 +29,8 @@ pub struct Settings {
     pub window_opacity: f32,
     /// the Files panel goes to what is opened
     pub reveal_opened: bool,
+    /// GitHub asked for a newer version at the start (update.rs)
+    pub check_updates: bool,
     /// processing threads; 0: every logical core but 2
     pub threads: usize,
     pub overview_budget_mb: i32,
@@ -70,6 +72,7 @@ impl Default for Settings {
             panel_opacity: 1.0,
             window_opacity: 1.0,
             reveal_opened: true,
+            check_updates: true,
             threads: 0,
             overview_budget_mb: 1024,
             cache_budget_gb: 0,
@@ -146,6 +149,7 @@ pub fn parse(text: &str) -> (Settings, BasemapSetting) {
                     int().unwrap_or(13).clamp(i64::from(theme::MIN_FONT_SIZE), i64::from(theme::MAX_FONT_SIZE)) as i32
             }
             ("janus", "RevealOpened") => s.reveal_opened = int() != Some(0),
+            ("janus", "CheckUpdates") => s.check_updates = int() != Some(0),
             ("janus", "ExportDir") => s.export_dir = v.to_string(),
             ("janus", "Ffmpeg") => s.ffmpeg = v.to_string(),
             ("janus", "Interpreter") => s.interpreter = v.to_string(),
@@ -202,6 +206,7 @@ pub fn to_ini(s: &Settings, b: &crate::basemap::BasemapUi) -> String {
         if s.modern { "Modern" } else { "Classic" },
         theme::MODERN_NAMES[s.modern_theme]
     );
+    out += &format!("CheckUpdates={}\n", i32::from(s.check_updates));
     if !s.interpreter.is_empty() {
         out += &format!("Interpreter={}\n", s.interpreter);
     }
@@ -476,6 +481,13 @@ impl State {
             .checkbox(&mut st.s.reveal_opened, "Files panel follows what is opened")
             .on_hover_text(
                 "Opening a series, a file or a folder expands the Files panel down to it\nand scrolls there.",
+            )
+            .changed();
+        changed |= ui
+            .checkbox(&mut st.s.check_updates, "Check for updates when Janus starts")
+            .on_hover_text(
+                "One request to GitHub at the start: a button on the menu bar when there is a newer version\n\
+                 (Help > Check for updates installs it).",
             )
             .changed();
 
@@ -895,5 +907,9 @@ mod tests {
         let classic = Settings { modern: false, modern_theme: 3, ..s };
         let (s3, _) = parse(&to_ini(&classic, &bm));
         assert_eq!((s3.modern, s3.modern_theme, s3.look()), (false, 3, theme::JANUS));
+        // the check for updates on unless turned off (the C++'s settings have no key for it)
+        assert!(s.check_updates);
+        let (s4, _) = parse(&to_ini(&Settings { check_updates: false, ..s3 }, &bm));
+        assert!(!s4.check_updates);
     }
 }

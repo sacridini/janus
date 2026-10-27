@@ -283,6 +283,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Pan / zoom | drag / mouse wheel (zooming out goes as far as the CRS's area of use and every layer, the basemap under all of it), `F` fits the active layer; trackpad: two fingers pan, pinch zooms |
 | Pixel series | hover (exact once the mouse rests) |
 | Compare pixels | click to drop a pin |
+| Close layers | the **Layers** panel: click a row to select it (a series also becomes active), `Ctrl` + click adds or takes a row, `Shift` + click selects the rows between; `Delete` or `Ctrl+D` (Mac: `Command+D`) closes the selected layers, series and vector layers alike (a row's menu: *Close the N selected*). The keys belong to the list until you click elsewhere |
 | Remove a pin | right click it (Mac: Control + click, or a two-finger click on the trackpad), `Delete` (last one) or the **x** in the statistics table |
 | ROI | `Shift` + drag: rectangular ROI, mean and p10–p90 per date (or a box plot per date: the *ROI* list above the chart); with *All visible layers* on the chart, also on every visible layer (its own pixels under the rectangle, reprojected if needed) |
 | Polygonal ROI | `R` (or View → Draw ROI polygon), then click the vertices and close it on the first one, with a double click or `Enter` (`Backspace` undoes a vertex, `Esc` cancels); or, after `R`, drag a freehand outline (lasso), closed when you let go. The statistics, the local PCA of embeddings, the similarity to the ROI and the scatter use the pixels whose centres are inside; a Zeit run on the ROI covers its bounding box. **Alt + click** a polygon of a vector layer (holes included) to make it the ROI; View → Clear ROI |
@@ -1006,6 +1007,18 @@ folder).
   built with the overview decodes on half the processing threads (1 to 4).
   The Performance panel shows the counts in use.
 
+## Updates
+
+**Help → Check for updates...** asks GitHub for the latest release and shows the
+version you use (also under **Help → About Janus**, with GDAL's), the new one and
+its notes. On Windows, when Janus was installed with its installer,
+**Download and install** downloads the new installer and **Install now** closes
+Janus, installs the new version in the same folder (for you or for all users, as
+before) and opens it again. Elsewhere, or from a build, **Download** opens the
+new package in the browser. Janus checks once when it starts (Settings: *Check
+for updates when Janus starts*) and shows **Update to X.Y.Z** on the menu bar
+when there is a newer version.
+
 ## Settings
 
 **File → Settings...** (`Ctrl+,`; Mac: `Command+,`). Everything applies at
@@ -1020,6 +1033,7 @@ once and is kept in the layout file, next to the other data of Janus
 | Whole window | The opacity of the whole window, 20 to 100% (the system's window transparency: text and map included), and of every detached panel |
 | Font size | Size of the interface text, 10 to 28 px (13 by default: ImGui's pixel font in the classic interface, other sizes its scalable font; Inter in the modern one). Widgets keep their widths; exported figures keep their text as at 13 px |
 | Files panel follows what is opened | On by default: opening a series, a file or a folder (from anywhere) expands the Files panel down to it and scrolls there; its folder is listed again, so new files show up |
+| Check for updates when Janus starts | On by default: one request to GitHub when Janus opens; when there is a newer version, an **Update to X.Y.Z** button on the right of the menu bar opens **Help → Check for updates...** |
 | Processing threads | How many CPU threads Janus and Zeit may use, shown as *N of M* logical cores; default: all but 2 (at least 1), so the computer stays responsive during long runs. Applies to the readers of the open series (they shrink or grow at once), the full-resolution cache, exports (GeoTIFF compression, PNG) and Zeit: raster jobs started from then on (as `OMP_NUM_THREADS`, `NUMBA_NUM_THREADS`, the BLAS limits and Zeit's `n_jobs`; jobs already running keep theirs) and the process that fits the chart and estimates run times (replaced in the background once idle) |
 | Overview memory | Memory for the cube overview (1024 MB by default); **Apply** reopens the active layer. `--budget` overrides it for one run |
 | Disk cache budget | **Automatic** (the default: a tenth of the disk holding the cache folder, 8 to 256 GB) or a size set by hand, 8 to 2048 GB; shows the size now, why it is smaller when the disk is filling up, and what the overviews and full-resolution caches take (see [Performance](#performance)). From an older version, a full-resolution cache budget changed by hand is kept; the old default (64 GB) becomes automatic |

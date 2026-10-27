@@ -55,6 +55,7 @@ mod trajectory;
 mod transect;
 mod trend_test;
 mod ui_test;
+mod update;
 mod validation;
 mod validation_tabs;
 mod vector_gpu;

@@ -33,6 +33,7 @@ gdal-sys.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }
 janus-cache = { path = "../janus-cache" }
 janus-cube = { path = "../janus-cube" }
+janus-gdal = { path = "../janus-gdal" }
 janus-embed = { path = "../janus-embed" }
 janus-geo = { path = "../janus-geo" }
 janus-ml = { path = "../janus-ml" }

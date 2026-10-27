@@ -436,6 +436,9 @@ pub struct State {
     /// a message in a popup (an open that failed)
     pub error_popup: Option<String>,
     pub help_popup: bool,
+    /// Help > About Janus; Help > Check for updates (and the check at the start)
+    pub about_open: bool,
+    pub update: crate::update::UpdateUi,
     /// Settings, kept between sessions
     pub settings: crate::settings::SettingsState,
     /// the map targets' egui textures (by slot)
@@ -488,6 +491,12 @@ const HELP: &str = "Open (each opens as a new layer of the map): Ctrl+O (files),
 Command line: jn <folder | file.tif | pattern_*.tif | https://.../cog.tif ...>
 Settings: Ctrl+, (theme, font size, processing threads, memory and caches)
 Reset layout: Ctrl+Shift+R
+Updates: Help > Check for updates (the version you use: Help > About Janus)
+
+Layers
+  click ............... make a series active (and select it)
+  Ctrl / Shift + click  select several (Shift: a run of rows)
+  Delete or Ctrl+D .... close the layers selected
 
 Map
   drag ................ pan
@@ -766,6 +775,8 @@ impl JanusApp {
                 files: crate::files::FileBrowser::new(favorites),
                 error_popup: None,
                 help_popup: false,
+                about_open: false,
+                update: Default::default(),
                 settings: crate::settings::SettingsState::new(settings, no_save),
                 perf: Perf::default(),
                 frame: 0,
@@ -1285,6 +1296,14 @@ impl State {
         if chord(shift_cmd, Key::R) {
             act.reset_layout = true;
         }
+        // the Layers list clicked last: Delete or Ctrl+D closes the layers selected on it (taken from the map's pins
+        // and the ROI's vertices)
+        if self.contents.focused
+            && !ctx.egui_wants_keyboard_input()
+            && (chord(Modifiers::NONE, Key::Delete) || chord(Modifiers::COMMAND, Key::D))
+        {
+            self.remove_selected(ctx);
+        }
         if ctx.egui_wants_keyboard_input() || self.session.is_none() {
             return act;
         }
@@ -1513,11 +1532,32 @@ impl State {
                 if ui.button("Shortcuts and usage").clicked() {
                     self.help_popup = true;
                 }
+                ui.separator();
+                if ui.button("Check for updates...").clicked() {
+                    self.update.open = true;
+                    self.update.check(ui.ctx());
+                }
+                if ui.button("About Janus").clicked() {
+                    self.about_open = true;
+                }
+                ui.weak(format!("Janus {}", crate::update::VERSION));
             });
-            if let Some(s) = &self.session {
+            let newer = self.update.available();
+            if self.session.is_some() || newer.is_some() {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(8.0);
-                    ui.weak(&s.info.description);
+                    // a newer version found at the start: its button, the dialog that installs it
+                    if let Some(r) = newer
+                        && ui
+                            .button(egui::RichText::new(format!("Update to {}", r.version)).color(theme::accent()))
+                            .on_hover_text(format!("Janus {} is out (you are using {})", r.version, crate::update::VERSION))
+                            .clicked()
+                    {
+                        self.update.open = true;
+                    }
+                    if let Some(s) = &self.session {
+                        ui.weak(&s.info.description);
+                    }
                 });
             }
         });
@@ -1538,6 +1578,8 @@ impl State {
                 self.error_popup = None;
             }
         }
+        self.update_window(ctx);
+        self.about_window(ctx);
         if self.help_popup {
             let m = egui::Modal::new(egui::Id::new("help")).show(ctx, |ui| {
                 ui.heading("Shortcuts and usage");
@@ -1977,6 +2019,10 @@ impl eframe::App for JanusApp {
         let s = &mut self.state;
         if s.frame == 1 && s.opts.maximize {
             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+        }
+        // an interactive run (maximized: not the tests and screenshots) asks GitHub for a newer version
+        if s.frame == 1 && s.opts.maximize && s.settings.s.check_updates {
+            s.update.check_at_start(&ctx);
         }
         s.perf.push(start.elapsed().as_secs_f64() * 1000.0);
         s.frame += 1;
