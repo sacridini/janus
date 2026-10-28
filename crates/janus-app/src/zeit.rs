@@ -66,6 +66,8 @@ pub struct ToolUi {
     /// a preview again when a parameter changes (if it takes a few seconds), and when one was asked so
     pub auto_preview: bool,
     pub preview_asked: Option<Instant>,
+    /// Only where...: a layer on the series' grid (its cube id) whose pixels 0 or without a value are left out
+    pub mask: Option<u64>,
 }
 
 /// A preview's side at most, in pixels (without an ROI: at the centre of the view).
@@ -1586,6 +1588,9 @@ impl State {
             ui.colored_label(theme::warning(), &ui_state.again_note);
         }
         let scope = ui_state.scope;
+        if tool.input.as_deref() != Some("layers") {
+            self.mask_ui(ui, &tool.id);
+        }
         self.output_folder_ui(ui);
         let win = self.tool_run_window(tool, scope).0;
         let px = (win[2] - win[0]) as f64 * (win[3] - win[1]) as f64;
@@ -1739,6 +1744,13 @@ Reading the data adds to it, mostly on spinning disks.",
             series_inputs(&info, tool, &roles, &work.join(format!("{name}_{}", info.id)), &mut spec)?;
         }
         spec.window = Some(window);
+        if tool.input.as_deref() != Some("layers")
+            && let Some((path, mask)) =
+                self.zeit.tools.get(&tool.id).and_then(|u| u.mask).and_then(|m| self.mask_path(m))
+        {
+            spec.mask = Some(path);
+            scope_name = format!("{scope_name}, only where {mask} is not 0");
+        }
         Ok((spec, cube, scope_name, name))
     }
 

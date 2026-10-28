@@ -148,11 +148,11 @@ impl WarpOptions {
 }
 
 /// The progress: a function of the fraction done, false to stop.
-struct Progress<'a> {
-    f: &'a dyn Fn(f64) -> bool,
+pub(crate) struct Progress<'a> {
+    pub(crate) f: &'a dyn Fn(f64) -> bool,
 }
 
-unsafe extern "C" fn on_progress(done: f64, _msg: *const c_char, arg: *mut c_void) -> c_int {
+pub(crate) unsafe extern "C" fn on_progress(done: f64, _msg: *const c_char, arg: *mut c_void) -> c_int {
     // SAFETY: arg is the Progress given to GDALWarpAppOptionsSetProgress, alive during GDALWarp.
     let p = unsafe { &*(arg as *const Progress) };
     c_int::from((p.f)(done))

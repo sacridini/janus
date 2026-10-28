@@ -62,6 +62,10 @@ pub struct JobSpec {
     /// a categorical layer's classes: the names and colours of its class series outputs ("uint16")
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub classes: Vec<ClassDef>,
+    /// a map on the input's grid (band 1; a rasterized vector layer): its pixels 0 or without a value left out,
+    /// missing at every date
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask: Option<String>,
 }
 
 /// A class of a categorical layer: its value, name and colour.
@@ -228,6 +232,7 @@ pub(crate) struct Inputs {
     nd: Option<Source>,
     qa: Option<Source>,
     bands: Vec<(String, Source)>,
+    mask: Option<Dataset>,
 }
 
 fn open(path: &str) -> Result<Dataset, String> {
@@ -345,7 +350,18 @@ impl Inputs {
             .iter()
             .map(|(r, p)| open(p).and_then(|d| matching(&format!("band:{r}"), d)).map(|d| (r.clone(), d)))
             .collect::<Result<_, _>>()?;
-        Ok(Inputs { spec: spec.clone(), input, nd, qa, bands })
+        let mask = match spec.mask.as_deref() {
+            Some(p) => {
+                let m = self::open(p)?;
+                if m.raster_size() != (w, h) {
+                    let (mw, mh) = m.raster_size();
+                    return Err(format!("ValueError: the mask {p} is {mw} x {mh}, the input {w} x {h}"));
+                }
+                Some(m)
+            }
+            None => None,
+        };
+        Ok(Inputs { spec: spec.clone(), input, nd, qa, bands, mask })
     }
 
     /// The shown series of a window (normalized difference, quality mask) and its bands and codes.
@@ -373,11 +389,23 @@ impl Inputs {
                 }
             }
         }
-        let bands = self
+        let mut bands: BTreeMap<String, Vec<f64>> = self
             .bands
             .iter_mut()
             .map(|(r, d)| d.read(x0, y0, w, h, false).map(|a| (r.clone(), a)))
             .collect::<Result<_, _>>()?;
+        // the mask's pixels 0 or without a value: missing at every date
+        if let Some(m) = &self.mask {
+            let keep = read(m, 1..=1, x0, y0, w, h, false)?;
+            let n = w * h;
+            for (p, k) in keep.iter().enumerate() {
+                if k.is_nan() || *k == 0.0 {
+                    for a in std::iter::once(&mut stack).chain(bands.values_mut()) {
+                        a.iter_mut().skip(p).step_by(n).for_each(|v| *v = f64::NAN);
+                    }
+                }
+            }
+        }
         Ok(Chunk { t: self.spec.years.len(), h, w, stack, bands, qa })
     }
 }

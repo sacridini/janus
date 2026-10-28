@@ -148,3 +148,51 @@ fn raster_runs_match_the_bridge() {
     }
     assert!(failures.is_empty(), "{} differences", failures.len());
 }
+
+/// A mask (0 on the left half): its pixels without a value in every output, the others the run's without it.
+#[test]
+fn mask_leaves_pixels_out() {
+    let case = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/raster/mann_kendall-0");
+    let mut spec: JobSpec = serde_json::from_str(&std::fs::read_to_string(case.join("spec.json")).unwrap()).unwrap();
+    spec.input = case.join(&spec.input).to_string_lossy().to_string();
+    let input = Dataset::open(&spec.input).unwrap();
+    let (w, h) = input.raster_size();
+    let tmp = std::env::temp_dir().join("janus-zeit-mask-test");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let mask = tmp.join("mask.tif");
+    {
+        let drv = gdal::DriverManager::get_driver_by_name("GTiff").unwrap();
+        let m = drv.create_with_band_type::<u8, _>(&mask, w, h, 1).unwrap();
+        let keep: Vec<u8> = (0..w * h).map(|i| u8::from(i % w >= w / 2)).collect();
+        m.rasterband(1).unwrap().write((0, 0), (w, h), &mut gdal::raster::Buffer::new((w, h), keep)).unwrap();
+    }
+    let run = |masked: bool| {
+        let mut s = spec.clone();
+        s.output_dir = tmp.join(if masked { "masked" } else { "all" }).to_string_lossy().to_string();
+        s.mask = masked.then(|| mask.to_string_lossy().to_string());
+        let r = run_job(&s, &|_, _| {}, &AtomicBool::new(false)).unwrap();
+        r.outputs.iter().map(|o| o["path"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+    };
+    let (all, masked) = (run(false), run(true));
+    assert!(!all.is_empty());
+    for (a, b) in all.iter().zip(&masked) {
+        let (da, db) = (Dataset::open(a).unwrap(), Dataset::open(b).unwrap());
+        for k in 1..=da.raster_count() {
+            let read = |d: &Dataset| {
+                let b = d.rasterband(k).unwrap();
+                let nd = b.no_data_value();
+                let v = b.read_as::<f64>((0, 0), (w, h), (w, h), None).unwrap().data().to_vec();
+                v.into_iter().map(|x| if Some(x) == nd { f64::NAN } else { x }).collect::<Vec<_>>()
+            };
+            let (va, vb) = (read(&da), read(&db));
+            for i in 0..w * h {
+                if i % w >= w / 2 {
+                    assert!(va[i].to_bits() == vb[i].to_bits() || va[i].is_nan() && vb[i].is_nan(), "{b} band {k}");
+                } else {
+                    assert!(vb[i].is_nan() || vb[i] == 0.0, "{b} band {k}: pixel {i} not left out ({})", vb[i]);
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,48 @@
+{
+  "classes_value": {
+    "type": "Int32",
+    "janus_s": 0.6754907,
+    "janus_read_features_s": 0.0723767,
+    "gdal_rasterize_s": 2.6860328000038862,
+    "rasterio_rasterize_s": 2.6069553999986965,
+    "rasterio_read_features_s": 0.7810243999992963,
+    "polygons": 11732,
+    "equal_gdal_rasterize": true,
+    "equal_rasterio": true,
+    "equal_map_polygonized": true
+  },
+  "classes_value_touched": {
+    "type": "Int32",
+    "janus_s": 0.6989057,
+    "janus_read_features_s": 0.0642963,
+    "gdal_rasterize_s": 2.7405284000124084,
+    "rasterio_rasterize_s": 2.602370799999335,
+    "rasterio_read_features_s": 0.8029898999957368,
+    "polygons": 11732,
+    "equal_gdal_rasterize": true,
+    "equal_rasterio": true
+  },
+  "classes_mask": {
+    "type": "Byte",
+    "janus_s": 0.6537859,
+    "janus_read_features_s": 0.065124,
+    "gdal_rasterize_s": 0.7171536999958334,
+    "rasterio_rasterize_s": 2.649908299994422,
+    "rasterio_read_features_s": 0.5596313999994891,
+    "polygons": 11732,
+    "equal_gdal_rasterize": true,
+    "equal_rasterio": true
+  },
+  "loss_value": {
+    "type": "Int32",
+    "janus_s": 0.2884627,
+    "janus_read_features_s": 0.0925151,
+    "gdal_rasterize_s": 9.623851700001978,
+    "rasterio_rasterize_s": 1.6294102999963798,
+    "rasterio_read_features_s": 0.8364027000061469,
+    "polygons": 45711,
+    "equal_gdal_rasterize": true,
+    "equal_rasterio": true,
+    "equal_map_polygonized": true
+  }
+}

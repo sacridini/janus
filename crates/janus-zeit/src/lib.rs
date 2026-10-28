@@ -27,6 +27,7 @@ pub mod pixel;
 pub mod polygonize;
 pub mod postproc;
 pub mod python;
+pub mod rasterize;
 pub mod recovery;
 pub mod regularize;
 pub mod rng;

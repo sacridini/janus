@@ -1251,6 +1251,89 @@ impl State {
                 None
             }
             212 => {
+                // the land cover's date polygonized again, then rasterized back on its grid
+                self.open_polygonize(crate::contents::Sel::Series(self.session.as_ref()?.info.id));
+                let p = &mut self.poly;
+                (p.eight, p.min_area_ha, p.simplify_m, p.mean_of) = (false, 0.0, 0.0, None);
+                p.name = "Patches again".into();
+                st.texts = vec![self.polygonize_start(ctx)?];
+                self.poly.show = false;
+                next(st, "the land cover polygonized again, to rasterize");
+                None
+            }
+            213 => {
+                let gpkg = st.texts.first()?.clone();
+                let v = self.vectors.iter().find(|v| v.data.path == gpkg)?;
+                let id = v.id;
+                self.open_rasterize(id);
+                let r = &mut self.raster;
+                (r.burn, r.field, r.all_touched) = (2, "value".into(), false);
+                r.name = "Patches raster".into();
+                self.rasterize_run(ctx);
+                next(st, "the polygons' values rasterized on the series' grid");
+                None
+            }
+            214 | 215 => {
+                let name = if st.stage == 214 { "Patches raster" } else { "Patches classes" };
+                let Some(k) = self.layers.iter().position(|l| l.name == name) else {
+                    if self.zeit.jobs.iter().any(|j| {
+                        j.tool == "rasterize" && j.status.lock().unwrap().state == crate::zeit::JobState::Failed
+                    }) {
+                        return fail("rasterize failed (Tools > Tasks > Log)");
+                    }
+                    return None;
+                };
+                if self.opening.is_some() || !super::loaded(self.layer_session(k)) {
+                    return None;
+                }
+                let out = self.layer_session(k)?.info.clone();
+                let src = self.session.as_ref()?.info.clone();
+                let read = |path: &str, band: usize| -> Option<Vec<f64>> {
+                    let d = gdal::Dataset::open(path).ok()?;
+                    let (w, h) = d.raster_size();
+                    Some(d.rasterband(band).ok()?.read_as::<f64>((0, 0), (w, h), (w, h), None).ok()?.data().to_vec())
+                };
+                let l = src.layers.get(self.display.t.min(src.t() - 1))?;
+                let want = read(&l.path, l.band.max(1) as usize)?;
+                let got = read(&out.layers[0].path, 1)?;
+                if st.stage == 214 {
+                    let differ = want.iter().zip(&got).filter(|(a, b)| a != b).count();
+                    println!(
+                        "    {name}: {} x {} px, {differ} differ from the date polygonized",
+                        out.width, out.height
+                    );
+                    if (out.width, out.height) != (src.width, src.height) || differ > 0 {
+                        return fail("the polygons rasterized back should be the map they came from");
+                    }
+                    self.remove_layer(k, ctx);
+                    let r = &mut self.raster;
+                    (r.field, r.name) = ("class".into(), "Patches classes".into());
+                    self.rasterize_run(ctx);
+                    next(st, "rasterized back on the grid: the map polygonized, pixel for pixel");
+                } else {
+                    let mut named: Vec<i64> = want.iter().map(|&v| v as i64).collect();
+                    named.sort_unstable();
+                    named.dedup();
+                    let masks = self.mask_layers();
+                    println!(
+                        "    {name}: classes {:?}; a tool's mask: {}",
+                        out.class_names.values().collect::<Vec<_>>(),
+                        masks.iter().any(|m| m.0 == out.id)
+                    );
+                    if out.class_names.len() != named.len() || !masks.iter().any(|m| m.0 == out.id) {
+                        return fail("a class per name, and the layer offered as a tool's mask");
+                    }
+                    self.remove_layer(k, ctx);
+                    let gpkg = st.texts.first()?.clone();
+                    if let Some(v) = self.vectors.iter().position(|v| v.data.path == gpkg) {
+                        self.remove_vector(v);
+                    }
+                    self.raster.show = false;
+                    next(st, "a text attribute rasterized as named classes, offered as a tool's mask");
+                }
+                None
+            }
+            216 => {
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

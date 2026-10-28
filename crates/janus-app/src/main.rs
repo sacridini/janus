@@ -46,6 +46,7 @@ mod polygonize_ui;
 mod project;
 mod provenance;
 mod python;
+mod rasterize_ui;
 mod regularize_ui;
 mod roi;
 mod sankey;

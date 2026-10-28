@@ -444,6 +444,7 @@ pub struct State {
     pub poly: crate::polygonize_ui::PolyUi,
     pub areas: crate::areas_ui::AreaUi,
     pub warp: crate::warp_ui::WarpUi,
+    pub raster: crate::rasterize_ui::RasterizeUi,
     /// the status bar and the notices of tasks that end
     pub status: crate::status::StatusUi,
     /// the command palette (Ctrl+K)
@@ -807,6 +808,7 @@ impl JanusApp {
                 poly: Default::default(),
                 areas: Default::default(),
                 warp: Default::default(),
+                raster: Default::default(),
                 status: Default::default(),
                 palette: Default::default(),
                 nav: Default::default(),
@@ -2148,6 +2150,7 @@ impl eframe::App for JanusApp {
         self.state.polygonize_window(&ctx);
         self.state.pump_areas();
         self.state.warp_window(&ctx);
+        self.state.rasterize_window(&ctx);
         self.state.class_flows_window(&ctx);
         self.state.tasks_window(&ctx);
         self.state.provenance_window(&ctx);

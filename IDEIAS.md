@@ -864,6 +864,18 @@ nova.
   ferramentas do Zeit.
 - **Como:** `GDALRasterize` na grade da camada ativa (CRS, origem, pixel).
 - **Teste/comparação:** contra `gdal_rasterize` e `rasterio.features.rasterize`.
+- **Feito (2026-10-28):** `crates/janus-zeit/src/rasterize.rs` (os elementos lidos e
+  transformados para o CRS da grade, `GDALRasterizeGeometries` em faixas de linhas
+  na memória — no máximo 256 MB — gravadas no GeoTIFF: queimar direto no GeoTIFF passa
+  pelo cache de blocos do GDAL e é 2 a 30× mais lento, também no `gdal_rasterize`),
+  `rasterize_ui.rs`; a máscara das ferramentas (`JobSpec.mask`, *Only where X is not
+  0* sob o escopo: pixels 0 ou sem valor ficam de fora). `tools/bench_rasterize_vs_gdal.py`
+  → `bench/rasterize-vs-gdal.json` (os polígonos da fase 41, ambiente geo): iguais
+  pixel a pixel ao `gdal_rasterize` com o mesmo tipo e ao `rasterio.features.rasterize`
+  nos 4 casos, e a queima pelo valor devolve o mapa poligonizado. 11 732 polígonos em
+  2048² Int32: Janus 0,68 s, `gdal_rasterize` 2,69 s (1,1 s em Float64), rasterio
+  2,6 s (+0,8 s para ler os elementos); *all touched* 0,70 / 2,74 / 2,6 s; máscara
+  Byte 0,65 / 0,72 / 2,6 s; 45 711 polígonos em 4096² Int32 0,29 / 9,6 / 1,6 s.
 
 #### Fase 45 — Estatística zonal no tempo
 - **Por quê:** a pergunta mais comum no Brasil: "quanto mudou neste imóvel,
@@ -1101,7 +1113,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 | 41 | — | **Poligonizar** mapas de mudança e de classes (área em ha, data, magnitude, área mínima) em GeoPackage | concluída (sem versão): *Polygonize...* no menu de um mapa ou série (a data mostrada); 4/8 vizinhos, área mínima (o sieve do Zeit), simplificação; valor, classe, data, área (ha) e perímetro geodésicos, pixels, média de outro mapa; `janus_zeit::polygonize`; os mesmos polígonos do `gdal_polygonize` (todos, em 3 mapas), 1,0–1,5× o tempo dele (que só grava os polígonos) e 1,6–2,2× mais rápido que `rasterio.features.shapes` + áreas do pyproj |
 | 42 | — | **Área de mudança e de classes por data** (área do pixel correta, barras, CSV) | concluída (sem versão): Analysis → Areas (e *Area by value...* no menu de um mapa; *Areas...* em Classes); resolução total numa tarefa, camada ou ROI; ha, km², %; CSV; área de cada pixel: constante em projeção de área igual, geodésica nas demais; `janus_zeit::areas`; contra o `terra::expanse`: 2e-9 (lon/lat), 7e-6 (UTM), 3–480× mais rápido |
 | 43 | — | **Reprojetar, reamostrar, recortar, alinhar à grade** de outra camada (`GDALWarp`, série data a data ou virtual) | concluída (sem versão): Tools → Reproject, resample, clip (um CRS, o CRS ou a grade de outra camada; tamanho do pixel, -tap; 8 reamostragens, mode para classes; camada, área visível, ROI ou polígonos de uma camada vetorial; nodata, tipo; COG, GeoTIFF ou virtual); `janus_zeit::warp`; bit a bit igual ao `gdalwarp` nos 4 casos, no mesmo tempo; 1,9–2,4× mais rápido que o `rioxarray.reproject` |
-| 44 | — | **Rasterizar vetores** na grade da série (atributo, índice, máscara) | planejada |
+| 44 | — | **Rasterizar vetores** na grade da série (atributo, índice, máscara) | concluída (sem versão): Rasterize on the series' grid no menu da camada vetorial (1/0, número do elemento, atributo; texto como classes com nomes e cores; centro ou *all touched*); a camada serve de máscara das ferramentas do Zeit (*Only where X is not 0*); `janus_zeit::rasterize`; igual pixel a pixel ao `gdal_rasterize` e ao rasterio; 1,1× (máscara Byte) a 33× mais rápido que o `gdal_rasterize` no mesmo tipo, 4–6× que o rasterio |
 | 45 | — | **Estatística zonal no tempo** (série por polígono, área por classe e por ano de mudança) | planejada |
 | 46 | — | **Montar uma série** de arquivos soltos e **salvar a série** (COG multibanda, NetCDF/Zarr) | planejada |
 | 47 | — | **Sentinel-1** pelo STAC (RTC do Planetary Computer, órbita, dB, speckle) | planejada |
