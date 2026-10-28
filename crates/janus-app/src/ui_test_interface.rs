@@ -1,9 +1,9 @@
 //! `--selftest-ui` stages 180-199: the interface of phases 48-55, on what the validation stages left open (D). 180:
 //! the status bar (the cursor's coordinates in longitude and latitude, the scale) and the notices of tasks that end
-//! (a short task none, a long one and a failed one each one). 181: the command palette (what a query finds first,
-//! a command run from it, the recent ones first). 182: the Layers panel (a blend mode from the palette, a style
-//! copied and pasted on another series, a style saved by name and read back, layers grouped, hidden and moved
-//! together). 183: navigation (Go to a longitude and latitude, an EPSG x y, a UTM zone; a saved view; the minimap;
+//! (a short task none, a long one and a failed one each one; a newer version of Janus one, once). 181: the command
+//! palette (what a query finds first, a command run from it, the recent ones first). 182: the Layers panel (a blend
+//! mode from the palette, a style copied and pasted on another series, a style saved by name and read back, layers
+//! grouped, hidden and moved together). 183: navigation (Go to a longitude and latitude, an EPSG x y, a UTM zone; a saved view; the minimap;
 //! the lens).
 
 use std::sync::{Arc, Mutex};
@@ -74,7 +74,8 @@ impl State {
                     info.crs_authority, lon_lat.0, lon_lat.1
                 );
                 // the notices: a task of a second ends without one, a long one and a failed one with one each
-                let jobs = ["short task", "long task", "failing task"].map(fake_job);
+                let names = ["short task", "long task", "failing task"];
+                let jobs = names.map(fake_job);
                 let first = self.zeit.jobs.len();
                 self.zeit.jobs.extend(jobs);
                 self.pump_notices(ctx);
@@ -87,7 +88,9 @@ impl State {
                     (s.state, s.seconds, s.error) = (state, seconds, error.to_string());
                 }
                 self.pump_notices(ctx);
-                let got = self.notice_titles();
+                // only these tasks' notices: an earlier stage's task may end now (a slow runner's training)
+                let got: Vec<_> =
+                    self.notice_titles().into_iter().filter(|(t, _)| names.contains(&t.as_str())).collect();
                 self.zeit.jobs.truncate(first);
                 let want = [("long task".to_string(), false), ("failing task".to_string(), true)];
                 if got != want {
@@ -95,6 +98,31 @@ impl State {
                 }
                 println!("    notices: {got:?}");
                 self.clear_notices();
+                // a newer version on GitHub: a notice once, the menu bar's Update; the version running: neither
+                let release = |v: &str| crate::update::Release {
+                    version: v.into(),
+                    date: "2026-11-02".into(),
+                    notes: String::new(),
+                    page: crate::update::RELEASES.into(),
+                    package: None,
+                };
+                self.update.pretend(release("99.0.0"));
+                self.pump_notices(ctx);
+                self.pump_notices(ctx);
+                let titles = self.notice_titles();
+                if self.update.available().is_none()
+                    || titles.iter().filter(|t| t.0 == "A new version of Janus").count() != 1
+                {
+                    return fail(&format!("a newer version should be announced once: {titles:?}"));
+                }
+                self.clear_notices();
+                self.update.announced = false;
+                self.update.pretend(release(crate::update::VERSION));
+                self.pump_notices(ctx);
+                if self.update.available().is_some() || !self.notice_titles().is_empty() {
+                    return fail("the version running is not a newer one");
+                }
+                println!("    a newer version announced once, Update on the menu bar; none for the version running");
                 next(st, "status bar: coordinates in longitude and latitude, the scale; notices of tasks that end");
                 None
             }

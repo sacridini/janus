@@ -1631,14 +1631,28 @@ impl State {
             if self.session.is_some() || newer.is_some() {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(8.0);
-                    // a newer version found at the start: its button, the dialog that installs it
-                    if let Some(r) = newer
-                        && ui
-                            .button(egui::RichText::new(format!("Update to {}", r.version)).color(theme::accent()))
-                            .on_hover_text(format!("Janus {} is out (you are using {})", r.version, crate::update::VERSION))
-                            .clicked()
-                    {
-                        self.update.open = true;
+                    // a newer version found at the start: Update (downloads and installs it), the version
+                    if let Some(r) = &newer {
+                        let installed = crate::update::installed_dir().is_some();
+                        let tip = if installed {
+                            "Downloads the new version and installs it: Janus closes and opens again"
+                        } else {
+                            "Not installed by its installer (a build or a copy): the updates' window downloads the \
+                             new package"
+                        };
+                        let b = egui::Button::new(egui::RichText::new("Update").strong().color(theme::accent()));
+                        if ui.add(b).on_hover_text(tip).clicked() {
+                            self.update.start_update(ui.ctx());
+                        }
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Janus {} is out (you are using {})",
+                                r.version,
+                                crate::update::VERSION
+                            ))
+                            .color(theme::accent()),
+                        );
+                        ui.separator();
                     }
                     if let Some(s) = &self.session {
                         ui.weak(&s.info.description);

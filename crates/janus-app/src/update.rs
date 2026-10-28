@@ -2,7 +2,8 @@
 //! installed by its installer, the new installer is downloaded and run in place (Janus closes, the installer puts the
 //! new version in its folder and opens it again, installer/janus.iss's /RELAUNCH); elsewhere, or from a build, the
 //! release's package opens in the browser. Checked once at the start too (Settings: "Check for updates when Janus
-//! starts"): a button on the menu bar when there is a newer version.
+//! starts"): when there is a newer version, a notice and, on the right of the menu bar, the version and an Update
+//! button (the installed program downloads and installs it from there).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -85,7 +86,7 @@ pub fn parse_release(json: &[u8], suffix: &str) -> Result<Release, String> {
 }
 
 /// The folder Janus's installer put it in (its uninstaller is there), None for a build or a copy.
-fn installed_dir() -> Option<PathBuf> {
+pub(crate) fn installed_dir() -> Option<PathBuf> {
     let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
     (cfg!(windows) && dir.join("unins000.exe").is_file()).then_some(dir)
 }
@@ -112,6 +113,8 @@ pub struct UpdateUi {
     cancel: Arc<AtomicBool>,
     /// the check at the start was made
     started: bool,
+    /// the newer version found was announced (a notice)
+    pub announced: bool,
 }
 
 impl UpdateUi {
@@ -165,6 +168,25 @@ impl UpdateUi {
             }
             _ => None,
         }
+    }
+
+    /// The menu bar's Update: the dialog opened and, for the installed program, the new installer downloaded at once
+    /// (the dialog then installs it); else the dialog's Download (a build or a copy, another platform).
+    pub(crate) fn start_update(&mut self, ctx: &egui::Context) {
+        self.open = true;
+        if let Status::Known(r) = self.status()
+            && newer(&r.version, VERSION)
+            && r.package.is_some()
+            && installed_dir().is_some()
+        {
+            self.download(r, ctx);
+        }
+    }
+
+    /// A release as if GitHub had named it (the UI self-test).
+    pub(crate) fn pretend(&mut self, r: Release) {
+        self.started = true;
+        self.set(Status::Known(r));
     }
 
     /// The release's installer downloaded to the temporary folder, in the background.

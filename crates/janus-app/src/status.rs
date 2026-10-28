@@ -141,6 +141,16 @@ impl State {
             eprintln!("warning: {m}");
             self.notify("Another GDAL", &m, true);
         }
+        // a newer version found at the start, once
+        if let Some(r) = self.update.available().filter(|_| !self.update.announced) {
+            self.update.announced = true;
+            let text = format!(
+                "Janus {} is out (you are using {}): Update, on the right of the menu bar, installs it.",
+                r.version,
+                crate::update::VERSION
+            );
+            self.notify("A new version of Janus", &text, false);
+        }
         let mut ended = Vec::new();
         for j in &self.zeit.jobs {
             let key = std::sync::Arc::as_ptr(&j.status) as usize;

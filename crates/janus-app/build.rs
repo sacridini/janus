@@ -2,6 +2,7 @@
 //! GDAL it is built against put beside it (its DLLs, plugins and data), so that any janus.exe the build makes runs
 //! with its own GDAL, as the installed one does, never with whatever GDAL comes first on the PATH.
 
+#[cfg(windows)]
 use std::path::{Path, PathBuf};
 
 fn main() {
@@ -39,6 +40,7 @@ fn main() {
 /// loads from that prefix (tools/package.py's walk of the import tables), the netCDF and HDF5 plugins, PROJ's
 /// database and GDAL's data. main.rs's configure_data finds them there as it finds the installed program's. A file
 /// already there with the same size is left alone.
+#[cfg(windows)]
 fn gdal_beside_exe() -> Result<(), String> {
     println!("cargo:rerun-if-env-changed=GDAL_INCLUDE_DIR");
     let include = PathBuf::from(std::env::var("GDAL_INCLUDE_DIR").map_err(|_| "GDAL_INCLUDE_DIR is not set")?);
@@ -93,6 +95,7 @@ fn gdal_beside_exe() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
 fn copy_if_changed(from: &Path, to: &Path) -> Result<(), String> {
     let size = |p: &Path| std::fs::metadata(p).map(|m| m.len()).ok();
     if size(from).is_some() && size(from) == size(to) {
@@ -105,6 +108,7 @@ fn copy_if_changed(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 /// The DLLs a PE file imports: its import table and its delay-load table (tools/package.py's pe_imports).
+#[cfg(windows)]
 fn pe_imports(path: &Path) -> Vec<String> {
     let Ok(data) = std::fs::read(path) else { return vec![] };
     let u16_at = |o: usize| data.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]) as usize);
