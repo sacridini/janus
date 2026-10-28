@@ -1076,7 +1076,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 | 51 | — | **Navegação**: ir para coordenada, vistas favoritas, minimapa, lupa | concluída (sem versão) |
 | 52 | — | **Proveniência** de cada resultado (parâmetros, versões, entradas; rodar de novo; Copy Python da rodada) | concluída (sem versão) |
 | 53 | — | **Prévia** de uma ferramenta na ROI ou num recorte, antes da cena inteira | concluída (sem versão) |
-| 54 | — | **Projeto** (`.janus`): salvar, abrir, recentes, reabrir a última sessão | planejada |
+| 54 | — | **Projeto** (`.janus`): salvar, abrir, recentes, reabrir a última sessão | concluída (sem versão) |
 | 55 | — | **Desfazer global** (`Ctrl+Z`: fechar camadas, estilo, ordem, pinos, ROI) | planejada |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por

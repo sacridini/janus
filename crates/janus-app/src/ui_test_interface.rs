@@ -650,6 +650,176 @@ impl State {
                     return fail("closing the tool's window should remove its preview");
                 }
                 next(st, "Auto-preview made again on a parameter changed; closing the tool's window removes it");
+                None
+            }
+            191 => {
+                // a run's map to keep in the project: Mann-Kendall on an ROI, into a folder of the test's
+                let info = self.session.as_ref()?.info.clone();
+                let stamp =
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+                let dir = std::env::temp_dir().join(format!("janus-selftest-project-{stamp}"));
+                let tool = janus_zeit::manifest().tool("mann_kendall")?;
+                *self.zeit.params(tool) = tool.params.iter().map(|q| (q.id.clone(), q.default.clone())).collect();
+                let (w, h) = (info.width as i64, info.height as i64);
+                self.set_roi_rect([w / 5, h / 5, w / 5 + 30.min(w / 2), h / 5 + 20.min(h / 2)]);
+                self.zeit.tools.entry(tool.id.clone()).or_default().scope = 2;
+                self.zeit.results_dir = Some(dir.join("results"));
+                // and a vector layer
+                let _ = std::fs::create_dir_all(&dir);
+                let gj = dir.join("plot.geojson");
+                let feature = r#"{"type": "Feature", "properties": {"plot": 1}, "geometry": {"type": "Point", "coordinates": [0.0, 0.0]}}"#;
+                std::fs::write(&gj, format!(r#"{{"type": "FeatureCollection", "features": [{feature}]}}"#)).ok()?;
+                self.add_vector_files(vec![gj.to_string_lossy().into_owned()], ctx);
+                st.run = Some((dir, 0, 0));
+                self.run_tool(tool, ctx);
+                next(st, "project: a Mann-Kendall run for a map to keep, a vector layer");
+                None
+            }
+            192 => {
+                let (dir, _, _) = st.run.clone()?;
+                let job = self.zeit.jobs.last()?;
+                if job.status.lock().ok()?.state == JobState::Running
+                    || !job.loaded
+                    || self.zeit.loads_pending()
+                    || !self.vector_loads.is_empty()
+                {
+                    return None;
+                }
+                let out_dir = job.output_dir.clone();
+                // the vector layer in a colour of its own
+                let v = self.vectors.iter().position(|v| v.data.path.ends_with("plot.geojson"))?;
+                self.vectors[v].color = egui::Color32::from_rgb(200, 30, 160);
+                // a state to keep: the active layer's opacity and blend, another series hidden, its date, a map's
+                // colours, two layers grouped, a pin, the ROI
+                let a = self.active;
+                (self.layers[a].opacity, self.layers[a].blend) = (0.6, janus_gpu::Blend::Multiply);
+                if let Some(o) = (0..self.layers.len()).find(|&i| i != a && !self.layers[i].canvas) {
+                    self.layers[o].visible = false;
+                }
+                if self.session.as_ref()?.info.t() > 2 {
+                    self.set_date(2);
+                }
+                let r = self.zeit.results.iter_mut().find(|r| r.run == out_dir)?;
+                (r.lo, r.hi, r.visible) = (-0.5, 0.25, true);
+                let rid = r.id;
+                let sid = self.session.as_ref()?.info.id;
+                self.contents.selected = [Sel::Series(sid), Sel::Result(rid)].into_iter().collect();
+                self.group_selected()?;
+                self.contents.selected.clear();
+                self.clear_pins();
+                self.add_pin(12, 9);
+                self.zeit.results_dir = None;
+                let file = dir.join("project").join("test.janus");
+                let _ = std::fs::create_dir_all(file.parent()?);
+                self.save_project_to(&file);
+                let text = std::fs::read_to_string(&file).ok()?;
+                let p: crate::project::Project = serde_json::from_str(&text).ok()?;
+                let rel =
+                    p.series.iter().flat_map(|s| &s.inputs).filter(|f| !std::path::Path::new(&f.path).is_absolute());
+                println!(
+                    "    saved {} ({} bytes): {} series ({} input paths relative), {} vector layers, {} maps, {} groups",
+                    file.display(),
+                    text.len(),
+                    p.series.len(),
+                    rel.count(),
+                    p.vectors.len(),
+                    p.results.len(),
+                    p.groups.len()
+                );
+                if p.format != crate::project::FORMAT
+                    || p.results.is_empty()
+                    || p.vectors.len() != 1
+                    || p.groups.len() != 1
+                    || p.pins.len() != 1
+                {
+                    return fail("the project should keep the series, the map, the group and the pin");
+                }
+                if self.project.dirty || self.project.path.as_deref() != Some(file.as_path()) {
+                    return fail("a project saved should be its file, with no changes");
+                }
+                st.texts = vec![self.project_snapshot()];
+                st.reveal = Some(file);
+                next(st, "project saved: series, vector layers, a map, a group, a pin, the ROI");
+                None
+            }
+            193 => {
+                // a change: the project is marked changed (the title's *), and Open asks first
+                let file = st.reveal.clone()?;
+                if st.since.is_some_and(|t| t.elapsed().as_secs_f64() < 0.1) {
+                    let a = self.active;
+                    self.layers[a].opacity = 0.3;
+                    return None;
+                }
+                if !self.project.dirty {
+                    return None; // looked at once a second
+                }
+                if !self.window_title().contains("test.janus*") {
+                    return fail(&format!("the title should mark the changes: {}", self.window_title()));
+                }
+                self.open_project(&file, ctx);
+                if self.project.confirm.is_none() || self.project.restoring() {
+                    return fail("opening a project over changes not saved should ask first");
+                }
+                // Discard
+                (self.project.confirm, self.project.dirty) = (None, false);
+                self.open_project(&file, ctx);
+                if !self.project.restoring() || !self.layers.is_empty() {
+                    return fail("opening a project should close what was open and open its layers");
+                }
+                next(st, "changes marked in the title (*); Open asks first; the project opening");
+                None
+            }
+            194 | 196 => {
+                if self.project.restoring() || self.opening.is_some() || self.zeit.loads_pending() {
+                    return None;
+                }
+                let now = self.project_snapshot();
+                let was = st.texts.first()?.clone();
+                if stage == 194 {
+                    if now != was {
+                        println!("    kept:\n{was}\n    opened:\n{now}");
+                        return fail("the project opened should be as it was saved");
+                    }
+                    println!("    opened as saved: {} lines of state ({})", now.lines().count(), self.window_title());
+                    // a file gone: the rest opens, a notice says what is missing
+                    let file = st.reveal.clone()?;
+                    let mut p = crate::project::Project::read(&file).ok()?;
+                    let gone = p.series.first()?.name.clone();
+                    for f in &mut p.series[0].inputs {
+                        f.path = "gone/nowhere.tif".into();
+                        f.absolute = file.parent()?.join("gone").join("nowhere.tif").to_string_lossy().into_owned();
+                    }
+                    let broken = file.with_file_name("broken.janus");
+                    p.write(&broken).ok()?;
+                    self.clear_notices();
+                    self.open_project(&broken, ctx);
+                    st.texts.push(gone);
+                    next(st, "the project opened as it was saved (order, styles, dates, map, group, pin, ROI, view)");
+                    st.stage = 196;
+                    return None;
+                }
+                let gone = st.texts.get(1)?.clone();
+                let notices = self.notice_titles();
+                let names: Vec<String> = self.layers.iter().map(|l| l.name.clone()).collect();
+                println!("    without {gone}: {} series open, notices {notices:?}", names.len());
+                if !notices.iter().any(|n| n.0.contains("without some of its layers")) || names.contains(&gone) {
+                    return fail("a file gone should leave a notice and the rest open");
+                }
+                let saved: crate::project::Project = serde_json::from_str(&was).ok()?;
+                if names.len() + 1 != saved.series.len() {
+                    return fail("every other series should open");
+                }
+                // the whole project back for what follows
+                let file = st.reveal.take()?;
+                self.open_project(&file, ctx);
+                next(st, "a file gone: a notice, the rest of the project opened");
+                st.stage = 197;
+                None
+            }
+            197 => {
+                if self.project.restoring() || self.opening.is_some() || self.zeit.loads_pending() {
+                    return None;
+                }
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

@@ -2105,6 +2105,25 @@ Reading the data adds to it, mostly on spinning disks.",
         }
     }
 
+    /// A result map read again from its file (a project opened): loaded on a thread as a run's maps are, its
+    /// colours' range kept (`auto`: computed from its values).
+    pub(crate) fn load_result_layer(&mut self, mut layer: ResultLayer, auto: bool, ctx: &egui::Context) {
+        let loaded = self.zeit.loaded.clone();
+        self.zeit.pending_loads += 1;
+        let c = ctx.clone();
+        std::thread::spawn(move || {
+            let r = load_result(&layer.path, 4096).map(|(data, tw, th)| {
+                (layer.data, layer.tw, layer.th) = (data, tw, th);
+                if auto {
+                    layer.auto_range();
+                }
+                layer
+            });
+            loaded.lock().unwrap().push(r);
+            c.request_repaint();
+        });
+    }
+
     /// A result is first read reduced (at most 4096 px a side, quick); once shown, its copy at full resolution (up
     /// to the GPU's largest texture) is read in the background, or its pixels would not fall on the series'.
     fn upgrade_results(&mut self, ctx: &egui::Context) {

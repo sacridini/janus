@@ -450,6 +450,8 @@ pub struct State {
     pub values: crate::values::ValuesUi,
     /// the Provenance window, the runs whose provenance is written when they end
     pub prov: crate::provenance::ProvenanceUi,
+    /// the project's file, whether it changed, the one being opened
+    pub project: crate::project::ProjectUi,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
     /// the Files panel
@@ -509,7 +511,9 @@ const HELP: &str = "Open (each opens as a new layer of the map): Ctrl+O (files),
       Ctrl+U (URL: COGs on the web, S3, GCS) or drop onto the window (with Shift,
       each dropped file a layer of its own); NetCDF / Zarr: a variable is picked if
       there are several; File > Close all starts again
-Command line: jn <folder | file.tif | pattern_*.tif | https://.../cog.tif ...>
+Command line: jn <folder | file.tif | pattern_*.tif | https://.../cog.tif ... | work.janus>
+Project: Ctrl+S saves it (File > New / Open / Save project as: a .janus file with the
+      layers, styles, order, groups, pins, ROI and view); the last session reopens at start
 Settings: Ctrl+, (theme, font size, processing threads, memory and caches)
 Command palette: Ctrl+K or Ctrl+Shift+P (every command by name: menus, tools,
       indices, layers, panels; arrows and Enter)
@@ -725,9 +729,12 @@ impl JanusApp {
         let favorites = settings.favorites.clone();
         let render_state = cc.wgpu_render_state.clone().expect("Janus draws with wgpu");
         // vector files (and validation projects) among the inputs become layers once the app is made
+        // a project file among them is opened at the first frame (project.rs)
+        let startup_project = opts.inputs.iter().find(|p| crate::project::is_project_file(p)).map(PathBuf::from);
         let (vector_inputs, rasters): (Vec<String>, Vec<String>) = opts
             .inputs
             .iter()
+            .filter(|p| !crate::project::is_project_file(p))
             .cloned()
             .partition(|p| janus_geo::vectors::is_vector_path(p) && !std::path::Path::new(p).is_dir());
         let mut sel = janus_cube::BandSelection { band: opts.band.max(1), ..Default::default() };
@@ -802,6 +809,7 @@ impl JanusApp {
                 chart: Default::default(),
                 values: Default::default(),
                 prov: Default::default(),
+                project: crate::project::ProjectUi::starting(startup_project),
                 band_sel: None,
                 spectral_index: 0,
                 map_textures: Default::default(),
@@ -957,6 +965,11 @@ impl JanusApp {
 impl State {
     /// Opens a series in the background; `add` keeps the open ones and adds it as a new layer. One open at a time.
     pub fn open_inputs(&mut self, inputs: Vec<String>, add: bool, ctx: &egui::Context) {
+        // a project file opens the project (and only it)
+        if let Some(p) = inputs.iter().find(|p| crate::project::is_project_file(p)) {
+            self.open_project(std::path::Path::new(p), ctx);
+            return;
+        }
         // vector files become vector layers
         let inputs = self.take_vector_inputs(inputs, ctx);
         if inputs.is_empty() || self.opening.is_some() {
@@ -1455,6 +1468,8 @@ impl State {
         };
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
+                self.project_menu(ui);
+                ui.separator();
                 // each opens a series (an image, or files of dates) as a new layer of the map
                 if item(ui, "Open file(s)...", "Ctrl+O", true) {
                     self.open_files_dialog(true, &ctx);
@@ -1860,6 +1875,7 @@ impl eframe::App for JanusApp {
         s.pump_animation(&ctx);
         s.pump_chips(&ctx);
         s.pump_provenance();
+        s.pump_project(&ctx);
         s.pump_zeit_jobs(&ctx);
         s.pump_trend_test();
         s.pump_ml();
@@ -2115,6 +2131,7 @@ impl eframe::App for JanusApp {
         self.state.class_flows_window(&ctx);
         self.state.tasks_window(&ctx);
         self.state.provenance_window(&ctx);
+        self.state.project_confirm_window(&ctx);
         self.state.exports_window(&ctx);
         self.state.extract_window(&ctx);
         self.state.chips_window(&ctx);

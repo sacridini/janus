@@ -48,6 +48,9 @@ pub struct Settings {
     /// saved views (navigation.rs's text); the minimap shown
     pub saved_views: Vec<String>,
     pub minimap: bool,
+    /// the projects opened or saved last, newest first; the last session opened again at the start
+    pub recent_projects: Vec<String>,
+    pub reopen_last: bool,
 }
 
 impl Settings {
@@ -93,6 +96,8 @@ impl Default for Settings {
             styles: Vec::new(),
             saved_views: Vec::new(),
             minimap: false,
+            recent_projects: Vec::new(),
+            reopen_last: true,
         }
     }
 }
@@ -171,6 +176,8 @@ pub fn parse(text: &str) -> (Settings, BasemapSetting) {
             ("janus", "PaletteRecent") if !v.is_empty() => s.palette_recent.push(v.to_string()),
             ("janus", "SavedView") if !v.is_empty() => s.saved_views.push(v.to_string()),
             ("janus", "Minimap") => s.minimap = int() == Some(1),
+            ("janus", "RecentProject") if !v.is_empty() => s.recent_projects.push(v.to_string()),
+            ("janus", "ReopenLastSession") => s.reopen_last = int() != Some(0),
             ("janus", "Style") => {
                 if let Some((name, style)) = v.split_once('\t') {
                     s.styles.push((name.to_string(), style.to_string()));
@@ -240,6 +247,10 @@ pub fn to_ini(s: &Settings, b: &crate::basemap::BasemapUi) -> String {
         out += &format!("SavedView={v}\n");
     }
     out += &format!("Minimap={}\n", i32::from(s.minimap));
+    for p in &s.recent_projects {
+        out += &format!("RecentProject={p}\n");
+    }
+    out += &format!("ReopenLastSession={}\n", i32::from(s.reopen_last));
     for (name, style) in &s.styles {
         out += &format!("Style={name}\t{style}\n");
     }
@@ -511,6 +522,13 @@ impl State {
             .checkbox(&mut st.s.reveal_opened, "Files panel follows what is opened")
             .on_hover_text(
                 "Opening a series, a file or a folder expands the Files panel down to it\nand scrolls there.",
+            )
+            .changed();
+        changed |= ui
+            .checkbox(&mut st.s.reopen_last, "Reopen the last session at start")
+            .on_hover_text(
+                "The layers, styles, pins, ROI and view kept when Janus closes (and every minute),\nopened again \
+                 when it starts without files (its project, if it was one, named in the title).",
             )
             .changed();
         changed |= ui

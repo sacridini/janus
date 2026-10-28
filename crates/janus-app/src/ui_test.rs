@@ -70,6 +70,8 @@ pub struct UiTest {
     run: Option<(std::path::PathBuf, usize, usize)>,
     /// stage 82: the vector layers before the SNIC run
     run_vectors: usize,
+    /// stages 192-196: the project's state as saved, the series whose file goes
+    texts: Vec<String>,
     /// the exit code, once decided (the window takes another frame to close)
     result: Option<i32>,
     /// each window's width at the last frame and how many frames in a row it grew (a window must not widen by

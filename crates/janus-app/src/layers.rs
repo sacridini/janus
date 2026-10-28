@@ -302,7 +302,7 @@ impl State {
     }
 
     /// Makes layer i the active one: its grid becomes the map's; the view and the pins are carried to it.
-    pub fn set_active(&mut self, i: usize, ctx: &egui::Context) {
+    pub fn set_active(&mut self, i: usize, _ctx: &egui::Context) {
         if i >= self.layers.len() {
             return;
         }
@@ -394,14 +394,7 @@ impl State {
         self.clear_roi();
         self.sync_layer_times();
         self.map.dirty = true;
-        let n = self.layers.len();
-        let title = format!(
-            "Janus - {} ({}){}",
-            self.layers[i].name,
-            info.description,
-            if n > 1 { format!("  [{n} layers]") } else { String::new() }
-        );
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+        // the window's title follows (project.rs, window_title)
     }
 
     /// The same files with another band selection: the layer keeps its place, name, visibility, opacity, display
@@ -483,7 +476,6 @@ impl State {
             self.series = Default::default();
             // no grid left to place the runs' maps on
             self.zeit.results.clear();
-            ctx.send_viewport_cmd(egui::ViewportCommand::Title("Janus".into()));
             return;
         }
         if was_active {
@@ -501,7 +493,7 @@ impl State {
     }
 
     /// Every layer closed.
-    pub fn close_all(&mut self, ctx: &egui::Context) {
+    pub fn close_all(&mut self, _ctx: &egui::Context) {
         drop_later((self.session.take(), std::mem::take(&mut self.layers)));
         self.active = 0;
         self.display = Display::default();
@@ -509,7 +501,6 @@ impl State {
         self.composite = None;
         self.series = Default::default();
         self.zeit.results.clear();
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title("Janus".into()));
     }
 
     /// A non-active layer into the map's frame, with its own display state, through its placement (`to_map`: a

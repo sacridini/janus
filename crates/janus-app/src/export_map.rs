@@ -933,7 +933,7 @@ impl State {
             ui.menu_button("Export Zeit result as GeoTIFF", |ui| {
                 if let Some(top) = self.top_result() {
                     let name = self.zeit.results[top].name.clone();
-                    if ui.add(egui::Button::new(format!("Save {name}...")).shortcut_text("Ctrl+S")).on_hover_text("The result drawn on top of the map").clicked() {
+                    if ui.add(egui::Button::new(format!("Save {name}..."))).on_hover_text("The result drawn on top of the map").clicked() {
                         ui.close();
                         self.save_result(top, ui.ctx());
                     }
@@ -967,7 +967,7 @@ impl State {
         self.export.open = true;
     }
 
-    /// Ctrl+E, Ctrl+Shift+E / V / M / A, Ctrl+S, Ctrl+Shift+S, Ctrl+J.
+    /// Ctrl+E, Ctrl+Shift+E / V / M / A, Ctrl+Shift+S, Ctrl+J; Ctrl+S saves the project.
     pub(crate) fn export_shortcuts(&mut self, ctx: &egui::Context) {
         use egui::{Key, Modifiers};
         if self.export.shown || self.export.save_run.is_some() {
@@ -991,13 +991,13 @@ impl State {
         if has && chord(cs, Key::A) {
             self.open_export(5);
         }
-        if let Some(top) = self.top_result() {
-            if chord(cs, Key::S) {
-                self.open_save_run(top);
-            } else if chord(Modifiers::COMMAND, Key::S) {
-                self.save_result(top, ctx);
-            }
+        if let Some(top) = self.top_result()
+            && chord(cs, Key::S)
+        {
+            self.open_save_run(top);
         }
+        // Ctrl+S: Save project (project.rs)
+        self.project_shortcuts(ctx);
         if chord(Modifiers::COMMAND, Key::J) {
             self.show_exports = !self.show_exports;
         }
