@@ -6,6 +6,7 @@
 // the kernels and loops index their arrays as the C++ does (several arrays at once)
 #![allow(clippy::needless_range_loop)]
 
+mod blosc;
 pub mod classify;
 pub mod direction;
 pub mod download;

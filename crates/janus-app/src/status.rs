@@ -68,6 +68,23 @@ pub struct StatusUi {
     /// tasks seen running (by their status' address): a notice when they end
     running: HashSet<usize>,
     crs: Option<CrsInfo>,
+    /// the GDAL loaded compared with the one built against, once
+    gdal_checked: bool,
+}
+
+/// The GDAL loaded is not of the version Janus was built against (major.minor): what to say, None if it is (or the
+/// build's is not known).
+pub(crate) fn gdal_mismatch() -> Option<String> {
+    let built = option_env!("JANUS_GDAL_BUILT")?;
+    let loaded = janus_cube::gdal_version();
+    let minor = |v: &str| v.split('.').take(2).collect::<Vec<_>>().join(".");
+    (minor(built) != minor(&loaded)).then(|| {
+        format!(
+            "Janus was built with GDAL {built} but GDAL {loaded} was loaded: another GDAL comes first on the PATH \
+             (the installed Janus brings its own, beside janus.exe). Some formats and compressions may be missing, \
+             or reading may fail."
+        )
+    })
 }
 
 fn crs_info(info: &janus_cube::CubeInfo) -> CrsInfo {
@@ -118,6 +135,12 @@ impl State {
     /// Tasks that ended since the last frame: a notice each (those of a few seconds left out, unless they failed),
     /// and the system's attention asked for when the window is in the background.
     pub(crate) fn pump_notices(&mut self, ctx: &egui::Context) {
+        if !std::mem::replace(&mut self.status.gdal_checked, true)
+            && let Some(m) = gdal_mismatch()
+        {
+            eprintln!("warning: {m}");
+            self.notify("Another GDAL", &m, true);
+        }
         let mut ended = Vec::new();
         for j in &self.zeit.jobs {
             let key = std::sync::Arc::as_ptr(&j.status) as usize;

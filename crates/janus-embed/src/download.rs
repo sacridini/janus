@@ -722,6 +722,30 @@ mod tests {
         let _ = std::fs::remove_dir_all(&out);
     }
 
+    /// A small area of both sources over the network (whichever GDAL is loaded: one without blosc reads TESSERA
+    /// through blosc.rs): `cargo test -p janus-embed --release -- --ignored small_area`.
+    #[test]
+    #[ignore]
+    fn small_area() {
+        for source in [Source::AlphaEarth, Source::Tessera] {
+            let out = std::env::temp_dir().join("janus-embed-small-area");
+            let _ = std::fs::remove_dir_all(&out);
+            let spec = DownloadSpec {
+                source,
+                years: vec![2024],
+                bounds: [-46.66, -23.57, -46.64, -23.55],
+                res: None,
+                out_dir: out.clone(),
+                cache_dir: std::env::temp_dir().join("janus-embed-small-area-cache"),
+            };
+            let files = download(&spec, &|_, _| {}, &AtomicBool::new(false)).unwrap();
+            let d = Dataset::open(&files[0]).unwrap();
+            println!("{source:?}: {:?}, {} bands", d.raster_size(), d.raster_count());
+            assert!(d.raster_count() >= 64);
+            let _ = std::fs::remove_dir_all(&out);
+        }
+    }
+
     /// TESSERA read natively against Zeit's files of the same region (task_embeddings.py through Zeit, in the folder
     /// JANUS_TESSERA_REF with its job.json), value by value: `cargo test -p janus-embed --release -- --ignored
     /// tessera_against_zeit` (network).

@@ -74,7 +74,8 @@ impl Default for Settings {
         Settings {
             modern: true,
             theme: theme::DARK,
-            modern_theme: theme::MODERN_DARK - theme::MODERN,
+            // a first start: the modern interface, Darkest
+            modern_theme: theme::MODERN_DARKEST - theme::MODERN,
             font_size: theme::DEFAULT_FONT_SIZE,
             panel_opacity: 1.0,
             window_opacity: 1.0,
@@ -931,8 +932,8 @@ mod tests {
         let (s2, b2) = parse(&to_ini(&s, &bm));
         assert_eq!((s2.theme, s2.font_size, s2.threads, s2.full_res), (s.theme, s.font_size, s.threads, s.full_res));
         assert_eq!((b2.source, b2.tile_size), (Some("osm".into()), Some(512)));
-        // the C++'s settings have no interface: the modern one, its Dark theme; the classic one kept when chosen
-        assert_eq!(s.look(), theme::MODERN_DARK);
+        // the C++'s settings have no interface: the modern one, its Darkest theme; the classic one kept when chosen
+        assert_eq!(s.look(), theme::MODERN_DARKEST);
         let classic = Settings { modern: false, modern_theme: 3, ..s };
         let (s3, _) = parse(&to_ini(&classic, &bm));
         assert_eq!((s3.modern, s3.modern_theme, s3.look()), (false, 3, theme::JANUS));

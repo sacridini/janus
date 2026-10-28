@@ -29,7 +29,8 @@ pub const MATRIX: usize = 6;
 /// The modern interface's themes, darkest to lightest (Photoshop's four), and the id of the first.
 pub const MODERN_NAMES: [&str; 4] = ["Darkest", "Dark", "Medium", "Light"];
 pub const MODERN: usize = NAMES.len();
-pub const MODERN_DARK: usize = MODERN + 1;
+/// the modern interface's Darkest theme (the default)
+pub const MODERN_DARKEST: usize = MODERN;
 pub const MODERN_LIGHT: usize = MODERN + 3;
 
 /// Whether theme `id` is one of the modern interface's.
@@ -1199,7 +1200,7 @@ mod tests {
         assert!((g.size().x - 70.0).abs() < 0.5 && (g.size().y - 13.0).abs() < 0.5, "{:?}", g.size());
         // the modern interface (in the same test: the face in use is the process's): Inter, proportional, its
         // semibold wider, the body at the setting's size
-        apply(&ctx, MODERN_DARK, 1.0, DEFAULT_FONT_SIZE);
+        apply(&ctx, MODERN + 1, 1.0, DEFAULT_FONT_SIZE); // Dark
         ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
         let width =
             |text: &str, font: FontId| ctx.fonts_mut(|f| f.layout_no_wrap(text.into(), font, Color32::WHITE)).size().x;

@@ -27,12 +27,15 @@ conda-forge calls it `gdal.lib`. Copy it once, and tell Cargo where GDAL is in
 mkdir .cargo\gdal; copy <conda-env>\Library\lib\gdal.lib .cargo\gdal\gdal_i.lib
 copy .cargo\config.example.toml .cargo\config.toml   # then set GDAL_INCLUDE_DIR and GDAL_VERSION
 cargo build --release
-$env:PATH = "<conda-env>\Library\bin;$env:PATH"      # gdal.dll and its dependencies
 .\target\release\janus.exe <series>
 ```
 
-The program finds PROJ's and GDAL's data next to the GDAL on `PATH` (a development environment) or
-next to itself (a package).
+The build puts the GDAL of `GDAL_INCLUDE_DIR`'s environment beside `janus.exe` (`build.rs`): `gdal.dll` and every
+DLL it loads from there, the netCDF and HDF5 plugins (`gdalplugins\`), PROJ's database and GDAL's data (`share\`),
+as the installed program has them. So `target\release\janus.exe` runs with its own GDAL, with no GDAL on the
+machine and whatever GDAL comes first on `PATH` (an OSGeo4W or GISInternals one, QGIS's); one started with another
+GDAL (a copy of `janus.exe` alone) says so at start. The tests (`cargo test`) still need the environment's
+`Library\bin` on `PATH`.
 
 ## Linux and macOS
 

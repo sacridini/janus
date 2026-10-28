@@ -7,7 +7,8 @@
 //! south of it is given in the southern zone's CRS, the same cells (zeit's choice).
 //!
 //! The shards are read by ranges over HTTP (GDAL's /vsicurl/, the program's libcurl) and decompressed by GDAL's
-//! blosc: GDAL's own Zarr driver does not read sharded arrays.
+//! blosc (or blosc.rs's frames over GDAL's zstd, a GDAL without blosc): GDAL's own Zarr driver does not read sharded
+//! arrays.
 
 use std::collections::HashMap;
 use std::ffi::CString;
@@ -168,7 +169,7 @@ impl Sharded {
     }
 
     /// An inner chunk decompressed (None: not written, the fill value).
-    fn chunk(&self, key: &str, at: (u64, u64), blosc: &janus_gdal::Codec) -> Result<Option<Vec<u8>>, String> {
+    fn chunk(&self, key: &str, at: (u64, u64), blosc: &crate::blosc::Blosc) -> Result<Option<Vec<u8>>, String> {
         if at.0 == u64::MAX && at.1 == u64::MAX {
             return Ok(None);
         }
@@ -214,7 +215,7 @@ pub(crate) fn download(
     cancel: &AtomicBool,
 ) -> Result<Vec<std::path::PathBuf>, String> {
     http_options(); // which lets /vsicurl/ read the store's zarr.json and its keys without an extension
-    let blosc = janus_gdal::Codec::get("blosc").ok_or("this GDAL has no blosc (TESSERA's compression)")?;
+    let blosc = crate::blosc::Blosc::get()?;
     progress(0.0, "finding the data");
     let zs = zones(spec.bounds);
     if zs.len() > 1 {
@@ -361,7 +362,7 @@ fn read_cells(
     c0: i64,
     w: usize,
     window: [i64; 4],
-    blosc: &janus_gdal::Codec,
+    blosc: &crate::blosc::Blosc,
     indexes: &Indexes,
     cancel: &AtomicBool,
 ) -> Result<Vec<f32>, String> {
