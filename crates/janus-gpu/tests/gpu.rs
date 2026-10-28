@@ -2,7 +2,7 @@
 //! colormap (the C++'s self-test checks the map the same way, app_selftest.cpp), detail tiles, class colours,
 //! images and the blending of layers.
 
-use janus_gpu::{CLASS_LUT_SIZE, Gpu, LayerParams, Mode, colormaps};
+use janus_gpu::{Blend, CLASS_LUT_SIZE, Gpu, LayerParams, Mode, colormaps};
 
 fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
@@ -165,4 +165,37 @@ fn statistics_and_map() {
     gpu.end_map(f);
     let (_, _, px) = gpu.read_target(3).unwrap();
     assert!((px[0] as i32 - 128).abs() <= 1 && px[1] == 0 && (px[2] as i32 - 128).abs() <= 1, "{:?}", &px[0..4]);
+}
+
+#[test]
+fn blend_modes() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let mut gpu = Gpu::new(&device, &queue);
+    // a colour at half opacity over another, in each mode, against the formula on the bytes (the target keeps
+    // sRGB bytes as they are)
+    let (d, c, a) = ([0.4f32, 0.6, 0.2], [0.5f32, 0.5, 1.0], 0.5f32);
+    let want = |b: Blend, d: f32, c: f32| match b {
+        Blend::Normal => d * (1.0 - a) + c * a,
+        Blend::Multiply => d * (1.0 - a + c * a),
+        Blend::Screen => d + c * a * (1.0 - d),
+        Blend::Add => (d + c * a).min(1.0),
+        Blend::Darken => d.min(1.0 - a + c * a),
+        Blend::Lighten => d.max(c * a),
+    };
+    for b in Blend::ALL {
+        let mut f = gpu.begin_map(0, [4, 4], [d[0], d[1], d[2], 1.0]);
+        f.blend = b;
+        gpu.fill_rect(&mut f, [0.0, 0.0, 4.0, 4.0], [c[0], c[1], c[2], a]);
+        gpu.end_map(f);
+        let (_, _, px) = gpu.read_target(0).unwrap();
+        for k in 0..3 {
+            let e = want(b, d[k], c[k]) * 255.0;
+            assert!((px[k] as f32 - e).abs() <= 2.0, "{}: channel {k} {} vs {e}", b.name(), px[k]);
+        }
+        assert_eq!(px[3], 255, "{}: the target's alpha kept", b.name());
+    }
+    assert_eq!(Blend::parse(" multiply "), Some(Blend::Multiply));
 }

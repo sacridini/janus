@@ -151,6 +151,8 @@ pub struct SeriesLayer {
     pub name: String,
     pub visible: bool,
     pub opacity: f32,
+    /// how it combines with the layers under it
+    pub blend: janus_gpu::Blend,
     pub disp: Display,
     pub classes: LayerClasses,
     pub composite: Option<BandComposite>,

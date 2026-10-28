@@ -112,6 +112,56 @@ impl LayerParams {
     }
 }
 
+/// How a layer's colours combine with what is under it (with its opacity): Normal over it, Multiply darkens by
+/// it, Screen lightens, Add sums, Darken and Lighten keep the darker or lighter of each channel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(i32)]
+pub enum Blend {
+    #[default]
+    Normal = 0,
+    Multiply = 1,
+    Screen = 2,
+    Add = 3,
+    Darken = 4,
+    Lighten = 5,
+}
+
+impl Blend {
+    pub const ALL: [Blend; 6] =
+        [Blend::Normal, Blend::Multiply, Blend::Screen, Blend::Add, Blend::Darken, Blend::Lighten];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Blend::Normal => "Normal",
+            Blend::Multiply => "Multiply",
+            Blend::Screen => "Screen",
+            Blend::Add => "Add",
+            Blend::Darken => "Darken",
+            Blend::Lighten => "Lighten",
+        }
+    }
+
+    /// By name (settings, projects), case aside.
+    pub fn parse(s: &str) -> Option<Blend> {
+        Blend::ALL.into_iter().find(|b| b.name().eq_ignore_ascii_case(s.trim()))
+    }
+
+    /// The pipeline's blend state, on what display.wgsl's out_color gives for the mode.
+    fn state(self) -> wgpu::BlendState {
+        use wgpu::{BlendComponent as C, BlendFactor as F, BlendOperation as O};
+        let keep = C { src_factor: F::Zero, dst_factor: F::One, operation: O::Add };
+        let color = |src_factor, dst_factor, operation| C { src_factor, dst_factor, operation };
+        match self {
+            Blend::Normal => wgpu::BlendState::ALPHA_BLENDING,
+            Blend::Multiply => wgpu::BlendState { color: color(F::Dst, F::Zero, O::Add), alpha: keep },
+            Blend::Screen => wgpu::BlendState { color: color(F::OneMinusDst, F::One, O::Add), alpha: keep },
+            Blend::Add => wgpu::BlendState { color: color(F::One, F::One, O::Add), alpha: keep },
+            Blend::Darken => wgpu::BlendState { color: color(F::One, F::One, O::Min), alpha: keep },
+            Blend::Lighten => wgpu::BlendState { color: color(F::One, F::One, O::Max), alpha: keep },
+        }
+    }
+}
+
 /// Class colours of categorical data: CLASS_LUT_SIZE texels, value v -> texel v (alpha 0 = not a class of the
 /// series, drawn transparent).
 pub const CLASS_LUT_SIZE: u32 = 4096;
@@ -129,7 +179,8 @@ struct DrawUniform {
     warp: i32,
     nearest: i32,
     nan_bits: u32,
-    _pad: [u32; 3],
+    blend: i32,
+    _pad: [u32; 2],
     color: [f32; 4],
     warp_quad: [f32; 4],
     warp_src: [f32; 4],
@@ -256,6 +307,7 @@ struct PendingDraw {
     uniform: DrawUniform,
     cube_group: wgpu::BindGroup,
     textures: wgpu::BindGroup,
+    blend: Blend,
     /// the scissor rectangle (x, y, w, h in the target's pixels), None: the whole target
     clip: Option<[u32; 4]>,
 }
@@ -271,12 +323,15 @@ pub struct MapFrame {
     vdraws: Vec<vector::VectorDraw>,
     /// the draws pushed while set are cut to this rectangle (x, y, w, h in the target's pixels)
     pub clip: Option<[u32; 4]>,
+    /// the draws pushed while set combine with what is under them this way
+    pub blend: Blend,
 }
 
 pub struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    display: wgpu::RenderPipeline,
+    /// the display pipeline of each blend mode (Blend as index)
+    display: Vec<wgpu::RenderPipeline>,
     uniform_layout: wgpu::BindGroupLayout,
     cube_layout: wgpu::BindGroupLayout,
     texture_layout: wgpu::BindGroupLayout,
@@ -404,32 +459,39 @@ impl Gpu {
             bind_group_layouts: &[Some(&uniform_layout), Some(&cube_layout), Some(&texture_layout)],
             immediate_size: 0,
         });
-        let display = d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("display"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: Some("vs"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleStrip, ..Default::default() },
-            depth_stencil: None,
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &module,
-                entry_point: Some("fs"),
-                compilation_options: Default::default(),
-                // SRC_ALPHA, ONE_MINUS_SRC_ALPHA (gpu_gl.cpp); an opaque draw (alpha 1) replaces
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: TARGET_FORMAT,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let display = Blend::ALL
+            .map(|b| {
+                d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(b.name()),
+                    layout: Some(&layout),
+                    vertex: wgpu::VertexState {
+                        module: &module,
+                        entry_point: Some("vs"),
+                        compilation_options: Default::default(),
+                        buffers: &[],
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    multisample: Default::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &module,
+                        entry_point: Some("fs"),
+                        compilation_options: Default::default(),
+                        // Normal: SRC_ALPHA, ONE_MINUS_SRC_ALPHA (gpu_gl.cpp); an opaque draw (alpha 1) replaces
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: TARGET_FORMAT,
+                            blend: Some(b.state()),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            })
+            .to_vec();
 
         let stats_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("stats"),
@@ -778,6 +840,7 @@ impl Gpu {
             draws: Vec::new(),
             vdraws: Vec::new(),
             clip: None,
+            blend: Blend::Normal,
         }
     }
 
@@ -844,7 +907,7 @@ impl Gpu {
     pub fn draw_cube(&self, f: &mut MapFrame, c: &GpuCube, rect: [f32; 4], p: &LayerParams, cmap: usize, alpha: f32) {
         let uniform = self.layer_uniform(f, rect, p, 0, alpha);
         let textures = self.textures(Some(cmap), None, None, Some(p));
-        f.draws.push(PendingDraw { uniform, cube_group: c.group.clone(), textures, clip: f.clip });
+        f.draws.push(PendingDraw { uniform, cube_group: c.group.clone(), textures, blend: f.blend, clip: f.clip });
     }
 
     /// A detail tile (with the cube's statistics for the modes that need them).
@@ -861,7 +924,7 @@ impl Gpu {
     ) {
         let uniform = self.layer_uniform(f, rect, p, 1, alpha);
         let textures = self.textures(Some(cmap), Some(tile), None, Some(p));
-        f.draws.push(PendingDraw { uniform, cube_group: c.group.clone(), textures, clip: f.clip });
+        f.draws.push(PendingDraw { uniform, cube_group: c.group.clone(), textures, blend: f.blend, clip: f.clip });
     }
 
     /// A single-band raster (e.g. a Zeit result) through its own colormap and range.
@@ -894,7 +957,7 @@ impl Gpu {
     ) {
         let uniform = self.layer_uniform(f, rect, p, 1, alpha);
         let textures = self.textures(Some(cmap), Some(tex), None, Some(p));
-        f.draws.push(PendingDraw { uniform, cube_group: self.no_cube(), textures, clip: f.clip });
+        f.draws.push(PendingDraw { uniform, cube_group: self.no_cube(), textures, blend: f.blend, clip: f.clip });
     }
 
     /// An RGBA image blended by its own alpha × `alpha`, bilinear (or `nearest`), through a warp if given.
@@ -919,7 +982,7 @@ impl Gpu {
             p.warp = Some(w.clone());
         }
         let textures = self.textures(None, None, Some((tex, nearest)), Some(&p));
-        f.draws.push(PendingDraw { uniform: u, cube_group: self.no_cube(), textures, clip: f.clip });
+        f.draws.push(PendingDraw { uniform: u, cube_group: self.no_cube(), textures, blend: f.blend, clip: f.clip });
     }
 
     /// A rectangle of one colour (sRGB, alpha its opacity) blended over the map.
@@ -928,7 +991,7 @@ impl Gpu {
         u.source = 3;
         u.color = rgba;
         let textures = self.textures(None, None, None, None);
-        f.draws.push(PendingDraw { uniform: u, cube_group: self.no_cube(), textures, clip: f.clip });
+        f.draws.push(PendingDraw { uniform: u, cube_group: self.no_cube(), textures, blend: f.blend, clip: f.clip });
     }
 
     /// Draws the frame's draws in order, in one pass.
@@ -951,7 +1014,8 @@ impl Gpu {
                 let mut bytes = vec![0u8; (UNIFORM_STRIDE * n) as usize];
                 for (i, d) in f.draws.iter().enumerate() {
                     let at = i * UNIFORM_STRIDE as usize;
-                    bytes[at..at + size_of::<DrawUniform>()].copy_from_slice(bytemuck::bytes_of(&d.uniform));
+                    let u = DrawUniform { blend: d.blend as i32, ..d.uniform };
+                    bytes[at..at + size_of::<DrawUniform>()].copy_from_slice(bytemuck::bytes_of(&u));
                 }
                 self.queue.write_buffer(&u.0, 0, &bytes);
             }
@@ -1004,7 +1068,7 @@ impl Gpu {
                         k += 1;
                     }
                 }
-                pass.set_pipeline(&self.display);
+                pass.set_pipeline(&self.display[d.blend as usize]);
                 let [x, y, w, h] = d.clip.unwrap_or([0, 0, tw, th]);
                 let (x, y) = (x.min(tw), y.min(th));
                 let (w, h) = (w.min(tw - x), h.min(th - y));

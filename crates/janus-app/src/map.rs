@@ -817,18 +817,22 @@ impl State {
                     }
                     continue;
                 }
+                // its blend mode for its own draws; the maps its runs made over it as they are
+                f.blend = l.blend;
                 if let (Some(e), Some(te)) = (l.emb.as_ref().filter(|e| e.drawn()), t_emb) {
                     e.draw(te, &l.place, l.opacity, gpu, &mut f, &to_map);
+                    f.blend = janus_gpu::Blend::Normal;
                     continue;
                 }
                 if li != self.active {
                     State::draw_layer(l, gpu, &mut f, &to_map);
+                    f.blend = janus_gpu::Blend::Normal;
                     if let Some(ls) = &l.session {
                         crate::zeit::draw_results(gpu, &mut f, &self.zeit.results, &ls.info, &l.place, &to_map);
                     }
                     continue;
                 }
-                let alpha = l.opacity;
+                let (alpha, blend) = (l.opacity, l.blend);
                 if let Some(c) = self.composite.as_mut().filter(|c| c.on) {
                     // three bands as RGB, in detail when zoomed in
                     State::draw_composite(c, gpu, &mut f, t, s.info.t(), alpha, |w| {
@@ -849,8 +853,9 @@ impl State {
                     let place =
                         |x: f64, y: f64, sw: f64, sh: f64| to_px(m, x / fx, y / fy, (x + sw) / fx, (y + sh) / fy);
                     let full = to_px(m, 0.0, 0.0, ow, oh);
-                    if alpha < 1.0 && !tiles.is_empty() {
-                        // translucent: the overview only where no tile goes, or the tiles' squares show darker
+                    if (alpha < 1.0 || blend != janus_gpu::Blend::Normal) && !tiles.is_empty() {
+                        // translucent (or blended): the overview only where no tile goes, or the tiles' squares
+                        // show darker
                         let holes: Vec<[f32; 4]> =
                             tiles.iter().map(|(tl, _)| place(tl.x, tl.y, tl.sw, tl.sh)).collect();
                         for clip in janus_gpu::uncovered(full, &holes) {
@@ -874,6 +879,7 @@ impl State {
                         );
                     }
                 }
+                f.blend = janus_gpu::Blend::Normal;
                 crate::zeit::draw_results(gpu, &mut f, &self.zeit.results, &s.info, &l.place, &to_map);
             }
             // the vector layers over the top series

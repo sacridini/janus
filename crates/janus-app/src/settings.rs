@@ -43,6 +43,8 @@ pub struct Settings {
     pub favorites: Vec<String>,
     /// the command palette's commands used last, newest first
     pub palette_recent: Vec<String>,
+    /// saved layer styles: name, style (style.rs's text)
+    pub styles: Vec<(String, String)>,
 }
 
 impl Settings {
@@ -84,6 +86,7 @@ impl Default for Settings {
             interpreter: String::new(),
             favorites: Vec::new(),
             palette_recent: Vec::new(),
+            styles: Vec::new(),
         }
     }
 }
@@ -160,6 +163,11 @@ pub fn parse(text: &str) -> (Settings, BasemapSetting) {
             ("janus", "WindowOpacity") => s.window_opacity = int().unwrap_or(100).clamp(20, 100) as f32 / 100.0,
             ("janus", "Favorite") if !v.is_empty() => s.favorites.push(v.to_string()),
             ("janus", "PaletteRecent") if !v.is_empty() => s.palette_recent.push(v.to_string()),
+            ("janus", "Style") => {
+                if let Some((name, style)) = v.split_once('\t') {
+                    s.styles.push((name.to_string(), style.to_string()));
+                }
+            }
             ("janus", "Theme") => {
                 if let Some(i) = theme::NAMES.iter().position(|n| *n == v) {
                     s.theme = i;
@@ -219,6 +227,9 @@ pub fn to_ini(s: &Settings, b: &crate::basemap::BasemapUi) -> String {
     }
     for c in &s.palette_recent {
         out += &format!("PaletteRecent={c}\n");
+    }
+    for (name, style) in &s.styles {
+        out += &format!("Style={name}\t{style}\n");
     }
     out += &format!(
         "\n[JanusBasemap][Settings]\nSource={}\nOpacity={:.2}\nUrl={}\nMaxZoom={}\nTileSize={}\nAttribution={}\n\n",

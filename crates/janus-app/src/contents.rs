@@ -32,10 +32,17 @@ pub struct ContentsUi {
     pub(crate) selected: HashSet<Sel>,
     anchor: Option<Sel>,
     /// the layers' rows as last drawn, top to bottom (Shift + click's run), and the ones being drawn
-    order: Vec<Sel>,
+    pub(crate) order: Vec<Sel>,
     drawing: Vec<Sel>,
     /// the last click was on the list: Delete and Ctrl+D are its keys
     pub(crate) focused: bool,
+    /// the rows being drawn are a group's: indented
+    indent: f32,
+    /// a layer's style copied (Copy style), pasted on others
+    pub(crate) style_clip: Option<crate::style::LayerStyle>,
+    /// the name a style is saved under (its menu's field); a group being renamed
+    style_name: String,
+    group_name: Option<(u32, String)>,
 }
 
 impl ContentsUi {
@@ -94,6 +101,8 @@ pub(crate) enum Swatch {
     Vector { color: Color32, points: bool, lines: bool, areas: bool },
     /// the basemap: tiles of a map
     Basemap,
+    /// a group of layers: a folder
+    Group,
 }
 
 /// A row's content.
@@ -180,6 +189,14 @@ fn paint_swatch(ui: &Ui, rect: Rect, s: &Swatch, dim: bool) {
                     p.circle_filled(at(x, y), 2.2, c);
                 }
             }
+        }
+        Swatch::Group => {
+            let c = fade(v.text_color().gamma_multiply(0.75));
+            let body = Rect::from_min_max(rect.min + vec2(1.0, 4.0), rect.max - vec2(1.0, 1.0));
+            let tab = Rect::from_min_size(rect.min + vec2(1.0, 1.0), vec2(rect.width() * 0.4, 5.0));
+            p.rect_filled(tab, 1.5, c.gamma_multiply(0.5));
+            p.rect_filled(body, 2.0, c.gamma_multiply(0.35));
+            p.rect_stroke(body, 2.0, Stroke::new(1.0, c), egui::StrokeKind::Inside);
         }
         Swatch::Basemap => {
             // a map's tiles: land, a river, the tiles' edges
@@ -350,8 +367,23 @@ enum Act {
     Remove(usize),
     /// the rows selected
     RemoveSelected,
-    /// from, to: places in the drawing order (bottom to top)
+    /// from, to: places in the drawing order (bottom to top); Drop: dragged onto the row at `to` (its group joined)
     Move(usize, usize),
+    Drop(usize, usize),
+    CopyStyle(Sel),
+    PasteStyle(Sel),
+    /// a saved style given to the row (and the others selected), saved from it, deleted
+    ApplySaved(Sel, String),
+    SaveStyle(Sel, String),
+    DeleteSaved(String),
+    GroupSelected,
+    LeaveGroup(Sel),
+    Ungroup(u32),
+    /// to the top (true) or the bottom
+    MoveGroup(u32, bool),
+    GroupVisible(u32, bool),
+    SelectGroup(u32),
+    CloseGroup(u32),
     Export(usize, usize),
     Fit(usize),
     SaveResult(usize),
@@ -441,7 +473,44 @@ impl State {
                 Act::Activate(i) => self.set_active(i, &ctx),
                 Act::Remove(i) => self.remove_layer(i, &ctx),
                 Act::RemoveSelected => self.remove_selected(&ctx),
-                Act::Move(from, to) => self.move_in_order(from, to),
+                Act::Move(from, to) | Act::Drop(from, to) => {
+                    let o = self.draw_order();
+                    let moved = o.get(from).and_then(|&it| self.sel_of(it));
+                    let target = o.get(to).and_then(|&it| self.sel_of(it));
+                    self.move_in_order(from, to);
+                    if let Some(m) = moved {
+                        self.regroup_moved(m, target, matches!(a, Act::Drop(..)));
+                    }
+                }
+                Act::CopyStyle(s) => self.contents.style_clip = self.style_of(s),
+                Act::PasteStyle(s) => {
+                    if let Some(st) = self.contents.style_clip.clone() {
+                        self.paste_style(s, &st);
+                    }
+                }
+                Act::ApplySaved(s, name) => {
+                    if let Some((_, st)) = self.saved_styles_for(s).into_iter().find(|x| x.0 == name) {
+                        self.paste_style(s, &st);
+                    }
+                }
+                Act::SaveStyle(s, name) => {
+                    if let Some(st) = self.style_of(s) {
+                        self.save_style(&name, &st);
+                    }
+                }
+                Act::DeleteSaved(name) => self.delete_saved_style(&name),
+                Act::GroupSelected => {
+                    self.group_selected();
+                }
+                Act::LeaveGroup(s) => self.set_group(s, None),
+                Act::Ungroup(g) => self.ungroup(g),
+                Act::MoveGroup(g, top) => self.move_group(g, top),
+                Act::GroupVisible(g, v) => self.set_group_visible(g, v),
+                Act::SelectGroup(g) => self.select_group(g),
+                Act::CloseGroup(g) => {
+                    self.select_group(g);
+                    self.remove_selected(&ctx);
+                }
                 Act::Export(i, kind) => {
                     if i != self.active {
                         self.set_active(i, &ctx);
@@ -541,6 +610,19 @@ impl State {
         }
         let Some(l) = self.layers.get_mut(self.active).filter(|l| !l.canvas) else { return };
         ui.horizontal(|ui| {
+            let blend = l.blend;
+            egui::ComboBox::from_id_salt("blend strip")
+                .width(76.0)
+                .selected_text(blend.name())
+                .show_ui(ui, |ui| {
+                    for b in janus_gpu::Blend::ALL {
+                        if ui.selectable_value(&mut l.blend, b, b.name()).changed() {
+                            self.map.dirty = true;
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(format!("{}: how it combines with the layers under it", l.name));
             ui.label(RichText::new("Opacity").weak());
             ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(40.0);
             let slider = egui::Slider::new(&mut l.opacity, 0.0..=1.0)
@@ -623,12 +705,29 @@ impl State {
             // the canvas stays at the bottom
             let lo = usize::from(matches!(order.first(), Some(Item::Series(i)) if self.layers[*i].canvas));
             let top = order.len() - 1;
+            let sels: Vec<Option<Sel>> = order.iter().map(|&it| self.sel_of(it)).collect();
+            self.tidy_groups(&sels.iter().flatten().copied().collect::<Vec<_>>());
+            let groups: Vec<Option<u32>> = sels.iter().map(|s| s.and_then(|s| self.group_of(s))).collect();
+            // a group's row over each run of its layers, its layers indented under it (none when it is folded)
+            let mut run: Option<(u32, bool)> = None;
             for pos in (0..order.len()).rev() {
+                let g = groups[pos];
+                if g != run.map(|r| r.0) {
+                    run = g.map(|g| {
+                        let n = (0..=pos).rev().take_while(|&k| groups[k] == Some(g)).count();
+                        (g, self.group_row(ui, g, n, pos, acts))
+                    });
+                }
+                if run.is_some_and(|r| !r.1) {
+                    continue;
+                }
+                self.contents.indent = if run.is_some() { 14.0 } else { 0.0 };
                 match order[pos] {
                     Item::Series(i) => self.series_row(ui, i, (pos, lo, top), acts),
                     Item::Vector(li) => self.vector_row(ui, li, (pos, lo, top), acts),
                 }
             }
+            self.contents.indent = 0.0;
         }
         // the selection: the rows on the list (a layer closed, or filtered out, leaves it)
         let c = &mut self.contents;
@@ -671,6 +770,7 @@ impl State {
             return;
         }
         let interpreting = self.labels.vector == Some(self.vectors[li].id);
+        let extra = self.row_extras(Sel::Vector(self.vectors[li].id));
         let v = &mut self.vectors[li];
         let d = v.data.clone();
         let warn = if !v.why.is_empty() {
@@ -686,6 +786,7 @@ impl State {
         let selected = self.contents.selected.contains(&me);
         let closes = self.contents.closes_selection(me);
         let contents = &mut self.contents;
+        let indent = contents.indent;
         ui.push_id(("vector", id), |ui| {
             let r = Row {
                 name: &name,
@@ -694,7 +795,7 @@ impl State {
                 active: interpreting,
                 selected,
                 warn,
-                indent: 0.0,
+                indent,
                 swatch: Swatch::Vector { color: v.color, points: d.points > 0, lines: d.lines > 0, areas: d.areas > 0 },
                 fold: None,
             };
@@ -725,6 +826,7 @@ impl State {
             let out_row = out.row.on_hover_ui(tip);
             select_on_click(ui, &out_row, &out.more, me, contents);
             drag_to_reorder(ui, &out_row, pos, acts);
+            let style_name = &mut contents.style_name;
             let mut menu = |ui: &mut Ui| {
                 let mut c = v.color;
                 ui.horizontal(|ui| {
@@ -734,6 +836,7 @@ impl State {
                         self.map.dirty = true;
                     }
                 });
+                style_menu(ui, me, &extra, style_name, acts);
                 ui.separator();
                 if ui
                     .button("Attribute table")
@@ -760,6 +863,7 @@ impl State {
                     ui.close();
                 }
                 move_menu(ui, place, acts);
+                group_items(ui, me, &extra, acts);
                 ui.separator();
                 if ui.button("Export as...").on_hover_text("GeoPackage, GeoJSON, Shapefile or CSV").clicked() {
                     acts.push(Act::ExportVector(li));
@@ -824,6 +928,8 @@ impl State {
         self.contents.drawing.push(me);
         let selected = self.contents.selected.contains(&me);
         let closes = self.contents.closes_selection(me);
+        let extra = self.row_extras(me);
+        let indent = self.contents.indent;
         let l = &mut self.layers[i];
         ui.push_id(("series", i), |ui| {
             let r = Row {
@@ -833,7 +939,7 @@ impl State {
                 active: is_active,
                 selected,
                 warn: (!l.place.note.is_empty()).then(|| l.place.note.clone()),
-                indent: 0.0,
+                indent,
                 swatch: Swatch::Stack(cmap),
                 fold: (!results.is_empty() || info.t() > 1).then_some(open),
             };
@@ -893,8 +999,13 @@ impl State {
                 if ui.add(egui::Slider::new(&mut l.opacity, 0.0..=1.0).text("opacity").fixed_decimals(2)).changed() {
                     self.map.dirty = true;
                 }
+                if blend_menu(ui, &mut l.blend) {
+                    self.map.dirty = true;
+                }
+                style_menu(ui, me, &extra, &mut self.contents.style_name, acts);
                 ui.separator();
                 move_menu(ui, place, acts);
+                group_items(ui, me, &extra, acts);
                 ui.menu_button("Export", |ui| {
                     for (label, kind) in EXPORTS {
                         if ui.button(label).clicked() {
@@ -1156,6 +1267,195 @@ fn drag_to_reorder(ui: &Ui, row: &Response, pos: usize, acts: &mut Vec<Act>) {
     }
     if let Some(from) = row.dnd_release_payload::<Dragged>() {
         acts.push(Act::Move(from.0, pos));
+    }
+}
+
+/// What a row's menu needs of the panel beyond its layer: the style copied (if this kind of layer takes it), the
+/// saved styles it takes, how many layers a paste or a group takes, its group.
+struct RowExtras {
+    paste: bool,
+    saved: Vec<String>,
+    targets: usize,
+    group: Option<u32>,
+}
+
+impl State {
+    fn row_extras(&self, me: Sel) -> RowExtras {
+        use crate::style::LayerStyle;
+        let c = &self.contents;
+        let fits = |st: &LayerStyle| {
+            matches!((me, st), (Sel::Series(_), LayerStyle::Series(_)) | (Sel::Vector(_), LayerStyle::Vector(_)))
+        };
+        RowExtras {
+            paste: c.style_clip.as_ref().is_some_and(fits),
+            saved: self.saved_styles_for(me).into_iter().map(|s| s.0).collect(),
+            targets: if c.selected.contains(&me) { c.selected.len().max(1) } else { 1 },
+            group: self.group_of(me),
+        }
+    }
+
+    /// Group `g`'s row over its `n` layers (the top one at `pos` in the drawing order): its eye shows or hides
+    /// them all, its fold hides their rows, a click selects them, a row dropped on it joins it; whether it is
+    /// unfolded.
+    fn group_row(&mut self, ui: &mut Ui, g: u32, n: usize, pos: usize, acts: &mut Vec<Act>) -> bool {
+        let Some(name) = self.groups.iter().find(|x| x.id == g).map(|x| x.name.clone()) else { return true };
+        let key = format!("g{g}");
+        let open = self.contents.is_open(&key, true);
+        let mut visible = self.group_visible(g);
+        let layers = format!("{n} layer{}", if n == 1 { "" } else { "s" });
+        ui.push_id(("group", g), |ui| {
+            let r = Row {
+                name: &name,
+                detail: String::new(),
+                badge: layers.clone(),
+                active: false,
+                selected: false,
+                warn: None,
+                indent: 0.0,
+                swatch: Swatch::Group,
+                fold: Some(open),
+            };
+            let out = row(ui, Some(&mut visible), &r);
+            if out.visible_changed {
+                acts.push(Act::GroupVisible(g, visible));
+            }
+            if out.fold_clicked {
+                self.contents.toggle(&key, true);
+            }
+            let out_row = out.row.on_hover_text(
+                "A group: its eye shows or hides its layers, its arrow folds them.\nClick: select its layers. Drop a \
+                 row on it: the layer joins the group.",
+            );
+            if out_row.clicked() {
+                acts.push(Act::SelectGroup(g));
+            }
+            if out_row.double_clicked() {
+                self.contents.toggle(&key, true);
+            }
+            if let Some(from) = out_row.dnd_hover_payload::<Dragged>()
+                && from.0 != pos
+            {
+                ui.painter().hline(out_row.rect.x_range(), out_row.rect.bottom(), Stroke::new(2.0, theme::accent()));
+            }
+            if let Some(from) = out_row.dnd_release_payload::<Dragged>() {
+                acts.push(Act::Drop(from.0, pos));
+            }
+            let groups = &mut self.groups;
+            let renaming = &mut self.contents.group_name;
+            let mut menu = |ui: &mut Ui| {
+                let text = renaming.get_or_insert_with(|| (g, name.clone()));
+                if text.0 != g {
+                    *text = (g, name.clone());
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Name");
+                    let r = ui.add(egui::TextEdit::singleline(&mut text.1).desired_width(140.0));
+                    if r.changed()
+                        && !text.1.trim().is_empty()
+                        && let Some(gr) = groups.iter_mut().find(|x| x.id == g)
+                    {
+                        gr.name = text.1.trim().to_string();
+                    }
+                });
+                if ui.button("Select its layers").clicked() {
+                    acts.push(Act::SelectGroup(g));
+                    ui.close();
+                }
+                ui.menu_button("Move", |ui| {
+                    for (label, top) in [("To the top", true), ("To the bottom", false)] {
+                        if ui.button(label).clicked() {
+                            acts.push(Act::MoveGroup(g, top));
+                            ui.close();
+                        }
+                    }
+                });
+                ui.separator();
+                if ui.button("Ungroup").on_hover_text("The layers stay where they are").clicked() {
+                    acts.push(Act::Ungroup(g));
+                    ui.close();
+                }
+                if ui.button(format!("Close its {layers}")).clicked() {
+                    acts.push(Act::CloseGroup(g));
+                    ui.close();
+                }
+            };
+            out_row.context_menu(&mut menu);
+            egui::Popup::menu(&out.more).show(&mut menu);
+        });
+        open
+    }
+}
+
+/// A series' Blend submenu; whether the mode changed.
+fn blend_menu(ui: &mut Ui, blend: &mut janus_gpu::Blend) -> bool {
+    let mut changed = false;
+    ui.menu_button(format!("Blend: {}", blend.name()), |ui| {
+        for b in janus_gpu::Blend::ALL {
+            changed |= ui.radio_value(blend, b, b.name()).changed();
+        }
+    })
+    .response
+    .on_hover_text(
+        "How its colours combine with the layers under it: Multiply darkens by them, Screen lightens,\nAdd sums, \
+         Darken and Lighten keep the darker or the lighter (with its opacity)",
+    );
+    changed
+}
+
+/// A row's Style submenu: copy its style, paste the one copied (on the layers selected), the saved styles, save
+/// its own under a name.
+fn style_menu(ui: &mut Ui, me: Sel, x: &RowExtras, name: &mut String, acts: &mut Vec<Act>) {
+    ui.menu_button("Style", |ui| {
+        if ui.button("Copy style").on_hover_text("Its colours, range, mode, opacity, blend and classes").clicked() {
+            acts.push(Act::CopyStyle(me));
+            ui.close();
+        }
+        let paste =
+            if x.targets > 1 { format!("Paste style on the {} selected", x.targets) } else { "Paste style".into() };
+        if ui.add_enabled(x.paste, egui::Button::new(paste)).clicked() {
+            acts.push(Act::PasteStyle(me));
+            ui.close();
+        }
+        ui.separator();
+        if x.saved.is_empty() {
+            ui.weak("No saved styles");
+        }
+        for s in &x.saved {
+            ui.horizontal(|ui| {
+                if ui.button(s).on_hover_text("Give it this saved style").clicked() {
+                    acts.push(Act::ApplySaved(me, s.clone()));
+                    ui.close();
+                }
+                if ui.small_button("x").on_hover_text("Delete this saved style").clicked() {
+                    acts.push(Act::DeleteSaved(s.clone()));
+                }
+            });
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            let r = ui.add(egui::TextEdit::singleline(name).hint_text("name").desired_width(110.0));
+            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (ui.add_enabled(!name.trim().is_empty(), egui::Button::new("Save style")).clicked() || enter)
+                && !name.trim().is_empty()
+            {
+                acts.push(Act::SaveStyle(me, std::mem::take(name).trim().to_string()));
+                ui.close();
+            }
+        });
+    });
+}
+
+/// A row's group items: the layers selected made a group, or the row out of its group.
+fn group_items(ui: &mut Ui, me: Sel, x: &RowExtras, acts: &mut Vec<Act>) {
+    let n = x.targets;
+    let label = if n > 1 { format!("Group the {n} selected") } else { "Make a group of it".to_string() };
+    if ui.button(label).on_hover_text("Next to each other in the drawing order, under a row of their own").clicked() {
+        acts.push(Act::GroupSelected);
+        ui.close();
+    }
+    if x.group.is_some() && ui.button("Out of its group").clicked() {
+        acts.push(Act::LeaveGroup(me));
+        ui.close();
     }
 }
 

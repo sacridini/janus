@@ -26,6 +26,7 @@ mod exports;
 mod files;
 mod gif;
 mod golden;
+mod groups;
 mod histogram;
 mod labels;
 mod layers;
@@ -51,6 +52,7 @@ mod shots_ml;
 mod shots_validation;
 mod stac;
 mod status;
+mod style;
 mod theme;
 mod tour;
 mod trajectory;
@@ -132,6 +134,7 @@ Developer options:
   --view X,Y,S        the map centred on source pixel (X, Y), S screen pixels per source pixel (with
                       --screenshot: once its full-resolution tiles are drawn)
   --opacity A         the active layer's opacity (0 to 1)
+  --blend MODE        the active layer's blend mode (normal, multiply, screen, add, darken, lighten)
   --date N            the date (a stack's band) shown, from 1
   --roi X0,Y0,X1,Y1   an ROI rectangle (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline)
@@ -429,6 +432,7 @@ fn main() -> eframe::Result<()> {
                 }
             }
             "--opacity" => opts.opacity = args.next().and_then(|v| v.parse().ok()),
+            "--blend" => opts.blend = args.next().and_then(|v| janus_gpu::Blend::parse(&v)),
             "--date" => opts.date = args.next().and_then(|v| v.parse().ok()),
             "--chart" => opts.chart = args.next(),
             "--pin" => {

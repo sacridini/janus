@@ -235,6 +235,8 @@ pub struct Options {
     /// active layer's (screenshots)
     pub view: Option<[f64; 3]>,
     pub opacity: Option<f32>,
+    /// --blend MODE: the active layer's blend mode
+    pub blend: Option<janus_gpu::Blend>,
     /// --date N: the date (or band) shown, from 1
     pub date: Option<usize>,
     pub roi: Option<[i64; 4]>,
@@ -395,6 +397,9 @@ pub struct State {
     pub attr_table: crate::attributes::AttributeTableUi,
     /// the top of the drawing order (order.rs)
     pub next_z: u64,
+    /// the Layers panel's groups (groups.rs) and the last group's id
+    pub groups: Vec<crate::groups::LayerGroup>,
+    pub next_group: u32,
     pub extract: crate::vectors::ExtractUi,
     /// the interpretation of a vector layer's features
     pub labels: crate::labels::Interpretation,
@@ -748,6 +753,8 @@ impl JanusApp {
                 hover_vector: None,
                 attr_table: Default::default(),
                 next_z: 0,
+                groups: Vec::new(),
+                next_group: 0,
                 extract: Default::default(),
                 labels: Default::default(),
                 exports: Vec::new(),
@@ -1024,6 +1031,7 @@ impl State {
             name,
             visible: true,
             opacity: 1.0,
+            blend: Default::default(),
             disp,
             classes: Default::default(),
             composite: None,
@@ -1095,6 +1103,11 @@ impl State {
                 && let Some(l) = self.layers.get_mut(self.active)
             {
                 l.opacity = o.clamp(0.0, 1.0);
+            }
+            if let Some(b) = self.opts.blend
+                && let Some(l) = self.layers.get_mut(self.active)
+            {
+                l.blend = b;
             }
             if let Some(r) = self.opts.roi {
                 self.set_roi_rect(r);

@@ -1,13 +1,16 @@
 //! `--selftest-ui` stages 180-199: the interface of phases 48-55, on what the validation stages left open (D). 180:
 //! the status bar (the cursor's coordinates in longitude and latitude, the scale) and the notices of tasks that end
 //! (a short task none, a long one and a failed one each one). 181: the command palette (what a query finds first,
-//! a command run from it, the recent ones first).
+//! a command run from it, the recent ones first). 182: the Layers panel (a blend mode from the palette, a style
+//! copied and pasted on another series, a style saved by name and read back, layers grouped, hidden and moved
+//! together).
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use super::UiTest;
 use crate::app::State;
+use crate::contents::Sel;
 use crate::zeit::{Job, JobState, JobStatus};
 
 /// A task of the Tasks window for the notices' test: running, `seconds` long once ended.
@@ -141,6 +144,94 @@ impl State {
                 self.toggle_palette();
                 println!("    {} commands; recent first: {first:?}", all.len());
                 next(st, "command palette: queries, commands run from it, the recent ones first");
+                None
+            }
+            182 => {
+                // the blend mode, from the palette
+                let blend = self.palette_matches("blend multiply").into_iter().next()?;
+                self.run_command(&blend, ctx);
+                if self.layers[self.active].blend != janus_gpu::Blend::Multiply {
+                    return fail(&format!("the palette's {} should set the active layer's blend mode", blend.label));
+                }
+                self.layers[self.active].blend = janus_gpu::Blend::Normal;
+                // a style copied from the active layer, pasted on another series (or itself)
+                let me = Sel::Series(self.session.as_ref()?.info.id);
+                let series: Vec<Sel> = (0..self.layers.len())
+                    .filter(|&i| !self.layers[i].canvas)
+                    .filter_map(|i| self.layer_session(i).map(|s| Sel::Series(s.info.id)))
+                    .collect();
+                let other = series.iter().copied().find(|&s| s != me).unwrap_or(me);
+                let before = (self.style_of(me)?, self.style_of(other)?);
+                let v = janus_gpu::Mode::Value as usize;
+                self.display.cmap[v] = janus_gpu::colormaps::PLASMA;
+                self.display.ranges[v].lo = -3.5;
+                self.display.ranges[v].hi = 7.25;
+                self.display.ranges[v].manual = true;
+                self.layers[self.active].opacity = 0.6;
+                self.layers[self.active].blend = janus_gpu::Blend::Screen;
+                let copied = self.style_of(me)?;
+                self.contents.selected = [other].into_iter().collect();
+                if self.paste_style(other, &copied) != 1 {
+                    return fail("the style should be pasted on the layer selected");
+                }
+                let Some(crate::style::LayerStyle::Series(got)) = self.style_of(other) else { return fail("no style") };
+                if got.cmap[v] != janus_gpu::colormaps::PLASMA
+                    || got.ranges[v] != (-3.5, 7.25, true)
+                    || got.opacity != 0.6
+                    || got.blend != janus_gpu::Blend::Screen
+                {
+                    return fail(&format!("the style pasted: {got:?}"));
+                }
+                // a style saved by name, read back as it was, deleted
+                self.save_style("selftest style", &copied);
+                let saved = self.saved_styles_for(other).into_iter().find(|s| s.0 == "selftest style");
+                if saved.as_ref().map(|s| &s.1) != Some(&copied) {
+                    return fail("the saved style should read back as it was saved");
+                }
+                self.delete_saved_style("selftest style");
+                if self.settings.s.styles.iter().any(|s| s.0 == "selftest style") {
+                    return fail("the saved style should be deleted");
+                }
+                self.apply_style(me, &before.0);
+                self.apply_style(other, &before.1);
+                // the layers on the list grouped: next to each other, shown and hidden together, moved together
+                let all: Vec<Sel> = self.draw_order().into_iter().filter_map(|it| self.sel_of(it)).collect();
+                let picked: Vec<Sel> = all.iter().copied().step_by(2).collect();
+                self.contents.selected = picked.iter().copied().collect();
+                let g = self.group_selected()?;
+                let order: Vec<Option<Sel>> = self.draw_order().into_iter().map(|it| self.sel_of(it)).collect();
+                let at: Vec<usize> =
+                    (0..order.len()).filter(|&k| order[k].is_some_and(|s| picked.contains(&s))).collect();
+                if at.len() != picked.len() || at.windows(2).any(|w| w[1] != w[0] + 1) {
+                    return fail(&format!("the group's layers should be next to each other: at {at:?}"));
+                }
+                self.set_group_visible(g, false);
+                if self.group_visible(g) {
+                    return fail("the group's eye should hide its layers");
+                }
+                self.set_group_visible(g, true);
+                self.move_group(g, false);
+                let n = self.draw_order().len();
+                let bottom: Vec<Option<Sel>> = self
+                    .draw_order()
+                    .into_iter()
+                    .map(|it| self.sel_of(it))
+                    .filter(|s| s.is_some())
+                    .take(picked.len())
+                    .collect();
+                if bottom.iter().any(|s| s.is_none_or(|s| !picked.contains(&s))) {
+                    return fail("the group should move to the bottom, its layers together");
+                }
+                self.move_group(g, true);
+                self.ungroup(g);
+                self.contents.selected.clear();
+                println!(
+                    "    blend from the palette; a style pasted ({} -> {}); a saved style; {} of {n} layers grouped",
+                    copied.to_text().len(),
+                    if other == me { "itself" } else { "another series" },
+                    picked.len()
+                );
+                next(st, "Layers: blend modes, styles copied, pasted and saved, groups");
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

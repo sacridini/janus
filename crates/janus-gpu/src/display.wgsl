@@ -14,7 +14,7 @@ struct Draw {
     warp: i32,             // 1: through the warp grid
     nearest: i32,          // images: 1 nearest neighbour, 0 bilinear (the sampler bound)
     nan_bits: u32,
-    _pad0: u32,
+    blend: i32,            // Blend: 0 normal, 1 multiply, 2 screen, 3 add, 4 darken, 5 lighten
     _pad1: u32,
     _pad2: u32,
     color: vec4<f32>,      // source 3
@@ -93,7 +93,16 @@ fn norm(v: f32) -> f32 {
 
 // The colour as it leaves: the sRGB bytes it is, into a target that keeps them (GL's framebuffer of the C++, and
 // what egui, working in gamma space, shows as they are).
+// A layer's blend mode (the pipeline's blend state does the rest, lib.rs blend_state): multiply and darken take
+// the colour faded to white by the opacity, screen, add and lighten the colour premultiplied by it; the target's
+// alpha is kept.
 fn out_color(c: vec3<f32>, a: f32) -> vec4<f32> {
+    if (u.blend == 1 || u.blend == 4) {
+        return vec4<f32>(mix(vec3<f32>(1.0), c, a), a);
+    }
+    if (u.blend == 2 || u.blend == 3 || u.blend == 5) {
+        return vec4<f32>(c * a, a);
+    }
     return vec4<f32>(c, a);
 }
 

@@ -65,6 +65,10 @@ pub(crate) enum Cmd {
     Index(String),
     Layer(usize),
     ZoomLayer(usize),
+    Blend(janus_gpu::Blend),
+    GroupSelected,
+    CopyStyle,
+    PasteStyle,
 }
 
 /// A command as listed: its name, category, keys, a longer description, and why it cannot run now (None: it can).
@@ -249,6 +253,30 @@ impl State {
         add(Cmd::Help, "Help", "Shortcuts and usage", "", None);
         add(Cmd::Updates, "Help", "Check for updates...", "", None);
         add(Cmd::About, "Help", "About Janus", "", None);
+        // the Layers panel: the active layer's blend mode, its style, the selection grouped
+        if let Some(l) = self.layers.get(self.active).filter(|l| has && !l.canvas) {
+            for b in janus_gpu::Blend::ALL {
+                let why = (l.blend == b).then(|| "it is the active layer's".to_string());
+                add(Cmd::Blend(b), "Layers", &format!("Blend: {}", b.name()), "", why);
+            }
+            add(Cmd::CopyStyle, "Layers", "Copy style of the active layer", "", None);
+        }
+        let n = self.contents.selected.len();
+        let clip = self.contents.style_clip.is_some();
+        add(
+            Cmd::PasteStyle,
+            "Layers",
+            "Paste style on the selected layers",
+            "",
+            need(clip && n > 0, if clip { "select layers on the Layers panel" } else { "copy a layer's style first" }),
+        );
+        add(
+            Cmd::GroupSelected,
+            "Layers",
+            "Group the selected layers",
+            "",
+            need(n > 0, "select layers on the Layers panel"),
+        );
         // the active layer's display
         if let Some(info) = &info {
             for m in MODE_ORDER {
@@ -557,6 +585,26 @@ impl State {
                     }
                     self.map.fit();
                 }
+            }
+            Cmd::Blend(b) => {
+                if let Some(l) = self.layers.get_mut(self.active) {
+                    l.blend = b;
+                    self.map.dirty = true;
+                }
+            }
+            Cmd::CopyStyle => {
+                let id = self.session.as_ref().map(|s| s.info.id);
+                self.contents.style_clip = id.and_then(|id| self.style_of(crate::contents::Sel::Series(id)));
+            }
+            Cmd::PasteStyle => {
+                if let (Some(st), Some(&first)) =
+                    (self.contents.style_clip.clone(), self.contents.selected.iter().next())
+                {
+                    self.paste_style(first, &st);
+                }
+            }
+            Cmd::GroupSelected => {
+                self.group_selected();
             }
         }
         ask

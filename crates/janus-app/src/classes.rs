@@ -42,7 +42,7 @@ const PALETTE: [[u8; 3]; 20] = [
     [158, 218, 229],
 ];
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ClassEntry {
     pub value: i32,
     pub name: String,
@@ -111,6 +111,26 @@ impl LayerClasses {
             self.list[i].visible = visible;
             self.lut_dirty = true;
         }
+    }
+
+    /// A style pasted: shown as classes or not (None), the same values here taking its classes' names, colours and
+    /// visibility.
+    pub fn apply_style(&mut self, style: Option<&[ClassEntry]>) {
+        let Some(list) = style else {
+            if self.state == ClassState::On {
+                self.state = ClassState::Off;
+            }
+            return;
+        };
+        for e in &mut self.list {
+            if let Some(s) = list.iter().find(|s| s.value == e.value) {
+                (e.name, e.color, e.visible) = (s.name.clone(), s.color, s.visible);
+            }
+        }
+        if !self.list.is_empty() {
+            self.state = ClassState::On;
+        }
+        self.lut_dirty = true;
     }
 
     /// A value's class as shown: "Forest (3)".
