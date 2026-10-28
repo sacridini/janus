@@ -34,6 +34,12 @@ pub enum RedFn {
     Std,
     Count,
     Percentile(f32),
+    /// one date: a year, a month of a year or a day (0: not given), resolved by the plan
+    At {
+        year: u16,
+        month: u8,
+        day: u8,
+    },
 }
 
 impl RedFn {
@@ -47,6 +53,11 @@ impl RedFn {
             RedFn::Std => "std".into(),
             RedFn::Count => "count".into(),
             RedFn::Percentile(p) => format!("p{p}"),
+            RedFn::At { year, month, day } => match (month, day) {
+                (0, _) => format!("at{year}"),
+                (m, 0) => format!("at{year}{m:02}"),
+                (m, d) => format!("at{year}{m:02}{d:02}"),
+            },
         }
     }
 
@@ -349,6 +360,22 @@ impl<S: Scope> Compiler<'_, S> {
             (Kind::Reduce, "median") => Some(RedFn::Median),
             (Kind::Reduce, "std") => Some(RedFn::Std),
             (Kind::Reduce, "count") => Some(RedFn::Count),
+            (Kind::Reduce, "at") => {
+                let when = match args[1].kind {
+                    ExprKind::Num(v) if v.fract() == 0.0 && v > 0.0 => v as u64,
+                    _ => 0,
+                };
+                let (year, month, day) = match when {
+                    1000..=9999 => (when, 0, 0),
+                    100001..=999912 => (when / 100, when % 100, 0),
+                    10000101..=99991231 => (when / 10000, when / 100 % 100, when % 100),
+                    _ => (0, 0, 0),
+                };
+                if year == 0 || month > 12 || day > 31 || (month == 0 && day > 0) {
+                    return Err(err(&args[1].span, "the date is a year (2003), a month (200307) or a day (20030715)"));
+                }
+                Some(RedFn::At { year: year as u16, month: month as u8, day: day as u8 })
+            }
             (Kind::Reduce, "percentile") => {
                 let p = self.expr(b, &args[1], env)?;
                 match b.nodes[p.node as usize] {

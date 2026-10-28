@@ -286,6 +286,69 @@ fn a_reduction_by_blocks() {
 }
 
 #[test]
+fn files_in_strips() {
+    // dates in strips of one row, wider than a square block: the reduction's VRT and the result's in strips as wide
+    // (a square block decompressed every row once per block across), the values as with squares
+    let dir = std::env::temp_dir().join("janus_calc_strips");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (w, h) = (1500, 40);
+    let opts = gdal::raster::RasterCreationOptions::from_iter(["BLOCKYSIZE=1", "COMPRESS=LZW"]);
+    let mut files = Vec::new();
+    for d in 0..6 {
+        let f = dir.join(format!("s_{}0101.tif", 2000 + d));
+        let drv = DriverManager::get_driver_by_name("GTiff").unwrap();
+        let mut ds = drv.create_with_band_type_with_options::<f32, _>(&f, w, h, 1, &opts).unwrap();
+        ds.set_geo_transform(&GT).unwrap();
+        ds.set_spatial_ref(&SpatialRef::from_epsg(32723).unwrap()).unwrap();
+        let v: Vec<f32> = (0..w * h).map(|i| (d * d) as f32 + (i % w) as f32 * 0.001).collect();
+        ds.rasterband(1).unwrap().write((0, 0), (w, h), &mut Buffer::new((w, h), v)).unwrap();
+        files.push(f.to_string_lossy().to_string());
+    }
+    let info = open_cube(&files, &BandSelection::default()).unwrap();
+    let ls = vec![CalcLayer { name: "s".into(), alias: "s".into(), info: Arc::new(info) }];
+    let o = Options::default();
+    let text = "s - mean(s)";
+    let p = plan(text, &ls, &o).unwrap();
+    let wr = p.write(text, &ls, &o, &dir.join("out"), &|_, _| {}, &AtomicBool::new(false)).unwrap();
+    let block = |f: &str| {
+        let ds = janus_cube::calc::vrt::with_block_reads(true, || gdal::Dataset::open(f).unwrap());
+        ds.rasterband(1).unwrap().block_size()
+    };
+    let stage = dir.join("out").join("stages").join("stage1_mean.vrt");
+    let (sx, sy) = block(stage.to_str().unwrap());
+    assert_eq!(sx, w, "the reduction's blocks: {sx} x {sy}");
+    assert_eq!(block(&wr.files[0]), (w, sy), "the result's blocks as the reduction's");
+    // the mean of d² over 0..6 is 55 / 6
+    for (d, f) in wr.files.iter().enumerate() {
+        let v = janus_cube::calc::vrt::with_block_reads(true, || read(f).0);
+        let want = (d * d) as f32 - 55.0 / 6.0;
+        assert!(v.iter().all(|&x| close(x, want)), "date {d}: {} for {want}", v[0]);
+    }
+    // at(): one date as an image, by its year or its day, and in an expression over the series
+    type Want = fn(usize) -> f32;
+    let cases: [(&str, Want); 2] =
+        [("at(s, 2003)", |x| 9.0 + x as f32 * 0.001), ("at(s, 20030101) - at(s, 2001)", |_| 8.0)];
+    for (text, want) in cases {
+        let p = plan(text, &ls, &o).unwrap_or_else(|e| panic!("{text}: {e:?}"));
+        let wr = p.write(text, &ls, &o, &dir.join("at"), &|_, _| {}, &AtomicBool::new(false)).unwrap();
+        assert_eq!(wr.files.len(), 1, "{text}: one image");
+        let v = janus_cube::calc::vrt::with_block_reads(true, || read(&wr.files[0]).0);
+        assert!(v.iter().enumerate().all(|(i, &x)| close(x, want(i % w))), "{text}: {} {}", v[0], v[w - 1]);
+    }
+    let p = plan("s - at(s, 2000)", &ls, &o).unwrap();
+    assert!(p.series.is_some(), "a series less one of its dates is a series");
+    for (text, msg) in [
+        ("at(s, 1999)", "has no date in 1999"),
+        ("at(s, 200013)", "the date is a year"),
+        ("at(s, 0.5)", "the date is a year"),
+    ] {
+        let e = plan(text, &ls, &o).err().unwrap_or_else(|| panic!("{text} should fail"));
+        assert!(e.message.contains(msg), "{text}: {}", e.message);
+    }
+}
+
+#[test]
 fn a_series_as_geotiffs() {
     // the calculator's VRTs of a series written as cloud-optimized GeoTIFFs, several dates at once: in order, the
     // values of the VRTs

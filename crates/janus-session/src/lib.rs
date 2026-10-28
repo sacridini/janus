@@ -389,8 +389,9 @@ fn submit_full_res_build(full: &Arc<FullResCache>, pool: &JobPool) {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        // the date being built is dropped instead of waited for
-        self.full_res.stop();
+        // the date being built is dropped instead of waited for, even when the overview reads it
+        self.full_res.abandon();
+        self.overview.abandon();
         self.series.latest_hover.store(u64::MAX, Ordering::Release);
     }
 }

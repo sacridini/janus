@@ -127,6 +127,8 @@ pub struct Stage {
     pub body: Program,
     pub inputs: Vec<Key>,
     pub series: usize,
+    /// at(): the one date of the series read (the others are not)
+    pub only: Option<usize>,
 }
 
 struct CalcScope<'a> {
@@ -142,6 +144,57 @@ fn qa_code(r: QaRule) -> f32 {
 }
 
 impl CalcScope<'_> {
+    /// at()'s date of a series: the one in that year, month or day; none or several are an error that says which.
+    fn date_at(
+        &self,
+        layer: usize,
+        (year, month, day): (u16, u8, u8),
+        span: &Range<usize>,
+    ) -> Result<usize, CalcError> {
+        let l = &self.layers[layer];
+        let info = &l.info;
+        if !info.time_is_date {
+            return Err(CalcError::new(span.clone(), format!("the dates of \"{}\" are not known", l.name)));
+        }
+        let ymd = |t: usize| {
+            let (y, m, d) = crate::dates::civil_from_days((info.layers[t].time / 86400.0).floor() as i64);
+            (y, m, d)
+        };
+        let hits: Vec<usize> = (0..info.t())
+            .filter(|&t| {
+                let (y, m, d) = ymd(t);
+                y == i32::from(year) && (month == 0 || m == u32::from(month)) && (day == 0 || d == u32::from(day))
+            })
+            .collect();
+        let when = match (month, day) {
+            (0, _) => year.to_string(),
+            (m, 0) => format!("{year}-{m:02}"),
+            (m, d) => format!("{year}-{m:02}-{d:02}"),
+        };
+        match hits.as_slice() {
+            [t] => Ok(*t),
+            [] => Err(CalcError::new(
+                span.clone(),
+                format!(
+                    "\"{}\" has no date in {when} (its dates: {} to {})",
+                    l.name,
+                    info.layers[0].label,
+                    info.layers[info.t() - 1].label
+                ),
+            )),
+            many => Err(CalcError::new(
+                span.clone(),
+                format!(
+                    "\"{}\" has {} dates in {when} ({} to {}): give its month or day",
+                    l.name,
+                    many.len(),
+                    info.layers[many[0]].label,
+                    info.layers[many[many.len() - 1]].label
+                ),
+            )),
+        }
+    }
+
     fn find(&self, name: &str) -> Option<usize> {
         self.layers
             .iter()
@@ -334,9 +387,13 @@ impl Scope for CalcScope<'_> {
         b: &mut Builder<Key>,
         f: RedFn,
         body: Body<Key>,
-        _: &Range<usize>,
+        span: &Range<usize>,
     ) -> Result<Value, CalcError> {
-        self.stages.push(Stage { f, body: body.program, inputs: body.inputs, series: body.series });
+        let only = match f {
+            RedFn::At { year, month, day } => Some(self.date_at(body.series, (year, month, day), span)?),
+            _ => None,
+        };
+        self.stages.push(Stage { f, body: body.program, inputs: body.inputs, series: body.series, only });
         Ok(Value { node: b.input(Key::Stage(self.stages.len() - 1)), series: None })
     }
 
@@ -810,7 +867,7 @@ impl Plan {
         };
         // the reductions, each a VRT of one band over every date of its series
         let mut stage_files: Vec<String> = Vec::new();
-        let mut stage_block = usize::MAX;
+        let mut stage_block = (usize::MAX, usize::MAX);
         for (i, st) in self.stages.iter().enumerate() {
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled".into());
@@ -838,7 +895,9 @@ impl Plan {
                 sources.push(self.fixed_source(&mut w, &st.inputs[k], &stage_files)?);
             }
             let mut vars = Vec::new();
-            for t in 0..sinfo.t() {
+            // at(): its date alone, as a mean over one date
+            let ts: Vec<usize> = st.only.map_or_else(|| (0..sinfo.t()).collect(), |t| vec![t]);
+            for &t in &ts {
                 for &k in &loops {
                     let Key::Band { layer, band, raw, .. } = st.inputs[k] else { unreachable!() };
                     let d = match_date(&layers[layer].info, sinfo.layers[t].time, t, dated, opts.matching);
@@ -851,20 +910,23 @@ impl Plan {
             }
             let args = vec![
                 ("expr".to_string(), expr),
-                ("reduce".to_string(), st.f.name()),
-                ("dates".to_string(), sinfo.t().to_string()),
+                ("reduce".to_string(), if st.only.is_some() { "mean".into() } else { st.f.name() }),
+                ("dates".to_string(), ts.len().to_string()),
                 ("stride".to_string(), loops.len().to_string()),
                 ("captures".to_string(), caps.len().to_string()),
                 ("vars".to_string(), vars.join(";")),
             ];
-            let n = sources.len();
-            let band = Band { description: format!("{} over {} dates", st.f.name(), sinfo.t()), sources, args };
+            let description = match st.only {
+                Some(t) => format!("at {}", sinfo.layers[t].label),
+                None => format!("{} over {} dates", st.f.name(), sinfo.t()),
+            };
+            let band = Band { description, sources, args };
             let sdir = dir.join("stages");
             std::fs::create_dir_all(&sdir).map_err(|e| format!("{}: {e}", sdir.display()))?;
             let f = sdir.join(format!("stage{}_{}.vrt", i + 1, st.f.name()));
-            stage_block = stage_block.min(vrt::block_side(n));
-            std::fs::write(&f, vrt::vrt_xml(&grid, &[band], vrt::block_side(n)))
-                .map_err(|e| format!("{}: {e}", f.display()))?;
+            let shape = vrt::block_shape(&grid, &band.sources);
+            stage_block = (stage_block.0.min(shape.0), stage_block.1.min(shape.1));
+            std::fs::write(&f, vrt::vrt_xml(&grid, &[band], shape)).map_err(|e| format!("{}: {e}", f.display()))?;
             stage_files.push(f.to_string_lossy().into_owned());
         }
         // the result, a VRT per date
@@ -872,6 +934,7 @@ impl Plan {
         let dates = self.dates(layers);
         let rinfo = self.series.map(|r| layers[r].info.clone());
         let mut files = Vec::new();
+        let mut result_shape = None;
         for (t, (time, _)) in dates.iter().enumerate() {
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled".into());
@@ -898,7 +961,6 @@ impl Plan {
                 Some(r) => date_vars(r, t),
                 None => DateVars::default(),
             };
-            let n = sources.len();
             let band = Band {
                 description: rinfo.as_ref().map_or_else(
                     || self.name.clone().unwrap_or_else(|| "result".into()),
@@ -910,7 +972,9 @@ impl Plan {
             let stem = rinfo.as_ref().map_or_else(|| "result".to_string(), |r| date_stem(r, t));
             let f = dir.join(format!("{stem}.vrt"));
             // no larger than the stages' blocks: a block of the result then needs one of each stage's
-            std::fs::write(&f, vrt::vrt_xml(&grid, &[band], vrt::block_side(n).min(stage_block)))
+            // the dates' sources alike: their files opened once to see their blocks
+            let shape = *result_shape.get_or_insert_with(|| vrt::block_shape(&grid, &band.sources));
+            std::fs::write(&f, vrt::vrt_xml(&grid, &[band], (shape.0.min(stage_block.0), shape.1.min(stage_block.1))))
                 .map_err(|e| format!("{}: {e}", f.display()))?;
             files.push(f.to_string_lossy().into_owned());
             progress(0.1 + 0.9 * (t + 1) as f64 / dates.len() as f64, &format!("{} of {} dates", t + 1, dates.len()));

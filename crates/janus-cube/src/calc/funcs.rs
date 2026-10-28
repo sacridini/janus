@@ -185,6 +185,15 @@ pub const FUNCS: &[Func] = &[
         (1, 1),
     ),
     f(
+        "at",
+        "series, date",
+        "One date of a series, as an image: at(ndvi, 2003) its date of 2003, at(ndvi, 200307) of July 2003, \
+         at(ndvi, 20030715) of that day; at(ndvi - mean(ndvi), 2003) that date's anomaly",
+        Group::Time,
+        Kind::Reduce,
+        (2, 2),
+    ),
+    f(
         "percentile",
         "series, p",
         "The p-th percentile over time (0 to 100): percentile(ndvi, 90)",

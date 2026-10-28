@@ -283,6 +283,8 @@ pub struct FullResCache {
     end: AtomicU64,
     started: AtomicBool,
     stop: AtomicBool,
+    /// the series closed: the overview of the date being read is not wanted either
+    abandoned: AtomicBool,
     with_overview: AtomicUsize,
     build_start: Mutex<Option<Instant>>,
     build_seconds: Mutex<f64>,
@@ -323,6 +325,7 @@ impl FullResCache {
             end: AtomicU64::new(0),
             started: AtomicBool::new(false),
             stop: AtomicBool::new(false),
+            abandoned: AtomicBool::new(false),
             with_overview: AtomicUsize::new(0),
             build_start: Mutex::new(None),
             build_seconds: Mutex::new(0.0),
@@ -409,6 +412,12 @@ impl FullResCache {
     /// Stops building (the date being read is dropped); what is done stays readable.
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
+    }
+
+    /// Stops for good, the series closed: the date being read is dropped even when the overview reads it here.
+    pub fn abandon(&self) {
+        self.abandoned.store(true, Ordering::Relaxed);
+        self.stop();
     }
 
     /// Stops, with a reason shown until resumed.
@@ -746,6 +755,7 @@ impl FullResCache {
                 if by >= self.nby
                     || read_failed.load(Ordering::Relaxed)
                     || (self.stop.load(Ordering::Relaxed) && !with_ov)
+                    || self.abandoned.load(Ordering::Relaxed)
                 {
                     break;
                 }
@@ -791,7 +801,8 @@ impl FullResCache {
         if let Some(p) = &prefetch {
             p.stop();
         }
-        let read_ok = !read_failed.load(Ordering::Relaxed);
+        // a date abandoned part way is not read either (its overview not saved)
+        let read_ok = !read_failed.load(Ordering::Relaxed) && !self.abandoned.load(Ordering::Relaxed);
         let mut ok = read_ok && !self.stop.load(Ordering::Relaxed) && !write_failed.load(Ordering::Relaxed);
         if ok {
             let mut w = self.writer.lock().unwrap();

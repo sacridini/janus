@@ -421,7 +421,7 @@ impl State {
         self.layers[i].emb = crate::embeddings::EmbeddingLayer::new(&s.info);
         if i == self.active {
             self.display = carry(&self.display);
-            self.session = Some(s);
+            drop_later(self.session.replace(s));
             self.classes = Default::default();
             self.clear_roi();
             let at = self.series.pins.iter().map(|p| (p.id, p.color, p.x, p.y)).collect();
@@ -429,7 +429,7 @@ impl State {
         } else {
             let l = &mut self.layers[i];
             l.disp = carry(&l.disp);
-            l.session = Some(s);
+            drop_later(l.session.replace(s));
             l.classes = Default::default();
             l.series = Default::default();
         }
@@ -452,7 +452,7 @@ impl State {
         self.map.dirty = true;
     }
 
-    /// Closes layer i.
+    /// Closes layer i (its series let go of on a thread: drop_later).
     pub fn remove_layer(&mut self, i: usize, ctx: &egui::Context) {
         if i >= self.layers.len() {
             return;
@@ -460,12 +460,12 @@ impl State {
         let was_active = i == self.active;
         let options = map_options(&self.display);
         if was_active {
-            self.session = None;
+            drop_later(self.session.take());
             self.display = Display::default();
             self.classes = Default::default();
             self.composite = None;
         }
-        self.layers.remove(i);
+        drop_later(self.layers.remove(i));
         if self.layers.is_empty() {
             self.active = 0;
             self.series = Default::default();
@@ -488,8 +488,7 @@ impl State {
 
     /// Every layer closed.
     pub fn close_all(&mut self, ctx: &egui::Context) {
-        self.session = None;
-        self.layers.clear();
+        drop_later((self.session.take(), std::mem::take(&mut self.layers)));
         self.active = 0;
         self.display = Display::default();
         self.classes = Default::default();
@@ -802,4 +801,10 @@ impl State {
         }
         None
     }
+}
+
+/// Drops what a closed layer held on a thread of its own: a series' readers finish the read under way first (the
+/// overview of a reduction over 41 dates of 7318 × 7329 in strips held the interface for minutes when closed).
+pub(crate) fn drop_later<T: Send + 'static>(x: T) {
+    let _ = std::thread::Builder::new().name("closing".into()).spawn(move || drop(x));
 }

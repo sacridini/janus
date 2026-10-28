@@ -176,6 +176,22 @@ fn saved_path() -> std::path::PathBuf {
     crate::settings::app_data_dir().join("calculator.json")
 }
 
+/// at() of date t of a series: by its year when the year has no other date, by its month when the month has none,
+/// else by its day.
+fn at_text(info: &janus_cube::CubeInfo, alias: &str, t: usize) -> String {
+    let ymd = |t: usize| janus_cube::dates::civil_from_days((info.layers[t].time / 86400.0).floor() as i64);
+    let (y, m, d) = ymd(t);
+    let same = |f: &dyn Fn((i32, u32, u32)) -> bool| (0..info.t()).filter(|&k| f(ymd(k))).count() == 1;
+    let when = if same(&|(a, _, _)| a == y) {
+        y.to_string()
+    } else if same(&|(a, b, _)| a == y && b == m) {
+        format!("{y}{m:02}")
+    } else {
+        format!("{y}{m:02}{d:02}")
+    };
+    format!("at({alias}, {when})")
+}
+
 fn char_of(text: &str, byte: usize) -> usize {
     text[..byte.min(text.len())].chars().count()
 }
@@ -447,7 +463,14 @@ fn summary(p: &Plan, layers: &[CalcLayer], opts: &Options) -> Vec<String> {
         out.push(format!("Reads {}", reads.join("; ")));
     }
     if !p.stages.is_empty() {
-        let names: Vec<String> = p.stages.iter().map(|s| s.f.name()).collect();
+        let names: Vec<String> = p
+            .stages
+            .iter()
+            .map(|s| match s.only {
+                Some(t) => format!("the date {} of {}", layers[s.series].info.layers[t].label, layers[s.series].alias),
+                None => s.f.name(),
+            })
+            .collect();
         out.push(format!("Over time: {}", names.join(", ")));
     }
     out
@@ -1027,44 +1050,74 @@ impl State {
                     });
                     ui.weak(format!("{}: {}", l.name, editor::layer_kind_text(l)));
                     let names = plan::member_names(&l.info);
-                    egui::CollapsingHeader::new(format!("{} bands", names.len()))
-                        .id_salt(("calc bands", &l.alias))
-                        .default_open(layers.len() <= 2 && names.len() <= 16)
-                        .show(ui, |ui| {
-                            for b in 1..=names.len() as i32 {
-                                let roles = names.roles_of(b);
-                                let word = roles.first().map_or(format!("band{b}"), |r| r.to_string());
-                                let text = if bare { word.clone() } else { format!("{}.{word}", l.alias) };
-                                ui.horizontal(|ui| {
-                                    let r = ui.add(
-                                        egui::Button::new(RichText::new(&text).monospace().color(color(
-                                            Class::Band,
-                                            dark,
-                                            plain,
-                                        )))
-                                        .frame(false),
-                                    );
-                                    let nm = l.info.band_nm.get(b as usize - 1).copied().filter(|w| *w > 0.0);
-                                    // the wavelength, unless the name gives it ("Red (B04) (665.0 nm)")
-                                    let name = &names.names[b as usize - 1];
-                                    let what = name.clone()
-                                        + &nm
-                                            .filter(|_| !name.ends_with("nm)"))
-                                            .map_or(String::new(), |w| format!(" · {w:.0} nm"));
-                                    if r.on_hover_text(names.describe(b)).clicked() {
-                                        insert = Some(text.clone());
-                                    }
-                                    ui.weak(what);
-                                });
-                            }
-                        });
+                    egui::CollapsingHeader::new(format!(
+                        "{} band{}",
+                        names.len(),
+                        if names.len() == 1 { "" } else { "s" }
+                    ))
+                    .id_salt(("calc bands", &l.alias))
+                    .default_open(layers.len() <= 2 && names.len() <= 16)
+                    .show(ui, |ui| {
+                        for b in 1..=names.len() as i32 {
+                            let roles = names.roles_of(b);
+                            let word = roles.first().map_or(format!("band{b}"), |r| r.to_string());
+                            let text = if bare { word.clone() } else { format!("{}.{word}", l.alias) };
+                            ui.horizontal(|ui| {
+                                let r = ui.add(
+                                    egui::Button::new(RichText::new(&text).monospace().color(color(
+                                        Class::Band,
+                                        dark,
+                                        plain,
+                                    )))
+                                    .frame(false),
+                                );
+                                let nm = l.info.band_nm.get(b as usize - 1).copied().filter(|w| *w > 0.0);
+                                // the wavelength, unless the name gives it ("Red (B04) (665.0 nm)")
+                                let name = &names.names[b as usize - 1];
+                                let what = name.clone()
+                                    + &nm
+                                        .filter(|_| !name.ends_with("nm)"))
+                                        .map_or(String::new(), |w| format!(" · {w:.0} nm"));
+                                if r.on_hover_text(names.describe(b)).clicked() {
+                                    insert = Some(text.clone());
+                                }
+                                ui.weak(what);
+                            });
+                        }
+                    });
+                    // a series' dates, each as at(): one date as an image
+                    if l.info.t() > 1 && l.info.time_is_date {
+                        egui::CollapsingHeader::new(format!("{} dates", l.info.t()))
+                            .id_salt(("calc dates", &l.alias))
+                            .show(ui, |ui| {
+                                for t in 0..l.info.t() {
+                                    let text = at_text(&l.info, &l.alias, t);
+                                    ui.horizontal(|ui| {
+                                        let r = ui.add(
+                                            egui::Button::new(RichText::new(&text).monospace().color(color(
+                                                Class::Function,
+                                                dark,
+                                                plain,
+                                            )))
+                                            .frame(false),
+                                        );
+                                        if r.on_hover_text("This date alone, as an image").clicked() {
+                                            insert = Some(text.clone());
+                                        }
+                                        ui.weak(&l.info.layers[t].label);
+                                    });
+                                }
+                            });
+                    }
                     ui.add_space(4.0);
                 }
                 ui.separator();
                 ui.weak(
                     "A layer by its short name is what it shows (its band, index or expression);\n\
                          layer.band is one of its bands: by role (N, R, S1, RE1), by name (nir, B04)\n\
-                         or by place (band4, layer[4]). \"Any name\".band works too.",
+                         or by place (band4, layer[4]). \"Any name\".band works too.\n\
+                         A series is computed date by date; at(series, 2003) is one of its dates\n\
+                         (a year, 200307 a month, 20030715 a day), mean(series) and the like reduce it.",
                 );
             }
             Side::Functions => {

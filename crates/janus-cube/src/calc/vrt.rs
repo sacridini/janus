@@ -285,7 +285,7 @@ pub fn reduce_dates(
                         *e = if take { x } else { *e };
                     }
                 }
-                RedFn::Sum | RedFn::Mean => {
+                RedFn::Sum | RedFn::Mean | RedFn::At { .. } => {
                     for ((a, c), &x) in acc[..len].iter_mut().zip(&mut cnt[..len]).zip(v) {
                         let ok = x.is_finite();
                         *a += if ok { f64::from(x) } else { 0.0 };
@@ -330,7 +330,7 @@ pub fn reduce_dates(
                     *o = if c == 0 { f32::NAN } else { a as f32 };
                 }
             }
-            RedFn::Mean => {
+            RedFn::Mean | RedFn::At { .. } => {
                 for ((o, &a), &c) in dst.iter_mut().zip(&acc[..len]).zip(&cnt[..len]) {
                     *o = if c == 0 { f32::NAN } else { (a / f64::from(c)) as f32 };
                 }
@@ -430,9 +430,9 @@ fn g17(v: f64) -> String {
     crate::multidim::format_g(v, 17)
 }
 
-/// The XML of a VRT of derived bands; `block` its blocks' side (small for bands of many sources: GDAL reads every
-/// source of a block at once).
-pub fn vrt_xml(grid: &Grid, bands: &[Band], block: usize) -> String {
+/// The XML of a VRT of derived bands; `block` its blocks' width and height (small for bands of many sources: GDAL
+/// reads every source of a block at once; see block_shape).
+pub fn vrt_xml(grid: &Grid, bands: &[Band], (bx, by): (usize, usize)) -> String {
     let mut x = format!("<VRTDataset rasterXSize=\"{}\" rasterYSize=\"{}\">\n", grid.w, grid.h);
     if !grid.srs.is_empty() {
         let _ = writeln!(x, "  <SRS>{}</SRS>", xml_escape(&grid.srs));
@@ -443,8 +443,8 @@ pub fn vrt_xml(grid: &Grid, bands: &[Band], block: usize) -> String {
     for (i, b) in bands.iter().enumerate() {
         let _ = writeln!(
             x,
-            "  <VRTRasterBand dataType=\"Float32\" band=\"{}\" subClass=\"VRTDerivedRasterBand\" blockXSize=\"{block}\" \
-             blockYSize=\"{block}\">",
+            "  <VRTRasterBand dataType=\"Float32\" band=\"{}\" subClass=\"VRTDerivedRasterBand\" blockXSize=\"{bx}\" \
+             blockYSize=\"{by}\">",
             i + 1
         );
         let _ = writeln!(x, "    <Description>{}</Description>", xml_escape(&b.description));
@@ -525,6 +525,27 @@ pub fn block_side(sources: usize) -> usize {
     let px = (32usize << 20) / (4 * sources.max(1));
     let side = (px as f64).sqrt() as usize;
     side.clamp(64, 512) / 16 * 16
+}
+
+/// The blocks of a band of these sources on the grid: squares of block_side, or, when its first source is the whole
+/// of a file in strips as wide as the grid (a GeoTIFF of rows, a VRT of such strips), strips as wide, of as many rows
+/// as fit in the same memory. A square block of a file in strips decompresses its rows whole: each row of a grid
+/// 7318 wide was decompressed 17 times over (blocks of 448), a reduction over 41 such dates read for minutes.
+pub fn block_shape(grid: &Grid, sources: &[Option<Source>]) -> (usize, usize) {
+    let n = sources.len();
+    let side = block_side(n);
+    let strips = sources.iter().flatten().find(|s| s.rects.is_none()).and_then(|s| {
+        let ds = with_block_reads(is_calc_vrt(&s.path), || crate::open_raster(&s.path)).ok()?;
+        let (bx, by) = ds.rasterband(s.band as usize).ok()?.block_size();
+        (bx == ds.raster_size().0 && bx == grid.w && by < bx).then_some(by.max(1))
+    });
+    match strips {
+        Some(by) if grid.w > side => {
+            let rows = ((32usize << 20) / (4 * n.max(1)) / grid.w).clamp(1, 512);
+            (grid.w, (rows / by).max(1) * by)
+        }
+        _ => (side, side),
+    }
 }
 
 #[cfg(test)]

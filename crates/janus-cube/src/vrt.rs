@@ -118,6 +118,7 @@ fn write_expr_vrt(info: &CubeInfo, e: &crate::calc::LayerExpr, srs: &str, path: 
         bands.push(Band { description: l.label.clone(), sources, args: date_args(&expr, e.bands.len(), &vars) });
     }
     let grid = Grid { w: info.width, h: info.height, gt: info.geo_transform, srs: srs.to_string() };
-    let x = vrt_xml(&grid, &bands, block_side(e.bands.len()));
+    let side = block_side(e.bands.len());
+    let x = vrt_xml(&grid, &bands, (side, side));
     std::fs::write(path, x).map_err(|e| format!("could not write {path}: {e}"))
 }

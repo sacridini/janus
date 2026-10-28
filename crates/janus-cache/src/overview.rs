@@ -164,6 +164,8 @@ pub struct Overview {
     layers: Vec<OnceLock<Box<[f32]>>>,
     claimed: Mutex<Vec<bool>>,
     focus: AtomicUsize,
+    /// the series closed: no more dates read
+    abandoned: AtomicBool,
     ready: Mutex<Vec<usize>>,
     done: AtomicUsize,
     failed: AtomicUsize,
@@ -237,6 +239,7 @@ impl Overview {
             layers: (0..t).map(|_| OnceLock::new()).collect(),
             claimed: Mutex::new(have.clone()),
             focus: AtomicUsize::new(0),
+            abandoned: AtomicBool::new(false),
             ready: Mutex::new(Vec::new()),
             done: AtomicUsize::new(0),
             failed: AtomicUsize::new(0),
@@ -335,8 +338,17 @@ impl Overview {
         ov
     }
 
+    /// The series closed: the dates not begun are not read (the one being read is, unless the full-resolution cache
+    /// reads it: FullResCache::abandon).
+    pub fn abandon(&self) {
+        self.abandoned.store(true, Ordering::Relaxed);
+    }
+
     /// The next date to build: the focused one, then the ones after it.
     fn claim_next(&self) -> Option<usize> {
+        if self.abandoned.load(Ordering::Relaxed) {
+            return None;
+        }
         let f = self.focus.load(Ordering::Relaxed);
         let mut claimed = self.claimed.lock().unwrap();
         let i = (0..self.t).map(|d| (f + d) % self.t).find(|&i| !claimed[i])?;
