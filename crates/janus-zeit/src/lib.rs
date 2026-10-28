@@ -23,6 +23,7 @@ mod ndfi;
 pub mod numeric;
 mod phenology;
 pub mod pixel;
+pub mod polygonize;
 pub mod postproc;
 pub mod python;
 pub mod recovery;

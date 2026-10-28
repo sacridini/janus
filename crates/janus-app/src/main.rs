@@ -41,6 +41,7 @@ mod order;
 mod palette;
 mod panels;
 mod platform;
+mod polygonize_ui;
 mod project;
 mod provenance;
 mod python;

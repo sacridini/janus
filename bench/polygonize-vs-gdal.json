@@ -1,0 +1,42 @@
+{
+  "classes_4": {
+    "janus_s": 1.1474647,
+    "gdal_polygonize_s": 0.7535112000041408,
+    "rasterio_shapes_s": 0.6654474999959348,
+    "rasterio_shapes_geod_s": 2.039555499999551,
+    "rasterio_polygons": 11732,
+    "polygons": [
+      11732,
+      11732
+    ],
+    "same_per_value": true,
+    "same_polygons": 11732
+  },
+  "classes_8": {
+    "janus_s": 1.1822636,
+    "gdal_polygonize_s": 0.7592191000003368,
+    "rasterio_shapes_s": 0.7046805999998469,
+    "rasterio_shapes_geod_s": 1.8354035999946063,
+    "rasterio_polygons": 9167,
+    "polygons": [
+      9167,
+      9167
+    ],
+    "same_per_value": true,
+    "same_polygons": 9167
+  },
+  "loss_8": {
+    "janus_s": 1.4768465,
+    "gdal_polygonize_s": 1.4274131999991369,
+    "rasterio_shapes_s": 1.3246999999973923,
+    "rasterio_shapes_geod_s": 3.3157428999984404,
+    "rasterio_polygons": 45711,
+    "polygons": [
+      45711,
+      45711
+    ],
+    "same_per_value": true,
+    "same_polygons": 45711,
+    "janus_with_mean_s": 1.5041777
+  }
+}

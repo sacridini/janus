@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 gdal.workspace = true
 gdal-sys.workspace = true
+geographiclib-rs = "0.2.7"
 janus-cube = { path = "../janus-cube" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }

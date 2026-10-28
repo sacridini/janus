@@ -392,6 +392,7 @@ enum Act {
     RemoveResult(usize),
     /// a run's map shown, every other one hidden
     SoloResult(usize),
+    Polygonize(Sel),
     RemoveVector(usize),
     ExtractVector(u32),
     Interpret(u32),
@@ -532,6 +533,7 @@ impl State {
                     self.map.fit();
                 }
                 Act::SaveResult(k) => self.save_result(k, &ctx),
+                Act::Polygonize(sel) => self.open_polygonize(sel),
                 Act::SaveRun(k) => self.open_save_run(k),
                 Act::RemoveResult(k) => {
                     if k < self.zeit.results.len() {
@@ -1033,6 +1035,14 @@ impl State {
                 ui.separator();
                 move_menu(ui, place, acts);
                 group_items(ui, me, &extra, acts);
+                if ui
+                    .add_enabled(!info.multidim && !info.remote, egui::Button::new("Polygonize..."))
+                    .on_hover_text("The date shown's patches (a class or change map) as polygons in a GeoPackage")
+                    .clicked()
+                {
+                    acts.push(Act::Polygonize(me));
+                    ui.close();
+                }
                 ui.menu_button("Export", |ui| {
                     for (label, kind) in EXPORTS {
                         if ui.button(label).clicked() {
@@ -1231,6 +1241,14 @@ impl State {
                 }
                 if ui.button("Save all outputs of its run...").clicked() {
                     acts.push(Act::SaveRun(k));
+                    ui.close();
+                }
+                if ui
+                    .button("Polygonize...")
+                    .on_hover_text("Its patches as polygons (value, class, area in ha...) in a GeoPackage")
+                    .clicked()
+                {
+                    acts.push(Act::Polygonize(me));
                     ui.close();
                 }
                 ui.separator();

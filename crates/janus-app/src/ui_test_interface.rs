@@ -1019,6 +1019,109 @@ impl State {
                 None
             }
             204 => {
+                // the date shown of the land cover polygonized, 4-wise, every patch
+                let info = self.session.as_ref()?.info.clone();
+                let l = info.layers.get(self.display.t.min(info.t() - 1))?.clone();
+                let ds = gdal::Dataset::open(&l.path).ok()?;
+                let (w, h) = ds.raster_size();
+                let v =
+                    ds.rasterband(l.band.max(1) as usize).ok()?.read_as::<f64>((0, 0), (w, h), (w, h), None).ok()?;
+                let v = v.data();
+                // the patches counted by a flood fill
+                let mut seen = vec![false; w * h];
+                let mut sizes = vec![];
+                for i in 0..w * h {
+                    if seen[i] {
+                        continue;
+                    }
+                    sizes.push(0usize);
+                    let mut stack = vec![i];
+                    seen[i] = true;
+                    while let Some(j) = stack.pop() {
+                        *sizes.last_mut()? += 1;
+                        let (x, y) = (j % w, j / w);
+                        let near = [
+                            (x > 0).then(|| j - 1),
+                            (x + 1 < w).then(|| j + 1),
+                            (y > 0).then(|| j - w),
+                            (y + 1 < h).then(|| j + w),
+                        ];
+                        for k in near.into_iter().flatten() {
+                            if !seen[k] && v[k] == v[j] {
+                                seen[k] = true;
+                                stack.push(k);
+                            }
+                        }
+                    }
+                }
+                self.open_polygonize(crate::contents::Sel::Series(info.id));
+                let p = &mut self.poly;
+                (p.eight, p.min_area_ha, p.simplify_m, p.mean_of) = (false, 0.0, 0.0, None);
+                p.name = "Patches".into();
+                let gpkg = self.polygonize_start(ctx)?;
+                sizes.sort_unstable();
+                // the second run's minimum: the second smallest patch (the smallest merged)
+                let second = sizes.get(1).copied().unwrap_or(1);
+                st.texts = vec![gpkg, sizes.len().to_string(), (w * h).to_string(), second.to_string()];
+                next(st, "the land cover polygonized, every patch");
+                None
+            }
+            205 | 206 => {
+                let gpkg = st.texts.first()?.clone();
+                let Some(k) = self.vectors.iter().position(|v| v.data.path == gpkg) else {
+                    if self.zeit.jobs.iter().any(|j| {
+                        j.tool == "polygonize" && j.status.lock().unwrap().state == crate::zeit::JobState::Failed
+                    }) {
+                        return fail("polygonize failed (Tools > Tasks > Log)");
+                    }
+                    return None;
+                };
+                let n = self.vectors[k].data.areas;
+                let ds = gdal::Dataset::open(&gpkg).ok()?;
+                use gdal::vector::LayerAccess;
+                let mut layer = ds.layer(0).ok()?;
+                let (mut pixels, mut area, mut least, mut named) = (0i64, 0.0, i64::MAX, 0);
+                for f in layer.features() {
+                    let px = f.field_index("pixels").ok().and_then(|i| f.field_as_integer64(i).ok().flatten())?;
+                    pixels += px;
+                    least = least.min(px);
+                    area += f.field_index("area_ha").ok().and_then(|i| f.field_as_double(i).ok().flatten())?;
+                    named += f.field_index("class").ok().and_then(|i| f.field_as_string(i).ok().flatten()).is_some()
+                        as usize;
+                }
+                let (patches, all): (usize, i64) = (st.texts[1].parse().ok()?, st.texts[2].parse().ok()?);
+                println!(
+                    "    {}: {n} polygons ({named} with a class name), {pixels} px, {area:.2} ha, the smallest {least} px",
+                    self.vectors[k].name
+                );
+                if st.stage == 205 {
+                    if n != patches || pixels != all {
+                        return fail(&format!("{patches} patches of {all} px expected"));
+                    }
+                    // 30 m pixels in UTM: 0.09 ha each, geodesic within the scale factor
+                    if (area / (all as f64 * 0.09) - 1.0).abs() > 0.01 {
+                        return fail("the polygons' area should be their pixels'");
+                    }
+                    self.remove_vector(k);
+                    // again 8-wise, the patches under the second smallest merged (30 m pixels, 0.09 ha)
+                    let second: f64 = st.texts[3].parse().ok()?;
+                    let p = &mut self.poly;
+                    (p.eight, p.min_area_ha) = (true, (second - 0.5) * 0.09);
+                    p.name = "Patches merged".into();
+                    st.texts[0] = self.polygonize_start(ctx)?;
+                    next(st, "polygonized: a polygon per patch, their pixels and area the map's");
+                } else {
+                    let second: i64 = st.texts[3].parse().ok()?;
+                    if least < second || n >= patches || pixels != all {
+                        return fail(&format!("with a minimum of {second} px the smallest patch should be merged"));
+                    }
+                    self.remove_vector(k);
+                    self.poly.show = false;
+                    next(st, "polygonized 8-wise with a minimum area: the smaller patches merged");
+                }
+                None
+            }
+            207 => {
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }
