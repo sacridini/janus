@@ -70,6 +70,91 @@ def shown(layer, window, out_shape=None):
     return v
 "#;
 
+/// The series as the code reads it: each date's file and band (or the bands of its expression), its dates, `years`,
+/// the quality rule and the functions `read` and `shown` (a date over a window).
+pub(crate) fn series_code(info: &janus_cube::CubeInfo) -> String {
+    let mut o = String::new();
+    let t_n = info.t();
+    let sel = info.sel;
+    let selection = info.selection_text();
+    let _ = writeln!(
+        o,
+        "\n# {}{}",
+        info.description,
+        if selection.is_empty() { String::new() } else { format!(": {selection}") }
+    );
+    let qa_on = sel.qa_band > 0 && sel.qa_rule != QaRule::None;
+    if let Some(e) = &info.expr {
+        o += "# Each date: (file, the bands its expression reads, quality band, its date's year, month, day,\n\
+              # day of the year, decimal year and place).\nlayers = [\n";
+        for (t, l) in info.layers.iter().enumerate() {
+            let bands: Vec<String> = e.bands.iter().map(|b| (b + l.band_base).to_string()).collect();
+            let vars: Vec<String> =
+                janus_cube::calc::plan::date_vars(info, t).0.iter().map(|&x| num(f64::from(x))).collect();
+            let _ = writeln!(
+                o,
+                "    ({}, [{}], {}, ({})),",
+                py_str(&l.path),
+                bands.join(", "),
+                py_band(if qa_on { sel.qa_band + l.band_base } else { 0 }),
+                vars.join(", ")
+            );
+        }
+    } else {
+        o += "# Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).\n\
+              layers = [\n";
+    }
+    for l in info.layers.iter().filter(|_| info.expr.is_none()) {
+        let base = l.band_base;
+        let _ = writeln!(
+            o,
+            "    ({}, {}, {}, {}),",
+            py_str(&l.path),
+            l.band,
+            py_band(if sel.nd_band > 0 { sel.nd_band + base } else { 0 }),
+            py_band(if qa_on { sel.qa_band + base } else { 0 })
+        );
+    }
+    o += "]\n";
+    if info.time_is_date {
+        let dates: Vec<String> =
+            info.layers.iter().map(|l| format!("\"{}\"", &l.label[..l.label.len().min(10)])).collect();
+        let _ = writeln!(o, "dates = np.array([{}], dtype=\"datetime64[D]\")", dates.join(", "));
+    }
+    if info.spectral {
+        let w: Vec<String> = info.layers.iter().map(|l| num(l.time)).collect();
+        let _ = writeln!(o, "wavelengths_nm = np.array([{}])", w.join(", "));
+    }
+    o += "# Time in years since the first date, as Janus fits trends (365.2425-day years).\n";
+    let yrs: Vec<String> = (0..t_n).map(|t| num(info.years_from_start(t))).collect();
+    let _ = writeln!(o, "years = np.array([{}])", yrs.join(", "));
+    let _ = writeln!(o, "qa_rule = {}", py_str(sel.qa_rule.id()));
+    o += QA_FUNCTIONS;
+    o += READ_FUNCTIONS;
+    if let Some(e) = &info.expr {
+        o += janus_cube::calc::python::NUMPY_PRELUDE;
+        let (stmts, r) = janus_cube::calc::python::numpy(&e.program, &|k| format!("b[{k}]"), "    ");
+        let _ = write!(
+            o,
+            "\n\ndef expression(b, year, month, day, doy, decyear, t):\n    \
+             \"\"\"{}: the bands read (in the order of the layers' lists) to the value shown.\"\"\"\n\
+             {stmts}    return _out({r})\n\n\n\
+             def shown(layer, window, out_shape=None):\n    \
+             \"\"\"What the series shows at a date: the expression over its bands, masked by the quality band.\"\"\"\n    \
+             path, bands, qa_band, date = layer\n    \
+             with np.errstate(all=\"ignore\"):\n        \
+             v = expression([read(path, k, window, out_shape) for k in bands], *date)\n    \
+             if qa_band:\n        \
+             v = np.where(usable(read(path, qa_band, window, out_shape, raw=True), qa_rule), v, np.nan)\n    \
+             return v\n",
+            e.text.replace('\n', "; ").replace('"', "'")
+        );
+    } else {
+        o += SHOWN_FUNCTION;
+    }
+    o
+}
+
 /// Which series: the cursor's, a pin's, the ROI's.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Which {
@@ -152,84 +237,9 @@ impl State {
         }
         o += "from rasterio.enums import Resampling\n";
 
-        // the series: each date's file and band
         let sel = info.sel;
-        let selection = info.selection_text();
-        let _ = writeln!(
-            o,
-            "\n# {}{}",
-            info.description,
-            if selection.is_empty() { String::new() } else { format!(": {selection}") }
-        );
         let qa_on = sel.qa_band > 0 && sel.qa_rule != QaRule::None;
-        if let Some(e) = &info.expr {
-            o += "# Each date: (file, the bands its expression reads, quality band, its date's year, month, day,\n\
-                  # day of the year, decimal year and place).\nlayers = [\n";
-            for (t, l) in info.layers.iter().enumerate() {
-                let bands: Vec<String> = e.bands.iter().map(|b| (b + l.band_base).to_string()).collect();
-                let vars: Vec<String> =
-                    janus_cube::calc::plan::date_vars(&info, t).0.iter().map(|&x| num(f64::from(x))).collect();
-                let _ = writeln!(
-                    o,
-                    "    ({}, [{}], {}, ({})),",
-                    py_str(&l.path),
-                    bands.join(", "),
-                    py_band(if qa_on { sel.qa_band + l.band_base } else { 0 }),
-                    vars.join(", ")
-                );
-            }
-        } else {
-            o += "# Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).\n\
-                  layers = [\n";
-        }
-        for l in info.layers.iter().filter(|_| info.expr.is_none()) {
-            let base = l.band_base;
-            let _ = writeln!(
-                o,
-                "    ({}, {}, {}, {}),",
-                py_str(&l.path),
-                l.band,
-                py_band(if sel.nd_band > 0 { sel.nd_band + base } else { 0 }),
-                py_band(if qa_on { sel.qa_band + base } else { 0 })
-            );
-        }
-        o += "]\n";
-        if info.time_is_date {
-            let dates: Vec<String> =
-                info.layers.iter().map(|l| format!("\"{}\"", &l.label[..l.label.len().min(10)])).collect();
-            let _ = writeln!(o, "dates = np.array([{}], dtype=\"datetime64[D]\")", dates.join(", "));
-        }
-        if info.spectral {
-            let w: Vec<String> = info.layers.iter().map(|l| num(l.time)).collect();
-            let _ = writeln!(o, "wavelengths_nm = np.array([{}])", w.join(", "));
-        }
-        o += "# Time in years since the first date, as Janus fits trends (365.2425-day years).\n";
-        let yrs: Vec<String> = (0..t_n).map(|t| num(info.years_from_start(t))).collect();
-        let _ = writeln!(o, "years = np.array([{}])", yrs.join(", "));
-        let _ = writeln!(o, "qa_rule = {}", py_str(sel.qa_rule.id()));
-        o += QA_FUNCTIONS;
-        o += READ_FUNCTIONS;
-        if let Some(e) = &info.expr {
-            o += janus_cube::calc::python::NUMPY_PRELUDE;
-            let (stmts, r) = janus_cube::calc::python::numpy(&e.program, &|k| format!("b[{k}]"), "    ");
-            let _ = write!(
-                o,
-                "\n\ndef expression(b, year, month, day, doy, decyear, t):\n    \
-                 \"\"\"{}: the bands read (in the order of the layers' lists) to the value shown.\"\"\"\n\
-                 {stmts}    return _out({r})\n\n\n\
-                 def shown(layer, window, out_shape=None):\n    \
-                 \"\"\"What the series shows at a date: the expression over its bands, masked by the quality band.\"\"\"\n    \
-                 path, bands, qa_band, date = layer\n    \
-                 with np.errstate(all=\"ignore\"):\n        \
-                 v = expression([read(path, k, window, out_shape) for k in bands], *date)\n    \
-                 if qa_band:\n        \
-                 v = np.where(usable(read(path, qa_band, window, out_shape, raw=True), qa_rule), v, np.nan)\n    \
-                 return v\n",
-                e.text.replace('\n', "; ").replace('"', "'")
-            );
-        } else {
-            o += SHOWN_FUNCTION;
-        }
+        o += &series_code(&info);
         if let Some(r) = &roi {
             let (w, h) = (r.x1 - r.x0, r.y1 - r.y0);
             let _ =
@@ -420,4 +430,152 @@ if y.size >= 2:
             ui.ctx().copy_text(code);
         }
     }
+}
+
+/// Code that writes every map of the results (`result1`, `result2`...) as a GeoTIFF on the window's grid.
+const SAVE_RESULTS: &str = r#"
+os.makedirs(out_dir, exist_ok=True)
+with rasterio.open(layers[0][0]) as src:
+    crs, transform = src.crs, src.window_transform(window)
+
+
+def save(name, a):
+    """A map (y, x), or a stack of them (each a band), as float32 with NaN where it has no value."""
+    a = np.asarray(a)
+    if a.dtype.kind not in "biuf":
+        print("left out:", name, a.dtype)
+        return
+    a = a.astype("float32").reshape(-1, a.shape[-2], a.shape[-1])
+    path = os.path.join(out_dir, name + ".tif")
+    with rasterio.open(path, "w", driver="GTiff", width=a.shape[2], height=a.shape[1], count=a.shape[0],
+                       dtype="float32", crs=crs, transform=transform, nodata=float("nan"), compress="deflate") as dst:
+        dst.write(a)
+    print(path)
+
+
+results = [(k, v) for k, v in sorted(globals().items()) if k.startswith("result") and k[6:].isdigit()]
+for key, r in results:
+    ds = r.to_dataset(name=key) if isinstance(r, xr.DataArray) else r
+    for var, a in getattr(ds, "data_vars", {}).items():
+        if a.ndim >= 2 and a.dims[-2:] == ("y", "x"):
+            save(var if len(results) == 1 else f"{key}_{var}", a.values)
+"#;
+
+/// "Copy Python" of a raster run (its provenance's rerun.py): the series read from its files over the run's window,
+/// the same Zeit calls with the run's parameters, and every map they return written as a GeoTIFF in `out_dir`.
+pub(crate) fn run_code(
+    info: &janus_cube::CubeInfo,
+    tool: &janus_zeit::Tool,
+    params: &std::collections::BTreeMap<String, serde_json::Value>,
+    roles: &std::collections::BTreeMap<String, i32>,
+    window: [usize; 4],
+    threads: Option<i64>,
+    out_dir: &str,
+) -> Result<String, String> {
+    let t_n = info.t();
+    let p = janus_zeit::Params::with_defaults(&tool.id, params).ok_or("its parameters are not the tool's")?;
+    let input = janus_zeit::PixelInput {
+        years: (0..t_n).map(|t| info.decimal_year(t)).collect(),
+        days: info.time_is_date.then(|| (0..t_n).map(|t| info.unix_day(t)).collect()),
+        values: vec![0.0; t_n],
+        bands: roles.keys().map(|r| (r.clone(), vec![])).collect(),
+        ..Default::default()
+    };
+    let (code, inputs) = janus_zeit::python::calls(&tool.id, &p, &input)
+        .ok_or_else(|| format!("{} has no Python of its raster run", tool.name))?;
+    let code = code.replace("n_jobs=1", &format!("n_jobs={}", threads.filter(|&n| n > 0).unwrap_or(-1)));
+    let [x0, y0, x1, y1] = window;
+    let (w, h) = (x1 - x0, y1 - y0);
+    let tables = inputs.contains(&"bands_all") || inputs.contains(&"spectrum");
+    let mut o = String::new();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
+    let (y, m, d) = janus_zeit::numeric::civil(now.div_euclid(86400));
+    let _ = write!(
+        o,
+        "\"\"\"Janus {} ({y:04}-{m:02}-{d:02}): the run of {} reproduced outside Janus: the series read from its files\n\
+         over the run's window, the same Zeit calls with the run's parameters, and every map they return written as a\n\
+         GeoTIFF (Janus wrote the maps of its outputs from the same calls). The whole window is read into memory.\n\
+         Needs: pip install numpy rasterio xarray zeit-cdts{}\n\"\"\"\n\
+         import os\nimport numpy as np\nimport rasterio\nimport xarray as xr\nimport zeit\n\
+         from rasterio.windows import Window\nfrom rasterio.enums import Resampling\n{}",
+        env!("CARGO_PKG_VERSION"),
+        tool.name,
+        if tables { " pandas" } else { "" },
+        if tables { "import pandas as pd\n" } else { "" }
+    );
+    o += &series_code(info);
+    let _ = writeln!(
+        o,
+        "\n# The run's window: columns {x0}..{x1}, rows {y0}..{y1} of the files' pixels ({w} x {h}).\n\
+         window = Window({x0}, {y0}, {w}, {h})\n\
+         values = np.stack([shown(layer, window) for layer in layers])  # (time, y, x)"
+    );
+    let whole_years = (0..t_n).all(|t| info.decimal_year(t).fract() == 0.0);
+    let time = if info.time_is_date {
+        "dates.astype(\"datetime64[ns]\")".to_string()
+    } else if whole_years {
+        let v: Vec<String> = (0..t_n).map(|t| format!("{}", info.decimal_year(t) as i64)).collect();
+        format!("np.array([{}])", v.join(", "))
+    } else {
+        "np.arange(len(layers))".to_string()
+    };
+    if inputs.contains(&"series") {
+        let _ =
+            writeln!(o, "series = xr.DataArray(values, dims=(\"time\", \"y\", \"x\"), coords={{\"time\": {time}}})");
+    }
+    if inputs.contains(&"bands_cube") {
+        let sel = info.sel;
+        let qa_on = sel.qa_band > 0 && sel.qa_rule != QaRule::None;
+        let rs: Vec<String> = roles.iter().map(|(r, b)| format!("{}: {b}", py_str(r))).collect();
+        let _ = writeln!(
+            o,
+            "# The bands by role (bands of each date's file), as reflectance x 10000 (Zeit's convention).\n\
+             roles = {{{}}}\n\
+             order = [r for r in (\"blue\", \"green\", \"red\", \"nir\", \"swir1\", \"swir2\", \"thermal\") if r in roles]\n\
+             raw = {{r: np.stack([read(layer[0], roles[r], window) for layer in layers]) for r in order}}\n\
+             med = np.nanmedian(np.concatenate([raw[r].ravel() for r in order if r != \"thermal\"]))\n\
+             units = \"unit\" if med <= 2 else \"landsat_c2\" if med >= 6500 else \"x10000\"\n\
+             to_x10000 = {{\"unit\": lambda v: v * 10000, \"landsat_c2\": lambda v: (v * 2.75e-5 - 0.2) * 10000,\n             \
+             \"x10000\": lambda v: v}}[units]\n\
+             cube = np.stack([to_x10000(raw[r]) for r in order])  # (band, time, y, x)\n\
+             bands_cube = xr.DataArray(cube.transpose(1, 0, 2, 3), dims=(\"time\", \"band\", \"y\", \"x\"),\n                          \
+             coords={{\"time\": {time}, \"band\": order}})\n\
+             complete = np.all(np.isfinite(cube), axis=0)",
+            rs.join(", ")
+        );
+        if qa_on {
+            o += "q = np.stack([read(layer[0], layer[3], window, raw=True) for layer in layers])\n\
+                  c = np.where(np.isfinite(q) & (q >= 0), q, 255).astype(np.int64)\n\
+                  if qa_rule == \"fmask\":\n    f = c.astype(np.int32)\n\
+                  elif qa_rule == \"landsat_c2\":\n    f = np.zeros(c.shape, np.int32)\n    \
+                  f[(c & 128) != 0] = 1; f[(c & 32) != 0] = 3; f[(c & 16) != 0] = 2; f[(c & 10) != 0] = 4; f[(c & 1) != 0] = 255\n\
+                  else:\n    f = np.where(c != 0, 0, 4).astype(np.int32)\n\
+                  fmask = np.where(complete, f, 255).astype(np.int32)\n";
+        } else {
+            o += "fmask = np.where(complete, 0, 255).astype(np.int32)  # no quality band: every complete observation clear\n";
+        }
+    }
+    if inputs.contains(&"bands_all") {
+        let bases: Vec<String> = info.layers.iter().map(|l| l.band_base.to_string()).collect();
+        let _ = writeln!(
+            o,
+            "# Every band of each date (b001, b002...), left out where the shown series is.\n\
+             n_bands = {}\nbases = [{}]  # each date's first band in its file, less 1\n\
+             cube = np.stack([np.stack([read(layer[0], base + b, window) for b in range(1, n_bands + 1)])\n                 \
+             for layer, base in zip(layers, bases)])  # (time, band, y, x)\n\
+             cube[np.broadcast_to(~np.isfinite(values)[:, None], cube.shape)] = np.nan\n\
+             bands_all = xr.DataArray(cube, dims=(\"time\", \"band\", \"y\", \"x\"),\n                         \
+             coords={{\"time\": {time}, \"band\": [f\"b{{b:03d}}\" for b in range(1, n_bands + 1)]}})",
+            info.bands_per_date,
+            bases.join(", ")
+        );
+    }
+    if inputs.contains(&"spectrum") {
+        o += "spectrum = xr.DataArray(values, dims=(\"band\", \"y\", \"x\"),\n                        \
+              coords={\"band\": [f\"b{i + 1:03d}\" for i in range(len(layers))]})\n";
+    }
+    let _ = writeln!(o, "\n# {}, with the run's parameters\n{code}", tool.name);
+    let _ = writeln!(o, "\nout_dir = {}", py_str(out_dir));
+    o += SAVE_RESULTS;
+    Ok(o)
 }

@@ -1062,6 +1062,28 @@ impl State {
         if let (true, Some(a)) = (self.ml.aoa, &header.applicability) {
             log.line(&format!("area of applicability: {}", a.describe()));
         }
+        {
+            use crate::provenance::{Provenance, SeriesRecord};
+            let mut p = Provenance::start("model", arch, &format!("{arch} classification"));
+            let lname = self.layers.get(self.active).map_or(name.clone(), |l| l.name.clone());
+            p.series = Some(SeriesRecord::of(&info, &lname, &layer_inputs));
+            (p.scope, p.scope_index, p.window) = (scope_name.to_string(), self.ml.scope, Some(window));
+            let post = &self.ml.post;
+            for (k, v) in [
+                ("model", serde_json::json!(path)),
+                ("classes", serde_json::json!(header.classes.iter().map(|c| c.name.clone()).collect::<Vec<_>>())),
+                ("smooth", post.smooth.into()),
+                ("smooth_window", post.window.into()),
+                ("smoothness", post.smoothness.into()),
+                ("neigh_fraction", post.neigh_fraction.into()),
+                ("min_size", post.min_size.into()),
+                ("aoa", (self.ml.aoa && header.applicability.is_some()).into()),
+            ] {
+                p.extra.insert(k.into(), v);
+            }
+            p.python_note = "a model applied: its file is the record of the run (no Python)".into();
+            self.begin_provenance(&out, p);
+        }
         let status = Arc::new(Mutex::new(JobStatus {
             state: JobState::Running,
             progress: 0.0,

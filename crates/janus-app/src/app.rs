@@ -448,6 +448,8 @@ pub struct State {
     pub chart: crate::chart::ChartOptions,
     /// the Pixel values panel (in the chart's place while the active layer is not a series shown)
     pub values: crate::values::ValuesUi,
+    /// the Provenance window, the runs whose provenance is written when they end
+    pub prov: crate::provenance::ProvenanceUi,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
     /// the Files panel
@@ -799,6 +801,7 @@ impl JanusApp {
                 anim: Default::default(),
                 chart: Default::default(),
                 values: Default::default(),
+                prov: Default::default(),
                 band_sel: None,
                 spectral_index: 0,
                 map_textures: Default::default(),
@@ -1856,6 +1859,7 @@ impl eframe::App for JanusApp {
         s.pump_validation(&ctx);
         s.pump_animation(&ctx);
         s.pump_chips(&ctx);
+        s.pump_provenance();
         s.pump_zeit_jobs(&ctx);
         s.pump_trend_test();
         s.pump_ml();
@@ -2110,6 +2114,7 @@ impl eframe::App for JanusApp {
         self.state.calculator_window(&ctx);
         self.state.class_flows_window(&ctx);
         self.state.tasks_window(&ctx);
+        self.state.provenance_window(&ctx);
         self.state.exports_window(&ctx);
         self.state.extract_window(&ctx);
         self.state.chips_window(&ctx);

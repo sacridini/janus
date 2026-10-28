@@ -40,6 +40,7 @@ mod order;
 mod palette;
 mod panels;
 mod platform;
+mod provenance;
 mod python;
 mod roi;
 mod sankey;

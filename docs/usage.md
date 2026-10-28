@@ -517,6 +517,23 @@ Each tool window has:
   the progress (every 10% or 5 s), each output, and how it ended (with the
   error, if any). **Tools → Log** shows it while it grows (pick the run in the
   list), as does the **Log** button of each task.
+- **Provenance of every result**, `provenance.json` in the run's folder (Zeit
+  tools, deep learning models applied, the raster calculator): the tool, the
+  versions of Janus and Zeit (zeit-core's revision), when it ran and for how
+  long, how it ended, the series it read (its files, the band, index or
+  expression shown, the quality mask), the scope and the window in pixels, the
+  parameters (those not at the tool's default named), what else it took (the
+  model's file and post-processing, the calculator's text and layers) and the
+  files it wrote. A result's menu in the Layers panel (a run's map, or a series
+  a run or the calculator wrote) gives **Provenance...** (all of it in a window,
+  the changed parameters in the accent colour), **Run again with these
+  parameters...** (the tool's window with them and the same scope; on the same
+  series, the scope *The run's window* is the very window it ran on, even if
+  the ROI has moved since), **Copy Python of the run** (a Zeit tool's run:
+  `rerun.py` beside it reads the series over the run's window from its files,
+  makes the same Zeit calls with the same parameters and writes every map they
+  return as a GeoTIFF; numpy, rasterio, xarray and zeit-cdts) and **Open
+  folder**.
 
 How it works: Zeit's methods are compiled into Janus: zeit-core (the Rust core
 of [Zeit](https://github.com/sacridini/zeit-cdts)) with what Zeit's Python adds

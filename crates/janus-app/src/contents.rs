@@ -404,6 +404,11 @@ enum Act {
     /// shown, then the export dialog of that kind
     ExportStep(usize, usize, usize),
     OpenStep(usize, usize),
+    /// a run's provenance (its folder, or a file in it): the window, run again, its Python, the folder
+    Provenance(String),
+    RunAgain(String),
+    CopyRunPython(String),
+    OpenFolder(String),
 }
 
 /// A date's or a band's export menu: label, the export dialog's kind (what the map shows at that date).
@@ -559,6 +564,20 @@ impl State {
                     self.open_export(kind);
                 }
                 Act::OpenStep(i, t) => self.open_step_as_layer(i, t, &ctx),
+                Act::Provenance(p) => self.show_provenance(&p),
+                Act::RunAgain(p) => {
+                    match crate::provenance::find(&p).map(|d| crate::provenance::Provenance::read(&d)) {
+                        Some(Ok(prov)) => self.run_again(&prov),
+                        Some(Err(e)) => self.error_popup = Some(e),
+                        None => {}
+                    }
+                }
+                Act::CopyRunPython(p) => {
+                    if let Err(e) = self.copy_run_python(&ctx, &p) {
+                        self.error_popup = Some(e);
+                    }
+                }
+                Act::OpenFolder(p) => crate::platform::open_in_explorer(&p),
             }
         }
     }
@@ -1022,6 +1041,10 @@ impl State {
                         }
                     }
                 });
+                if let Some(dir) = l.inputs.first().and_then(|p| crate::provenance::find(p)) {
+                    ui.separator();
+                    provenance_items(ui, &dir.to_string_lossy(), acts);
+                }
                 ui.separator();
                 close_item(ui, "Close", closes, Act::Remove(i), acts);
             };
@@ -1211,6 +1234,8 @@ impl State {
                     ui.close();
                 }
                 ui.separator();
+                provenance_items(ui, &r.run, acts);
+                ui.separator();
                 close_item(ui, "Remove from the map", closes, Act::RemoveResult(k), acts);
             };
             out_row.context_menu(&mut menu);
@@ -1250,6 +1275,38 @@ impl State {
         if let Err(e) = write_vector_table(&path, &v.data, &[], &|_, _| String::new()) {
             self.error_popup = Some(e);
         }
+    }
+}
+
+/// A result's provenance items (provenance.rs), for the run in folder `run`: shown only when it has one.
+fn provenance_items(ui: &mut Ui, run: &str, acts: &mut Vec<Act>) {
+    let has = !run.is_empty() && std::path::Path::new(run).join(crate::provenance::FILE).is_file();
+    let tip = "Made by a Janus before 1.6, or not by a run: no provenance.json in its folder";
+    let mut item = |label: &str, hover: &str, act: Act| {
+        let b = ui.add_enabled(has, egui::Button::new(label));
+        if if has { b.on_hover_text(hover) } else { b.on_disabled_hover_text(tip) }.clicked() {
+            acts.push(act);
+            ui.close();
+        }
+    };
+    item(
+        "Provenance...",
+        "The tool, versions, when and how long, the series read, the scope, the parameters, the files written",
+        Act::Provenance(run.to_string()),
+    );
+    item(
+        "Run again with these parameters...",
+        "The tool's window with the run's parameters and scope",
+        Act::RunAgain(run.to_string()),
+    );
+    item(
+        "Copy Python of the run",
+        "A script that redoes the run with Zeit outside Janus and writes its maps",
+        Act::CopyRunPython(run.to_string()),
+    );
+    if ui.button("Open folder").on_hover_text(run).clicked() {
+        acts.push(Act::OpenFolder(run.to_string()));
+        ui.close();
     }
 }
 

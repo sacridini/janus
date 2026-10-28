@@ -6,6 +6,9 @@
 //! grouped, hidden and moved together). 183: navigation (Go to a longitude and latitude, an EPSG x y, a UTM zone; a saved view; the minimap;
 //! the lens). 184: a run's map as a layer of its own (its row over the rasters; with the series hidden, Pixel values
 //! in the chart's place: its value at the cursor, in the status bar too, its pixels by value; removed by Delete).
+//! 185-186: provenance (a Mann-Kendall run on an ROI with alpha changed: its provenance.json, alpha named as changed,
+//! the window, the maps; Copy Python of the run and, with a Python that has Zeit, its p-values against Janus'; Run
+//! again brings the parameters and the run's window back).
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -397,6 +400,157 @@ impl State {
                 self.layers[self.active].visible = was;
                 self.map.dirty = true;
                 next(st, "a run's map as a layer of its own; Pixel values and its statistics with the series hidden");
+                None
+            }
+            185 => {
+                // Mann-Kendall with alpha changed, on an ROI, into a folder of the test's
+                let info = self.session.as_ref()?.info.clone();
+                let stamp =
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+                let dir = std::env::temp_dir().join(format!("janus-selftest-provenance-{stamp}"));
+                let tool = janus_zeit::manifest().tool("mann_kendall")?;
+                let mut params: std::collections::BTreeMap<String, serde_json::Value> =
+                    tool.params.iter().map(|q| (q.id.clone(), q.default.clone())).collect();
+                params.insert("alpha".into(), 0.1.into());
+                *self.zeit.params(tool) = params;
+                let (w, h) = (info.width as i64, info.height as i64);
+                self.set_roi_rect([w / 4, h / 4, w / 4 + 24.min(w / 2), h / 4 + 16.min(h / 2)]);
+                self.zeit.tools.entry(tool.id.clone()).or_default().scope = 2;
+                self.zeit.results_dir = Some(dir.clone());
+                st.run = Some((dir, self.layers.len(), self.active));
+                self.run_tool(tool, ctx);
+                next(st, "Mann-Kendall run on an ROI with alpha 0.1");
+                None
+            }
+            186 => {
+                let (dir, _, _) = st.run.clone()?;
+                let job = self.zeit.jobs.last()?;
+                let (state, error) = {
+                    let s = job.status.lock().ok()?;
+                    (s.state, s.error.clone())
+                };
+                let (loaded, out_dir) = (job.loaded, job.output_dir.clone());
+                match state {
+                    JobState::Failed | JobState::Cancelled => return fail(&format!("the run should finish: {error}")),
+                    JobState::Running => return None,
+                    JobState::Done => {}
+                }
+                if !loaded || self.zeit.loads_pending() {
+                    return None;
+                }
+                let run = std::path::PathBuf::from(&out_dir);
+                let p = match crate::provenance::Provenance::read(&run) {
+                    Ok(p) => p,
+                    Err(e) => return fail(&format!("the run should write its provenance: {e}")),
+                };
+                let roi = self.series.roi_rect?;
+                let series = p.series.clone().unwrap_or_default();
+                println!(
+                    "    provenance: {} by Janus {} (zeit-core {}), {} in {:.2} s, {} dates of {} files, {} {:?}, \
+                     changed {:?}, {} outputs, {}",
+                    p.tool_name,
+                    p.janus,
+                    &p.zeit_core[..7],
+                    p.state,
+                    p.seconds,
+                    series.dates,
+                    series.files.len(),
+                    p.scope,
+                    p.window,
+                    p.changed,
+                    p.outputs.len(),
+                    p.python
+                );
+                if p.tool != "mann_kendall" || p.state != "done" || p.janus != env!("CARGO_PKG_VERSION") {
+                    return fail("the provenance should name the tool, its end and Janus' version");
+                }
+                if p.changed != ["alpha"] || p.params.get("alpha") != Some(&0.1.into()) {
+                    return fail("the provenance should give the parameters and name alpha as changed");
+                }
+                if p.window != Some(roi) || p.scope_index != 2 || series.files.is_empty() || series.dates < 4 {
+                    return fail("the provenance should give the ROI's window and the series' files");
+                }
+                if p.outputs.len() != 7 || !p.outputs.iter().all(|o| std::path::Path::new(&o.path).is_file()) {
+                    return fail("the provenance should list the 7 maps written");
+                }
+                // from a map's row: found from its run's folder
+                let r = self.zeit.results.iter().find(|r| r.run == out_dir)?;
+                if crate::provenance::find(&r.path).as_deref() != Some(run.as_path()) {
+                    return fail("a run's map should find its provenance");
+                }
+                // Copy Python of the run: the same call with alpha 0.1
+                let code = match self.copy_run_python(ctx, &out_dir) {
+                    Ok(c) => c,
+                    Err(e) => return fail(&format!("the run should have its Python: {e}")),
+                };
+                if !code.contains("zeit.mann_kendall(series") || !code.contains("alpha=0.1") {
+                    return fail("the run's Python should call Mann-Kendall with alpha 0.1");
+                }
+                // Run again: the parameters and the very window back, the ROI gone meanwhile
+                let tool = janus_zeit::manifest().tool("mann_kendall")?;
+                self.zeit.params(tool).insert("alpha".into(), 0.05.into());
+                self.zeit.tools.entry(tool.id.clone()).or_default().scope = 0;
+                self.clear_roi();
+                self.run_again(&p);
+                let alpha = self.zeit.params(tool).get("alpha").cloned();
+                let u = self.zeit.tools.get(&tool.id)?;
+                if alpha != Some(0.1.into()) || u.scope != 3 || !u.open || self.tool_run_window(tool, 3).0 != roi {
+                    return fail("Run again should bring back the parameters and the run's window");
+                }
+                println!("    run again: alpha 0.1 and the run's window {roi:?} back in the tool's window");
+                // the Python run (when there is a Python with zeit and rasterio): its p-value map against Janus'
+                let python = std::env::var("JANUS_PYTHON").unwrap_or_else(|_| "python".into());
+                let mut cmd = std::process::Command::new(&python);
+                cmd.arg(run.join(crate::provenance::SCRIPT));
+                for v in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMBA_NUM_THREADS"] {
+                    cmd.env(v, "8");
+                }
+                let has_zeit = std::process::Command::new(&python)
+                    .args(["-c", "import zeit, rasterio, xarray"])
+                    .output()
+                    .is_ok_and(|o| o.status.success());
+                if has_zeit {
+                    let out = match cmd.output() {
+                        Ok(o) if o.status.success() => o,
+                        Ok(o) => return fail(&format!("rerun.py failed:\n{}", String::from_utf8_lossy(&o.stderr))),
+                        Err(e) => return fail(&format!("{python}: {e}")),
+                    };
+                    let _ = out;
+                    let ours = p.outputs.iter().find(|o| o.path.ends_with("_p.tif"))?.path.clone();
+                    let read = |path: &str| -> Option<Vec<f32>> {
+                        let ds = gdal::Dataset::open(path).ok()?;
+                        let (w, h) = ds.raster_size();
+                        Some(ds.rasterband(1).ok()?.read_as::<f32>((0, 0), (w, h), (w, h), None).ok()?.data().to_vec())
+                    };
+                    let (a, b) = (read(&ours)?, read(&run.join("python").join("p.tif").to_string_lossy())?);
+                    let mut worst = 0f32;
+                    let mut n = 0;
+                    for (x, y) in a.iter().zip(&b) {
+                        if x.is_finite() != y.is_finite() {
+                            return fail(&format!("rerun.py's p-values have values where Janus' have none: {x} {y}"));
+                        }
+                        if x.is_finite() {
+                            worst = worst.max((x - y).abs());
+                            n += 1;
+                        }
+                    }
+                    println!("    rerun.py: its p-value map against Janus', {n} pixels, largest difference {worst:e}");
+                    if a.len() != b.len() || n == 0 || worst > 1e-4 {
+                        return fail("rerun.py should give Janus' p-values");
+                    }
+                } else {
+                    println!(
+                        "    rerun.py: not run (no Python with zeit, rasterio and xarray; JANUS_PYTHON names one)"
+                    );
+                }
+                // gone again
+                self.zeit.results.retain(|r| r.run != out_dir);
+                self.zeit.jobs.pop();
+                self.zeit.results_dir = None;
+                self.set_tool_open(tool, false);
+                let _ = std::fs::remove_dir_all(&dir);
+                self.map.dirty = true;
+                next(st, "provenance: the run's record, Run again, Copy Python of the run (and its maps as Janus')");
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

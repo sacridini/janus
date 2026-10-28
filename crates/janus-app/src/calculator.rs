@@ -106,7 +106,7 @@ pub struct CalcUi {
     pub text: String,
     pub out_name: String,
     /// the name typed (else from the text)
-    name_typed: bool,
+    pub name_typed: bool,
     /// the layer whose bands bare names are (None: the active one)
     pub primary: Option<String>,
     pub dates_from: Option<String>,
@@ -1322,6 +1322,23 @@ impl State {
             folder.display()
         ));
         let log_path = log.path.to_string_lossy().into_owned();
+        {
+            let mut prov = crate::provenance::Provenance::start("calculator", "calculator", "Raster calculator");
+            let names: Vec<String> = layers.iter().map(|l| format!("{} = {}", l.alias, l.name)).collect();
+            for (k, v) in [
+                ("name", serde_json::json!(name)),
+                ("text", serde_json::json!(text)),
+                ("layers", serde_json::json!(names)),
+                ("cog", cog.into()),
+                ("apply_qa", self.calc.apply_qa.into()),
+                ("options", serde_json::json!(format!("{opts:?}"))),
+            ] {
+                prov.extra.insert(k.into(), v);
+            }
+            prov.scope = if n_dates > 1 { format!("{n_dates} dates") } else { "an image".into() };
+            prov.python_note = "the calculator's VRTs hold its expression (their pixel function): no Python".into();
+            self.begin_provenance(&folder, prov);
+        }
         let status = Arc::new(Mutex::new(JobStatus {
             state: JobState::Running,
             progress: 0.0,

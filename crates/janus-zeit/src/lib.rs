@@ -40,5 +40,19 @@ pub mod upstream;
 /// The Zeit whose zeit-core is linked (Cargo.toml's revision: 2.0.0 with remotePARTS's methods).
 pub const ZEIT_VERSION: &str = "2.0.0";
 
+/// zeit-core's git revision (Cargo.toml's `rev`), as a run's provenance records it.
+pub const ZEIT_CORE_REV: &str = "8cfbdbf5ecb2ab740332584749d26c18b724b24a";
+
 pub use manifest::{Manifest, Output, Param, Tool, manifest};
 pub use pixel::{Overlay, Params, PixelInput, PixelResult, run_pixel};
+
+#[cfg(test)]
+mod rev_test {
+    /// The revision recorded is the one linked.
+    #[test]
+    fn zeit_core_rev_is_cargo_toml_s() {
+        let toml = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap();
+        let line = toml.lines().find(|l| l.starts_with("zeit-core")).unwrap();
+        assert!(line.contains(&format!("rev = \"{}\"", super::ZEIT_CORE_REV)), "{line}");
+    }
+}

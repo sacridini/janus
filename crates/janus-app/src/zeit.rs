@@ -60,6 +60,9 @@ pub struct ToolUi {
     est_key: String,
     est_job: Option<Receiver<Result<janus_zeit::job::Estimate, String>>>,
     est_changed: Option<Instant>,
+    /// Run again: the run's own window on its series (scope 3), and what to know when it was on another series
+    pub again: Option<(u64, [usize; 4])>,
+    pub again_note: String,
 }
 
 /// The bands a multiband fit reads for its pixel (in the worker).
@@ -1465,6 +1468,18 @@ impl State {
         ([0, 0, w, h], "whole image")
     }
 
+    /// A tool's window of a run and its scope's name: run_window's, or (scope 3) the window of a run run again.
+    pub(crate) fn tool_run_window(&self, tool: &Tool, scope: usize) -> ([usize; 4], String) {
+        let cube = self.session.as_ref().map_or(0, |s| s.info.id);
+        if scope == 3
+            && let Some((_, w)) = self.zeit.tools.get(&tool.id).and_then(|u| u.again).filter(|a| a.0 == cube)
+        {
+            return (w, "the run's window".into());
+        }
+        let (w, name) = self.run_window(scope);
+        (w, name.into())
+    }
+
     /// A raster run of the tool (scope, output folder, Run).
     fn raster_run_ui(&mut self, ui: &mut Ui, tool: &'static Tool, unavailable: bool) {
         if self.session.is_none() {
@@ -1493,25 +1508,34 @@ impl State {
             return;
         }
         crate::panels::section(ui, "Run on the raster");
-        const SCOPES: [&str; 3] = ["Whole image", "Visible area", "ROI"];
         let roi = self.series.roi_rect.is_some();
+        let cube = self.session.as_ref().map_or(0, |s| s.info.id);
         let ui_state = self.zeit.tools.entry(tool.id.clone()).or_default();
-        if ui_state.scope == 2 && !roi {
+        // the window of a run run again, while its series is the active one
+        let again = ui_state.again.filter(|a| a.0 == cube).map(|a| a.1);
+        let mut scopes = vec!["Whole image".to_string(), "Visible area".into(), "ROI".into()];
+        if let Some([x0, y0, x1, y1]) = again {
+            scopes.push(format!("The run's window ({} x {} px at {x0}, {y0})", x1 - x0, y1 - y0));
+        }
+        if ui_state.scope == 2 && !roi || ui_state.scope == 3 && again.is_none() {
             ui_state.scope = 0;
         }
         ComboBox::from_id_salt(("scope", &tool.id))
             .width(ui.available_width())
-            .selected_text(SCOPES[ui_state.scope])
+            .selected_text(&scopes[ui_state.scope])
             .show_ui(ui, |ui| {
-                for (i, s) in SCOPES.iter().enumerate() {
-                    if ui.add_enabled(i != 2 || roi, egui::Button::selectable(ui_state.scope == i, *s)).clicked() {
+                for (i, s) in scopes.iter().enumerate() {
+                    if ui.add_enabled(i != 2 || roi, egui::Button::selectable(ui_state.scope == i, s)).clicked() {
                         ui_state.scope = i;
                     }
                 }
             });
+        if !ui_state.again_note.is_empty() {
+            ui.colored_label(theme::warning(), &ui_state.again_note);
+        }
         let scope = ui_state.scope;
         self.output_folder_ui(ui);
-        let (win, _) = self.run_window(scope);
+        let win = self.tool_run_window(tool, scope).0;
         let px = (win[2] - win[0]) as f64 * (win[3] - win[1]) as f64;
         if !unavailable {
             self.update_estimate(tool, ui.ctx());
@@ -1581,8 +1605,7 @@ Reading the data adds to it, mostly on spinning disks.",
                 .map(|c| janus_zeit::job::ClassDef { value: c.value, name: c.name.clone(), color: c.color })
                 .collect();
         }
-        let (mut window, scope_name) = self.run_window(scope);
-        let mut scope_name = scope_name.to_string();
+        let (mut window, mut scope_name) = self.tool_run_window(tool, scope);
         let mut cube = info.id;
         if tool.input.as_deref() == Some("layers") {
             // on result maps: the outputs on the first one's grid, under its series
@@ -1611,6 +1634,47 @@ Reading the data adds to it, mostly on spinning disks.",
         Ok((spec, cube, scope_name, name))
     }
 
+    /// A run's provenance (provenance.rs) as it starts, and its Python (rerun.py) when the tool has one.
+    fn zeit_provenance(
+        &mut self,
+        tool: &'static Tool,
+        spec: &janus_zeit::job::JobSpec,
+        scope_name: &str,
+        name: &str,
+        out: &std::path::Path,
+    ) {
+        use crate::provenance::{Provenance, SCRIPT, SeriesRecord};
+        let params = self.zeit.params(tool).clone();
+        let mut p = Provenance::start("zeit", &tool.id, &tool.name);
+        p.set_params(&params);
+        p.scope = scope_name.to_string();
+        p.scope_index = self.zeit.tools.get(&tool.id).map_or(0, |u| u.scope);
+        p.window = spec.window;
+        p.threads = spec.threads;
+        let info = self.session.as_ref().map(|s| s.info.clone());
+        match info.filter(|_| tool.input.as_deref() != Some("layers")) {
+            Some(info) => {
+                let l = self.layers.get(self.active);
+                let inputs = l.map(|l| l.inputs.clone()).unwrap_or_default();
+                let lname = l.map_or(name.to_string(), |l| l.name.clone());
+                p.series = Some(SeriesRecord::of(&info, &lname, &inputs));
+                let roles = self.active_roles();
+                if !roles.is_empty() && reads_bands(tool) {
+                    p.extra.insert("bands".into(), json!(roles));
+                }
+                let window = spec.window.unwrap_or([0, 0, info.width, info.height]);
+                let to = out.join("python").to_string_lossy().into_owned();
+                match crate::python::run_code(&info, tool, &params, &roles, window, spec.threads, &to) {
+                    Ok(code) if std::fs::write(out.join(SCRIPT), &code).is_ok() => p.python = SCRIPT.into(),
+                    Ok(_) => p.python_note = format!("{SCRIPT} could not be written"),
+                    Err(e) => p.python_note = e,
+                }
+            }
+            None => p.python_note = "a run on result maps: no Python of it".into(),
+        }
+        self.begin_provenance(out, p);
+    }
+
     /// Starts a raster run of the tool.
     pub(crate) fn run_tool(&mut self, tool: &'static Tool, ctx: &egui::Context) {
         let (mut spec, cube, scope_name, name) = match self.job_spec(tool) {
@@ -1631,6 +1695,7 @@ Reading the data adds to it, mostly on spinning disks.",
         // the spec (what the bridge was given) and the log beside the maps
         let spec_path = out.join("job.json");
         let _ = std::fs::write(&spec_path, serde_json::to_string_pretty(&spec).unwrap_or_default());
+        self.zeit_provenance(tool, &spec, &scope_name, &name, &out);
         let log = JobLog { path: out.join("job.log"), t0: Instant::now() };
         let mut params = serde_json::to_string(&spec.params).unwrap_or_default();
         if params.len() > 4000 {
