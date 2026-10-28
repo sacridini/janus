@@ -452,6 +452,7 @@ impl State {
             folder: folder_s,
             name: Some(name.clone()),
             keep_active: true,
+            sel: None,
             opened: false,
             ended: None,
         });

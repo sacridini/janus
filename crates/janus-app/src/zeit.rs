@@ -660,6 +660,17 @@ impl State {
             ui.close();
         }
         if ui
+            .add(egui::Button::selectable(self.speckle.show, "Speckle filter..."))
+            .on_hover_text(
+                "A radar series (Sentinel-1's VV and VH) through Quegan's multitemporal filter or Lee's:\n\
+                 less speckle, a new series of COGs",
+            )
+            .clicked()
+        {
+            self.speckle.show = !self.speckle.show;
+            ui.close();
+        }
+        if ui
             .add(egui::Button::selectable(self.warp.show, "Reproject, resample, clip..."))
             .on_hover_text(
                 "The active series or a run's map through gdalwarp: another CRS, pixel size or a layer's grid,\n\

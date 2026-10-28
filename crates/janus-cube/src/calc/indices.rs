@@ -49,6 +49,22 @@ static CATALOGUE: LazyLock<Catalogue> = LazyLock::new(|| {
                 .collect()
         })
         .unwrap_or_default();
+    let mut indices: Vec<SpectralIndex> = indices;
+    // a radar's backscatter in decibels, how it is looked at (not in the catalogue)
+    for (name, long_name, formula, roles) in [
+        ("VVdB", "VV backscatter in decibels", "10.0 * log10(VV)", &["VV"][..]),
+        ("VHdB", "VH backscatter in decibels", "10.0 * log10(VH)", &["VH"][..]),
+        ("VHVVdB", "VH-VV Ratio in decibels", "10.0 * log10(VH/VV)", &["VH", "VV"][..]),
+    ] {
+        indices.push(SpectralIndex {
+            name: name.into(),
+            long_name: long_name.into(),
+            domain: "radar".into(),
+            formula: formula.into(),
+            roles: roles.iter().map(|r| r.to_string()).collect(),
+            reference: "10 log10 of the linear backscatter (sigma0 or gamma0)".into(),
+        });
+    }
     Catalogue { indices, constants }
 });
 

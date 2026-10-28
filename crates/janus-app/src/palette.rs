@@ -55,6 +55,7 @@ pub(crate) enum Cmd {
     Tool(String),
     Calculator,
     Regularize,
+    Speckle,
     Warp,
     BuildSeries,
     SaveSeries,
@@ -271,6 +272,7 @@ impl State {
         };
         add(Cmd::Calculator, "Tools", "Raster calculator...", "", None);
         add(Cmd::Regularize, "Tools", "Regularize series...", "", None);
+        add(Cmd::Speckle, "Tools", "Speckle filter...", "radar Sentinel-1 Lee Quegan", None);
         add(Cmd::Warp, "Tools", "Reproject, resample, clip...", "", None);
         add(Cmd::BuildSeries, "File", "Build series...", "", None);
         add(Cmd::SaveSeries, "File", "Save series as...", "", need(self.session.is_some(), "no series open"));
@@ -584,6 +586,7 @@ impl State {
             }
             Cmd::Calculator => self.calc.show = true,
             Cmd::Regularize => self.reg.show = true,
+            Cmd::Speckle => self.speckle.show = true,
             Cmd::Warp => self.warp.show = true,
             Cmd::BuildSeries => self.build.show = true,
             Cmd::SaveSeries => self.save.show = true,

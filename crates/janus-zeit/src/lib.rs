@@ -36,6 +36,7 @@ pub mod series_io;
 mod smooth;
 pub mod snic;
 mod som;
+pub mod speckle;
 mod tmask;
 pub mod trend_test;
 mod twdtw;

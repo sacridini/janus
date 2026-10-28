@@ -1512,6 +1512,182 @@ impl State {
                 None
             }
             221 => {
+                // a radar's passes in the STAC window: the one with the most scenes kept, its days alone
+                let pass = |st: &str, r: i64, day: f64| janus_cube::stac::Item {
+                    id: format!("{st}{r}_{day}"),
+                    time: day * 86400.0,
+                    orbit_state: Some(st.into()),
+                    relative_orbit: Some(r),
+                    ..Default::default()
+                };
+                let sx = &mut self.stac;
+                sx.items = vec![
+                    pass("ascending", 10, 19300.0),
+                    pass("descending", 83, 19301.0),
+                    pass("descending", 83, 19313.0),
+                    pass("descending", 83, 19313.0),
+                ];
+                sx.orbits = janus_cube::stac::orbits(&sx.items);
+                sx.orbit = 0;
+                sx.regroup();
+                let days: Vec<usize> = sx.dates.iter().map(|d| d.0.items.len()).collect();
+                println!(
+                    "    passes: {:?}, the first kept: {days:?} scenes a day",
+                    sx.orbits.iter().map(|o| o.label()).collect::<Vec<_>>()
+                );
+                if sx.orbits.first().map(|o| o.label()).as_deref() != Some("descending 83") || days != [1, 2] {
+                    return fail("the pass with the most scenes kept, two days of it");
+                }
+                (sx.items, sx.orbits, sx.dates) = (Vec::new(), Vec::new(), Vec::new());
+                // a radar series of 6 dates (VV, VH, one look of speckle), a clearing where VH falls after the 3rd,
+                // opened as a STAC radar search opens: in dB
+                let dir = std::env::temp_dir().join(format!("janus_selftest_s1_{}", std::process::id()));
+                let _ = std::fs::remove_dir_all(&dir);
+                std::fs::create_dir_all(&dir).ok()?;
+                let (w, h) = (96usize, 64usize);
+                let wkt = gdal::spatial_ref::SpatialRef::from_epsg(32720).ok()?.to_wkt().ok()?;
+                let mut seed = 47u64;
+                let mut speck = |base: f64| -> f32 {
+                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    let u = ((seed >> 11) as f64 + 0.5) / (1u64 << 53) as f64;
+                    (base * -u.ln()) as f32
+                };
+                let drv = gdal::DriverManager::get_driver_by_name("GTiff").ok()?;
+                for t in 0..6 {
+                    let p = dir.join(format!("s1_2023{:02}01.tif", 2 * t + 1));
+                    let mut d = drv.create_with_band_type::<f32, _>(&p, w, h, 2).ok()?;
+                    d.set_geo_transform(&[494500.0, 10.0, 0.0, 9005150.0, 0.0, -10.0]).ok()?;
+                    d.set_projection(&wkt).ok()?;
+                    for b in 0..2 {
+                        let v: Vec<f32> = (0..w * h)
+                            .map(|i| {
+                                let cleared = t >= 3 && (i % w) >= 48 && (i / w) >= 32;
+                                speck(match (b, cleared) {
+                                    (0, _) => 0.1,
+                                    (_, false) => 0.03,
+                                    (_, true) => 0.006,
+                                })
+                            })
+                            .collect();
+                        let mut rb = d.rasterband(b + 1).ok()?;
+                        gdal::Metadata::set_description(&mut rb, ["VV", "VH"][b]).ok()?;
+                        let mut buf = gdal::raster::Buffer::new((w, h), v);
+                        rb.write((0, 0), (w, h), &mut buf).ok()?;
+                    }
+                }
+                let ix = janus_cube::calc::indices::find(janus_cube::stac::display_index("sentinel-1-rtc")?)?;
+                let sel = janus_cube::BandSelection {
+                    expr: janus_cube::calc::ExprId::intern(&ix.name, &ix.formula),
+                    chosen: true,
+                    ..Default::default()
+                };
+                let status = Arc::new(Mutex::new(crate::zeit::JobStatus {
+                    state: crate::zeit::JobState::Done,
+                    progress: 1.0,
+                    message: String::new(),
+                    error: String::new(),
+                    result: None,
+                    seconds: 0.0,
+                }));
+                self.emb_downloads.push(crate::emb_download::EmbDownload {
+                    title: "Radar".into(),
+                    status,
+                    started: std::time::Instant::now(),
+                    folder: dir.to_string_lossy().into_owned(),
+                    name: Some("Radar".into()),
+                    keep_active: false,
+                    sel: Some(sel),
+                    opened: false,
+                    ended: None,
+                });
+                st.texts = vec![dir.to_string_lossy().into_owned()];
+                next(st, "a radar series opened in dB (VV)");
+                None
+            }
+            222 | 223 => {
+                // 222: the radar series shown as VV in dB; 223: it filtered by Quegan's, shown so too
+                let name = if st.stage == 222 { "Radar" } else { "Radar filtered" };
+                let Some(k) = self.layers.iter().position(|l| l.name == name) else {
+                    if self
+                        .zeit
+                        .jobs
+                        .iter()
+                        .any(|j| j.tool == "speckle" && j.status.lock().unwrap().state == crate::zeit::JobState::Failed)
+                    {
+                        return fail("the speckle filter failed (Tools > Tasks > Log)");
+                    }
+                    return None;
+                };
+                if self.opening.is_some() || !super::loaded(self.layer_session(k)) {
+                    return None;
+                }
+                let info = self.layer_session(k)?.info.clone();
+                let (w, h) = (info.width, info.height);
+                let read = |t: usize, band: i32| -> Option<Vec<f32>> {
+                    let mut v = vec![0f32; w * h];
+                    let ok = janus_cube::with_thread_reader(&info, |r| {
+                        if band == 0 {
+                            r.read_window(t, (0, 0, w, h), &mut v, (w, h))
+                        } else {
+                            r.read_band_window(t, band, (0, 0, w, h), &mut v, (w, h))
+                        }
+                    });
+                    ok.then_some(v)
+                };
+                let (db, vv) = (read(1, 0)?, read(1, 1)?);
+                let off = db.iter().zip(&vv).map(|(d, v)| (d - 10.0 * v.log10()).abs()).fold(0f32, f32::max);
+                let cv = |v: &[f32]| {
+                    let n = v.len() as f64;
+                    let m = v.iter().map(|&x| f64::from(x)).sum::<f64>() / n;
+                    (v.iter().map(|&x| (f64::from(x) - m).powi(2)).sum::<f64>() / n).sqrt() / m
+                };
+                // VH in dB in the clearing (the lower right quarter) before and after
+                let quarter = |v: &[f32]| {
+                    let s: Vec<f64> = (0..w * h)
+                        .filter(|i| i % w >= 48 && i / w >= 32)
+                        .map(|i| 10.0 * f64::from(v[i]).log10())
+                        .collect();
+                    s.iter().sum::<f64>() / s.len() as f64
+                };
+                let fall = quarter(&read(4, 2)?) - quarter(&read(1, 2)?);
+                println!(
+                    "    {name}: {} dates of {:?}, shown as {}: {off:.1e} dB from 10 log10 VV; VV's variation {:.2}; the clearing's VH {fall:+.1} dB",
+                    info.t(),
+                    info.band_names,
+                    info.selection_text(),
+                    cv(&vv)
+                );
+                if info.selection_text() != "VVdB" || off > 1e-4 || info.t() != 6 {
+                    return fail("6 dates shown as VV in dB");
+                }
+                if st.stage == 222 {
+                    if (cv(&vv) - 1.0).abs() > 0.15 {
+                        return fail("one look of speckle: a variation of about 1");
+                    }
+                    self.speckle.filter = 0;
+                    self.speckle.size = 7;
+                    self.speckle.name = "Radar filtered".into();
+                    self.speckle_run(ctx);
+                    next(st, "the radar series in dB; Quegan's filter under way");
+                } else {
+                    // the speckle averaged over 6 dates and a 7 x 7 window, the clearing kept
+                    if cv(&vv) > 0.55 || fall > -5.0 {
+                        return fail("less speckle, the clearing's fall in VH kept");
+                    }
+                    for n in ["Radar filtered", "Radar"] {
+                        if let Some(i) = self.layers.iter().position(|l| l.name == n) {
+                            self.remove_layer(i, ctx);
+                        }
+                    }
+                    self.speckle.show = false;
+                    if let Some(dir) = st.texts.first() {
+                        let _ = std::fs::remove_dir_all(dir);
+                    }
+                    next(st, "Quegan's filter: the speckle averaged, the clearing kept, shown in dB");
+                }
+                None
+            }
+            224 => {
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

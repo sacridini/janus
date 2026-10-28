@@ -59,6 +59,7 @@ mod settings;
 mod shots;
 mod shots_ml;
 mod shots_validation;
+mod speckle_ui;
 mod stac;
 mod status;
 mod style;

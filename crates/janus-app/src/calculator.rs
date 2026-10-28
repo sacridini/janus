@@ -1470,6 +1470,7 @@ impl State {
             name: Some(name.clone()),
             // the layer the expression was written on stays active
             keep_active: true,
+            sel: None,
             opened: false,
             ended: None,
         });

@@ -448,6 +448,7 @@ pub struct State {
     pub zonal: crate::zonal_ui::ZonalUi,
     pub build: crate::series_ui::BuildUi,
     pub save: crate::series_ui::SaveUi,
+    pub speckle: crate::speckle_ui::SpeckleUi,
     /// the status bar and the notices of tasks that end
     pub status: crate::status::StatusUi,
     /// the command palette (Ctrl+K)
@@ -815,6 +816,7 @@ impl JanusApp {
                 zonal: Default::default(),
                 build: Default::default(),
                 save: Default::default(),
+                speckle: Default::default(),
                 status: Default::default(),
                 palette: Default::default(),
                 nav: Default::default(),
@@ -2170,6 +2172,7 @@ impl eframe::App for JanusApp {
         self.state.stac_window(&ctx);
         self.state.calculator_window(&ctx);
         self.state.regularize_window(&ctx);
+        self.state.speckle_window(&ctx);
         self.state.polygonize_window(&ctx);
         self.state.pump_areas();
         self.state.warp_window(&ctx);

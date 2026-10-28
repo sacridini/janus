@@ -67,6 +67,8 @@ pub struct EmbDownload {
     pub name: Option<String>,
     /// the active layer stays active when it is added (embeddings beside the series studied)
     pub keep_active: bool,
+    /// what the series is shown as when it opens (a radar's dB; None: as its files say)
+    pub sel: Option<janus_cube::BandSelection>,
     pub opened: bool,
     pub ended: Option<Instant>,
 }
@@ -261,6 +263,7 @@ impl State {
             folder,
             name: None,
             keep_active: true,
+            sel: None,
             opened: false,
             ended: None,
         });
@@ -277,14 +280,21 @@ impl State {
             }
             if st == JobState::Done && !d.opened && open.is_none() && self.opening.is_none() {
                 d.opened = true;
-                open = Some((d.folder.clone(), d.name.clone(), d.keep_active));
+                open = Some((d.folder.clone(), d.name.clone(), d.keep_active, d.sel));
             }
         }
-        if let Some((folder, name, keep)) = open {
+        if let Some((folder, name, keep, sel)) = open {
             if keep && !self.layers.is_empty() {
                 self.zeit.keep_active = Some(self.active);
             }
-            self.open_inputs(vec![folder], true, ctx);
+            match sel {
+                Some(sel) => {
+                    self.error = None;
+                    let add = !self.layers.is_empty();
+                    self.opening = Some(crate::session::Opening::start_with(vec![folder], add, sel, ctx));
+                }
+                None => self.open_inputs(vec![folder], true, ctx),
+            }
             if let Some(o) = self.opening.as_mut() {
                 o.name = name;
             }

@@ -954,6 +954,25 @@ nova.
   CUSUM e BEAST no dB funcionam como estão.
 - **Teste/comparação:** os valores em dB contra o `stackstac` + `numpy` no
   mesmo item; uma área de desmatamento conhecido no guia.
+- **Feito (2026-10-29):** `crates/janus-cube/src/stac.rs` (a coleção
+  `sentinel-1-rtc` no Planetary Computer, bandas VV e VH; `sat:orbit_state` e
+  `sat:relative_orbit` lidos; `orbits` agrupa as cenas por passagem, a de mais cenas
+  primeiro; sem filtro de nuvens; uma `proj:transform` que não aponta para o norte não
+  é confiada: os itens do RTC desde outubro de 2024 dão a grade de cabeça para baixo e
+  224 km fora, com os arquivos certos, e a grade passa a ser lida do arquivo),
+  `calc/indices.rs` (VVdB, VHdB e VHVVdB ao lado dos índices de radar da biblioteca),
+  `crates/janus-zeit/src/speckle.rs` (Quegan multitemporal e Lee com L looks; janelas
+  cortadas nas bordas, só os pixels com valor, somas por colunas e linhas; em blocos de
+  linhas com as margens nos threads; um COG por data), `speckle_ui.rs` (Tools → Speckle
+  filter, também na paleta), na janela do STAC a escolha da **passagem** e a série aberta
+  em dB (o `EmbDownload` leva a seleção de bandas); guia `site/stac.html` seção 09.
+  `tools/bench_s1_vs_stackstac.py` → `bench/s1-vs-stackstac.json`: o quadrado do guia em
+  Rondônia, 2024, 24 cenas da passagem descendente 83, 877 × 886. VV em dB lido inteiro
+  em 3,9 s, igual ao `stackstac` + `numpy` em todos os 18,6 milhões de pixels e ao
+  `rasterio` numa cena (diferença 0); o `stackstac` levou 5,0 s. Speckle 7 × 7 nas 24
+  datas e 2 bandas: Quegan 1,7 s (com os COGs) contra 2,1 s do `scipy.ndimage` só na
+  conta, Lee 1,7 s contra 2,3 s, a 1,3e-7 e 2,4e-7. O desmatamento: manchas de 10–12 ha
+  (62,966° O, 9,982° S) com VH em −13 dB até maio e −20 dB em setembro.
 
 ### Interface: trabalho do dia a dia (fases 48–55, pedidas em 2026-10-28)
 
@@ -1149,7 +1168,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 | 44 | — | **Rasterizar vetores** na grade da série (atributo, índice, máscara) | concluída (sem versão): Rasterize on the series' grid no menu da camada vetorial (1/0, número do elemento, atributo; texto como classes com nomes e cores; centro ou *all touched*); a camada serve de máscara das ferramentas do Zeit (*Only where X is not 0*); `janus_zeit::rasterize`; igual pixel a pixel ao `gdal_rasterize` e ao rasterio; 1,1× (máscara Byte) a 33× mais rápido que o `gdal_rasterize` no mesmo tipo, 4–6× que o rasterio |
 | 45 | — | **Estatística zonal no tempo** (série por polígono, área por classe e por ano de mudança) | concluída (sem versão): Zonal statistics over time no menu da camada vetorial (valores: n, média, desvio, mínimo, p10–p90, máximo; classes: área por data e transições; mapas de datas: área por ano); CSV longo e largo, GeoPackage com as colunas, aba Analysis > Zonal; `janus_zeit::zonal`; igual ao `rasterstats` (35× mais rápido) e 11× mais rápido que o `exactextractr` |
 | 46 | — | **Montar uma série** de arquivos soltos e **salvar a série** (COG multibanda, NetCDF/Zarr) | concluída (sem versão): File → Build series (data do nome, bandas e tiles pela chave, VRTs ou COGs) e Save series as (COG multibanda, NetCDF CF, Zarr; camada, visível ou ROI); `janus_zeit::series_io`; VRTs 5× mais rápido que o `gdalbuildvrt`, COGs 2,5× que o `gdal_translate`, valores iguais; NetCDF 1,7× e Zarr 2,1× mais rápido que o `xarray`, que os lê com os mesmos valores e datas |
-| 47 | — | **Sentinel-1** pelo STAC (RTC do Planetary Computer, órbita, dB, speckle) | planejada |
+| 47 | — | **Sentinel-1** pelo STAC (RTC do Planetary Computer, órbita, dB, speckle) | concluída (sem versão): Sentinel-1 RTC (VV, VH) na janela do STAC, a passagem de mais cenas escolhida (direção e órbita relativa), aberta em dB (VVdB; VHdB, VHVVdB e os índices de radar no Display); Tools → Speckle filter (Quegan multitemporal, Lee); `janus_zeit::speckle`; dB igual ao `stackstac` e ao `rasterio` pixel a pixel; filtros iguais ao `scipy` a 2e-7, mais rápidos; guia com o desmatamento de 2024 no quadrado de Rondônia |
 | 48 | — | **Barra de status e avisos** (coordenadas, valor, CRS, escala, tarefas; aviso ao terminar, atenção do sistema) | concluída (sem versão) |
 | 49 | — | **Paleta de comandos** (`Ctrl+K`: menus, ferramentas, índices, camadas, painéis) | concluída (sem versão) |
 | 50 | — | **Painel Layers**: modos de mistura, grupos, copiar/colar estilo, estilos salvos | concluída (sem versão) |

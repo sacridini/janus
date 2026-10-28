@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use egui::{Ui, vec2};
-use janus_cube::stac::{self, BandChoice, CATALOGS, DateGroup, Item, Search};
+use janus_cube::stac::{self, BandChoice, CATALOGS, DateGroup, Item, Orbit, Search};
 use janus_cube::stac_vrt::{self, BuildSpec};
 
 use crate::app::State;
@@ -58,6 +58,10 @@ pub struct StacUi {
     pub error: String,
     pub bands: Vec<(BandChoice, bool)>,
     pub dates: Vec<(DateGroup, bool)>,
+    /// a radar's passes over the area (sat:orbit_state, sat:relative_orbit), the most scenes first
+    pub orbits: Vec<Orbit>,
+    /// the pass kept (orbits.len(): all of them)
+    pub orbit: usize,
     /// a search to start (--stac)
     start_pending: bool,
     /// its series opened once found (--stac-open)
@@ -91,6 +95,8 @@ impl Default for StacUi {
             error: String::new(),
             bands: Vec::new(),
             dates: Vec::new(),
+            orbits: Vec::new(),
+            orbit: 0,
             start_pending: false,
             open_after: false,
         }
@@ -127,6 +133,15 @@ impl StacUi {
     /// Nothing under way: the search answered (or none was asked for).
     pub fn settled(&self) -> bool {
         !self.start_pending && self.searching.is_none() && self.listing.is_none()
+    }
+
+    /// The dates of the items of the pass kept (all the items without passes), all ticked.
+    pub(crate) fn regroup(&mut self) {
+        let groups = match self.orbits.get(self.orbit) {
+            Some(o) => stac::group_by_day_of(&self.items, &o.items),
+            None => stac::group_by_day(&self.items),
+        };
+        self.dates = groups.into_iter().map(|g| (g, true)).collect();
     }
 
     fn url(&self) -> String {
@@ -194,7 +209,6 @@ impl State {
                         let choices = stac::band_choices(&items);
                         let on = stac::default_bands(&choices, s.preset().map(|p| p.bands));
                         s.bands = choices.into_iter().map(|c| (c.clone(), on.contains(&c.key))).collect();
-                        s.dates = stac::group_by_day(&items).into_iter().map(|g| (g, true)).collect();
                         s.error = if items.is_empty() {
                             "nothing found: another area, more dates or more clouds".into()
                         } else {
@@ -202,6 +216,10 @@ impl State {
                         };
                         s.items = items;
                         s.searched = Some(search);
+                        // a radar's most frequent pass: one geometry through the series
+                        s.orbits = stac::orbits(&s.items);
+                        s.orbit = 0;
+                        s.regroup();
                     }
                     Err(e) if e == "cancelled" => {}
                     Err(e) => s.error = e,
@@ -240,7 +258,7 @@ impl State {
             bbox,
             start: s.start.trim().to_string(),
             end: s.end.trim().to_string(),
-            max_cloud: (s.max_cloud < 100.0).then_some(s.max_cloud),
+            max_cloud: (s.max_cloud < 100.0 && stac::has_clouds(&s.collection)).then_some(s.max_cloud),
             max_items: MAX_ITEMS,
         };
         let (tx, rx) = std::sync::mpsc::channel();
@@ -274,6 +292,15 @@ impl State {
         let items: Vec<Item> =
             s.dates.iter().filter(|d| d.1).flat_map(|d| d.0.items.iter().map(|&i| s.items[i].clone())).collect();
         let n_dates = s.dates.iter().filter(|d| d.1).count();
+        let orbit = s.orbits.get(s.orbit).map(Orbit::label);
+        // a radar's series shown in dB (VV) as it opens
+        let sel = stac::display_index(&search.collection).and_then(janus_cube::calc::indices::find).map(|ix| {
+            janus_cube::BandSelection {
+                expr: janus_cube::calc::ExprId::intern(&ix.name, &ix.formula),
+                chosen: true,
+                ..Default::default()
+            }
+        });
         let res = RESOLUTIONS[s.res.min(RESOLUTIONS.len() - 1)];
         let name = s.series_name(&search);
         let first = s.dates.iter().find(|d| d.1).map(|d| d.0.day).unwrap_or(0);
@@ -314,6 +341,9 @@ impl State {
             if res > 0.0 { format!("{res} m") } else { "the finest of the bands".into() },
             folder.display()
         ));
+        if let Some(o) = &orbit {
+            log.line(&format!("pass: {o}"));
+        }
         let log_path = log.path.to_string_lossy().into_owned();
         let status = Arc::new(Mutex::new(JobStatus {
             state: JobState::Running,
@@ -406,6 +436,7 @@ impl State {
             folder,
             name: Some(name),
             keep_active: false,
+            sel,
             opened: false,
             ended: None,
         });
@@ -547,8 +578,12 @@ impl State {
             ui.label("to");
             ui.add(egui::TextEdit::singleline(&mut s.end).desired_width(90.0)).on_hover_text("YYYY-MM-DD, inclusive");
         });
-        ui.add(egui::Slider::new(&mut s.max_cloud, 0.0..=100.0).fixed_decimals(0).suffix(" %").text("clouds at most"))
+        if stac::has_clouds(&s.collection) {
+            ui.add(
+                egui::Slider::new(&mut s.max_cloud, 0.0..=100.0).fixed_decimals(0).suffix(" %").text("clouds at most"),
+            )
             .on_hover_text("The scenes' cloud cover (eo:cloud_cover), as the catalog gives it; 100: all");
+        }
         let dates_ok = stac::parse_time(&s.start).zip(stac::parse_time(&s.end)).is_some_and(|(a, b)| a <= b);
         if !dates_ok {
             ui.colored_label(theme::warning(), "dates as YYYY-MM-DD, the first not after the last");
@@ -581,6 +616,32 @@ impl State {
             return;
         }
         crate::panels::section(ui, "Dates");
+        if !s.orbits.is_empty() {
+            let label = |o: &Orbit| format!("{} ({} scenes)", o.label(), o.items.len());
+            let shown = s.orbits.get(s.orbit).map_or("all passes (mixed)".to_string(), label);
+            let mut pick = s.orbit;
+            ui.horizontal(|ui| {
+                ui.label("Pass");
+                egui::ComboBox::from_id_salt("stac orbit")
+                    .selected_text(shown)
+                    .show_ui(ui, |ui| {
+                        for (i, o) in s.orbits.iter().enumerate() {
+                            ui.selectable_value(&mut pick, i, label(o));
+                        }
+                        ui.selectable_value(&mut pick, s.orbits.len(), "all passes (mixed)");
+                    })
+                    .response
+                    .on_hover_text(
+                        "The satellite's direction (ascending or descending) and relative orbit: scenes of one\n\
+                     pass see the ground from the same side and angle. Mixing passes makes false steps\n\
+                     in the series; the pass with the most scenes is kept at first.",
+                    );
+            });
+            if pick != s.orbit {
+                s.orbit = pick;
+                s.regroup();
+            }
+        }
         let ticked = s.dates.iter().filter(|d| d.1).count();
         ui.label(format!("{} scenes on {} dates; {ticked} ticked", s.items.len(), s.dates.len()));
         ui.horizontal(|ui| {
@@ -590,10 +651,11 @@ impl State {
             if ui.small_button("None").clicked() {
                 s.dates.iter_mut().for_each(|d| d.1 = false);
             }
-            if ui
-                .small_button("Clearest (< 10%)")
-                .on_hover_text("Only the dates whose scenes have less than 10% of clouds on average")
-                .clicked()
+            if s.dates.iter().any(|d| d.0.cloud.is_some())
+                && ui
+                    .small_button("Clearest (< 10%)")
+                    .on_hover_text("Only the dates whose scenes have less than 10% of clouds on average")
+                    .clicked()
             {
                 s.dates.iter_mut().for_each(|d| d.1 = d.0.cloud.is_none_or(|c| c < 10.0));
             }

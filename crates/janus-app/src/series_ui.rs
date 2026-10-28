@@ -300,6 +300,7 @@ impl State {
             folder: folder_s,
             name: Some(name.clone()),
             keep_active: false,
+            sel: None,
             opened: false,
             ended: None,
         });
@@ -465,6 +466,7 @@ impl State {
                 folder: out.to_string_lossy().into_owned(),
                 name: Some(format!("{layer} saved")),
                 keep_active: true,
+                sel: None,
                 opened: false,
                 ended: None,
             });

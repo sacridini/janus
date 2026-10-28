@@ -50,8 +50,8 @@ pub const CATALOGS: [Catalog; 3] = [
         id: "planetary-computer",
         name: "Planetary Computer (Microsoft)",
         url: "https://planetarycomputer.microsoft.com/api/stac/v1",
-        help: "Microsoft's catalog: Sentinel-2 and Landsat as cloud-optimized GeoTIFFs on Azure, read with \
-               short-lived tokens (SAS) that Janus asks for and renews, without an account.",
+        help: "Microsoft's catalog: Sentinel-2, Landsat and Sentinel-1 as cloud-optimized GeoTIFFs on Azure, read \
+               with short-lived tokens (SAS) that Janus asks for and renews, without an account.",
         collections: &[
             Collection {
                 id: "sentinel-2-l2a",
@@ -66,6 +66,13 @@ pub const CATALOGS: [Catalog; 3] = [
                 bands: &["blue", "green", "red", "nir08", "swir16", "swir22", "qa_pixel"],
                 help: "Surface reflectance of Landsat 4 to 9, 30 m, every 8 to 16 days (1982 on); QA_PIXEL masks \
                        clouds",
+            },
+            Collection {
+                id: "sentinel-1-rtc",
+                name: "Sentinel-1 RTC (radar)",
+                bands: &["vv", "vh"],
+                help: "Radar backscatter (gamma0, linear) in VV and VH, corrected for the terrain, 10 m, every 6 \
+                       to 12 days (2014 on): through the clouds. Shown in dB; keep one orbit",
             },
         ],
     },
@@ -145,6 +152,9 @@ pub struct Item {
     pub time: f64,
     pub cloud: Option<f64>,
     pub platform: String,
+    /// a radar's pass: "ascending" or "descending" (sat:orbit_state), and its relative orbit (sat:relative_orbit)
+    pub orbit_state: Option<String>,
+    pub relative_orbit: Option<i64>,
     /// the tile it belongs to (MGRS, WRS-2 path/row, a cube's tile; else its id): items of a tile share a grid
     pub tile: String,
     /// its CRS: "EPSG:n" or WKT2 (None: read from its files)
@@ -179,10 +189,12 @@ fn gdal_type(t: &str) -> Option<String> {
     Some(n.into())
 }
 
-/// STAC's proj:transform (x = a col + b row + c, y = d col + e row + f) as a GDAL geotransform.
+/// STAC's proj:transform (x = a col + b row + c, y = d col + e row + f) as a GDAL geotransform. Only a north-up
+/// one is trusted: some of Planetary Computer's Sentinel-1 RTC items (from October 2024) give their files' grid
+/// south-up and 224 km off, when the files are north-up; such an item's grid is read from its file.
 fn geotransform(v: &Value) -> Option<[f64; 6]> {
     let t: Vec<f64> = v.as_array()?.iter().filter_map(Value::as_f64).collect();
-    (t.len() >= 6).then(|| [t[2], t[0], t[1], t[5], t[3], t[4]])
+    (t.len() >= 6 && t[0] > 0.0 && t[4] < 0.0).then(|| [t[2], t[0], t[1], t[5], t[3], t[4]])
 }
 
 fn shape(v: &Value) -> Option<[usize; 2]> {
@@ -250,6 +262,8 @@ pub fn parse_item(f: &Value) -> Option<Item> {
         time,
         cloud: p.get("eo:cloud_cover").and_then(Value::as_f64),
         platform: s("platform").unwrap_or_default(),
+        orbit_state: s("sat:orbit_state"),
+        relative_orbit: p.get("sat:relative_orbit").and_then(Value::as_i64),
         tile,
         crs: crs(p),
         shape: p.get("proj:shape").and_then(shape),
@@ -465,6 +479,8 @@ pub fn band_choices(items: &[Item]) -> Vec<BandChoice> {
                     }
                 }
                 _ if quality == QaRule::Scl => "SCL (scene classification)".into(),
+                // a radar's polarizations
+                _ if ["vv", "vh", "hh", "hv"].contains(&key.to_ascii_lowercase().as_str()) => key.to_uppercase(),
                 _ if quality == QaRule::LandsatC2 => "QA_PIXEL".into(),
                 _ => key.clone(),
             };
@@ -525,9 +541,14 @@ pub struct DateGroup {
 }
 
 pub fn group_by_day(items: &[Item]) -> Vec<DateGroup> {
+    group_by_day_of(items, &(0..items.len()).collect::<Vec<_>>())
+}
+
+/// The days of some of the items (`which`, indices into them).
+pub fn group_by_day_of(items: &[Item], which: &[usize]) -> Vec<DateGroup> {
     let mut by: BTreeMap<i64, Vec<usize>> = BTreeMap::new();
-    for (i, it) in items.iter().enumerate() {
-        by.entry(it.day()).or_default().push(i);
+    for &i in which {
+        by.entry(items[i].day()).or_default().push(i);
     }
     by.into_iter()
         .map(|(day, idx)| {
@@ -536,6 +557,48 @@ pub fn group_by_day(items: &[Item]) -> Vec<DateGroup> {
             DateGroup { day, items: idx, cloud }
         })
         .collect()
+}
+
+/// A radar's pass over the area: its direction and relative orbit, the items of it. Scenes of one pass see the
+/// ground from the same side and angle; mixing passes makes false steps in a series.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Orbit {
+    pub state: String,
+    pub relative: Option<i64>,
+    pub items: Vec<usize>,
+}
+
+impl Orbit {
+    /// "descending 83"
+    pub fn label(&self) -> String {
+        match self.relative {
+            Some(r) => format!("{} {r}", self.state),
+            None => self.state.clone(),
+        }
+    }
+}
+
+/// The passes of the items that have one (sat:orbit_state), the most items first; empty when none has.
+pub fn orbits(items: &[Item]) -> Vec<Orbit> {
+    let mut by: BTreeMap<(String, Option<i64>), Vec<usize>> = BTreeMap::new();
+    for (i, it) in items.iter().enumerate() {
+        if let Some(st) = &it.orbit_state {
+            by.entry((st.clone(), it.relative_orbit)).or_default().push(i);
+        }
+    }
+    let mut v: Vec<Orbit> = by.into_iter().map(|((state, relative), items)| Orbit { state, relative, items }).collect();
+    v.sort_by(|a, b| b.items.len().cmp(&a.items.len()).then(a.label().cmp(&b.label())));
+    v
+}
+
+/// What a collection's series is shown as when it opens (an index of the library): a radar's VV in dB.
+pub fn display_index(collection: &str) -> Option<&'static str> {
+    collection.to_ascii_lowercase().starts_with("sentinel-1").then_some("VVdB")
+}
+
+/// Whether a collection's scenes have a cloud cover to filter by (a radar's do not).
+pub fn has_clouds(collection: &str) -> bool {
+    !collection.to_ascii_lowercase().starts_with("sentinel-1")
 }
 
 /// A GeoJSON FeatureCollection of the items' footprints (id, date, clouds), for a vector layer.
@@ -779,5 +842,29 @@ mod tests {
             "/vsiaz/sentinel2-l2/20/B04.tif"
         );
         assert_eq!(asset_path("https://h/x/B04.tif", false), "/vsicurl/https://h/x/B04.tif");
+    }
+
+    /// Sentinel-1 RTC: its passes read, the most frequent first; the polarizations named as such; shown in dB.
+    #[test]
+    fn radar_passes() {
+        let mut f = feature();
+        f["properties"]["sat:orbit_state"] = json!("descending");
+        f["properties"]["sat:relative_orbit"] = json!(83);
+        let it = parse_item(&f).unwrap();
+        assert_eq!((it.orbit_state.as_deref(), it.relative_orbit), (Some("descending"), Some(83)));
+        let pass = |st: &str, r: i64| Item { orbit_state: Some(st.into()), relative_orbit: Some(r), ..it.clone() };
+        let items =
+            vec![pass("ascending", 10), pass("descending", 83), pass("descending", 83), Item { ..Default::default() }];
+        let o = orbits(&items);
+        assert_eq!(o.len(), 2);
+        assert_eq!((o[0].label(), o[0].items.clone()), ("descending 83".to_string(), vec![1, 2]));
+        assert_eq!(group_by_day_of(&items, &o[1].items).len(), 1);
+        assert!(orbits(&items[3..]).is_empty());
+        assert_eq!(display_index("sentinel-1-rtc"), Some("VVdB"));
+        // a south-up proj:transform is not trusted (the file's grid is read instead)
+        assert_eq!(geotransform(&json!([10.0, 0.0, 339780.0, 0.0, -10.0, 9016350.0])).map(|g| g[3]), Some(9016350.0));
+        assert!(geotransform(&json!([10.0, 0.0, 339779.26, 0.0, 10.0, 8792067.35, 0.0, 0.0, 1.0])).is_none());
+        assert!(!has_clouds("sentinel-1-rtc") && has_clouds("sentinel-2-l2a"));
+        assert!(crate::calc::indices::find("VVdB").is_some_and(|i| i.formula == "10.0 * log10(VV)"));
     }
 }
