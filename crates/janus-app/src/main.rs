@@ -35,6 +35,7 @@ mod measure_vectors;
 mod ml;
 mod open;
 mod order;
+mod palette;
 mod panels;
 mod platform;
 mod python;
@@ -155,6 +156,7 @@ Developer options:
                       index of the Awesome Spectral Indices by name (EVI, NDWI, NBR...)
   --calc TEXT         Tools > Raster calculator open with TEXT (statements apart by ;)
   --calc-run          and run once the layers are open: its result added as a layer
+  --palette TEXT      the command palette open with TEXT typed (screenshots)
   --validation-tab N  a validation project (a .gpkg input) on tab N of its panel (0 Design, 1 Accuracy,
                       2 Maps, 3 Interpreters, 4 Report)
   --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation
@@ -418,6 +420,7 @@ fn main() -> eframe::Result<()> {
             "--expr" => opts.expr = args.next(),
             "--calc" => opts.calc = args.next(),
             "--calc-run" => opts.calc_run = true,
+            "--palette" => opts.palette = args.next(),
             "--view" => {
                 let v: Vec<f64> =
                     args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();

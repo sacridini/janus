@@ -269,6 +269,8 @@ pub struct Options {
     pub calc: Option<String>,
     /// --calc-run: and run once the layers are open
     pub calc_run: bool,
+    /// --palette TEXT: the command palette open with TEXT typed
+    pub palette: Option<String>,
     /// --selftest-reproject B F: F reprojected on B's grid
     pub selftest_reproject: bool,
     /// --selftest-multidim H/clim.nc: a NetCDF of two variables, its levels, opened in place
@@ -430,6 +432,8 @@ pub struct State {
     pub calc: crate::calculator::CalcUi,
     /// the status bar and the notices of tasks that end
     pub status: crate::status::StatusUi,
+    /// the command palette (Ctrl+K)
+    pub palette: crate::palette::PaletteUi,
     pub chart: crate::chart::ChartOptions,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
@@ -492,6 +496,8 @@ const HELP: &str = "Open (each opens as a new layer of the map): Ctrl+O (files),
       there are several; File > Close all starts again
 Command line: jn <folder | file.tif | pattern_*.tif | https://.../cog.tif ...>
 Settings: Ctrl+, (theme, font size, processing threads, memory and caches)
+Command palette: Ctrl+K or Ctrl+Shift+P (every command by name: menus, tools,
+      indices, layers, panels; arrows and Enter)
 Reset layout: Ctrl+Shift+R
 Updates: Help > Check for updates (the version you use: Help > About Janus)
 
@@ -755,6 +761,7 @@ impl JanusApp {
                 stac: Default::default(),
                 calc: Default::default(),
                 status: Default::default(),
+                palette: Default::default(),
                 val: Default::default(),
                 ml: Default::default(),
                 contents: Default::default(),
@@ -822,6 +829,10 @@ impl JanusApp {
             eprintln!("--stac: {e}");
         }
         app.state.stac.open_after = app.state.opts.stac_open;
+        if let Some(text) = app.state.opts.palette.clone() {
+            app.state.toggle_palette();
+            app.state.palette.set_query(&text);
+        }
         if let Some(text) = app.state.opts.calc.clone() {
             app.state.calc.text = text;
             app.state.calc.show = true;
@@ -1299,6 +1310,10 @@ impl State {
         if chord(shift_cmd, Key::R) {
             act.reset_layout = true;
         }
+        // the command palette, also over a text field (its own field has the keyboard while it is open)
+        if chord(Modifiers::COMMAND, Key::K) || chord(shift_cmd, Key::P) {
+            self.toggle_palette();
+        }
         // the Layers list clicked last: Delete or Ctrl+D closes the layers selected on it (taken from the map's pins
         // and the ROI's vertices)
         if self.contents.focused
@@ -1443,6 +1458,14 @@ impl State {
                 }
             });
             ui.menu_button("View", |ui| {
+                if ui
+                    .add(egui::Button::new("Command palette...").shortcut_text("Ctrl+K"))
+                    .on_hover_text("Search every command: menus, tools, indices, layers, panels")
+                    .clicked()
+                {
+                    self.toggle_palette();
+                }
+                ui.separator();
                 if item(ui, "Fit map to window", "F", has) {
                     self.map.fit();
                 }
@@ -1812,6 +1835,9 @@ impl eframe::App for JanusApp {
         egui::Panel::bottom("status")
             .frame(theme::status_bar_frame(ui.style()))
             .show(ui, |ui| self.state.status_bar_ui(ui));
+        let asked = self.state.palette_ui(&ctx);
+        act.reset_layout |= asked.reset_layout;
+        act.toggle_performance |= asked.toggle_performance;
         if act.toggle_performance {
             // the Performance panel, off by default, as a tab next to Display
             match self.dock.find_tab(&Tab::Performance) {

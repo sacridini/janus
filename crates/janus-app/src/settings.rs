@@ -41,6 +41,8 @@ pub struct Settings {
     pub ffmpeg: String,
     pub interpreter: String,
     pub favorites: Vec<String>,
+    /// the command palette's commands used last, newest first
+    pub palette_recent: Vec<String>,
 }
 
 impl Settings {
@@ -81,6 +83,7 @@ impl Default for Settings {
             ffmpeg: String::new(),
             interpreter: String::new(),
             favorites: Vec::new(),
+            palette_recent: Vec::new(),
         }
     }
 }
@@ -156,6 +159,7 @@ pub fn parse(text: &str) -> (Settings, BasemapSetting) {
             ("janus", "PanelOpacity") => s.panel_opacity = int().unwrap_or(100).clamp(10, 100) as f32 / 100.0,
             ("janus", "WindowOpacity") => s.window_opacity = int().unwrap_or(100).clamp(20, 100) as f32 / 100.0,
             ("janus", "Favorite") if !v.is_empty() => s.favorites.push(v.to_string()),
+            ("janus", "PaletteRecent") if !v.is_empty() => s.palette_recent.push(v.to_string()),
             ("janus", "Theme") => {
                 if let Some(i) = theme::NAMES.iter().position(|n| *n == v) {
                     s.theme = i;
@@ -212,6 +216,9 @@ pub fn to_ini(s: &Settings, b: &crate::basemap::BasemapUi) -> String {
     }
     for f in &s.favorites {
         out += &format!("Favorite={f}\n");
+    }
+    for c in &s.palette_recent {
+        out += &format!("PaletteRecent={c}\n");
     }
     out += &format!(
         "\n[JanusBasemap][Settings]\nSource={}\nOpacity={:.2}\nUrl={}\nMaxZoom={}\nTileSize={}\nAttribution={}\n\n",
