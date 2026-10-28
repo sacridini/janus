@@ -38,7 +38,7 @@ pub struct Polygonized {
 }
 
 /// GDAL's last error message.
-fn last_error() -> String {
+pub(crate) fn last_error() -> String {
     // SAFETY: GDAL's error state of this thread.
     unsafe {
         let m = gdal_sys::CPLGetLastErrorMsg();

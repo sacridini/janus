@@ -1183,6 +1183,74 @@ impl State {
                 None
             }
             209 => {
+                // the land cover warped with its own CRS and pixel: the same grid, the same values
+                let w = &mut self.warp;
+                (w.source, w.target, w.pixel_on, w.area, w.format, w.resampling) = (None, 0, false, 0, 0, None);
+                (w.nodata_on, w.data_type) = (false, 0);
+                w.name = "Warped same".into();
+                self.warp_run(ctx);
+                next(st, "the land cover warped onto its own grid (COGs)");
+                None
+            }
+            210 | 211 => {
+                let name = if st.stage == 210 { "Warped same" } else { "Warped lonlat" };
+                let Some(k) = self.layers.iter().position(|l| l.name == name) else {
+                    if self
+                        .zeit
+                        .jobs
+                        .iter()
+                        .any(|j| j.tool == "warp" && j.status.lock().unwrap().state == crate::zeit::JobState::Failed)
+                    {
+                        return fail("the warp failed (Tools > Tasks > Log)");
+                    }
+                    return None;
+                };
+                if self.opening.is_some() || !super::loaded(self.layer_session(k)) {
+                    return None;
+                }
+                let src = self.session.as_ref()?.info.clone();
+                let out = self.layer_session(k)?.info.clone();
+                let srs = gdal::spatial_ref::SpatialRef::from_wkt(&out.crs_wkt).ok()?;
+                println!(
+                    "    {name}: {} dates of {} x {} px, {} ({})",
+                    out.t(),
+                    out.width,
+                    out.height,
+                    out.crs_name,
+                    std::path::Path::new(&out.layers[0].path).extension()?.to_string_lossy()
+                );
+                if out.t() != src.t() {
+                    return fail("a warped date per date");
+                }
+                if st.stage == 210 {
+                    if (out.width, out.height) != (src.width, src.height) || out.geo_transform != src.geo_transform {
+                        return fail("the same CRS and pixel should give the same grid");
+                    }
+                    let pin = self.series.pins.first()?.clone();
+                    for t in 0..out.t() {
+                        let v = janus_cube::with_thread_reader(&out, |r| r.read_pixel(t, pin.x, pin.y))?;
+                        if v != pin.values[t] && !(v.is_nan() && pin.values[t].is_nan()) {
+                            return fail("the same grid should keep every value");
+                        }
+                    }
+                    self.remove_layer(k, ctx);
+                    let w = &mut self.warp;
+                    (w.target, w.format) = (1, 2);
+                    w.srs = "EPSG:4326".into();
+                    w.name = "Warped lonlat".into();
+                    self.warp_run(ctx);
+                    next(st, "warped onto its own grid: every value kept; then to EPSG:4326, virtual");
+                } else {
+                    if !srs.is_geographic() || !out.layers[0].path.ends_with(".vrt") {
+                        return fail("warped VRTs in longitudes and latitudes expected");
+                    }
+                    self.remove_layer(k, ctx);
+                    self.warp.show = false;
+                    next(st, "warped to longitudes and latitudes as VRTs, opened as a series");
+                }
+                None
+            }
+            212 => {
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

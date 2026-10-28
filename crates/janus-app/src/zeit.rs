@@ -657,6 +657,17 @@ impl State {
             self.reg.show = !self.reg.show;
             ui.close();
         }
+        if ui
+            .add(egui::Button::selectable(self.warp.show, "Reproject, resample, clip..."))
+            .on_hover_text(
+                "The active series or a run's map through gdalwarp: another CRS, pixel size or a layer's grid,\n\
+                 the visible area, the ROI or a vector layer's polygons; COGs, GeoTIFFs or virtual (VRTs)",
+            )
+            .clicked()
+        {
+            self.warp.show = !self.warp.show;
+            ui.close();
+        }
         if ui.add(egui::Button::selectable(self.zeit.show_tasks, "Tasks")).clicked() {
             self.zeit.show_tasks = !self.zeit.show_tasks;
             ui.close();

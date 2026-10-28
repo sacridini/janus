@@ -1,0 +1,50 @@
+{
+  "lonlat": {
+    "janus_s": 2.1283251,
+    "gdalwarp_s": 2.0907741999981226,
+    "same_grid": true,
+    "shape": [
+      7908,
+      8601
+    ],
+    "bit_equal": true,
+    "rioxarray_s": 5.158979599989834,
+    "rioxarray_same_grid": true,
+    "rioxarray_max_abs_diff": 0.3132057189941406,
+    "rioxarray_equal_share": 5.179235447475937e-05
+  },
+  "mode90": {
+    "janus_s": 0.3801315,
+    "gdalwarp_s": 0.38971220000530593,
+    "same_grid": true,
+    "shape": [
+      2731,
+      2731
+    ],
+    "bit_equal": true,
+    "rioxarray_s": 0.7183036999922479,
+    "rioxarray_same_grid": true,
+    "rioxarray_max_abs_diff": 0.0,
+    "rioxarray_equal_share": 1.0
+  },
+  "clip3857": {
+    "janus_s": 0.1221468,
+    "gdalwarp_s": 0.1391600000060862,
+    "same_grid": true,
+    "shape": [
+      2033,
+      2021
+    ],
+    "bit_equal": true
+  },
+  "vrt": {
+    "janus_s": 0.0329615,
+    "gdalwarp_s": 0.055052099996828474,
+    "same_grid": true,
+    "shape": [
+      7908,
+      8601
+    ],
+    "bit_equal": true
+  }
+}

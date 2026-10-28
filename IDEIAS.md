@@ -843,6 +843,16 @@ nova.
   progresso pelo callback; tarefa como o download do STAC.
 - **Teste/comparação:** contra `gdalwarp` na linha de comando (bit a bit) e o
   tempo contra ele e o `rioxarray.reproject`.
+- **Feito (2026-10-28):** `crates/janus-zeit/src/warp.rs` (`GDALWarp` com as opções
+  do `gdalwarp` montadas por `WarpOptions::args`, progresso e cancelamento pelo
+  callback; arquivo a arquivo nos threads de processamento), `warp_ui.rs`;
+  `tools/bench_warp_vs_gdalwarp.py` → `bench/warp-vs-gdalwarp.json` (ambiente geo,
+  GDAL 3.11.5 dos dois lados). 8192² de 30 m: para EPSG:4326 bilinear em COG Janus
+  2,13 s, `gdalwarp` 2,09 s, rioxarray 5,2 s; para 90 m por mode 0,38 / 0,39 /
+  0,72 s; janela para EPSG:3857 cúbica 0,12 / 0,14 s; VRT 0,03 / 0,06 s. Iguais bit
+  a bit ao comando. O rioxarray na mesma grade: mode igual; bilinear difere na
+  mediana 3e-4 (o reproject do rasterio não alarga o núcleo ao reduzir, como o
+  gdalwarp) e põe NaN fora da imagem onde o gdalwarp põe 0.
 
 #### Fase 44 — Rasterizar vetores na grade da série
 - **Por quê:** máscaras (UCs, TIs, imóveis do CAR), estratos da validação a
@@ -1090,7 +1100,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 | 40 | — | **Regularização e preenchimento de lacunas** (passo fixo, mediana/medoide, linear/Whittaker), uma pasta de COGs regulares | concluída (sem versão): Tools → Regularize series (8/16 dias, mensal, anual, N dias; mediana, medoide, data mais limpa; linear ou Whittaker até uma lacuna máxima; camada inteira ou ROI); `janus_zeit::regularize`; contra o Zeit: mediana, medoide, linear e Whittaker iguais (diferença ≤ 3e-8), 4–15× mais rápido com os COGs gravados; contra o `sits_regularize`: 89× (sits 64 s, Janus 0,7 s; o sits sem banda de nuvem dá o primeiro valor do período) |
 | 41 | — | **Poligonizar** mapas de mudança e de classes (área em ha, data, magnitude, área mínima) em GeoPackage | concluída (sem versão): *Polygonize...* no menu de um mapa ou série (a data mostrada); 4/8 vizinhos, área mínima (o sieve do Zeit), simplificação; valor, classe, data, área (ha) e perímetro geodésicos, pixels, média de outro mapa; `janus_zeit::polygonize`; os mesmos polígonos do `gdal_polygonize` (todos, em 3 mapas), 1,0–1,5× o tempo dele (que só grava os polígonos) e 1,6–2,2× mais rápido que `rasterio.features.shapes` + áreas do pyproj |
 | 42 | — | **Área de mudança e de classes por data** (área do pixel correta, barras, CSV) | concluída (sem versão): Analysis → Areas (e *Area by value...* no menu de um mapa; *Areas...* em Classes); resolução total numa tarefa, camada ou ROI; ha, km², %; CSV; área de cada pixel: constante em projeção de área igual, geodésica nas demais; `janus_zeit::areas`; contra o `terra::expanse`: 2e-9 (lon/lat), 7e-6 (UTM), 3–480× mais rápido |
-| 43 | — | **Reprojetar, reamostrar, recortar, alinhar à grade** de outra camada (`GDALWarp`, série data a data ou virtual) | planejada |
+| 43 | — | **Reprojetar, reamostrar, recortar, alinhar à grade** de outra camada (`GDALWarp`, série data a data ou virtual) | concluída (sem versão): Tools → Reproject, resample, clip (um CRS, o CRS ou a grade de outra camada; tamanho do pixel, -tap; 8 reamostragens, mode para classes; camada, área visível, ROI ou polígonos de uma camada vetorial; nodata, tipo; COG, GeoTIFF ou virtual); `janus_zeit::warp`; bit a bit igual ao `gdalwarp` nos 4 casos, no mesmo tempo; 1,9–2,4× mais rápido que o `rioxarray.reproject` |
 | 44 | — | **Rasterizar vetores** na grade da série (atributo, índice, máscara) | planejada |
 | 45 | — | **Estatística zonal no tempo** (série por polígono, área por classe e por ano de mudança) | planejada |
 | 46 | — | **Montar uma série** de arquivos soltos e **salvar a série** (COG multibanda, NetCDF/Zarr) | planejada |

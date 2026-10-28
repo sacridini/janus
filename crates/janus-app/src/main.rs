@@ -74,6 +74,7 @@ mod values;
 mod vector_gpu;
 mod vectors;
 mod views;
+mod warp_ui;
 mod zeit;
 
 use std::sync::Arc;
