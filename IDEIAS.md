@@ -1061,7 +1061,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 | 37 | — | **Presto** (Tseng et al. 2023), pré-treinado: embeddings no painel Embeddings e ajuste fino com poucas amostras | concluída (sem versão) |
 | 38 | — | **U-TAE** (Garnot & Landrieu 2021): segmentação espaço-temporal de recortes, janelas deslizantes, pesos do PASTIS para ajuste fino | concluída (sem versão) |
 | 39 | — | **Calculadora de bandas e biblioteca de índices**: os 275 índices do Awesome Spectral Indices por papel da banda e expressões livres no leitor (painel Display, série inteira, Copy Python); Tools → Raster calculator com as camadas abertas por nomes curtos (série × imagem, séries casadas por data, outras grades e CRSs), regras `cond = valor`, editor que colore, completa e aponta erros, `Ctrl+Enter`, resultado em VRT ou COG | concluída (sem versão) |
-| 39b | — | **Calculadora temporal** (reduções, grupos de calendário, janelas em dias, defasagens, anomalias, eventos; tipos série/imagem/data; ao vivo e progressiva, a série da expressão no gráfico) | parcial: reduções (`max`, `min`, `mean`, `median`, `sum`, `std`, `count`, `percentile`), série − redução (`ndvi - mean(ndvi)`), variáveis de data (`year`, `doy`...); faltam `argmax`, recortes de calendário, `by year`, janelas, defasagens, anomalia por climatologia, eventos, a redução progressiva e as subexpressões no gráfico |
+| 39b | — | **Calculadora temporal** (reduções, grupos de calendário, janelas em dias, defasagens, anomalias, eventos; tipos série/imagem/data; ao vivo e progressiva, a série da expressão no gráfico) | concluída (sem versão): reduções, `argmax`/`argmin`, recortes de calendário (`ndvi[2019-06 .. 2019-09]`, `ndvi[11 .. 2]`), `by year`/`by month`, janelas em dias (`mean(ndvi, 90d)`), defasagens (`ndvi[-1]`, `lag(ndvi, 1y)`), `anomaly(..., base=, by=month/doy)`, eventos (`first`, `last`, `longest`, `persist`); **Live** (o resultado no mapa ao digitar, a redução progressiva "max so far") e **Chart** (a série no cursor, o que as reduções reduzem, o trecho selecionado); reduções lidas por várias datas calculadas uma vez ao gravar GeoTIFFs; comparado ao xarray/pandas |
 | 40 | — | **Regularização e preenchimento de lacunas** (passo fixo, mediana/medoide, linear/Whittaker), uma pasta de COGs regulares | planejada |
 | 41 | — | **Poligonizar** mapas de mudança e de classes (área em ha, data, magnitude, área mínima) em GeoPackage | planejada |
 | 42 | — | **Área de mudança e de classes por data** (área do pixel correta, barras, CSV) | planejada |
@@ -1224,9 +1224,13 @@ termina.
   global, e mais threads além de ~4 quase não ganham. Um avaliador próprio dos
   VRTs do Janus (ler os arquivos da série direto, sem o VRT do GDAL no meio,
   como o leitor das séries já faz) tiraria a trava e o XML do caminho.
-- Ainda da fase 39b: `argmax`, recortes de calendário, `by year`, janelas em
-  dias, defasagens, anomalia por climatologia, eventos, a redução progressiva
-  na tela e as subexpressões no gráfico.
+- Fase 39b concluída: os operadores no tempo contra o xarray/pandas numa série
+  irregular de 64 datas (`bench/calc-vs-originals.json`, "time"): iguais (até a
+  precisão simples), mais rápidos nas reduções, mais lentos numa série devolvida
+  inteira (`s - mean(s)`: o xarray subtrai na memória, o Janus grava e lê 64
+  arquivos). Uma redução lida por várias datas era recalculada a cada data
+  (7.8 s em 64 datas); agora é gravada uma vez quando o resultado vai a GeoTIFFs
+  (0.6 s). O Live usa o mesmo `reduce_dates` sobre as datas já lidas.
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).

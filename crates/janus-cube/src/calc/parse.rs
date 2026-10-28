@@ -4,8 +4,10 @@
 //! ```text
 //! program  := stmt ((';' | newline) stmt)*
 //! stmt     := name '=' expr | cond '=' expr | expr
-//! expr     := or, and, not, comparisons, + -, * / %, unary - +, ^ ** (right), postfix . [ ] ( )
-//! primary  := number | name | "layer" | $k | '(' expr ')'
+//! expr     := expr '..' expr (a range), or, and, not, comparisons, + -, * / %, unary - +, ^ ** (right),
+//!             postfix . [ ] ( ) and `by year` / `by month`
+//! primary  := number | duration (90d, 2w, 1y) | name | "layer" | $k | '(' expr ')'
+//! args     := (expr | name '=' expr) (',' ...)*
 //! ```
 //! A newline ends a statement unless inside brackets or after an operator; `#` starts a comment. `cond = value`
 //! is a rule: where cond holds, the result takes the value (`img > 0 = 1`, `img == nan = 0`).
@@ -114,6 +116,24 @@ pub enum ExprKind {
         name_span: Range<usize>,
         args: Vec<Expr>,
     },
+    /// `90d`, `2w`, `1y`: a number of days, weeks or years
+    Duration {
+        n: f64,
+        unit: char,
+    },
+    /// `a .. b`: dates or years from a to b (a calendar slice, a base period)
+    Range(Box<Expr>, Box<Expr>),
+    /// `max(ndvi) by year`: a reduction over each year (month) of a series, a series of them
+    By {
+        base: Box<Expr>,
+        period: String,
+        period_span: Range<usize>,
+    },
+    /// `name = value` among a call's arguments: an option (`base=2015..2019`, `by=month`)
+    Keyword {
+        name: String,
+        value: Box<Expr>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -201,8 +221,11 @@ impl<'a> Parser<'a> {
     }
 
     /// The infix operator ahead, with its binding powers (left, right).
-    fn infix(&self) -> Option<(BinOp, u8, u8)> {
+    fn infix(&self) -> Option<(Option<BinOp>, u8, u8)> {
         let t = self.peek();
+        if t.tok == Tok::Punct(Punct::Range) {
+            return Some((None, 1, 2));
+        }
         Some(match &t.tok {
             Tok::Ident if self.text_of(t) == KW_OR => (BinOp::Or, 1, 2),
             Tok::Ident if self.text_of(t) == KW_AND => (BinOp::And, 3, 4),
@@ -226,6 +249,7 @@ impl<'a> Parser<'a> {
             },
             _ => return None,
         })
+        .map(|(op, l, r)| (Some(op), l, r))
     }
 
     fn expr(&mut self, min_bp: u8) -> Result<Expr, CalcError> {
@@ -263,6 +287,25 @@ impl<'a> Parser<'a> {
                 lhs = Expr { kind: ExprKind::Index { base: Box::new(lhs), index: Box::new(index) }, span };
                 continue;
             }
+            // `... by year`
+            let p = self.peek_at(false);
+            if self.toks[p].tok == Tok::Ident
+                && self.text_of(&self.toks[p]) == "by"
+                && self.toks.get(p + 1).is_some_and(|t| t.tok == Tok::Ident)
+            {
+                self.bump(false);
+                let t = self.bump(false);
+                let span = lhs.span.start..t.span.end;
+                lhs = Expr {
+                    kind: ExprKind::By {
+                        base: Box::new(lhs),
+                        period: self.text_of(&t).to_string(),
+                        period_span: t.span,
+                    },
+                    span,
+                };
+                continue;
+            }
             if self.is_punct(Punct::LParen) {
                 let ExprKind::Name(name) = &lhs.kind else {
                     let t = self.peek().clone();
@@ -287,7 +330,10 @@ impl<'a> Parser<'a> {
             self.bump(false);
             let rhs = self.expr(r_bp)?;
             let span = lhs.span.start..rhs.span.end;
-            lhs = Expr { kind: ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)), span };
+            lhs = match op {
+                Some(op) => Expr { kind: ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)), span },
+                None => Expr { kind: ExprKind::Range(Box::new(lhs), Box::new(rhs)), span },
+            };
         }
         Ok(lhs)
     }
@@ -299,7 +345,22 @@ impl<'a> Parser<'a> {
             return Ok((args, self.bump(false).span.end));
         }
         loop {
-            args.push(self.expr(0)?);
+            // name = value: an option
+            let p = self.peek_at(true);
+            if self.toks[p].tok == Tok::Ident
+                && self.toks.get(p + 1).is_some_and(|t| t.tok == Tok::Punct(Punct::Assign))
+            {
+                let t = self.bump(true);
+                self.bump(false);
+                let value = self.expr(0)?;
+                let span = t.span.start..value.span.end;
+                args.push(Expr {
+                    kind: ExprKind::Keyword { name: self.text_of(&t).to_string(), value: Box::new(value) },
+                    span,
+                });
+            } else {
+                args.push(self.expr(0)?);
+            }
             if self.is_punct(Punct::Comma) {
                 self.bump(false);
                 continue;
@@ -317,7 +378,17 @@ impl<'a> Parser<'a> {
             Ok(Expr { kind: ExprKind::Unary(op, Box::new(e)), span })
         };
         match &t.tok {
-            Tok::Num(v) => Ok(Expr { kind: ExprKind::Num(*v), span }),
+            Tok::Num(v) => {
+                // a duration: the unit right after the number
+                let n = self.peek().clone();
+                let unit = self.text_of(&n);
+                if n.tok == Tok::Ident && n.span.start == span.end && matches!(unit, "d" | "w" | "y") {
+                    self.bump(false);
+                    let unit = unit.chars().next().unwrap();
+                    return Ok(Expr { kind: ExprKind::Duration { n: *v, unit }, span: span.start..n.span.end });
+                }
+                Ok(Expr { kind: ExprKind::Num(*v), span })
+            }
             Tok::Input(k) => Ok(Expr { kind: ExprKind::Input(*k), span }),
             Tok::Str { text, closed } => {
                 if !closed {
@@ -429,6 +500,10 @@ mod tests {
             ExprKind::Call { name, args, .. } => {
                 format!("{name}({})", args.iter().map(show).collect::<Vec<_>>().join(", "))
             }
+            ExprKind::Duration { n, unit } => format!("{n}{unit}"),
+            ExprKind::Range(a, b) => format!("({} .. {})", show(a), show(b)),
+            ExprKind::By { base, period, .. } => format!("({} by {period})", show(base)),
+            ExprKind::Keyword { name, value } => format!("{name}={}", show(value)),
         }
     }
 
@@ -447,6 +522,14 @@ mod tests {
         assert_eq!(one("\"S2\".N - \"S2\"[4]"), "(\"S2\".N - \"S2\"[4])");
         assert_eq!(one("where(x > 0, sqrt(x), -1)"), "where((x > 0), sqrt(x), (-1))");
         assert_eq!(one("$1 % 3"), "($1 % 3)");
+        // time: slices, durations, by, options
+        assert_eq!(one("median(ndvi[2019-06 .. 2019-09])"), "median(ndvi[((2019 - 6) .. (2019 - 9))])");
+        assert_eq!(one("mean(ndvi, 90d) - lag(ndvi, 1y)"), "(mean(ndvi, 90d) - lag(ndvi, 1y))");
+        assert_eq!(one("max(ndvi) by year - min(ndvi) by year"), "((max(ndvi) by year) - (min(ndvi) by year))");
+        assert_eq!(one("anomaly(ndvi, base=2015..2019, by=month)"), "anomaly(ndvi, base=(2015 .. 2019), by=month)");
+        assert_eq!(one("ndvi[-1]"), "ndvi[(-1)]");
+        // a name d apart is not a duration
+        assert!(parse("2 d").is_err());
     }
 
     #[test]

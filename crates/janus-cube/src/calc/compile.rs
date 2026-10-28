@@ -9,6 +9,130 @@ use super::funcs::{self, Kind};
 use super::parse::{Ast, BinOp, CalcError, Expr, ExprKind, Stmt, UnOp};
 use super::program::{BinFn, Builder, DateVar, NodeId, Program, TernFn, UnFn};
 
+/// The series of the periods of a reduction `by year` (`by month`): not a layer's dates but new ones, one per
+/// period (Value::series).
+pub const BY_YEAR: usize = usize::MAX - 1;
+pub const BY_MONTH: usize = usize::MAX - 2;
+
+/// Whether a value's series is that of periods (`by year`, `by month`).
+pub fn is_periods(series: usize) -> bool {
+    series >= BY_MONTH
+}
+
+/// A period a series is grouped by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Period {
+    Year,
+    Month,
+}
+
+impl Period {
+    pub fn series(self) -> usize {
+        match self {
+            Period::Year => BY_YEAR,
+            Period::Month => BY_MONTH,
+        }
+    }
+
+    pub fn of_series(s: usize) -> Option<Period> {
+        match s {
+            BY_YEAR => Some(Period::Year),
+            BY_MONTH => Some(Period::Month),
+            _ => None,
+        }
+    }
+
+    /// The period of a date (Unix seconds): its year, or its year * 12 + month - 1.
+    pub fn key(self, time: f64) -> i64 {
+        let (y, m, _) = crate::dates::civil_from_days((time / 86400.0).floor() as i64);
+        match self {
+            Period::Year => i64::from(y),
+            Period::Month => i64::from(y) * 12 + i64::from(m) - 1,
+        }
+    }
+
+    /// A period's first day (Unix seconds) and its label.
+    pub fn start(self, key: i64) -> (f64, String) {
+        let (y, m) = match self {
+            Period::Year => (key as i32, 1),
+            Period::Month => (key.div_euclid(12) as i32, key.rem_euclid(12) as u32 + 1),
+        };
+        let t = crate::dates::days_from_civil(y, m, 1) as f64 * 86400.0;
+        (t, if self == Period::Year { format!("{y}") } else { format!("{y}-{m:02}") })
+    }
+}
+
+/// A point of a calendar slice: a day, a month or a year; or a month of every year.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum When {
+    Day(i32, u32, u32),
+    Month(i32, u32),
+    Year(i32),
+    MonthOfYear(u32),
+}
+
+/// The dates of a calendar slice, from the start of one point to the end of the other (`ndvi[2019-06 .. 2019-09]`:
+/// June 1 to September 30; `ndvi[11 .. 2]`: November to February of every year).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Slice {
+    pub from: When,
+    pub to: When,
+}
+
+impl Slice {
+    pub fn contains(&self, time: f64) -> bool {
+        let days = (time / 86400.0).floor() as i64;
+        let (_, m, _) = crate::dates::civil_from_days(days);
+        let first = |w: When| match w {
+            When::Day(y, m, d) => crate::dates::days_from_civil(y, m, d),
+            When::Month(y, m) => crate::dates::days_from_civil(y, m, 1),
+            When::Year(y) => crate::dates::days_from_civil(y, 1, 1),
+            When::MonthOfYear(_) => i64::MIN,
+        };
+        let last = |w: When| match w {
+            When::Day(y, m, d) => crate::dates::days_from_civil(y, m, d),
+            When::Month(y, m) => {
+                let (ny, nm) = if m == 12 { (y + 1, 1) } else { (y, m + 1) };
+                crate::dates::days_from_civil(ny, nm, 1) - 1
+            }
+            When::Year(y) => crate::dates::days_from_civil(y, 12, 31),
+            When::MonthOfYear(_) => i64::MAX,
+        };
+        match (self.from, self.to) {
+            (When::MonthOfYear(a), When::MonthOfYear(b)) if a <= b => (a..=b).contains(&m),
+            (When::MonthOfYear(a), When::MonthOfYear(b)) => m >= a || m <= b,
+            (a, b) => days >= first(a) && days <= last(b),
+        }
+    }
+}
+
+/// How a climatology groups its base: by month of the year, or by the days of the year within this many.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ClimBy {
+    Month,
+    Doy(f64),
+}
+
+/// The dates a reduction is over.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Over {
+    /// every date (of its slice): an image
+    All,
+    /// each year or month: a series of the periods
+    By(Period),
+    /// the dates of the last this many days up to each date (pandas' rolling("90D")): a series
+    Window(f64),
+    /// the date this many days before each date (or the same day `years` years before), the nearest within a
+    /// tolerance: a series
+    LagTime { days: f64, years: i32 },
+    /// the dates before each one, of which the k-th with a value is taken (`ndvi[-1]`): a series
+    LagObs(usize),
+    /// the dates up to each one (persist's last observations): a series
+    Upto(usize),
+    /// the base years' dates of each date's month (or days of the year): a series
+    Clim { from: i32, to: i32, by: ClimBy },
+}
+
 /// A compiled value: its node, and the layer whose dates it follows (None: the same at every date).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Value {
@@ -34,6 +158,19 @@ pub enum RedFn {
     Std,
     Count,
     Percentile(f32),
+    /// the date (decimal year, or the place of a series without dates) of the largest, the smallest value
+    ArgMax,
+    ArgMin,
+    /// the date of the first, the last date the value is true (not 0)
+    First,
+    Last,
+    /// the longest run of dates the value is true, in days: from its first date to the next date it is not (or the
+    /// last date)
+    Longest,
+    /// 1 where the value was true at the last k dates with a value, 0 where not
+    Persist(u32),
+    /// the k-th value from the end (a lag of k observations)
+    Back(u32),
     /// one date: a year, a month of a year or a day (0: not given), resolved by the plan
     At {
         year: u16,
@@ -53,6 +190,13 @@ impl RedFn {
             RedFn::Std => "std".into(),
             RedFn::Count => "count".into(),
             RedFn::Percentile(p) => format!("p{p}"),
+            RedFn::ArgMax => "argmax".into(),
+            RedFn::ArgMin => "argmin".into(),
+            RedFn::First => "first".into(),
+            RedFn::Last => "last".into(),
+            RedFn::Longest => "longest".into(),
+            RedFn::Persist(k) => format!("persist{k}"),
+            RedFn::Back(k) => format!("back{k}"),
             RedFn::At { year, month, day } => match (month, day) {
                 (0, _) => format!("at{year}"),
                 (m, 0) => format!("at{year}{m:02}"),
@@ -70,16 +214,27 @@ impl RedFn {
             "sum" => RedFn::Sum,
             "std" => RedFn::Std,
             "count" => RedFn::Count,
+            "argmax" => RedFn::ArgMax,
+            "argmin" => RedFn::ArgMin,
+            "first" => RedFn::First,
+            "last" => RedFn::Last,
+            "longest" => RedFn::Longest,
+            _ if s.starts_with("persist") => RedFn::Persist(s["persist".len()..].parse().ok()?),
+            _ if s.starts_with("back") => RedFn::Back(s["back".len()..].parse().ok()?),
             _ => RedFn::Percentile(s.strip_prefix('p')?.parse().ok()?),
         })
     }
 }
 
-/// A reduction's argument compiled on its own: computed at every date of `series`, then reduced.
+/// A reduction's argument compiled on its own: computed at every date of `series` (of its slice), then reduced
+/// over the dates `over` says.
+#[derive(Clone)]
 pub struct Body<K> {
     pub program: Program,
     pub inputs: Vec<K>,
     pub series: usize,
+    pub over: Over,
+    pub slice: Option<Slice>,
 }
 
 /// Where the names of an expression come from.
@@ -143,6 +298,8 @@ struct Compiler<'s, S: Scope> {
     locals: Vec<Local>,
     /// each builder's compiled variables (the reductions' bodies have builders of their own)
     memo: Vec<HashMap<usize, Value>>,
+    /// each reduction's calendar slice, as its body is compiled
+    slices: Vec<Option<Slice>>,
 }
 
 fn err(span: &Range<usize>, m: impl Into<String>) -> CalcError {
@@ -151,6 +308,46 @@ fn err(span: &Range<usize>, m: impl Into<String>) -> CalcError {
 
 fn is_nan_literal(e: &Expr) -> bool {
     matches!(&e.kind, ExprKind::Name(n) if n.eq_ignore_ascii_case("nan"))
+}
+
+/// Days of a duration (`90d`, `2w`, `1y`).
+fn duration_days(n: f64, unit: char) -> f64 {
+    match unit {
+        'w' => n * 7.0,
+        'y' => n * 365.25,
+        _ => n,
+    }
+}
+
+/// A point of a calendar slice: 2019, 2019-06, 2019-06-15, or a month of every year (6).
+fn when(e: &Expr) -> Result<When, CalcError> {
+    let int = |e: &Expr| match e.kind {
+        ExprKind::Num(v) if v.fract() == 0.0 && v >= 0.0 => Some(v as i64),
+        _ => None,
+    };
+    let bad = || err(&e.span, "a date is 2019, 2019-06 or 2019-06-15 (a month of every year: 6)");
+    let year = |v: Option<i64>| v.filter(|y| (1000..=9999).contains(y)).map(|y| y as i32);
+    let month = |v: Option<i64>| v.filter(|m| (1..=12).contains(m)).map(|m| m as u32);
+    match &e.kind {
+        ExprKind::Num(_) => match int(e) {
+            Some(m @ 1..=12) => Ok(When::MonthOfYear(m as u32)),
+            v => year(v).map(When::Year).ok_or_else(bad),
+        },
+        ExprKind::Binary(BinOp::Sub, a, d) => match &a.kind {
+            ExprKind::Binary(BinOp::Sub, y, m) => {
+                let day = int(d).filter(|d| (1..=31).contains(d)).map(|d| d as u32);
+                match (year(int(y)), month(int(m)), day) {
+                    (Some(y), Some(m), Some(d)) => Ok(When::Day(y, m, d)),
+                    _ => Err(bad()),
+                }
+            }
+            _ => match (year(int(a)), month(int(d))) {
+                (Some(y), Some(m)) => Ok(When::Month(y, m)),
+                _ => Err(bad()),
+            },
+        },
+        _ => Err(bad()),
+    }
 }
 
 /// The value a rule starts from without a result yet: its condition's first operand (`img` of `img > 0`).
@@ -286,6 +483,40 @@ impl<S: Scope> Compiler<'_, S> {
                 self.layer_of(b, base, Member::Name(member, member_span.clone()), span, env)
             }
             ExprKind::Index { base, index } => {
+                // a calendar slice: the dates the reduction around it is over
+                if let ExprKind::Range(from, to) = &index.kind {
+                    let slice = Slice { from: when(from)?, to: when(to)? };
+                    if matches!(slice.from, When::MonthOfYear(_)) != matches!(slice.to, When::MonthOfYear(_)) {
+                        return Err(err(
+                            &index.span,
+                            "both dates of every year (6 .. 9) or both dates (2019-06 .. 2019-09)",
+                        ));
+                    }
+                    if self.slices.len() < 2 {
+                        return Err(err(
+                            span,
+                            "a slice of dates goes in a reduction: median(ndvi[2019-06 .. 2019-09])",
+                        ));
+                    }
+                    let v = self.expr(b, base, env)?;
+                    if v.series.is_none() {
+                        return Err(err(&base.span, "only a series has dates to slice"));
+                    }
+                    let cur = self.slices.last_mut().unwrap();
+                    if cur.is_some_and(|c| c != slice) {
+                        return Err(err(&index.span, "one slice of dates per reduction"));
+                    }
+                    *cur = Some(slice);
+                    return Ok(v);
+                }
+                // the value k observations before: ndvi[-1]
+                if let ExprKind::Unary(UnOp::Neg, k) = &index.kind
+                    && let ExprKind::Num(k) = k.kind
+                    && k.fract() == 0.0
+                    && k >= 1.0
+                {
+                    return self.reduction(b, RedFn::Back(k as u32), Over::LagObs(k as usize), base, span, env);
+                }
                 let k = match index.kind {
                     ExprKind::Num(v) if v.fract() == 0.0 => v as i64,
                     _ => return Err(err(&index.span, "a band's number (1, 2...) goes between the brackets")),
@@ -304,6 +535,7 @@ impl<S: Scope> Compiler<'_, S> {
                     return Ok(self.un(b, if *op == BinOp::Eq { UnFn::IsNan } else { UnFn::IsValid }, v));
                 }
                 let (x, y) = (self.expr(b, x, env)?, self.expr(b, y, env)?);
+                Self::shapes(&[x, y], span)?;
                 let f = match op {
                     BinOp::Add => BinFn::Add,
                     BinOp::Sub => BinFn::Sub,
@@ -323,6 +555,25 @@ impl<S: Scope> Compiler<'_, S> {
                 Ok(self.bin(b, f, x, y))
             }
             ExprKind::Call { name, name_span, args } => self.call(b, name, name_span, args, span, env),
+            ExprKind::By { base, period, period_span } => {
+                let p = match period.as_str() {
+                    "year" => Period::Year,
+                    "month" => Period::Month,
+                    _ => return Err(err(period_span, "by year or by month")),
+                };
+                let ExprKind::Call { name, name_span, args } = &base.kind else {
+                    return Err(err(span, "by follows a reduction over time: max(ndvi) by year"));
+                };
+                self.call_over(b, name, name_span, args, span, env, Over::By(p))
+            }
+            ExprKind::Duration { .. } => {
+                Err(err(span, "a duration goes in a window or a lag: mean(ndvi, 90d), lag(ndvi, 1y)"))
+            }
+            ExprKind::Range(..) => Err(err(
+                span,
+                "a range goes in brackets after a series (ndvi[2019-06 .. 2019-09]) or in anomaly's base=2015..2019",
+            )),
+            ExprKind::Keyword { name, .. } => Err(err(span, format!("{name}= is an option of anomaly(...) only"))),
         }
     }
 
@@ -334,6 +585,21 @@ impl<S: Scope> Compiler<'_, S> {
         args: &[Expr],
         span: &Range<usize>,
         env: usize,
+    ) -> Result<Value, CalcError> {
+        self.call_over(b, name, name_span, args, span, env, Over::All)
+    }
+
+    /// A call; `over`: by year or month (`max(ndvi) by year`), every date otherwise.
+    #[allow(clippy::too_many_arguments)]
+    fn call_over(
+        &mut self,
+        b: &mut Builder<S::K>,
+        name: &str,
+        name_span: &Range<usize>,
+        args: &[Expr],
+        span: &Range<usize>,
+        env: usize,
+        over: Over,
     ) -> Result<Value, CalcError> {
         let Some(f) = funcs::func(name) else {
             if self.find_local(name, env).is_some() || DateVar::of(name).is_some() {
@@ -347,19 +613,77 @@ impl<S: Scope> Compiler<'_, S> {
         if n < f.arity.0 || n > f.arity.1 {
             let want = if f.arity.0 == f.arity.1 {
                 format!("{} argument{}", f.arity.0, if f.arity.0 == 1 { "" } else { "s" })
-            } else {
+            } else if f.arity.1 == usize::MAX {
                 format!("at least {}", f.arity.0)
+            } else {
+                format!("{} to {}", f.arity.0, f.arity.1)
             };
             return Err(err(span, format!("{name}({}) takes {want}, given {n}", f.args)));
         }
+        if name == "anomaly" {
+            if over != Over::All {
+                return Err(err(span, "anomaly gives a series of the same dates: no by"));
+            }
+            return self.anomaly(b, args, span, env);
+        }
+        if let Some(k) = args.iter().find(|a| matches!(a.kind, ExprKind::Keyword { .. })) {
+            return Err(err(&k.span, format!("{name}() takes no option by name")));
+        }
+        let int = |e: &Expr| match e.kind {
+            ExprKind::Num(v) if v.fract() == 0.0 && v >= 1.0 => Some(v as usize),
+            _ => None,
+        };
+        // a lag, persist: their own dates
+        let own = match name {
+            "lag" => Some(match &args[1].kind {
+                ExprKind::Duration { n, unit: 'y' } if n.fract() == 0.0 && *n >= 1.0 => {
+                    (RedFn::Back(1), Over::LagTime { days: *n * 365.25, years: *n as i32 })
+                }
+                ExprKind::Duration { n, unit } if *n > 0.0 => {
+                    (RedFn::Back(1), Over::LagTime { days: duration_days(*n, *unit), years: 0 })
+                }
+                _ => {
+                    let k = int(&args[1]).ok_or_else(|| {
+                        err(&args[1].span, "a lag is a number of observations (1, 2...) or a duration (30d, 1y)")
+                    })?;
+                    (RedFn::Back(k as u32), Over::LagObs(k))
+                }
+            }),
+            "persist" => {
+                let k = int(&args[1])
+                    .ok_or_else(|| err(&args[1].span, "persist(cond, k): k observations in a row (1, 2...)"))?;
+                Some((RedFn::Persist(k as u32), Over::Upto(k)))
+            }
+            _ => None,
+        };
+        if let Some((r, o)) = own {
+            if over != Over::All {
+                return Err(err(span, format!("{name} gives a series of the same dates: no by")));
+            }
+            return self.reduction(b, r, o, &args[0], span, env);
+        }
+        // a window of days: the last argument
+        let window = match args.last().map(|a| &a.kind) {
+            Some(ExprKind::Duration { n: d, unit }) if n >= 2 => Some(duration_days(*d, *unit)),
+            _ => None,
+        };
+        let core = n - usize::from(window.is_some());
+        if let Some(d) = args[..core].iter().find(|a| matches!(a.kind, ExprKind::Duration { .. })) {
+            return Err(err(&d.span, "a duration is a window, the last argument: mean(ndvi, 90d)"));
+        }
         let reduction = match (f.kind, name) {
-            (Kind::Many, "min") if n == 1 => Some(RedFn::Min),
-            (Kind::Many, "max") if n == 1 => Some(RedFn::Max),
-            (Kind::Many, "mean") if n == 1 => Some(RedFn::Mean),
-            (Kind::Many, "sum") if n == 1 => Some(RedFn::Sum),
+            (Kind::Many, "min") if core == 1 => Some(RedFn::Min),
+            (Kind::Many, "max") if core == 1 => Some(RedFn::Max),
+            (Kind::Many, "mean") if core == 1 => Some(RedFn::Mean),
+            (Kind::Many, "sum") if core == 1 => Some(RedFn::Sum),
             (Kind::Reduce, "median") => Some(RedFn::Median),
             (Kind::Reduce, "std") => Some(RedFn::Std),
             (Kind::Reduce, "count") => Some(RedFn::Count),
+            (Kind::Reduce, "argmax") => Some(RedFn::ArgMax),
+            (Kind::Reduce, "argmin") => Some(RedFn::ArgMin),
+            (Kind::Reduce, "first") => Some(RedFn::First),
+            (Kind::Reduce, "last") => Some(RedFn::Last),
+            (Kind::Reduce, "longest") => Some(RedFn::Longest),
             (Kind::Reduce, "at") => {
                 let when = match args[1].kind {
                     ExprKind::Num(v) if v.fract() == 0.0 && v > 0.0 => v as u64,
@@ -386,7 +710,24 @@ impl<S: Scope> Compiler<'_, S> {
             _ => None,
         };
         if let Some(r) = reduction {
-            return self.reduction(b, r, &args[0], span, env);
+            let o = match (window, over) {
+                (Some(_), Over::By(_)) => return Err(err(span, "a window and by: one or the other")),
+                (Some(_), _) if matches!(r, RedFn::At { .. } | RedFn::ArgMax | RedFn::ArgMin) => {
+                    return Err(err(span, format!("{name} takes no window")));
+                }
+                (Some(d), _) => Over::Window(d),
+                (None, o) => o,
+            };
+            if matches!(r, RedFn::At { .. }) && o != Over::All {
+                return Err(err(span, "at() is one date: no by"));
+            }
+            return self.reduction(b, r, o, &args[0], span, env);
+        }
+        if over != Over::All {
+            return Err(err(span, "by follows a reduction over time: max(ndvi) by year"));
+        }
+        if window.is_some() {
+            return Err(err(&args[n - 1].span, format!("{name}() takes no window")));
         }
         let mut vals = Vec::with_capacity(n);
         for (i, a) in args.iter().enumerate() {
@@ -408,6 +749,7 @@ impl<S: Scope> Compiler<'_, S> {
             }
             vals.push(self.expr(b, a, env)?);
         }
+        Self::shapes(&vals, span)?;
         Ok(match f.kind {
             Kind::Un(u) => self.un(b, u, vals[0]),
             Kind::Bin(g) => self.bin(b, g, vals[0], vals[1]),
@@ -442,26 +784,113 @@ impl<S: Scope> Compiler<'_, S> {
                 }
                 acc
             }
-            Kind::Reduce => unreachable!(),
+            Kind::Reduce => return Err(err(span, format!("{name}({}) is over time", f.args))),
         })
     }
 
-    /// A reduction over time: its argument compiled as a body at every date of its series; of a value that is
-    /// the same at every date, the value itself (its count: 1 where it has one).
+    /// Values computed together: a series of periods (by year) goes with images and the same periods only.
+    fn shapes(vals: &[Value], span: &Range<usize>) -> Result<(), CalcError> {
+        let mut seen: Option<usize> = None;
+        for v in vals {
+            let Some(s) = v.series else { continue };
+            match seen {
+                Some(a) if a != s && (is_periods(a) || is_periods(s)) => {
+                    let what = |x: usize| match Period::of_series(x) {
+                        Some(Period::Year) => "a series by year",
+                        Some(Period::Month) => "a series by month",
+                        None => "a series of dates",
+                    };
+                    return Err(err(span, format!("{} and {} have different dates", what(a), what(s))));
+                }
+                _ => seen = Some(s),
+            }
+        }
+        Ok(())
+    }
+
+    /// anomaly(x, base=2015..2019, by=month): each date's z-score against the base years' dates of its month (by=doy:
+    /// of its days of the year within window=15d).
+    fn anomaly(
+        &mut self,
+        b: &mut Builder<S::K>,
+        args: &[Expr],
+        span: &Range<usize>,
+        env: usize,
+    ) -> Result<Value, CalcError> {
+        let usage = "anomaly(series, base=2015..2019, by=month)";
+        let (mut x, mut base, mut by, mut window) = (None, (i32::MIN, i32::MAX), "month", 15.0);
+        for a in args {
+            match &a.kind {
+                ExprKind::Keyword { name, value } => match name.as_str() {
+                    "base" => {
+                        let year = |e: &Expr| match e.kind {
+                            ExprKind::Num(v) if v.fract() == 0.0 && (1000.0..=9999.0).contains(&v) => Some(v as i32),
+                            _ => None,
+                        };
+                        let (f, t) = match &value.kind {
+                            ExprKind::Range(f, t) => (year(f), year(t)),
+                            _ => (year(value), year(value)),
+                        };
+                        base = f
+                            .zip(t)
+                            .filter(|(f, t)| f <= t)
+                            .ok_or_else(|| err(&value.span, "the base is a year or years: base=2015..2019"))?;
+                    }
+                    "by" => {
+                        by = match &value.kind {
+                            ExprKind::Name(n) if n == "month" => "month",
+                            ExprKind::Name(n) if n == "doy" => "doy",
+                            _ => return Err(err(&value.span, "by=month or by=doy")),
+                        }
+                    }
+                    "window" => {
+                        window = match value.kind {
+                            ExprKind::Duration { n, unit } if n > 0.0 => duration_days(n, unit),
+                            _ => return Err(err(&value.span, "the window is a number of days: window=15d")),
+                        }
+                    }
+                    _ => return Err(err(&a.span, format!("anomaly's options are base, by and window: {usage}"))),
+                },
+                _ if x.is_none() => x = Some(a),
+                _ => return Err(err(&a.span, format!("one series, then options: {usage}"))),
+            }
+        }
+        let x = x.ok_or_else(|| err(span, format!("which series? {usage}")))?;
+        let by = if by == "doy" { ClimBy::Doy(window) } else { ClimBy::Month };
+        let over = Over::Clim { from: base.0, to: base.1, by };
+        let m = self.reduction(b, RedFn::Mean, over, x, span, env)?;
+        let s = self.reduction(b, RedFn::Std, over, x, span, env)?;
+        let v = self.expr(b, x, env)?;
+        if v.series.is_none() {
+            return Err(err(&x.span, "an anomaly is of a series"));
+        }
+        let d = self.bin(b, BinFn::Sub, v, m);
+        Ok(self.bin(b, BinFn::Div, d, s))
+    }
+
+    /// A reduction over time: its argument compiled as a body at every date of its series (of its slice), reduced
+    /// over the dates `over` says; of a value that is the same at every date, the value itself (its count: 1 where
+    /// it has one).
     fn reduction(
         &mut self,
         b: &mut Builder<S::K>,
         f: RedFn,
+        over: Over,
         arg: &Expr,
         span: &Range<usize>,
         env: usize,
     ) -> Result<Value, CalcError> {
         let mut sub: Builder<S::K> = Builder::default();
         self.memo.push(HashMap::new());
+        self.slices.push(None);
         let body = self.expr(&mut sub, arg, env);
         self.memo.pop();
+        let slice = self.slices.pop().flatten();
         let body = body?;
         let Some(series) = body.series else {
+            if matches!(f, RedFn::ArgMax | RedFn::ArgMin | RedFn::First | RedFn::Last | RedFn::Longest) {
+                return Err(err(&arg.span, "this is the same at every date: a series has dates to find"));
+            }
             let v = self.expr(b, arg, env)?;
             return Ok(match f {
                 RedFn::Count => self.un(b, UnFn::IsValid, v),
@@ -473,8 +902,19 @@ impl<S: Scope> Compiler<'_, S> {
                 _ => v,
             });
         };
+        if is_periods(series) && matches!(over, Over::By(_) | Over::Clim { .. }) {
+            return Err(err(span, "a series by year (month) is grouped already"));
+        }
         let program = sub.finish(body.node);
-        self.scope.reduce(b, f, Body { program, inputs: sub.inputs.clone(), series }, span)
+        let v = self.scope.reduce(b, f, Body { program, inputs: sub.inputs.clone(), series, over, slice }, span)?;
+        Ok(Value {
+            node: v.node,
+            series: match over {
+                Over::All => None,
+                Over::By(p) => Some(p.series()),
+                _ => Some(series),
+            },
+        })
     }
 
     fn stmt(&mut self, b: &mut Builder<S::K>, s: &Stmt, last: bool) -> Result<Option<Value>, CalcError> {
@@ -533,7 +973,7 @@ pub fn compile<S: Scope>(ast: &Ast, scope: &mut S) -> Result<Compiled<S::K>, Cal
 
 /// As `compile`, the builder given (its inputs already placed: a canonical text's $1, $2...).
 pub fn compile_with<S: Scope>(ast: &Ast, scope: &mut S, mut b: Builder<S::K>) -> Result<Compiled<S::K>, CalcError> {
-    let mut c = Compiler { scope, locals: Vec::new(), memo: vec![HashMap::new()] };
+    let mut c = Compiler { scope, locals: Vec::new(), memo: vec![HashMap::new()], slices: vec![None] };
     let mut value = None;
     let n = ast.stmts.len();
     for (i, s) in ast.stmts.iter().enumerate() {

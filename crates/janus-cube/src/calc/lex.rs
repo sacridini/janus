@@ -32,6 +32,8 @@ pub enum Punct {
     RBracket,
     Comma,
     Dot,
+    /// `..`: a range of dates or years
+    Range,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -95,7 +97,8 @@ pub fn tokens(text: &str) -> Vec<Token> {
                 while e < b.len() && b[e].is_ascii_digit() {
                     e += 1;
                 }
-                if e < b.len() && b[e] == b'.' {
+                // "2015..2019": the dots are a range, not the number's
+                if e < b.len() && b[e] == b'.' && b.get(e + 1) != Some(&b'.') {
                     e += 1;
                     while e < b.len() && b[e].is_ascii_digit() {
                         e += 1;
@@ -176,6 +179,7 @@ pub fn tokens(text: &str) -> Vec<Token> {
                     "!=" | "<>" => (Some(Punct::Ne), 2),
                     "&&" => (Some(Punct::AndAnd), 2),
                     "||" => (Some(Punct::OrOr), 2),
+                    ".." => (Some(Punct::Range), 2),
                     _ => (
                         match c {
                             '+' => Some(Punct::Plus),
@@ -246,5 +250,8 @@ mod tests {
         // "1." is a number, "x.y" a member
         assert_eq!(kinds("1.")[0], Tok::Num(1.0));
         assert_eq!(kinds("x.y")[1], Tok::Punct(Punct::Dot));
+        // a range of years, of months
+        assert_eq!(kinds("2015..2019"), vec![Tok::Num(2015.0), Tok::Punct(Punct::Range), Tok::Num(2019.0), Tok::Eof]);
+        assert_eq!(kinds("2019-06 .. 2019-09")[3], Tok::Punct(Punct::Range));
     }
 }

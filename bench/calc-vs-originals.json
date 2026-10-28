@@ -1348,5 +1348,56 @@
   "evi_expr": 275.88430000000005,
   "nd": 65.0686,
   "ndvi_expr": 76.3168
+ },
+ "time": {
+  "by_year_max": {
+   "max_abs_err": 0.0,
+   "nan_agree": 1.0,
+   "xarray_ms": 180.2705000009155,
+   "janus_ms": 158.4178,
+   "dates": 4
+  },
+  "by_month_mean": {
+   "max_abs_err": 0.0,
+   "nan_agree": 1.0,
+   "xarray_ms": 309.856599997147,
+   "janus_ms": 336.1402,
+   "dates": 38
+  },
+  "rolling_90d": {
+   "max_abs_err": 5.960464477539063e-08,
+   "nan_agree": 1.0,
+   "xarray_ms": 2839.096099996823,
+   "janus_ms": 1001.7171000000001,
+   "dates": 64
+  },
+  "argmax": {
+   "max_abs_err": 5.886130134058476e-05,
+   "nan_agree": 1.0,
+   "xarray_ms": 316.0677000123542,
+   "janus_ms": 198.0377,
+   "dates": 1
+  },
+  "anomaly_month": {
+   "max_abs_err": 0.0003662109375,
+   "nan_agree": 1.0,
+   "xarray_ms": 502.17229999543633,
+   "janus_ms": 927.9922,
+   "dates": 64
+  },
+  "slice_median": {
+   "max_abs_err": 0.0,
+   "nan_agree": 1.0,
+   "xarray_ms": 204.71800000814255,
+   "janus_ms": 33.662200000000006,
+   "dates": 1
+  },
+  "sub_mean": {
+   "max_abs_err": 2.384185791015625e-07,
+   "nan_agree": 1.0,
+   "xarray_ms": 260.98320000164676,
+   "janus_ms": 608.4418000000001,
+   "dates": 64
+  }
  }
 }

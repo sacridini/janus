@@ -6,9 +6,17 @@
   the 90th percentile, a date's departure from the mean) through the calculator's VRTs against xarray (files read
   with rasterio, reduced with skipna), each timed from the files to the image;
 - the overview of a series of 24 dates of four bands read as NDVI by a normalized difference and by an expression
-  (and EVI), Janus only: what an expression costs on the map.
+  (and EVI), Janus only: what an expression costs on the map;
+- the operators over time (phase 39b) on an irregular series of 64 dates of 512 x 512 with gaps, 16 to 20 days apart
+  over three years: `max(s) by year` against xarray's groupby("time.year"), `mean(s) by month` against
+  resample(time="MS") (the months with a date), `mean(s, 90d)` against pandas' rolling("90D"), `argmax(s)` against
+  idxmax (as decimal years), `anomaly(s, base=2020..2021, by=month)` against a groupby("time.month") climatology
+  (z-scores; a zero deviation is no data in Janus, inf in xarray; a deviation below 1e-4, values a rounding apart,
+  gives z-scores of rounding noise: left out), `median(s[2021-06 .. 2021-09])` against
+  sel(time=slice(...)).median.
 
-    python tools/bench_calc_vs_originals.py [DIR]      (numpy, xarray, rasterio, spyndex, GDAL's Python bindings)
+    python tools/bench_calc_vs_originals.py [DIR [time]]   (numpy, pandas, xarray, rasterio, spyndex, GDAL's Python
+                                                           bindings; "time": the operators over time alone)
 
 Writes bench/calc-vs-originals.json.
 """
@@ -20,8 +28,8 @@ import time
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import rasterio
-import spyndex
 import xarray as xr
 from osgeo import gdal
 
@@ -61,6 +69,8 @@ def write_tif(path, a, nodata=np.nan, names=None):
 
 
 def indices(d):
+    import spyndex
+
     n = N_SIDE * N_SIDE
     rng = np.random.default_rng(1)
     bands = rng.uniform(0.01, 0.6, (6, n)).astype(np.float32)
@@ -153,6 +163,90 @@ def reductions(d):
     return out
 
 
+def irregular_series(d):
+    s = d / "irregular"
+    s.mkdir(exist_ok=True)
+    rng = np.random.default_rng(4)
+    side = 512
+    day = np.datetime64("2020-01-03")
+    times = []
+    for t in range(64):
+        doy = (day - day.astype("datetime64[Y]")).astype(int)
+        a = (0.5 + 0.3 * np.sin(2 * np.pi * doy / 365.25) + rng.normal(0, 0.1, (side, side))).astype(np.float32)
+        a[rng.random((side, side)) < 0.2] = np.nan
+        write_tif(s / f"s_{str(day).replace('-', '')}.tif", a)
+        times.append(day)
+        day = day + np.timedelta64(int(rng.integers(16, 21)), "D")
+    return sorted(s.glob("*.tif")), np.array(times, dtype="datetime64[ns]")
+
+
+def decimal_year(t):
+    y = t.astype("datetime64[Y]")
+    start, end = y.astype("datetime64[D]"), (y + 1).astype("datetime64[D]")
+    return y.astype(int) + 1970 + (t.astype("datetime64[D]") - start).astype(float) / (end - start).astype(float)
+
+
+def time_ops(d):
+    files, times = irregular_series(d)
+    janus("time", d)
+    jt = json.loads((d / "time.json").read_text())
+
+    def load():
+        arr = np.stack([rasterio.open(f).read(1) for f in files])
+        return xr.DataArray(arr, dims=("time", "y", "x"), coords={"time": times})
+
+    def rolling(da):
+        df = pd.DataFrame(da.values.reshape(len(times), -1), index=pd.DatetimeIndex(times))
+        return df.rolling("90D").mean().values.reshape(da.shape)
+
+    def by_month(da):
+        r = da.resample(time="MS").mean()
+        have = np.unique(times.astype("datetime64[M]")).astype("datetime64[ns]")
+        return r.sel(time=have).values
+
+    def argmax(da):
+        return decimal_year(da.idxmax("time", skipna=True).values.ravel()).reshape(da.shape[1:])
+
+    excluded = {}
+
+    def anomaly(da):
+        base = da.sel(time=slice("2020", "2021")).groupby("time.month")
+        m, s = base.mean("time"), base.std("time")
+        z = (da.groupby("time.month") - m).groupby("time.month") / s
+        # a base of values a rounding apart (a deviation ~1e-8): z-scores of rounding noise, in float32 here and float64
+        # in Janus, left out
+        excluded["anomaly_month"] = (s.sel(month=da.time.dt.month).values < 1e-4).ravel()
+        return np.where(np.isfinite(z.values), z.values, np.nan)
+
+    ops = {
+        "by_year_max": lambda da: da.groupby("time.year").max("time", skipna=True).values,
+        "by_month_mean": by_month,
+        "rolling_90d": rolling,
+        "argmax": argmax,
+        "anomaly_month": anomaly,
+        "slice_median": lambda da: da.sel(time=slice("2021-06-01", "2021-09-30")).median("time", skipna=True).values,
+        "sub_mean": lambda da: (da - da.mean("time", skipna=True)).values,
+    }
+    out = {}
+    for name, op in ops.items():
+        res = {}
+        t_x = best(lambda: res.__setitem__("v", op(load())), 2)
+        ref = np.asarray(res["v"], dtype=np.float64).ravel()
+        got = np.fromfile(d / f"t_{name}.f32", dtype=np.float32).astype(np.float64)
+        assert got.size == ref.size, f"{name}: {got.size} values vs {ref.size}"
+        if name in excluded:
+            ref[excluded[name]] = got[excluded[name]] = np.nan
+        both = np.isfinite(ref) & np.isfinite(got)
+        err = float(np.max(np.abs(got[both] - ref[both]))) if both.any() else 0.0
+        agree = float(np.mean(np.isfinite(ref) == np.isfinite(got)))
+        j = jt[name]["ms"]
+        out[name] = {"max_abs_err": err, "nan_agree": agree, "xarray_ms": t_x, "janus_ms": j,
+                     "dates": jt[name]["dates"]}
+        print(f"{name:<14} xarray {t_x:7.0f} ms   Janus {j:7.0f} ms   x{t_x / j:5.1f}   "
+              f"|diff| {err:.1e}  no data agree {agree:.6f}")
+    return out
+
+
 def shown(d):
     b = d / "bands"
     b.mkdir(exist_ok=True)
@@ -168,13 +262,24 @@ def shown(d):
 
 
 def main():
-    subprocess.run(["cargo", "build", "--release", "-q", "-p", "janus-cube", "--example", "vs_originals_calc"],
+    subprocess.run(["cargo", "build", "-j", "8", "--release", "-q", "-p", "janus-cube", "--example",
+                    "vs_originals_calc"],
                    check=True, cwd=ROOT)
     d = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.mkdtemp(prefix="janus_calc_bench_"))
     d.mkdir(parents=True, exist_ok=True)
-    res = {"spyndex": spyndex.__version__, "xarray": xr.__version__, "indices": indices(d),
-           "reductions": reductions(d), "shown": shown(d)}
+    only = sys.argv[2] if len(sys.argv) > 2 else None
     out = ROOT / "bench" / "calc-vs-originals.json"
+    if only == "time":
+        # the operators over time alone, into the results kept
+        res = json.loads(out.read_text()) if out.exists() else {}
+        res["time"] = time_ops(d)
+        out.write_text(json.dumps(res, indent=1))
+        print(f"-> {out}")
+        return
+    import spyndex
+
+    res = {"spyndex": spyndex.__version__, "xarray": xr.__version__, "indices": indices(d),
+           "reductions": reductions(d), "shown": shown(d), "time": time_ops(d)}
     out.write_text(json.dumps(res, indent=1))
     print(f"-> {out}")
 

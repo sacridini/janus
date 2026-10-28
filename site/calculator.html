@@ -137,6 +137,7 @@
             <tr><td><code>nan</code>, <code>x == nan</code>, <code>isvalid(x)</code></td><td>no data, and the tests for it</td></tr>
             <tr><td><code>year month day doy decyear t</code></td><td>the date being computed (<code>t</code> its number, from 0)</td></tr>
             <tr><td><code>max(s) min mean median sum std count percentile(s, 90)</code></td><td>a series reduced over time to an image (section 06)</td></tr>
+            <tr><td><code>argmax(s) first(c) last(c) longest(c) persist(c, 3) lag(s, 1y) s[-1] anomaly(s, base=, by=)</code>, <code>s[2019-06 .. 2019-09]</code>, <code>max(s) by year</code>, <code>mean(s, 90d)</code></td><td>dates, slices of the calendar, periods, windows, lags, anomalies, events (section 06)</td></tr>
             <tr><td><code>condition = value</code></td><td>a rule (section 07)</td></tr>
           </tbody>
         </table>
@@ -158,6 +159,17 @@ count(ndvi &lt; 0.4)</code></pre>
         <figcaption><b>How often it was bare</b>: <code>count(ndvi &lt; 0.4)</code> over the 107 dates; the forest of pin 1 once (the end of the 2024 dry season, its NDVI at 0.28), the pasture of pin 2 eight times, the most worked fields up to 71.</figcaption>
       </figure>
       <p>With more than one argument the same functions work pixel by pixel at each date: <code>max(B04, B03, B02)</code> is the brightest visible band of each date. A series and its reduction mix: <code>ndvi - mean(ndvi)</code> is each date's departure from the pixel's mean, a series again; <code>(ndvi - mean(ndvi)) / std(ndvi)</code> its z-score.</p>
+      <p>Time is an axis of the language, counted in the series' real dates (an irregular series with clouds stays irregular, a masked date does not exist):</p>
+      <dl class="terms">
+        <dt>The date of a value</dt><dd><code>argmax(ndvi)</code> is the date of the pixel's largest NDVI (the peak of the season) as a decimal year, <code>argmin</code> of the smallest; <code>first(ndvi &lt; 0.3 and year &gt;= 2020)</code> and <code>last(...)</code> the first and last date a condition held. A result in years opens with a legend of years.</dd>
+        <dt>A slice of the calendar</dt><dd><code>median(ndvi[2019-06 .. 2019-09])</code> reduces June to September 2019 alone; <code>max(ndvi[2019 .. 2021])</code> three years; <code>mean(ndvi[11 .. 2])</code> November to February of every year.</dd>
+        <dt>By year, by month</dt><dd><code>max(ndvi) by year</code> is a new series with one date per year, <code>mean(ndvi) by month</code> one per month that has a date; they mix with each other (<code>max(ndvi) by year - min(ndvi) by year</code>), not with the dates they came from.</dd>
+        <dt>A window in days</dt><dd><code>mean(ndvi, 90d)</code> is, at each date, the mean of the dates of the 90 days up to it (pandas' <code>rolling("90D")</code>); <code>w</code> counts weeks, <code>y</code> years.</dd>
+        <dt>The value before</dt><dd><code>ndvi[-1]</code> (or <code>lag(ndvi, 1)</code>) is the pixel's previous observation with a value, so <code>ndvi - ndvi[-1]</code> is the change since; <code>lag(ndvi, 1y)</code> the value of the nearest date a year before (within half the usual step between dates).</dd>
+        <dt>The anomaly</dt><dd><code>anomaly(ndvi, base=2015..2019, by=month)</code> is each date's z-score against the mean and the deviation of its month in the base years; <code>by=doy, window=15d</code> against the days of the year within 15 days.</dd>
+        <dt>Events</dt><dd><code>count(ndvi &lt; 0.3)</code> the dates below; <code>longest(ndvi &lt; 0.3)</code> the longest it stayed below, in days; <code>persist(ndvi &lt; 0.3, 3)</code> a series, 1 where the last three observations were all below.</dd>
+      </dl>
+      <p>Tick <span class="ui">Live</span> and the result is on the map as it is typed, at the overview's size, as a layer marked preview: a reduction is drawn as its dates are read (<i>max so far: 23 of 107 dates</i>), a series at the date shown. Tick <span class="ui">Chart</span> and under the editor are its values at the cursor (or the first pin): the result's series, or for an image its value as a level (a date as a time) with the values its reductions reduce; select a part of the text and its series is drawn too, so <code>first(ndvi &lt; 0.3)</code> is seen falling on the date the NDVI crossed 0.3.</p>
     </section>
 
     <section id="rules">
@@ -221,6 +233,24 @@ m &gt;= 0.7 = 3</code></pre>
           </tbody>
         </table>
       </div>
+      <dl class="terms">
+        <dt>Over time, against xarray and pandas</dt><dd>An irregular series of 64 dates 16 to 20 days apart over three years, 512 × 512 pixels with a fifth of every date clouded. Janus's times include writing the result (the reductions read by several dates computed once into GeoTIFFs, as when the result is written out) and reading every date of it.</dd>
+      </dl>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Janus</th><th>In xarray, pandas</th><th class="num">xarray</th><th class="num">Janus</th><th class="num">Faster</th><th class="num">Largest difference</th></tr></thead>
+          <tbody>
+            <tr><td><code>max(s) by year</code></td><td><code>groupby("time.year").max()</code></td><td class="num">180 ms</td><td class="num">158 ms</td><td class="num">1.1×</td><td class="num">0</td></tr>
+            <tr><td><code>mean(s) by month</code></td><td><code>resample(time="MS").mean()</code></td><td class="num">310 ms</td><td class="num">336 ms</td><td class="num">0.9×</td><td class="num">0</td></tr>
+            <tr><td><code>mean(s, 90d)</code></td><td>pandas <code>rolling("90D").mean()</code></td><td class="num">2839 ms</td><td class="num">1002 ms</td><td class="num">2.8×</td><td class="num">6 × 10⁻⁸</td></tr>
+            <tr><td><code>argmax(s)</code></td><td><code>idxmax("time")</code></td><td class="num">316 ms</td><td class="num">198 ms</td><td class="num">1.6×</td><td class="num">6 × 10⁻⁵ years</td></tr>
+            <tr><td><code>anomaly(s, base=2020..2021, by=month)</code></td><td>a <code>groupby("time.month")</code> climatology</td><td class="num">502 ms</td><td class="num">928 ms</td><td class="num">0.5×</td><td class="num">4 × 10⁻⁴</td></tr>
+            <tr><td><code>median(s[2021-06 .. 2021-09])</code></td><td><code>sel(time=slice(...)).median()</code></td><td class="num">205 ms</td><td class="num">34 ms</td><td class="num">6.1×</td><td class="num">0</td></tr>
+            <tr><td><code>s - mean(s)</code>, every date</td><td><code>da - da.mean("time")</code></td><td class="num">261 ms</td><td class="num">608 ms</td><td class="num">0.4×</td><td class="num">2.4 × 10⁻⁷</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The dates in years differ by single precision (2021.5 is kept to about 10⁻⁴ of a year), the anomaly's z-scores likewise; where a month's base had no deviation xarray gives an infinity and Janus no data, and those pixels were left out. xarray holds the whole series in memory and subtracts it once; Janus writes and reads each of the 64 dates as files, so a series returned whole is slower, a reduction faster.</p>
       <p>Every result had no data on the same pixels as xarray's. A count is a sum of comparisons, cheap for both; it is as fast as reading the 48 files, which is the same work on each side. xarray's quantile with NaNs sorts the values of every pixel one by one; Janus selects the rank in place.</p>
       <p>On the map, an expression costs little over a band. Reading the overview of 24 dates of 2048 × 2048 pixels took 29 ms for a band, 65 ms for NDVI as a normalized difference, 76 ms for NDVI written as an expression, and 276 ms for EVI, whose three bands are read at every date. On the five years of Sentinel-2 of this guide, the count of section 06, <code>count(ndvi &lt; 0.4)</code> over its 107 dates, is on the map in 2 s; a pin's value at the 107 dates takes under half a second.</p>
     </section>

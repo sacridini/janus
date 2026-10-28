@@ -14,6 +14,7 @@ use std::time::Instant;
 
 use egui::text::{CCursor, CCursorRange, LayoutJob};
 use egui::{Color32, FontId, Key, Modifiers, RichText, Stroke, TextFormat, Ui, vec2};
+use janus_cube::calc::compile::{ClimBy, Over, Period, is_periods};
 use janus_cube::calc::editor::{self, Class, Completion};
 use janus_cube::calc::funcs::{CONSTANTS, DATE_VARS, FUNCS, Group};
 use janus_cube::calc::plan::{self, CalcLayer, DateMatch, LayerKind, Options, Placement, Plan};
@@ -34,7 +35,7 @@ const RESAMPLINGS: [(&str, &str); 5] = [
 ];
 const MATCHINGS: [&str; 4] = ["The same day", "The nearest date within", "The same month", "The same year"];
 const MAX_HISTORY: usize = 80;
-const EDITOR: &str = "calc editor";
+pub(crate) const EDITOR: &str = "calc editor";
 
 /// Examples (bare names are bands of the layer chosen for them).
 const EXAMPLES: &[(&str, &str)] = &[
@@ -88,9 +89,9 @@ struct Popup {
 }
 
 /// The text planned as it stands: a summary, or the error and where it is.
-struct Check {
-    key: u64,
-    result: Result<Vec<String>, (CalcError, String)>,
+pub(crate) struct Check {
+    pub key: u64,
+    pub result: Result<Vec<String>, (CalcError, String)>,
 }
 
 /// The Display panel's expression for a layer: its text, and the index it was picked from while unchanged.
@@ -130,7 +131,9 @@ pub struct CalcUi {
     popup: Option<Popup>,
     /// the cursor's byte offset (where the lists insert)
     cursor: usize,
-    check: Option<Check>,
+    pub(crate) check: Option<Check>,
+    /// the result on the map as it is typed, the chart at the cursor
+    pub live: crate::calc_live::CalcLive,
     /// run once the layers are open (--calc-run)
     pub run_pending: bool,
     /// what the last run did
@@ -164,6 +167,7 @@ impl Default for CalcUi {
             popup: None,
             cursor: 0,
             check: None,
+            live: Default::default(),
             run_pending: false,
             status: String::new(),
             draft: None,
@@ -423,7 +427,11 @@ fn summary(p: &Plan, layers: &[CalcLayer], opts: &Options) -> Vec<String> {
         format!(" of {}{unit}", janus_cube::multidim::format_g(t[1].abs(), 4))
     });
     let shape = match p.series {
-        Some(s) => format!("A series of {} dates (those of {})", layers[s].info.t(), layers[s].alias),
+        Some(s) => match Period::of_series(s) {
+            Some(Period::Year) => format!("A series of {} years", p.dates(layers).len()),
+            Some(Period::Month) => format!("A series of {} months", p.dates(layers).len()),
+            None => format!("A series of {} dates (those of {})", layers[s].info.t(), layers[s].alias),
+        },
         None => "One image".to_string(),
     };
     out.push(format!("{shape}, {} × {} cells{cell} (the grid of {})", g.info.width, g.info.height, g.alias));
@@ -437,7 +445,10 @@ fn summary(p: &Plan, layers: &[CalcLayer], opts: &Options) -> Vec<String> {
             _ if cl.info.t() == 1 && p.series.is_some() => notes.push("an image: at every date".into()),
             _ => {}
         }
-        if p.series.is_some_and(|s| s != l) && cl.info.t() > 1 && plan::kind(&cl.info) != LayerKind::Stack {
+        if p.series.is_some_and(|s| s != l && !is_periods(s))
+            && cl.info.t() > 1
+            && plan::kind(&cl.info) != LayerKind::Stack
+        {
             let (n, t) = plan::match_stats(p.series, layers, l, opts.matching);
             notes.push(if n == t { format!("all {t} dates matched") } else { format!("{n} of {t} dates matched") });
         }
@@ -463,17 +474,41 @@ fn summary(p: &Plan, layers: &[CalcLayer], opts: &Options) -> Vec<String> {
         out.push(format!("Reads {}", reads.join("; ")));
     }
     if !p.stages.is_empty() {
-        let names: Vec<String> = p
-            .stages
-            .iter()
-            .map(|s| match s.only {
-                Some(t) => format!("the date {} of {}", layers[s.series].info.layers[t].label, layers[s.series].alias),
-                None => s.f.name(),
-            })
-            .collect();
+        let names: Vec<String> = p.stages.iter().map(|s| stage_text(p, s, layers)).collect();
         out.push(format!("Over time: {}", names.join(", ")));
     }
     out
+}
+
+/// What a reduction of the plan is: "max by year", "mean over 90 days", "the date 2020-05-01 of s"...
+fn stage_text(p: &Plan, s: &plan::Stage, layers: &[CalcLayer]) -> String {
+    let of = |series: usize| match Period::of_series(series) {
+        Some(Period::Year) => "the years".to_string(),
+        Some(Period::Month) => "the months".to_string(),
+        None => layers[series].alias.clone(),
+    };
+    if let Some(t) = s.only {
+        return format!("the date {} of {}", p.series_info(layers, s.series).layers[t].label, of(s.series));
+    }
+    let days = |d: f64| janus_cube::multidim::format_g(d, 4);
+    let mut t = match &s.over {
+        Over::All => s.f.name(),
+        Over::By(Period::Year) => format!("{} by year", s.f.name()),
+        Over::By(Period::Month) => format!("{} by month", s.f.name()),
+        Over::Window(d) => format!("{} over the last {} days", s.f.name(), days(*d)),
+        Over::LagTime { years, .. } if *years > 0 => format!("the value {years} years before"),
+        Over::LagTime { days: d, .. } => format!("the value {} days before", days(*d)),
+        Over::LagObs(k) => format!("the value {k} observations before"),
+        Over::Upto(k) => format!("{} over the last {k} observations", s.f.name()),
+        Over::Clim { from, to, by: ClimBy::Month } => format!("{} of each month in {from}..{to}", s.f.name()),
+        Over::Clim { from, to, by: ClimBy::Doy(w) } => {
+            format!("{} of each day of the year ± {} days in {from}..{to}", s.f.name(), days(*w))
+        }
+    };
+    if s.slice.is_some() {
+        t += " (of a slice)";
+    }
+    t
 }
 
 impl State {
@@ -494,7 +529,7 @@ impl State {
         (out, at)
     }
 
-    fn calc_options(&self, layers: &[CalcLayer], at: &[usize]) -> Options {
+    pub(crate) fn calc_options(&self, layers: &[CalcLayer], at: &[usize]) -> Options {
         let c = &self.calc;
         let by_name = |n: &Option<String>| n.as_ref().and_then(|n| layers.iter().position(|l| &l.name == n));
         let primary = match &c.primary {
@@ -514,10 +549,14 @@ impl State {
             },
             resampling: RESAMPLINGS[c.resampling.min(RESAMPLINGS.len() - 1)].0.into(),
             apply_qa: c.apply_qa,
+            // computed once for the GeoTIFFs written; the map reads views of VRTs alone
+            materialize: c.cog,
         }
     }
 
     pub(crate) fn calculator_window(&mut self, ctx: &egui::Context) {
+        // the live result and the chart (gone with the window)
+        self.pump_calc_live(ctx);
         if !self.calc.show {
             return;
         }
@@ -612,6 +651,13 @@ impl State {
                 c.name_typed = false;
                 c.popup = None;
             }
+            ui.separator();
+            ui.checkbox(&mut c.live.on, "Live").on_hover_text(
+                "The result on the map as you type, at the overview's size (a layer marked preview): a reduction                  over time shown as its dates are read (\"max so far: 23 of 107 dates\"), a series at the date shown",
+            );
+            ui.checkbox(&mut c.live.chart, "Chart").on_hover_text(
+                "The expression's values at the cursor (or the first pin) under the editor: its series, what its                  reductions reduce, and a part of the text selected",
+            );
         });
         ui.add_space(2.0);
 
@@ -630,6 +676,12 @@ impl State {
             run |= self.calc_editor(ui, &layers, opts.primary);
             let top = ui.cursor().top();
             self.calc_status(ui);
+            if !self.calc.live.label.is_empty() && self.calc.live.on {
+                ui.weak(format!("Live: {}", self.calc.live.label));
+            }
+            if self.calc.live.chart {
+                self.calc_chart_ui(ui);
+            }
             self.calc_options_ui(ui, &layers, &opts);
             self.calc.follow_run();
             if !self.calc.status.is_empty() {
@@ -1308,7 +1360,7 @@ impl State {
             return;
         }
         let cog = self.calc.cog;
-        let n_dates = p.series.map_or(1, |s| layers[s].info.t());
+        let n_dates = p.series.map_or(1, |_| p.dates(&layers).len());
         let title = format!(
             "Calculator {name}: {}{}",
             if n_dates > 1 { format!("{n_dates} dates") } else { "an image".into() },

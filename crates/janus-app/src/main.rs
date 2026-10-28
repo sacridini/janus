@@ -9,6 +9,7 @@ mod animation;
 mod app;
 mod attributes;
 mod basemap;
+mod calc_live;
 mod calculator;
 mod canvas;
 mod canvas_layer;

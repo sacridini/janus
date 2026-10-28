@@ -18,6 +18,7 @@ pub mod editor;
 pub mod funcs;
 pub mod indices;
 pub mod lex;
+pub mod live;
 pub mod names;
 pub mod parse;
 pub mod plan;

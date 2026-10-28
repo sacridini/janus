@@ -899,7 +899,62 @@ impl State {
                 next(st, "redo: the four steps done again");
                 None
             }
+            // the calculator live: a reduction on the map as its dates are read, the chart at a pin
             200 => {
+                let (ls, at) = self.calc_layers();
+                let a = ls[at.iter().position(|&k| k == self.active)?].alias.clone();
+                let s = self.session.as_ref()?;
+                if self.series.pins.is_empty() {
+                    let (x, y) = (s.info.width / 3, s.info.height / 2);
+                    self.add_pin(x, y);
+                }
+                self.calc.show = true;
+                self.calc.text = format!("sum({a}) + max({a})");
+                self.calc.live.on = true;
+                self.calc.live.chart = true;
+                next(st, "the calculator live and its chart on sum + max");
+                None
+            }
+            201 => {
+                let pin = self.series.pins.first()?.clone();
+                let live = self.zeit.results.iter().find(|r| r.preview && r.name.starts_with("Live: "));
+                let live = live?;
+                if !self.calc.live.label.is_empty()
+                    || !pin.exact
+                    || pin.values.is_empty()
+                    || self.calc.live.lines.len() < 3
+                {
+                    return None;
+                }
+                let v: Vec<f32> = pin.values.iter().copied().filter(|v| v.is_finite()).collect();
+                let want = v.iter().sum::<f32>() + v.iter().fold(f32::NAN, |m, &x| m.max(x));
+                let result = self.calc.live.lines.iter().find(|l| l.name == "the result")?;
+                let got = result.pts.first()?[1] as f32;
+                let reduced = self.calc.live.lines.iter().filter(|l| l.name.starts_with("what ")).map(|l| l.pts.len());
+                println!(
+                    "    {}: {} x {} live, the chart at the pin: {} (sum + max of its {} values: {want})",
+                    live.name,
+                    live.tw,
+                    live.th,
+                    self.calc_chart_text(),
+                    v.len()
+                );
+                if (got - want).abs() > 1e-4 * want.abs().max(1.0) || reduced.clone().any(|n| n != v.len()) {
+                    return fail("the chart should give the pin's sum + max and the values it reduces");
+                }
+                if live.data.iter().all(|x| !x.is_finite()) {
+                    return fail("the live result should have values");
+                }
+                self.calc.live.on = false;
+                self.calc.show = false;
+                next(st, "the calculator live: sum + max on the map, the chart at the pin");
+                None
+            }
+            202 => {
+                // gone with Live unticked
+                if self.zeit.results.iter().any(|r| r.name.starts_with("Live: ")) {
+                    return None;
+                }
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

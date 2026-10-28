@@ -123,7 +123,15 @@ pub fn classify(text: &str, layers: &[CalcLayer], primary: Option<usize>) -> Vec
                         Some(_) => Class::Unknown,
                         None => Class::Band,
                     }
-                } else if matches!(name, "and" | "or" | "not") {
+                } else if matches!(name, "d" | "w" | "y")
+                    && prev_tok(&toks, i).is_some_and(|p| matches!(p.tok, Tok::Num(_)) && p.span.end == t.span.start)
+                {
+                    // a duration's unit (90d)
+                    Class::Number
+                } else if matches!(name, "and" | "or" | "not" | "by")
+                    || matches!(name, "base" | "window") && next_tok(&toks, i) == Some(&Tok::Punct(Punct::Assign))
+                {
+                    // by year; anomaly's base=, by=, window=
                     Class::Keyword
                 } else if name == RESULT {
                     Class::Result
@@ -504,6 +512,14 @@ mod tests {
         assert_eq!(of("nan"), Some(Class::Constant));
         assert_eq!(of("foo"), Some(Class::Unknown));
         assert_eq!(of("0.5"), Some(Class::Number));
+        // over time
+        let text = "max(s2, 90d) by year + anomaly(s2, base=2019..2020, by=month)";
+        let c = classify(text, &ls, Some(0));
+        let all = |s: &str| -> Vec<Class> { c.iter().filter(|(r, _)| &text[r.clone()] == s).map(|x| x.1).collect() };
+        assert_eq!(all("d"), [Class::Number]);
+        assert_eq!(all("by"), [Class::Keyword, Class::Keyword]);
+        assert_eq!(all("base"), [Class::Keyword]);
+        assert_eq!(all("year"), [Class::DateVar]);
     }
 
     #[test]

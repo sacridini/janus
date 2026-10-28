@@ -380,3 +380,241 @@ fn a_series_as_geotiffs() {
     bad.insert(1, dir.join("none.vrt").to_string_lossy().into_owned());
     assert!(janus_cube::stac_vrt::download(&bad, &dir.join("cog2"), &|_, _| {}, &AtomicBool::new(false)).is_err());
 }
+
+/// The time series of `time_ops`: 30 dates 33 and 41 days apart from 2019-01-05 (three years), value
+/// ((7d + 3x) mod 11) / 10 at date d and column x, no data at date 5 of column 0.
+struct Irregular {
+    days: Vec<i64>,
+    layers: Vec<CalcLayer>,
+}
+
+fn ts_value(d: usize, x: usize) -> f32 {
+    if d == 5 && x == 0 { f32::NAN } else { ((d * 7 + x * 3) % 11) as f32 / 10.0 }
+}
+
+fn irregular(dir: &Path) -> Irregular {
+    let _ = std::fs::remove_dir_all(dir);
+    std::fs::create_dir_all(dir).unwrap();
+    let mut day = janus_cube::dates::days_from_civil(2019, 1, 5);
+    let (mut days, mut files) = (Vec::new(), Vec::new());
+    for d in 0..30 {
+        let (y, m, dd) = janus_cube::dates::civil_from_days(day);
+        let f = dir.join(format!("ts_{y:04}{m:02}{dd:02}.tif")).to_string_lossy().to_string();
+        tif(Path::new(&f), 32720, GT, (W, H), &["Value"], |_, x, _| {
+            let v = ts_value(d, x);
+            if v.is_nan() { ND as f32 } else { v }
+        });
+        files.push(f);
+        days.push(day);
+        day += if d % 2 == 0 { 33 } else { 41 };
+    }
+    let info = open_cube(&files, &BandSelection::default()).unwrap();
+    Irregular { days, layers: vec![CalcLayer { name: "ts".into(), alias: "ts".into(), info: Arc::new(info) }] }
+}
+
+/// Equal, both no data, or both the same infinity.
+fn same(a: f32, b: f32) -> bool {
+    close(a, b) || (a.is_infinite() && a == b) || (a - b).abs() < 1e-4 * b.abs().max(1.0)
+}
+
+#[test]
+fn time_ops() {
+    let dir = std::env::temp_dir().join("janus_calc_time");
+    let ts = irregular(&dir);
+    let (ls, days) = (&ts.layers, &ts.days);
+    let opts = Options::default();
+    let n = days.len();
+    let decyear = |d: usize| janus_cube::dates::decimal_year(days[d] as f64 * 86400.0) as f32;
+    let ymd = |d: usize| janus_cube::dates::civil_from_days(days[d]);
+    let valid = |x: usize| (0..n).filter(move |&d| !ts_value(d, x).is_nan());
+    let cols = [0usize, 1, 4, 7];
+    let out = |s: &str| dir.join("out").join(s);
+    let check = |text: &str, name: &str, want: &dyn Fn(usize, usize) -> f32| {
+        let r = run(text, ls, &opts, &out(name));
+        for (t, v) in r.iter().enumerate() {
+            for &x in &cols {
+                let (got, w) = (v[x], want(t, x));
+                assert!(same(got, w), "{text}: date {t}, column {x}: {got} vs {w}");
+            }
+        }
+        r.len()
+    };
+
+    // the date of the largest value (the first of equal ones)
+    assert_eq!(
+        check("argmax(ts)", "argmax", &|_, x| {
+            let best = valid(x).fold(None, |b: Option<usize>, d| match b {
+                Some(b) if ts_value(b, x) >= ts_value(d, x) => Some(b),
+                _ => Some(d),
+            });
+            decyear(best.unwrap())
+        }),
+        1
+    );
+    // a calendar slice: June to September 2019
+    let in_slice = |d: usize| {
+        let (y, m, _) = ymd(d);
+        y == 2019 && (6..=9).contains(&m)
+    };
+    let median = |mut v: Vec<f32>| janus_cube::calc::vrt::percentile(&mut v, 0.5);
+    check("median(ts[2019-06 .. 2019-09])", "slice", &|_, x| {
+        median(valid(x).filter(|&d| in_slice(d)).map(|d| ts_value(d, x)).collect())
+    });
+    // months of every year: November to February
+    check("count(isvalid(ts[11 .. 2]))", "months", &|_, x| {
+        valid(x).filter(|&d| matches!(ymd(d).1, 11 | 12 | 1 | 2)).count() as f32
+    });
+    // by year: a series of the years
+    let years: Vec<i32> = {
+        let mut v: Vec<i32> = (0..n).map(|d| ymd(d).0).collect();
+        v.dedup();
+        v
+    };
+    let k = check("max(ts) by year", "by_year", &|t, x| {
+        valid(x).filter(|&d| ymd(d).0 == years[t]).map(|d| ts_value(d, x)).fold(f32::NAN, f32::max)
+    });
+    assert_eq!(k, years.len());
+    let text = "max(ts) by year - min(ts) by year";
+    let p = plan(text, ls, &opts).unwrap();
+    let labels: Vec<String> = p.dates(ls).iter().map(|d| d.1.clone()).collect();
+    assert_eq!(labels, years.iter().map(|y| y.to_string()).collect::<Vec<_>>());
+    // the series written opens with its years as dates
+    let w = p.write(text, ls, &opts, &out("range"), &|_, _| {}, &AtomicBool::new(false)).unwrap();
+    let info = open_cube(&w.files, &BandSelection::default()).unwrap();
+    let opened: Vec<&String> = info.layers.iter().map(|l| &l.label).collect();
+    assert!(info.time_is_date && info.t() == years.len(), "{opened:?}");
+    // by month: one date per month that has one
+    let p = plan("mean(ts) by month", ls, &opts).unwrap();
+    assert_eq!(p.dates(ls).len(), n, "a date a month here");
+    // a moving window of 90 days: the dates in (t - 90, t]
+    check("mean(ts, 90d)", "window", &|t, x| {
+        let v: Vec<f32> =
+            valid(x).filter(|&d| days[d] <= days[t] && days[d] > days[t] - 90).map(|d| ts_value(d, x)).collect();
+        if v.is_empty() { f32::NAN } else { v.iter().sum::<f32>() / v.len() as f32 }
+    });
+    // the previous observation of the pixel (date 5 of column 0 has none: date 4's)
+    for (text, name) in [("ts[-1]", "lag1"), ("lag(ts, 1)", "lag1b")] {
+        check(text, name, &|t, x| valid(x).rfind(|&d| d < t).map_or(f32::NAN, |d| ts_value(d, x)));
+    }
+    check("ts - ts[-2]", "lag2", &|t, x| {
+        let prev: Vec<usize> = valid(x).filter(|&d| d < t).collect();
+        let p = if prev.len() >= 2 { ts_value(prev[prev.len() - 2], x) } else { f32::NAN };
+        ts_value(t, x) - p
+    });
+    // a year before: the nearest date within half the usual step
+    let mut steps: Vec<i64> = (1..n).map(|d| days[d] - days[d - 1]).collect();
+    steps.sort();
+    let tol = (steps[steps.len() / 2] as f64 / 2.0).max(8.0);
+    check("lag(ts, 1y)", "lag1y", &|t, x| {
+        let (y, m, d) = ymd(t);
+        let target = janus_cube::dates::days_from_civil(y - 1, m, d);
+        let near = (0..n)
+            .filter(|&e| e != t && ((days[e] - target).abs() as f64) <= tol)
+            .min_by_key(|&e| (days[e] - target).abs());
+        near.map_or(f32::NAN, |e| ts_value(e, x))
+    });
+    // the anomaly against the months of 2019 and 2020
+    check("anomaly(ts, base=2019..2020, by=month)", "anomaly", &|t, x| {
+        let m = ymd(t).1;
+        let base: Vec<f64> = valid(x)
+            .filter(|&d| (2019..=2020).contains(&ymd(d).0) && ymd(d).1 == m)
+            .map(|d| ts_value(d, x) as f64)
+            .collect();
+        if base.is_empty() {
+            return f32::NAN;
+        }
+        let mean = base.iter().sum::<f64>() / base.len() as f64;
+        let std = (base.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / base.len() as f64).sqrt();
+        // a division by 0 is no data (the calculator's x / 0)
+        if std == 0.0 { f32::NAN } else { ((ts_value(t, x) as f64 - mean) / std) as f32 }
+    });
+    // the reductions read by several dates computed once into GeoTIFFs: the same values
+    let mat = Options { materialize: true, ..Default::default() };
+    for (k, text) in ["anomaly(ts, base=2019..2020, by=month)", "ts - mean(ts)"].iter().enumerate() {
+        let (lazy, done) = (out(&format!("lazy{k}")), out(&format!("mat{k}")));
+        let (a, b) = (run(text, ls, &opts, &lazy), run(text, ls, &mat, &done));
+        assert_eq!(a.len(), b.len());
+        for (x, y) in a.iter().flatten().zip(b.iter().flatten()) {
+            assert!(same(*x, *y), "{text}: {x} vs {y}");
+        }
+        let tifs = std::fs::read_dir(done.join("stages"))
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == "tif"))
+            .count();
+        assert!(tifs > 0, "{text}: no stage computed");
+    }
+    // live at full size: the reduction read date by date gives the result written; a series' date; a pixel's series
+    for text in ["max(ts) - min(ts)", "argmax(ts)", "median(ts[2019-06 .. 2019-12])", "ts - mean(ts)"] {
+        let p = plan(text, ls, &opts).unwrap();
+        let mut last = None;
+        let mut on = |u: janus_cube::calc::live::LiveUpdate| last = Some(u);
+        let t = p.series.map(|_| days[3] as f64 * 86400.0);
+        let cancel = AtomicBool::new(false);
+        janus_cube::calc::live::live(&p, text, ls, &opts, &out("live"), W, t, &cancel, &mut on).unwrap();
+        let u = last.unwrap();
+        assert_eq!((u.w, u.h, u.done), (W, H, u.total), "{text}");
+        let want = run(text, ls, &opts, &out("live_ref"));
+        let want = &want[if p.series.is_some() { 3 } else { 0 }];
+        for (a, b) in u.data.iter().zip(want) {
+            assert!(same(*a, *b), "{text}: {a} vs {b}");
+        }
+    }
+    let w =
+        plan("ts * 2", ls, &opts).unwrap().write("ts * 2", ls, &opts, &out("px"), &|_, _| {}, &AtomicBool::new(false));
+    let px = janus_cube::calc::live::read_pixel(&w.unwrap().files, 4, 2);
+    assert_eq!(px.len(), n);
+    for (d, v) in px.iter().enumerate() {
+        assert!(same(*v, ts_value(d, 4) * 2.0), "date {d}: {v}");
+    }
+    // events
+    let hi = |d: usize, x: usize| ts_value(d, x) > 0.5;
+    check("first(ts > 0.5)", "first", &|_, x| valid(x).find(|&d| hi(d, x)).map_or(f32::NAN, decyear));
+    check("last(ts > 0.5)", "last", &|_, x| valid(x).rfind(|&d| hi(d, x)).map_or(f32::NAN, decyear));
+    check("first(ts > 0.5 and year >= 2020)", "first2020", &|_, x| {
+        valid(x).find(|&d| hi(d, x) && ymd(d).0 >= 2020).map_or(f32::NAN, decyear)
+    });
+    check("longest(ts > 0.5)", "longest", &|_, x| {
+        let (mut best, mut start, mut last) = (0i64, None, 0i64);
+        for d in valid(x) {
+            last = days[d];
+            match (hi(d, x), start) {
+                (true, None) => start = Some(days[d]),
+                (false, Some(s)) => {
+                    best = best.max(days[d] - s);
+                    start = None;
+                }
+                _ => {}
+            }
+        }
+        if let Some(s) = start {
+            best = best.max(last - s);
+        }
+        best as f32
+    });
+    check("persist(ts > 0.5, 2)", "persist", &|t, x| {
+        let v: Vec<bool> = valid(x).filter(|&d| d <= t).map(|d| hi(d, x)).collect();
+        let k = v.len();
+        if k >= 1 && !v[k - 1] || k >= 2 && !v[k - 2] {
+            0.0
+        } else if k >= 2 {
+            1.0
+        } else {
+            f32::NAN
+        }
+    });
+
+    // errors
+    for (text, msg) in [
+        ("ts[2019-06 .. 2019-09]", "goes in a reduction"),
+        ("max(ts) by year - ts", "different dates"),
+        ("max(ts, 90d) by year", "one or the other"),
+        ("median(ts[2019-13 .. 2020-01])", "a date is"),
+        ("anomaly(ts, base=2019..2018)", "the base"),
+        ("lag(ts, 0.5)", "a lag is"),
+        ("mean(ts, 90d, 3)", "the last argument"),
+    ] {
+        let e = plan(text, ls, &opts).err().unwrap_or_else(|| panic!("{text} should fail"));
+        assert!(e.message.contains(msg), "{text}: {}", e.message);
+    }
+}

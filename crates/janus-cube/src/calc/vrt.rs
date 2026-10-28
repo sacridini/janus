@@ -241,21 +241,45 @@ pub fn reduce_dates(
         (true, Opnd::Input(k)) => Some(k as usize),
         _ => None,
     };
-    let keep_all = matches!(f, RedFn::Median | RedFn::Percentile(_));
+    let keep_all = matches!(f, RedFn::Median | RedFn::Percentile(_) | RedFn::Persist(_) | RedFn::Back(_));
+    // each date as a decimal year (or its place), and its day (Longest)
+    let no_vars = DateVars::default();
+    let var = |d: usize| vars.get(d).unwrap_or(&no_vars);
+    let when: Vec<f32> = (0..dates)
+        .map(|d| {
+            let v = var(d);
+            if v.0[4].is_nan() { v.0[5] } else { v.0[4] }
+        })
+        .collect();
+    let day: Vec<f64> = (0..dates)
+        .map(|d| {
+            let v = var(d);
+            if v.0[0].is_nan() {
+                f64::from(v.0[5])
+            } else {
+                crate::dates::days_from_civil(v.0[0] as i32, v.0[1] as u32, v.0[2] as u32) as f64
+            }
+        })
+        .collect();
+    let mut arg = vec![f32::NAN; BLOCK];
+    let (mut start, mut best, mut lastd) = (vec![f64::NAN; BLOCK], vec![f64::NAN; BLOCK], vec![f64::NAN; BLOCK]);
     let mut tmp = vec![0f32; BLOCK];
     let mut values: Vec<f32> = if keep_all { vec![0f32; BLOCK * dates] } else { Vec::new() };
     let (mut acc, mut m2, mut cnt) = (vec![0f64; BLOCK], vec![0f64; BLOCK], vec![0u32; BLOCK]);
     let mut ext = vec![f32::NAN; BLOCK];
     let mut px: Vec<f32> = Vec::with_capacity(dates);
     let mut ins: Vec<&[f32]> = Vec::with_capacity(captures + stride);
-    let no_vars = DateVars::default();
-    for start in (0..n).step_by(BLOCK) {
-        let len = BLOCK.min(n - start);
-        let r = start..start + len;
+    for at in (0..n).step_by(BLOCK) {
+        let len = BLOCK.min(n - at);
+        let r = at..at + len;
         acc[..len].fill(0.0);
         m2[..len].fill(0.0);
         cnt[..len].fill(0);
         ext[..len].fill(f32::NAN);
+        arg[..len].fill(f32::NAN);
+        start[..len].fill(f64::NAN);
+        best[..len].fill(f64::NAN);
+        lastd[..len].fill(f64::NAN);
         for d in 0..dates {
             let date = &all[captures + d * stride..captures + (d + 1) * stride];
             let v: &[f32] = match input {
@@ -271,7 +295,46 @@ pub fn reduce_dates(
                 }
             };
             match f {
-                RedFn::Median | RedFn::Percentile(_) => values[d * BLOCK..d * BLOCK + len].copy_from_slice(v),
+                RedFn::Median | RedFn::Percentile(_) | RedFn::Persist(_) | RedFn::Back(_) => {
+                    values[d * BLOCK..d * BLOCK + len].copy_from_slice(v)
+                }
+                RedFn::ArgMax | RedFn::ArgMin => {
+                    let max = f == RedFn::ArgMax;
+                    for ((e, a), &x) in ext[..len].iter_mut().zip(&mut arg[..len]).zip(v) {
+                        // the first of equal values, as numpy's argmax
+                        if x.is_finite() && (e.is_nan() || if max { x > *e } else { x < *e }) {
+                            (*e, *a) = (x, when[d]);
+                        }
+                    }
+                }
+                RedFn::First | RedFn::Last => {
+                    for (a, &x) in arg[..len].iter_mut().zip(v) {
+                        if x.is_finite() && x != 0.0 && (f == RedFn::Last || a.is_nan()) {
+                            *a = when[d];
+                        }
+                    }
+                }
+                RedFn::Longest => {
+                    // a run from its first date to the next date it is not true
+                    for i in 0..len {
+                        let x = v[i];
+                        if !x.is_finite() {
+                            continue;
+                        }
+                        lastd[i] = day[d];
+                        if best[i].is_nan() {
+                            best[i] = 0.0;
+                        }
+                        if x != 0.0 {
+                            if start[i].is_nan() {
+                                start[i] = day[d];
+                            }
+                        } else if !start[i].is_nan() {
+                            best[i] = best[i].max(day[d] - start[i]);
+                            start[i] = f64::NAN;
+                        }
+                    }
+                }
                 RedFn::Max => {
                     for (e, &x) in ext[..len].iter_mut().zip(v) {
                         // NaN so far, or below x (a select, not a branch)
@@ -310,8 +373,44 @@ pub fn reduce_dates(
                 }
             }
         }
-        let dst = &mut out[start..start + len];
+        let dst = &mut out[at..at + len];
         match f {
+            RedFn::ArgMax | RedFn::ArgMin | RedFn::First | RedFn::Last => dst.copy_from_slice(&arg[..len]),
+            RedFn::Longest => {
+                for (i, o) in dst.iter_mut().enumerate() {
+                    // a run to the last date
+                    let b = if start[i].is_nan() { best[i] } else { best[i].max(lastd[i] - start[i]) };
+                    *o = b as f32;
+                }
+            }
+            RedFn::Back(k) => {
+                for (i, o) in dst.iter_mut().enumerate() {
+                    *o = (0..dates)
+                        .rev()
+                        .map(|d| values[d * BLOCK + i])
+                        .filter(|v| v.is_finite())
+                        .nth(k as usize - 1)
+                        .unwrap_or(f32::NAN);
+                }
+            }
+            RedFn::Persist(k) => {
+                for (i, o) in dst.iter_mut().enumerate() {
+                    // the last k values (with one) true: 1; a false among them: 0; fewer than k: unknown
+                    let mut run = 0;
+                    *o = f32::NAN;
+                    for x in (0..dates).rev().map(|d| values[d * BLOCK + i]).filter(|v| v.is_finite()) {
+                        if x == 0.0 {
+                            *o = 0.0;
+                            break;
+                        }
+                        run += 1;
+                        if run == k {
+                            *o = 1.0;
+                            break;
+                        }
+                    }
+                }
+            }
             RedFn::Median | RedFn::Percentile(_) => {
                 let q = match f {
                     RedFn::Percentile(p) => f64::from(p) / 100.0,

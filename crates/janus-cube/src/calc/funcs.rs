@@ -19,7 +19,7 @@ impl Group {
             Group::Logic => "Conditions and no data",
             Group::Index => "Indices",
             Group::Bits => "Bits and quality",
-            Group::Time => "Over time (a series to one image)",
+            Group::Time => "Over time",
         }
     }
 }
@@ -36,7 +36,7 @@ pub enum Kind {
     In,
     /// qa(x, q, "rule")
     Qa,
-    /// over the dates of a series: median, std, count, percentile
+    /// over the dates of a series: median, std, count, percentile, argmax, lag...
     Reduce,
 }
 
@@ -81,7 +81,8 @@ pub const FUNCS: &[Func] = &[
     f(
         "min",
         "a, b, ...",
-        "Smallest of the values; min(series): the smallest over time",
+        "Smallest of the values; min(series): the smallest over time; min(series, 90d): over the last 90 days of each \
+         date; min(series) by year: of each year",
         Group::Math,
         Kind::Many,
         (1, ANY),
@@ -89,13 +90,30 @@ pub const FUNCS: &[Func] = &[
     f(
         "max",
         "a, b, ...",
-        "Largest of the values; max(series): the largest over time",
+        "Largest of the values; max(series): the largest over time; max(series, 90d): over the last 90 days of each \
+         date; max(series) by year: of each year",
         Group::Math,
         Kind::Many,
         (1, ANY),
     ),
-    f("mean", "a, b, ...", "Mean of the values; mean(series): the mean over time", Group::Math, Kind::Many, (1, ANY)),
-    f("sum", "a, b, ...", "Sum of the values; sum(series): the sum over time", Group::Math, Kind::Many, (1, ANY)),
+    f(
+        "mean",
+        "a, b, ...",
+        "Mean of the values; mean(series): the mean over time; mean(series, 90d): over the last 90 days of each date \
+         (a moving mean); mean(series) by month: of each month",
+        Group::Math,
+        Kind::Many,
+        (1, ANY),
+    ),
+    f(
+        "sum",
+        "a, b, ...",
+        "Sum of the values; sum(series): the sum over time; sum(series, 30d): over the last 30 days of each date; \
+         sum(series) by year: of each year",
+        Group::Math,
+        Kind::Many,
+        (1, ANY),
+    ),
     f("clamp", "x, lo, hi", "x limited to [lo, hi]", Group::Math, Kind::Tern(TernFn::Clamp), (3, 3)),
     f("hypot", "x, y", "sqrt(x^2 + y^2)", Group::Math, Kind::Bin(BinFn::Hypot), (2, 2)),
     f("sin", "x", "Sine (radians)", Group::Math, Kind::Un(UnFn::Sin), (1, 1)),
@@ -167,14 +185,22 @@ pub const FUNCS: &[Func] = &[
         Kind::Qa,
         (3, 3),
     ),
-    f("median", "series", "The median over time", Group::Time, Kind::Reduce, (1, 1)),
+    f(
+        "median",
+        "series",
+        "The median over time; median(ndvi[2019-06 .. 2019-09]): of those months; median(ndvi, 90d): over the last 90 \
+         days of each date",
+        Group::Time,
+        Kind::Reduce,
+        (1, 2),
+    ),
     f(
         "std",
         "series",
         "The standard deviation over time (of the dates with a value)",
         Group::Time,
         Kind::Reduce,
-        (1, 1),
+        (1, 2),
     ),
     f(
         "count",
@@ -182,7 +208,60 @@ pub const FUNCS: &[Func] = &[
         "How many dates it is true (not 0) on: count(ndvi < 0.3) counts the dates below 0.3, count(isvalid(ndvi)) those with a value",
         Group::Time,
         Kind::Reduce,
+        (1, 2),
+    ),
+    f(
+        "argmax",
+        "series",
+        "The date of the largest value, as a decimal year (2019.54): argmax(ndvi) is the peak of the season",
+        Group::Time,
+        Kind::Reduce,
         (1, 1),
+    ),
+    f("argmin", "series", "The date of the smallest value, as a decimal year", Group::Time, Kind::Reduce, (1, 1)),
+    f(
+        "first",
+        "cond",
+        "The date (decimal year) of the first date it is true: first(ndvi < 0.3 and year >= 2020)",
+        Group::Time,
+        Kind::Reduce,
+        (1, 1),
+    ),
+    f("last", "cond", "The date (decimal year) of the last date it is true", Group::Time, Kind::Reduce, (1, 1)),
+    f(
+        "longest",
+        "cond",
+        "The longest time it stayed true, in days: from the first date of a run to the next date it is not (or the \
+         last date): longest(ndvi < 0.3)",
+        Group::Time,
+        Kind::Reduce,
+        (1, 1),
+    ),
+    f(
+        "persist",
+        "cond, k",
+        "A series: 1 at each date where it was true at the last k dates with a value, 0 where not: persist(ndvi < 0.3, 3)",
+        Group::Time,
+        Kind::Reduce,
+        (2, 2),
+    ),
+    f(
+        "lag",
+        "series, k",
+        "A series: the value k observations before each date (lag(ndvi, 1), also ndvi[-1]: the pixel's previous value), \
+         or a time before, the nearest date: lag(ndvi, 1y), lag(ndvi, 30d)",
+        Group::Time,
+        Kind::Reduce,
+        (2, 2),
+    ),
+    f(
+        "anomaly",
+        "series, base=, by=",
+        "A series: each date's z-score against the climatology of the base years: anomaly(ndvi, base=2015..2019, \
+         by=month) (by=doy: of the days of the year within window=15d)",
+        Group::Time,
+        Kind::Reduce,
+        (1, 4),
     ),
     f(
         "at",
@@ -199,7 +278,7 @@ pub const FUNCS: &[Func] = &[
         "The p-th percentile over time (0 to 100): percentile(ndvi, 90)",
         Group::Time,
         Kind::Reduce,
-        (2, 2),
+        (2, 3),
     ),
 ];
 

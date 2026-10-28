@@ -6,6 +6,9 @@
 //! - `reduce DIR`: the series of `DIR/series/*.tif` reduced over time by the calculator (max, mean, median, std,
 //!   count, percentile 90): the VRT written and read whole, as a COG translation reads it; `reduce.json` (ms) and
 //!   each result (`r_<name>.f32`), for xarray to compare.
+//! - `time DIR`: the operators over time (by year, windows, lags, anomalies...) on `DIR/irregular/*.tif`, each
+//!   result written (the reductions read by several dates computed into GeoTIFFs) and read whole: `time.json` (ms,
+//!   dates) and `t_<name>.f32`.
 //! - `shown DIR`: the overview read (the series of `DIR/bands/*.tif`, four bands a date) with NDVI as a normalized
 //!   difference and as an expression, and EVI: `shown.json` (ms).
 //!
@@ -123,6 +126,40 @@ fn reduce_bench(dir: &Path) {
     std::fs::write(dir.join("reduce.json"), serde_json::to_string_pretty(&out).unwrap()).unwrap();
 }
 
+/// The calculator's operators over time (39b) on an irregular series: each result's dates read whole, one after
+/// the other into one file.
+fn time_bench(dir: &Path) {
+    let fs = files(&dir.join("irregular"));
+    let info = open_cube(&fs, &BandSelection::default()).unwrap();
+    let layers = vec![CalcLayer { name: "s".into(), alias: "s".into(), info: Arc::new(info) }];
+    let opts = Options { materialize: true, ..Default::default() };
+    let mut out = serde_json::Map::new();
+    for (name, text) in [
+        ("by_year_max", "max(s) by year"),
+        ("by_month_mean", "mean(s) by month"),
+        ("rolling_90d", "mean(s, 90d)"),
+        ("argmax", "argmax(s)"),
+        ("anomaly_month", "anomaly(s, base=2020..2021, by=month)"),
+        ("slice_median", "median(s[2021-06 .. 2021-09])"),
+        ("sub_mean", "s - mean(s)"),
+    ] {
+        let p = plan(text, &layers, &opts).unwrap();
+        let odir = dir.join("calc").join(name);
+        let (mut v, mut n) = (Vec::new(), 0);
+        // written (the reductions read by several dates computed then) and read
+        let ms = best_ms(2, || {
+            let _ = std::fs::remove_dir_all(&odir);
+            let w = p.write(text, &layers, &opts, &odir, &|_, _| {}, &AtomicBool::new(false)).unwrap();
+            v = w.files.iter().flat_map(|f| read_all(f)).collect();
+            n = w.files.len();
+        });
+        write_f32(&dir.join(format!("t_{name}.f32")), &v);
+        out.insert(name.into(), serde_json::json!({"ms": ms, "dates": n}));
+        println!("{name}: {ms:.0} ms, {n} dates");
+    }
+    std::fs::write(dir.join("time.json"), serde_json::to_string_pretty(&out).unwrap()).unwrap();
+}
+
 fn shown_bench(dir: &Path) {
     let fs = files(&dir.join("bands"));
     let mut out = serde_json::Map::new();
@@ -168,6 +205,7 @@ fn main() {
         "indices" => indices_bench(dir, a[3].parse().unwrap()),
         "reduce" => reduce_bench(dir),
         "shown" => shown_bench(dir),
+        "time" => time_bench(dir),
         x => panic!("unknown {x}"),
     }
 }

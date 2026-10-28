@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::canonical::canonical_mapped;
-use super::compile::{Body, Member, RedFn, Scope, Value, compile};
+use super::compile::{Body, ClimBy, Member, Over, Period, RedFn, Scope, Slice, Value, compile, is_periods};
 use super::names::{BandNames, Resolved};
 use super::parse::{CalcError, parse};
 use super::program::{BinFn, Builder, DateVars, Program, TernFn};
@@ -121,7 +121,8 @@ pub enum Key {
     Stage(usize),
 }
 
-/// A reduction over time: its body at each date of `series`, reduced by `f`.
+/// A reduction over time: its body at each date of `series` (of its slice), reduced by `f` over the dates `over`
+/// says: one image, or one per period or per date (a VRT each, a slot).
 pub struct Stage {
     pub f: RedFn,
     pub body: Program,
@@ -129,6 +130,140 @@ pub struct Stage {
     pub series: usize,
     /// at(): the one date of the series read (the others are not)
     pub only: Option<usize>,
+    pub over: Over,
+    pub slice: Option<Slice>,
+}
+
+/// Which of a stage's slots a date reads.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SlotOf {
+    /// its one image
+    Fixed,
+    /// its period's (by year, by month)
+    Period(Period),
+    /// its month of the year's (a climatology by month)
+    MonthOfYear,
+    /// the slot of its date in the stage's series (windows, lags, persist, a climatology by days of the year)
+    Date,
+}
+
+/// A stage written: a file per slot (None: no date to reduce there), the slots' keys.
+struct StageOut {
+    of: SlotOf,
+    keys: Vec<i64>,
+    files: Vec<Option<String>>,
+    series: usize,
+}
+
+/// The day of the year of Unix seconds.
+fn doy(time: f64) -> i64 {
+    let days = (time / 86400.0).floor() as i64;
+    let (y, _, _) = crate::dates::civil_from_days(days);
+    days - crate::dates::days_from_civil(y, 1, 1) + 1
+}
+
+/// How a date finds its slot, and each slot's key and the dates it reduces.
+type Slots = (SlotOf, Vec<(i64, Vec<usize>)>);
+
+/// The slots of a stage over `info`'s dates: the dates each one reduces, its key, and how a date finds its slot.
+fn slots(st: &Stage, info: &CubeInfo) -> Slots {
+    let n = info.t();
+    let time = |t: usize| info.layers[t].time;
+    let idx: Vec<usize> =
+        (0..n).filter(|&t| st.slice.is_none_or(|s| !info.time_is_date || s.contains(time(t)))).collect();
+    let ymd = |t: usize| crate::dates::civil_from_days((time(t) / 86400.0).floor() as i64);
+    // the last dates of at most this many (lags and persist look back this far)
+    let recent = |v: Vec<usize>, k: usize| {
+        let keep = 4 * k + 8;
+        v[v.len().saturating_sub(keep)..].to_vec()
+    };
+    if let Some(t) = st.only {
+        return (SlotOf::Fixed, vec![(0, vec![t])]);
+    }
+    match st.over {
+        Over::All => (SlotOf::Fixed, vec![(0, idx)]),
+        Over::By(p) => {
+            let mut out: Vec<(i64, Vec<usize>)> = Vec::new();
+            for &t in &idx {
+                let k = p.key(time(t));
+                match out.iter_mut().find(|s| s.0 == k) {
+                    Some(s) => s.1.push(t),
+                    None => out.push((k, vec![t])),
+                }
+            }
+            out.sort_by_key(|s| s.0);
+            (SlotOf::Period(p), out)
+        }
+        Over::Window(days) => (
+            SlotOf::Date,
+            (0..n)
+                .map(|t| {
+                    let w: Vec<usize> = idx
+                        .iter()
+                        .copied()
+                        .filter(|&d| time(d) <= time(t) && time(d) > time(t) - days * 86400.0)
+                        .collect();
+                    (t as i64, w)
+                })
+                .collect(),
+        ),
+        Over::LagTime { days, years } => {
+            // within half the series' usual step, at least 8 days
+            let mut steps: Vec<f64> = (1..n).map(|t| time(t) - time(t - 1)).collect();
+            steps.sort_by(f64::total_cmp);
+            let tol = steps.get(steps.len() / 2).map_or(8.0 * 86400.0, |s| (s / 2.0).max(8.0 * 86400.0));
+            (
+                SlotOf::Date,
+                (0..n)
+                    .map(|t| {
+                        let target = if years > 0 {
+                            let (y, m, d) = ymd(t);
+                            crate::dates::days_from_civil(y - years, m, d) as f64 * 86400.0
+                        } else {
+                            time(t) - days * 86400.0
+                        };
+                        let near = idx
+                            .iter()
+                            .copied()
+                            .filter(|&d| d != t && (time(d) - target).abs() <= tol)
+                            .min_by(|&a, &b| (time(a) - target).abs().total_cmp(&(time(b) - target).abs()));
+                        (t as i64, near.into_iter().collect())
+                    })
+                    .collect(),
+            )
+        }
+        Over::LagObs(k) => (
+            SlotOf::Date,
+            (0..n).map(|t| (t as i64, recent(idx.iter().copied().filter(|&d| d < t).collect(), k))).collect(),
+        ),
+        Over::Upto(k) => (
+            SlotOf::Date,
+            (0..n).map(|t| (t as i64, recent(idx.iter().copied().filter(|&d| d <= t).collect(), k))).collect(),
+        ),
+        Over::Clim { from, to, by } => {
+            let base: Vec<usize> = idx.iter().copied().filter(|&t| (from..=to).contains(&ymd(t).0)).collect();
+            match by {
+                ClimBy::Month => (
+                    SlotOf::MonthOfYear,
+                    (1..=12)
+                        .map(|m| (m, base.iter().copied().filter(|&t| i64::from(ymd(t).1) == m).collect()))
+                        .collect(),
+                ),
+                ClimBy::Doy(w) => (
+                    SlotOf::Date,
+                    (0..n)
+                        .map(|t| {
+                            let near = |d: usize| {
+                                let a = (doy(time(d)) - doy(time(t))).abs() as f64;
+                                a.min(365.0 - a) <= w
+                            };
+                            (t as i64, base.iter().copied().filter(|&d| near(d)).collect())
+                        })
+                        .collect(),
+                ),
+            }
+        }
+    }
 }
 
 struct CalcScope<'a> {
@@ -389,11 +524,29 @@ impl Scope for CalcScope<'_> {
         body: Body<Key>,
         span: &Range<usize>,
     ) -> Result<Value, CalcError> {
+        if !is_periods(body.series) {
+            let l = &self.layers[body.series];
+            let by_date = body.slice.is_some()
+                || matches!(body.over, Over::By(_) | Over::Window(_) | Over::LagTime { .. } | Over::Clim { .. });
+            if by_date && !l.info.time_is_date {
+                return Err(CalcError::new(span.clone(), format!("the dates of \"{}\" are not known", l.name)));
+            }
+        } else if matches!(f, RedFn::At { .. }) {
+            return Err(CalcError::new(span.clone(), "at() takes a date of a layer's series"));
+        }
         let only = match f {
             RedFn::At { year, month, day } => Some(self.date_at(body.series, (year, month, day), span)?),
             _ => None,
         };
-        self.stages.push(Stage { f, body: body.program, inputs: body.inputs, series: body.series, only });
+        self.stages.push(Stage {
+            f,
+            body: body.program,
+            inputs: body.inputs,
+            series: body.series,
+            only,
+            over: body.over,
+            slice: body.slice,
+        });
         Ok(Value { node: b.input(Key::Stage(self.stages.len() - 1)), series: None })
     }
 
@@ -441,6 +594,9 @@ pub struct Options {
     pub resampling: String,
     /// bands named of a layer with a quality band are masked by it
     pub apply_qa: bool,
+    /// the reductions read by several dates (`s - mean(s)`, a climatology) computed once into GeoTIFFs when the
+    /// result is written: for a result read whole (written out as GeoTIFFs), not one the map reads a view of
+    pub materialize: bool,
 }
 
 impl Default for Options {
@@ -452,6 +608,7 @@ impl Default for Options {
             matching: DateMatch::Nearest(8.0),
             resampling: "nearest".into(),
             apply_qa: true,
+            materialize: false,
         }
     }
 }
@@ -468,6 +625,8 @@ pub struct Plan {
     pub name: Option<String>,
     /// the layers it reads, in order
     pub used: Vec<usize>,
+    /// the series of periods (`by year`, `by month`): their dates, as a series' (a grid of the layer reduced)
+    pub periods: Vec<(usize, Arc<CubeInfo>)>,
 }
 
 fn key_layer(k: &Key) -> Option<usize> {
@@ -498,16 +657,50 @@ pub fn plan(text: &str, layers: &[CalcLayer], opts: &Options) -> Result<Plan, Ca
             used.push(l);
         }
     }
-    let series =
-        c.value.series.map(|s| opts.dates_from.filter(|&d| d < layers.len() && layers[d].info.t() > 1).unwrap_or(s));
+    // the periods' dates: those of the dates reduced by year (month), every stage's together
+    let mut periods = Vec::new();
+    for p in [Period::Year, Period::Month] {
+        let by: Vec<&Stage> = scope.stages.iter().filter(|s| s.over == Over::By(p)).collect();
+        let Some(first) = by.first() else { continue };
+        let mut keys: Vec<i64> = by
+            .iter()
+            .flat_map(|s| {
+                let info = &layers[s.series].info;
+                info.layers.iter().filter(|l| s.slice.is_none_or(|x| x.contains(l.time))).map(|l| p.key(l.time))
+            })
+            .collect();
+        keys.sort();
+        keys.dedup();
+        if keys.is_empty() {
+            return Err(CalcError::new(0..text.len(), "no date in the slice"));
+        }
+        let mut info = (*layers[first.series].info).clone();
+        info.layers = keys
+            .iter()
+            .map(|&k| {
+                let (time, label) = p.start(k);
+                crate::Layer { time, label, ..Default::default() }
+            })
+            .collect();
+        info.granularity = if p == Period::Year { crate::TimeGranularity::Year } else { crate::TimeGranularity::Month };
+        info.time_is_date = true;
+        periods.push((p.series(), Arc::new(info)));
+    }
+    let series = c.value.series.map(|s| {
+        if is_periods(s) {
+            s
+        } else {
+            opts.dates_from.filter(|&d| d < layers.len() && layers[d].info.t() > 1).unwrap_or(s)
+        }
+    });
     let grid = opts
         .grid_from
         .filter(|&g| g < layers.len())
-        .or(series)
+        .or(series.filter(|&s| !is_periods(s)))
         .or_else(|| used.first().copied())
         .or(scope.primary)
         .ok_or_else(|| CalcError::new(0..text.len(), "the expression reads no layer"))?;
-    Ok(Plan { program, inputs, stages: scope.stages, series, grid, name: c.name, used })
+    Ok(Plan { program, inputs, stages: scope.stages, series, grid, name: c.name, used, periods })
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -544,7 +737,7 @@ pub fn match_date(info: &CubeInfo, time: f64, index: usize, dated: bool, m: Date
 
 /// How a layer is matched to the result's dates: (dates matched, of how many).
 pub fn match_stats(plan_series: Option<usize>, layers: &[CalcLayer], layer: usize, m: DateMatch) -> (usize, usize) {
-    let Some(r) = plan_series else { return (1, 1) };
+    let Some(r) = plan_series.filter(|&r| !is_periods(r)) else { return (1, 1) };
     let rinfo = &layers[r].info;
     let info = &layers[layer].info;
     let dated = rinfo.time_is_date;
@@ -796,13 +989,99 @@ fn date_stem(info: &CubeInfo, t: usize) -> String {
     }
 }
 
+/// Images computed at once by `materialize`, each on one thread (GDAL reads a VRT on its caller's), compressed on
+/// two: eight threads at most.
+const MATERIALIZE_THREADS: usize = 4;
+
+/// A stage's VRTs computed into tiled GeoTIFFs beside them (`.tif` for `.vrt`), read once each by blocks: what reads
+/// them then reads an image, not the reduction again.
+fn materialize(files: Vec<Option<String>>, cancel: &AtomicBool) -> Result<Vec<Option<String>>, String> {
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let failed = AtomicBool::new(false);
+    let out: Vec<std::sync::Mutex<Option<Result<String, String>>>> =
+        files.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    std::thread::scope(|sc| {
+        for _ in 0..MATERIALIZE_THREADS.min(files.len()) {
+            sc.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    if i >= files.len() || failed.load(Ordering::Relaxed) || cancel.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let Some(f) = &files[i] else { continue };
+                    let tif = Path::new(f).with_extension("tif");
+                    let r = vrt::with_block_reads(true, || {
+                        let src = gdal::Dataset::open(f).map_err(|e| format!("{f}: {e}"))?;
+                        let drv = gdal::DriverManager::get_driver_by_name("GTiff").map_err(|e| e.to_string())?;
+                        let co = gdal::raster::RasterCreationOptions::from_iter([
+                            "TILED=YES",
+                            "COMPRESS=DEFLATE",
+                            "ZLEVEL=1",
+                            "NUM_THREADS=2",
+                            "BIGTIFF=IF_SAFER",
+                        ]);
+                        src.create_copy(&drv, &tif, &co).map_err(|e| format!("{}: {e}", tif.display()))?;
+                        Ok(tif.to_string_lossy().into_owned())
+                    });
+                    if r.is_err() {
+                        failed.store(true, Ordering::Relaxed);
+                    }
+                    *out[i].lock().unwrap() = Some(r);
+                }
+            });
+        }
+    });
+    if cancel.load(Ordering::Relaxed) {
+        return Err("cancelled".into());
+    }
+    let out: Vec<Option<Result<String, String>>> = out.into_iter().map(|o| o.into_inner().unwrap()).collect();
+    // the failure that stopped the others
+    if let Some(Some(Err(e))) = out.iter().find(|o| matches!(o, Some(Err(_)))) {
+        return Err(e.clone());
+    }
+    Ok(out.into_iter().map(|o| o.and_then(Result::ok)).collect())
+}
+
 impl Plan {
+    /// The dates of a series: a layer's, or those of periods (by year).
+    pub fn series_info(&self, layers: &[CalcLayer], s: usize) -> Arc<CubeInfo> {
+        match self.periods.iter().find(|p| p.0 == s) {
+            Some(p) => p.1.clone(),
+            None => layers[s].info.clone(),
+        }
+    }
+
     /// The result's dates: (time, label) of each, one entry for an image.
     pub fn dates(&self, layers: &[CalcLayer]) -> Vec<(f64, String)> {
         match self.series {
-            Some(r) => layers[r].info.layers.iter().map(|l| (l.time, l.label.clone())).collect(),
+            Some(r) => self.series_info(layers, r).layers.iter().map(|l| (l.time, l.label.clone())).collect(),
             None => vec![(0.0, String::new())],
         }
+    }
+
+    /// The source of stage `out` at a date (`time`, its place `t` in its own series): its slot's file.
+    fn stage_source(
+        &self,
+        layers: &[CalcLayer],
+        out: &StageOut,
+        time: f64,
+        t: usize,
+        opts: &Options,
+    ) -> Option<Source> {
+        let slot = match out.of {
+            SlotOf::Fixed => Some(0),
+            SlotOf::Period(p) => out.keys.iter().position(|&k| k == p.key(time)),
+            SlotOf::MonthOfYear => {
+                let m = crate::dates::civil_from_days((time / 86400.0).floor() as i64).1;
+                out.keys.iter().position(|&k| k == i64::from(m))
+            }
+            SlotOf::Date => {
+                let info = self.series_info(layers, out.series);
+                match_date(&info, time, t, info.time_is_date, opts.matching)
+            }
+        };
+        let path = slot.and_then(|s| out.files.get(s).cloned().flatten())?;
+        Some(Source { path, band: 1, meta: BandMeta::default(), raw: true, rects: None, resampling: None })
     }
 
     /// Writes the result's VRTs into `dir` (a date each, `<date>.vrt`; reductions in stages/, warped layers in
@@ -865,9 +1144,32 @@ impl Plan {
             gt: grid_info.geo_transform,
             srs: crate::vrt::dataset_srs(&grid_info),
         };
-        // the reductions, each a VRT of one band over every date of its series
-        let mut stage_files: Vec<String> = Vec::new();
+        // the reductions, each a VRT of one band over the dates of its series of each slot (one, or one per period or
+        // per date)
+        let mut outs: Vec<StageOut> = Vec::new();
         let mut stage_block = (usize::MAX, usize::MAX);
+        // how often each stage's slots are read: one read more often than it has slots (a mean under every date, a
+        // climatology under each date of its month) is computed once, into GeoTIFFs, when materializing
+        let all_slots: Vec<Slots> =
+            self.stages.iter().map(|st| slots(st, &self.series_info(layers, st.series))).collect();
+        let mut reads = vec![0usize; self.stages.len()];
+        let n_dates = self.dates(layers).len();
+        for k in &self.inputs {
+            if let Key::Stage(j) = k {
+                reads[*j] += n_dates;
+            }
+        }
+        for (st, (_, sl)) in self.stages.iter().zip(&all_slots) {
+            for k in &st.inputs {
+                if let Key::Stage(j) = k {
+                    reads[*j] += if all_slots[*j].0 == SlotOf::Fixed {
+                        sl.iter().filter(|s| !s.1.is_empty()).count()
+                    } else {
+                        sl.iter().map(|s| s.1.len()).sum()
+                    };
+                }
+            }
+        }
         for (i, st) in self.stages.iter().enumerate() {
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled".into());
@@ -876,12 +1178,13 @@ impl Plan {
                 0.1 * i as f64 / self.stages.len() as f64,
                 &format!("reduction {} of {}", i + 1, self.stages.len()),
             );
-            let sinfo = layers[st.series].info.clone();
+            let sinfo = self.series_info(layers, st.series);
             let dated = sinfo.time_is_date;
-            // inputs read once (images, other reductions) first, then those of each date
-            let is_capture = |k: &Key| {
-                matches!(k, Key::Stage(_) | Key::Band { fixed: Some(_), .. })
-                    || matches!(k, Key::Band { layer, .. } if layers[*layer].info.t() == 1)
+            // inputs read once (images, reductions to one image) first, then those of each date
+            let is_capture = |k: &Key| match k {
+                Key::Stage(j) => outs[*j].of == SlotOf::Fixed,
+                Key::Band { fixed: Some(_), .. } => true,
+                Key::Band { layer, .. } => layers[*layer].info.t() == 1,
             };
             let caps: Vec<usize> = (0..st.inputs.len()).filter(|&k| is_capture(&st.inputs[k])).collect();
             let loops: Vec<usize> = (0..st.inputs.len()).filter(|&k| !is_capture(&st.inputs[k])).collect();
@@ -890,49 +1193,77 @@ impl Plan {
                 map[k] = j + 1;
             }
             let expr = canonical_mapped(&st.body, &|k| map[k as usize]);
-            let mut sources = Vec::new();
+            let mut captured = Vec::new();
             for &k in &caps {
-                sources.push(self.fixed_source(&mut w, &st.inputs[k], &stage_files)?);
+                captured.push(self.fixed_source(&mut w, &st.inputs[k], &outs)?);
             }
-            let mut vars = Vec::new();
-            // at(): its date alone, as a mean over one date
-            let ts: Vec<usize> = st.only.map_or_else(|| (0..sinfo.t()).collect(), |t| vec![t]);
-            for &t in &ts {
-                for &k in &loops {
-                    let Key::Band { layer, band, raw, .. } = st.inputs[k] else { unreachable!() };
-                    let d = match_date(&layers[layer].info, sinfo.layers[t].time, t, dated, opts.matching);
-                    sources.push(match d {
-                        Some(d) => w.source(layer, band, raw, d)?,
-                        None => None,
-                    });
-                }
-                vars.push(vrt::vars_text(&date_vars(&sinfo, t)));
-            }
-            let args = vec![
-                ("expr".to_string(), expr),
-                ("reduce".to_string(), if st.only.is_some() { "mean".into() } else { st.f.name() }),
-                ("dates".to_string(), ts.len().to_string()),
-                ("stride".to_string(), loops.len().to_string()),
-                ("captures".to_string(), caps.len().to_string()),
-                ("vars".to_string(), vars.join(";")),
-            ];
-            let description = match st.only {
-                Some(t) => format!("at {}", sinfo.layers[t].label),
-                None => format!("{} over {} dates", st.f.name(), sinfo.t()),
-            };
-            let band = Band { description, sources, args };
+            let (of, slots) = all_slots[i].clone();
             let sdir = dir.join("stages");
             std::fs::create_dir_all(&sdir).map_err(|e| format!("{}: {e}", sdir.display()))?;
-            let f = sdir.join(format!("stage{}_{}.vrt", i + 1, st.f.name()));
-            let shape = vrt::block_shape(&grid, &band.sources);
-            stage_block = (stage_block.0.min(shape.0), stage_block.1.min(shape.1));
-            std::fs::write(&f, vrt::vrt_xml(&grid, &[band], shape)).map_err(|e| format!("{}: {e}", f.display()))?;
-            stage_files.push(f.to_string_lossy().into_owned());
+            let mut files = Vec::with_capacity(slots.len());
+            for (key, ts) in &slots {
+                if ts.is_empty() {
+                    files.push(None);
+                    continue;
+                }
+                let mut sources = captured.clone();
+                let mut vars = Vec::new();
+                for &t in ts {
+                    let time = sinfo.layers[t].time;
+                    for &k in &loops {
+                        sources.push(match &st.inputs[k] {
+                            Key::Band { layer, band, raw, .. } => {
+                                match match_date(&layers[*layer].info, time, t, dated, opts.matching) {
+                                    Some(d) => w.source(*layer, *band, *raw, d)?,
+                                    None => None,
+                                }
+                            }
+                            Key::Stage(j) => self.stage_source(layers, &outs[*j], time, t, opts),
+                        });
+                    }
+                    vars.push(vrt::vars_text(&date_vars(&sinfo, t)));
+                }
+                let args = vec![
+                    ("expr".to_string(), expr.clone()),
+                    // at(): its date alone, as a mean over one date
+                    ("reduce".to_string(), if st.only.is_some() { "mean".into() } else { st.f.name() }),
+                    ("dates".to_string(), ts.len().to_string()),
+                    ("stride".to_string(), loops.len().to_string()),
+                    ("captures".to_string(), caps.len().to_string()),
+                    ("vars".to_string(), vars.join(";")),
+                ];
+                let description = match (st.only, of) {
+                    (Some(t), _) => format!("at {}", sinfo.layers[t].label),
+                    (None, SlotOf::Fixed) => format!("{} over {} dates", st.f.name(), ts.len()),
+                    (None, SlotOf::Period(p)) => format!("{} of {}", st.f.name(), p.start(*key).1),
+                    (None, SlotOf::MonthOfYear) => format!("{} of month {key}", st.f.name()),
+                    (None, SlotOf::Date) => format!("{} at {}", st.f.name(), sinfo.layers[*key as usize].label),
+                };
+                let band = Band { description, sources, args };
+                let name = match of {
+                    SlotOf::Fixed => format!("stage{}_{}.vrt", i + 1, st.f.name()),
+                    _ => format!("stage{}_{}_{key}.vrt", i + 1, st.f.name()),
+                };
+                let f = sdir.join(name);
+                let shape = vrt::block_shape(&grid, &band.sources);
+                stage_block = (stage_block.0.min(shape.0), stage_block.1.min(shape.1));
+                std::fs::write(&f, vrt::vrt_xml(&grid, &[band], shape)).map_err(|e| format!("{}: {e}", f.display()))?;
+                files.push(Some(f.to_string_lossy().into_owned()));
+            }
+            let written = files.iter().flatten().count();
+            if opts.materialize && reads[i] > written {
+                progress(
+                    0.1 * i as f64 / self.stages.len() as f64,
+                    &format!("computing reduction {} of {} ({written} images)", i + 1, self.stages.len()),
+                );
+                files = materialize(files, cancel)?;
+            }
+            outs.push(StageOut { of, keys: slots.iter().map(|s| s.0).collect(), files, series: st.series });
         }
         // the result, a VRT per date
         let expr = canonical_mapped(&self.program, &|k| k as usize + 1);
         let dates = self.dates(layers);
-        let rinfo = self.series.map(|r| layers[r].info.clone());
+        let rinfo = self.series.map(|r| self.series_info(layers, r));
         let mut files = Vec::new();
         let mut result_shape = None;
         for (t, (time, _)) in dates.iter().enumerate() {
@@ -954,7 +1285,10 @@ impl Plan {
                             None => None,
                         }
                     }
-                    k => self.fixed_source(&mut w, k, &stage_files)?,
+                    Key::Stage(j) if outs[*j].of != SlotOf::Fixed => {
+                        self.stage_source(layers, &outs[*j], *time, t, opts)
+                    }
+                    k => self.fixed_source(&mut w, k, &outs)?,
                 });
             }
             let vars = match &rinfo {
@@ -991,7 +1325,11 @@ impl Plan {
                 .map(|&l| serde_json::Value::from(layers[l].name.as_str()).to_string())
                 .collect::<Vec<_>>()
                 .join(", "),
-            serde_json::Value::from(self.series.map(|r| layers[r].name.clone())),
+            serde_json::Value::from(self.series.map(|r| match Period::of_series(r) {
+                Some(Period::Year) => "by year".to_string(),
+                Some(Period::Month) => "by month".to_string(),
+                None => layers[r].name.clone(),
+            })),
             serde_json::Value::from(layers[self.grid].name.as_str()),
             serde_json::Value::from(opts.matching.label()),
             serde_json::Value::from(opts.resampling.as_str()),
@@ -1002,10 +1340,10 @@ impl Plan {
     }
 
     /// The source of an input that is the same at every date: a stack's band, a layer of one image, a reduction.
-    fn fixed_source(&self, w: &mut Writer, k: &Key, stages: &[String]) -> Result<Option<Source>, String> {
+    fn fixed_source(&self, w: &mut Writer, k: &Key, stages: &[StageOut]) -> Result<Option<Source>, String> {
         Ok(match k {
-            Key::Stage(i) => Some(Source {
-                path: stages[*i].clone(),
+            Key::Stage(i) => stages[*i].files.first().cloned().flatten().map(|path| Source {
+                path,
                 band: 1,
                 meta: BandMeta::default(),
                 raw: true,
