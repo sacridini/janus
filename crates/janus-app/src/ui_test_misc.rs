@@ -484,7 +484,12 @@ impl State {
                 {
                     return None;
                 }
-                let class = mine.iter().map(|&k| &self.zeit.results[k]).find(|r| !r.classes.is_empty())?;
+                // the maps load on threads of their own, in any order: the class map by its name (the area of
+                // applicability is a class map too)
+                let class = mine
+                    .iter()
+                    .map(|&k| &self.zeit.results[k])
+                    .find(|r| !r.classes.is_empty() && r.name.contains(": Class"))?;
                 let n = class.data.iter().filter(|v| v.is_finite() && **v >= 1.0).count();
                 println!(
                     "    class map: {:?}, {n} of {} pixels classified; with its probability and uncertainty",
