@@ -245,7 +245,7 @@ pub struct AnalysisUi {
     pub show: bool,
     /// brought to the front (a button elsewhere opened one of its tabs)
     pub focus: bool,
-    /// 0 seasonal, 1 classes, 2 scatter, 3 the trend test
+    /// 0 seasonal, 1 classes, 2 scatter, 3 the trend test, 4 areas (areas_ui.rs)
     pub tab: usize,
     seasonal_source: String,
     /// 0 years overlaid, 1 the heatmap
@@ -299,7 +299,7 @@ impl State {
             return;
         }
         ui.horizontal(|ui| {
-            for (k, name) in ["Seasonal", "Classes", "Scatter", "Trend test"].iter().enumerate() {
+            for (k, name) in ["Seasonal", "Classes", "Scatter", "Trend test", "Areas"].iter().enumerate() {
                 ui.selectable_value(&mut self.analysis.tab, k, *name);
             }
         });
@@ -308,7 +308,8 @@ impl State {
             0 => self.seasonal_ui(ui),
             1 => self.class_timeline_ui(ui),
             2 => self.scatter_ui(ui),
-            _ => self.trend_test_ui(ui),
+            3 => self.trend_test_ui(ui),
+            _ => self.areas_ui(ui),
         }
     }
 
@@ -756,6 +757,16 @@ impl State {
                     csv.push('\n');
                 }
                 ui.ctx().copy_text(csv);
+            }
+            if ui
+                .button("Areas...")
+                .on_hover_text(
+                    "Each class's area (ha, km², %) at every date, counted at full resolution (Analysis > Areas)",
+                )
+                .clicked()
+            {
+                // Analysis > Areas on the series (open_areas, the fields borrowed apart)
+                (self.areas.source, self.analysis.tab) = (None, 4);
             }
             ui.weak("(?)").on_hover_text(format!(
                 "Share of the pixels with a class at each date, counted on the overview\n\

@@ -818,6 +818,16 @@ nova.
 - **Teste:** área de um retângulo conhecido em EPSG:4326 e em UTM contra a
   área geodésica; contagens contra a passada dos estratos da validação.
   Ligação com a validação: "área mapeada" aqui, "área ajustada ± IC" lá.
+- **Feito (2026-10-28):** `crates/janus-zeit/src/areas.rs` (`PixelAreas`: a área
+  geodésica de até 129 × 129 pixels da janela, cantos transformados de uma vez e
+  medidos pelo geographiclib, interpolada entre eles; contagens nos threads de
+  processamento), `areas_ui.rs`; `tools/bench_areas_vs_terra.py` →
+  `bench/areas-vs-terra.json`. 8 datas de 4096² em UTM: Janus 0,39 s, terra 187 s
+  (`transform = TRUE`), numpy × área nominal 1,5 s; 8 datas de 4096² em lon/lat:
+  0,38 s, 1,1 s, 1,5 s; anos de perda 8192 × 4096 por ano: 0,17 s, 373 s, 0,21 s.
+  Contagens iguais às do numpy. No mapa de anos (que cruza o meridiano central) o
+  terra fica 3e-4 abaixo; o fator de área do PROJ pixel a pixel dá o valor do
+  Janus (900,3431 m² por pixel em 2013, 900,3506 em 2010).
 
 #### Fase 43 — Reprojetar, reamostrar, recortar, alinhar à grade
 - **Por quê:** combinar MapBiomas, PRODES e a série na mesma grade antes de
@@ -1079,7 +1089,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 | 39b | — | **Calculadora temporal** (reduções, grupos de calendário, janelas em dias, defasagens, anomalias, eventos; tipos série/imagem/data; ao vivo e progressiva, a série da expressão no gráfico) | concluída (sem versão): reduções, `argmax`/`argmin`, recortes de calendário (`ndvi[2019-06 .. 2019-09]`, `ndvi[11 .. 2]`), `by year`/`by month`, janelas em dias (`mean(ndvi, 90d)`), defasagens (`ndvi[-1]`, `lag(ndvi, 1y)`), `anomaly(..., base=, by=month/doy)`, eventos (`first`, `last`, `longest`, `persist`); **Live** (o resultado no mapa ao digitar, a redução progressiva "max so far") e **Chart** (a série no cursor, o que as reduções reduzem, o trecho selecionado); reduções lidas por várias datas calculadas uma vez ao gravar GeoTIFFs; comparado ao xarray/pandas |
 | 40 | — | **Regularização e preenchimento de lacunas** (passo fixo, mediana/medoide, linear/Whittaker), uma pasta de COGs regulares | concluída (sem versão): Tools → Regularize series (8/16 dias, mensal, anual, N dias; mediana, medoide, data mais limpa; linear ou Whittaker até uma lacuna máxima; camada inteira ou ROI); `janus_zeit::regularize`; contra o Zeit: mediana, medoide, linear e Whittaker iguais (diferença ≤ 3e-8), 4–15× mais rápido com os COGs gravados; contra o `sits_regularize`: 89× (sits 64 s, Janus 0,7 s; o sits sem banda de nuvem dá o primeiro valor do período) |
 | 41 | — | **Poligonizar** mapas de mudança e de classes (área em ha, data, magnitude, área mínima) em GeoPackage | concluída (sem versão): *Polygonize...* no menu de um mapa ou série (a data mostrada); 4/8 vizinhos, área mínima (o sieve do Zeit), simplificação; valor, classe, data, área (ha) e perímetro geodésicos, pixels, média de outro mapa; `janus_zeit::polygonize`; os mesmos polígonos do `gdal_polygonize` (todos, em 3 mapas), 1,0–1,5× o tempo dele (que só grava os polígonos) e 1,6–2,2× mais rápido que `rasterio.features.shapes` + áreas do pyproj |
-| 42 | — | **Área de mudança e de classes por data** (área do pixel correta, barras, CSV) | planejada |
+| 42 | — | **Área de mudança e de classes por data** (área do pixel correta, barras, CSV) | concluída (sem versão): Analysis → Areas (e *Area by value...* no menu de um mapa; *Areas...* em Classes); resolução total numa tarefa, camada ou ROI; ha, km², %; CSV; área de cada pixel: constante em projeção de área igual, geodésica nas demais; `janus_zeit::areas`; contra o `terra::expanse`: 2e-9 (lon/lat), 7e-6 (UTM), 3–480× mais rápido |
 | 43 | — | **Reprojetar, reamostrar, recortar, alinhar à grade** de outra camada (`GDALWarp`, série data a data ou virtual) | planejada |
 | 44 | — | **Rasterizar vetores** na grade da série (atributo, índice, máscara) | planejada |
 | 45 | — | **Estatística zonal no tempo** (série por polígono, área por classe e por ano de mudança) | planejada |

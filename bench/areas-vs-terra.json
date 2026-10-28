@@ -1,0 +1,29 @@
+{
+  "utm": {
+    "janus_s": 0.3930466,
+    "terra_expanse_s": 187.3801,
+    "numpy_nominal_s": 1.519127000006847,
+    "note": "each pixel's geodesic area, 899.544 to 900.465 m\u00c2\u00b2: the nominal 900.000 m\u00c2\u00b2 off by -0.051% to +0.052% (the projection's scale)",
+    "max_rel_diff_terra": 6.7690276566167995e-06,
+    "max_rel_diff_numpy_nominal": 7.303533056257638e-05,
+    "pixels_equal_numpy": true
+  },
+  "lonlat": {
+    "janus_s": 0.3768612,
+    "terra_expanse_s": 1.142051,
+    "numpy_nominal_s": 1.4763316000025952,
+    "note": "longitudes and latitudes: each pixel's geodesic area, 755.49 to 757.94 m\u00c2\u00b2 (756.74 at the centre)",
+    "max_rel_diff_terra": 1.5711987266797678e-09,
+    "max_rel_diff_numpy_nominal": 0.9999999999174094,
+    "pixels_equal_numpy": true
+  },
+  "years": {
+    "janus_s": 0.1707665,
+    "terra_expanse_s": 373.4561,
+    "numpy_nominal_s": 0.21137840001028962,
+    "note": "each pixel's geodesic area, 899.544 to 900.720 m\u00c2\u00b2: the nominal 900.000 m\u00c2\u00b2 off by -0.051% to +0.080% (the projection's scale)",
+    "max_rel_diff_terra": 0.00039417055543133905,
+    "max_rel_diff_numpy_nominal": 0.0006309319338750896,
+    "pixels_equal_numpy": true
+  }
+}

@@ -1122,6 +1122,67 @@ impl State {
                 None
             }
             207 => {
+                // Analysis > Areas: the land cover's classes at every date, at full resolution
+                self.open_areas(None);
+                (self.areas.roi, self.areas.unit) = (false, 0);
+                self.areas.table = None;
+                self.areas_run(ctx);
+                next(st, "the areas of the land cover's classes at every date");
+                None
+            }
+            208 => {
+                self.pump_areas();
+                let Some((t, meta)) = self.areas.table.clone() else {
+                    if self.areas.status.starts_with("Failed") {
+                        return fail(&self.areas.status.clone());
+                    }
+                    return None;
+                };
+                let info = self.session.as_ref()?.info.clone();
+                let n = (info.width * info.height) as u64;
+                let csv = std::path::Path::new(&meta.folder).join("areas.csv");
+                println!(
+                    "    {} dates x {} classes in {:.2} s; {}; first date {:.2} ha",
+                    t.labels.len(),
+                    t.values.len(),
+                    meta.seconds,
+                    t.note,
+                    t.total(0) / 1e4
+                );
+                if t.labels.len() != info.t() || (0..t.labels.len()).any(|s| t.pixels[s].iter().sum::<u64>() != n) {
+                    return fail("every date should count all its pixels");
+                }
+                // UTM 30 m: each pixel about 900 m²
+                for s in 0..t.labels.len() {
+                    for k in 0..t.values.len() {
+                        let px = t.pixels[s][k] as f64;
+                        if px > 0.0 && !(899.0..901.0).contains(&(t.m2[s][k] / px)) {
+                            return fail("a class's area should be its pixels' (30 m)");
+                        }
+                    }
+                }
+                // the classes' timeline counts the overview, the series' whole grid here
+                let c = &self.analysis.classes;
+                if self.session.as_ref()?.s.overview.factor == 1.0 && c.next == info.t() {
+                    for (k, &v) in c.values.iter().enumerate() {
+                        let j = t.values.iter().position(|&x| x == i64::from(v));
+                        for s in 0..t.labels.len() {
+                            let px = j.map_or(0, |j| t.pixels[s][j]);
+                            if px != c.counts[s][k] as u64 {
+                                return fail("the full-resolution counts should be the class timeline's");
+                            }
+                        }
+                    }
+                    println!("    the counts equal the class timeline's at every date");
+                }
+                if !csv.exists() {
+                    return fail("the task should write areas.csv");
+                }
+                self.analysis.show = false;
+                next(st, "areas: every date's classes counted, each pixel its area, the CSV written");
+                None
+            }
+            209 => {
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

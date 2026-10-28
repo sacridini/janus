@@ -153,12 +153,43 @@ fn pixel_area(gt: &[f64; 6], wkt: &str, w: usize, h: usize) -> f64 {
 /// Geodesic measures of the map's polygons: their rings transformed to longitudes and latitudes by one
 /// transformation for them all, measured on the CRS's ellipsoid by Karney's algorithms (geographiclib, as GDAL's
 /// OGR_G_GeodesicArea, which sets up a transformation each call: 30 times gdal_polygonize's time).
-struct Geodesic {
+pub(crate) struct Geodesic {
     ct: gdal_sys::OGRCoordinateTransformationH,
     ellipsoid: geographiclib_rs::Geodesic,
 }
 
 impl Geodesic {
+    /// For a CRS (None: no ellipsoid or no transformation to it).
+    pub(crate) fn of(srs: &gdal::spatial_ref::SpatialRef) -> Option<Geodesic> {
+        // SAFETY: a valid spatial reference, alive during the call.
+        unsafe { Geodesic::new(srs.to_c_hsrs()) }
+    }
+
+    /// Points of the CRS to longitudes (x) and latitudes (y), in place; false if they could not be.
+    pub(crate) fn lon_lat(&self, x: &mut [f64], y: &mut [f64]) -> bool {
+        if self.ct.is_null() {
+            return true;
+        }
+        let mut z = vec![0.0; x.len()];
+        // SAFETY: three buffers of the points' number.
+        unsafe { gdal_sys::OCTTransform(self.ct, x.len() as i32, x.as_mut_ptr(), y.as_mut_ptr(), z.as_mut_ptr()) != 0 }
+    }
+
+    /// A ring's perimeter (m) and area (m²) on the ellipsoid, its points in longitudes and latitudes (not closed).
+    pub(crate) fn ring(&self, x: &[f64], y: &[f64]) -> (f64, f64) {
+        let mut pa = geographiclib_rs::PolygonArea::new(&self.ellipsoid, geographiclib_rs::Winding::CounterClockwise);
+        for (&lon, &lat) in x.iter().zip(y) {
+            pa.add_point(lat, lon);
+        }
+        // signed: unsigned, a clockwise ring would be the rest of the ellipsoid
+        let (p, a, _) = pa.compute(true);
+        (p, a.abs())
+    }
+
+    pub(crate) fn ring_area(&self, x: &[f64], y: &[f64]) -> f64 {
+        self.ring(x, y).1
+    }
+
     /// SAFETY: `srs` a valid spatial reference (or null: none).
     unsafe fn new(srs: gdal_sys::OGRSpatialReferenceH) -> Option<Geodesic> {
         use gdal_sys::OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER;
@@ -201,22 +232,14 @@ impl Geodesic {
             for i in 0..gdal_sys::OGR_G_GetGeometryCount(g) {
                 let r = gdal_sys::OGR_G_GetGeometryRef(g, i);
                 let n = gdal_sys::OGR_G_GetPointCount(r).max(0) as usize;
-                let (mut x, mut y, mut z) = (vec![0.0; n], vec![0.0; n], vec![0.0; n]);
+                let (mut x, mut y) = (vec![0.0; n], vec![0.0; n]);
                 gdal_sys::OGR_G_GetPoints(r, x.as_mut_ptr().cast(), 8, y.as_mut_ptr().cast(), 8, null_mut(), 0);
-                if !self.ct.is_null()
-                    && gdal_sys::OCTTransform(self.ct, n as i32, x.as_mut_ptr(), y.as_mut_ptr(), z.as_mut_ptr()) == 0
-                {
+                if !self.lon_lat(&mut x, &mut y) {
                     return None;
                 }
-                let mut pa =
-                    geographiclib_rs::PolygonArea::new(&self.ellipsoid, geographiclib_rs::Winding::CounterClockwise);
                 // the closing point is the first again
-                for k in 0..n.saturating_sub(1) {
-                    pa.add_point(y[k], x[k]);
-                }
-                // signed: unsigned, a clockwise ring would be the rest of the ellipsoid
-                let (p, a, _) = pa.compute(true);
-                let a = a.abs();
+                let m = n.saturating_sub(1);
+                let (p, a) = self.ring(&x[..m], &y[..m]);
                 area += if i == 0 { a } else { -a };
                 perimeter += p;
             }

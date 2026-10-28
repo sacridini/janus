@@ -7,6 +7,7 @@
 mod analysis;
 mod animation;
 mod app;
+mod areas_ui;
 mod attributes;
 mod basemap;
 mod calc_live;

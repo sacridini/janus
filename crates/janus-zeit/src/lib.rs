@@ -8,6 +8,7 @@
 
 mod agreement;
 mod ar_trend;
+pub mod areas;
 pub mod bands;
 mod beast;
 mod bfast;

@@ -393,6 +393,7 @@ enum Act {
     /// a run's map shown, every other one hidden
     SoloResult(usize),
     Polygonize(Sel),
+    Areas(u32),
     RemoveVector(usize),
     ExtractVector(u32),
     Interpret(u32),
@@ -534,6 +535,7 @@ impl State {
                 }
                 Act::SaveResult(k) => self.save_result(k, &ctx),
                 Act::Polygonize(sel) => self.open_polygonize(sel),
+                Act::Areas(id) => self.open_areas(Some(id)),
                 Act::SaveRun(k) => self.open_save_run(k),
                 Act::RemoveResult(k) => {
                     if k < self.zeit.results.len() {
@@ -1249,6 +1251,16 @@ impl State {
                     .clicked()
                 {
                     acts.push(Act::Polygonize(me));
+                    ui.close();
+                }
+                if ui
+                    .button("Area by value...")
+                    .on_hover_text(
+                        "The area (ha, km², %) of each value or class, a map of years by year (Analysis > Areas)",
+                    )
+                    .clicked()
+                {
+                    acts.push(Act::Areas(r.id));
                     ui.close();
                 }
                 ui.separator();

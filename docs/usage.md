@@ -146,7 +146,7 @@
   from the overview and then at full resolution. Hover a cell for its distance,
   date and value (marked on the map), click to go to that date; values or
   anomalies; Copy CSV.
-- **Analysis panel** (View → Analysis), four tabs:
+- **Analysis panel** (View → Analysis), five tabs:
   - **Seasonal** (series with several dates a year): the cursor, a pin or the
     ROI mean by day of the year, one line per year (colour = year, the current
     date's year on top) with the mean of all years by month (± 1 standard
@@ -188,6 +188,17 @@
     region at full resolution (one pixel in k × k of a large one); Copy CSV.
     A guide with screenshots, the method step by step and how to read the
     results: [Trend test](https://sacridini.github.io/janus/trend-test.html).
+  - **Areas**: the **area of each class at every date** of the active series, or
+    of each value of a run's map (a map of change years counted **by year**:
+    *Area by value...* in its menu), on the ROI or the whole layer, counted at
+    **full resolution** in a task (*Count*; also *Areas...* in Classes). Each
+    pixel has its true area: the geotransform's in an equal-area projection,
+    else its geodesic area on the CRS's ellipsoid (longitudes and latitudes by
+    latitude; UTM and other projections by their scale, the note saying how far
+    the nominal pixel area is from it, e.g. +0.05%). Bars per date (the classes
+    stacked) or per value in **ha, km² or %**, a table of a date (pixels, ha,
+    km², %), Copy / Save CSV, and `areas.csv` written in the task's folder. The
+    mapped area: Validation gives the adjusted one with its interval.
 
   Classes and scatter count the overview's pixels (what the map shows before
   zooming in), so they are immediate on any series.
