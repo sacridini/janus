@@ -446,6 +446,8 @@ pub struct State {
     /// Go to (Ctrl+G), saved views, the minimap
     pub nav: crate::navigation::NavUi,
     pub chart: crate::chart::ChartOptions,
+    /// the Pixel values panel (in the chart's place while the active layer is not a series shown)
+    pub values: crate::values::ValuesUi,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
     /// the Files panel
@@ -588,6 +590,10 @@ impl TabViewer for Tabs<'_> {
     type Tab = Tab;
 
     fn title(&mut self, tab: &mut Tab) -> WidgetText {
+        // the chart's panel shows what the visible layers hold: a series, or the values of single maps
+        if *tab == Tab::TimeSeries && !self.s.vectors_only() && !self.s.chart_shown() {
+            return theme::tab_title("Pixel values".to_string());
+        }
         theme::tab_title(tab.title())
     }
 
@@ -648,6 +654,7 @@ impl TabViewer for Tabs<'_> {
                     crate::theme::weak_text(),
                 );
             }
+            Tab::TimeSeries if !self.s.chart_shown() => self.s.values_ui(ui),
             Tab::TimeSeries => self.s.series_ui(ui),
             Tab::Transect => self.s.transect_ui(ui),
             Tab::Analysis => self.s.analysis_ui(ui),
@@ -791,6 +798,7 @@ impl JanusApp {
                 layout_report: Default::default(),
                 anim: Default::default(),
                 chart: Default::default(),
+                values: Default::default(),
                 band_sel: None,
                 spectral_index: 0,
                 map_textures: Default::default(),

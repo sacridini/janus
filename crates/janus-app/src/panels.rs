@@ -91,6 +91,11 @@ impl State {
             ui.weak("Open a series (File > Open) to see its values; the vector layers stay.");
             return;
         }
+        // a run's map selected in Layers: its own colours (the active series' again once a series is clicked)
+        if let Some(k) = self.selected_result() {
+            self.result_display_ui(ui, k);
+            return;
+        }
         let Some(s) = &self.session else {
             ui.weak("No series open.");
             if ui.add_sized([ui.available_width(), 20.0], egui::Button::new("Open file(s)...")).clicked()
@@ -551,6 +556,13 @@ impl State {
     /// The Statistics panel (app.cpp, uiStats): a column per series on the chart (the cursor, the pins, the ROI's
     /// mean, and the other layers' with "All visible layers"), a row per statistic; a categorical series' classes.
     pub fn statistics_ui(&mut self, ui: &mut Ui) {
+        let Some(s) = &self.session else { return };
+        // no series shown: the statistics of the map described in Pixel values (a stack shown keeps its bands')
+        let stack_shown = s.info.stack && self.layers.get(self.active).is_some_and(|l| l.visible);
+        if !self.chart_shown() && !stack_shown {
+            self.values_statistics_ui(ui);
+            return;
+        }
         let Some(s) = &self.session else { return };
         let info = s.info.clone();
         struct Col<'a> {

@@ -349,32 +349,14 @@ impl State {
         self.basemap.b.as_ref().map(|b| b.source().attribution.clone()).unwrap_or_default()
     }
 
-    /// The top result drawn, as on the map: the last visible result of a placed layer (shown or not: its maps are
-    /// layers of their own), else the active layer's last, else the last.
+    /// The top result drawn, as on the map: the top visible result placed on it (they are layers of their own),
+    /// else the active layer's last, else the last.
     pub(crate) fn top_result(&self) -> Option<usize> {
         let r = &self.zeit.results;
-        let mut top = None;
-        for (i, l) in self.layers.iter().enumerate() {
-            if !l.place.aligned {
-                continue;
-            }
-            let id = if i == self.active {
-                self.session.as_ref().map(|s| s.info.id)
-            } else {
-                l.session.as_ref().map(|s| s.info.id)
-            };
-            for (k, x) in r.iter().enumerate() {
-                if x.visible && Some(x.cube) == id {
-                    top = Some(k);
-                }
-            }
-        }
-        if top.is_none()
-            && let Some(s) = &self.session
-        {
-            top = r.iter().rposition(|x| x.cube == s.info.id);
-        }
-        top.or(if r.is_empty() { None } else { Some(r.len() - 1) })
+        r.iter()
+            .rposition(|x| x.visible && x.place.aligned)
+            .or_else(|| self.session.as_ref().and_then(|s| r.iter().rposition(|x| x.cube == s.info.id)))
+            .or(r.len().checked_sub(1))
     }
 
     fn titles(&self) -> Titles {

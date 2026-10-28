@@ -56,6 +56,19 @@
   amplitude, OLS slope + R², Sen's slope, largest drop (with date) and, in the
   difference mode, the difference shown on the map (the Mann-Kendall test, with
   autocorrelation corrections, is a Zeit tool).
+- **Pixel values**: when the active layer is not a series shown (hidden, a single
+  image, a stack of bands), the chart's panel becomes *Pixel values*: a row per
+  layer the map shows (the maps of the runs, single images, the other series at
+  their dates), top of the drawing order first, with its value under the cursor
+  and at each pin (a class by its name, a year as a year; `*` while a series'
+  value is still from its overview), *Copy* as tab-separated text. A row clicked
+  (here, or in Layers) is described: its histogram beside the table in the map's
+  colours, the cursor and the pins marked on it; in **Statistics**, its pixels
+  with a value and their area (hectares, on a projected CRS), minimum, maximum,
+  mean, standard deviation and percentiles, and, for whole numbers (classes,
+  years), its pixels, percentage and hectares by value (LandTrendr's year of
+  detection: the area of each year's loss). Show the series again: the chart
+  comes back.
 - **Full resolution on zoom**: past the overview resolution, tiles of the visible
   area are read in the background and cached on the GPU (value and difference
   modes; the difference reads the tiles of both dates).
@@ -314,7 +327,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Reset layout | **View → Reset layout** (`Ctrl+Shift+R`, Mac: `Command+Shift+R`): every panel docked where it was at the first start, the floating windows (Exports, Tasks, Log, Settings) back to their first size and place, map panels to the right of the main map; the panels open stay open |
 | Performance panel | **View → Performance** (hidden by default, and not kept open from one session to the next): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**), disk cache (what the caches take, their budget, the disk's free space) |
 | Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): the interface (Modern or Classic) and its theme, font size, whether the Files panel follows what is opened, processing threads, overview memory, the disk cache budget (automatic or set by hand), full-resolution cache (when it is built) and clearing the caches; kept between sessions (see [Settings](#settings)) |
-| Several series | **Layers** panel (*+ Add*) or File → Open (`Ctrl+O`): each opens as a new layer; several images that are not dates of one series: *File → Open files as separate layers...* or a drop with `Shift`. The panel is a table of contents: the active layer's opacity on top, then one list, top of the list drawn on top, the basemap its last row (under every layer); *Add embeddings* folds under it: series and vector layers in one order, as in a GIS (a new series goes over the other series but under the vector layers, a new vector layer on top; a vector layer can then be moved under a raster one, or a raster over it); a row a layer (the eye shows or hides it, a picture of it in its colormap or geometry, its name over its dates or kind, the date shown at its right, a **⋯** menu while the pointer is over it); click a series to make it active (`Space` shows or hides it), double click to zoom to it, drag any row onto another to reorder. **Right click** (or **...**): make active, zoom to it, opacity, move (to the top, up, down, to the bottom), **Export** (map as PNG, values or rendered view as GeoTIFF, animation), close; a vector layer's: colour, attribute table, interpret, extract series, zoom to it, **Export as** GeoPackage, GeoJSON, Shapefile or CSV, remove. The arrow unfolds a series: its dates (a stack's bands, unfolded from the start) a row each, the one shown with its eye open (a click or its eye shows another; its menu exports that date alone or opens it as a layer of its own), then the maps its runs made as rows of their own (each with its colormap and range, or its classes' legend, when unfolded, and **Save as GeoTIFF** in its menu). With five or more, a filter by name keeps the list short |
+| Several series | **Layers** panel (*+ Add*) or File → Open (`Ctrl+O`): each opens as a new layer; several images that are not dates of one series: *File → Open files as separate layers...* or a drop with `Shift`. The panel is a table of contents: the active layer's opacity on top, then one list, top of the list drawn on top, the basemap its last row (under every layer); *Add embeddings* folds under it: series, the maps of the runs and vector layers in one order, as in a GIS (a new series or map goes over the other rasters but under the vector layers, a new vector layer on top; a vector layer can then be moved under a raster one, or a raster over it); a row a layer (the eye shows or hides it, a picture of it in its colormap or geometry, its name over its dates or kind, the date shown at its right, a **⋯** menu while the pointer is over it); click a series to make it active (`Space` shows or hides it), double click to zoom to it, drag any row onto another to reorder. **Right click** (or **...**): make active, zoom to it, opacity, move (to the top, up, down, to the bottom), **Export** (map as PNG, values or rendered view as GeoTIFF, animation), close; a vector layer's: colour, attribute table, interpret, extract series, zoom to it, **Export as** GeoPackage, GeoJSON, Shapefile or CSV, remove. The arrow unfolds a series: its dates (a stack's bands, unfolded from the start) a row each, the one shown with its eye open (a click or its eye shows another; its menu exports that date alone or opens it as a layer of its own). The maps a run makes (LandTrendr's year of detection, magnitude...) are layers of their own, not rows of the series: each its eye, its place in the order, its group; hiding or closing the series leaves them on the map. A map's arrow unfolds its colormap and range, or its classes' legend; a click selects it (the **Display** panel then shows its colours, and Pixel values its histogram); its menu: opacity, *Show only this map*, move, group, **Save as GeoTIFF**, save every output of its run, remove (Delete removes the ones selected; the files stay on disk). With five or more, a filter by name keeps the list short |
 | Blend, styles, groups | **Layers** panel: the active layer's **blend mode** beside its opacity (Normal, Multiply darkens by the layers under it, Screen lightens, Add sums, Darken and Lighten keep the darker or lighter of each channel), also under *Blend* in a series' menu (`--blend MODE` on the command line). A row's menu → **Style**: *Copy style* (its mode, each mode's colormap and the ranges set by hand, the stretch per date, the RGB bands, opacity, blend, its classes' names, colours and visibility; a vector layer's colour), *Paste style* on the layers selected (or the row), the **saved styles** (kept in the settings, given with a click, `x` deletes one) and *Save style* under a name. **Groups**: select rows (`Ctrl`/`Shift` + click) → *Group the N selected*: they go next to each other in the drawing order under a row of their own, whose eye shows or hides them all, whose arrow folds them, whose click selects them (`Delete` closes them) and whose menu renames it, moves it to the top or the bottom, ungroups it or closes its layers; a row dropped on a member (or on the group's row) joins it, *Out of its group* takes one out. The palette has *Blend: ...*, *Copy style of the active layer*, *Paste style on the selected layers* and *Group the selected layers* |
 | Basemap | **Layers** panel → Basemap (the list's last row): its eye shows or hides it; click the row (or its arrow) to pick a source (None = nothing downloaded); opacity in its **⋯** menu; `S` shows or hides satellite imagery (Esri World Imagery, or the imagery source picked); *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. The source and its settings are kept between sessions, but it starts hidden, as does every series opened (its eye shows it); the map panels' and the swipe's layer list has *Basemap only* |
 | Browse files | **Files** panel: double click opens, right click → Add as layer or Add to favorites; Ctrl+click selects several files; hover a folder for what it would open as. Opening a series expands the tree down to it (Settings → *Files panel follows what is opened*) |
@@ -336,7 +349,7 @@ a small console launcher next to `janus.exe`, the same trick Visual Studio uses 
 | Series as text | **Copy CSV** in the Time series and Transect panels |
 | Zeit tools | **Tools** menu → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
 | Zeit logs | **Tools → Log** (or **Log** next to a task): the log of each raster run, followed live (what ran, its progress, outputs, the end or the error); Copy, open the file or its folder |
-| Tool results | listed under their layer in the **Layers** panel: show/hide, colormap, range, opacity |
+| Tool results | layers of their own in the **Layers** panel (over the rasters): show/hide, order, groups, colormap, range, opacity; their values at the cursor and pins, histogram and statistics in **Pixel values** (hide the series) |
 | Embeddings | **View → Embeddings**: principal components as RGB (of every year, or *local* to the ROI), similarity to the cursor, a pin or the ROI, change between years; see [Embeddings](#embeddings) |
 | Add embeddings of the visible area | **Layers** panel → Embeddings (above the basemap): AlphaEarth or TESSERA, years, cell size, visible area or ROI, then **Add embeddings**; progress on the map, the layer comes on top when it is ready |
 
@@ -436,7 +449,7 @@ or more results whose values are dates (LandTrendr's year of detection; CCDC,
 BFAST or CODED dates), from any layer. A date counts by its calendar year, and
 maps agree when their years are at most *Tolerance* apart; the consensus year is
 the one most maps agree with. The outputs are on the grid of the first map
-checked (the others are put on it), under its series.
+checked (the others are put on it), as layers of their own.
 
 A break's date (BFAST, BFAST Lite, BFAST Monitor) is that of the first
 observation after it, and its magnitude the model after the break minus the
@@ -494,8 +507,9 @@ Each tool window has:
   the background on the processing threads of [Settings](#settings)
   (every logical core but 2 by default), with progress and cancel in
   **Tools → Tasks**. Outputs are GeoTIFFs (default folder
-  `%LOCALAPPDATA%\Janus\results`) loaded over the map and listed under their
-  series in the Layers panel; cells without an event are transparent. Series
+  `%LOCALAPPDATA%\Janus\results`) loaded over the map as layers of their own
+  in the Layers panel (the first output shown, the others hidden); cells
+  without an event are transparent. Series
   outputs (the NDFI, a screened series) are one file with a band per date,
   added as a layer over the others (the active layer stays).
 - **A log of every raster run**, `job.log` in the run's results folder (next to

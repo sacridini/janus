@@ -442,8 +442,15 @@ impl State {
                         for (i, c) in ['a', 'b'].into_iter().enumerate() {
                             let f = at.run.join("run").join(format!("tool_{c}.tif"));
                             let _ = std::fs::copy(&info.layers[i].path, &f);
-                            self.zeit.results.push(crate::zeit::ResultLayer {
+                            self.push_result(crate::zeit::ResultLayer {
+                                id: 0,
                                 cube: info.id,
+                                grid: Some(info.clone()),
+                                source: String::new(),
+                                place: Default::default(),
+                                z: 0,
+                                run: at.run.join("run").to_string_lossy().into_owned(),
+                                output: i,
                                 name: format!("Test tool: output {c}"),
                                 path: f.to_string_lossy().into_owned(),
                                 unit: String::new(),

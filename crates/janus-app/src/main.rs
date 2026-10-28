@@ -63,6 +63,7 @@ mod ui_test;
 mod update;
 mod validation;
 mod validation_tabs;
+mod values;
 mod vector_gpu;
 mod vectors;
 mod views;

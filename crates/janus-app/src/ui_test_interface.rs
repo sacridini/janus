@@ -4,7 +4,8 @@
 //! palette (what a query finds first, a command run from it, the recent ones first). 182: the Layers panel (a blend
 //! mode from the palette, a style copied and pasted on another series, a style saved by name and read back, layers
 //! grouped, hidden and moved together). 183: navigation (Go to a longitude and latitude, an EPSG x y, a UTM zone; a saved view; the minimap;
-//! the lens).
+//! the lens). 184: a run's map as a layer of its own (its row over the rasters; with the series hidden, Pixel values
+//! in the chart's place: its value at the cursor, in the status bar too, its pixels by value; removed by Delete).
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -340,6 +341,62 @@ impl State {
                     typed.join(" | ")
                 );
                 next(st, "navigation: Go to, saved views, the minimap, the lens");
+                None
+            }
+            184 => {
+                // a map of years over the left half of the active layer's grid (no value on the right): 1990 + row % 10
+                let info = self.session.as_ref()?.info.clone();
+                let (w, h) = (info.width, info.height);
+                let data: Vec<f32> =
+                    (0..w * h).map(|i| if i % w < w / 2 { 1990.0 + (i / w % 10) as f32 } else { f32::NAN }).collect();
+                let mut r = crate::zeit::ResultLayer::for_test(data, w, h, "year".into());
+                (r.cube, r.grid, r.visible) = (info.id, Some(info.clone()), true);
+                r.name = "Self-test: year of detection".into();
+                r.auto_range();
+                r.tex = Some(self.gpu.as_ref()?.create_tile(w as u32, h as u32, &r.data));
+                self.push_result(r);
+                let id = self.zeit.results.iter().find(|r| r.name.starts_with("Self-test"))?.id;
+                // a row of its own, over every raster
+                let order = self.draw_order();
+                let k = order.iter().position(|&it| self.sel_of(it) == Some(Sel::Result(id)))?;
+                if order[k + 1..].iter().any(|it| matches!(it, crate::order::Item::Series(_))) {
+                    return fail("a run's map should go over every raster");
+                }
+                // the series hidden: Pixel values in the chart's place, the map's value at the cursor
+                let was = self.layers[self.active].visible;
+                self.layers[self.active].visible = false;
+                if self.chart_shown() {
+                    return fail("with the active series hidden, Pixel values should replace the chart");
+                }
+                self.set_hover(Some((2, 3)));
+                let name = "Self-test: year of detection";
+                let at = |s: &State| s.cursor_values().into_iter().find(|(n, _)| n == name).map(|x| x.1);
+                let (left, status) = (at(self), self.result_status_at(2, 3));
+                self.set_hover(Some((w - 1, 3)));
+                let right = at(self);
+                println!("    the map at (2, 3): {left:?} (status bar: {status:?}); at ({}, 3): {right:?}", w - 1);
+                if left.as_deref() != Some("1993") || !status.contains("1993") {
+                    return fail("Pixel values and the status bar should give the map's year at the cursor");
+                }
+                if right.as_deref() != Some("-") {
+                    return fail("where the map has no value, Pixel values should say so");
+                }
+                // its pixels by value: 10 years, the left half of the grid in all
+                self.values.focus = Some(Sel::Result(id));
+                let counts = self.focused_counts()?;
+                let total: usize = counts.iter().map(|c| c.1).sum();
+                if counts.len() != 10 || total != h * (w / 2) || counts[0].0 != 1990.0 {
+                    return fail(&format!("its pixels by value: {counts:?}"));
+                }
+                // removed with its row selected (Delete)
+                self.contents.selected = [Sel::Result(id)].into_iter().collect();
+                self.remove_selected(ctx);
+                if self.zeit.results.iter().any(|r| r.id == id) {
+                    return fail("Delete should remove the map selected");
+                }
+                self.layers[self.active].visible = was;
+                self.map.dirty = true;
+                next(st, "a run's map as a layer of its own; Pixel values and its statistics with the series hidden");
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

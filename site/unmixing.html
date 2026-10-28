@@ -139,7 +139,7 @@
 
     <section id="run">
       <h2><span class="n">06</span>Running it on the series</h2>
-      <p>Under <span class="ui">Run on the raster</span>, <span class="ui">Whole image</span> and <span class="ui">Run</span>: the 2.8 million pixels × 125 dates took 130 seconds. The run writes each fraction as a <strong>series</strong>, a GeoTIFF of one band per date (Int16, scale 0.0001), opened as a new layer that any other tool can take, and four maps listed under the series:</p>
+      <p>Under <span class="ui">Run on the raster</span>, <span class="ui">Whole image</span> and <span class="ui">Run</span>: the 2.8 million pixels × 125 dates took 130 seconds. The run writes each fraction as a <strong>series</strong>, a GeoTIFF of one band per date (Int16, scale 0.0001), opened as a new layer that any other tool can take, and four maps, layers of their own:</p>
       <div class="fig-pair">
         <figure class="fig">
           <a href="assets/img/unmixing/07-layers.png"><img src="assets/img/unmixing/07-layers.png" alt="The Layers panel: three new series unmix_fraction_1 to 3 of 125 dates each, the forest one shown; under refl6, the results: the mean RMSE (reflectance) and the three mean fractions." loading="lazy"></a>
@@ -212,7 +212,7 @@
         <figcaption><b>The spectrum and its rebuild</b>: the pixel (green), the spectrum the fractions rebuild (magenta) and each endmember's part of it, its spectrum times its fraction (dashed).</figcaption>
       </figure>
       <p>The rebuilt spectrum follows the pixel's over the whole range, with an RMSE of 0.0066 reflectance. The water endmember is nearly black beyond the visible, so on land it acts as <strong>shade</strong>: it takes the darkness of the pixel (wet soil, shadows, ditches) rather than standing water. Name it so when reading the maps.</p>
-      <p>Run on the whole scene, the tool took 9 seconds for its 1.7 million pixels of 218 bands. Each fraction and the RMSE are maps under the scene in the Layers panel:</p>
+      <p>Run on the whole scene, the tool took 9 seconds for its 1.7 million pixels of 218 bands. Each fraction and the RMSE are maps in the Layers panel, layers of their own:</p>
       <figure class="fig">
         <a href="assets/img/unmixing/11-spectrum-vegetation.jpg"><img src="assets/img/unmixing/11-spectrum-vegetation.jpg" alt="The vegetation fraction over the coast, 0 in purple to 1 in yellow: the sea and the mudflats at 0, the fields a patchwork of yellow (green crops) and purple (bare or harvested), the grassland of the south in green and yellow." width="1040" height="572" loading="lazy"></a>
         <figcaption><b>Vegetation fraction</b>: green crops in yellow, harvested and bare fields in purple.</figcaption>

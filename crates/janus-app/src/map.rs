@@ -612,12 +612,15 @@ impl State {
         }
         self.draw_embedding_notes(&painter, rect);
         let mut bars = 0;
+        // a hidden active layer: neither its colours nor its values are what the map shows
+        let active_shown = self.layers.get(self.active).is_some_and(|l| l.visible);
         if let Some((_, bar, _)) = &emb {
             if let Some((cmap, lo, hi)) = bar {
                 State::colour_bar(&painter, rect, *cmap, format_g(f64::from(*lo), 3), format_g(f64::from(*hi), 3));
                 bars = 1;
             }
-        } else if d.mode != Mode::Rgb
+        } else if active_shown
+            && d.mode != Mode::Rgb
             && composite.is_none()
             && !vectors_only
             && !(self.classes.on() && d.mode == Mode::Value)
@@ -629,14 +632,7 @@ impl State {
             bars = 1;
         }
         // the topmost visible result map's, with its name, above it (app.cpp)
-        let mut top = None;
-        for (i, l) in self.layers.iter().enumerate() {
-            let Some(id) = self.layer_session(i).map(|s| s.info.id) else { continue };
-            if l.place.aligned {
-                top = self.zeit.results.iter().rfind(|r| r.visible && r.cube == id).or(top);
-            }
-        }
-        if let Some(r) = top {
+        if let Some(r) = self.zeit.results.iter().rfind(|r| r.visible && r.place.aligned) {
             let up = vec2(0.0, -44.0 * bars as f32);
             let at = Rect::from_min_max(rect.min, rect.max + up);
             let (lo, hi) = (format_g(f64::from(r.lo), 4), format_g(f64::from(r.hi), 4));
@@ -661,7 +657,9 @@ impl State {
             let hover = self.series.hover.as_ref().filter(|h| h.x == x && h.y == y && d.t < h.values.len());
             let approx = |h: &crate::series::SeriesView| if h.exact { "" } else { "(approx.)" };
             let g = |v: f64| format_g(v, 6);
-            if let Some(c) = composite {
+            if !active_shown {
+                // hidden: the maps over it say what is there
+            } else if let Some(c) = composite {
                 status += &c.status_at(x as f64 + 0.5, y as f64 + 0.5, d.t, n);
             } else if d.mode == Mode::Composite {
                 let (t0, t1) = d.temporal_window(info, d.t);
@@ -706,6 +704,9 @@ impl State {
         self.basemap_note(&painter, rect);
         if let Some((x, y)) = inside {
             status += &self.embedding_status_at(x, y);
+            if !vectors_only {
+                status += &self.result_status_at(x, y);
+            }
         }
         if let Some(v) = self.vector_status(ui.input(|i| i.modifiers.alt)) {
             status += &v;
@@ -784,7 +785,8 @@ impl State {
             // the basemap under the layers, in map space (the active layer's source pixels)
             self.basemap.draw(gpu, &mut f, &view, bg, |q| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy));
             let to_map = |q: [f64; 4]| to_px(m, q[0] / fx, q[1] / fy, q[2] / fx, q[3] / fy);
-            // the vector layers in the series' order (order.rs): each drawn before the first series above it
+            // the vector layers and the runs' maps in the series' order (order.rs): each drawn before the first
+            // series above it
             let vv = janus_gpu::VectorView {
                 a: [m.scale * f64::from(ppp) / fx, m.scale * f64::from(ppp) / fy],
                 centre: [m.center[0] * fx, m.center[1] * fy],
@@ -792,33 +794,36 @@ impl State {
             };
             let margin = 8.0 / vv.a[0].abs().max(1e-12);
             let seen = [view.x0 - margin, view.y0 - margin, view.x1 + margin, view.y1 + margin];
-            let mut vi = 0;
+            let (mut vi, mut ri) = (0, 0);
             let no_vectors = m.export_no_vectors;
-            let vectors = &self.vectors;
-            let mut vectors_under = |gpu: &mut janus_gpu::Gpu, f: &mut janus_gpu::MapFrame, z: u64| {
-                while let Some(v) = vectors.get(vi).filter(|v| v.z < z) {
-                    if let Some(g) =
-                        v.gpu.ready.as_ref().filter(|_| v.visible && !no_vectors && v.gpu.draws(v.placed_for))
-                    {
-                        g.draw(gpu, f, &vv, seen, ppp, 0.0);
+            let (vectors, results) = (&self.vectors, &self.zeit.results);
+            let mut drawn_under = |gpu: &mut janus_gpu::Gpu, f: &mut janus_gpu::MapFrame, z: u64| loop {
+                let v = vectors.get(vi).filter(|v| v.z < z);
+                match (v, results.get(ri).filter(|r| r.z < z)) {
+                    (Some(v), r) if r.is_none_or(|r| v.z < r.z) => {
+                        if let Some(g) =
+                            v.gpu.ready.as_ref().filter(|_| v.visible && !no_vectors && v.gpu.draws(v.placed_for))
+                        {
+                            g.draw(gpu, f, &vv, seen, ppp, 0.0);
+                        }
+                        vi += 1;
                     }
-                    vi += 1;
+                    (_, Some(r)) => {
+                        crate::zeit::draw_result(gpu, f, r, &to_map);
+                        ri += 1;
+                    }
+                    _ => break,
                 }
             };
             // every layer, bottom to top; the active one with its detail
             for li in 0..self.layers.len() {
                 let t_emb = emb_dates.get(li).copied();
                 let l = &mut self.layers[li];
-                vectors_under(gpu, &mut f, l.z);
+                drawn_under(gpu, &mut f, l.z);
                 if !l.place.aligned {
                     continue;
                 }
                 if !l.visible {
-                    // a series hidden: the maps its runs made still shown, as layers of their own
-                    let info = if li == self.active { Some(&s.info) } else { l.session.as_ref().map(|x| &x.info) };
-                    if let Some(info) = info {
-                        crate::zeit::draw_results(gpu, &mut f, &self.zeit.results, info, &l.place, &to_map);
-                    }
                     continue;
                 }
                 // its blend mode for its own draws; the maps its runs made over it as they are
@@ -831,9 +836,6 @@ impl State {
                 if li != self.active {
                     State::draw_layer(l, gpu, &mut f, &to_map);
                     f.blend = janus_gpu::Blend::Normal;
-                    if let Some(ls) = &l.session {
-                        crate::zeit::draw_results(gpu, &mut f, &self.zeit.results, &ls.info, &l.place, &to_map);
-                    }
                     continue;
                 }
                 let (alpha, blend) = (l.opacity, l.blend);
@@ -884,10 +886,9 @@ impl State {
                     }
                 }
                 f.blend = janus_gpu::Blend::Normal;
-                crate::zeit::draw_results(gpu, &mut f, &self.zeit.results, &s.info, &l.place, &to_map);
             }
-            // the vector layers over the top series
-            vectors_under(gpu, &mut f, u64::MAX);
+            // the vector layers and the maps over the top series
+            drawn_under(gpu, &mut f, u64::MAX);
             gpu.end_map(f);
             if slot == 0 {
                 m.drawn = Some(key);

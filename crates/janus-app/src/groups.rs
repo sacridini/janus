@@ -24,6 +24,7 @@ impl State {
                 (!l.canvas).then(|| self.layer_session(i).map(|s| Sel::Series(s.info.id)))?
             }
             Item::Vector(j) => self.vectors.get(j).map(|v| Sel::Vector(v.id)),
+            Item::Result(k) => self.zeit.results.get(k).map(|r| Sel::Result(r.id)),
         }
     }
 
@@ -78,6 +79,7 @@ impl State {
         gr.members.iter().any(|&m| match m {
             Sel::Series(id) => self.series_index(id).is_some_and(|i| self.layers[i].visible),
             Sel::Vector(id) => self.vectors.iter().any(|v| v.id == id && v.visible),
+            Sel::Result(id) => self.zeit.results.iter().any(|r| r.id == id && r.visible),
         })
     }
 
@@ -94,6 +96,11 @@ impl State {
                 Sel::Vector(id) => {
                     if let Some(v) = self.vectors.iter_mut().find(|v| v.id == id) {
                         v.visible = visible;
+                    }
+                }
+                Sel::Result(id) => {
+                    if let Some(r) = self.zeit.results.iter_mut().find(|r| r.id == id) {
+                        r.visible = visible;
                     }
                 }
             }

@@ -535,8 +535,9 @@ impl State {
                 let info = self.layers[0].session.as_ref()?.info.clone();
                 let mut r = crate::zeit::ResultLayer::for_test(vec![1.0; 16], 4, 4, String::new());
                 (r.cube, r.w, r.h, r.visible) = (cube, info.width, info.height, true);
+                r.grid = Some(info.clone());
                 r.tex = Some(self.gpu.as_ref()?.create_tile(4, 4, &r.data));
-                self.zeit.results.push(r);
+                self.push_result(r);
                 let on_map = centre(&self.test_render()?);
                 let mut v = crate::views::ViewSetup::new(VIEW_SLOT, cube);
                 self.render_view(&mut v, SIZE, 1.0, VIEW_SLOT as i32);

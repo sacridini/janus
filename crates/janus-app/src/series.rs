@@ -169,6 +169,8 @@ pub struct SeriesState {
     pub roi_drag: Option<([f64; 2], [f64; 2])>,
     /// the chart: 0 the active layer only, 1 every visible layer
     pub chart_layers: i32,
+    /// Pixel values is shown (in the chart's place): every visible layer's value followed too
+    pub values_view: bool,
 }
 
 impl Default for SeriesState {
@@ -187,6 +189,7 @@ impl Default for SeriesState {
             roi_gen: 1,
             roi_drag: None,
             chart_layers: 0,
+            values_view: false,
         }
     }
 }
@@ -286,9 +289,15 @@ impl State {
         }
     }
 
+    /// The other visible layers' series are followed at the cursor and the pins: on the chart ("All visible
+    /// layers"), or in Pixel values.
+    fn follows_others(&self) -> bool {
+        self.series.chart_layers == 1 || self.series.values_view
+    }
+
     /// The other layers' cursor series at the active layer's cursor pixel.
     fn update_other_hover(&mut self) {
-        if self.series.chart_layers == 0 {
+        if !self.follows_others() {
             return;
         }
         let Some(h) = &self.series.hover else { return };
@@ -322,10 +331,11 @@ impl State {
     fn add_other_pins(&mut self, pin: &SeriesView) {
         let (x, y) = (pin.x as f64 + 0.5, pin.y as f64 + 0.5);
         let active = self.active;
+        let follow = self.follows_others();
         for (i, l) in self.layers.iter_mut().enumerate() {
             let Some(s) = l.session.as_ref().filter(|_| i != active) else { continue };
             let Some((lx, ly)) = l.place.pixel(&s.info, x, y) else { continue };
-            if !s.s.defer_random_reads() && l.visible && self.series.chart_layers == 1 {
+            if !s.s.defer_random_reads() && l.visible && follow {
                 s.request_pin(lx, ly);
             }
             l.series.pins.push(view(s, pin.id, lx, ly, pin.color));
@@ -335,11 +345,25 @@ impl State {
     /// "All visible layers" turned on or off: the other layers' series at the cursor and the pins.
     pub fn set_chart_layers(&mut self, v: i32) {
         self.series.chart_layers = v;
+        self.refollow_others();
+    }
+
+    /// Pixel values shown or not (in the chart's place: the active layer is not a series shown).
+    fn sync_values_view(&mut self) {
+        let want = !self.chart_shown();
+        if want != self.series.values_view {
+            self.series.values_view = want;
+            self.refollow_others();
+        }
+    }
+
+    /// The other layers' series at the cursor and the pins made again (followed or not).
+    fn refollow_others(&mut self) {
         for l in &mut self.layers {
             l.series.hover = None;
             l.series.pins.clear();
         }
-        if v == 1 {
+        if self.follows_others() {
             self.update_other_hover();
             let pins = self.series.pins.clone();
             for p in &pins {
@@ -351,7 +375,7 @@ impl State {
 
     /// Exact reads for the other layers (after the same rest as the active one's).
     fn request_other_series(&mut self, hover: bool) {
-        if self.series.chart_layers == 0 {
+        if !self.follows_others() {
             return;
         }
         for (i, l) in self.layers.iter_mut().enumerate() {
@@ -370,6 +394,7 @@ impl State {
 
     /// Once per frame: exact series that came, the cursor's read once it rests, the ROI's dates.
     pub(crate) fn pump_series(&mut self, ctx: &egui::Context) {
+        self.sync_values_view();
         let Some(s) = &self.session else { return };
         s.collect_series(); // those read since the session's pump
         let sr = &mut self.series;

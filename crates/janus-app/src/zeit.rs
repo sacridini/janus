@@ -111,7 +111,10 @@ pub struct ZeitUi {
     pub last_fit_ms: f64,
     /// the raster runs, their result maps, the Tasks window
     pub jobs: Vec<Job>,
+    /// the maps the runs made: layers of their own, kept sorted by their place in the drawing order (`z`)
     pub results: Vec<ResultLayer>,
+    /// the last result's number
+    pub next_result: u32,
     pub show_tasks: bool,
     /// Tools > Tasks > Log: a run's log, followed
     pub log: LogView,
@@ -1265,9 +1268,21 @@ impl State {
     }
 }
 
-/// A map a run wrote, drawn over its series (src/results.hpp).
+/// A map a run wrote (src/results.hpp): a layer of its own, on the grid of the series it was computed on (placed on
+/// the map by that grid, whether the series is still open, shown or not).
 pub struct ResultLayer {
+    /// its number (the Layers panel's selection, the Pixel values' focus)
+    pub id: u32,
     pub cube: u64,
+    /// the series' grid (x0, y0, w and h are in its pixels), its name, and its placement on the active layer's
+    pub grid: Option<Arc<CubeInfo>>,
+    pub source: String,
+    pub place: crate::layers::Placement,
+    /// its place in the drawing order (order.rs)
+    pub z: u64,
+    /// its run's folder and its place among the run's outputs (the first one drawn on top of the others)
+    pub run: String,
+    pub output: usize,
     /// e.g. "LandTrendr: Year of detection"
     pub name: String,
     pub path: String,
@@ -1723,8 +1738,16 @@ Reading the data adds to it, mostly on spinning disks.",
             drop(st);
             let tool_name = manifest().tool(&j.tool).map_or(j.tool.clone(), |t| t.name.clone());
             let [x0, y0, x1, y1] = res.window;
+            // the series' grid: its maps placed by it even once it is closed
+            let (session, active) = (&self.session, self.active);
+            let grid = self.layers.iter().enumerate().find_map(|(i, l)| {
+                let s = if i == active { session.as_ref() } else { l.session.as_ref() };
+                s.filter(|s| s.info.id == j.cube).map(|s| (s.info.clone(), l.name.clone()))
+            });
+            let source = grid.as_ref().map_or(String::new(), |(_, n)| n.clone());
+            let grid = grid.map(|(g, _)| g);
             let mut first = true;
-            for o in &res.outputs {
+            for (output, o) in res.outputs.iter().enumerate() {
                 let path = o["path"].as_str().unwrap_or("").to_string();
                 if o["vector"].as_bool() == Some(true) {
                     // SNIC's polygons: a vector layer
@@ -1753,7 +1776,14 @@ Reading the data adds to it, mostly on spinning disks.",
                     })
                     .unwrap_or_default();
                 let mut layer = ResultLayer {
+                    id: 0,
                     cube: j.cube,
+                    grid: grid.clone(),
+                    source: source.clone(),
+                    place: Default::default(),
+                    z: 0,
+                    run: j.output_dir.clone(),
+                    output,
                     name: format!("{tool_name}: {}", o["name"].as_str().unwrap_or("")),
                     path: path.clone(),
                     unit: o["unit"].as_str().unwrap_or("").to_string(),
@@ -1795,29 +1825,20 @@ Reading the data adds to it, mostly on spinning disks.",
         if !vectors.is_empty() {
             self.add_vector_files(vectors, ctx);
         }
-        // loaded results: on the GPU, under their series (if it is still open)
+        // loaded results: on the GPU, layers of their own (if a raster is still open to place them on)
         let done: Vec<_> = std::mem::take(&mut *self.zeit.loaded.lock().unwrap());
         for r in done {
             self.zeit.pending_loads -= 1;
             match r {
                 Err(e) => self.error_popup = Some(e),
                 Ok(mut layer) => {
-                    let open = self.layers.iter().enumerate().any(|(i, l)| {
-                        let id = if i == self.active {
-                            self.session.as_ref().map(|s| s.info.id)
-                        } else {
-                            l.session.as_ref().map(|s| s.info.id)
-                        };
-                        id == Some(layer.cube)
-                    });
-                    if !open {
+                    if self.session.is_none() || layer.grid.is_none() {
                         continue;
                     }
                     if let Some(gpu) = &self.gpu {
                         layer.tex = Some(gpu.create_tile(layer.tw as u32, layer.th as u32, &layer.texture_values()));
                     }
-                    self.zeit.results.push(layer);
-                    self.map.dirty = true;
+                    self.push_result(layer);
                 }
             }
         }
@@ -2088,7 +2109,24 @@ pub(crate) fn result_details_ui(ui: &mut Ui, r: &mut ResultLayer, dirty: &mut bo
     });
 }
 
-/// A series' visible result maps over it, through its placement on the map.
+/// A result map, if shown, through its own placement on the map (its series' grid on the active layer's).
+pub(crate) fn draw_result(
+    gpu: &janus_gpu::Gpu,
+    f: &mut janus_gpu::MapFrame,
+    r: &ResultLayer,
+    to_map: &dyn Fn([f64; 4]) -> [f32; 4],
+) {
+    let (Some(tex), Some(info)) = (&r.tex, &r.grid) else { return };
+    if !r.visible || !r.place.aligned {
+        return;
+    }
+    let (x0, y0) = (r.x0 as f64, r.y0 as f64);
+    if let Some((q, warp)) = r.place.quad(info, x0, y0, x0 + r.w as f64, y0 + r.h as f64) {
+        gpu.draw_overlay(f, tex, to_map(q), [r.lo, r.hi], r.cmap, r.opacity, warp.as_ref());
+    }
+}
+
+/// A series' visible result maps over it, through its placement on the map (a map panel of that series).
 pub(crate) fn draw_results(
     gpu: &janus_gpu::Gpu,
     f: &mut janus_gpu::MapFrame,
@@ -2331,7 +2369,14 @@ impl ResultLayer {
     /// A result map read for a check (no series, no texture).
     pub(crate) fn for_test(data: Vec<f32>, tw: usize, th: usize, unit: String) -> ResultLayer {
         ResultLayer {
+            id: 0,
             cube: 0,
+            grid: None,
+            source: String::new(),
+            place: Default::default(),
+            z: 0,
+            run: String::new(),
+            output: 0,
             name: String::new(),
             path: String::new(),
             unit,

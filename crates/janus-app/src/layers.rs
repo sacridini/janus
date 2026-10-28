@@ -186,6 +186,56 @@ fn same_crs(a: &CubeInfo, b: &CubeInfo) -> bool {
     a.crs_name == b.crs_name
 }
 
+/// The placement of grid `b` on the active layer's grid `a`: the same grid, an affine map (same CRS, not rotated),
+/// a reprojection through a warp grid (kept while both stay the same), or none (shown only when active).
+pub(crate) fn place_on(p: &mut Placement, a: &CubeInfo, b: &CubeInfo, gpu: &janus_gpu::Gpu) {
+    p.note.clear();
+    (p.ax, p.ay, p.bx, p.by) = (0.0, 0.0, 1.0, 1.0);
+    if b.id == a.id {
+        p.reproj = None;
+        p.aligned = true;
+        return;
+    }
+    let (Some(ga), Some(gb)) = (a.geo_transform, b.geo_transform) else {
+        // without georeferencing, only identical grids can be overlaid
+        p.reproj = None;
+        p.aligned = a.width == b.width && a.height == b.height;
+        if !p.aligned {
+            p.note = "no georeferencing and a different size: shown only when active".into();
+        }
+        return;
+    };
+    let rotated = ga[2] != 0.0 || ga[4] != 0.0 || gb[2] != 0.0 || gb[4] != 0.0;
+    if !rotated && same_crs(a, b) {
+        // the fast path: an affine map
+        p.reproj = None;
+        p.aligned = true;
+        p.bx = gb[1] / ga[1];
+        p.by = gb[5] / ga[5];
+        p.ax = (gb[0] - ga[0]) / ga[1];
+        p.ay = (gb[3] - ga[3]) / ga[5];
+        return;
+    }
+    // another CRS or a rotated grid: reprojected
+    if p.reproj.as_ref().is_none_or(|(r, _)| r.active_id != a.id || r.layer_id != b.id) {
+        match Reprojection::new(a, b, 0.6) {
+            Ok(r) => {
+                let grid = r.has_domain().then(|| gpu.create_warp_grid(r.grid_w as u32, r.grid_h as u32, &r.grid));
+                p.reproj = Some((r, grid));
+            }
+            Err(why) => {
+                p.reproj = None;
+                p.aligned = false;
+                let crs = if b.crs_authority.is_empty() { &b.crs_name } else { &b.crs_authority };
+                let what = if rotated { "rotated grid".to_string() } else { format!("different CRS ({crs})") };
+                p.note = format!("{what}, {why}: shown only when active");
+                return;
+            }
+        }
+    }
+    p.aligned = true;
+}
+
 /// Dates with dates, wavelengths with wavelengths: a layer's date follows the active one's by time.
 pub fn matchable_axis(a: &CubeInfo, b: &CubeInfo) -> bool {
     (a.time_is_date && b.time_is_date) || (a.spectral && b.spectral)
@@ -216,59 +266,21 @@ impl State {
     }
 
     /// Every layer placed on the active layer's grid: straight, reprojected (kept while both stay the same), or
-    /// shown only when active.
+    /// shown only when active; the maps of the runs by the grids they were computed on.
     pub(crate) fn update_alignment(&mut self) {
         let (Some(s), Some(gpu)) = (&self.session, &self.gpu) else { return };
         let a = &s.info;
         for (i, l) in self.layers.iter_mut().enumerate() {
-            let p = &mut l.place;
-            p.note.clear();
-            (p.ax, p.ay, p.bx, p.by) = (0.0, 0.0, 1.0, 1.0);
             if i == self.active {
-                p.reproj = None;
-                p.aligned = true;
-                continue;
+                place_on(&mut l.place, a, a, gpu);
+            } else if let Some(b) = l.session.as_ref().map(|s| s.info.clone()) {
+                place_on(&mut l.place, a, &b, gpu);
             }
-            let Some(b) = l.session.as_ref().map(|s| s.info.clone()) else { continue };
-            let (Some(ga), Some(gb)) = (a.geo_transform, b.geo_transform) else {
-                // without georeferencing, only identical grids can be overlaid
-                p.reproj = None;
-                p.aligned = a.width == b.width && a.height == b.height;
-                if !p.aligned {
-                    p.note = "no georeferencing and a different size: shown only when active".into();
-                }
-                continue;
-            };
-            let rotated = ga[2] != 0.0 || ga[4] != 0.0 || gb[2] != 0.0 || gb[4] != 0.0;
-            if !rotated && same_crs(a, &b) {
-                // the fast path: an affine map
-                p.reproj = None;
-                p.aligned = true;
-                p.bx = gb[1] / ga[1];
-                p.by = gb[5] / ga[5];
-                p.ax = (gb[0] - ga[0]) / ga[1];
-                p.ay = (gb[3] - ga[3]) / ga[5];
-                continue;
+        }
+        for r in &mut self.zeit.results {
+            if let Some(b) = r.grid.clone() {
+                place_on(&mut r.place, a, &b, gpu);
             }
-            // another CRS or a rotated grid: reprojected
-            if p.reproj.as_ref().is_none_or(|(r, _)| r.active_id != a.id || r.layer_id != b.id) {
-                match Reprojection::new(a, &b, 0.6) {
-                    Ok(r) => {
-                        let grid =
-                            r.has_domain().then(|| gpu.create_warp_grid(r.grid_w as u32, r.grid_h as u32, &r.grid));
-                        p.reproj = Some((r, grid));
-                    }
-                    Err(why) => {
-                        p.reproj = None;
-                        p.aligned = false;
-                        let crs = if b.crs_authority.is_empty() { &b.crs_name } else { &b.crs_authority };
-                        let what = if rotated { "rotated grid".to_string() } else { format!("different CRS ({crs})") };
-                        p.note = format!("{what}, {why}: shown only when active");
-                        continue;
-                    }
-                }
-            }
-            p.aligned = true;
         }
     }
 
@@ -469,6 +481,8 @@ impl State {
         if self.layers.is_empty() {
             self.active = 0;
             self.series = Default::default();
+            // no grid left to place the runs' maps on
+            self.zeit.results.clear();
             ctx.send_viewport_cmd(egui::ViewportCommand::Title("Janus".into()));
             return;
         }
@@ -494,6 +508,7 @@ impl State {
         self.classes = Default::default();
         self.composite = None;
         self.series = Default::default();
+        self.zeit.results.clear();
         ctx.send_viewport_cmd(egui::ViewportCommand::Title("Janus".into()));
     }
 

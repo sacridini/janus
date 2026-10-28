@@ -1,8 +1,8 @@
-//! The Layers panel as a table of contents: what the map draws, top of the list on top, series and vector layers
-//! in one order (order.rs). Sections that fold, a row a layer (visibility, a swatch, its name, a short detail, a
-//! menu), the details of a layer when it is unfolded (its opacity, its placement, the maps its runs made as rows of
-//! their own), every action in the row's menu (right click, or its "..." button): make it active, opacity, move,
-//! export, close. Any row is dragged onto another to reorder; a filter by name keeps a long list usable.
+//! The Layers panel as a table of contents: what the map draws, top of the list on top, series, the maps the runs
+//! made and vector layers in one order (order.rs). Sections that fold, a row a layer (visibility, a swatch, its name,
+//! a short detail, a menu), the details of a layer when it is unfolded (its dates, a map's colours), every action in
+//! the row's menu (right click, or its "..." button): make it active, opacity, move, export, close. Any row is
+//! dragged onto another to reorder; a filter by name keeps a long list usable.
 
 use std::collections::HashSet;
 
@@ -13,11 +13,12 @@ use crate::app::State;
 use crate::order::Item;
 use crate::theme;
 
-/// A layer's row in the selection: a series by its cube's id, a vector layer by its id.
+/// A layer's row in the selection: a series by its cube's id, a vector layer or a run's map by its id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Sel {
     Series(u64),
     Vector(u32),
+    Result(u32),
 }
 
 /// The panel's own state: the filter, the rows unfolded, the rows selected.
@@ -389,6 +390,8 @@ enum Act {
     SaveResult(usize),
     SaveRun(usize),
     RemoveResult(usize),
+    /// a run's map shown, every other one hidden
+    SoloResult(usize),
     RemoveVector(usize),
     ExtractVector(u32),
     Interpret(u32),
@@ -422,7 +425,7 @@ impl State {
         let mut acts = vec![];
         self.contents_toolbar(ui);
         self.opacity_strip(ui);
-        let total = self.layers.iter().filter(|l| !l.canvas).count() + self.vectors.len();
+        let total = self.layers.iter().filter(|l| !l.canvas).count() + self.vectors.len() + self.zeit.results.len();
         // the list: series and vector layers in one drawing order, the basemap under them all
         list_header(ui, "Layers", &total.to_string()).on_hover_text(
             "Top of the list = drawn on top, series and vector layers alike: drag a row onto another to \
@@ -530,6 +533,12 @@ impl State {
                         self.zeit.results.remove(k);
                         self.map.dirty = true;
                     }
+                }
+                Act::SoloResult(k) => {
+                    for (i, r) in self.zeit.results.iter_mut().enumerate() {
+                        r.visible = i == k;
+                    }
+                    self.map.dirty = true;
                 }
                 Act::RemoveVector(i) => {
                     self.remove_vector(i);
@@ -725,6 +734,7 @@ impl State {
                 match order[pos] {
                     Item::Series(i) => self.series_row(ui, i, (pos, lo, top), acts),
                     Item::Vector(li) => self.vector_row(ui, li, (pos, lo, top), acts),
+                    Item::Result(k) => self.result_row(ui, k, (pos, lo, top), acts),
                 }
             }
             self.contents.indent = 0.0;
@@ -752,6 +762,7 @@ impl State {
             .collect();
         let vectors: Vec<usize> =
             (0..self.vectors.len()).filter(|&i| sel.contains(&Sel::Vector(self.vectors[i].id))).collect();
+        self.zeit.results.retain(|r| !sel.contains(&Sel::Result(r.id)));
         // from the last, the places of the others kept
         for &i in vectors.iter().rev() {
             self.remove_vector(i);
@@ -893,15 +904,12 @@ impl State {
             return;
         }
         let name = self.layers[i].name.clone();
-        let results: Vec<usize> =
-            (0..self.zeit.results.len()).filter(|&k| self.zeit.results[k].cube == info.id).collect();
-        let child_match = results.iter().any(|&k| self.contents.shows(&self.zeit.results[k].name));
-        if !self.contents.shows(&name) && !child_match {
+        if !self.contents.shows(&name) {
             return;
         }
         let key = format!("s{}", info.id);
-        // unfolded from the start: the maps its runs made, or a stack's bands (what it holds)
-        let unfolded = !results.is_empty() || (info.stack && info.t() <= 16);
+        // unfolded from the start: a stack's bands (what it holds)
+        let unfolded = info.stack && info.t() <= 16;
         let open = self.contents.is_open(&key, unfolded);
         let t = if is_active { self.display.t } else { self.layers[i].disp.t };
         let date = info.layers.get(t.min(info.t().saturating_sub(1))).map_or(String::new(), |l| l.label.clone());
@@ -941,7 +949,7 @@ impl State {
                 warn: (!l.place.note.is_empty()).then(|| l.place.note.clone()),
                 indent,
                 swatch: Swatch::Stack(cmap),
-                fold: (!results.is_empty() || info.t() > 1).then_some(open),
+                fold: (info.t() > 1).then_some(open),
             };
             let out = row(ui, Some(&mut l.visible), &r);
             if out.visible_changed {
@@ -1020,18 +1028,9 @@ impl State {
             out_row.context_menu(&mut menu);
             egui::Popup::menu(&out.more).show(&mut menu);
         });
-        if !open {
-            return;
-        }
-        // unfolded: its dates (a stack's bands), then the maps its runs made
-        if info.t() > 1 {
+        // unfolded: its dates (a stack's bands)
+        if open && info.t() > 1 {
             self.step_rows(ui, i, &info, is_active, acts);
-        }
-        for &k in results.iter().rev() {
-            if !self.contents.shows(&self.zeit.results[k].name) && !self.contents.shows(&name) {
-                continue;
-            }
-            self.result_row(ui, k, acts);
         }
     }
 
@@ -1138,23 +1137,39 @@ impl State {
         self.opening = Some(o);
     }
 
-    /// A map a run made, under its series.
-    fn result_row(&mut self, ui: &mut Ui, k: usize, acts: &mut Vec<Act>) {
+    /// A map a run made: a layer of its own (its eye, its place in the order, its group), the series it was computed
+    /// on only named; unfolded, its colours. A click selects it, and the Pixel values panel describes it.
+    fn result_row(&mut self, ui: &mut Ui, k: usize, place: (usize, usize, usize), acts: &mut Vec<Act>) {
+        let pos = place.0;
+        if !self.contents.shows(&self.zeit.results[k].name) && !self.contents.shows(&self.zeit.results[k].source) {
+            return;
+        }
+        let me = Sel::Result(self.zeit.results[k].id);
+        self.contents.drawing.push(me);
+        let selected = self.contents.selected.contains(&me);
+        let closes = self.contents.closes_selection(me);
+        let extra = self.row_extras(me);
         let key = format!("r{}", self.zeit.results[k].path);
         let open = self.contents.is_open(&key, false);
+        let indent = self.contents.indent;
+        let many = self.zeit.results.len() > 1;
         let r = &mut self.zeit.results[k];
         let mut fold_clicked = false;
-        ui.push_id(("result", k), |ui| {
-            let swatch = Swatch::Ramp(r.cmap);
+        ui.push_id(("result", r.id), |ui| {
+            let what = if r.classes.is_empty() { r.unit.clone() } else { format!("{} classes", r.classes.len()) };
             let row_def = Row {
                 name: &r.name,
-                detail: if r.classes.is_empty() { r.unit.clone() } else { format!("{} classes", r.classes.len()) },
+                detail: match (what.is_empty(), r.source.is_empty()) {
+                    (_, true) => what,
+                    (true, false) => format!("of {}", r.source),
+                    (false, false) => format!("{what}, of {}", r.source),
+                },
                 badge: String::new(),
                 active: false,
-                selected: false,
-                warn: None,
-                indent: 22.0,
-                swatch,
+                selected,
+                warn: (!r.place.note.is_empty()).then(|| r.place.note.clone()),
+                indent,
+                swatch: Swatch::Ramp(r.cmap),
                 fold: Some(open),
             };
             let out = row(ui, Some(&mut r.visible), &row_def);
@@ -1162,11 +1177,30 @@ impl State {
                 self.map.dirty = true;
             }
             fold_clicked = out.fold_clicked;
-            let out_row = out.row.on_hover_text(format!("{}\n(the file stays on disk when removed)", r.path));
+            let out_row = out.row.on_hover_text(format!(
+                "{}\nComputed on {}: a layer of its own (hiding or closing that series leaves it).\nClick: select it \
+                 (its values and histogram in Pixel values). Drag: reorder. Delete or Ctrl+D: remove the ones \
+                 selected (the files stay on disk).",
+                r.path,
+                if r.source.is_empty() { "a series" } else { &r.source }
+            ));
+            select_on_click(ui, &out_row, &out.more, me, &mut self.contents);
+            drag_to_reorder(ui, &out_row, pos, acts);
             let mut menu = |ui: &mut Ui| {
                 if ui.add(egui::Slider::new(&mut r.opacity, 0.0..=1.0).text("opacity").fixed_decimals(2)).changed() {
                     self.map.dirty = true;
                 }
+                if ui
+                    .add_enabled(many, egui::Button::new("Show only this map"))
+                    .on_hover_text("Every other map of the runs hidden")
+                    .clicked()
+                {
+                    acts.push(Act::SoloResult(k));
+                    ui.close();
+                }
+                ui.separator();
+                move_menu(ui, place, acts);
+                group_items(ui, me, &extra, acts);
                 ui.separator();
                 if ui.button("Save as GeoTIFF...").clicked() {
                     acts.push(Act::SaveResult(k));
@@ -1177,10 +1211,7 @@ impl State {
                     ui.close();
                 }
                 ui.separator();
-                if ui.button("Remove from the map").clicked() {
-                    acts.push(Act::RemoveResult(k));
-                    ui.close();
-                }
+                close_item(ui, "Remove from the map", closes, Act::RemoveResult(k), acts);
             };
             out_row.context_menu(&mut menu);
             egui::Popup::menu(&out.more).show(&mut menu);
@@ -1190,7 +1221,7 @@ impl State {
             ui.indent("result details", |ui| {
                 ui.add_space(0.0);
                 ui.horizontal(|ui| {
-                    ui.add_space(16.0);
+                    ui.add_space(16.0 + indent);
                     ui.vertical(|ui| crate::zeit::result_details_ui(ui, r, &mut self.map.dirty));
                 });
             });

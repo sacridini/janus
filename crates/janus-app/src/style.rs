@@ -179,6 +179,8 @@ impl State {
     /// Layer `sel`'s style.
     pub(crate) fn style_of(&self, sel: Sel) -> Option<LayerStyle> {
         match sel {
+            // a run's map: its colours are its own (its row's details)
+            Sel::Result(_) => None,
             Sel::Vector(id) => self.vectors.iter().find(|v| v.id == id).map(|v| LayerStyle::Vector(v.color)),
             Sel::Series(id) => {
                 let i = self.series_index(id)?;
