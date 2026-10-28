@@ -224,7 +224,13 @@ fn clearest_first(info: &Arc<CubeInfo>, win: [usize; 4]) -> Vec<usize> {
 
 /// Reads date `t`'s bands over rows y0..y0+rows of the window into `out` (bands x pixels): the quantity shown, or
 /// every band with the quality mask.
-fn read_date(info: &Arc<CubeInfo>, t: usize, all: bool, win: (usize, usize, usize, usize), out: &mut [f32]) -> bool {
+pub(crate) fn read_date(
+    info: &Arc<CubeInfo>,
+    t: usize,
+    all: bool,
+    win: (usize, usize, usize, usize),
+    out: &mut [f32],
+) -> bool {
     let n = win.2 * win.3;
     with_thread_reader(info, |r| {
         if !all {
@@ -445,7 +451,7 @@ pub fn regularize(
     }
     drop(dss);
     // the temporary files as cloud-optimized GeoTIFFs, a few at once
-    let files = to_cogs(&temps, out_dir, &|f| progress(0.85 + 0.15 * f, "writing the COGs"), cancel)?;
+    let files = to_cogs(&temps, out_dir, opts.threads, &|f| progress(0.85 + 0.15 * f, "writing the COGs"), cancel)?;
     let _ = std::fs::remove_dir_all(&part);
     let empty = periods.iter().filter(|p| p.dates.is_empty()).count();
     Ok(Regularized { files, periods, empty })
@@ -456,10 +462,12 @@ struct SendPtr(*mut f32);
 // SAFETY: the threads write disjoint pixels.
 unsafe impl Sync for SendPtr {}
 
-/// Files made cloud-optimized GeoTIFFs in `out` (4 at once, 2 threads each: 8 at most).
-fn to_cogs(
+/// Files made cloud-optimized GeoTIFFs in `out`, `<stem>.tif` each (4 at once, `threads` / 4 threads each, 2 at
+/// least).
+pub(crate) fn to_cogs(
     files: &[PathBuf],
     out: &Path,
+    threads: usize,
     progress: &(dyn Fn(f64) + Sync),
     cancel: &AtomicBool,
 ) -> Result<Vec<String>, String> {
@@ -467,6 +475,8 @@ fn to_cogs(
     let done = AtomicUsize::new(0);
     let results: Vec<std::sync::Mutex<Option<Result<String, String>>>> =
         files.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    let each = format!("NUM_THREADS={}", (threads / 4.min(files.len()).max(1)).max(2));
+    let each = each.as_str();
     std::thread::scope(|s| {
         for _ in 0..4.min(files.len()) {
             s.spawn(|| {
@@ -476,7 +486,7 @@ fn to_cogs(
                         break;
                     }
                     let src = &files[i];
-                    let dst = out.join(src.file_name().unwrap_or_default());
+                    let dst = out.join(src.file_stem().unwrap_or_default()).with_extension("tif");
                     let r = (|| {
                         let ds = gdal::Dataset::open(src).map_err(|e| format!("{}: {e}", src.display()))?;
                         let drv = gdal::DriverManager::get_driver_by_name("COG").map_err(|e| e.to_string())?;
@@ -484,7 +494,7 @@ fn to_cogs(
                             "COMPRESS=DEFLATE",
                             "PREDICTOR=YES",
                             "BIGTIFF=IF_SAFER",
-                            "NUM_THREADS=2",
+                            each,
                             "OVERVIEW_RESAMPLING=NEAREST",
                         ]);
                         ds.create_copy(&drv, &dst, &co).map_err(|e| format!("{}: {e}", dst.display()))?;

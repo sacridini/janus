@@ -921,6 +921,24 @@ nova.
   visível, ROI) e o recorte da fase 43.
 - **Teste:** ida e volta (montar → abrir → salvar → abrir) com as mesmas datas
   e valores; o NetCDF lido pelo `xarray`.
+- **Feito (2026-10-28):** `crates/janus-zeit/src/series_io.rs` (montar: a data do
+  nome, georreferência, grade sem rotação e um CRS conferidos em cada arquivo; a chave
+  de cada arquivo sem a data separa bandas e tiles, os tiles agrupados pela extensão,
+  as bandas em ordem natural, a assinatura da maioria das datas; a grade é a união na
+  menor célula; `GDALBuildVRT` por banda com `-te`/`-tr` e depois `-separate`, as
+  descrições das bandas no VRT; COGs pela escrita da fase 40. Salvar: blocos de linhas
+  lidos nos threads; COG multibanda com a data na descrição de cada banda, ou NetCDF 4
+  / Zarr v2 pela API multidimensional do GDAL com time/y/x (lat/lon em graus),
+  coordenadas e atributos CF, Float32 com NaN, blocos 1 × 512 × 512, deflate no NetCDF
+  e Blosc LZ4 no Zarr, como o `xarray`), `series_ui.rs` (File → Build series... e Save
+  series as..., também na paleta). `tools/bench_series_io.py` → `bench/series-io.json`:
+  24 datas × 2 bandas × 4 tiles de 1024² Int16 (192 arquivos). VRTs: Janus 0,59 s
+  (0,22 s de plano) contra 3,0 s de `gdalbuildvrt` pelos mesmos passos, 0 valores
+  diferentes; COGs: 4,0 s contra 10,0 s de `gdal_translate` data a data, iguais.
+  Salvar as 24 datas de 2048²: NetCDF 5,7 s contra 9,8 s do `xarray.to_netcdf`
+  (zlib), Zarr 1,07 s contra 2,24 s do `to_zarr`, COG 4,4 s contra 3,7 s do
+  `rioxarray` (o de Janus com preditor, 19% menor); o `xarray` lê o NetCDF e o Zarr de
+  Janus com os mesmos valores e datas.
 
 #### Fase 47 — Sentinel-1 (radar) pelo STAC
 - **Por quê:** o radar enxerga através das nuvens: na Amazônia, onde o óptico
@@ -1130,7 +1148,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 | 43 | — | **Reprojetar, reamostrar, recortar, alinhar à grade** de outra camada (`GDALWarp`, série data a data ou virtual) | concluída (sem versão): Tools → Reproject, resample, clip (um CRS, o CRS ou a grade de outra camada; tamanho do pixel, -tap; 8 reamostragens, mode para classes; camada, área visível, ROI ou polígonos de uma camada vetorial; nodata, tipo; COG, GeoTIFF ou virtual); `janus_zeit::warp`; bit a bit igual ao `gdalwarp` nos 4 casos, no mesmo tempo; 1,9–2,4× mais rápido que o `rioxarray.reproject` |
 | 44 | — | **Rasterizar vetores** na grade da série (atributo, índice, máscara) | concluída (sem versão): Rasterize on the series' grid no menu da camada vetorial (1/0, número do elemento, atributo; texto como classes com nomes e cores; centro ou *all touched*); a camada serve de máscara das ferramentas do Zeit (*Only where X is not 0*); `janus_zeit::rasterize`; igual pixel a pixel ao `gdal_rasterize` e ao rasterio; 1,1× (máscara Byte) a 33× mais rápido que o `gdal_rasterize` no mesmo tipo, 4–6× que o rasterio |
 | 45 | — | **Estatística zonal no tempo** (série por polígono, área por classe e por ano de mudança) | concluída (sem versão): Zonal statistics over time no menu da camada vetorial (valores: n, média, desvio, mínimo, p10–p90, máximo; classes: área por data e transições; mapas de datas: área por ano); CSV longo e largo, GeoPackage com as colunas, aba Analysis > Zonal; `janus_zeit::zonal`; igual ao `rasterstats` (35× mais rápido) e 11× mais rápido que o `exactextractr` |
-| 46 | — | **Montar uma série** de arquivos soltos e **salvar a série** (COG multibanda, NetCDF/Zarr) | planejada |
+| 46 | — | **Montar uma série** de arquivos soltos e **salvar a série** (COG multibanda, NetCDF/Zarr) | concluída (sem versão): File → Build series (data do nome, bandas e tiles pela chave, VRTs ou COGs) e Save series as (COG multibanda, NetCDF CF, Zarr; camada, visível ou ROI); `janus_zeit::series_io`; VRTs 5× mais rápido que o `gdalbuildvrt`, COGs 2,5× que o `gdal_translate`, valores iguais; NetCDF 1,7× e Zarr 2,1× mais rápido que o `xarray`, que os lê com os mesmos valores e datas |
 | 47 | — | **Sentinel-1** pelo STAC (RTC do Planetary Computer, órbita, dB, speckle) | planejada |
 | 48 | — | **Barra de status e avisos** (coordenadas, valor, CRS, escala, tarefas; aviso ao terminar, atenção do sistema) | concluída (sem versão) |
 | 49 | — | **Paleta de comandos** (`Ctrl+K`: menus, ferramentas, índices, camadas, painéis) | concluída (sem versão) |

@@ -446,6 +446,8 @@ pub struct State {
     pub warp: crate::warp_ui::WarpUi,
     pub raster: crate::rasterize_ui::RasterizeUi,
     pub zonal: crate::zonal_ui::ZonalUi,
+    pub build: crate::series_ui::BuildUi,
+    pub save: crate::series_ui::SaveUi,
     /// the status bar and the notices of tasks that end
     pub status: crate::status::StatusUi,
     /// the command palette (Ctrl+K)
@@ -811,6 +813,8 @@ impl JanusApp {
                 warp: Default::default(),
                 raster: Default::default(),
                 zonal: Default::default(),
+                build: Default::default(),
+                save: Default::default(),
                 status: Default::default(),
                 palette: Default::default(),
                 nav: Default::default(),
@@ -1527,6 +1531,23 @@ impl State {
                 {
                     self.add_vector_files(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), &ctx);
                 }
+                if ui
+                    .button("Build series...")
+                    .on_hover_text(
+                        "Loose files grouped by the date in their names: a date's bands stacked,\n\
+                         its tiles mosaicked, as VRTs or COGs",
+                    )
+                    .clicked()
+                {
+                    self.build.show = true;
+                }
+                if ui
+                    .add_enabled(has, egui::Button::new("Save series as..."))
+                    .on_hover_text("The active series as a multiband COG (a band per date), a NetCDF or a Zarr")
+                    .clicked()
+                {
+                    self.save.show = true;
+                }
                 ui.separator();
                 self.export_menu(ui);
                 ui.separator();
@@ -2154,6 +2175,7 @@ impl eframe::App for JanusApp {
         self.state.warp_window(&ctx);
         self.state.rasterize_window(&ctx);
         self.state.zonal_window(&ctx);
+        self.state.series_windows(&ctx);
         self.state.class_flows_window(&ctx);
         self.state.tasks_window(&ctx);
         self.state.provenance_window(&ctx);

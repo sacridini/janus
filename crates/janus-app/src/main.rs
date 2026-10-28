@@ -53,6 +53,7 @@ mod sankey;
 mod season;
 mod selftest_zeit;
 mod series;
+mod series_ui;
 mod session;
 mod settings;
 mod shots;

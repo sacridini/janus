@@ -1,0 +1,41 @@
+{
+  "files": 192,
+  "dates": 24,
+  "grid": [
+    2048,
+    2048
+  ],
+  "build_vrt": {
+    "janus_s": 0.586454,
+    "janus_plan_s": 0.223023,
+    "gdalbuildvrt_s": 2.9701555000065127,
+    "bands": [
+      "B04",
+      "B08"
+    ],
+    "values_differing": 0
+  },
+  "build_cog": {
+    "janus_s": 3.9604404,
+    "gdal_translate_s": 9.958946700004162,
+    "values_differing": 0
+  },
+  "save": {
+    "cog": {
+      "janus_s": 4.4020289,
+      "rioxarray_s": 3.729847599985078,
+      "same": true
+    },
+    "nc": {
+      "janus_s": 5.7127104,
+      "xarray_s": 9.771263799979351,
+      "xarray_reads_same": true
+    },
+    "zarr": {
+      "janus_s": 1.0689969,
+      "xarray_s": 2.241531399995438,
+      "xarray_reads_same": true
+    },
+    "xarray_read_s": 0.6667290999903344
+  }
+}

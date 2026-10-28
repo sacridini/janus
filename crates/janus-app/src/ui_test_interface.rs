@@ -1415,6 +1415,103 @@ impl State {
                 None
             }
             217 => {
+                // the land cover saved as a NetCDF with its time axis, opened back
+                let dir = std::env::temp_dir().join(format!("janus_selftest_series_{}", std::process::id()));
+                let _ = std::fs::remove_dir_all(&dir);
+                std::fs::create_dir_all(&dir).ok()?;
+                let name = self.layers.get(self.active)?.name.clone();
+                let sv = &mut self.save;
+                (sv.format, sv.scope, sv.all_bands, sv.dont_open) =
+                    (janus_zeit::series_io::SaveFormat::NetCdf, 0, false, false);
+                sv.path = dir.join("land.nc").to_string_lossy().into_owned();
+                self.save_run(ctx);
+                st.texts = vec![name, dir.to_string_lossy().into_owned()];
+                next(st, "the land cover saved as a NetCDF with a time axis");
+                None
+            }
+            218 | 220 => {
+                // the series saved (218) or built (220) against the land cover: its dates and every value
+                let src = st.texts.first()?.clone();
+                let name = if st.stage == 218 { format!("{src} saved") } else { "Land rebuilt".to_string() };
+                let Some(k) = self.layers.iter().position(|l| l.name == name) else {
+                    let tool = if st.stage == 218 { "save_series" } else { "build_series" };
+                    if self
+                        .zeit
+                        .jobs
+                        .iter()
+                        .any(|j| j.tool == tool && j.status.lock().unwrap().state == crate::zeit::JobState::Failed)
+                    {
+                        return fail(&format!("{tool} failed (Tools > Tasks > Log)"));
+                    }
+                    return None;
+                };
+                if self.opening.is_some() || !super::loaded(self.layer_session(k)) {
+                    return None;
+                }
+                let d = self.layers.iter().position(|l| l.name == src)?;
+                let (a, b) = (self.layer_session(d)?.info.clone(), self.layer_session(k)?.info.clone());
+                let days = |i: &janus_cube::CubeInfo| -> Vec<String> {
+                    i.layers.iter().map(|l| janus_zeit::series_io::day_text(l.time)).collect()
+                };
+                let (w, h) = (a.width, a.height);
+                let mut differ = 0;
+                for t in 0..a.t().min(b.t()) {
+                    let read = |i: &std::sync::Arc<janus_cube::CubeInfo>| {
+                        let mut v = vec![0f32; w * h];
+                        janus_cube::with_thread_reader(i, |r| r.read_window(t, (0, 0, w, h), &mut v, (w, h)))
+                            .then_some(v)
+                    };
+                    let (va, vb) = (read(&a)?, read(&b)?);
+                    differ += va.iter().zip(&vb).filter(|(x, y)| x != y).count();
+                }
+                println!(
+                    "    {name}: {} dates ({} to {}), {} x {} px, {differ} values differ ({})",
+                    b.t(),
+                    days(&b).first()?,
+                    days(&b).last()?,
+                    b.width,
+                    b.height,
+                    b.description
+                );
+                if days(&a) != days(&b) || (b.width, b.height) != (w, h) || differ > 0 {
+                    return fail("the same dates and values as the land cover");
+                }
+                self.remove_layer(k, ctx);
+                if st.stage == 218 {
+                    // the land cover's files built into a series again
+                    let mut files: Vec<String> = a.layers.iter().map(|l| l.path.clone()).collect();
+                    files.dedup();
+                    self.build.name = "Land rebuilt".into();
+                    self.build.cog = false;
+                    self.build_plan_start(files);
+                    next(st, "the NetCDF opened back: the land cover's dates and values");
+                } else {
+                    self.build.show = false;
+                    self.save.show = false;
+                    if let Some(dir) = st.texts.get(1) {
+                        let _ = std::fs::remove_dir_all(dir);
+                    }
+                    next(st, "the land cover's files built into VRTs: its dates and values");
+                }
+                None
+            }
+            219 => {
+                let p = self.build.plan.as_ref()?;
+                println!(
+                    "    planned: {} dates of {} band(s) ({}), {} left out",
+                    p.dates.len(),
+                    p.bands.len(),
+                    p.bands.join(", "),
+                    p.skipped.len()
+                );
+                if p.dates.len() != self.session.as_ref()?.info.t() || !p.skipped.is_empty() {
+                    return fail("a date per file of the land cover");
+                }
+                self.build_run(ctx);
+                next(st, "the land cover's files planned as a series, building");
+                None
+            }
+            221 => {
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

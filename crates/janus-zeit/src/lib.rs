@@ -32,6 +32,7 @@ pub mod recovery;
 pub mod regularize;
 pub mod rng;
 mod sccd;
+pub mod series_io;
 mod smooth;
 pub mod snic;
 mod som;

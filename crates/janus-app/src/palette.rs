@@ -56,6 +56,8 @@ pub(crate) enum Cmd {
     Calculator,
     Regularize,
     Warp,
+    BuildSeries,
+    SaveSeries,
     DeepLearning,
     Tasks,
     Log,
@@ -270,6 +272,8 @@ impl State {
         add(Cmd::Calculator, "Tools", "Raster calculator...", "", None);
         add(Cmd::Regularize, "Tools", "Regularize series...", "", None);
         add(Cmd::Warp, "Tools", "Reproject, resample, clip...", "", None);
+        add(Cmd::BuildSeries, "File", "Build series...", "", None);
+        add(Cmd::SaveSeries, "File", "Save series as...", "", need(self.session.is_some(), "no series open"));
         add(Cmd::DeepLearning, "Tools > Classification", "Deep learning (TempCNN, L-TAE, Presto, U-TAE)...", "", None);
         add(Cmd::Tasks, "Tools", "Tasks", "", None);
         add(Cmd::Log, "Tools", "Log", "", need(!self.zeit.jobs.is_empty(), "no task has run yet"));
@@ -581,6 +585,8 @@ impl State {
             Cmd::Calculator => self.calc.show = true,
             Cmd::Regularize => self.reg.show = true,
             Cmd::Warp => self.warp.show = true,
+            Cmd::BuildSeries => self.build.show = true,
+            Cmd::SaveSeries => self.save.show = true,
             Cmd::DeepLearning => self.ml.open = true,
             Cmd::Tasks => self.zeit.show_tasks = true,
             Cmd::Log => self.zeit.log.show = true,
