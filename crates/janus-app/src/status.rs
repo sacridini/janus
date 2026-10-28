@@ -355,6 +355,16 @@ impl State {
     }
 
     /// The notices shown: their titles, and whether each is of a failure.
+    /// A notice of the interface's own (a saved view that cannot be shown here...): failed or not.
+    pub(crate) fn notify(&mut self, title: &str, text: &str, failed: bool) {
+        let n = Notice { title: title.into(), text: text.into(), failed, actions: vec![], at: Instant::now() };
+        self.status.notices.push(n);
+        let k = self.status.notices.len();
+        if k > 4 {
+            self.status.notices.drain(..k - 4);
+        }
+    }
+
     pub(crate) fn notice_titles(&self) -> Vec<(String, bool)> {
         self.status.notices.iter().map(|n| (n.title.clone(), n.failed)).collect()
     }

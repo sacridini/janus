@@ -32,7 +32,7 @@ pub enum LayerStyle {
 }
 
 /// A name or a number in the style's text: the characters that separate its fields escaped.
-fn esc(s: &str) -> String {
+pub(crate) fn esc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {
@@ -43,7 +43,7 @@ fn esc(s: &str) -> String {
     out
 }
 
-fn unesc(s: &str) -> String {
+pub(crate) fn unesc(s: &str) -> String {
     let mut out = Vec::with_capacity(s.len());
     let b = s.as_bytes();
     let mut i = 0;

@@ -229,6 +229,10 @@ pub struct Options {
     /// a validation project opened: its panel on this tab (0 Design ... 4 Report)
     pub validation_tab: Option<usize>,
     pub swipe: bool,
+    /// --lens: the swipe as a lens; --minimap; --goto TEXT: Go to that place (screenshots)
+    pub lens: bool,
+    pub minimap: bool,
+    pub goto: Option<String>,
     /// --pin, --roi: pins and an ROI once the series is open (screenshots)
     pub pins: Vec<(usize, usize)>,
     /// --view X,Y,S: the map centred on source pixel (X, Y) at S screen pixels per source pixel; --opacity: the
@@ -439,6 +443,8 @@ pub struct State {
     pub status: crate::status::StatusUi,
     /// the command palette (Ctrl+K)
     pub palette: crate::palette::PaletteUi,
+    /// Go to (Ctrl+G), saved views, the minimap
+    pub nav: crate::navigation::NavUi,
     pub chart: crate::chart::ChartOptions,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
@@ -503,6 +509,10 @@ Command line: jn <folder | file.tif | pattern_*.tif | https://.../cog.tif ...>
 Settings: Ctrl+, (theme, font size, processing threads, memory and caches)
 Command palette: Ctrl+K or Ctrl+Shift+P (every command by name: menus, tools,
       indices, layers, panels; arrows and Enter)
+Go to: Ctrl+G (latitude and longitude, in degrees or ° ' \"; UTM: 23S 333000 7394000;
+      EPSG:code x y; x y in the layer's CRS; px column row)
+Saved views: View > Saved views (the area, the date, the layers shown)
+Minimap: M; lens: L (the swipe as a circle at the cursor, Alt + wheel: its size)
 Reset layout: Ctrl+Shift+R
 Updates: Help > Check for updates (the version you use: Help > About Janus)
 
@@ -699,6 +709,7 @@ impl JanusApp {
         if let Some(spec) = &opts.interface {
             settings.set_interface(spec);
         }
+        settings.minimap |= opts.minimap;
         theme::load_fonts(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx, settings.look(), settings.panel_opacity, settings.font_size);
         let no_save = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
@@ -769,6 +780,7 @@ impl JanusApp {
                 calc: Default::default(),
                 status: Default::default(),
                 palette: Default::default(),
+                nav: Default::default(),
                 val: Default::default(),
                 ml: Default::default(),
                 contents: Default::default(),
@@ -1247,7 +1259,7 @@ impl State {
             self.open_inputs(vec![next], true, ctx);
         }
         // --map-view, --swipe: once every series asked for is open
-        if (self.opts.map_view || self.opts.swipe)
+        if (self.opts.map_view || self.opts.swipe || self.opts.lens || self.opts.goto.is_some())
             && self.opening.is_none()
             && self.opts.extra_layers.is_empty()
             && self.session.as_ref().is_some_and(|s| s.s.overview.complete())
@@ -1257,6 +1269,15 @@ impl State {
             }
             if std::mem::take(&mut self.opts.swipe) {
                 self.toggle_swipe();
+            }
+            if std::mem::take(&mut self.opts.lens) {
+                self.toggle_lens();
+            }
+            if let Some(text) = self.opts.goto.take() {
+                match crate::navigation::parse_place(&text).and_then(|p| self.place_pixel(p)) {
+                    Ok(at) => self.go_to_pixel(at, &text, false),
+                    Err(e) => eprintln!("--goto {text}: {e}"),
+                }
             }
         }
         self.pump_season();
@@ -1327,6 +1348,9 @@ impl State {
         if chord(Modifiers::COMMAND, Key::K) || chord(shift_cmd, Key::P) {
             self.toggle_palette();
         }
+        if chord(Modifiers::COMMAND, Key::G) {
+            self.toggle_goto();
+        }
         // the Layers list clicked last: Delete or Ctrl+D closes the layers selected on it (taken from the map's pins
         // and the ROI's vertices)
         if self.contents.focused
@@ -1378,6 +1402,12 @@ impl State {
         }
         if ctx.input(|i| i.key_pressed(Key::C) && i.modifiers.is_none()) {
             self.toggle_swipe();
+        }
+        if ctx.input(|i| i.key_pressed(Key::L) && i.modifiers.is_none()) {
+            self.toggle_lens();
+        }
+        if ctx.input(|i| i.key_pressed(Key::M) && i.modifiers.is_none()) {
+            self.toggle_minimap();
         }
         if space && let Some(l) = self.layers.get_mut(self.active) {
             // shows / hides the active layer
@@ -1482,6 +1512,14 @@ impl State {
                 if item(ui, "Fit map to window", "F", has) {
                     self.map.fit();
                 }
+                if item(ui, "Go to coordinate...", "Ctrl+G", has) {
+                    self.toggle_goto();
+                }
+                ui.menu_button("Saved views", |ui| self.saved_views_menu(ui));
+                let mut minimap = self.settings.s.minimap;
+                if ui.add_enabled(has, egui::Checkbox::new(&mut minimap, "Minimap (M)")).clicked() {
+                    self.toggle_minimap();
+                }
                 if item(ui, "New map view", "Ctrl+T", has) {
                     self.new_map_view();
                 }
@@ -1493,6 +1531,14 @@ impl State {
                 let mut swipe = self.swipe.is_some();
                 if ui.add_enabled(has, egui::Checkbox::new(&mut swipe, "Swipe (C)")).clicked() {
                     self.toggle_swipe();
+                }
+                let mut lens = self.swipe.as_ref().is_some_and(|s| s.lens);
+                if ui
+                    .add_enabled(has, egui::Checkbox::new(&mut lens, "Lens (L)"))
+                    .on_hover_text("The swipe as a circle that follows the cursor; Alt + wheel: its size")
+                    .clicked()
+                {
+                    self.toggle_lens();
                 }
                 let mut transect = self.transect_draft.mode;
                 if ui
@@ -2050,6 +2096,7 @@ impl eframe::App for JanusApp {
         self.state.animation_dialog(&ctx);
         self.state.log_window(&ctx);
         self.state.notices_ui(&ctx);
+        self.state.goto_ui(&ctx);
         self.shots_frame_end(&ctx);
         // the layout kept, every few seconds when it changed (not for the tests)
         if self.layout_checked.elapsed().as_secs_f64() > 3.0 && !self.state.settings.no_save {

@@ -1073,7 +1073,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 | 48 | — | **Barra de status e avisos** (coordenadas, valor, CRS, escala, tarefas; aviso ao terminar, atenção do sistema) | concluída (sem versão) |
 | 49 | — | **Paleta de comandos** (`Ctrl+K`: menus, ferramentas, índices, camadas, painéis) | concluída (sem versão) |
 | 50 | — | **Painel Layers**: modos de mistura, grupos, copiar/colar estilo, estilos salvos | concluída (sem versão) |
-| 51 | — | **Navegação**: ir para coordenada, vistas favoritas, minimapa, lupa | planejada |
+| 51 | — | **Navegação**: ir para coordenada, vistas favoritas, minimapa, lupa | concluída (sem versão) |
 | 52 | — | **Proveniência** de cada resultado (parâmetros, versões, entradas; rodar de novo; Copy Python da rodada) | planejada |
 | 53 | — | **Prévia** de uma ferramenta na ROI ou num recorte, antes da cena inteira | planejada |
 | 54 | — | **Projeto** (`.janus`): salvar, abrir, recentes, reabrir a última sessão | planejada |

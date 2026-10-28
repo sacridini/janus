@@ -3,7 +3,8 @@
 //! (a short task none, a long one and a failed one each one). 181: the command palette (what a query finds first,
 //! a command run from it, the recent ones first). 182: the Layers panel (a blend mode from the palette, a style
 //! copied and pasted on another series, a style saved by name and read back, layers grouped, hidden and moved
-//! together).
+//! together). 183: navigation (Go to a longitude and latitude, an EPSG x y, a UTM zone; a saved view; the minimap;
+//! the lens).
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -232,6 +233,85 @@ impl State {
                     picked.len()
                 );
                 next(st, "Layers: blend modes, styles copied, pasted and saved, groups");
+                None
+            }
+            183 => {
+                // Go to: the centre pixel's longitude and latitude typed, back to that pixel; its x y in its EPSG CRS
+                let info = self.session.as_ref()?.info.clone();
+                let centre = [info.width as f64 / 2.0 + 0.5, info.height as f64 / 2.0 + 0.5];
+                let (lon, lat) = self.status_lon_lat(info.pixel_to_geo(centre[0], centre[1])?)?;
+                let (gx, gy) = info.pixel_to_geo(centre[0], centre[1])?;
+                let mut typed = vec![format!("{lat:.8}, {lon:.8}")];
+                if let Some(code) = info.crs_authority.strip_prefix("EPSG:") {
+                    typed.push(format!("EPSG:{code} {gx} {gy}"));
+                    if let Some(zone) = code.parse::<u32>().ok().filter(|c| (32701..=32760).contains(c)) {
+                        typed.push(format!("{}S {gx} {gy}", zone - 32700));
+                    }
+                }
+                for t in &typed {
+                    let got = crate::navigation::parse_place(t).and_then(|p| self.place_pixel(p));
+                    match got {
+                        Ok(at) if (at[0] - centre[0]).abs() < 0.05 && (at[1] - centre[1]).abs() < 0.05 => {}
+                        other => return fail(&format!("Go to {t}: {other:?}, expected pixel {centre:?}")),
+                    }
+                }
+                let g = self.grid()?;
+                self.go_to_pixel([10.5, 10.5], "corner", false);
+                let c = [self.map.center[0] * g.fx, self.map.center[1] * g.fy];
+                if (c[0] - 10.5).abs() > 0.01 || (c[1] - 10.5).abs() > 0.01 || self.nav.mark.is_none() {
+                    return fail(&format!("Go to should centre the map on the place and mark it: {c:?}"));
+                }
+                // a saved view: the map moved, then back to it
+                self.view_at(centre[0], centre[1], 2.0);
+                let before = (self.map.center, self.map.scale);
+                if !self.save_view("selftest view") {
+                    return fail("the view should be saved");
+                }
+                self.view_at(5.0, 5.0, 8.0);
+                let v = self.saved_views().into_iter().find(|v| v.name == "selftest view")?;
+                if let Err(e) = self.restore_view(&v) {
+                    return fail(&format!("the saved view should come back: {e}"));
+                }
+                let (c, s) = (self.map.center, self.map.scale);
+                if (c[0] - before.0[0]).abs() > 0.05
+                    || (c[1] - before.0[1]).abs() > 0.05
+                    || (s / before.1 - 1.0).abs() > 0.01
+                {
+                    return fail(&format!("the saved view: centre {c:?} scale {s}, expected {before:?}"));
+                }
+                self.delete_view("selftest view");
+                // the minimap: in the map's corner, a click on it moves the map there
+                let was = self.settings.s.minimap;
+                self.settings.s.minimap = true;
+                let canvas =
+                    egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(self.map.canvas[0], self.map.canvas[1]));
+                if self.minimap_rect(canvas).is_none() {
+                    return fail(&format!("the minimap should fit on a map of {:?}", self.map.canvas));
+                }
+                self.minimap_go([g.ow * 0.25, g.oh * 0.75]);
+                if (self.map.center[0] - g.ow * 0.25).abs() > 1e-9 || (self.map.center[1] - g.oh * 0.75).abs() > 1e-9 {
+                    return fail("a click on the minimap should move the map there");
+                }
+                self.settings.s.minimap = was;
+                // the lens: the swipe as a circle, on and off
+                let swipe = self.swipe.is_some();
+                self.toggle_lens();
+                if !self.swipe.as_ref().is_some_and(|s| s.lens) {
+                    return fail("L should turn the lens on");
+                }
+                self.toggle_lens();
+                if self.swipe.as_ref().is_some_and(|s| s.lens) {
+                    return fail("L again should turn it off");
+                }
+                if self.swipe.is_some() != swipe {
+                    self.toggle_swipe();
+                }
+                self.map.fit();
+                println!(
+                    "    went to {} (lon {lon:.5}, lat {lat:.5}); a saved view; the minimap; the lens",
+                    typed.join(" | ")
+                );
+                next(st, "navigation: Go to, saved views, the minimap, the lens");
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

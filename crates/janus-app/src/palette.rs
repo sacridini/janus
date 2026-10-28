@@ -66,6 +66,10 @@ pub(crate) enum Cmd {
     Layer(usize),
     ZoomLayer(usize),
     Blend(janus_gpu::Blend),
+    GoTo,
+    Minimap,
+    Lens,
+    SavedView(String),
     GroupSelected,
     CopyStyle,
     PasteStyle,
@@ -189,6 +193,12 @@ impl State {
         add(Cmd::NewMapView, "View", "New map view", "Ctrl+T", series.clone());
         add(Cmd::CloseMapView, "View", "Close map view", "Ctrl+W", need(!self.views.is_empty(), "no map view is open"));
         add(Cmd::Swipe, "View", "Swipe on / off", "C", series.clone());
+        add(Cmd::Lens, "View", "Lens on / off", "L", series.clone());
+        add(Cmd::Minimap, "View", "Minimap on / off", "M", series.clone());
+        add(Cmd::GoTo, "View", "Go to coordinate...", "Ctrl+G", series.clone());
+        for v in self.saved_views() {
+            add(Cmd::SavedView(v.name.clone()), "View", &format!("Saved view: {}", v.name), "", series.clone());
+        }
         add(Cmd::Transect, "View", "Draw transect", "T", series.clone());
         add(Cmd::ClearTransect, "View", "Clear transect", "", need(self.transect.on, "there is no transect"));
         add(Cmd::RoiPolygon, "View", "Draw ROI polygon", "R", series.clone());
@@ -584,6 +594,16 @@ impl State {
                         self.set_active(i, ctx);
                     }
                     self.map.fit();
+                }
+            }
+            Cmd::GoTo => self.toggle_goto(),
+            Cmd::Minimap => self.toggle_minimap(),
+            Cmd::Lens => self.toggle_lens(),
+            Cmd::SavedView(name) => {
+                if let Some(v) = self.saved_views().into_iter().find(|v| v.name == name)
+                    && let Err(e) = self.restore_view(&v)
+                {
+                    self.notify(&format!("Saved view {name}"), &e, true);
                 }
             }
             Cmd::Blend(b) => {

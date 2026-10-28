@@ -65,7 +65,16 @@ pub struct Swipe {
     pub view: ViewSetup,
     pub x: f32,
     dragging: bool,
+    /// the lens: the comparison inside a circle that follows the cursor (its radius in points; where the
+    /// pointer was, as a share of the canvas)
+    pub lens: bool,
+    pub radius: f32,
+    at: Option<[f32; 2]>,
 }
+
+/// The lens' radius, in points: at first, the least and the most.
+const LENS_RADIUS: f32 = 110.0;
+const LENS_RADII: std::ops::RangeInclusive<f32> = 24.0..=800.0;
 
 /// The parts of a layer a view draws: the active one's live state, or another's own.
 struct LayerRef<'a> {
@@ -125,7 +134,29 @@ impl State {
         }
         let keep = self.last_swipe.take().filter(|v| self.layer_of(v.cube).is_some());
         let Some(view) = keep.or_else(|| self.new_view(SWIPE_SLOT as u32)) else { return };
-        self.swipe = Some(Swipe { view: ViewSetup { dirty: true, ..view }, x: 0.5, dragging: false });
+        self.swipe = Some(Swipe {
+            view: ViewSetup { dirty: true, ..view },
+            x: 0.5,
+            dragging: false,
+            lens: false,
+            radius: LENS_RADIUS,
+            at: None,
+        });
+    }
+
+    /// The lens (L): the swipe as a circle that follows the cursor (the swipe turned on for it), or the divider
+    /// again.
+    pub fn toggle_lens(&mut self) {
+        if self.swipe.is_none() {
+            self.toggle_swipe();
+            if let Some(sw) = self.swipe.as_mut() {
+                sw.lens = true;
+            }
+            return;
+        }
+        if let Some(sw) = self.swipe.as_mut() {
+            sw.lens = !sw.lens;
+        }
     }
 
     /// The bar of a map panel (and of the swipe): its layer (or the basemap alone), own date, own mode; and the
@@ -387,6 +418,10 @@ impl State {
                 .button("Swipe off")
                 .on_hover_text("Swipe (C): the map left of the divider, this comparison right of it")
                 .clicked();
+            ui.toggle_value(&mut sw.lens, "Lens").on_hover_text(
+                "Lens (L): the comparison inside a circle that follows the cursor, not right of a divider;\nAlt + \
+                 wheel: its size",
+            );
             if !off {
                 self.view_bar(ui, &mut sw.view);
             }
@@ -405,6 +440,32 @@ impl State {
     /// Dragging the divider (main map only); true while it has the pointer.
     pub(crate) fn swipe_input(&mut self, ui: &Ui, rect: Rect, resp: &egui::Response) -> bool {
         let Some(sw) = self.swipe.as_mut() else { return false };
+        if sw.lens {
+            // the lens follows the pointer; Alt + wheel sizes it (the map does not zoom)
+            if let Some(p) = resp.hover_pos() {
+                sw.at = Some([(p.x - rect.min.x) / rect.width(), (p.y - rect.min.y) / rect.height()]);
+                let steps: f32 = ui.input(|i| {
+                    i.raw
+                        .events
+                        .iter()
+                        .filter_map(|e| match e {
+                            egui::Event::MouseWheel { unit, delta, modifiers, .. } if modifiers.alt => {
+                                Some(match unit {
+                                    egui::MouseWheelUnit::Line => delta.y + delta.x,
+                                    _ => (delta.y + delta.x) / 50.0,
+                                })
+                            }
+                            _ => None,
+                        })
+                        .sum()
+                });
+                if steps != 0.0 {
+                    sw.radius = (sw.radius * 1.12f32.powf(steps)).clamp(*LENS_RADII.start(), *LENS_RADII.end());
+                }
+            }
+            sw.dragging = false;
+            return false;
+        }
         let x = rect.min.x + rect.width() * sw.x;
         let near = resp.hover_pos().is_some_and(|p| (p.x - x).abs() <= 6.0);
         if near || sw.dragging {
@@ -438,6 +499,11 @@ impl State {
             }
             if sw.view.dirty || self.view_changed(&sw.view) {
                 self.render_view(&mut sw.view, size, ppp, SWIPE_SLOT);
+            }
+            if sw.lens {
+                self.draw_lens(&sw, texture, painter, rect);
+                self.swipe = Some(sw);
+                return;
             }
             let x = rect.min.x + rect.width() * sw.x;
             painter.image(
@@ -483,6 +549,38 @@ impl State {
         }
         let _ = ui;
         self.swipe = Some(sw);
+    }
+}
+
+impl State {
+    /// The lens: the comparison's texture inside a circle at the pointer (the canvas' centre until the pointer
+    /// comes), its edge, what it shows above it.
+    fn draw_lens(&self, sw: &Swipe, texture: egui::TextureId, painter: &egui::Painter, rect: Rect) {
+        let [fx, fy] = sw.at.unwrap_or([0.5, 0.5]);
+        let c = Pos2::new(rect.min.x + fx * rect.width(), rect.min.y + fy * rect.height());
+        let r = sw.radius;
+        let uv = |p: Pos2| Pos2::new((p.x - rect.min.x) / rect.width(), (p.y - rect.min.y) / rect.height());
+        let mut mesh = egui::Mesh::with_texture(texture);
+        mesh.colored_vertex(c, Color32::WHITE);
+        mesh.vertices[0].uv = uv(c);
+        let n = 96u32;
+        for k in 0..=n {
+            let a = std::f32::consts::TAU * k as f32 / n as f32;
+            let p = c + vec2(a.cos(), a.sin()) * r;
+            mesh.vertices.push(egui::epaint::Vertex { pos: p, uv: uv(p), color: Color32::WHITE });
+        }
+        for k in 0..n {
+            mesh.add_triangle(0, k + 1, k + 2);
+        }
+        painter.add(egui::Shape::mesh(mesh));
+        painter.circle_stroke(c, r, Stroke::new(3.0, Color32::from_black_alpha(200)));
+        painter.circle_stroke(c, r, Stroke::new(1.0, Color32::from_white_alpha(230)));
+        let (title, _, _) = self.view_title(&sw.view);
+        let font = body_font(painter);
+        let galley = painter.layout_no_wrap(title, font, Color32::WHITE);
+        let tp = c + vec2(-galley.size().x * 0.5, -r - galley.size().y - 6.0);
+        painter.rect_filled(Rect::from_min_size(tp, galley.size()).expand(3.0), 3.0, Color32::from_black_alpha(170));
+        painter.galley_with_override_text_color(tp, galley, Color32::WHITE);
     }
 }
 

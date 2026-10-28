@@ -34,6 +34,7 @@ mod map;
 mod measure;
 mod measure_vectors;
 mod ml;
+mod navigation;
 mod open;
 mod order;
 mod palette;
@@ -130,6 +131,9 @@ Developer options:
   --layer IN          IN added as a layer (repeatable)
   --map-view          a map panel
   --swipe             the swipe
+  --lens              the swipe as a lens (a circle at the cursor)
+  --minimap           the minimap in the map's corner
+  --goto PLACE        the map centred on a place (as Go to, Ctrl+G, takes it)
   --pin X,Y           a pin at source pixel (X, Y) (repeatable)
   --view X,Y,S        the map centred on source pixel (X, Y), S screen pixels per source pixel (with
                       --screenshot: once its full-resolution tiles are drawn)
@@ -414,6 +418,9 @@ fn main() -> eframe::Result<()> {
             "--map-view" => opts.map_view = true,
             "--validation-tab" => opts.validation_tab = args.next().and_then(|v| v.parse().ok()),
             "--swipe" => opts.swipe = true,
+            "--lens" => opts.lens = true,
+            "--minimap" => opts.minimap = true,
+            "--goto" => opts.goto = args.next(),
             "--zeit" => opts.zeit_tool = args.next(),
             "--zeit-run" => opts.zeit_run = true,
             "--zeit-param" => opts.zeit_params.extend(args.next()),

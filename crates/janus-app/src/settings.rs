@@ -45,6 +45,9 @@ pub struct Settings {
     pub palette_recent: Vec<String>,
     /// saved layer styles: name, style (style.rs's text)
     pub styles: Vec<(String, String)>,
+    /// saved views (navigation.rs's text); the minimap shown
+    pub saved_views: Vec<String>,
+    pub minimap: bool,
 }
 
 impl Settings {
@@ -87,6 +90,8 @@ impl Default for Settings {
             favorites: Vec::new(),
             palette_recent: Vec::new(),
             styles: Vec::new(),
+            saved_views: Vec::new(),
+            minimap: false,
         }
     }
 }
@@ -163,6 +168,8 @@ pub fn parse(text: &str) -> (Settings, BasemapSetting) {
             ("janus", "WindowOpacity") => s.window_opacity = int().unwrap_or(100).clamp(20, 100) as f32 / 100.0,
             ("janus", "Favorite") if !v.is_empty() => s.favorites.push(v.to_string()),
             ("janus", "PaletteRecent") if !v.is_empty() => s.palette_recent.push(v.to_string()),
+            ("janus", "SavedView") if !v.is_empty() => s.saved_views.push(v.to_string()),
+            ("janus", "Minimap") => s.minimap = int() == Some(1),
             ("janus", "Style") => {
                 if let Some((name, style)) = v.split_once('\t') {
                     s.styles.push((name.to_string(), style.to_string()));
@@ -228,6 +235,10 @@ pub fn to_ini(s: &Settings, b: &crate::basemap::BasemapUi) -> String {
     for c in &s.palette_recent {
         out += &format!("PaletteRecent={c}\n");
     }
+    for v in &s.saved_views {
+        out += &format!("SavedView={v}\n");
+    }
+    out += &format!("Minimap={}\n", i32::from(s.minimap));
     for (name, style) in &s.styles {
         out += &format!("Style={name}\t{style}\n");
     }

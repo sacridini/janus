@@ -193,6 +193,8 @@ impl State {
         let (ow, oh, w, h, fx, fy) = (g.ow, g.oh, g.w, g.h, g.fx, g.fy);
         // the map goes as far as the CRS's area of use and every layer, not only the image
         let ext = self.map_extent(&g);
+        // the lens: Alt + wheel sizes it, not the map
+        let lens = main && self.swipe.as_ref().is_some_and(|s| s.lens);
         let m = &mut self.map;
         if main {
             m.canvas = [rect.width(), rect.height()];
@@ -224,7 +226,7 @@ impl State {
                     .iter()
                     .filter_map(|e| match e {
                         egui::Event::MouseWheel { unit, delta, modifiers, .. }
-                            if !modifiers.ctrl && !modifiers.command =>
+                            if !modifiers.ctrl && !modifiers.command && !(lens && modifiers.alt) =>
                         {
                             match unit {
                                 egui::MouseWheelUnit::Point if trackpad_pans => {
@@ -274,8 +276,8 @@ impl State {
                 }
             }
         }
-        // the swipe's divider takes the drag (no pan, pin or ROI)
-        if main && self.swipe_input(ui, rect, resp) {
+        // the swipe's divider takes the drag (no pan, pin or ROI), and the minimap a press or a drag on it
+        if main && (self.swipe_input(ui, rect, resp) || self.minimap_input(ui, rect, resp)) {
             return None;
         }
         let m = &mut self.map;
@@ -538,6 +540,8 @@ impl State {
         painter.image(texture, rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         self.draw_swipe(ui, &painter, rect, ppp);
         self.map_marks(&painter, rect, inside, 0);
+        self.goto_mark(&painter, rect);
+        self.draw_minimap(&painter, rect, ppp);
         let m = &self.map;
         let s = self.session.as_ref().unwrap();
 
