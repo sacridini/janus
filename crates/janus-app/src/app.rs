@@ -445,6 +445,7 @@ pub struct State {
     pub areas: crate::areas_ui::AreaUi,
     pub warp: crate::warp_ui::WarpUi,
     pub raster: crate::rasterize_ui::RasterizeUi,
+    pub zonal: crate::zonal_ui::ZonalUi,
     /// the status bar and the notices of tasks that end
     pub status: crate::status::StatusUi,
     /// the command palette (Ctrl+K)
@@ -809,6 +810,7 @@ impl JanusApp {
                 areas: Default::default(),
                 warp: Default::default(),
                 raster: Default::default(),
+                zonal: Default::default(),
                 status: Default::default(),
                 palette: Default::default(),
                 nav: Default::default(),
@@ -2151,6 +2153,7 @@ impl eframe::App for JanusApp {
         self.state.pump_areas();
         self.state.warp_window(&ctx);
         self.state.rasterize_window(&ctx);
+        self.state.zonal_window(&ctx);
         self.state.class_flows_window(&ctx);
         self.state.tasks_window(&ctx);
         self.state.provenance_window(&ctx);

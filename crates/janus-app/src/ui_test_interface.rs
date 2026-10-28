@@ -1324,16 +1324,97 @@ impl State {
                         return fail("a class per name, and the layer offered as a tool's mask");
                     }
                     self.remove_layer(k, ctx);
-                    let gpkg = st.texts.first()?.clone();
-                    if let Some(v) = self.vectors.iter().position(|v| v.data.path == gpkg) {
-                        self.remove_vector(v);
-                    }
                     self.raster.show = false;
+                    // the polygons' zonal statistics: the land cover's classes at every date
+                    let gpkg = st.texts.first()?.clone();
+                    let id = self.vectors.iter().find(|v| v.data.path == gpkg)?.id;
+                    self.open_zonal(id);
+                    let guess = self.zonal_guess();
+                    let n = self.session.as_ref()?.info.t();
+                    let z = &mut self.zonal;
+                    (z.source, z.kind, z.transitions, z.from, z.to) = (None, guess, true, 0, n - 1);
+                    (z.id_field, z.name) = ("class".into(), "Patches zonal".into());
+                    self.zonal_run(ctx);
                     next(st, "a text attribute rasterized as named classes, offered as a tool's mask");
                 }
                 None
             }
             216 => {
+                // each polygon is a patch of the date polygonized: all its pixels in one class at that date
+                if self.zonal.table.is_none() {
+                    if self
+                        .zeit
+                        .jobs
+                        .iter()
+                        .any(|j| j.tool == "zonal" && j.status.lock().unwrap().state == crate::zeit::JobState::Failed)
+                    {
+                        return fail("zonal statistics failed (Tools > Tasks > Log)");
+                    }
+                    return None;
+                }
+                let (t, meta) = self.zonal.table.clone()?;
+                let gpkg = st.texts.first()?.clone();
+                // each polygon's pixels, as polygonize wrote them
+                let pixels: std::collections::HashMap<i64, u64> = {
+                    use gdal::vector::LayerAccess;
+                    let d = gdal::Dataset::open(&gpkg).ok()?;
+                    let mut l = d.layer(0).ok()?;
+                    let i = l.defn().field_index("pixels").ok()?;
+                    l.features()
+                        .map(|f| {
+                            (f.fid().unwrap_or(0) as i64, f.field_as_integer64(i).ok().flatten().unwrap_or(0) as u64)
+                        })
+                        .collect()
+                };
+                let date = self.display.t.min(t.labels.len() - 1);
+                let mut whole = 0;
+                for (z, fid) in t.fids.iter().enumerate() {
+                    let want = *pixels.get(fid)?;
+                    let mine: Vec<_> = t.counts[date].iter().filter(|c| c.0 as usize == z).collect();
+                    if mine.len() == 1 && mine[0].2 == want && t.pixels[z] == want {
+                        whole += 1;
+                    }
+                }
+                let moved: u64 = t.transitions.iter().map(|e| e.3).sum();
+                let out = std::path::Path::new(&meta.folder);
+                // the GeoPackage written, opened as a layer when loaded
+                let opened = self.vectors.iter().find(|v| std::path::Path::new(&v.data.path).starts_with(out));
+                opened?;
+                let columns = opened.map_or(0, |v| v.data.fields.iter().filter(|f| f.starts_with("ha_")).count());
+                println!(
+                    "    Patches zonal ({:?}): {whole} of {} polygons wholly one class at {}, {moved} pixels in the transitions, {columns} ha_ columns on the GeoPackage",
+                    t.kind,
+                    t.fids.len(),
+                    t.labels[date]
+                );
+                println!("    named by their class: {:?}", t.ids);
+                if t.kind != janus_zeit::zonal::ZonalKind::Classes
+                    || t.ids.iter().any(|n| !meta.names.values().any(|c| c == n))
+                    || whole != t.fids.len()
+                    || moved != t.pixels.iter().sum::<u64>()
+                    || columns != t.values.len() * t.labels.len()
+                {
+                    return fail(
+                        "each patch one class at its date, every pixel in the transitions, a column a class and date",
+                    );
+                }
+                let out_layer = opened.map(|v| v.id);
+                for path in [
+                    Some(gpkg),
+                    out_layer.and_then(|id| self.vectors.iter().find(|v| v.id == id)).map(|v| v.data.path.clone()),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    if let Some(i) = self.vectors.iter().position(|v| v.data.path == path) {
+                        self.remove_vector(i);
+                    }
+                }
+                self.zonal.show = false;
+                next(st, "the polygons' classes over time, every patch whole at its date");
+                None
+            }
+            217 => {
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

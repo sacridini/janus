@@ -73,7 +73,7 @@ impl Default for WarpUi {
 
 impl State {
     /// A layer's grid (a series' or a run's map's).
-    fn layer_grid(&self, sel: Sel) -> Option<Grid> {
+    pub(crate) fn layer_grid(&self, sel: Sel) -> Option<Grid> {
         match sel {
             Sel::Series(id) => {
                 let i = (0..self.layers.len()).find(|&i| self.layer_session(i).is_some_and(|s| s.info.id == id))?;

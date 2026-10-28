@@ -235,7 +235,7 @@ impl AreaTable {
 const DENSE: usize = 65_536;
 
 /// The value counted for a pixel.
-fn key(v: f64, floor: bool) -> i64 {
+pub(crate) fn key(v: f64, floor: bool) -> i64 {
     if floor { v.floor() as i64 } else { v.round() as i64 }
 }
 

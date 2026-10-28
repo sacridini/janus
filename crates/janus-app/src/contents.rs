@@ -395,6 +395,7 @@ enum Act {
     Polygonize(Sel),
     Areas(u32),
     Rasterize(u32),
+    Zonal(u32),
     RemoveVector(usize),
     ExtractVector(u32),
     Interpret(u32),
@@ -538,6 +539,7 @@ impl State {
                 Act::Polygonize(sel) => self.open_polygonize(sel),
                 Act::Areas(id) => self.open_areas(Some(id)),
                 Act::Rasterize(id) => self.open_rasterize(id),
+                Act::Zonal(id) => self.open_zonal(id),
                 Act::SaveRun(k) => self.open_save_run(k),
                 Act::RemoveResult(k) => {
                     if k < self.zeit.results.len() {
@@ -902,6 +904,16 @@ impl State {
                     .clicked()
                 {
                     acts.push(Act::Rasterize(id));
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(has, egui::Button::new("Zonal statistics over time..."))
+                    .on_hover_text(
+                        "Each feature's statistics, or the area of each class, at every date of the active series",
+                    )
+                    .clicked()
+                {
+                    acts.push(Act::Zonal(id));
                     ui.close();
                 }
                 if ui.add_enabled(!v.px.is_empty(), egui::Button::new("Zoom to it")).clicked() {

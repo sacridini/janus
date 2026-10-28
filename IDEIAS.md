@@ -893,6 +893,21 @@ nova.
   `exactextract`) como opção depois.
 - **Teste/comparação:** contra `exactextract` e `rasterstats` (resultado com
   centro do pixel e tempo).
+- **Feito (2026-10-28):** `crates/janus-zeit/src/zonal.rs` (os números dos elementos
+  queimados uma vez nas faixas da fase 44 e uma contagem por MERGE_ALG=ADD: um pixel em
+  vários elementos conta em cada um, como no rasterstats e no exactextract, os elementos
+  sobre esses pixels queimados um a um na sua extensão; uma passada por data em blocos
+  de linhas nos threads de processamento; percentis lineares do numpy; área de cada
+  pixel da fase 42; transições entre duas datas; GeoPackage com as colunas de volta nos
+  polígonos), `zonal_ui.rs` (janela no menu da camada vetorial, aba Analysis > Zonal
+  que segue o elemento escolhido na tabela de atributos). `tools/bench_zonal_vs_rasterstats.py`
+  → `bench/zonal-vs-rasterstats.json`: 4096² em UTM, 8 datas, 2000 células de Voronoi e
+  100 círculos sobrepostos (327 975 pixels em mais de uma zona). Valores: Janus 1,8 s,
+  `rasterstats` 62 s, iguais à precisão simples (média 1,7e-7, p90 2,5e-6; n, mínimo,
+  máximo e desvio iguais); classes: 1,3 s contra 39 s, contagens iguais em todas as
+  zonas e datas; `exactextractr` (R, cobertura parcial dos pixels) 20 s nas
+  estatísticas e 7 s nas frações de classes, médias a 1,9e-4 (mediana) e 2,5e-3 (p99)
+  das do centro do pixel.
 
 #### Fase 46 — Montar uma série e salvar a série
 - **Montar:** File → Build series...: arquivos soltos agrupados por data (a
@@ -1114,7 +1129,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 | 42 | — | **Área de mudança e de classes por data** (área do pixel correta, barras, CSV) | concluída (sem versão): Analysis → Areas (e *Area by value...* no menu de um mapa; *Areas...* em Classes); resolução total numa tarefa, camada ou ROI; ha, km², %; CSV; área de cada pixel: constante em projeção de área igual, geodésica nas demais; `janus_zeit::areas`; contra o `terra::expanse`: 2e-9 (lon/lat), 7e-6 (UTM), 3–480× mais rápido |
 | 43 | — | **Reprojetar, reamostrar, recortar, alinhar à grade** de outra camada (`GDALWarp`, série data a data ou virtual) | concluída (sem versão): Tools → Reproject, resample, clip (um CRS, o CRS ou a grade de outra camada; tamanho do pixel, -tap; 8 reamostragens, mode para classes; camada, área visível, ROI ou polígonos de uma camada vetorial; nodata, tipo; COG, GeoTIFF ou virtual); `janus_zeit::warp`; bit a bit igual ao `gdalwarp` nos 4 casos, no mesmo tempo; 1,9–2,4× mais rápido que o `rioxarray.reproject` |
 | 44 | — | **Rasterizar vetores** na grade da série (atributo, índice, máscara) | concluída (sem versão): Rasterize on the series' grid no menu da camada vetorial (1/0, número do elemento, atributo; texto como classes com nomes e cores; centro ou *all touched*); a camada serve de máscara das ferramentas do Zeit (*Only where X is not 0*); `janus_zeit::rasterize`; igual pixel a pixel ao `gdal_rasterize` e ao rasterio; 1,1× (máscara Byte) a 33× mais rápido que o `gdal_rasterize` no mesmo tipo, 4–6× que o rasterio |
-| 45 | — | **Estatística zonal no tempo** (série por polígono, área por classe e por ano de mudança) | planejada |
+| 45 | — | **Estatística zonal no tempo** (série por polígono, área por classe e por ano de mudança) | concluída (sem versão): Zonal statistics over time no menu da camada vetorial (valores: n, média, desvio, mínimo, p10–p90, máximo; classes: área por data e transições; mapas de datas: área por ano); CSV longo e largo, GeoPackage com as colunas, aba Analysis > Zonal; `janus_zeit::zonal`; igual ao `rasterstats` (35× mais rápido) e 11× mais rápido que o `exactextractr` |
 | 46 | — | **Montar uma série** de arquivos soltos e **salvar a série** (COG multibanda, NetCDF/Zarr) | planejada |
 | 47 | — | **Sentinel-1** pelo STAC (RTC do Planetary Computer, órbita, dB, speckle) | planejada |
 | 48 | — | **Barra de status e avisos** (coordenadas, valor, CRS, escala, tarefas; aviso ao terminar, atenção do sistema) | concluída (sem versão) |

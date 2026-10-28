@@ -1,0 +1,34 @@
+{
+  "values": {
+    "zones": 2100,
+    "dates": 8,
+    "shared_pixels": 327975,
+    "janus_s": 1.8032206,
+    "rasterstats_s": 62.42359999999462,
+    "max_relative_difference_vs_rasterstats": {
+      "count": 0.0,
+      "mean": 1.6872968793285843e-07,
+      "std": 1.714461905777398e-13,
+      "min": 2.4593058184502445e-16,
+      "percentile_10": 2.443790434458748e-07,
+      "percentile_25": 5.954762879707182e-08,
+      "median": 5.959891835115063e-08,
+      "percentile_75": 5.959229810069811e-08,
+      "percentile_90": 2.4601817114888735e-06,
+      "max": 2.465045434004372e-16
+    }
+  },
+  "classes": {
+    "zones": 2100,
+    "dates": 8,
+    "janus_s": 1.3441027,
+    "rasterstats_s": 39.121401799988234,
+    "counts_differing_from_rasterstats": 0
+  },
+  "exactextractr": {
+    "values_s": 20.095033,
+    "classes_frac_s": 7.034926,
+    "mean_relative_difference_median": 0.00018782778159515123,
+    "mean_relative_difference_p99": 0.002500059940907767
+  }
+}

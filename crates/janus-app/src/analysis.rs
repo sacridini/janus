@@ -299,7 +299,7 @@ impl State {
             return;
         }
         ui.horizontal(|ui| {
-            for (k, name) in ["Seasonal", "Classes", "Scatter", "Trend test", "Areas"].iter().enumerate() {
+            for (k, name) in ["Seasonal", "Classes", "Scatter", "Trend test", "Areas", "Zonal"].iter().enumerate() {
                 ui.selectable_value(&mut self.analysis.tab, k, *name);
             }
         });
@@ -309,7 +309,8 @@ impl State {
             1 => self.class_timeline_ui(ui),
             2 => self.scatter_ui(ui),
             3 => self.trend_test_ui(ui),
-            _ => self.areas_ui(ui),
+            4 => self.areas_ui(ui),
+            _ => self.zonal_tab(ui),
         }
     }
 

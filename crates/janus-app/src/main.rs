@@ -77,6 +77,7 @@ mod vectors;
 mod views;
 mod warp_ui;
 mod zeit;
+mod zonal_ui;
 
 use std::sync::Arc;
 use std::time::Instant;
