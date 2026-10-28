@@ -512,6 +512,15 @@ Each tool window has:
   without an event are transparent. Series
   outputs (the NDFI, a screened series) are one file with a band per date,
   added as a layer over the others (the active layer stays).
+- **Preview** (under Run): the tool on the ROI, or without one on at most
+  256 x 256 px at the centre of the view, in a folder of the work folder; its
+  maps open as layers marked *preview* (the badge in the Layers panel), its
+  window dashed on the map (*Preview...* while it runs), and the next preview
+  replaces them (their folder deleted). **Auto-preview** previews again a moment
+  after a parameter changes, when a preview is estimated to take 3 s or less;
+  the window warns when the parameters changed since the preview shown. Closing
+  the tool's window removes its preview; **Run** then runs on the whole scope
+  as before.
 - **A log of every raster run**, `job.log` in the run's results folder (next to
   `job.json` and the outputs): the tool, its parameters, window and threads,
   the progress (every 10% or 5 s), each output, and how it ended (with the

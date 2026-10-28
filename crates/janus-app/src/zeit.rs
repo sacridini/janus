@@ -63,6 +63,24 @@ pub struct ToolUi {
     /// Run again: the run's own window on its series (scope 3), and what to know when it was on another series
     pub again: Option<(u64, [usize; 4])>,
     pub again_note: String,
+    /// a preview again when a parameter changes (if it takes a few seconds), and when one was asked so
+    pub auto_preview: bool,
+    pub preview_asked: Option<Instant>,
+}
+
+/// A preview's side at most, in pixels (without an ROI: at the centre of the view).
+pub const PREVIEW_SIDE: usize = 256;
+/// Auto-preview runs again only when a preview is estimated to take at most this long.
+const AUTO_PREVIEW_SECONDS: f64 = 3.0;
+
+/// The tool's run on a small window before the whole scene: its folder (in the work folder, replaced by the next
+/// preview), the series and window it ran on, its tool's parameters' version.
+pub struct Preview {
+    pub tool: String,
+    pub dir: String,
+    pub cube: u64,
+    pub window: [usize; 4],
+    pub version: u64,
 }
 
 /// The bands a multiband fit reads for its pixel (in the worker).
@@ -128,6 +146,8 @@ pub struct ZeitUi {
     pub keep_active: Option<usize>,
     /// the series a run wrote, being opened, goes hidden
     pub open_hidden: bool,
+    /// the last preview of a tool (its maps are result layers marked preview)
+    pub preview: Option<Preview>,
     /// result maps read (on threads)
     loaded: Arc<std::sync::Mutex<Vec<Result<ResultLayer, String>>>>,
     /// shown results' copies at full resolution read (path, data, width, height)
@@ -637,6 +657,10 @@ impl State {
     /// closed, its fits go.
     pub(crate) fn set_tool_open(&mut self, tool: &Tool, open: bool) {
         self.zeit.tools.entry(tool.id.clone()).or_default().open = open;
+        // closed: its preview goes with it
+        if !open && self.zeit.preview.as_ref().is_some_and(|p| p.tool == tool.id) {
+            self.drop_preview();
+        }
         if tool.modes.iter().any(|m| m == "pixel") {
             self.zeit.set_fitted(&tool.id, open);
         }
@@ -732,7 +756,11 @@ impl State {
             changed = true;
         }
         if changed {
-            self.zeit.tools.entry(tool.id.clone()).or_default().version += 1;
+            let u = self.zeit.tools.entry(tool.id.clone()).or_default();
+            u.version += 1;
+            if u.auto_preview {
+                u.preview_asked = Some(Instant::now());
+            }
         }
 
         if tool.modes.iter().any(|m| m == "pixel") {
@@ -1311,6 +1339,8 @@ pub struct ResultLayer {
     pub class_series: Vec<(Vec<f64>, Vec<f64>)>,
     /// its copy at full resolution being read (it is shown, and the first copy was reduced)
     pub upgrading: bool,
+    /// a preview's map (replaced by the next preview)
+    pub preview: bool,
 }
 
 impl ResultLayer {
@@ -1567,6 +1597,62 @@ Reading the data adds to it, mostly on spinning disks.",
             self.run_tool(tool, &ui.ctx().clone());
         }
         ui.weak("Runs in the background on every core; see Tools > Tasks.");
+        self.preview_ui(ui, tool, unavailable);
+    }
+
+    /// Preview and Auto-preview: the tool on the ROI or a small window at the centre of the view, its maps as
+    /// layers marked preview (replaced by the next one); again when a parameter changes, if that takes seconds.
+    fn preview_ui(&mut self, ui: &mut Ui, tool: &'static Tool, unavailable: bool) {
+        let Some([x0, y0, x1, y1]) = self.preview_area() else { return };
+        let (w, h) = (x1 - x0, y1 - y0);
+        let running = self.zeit.preview.as_ref().is_some_and(|p| {
+            p.tool == tool.id
+                && self
+                    .zeit
+                    .jobs
+                    .iter()
+                    .any(|j| j.output_dir == p.dir && j.status.lock().unwrap().state == JobState::Running)
+        });
+        let u = self.zeit.tools.entry(tool.id.clone()).or_default();
+        let est = match &u.est {
+            Some(Ok(e)) => Some(e.seconds(w, h)),
+            _ => None,
+        };
+        let mut preview = false;
+        ui.horizontal(|ui| {
+            let b = ui.add_enabled(!unavailable, egui::Button::new(if running { "Preview..." } else { "Preview" }));
+            preview = b
+                .on_hover_text(format!(
+                    "The tool on {} ({w} x {h} px) before the whole scene: its maps as layers marked preview,                      its window dashed on the map, replaced by the next preview",
+                    if self.series.roi_rect.is_some() { "the ROI" } else { "the centre of the view" }
+                ))
+                .clicked();
+            ui.checkbox(&mut u.auto_preview, "Auto-preview").on_hover_text(
+                "A preview again whenever a parameter changes, when one takes a few seconds or less",
+            );
+        });
+        if let Some(s) = est {
+            ui.weak(format!("Preview: {} for {w} x {h} px", format_duration(s)));
+        }
+        let stale = self.zeit.preview.as_ref().is_some_and(|p| p.tool == tool.id && p.version != u.version);
+        if stale && !running {
+            ui.colored_label(theme::warning(), "The parameters changed since the preview on the map.");
+        }
+        // a parameter changed: once they rest for a moment and the last preview ended, if it is quick
+        let quick = est.is_some_and(|s| s <= AUTO_PREVIEW_SECONDS);
+        let asked = u.preview_asked.is_some_and(|t| t.elapsed().as_secs_f64() >= 0.4);
+        if u.preview_asked.is_some() && !asked {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(450));
+        }
+        if asked && !running && !unavailable && u.auto_preview && quick {
+            u.preview_asked = None;
+            preview = true;
+        } else if asked && (!u.auto_preview || est.is_some() && !quick) {
+            u.preview_asked = None;
+        }
+        if preview && !unavailable {
+            self.run_preview(tool, &ui.ctx().clone());
+        }
     }
 
     fn output_folder_ui(&mut self, ui: &mut Ui) {
@@ -1677,14 +1763,25 @@ Reading the data adds to it, mostly on spinning disks.",
 
     /// Starts a raster run of the tool.
     pub(crate) fn run_tool(&mut self, tool: &'static Tool, ctx: &egui::Context) {
-        let (mut spec, cube, scope_name, name) = match self.job_spec(tool) {
+        self.start_run(tool, ctx, None);
+    }
+
+    /// A run of the tool on its scope, or (a preview) on `preview`'s window into its folder.
+    fn start_run(&mut self, tool: &'static Tool, ctx: &egui::Context, preview: Option<([usize; 4], &std::path::Path)>) {
+        let (mut spec, cube, mut scope_name, name) = match self.job_spec(tool) {
             Ok(s) => s,
             Err(e) => {
                 self.error_popup = Some(e);
                 return;
             }
         };
-        let out = self.results_dir().join(format!("{name}_{}_{}", tool.id, timestamp()));
+        let out = match preview {
+            Some((w, dir)) => {
+                (spec.window, scope_name) = (Some(w), "preview".into());
+                dir.to_path_buf()
+            }
+            None => self.results_dir().join(format!("{name}_{}_{}", tool.id, timestamp())),
+        };
         if let Err(e) = std::fs::create_dir_all(&out) {
             self.error_popup = Some(format!("could not create {}: {e}", out.display()));
             return;
@@ -1695,7 +1792,9 @@ Reading the data adds to it, mostly on spinning disks.",
         // the spec (what the bridge was given) and the log beside the maps
         let spec_path = out.join("job.json");
         let _ = std::fs::write(&spec_path, serde_json::to_string_pretty(&spec).unwrap_or_default());
-        self.zeit_provenance(tool, &spec, &scope_name, &name, &out);
+        if preview.is_none() {
+            self.zeit_provenance(tool, &spec, &scope_name, &name, &out);
+        }
         let log = JobLog { path: out.join("job.log"), t0: Instant::now() };
         let mut params = serde_json::to_string(&spec.params).unwrap_or_default();
         if params.len() > 4000 {
@@ -1784,7 +1883,90 @@ Reading the data adds to it, mostly on spinning disks.",
             cancel,
             loaded: false,
         });
-        self.zeit.show_tasks = true;
+        // a preview's progress is on the map
+        self.zeit.show_tasks |= preview.is_none();
+    }
+
+    /// Where a preview runs: the ROI (its bounding box), else at most PREVIEW_SIDE px a side at the centre of the
+    /// view, on the active layer's grid.
+    pub(crate) fn preview_area(&self) -> Option<[usize; 4]> {
+        let s = self.session.as_ref()?;
+        if let Some(r) = self.series.roi_rect {
+            return Some(r);
+        }
+        let (w, h) = (s.info.width, s.info.height);
+        let (cx, cy) =
+            self.map.last_view.map_or((w as f64 / 2.0, h as f64 / 2.0), |v| ((v.x0 + v.x1) / 2.0, (v.y0 + v.y1) / 2.0));
+        let side = |n: usize, c: f64| {
+            let k = n.min(PREVIEW_SIDE);
+            let a = (c - k as f64 / 2.0).round().clamp(0.0, (n - k) as f64) as usize;
+            (a, a + k)
+        };
+        let ((x0, x1), (y0, y1)) = (side(w, cx), side(h, cy));
+        Some([x0, y0, x1, y1])
+    }
+
+    /// The tool run on the preview's area (preview_area) into a folder of its own; its maps replace the last
+    /// preview's (theirs and their folder gone).
+    pub(crate) fn run_preview(&mut self, tool: &'static Tool, ctx: &egui::Context) {
+        let Some(window) = self.preview_area() else { return };
+        self.drop_preview();
+        let dir = crate::settings::app_data_dir().join("work").join("preview").join(format!(
+            "{}_{}_{}",
+            tool.id,
+            timestamp(),
+            self.frame
+        ));
+        let version = self.zeit.tools.get(&tool.id).map_or(0, |u| u.version);
+        let cube = self.session.as_ref().map_or(0, |s| s.info.id);
+        self.start_run(tool, ctx, Some((window, &dir)));
+        if self.zeit.jobs.last().is_some_and(|j| std::path::Path::new(&j.output_dir) == dir) {
+            self.zeit.preview =
+                Some(Preview { tool: tool.id.clone(), dir: dir.to_string_lossy().into_owned(), cube, window, version });
+        }
+    }
+
+    /// The last preview gone: its run cancelled if running, its maps, its task and its folder.
+    pub(crate) fn drop_preview(&mut self) {
+        let Some(p) = self.zeit.preview.take() else { return };
+        for j in self.zeit.jobs.iter().filter(|j| j.output_dir == p.dir) {
+            j.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.zeit.jobs.retain(|j| j.output_dir != p.dir);
+        self.zeit.results.retain(|r| r.run != p.dir);
+        self.map.dirty = true;
+        // a run being cancelled may still write for a moment
+        std::thread::spawn(move || {
+            for _ in 0..50 {
+                if std::fs::remove_dir_all(&p.dir).is_ok() || !std::path::Path::new(&p.dir).exists() {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        });
+    }
+
+    /// The preview's window on the map, dashed (with "Preview..." while it runs), over the series it was made on.
+    pub(crate) fn draw_preview_mark(&self, painter: &egui::Painter, at: &dyn Fn(f64, f64) -> egui::Pos2) {
+        let Some(p) = &self.zeit.preview else { return };
+        if self.session.as_ref().is_none_or(|s| s.info.id != p.cube) {
+            return;
+        }
+        let [x0, y0, x1, y1] = p.window.map(|v| v as f64);
+        let pts = [at(x0, y0), at(x1, y0), at(x1, y1), at(x0, y1), at(x0, y0)];
+        let colour = theme::accent();
+        painter.extend(egui::Shape::dashed_line(
+            &pts,
+            egui::Stroke::new(3.5, Color32::from_black_alpha(150)),
+            7.0,
+            5.0,
+        ));
+        painter.extend(egui::Shape::dashed_line(&pts, egui::Stroke::new(1.6, colour), 7.0, 5.0));
+        let running =
+            self.zeit.jobs.iter().any(|j| j.output_dir == p.dir && j.status.lock().unwrap().state == JobState::Running);
+        let label = if running { "Preview..." } else { "preview" };
+        let font = egui::FontId::proportional(12.0);
+        painter.text(pts[0] + egui::vec2(4.0, 2.0), egui::Align2::LEFT_TOP, label, font, colour);
     }
 
     /// Finished runs: their maps loaded as result layers (on a thread), their series opened as layers.
@@ -1811,6 +1993,7 @@ Reading the data adds to it, mostly on spinning disks.",
             });
             let source = grid.as_ref().map_or(String::new(), |(_, n)| n.clone());
             let grid = grid.map(|(g, _)| g);
+            let preview = self.zeit.preview.as_ref().is_some_and(|p| p.dir == j.output_dir);
             let mut first = true;
             for (output, o) in res.outputs.iter().enumerate() {
                 let path = o["path"].as_str().unwrap_or("").to_string();
@@ -1849,7 +2032,11 @@ Reading the data adds to it, mostly on spinning disks.",
                     z: 0,
                     run: j.output_dir.clone(),
                     output,
-                    name: format!("{tool_name}: {}", o["name"].as_str().unwrap_or("")),
+                    name: format!(
+                        "{}{tool_name}: {}",
+                        if preview { "Preview: " } else { "" },
+                        o["name"].as_str().unwrap_or("")
+                    ),
                     path: path.clone(),
                     unit: o["unit"].as_str().unwrap_or("").to_string(),
                     cmap: janus_gpu::colormaps::by_name(colormap).unwrap_or(janus_gpu::colormaps::VIRIDIS),
@@ -1871,6 +2058,7 @@ Reading the data adds to it, mostly on spinning disks.",
                         .unwrap_or_default(),
                     class_series,
                     upgrading: false,
+                    preview,
                 };
                 first = false;
                 let loaded = self.zeit.loaded.clone();
@@ -2461,6 +2649,7 @@ impl ResultLayer {
             classes: vec![],
             class_series: vec![],
             upgrading: false,
+            preview: false,
         }
     }
 }

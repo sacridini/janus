@@ -470,6 +470,7 @@ impl State {
                                 classes: Vec::new(),
                                 class_series: Vec::new(),
                                 upgrading: false,
+                                preview: false,
                             });
                         }
                         at.swipe = self.swipe.is_some();

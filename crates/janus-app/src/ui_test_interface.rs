@@ -8,7 +8,9 @@
 //! in the chart's place: its value at the cursor, in the status bar too, its pixels by value; removed by Delete).
 //! 185-186: provenance (a Mann-Kendall run on an ROI with alpha changed: its provenance.json, alpha named as changed,
 //! the window, the maps; Copy Python of the run and, with a Python that has Zeit, its p-values against Janus'; Run
-//! again brings the parameters and the run's window back).
+//! again brings the parameters and the run's window back). 187-190: a preview (at most 256 px a side at the centre
+//! of the view; its 7 maps marked preview over its window; the next preview replaces them and deletes their folder;
+//! Auto-preview runs again when a parameter changes; the tool's window closed removes it).
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -551,6 +553,103 @@ impl State {
                 let _ = std::fs::remove_dir_all(&dir);
                 self.map.dirty = true;
                 next(st, "provenance: the run's record, Run again, Copy Python of the run (and its maps as Janus')");
+                None
+            }
+            187 => {
+                // a preview without an ROI: at most 256 px a side at the centre of the view
+                let info = self.session.as_ref()?.info.clone();
+                let tool = janus_zeit::manifest().tool("mann_kendall")?;
+                self.set_tool_open(tool, true);
+                self.zeit.params(tool).insert("alpha".into(), 0.1.into());
+                self.run_preview(tool, ctx);
+                let p = self.zeit.preview.as_ref()?;
+                let [x0, y0, x1, y1] = p.window;
+                println!("    preview on {:?} of {} x {} px", p.window, info.width, info.height);
+                if x1 - x0 > crate::zeit::PREVIEW_SIDE
+                    || y1 - y0 > crate::zeit::PREVIEW_SIDE
+                    || x1 > info.width
+                    || y1 > info.height
+                    || x1 - x0 < info.width.min(crate::zeit::PREVIEW_SIDE)
+                {
+                    return fail("a preview without an ROI should cover at most 256 px a side of the view");
+                }
+                st.run = Some((std::path::PathBuf::from(&p.dir), 0, 0));
+                next(st, "preview started at the centre of the view");
+                None
+            }
+            188 | 189 => {
+                let (dir, _, _) = st.run.clone()?;
+                let dir = dir.to_string_lossy().into_owned();
+                let job = self.zeit.jobs.iter().find(|j| j.output_dir == dir)?;
+                let s = job.status.lock().ok()?.state;
+                if s == JobState::Failed || s == JobState::Cancelled {
+                    return fail("the preview should finish");
+                }
+                if s == JobState::Running || !job.loaded || self.zeit.loads_pending() {
+                    return None;
+                }
+                let maps: Vec<&crate::zeit::ResultLayer> = self.zeit.results.iter().filter(|r| r.run == dir).collect();
+                let w = self.zeit.preview.as_ref()?.window;
+                if maps.len() != 7
+                    || !maps
+                        .iter()
+                        .all(|r| r.preview && r.name.starts_with("Preview: ") && [r.x0, r.y0] == [w[0], w[1]])
+                {
+                    return fail("a preview's maps should be layers marked preview over its window");
+                }
+                let tool = janus_zeit::manifest().tool("mann_kendall")?;
+                if stage == 188 {
+                    // the next preview replaces it: its maps, its task and (soon) its folder gone
+                    self.zeit.params(tool).insert("alpha".into(), 0.05.into());
+                    self.run_preview(tool, ctx);
+                    if self.zeit.results.iter().any(|r| r.run == dir)
+                        || self.zeit.jobs.iter().any(|j| j.output_dir == dir)
+                    {
+                        return fail("a new preview should replace the last one's maps");
+                    }
+                    let new = self.zeit.preview.as_ref()?.dir.clone();
+                    st.run = Some((std::path::PathBuf::from(new), 0, 0));
+                    st.reveal = Some(std::path::PathBuf::from(dir));
+                    next(st, "a preview's maps marked preview over its window; a second preview replaces them");
+                    return None;
+                }
+                if st.reveal.as_ref().is_some_and(|d| d.exists()) {
+                    return None; // the first preview's folder, deleted on a thread
+                }
+                // Auto-preview: a parameter changed, a preview again once they rest
+                let u = self.zeit.tools.entry(tool.id.clone()).or_default();
+                u.auto_preview = true;
+                u.version += 1;
+                u.preview_asked = Some(Instant::now());
+                self.zeit.params(tool).insert("alpha".into(), 0.2.into());
+                st.reveal = None;
+                next(st, "the first preview's folder deleted; Auto-preview asked by a parameter changed");
+                None
+            }
+            190 => {
+                let (first, _, _) = st.run.clone()?;
+                let first = first.to_string_lossy().into_owned();
+                let tool = janus_zeit::manifest().tool("mann_kendall")?;
+                let version = self.zeit.tools.get(&tool.id)?.version;
+                let p = self.zeit.preview.as_ref()?;
+                if p.dir == first || p.version != version {
+                    return None; // the auto-preview not made yet
+                }
+                let dir = p.dir.clone();
+                let job = self.zeit.jobs.iter().find(|j| j.output_dir == dir)?;
+                if job.status.lock().ok()?.state == JobState::Running || !job.loaded || self.zeit.loads_pending() {
+                    return None;
+                }
+                if self.zeit.results.iter().filter(|r| r.run == dir && r.preview).count() != 7 {
+                    return fail("the auto-preview should give its maps");
+                }
+                // the tool's window closed: its preview goes with it
+                self.set_tool_open(tool, false);
+                self.zeit.tools.entry(tool.id.clone()).or_default().auto_preview = false;
+                if self.zeit.preview.is_some() || self.zeit.results.iter().any(|r| r.preview) {
+                    return fail("closing the tool's window should remove its preview");
+                }
+                next(st, "Auto-preview made again on a parameter changed; closing the tool's window removes it");
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

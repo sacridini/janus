@@ -1187,7 +1187,7 @@ impl State {
                     (true, false) => format!("of {}", r.source),
                     (false, false) => format!("{what}, of {}", r.source),
                 },
-                badge: String::new(),
+                badge: if r.preview { "preview".into() } else { String::new() },
                 active: false,
                 selected,
                 warn: (!r.place.note.is_empty()).then(|| r.place.note.clone()),
