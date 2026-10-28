@@ -1,0 +1,60 @@
+{
+ "median": {
+  "zeit_ms": 31961.39709999261,
+  "zeit_write_ms": 13604.547099996125,
+  "janus_ms": 3246.6675999999998,
+  "max_abs_err": 0.0,
+  "nan_agree": 1.0,
+  "dates": 72,
+  "zeit_dates": 72
+ },
+ "medoid": {
+  "zeit_ms": 1518.5934000037378,
+  "zeit_write_ms": 9953.255200001877,
+  "janus_ms": 1804.3597,
+  "max_abs_err": 0.0,
+  "nan_agree": 1.0,
+  "dates": 71,
+  "zeit_dates": 71
+ },
+ "medoid_one": {
+  "zeit_ms": 1858.4821999975247,
+  "zeit_write_ms": 11203.633700002683,
+  "janus_ms": 3156.0519,
+  "max_abs_err": 0.0,
+  "nan_agree": 1.0,
+  "dates": 72,
+  "zeit_dates": 72
+ },
+ "linear": {
+  "zeit_ms": 45654.393500008155,
+  "janus_ms": 2906.3261,
+  "max_abs_err": 2.9802322387695312e-08,
+  "nan_agree": 1.0,
+  "dates": 72,
+  "against": "xarray interpolate_na(method='linear')"
+ },
+ "whittaker": {
+  "zeit_ms": 49844.632300009835,
+  "janus_ms": 3355.5041,
+  "max_abs_err_in_gaps": 0.0,
+  "nan_agree_in_gaps": 1.0,
+  "gaps": 24640024,
+  "against": "zeit.smooth(whittaker)"
+ },
+ "clearest": {
+  "janus_ms": 1913.6062,
+  "dates": 71
+ },
+ "sits": {
+  "sits_ms": 63640.0,
+  "dates": 71,
+  "same_as_first_value": 1.0,
+  "sits": "",
+  "janus_median_ms": 717.0203,
+  "janus_dates": 71
+ },
+ "zeit": "?",
+ "xarray": "2026.9.0",
+ "pandas": "2.3.3"
+}

@@ -26,6 +26,7 @@ pub mod pixel;
 pub mod postproc;
 pub mod python;
 pub mod recovery;
+pub mod regularize;
 pub mod rng;
 mod sccd;
 mod smooth;

@@ -44,6 +44,7 @@ mod platform;
 mod project;
 mod provenance;
 mod python;
+mod regularize_ui;
 mod roi;
 mod sankey;
 mod season;

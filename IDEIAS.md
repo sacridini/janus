@@ -774,6 +774,14 @@ nova.
 - **Teste/comparação:** contra `zeit.regularize_time_series` (mediana e medoide)
   e o `sits_regularize` do R em resultado e tempo; preenchimento contra o
   `whittaker` do Zeit.
+- **Feito (2026-10-28):** `crates/janus-zeit/src/regularize.rs` (medoide portado do
+  `zeit_core::medoid`, Whittaker de `zeit_core::whittaker::smooth_into` por pixel,
+  nos threads do Janus, não em todos os núcleos), `regularize_ui.rs`;
+  `tools/bench_regularize_vs_zeit.py` → `bench/regularize-vs-zeit.json`. Série de
+  64 datas irregulares, 1024², 8 threads: mediana Zeit 32 s × Janus 3,2 s (com os
+  72 COGs gravados); o medoide do Zeit em memória (1,5 s) é mais rápido que o Janus
+  gravando (1,8 s), mas Zeit + gravar os COGs leva 11,5 s. O tempo do Janus é quase
+  todo o driver COG (2 s de 3 s).
 
 #### Fase 41 — Poligonizar mapas de mudança e de classes
 - **Por quê:** o produto que o usuário entrega: polígonos de desmatamento com
@@ -1062,7 +1070,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 | 38 | — | **U-TAE** (Garnot & Landrieu 2021): segmentação espaço-temporal de recortes, janelas deslizantes, pesos do PASTIS para ajuste fino | concluída (sem versão) |
 | 39 | — | **Calculadora de bandas e biblioteca de índices**: os 275 índices do Awesome Spectral Indices por papel da banda e expressões livres no leitor (painel Display, série inteira, Copy Python); Tools → Raster calculator com as camadas abertas por nomes curtos (série × imagem, séries casadas por data, outras grades e CRSs), regras `cond = valor`, editor que colore, completa e aponta erros, `Ctrl+Enter`, resultado em VRT ou COG | concluída (sem versão) |
 | 39b | — | **Calculadora temporal** (reduções, grupos de calendário, janelas em dias, defasagens, anomalias, eventos; tipos série/imagem/data; ao vivo e progressiva, a série da expressão no gráfico) | concluída (sem versão): reduções, `argmax`/`argmin`, recortes de calendário (`ndvi[2019-06 .. 2019-09]`, `ndvi[11 .. 2]`), `by year`/`by month`, janelas em dias (`mean(ndvi, 90d)`), defasagens (`ndvi[-1]`, `lag(ndvi, 1y)`), `anomaly(..., base=, by=month/doy)`, eventos (`first`, `last`, `longest`, `persist`); **Live** (o resultado no mapa ao digitar, a redução progressiva "max so far") e **Chart** (a série no cursor, o que as reduções reduzem, o trecho selecionado); reduções lidas por várias datas calculadas uma vez ao gravar GeoTIFFs; comparado ao xarray/pandas |
-| 40 | — | **Regularização e preenchimento de lacunas** (passo fixo, mediana/medoide, linear/Whittaker), uma pasta de COGs regulares | planejada |
+| 40 | — | **Regularização e preenchimento de lacunas** (passo fixo, mediana/medoide, linear/Whittaker), uma pasta de COGs regulares | concluída (sem versão): Tools → Regularize series (8/16 dias, mensal, anual, N dias; mediana, medoide, data mais limpa; linear ou Whittaker até uma lacuna máxima; camada inteira ou ROI); `janus_zeit::regularize`; contra o Zeit: mediana, medoide, linear e Whittaker iguais (diferença ≤ 3e-8), 4–15× mais rápido com os COGs gravados; contra o `sits_regularize`: 89× (sits 64 s, Janus 0,7 s; o sits sem banda de nuvem dá o primeiro valor do período) |
 | 41 | — | **Poligonizar** mapas de mudança e de classes (área em ha, data, magnitude, área mínima) em GeoPackage | planejada |
 | 42 | — | **Área de mudança e de classes por data** (área do pixel correta, barras, CSV) | planejada |
 | 43 | — | **Reprojetar, reamostrar, recortar, alinhar à grade** de outra camada (`GDALWarp`, série data a data ou virtual) | planejada |

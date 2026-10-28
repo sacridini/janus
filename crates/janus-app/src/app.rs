@@ -439,6 +439,8 @@ pub struct State {
     pub stac: crate::stac::StacUi,
     /// Tools > Raster calculator
     pub calc: crate::calculator::CalcUi,
+    /// Tools > Regularize series
+    pub reg: crate::regularize_ui::RegUi,
     /// the status bar and the notices of tasks that end
     pub status: crate::status::StatusUi,
     /// the command palette (Ctrl+K)
@@ -798,6 +800,7 @@ impl JanusApp {
                 emb_downloads: Vec::new(),
                 stac: Default::default(),
                 calc: Default::default(),
+                reg: Default::default(),
                 status: Default::default(),
                 palette: Default::default(),
                 nav: Default::default(),
@@ -2135,6 +2138,7 @@ impl eframe::App for JanusApp {
         self.state.ml_window(&ctx);
         self.state.stac_window(&ctx);
         self.state.calculator_window(&ctx);
+        self.state.regularize_window(&ctx);
         self.state.class_flows_window(&ctx);
         self.state.tasks_window(&ctx);
         self.state.provenance_window(&ctx);

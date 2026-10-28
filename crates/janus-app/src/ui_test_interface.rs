@@ -955,6 +955,70 @@ impl State {
                 if self.zeit.results.iter().any(|r| r.name.starts_with("Live: ")) {
                     return None;
                 }
+                // the series regularized to periods of two years, by the median
+                let r = &mut self.reg;
+                (r.step, r.days, r.composite, r.fill, r.all_bands, r.roi) = (4, 730, 0, 0, false, false);
+                r.name = "Two years".into();
+                st.texts = vec![self.layers.get(self.active)?.name.clone()];
+                self.regularize_run(ctx);
+                next(st, "the series regularized to periods of 730 days by the median");
+                None
+            }
+            203 => {
+                let k = self.layers.iter().position(|l| l.name == "Two years");
+                let Some(k) = k else {
+                    if self
+                        .emb_downloads
+                        .iter()
+                        .any(|d| d.status.lock().unwrap().state == crate::zeit::JobState::Failed)
+                    {
+                        return fail("the regularization failed (Tools > Tasks > Log)");
+                    }
+                    return None;
+                };
+                if self.opening.is_some() || !super::loaded(self.layer_session(k)) {
+                    return None;
+                }
+                let pin = self.series.pins.first()?.clone();
+                let src = self.session.as_ref()?.info.clone();
+                let reg = self.layer_session(k)?.info.clone();
+                let times: Vec<f64> = src.layers.iter().map(|l| l.time).collect();
+                let ps = janus_zeit::regularize::periods(&times, janus_zeit::regularize::Step::Days(730));
+                let mut worst = 0f32;
+                for (p, period) in ps.iter().enumerate() {
+                    let mut v: Vec<f32> =
+                        period.dates.iter().map(|&t| pin.values[t]).filter(|v| v.is_finite()).collect();
+                    v.sort_by(f32::total_cmp);
+                    let want = match v.len() {
+                        0 => f32::NAN,
+                        n if !n.is_multiple_of(2) => v[n / 2],
+                        n => (v[n / 2 - 1] + v[n / 2]) / 2.0,
+                    };
+                    let got = janus_cube::with_thread_reader(&reg, |r| r.read_pixel(p, pin.x, pin.y))?;
+                    if want.is_nan() != got.is_nan() {
+                        return fail("a period without values should have none");
+                    }
+                    if want.is_finite() {
+                        worst = worst.max((got - want).abs());
+                    }
+                }
+                println!(
+                    "    {} -> \"Two years\": {} dates ({}), the pin's medians off by {worst} at most",
+                    st.texts.first()?,
+                    reg.t(),
+                    reg.layers.iter().map(|l| l.label.as_str()).collect::<Vec<_>>().join(", ")
+                );
+                if reg.t() != ps.len() || worst > 1e-5 {
+                    return fail("each period should be the median of the pin's dates in it");
+                }
+                if self.layers[self.active].name == "Two years" {
+                    return fail("the series studied should stay active");
+                }
+                self.remove_layer(k, ctx);
+                next(st, "regularized: a date per period, each the median of its dates");
+                None
+            }
+            204 => {
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

@@ -646,6 +646,17 @@ impl State {
             self.calc.show = !self.calc.show;
             ui.close();
         }
+        if ui
+            .add(egui::Button::selectable(self.reg.show, "Regularize series..."))
+            .on_hover_text(
+                "The active series at a fixed step (8 or 16 days, monthly, yearly): a composite per period\n\
+                 (median, medoid, clearest date), the empty periods filled; a new series of COGs",
+            )
+            .clicked()
+        {
+            self.reg.show = !self.reg.show;
+            ui.close();
+        }
         if ui.add(egui::Button::selectable(self.zeit.show_tasks, "Tasks")).clicked() {
             self.zeit.show_tasks = !self.zeit.show_tasks;
             ui.close();
