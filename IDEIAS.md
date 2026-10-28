@@ -1077,7 +1077,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 | 52 | — | **Proveniência** de cada resultado (parâmetros, versões, entradas; rodar de novo; Copy Python da rodada) | concluída (sem versão) |
 | 53 | — | **Prévia** de uma ferramenta na ROI ou num recorte, antes da cena inteira | concluída (sem versão) |
 | 54 | — | **Projeto** (`.janus`): salvar, abrir, recentes, reabrir a última sessão | concluída (sem versão) |
-| 55 | — | **Desfazer global** (`Ctrl+Z`: fechar camadas, estilo, ordem, pinos, ROI) | planejada |
+| 55 | — | **Desfazer global** (`Ctrl+Z`: fechar camadas, estilo, ordem, pinos, ROI) | concluída (sem versão) |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a

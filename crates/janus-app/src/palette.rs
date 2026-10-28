@@ -25,6 +25,12 @@ pub(crate) enum Cmd {
     Export(usize),
     CloseActive,
     CloseAll,
+    NewProject,
+    OpenProject,
+    SaveProject,
+    SaveProjectAs,
+    Undo,
+    Redo,
     Settings,
     Exit,
     Fit,
@@ -184,6 +190,20 @@ impl State {
             need(geo, "a georeferenced series"),
         );
         add(Cmd::Export(5), "File", "Export animation (GIF, MP4, WebM)...", "Ctrl+Shift+A", series.clone());
+        add(Cmd::NewProject, "File", "New project", "", None);
+        add(Cmd::OpenProject, "File", "Open project...", "", None);
+        add(Cmd::SaveProject, "File", "Save project", "Ctrl+S", None);
+        add(Cmd::SaveProjectAs, "File", "Save project as...", "", None);
+        let undo = self.can_undo().map(|w| format!("Undo {w}"));
+        let redo = self.can_redo().map(|w| format!("Redo {w}"));
+        add(Cmd::Undo, "Edit", undo.as_deref().unwrap_or("Undo"), "Ctrl+Z", need(undo.is_some(), "nothing to undo"));
+        add(
+            Cmd::Redo,
+            "Edit",
+            redo.as_deref().unwrap_or("Redo"),
+            "Ctrl+Shift+Z",
+            need(redo.is_some(), "nothing to redo"),
+        );
         add(Cmd::CloseActive, "File", "Close active layer", "", series.clone());
         add(Cmd::CloseAll, "File", "Close all", "", need(!self.layers.is_empty(), "nothing is open"));
         add(Cmd::Settings, "File", "Settings...", "Ctrl+,", None);
@@ -511,6 +531,12 @@ impl State {
             Cmd::Export(kind) => self.open_export(kind),
             Cmd::CloseActive => self.remove_layer(self.active, ctx),
             Cmd::CloseAll => self.close_all(ctx),
+            Cmd::NewProject => self.new_project(ctx),
+            Cmd::OpenProject => self.open_project_dialog(ctx),
+            Cmd::SaveProject => self.save_project(),
+            Cmd::SaveProjectAs => self.save_project_as(),
+            Cmd::Undo => self.undo(ctx),
+            Cmd::Redo => self.redo(ctx),
             Cmd::Settings => self.settings.show = true,
             Cmd::Exit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             Cmd::Fit => self.map.fit(),

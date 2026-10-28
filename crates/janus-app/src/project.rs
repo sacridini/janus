@@ -140,7 +140,7 @@ impl Selection {
         }
     }
 
-    fn band_selection(&self) -> janus_cube::BandSelection {
+    pub(crate) fn band_selection(&self) -> janus_cube::BandSelection {
         use janus_cube::QaRule;
         let rule = [QaRule::Fmask, QaRule::LandsatC2, QaRule::NonZero, QaRule::Scl]
             .into_iter()
@@ -307,13 +307,37 @@ impl Project {
 }
 
 /// A style as a project keeps it: the ranges not set by hand left out (computed again from the values).
-fn kept_style(mut st: crate::style::LayerStyle) -> crate::style::LayerStyle {
+pub(crate) fn kept_style(mut st: crate::style::LayerStyle) -> crate::style::LayerStyle {
     if let crate::style::LayerStyle::Series(s) = &mut st {
         for r in s.ranges.iter_mut().filter(|r| !r.2) {
             *r = (0.0, 0.0, false);
         }
     }
     st
+}
+
+/// A run's map as a project keeps it, to be read (zeit.rs's load_result_layer) from `file` onto series `cube`.
+pub(crate) fn result_layer(
+    e: &ResultEntry,
+    file: String,
+    cube: u64,
+    info: std::sync::Arc<janus_cube::CubeInfo>,
+    base: Option<&Path>,
+) -> crate::zeit::ResultLayer {
+    let [x0, y0, x1, y1] = e.window;
+    let mut layer = crate::zeit::ResultLayer::for_test(vec![], 0, 0, e.unit.clone());
+    layer.cube = cube;
+    layer.grid = Some(info);
+    layer.source = e.source.clone();
+    layer.run = e.run.resolve(base).unwrap_or_else(|| e.run.shown().to_string());
+    layer.output = e.output;
+    layer.name = e.name.clone();
+    layer.path = file;
+    layer.cmap = janus_gpu::colormaps::by_name(&e.colormap).unwrap_or(janus_gpu::colormaps::VIRIDIS);
+    (layer.x0, layer.y0, layer.w, layer.h) = (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0));
+    (layer.lo, layer.hi, layer.visible, layer.opacity) = (e.lo, e.hi, e.visible, e.opacity);
+    layer.classes = e.classes.clone();
+    layer
 }
 
 /// A Janus project file (by its extension).
@@ -506,6 +530,7 @@ impl State {
 
     /// Every layer closed (series, vector layers, maps, groups), the pins, ROI, transect, swipe and map panels gone.
     pub(crate) fn close_everything(&mut self, ctx: &egui::Context) {
+        self.undo.clear();
         self.drop_preview();
         self.close_all(ctx);
         while !self.vectors.is_empty() {
@@ -836,19 +861,7 @@ impl State {
                     r.missing.push(format!("{}: its series is not open", e.name));
                     continue;
                 };
-                let [x0, y0, x1, y1] = e.window;
-                let mut layer = crate::zeit::ResultLayer::for_test(vec![], 0, 0, e.unit.clone());
-                layer.cube = cube;
-                layer.grid = Some(info);
-                layer.source = e.source.clone();
-                layer.run = e.run.resolve(r.base.as_deref()).unwrap_or_else(|| e.run.shown().to_string());
-                layer.output = e.output;
-                layer.name = e.name.clone();
-                layer.path = file;
-                layer.cmap = janus_gpu::colormaps::by_name(&e.colormap).unwrap_or(janus_gpu::colormaps::VIRIDIS);
-                (layer.x0, layer.y0, layer.w, layer.h) = (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0));
-                (layer.lo, layer.hi, layer.visible, layer.opacity) = (e.lo, e.hi, e.visible, e.opacity);
-                layer.classes = e.classes.clone();
+                let layer = result_layer(e, file, cube, info, r.base.as_deref());
                 r.result_files.push((k, layer.path.clone()));
                 self.load_result_layer(layer, false, ctx);
             }
@@ -863,7 +876,7 @@ impl State {
     }
 
     /// A series' state as the project had it (it has just opened: the active one).
-    fn apply_series_entry(&mut self, i: usize, e: &SeriesEntry, ctx: &egui::Context) {
+    pub(crate) fn apply_series_entry(&mut self, i: usize, e: &SeriesEntry, ctx: &egui::Context) {
         if i != self.active {
             self.set_active(i, ctx);
         }
@@ -1029,6 +1042,8 @@ impl State {
         self.project.saved = self.project_state(None).fingerprint();
         self.project.dirty = self.project.forced_dirty;
         self.project.restore = None;
+        // the history starts from the project as opened
+        self.undo.clear();
     }
 
     /// The project's window of changes not saved: Save, Discard or Cancel before a new project or another one.

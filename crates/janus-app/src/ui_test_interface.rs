@@ -820,6 +820,86 @@ impl State {
                 if self.project.restoring() || self.opening.is_some() || self.zeit.loads_pending() {
                     return None;
                 }
+                // undo: four changes, each a step (as a frame's end records it)
+                self.record_undo();
+                (self.undo.past, self.undo.future) = (vec![], vec![]);
+                let before = self.undo_text();
+                let a = self.active;
+                let o = (0..self.layers.len()).find(|&i| i != a && !self.layers[i].canvas)?;
+                let name = self.layers[o].name.clone();
+                self.layers[a].opacity = 0.25;
+                self.record_undo();
+                self.layers[o].visible = !self.layers[o].visible;
+                self.record_undo();
+                self.add_pin(20, 15);
+                self.record_undo();
+                self.remove_layer(o, ctx);
+                self.record_undo();
+                let steps: Vec<String> = self.undo.past.iter().map(|s| s.what.clone()).collect();
+                println!("    steps: {steps:?}; Edit menu: Undo {}", self.can_undo().unwrap_or("-"));
+                let want = ["Opacity of", "Show", "Pins", "Close"];
+                if steps.len() != 4 || steps.iter().zip(want).any(|(s, w)| !s.starts_with(w)) {
+                    return fail("four changes should be four steps: opacity, visibility, a pin, a layer closed");
+                }
+                if steps[3] != format!("Close {name}") || self.layers.iter().position(|l| l.name == name).is_some() {
+                    return fail("the layer should be closed");
+                }
+                st.texts = vec![before, self.undo_text(), name];
+                st.run = Some((std::path::PathBuf::new(), 0, 0));
+                next(st, "undo: four changes recorded as four steps");
+                None
+            }
+            198 | 199 => {
+                if self.undo.busy()
+                    || self.opening.is_some()
+                    || self.zeit.loads_pending()
+                    || !self.vector_loads.is_empty()
+                {
+                    return None;
+                }
+                let (dir, undone, redone) = st.run.clone()?;
+                if stage == 198 && undone < 4 {
+                    self.undo(ctx);
+                    st.run = Some((dir, undone + 1, redone));
+                    return None;
+                }
+                if stage == 199 && redone < 4 {
+                    self.redo(ctx);
+                    st.run = Some((dir, undone, redone + 1));
+                    return None;
+                }
+                let want = st.texts.get(if stage == 198 { 0 } else { 1 })?.clone();
+                let now = self.undo_text();
+                if now != want {
+                    println!("    want:\n{want}\n    now:\n{now}");
+                    return fail(if stage == 198 {
+                        "undoing every step should give the state before them back"
+                    } else {
+                        "redoing every step should give the state after them back"
+                    });
+                }
+                let name = st.texts.get(2)?.clone();
+                let open = self.layers.iter().position(|l| l.name == name).is_some();
+                if stage == 198 {
+                    println!(
+                        "    undone 4 steps: {name} open again ({} layers), Redo {}",
+                        self.layers.len(),
+                        self.can_redo().unwrap_or("-")
+                    );
+                    if !open || !self.undo.past.is_empty() || self.undo.future.len() != 4 {
+                        return fail("the layer closed should be open again, every step redoable");
+                    }
+                    next(st, "undo: four steps undone, the layer closed opened again as it was");
+                    return None;
+                }
+                println!("    redone 4 steps ({} layers)", self.layers.len());
+                if open || self.undo.past.len() != 4 {
+                    return fail("redoing should close the layer again");
+                }
+                next(st, "redo: the four steps done again");
+                None
+            }
+            200 => {
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

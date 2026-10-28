@@ -452,6 +452,8 @@ pub struct State {
     pub prov: crate::provenance::ProvenanceUi,
     /// the project's file, whether it changed, the one being opened
     pub project: crate::project::ProjectUi,
+    /// Ctrl+Z: the steps to undo and redo (undo.rs)
+    pub undo: crate::undo::UndoUi,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
     /// the Files panel
@@ -514,6 +516,8 @@ const HELP: &str = "Open (each opens as a new layer of the map): Ctrl+O (files),
 Command line: jn <folder | file.tif | pattern_*.tif | https://.../cog.tif ... | work.janus>
 Project: Ctrl+S saves it (File > New / Open / Save project as: a .janus file with the
       layers, styles, order, groups, pins, ROI and view); the last session reopens at start
+Undo: Ctrl+Z, redo: Ctrl+Shift+Z or Ctrl+Y (Edit menu: layers closed, styles, order,
+      groups, visibility, pins, ROI, transect)
 Settings: Ctrl+, (theme, font size, processing threads, memory and caches)
 Command palette: Ctrl+K or Ctrl+Shift+P (every command by name: menus, tools,
       indices, layers, panels; arrows and Enter)
@@ -810,6 +814,7 @@ impl JanusApp {
                 values: Default::default(),
                 prov: Default::default(),
                 project: crate::project::ProjectUi::starting(startup_project),
+                undo: Default::default(),
                 band_sel: None,
                 spectral_index: 0,
                 map_textures: Default::default(),
@@ -1383,6 +1388,7 @@ impl State {
         {
             self.remove_selected(ctx);
         }
+        self.undo_shortcuts(ctx);
         if ctx.egui_wants_keyboard_input() || self.session.is_none() {
             return act;
         }
@@ -1526,6 +1532,7 @@ impl State {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
+            ui.menu_button("Edit", |ui| self.edit_menu(ui));
             ui.menu_button("View", |ui| {
                 if ui
                     .add(egui::Button::new("Command palette...").shortcut_text("Ctrl+K"))
@@ -2141,6 +2148,8 @@ impl eframe::App for JanusApp {
         self.state.log_window(&ctx);
         self.state.notices_ui(&ctx);
         self.state.goto_ui(&ctx);
+        // what this frame changed, a step to undo
+        self.state.pump_undo(&ctx);
         self.shots_frame_end(&ctx);
         // the layout kept, every few seconds when it changed (not for the tests)
         if self.layout_checked.elapsed().as_secs_f64() > 3.0 && !self.state.settings.no_save {

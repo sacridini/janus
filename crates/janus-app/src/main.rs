@@ -62,6 +62,7 @@ mod trajectory;
 mod transect;
 mod trend_test;
 mod ui_test;
+mod undo;
 mod update;
 mod validation;
 mod validation_tabs;
