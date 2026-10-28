@@ -1084,6 +1084,14 @@ pub fn menu_bar_frame(style: &egui::Style) -> egui::Frame {
     egui::Frame::new().fill(bar.a(if o < 1.0 { o } else { 1.0 }).color()).inner_margin(Margin::symmetric(8, 4))
 }
 
+/// The status bar at the foot of the window: the menu bar's look, its margins a little thinner.
+pub fn status_bar_frame(style: &egui::Style) -> egui::Frame {
+    if !modern() {
+        return egui::Frame::side_top_panel(style);
+    }
+    menu_bar_frame(style).inner_margin(Margin::symmetric(8, 2))
+}
+
 /// A panel's title on its tab: semibold in the modern interface.
 pub fn tab_title(title: String) -> egui::WidgetText {
     if modern() {

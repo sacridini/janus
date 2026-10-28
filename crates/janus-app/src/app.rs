@@ -428,6 +428,8 @@ pub struct State {
     pub stac: crate::stac::StacUi,
     /// Tools > Raster calculator
     pub calc: crate::calculator::CalcUi,
+    /// the status bar and the notices of tasks that end
+    pub status: crate::status::StatusUi,
     pub chart: crate::chart::ChartOptions,
     /// File > Open URL, the variable picker, the Display panel's variables
     pub open_ui: crate::open::OpenUi,
@@ -752,6 +754,7 @@ impl JanusApp {
                 emb_downloads: Vec::new(),
                 stac: Default::default(),
                 calc: Default::default(),
+                status: Default::default(),
                 val: Default::default(),
                 ml: Default::default(),
                 contents: Default::default(),
@@ -1752,6 +1755,7 @@ impl eframe::App for JanusApp {
         s.pump_zeit_jobs(&ctx);
         s.pump_trend_test();
         s.pump_ml();
+        s.pump_notices(&ctx);
         if s.opening.is_none() && !s.pending_opens.is_empty() {
             let next = s.pending_opens.remove(0);
             s.open_inputs(next, true, &ctx);
@@ -1805,6 +1809,9 @@ impl eframe::App for JanusApp {
         egui::Panel::top("menu")
             .frame(theme::menu_bar_frame(ui.style()))
             .show(ui, |ui| act = self.state.menu(ui, perf_shown));
+        egui::Panel::bottom("status")
+            .frame(theme::status_bar_frame(ui.style()))
+            .show(ui, |ui| self.state.status_bar_ui(ui));
         if act.toggle_performance {
             // the Performance panel, off by default, as a tab next to Display
             match self.dock.find_tab(&Tab::Performance) {
@@ -2003,6 +2010,7 @@ impl eframe::App for JanusApp {
         self.state.save_run_dialog(&ctx);
         self.state.animation_dialog(&ctx);
         self.state.log_window(&ctx);
+        self.state.notices_ui(&ctx);
         self.shots_frame_end(&ctx);
         // the layout kept, every few seconds when it changed (not for the tests)
         if self.layout_checked.elapsed().as_secs_f64() > 3.0 && !self.state.settings.no_save {

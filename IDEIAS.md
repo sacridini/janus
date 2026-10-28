@@ -875,6 +875,121 @@ nova.
 - **Teste/comparação:** os valores em dB contra o `stackstac` + `numpy` no
   mesmo item; uma área de desmatamento conhecido no guia.
 
+### Interface: trabalho do dia a dia (fases 48–55, pedidas em 2026-10-28)
+
+Levantamento do que faltava na interface depois da 1.4.1. Ordem: primeiro o
+que é pequeno e independente; o projeto salvo e o desfazer por último, porque
+guardam o que as outras fases criam (grupos, mistura, vistas favoritas,
+proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
+
+| Fase | Conteúdo | Esforço | Depende de |
+|---|---|---|---|
+| 48 | Barra de status e avisos | pequeno | — |
+| 49 | Paleta de comandos | pequeno/médio | — |
+| 50 | Painel Layers: mistura, grupos, copiar estilo, estilos salvos | médio | — |
+| 51 | Navegação: ir para coordenada, vistas favoritas, minimapa, lupa | médio | — |
+| 52 | Proveniência de cada resultado | médio | — |
+| 53 | Prévia de uma ferramenta num recorte | pequeno/médio | 52 |
+| 54 | Projeto: salvar, abrir, reabrir a última sessão | grande | 50, 51, 52 |
+| 55 | Desfazer global | médio | 54 |
+
+#### Fase 48 — Barra de status e avisos
+- **Barra de status** no pé da janela, sempre à vista (a linha de status sob o
+  mapa passa para ela): à esquerda, o pixel (coluna, linha), as coordenadas no
+  CRS da camada e em lon/lat (WGS 84), o valor; no meio, o CRS (EPSG) e a
+  escala (1:N na tela e metros por pixel de tela); à direita, as tarefas em
+  andamento (Zeit, treino e aplicação de redes, downloads, exportações,
+  gravações da calculadora) com a barra da mais antiga; um clique abre Tasks.
+- **Avisos** no canto: uma tarefa que termina ("LandTrendr terminou em 2 min
+  13 s", Mostrar) ou que falha (o erro, Ver o log), somem sozinhos. Com a
+  janela em segundo plano, o pedido de atenção do sistema
+  (`ViewportCommand::RequestUserAttention`: ícone piscando na barra de
+  tarefas, o Dock no macOS), sem dependência nova.
+
+#### Fase 49 — Paleta de comandos
+- `Ctrl+K` (também `Ctrl+Shift+P`): uma caixa de busca sobre tudo o que o
+  Janus faz: os itens dos menus, as ferramentas do Zeit e das redes, os 275
+  índices (mostrados na camada ativa), os modos de exibição, os painéis, as
+  camadas abertas (torná-la ativa, aproximar), as configurações.
+- Busca aproximada (subsequência, palavras em qualquer ordem, sinônimos curtos:
+  "ndvi", "desmat" não; nomes em inglês como a interface), categoria e atalho
+  de cada comando, os usados por último primeiro; setas e Enter.
+- Os comandos chamam os mesmos métodos do `State` que os menus: nada
+  duplicado; os desabilitados aparecem com o porquê.
+
+#### Fase 50 — Painel Layers
+- Opacidade por camada e filtro por nome já existem.
+- **Modo de mistura** por camada: Normal, Multiply, Screen, Add, Darken,
+  Lighten. Na GPU, um pipeline por modo (fatores de mistura fixos; o shader
+  devolve a cor já combinada com a opacidade): sem custo por pixel a mais.
+- **Grupos**: linha de grupo com olho, dobra e menu; *Group selected*
+  (menu da linha e paleta), arrastar uma camada para dentro ou para fora, desagrupar,
+  renomear. Os membros ficam contíguos na ordem de desenho e se movem juntos.
+- **Copiar e colar estilo** (modo, colormap, faixa, por data, classes) de uma
+  camada para as selecionadas; **estilos salvos** com nome (um arquivo nas
+  configurações), aplicados pelo menu da camada ou pela paleta.
+
+#### Fase 51 — Navegação
+- **Ir para coordenada** (`Ctrl+G`; o `Ctrl+J` já abre o Exports): lat/lon decimal ou em graus, minutos e
+  segundos, x y no CRS da camada, UTM (`23S 456789 7654321`), `EPSG:n x y`;
+  uma marca temporária no ponto e, se quiser, um pino.
+- **Vistas favoritas**: a área (centro em lon/lat e largura em metros, de
+  qualquer CRS), a data e as camadas visíveis, com nome; menu View e paleta.
+- **Minimapa** num canto do mapa: a camada ativa inteira, o retângulo da vista;
+  clicar ou arrastar nele move o mapa. Desenhado num alvo pequeno da GPU só
+  quando o que mostra muda.
+- **Lupa**: a cortina (`C`) ganha a forma de um círculo que segue o cursor
+  (raio ajustável com a roda + Alt), a outra camada dentro dele.
+
+#### Fase 52 — Proveniência
+- Cada resultado (mapa de uma ferramenta do Zeit, das redes, da calculadora,
+  série que uma rodada escreveu) guarda de onde veio: ferramenta, versões do
+  Janus e do Zeit, quando, quanto tempo, a série de entrada (arquivos, banda ou
+  expressão, máscara de qualidade), a janela e o escopo, os parâmetros (os
+  diferentes do padrão destacados), os arquivos de saída. Gravado num
+  `provenance.json` ao lado do `job.json`.
+- No menu do resultado: *Provenance...* (janela), *Run again with these
+  parameters...* (a janela da ferramenta com eles e o mesmo escopo), *Copy
+  Python* (o script que refaz a rodada inteira com o Zeit e grava os mesmos
+  mapas), *Open folder*.
+
+#### Fase 53 — Prévia num recorte
+- Na janela de uma ferramenta, *Preview*: roda num recorte pequeno (a ROI, ou
+  até 256 × 256 px no centro da vista) numa pasta temporária; o resultado
+  aparece como camada marcada *preview* (contorno tracejado da janela no mapa)
+  e é trocado pela próxima prévia. *Auto-preview*: de novo quando um parâmetro
+  muda, se a estimativa da prévia for de poucos segundos. Depois, *Run* na
+  cena inteira como hoje.
+
+#### Fase 54 — Projeto
+- File → New / Open project... / Save project (`Ctrl+S`) / Save project as...
+  / Recent projects. O `Ctrl+S` passa a salvar o projeto, como em todo
+  programa (salvava o resultado de cima como GeoTIFF: fica no menu dele;
+  `Ctrl+Shift+S` continua salvando todas as saídas). Um arquivo `.janus` (JSON com versão): caminhos relativos
+  ao projeto quando possível (o absoluto como reserva); as séries na ordem
+  (entradas, seleção de banda ou expressão, nome, visível, opacidade, mistura,
+  grupo, data, modo, colormaps, faixas manuais, estação, RGB, classes), as
+  camadas vetoriais, os grupos, os resultados (e a proveniência), pinos, ROI
+  e transecto em coordenadas do mapa, a vista, os painéis de mapa e a
+  cortina/lupa, o basemap, as vistas favoritas, a camada ativa.
+- Abrir: as camadas uma a uma pelo caminho de abertura de sempre, o estado de
+  cada uma aplicado quando ela abre; o resto depois da última. Um arquivo que
+  sumiu vira um aviso, não um erro que para tudo.
+- *Reopen the last session at start* (Settings, ligado por padrão): a sessão
+  gravada ao sair (e a cada minuto) e reaberta quando o Janus abre sem
+  arquivos na linha de comando. O nome do projeto e um `*` (mudado e não
+  salvo) no título da janela.
+
+#### Fase 55 — Desfazer global
+- `Ctrl+Z` / `Ctrl+Shift+Z` (`Ctrl+Y`) e um menu Edit com *Undo <o quê>*:
+  fechar camadas (série, vetorial, resultado: reabertas no mesmo lugar, com o
+  estilo, pela restauração da fase 54), estilo e opacidade, mistura, ordem,
+  grupos, visibilidade, pinos, ROI, transecto.
+- Passos por comparação do estado leve (o do projeto, sem pixels) quadro a
+  quadro, agrupados enquanto um controle é arrastado; o fechar de camadas
+  guarda a entrada da camada antes de fechá-la. O desfazer de vértices
+  enquanto se desenha a ROI ou o transecto continua local.
+
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
@@ -955,6 +1070,14 @@ nova.
 | 45 | — | **Estatística zonal no tempo** (série por polígono, área por classe e por ano de mudança) | planejada |
 | 46 | — | **Montar uma série** de arquivos soltos e **salvar a série** (COG multibanda, NetCDF/Zarr) | planejada |
 | 47 | — | **Sentinel-1** pelo STAC (RTC do Planetary Computer, órbita, dB, speckle) | planejada |
+| 48 | — | **Barra de status e avisos** (coordenadas, valor, CRS, escala, tarefas; aviso ao terminar, atenção do sistema) | concluída (sem versão) |
+| 49 | — | **Paleta de comandos** (`Ctrl+K`: menus, ferramentas, índices, camadas, painéis) | planejada |
+| 50 | — | **Painel Layers**: modos de mistura, grupos, copiar/colar estilo, estilos salvos | planejada |
+| 51 | — | **Navegação**: ir para coordenada, vistas favoritas, minimapa, lupa | planejada |
+| 52 | — | **Proveniência** de cada resultado (parâmetros, versões, entradas; rodar de novo; Copy Python da rodada) | planejada |
+| 53 | — | **Prévia** de uma ferramenta na ROI ou num recorte, antes da cena inteira | planejada |
+| 54 | — | **Projeto** (`.janus`): salvar, abrir, recentes, reabrir a última sessão | planejada |
+| 55 | — | **Desfazer global** (`Ctrl+Z`: fechar camadas, estilo, ordem, pinos, ROI) | planejada |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a

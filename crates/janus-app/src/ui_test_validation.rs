@@ -419,8 +419,6 @@ impl State {
                 self.val.show_chips = false;
                 next(st, "report written; project closed");
                 let _ = std::fs::remove_dir_all(&st.dir);
-                println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
-                return Some(0);
             }
             _ => {}
         }

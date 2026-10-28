@@ -516,11 +516,9 @@ impl State {
             }
             self.swipe_bar(ui);
         }
-        // the canvas, above a status line
-        let status_h = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
+        // the canvas (what is under the cursor goes to the status bar at the foot of the window)
         let avail = ui.available_size();
-        let (rect, resp) =
-            ui.allocate_exact_size(vec2(avail.x.max(64.0), (avail.y - status_h).max(64.0)), Sense::click_and_drag());
+        let (rect, resp) = ui.allocate_exact_size(vec2(avail.x.max(64.0), avail.y.max(64.0)), Sense::click_and_drag());
         let painter = ui.painter_at(rect);
         if resp.hovered() {
             self.map.pointer_panel = Some(0);
@@ -642,22 +640,19 @@ impl State {
             State::shadowed(&painter, at.left_bottom() + vec2(10.0, -50.0), Align2::LEFT_TOP, &r.name);
         }
 
-        // the status line under the map: the zoom, its detail, the pixel and what the map shows there
-        let mut status = format!("zoom {:.1}%", zoom * 100.0);
-        status += &match detail_level {
+        // the status bar: the zoom, its detail, the pixel, its coordinates and what the map shows there
+        let mut zoom_text = format!("zoom {:.1}%", zoom * 100.0);
+        zoom_text += &match detail_level {
             Some(l) => format!(" (detail 1:{})", 1u32 << l),
             None => format!(" (overview 1:{:.1})", ov.factor),
         };
-        if let Some((x, y)) = inside.filter(|_| vectors_only) {
+        let mut status = String::new();
+        let mut pixel = None;
+        let geo = inside.and_then(|(x, y)| info.pixel_to_geo(x as f64 + 0.5, y as f64 + 0.5));
+        if vectors_only {
             // the canvas' pixels mean nothing: only where it is
-            if let Some((gx, gy)) = info.pixel_to_geo(x as f64 + 0.5, y as f64 + 0.5) {
-                status += &format!("  |  x {gx:.6}  y {gy:.6}");
-            }
         } else if let Some((x, y)) = inside {
-            status += &format!("  |  col {x}  row {y}");
-            if let Some((gx, gy)) = info.pixel_to_geo(x as f64 + 0.5, y as f64 + 0.5) {
-                status += &format!("  |  x {gx:.6}  y {gy:.6}");
-            }
+            pixel = Some((x, y));
             let p = (y * ov.h / info.height).min(ov.h - 1) * ov.w + (x * ov.w / info.width).min(ov.w - 1);
             let hover = self.series.hover.as_ref().filter(|h| h.x == x && h.y == y && d.t < h.values.len());
             let approx = |h: &crate::series::SeriesView| if h.exact { "" } else { "(approx.)" };
@@ -711,7 +706,7 @@ impl State {
         if let Some(v) = self.vector_status(ui.input(|i| i.modifiers.alt)) {
             status += &v;
         }
-        ui.weak(status);
+        self.status.map = crate::status::MapStatus { zoom: zoom_text, pixel, geo, value: status, frame: self.frame };
     }
 
     /// Every layer drawn into the GPU target `slot` (C++ renderMap): `size` pixels showing the main map's view on

@@ -49,6 +49,7 @@ mod shots;
 mod shots_ml;
 mod shots_validation;
 mod stac;
+mod status;
 mod theme;
 mod tour;
 mod trajectory;

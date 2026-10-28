@@ -16,6 +16,8 @@ mod animation;
 mod basemap;
 #[path = "ui_test_fullres.rs"]
 mod fullres;
+#[path = "ui_test_interface.rs"]
+mod interface;
 #[path = "ui_test_misc.rs"]
 mod misc;
 #[path = "ui_test_validation.rs"]
@@ -999,6 +1001,7 @@ impl State {
             70..=78 | 81..=89 => return self.test_misc(st, t0, ctx),
             130..=137 | 79 | 80 => return self.test_animation(st, &input, t0, ctx),
             170..=179 => return self.test_validation(st, &input, t0, ctx),
+            180..=199 => return self.test_interface(st, &input, t0, ctx),
             _ => {}
         }
         None
