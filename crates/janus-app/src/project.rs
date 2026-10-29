@@ -1004,7 +1004,7 @@ impl State {
         if let Some(sw) = &p.swipe {
             self.toggle_swipe();
             if let Some(s) = self.swipe.as_mut() {
-                (s.x, s.lens, s.radius) = (sw.x, sw.lens, sw.radius);
+                (s.x, s.lens, s.radius, s.lens_only) = (sw.x, sw.lens, sw.radius, sw.lens);
                 match sw.series.and_then(cube) {
                     Some(c) => (s.view.cube, s.view.basemap_only) = (c, false),
                     None => s.view.basemap_only = sw.series.is_none(),

@@ -193,7 +193,7 @@ impl State {
         let (ow, oh, w, h, fx, fy) = (g.ow, g.oh, g.w, g.h, g.fx, g.fy);
         // the map goes as far as the CRS's area of use and every layer, not only the image
         let ext = self.map_extent(&g);
-        // the lens: Alt + wheel sizes it, not the map
+        // the lens: Alt + wheel sizes it, Ctrl + wheel steps its date (views.rs: swipe_input), not the map's zoom
         let lens = main && self.swipe.as_ref().is_some_and(|s| s.lens);
         let m = &mut self.map;
         if main {
@@ -241,7 +241,14 @@ impl State {
                         _ => None,
                     })
                     .sum();
-                (scroll, i.zoom_delta(), pan)
+                // Ctrl + wheel zooms as a pinch does (egui's zoom_delta), but over the lens it steps the date: a
+                // pinch alone zooms then
+                let pinch = if lens {
+                    i.raw.events.iter().map(|e| if let egui::Event::Zoom(z) = e { *z } else { 1.0 }).product()
+                } else {
+                    i.zoom_delta()
+                };
+                (scroll, pinch, pan)
             });
             if pan != egui::Vec2::ZERO {
                 m.center[0] -= f64::from(pan.x) / m.scale;

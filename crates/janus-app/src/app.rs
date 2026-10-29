@@ -538,7 +538,8 @@ Command palette: Ctrl+K or Ctrl+Shift+P (every command by name: menus, tools,
 Go to: Ctrl+G (latitude and longitude, in degrees or ° ' \"; UTM: 23S 333000 7394000;
       EPSG:code x y; x y in the layer's CRS; px column row)
 Saved views: View > Saved views (the area, the date, the layers shown)
-Minimap: M; lens: L (the swipe as a circle at the cursor, Alt + wheel: its size)
+Minimap: M; lens: L (the swipe as a circle at the cursor; Ctrl + wheel: its date, Alt + wheel: its
+  size; L again: off)
 Reset layout: Ctrl+Shift+R
 Updates: Help > Check for updates (the version you use: Help > About Janus)
 
@@ -1692,7 +1693,10 @@ impl State {
                 let mut lens = self.swipe.as_ref().is_some_and(|s| s.lens);
                 if ui
                     .add_enabled(has, egui::Checkbox::new(&mut lens, "Lens (L)"))
-                    .on_hover_text("The swipe as a circle that follows the cursor; Alt + wheel: its size")
+                    .on_hover_text(
+                        "The swipe as a circle that follows the cursor; Ctrl + wheel: the date it shows; Alt + wheel: \
+                         its size",
+                    )
                     .clicked()
                 {
                     self.toggle_lens();

@@ -327,17 +327,32 @@ impl State {
                     return fail("a click on the minimap should move the map there");
                 }
                 self.settings.s.minimap = was;
-                // the lens: the swipe as a circle, on and off
+                // the lens: the swipe as a circle, on and off; the wheel steps its date
                 let swipe = self.swipe.is_some();
                 self.toggle_lens();
                 if !self.swipe.as_ref().is_some_and(|s| s.lens) {
                     return fail("L should turn the lens on");
                 }
-                self.toggle_lens();
-                if self.swipe.as_ref().is_some_and(|s| s.lens) {
-                    return fail("L again should turn it off");
+                let lens_layer = self.swipe.as_ref().and_then(|s| self.layer_of(s.view.cube))?;
+                let n = self.layer_session(lens_layer)?.info.t();
+                let dates = (self.lens_step_date(-1000), self.lens_step_date(1));
+                if dates != (Some(0), Some(1.min(n - 1))) || !self.swipe.as_ref().is_some_and(|s| s.view.own_date) {
+                    return fail(&format!("the wheel should step the lens' date: {dates:?} of {n}"));
                 }
-                if self.swipe.is_some() != swipe {
+                self.toggle_lens();
+                if self.swipe.as_ref().is_some_and(|s| s.lens) || self.swipe.is_some() != swipe {
+                    return fail("L again should turn the lens off, and leave the swipe as it was before it");
+                }
+                // a swipe on before it (C): L makes it the lens, L again the divider
+                if !swipe {
+                    self.toggle_swipe();
+                }
+                self.toggle_lens();
+                self.toggle_lens();
+                if !self.swipe.as_ref().is_some_and(|s| !s.lens) {
+                    return fail("L twice over a swipe should leave its divider");
+                }
+                if !swipe {
                     self.toggle_swipe();
                 }
                 self.map.fit();

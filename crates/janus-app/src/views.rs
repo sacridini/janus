@@ -70,6 +70,10 @@ pub struct Swipe {
     pub lens: bool,
     pub radius: f32,
     at: Option<[f32; 2]>,
+    /// the swipe turned on by the lens (L again turns it off, not into the divider)
+    pub lens_only: bool,
+    /// the wheel's part of a date not stepped yet (a fine wheel's or a touchpad's small deltas)
+    wheel: f32,
 }
 
 /// The lens' radius, in points: at first, the least and the most.
@@ -88,7 +92,7 @@ struct LayerRef<'a> {
 
 impl State {
     /// The index of the layer showing cube `id`.
-    fn layer_of(&self, cube: u64) -> Option<usize> {
+    pub(crate) fn layer_of(&self, cube: u64) -> Option<usize> {
         (0..self.layers.len()).find(|&i| self.layer_session(i).is_some_and(|s| s.info.id == cube))
     }
 
@@ -141,22 +145,54 @@ impl State {
             lens: false,
             radius: LENS_RADIUS,
             at: None,
+            lens_only: false,
+            wheel: 0.0,
         });
     }
 
-    /// The lens (L): the swipe as a circle that follows the cursor (the swipe turned on for it), or the divider
-    /// again.
+    /// The swipe off, its comparison kept for the next time (its layer, date, mode).
+    fn swipe_off(&mut self) {
+        if let Some(sw) = self.swipe.take() {
+            self.last_swipe = Some(sw.view);
+        }
+        if let Some(g) = self.gpu.as_mut() {
+            g.release_target(SWIPE_SLOT);
+        }
+        self.map_textures.remove(&SWIPE_SLOT);
+    }
+
+    /// The lens (L): the swipe as a circle that follows the cursor. Off, it goes with the swipe it turned on; a
+    /// swipe that was on before it (C) is the divider again.
     pub fn toggle_lens(&mut self) {
-        if self.swipe.is_none() {
-            self.toggle_swipe();
-            if let Some(sw) = self.swipe.as_mut() {
-                sw.lens = true;
+        match self.swipe.as_mut() {
+            None => {
+                self.toggle_swipe();
+                if let Some(sw) = self.swipe.as_mut() {
+                    (sw.lens, sw.lens_only) = (true, true);
+                }
             }
-            return;
+            Some(sw) if sw.lens && sw.lens_only => self.swipe_off(),
+            Some(sw) => sw.lens = !sw.lens,
         }
-        if let Some(sw) = self.swipe.as_mut() {
-            sw.lens = !sw.lens;
+    }
+
+    /// The lens' comparison `k` dates later (earlier if negative): its own date from then on, from the date it
+    /// showed. Returns the date shown.
+    pub(crate) fn lens_step_date(&mut self, k: i32) -> Option<usize> {
+        let sw = self.swipe.as_ref()?;
+        if sw.view.basemap_only {
+            return None;
         }
+        let i = self.layer_of(sw.view.cube)?;
+        let n = self.layer_session(i)?.info.t();
+        let disp = if i == self.active { &self.display } else { &self.layers[i].disp };
+        let from = if sw.view.own_date { sw.view.t } else { disp.t };
+        let t = (from as i64 + i64::from(k)).clamp(0, n as i64 - 1) as usize;
+        let v = &mut self.swipe.as_mut()?.view;
+        if !v.own_date || v.t != t {
+            (v.own_date, v.t, v.dirty) = (true, t, true);
+        }
+        Some(t)
     }
 
     /// The bar of a map panel (and of the swipe): its layer (or the basemap alone), own date, own mode; and the
@@ -418,10 +454,18 @@ impl State {
                 .button("Swipe off")
                 .on_hover_text("Swipe (C): the map left of the divider, this comparison right of it")
                 .clicked();
-            ui.toggle_value(&mut sw.lens, "Lens").on_hover_text(
-                "Lens (L): the comparison inside a circle that follows the cursor, not right of a divider;\nAlt + \
-                 wheel: its size",
-            );
+            if ui
+                .toggle_value(&mut sw.lens, "Lens")
+                .on_hover_text(
+                    "Lens (L): the comparison inside a circle that follows the cursor, not right of a divider;\n\
+                     Ctrl + wheel: the comparison's date; Alt + wheel: its size",
+                )
+                .clicked()
+            {
+                // a lens L turned on goes with its swipe, as L again does
+                off |= !sw.lens && sw.lens_only;
+                sw.lens_only = false;
+            }
             if !off {
                 self.view_bar(ui, &mut sw.view);
             }
@@ -441,27 +485,44 @@ impl State {
     pub(crate) fn swipe_input(&mut self, ui: &Ui, rect: Rect, resp: &egui::Response) -> bool {
         let Some(sw) = self.swipe.as_mut() else { return false };
         if sw.lens {
-            // the lens follows the pointer; Alt + wheel sizes it (the map does not zoom)
+            // the lens follows the pointer; Alt + wheel sizes it, Ctrl (Command) + wheel steps its date (up: later)
+            // instead of zooming the map (canvas_input); the wheel alone zooms
             if let Some(p) = resp.hover_pos() {
                 sw.at = Some([(p.x - rect.min.x) / rect.width(), (p.y - rect.min.y) / rect.height()]);
-                let steps: f32 = ui.input(|i| {
-                    i.raw
-                        .events
-                        .iter()
-                        .filter_map(|e| match e {
-                            egui::Event::MouseWheel { unit, delta, modifiers, .. } if modifiers.alt => {
-                                Some(match unit {
-                                    egui::MouseWheelUnit::Line => delta.y + delta.x,
-                                    _ => (delta.y + delta.x) / 50.0,
-                                })
-                            }
-                            _ => None,
-                        })
-                        .sum()
+                let (size, dates): (f32, f32) = ui.input(|i| {
+                    i.raw.events.iter().fold((0.0, 0.0), |(s, d), e| match e {
+                        egui::Event::MouseWheel { unit, delta, modifiers, .. } if modifiers.alt => (
+                            s + match unit {
+                                egui::MouseWheelUnit::Line => delta.y + delta.x,
+                                _ => (delta.y + delta.x) / 50.0,
+                            },
+                            d,
+                        ),
+                        egui::Event::MouseWheel { unit, delta, modifiers, .. }
+                            if modifiers.ctrl || modifiers.command =>
+                        {
+                            (
+                                s,
+                                d + match unit {
+                                    egui::MouseWheelUnit::Point => delta.y / 50.0,
+                                    egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page => delta.y,
+                                },
+                            )
+                        }
+                        _ => (s, d),
+                    })
                 });
-                if steps != 0.0 {
-                    sw.radius = (sw.radius * 1.12f32.powf(steps)).clamp(*LENS_RADII.start(), *LENS_RADII.end());
+                if size != 0.0 {
+                    sw.radius = (sw.radius * 1.12f32.powf(size)).clamp(*LENS_RADII.start(), *LENS_RADII.end());
                 }
+                sw.wheel += dates;
+                let k = sw.wheel.trunc();
+                sw.wheel -= k;
+                sw.dragging = false;
+                if k != 0.0 {
+                    self.lens_step_date(k as i32);
+                }
+                return false;
             }
             sw.dragging = false;
             return false;
