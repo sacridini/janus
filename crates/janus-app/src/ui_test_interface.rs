@@ -1688,6 +1688,8 @@ impl State {
                 None
             }
             224 => {
+                // the validation's folder (stages 170-179), its strata layer open until now
+                let _ = std::fs::remove_dir_all(&st.dir);
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
                 Some(0)
             }

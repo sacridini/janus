@@ -418,7 +418,9 @@ impl State {
                 st.jobs.clear();
                 self.val.show_chips = false;
                 next(st, "report written; project closed");
-                let _ = std::fs::remove_dir_all(&st.dir);
+                // the folder is kept to the end of the test (stage 224): the strata layer stays open on its file,
+                // and a project saved later (192) must find it when it opens (Windows could not delete it, Linux
+                // did)
             }
             _ => {}
         }
