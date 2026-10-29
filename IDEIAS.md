@@ -1074,7 +1074,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 - Abrir: as camadas uma a uma pelo caminho de abertura de sempre, o estado de
   cada uma aplicado quando ela abre; o resto depois da última. Um arquivo que
   sumiu vira um aviso, não um erro que para tudo.
-- *Reopen the last session at start* (Settings, ligado por padrão): a sessão
+- *Reopen the last session at start* (Settings, desligado por padrão desde a 1.6.2: o usuário liga se quiser): a sessão
   gravada ao sair (e a cada minuto) e reaberta quando o Janus abre sem
   arquivos na linha de comando. O nome do projeto e um `*` (mudado e não
   salvo) no título da janela.

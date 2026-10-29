@@ -97,7 +97,7 @@ impl Default for Settings {
             saved_views: Vec::new(),
             minimap: false,
             recent_projects: Vec::new(),
-            reopen_last: true,
+            reopen_last: false,
         }
     }
 }
@@ -177,7 +177,9 @@ pub fn parse(text: &str) -> (Settings, BasemapSetting) {
             ("janus", "SavedView") if !v.is_empty() => s.saved_views.push(v.to_string()),
             ("janus", "Minimap") => s.minimap = int() == Some(1),
             ("janus", "RecentProject") if !v.is_empty() => s.recent_projects.push(v.to_string()),
-            ("janus", "ReopenLastSession") => s.reopen_last = int() != Some(0),
+            // off unless the user turns it on (ReopenLastSession, on by default in 1.6.0-1.6.1 and written by every
+            // run, is not read)
+            ("janus", "ReopenLast") => s.reopen_last = int() == Some(1),
             ("janus", "Style") => {
                 if let Some((name, style)) = v.split_once('\t') {
                     s.styles.push((name.to_string(), style.to_string()));
@@ -250,7 +252,7 @@ pub fn to_ini(s: &Settings, b: &crate::basemap::BasemapUi) -> String {
     for p in &s.recent_projects {
         out += &format!("RecentProject={p}\n");
     }
-    out += &format!("ReopenLastSession={}\n", i32::from(s.reopen_last));
+    out += &format!("ReopenLast={}\n", i32::from(s.reopen_last));
     for (name, style) in &s.styles {
         out += &format!("Style={name}\t{style}\n");
     }
