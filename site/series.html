@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Series in and out · Janus</title>
+<meta name="description" content="A step-by-step guide to the series tools of Janus 1.6: loose files built into a series, an irregular Sentinel-2 series put on a 16-day step with its gaps filled, saved as a NetCDF and a Zarr that xarray opens, and Sentinel-1 radar in dB through a speckle filter.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Series in and out · Janus">
+<meta property="og:description" content="36 loose files become six dates of a series, 107 irregular dates of Sentinel-2 become 121 dates every 16 days, the result opens in xarray with every value equal, and a year of Sentinel-1 loses its speckle.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/series/04-regular.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Series in and out</p>
+    <p class="eyebrow">Data · build, regularize, save, radar speckle</p>
+    <h1>A series in, a series out, step by step.</h1>
+    <p class="lede">A series rarely arrives ready. A download is a folder of loose files, a band and a tile each. A cloud-masked optical series has its dates where the sky was clear, not every 16 days. A colleague wants it in Python. Radar comes grainy. This guide takes the Sentinel-2 and Sentinel-1 series of Rondônia through the four tools Janus 1.6 has for that: Build series, Regularize series, Save series as and the speckle filter.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The data</a></li>
+      <li><a href="#build">Build a series from loose files</a></li>
+      <li><a href="#regularize">Regularize: one date every 16 days</a></li>
+      <li><a href="#save">Save as COG, NetCDF or Zarr</a></li>
+      <li><a href="#xarray">Open it in xarray</a></li>
+      <li><a href="#radar">Radar: decibels and speckle</a></li>
+      <li><a href="#checked">Checked against the originals</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>Janus opens a folder of files as a series, one file a date, the date read from each name. These tools deal with what comes before and after that: files that are not yet one a date, dates that are not evenly spaced, and a series that has to leave Janus for another program.</p>
+      <dl class="terms">
+        <dt>Build series</dt><dd><span class="ui">File → Build series...</span>: loose files grouped by the date in their names, a date's bands stacked and its tiles mosaicked on one grid; a VRT or a COG per date.</dd>
+        <dt>Regularize series</dt><dd><span class="ui">Tools → Regularize series...</span>: one composite per period of a fixed step (8 or 16 days, a month, a year, any number of days), the empty periods filled or left empty; a COG per regular date.</dd>
+        <dt>Save series as</dt><dd><span class="ui">File → Save series as...</span>: the active series as a multiband COG, a NetCDF or a Zarr with a time axis, over the whole layer, the visible area or the ROI.</dd>
+        <dt>Speckle filter</dt><dd><span class="ui">Tools → Speckle filter...</span>: a radar series smoothed by Quegan's multitemporal filter or by Lee's; a COG per date.</dd>
+      </dl>
+      <p>Each runs as a task in <span class="ui">Tools → Tasks</span>, writes a folder under <code>%LOCALAPPDATA%\Janus\results</code> with its log and its <code>provenance.json</code>, and opens what it made as a new layer.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The data</h2>
+      <p>The series of the <a href="stac.html">STAC guide</a>: Planetary Computer's Sentinel-2 L2A over a square of central Rondônia, Brazil, 8.8 km a side, the 107 dates from June 2019 to September 2024 whose scenes had 5% of clouds at most, downloaded as GeoTIFFs (blue, green, red, NIR, the two SWIR and the scene classification, SCL), 877 × 886 cells of 10 m. It opens on the NDVI with the clouds masked by SCL.</p>
+      <p>Two pins follow the guide, those of the STAC guide: pin 1 (195, 837) in a forest in the south-west, its NDVI 0.80 on average over its 101 clear dates and lowest, 0.25, on the last date, 2024-09-11; pin 2 (179, 761) in a pasture, 0.40 on average and down every dry season, 0.13 at its lowest on the same date.</p>
+      <p>For section 03, 36 loose files were cut from six dates of that series, as a download would give them (section 03 says how). For section 07, the STAC guide's Sentinel-1 year: 24 dates of 2024 over the same square, VV and VH as linear gamma0, kept as one GeoTIFF a date.</p>
+    </section>
+
+    <section id="build">
+      <h2><span class="n">03</span>Build a series from loose files</h2>
+      <p>A Sentinel-2 product comes as one file per band, its 10 m bands apart from its 20 m ones, and an area often needs two tiles. The loose files here: six dates of the 2024 dry season, two tiles (<code>T20LMP</code>, the west 5.2 km of the square, and <code>T20LNP</code>, the east 5.2 km, overlapping by 1.6 km), and three bands named as in an L2A product: red and NIR at 10 m, the scene classification at 20 m:</p>
+      <div class="code-wrap">
+<div class="code-bar">loose\ (36 files)</div>
+<pre class="code"><code>T20LMP_20240608T142721_B04_10m.tif
+T20LMP_20240608T142721_B08_10m.tif
+T20LMP_20240608T142721_SCL_20m.tif
+T20LNP_20240608T142721_B04_10m.tif
+<span class="c">... the same for 2024-06-28, 07-18, 08-02, 08-27 and 09-06</span></code></pre>
+      </div>
+      <p><span class="ui">File → Build series...</span>, then <span class="ui">Pick a folder...</span> (or <span class="ui">Pick files...</span>). Janus reads every file's name and georeference and shows a plan before it writes anything:</p>
+      <figure class="fig">
+        <a href="assets/img/series/01-build.jpg"><img src="assets/img/series/01-build.jpg" alt="The Build series window over Janus: the line Loose files grouped by the date in their names, the buttons Pick files... and Pick a folder...; the plan: 6 dates, 3 band(s) a date, up to 2 tiles mosaicked: 877 x 886 px of 10 m; Bands: B04, B08, SCL (a file each); a row per date from 2024-06-08 to 2024-09-06, each listing T20LMP_..._B04_10m.tif (+1 tiles), T20LMP_..._B08_10m.tif (+1 tiles) and T20LMP_..._SCL_20m.tif (+1 tiles); As: VRTs (at once, nothing copied) ticked, or COGs; Name: loose; Build. Behind it the Sentinel-2 series as NDVI with its two pins and their chart." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The plan</b>: 36 files read as 6 dates of 3 bands, each band the mosaic of two tiles, on a grid of 877 × 886 cells of 10 m.</figcaption>
+      </figure>
+      <dl class="terms">
+        <dt>Dates</dt><dd>From each name, as when a folder is opened (<code>YYYYMMDD</code>, <code>YYYY-MM-DD</code>, <code>YYYY_MM</code>, a year, MODIS's <code>A2001001</code>...). A file without one is left out.</dd>
+        <dt>Bands and tiles</dt><dd>The rest of a name, without its runs of six digits or more (the date, the time <code>142721</code>), tells files apart. Within a date, files of the same extent are one tile, and that tile's files, in natural order, are the bands; files of another extent are other tiles of the same bands, mosaicked. Files of several bands each keep their bands, their tiles mosaicked.</dd>
+        <dt>Band names</dt><dd>What the names do not share, cut at a separator: <code>B04_10m</code>, <code>B08_10m</code>, <code>SCL_20m</code>; then a resolution suffix (<code>_10m</code>, <code>_20m</code>) is dropped when the names stay distinct without it: <code>B04</code>, <code>B08</code>, <code>SCL</code>. Sentinel-2's band names (<code>B04</code>, <code>B08</code>...) get their wavelengths, so the indices find red and NIR. Files of one band a date keep what their names share (<code>lc_2000.tif</code>, <code>lc_2001.tif</code>: <code>lc</code>).</dd>
+        <dt>Checks</dt><dd>Every file needs a georeference, an unrotated grid and the first file's CRS (a file in another is left out, with the advice to reproject it first). A date whose tiles do not have the same number of files is left out, and so are dates of another kind than most (another number of bands). What is left out is listed under the dates, with why.</dd>
+        <dt>Grid</dt><dd>The union of the files' extents at the finest cell: the 20 m scene classification is read on the 10 m grid.</dd>
+      </dl>
+      <p><span class="ui">As</span> chooses what is written in <code>results\series\&lt;name&gt;_&lt;time&gt;</code>:</p>
+      <dl class="terms">
+        <dt>VRTs</dt><dd>One per date, <code>loose_20240608.vrt</code>..., made with GDAL's own <code>gdalbuildvrt</code> code: a mosaic per band on the grid (<code>-te</code>, <code>-tr</code>), then the bands put together (<code>-separate</code>) with their names. Nothing is copied; the six took 0.1 s.</dd>
+        <dt>COGs</dt><dd>The same dates read once into cloud-optimized GeoTIFFs, for a series that no longer depends on the loose files.</dd>
+      </dl>
+      <figure class="fig">
+        <a href="assets/img/series/02-built.jpg"><img src="assets/img/series/02-built.jpg" alt="The built series opened as a layer: loose, 6 dates from 2024-06-08 to 2024-09-06, 877 x 886 px, UInt16, UTM zone 20S; opened as NDVI with SCL as its quality band (6 files (ND(B08 (832.8 nm), B04 (664.6 nm)), QA SCL of each)), the Display panel's Bands on NDVI, B08 (832.8 nm) normalized with B04 (664.6 nm); the map of 2024-09-06 from 0.17 to 0.88, the dry pastures dark, the forest blue-green, no seam between the two tiles; the chart of the six dates: pin 1 in red from 0.84 on 2024-06-08 down to 0.50 on 2024-09-06, pin 2 in blue from 0.43 down to about 0.21." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The six dates as a series</b>: opened on the NDVI, the SCL masking clouds; the forest of pin 1 (red) at 0.84 in June and 0.50 on September 6, the pasture of pin 2 (blue) from 0.43 to 0.21.</figcaption>
+      </figure>
+      <div class="note">
+        <p class="h">Bands named by their files</p>
+        <p>The bands take their names from the files. Here they are Sentinel-2's own, <code>B04</code> and <code>B08</code>, which Janus knows with their wavelengths (664.6 and 832.8 nm), so the built series opened on the NDVI with the <code>SCL</code> as its quality band, like the downloaded one. Bands whose names Janus does not know (no wavelength, no word such as <code>red</code> or <code>nir</code>) open on the first band: an expression reads them by name, <code>(B08 - B04) / (B08 + B04)</code> in the Display panel (or <code>--expr</code>), and the <span class="ui">Quality band</span> list takes the cloud mask.</p>
+      </div>
+    </section>
+
+    <section id="regularize">
+      <h2><span class="n">04</span>Regularize: one date every 16 days</h2>
+      <p>The 107 dates of the Sentinel-2 series are where the sky was clear: a dozen or more in each dry season, few from October to May. Many tools want a fixed step: BFAST and BEAST read the season from it, the phenology fits a curve per year, a neural network wants the same number of dates everywhere. <span class="ui">Tools → Regularize series...</span> cuts the time into periods and gives each one value:</p>
+      <figure class="fig">
+        <a href="assets/img/series/03-regularize.jpg"><img src="assets/img/series/03-regularize.jpg" alt="The Regularize series window over the Sentinel-2 series: s2ro: 107 dates, 2019-06-05 to 2024-09-11; Step 16 days; A period gives Median; Bands: as shown (ND(NIR (B08), Red (B04)), QA SCL) ticked, or all 7; Empty periods Whittaker with lambda 10.0; Longest gap 0 days; Area the whole layer (the ROI greyed); Name s2ro regular; the line 121 periods of 16 days, 66 without a date: one COG each, in a folder that opens as a series; Run. Behind it the NDVI map with pins 1 and 2 in the south-west and the chart of their five years." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>16 days, the median, gaps from a Whittaker curve</b>: 121 periods, 66 of them without a clear date.</figcaption>
+      </figure>
+      <dl class="terms">
+        <dt>Step</dt><dd>8 days, 16 days, monthly, yearly or any number of days. The periods run as pandas' <code>resample</code> does: every N days from the first date's day, or calendar months or years, the empty ones included. Here 16 days give 121 periods (66 without a date), monthly 64 (27 without a date), yearly 6.</dd>
+        <dt>A period gives</dt><dd><em>Median</em>: each band's median of the period's values. <em>Medoid</em>: the observation nearest the bands' medians, so a composite's bands all come from one date (Zeit's <code>regularize_time_series</code> method). <em>Clearest date</em>: the value of the period's date with the most clear pixels, or of the next clearest where that one has none.</dd>
+        <dt>Bands</dt><dd>The quantity shown (a band, an index or an expression) with its quality mask applied, or every band of the series, masked.</dd>
+        <dt>Empty periods</dt><dd><em>None</em> leaves them empty. <em>Linear</em> fills them in time between the values around; <em>Whittaker</em> from a Whittaker curve of smoothing λ through the values (the values themselves are kept, and the ends are not extended). <span class="ui">Longest gap</span>: a gap is filled only when the values around it are at most that many days apart; 0 fills any.</dd>
+        <dt>Area</dt><dd>The whole layer or the ROI.</dd>
+      </dl>
+      <p><span class="ui">Run</span> writes a COG per regular date, <code>s2ro_regular_20190605.tif</code> to <code>s2ro_regular_20240906.tif</code>, in <code>results\regularize</code>, and opens the folder as a series. The whole square, 16 days, the median and Whittaker's λ = 10, took 7.5 s on two processing threads for the 121 dates.</p>
+      <figure class="fig">
+        <a href="assets/img/series/04-regular.jpg"><img src="assets/img/series/04-regular.jpg" alt="The regular series active, the original below it in the Layers panel: s2ro_regular, 121 dates from 2019-06-05 to 2024-09-06, Float32; the map of its first date; the chart on All visible layers draws each pin on both series: pin 1 (red) around 0.8 every year, pin 2 (blue) high in the wet months and low every dry season, the regular series' wet-season gaps bridged by smooth curves where the original jumps straight from one dry season to the next; the Statistics of the regular series: pin 1 121 values, mean 0.83261, minimum 0.37512 on 2024-09-06; pin 2 mean 0.50555, minimum 0.17071 on 2024-09-06." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>Every 16 days</b>: the regular series and the original on the chart (<span class="ui">All visible layers</span>); where the original has no date from October to May, the regular one follows the Whittaker curve.</figcaption>
+      </figure>
+      <p>The last period, from September 6, holds two dates, so its median for pin 1 is that of 0.50 and 0.25: 0.38, the forest's lowest value in the regular series. A median per period smooths single dates away; the medoid keeps one real observation per period, with all its bands.</p>
+      <div class="note warn">
+        <p class="h">A filled gap is not an observation</p>
+        <p>With <span class="ui">Longest gap</span> at 0, the seven months of each wet season are filled from the curve: right for a tool that needs a value at every step, wrong to read as what the ground did then. Set it (60 days, say) to fill the short gaps only and leave the long ones empty.</p>
+      </div>
+    </section>
+
+    <section id="save">
+      <h2><span class="n">05</span>Save as COG, NetCDF or Zarr</h2>
+      <p>A series in Janus is a folder of files, one a date. <span class="ui">File → Save series as...</span> writes the active series as one file with its dates in it, for a program that reads data cubes:</p>
+      <figure class="fig">
+        <a href="assets/img/series/05-save.jpg"><img src="assets/img/series/05-save.jpg" alt="The Save series as window over the Sentinel-2 series: s2ro: 107 dates; Format: COG: a band per date (its date in the band's name), NetCDF (CF), with a time axis (ticked), Zarr, with a time axis; Values: ND(NIR (B08), Red (B04)), QA SCL (as shown, its mask applied), or every band (7), a variable each (ticked); Area: whole layer, visible area, ROI (ticked); the note Reprojected or clipped by polygons: Tools > Reproject, resample, clip first; Don't open it when saved; Save as.... Behind it the map with a yellow ROI rectangle in the south-west around the two pins, and the chart with the ROI's mean and its p10 to p90 band." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>Saving the ROI</b>: every band of the 107 dates as a NetCDF, a variable per band.</figcaption>
+      </figure>
+      <dl class="terms">
+        <dt>COG</dt><dd>One multiband cloud-optimized GeoTIFF, a band per date with the date in the band's description, so it opens back in Janus as a series. One quantity only.</dd>
+        <dt>NetCDF</dt><dd>NetCDF 4 written through GDAL's multidimensional API, following the CF conventions: dimensions <code>time</code>, <code>y</code>, <code>x</code> with their coordinates (<code>lat</code> and <code>lon</code> in degrees for a series in geographic coordinates), time in days since 1970-01-01, the CRS as a grid mapping (here <code>transverse_mercator</code>). Float32 with NaN for no data, in chunks of 1 × 512 × 512, compressed with deflate.</dd>
+        <dt>Zarr</dt><dd>A Zarr v2 store with the same axes and chunks, compressed with Blosc LZ4 and byte shuffling, as xarray writes it.</dd>
+        <dt>Values</dt><dd>The quantity shown (a band, an index, an expression), its quality mask applied; or, for NetCDF and Zarr, every band, a variable each, named after the bands (<code>Red__B04___665_0_nm</code>).</dd>
+        <dt>Area</dt><dd>The whole layer, the visible area or the ROI. To reproject it or clip it by polygons, <span class="ui">Tools → Reproject, resample, clip</span> first.</dd>
+      </dl>
+      <p>The regular NDVI of section 04 (121 dates of 877 × 886) took 6.4 s as a NetCDF and 1.8 s as a Zarr, on two threads; the ROI of the figure, 350 × 236 cells, every band of the 107 dates, 3.4 s as a NetCDF. What is saved opens back as a layer unless <span class="ui">Don't open it when saved</span> is ticked.</p>
+    </section>
+
+    <section id="xarray">
+      <h2><span class="n">06</span>Open it in xarray</h2>
+      <p>The NetCDF and the Zarr are what xarray expects: a data variable over <code>time</code>, <code>y</code> and <code>x</code>, the dates as datetimes. The regular NDVI, opened and read at pin 1:</p>
+      <div class="code-wrap">
+<div class="code-bar">Python</div>
+<pre class="code"><code>import xarray as xr
+
+ds = xr.open_dataset("s2ro_ndvi_16d.nc")      <span class="c"># or xr.open_zarr("s2ro_ndvi_16d.zarr")</span>
+ndvi = ds["value"]
+print(dict(ndvi.sizes), ndvi.attrs["grid_mapping"])
+pin1 = ndvi.isel(x=195, y=837)                <span class="c"># pin 1: the forest of the south-west</span>
+print(pin1.sel(time=slice("2024-05", "2024-09")).round(2).to_series())
+print(pin1.groupby("time.year").min().round(2).to_series())</code></pre>
+      </div>
+      <div class="code-wrap">
+<div class="code-bar">Output (xarray 2025.12.0)</div>
+<pre class="code"><code>{'time': 121, 'y': 886, 'x': 877} transverse_mercator
+time
+2024-05-01    0.88
+2024-05-17    0.86
+2024-06-02    0.84
+2024-06-18    0.82
+2024-07-04    0.81
+2024-07-20    0.84
+2024-08-05    0.70
+2024-08-21    0.70
+2024-09-06    0.38
+Name: value, dtype: float32
+year
+2019    0.78
+2020    0.77
+2021    0.76
+2022    0.56
+2023    0.78
+2024    0.38
+Name: value, dtype: float32</code></pre>
+      </div>
+      <p>The variable is <code>value</code> because the regular series' band has no name of its own; the ROI's file of section 05 has a variable per band. <code>open_zarr</code> gives the same array, read lazily by dask in its 1 × 512 × 512 chunks. Read whole, both files hold every value and date of the 121 COGs Janus wrote in section 04: the largest difference is 0, and no pixel has a value in one and not in the other.</p>
+    </section>
+
+    <section id="radar">
+      <h2><span class="n">07</span>Radar: decibels and speckle</h2>
+      <p>Sentinel-1's backscatter comes as linear powers, 0.01 to 0.3 over land, which are hard to look at: a series of Sentinel-1 RTC from the STAC window opens in decibels, the VVdB index (<code>10 * log10(VV)</code>). Any radar series does with an index of the Display panel (VVdB, VHdB, VHVVdB) or <code>--expr VHdB</code>. The figures here show VH, where pasture and forest differ most.</p>
+      <p>The values are grainy: each cell sums the echoes of many scatterers that add up or cancel at random. This speckle is averaged away over neighbouring cells, or over dates. <span class="ui">Tools → Speckle filter...</span>:</p>
+      <figure class="fig">
+        <a href="assets/img/series/06-speckle.jpg"><img src="assets/img/series/06-speckle.jpg" alt="The Speckle filter window over the Sentinel-1 series shown as VHdB (10.0 * log10(VH)) at 2024-09-12: linear: 24 dates of 2 band(s) (VV, VH); Filter Quegan (multitemporal); Window 7 x 7 pixels; Area the whole layer; Name linear filtered; the line Every band of every date, on the linear values (not dB): a COG per date, in a folder that opens as a series shown as this one is; Run. The map grainy from -21 to -9.2 dB, the dry pastures dark purple, the forest green; the chart: pin 1 (red) between about -8 and -17 dB, pin 2 (blue) falling to about -24 dB in September; the Statistics: standard deviation 2.375 dB for pin 1 and 3.3202 for pin 2." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The speckle filter</b> on 24 dates of VV and VH, the series shown as VH in dB.</figcaption>
+      </figure>
+      <dl class="terms">
+        <dt>Quegan (multitemporal)</dt><dd>Each date's window mean, times the mean over the dates with a value of each date's value divided by its own window mean (Quegan &amp; Yu 2001). The speckle is averaged through time, so each date keeps its own changes and the cells keep more detail than the window alone would leave. Needs two dates or more.</dd>
+        <dt>Lee (spatial)</dt><dd>Each date alone: the window's mean plus the cell's departure from it, weighted by how much more the window varies than speckle of L looks would (Lee 1980). <span class="ui">Looks</span> is 4.4 for Sentinel-1's IW GRD scenes; fewer smooths less.</dd>
+        <dt>Window</dt><dd>3 × 3 to 15 × 15 cells, cut by the series' edges and counting only the cells with a value.</dd>
+        <dt>Values</dt><dd>Every band of every date, on the linear values whatever the layer shows (an average of decibels is not the decibels of the average). The result, a COG per date in <code>results\speckle</code>, opens shown as the series filtered was: in dB.</dd>
+      </dl>
+      <p>Quegan's filter, 7 × 7, on the 24 dates of both bands took 2.7 s on two threads.</p>
+      <figure class="fig">
+        <a href="assets/img/series/07-speckle-swipe.jpg"><img src="assets/img/series/07-speckle-swipe.jpg" alt="The swipe at 2024-09-12, zoomed to 160% on the south-west of the square: left of the divider the series filtered by Quegan's 7 x 7 filter, right of it the unfiltered series (the lens layer linear, same date), both as VH in dB from -19.9 to -10.2; on the left the fields, the dark pastures and the forest edges are smooth, on the right the same shapes are grainy. Below, the chart and Statistics of the filtered series: pin 1 (red) between -9.2 and -13 dB, standard deviation 1.0301; pin 2 (blue) down to -19.8 dB on 2024-08-07, standard deviation 1.9229." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>Filtered and not</b>: VH on 2024-09-12, Quegan's filter on the left, the series as read on the right (<span class="ui">Swipe</span>, its date the same).</figcaption>
+      </figure>
+      <p>Over the year, the forest of pin 1 varies by 2.38 dB (the standard deviation of its 24 dates of VH) as read, 1.03 dB after Quegan's filter and 1.16 dB after Lee's; the pasture of pin 2 by 3.32, 1.92 and 2.70 dB. The pasture's own change stays: about −15 dB in the first half of the year, −19 to −20 dB through August and September as the grass dries, back near −13 dB in October. Unfiltered, a single date dipped to −24.1 dB.</p>
+      <div class="note">
+        <p class="h">Which filter</p>
+        <p>Quegan's averages through time, so it wants a series of one orbit pass (the STAC window keeps one): dates seen from another side would be averaged with the others. Here it left the forest's pin less varied than Lee's did. Lee's needs no other dates, for a single scene or a short series, and keeps edges.</p>
+      </div>
+    </section>
+
+    <section id="checked">
+      <h2><span class="n">08</span>Checked against the originals</h2>
+      <p>Each tool was run against what it stands in for, on the same data, comparing the values and the time (<code>tools/bench_series_io.py</code>, <code>tools/bench_regularize_vs_zeit.py</code>, <code>tools/bench_s1_vs_stackstac.py</code>; the numbers in <code>bench/series-io.json</code>, <code>bench/regularize-vs-zeit.json</code> and <code>bench/s1-vs-stackstac.json</code>). They ran on a 20-thread laptop, Janus on 8 threads; the times of this guide's runs above are on 2.</p>
+      <dl class="terms">
+        <dt>Build and save, against GDAL and xarray</dt><dd>192 loose files: 24 dates × 2 bands × 4 tiles of 1024 × 1024 cells (Int16). Saving: the 24 dates of one band at 2048 × 2048.</dd>
+      </dl>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Janus</th><th>Against</th><th class="num">Other</th><th class="num">Janus</th><th>Values</th></tr></thead>
+          <tbody>
+            <tr><td>Build, VRTs</td><td><code>gdalbuildvrt</code>, the same steps</td><td class="num">3.0 s</td><td class="num">0.59 s</td><td>0 differ (0.22 s of Janus's time is the plan)</td></tr>
+            <tr><td>Build, COGs</td><td><code>gdal_translate -of COG</code>, date by date</td><td class="num">10.0 s</td><td class="num">4.0 s</td><td>equal</td></tr>
+            <tr><td>Save, NetCDF</td><td>xarray <code>to_netcdf</code> (zlib)</td><td class="num">9.8 s</td><td class="num">5.7 s</td><td>xarray reads Janus's file: the same values and dates</td></tr>
+            <tr><td>Save, Zarr</td><td>xarray <code>to_zarr</code></td><td class="num">2.24 s</td><td class="num">1.07 s</td><td>xarray reads Janus's store: the same values and dates</td></tr>
+            <tr><td>Save, multiband COG</td><td>rioxarray</td><td class="num">3.7 s</td><td class="num">4.4 s</td><td>equal; Janus's with a predictor, 19% smaller</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <dl class="terms">
+        <dt>Regularize, against Zeit and sits</dt><dd>An irregular series of 64 dates 16 to 20 days apart, a fifth of every date clouded and four dates clouded whole: one band of 1024 × 1024, or three bands of 512 × 512 for the medoid; to 16 days. Zeit's times read the files but write nothing; Janus's include writing the COGs.</dd>
+      </dl>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Janus</th><th>Against</th><th class="num">Other</th><th class="num">Janus</th><th>Values</th></tr></thead>
+          <tbody>
+            <tr><td>Median, 72 periods</td><td>Zeit <code>regularize_time_series(cube, "16D", "median")</code></td><td class="num">32.0 s</td><td class="num">3.2 s</td><td>equal, no data on the same pixels</td></tr>
+            <tr><td>Medoid, 71 periods</td><td>Zeit, <code>"medoid"</code></td><td class="num">1.5 s (+10.0 s to write COGs)</td><td class="num">1.8 s</td><td>equal</td></tr>
+            <tr><td>Median, gaps linear</td><td>Zeit's median, then xarray <code>interpolate_na</code></td><td class="num">45.7 s</td><td class="num">2.9 s</td><td>3 × 10⁻⁸ at most</td></tr>
+            <tr><td>Median, gaps Whittaker λ = 10</td><td>Zeit's median, then <code>zeit.smooth(method="whittaker")</code></td><td class="num">49.8 s</td><td class="num">3.4 s</td><td>equal in all 24.6 million gaps</td></tr>
+            <tr><td>Median, 71 periods</td><td>R's <code>sits_regularize</code> (sits 1.5, gdalcubes, 8 cores)</td><td class="num">63.6 s</td><td class="num">0.72 s</td><td>sits, without a cloud band, took each period's first value</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <dl class="terms">
+        <dt>Radar, against stackstac and scipy</dt><dd>The Sentinel-1 year of section 07 (24 dates of 877 × 886). Janus read every date whole as VV in dB in 3.9 s against 5.0 s for stackstac with numpy's <code>10 * log10</code> on the same items and grid, every one of the 18.6 million values equal, and equal to rasterio on one scene. The speckle filters, 7 × 7 on both bands, against the same formulas through <code>scipy.ndimage.uniform_filter</code> (numpy on one thread): Quegan's 1.7 s with its COGs written against 2.1 s for the arithmetic alone, 1.3 × 10⁻⁷ apart at most; Lee's 1.7 s against 2.3 s, 2.4 × 10⁻⁷. Over the whole year, VV's spread (its standard deviation over its mean) went from 0.69 to 0.55 with Quegan's filter and 0.49 with Lee's.</dd>
+      </dl>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">09</span>What next</h2>
+      <ul>
+        <li><strong>A regular series for the tools that want one</strong>: <a href="bfast.html">BFAST</a>, <a href="beast.html">BEAST</a> and the <a href="phenology.html">phenology</a> read the season from a fixed step.</li>
+        <li><strong>Every date for the others</strong>: <a href="ccdc.html">CCDC</a>, <a href="sccd.html">S-CCD</a> and <a href="ewmacd.html">EWMACD</a> suit a series of every date, irregular as it is.</li>
+        <li><strong>An index before saving</strong>: the <a href="calculator.html">raster calculator</a> puts any of 275 indices or an expression on the series; Save series as writes the quantity shown.</li>
+        <li><strong>The data</strong>: the <a href="stac.html">STAC guide</a> finds and downloads the Sentinel-2 and Sentinel-1 series used here.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">10</span>References</h2>
+      <ul class="refs">
+        <li>GDAL: <code>gdalbuildvrt</code>, the COG driver and the multidimensional raster API, <a href="https://gdal.org">gdal.org</a>.</li>
+        <li>NetCDF Climate and Forecast (CF) Metadata Conventions, <a href="https://cfconventions.org">cfconventions.org</a>; Zarr storage specification version 2, <a href="https://zarr.dev">zarr.dev</a>.</li>
+        <li>Hoyer, S., &amp; Hamman, J. (2017). xarray: N-D labeled arrays and datasets in Python. <em>Journal of Open Research Software</em>, 5(1), 10.</li>
+        <li>Flood, N. (2013). Seasonal composite Landsat TM/ETM+ images using the medoid (a measure of multi-dimensional central tendency). <em>Remote Sensing</em>, 5(12), 6481–6500.</li>
+        <li>Eilers, P. H. C. (2003). A perfect smoother. <em>Analytical Chemistry</em>, 75(14), 3631–3636.</li>
+        <li>Zeit: change detection and time series tools, <a href="https://github.com/sacridini/zeit-cdts">github.com/sacridini/zeit-cdts</a>.</li>
+        <li>Simoes, R., Camara, G., Queiroz, G., Souza, F., Andrade, P. R., Santos, L., Carvalho, A., &amp; Ferreira, K. (2021). Satellite image time series analysis for big Earth observation data. <em>Remote Sensing</em>, 13(13), 2428.</li>
+        <li>Quegan, S., &amp; Yu, J. J. (2001). Filtering of multichannel SAR images. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 39(11), 2373–2379.</li>
+        <li>Lee, J.-S. (1980). Digital image enhancement and noise filtering by use of local statistics. <em>IEEE Transactions on Pattern Analysis and Machine Intelligence</em>, PAMI-2(2), 165–168.</li>
+        <li>Copernicus Sentinel-2 and Sentinel-1 data (ESA), from Microsoft Planetary Computer (Sentinel-2 L2A; Sentinel-1 RTC processed by Catalyst).</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

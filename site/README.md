@@ -12,8 +12,9 @@ Static site published to GitHub Pages by `.github/workflows/pages.yml`
 ## The guides
 
 `validation.html`, `landtrendr.html`, `ccdc.html`, `coded.html`, `bfast.html`,
-`phenology.html`, `snic.html`, `deep-learning.html`, `presto.html` and
-`trend-test.html` walk
+`phenology.html`, `snic.html`, `deep-learning.html`, `presto.html`,
+`trend-test.html`, `calculator.html`, `stac.html`, `series.html`,
+`maps-to-numbers.html` and `workspace.html` walk
 through a tool each, with screenshots in
 `assets/img/<guide>/` (and a card each in the Guides section of `index.html`).
 The screenshots come from the program itself: `janus --shots TOUR IN OUT`
@@ -86,3 +87,87 @@ Computer, Sentinel-2 L2A, 63.00 to 62.92 W, 10.00 to 9.92 S, 2019-06-01 to
 `02-calculator.jpg`, `04-count.jpg` and `05-rules.jpg` are `index.png`,
 `calculator.png`, `count.png` and `rules.png` as JPEG (quality 90);
 `03-editor.png` is the window of `editor.png` (17, 17, 995, 613).
+
+`--window NAME,...` opens a tool's window once the layers are open, with its
+defaults: regularize, speckle, warp, build, save, polygonize (the active
+series), rasterize and zonal (the first vector layer), areas (Analysis >
+Areas). `NAME-run` also runs it, and the screenshot waits for its result.
+`--analysis areas|zonal` shows those tabs. Screenshots are RGBA: convert them
+with `gdal_translate -of JPEG -b 1 -b 2 -b 3 -co QUALITY=90`, because without
+`-b` GDAL writes a 4-band JPEG that is read as CMYK.
+
+The workspace guide's screenshots are taken with `--screenshot` (window 1600 ×
+950, `--threads 2`). The data is the trend test's medoid series, as VRTs with
+0 as no data, in a folder named `215_067`:
+
+    gdal_translate -of VRT -a_nodata 0 landsat_medoid_YYYY.tif 215_067/landsat_medoid_YYYY.vrt   (each year)
+    janus 215_067 --interface modern --zeit ar_trend --zeit-run --roi 1000,500,1700,1200 --view 1350,850,0.6 --screenshot run.png
+    janus 215_067 --interface modern --palette go --screenshot palette_go.png
+    janus STAC --interface modern --palette burn --screenshot palette_burn.png
+    janus 215_067 --interface modern --basemap esri --date 41 --blend multiply --view 6700,4250,1 --screenshot multiply.png
+    janus 215_067 --interface modern --date 41 --minimap --view 6804,4252,1 --goto "10°17'S 36°35'W" --screenshot goto.png
+    janus 215_067 --interface modern --date 28 --lens --view 6600,4250,1 --screenshot lens.png
+
+`STAC` is the STAC guide's Sentinel-2 series read in place
+(`RESULTS/stac/sentinel-2-l2a_2019-06-05_2024-09-11_*`). `01-run.jpg`,
+`05-multiply.jpg`, `06-goto.jpg` and `07-lens.jpg` are `run.png`,
+`multiply.png`, `goto.png` and `lens.png` as JPEG; `02-notice.png` is a crop of
+`run.png` (1160, 810, 1600, 950), `03-palette.png` of `palette_go.png` and
+`04-palette-indices.png` of `palette_burn.png` (480, 60, 1140, 395). The
+provenance excerpt is the run's `provenance.json`; its `rerun.py`, run with
+`n_jobs=2`, gave the same slope, p-value, t, standard error, intercept and rho
+on all 490 000 pixels.
+
+The maps-to-numbers guide's data is in `target/guide-maps` (`--threads 2`):
+`landsat/` is the 41 medoids cut to 2000 × 2000 px
+(`gdal_translate -of VRT -srcwin 4100 5200 2000 2000 -a_nodata 0`);
+`mapbiomas/` is MapBiomas collection 4.1 (Atlantic Forest, 1985–2018) cut to a
+box 200 px wider (`-srcwin 67815 20824 2400 2319 -a_nodata 0`), the class names
+and colours set with GDAL's Python; `mapbiomas_grid/` is the years warped onto
+the Landsat grid with the arguments of Reproject's *The grid of a layer*
+(`gdalwarp -t_srs EPSG:4326 -te -37.3120643150748 -11.077844420705116
+-36.773075144603084 -10.538855250233404 -ts 2000 2000 -r mode -of COG ...`; 0
+pixels differ from the source), the names written back as `.aux.xml`;
+`poly/forest_1985.gpkg` is the 1985 polygons with `value = 3 AND area_ha >=
+100` (49 features, a `patch` column):
+
+    janus landsat --layer mapbiomas --interface modern --window warp --screenshot warp.png
+    janus landsat --layer mapbiomas_grid --interface modern --date 34 --pin 71,793 --pin 65,1038 --view 260,890,1.5 --screenshot grid.png
+    janus landsat --layer mapbiomas_grid --interface modern --date 34 --window areas-run --analysis areas --detach-map --screenshot areas.png
+    janus landsat --layer mapbiomas_grid --layer poly/mapbiomas_1985_polygons.gpkg --interface modern --date 1 --window polygonize --pin 71,793 --view 160,800,3 --screenshot poly.png
+    janus mapbiomas_grid --layer landsat --layer poly/forest_1985.gpkg --interface modern --window rasterize-run --screenshot rasterize.png
+    janus poly/forest_1985_mask_landsat.tif --layer landsat --interface modern --zeit mann_kendall --screenshot only.png
+    janus landsat --layer mapbiomas_grid --layer poly/forest_1985.gpkg --interface modern --date 34 --window zonal-run --analysis zonal --screenshot zonal.png
+    janus mapbiomas_grid --layer landsat --layer poly/forest_1985.gpkg --interface modern --window zonal-run --analysis zonal
+    janus mapbiomas_grid --layer landsat --layer poly/forest_1985.gpkg --interface modern --date 34 --pin 71,793 --pin 65,1038 --view 200,880,1.5 --screenshot index.png
+
+`01-warp.png` is a crop of `warp.png` (17, 18, 495, 439) and
+`06-only-where.png` of `only.png` (15, 478, 467, 684); the others are the PNGs
+as JPEG. The numbers come from the runs' `areas.csv`, `zonal_long.csv` and
+logs.
+
+The series guide's screenshots (`series.html`, and the STAC guide's
+`04-*.jpg`) come from `--screenshot`, and where a file dialog or a combo box
+has to be set, from a run driven through Windows UI Automation (egui's
+accesskit) and captured with PrintWindow (`target/guide-series/gui.ps1`), with
+`LOCALAPPDATA=target/guide-series/appdata` so the user's settings were not
+touched, `--threads 2`, window 1600 × 950 and `--pin 195,837 --pin 179,761`
+(the STAC guide's forest and pasture). `s2ro` is the STAC guide's series as
+GeoTIFFs; `loose/` is 36 files cut from six of its 2024 dates, two tiles and
+three bands named as in an L2A product
+(`T20LMP_<datatake>_B04_10m.tif`, `..._B08_10m.tif`, `..._SCL_20m.tif`, the SCL
+at 20 m with `-tr 20 20 -r mode`); the Sentinel-1 series is
+`target/bench-s1/linear` (tools/bench_s1_vs_stackstac.py).
+
+    janus s2ro --interface modern --pin ... --view 438,443,0.549 --window build        (Pick a folder: loose; 01-build)
+    janus RESULTS/series/loose_* --interface modern --pin ... --date 6 --screenshot built.png
+    janus s2ro --interface modern --pin ... --view 438,443,0.549 --window regularize   (Whittaker; 03-regularize; Run)
+    janus s2ro --layer RESULTS/regularize/s2ro_regular_* --interface modern --pin ... --chart layers=1 --screenshot regular.png
+    janus s2ro --interface modern --pin ... --roi 100,650,450,886 --view 438,443,0.549 --window save   (NetCDF, every band, ROI; 05-save)
+    janus bench-s1/linear --interface modern --expr VHdB --pin ... --date 15 --window speckle --screenshot speckle.png
+    janus bench-s1/linear --interface modern --expr VHdB --pin ... --date 15 --window speckle-run --swipe --view 330,700,1.6   (07-speckle-swipe = stac/04-speckle)
+    janus bench-s1/linear --interface modern --expr VVdB --pin ... --date 15 --screenshot radar_vvdb.png   (stac/04-radar-db)
+
+The timings quoted come from the runs' `job.log` on 2 threads; the benchmark
+tables from `bench/series-io.json`, `bench/regularize-vs-zeit.json` and
+`bench/s1-vs-stackstac.json` (Janus on 8 threads).

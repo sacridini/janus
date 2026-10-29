@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The workspace · Janus</title>
+<meta name="description" content="A guide to the workspace of Janus: the status bar and notices, the command palette, the Layers panel's blend modes, groups and styles, Go to, saved views, the minimap and the lens, the provenance of every result, a tool's preview, projects and undo, on 41 years of Landsat over Sergipe and Alagoas.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="The workspace · Janus">
+<meta property="og:description" content="Ctrl+K for any command, Ctrl+G for any coordinate, a lens for another date, blend modes over the imagery, a record of every result with its Python, projects that reopen as you left them, and Ctrl+Z.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/workspace/07-lens.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / The workspace</p>
+    <p class="eyebrow">Interface · Janus 1.5 and 1.6</p>
+    <h1>The workspace, piece by piece.</h1>
+    <p class="lede">The tools get the attention, but most of a day in Janus goes into the window around them: finding a command, getting to a place, comparing two dates, keeping track of what produced each map, and picking up the next morning where you left off. This guide goes through the parts added in versions 1.5 and 1.6, on 41 years of Landsat over the lower São Francisco.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#status">The status bar</a></li>
+      <li><a href="#notices">Tasks and notices</a></li>
+      <li><a href="#palette">The command palette</a></li>
+      <li><a href="#layers">Blend modes, groups, styles</a></li>
+      <li><a href="#goto">Go to and saved views</a></li>
+      <li><a href="#minimap">Minimap and lens</a></li>
+      <li><a href="#provenance">Where a result came from</a></li>
+      <li><a href="#preview">Preview on a corner</a></li>
+      <li><a href="#projects">Projects and the last session</a></li>
+      <li><a href="#undo">Undo</a></li>
+      <li><a href="#keys">Keys</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="data">
+      <h2><span class="n">01</span>The example</h2>
+      <p>The series of the <a href="trend-test.html">Trend test guide</a>: 41 annual Landsat medoid composites of a vegetation index, 1985 to 2025, over the coast of Sergipe and Alagoas in north-eastern Brazil (path/row 215/067), one GeoTIFF per year, 7478 × 7319 pixels in EPSG:4326 at about 30 m. As there, each year is opened through a VRT that declares 0 as no data, in a folder named <code>215_067</code>, so the layer takes that name. One figure uses the Sentinel-2 series of the <a href="stac.html">STAC guide</a>, for its bands.</p>
+      <p>The times quoted were measured with Janus' processing threads limited; with all of a machine's cores they are shorter.</p>
+    </section>
+
+    <section id="status">
+      <h2><span class="n">02</span>The status bar</h2>
+      <p>A bar along the foot of the window, always in view. On the left, what is under the cursor on the map:</p>
+      <dl class="terms">
+        <dt>Pixel</dt><dd><code>col 6804  row 4252</code>: the active layer's pixel, counted from 0 at the top left.</dd>
+        <dt>Coordinates</dt><dd>In the layer's CRS (<code>x</code>, <code>y</code> to the centimetre), then in longitude and latitude (WGS 84, six decimals). A layer in degrees, like this one, gives <code>lon</code> and <code>lat</code> once.</dd>
+        <dt>Value</dt><dd>What the map shows there: <code>value</code> and the number, <code>class</code> and its name on a class map, the mean or the trend in those display modes, the largest drop's date, the maps of a run over it, the vector feature under the cursor. <em>(approx.)</em> while the value still comes from the overview rather than the file.</dd>
+      </dl>
+      <p>Over the place of section 06, in 2025, it reads <code>col 6804  row 4252 | lon -36.583216  lat -10.283509 | value 0.171732</code> (the pixel's centre; the value is the file's). With the cursor off the map it says <em>Point at the map: its pixel, coordinates and value here</em>. On the right, from the left:</p>
+      <dl class="terms">
+        <dt>Zoom</dt><dd><code>zoom 60.0% (detail 1:1)</code>: screen pixels per pixel of the layer, and what is drawn (the full-resolution tiles, or the overview and its factor).</dd>
+        <dt>Scale</dt><dd>The map's scale on the screen, <code>1:190 000</code>, at 96 points per inch and rounded to two figures, then the ground a screen point covers, <code>49.3 m/px</code>. On a layer in degrees the metres are those of a degree of longitude at the latitude of the map's centre.</dd>
+        <dt>CRS</dt><dd>The active layer's, <code>EPSG:4326</code>; the pointer over it gives its full name.</dd>
+        <dt>Tasks</dt><dd>While something runs in the background (a Zeit tool, a deep learning model, a download, an export): how many, the oldest one's name and a progress bar. A click opens <span class="ui">Tools → Tasks</span> (or Exports).</dd>
+      </dl>
+      <p>The numbers check out by hand. At 60% the map's centre was at 9.37° S, where a pixel of 0.000269° is 29.6 m wide; 29.6 / 0.6 = 49.3 m per screen point, and 49.3 m divided by a point (0.0254 / 96 m) is 186 000, shown as 1:190 000. At 100% over Penedo (10.28° S, section 06) the bar read <code>29.5 m/px</code> and <code>1:110 000</code>.</p>
+    </section>
+
+    <section id="notices">
+      <h2><span class="n">03</span>Tasks and notices</h2>
+      <p>A tool run on the raster works in the background. When a task ends, a notice comes up at the bottom right, above the status bar: <span class="ui">Done</span>, the task's name and how long it took, with <span class="ui">Show in Tasks</span> and <span class="ui">Open folder</span>. A task that failed says <span class="ui">Failed</span>, gives the error and a <span class="ui">Log</span> button; an export gives <span class="ui">Exports</span>. With Janus in the background, the system is also asked for your attention: the taskbar's icon flashes (on a Mac, the Dock's icon bounces).</p>
+      <figure class="fig">
+        <a href="assets/img/workspace/01-run.jpg"><img src="assets/img/workspace/01-run.jpg" alt="Janus after a run of the AR(1) trend (remotePARTS) on an ROI of 700 x 700 pixels of the 215_067 series. Left, the tool's window: its description, the parameters (Trend per Year, Harmonics 0, Missing dates Exact, Significance level 0.05, Min valid observations 4), Run on the raster: ROI, the output folder, Run, and under it Preview and Auto-preview. Top, the Tasks window: the run done, 100%, 13 s, with Log, Folder and Remove. In the middle the map, the ROI outlined in yellow with the significant slopes in white and orange; below, the ROI's mean index from 1985 to 2025 with the fitted trend in magenta; right, the Statistics table, and over it the notice: Done, AR(1) trend (remotePARTS) - ROI (700 x 700 px), Done in 13 s, Show in Tasks, Open folder. The status bar: zoom 60.0% (detail 1:1), 1:190 000, 49.3 m/px, EPSG:4326." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>A run ends</b>: the AR(1) trend on 700 × 700 pixels in 13 s; its notice at the bottom right, the Tasks window at the top.</figcaption>
+      </figure>
+      <figure class="fig narrow">
+        <img src="assets/img/workspace/02-notice.png" alt="Close-up of the notice: Done in blue, AR(1) trend (remotePARTS) - ROI (700 x 700 px), a close button, Done in 13 s, and the buttons Show in Tasks and Open folder; below it the right of the status bar: zoom 60.0% (detail 1:1), 1:190 000, 49.3 m/px, EPSG:4326." width="440" height="140" loading="lazy">
+        <figcaption><b>The notice</b> and the right of the status bar.</figcaption>
+      </figure>
+      <p>Tasks shorter than 3 s end without a notice, unless they fail. A notice goes after 8 s, a failure's after 30 s, or with its <span class="ui">×</span>; four at most are shown, the newest at the bottom.</p>
+    </section>
+
+    <section id="palette">
+      <h2><span class="n">04</span>The command palette</h2>
+      <p><kbd>Ctrl</kbd>+<kbd>K</kbd> (or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>, or <span class="ui">View → Command palette</span>) opens one search over what Janus does: the items of every menu, every tool, the display modes, the panels, the open layers (make one active, zoom to it), the Layers panel's commands, and the spectral indices the active layer has the bands for. Each row gives its category and its keys. Type, then <kbd>↑</kbd> <kbd>↓</kbd> and <kbd>Enter</kbd>, or click; <kbd>Esc</kbd> or a click outside closes it.</p>
+      <figure class="fig narrow">
+        <img src="assets/img/workspace/03-palette.png" alt="The command palette with go typed: first Go to coordinate... (View, Ctrl+G) highlighted, then Draw ROI polygon (View, R), Smoothing... (Tools &gt; Preprocessing), SOM clustering... (Tools &gt; Classification), SNIC segmentation... (Tools &gt; Segmentation), Emerging hot spots... (Tools &gt; Trend), Agreement of change maps... (Tools &gt; Change detection), Post-processing (classes)... (Tools &gt; Classification), Largest drop: date (Display) and CODED (degradation)... (Tools &gt; Change detection)." width="660" height="335" loading="lazy">
+        <figcaption><b>"go"</b>: the command whose name starts with it first, then a name with it inside a word, then the tools whose description has it.</figcaption>
+      </figure>
+      <dl class="terms">
+        <dt>How it matches</dt><dd>Every word typed must match somewhere: at the start of the name scores most, then at the start of a word in it, then inside a word, then the category, then the description. A short word (six letters or fewer) may also match the name's letters in order: <code>gtc</code> matches <em>Go to coordinate...</em>. Among equal matches, the shorter name first.</dd>
+        <dt>Used last first</dt><dd>Without a query, and among matches alike, the twelve commands used last come first (kept in the settings).</dd>
+        <dt>Not now</dt><dd>A command that cannot run is listed faint, the reason on hover: <em>Blend: Normal</em> when the layer already is, <em>Paste style</em> before a style was copied, an export before a series is open. <em>Exit</em> and <em>Close all</em> come after any other match, so that <kbd>Enter</kbd> on a short query does not close anything.</dd>
+      </dl>
+      <p>The commands call the same code as the menus: nothing is a copy that can drift. On a series with bands, the indices of the Awesome Spectral Indices join the list, under the category <em>Index</em>, and picking one shows it on the active layer (the <a href="calculator.html">calculator guide</a> has more on them).</p>
+      <figure class="fig narrow">
+        <img src="assets/img/workspace/04-palette-indices.png" alt="The command palette over the Sentinel-2 series of Rondonia with burn typed: BAI: Burned Area Index highlighted, then NBR: Normalized Burn Ratio, NBR2: Normalized Burn Ratio 2, MIRBI: Mid-Infrared Burn Index, NBRplus: Normalized Burn Ratio Plus, NBRSWIR: Normalized Burn Ratio SWIR, BAIM: Burned Area Index adapted to MODIS, AshburnVI: Ashburn Vegetation Index, CSI: Char Soil Index and NDSWIR: Normalized Difference SWIR, each in the category Index." width="660" height="335" loading="lazy">
+        <figcaption><b>"burn"</b> on the Sentinel-2 series: the burn indices it has the bands for, by name and by domain.</figcaption>
+      </figure>
+    </section>
+
+    <section id="layers">
+      <h2><span class="n">05</span>Blend modes, groups, styles</h2>
+      <p>The <span class="ui">Layers</span> panel is a table of contents: the series, the maps of the runs and the vector layers in one drawing order, the basemap last. Three things joined it in 1.5.</p>
+      <h3>Blend modes</h3>
+      <p>Beside the active layer's opacity, a list sets how its colours combine with what is under it (the layers below and the basemap). The same list is under <span class="ui">Blend</span> in a series' menu, in the palette (<em>Blend: Multiply</em>...), and on the command line (<code>--blend multiply</code>).</p>
+      <dl class="terms">
+        <dt>Normal</dt><dd>The layer over the others, with its opacity.</dd>
+        <dt>Multiply</dt><dd>Darkens by what is under it: the layer's colours tint the imagery, and the imagery's detail shows through.</dd>
+        <dt>Screen</dt><dd>Lightens: the opposite of Multiply.</dd>
+        <dt>Add</dt><dd>Sums the colours.</dd>
+        <dt>Darken, Lighten</dt><dd>Keep the darker or the lighter of the two, channel by channel.</dd>
+      </dl>
+      <p>The blending is done by the graphics card's own blending stage, a pipeline per mode, so a mode costs nothing more to draw than Normal.</p>
+      <figure class="fig">
+        <a href="assets/img/workspace/05-multiply.jpg"><img src="assets/img/workspace/05-multiply.jpg" alt="The 215_067 series at 2025 drawn with the blend mode Multiply over the Esri World Imagery basemap, at 100% around the lower São Francisco river: the river winding from the left to the bottom in dark purple, sand banks and islands in it, the fields and their boundaries of the imagery visible under the viridis colours of the index, light patches of high values on the upper left. The Layers panel shows Multiply beside the opacity at 100%, the series 215_067 (41 dates, 1985 .. 2025) and the basemap, Esri World Imagery, both visible." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>Multiply</b>: the index of 2025 over the Esri imagery around Penedo, the fields' outlines of the imagery showing through its colours.</figcaption>
+      </figure>
+      <h3>Groups</h3>
+      <p>Select rows (<kbd>Ctrl</kbd> + click adds one, <kbd>Shift</kbd> + click a run of them), then <span class="ui">Group the N selected</span> in the menu of one of them, or <em>Group the selected layers</em> in the palette. They go next to each other in the drawing order, under a row of their own named <em>Group 1</em>. The group's eye shows or hides them all, its arrow folds them, a click selects them (<kbd>Delete</kbd> then closes them), and its menu renames it, selects its layers, moves it to the top or the bottom, ungroups it (the layers stay where they are) or closes its layers. A row dropped on a member, or on the group's row, joins it; <span class="ui">Out of its group</span> takes one out.</p>
+      <h3>Styles</h3>
+      <p>A row's menu has <span class="ui">Style</span>:</p>
+      <dl class="terms">
+        <dt>Copy style</dt><dd>A series' display mode, each mode's colormap, the ranges set by hand (the others are computed again from the other layer's own values), the stretch per date, the RGB bands, the opacity, the blend mode, and its classes' names, colours and visibility; a vector layer's colour.</dd>
+        <dt>Paste style</dt><dd>On the row, or <em>Paste style on the N selected</em>.</dd>
+        <dt>Saved styles</dt><dd>A name and <span class="ui">Save style</span> keep it in the settings; it is then listed in every row's Style menu, given with a click, deleted with its <span class="ui">x</span>.</dd>
+      </dl>
+      <p>A style made once for a land-cover legend, or for a run's map of years, then goes on every other layer of the kind with two clicks.</p>
+    </section>
+
+    <section id="goto">
+      <h2><span class="n">06</span>Go to and saved views</h2>
+      <p><kbd>Ctrl</kbd>+<kbd>G</kbd> (<span class="ui">View → Go to coordinate...</span>) opens a field that takes a place as you have it:</p>
+      <div class="tbl-wrap">
+        <table class="tbl keys">
+          <thead><tr><th>Type</th><th>Means</th></tr></thead>
+          <tbody>
+            <tr><td><code>-10.283333, -36.583333</code></td><td>latitude and longitude in decimal degrees (a decimal comma works when no point is used: <code>-10,283333 -36,583333</code>)</td></tr>
+            <tr><td><code>10°17'S 36°35'W</code>, <code>10 17 S 36 35 W</code></td><td>degrees, minutes and seconds, with the hemisphere's letter or a sign (<code>O</code> for west too)</td></tr>
+            <tr><td><code>24S 764697 8862264</code>, <code>24 L 764697 8862264</code></td><td>UTM: the zone with <code>N</code> or <code>S</code> for the hemisphere, or with a latitude band</td></tr>
+            <tr><td><code>EPSG:31984 764697 8862264</code></td><td>x and y in any EPSG CRS (here SIRGAS 2000 / UTM zone 24S)</td></tr>
+            <tr><td><code>x y</code></td><td>two numbers past the degrees' range: x and y in the layer's CRS (a layer in UTM, say)</td></tr>
+            <tr><td><code>px 6804 4252</code></td><td>a pixel of the active layer: column, row</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The decimal, comma, UTM and EPSG lines of the table are the same place, and each took the map to it. As you type, the window says where it lands (<code>lat -10.283333, lon -36.583333 -&gt; pixel (6804, 4251)</code>, or that it is off the layer). <kbd>Enter</kbd> or <span class="ui">Go</span> centres the map there, zoomed in to a pixel per screen point at least, with a mark that fades in 8 s and what you typed beside it; <span class="ui">Drop a pin there</span> also adds a pin. From the command line: <code>--goto "10°17'S 36°35'W"</code>. Place names are not looked up: a coordinate is needed.</p>
+      <figure class="fig">
+        <a href="assets/img/workspace/06-goto.jpg"><img src="assets/img/workspace/06-goto.jpg" alt="The map at 100% after Go to 10°17'S 36°35'W: the 2025 index in viridis, the São Francisco river winding from the upper left to the bottom in dark purple, and at the centre, on the river's bank, a ring with a cross and the label 10°17'S 36°35'W. In the bottom right corner the minimap: the whole scene, the coast and the sea at its bottom right, a small rectangle on its right edge where the view is. The status bar: zoom 100.0% (detail 1:1), 1:110 000, 29.5 m/px, EPSG:4326." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>Go to</b> 10°17'S 36°35'W, Penedo on the São Francisco: the mark at the centre, the view's rectangle on the minimap.</figcaption>
+      </figure>
+      <h3>Saved views</h3>
+      <p><span class="ui">View → Saved views</span>: a name and <span class="ui">Save view</span> keep the area, the date shown and the layers shown. The area is kept as its centre in longitude and latitude and its width in metres, so a view saved on one layer goes back to the same ground on any other, in any CRS (a layer without a CRS keeps pixels). A click on a saved view goes back to it: the date by its label, the layers by their names when any of them is open. They are kept in the settings, listed in the palette as <em>Saved view: name</em>, and deleted with their <span class="ui">x</span>.</p>
+    </section>
+
+    <section id="minimap">
+      <h2><span class="n">07</span>Minimap and lens</h2>
+      <dl class="terms">
+        <dt>Minimap</dt><dd><kbd>M</kbd> (<span class="ui">View → Minimap</span>, <code>--minimap</code>): the active layer whole in the map's bottom right corner, 170 points on its longer side, the view as a rectangle on it. A click or a drag on it moves the map there. It is drawn again only when what it shows changes.</dd>
+        <dt>Lens</dt><dd><kbd>L</kbd> (<span class="ui">View → Lens</span>, or <span class="ui">Lens</span> on the swipe's bar, <code>--lens</code>): the swipe (<kbd>C</kbd>) as a circle that follows the cursor, instead of a divider. Inside the circle, the swipe's comparison; outside, the map. <kbd>Alt</kbd> + wheel changes its size (a radius of 110 points at first, from 24 to 800) without zooming the map.</dd>
+      </dl>
+      <p>The comparison is set on the swipe's bar, as for the swipe: another open layer, or the same one at another date (<span class="ui">Own date</span>) or in another display mode (<span class="ui">Own mode</span>). With a single series open it starts at the date before the one shown.</p>
+      <figure class="fig">
+        <a href="assets/img/workspace/07-lens.jpg"><img src="assets/img/workspace/07-lens.jpg" alt="The lens over the 215_067 series at 2012 around the São Francisco: outside the circle the 2012 composite crossed by diagonal stripes; inside the circle, labelled 215_067 | 2011 | Value at date, the 2011 composite without them. Above the map the swipe's bar: Swipe off, Lens (on), the layer 215_067, Own date ticked with its slider at 2011, Own mode." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The lens</b>: 2011 inside, 2012 around it. In 2012 only Landsat 7 was imaging, and its composite carries the stripes of its scan-line gaps.</figcaption>
+      </figure>
+      <p>The lens suits questions about one place: is this patch new, was the stripe there the year before? The swipe suits comparing two halves of the view. <kbd>L</kbd> goes back from the lens to the divider, <kbd>C</kbd> turns either off.</p>
+    </section>
+
+    <section id="provenance">
+      <h2><span class="n">08</span>Where a result came from</h2>
+      <p>Every run of a Zeit tool, of a deep learning model applied and of the raster calculator writes <code>provenance.json</code> in its folder, next to <code>job.json</code>, <code>job.log</code> and its maps. It holds the tool, the versions of Janus and of Zeit (zeit-core's revision), when the run started, how long it took and how it ended, the series it read (its files, the band, index or expression shown, the quality mask), the scope and the window in pixels, the parameters (with those not at the tool's default named), what else it took (a model's file, the calculator's text), and the files it wrote. Here is the run of section 03, shortened:</p>
+      <div class="code-wrap">
+<div class="code-bar">results\215_067_ar_trend_20261029-000011\provenance.json</div>
+<pre class="code"><code>{
+  "format": 1,
+  "kind": "zeit",
+  "tool": "ar_trend",
+  "tool_name": "AR(1) trend (remotePARTS)",
+  "janus": "1.6.0",
+  "zeit": "2.0.0",
+  "zeit_core": "8cfbdbf5ecb2ab740332584749d26c18b724b24a",
+  "started": "2026-10-29 00:00:11 UTC",
+  "seconds": 13.4082103,
+  "state": "done",
+  "series": {
+    "name": "215_067",
+    "dates": 41, "first": "1985", "last": "2025",
+    "width": 7478, "height": 7319, "crs": "EPSG:4326",
+    "files": ["215_067\\landsat_medoid_1985.vrt", <span class="c">... 41 files</span>]
+  },
+  "scope": "ROI",
+  "window": [1000, 500, 1700, 1200],
+  "params": {"alpha": 0.05, "gaps": "exact", "harmonics": 0, "min_valid": 4, "time": "year"},
+  "changed": [],
+  "outputs": [{"name": "Significant slope", "path": "...\\ar_trend_sig_slope.tif"}, <span class="c">... 8 maps</span>],
+  "python": "rerun.py"
+}</code></pre>
+      </div>
+      <p>In the Layers panel, the menu of a run's map (or of a series a run or the calculator wrote) gives:</p>
+      <dl class="terms">
+        <dt>Provenance...</dt><dd>All of it in a window, the parameters changed from the default in the accent colour.</dd>
+        <dt>Run again with these parameters...</dt><dd>The tool's window with the run's parameters and scope. On the same series the scope <em>The run's window</em> is the very window it ran on, even if the ROI has moved or gone since. A deep learning run gets its model and post-processing back, the calculator its text.</dd>
+        <dt>Copy Python of the run</dt><dd>For a Zeit tool, <code>rerun.py</code>, written beside the run: it reads the series from its files over the run's window with rasterio, makes the same Zeit call with the same parameters, and writes every map the call returns as a GeoTIFF on the window's grid, in a folder <code>python</code> of the run. It needs numpy, rasterio, xarray and zeit-cdts.</dd>
+        <dt>Open folder</dt><dd>The run's folder.</dd>
+      </dl>
+      <p>The run above has a script of 133 lines; its call is <code>zeit.ar_trend(series, time='year', harmonics=0, gaps='exact', min_valid=4, nodata=None, n_jobs=-1)</code> on the 700 × 700 pixels of the window. Run with Zeit's Python (with <code>n_jobs=2</code>, to use two threads), it wrote 11 maps. The six that match maps of Janus' run (the slope, its p-value, t and standard error, the intercept and the AR(1) rho) were equal to them on all 490 000 pixels, to the last bit.</p>
+      <div class="note">
+        <p class="h">A record per run</p>
+        <p>The provenance is written as the run starts and completed when it ends, so a run cancelled or failed says so. A preview (next section) writes none: it is meant to be thrown away.</p>
+      </div>
+    </section>
+
+    <section id="preview">
+      <h2><span class="n">09</span>Preview on a corner</h2>
+      <p>A Zeit tool's window has <span class="ui">Preview</span> under <span class="ui">Run</span> (see the figure of section 03): the tool on the ROI (its bounding box) or, without an ROI, on at most 256 × 256 pixels at the centre of the view, before the whole scene. Its maps open as layers named <em>Preview: ...</em>, marked <em>preview</em> in the Layers panel; its window is dashed on the map, labelled <em>Preview...</em> while it runs and <em>preview</em> when done. The next preview replaces it: the earlier one is cancelled if still running, and its maps and folder (under Janus' work folder) are deleted. Closing the tool's window removes its preview.</p>
+      <dl class="terms">
+        <dt>Auto-preview</dt><dd>Previews again 0.4 s after a parameter changes, when Zeit's estimate for the preview's window is 3 s or less. Under the buttons the window gives that estimate; when the parameters have changed since the preview on the map, it says so.</dd>
+        <dt>Then Run</dt><dd>Runs on the scope chosen (<em>Whole image</em>, <em>Visible area</em>, <em>ROI</em>), as before.</dd>
+      </dl>
+      <div class="note warn">
+        <p class="h">The estimate is of the computation</p>
+        <p>Zeit's estimate times the tool on samples of pixels read beforehand; reading the files is not in it. In section 03 it said <em>under a second</em> for the 700 × 700 pixels, and the run took 13 s, reading 41 GeoTIFFs stored in strips of one row. Read the estimate as a lower bound when the files are slow to read.</p>
+      </div>
+    </section>
+
+    <section id="projects">
+      <h2><span class="n">10</span>Projects and the last session</h2>
+      <p><span class="ui">File → New project</span>, <span class="ui">Open project...</span>, <span class="ui">Save project</span> (<kbd>Ctrl</kbd>+<kbd>S</kbd>), <span class="ui">Save project as...</span> and <span class="ui">Recent projects</span> (the last ten). A project is a <code>.janus</code> file, JSON with a format number, that keeps:</p>
+      <dl class="terms">
+        <dt>The layers</dt><dd>The series in their drawing order (their files, the band, index or expression, the quality mask, the date shown, the style, opacity, blend mode and visibility), the vector layers (colour, visibility), the runs' maps (their GeoTIFFs, colours, range, and the run's folder with its provenance), the groups and the active layer.</dd>
+        <dt>The work on them</dt><dd>The pins, the ROI (a box or a polygon) and the transect.</dd>
+        <dt>The window</dt><dd>The view, the swipe or lens, the map panels, the basemap, the saved views and the season.</dd>
+      </dl>
+      <p>Each file is kept both relative to the project's file and absolute, the relative one tried first, so a folder with a project and its data can be moved to another disk or machine and still open. Opening a project opens its layers one at a time, as <span class="ui">File → Open</span> would, each with its state; a file not found leaves its layer out with a notice (<em>Project opened without some of its layers</em>), and the rest opens. A <code>.janus</code> file also opens from <span class="ui">File → Open</span>, dropped on the window, or from the command line: <code>jn work.janus</code>.</p>
+      <p>The window's title gives the project's name, with a <code>*</code> when it has changes not saved. <span class="ui">New project</span> and <span class="ui">Open project...</span> over such changes ask first: <span class="ui">Save</span>, <span class="ui">Discard</span> or <span class="ui">Cancel</span>.</p>
+      <h3>The last session</h3>
+      <p>Closing Janus does not ask anything. The session, changes included, is kept every minute and at exit (<code>last-session.janus</code> beside Janus' other data, <code>%LOCALAPPDATA%\Janus</code> on Windows), and reopened at the next start when Janus is opened without files: the layers, their styles, the view, as they were. <span class="ui">Settings → Reopen the last session at start</span> turns it off.</p>
+      <div class="note">
+        <p class="h"><kbd>Ctrl</kbd>+<kbd>S</kbd> saves the project</p>
+        <p>Before 1.6, <kbd>Ctrl</kbd>+<kbd>S</kbd> saved the map on top as a GeoTIFF. That is now <span class="ui">Save as GeoTIFF</span> in the map's menu; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> still saves every output of a run.</p>
+      </div>
+    </section>
+
+    <section id="undo">
+      <h2><span class="n">11</span>Undo</h2>
+      <p><kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes the last change to the layers; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> or <kbd>Ctrl</kbd>+<kbd>Y</kbd> redoes it. The <span class="ui">Edit</span> menu (and the palette) says what: <em>Undo Opacity of 215_067</em>, <em>Undo Close 215_067</em>, <em>Undo Layer order</em>.</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>A step</th><th>Not a step</th></tr></thead>
+          <tbody>
+            <tr><td>closing or opening a layer (a series, a vector layer, a run's map)</td><td>panning and zooming</td></tr>
+            <tr><td>its style, colours, opacity and blend mode</td><td>the date shown</td></tr>
+            <tr><td>showing or hiding it, renaming it</td><td>another layer made active</td></tr>
+            <tr><td>the drawing order and the groups</td><td>the panels, the swipe, the basemap</td></tr>
+            <tr><td>the pins, the ROI and the transect</td><td>the saved views and the season</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>A layer closed by mistake comes back by <kbd>Ctrl</kbd>+<kbd>Z</kbd> in its place, with its files, band, style and date, opened again as a project opens its layers. A slider or a layer dragged is one step, whatever the frames in between: nothing is recorded while a button is held. The last 100 steps are kept; <span class="ui">New project</span> and opening a project start the history again. A text field keeps its own <kbd>Ctrl</kbd>+<kbd>Z</kbd>, and drawing an ROI polygon or a transect its own <kbd>Backspace</kbd> for the last vertex.</p>
+    </section>
+
+    <section id="keys">
+      <h2><span class="n">12</span>Keys</h2>
+      <div class="tbl-wrap">
+        <table class="tbl keys">
+          <thead><tr><th>Keys</th><th>Does</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>K</kbd>, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd></td><td>the command palette</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>G</kbd></td><td>Go to a coordinate</td></tr>
+            <tr><td><kbd>M</kbd></td><td>the minimap on or off</td></tr>
+            <tr><td><kbd>L</kbd></td><td>the lens on or off; <kbd>Alt</kbd> + wheel: its size</td></tr>
+            <tr><td><kbd>C</kbd></td><td>the swipe on or off</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>save the project</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td><td>save every output of a run</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>undo</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>, <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>redo</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>J</kbd></td><td>the Exports window</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>,</kbd></td><td>Settings</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><span class="ui">Help → Shortcuts and usage</span> lists them all, with the map's own keys.</p>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">13</span>References</h2>
+      <ul class="refs">
+        <li>Ives, A. R., Zhu, L., Wang, F., Zhu, J., Morrow, C. J., Radeloff, V. C. (2021). Statistical inference for trends in spatiotemporal data. <em>Remote Sensing of Environment</em>, 266, 112678. <a href="https://doi.org/10.1016/j.rse.2021.112678">doi:10.1016/j.rse.2021.112678</a> (the AR(1) trend run in this guide; see the <a href="trend-test.html">Trend test guide</a>).</li>
+        <li>Montero, D., Aybar, C., Mahecha, M. D., Martinuzzi, F., Söchting, M., &amp; Wieneke, S. (2023). A standardized catalogue of spectral indices to advance the use of remote sensing in Earth system research. <em>Scientific Data</em>, 10, 197 (the Awesome Spectral Indices).</li>
+        <li>Esri World Imagery basemap: Esri, Vantor, Earthstar Geographics, and the GIS User Community.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus, whose Python <code>rerun.py</code> calls.</li>
+        <li>The full reference of the window: <a href="https://github.com/sacridini/janus/blob/main/docs/usage.md">docs/usage.md</a>.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

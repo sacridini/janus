@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Maps to numbers · Janus</title>
+<meta name="description" content="A step-by-step guide from class maps to numbers in Janus: 34 years of MapBiomas put on a Landsat series' grid, the area of each class every year, the forest patches of 1985 as polygons, burned back as a mask, and followed patch by patch through every year.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Maps to numbers · Janus">
+<meta property="og:description" content="MapBiomas 1985–2018 on the grid of a Landsat series of Sergipe: the area of each class every year, the forest patches of 1985 as polygons with their hectares, and what became of each patch, year by year.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/maps-to-numbers/03-areas.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Maps to numbers</p>
+    <p class="eyebrow">Analysis · class maps, polygons, areas, zones</p>
+    <h1>From class maps to areas, polygons and tables.</h1>
+    <p class="lede">A land cover map answers questions with numbers: how many hectares of forest each year, which patches were cleared, how much of a property or a park changed. This guide takes 34 years of MapBiomas over the coast of Sergipe, puts them on the grid of a Landsat series, counts the area of each class every year, turns the forest of 1985 into polygons with their hectares, and follows each patch through every year that came after.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The data</a></li>
+      <li><a href="#warp">Onto one grid</a></li>
+      <li><a href="#areas">Areas by class and date</a></li>
+      <li><a href="#polygonize">Polygons</a></li>
+      <li><a href="#rasterize">Back to the grid</a></li>
+      <li><a href="#zonal">Zonal statistics over time</a></li>
+      <li><a href="#values">A series by zone</a></li>
+      <li><a href="#checked">Checked against the originals</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>A class map is a grid of codes; a report wants hectares, polygons and tables. Five tools of Janus go between the two, each a task in <span class="ui">Tools → Tasks</span> whose result opens as a layer and keeps its provenance (what was run, on what, with which options):</p>
+      <dl class="terms">
+        <dt>Reproject, resample, clip</dt><dd><span class="ui">Tools → Reproject, resample, clip...</span>: a series' files through gdalwarp's own code, to a CRS, a pixel size or <em>the grid of another layer</em>, so two maps line up pixel for pixel.</dd>
+        <dt>Areas</dt><dd><span class="ui">Analysis → Areas</span>: the area of each class at every date, each pixel counted with its true area on the ellipsoid, in ha, km² or %.</dd>
+        <dt>Polygonize</dt><dd>In a map's or a series' menu in the <span class="ui">Layers</span> panel: the patches of a map as polygons in a GeoPackage, each with its class, its area and its perimeter.</dd>
+        <dt>Rasterize</dt><dd>In a vector layer's menu: its features burned on the active series' grid, as a mask, their numbers or an attribute; a Zeit tool can then run only inside them.</dd>
+        <dt>Zonal statistics over time</dt><dd>In a vector layer's menu: each feature a zone, through every date of a series: the statistics of its values, or the area of each class, as CSV tables and a GeoPackage.</dd>
+      </dl>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The data</h2>
+      <p>Two layers of the same coast, around Aracaju, the capital of Sergipe, in north-eastern Brazil:</p>
+      <dl class="terms">
+        <dt>landsat</dt><dd>The 41 annual Landsat medoid composites of a vegetation index of the <a href="trend-test.html">trend test guide</a> (path/row 215/067, 1985 to 2025, EPSG:4326 at about 30 m), cut to a window of 2000 × 2000 pixels, about 59 km a side, with 0 declared as no data (one VRT a year, made with GDAL).</dd>
+        <dt>mapbiomas</dt><dd>MapBiomas collection 4.1, Atlantic Forest biome, one map a year from 1985 to 2018. Each year is a GeoTIFF of the whole biome (77 947 × 94 203 pixels); here a box 200 pixels wider than the window on every side was cut from each (a VRT a year), with 0 as no data and the collection's class names and colours added to the band.</dd>
+      </dl>
+      <p>MapBiomas codes its classes by number: 3 is Forest Formation, 5 Mangrove, 15 Pasture, 20 Semi-Perennial Crop (sugar cane), 21 Mosaic of Agriculture and Pasture, 24 Urban Infrastructure, 33 River, Lake and Ocean. Janus reads the names and colours from the band and shows them in the <span class="ui">Classes</span> panel; a map without them can be named there by hand.</p>
+    </section>
+
+    <section id="warp">
+      <h2><span class="n">03</span>Onto one grid</h2>
+      <p>Two maps can be compared, combined or used one as the other's mask only when their pixels coincide. <span class="ui">Tools → Reproject, resample, clip...</span> warps the active series' files (or a run's map) and opens the result as a new series:</p>
+      <figure class="fig">
+        <a href="assets/img/maps-to-numbers/01-warp.png"><img src="assets/img/maps-to-numbers/01-warp.png" alt="The Reproject, resample, clip window: Layer mapbiomas (34 files); To: A CRS, EPSG:4326 typed below; Pixel size unticked, as gdalwarp chooses; Resampling mode; Area Whole layer; No data unticked, the source's; Type as it is; Format COG (GeoTIFF and Virtual the other choices); Name mapbiomas warped; under it the arguments gdalwarp -t_srs EPSG:4326 -r mode -of COG -co COMPRESS=DEFLATE -co PREDICTOR=YES -co BIGTIFF=IF_SAFER -co NUM_THREADS=2 -multi -wo NUM_THREADS=2 -overwrite, and a Run button." width="478" height="421" loading="lazy"></a>
+        <figcaption><b>The window</b> as it opens on the MapBiomas years: to a CRS (EPSG:4326 at first), mode for a map of classes, the whole layer, COGs, and the gdalwarp arguments those choices make.</figcaption>
+      </figure>
+      <dl class="terms">
+        <dt>To</dt><dd><em>A CRS</em> (EPSG:31983, ESRI:102033, a PROJ string, a WKT), <em>the CRS of a layer</em>, or <strong>the grid of a layer</strong>: its CRS, origin, pixel size and extent, so the maps align pixel for pixel. Otherwise <span class="ui">Pixel size</span> sets the cells, optionally <em>aligned</em> on multiples of the size (<code>-tap</code>).</dd>
+        <dt>Resampling</dt><dd>near, bilinear, cubic, average, mode, min, max or med. <strong>Mode</strong>, the most frequent class under each new pixel, is the default for a map of classes; near otherwise.</dd>
+        <dt>Area</dt><dd>The whole layer, the visible area, the ROI, or <em>the polygons of a vector layer</em>: the pixels outside them without a value, the result cropped to them (<code>-cutline</code>).</dd>
+        <dt>Format</dt><dd>Cloud-optimized GeoTIFFs, tiled GeoTIFFs, or <em>Virtual</em>: warped VRTs, nothing written, ready at once, the pixels computed as they are read.</dd>
+      </dl>
+      <p>The window writes the arguments of the <code>gdalwarp</code> command it runs, and the task's log keeps them: the result is the command's, bit for bit. Here, with <span class="ui">To</span> set to <em>The grid of a layer</em>, <em>landsat</em>, the arguments become <code>-t_srs</code> the layer's CRS, <code>-te</code> its extent and <code>-ts 2000 2000</code>, with mode. Run as the <code>gdalwarp</code> command on 2 threads, the 34 years took 10.5 s. MapBiomas and these Landsat composites share a pixel size (0.000269494585236°) and their origins fall on it, so the warp cut the maps without moving a class: every one of the 34 × 4 million pixels equals the source's.</p>
+      <figure class="fig">
+        <a href="assets/img/maps-to-numbers/02-on-grid.jpg"><img src="assets/img/maps-to-numbers/02-on-grid.jpg" alt="Janus with two layers, mapbiomas_grid (34 dates, 1985 to 2018, 2000 x 2000 px, Byte, WGS 84) over landsat (41 dates). The map at 2018, zoomed in: pasture in yellow, mosaic of agriculture and pasture in cream, sugar cane in mauve, annual crops in pink, forest in dark green, urban in red, a river and mangroves on the right. Pin 1 in a pasture at the top, pin 2 in a large forest at the bottom. The chart, steps and markers: pin 1 at forest from 1985 to 1989 and pasture from 1990, pin 2 at forest every year. The Statistics table for pin 1: class at the date Pasture (15), majority class Pasture 85%, 2 classes seen, 1 change, last change 1990: Forest Formation (3) to Pasture (15)." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>On the Landsat grid</b>: MapBiomas in 2018, a pin in a forest cleared for pasture in 1990 (1) and one in a forest that stayed (2).</figcaption>
+      </figure>
+      <div class="note">
+        <p class="h">The class names after a warp</p>
+        <p>The <code>gdalwarp</code> command carries a map's colour table to the new files but not its class names; Janus's warp copies the names too. The years here were warped with the command, so their names were written back beside the files (a <code>.aux.xml</code> each, with GDAL), as naming them once in the <span class="ui">Classes</span> panel would.</p>
+      </div>
+    </section>
+
+    <section id="areas">
+      <h2><span class="n">04</span>Areas by class and date</h2>
+      <p><span class="ui">Analysis → Areas</span> (or <span class="ui">Areas...</span> in the <span class="ui">Classes</span> panel) counts the classes of the active series at every date, at full resolution, on the whole layer or the ROI: <span class="ui">Count</span> starts a task. A pixel's area is not the same everywhere:</p>
+      <dl class="terms">
+        <dt>Equal-area projection</dt><dd>The geotransform's pixel area, the same everywhere.</dd>
+        <dt>Longitudes and latitudes</dt><dd>Each pixel's geodesic area on the CRS's ellipsoid: a degree of longitude shrinks towards the poles. Here, from 879.29 m² on the window's northern edge to 877.75 m² on its southern one, 878.53 at the centre.</dd>
+        <dt>UTM and other projections</dt><dd>Each pixel's geodesic area too, the note saying how far the nominal area is from it: in UTM the projection's scale, 0.05% off 110 to 230 km from the central meridian.</dd>
+      </dl>
+      <p>The geodesic areas are measured (with geographiclib) on a grid of at most 129 × 129 points across the map and interpolated between them, so the count costs no more than a histogram: the 34 years of 4 million pixels took 0.9 s on 2 threads.</p>
+      <figure class="fig">
+        <a href="assets/img/maps-to-numbers/03-areas.jpg"><img src="assets/img/maps-to-numbers/03-areas.jpg" alt="The Analysis panel at its Areas tab, the map in a window of its own: Map mapbiomas_grid (each date), whole layer, Count; units ha (ticked), km², %; Copy CSV, Save CSV; the note: pixel areas, longitudes and latitudes, each pixel's geodesic area, 877.75 to 879.29 m² (878.53 at the centre), 0.9 s, the CSV's folder. A bar per year from 1985 to 2018 with the classes stacked, about 260 000 ha each: forest in dark green at the bottom, pasture in yellow, the mosaic in cream, the legend of the 17 classes over the last years' bars. Below, the table of 2018: Forest Formation 397 149 pixels, 34 894.19 ha, 13.46%; Mangrove 9 266.42 ha, 3.57%; Pasture 1 174 447 pixels, 103 203.16 ha, 39.80%; Semi-Perennial Crop 19 827.84 ha, 7.65%; Mosaic of Agriculture and Pasture 63 270.88 ha, 24.40%; Urban Infrastructure 13 105.80 ha, 5.05%." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>34 years in hectares</b>: a bar per year with the classes stacked, and the table of the year chosen (2018) in pixels, ha, km² and %.</figcaption>
+      </figure>
+      <p>The bars are in <span class="ui">ha</span>, <span class="ui">km²</span> or <span class="ui">%</span>; <span class="ui">Copy CSV</span> and <span class="ui">Save CSV...</span> give the whole table, and <code>areas.csv</code> is written in the task's folder (<code>date, value, class, pixels, area_m2, area_ha, area_km2, percent</code>, a row per class and year). The mapped area is 259 297 ha every year. Some of its rows:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Class</th><th class="num">1985 (ha)</th><th class="num">2000 (ha)</th><th class="num">2018 (ha)</th></tr></thead>
+          <tbody>
+            <tr><td>Pasture</td><td class="num">122 807</td><td class="num">146 248</td><td class="num">103 203</td></tr>
+            <tr><td>Mosaic of Agriculture and Pasture</td><td class="num">69 236</td><td class="num">46 778</td><td class="num">63 271</td></tr>
+            <tr><td>Forest Formation</td><td class="num">36 895</td><td class="num">37 132</td><td class="num">34 894</td></tr>
+            <tr><td>Semi-Perennial Crop</td><td class="num">1 817</td><td class="num">1 827</td><td class="num">19 828</td></tr>
+            <tr><td>Urban Infrastructure</td><td class="num">4 086</td><td class="num">6 442</td><td class="num">13 106</td></tr>
+            <tr><td>Mangrove</td><td class="num">8 395</td><td class="num">9 422</td><td class="num">9 266</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Sugar cane grew elevenfold, almost all of it after 2000; the city tripled. The forest's total hardly moved: 36 895 ha in 1985, 34 894 in 2018, between 33 205 (2006) and 38 280 ha (2012) in between. Whether the same forest stood all along is another question, which the polygons answer.</p>
+      <div class="note">
+        <p class="h">Mapped area, not adjusted area</p>
+        <p>These are areas <em>as mapped</em>: pixels times their area, the map's errors included. The <a href="validation.html">Validation guide</a> estimates a class's area with its confidence interval from a sample. For a map of change years (LandTrendr's year of loss, CCDC's break), <span class="ui">Area by value...</span> in its menu counts the area by year.</p>
+      </div>
+    </section>
+
+    <section id="polygonize">
+      <h2><span class="n">05</span>Polygons</h2>
+      <p><span class="ui">Polygonize...</span>, in the menu of a series (its date shown) or of a run's map in the <span class="ui">Layers</span> panel, turns the map's patches, the pixels of one value joined by their sides or corners, into polygons in a GeoPackage that opens as a vector layer. Each polygon gets:</p>
+      <dl class="terms">
+        <dt><code>value</code>, <code>class</code></dt><dd>The map's value and the class's name.</dd>
+        <dt><code>date</code></dt><dd>For a map of change dates in decimal years: the date (2019-06-14), or the year when it is whole.</dd>
+        <dt><code>area_ha</code>, <code>perimeter_m</code></dt><dd>Geodesic, on the CRS's ellipsoid, whatever the projection.</dd>
+        <dt><code>pixels</code></dt><dd>Its pixels.</dd>
+        <dt><code>mean_&lt;map&gt;</code></dt><dd>With <span class="ui">Mean of</span>: the mean of another map of the same grid in the polygon (a loss's magnitude).</dd>
+      </dl>
+      <p>A <span class="ui">Minimum area</span> first merges each smaller patch into the neighbour it shares the longest border with, the minimum mapping unit of a post-processing; a patch with no neighbour (a lone pixel of loss in a forest without a value around it) is left out. <span class="ui">Simplify</span> smooths the outlines to a tolerance in metres, their topology kept.</p>
+      <figure class="fig">
+        <a href="assets/img/maps-to-numbers/04-polygonize.jpg"><img src="assets/img/maps-to-numbers/04-polygonize.jpg" alt="The Polygonize window over Janus: mapbiomas_grid [1985]: 2000 x 2000 px, 19 classes named; Neighbours 4 (sides) ticked, 8 (and corners); Minimum area 0.0 ha; Simplify 0 m; Mean of none; Name mapbiomas_grid [1985] polygons; Columns: value, class, area_ha (geodesic), perimeter_m, pixels; a GeoPackage opened as a vector layer; Run. Behind it the map of 1985 zoomed in, forest patches in dark green among pasture and mosaic, every patch outlined by its polygon in dark brown; pin 1 in a forest patch. The chart: pin 1 at forest until 1989, pasture from 1990; its Statistics: class at the date Forest Formation (3), last change 1990: Forest Formation (3) to Pasture (15)." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>1985 as polygons</b>: every patch outlined, here around pin 1, a forest of 1985 that became pasture in 1990.</figcaption>
+      </figure>
+      <p>Polygonized whole, with the window's defaults (4 neighbours, no minimum area), MapBiomas' 1985 gave <strong>38 582 polygons</strong> in 0.8 s, 259 296.86 ha in all, 10 784 of them forest. The forest's polygons add up to 36 895.005 ha, the Areas tab's count of its pixels to 36 895.008 ha: the polygons measured on the ellipsoid, the pixels by their interpolated areas, a few hundred square metres apart in 369 km². With 8 neighbours and a minimum area of 1 ha, the same function gave 11 089 polygons in 0.7 s, the same 259 297 ha in all.</p>
+      <p>The forest patches of 1985 of 100 ha or more were kept as a layer of their own, <code>forest_1985.gpkg</code> (with GDAL: <code>value = 3 AND area_ha &gt;= 100</code>, the largest first): <strong>49 patches</strong>, 13 399 ha, over a third of the forest of 1985. The largest, 910.9 ha, has a perimeter of 81.4 km and 10 369 pixels. The polygons follow the pixels' edges, and those on the window's western edge are cut by it.</p>
+    </section>
+
+    <section id="rasterize">
+      <h2><span class="n">06</span>Back to the grid</h2>
+      <p>Polygons go the other way too. <span class="ui">Rasterize on the series' grid...</span>, in a vector layer's menu, burns its features on the <em>active</em> series' grid (its CRS, origin, pixel size and size; the features reprojected to it), through GDAL's rasterizer, the function the <code>gdal_rasterize</code> command calls:</p>
+      <dl class="terms">
+        <dt>Burn</dt><dd><em>1 inside, 0 outside</em> (a mask), <em>the feature's number</em> (1, 2... in reading order), or <em>an attribute</em>: a number as it is, a text as classes numbered by name, their names and colours on the new layer. A later feature is burned over an earlier one.</dd>
+        <dt>Pixels</dt><dd>Those whose <em>centre</em> is inside, or <em>every one touched</em>.</dd>
+      </dl>
+      <figure class="fig">
+        <a href="assets/img/maps-to-numbers/05-rasterize.jpg"><img src="assets/img/maps-to-numbers/05-rasterize.jpg" alt="The Rasterize on the series' grid window over Janus: forest_1985.gpkg (49 features) on landsat's grid: 2000 x 2000 px; Burn 1 inside, 0 outside (a mask) ticked, the feature's number (1, 2...), an attribute; Pixels their centre inside ticked, every one touched; Name forest_1985.gpkg raster; the note: opens as a layer, a Zeit tool can then run only where it is not 0; the status: under way, it opens as a layer when ready. Behind it the whole window of 2000 x 2000 pixels: the mask, 0 in blue, the 49 patches in orange with their outlines, most of them in the west and north." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The 49 patches as a mask</b> on the Landsat series' grid: 1 inside (orange), 0 outside (blue).</figcaption>
+      </figure>
+      <p>The mask took under a tenth of a second (the log says 0.0 s) and has 152 511 pixels at 1: exactly the sum of the patches' <code>pixels</code>, every one of them forest in 1985, and the same, pixel for pixel, as <code>gdal_rasterize -burn 1</code> on the same grid. The polygons came from the pixels' edges, so their centres burn them back as they were.</p>
+      <p>A Zeit tool can then run inside the patches only. Under <span class="ui">Run on the raster</span>, a tool's panel has an <span class="ui">Only</span> list when a layer on the series' grid is open: <em>everywhere</em>, or <em>where X is not 0</em>, X a rasterized vector layer or a class map. Its pixels at 0 or without a value are left out of the run, and have no value in the outputs.</p>
+      <figure class="fig">
+        <a href="assets/img/maps-to-numbers/06-only-where.png"><img src="assets/img/maps-to-numbers/06-only-where.png" alt="The Run on the raster part of the Mann-Kendall trend panel: the scope Whole image, below it Only: everywhere, then the output folder with Change..., Estimating the run time..., the Run button, Runs in the background on every core, see Tools > Tasks, Preview and Auto-preview." width="452" height="206" loading="lazy"></a>
+        <figcaption><b>Only</b>, under a tool's scope (here Mann-Kendall's, the mask open beside the Landsat series): <em>everywhere</em>, or where a layer on the grid is not 0.</figcaption>
+      </figure>
+    </section>
+
+    <section id="zonal">
+      <h2><span class="n">07</span>Zonal statistics over time</h2>
+      <p><span class="ui">Zonal statistics over time...</span>, in a vector layer's menu, makes each feature a zone and puts it through every date of the active series (or of a run's map). Its pixels are those whose centre is inside, or every pixel touched; a pixel in several features counts in each, as in rasterstats and exactextract. The features are burned once on the grid, then each date is read once, in blocks of rows on the processing threads.</p>
+      <dl class="terms">
+        <dt>Values</dt><dd>For each zone and date: the number of values, mean, standard deviation, least, percentiles 10, 25, 50, 75 and 90 (numpy's, linear) and largest.</dd>
+        <dt>Classes</dt><dd>Each class's pixels and area (each pixel's true area, as in Areas) and its share of the zone; with <span class="ui">Transitions</span>, from one date to another, the area of each class that became each other class.</dd>
+        <dt>Change dates</dt><dd>For a map of change years: each zone's area by year.</dd>
+        <dt>Zones named by</dt><dd>An attribute or the FID; <span class="ui">Where</span>: every feature, or those within the ROI.</dd>
+      </dl>
+      <p>The task writes <code>zonal_long.csv</code> (a row per zone, date and class or statistic), <code>zonal_wide.csv</code> (a row per zone, a column per date: the statistic chosen under <span class="ui">Columns</span>, or each class's hectares), <code>transitions.csv</code> when asked for, and a GeoPackage of the features with those columns added, opened as a layer. <span class="ui">Analysis → Zonal</span> draws a feature's series: its mean and median with the bands from the 10th to the 90th and the 25th to the 75th percentile, or its classes' areas stacked by date; it follows the feature picked in the attribute table.</p>
+      <figure class="fig">
+        <a href="assets/img/maps-to-numbers/07-zonal.jpg"><img src="assets/img/maps-to-numbers/07-zonal.jpg" alt="The Zonal statistics over time window over Janus: forest_1985.gpkg: 49 features, each a zone; Map mapbiomas_grid (each date); What: values their statistics, classes their areas (ticked), change dates the area by year; Transitions from 1985 to 2018 unticked; Zones named by the FID; Pixels their centre inside; Where every feature; Name forest_1985.gpkg zonal; the status Done in 0.8 s. Behind it the MapBiomas map of 2018 with the 49 patches drawn over it, and the Analysis panel at its Zonal tab: forest_1985.gpkg on mapbiomas_grid, Feature 1, 10369 pixels, 0.8 s, the tables and the GeoPackage in the zonal results folder, the pixel areas' note; a bar per year from 1985 to 2018 of feature 1's classes, nearly all forest in dark green with a thin band of pasture and mosaic at the top from 1990, the legend of six classes over the last years." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The 49 patches through 34 years</b> of MapBiomas, by class: feature 1, the largest patch, still forest almost whole.</figcaption>
+      </figure>
+      <p>The 49 patches through the 34 years took 0.8 s (no pixel in two patches here). Of their 13 399 ha of forest in 1985, <strong>11 000 ha (82.1%) were forest in 2018</strong>; 1 442 ha had become pasture, 590 ha the mosaic of agriculture and pasture, 143 ha sugar cane. Patch by patch, the share still forest in 2018 goes from 99.3% to 37.2% (median 86.2%):</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Patch (FID)</th><th class="num">1985 (ha)</th><th class="num">Forest in 2018 (ha)</th><th class="num">Still forest</th><th>Its least forest</th><th>2018, the rest</th></tr></thead>
+          <tbody>
+            <tr><td>1, the largest</td><td class="num">910.9</td><td class="num">871.5</td><td class="num">95.7%</td><td>846.7 ha (1992)</td><td>annual crops 19.8 ha, mosaic 12.9 ha, pasture 5.5 ha</td></tr>
+            <tr><td>11</td><td class="num">405.0</td><td class="num">174.1</td><td class="num">43.0%</td><td>173.9 ha (2008)</td><td>pasture 188.2 ha, mosaic 42.7 ha</td></tr>
+            <tr><td>40</td><td class="num">128.9</td><td class="num">47.9</td><td class="num">37.2%</td><td>46.9 ha (2006)</td><td>water 40.8 ha, pasture 27.8 ha, mosaic 12.5 ha</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Patch 11, where pin 1 stands, lost a quarter of its forest by 1990 (304.3 ha left) and kept losing it until 2008; it has stayed between 174 and 184 ha since. A third of patch 40 is <em>River, Lake and Ocean</em> in 2018. Set beside section 04, the patches tell what the area's total hid: the large forests of 1985 lost 2 399 ha, while the forest outside them, in smaller patches and in new ones, went from 23 496 to 23 894 ha.</p>
+    </section>
+
+    <section id="values">
+      <h2><span class="n">08</span>A series by zone</h2>
+      <p>The same patches over the Landsat series (<em>landsat</em> active, <span class="ui">What</span>: <em>values</em>) give each patch's statistics of the vegetation index at each of the 41 years: the medoids are noisy pixel by pixel, a patch's median much less so.</p>
+      <figure class="fig">
+        <a href="assets/img/maps-to-numbers/08-index.jpg"><img src="assets/img/maps-to-numbers/08-index.jpg" alt="Janus with three layers: forest_1985.gpkg (49 polygons) over landsat (active, 41 dates, 1985 to 2025, Float32) and mapbiomas_grid. The map of the index in 2018 from -0.07 (purple) to 0.43 (yellow), zoomed in, the 1985 forest patches outlined in dark brown over yellow and green; pin 1 in a patch at the top, pin 2 at the bottom. The chart, lines and markers: both pins between about 0.15 and 0.47, swinging from year to year, with their OLS trends dashed, pin 1's falling and pin 2's rising. The Statistics table: pin 1 mean 0.3002, median 0.31427, OLS trend -0.0016337 per year, largest drop 0.23196 (2008); pin 2 mean 0.34415, median 0.37101, OLS trend 0.0027158 per year, largest drop 0.22545 (1987)." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The index under the patches</b> in 2018: pin 1 (the pasture since 1990) and pin 2 (the forest) swing widely from year to year (ranges of 0.31 and 0.30); their trends part, −0.0016 and +0.0027 a year.</figcaption>
+      </figure>
+      <p>The median of each patch's pixels (from <code>zonal_long.csv</code>):</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Patch (FID)</th><th class="num">1985</th><th class="num">1995</th><th class="num">2005</th><th class="num">2008</th><th class="num">2018</th><th class="num">2025</th></tr></thead>
+          <tbody>
+            <tr><td>1 (95.7% still forest)</td><td class="num">0.334</td><td class="num">0.332</td><td class="num">0.373</td><td class="num">0.334</td><td class="num">0.378</td><td class="num">0.444</td></tr>
+            <tr><td>11 (43.0%)</td><td class="num">0.373</td><td class="num">0.309</td><td class="num">0.290</td><td class="num">0.253</td><td class="num">0.303</td><td class="num">0.341</td></tr>
+            <tr><td>40 (37.2%)</td><td class="num">0.356</td><td class="num">0.276</td><td class="num">0.209</td><td class="num">0.201</td><td class="num">0.264</td><td class="num">0.311</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Patch 1, nearly all forest still, is the highest after 2005 and rises to 0.444 in 2025. The two patches that lost most of their forest fell from about 0.36 in 1985 to 0.20–0.25 by 2005–2008, the years MapBiomas gives their least forest; patch 11's lowest median is 0.234 (2015), patch 40's 0.092 (2017), when part of it was water. Both are higher in 2025: the series goes seven years past the last map of MapBiomas collection 4.1, and the same zones follow it there. The 49 patches through the 41 years took 24.2 s, most of it reading: each medoid is stored a row of the whole 7478-pixel scene per block, so every date reads whole rows of the scene for the window's 2000 columns.</p>
+    </section>
+
+    <section id="checked">
+      <h2><span class="n">09</span>Checked against the originals</h2>
+      <p>Each tool was run against the program it stands in for, on the same files, comparing the results and the time (scripts <code>tools/bench_*.py</code>, results in <code>bench/*.json</code>; synthetic maps at 30 m, 8 threads where a tool takes them, GDAL 3.11.5):</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Janus</th><th>Against</th><th>Case</th><th class="num">Janus</th><th class="num">Original</th><th>Results</th></tr></thead>
+          <tbody>
+            <tr><td>Reproject</td><td><code>gdalwarp</code>; rioxarray</td><td>8192 × 8192 to EPSG:4326, bilinear, COG</td><td class="num">2.13 s</td><td class="num">2.09 s; 5.2 s</td><td>bit for bit the command's</td></tr>
+            <tr><td></td><td></td><td>8192 × 8192 classes to 90 m by mode</td><td class="num">0.38 s</td><td class="num">0.39 s; 0.72 s</td><td>bit for bit; rioxarray equal</td></tr>
+            <tr><td>Polygonize</td><td><code>gdal_polygonize</code>; <code>rasterio.features.shapes</code></td><td>2048 × 2048, 6 classes: 11 732 polygons</td><td class="num">1.15 s</td><td class="num">0.75 s; 0.67 s</td><td>the same polygons</td></tr>
+            <tr><td></td><td></td><td>4096 × 4096 years of loss: 45 711 polygons</td><td class="num">1.48 s</td><td class="num">1.43 s; 1.32 s</td><td>the same polygons</td></tr>
+            <tr><td>Areas</td><td>R's <code>terra::expanse</code></td><td>8 maps of 4096 × 4096 in UTM</td><td class="num">0.39 s</td><td class="num">187 s</td><td>within 7 × 10⁻⁶</td></tr>
+            <tr><td></td><td></td><td>8 maps of 4096 × 4096 in degrees</td><td class="num">0.38 s</td><td class="num">1.1 s</td><td>within 2 × 10⁻⁹</td></tr>
+            <tr><td>Rasterize</td><td><code>gdal_rasterize</code>; <code>rasterio.features.rasterize</code></td><td>11 732 polygons on 2048 × 2048, Int32</td><td class="num">0.68 s</td><td class="num">2.69 s; 2.6 s</td><td>equal pixel for pixel</td></tr>
+            <tr><td></td><td></td><td>45 711 polygons on 4096 × 4096, Int32</td><td class="num">0.29 s</td><td class="num">9.6 s; 1.6 s</td><td>equal pixel for pixel</td></tr>
+            <tr><td>Zonal, values</td><td>rasterstats</td><td>2100 zones, 8 dates of 4096 × 4096</td><td class="num">1.8 s</td><td class="num">62 s</td><td>equal to single precision</td></tr>
+            <tr><td>Zonal, classes</td><td>rasterstats</td><td>the same, 5 classes</td><td class="num">1.3 s</td><td class="num">39 s</td><td>every count equal</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <dl class="terms">
+        <dt>Reproject</dt><dd>Janus's files equal the command's in all four cases (also a 60 km window to EPSG:3857 by cubic, 0.12 s against 0.14 s, and a warped VRT, 0.03 s against 0.06 s). rioxarray's bilinear differs by 3 × 10⁻⁴ at the median: rasterio's reproject does not widen the kernel when it reduces, as gdalwarp does.</dd>
+        <dt>Polygonize</dt><dd>gdal_polygonize writes the polygons and their value alone; Janus adds the geodesic area and perimeter of each. With the shapes measured by pyproj's <code>Geod</code>, rasterio took 2.0 s and 3.3 s. OGR's own geodesic area builds a transformation per polygon: measured that way, the first case took 13 s, against 1.2 s with all the rings transformed at once, as Janus does.</dd>
+        <dt>Areas</dt><dd>The pixel counts equal numpy's. A count times the nominal pixel area, what a script usually does, took 1.5 s; it is off by up to 0.007% in UTM, and in degrees it gives square degrees, not square metres. On a map of years of loss 8192 × 4096 crossing UTM's central meridian, terra took 373 s and gave 4 × 10⁻⁴ less; PROJ's area factor, pixel by pixel, gives Janus's value.</dd>
+        <dt>Rasterize</dt><dd>GDAL burns into a GeoTIFF through its block cache; Janus burns strips of rows in memory (256 MB at most) and writes them, 2 to 30 times faster. The values burned by the centres give back the map polygonized.</dd>
+        <dt>Zonal</dt><dd>2000 Voronoi cells and 100 circles over them, 327 975 pixels in more than one zone. Means within 1.7 × 10⁻⁷ and 90th percentiles within 2.5 × 10⁻⁶ of rasterstats' (single precision against double), counts, least, largest and deviations equal. R's exactextractr weights each pixel by the part of it inside: 20 s and 7 s, its means 1.9 × 10⁻⁴ (the median zone) to 2.5 × 10⁻³ (the 99th percentile) from the centres'.</dd>
+      </dl>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">10</span>What next</h2>
+      <ul>
+        <li><strong>Adjusted areas</strong>: the <a href="validation.html">Validation guide</a> turns a map's areas into estimates with confidence intervals from a sample.</li>
+        <li><strong>Trends inside the zones</strong>: the <a href="trend-test.html">Trend test guide</a> tests whether a class or a region of the same Landsat series is really greening or browning.</li>
+        <li><strong>Change maps</strong>: <a href="landtrendr.html">LandTrendr</a>'s year of loss polygonized gets a <code>date</code> per polygon and, with <span class="ui">Mean of</span>, its magnitude; <span class="ui">Area by value...</span> and the zones' <em>change dates</em> give its hectares by year.</li>
+        <li><strong>Expressions</strong>: the <a href="calculator.html">raster calculator</a> combines the class map and the series, two series matched by year (the index where the year's class is 3, with <code>where</code>), once they share a grid.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">11</span>References</h2>
+      <ul class="refs">
+        <li>Souza, C. M., Jr., et al. (2020). Reconstructing three decades of land use and land cover changes in Brazilian biomes with Landsat archive and Earth Engine. <em>Remote Sensing</em>, 12(17), 2735. MapBiomas Project, collection 4.1 of the annual land use and land cover maps of Brazil, <a href="https://mapbiomas.org">mapbiomas.org</a>.</li>
+        <li>GDAL: <a href="https://gdal.org/en/stable/programs/gdalwarp.html">gdalwarp</a>, <a href="https://gdal.org/en/stable/programs/gdal_polygonize.html">gdal_polygonize</a>, <a href="https://gdal.org/en/stable/programs/gdal_rasterize.html">gdal_rasterize</a>.</li>
+        <li>Karney, C. F. F. (2013). Algorithms for geodesics. <em>Journal of Geodesy</em>, 87(1), 43–55. (geographiclib: the geodesic areas and perimeters.)</li>
+        <li>Hijmans, R. J. terra: Spatial Data Analysis, R package (<code>expanse</code>).</li>
+        <li>Perry, M. rasterstats: summarize geospatial raster datasets based on vector geometries, Python package.</li>
+        <li>Baston, D. exactextractr: fast extraction from raster datasets using polygons, R package.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

@@ -146,14 +146,14 @@
       <article>
         <p class="tag">Catalogs</p>
         <h3>Series from STAC</h3>
-        <p>Search Earth Search, Planetary Computer, the Brazil Data Cube or any STAC API for an area, two dates and a cloud cover, and open the scenes as a series read in place: a mosaic per date on one grid, clouds masked. Or download them as GeoTIFFs. <a href="stac.html">Step-by-step guide</a>.</p>
-        <p class="spec">Sentinel-2 · Landsat · BDC cubes · SCL · QA_PIXEL</p>
+        <p>Search Earth Search, Planetary Computer, the Brazil Data Cube or any STAC API for an area, two dates and a cloud cover, and open the scenes as a series read in place: a mosaic per date on one grid, clouds masked. Or download them as GeoTIFFs. Sentinel-1's radar too, one pass at a time, in dB. <a href="stac.html">Step-by-step guide</a>.</p>
+        <p class="spec">Sentinel-2 · Landsat · Sentinel-1 RTC · BDC cubes · SCL · QA_PIXEL</p>
       </article>
       <article>
         <p class="tag">Calculator</p>
         <h3>Band math over time</h3>
-        <p>The 275 Awesome Spectral Indices on any series, or an expression of its bands; Tools → Raster calculator combines the open layers by short names, reduces a series over time and reclassifies by rules, computed as the map reads it. <a href="calculator.html">Step-by-step guide</a>.</p>
-        <p class="spec">EVI · MNDWI · max(ndvi) · count(ndvi &lt; 0.3) · ndvi &lt; 0.2 = 0</p>
+        <p>The 275 Awesome Spectral Indices on any series, or an expression of its bands; Tools → Raster calculator combines the open layers by short names, reduces a series over time, by year or month, over calendar windows and windows in days, with lags, anomalies and events, and reclassifies by rules, computed as the map reads it. <a href="calculator.html">Step-by-step guide</a>.</p>
+        <p class="spec">EVI · max(ndvi) · ndvi[2019-06 .. 2019-09] · mean(ndvi, 90d) · anomaly(...) · first(...)</p>
       </article>
       <article>
         <p class="tag">Map</p>
@@ -239,6 +239,36 @@
         <p>SNIC cuts the image into segments whose pixels share a history, with each segment's mean series as a layer and their polygons as a vector layer, to interpret, run the tools on or sample by object. <a href="snic.html">Step-by-step guide</a>.</p>
         <p class="spec">SNIC · mean series · polygons</p>
       </article>
+      <article>
+        <p class="tag">Workspace</p>
+        <h3>Everything a keystroke away</h3>
+        <p>Ctrl+K finds any menu, tool, index, layer or panel by name. A status bar gives the pixel, coordinates, value, CRS and scale, and tells you when a task ends. Layers blend and group, and copy their style; Go to a place, save views, a minimap and a lens. <a href="workspace.html">Step-by-step guide</a>.</p>
+        <p class="spec">Ctrl+K · Ctrl+G · blend modes · groups · saved styles · minimap · lens</p>
+      </article>
+      <article>
+        <p class="tag">Projects</p>
+        <h3>Save it, undo it, trace it</h3>
+        <p>A project keeps the layers, styles, dates, views, pins and ROI, and the last session comes back when you open Janus. Ctrl+Z undoes a change to the layers. Every result records how it was made (tool, parameters, inputs, versions), to run again or copy as Python, and a tool's preview on the ROI comes before the whole scene.</p>
+        <p class="spec">Ctrl+S · Ctrl+Z · provenance · Copy Python · preview</p>
+      </article>
+      <article>
+        <p class="tag">Series</p>
+        <h3>Series in and out</h3>
+        <p>Build a series from loose files (dates from their names, bands and tiles told apart), put an irregular one at a fixed step (median, medoid or clearest date, gaps filled), and save any series as a multiband COG, a NetCDF or a Zarr with its time axis, ready for xarray. <a href="series.html">Step-by-step guide</a>.</p>
+        <p class="spec">VRT · COG · NetCDF CF · Zarr · 16 days · monthly · Whittaker</p>
+      </article>
+      <article>
+        <p class="tag">Maps to numbers</p>
+        <h3>Areas, polygons and zones</h3>
+        <p>Reproject, resample or clip with gdalwarp's own code; polygonize a map with each patch's geodesic area; the true area of every class at every date; rasterize polygons on the series' grid; statistics and class areas of every polygon through time. <a href="maps-to-numbers.html">Step-by-step guide</a>.</p>
+        <p class="spec">GeoPackage · ha by class and year · transitions · zonal CSV</p>
+      </article>
+      <article>
+        <p class="tag">Radar</p>
+        <h3>Through the clouds</h3>
+        <p>Sentinel-1 RTC from Planetary Computer, one orbit pass at a time, shown in dB with VH/VV and the radar indices; Quegan's multitemporal or Lee's speckle filter makes a smoother series that keeps each date's changes. <a href="stac.html#radar">Step-by-step guide</a>.</p>
+        <p class="spec">VV · VH · dB · Quegan · Lee</p>
+      </article>
     </div>
   </div>
 </section>
@@ -306,8 +336,11 @@
       <li><a href="deep-learning.html"><span>Landsat, every date</span><h3>Deep learning</h3><p>TempCNN, L-TAE and U-TAE trained on MapBiomas samples: a land cover map with its probability and uncertainty, smoothed, and where the model can be trusted.</p></a></li>
       <li><a href="presto.html"><span>Landsat, a year</span><h3>Presto</h3><p>A pretrained foundation model's encodings of every pixel: embeddings to explore, and a classifier on them.</p></a></li>
       <li><a href="calculator.html"><span>Any series of bands</span><h3>Raster calculator</h3><p>EVI and the 275 Awesome Spectral Indices on a Sentinel-2 series, the open layers combined by short names, 107 dates reduced to an image, classes by rules.</p></a></li>
-      <li><a href="stac.html"><span>Sentinel-2, Landsat, BDC</span><h3>STAC catalogs</h3><p>An area, two dates, a cloud cover: 375 Sentinel-2 scenes of five dry seasons as a series of 107 dates, read in place from Planetary Computer with the clouds masked, or downloaded.</p></a></li>
+      <li><a href="stac.html"><span>Sentinel-2, Landsat, Sentinel-1</span><h3>STAC catalogs</h3><p>An area, two dates, a cloud cover: 375 Sentinel-2 scenes of five dry seasons as a series of 107 dates, read in place from Planetary Computer with the clouds masked; then a year of Sentinel-1 radar over the same square, in dB, a clearing seen through the clouds.</p></a></li>
+      <li><a href="series.html"><span>Any series</span><h3>Series in and out</h3><p>36 loose files built into a series, 107 irregular Sentinel-2 dates put every 16 days with their gaps filled, saved as a NetCDF and a Zarr that xarray reads, and a year of Sentinel-1 through a speckle filter.</p></a></li>
+      <li><a href="maps-to-numbers.html"><span>Any class map</span><h3>Maps to numbers</h3><p>34 years of MapBiomas on a Landsat series' grid: the hectares of each class every year, the forest patches of 1985 as polygons, and what became of each one, year by year.</p></a></li>
       <li><a href="embeddings.html"><span>AlphaEarth, TESSERA</span><h3>Embeddings</h3><p>Forest, pasture and water from nine pins in milliseconds, what changed into what since 2017, and the direction of every change.</p></a></li>
+      <li><a href="workspace.html"><span>Interface</span><h3>The workspace</h3><p>The status bar and notices, Ctrl+K for any command, Ctrl+G for any coordinate, blend modes, groups and styles, a lens on another date, the provenance and Python of every result, previews, projects and undo.</p></a></li>
     </ul>
   </div>
 </section>
