@@ -1331,6 +1331,122 @@ termina.
   (7.8 s em 64 datas); agora é gravada uma vez quando o resultado vai a GeoTIFFs
   (0.6 s). O Live usa o mesmo `reduce_dates` sobre as datas já lidas.
 
+### Menu Tools pela pergunta, não pela família do método (2026-10-29)
+Hoje as categorias do Tools são famílias de método (Preprocessing, Indices,
+Trend, Phenology, Change detection, Classification, Segmentation), e quatro
+ferramentas ficam soltas no fim do menu (Regularize, Speckle filter,
+Reproject/resample/clip, Raster calculator). Proposta aprovada: agrupar pela
+pergunta do usuário, na ordem de um fluxo de trabalho.
+
+| Categoria | Ferramentas que já existem |
+|---|---|
+| Data preparation | Tmask, Smoothing, Regularize series, Speckle filter, Reproject/resample/clip |
+| Spectral analysis | NDFI, Spectral unmixing (endmembers / spectrum) |
+| Temporal dynamics | Phenology, Mann-Kendall, AR(1) trend (remotePARTS) |
+| Change detection | as 12 de hoje (LandTrendr, Recovery, CCDC, CCDC sintético, S-CCD, BFAST, BFAST Lite, BFAST Monitor, BEAST, CODED, EWMACD, Agreement) |
+| Spatial pattern analysis | Emerging hot spots (sai de Trend), SNIC |
+| Classification & pattern recognition | TWDTW, SOM, Post-processing, Deep learning |
+| Validation & uncertainty | o menu Validation de hoje (amostra, interpretação, acurácia, área) |
+
+- Ganhos: Phenology deixa de ser um submenu de uma ferramenta só; os
+  itens soltos entram em Data preparation (no fim do menu ficam só a
+  calculadora e Tasks); Emerging hot spots fica com o que é espacial.
+- **Validation continua menu de topo**, só renomeado para "Validation &
+  uncertainty": é um fluxo (projeto, painel, interpretação), não uma janela de
+  ferramenta, e dentro de Tools ficaria escondido.
+- **Não pôr no menu o que não existe.** A harmonização de sensores já
+  existe no Zeit (fase 16: `bandpass_adjust`, o HLS no `build_time_series`),
+  falta só expô-la no Janus (Data preparation). Da proposta faltam: agrupamento
+  espacial além do Gi* dos hot spots (LISA, Moran local), classificação de ML
+  clássica (Random Forest a partir de pinos/amostras; hoje só deep learning)
+  e índices espectrais como ferramenta (hoje vêm da biblioteca ao abrir e da
+  calculadora; talvez um atalho em Spectral analysis que abre a calculadora
+  nos índices). Candidatos a fases; o Random Forest é o mais útil.
+- **Onde mudar**: a `category` vem do `tools.json`, gerado pelo Zeit
+  (`zeit_version` 1.7.0): mudar no manifesto do Zeit e regerar, para os dois
+  ficarem iguais (não remapear só no Janus). As ferramentas nativas do Janus
+  (Regularize, Speckle, Reproject) precisam de uma categoria também, hoje são
+  botões fixos em `tools_menu` (`crates/janus-app/src/zeit.rs`).
+- Acompanha: a paleta de comandos (categorias), os testes de UI que passam pelo
+  menu (`shots_menu`), `docs/usage` e os guias do site que citam caminhos
+  "Tools > Trend > …".
+- Fazer depois da release 1.6.0 (o CI estava republicando a tag em
+  2026-10-29), numa versão própria.
+
+### Área de aplicabilidade completa, como o CAST (2026-10-29)
+Referência: o tutorial do CAST
+(https://hannameyer.github.io/CAST/articles/cast02-AOA-tutorial.html; Meyer &
+Pebesma 2021). Entra em "Validation & uncertainty" do menu novo (acima).
+
+O que já existe:
+- Janus: `crates/janus-ml/src/aoa.rs` (DI e AOA por `zeit_core::aoa`), só para
+  TempCNN e L-TAE, um checkbox "Area of applicability" na janela de Deep
+  learning; o threshold pelo DI de cada amostra até a mais próxima de *outro
+  lugar* (polígono, pino), como folds espaciais; as variáveis pesam igual (as
+  redes não têm importância).
+- Zeit: `zeit.train_di` / `zeit.aoa` (`zeit/_aoa.py`, `zeit-core/src/aoa.rs`),
+  iguais ao CAST 1.0.4 até 1e-13, com folds, **LPD** (`lpd=True`) e **pesos
+  pela importância** (`feature_importances_` do modelo de
+  `zeit.train_classifier`). Só a distância euclidiana (a de Mahalanobis do
+  CAST não foi portada).
+
+O que falta, e onde:
+1. **LPD no Janus** (só Janus): `zeit_core::aoa::di` já calcula; o Janus
+   passa `lpd = false` (`aoa.rs`, `di`). Um mapa a mais: quantas amostras de
+   treino sustentam cada pixel.
+2. **Perfil de erro pelo DI** (`errorProfiles` do CAST; **Zeit primeiro**,
+   depois o Janus): o erro das predições fora do fold em função do DI,
+   ajustado como uma curva que só cresce (o CAST usa um modelo com forma
+   restrita), e o mapa de erro (ou de acurácia, para classes) esperado. Não
+   existe nem no Zeit. No Zeit: `zeit-core` (a curva monótona e a aplicação
+   por pixel) + `zeit.error_profiles` no Python, comparado ao CAST no R. No
+   Janus, para as redes, as predições do conjunto de validação que o treino
+   já separa (treinar k vezes é caro). É o ganho principal: um mapa contínuo
+   de incerteza, não só dentro/fora.
+3. **Pesos pela importância no Janus** (Janus; o Zeit já tem): só com uma
+   classificação clássica no Janus (o Random Forest do backlog, com a
+   importância por permutação ou a do modelo). Até lá as redes pesam igual.
+4. **AOA como item próprio** em "Validation & uncertainty" (Janus): DI, AOA,
+   LPD e erro esperado de um modelo treinado, em vez do checkbox escondido;
+   também para Presto (as entradas do encoder) e, quando houver, o Random
+   Forest e a classificação dos embeddings.
+5. Opcional (**Zeit**): folds espaciais pelo kNNDM (Linnenbrink et al. 2024,
+   do CAST: folds cuja distância até o treino imita a da área a predizer), no
+   lugar de "um lugar por fold"; e a distância de Mahalanobis.
+
+Como nas outras fases: implementar pelos artigos (o núcleo do Zeit é
+GPL-2.0-only; não traduzir o código do CAST) e medir valores e tempo contra o
+`CAST::aoa` / `errorProfiles` / `knndm` no R.
+
+#### Validação cruzada espacial, como o blockCV (2026-10-29)
+Referência: Valavi et al. 2019, *blockCV* (MEE 10:225, doi
+10.1111/2041-210X.13107): folds separados no espaço (blocos em grade ou
+hexágonos, distribuídos ao acaso, em sequência ou em xadrez, equilibrando as
+classes), por buffer (deixar um de fora, sem os vizinhos a menos de uma
+distância), por agrupamento no espaço das variáveis (k-means), o **alcance da
+autocorrelação** das variáveis (variograma) para escolher o tamanho do bloco, e
+olhar os folds no mapa.
+
+- **Problema que já existe no Janus**: a validação do treino das redes
+  (`crates/janus-ml/src/train.rs`, `split`) sorteia *pixels* por classe; os
+  pixels de um mesmo polígono caem no treino e na validação, e a acurácia de
+  validação (e a parada antecipada) sai otimista. Correção mínima, sem nada
+  novo: separar por lugar (polígono, pino), como a AOA já faz. Depois: blocos
+  espaciais e kNNDM como opção ("Validation: random | places | spatial blocks |
+  kNNDM").
+- O tamanho do bloco pelo alcance da autocorrelação: o Zeit já ajusta
+  correlação espacial (o `fitCor` do remotePARTS, `zeit-core` spatial);
+  reaproveitar. O Janus mostra os folds sobre o mapa (o que o blockCV faz com
+  gráficos interativos é natural aqui).
+- Os folds espaciais servem para escolher o modelo e calibrar a AOA e o perfil
+  de erro (acima). **Não substituem** a acurácia da amostra probabilística
+  (fases 29–32, Olofsson et al. 2014), que continua sendo a estimativa da
+  acurácia do mapa (Wadoux et al. 2021: a validação cruzada espacial não é a
+  medida certa da acurácia de um mapa). O Janus deve dizer isso onde mostrar
+  a acurácia da validação cruzada.
+- No Zeit primeiro (uma função de folds: blocos, buffer, agrupamento, kNNDM;
+  ver o IDEAS.md do Zeit), o Janus usa.
+
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
 - Ferramentas de IA do Zeit como download opcional (PyTorch é pesado).
