@@ -177,6 +177,9 @@ Developer options:
   --calc TEXT         Tools > Raster calculator open with TEXT (statements apart by ;)
   --calc-run          and run once the layers are open: its result added as a layer
   --palette TEXT      the command palette open with TEXT typed (screenshots)
+  --window NAME,...   tool windows open once the layers are: regularize, speckle, warp, build, save,
+                      polygonize (the active series), rasterize, zonal (the first vector layer), areas
+                      (Analysis > Areas); NAME-run also runs it, the screenshot waiting for its result
   --validation-tab N  a validation project (a .gpkg input) on tab N of its panel (0 Design, 1 Accuracy,
                       2 Maps, 3 Interpreters, 4 Report)
   --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation
@@ -444,6 +447,7 @@ fn main() -> eframe::Result<()> {
             "--calc" => opts.calc = args.next(),
             "--calc-run" => opts.calc_run = true,
             "--palette" => opts.palette = args.next(),
+            "--window" => opts.windows.extend(args.next().unwrap_or_default().split(',').map(|w| w.trim().to_string())),
             "--view" => {
                 let v: Vec<f64> =
                     args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
@@ -478,6 +482,8 @@ fn main() -> eframe::Result<()> {
                     "classes" => Some(1),
                     "scatter" => Some(2),
                     "trend" => Some(3),
+                    "areas" => Some(4),
+                    "zonal" => Some(5),
                     _ => Some(0),
                 };
                 opts.analysis_view = month.trim().to_string();

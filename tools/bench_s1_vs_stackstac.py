@@ -3,8 +3,8 @@
     python tools/bench_s1_vs_stackstac.py     (the geo env: pystac-client, planetary-computer, stackstac, dask,
                                                rasterio, scipy; a connection to Planetary Computer)
 
-Planetary Computer's sentinel-1-rtc over the STAC guide's square of Rondonia (BOX; a forest there cleared in the 2024
-dry season), 2024, the pass with the most
+Planetary Computer's sentinel-1-rtc over the STAC guide's square of Rondonia (BOX; its pastures drying out in the
+2024 dry season), 2024, the pass with the most
 scenes. Janus (crates/janus-zeit/examples/vs_s1.rs, 8 threads): the search, a VRT a day (VV, VH at 10 m on the
 scenes' own grid) and every day read whole as VV in dB (the VVdB index, 10 log10 VV). stackstac: the same items
 searched and signed, stacked on Janus's grid (its bounds, 10 m, nearest, not snapped), each day's scenes mosaicked
@@ -163,7 +163,7 @@ def main():
                      "cv_after": float(np.nanstd(jan[:, 0]) / np.nanmean(jan[:, 0]))}
         print(name, json.dumps(spk[name]))
     res["speckle"] = spk
-    # the clearing: VH in dB after Quegan's filter, the first six dates' median against the last six's; the
+    # the dry season: VH in dB after Quegan's filter, the first six dates' median against the last six's; the
     # largest patches that fell more than 3 dB, where they are and their series
     from scipy.ndimage import label
     from pyproj import Transformer

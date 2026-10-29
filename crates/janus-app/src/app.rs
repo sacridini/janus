@@ -277,6 +277,8 @@ pub struct Options {
     pub calc_run: bool,
     /// --palette TEXT: the command palette open with TEXT typed
     pub palette: Option<String>,
+    /// --window NAME,...: tool windows opened (and run, NAME-run) once the layers are open (screenshots)
+    pub windows: Vec<String>,
     /// --selftest-reproject B F: F reprojected on B's grid
     pub selftest_reproject: bool,
     /// --selftest-multidim H/clim.nc: a NetCDF of two variables, its levels, opened in place
@@ -395,6 +397,8 @@ pub struct State {
     /// vector layers (drawn over every raster layer), the files being read, the feature under the cursor
     pub vectors: Vec<crate::vectors::VectorLayer>,
     pub vector_loads: crate::vectors::VectorLoads,
+    /// --window's windows not opened yet (they wait for the layers; None: the series not ready yet)
+    pub windows_pending: Option<Vec<String>>,
     pub next_vector_id: u32,
     pub hover_vector: Option<(usize, usize)>,
     /// the Attribute table panel
@@ -790,6 +794,7 @@ impl JanusApp {
                 transect_draft: Default::default(),
                 vectors: Vec::new(),
                 vector_loads: Default::default(),
+                windows_pending: None,
                 next_vector_id: 1,
                 hover_vector: None,
                 attr_table: Default::default(),
@@ -1009,6 +1014,88 @@ impl State {
         self.reopen_layer_inputs(i, inputs, sel, ctx);
     }
 
+    /// --window: the tool windows asked for, once what they need is open (the series, a vector layer).
+    pub(crate) fn apply_windows(&mut self, ctx: &egui::Context) {
+        if self.windows_pending.as_ref().is_none_or(Vec::is_empty)
+            || self.opening.is_some()
+            || !self.vector_loads.is_empty()
+        {
+            return;
+        }
+        let Some(id) = self.session.as_ref().map(|s| s.info.id) else { return };
+        // a map of classes: its classes' names and colours found first (the areas' chart takes them)
+        if self.session.as_ref().is_some_and(|s| s.info.file_categorical) && self.classes.list.is_empty() {
+            return;
+        }
+        for w in self.windows_pending.take().unwrap_or_default() {
+            let (name, run) = match w.strip_suffix("-run") {
+                Some(n) => (n, true),
+                None => (w.as_str(), false),
+            };
+            let vector = self.vectors.first().map(|v| v.id);
+            match name {
+                "regularize" => {
+                    self.reg.show = true;
+                    if run {
+                        self.regularize_run(ctx);
+                    }
+                }
+                "speckle" => {
+                    self.speckle.show = true;
+                    if run {
+                        self.speckle_run(ctx);
+                    }
+                }
+                "warp" => {
+                    self.warp.show = true;
+                    if run {
+                        self.warp_run(ctx);
+                    }
+                }
+                "build" => self.build.show = true,
+                "save" => self.save.show = true,
+                "polygonize" => {
+                    self.open_polygonize(crate::contents::Sel::Series(id));
+                    if run {
+                        let _ = self.polygonize_start(ctx);
+                    }
+                }
+                "rasterize" if vector.is_some() => {
+                    self.open_rasterize(vector.unwrap_or_default());
+                    if run {
+                        self.rasterize_run(ctx);
+                    }
+                }
+                "zonal" if vector.is_some() => {
+                    self.open_zonal(vector.unwrap_or_default());
+                    self.zonal.kind = self.zonal_guess();
+                    if run {
+                        self.zonal_run(ctx);
+                    }
+                }
+                "areas" => {
+                    self.open_areas(None);
+                    if run {
+                        self.areas_run(ctx);
+                    }
+                }
+                other => eprintln!("--window: no window {other} (or no vector layer for it)"),
+            }
+        }
+        self.windows_pending = Some(Vec::new());
+    }
+
+    /// --window's windows open, their runs done and what they made opened.
+    pub(crate) fn windows_settled(&self) -> bool {
+        self.opts.windows.is_empty()
+            || self.windows_pending.as_ref().is_some_and(Vec::is_empty)
+                && self.zeit.jobs.iter().all(|j| j.status.lock().unwrap().state != crate::zeit::JobState::Running)
+                && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some())
+                && !self.polygonize_pending()
+                && self.opening.is_none()
+                && self.vector_loads.is_empty()
+    }
+
     /// Layer i opened again from `inputs` (another variable of its file) with `sel`, in place.
     pub fn reopen_layer_inputs(
         &mut self,
@@ -1202,6 +1289,7 @@ impl State {
                 self.analysis.trend.auto_run = view.contains(&"run");
                 self.analysis.trend.auto_classes = view.contains(&"classes");
             }
+            self.windows_pending = Some(self.opts.windows.clone());
             if let Some(spec) = self.opts.chart.clone()
                 && let Some(layers) = self.chart.set(&spec)
             {
@@ -1819,7 +1907,8 @@ impl State {
                         && !self.stac.open_after
                         && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()))
                 && (!self.opts.calc_run
-                    || !self.calc.run_pending && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()));
+                    || !self.calc.run_pending && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()))
+                && self.windows_settled();
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
                 self.shots_pending += 1;
@@ -2179,6 +2268,7 @@ impl eframe::App for JanusApp {
         self.state.rasterize_window(&ctx);
         self.state.zonal_window(&ctx);
         self.state.series_windows(&ctx);
+        self.state.apply_windows(&ctx);
         self.state.class_flows_window(&ctx);
         self.state.tasks_window(&ctx);
         self.state.provenance_window(&ctx);

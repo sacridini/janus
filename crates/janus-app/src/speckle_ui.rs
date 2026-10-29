@@ -138,7 +138,7 @@ impl State {
             ui.colored_label(crate::theme::warning(), "Quegan's filter needs 2 dates or more");
         }
         ui.weak(
-            "Every band of every date, on the linear values (not dB): a COG per date, in a folder that opens\n\
+            "Every band of every date, on the linear values (not dB): a COG per date, in a folder that opens \
              as a series shown as this one is.",
         );
         ui.add_space(4.0);

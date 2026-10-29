@@ -187,6 +187,13 @@ pub fn warp(src: &str, dst: &str, opts: &WarpOptions, progress: &dyn Fn(f64) -> 
             let _ = std::fs::remove_file(dst);
             return Err(if e.is_empty() { "gdalwarp failed".into() } else { e });
         }
+        // the classes' names (GDALWarp keeps a colour table, not the names)
+        for b in 1..=gdal_sys::GDALGetRasterCount(src_h[0]).min(gdal_sys::GDALGetRasterCount(out)) {
+            let names = gdal_sys::GDALGetRasterCategoryNames(gdal_sys::GDALGetRasterBand(src_h[0], b));
+            if gdal_sys::CSLCount(names) > 0 {
+                gdal_sys::GDALSetRasterCategoryNames(gdal_sys::GDALGetRasterBand(out, b), names);
+            }
+        }
         gdal_sys::GDALClose(out);
     }
     Ok(())
@@ -295,6 +302,49 @@ mod tests {
         // stopped
         let stop = AtomicBool::new(true);
         assert_eq!(warp_files(&[src.to_string()], &dir, &opts, &|_, _| {}, &stop).unwrap_err(), "cancelled");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A class map's names kept in every format.
+    #[test]
+    fn class_names_kept() {
+        let src = "/vsimem/warp_classes.tif";
+        source(src, 20, 20);
+        let names_of = |path: &str| -> Vec<String> {
+            let ds = Dataset::open(path).unwrap();
+            // a GeoTIFF reads its .aux.xml (the names) with its georeference, not for the names alone
+            let _ = ds.geo_transform();
+            // SAFETY: the band of a dataset alive here; the list owned by it, read before it closes.
+            unsafe {
+                let l = gdal_sys::GDALGetRasterCategoryNames(gdal_sys::GDALGetRasterBand(ds.c_dataset(), 1));
+                (0..gdal_sys::CSLCount(l))
+                    .map(|i| std::ffi::CStr::from_ptr(*l.offset(i as isize)).to_string_lossy().into_owned())
+                    .collect()
+            }
+        };
+        {
+            let ds = Dataset::open_ex(
+                src,
+                gdal::DatasetOptions { open_flags: gdal::GdalOpenFlags::GDAL_OF_UPDATE, ..Default::default() },
+            )
+            .unwrap();
+            let names: Vec<CString> = ["none", "forest", "water"].iter().map(|s| CString::new(*s).unwrap()).collect();
+            // SAFETY: a NULL-ended list of strings alive during the call, which copies them.
+            unsafe {
+                let mut list: Vec<*mut c_char> = names.iter().map(|s| s.as_ptr() as *mut c_char).collect();
+                list.push(null_mut());
+                gdal_sys::GDALSetRasterCategoryNames(gdal_sys::GDALGetRasterBand(ds.c_dataset(), 1), list.as_mut_ptr());
+            }
+        }
+        assert_eq!(names_of(src), ["none", "forest", "water"]);
+        let none = AtomicBool::new(false);
+        let dir = std::env::temp_dir().join(format!("janus_warp_names_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for format in [Format::Cog, Format::GTiff, Format::Vrt] {
+            let opts = WarpOptions { t_srs: Some("EPSG:4326".into()), format, threads: 2, ..Default::default() };
+            let out = warp_files(&[src.to_string()], &dir, &opts, &|_, _| {}, &none).unwrap();
+            assert_eq!(names_of(&out[0]), ["none", "forest", "water"], "{format:?}");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

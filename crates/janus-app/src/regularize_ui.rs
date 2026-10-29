@@ -198,7 +198,7 @@ impl State {
         let ps = periods(&times, opts.step);
         let empty = ps.iter().filter(|p| p.dates.is_empty()).count();
         ui.weak(format!(
-            "{} periods of {}{}: one COG each, in a folder that opens as a series",
+            "{} periods ({}){}: one COG each, in a folder that opens as a series",
             ps.len(),
             self.reg.step_text(),
             if empty > 0 { format!(", {empty} without a date") } else { String::new() }

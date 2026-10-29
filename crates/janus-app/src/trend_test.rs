@@ -261,7 +261,7 @@ impl State {
             let names = list.iter().map(|e| (e.value, (e.name.clone(), e.color))).collect();
             Some((cs.info.clone(), cs.s.full_res.clone(), t.min(cs.info.t() - 1), place, names, name))
         });
-        let threads = self.settings.s.threads;
+        let threads = self.processing_threads();
         let settings = Settings {
             per_year: o.per_year && s.info.time_is_date,
             harmonics: o.harmonics,

@@ -94,7 +94,7 @@ fn band_names(keys: &[String]) -> Vec<String> {
     let sep = |ch: char| "_-. ".contains(ch);
     let pre = (0..=pre).rev().find(|&i| i == 0 || sep(chars[0][i - 1])).unwrap_or(0);
     let suf = (0..=suf).rev().find(|&j| j == 0 || sep(chars[0][chars[0].len() - j])).unwrap_or(0);
-    chars
+    let names: Vec<String> = chars
         .iter()
         .enumerate()
         .map(|(b, c)| {
@@ -102,7 +102,43 @@ fn band_names(keys: &[String]) -> Vec<String> {
             let n = n.trim_matches(|ch: char| "_-. ".contains(ch)).to_string();
             if n.is_empty() { format!("band {}", b + 1) } else { n }
         })
-        .collect()
+        .collect();
+    // a resolution after the band (B04_10m, SCL_20m, as a Sentinel-2 product names them) dropped while the names
+    // stay apart
+    let bare: Vec<String> = names
+        .iter()
+        .map(|n| {
+            let cut =
+                n.strip_suffix('m').and_then(|r| r.trim_end_matches(|c: char| c.is_ascii_digit()).strip_suffix('_'));
+            match cut {
+                Some(b) if !b.is_empty() && n.len() - b.len() > 2 => b.to_string(),
+                _ => n.clone(),
+            }
+        })
+        .collect();
+    let distinct: std::collections::BTreeSet<&String> = bare.iter().collect();
+    if distinct.len() == bare.len() { bare } else { names }
+}
+
+/// A Sentinel-2 band's central wavelength (nm, Sentinel-2A's) by its name, for the indices of a series built.
+fn sentinel2_nm(name: &str) -> Option<f64> {
+    let nm = match name.to_ascii_uppercase().as_str() {
+        "B01" | "B1" => 442.7,
+        "B02" | "B2" => 492.4,
+        "B03" | "B3" => 559.8,
+        "B04" | "B4" => 664.6,
+        "B05" | "B5" => 704.1,
+        "B06" | "B6" => 740.5,
+        "B07" | "B7" => 782.8,
+        "B08" | "B8" => 832.8,
+        "B8A" => 864.7,
+        "B09" | "B9" => 945.1,
+        "B10" => 1373.5,
+        "B11" => 1613.7,
+        "B12" => 2202.4,
+        _ => return None,
+    };
+    Some(nm)
 }
 
 /// Reads the files and plans the series: dates from the names, bands and tiles, one CRS, the grid.
@@ -395,6 +431,10 @@ pub fn build(
         for (b, n) in plan.bands.iter().enumerate() {
             if let Ok(mut rb) = ds.rasterband(b + 1) {
                 let _ = rb.set_description(n);
+                if let Some(nm) = sentinel2_nm(n) {
+                    let _ = rb.set_metadata_item("wavelength", &nm.to_string(), "");
+                    let _ = rb.set_metadata_item("wavelength_units", "nm", "");
+                }
             }
         }
         drop(ds);
@@ -810,6 +850,15 @@ mod tests {
         assert_eq!(key_of("S2_20200101_B04"), "S2__B04");
         let n = band_names(&["S2__B04".into(), "S2__B08".into(), "S2__SCL".into()]);
         assert_eq!(n, vec!["B04", "B08", "SCL"]);
+        let n = band_names(&["T20LMP__B04_10m".into(), "T20LMP__B08_10m".into(), "T20LMP__SCL_20m".into()]);
+        assert_eq!(n, vec!["B04", "B08", "SCL"]);
+        // kept when dropping the resolution would make two names one
+        assert_eq!(
+            band_names(&["B04_10m".into(), "B04_20m".into(), "B08_10m".into()]),
+            vec!["B04_10m", "B04_20m", "B08_10m"]
+        );
+        assert_eq!(sentinel2_nm("b8a"), Some(864.7));
+        assert_eq!(sentinel2_nm("SCL"), None);
         assert_eq!(day_text(86400.0 * 18262.0), "2020-01-01");
     }
 

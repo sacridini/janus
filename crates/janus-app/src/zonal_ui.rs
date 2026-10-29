@@ -598,12 +598,20 @@ impl State {
                     .allow_scroll(false)
                     .show(ui, |pu| {
                         let blue = Color32::from_rgb(31, 119, 180);
+                        // a band a quad per two dates with values (egui fills a polygon as convex)
                         for (lo, hi, name, a) in [(4, 8, "p10 to p90", 40), (5, 7, "p25 to p75", 70)] {
-                            let (l, u) = (pts(lo), pts(hi));
-                            if l.len() > 1 {
-                                let ring: Vec<[f64; 2]> = l.iter().copied().chain(u.iter().rev().copied()).collect();
+                            let s: Vec<usize> =
+                                (0..dates).filter(|&s| !at(s, lo).is_nan() && !at(s, hi).is_nan()).collect();
+                            for p in s.windows(2) {
+                                let (x0, x1) = (p[0] as f64, p[1] as f64);
+                                let quad = vec![
+                                    [x0, at(p[0], lo)],
+                                    [x1, at(p[1], lo)],
+                                    [x1, at(p[1], hi)],
+                                    [x0, at(p[0], hi)],
+                                ];
                                 pu.polygon(
-                                    Polygon::new(name, PlotPoints::from(ring))
+                                    Polygon::new(name, PlotPoints::from(quad))
                                         .fill_color(Color32::from_rgba_unmultiplied(31, 119, 180, a))
                                         .stroke(egui::Stroke::NONE),
                                 );

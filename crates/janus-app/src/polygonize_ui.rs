@@ -108,6 +108,11 @@ impl State {
         self.poly.show = open;
     }
 
+    /// A run whose GeoPackage is not opened yet.
+    pub(crate) fn polygonize_pending(&self) -> bool {
+        !self.poly.pending.is_empty()
+    }
+
     /// The GeoPackages of the runs done opened as vector layers.
     fn pump_polygonize(&mut self, ctx: &egui::Context) {
         let mut open = vec![];

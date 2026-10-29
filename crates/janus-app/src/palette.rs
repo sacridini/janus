@@ -131,7 +131,7 @@ impl PaletteUi {
 }
 
 /// How well `query` matches a command: each word of it in the name (best at a word's start), the category or the
-/// description; a short word may match the name's letters in order (`exp png`: Export map as PNG). None: a word
+/// description; a short word may match the name's letters in order (`gtc`: Go to coordinate). None: a word
 /// matches nowhere.
 pub(crate) fn score(query: &str, label: &str, category: &str, detail: &str) -> Option<i32> {
     let (label, category, detail) = (label.to_lowercase(), category.to_lowercase(), detail.to_lowercase());

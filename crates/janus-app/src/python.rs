@@ -94,7 +94,7 @@ pub(crate) fn series_code(info: &janus_cube::CubeInfo) -> String {
             let _ = writeln!(
                 o,
                 "    ({}, [{}], {}, ({})),",
-                py_str(&l.path),
+                py_str(&crate::provenance::absolute(&l.path)),
                 bands.join(", "),
                 py_band(if qa_on { sel.qa_band + l.band_base } else { 0 }),
                 vars.join(", ")
@@ -109,7 +109,7 @@ pub(crate) fn series_code(info: &janus_cube::CubeInfo) -> String {
         let _ = writeln!(
             o,
             "    ({}, {}, {}, {}),",
-            py_str(&l.path),
+            py_str(&crate::provenance::absolute(&l.path)),
             l.band,
             py_band(if sel.nd_band > 0 { sel.nd_band + base } else { 0 }),
             py_band(if qa_on { sel.qa_band + base } else { 0 })

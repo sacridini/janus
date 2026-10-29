@@ -1616,8 +1616,8 @@ impl State {
                         px / 1e6
                     ))
                     .on_hover_text(
-                        "Computing time measured on a sample of the series, on every core.
-Reading the data adds to it, mostly on spinning disks.",
+                        "Computing time measured on a sample of the series, on the processing threads.
+Reading the data adds to it: much more for files in strips or on spinning disks.",
                     );
                 }
                 Some(Err(e)) => {
@@ -1634,7 +1634,7 @@ Reading the data adds to it, mostly on spinning disks.",
         {
             self.run_tool(tool, &ui.ctx().clone());
         }
-        ui.weak("Runs in the background on every core; see Tools > Tasks.");
+        ui.weak(format!("Runs in the background on {} threads; see Tools > Tasks.", self.processing_threads()));
         self.preview_ui(ui, tool, unavailable);
     }
 
@@ -1719,7 +1719,7 @@ Reading the data adds to it, mostly on spinning disks.",
         let scope = self.zeit.tools.get(&tool.id).map_or(0, |u| u.scope);
         let work = crate::settings::app_data_dir().join("work");
         let _ = std::fs::create_dir_all(&work);
-        let mut spec = base_spec(&info, tool, &params, self.display.t, self.settings.s.threads);
+        let mut spec = base_spec(&info, tool, &params, self.display.t, self.processing_threads());
         if self.classes.on() {
             // a categorical layer: its classes' names and colours on the class series a run writes
             spec.classes = self

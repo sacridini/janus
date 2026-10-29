@@ -238,7 +238,15 @@ impl State {
             .filter(|&i| i != self.active)
             .filter_map(|i| {
                 let info = &self.layer_session(i)?.info;
-                let same = (info.width, info.height) == (a.width, a.height) && info.geo_transform == a.geo_transform;
+                // within a millionth of a pixel (gdalwarp computes a grid's pixel size from its extent)
+                let near = match (info.geo_transform, a.geo_transform) {
+                    (Some(g), Some(h)) => {
+                        let tol = 1e-6 * h[1].abs().max(h[5].abs());
+                        g.iter().zip(&h).all(|(p, q)| (p - q).abs() <= tol)
+                    }
+                    (g, h) => g == h,
+                };
+                let same = (info.width, info.height) == (a.width, a.height) && near;
                 same.then(|| (info.id, self.layers[i].name.clone()))
             })
             .collect()

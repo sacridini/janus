@@ -58,11 +58,11 @@ impl SeriesRecord {
             width: info.width,
             height: info.height,
             crs: if info.crs_authority.is_empty() { info.crs_name.clone() } else { info.crs_authority.clone() },
-            inputs: inputs.to_vec(),
+            inputs: inputs.iter().map(|p| absolute(p)).collect(),
             files: info
                 .layers
                 .iter()
-                .map(|l| l.path.clone())
+                .map(|l| absolute(&l.path))
                 .collect::<std::collections::BTreeSet<_>>()
                 .into_iter()
                 .collect(),
@@ -71,10 +71,19 @@ impl SeriesRecord {
 
     /// The same series as `info` (its files and what it shows), wherever it was opened from.
     pub fn matches(&self, info: &janus_cube::CubeInfo) -> bool {
-        let files: std::collections::BTreeSet<&str> = info.layers.iter().map(|l| l.path.as_str()).collect();
+        let files: std::collections::BTreeSet<String> = info.layers.iter().map(|l| absolute(&l.path)).collect();
         files.len() == self.files.len()
-            && self.files.iter().all(|f| files.contains(f.as_str()))
+            && self.files.iter().all(|f| files.contains(&absolute(f)))
             && info.selection_text() == self.selection
+    }
+}
+
+/// A file or folder on disk as an absolute path (a run's record and its script work from anywhere); a URL or
+/// another of GDAL's paths as it is.
+pub(crate) fn absolute(p: &str) -> String {
+    match std::path::Path::new(p).exists().then(|| std::path::absolute(p)) {
+        Some(Ok(a)) => a.display().to_string(),
+        _ => p.to_string(),
     }
 }
 

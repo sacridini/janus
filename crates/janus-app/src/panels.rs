@@ -956,11 +956,7 @@ impl State {
     pub fn performance_end_ui(&mut self, ui: &mut Ui) {
         ui.separator();
         let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
-        let n = if self.settings.s.threads > 0 {
-            self.settings.s.threads
-        } else {
-            janus_session::default_processing_threads()
-        };
+        let n = self.processing_threads();
         ui.label(format!("Processing threads: {n} of {cores}"));
         if ui
             .add_sized([ui.available_width(), 20.0], egui::Button::new("Settings..."))
