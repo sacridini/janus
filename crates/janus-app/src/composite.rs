@@ -622,7 +622,7 @@ impl State {
         match st.stage {
             0 => {
                 let s = self.session.as_ref()?;
-                if !s.s.overview.complete() || s.stats.is_none() {
+                if !s.loaded() {
                     return None;
                 }
                 let info = s.info.clone();

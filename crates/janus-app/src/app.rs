@@ -1129,6 +1129,27 @@ impl State {
         }
     }
 
+    /// The settings of a series of `t` dates opened now as a layer (`replacing` layer i): the overview's memory is
+    /// for every layer, shared by their dates, those open and those waiting to open (files opened as layers of their
+    /// own), at least 16 MB a date. Each layer took the whole budget: 41 maps of a date each opened as layers took
+    /// 41 times the memory of the same files opened as one series.
+    pub(crate) fn layer_session_settings(&self, t: usize, replacing: Option<usize>) -> janus_session::SessionSettings {
+        let mut s = self.session_settings();
+        let open: usize = (0..self.layers.len())
+            .filter(|&k| Some(k) != replacing)
+            .filter_map(|k| self.layer_session(k))
+            .map(|l| l.info.t())
+            .sum();
+        // a layer waiting: a date a file (a stack's bands are not known yet)
+        let waiting: usize =
+            self.pending_opens.iter().map(|p| p.len().max(1)).sum::<usize>() + self.opts.extra_layers.len();
+        let t = t.max(1);
+        let total = s.overview_budget_bytes;
+        let share = (total as f64 * t as f64 / (open + waiting + t) as f64) as i64;
+        s.overview_budget_bytes = share.max((16 << 20) * t as i64).min(total);
+        s
+    }
+
     /// The series opened: a new layer, made active (the others closed unless it is added).
     fn finish_open(&mut self, info: janus_cube::CubeInfo, o: Opening, ctx: &egui::Context) {
         if let Some(i) = o.replace.filter(|&i| i < self.layers.len()) {
@@ -1148,7 +1169,8 @@ impl State {
             // a new series starts without the basemap until ticked
             self.basemap.ui.on = false;
         }
-        let s = Session::new(info, &o, &self.session_settings(), ctx);
+        let settings = self.layer_session_settings(info.t(), None);
+        let s = Session::new(info, &o, &settings, ctx);
         let n = s.info.t();
         let mut disp = Display { rgb: [0, n / 2, n - 1], ..Default::default() };
         // a spectrum opens in true colour (if it covers the visible), at the near infrared
@@ -1345,11 +1367,13 @@ impl State {
             // "Abertura rápida"), and no frame waits for their shaders to compile
             let (tx, rx) = std::sync::mpsc::channel();
             let (device, queue, c) = (self.render_state.device.clone(), self.render_state.queue.clone(), ctx.clone());
+            let backend = self.render_state.adapter.get_info().backend;
             std::thread::Builder::new()
                 .name("map pipelines".into())
                 .spawn(move || {
                     let start = Instant::now();
-                    let gpu = Gpu::new(&device, &queue);
+                    let mut gpu = Gpu::new(&device, &queue);
+                    gpu.set_backend(backend);
                     let _ = tx.send((gpu, start.elapsed().as_secs_f64() * 1000.0));
                     c.request_repaint();
                 })

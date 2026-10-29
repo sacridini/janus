@@ -290,6 +290,12 @@ impl<T> TileManager<T> {
         self.bytes
     }
 
+    /// Every tile let go (the layer no longer active: it draws its overview; a view that shows it asks again).
+    pub fn clear(&mut self) {
+        self.resident.clear();
+        self.bytes = 0;
+    }
+
     pub fn gpu_tiles(&self) -> usize {
         self.resident.len()
     }

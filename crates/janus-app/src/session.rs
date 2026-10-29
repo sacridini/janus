@@ -116,7 +116,13 @@ impl Session {
         let mut changed = !ready.is_empty();
         // every date on the GPU, not just read: the last one can complete after take_ready above, and statistics
         // of a cube with a date missing (zeros) would stay
-        if self.stats.is_none() && self.stats_job.is_none() && ov.complete() && self.uploaded.iter().all(|&u| u) {
+        let all_up = ov.complete() && self.uploaded.iter().all(|&u| u);
+        if self.info.t() < 2 {
+            // a single date: no statistics over time, ready once on the GPU
+            if all_up && self.ready_ms.is_none() {
+                self.ready_ms = Some(self.opened.elapsed().as_secs_f64() * 1000.0);
+            }
+        } else if self.stats.is_none() && self.stats_job.is_none() && all_up {
             let c = ctx.clone();
             self.stats_job = Some(gpu.compute_stats_async(cube, move || c.request_repaint()));
         }
@@ -136,6 +142,11 @@ impl Session {
         }
         self.collect_series();
         changed
+    }
+
+    /// The overview complete and, with two dates or more, its statistics over time computed.
+    pub fn loaded(&self) -> bool {
+        self.s.overview.complete() && (self.info.t() < 2 || self.stats.is_some())
     }
 
     /// The exact series read since the last call, kept for the cursor and the pins.

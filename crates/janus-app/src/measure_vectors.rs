@@ -41,7 +41,7 @@ impl State {
             0 => {
                 self.basemap.ui.on = false;
                 let s = self.session.as_ref()?;
-                if self.opening.is_some() || !s.s.overview.complete() || s.stats.is_none() {
+                if self.opening.is_some() || !s.loaded() {
                     return None;
                 }
                 let files = self.opts.measure_vector_files.clone();

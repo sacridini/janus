@@ -344,6 +344,13 @@ impl State {
         if self.session.is_some() && old < self.layers.len() {
             let l = &mut self.layers[old];
             l.session = self.session.take();
+            // its detail tiles go: up to 384 MB a layer, kept for every layer made active once (41 maps opened as
+            // layers), while a layer not active draws its overview
+            if old != i
+                && let Some(s) = l.session.as_mut()
+            {
+                s.tiles.clear();
+            }
             l.disp = std::mem::take(&mut self.display);
             l.classes = std::mem::take(&mut self.classes);
             l.composite = self.composite.take();
@@ -406,7 +413,8 @@ impl State {
         o: &crate::session::Opening,
         ctx: &egui::Context,
     ) {
-        let s = Session::new(info, o, &self.session_settings(), ctx);
+        let settings = self.layer_session_settings(info.t(), Some(i));
+        let s = Session::new(info, o, &settings, ctx);
         let n = s.info.t();
         let carry = |old: &Display| Display {
             mode: old.mode,
@@ -592,7 +600,7 @@ impl State {
             println!("[{:5.1} s] {done}", t0.elapsed().as_secs_f64());
             st.stage += 1;
         };
-        let complete = |s: &Session| s.s.overview.complete() && s.stats.is_some();
+        let complete = |s: &Session| s.loaded();
         match st.stage {
             0 => {
                 let s = self.session.as_ref()?;

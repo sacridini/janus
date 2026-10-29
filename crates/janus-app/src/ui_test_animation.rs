@@ -142,7 +142,7 @@ impl State {
                     let ready = self.opening.is_none()
                         && self.layers.len() == 1
                         && self.layers[0].inputs == [a.clone()]
-                        && self.session.as_ref().is_some_and(|s| s.s.overview.complete() && s.stats.is_some())
+                        && self.session.as_ref().is_some_and(|s| s.loaded())
                         && self.map.canvas[0] >= 100.0;
                     if !ready {
                         return None;

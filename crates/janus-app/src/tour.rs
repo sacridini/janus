@@ -113,7 +113,7 @@ impl State {
             }
             2 => {
                 let s = self.session.as_ref()?;
-                if s.s.overview.complete() && (s.info.t() < 2 || s.stats.is_some()) {
+                if s.loaded() {
                     p.next();
                 }
             }

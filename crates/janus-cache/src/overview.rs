@@ -94,11 +94,12 @@ fn vsi_stat(file: &str) -> (u64, i64) {
     janus_gdal::vsi_stat(file).unwrap_or((0, 0))
 }
 
-/// The overview's size: as large as `budget_bytes` allows for T floats per pixel plus 8 (statistics), never larger
-/// than the source nor than `max_texture` on a side.
+/// The overview's size: as large as `budget_bytes` allows for T floats per pixel plus 8 (statistics over time, of
+/// two dates or more), never larger than the source nor than `max_texture` on a side.
 pub fn overview_size(width: usize, height: usize, t: usize, budget_bytes: i64, max_texture: usize) -> (usize, usize) {
     let (w, h) = (width as f64, height as f64);
-    let max_px = budget_bytes as f64 / (4.0 * (t as f64 + 8.0));
+    let stats = if t >= 2 { 8.0 } else { 0.0 };
+    let max_px = budget_bytes as f64 / (4.0 * (t as f64 + stats));
     let s = (max_px / (w * h)).sqrt().min(1.0).min(max_texture as f64 / w.max(h));
     (((w * s).round() as usize).max(1), ((h * s).round() as usize).max(1))
 }

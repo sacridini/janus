@@ -117,7 +117,7 @@ fn growing_window(
 }
 
 pub(crate) fn loaded(s: Option<&Session>) -> bool {
-    s.is_some_and(|s| s.s.overview.complete() && (s.info.t() < 2 || s.stats.is_some()))
+    s.is_some_and(|s| s.loaded())
 }
 
 impl State {

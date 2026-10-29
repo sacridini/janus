@@ -342,6 +342,9 @@ pub struct Gpu {
     colormaps: RefCell<HashMap<usize, GpuTexture>>,
     /// the cube group of draws without a cube (images, rectangles, overlays): a 1 x 1 x 1 cube
     no_cube: Option<wgpu::BindGroup>,
+    /// the least layers of a cube's texture array: 2 on OpenGL, where wgpu makes a texture of one layer a plain
+    /// 2D texture that cannot be viewed as an array (set_backend); 1 elsewhere
+    min_layers: u32,
     dummy_r32: GpuTexture,
     dummy_rgba: GpuTexture,
     dummy_rg32: GpuTexture,
@@ -577,6 +580,7 @@ impl Gpu {
             nearest_sampler: sampler(wgpu::FilterMode::Nearest),
             colormaps: RefCell::new(HashMap::new()),
             no_cube: None,
+            min_layers: 2,
             dummy_r32,
             dummy_rgba,
             dummy_rg32,
@@ -587,6 +591,12 @@ impl Gpu {
         let empty = gpu.create_cube(1, 1, 1, &[0.0]);
         gpu.no_cube = Some(empty.group.clone());
         gpu
+    }
+
+    /// The backend the device runs on: a cube of one date is a texture of one layer except on OpenGL (a map opened
+    /// as a layer of its own took twice its size on the GPU).
+    pub fn set_backend(&mut self, backend: wgpu::Backend) {
+        self.min_layers = if backend == wgpu::Backend::Gl { 2 } else { 1 };
     }
 
     pub fn device(&self) -> &wgpu::Device {
@@ -652,11 +662,10 @@ impl Gpu {
     /// first (NaN = outside the season).
     pub fn create_cube(&self, w: u32, h: u32, t: u32, times: &[f32]) -> GpuCube {
         let d = &self.device;
-        // two layers at least: wgpu's OpenGL makes a texture of one layer a plain 2D texture, which cannot be
-        // viewed as an array
+        // two layers at least on OpenGL (set_backend)
         let texture = d.create_texture(&wgpu::TextureDescriptor {
             label: Some("cube"),
-            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: t.max(2) },
+            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: t.max(self.min_layers) },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -664,10 +673,13 @@ impl Gpu {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
+        // the statistics over time of a single date are never computed (no mode reads them): a texel each, not
+        // 9 floats a pixel (a map opened as a layer of its own was 9 times its size on the GPU)
+        let (sw, sh) = if t >= 2 { (w, h) } else { (1, 1) };
         let stat_tex = |label, format| {
             d.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
-                size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                size: wgpu::Extent3d { width: sw, height: sh, depth_or_array_layers: 1 },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -740,6 +752,12 @@ impl Gpu {
     /// waits for them on the interface's thread), `on_done` called when they are ready.
     pub fn compute_stats_async(&self, c: &GpuCube, on_done: impl FnOnce() + Send + 'static) -> StatsJob {
         let (tx, rx) = std::sync::mpsc::channel();
+        // a single date has no statistics over time (nor their textures: create_cube)
+        if c.t < 2 {
+            let _ = tx.send(None);
+            on_done();
+            return StatsJob { rx };
+        }
         let start = Instant::now();
         let mut enc = self.device.create_command_encoder(&Default::default());
         {

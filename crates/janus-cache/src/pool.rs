@@ -48,6 +48,40 @@ struct Shared {
     pending: AtomicUsize,
     on_done: Option<Box<dyn Fn() + Send + Sync>>,
     name: String,
+    gate: Option<Arc<Gate>>,
+}
+
+/// The jobs that may run at once in every pool sharing it: the series open together read with one series' threads,
+/// not each with its own (41 maps opened as layers of their own ran 41 pools of 12 readers at once, the interface
+/// starved).
+pub struct Gate {
+    state: Mutex<(usize, usize)>,
+    cv: Condvar,
+}
+
+impl Gate {
+    pub fn new(limit: usize) -> Arc<Gate> {
+        Arc::new(Gate { state: Mutex::new((0, limit.max(1))), cv: Condvar::new() })
+    }
+
+    pub fn set_limit(&self, n: usize) {
+        self.state.lock().unwrap().1 = n.max(1);
+        self.cv.notify_all();
+    }
+
+    pub fn limit(&self) -> usize {
+        self.state.lock().unwrap().1
+    }
+
+    fn enter(&self) {
+        let mut s = self.cv.wait_while(self.state.lock().unwrap(), |(running, limit)| *running >= *limit).unwrap();
+        s.0 += 1;
+    }
+
+    fn leave(&self) {
+        self.state.lock().unwrap().0 -= 1;
+        self.cv.notify_one();
+    }
 }
 
 pub struct JobPool {
@@ -58,6 +92,16 @@ pub struct JobPool {
 impl JobPool {
     /// `on_done`: called after every job (to wake the interface); `name`: the workers' ("name 0", "name 1"...).
     pub fn new(threads: usize, name: &str, on_done: Option<Box<dyn Fn() + Send + Sync>>) -> Self {
+        Self::gated(threads, name, on_done, None)
+    }
+
+    /// A pool whose jobs also wait for a place in `gate`, shared with other pools.
+    pub fn gated(
+        threads: usize,
+        name: &str,
+        on_done: Option<Box<dyn Fn() + Send + Sync>>,
+        gate: Option<Arc<Gate>>,
+    ) -> Self {
         let pool = JobPool {
             shared: Arc::new(Shared {
                 state: Mutex::new(State { queue: BinaryHeap::new(), seq: 0, limit: 0, workers: 0, stop: false }),
@@ -65,6 +109,7 @@ impl JobPool {
                 pending: AtomicUsize::new(0),
                 on_done,
                 name: name.to_string(),
+                gate,
             }),
             handles: Mutex::new(Vec::new()),
         };
@@ -117,19 +162,46 @@ impl JobPool {
 }
 
 fn worker(shared: &Shared, index: usize) {
+    let wait = || {
+        shared
+            .cv
+            .wait_while(shared.state.lock().unwrap(), |s| !s.stop && (index >= s.limit || s.queue.is_empty()))
+            .unwrap()
+    };
     loop {
-        let job = {
-            let s = shared
-                .cv
-                .wait_while(shared.state.lock().unwrap(), |s| !s.stop && (index >= s.limit || s.queue.is_empty()))
-                .unwrap();
-            let mut s = s;
-            if s.stop {
-                return;
+        let job = match &shared.gate {
+            None => {
+                let mut s = wait();
+                if s.stop {
+                    return;
+                }
+                s.queue.pop().unwrap().job
             }
-            s.queue.pop().unwrap().job
+            Some(gate) => {
+                // a job waiting: a place in the gate first, then the job that comes first by then
+                if wait().stop {
+                    return;
+                }
+                gate.enter();
+                let mut s = shared.state.lock().unwrap();
+                match (s.stop, s.queue.pop()) {
+                    (false, Some(q)) => q.job,
+                    (stop, q) => {
+                        drop(s);
+                        drop(q);
+                        gate.leave();
+                        if stop {
+                            return;
+                        }
+                        continue; // another worker took it
+                    }
+                }
+            }
         };
         job();
+        if let Some(gate) = &shared.gate {
+            gate.leave();
+        }
         shared.pending.fetch_sub(1, Ordering::AcqRel);
         if let Some(f) = &shared.on_done {
             f();
@@ -176,5 +248,39 @@ mod tests {
             std::thread::yield_now();
         }
         assert_eq!(*order.lock().unwrap(), ["d", "b", "c", "a"]);
+    }
+
+    #[test]
+    fn gate_limits_pools_together() {
+        let gate = Gate::new(2);
+        let pools: Vec<JobPool> = (0..3).map(|_| JobPool::gated(3, "test", None, Some(gate.clone()))).collect();
+        let (now, most) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        for p in &pools {
+            for _ in 0..6 {
+                let (now, most) = (now.clone(), most.clone());
+                p.submit(0, move || {
+                    let n = now.fetch_add(1, Ordering::SeqCst) + 1;
+                    most.fetch_max(n, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    now.fetch_sub(1, Ordering::SeqCst);
+                });
+            }
+        }
+        while pools.iter().any(|p| p.pending() > 0) {
+            std::thread::yield_now();
+        }
+        assert_eq!(most.load(Ordering::SeqCst), 2, "9 workers, 2 places");
+        // a pool dropped with jobs waiting at the gate does not keep its place
+        drop(pools);
+        let p = JobPool::gated(1, "test", None, Some(gate.clone()));
+        let done = Arc::new(AtomicUsize::new(0));
+        let d = done.clone();
+        p.submit(0, move || {
+            d.fetch_add(1, Ordering::SeqCst);
+        });
+        while p.pending() > 0 {
+            std::thread::yield_now();
+        }
+        assert_eq!(done.load(Ordering::SeqCst), 1);
     }
 }

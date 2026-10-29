@@ -4,7 +4,7 @@
 
 use janus_gpu::{Blend, CLASS_LUT_SIZE, Gpu, LayerParams, Mode, colormaps};
 
-fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
+fn device() -> Option<(wgpu::Device, wgpu::Queue, wgpu::Backend)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
     let limits = janus_gpu::required_limits(&adapter);
@@ -12,7 +12,7 @@ fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
         adapter.request_device(&wgpu::DeviceDescriptor { required_limits: limits, ..Default::default() }),
     )
     .ok()?;
-    Some((d, q))
+    Some((d, q, adapter.get_info().backend))
 }
 
 /// The C++ shader's statistics of one series, in f32 as the GPU computes them.
@@ -59,7 +59,7 @@ fn near_colormap(got: &[u8], lut: &[[u8; 4]; 256], v: f32) -> bool {
 
 #[test]
 fn statistics_and_map() {
-    let Some((device, queue)) = device() else {
+    let Some((device, queue, backend)) = device() else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
@@ -69,6 +69,7 @@ fn statistics_and_map() {
         if (p + i).is_multiple_of(11) { f32::NAN } else { ((p * 31 + i * 17) % 97) as f32 / 97.0 + i as f32 * 0.01 }
     };
     let mut gpu = Gpu::new(&device, &queue);
+    gpu.set_backend(backend);
     let mut cube = gpu.create_cube(w as u32, h as u32, t as u32, &times);
     for i in 0..t {
         let layer: Vec<f32> = (0..w * h).map(|p| value(i, p)).collect();
@@ -169,11 +170,12 @@ fn statistics_and_map() {
 
 #[test]
 fn blend_modes() {
-    let Some((device, queue)) = device() else {
+    let Some((device, queue, backend)) = device() else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
     let mut gpu = Gpu::new(&device, &queue);
+    gpu.set_backend(backend);
     // a colour at half opacity over another, in each mode, against the formula on the bytes (the target keeps
     // sRGB bytes as they are)
     let (d, c, a) = ([0.4f32, 0.6, 0.2], [0.5f32, 0.5, 1.0], 0.5f32);

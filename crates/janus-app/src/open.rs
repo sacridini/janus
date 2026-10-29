@@ -313,9 +313,7 @@ impl State {
         let value = |s: &Option<crate::session::Session>, t: usize, x: usize, y: usize| {
             s.as_ref().and_then(|s| janus_cube::CubeReader::new(s.info.clone()).read_pixel(t, x, y)).unwrap_or(f32::NAN)
         };
-        let loaded = |s: &State| {
-            s.opening.is_none() && s.session.as_ref().is_some_and(|s| s.s.overview.complete() && s.stats.is_some())
-        };
+        let loaded = |s: &State| s.opening.is_none() && s.session.as_ref().is_some_and(|s| s.loaded());
         match st.stage {
             0 => {
                 if self.opening.is_some() || self.open_ui.var_choices.is_empty() {

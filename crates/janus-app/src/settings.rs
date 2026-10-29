@@ -591,7 +591,8 @@ impl State {
                 .custom_formatter(|v, _| format!("Overview memory: {v} MB")),
         )
         .on_hover_text(
-            "Memory for the cube overview (on the GPU). Larger = more resolution without tiles,\nbut slower to build.",
+            "Memory for the overviews (on the GPU), shared by every layer open by their dates.\nLarger = more \
+             resolution without tiles, but slower to build.",
         );
         let mut reopen = false;
         if st.budget_ui != st.s.overview_budget_mb {

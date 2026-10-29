@@ -622,9 +622,13 @@ fn main() -> eframe::Result<()> {
     if cfg!(windows) && std::env::var_os("WGPU_BACKEND").is_none() {
         setup.instance_descriptor.backends = eframe::wgpu::Backends::DX12;
     }
+    // the GPU's memory in blocks of 8 to 64 MB, an overview larger than that in one of its own: in wgpu's blocks of
+    // 128 to 256 MB (Performance) an overview of 130 MB took a block of 256 MB alone, and on Direct3D 12 the blocks
+    // count in the process' memory too (8 maps opened as layers: 1.06 GB allocated in 2.24 GB of blocks)
     setup.device_descriptor = Arc::new(|adapter| eframe::wgpu::DeviceDescriptor {
         label: Some("janus"),
         required_limits: janus_gpu::required_limits(adapter),
+        memory_hints: eframe::wgpu::MemoryHints::MemoryUsage,
         ..Default::default()
     });
     let shots = opts.shots.is_some();

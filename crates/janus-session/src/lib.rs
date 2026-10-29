@@ -91,6 +91,20 @@ impl SessionSettings {
     }
 }
 
+/// A series' background workers: no more than its dates (a date is a job: a map of one date opened as a layer of
+/// its own needs one, not the 12 that idled in each of 41 such layers).
+fn bg_workers(s: &SessionSettings, rotational: bool, info: &CubeInfo) -> usize {
+    s.bg_threads(rotational).min(info.t().max(1))
+}
+
+/// The background readers of every open series together (overviews, full-resolution caches): as many at once as
+/// one series has, however many series are open; one gate for the files on HDDs (a sequential reader: two series
+/// read at once made the head jump between their files), one for the rest.
+fn bg_gate(rotational: bool) -> &'static Arc<janus_cache::pool::Gate> {
+    static GATES: OnceLock<[Arc<janus_cache::pool::Gate>; 2]> = OnceLock::new();
+    &GATES.get_or_init(|| [janus_cache::pool::Gate::new(1), janus_cache::pool::Gate::new(1)])[usize::from(rotational)]
+}
+
 /// An exact series (full resolution) of a source pixel.
 #[derive(Clone, Debug)]
 pub struct SeriesResult {
@@ -170,7 +184,10 @@ impl Session {
         // network reads gain from parallel requests: never an HDD
         let rotational = hdd::is_on_rotational_disk(std::path::Path::new(&info.layers[0].path));
         let w = wake.clone();
-        let bg = JobPool::new(s.bg_threads(rotational), "bg", Some(Box::new(move || w())));
+        let gate = bg_gate(rotational);
+        gate.set_limit(s.bg_threads(rotational));
+        let bg =
+            JobPool::gated(bg_workers(s, rotational, &info), "bg", Some(Box::new(move || w())), Some(gate.clone()));
         let w = wake.clone();
         let fg = JobPool::new(s.fg_threads(rotational), "fg", Some(Box::new(move || w())));
         let full_res = FullResCache::new(info.clone(), s.cache_dir.clone());
@@ -371,7 +388,8 @@ impl Session {
     /// New processing threads or disk cache budget settings: the pools grow or shrink now (jobs running keep
     /// going); a full-resolution build started later uses both.
     pub fn apply_settings(&self, s: &SessionSettings) {
-        self.bg.set_threads(s.bg_threads(self.rotational));
+        bg_gate(self.rotational).set_limit(s.bg_threads(self.rotational));
+        self.bg.set_threads(bg_workers(s, self.rotational, &self.info));
         self.fg.set_threads(s.fg_threads(self.rotational));
         *self.settings.lock().unwrap() = s.clone();
     }
