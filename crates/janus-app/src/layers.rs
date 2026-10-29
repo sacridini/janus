@@ -512,15 +512,19 @@ impl State {
     }
 
     /// A non-active layer into the map's frame, with its own display state, through its placement (`to_map`: a
-    /// map-space box, the active layer's pixels, to the target's pixels).
+    /// map-space box, the active layer's pixels, to the target's pixels). `view`: the map's view (the active
+    /// layer's pixels) when the layer is seen there, its detail tiles drawn over its overview when zoomed in; None:
+    /// its tiles go (hidden, out of the view).
     pub(crate) fn draw_layer(
         l: &mut SeriesLayer,
         gpu: &janus_gpu::Gpu,
         f: &mut janus_gpu::MapFrame,
         to_map: &dyn Fn([f64; 4]) -> [f32; 4],
+        view: Option<&janus_session::ViewRect>,
     ) {
-        let Some(s) = &l.session else { return };
-        let info = &s.info;
+        let Some(s) = l.session.as_mut() else { return };
+        let info = s.info.clone();
+        let info = &info;
         let d = &l.disp;
         if let Some(c) = l.composite.as_mut().filter(|c| c.on) {
             // three bands as RGB: the images read while it was active
@@ -537,12 +541,100 @@ impl State {
             params.class_lut = l.classes.lut.clone();
         }
         let cmap = d.cmap[params.mode as usize];
-        if let (true, Some(cube)) = (d.ready(s, &params), &s.cube)
-            && let Some((q, warp)) = l.place.quad(info, 0.0, 0.0, info.width as f64, info.height as f64)
-        {
-            params.warp = warp;
-            gpu.draw_cube(f, cube, to_map(q), &params, cmap, l.opacity);
+        let ready = d.ready(s, &params);
+        // translucent or blended over a reprojected layer: its overview only (the tiles' squares would show darker)
+        let straight = l.place.reproj.is_none();
+        let plain = l.opacity >= 1.0 && l.blend == janus_gpu::Blend::Normal;
+        let detail = view.filter(|_| {
+            ready
+                && d.detail
+                && params.mode == janus_gpu::Mode::Value
+                && !s.s.defer_random_reads()
+                && (plain || straight)
+        });
+        let mut tiles = Vec::new();
+        if let Some(v) = detail {
+            let lv = l.place.view(v.x0, v.y0, v.x1, v.y1, v.scale);
+            if s.tiles.update(s.s.fg(), d.t, &lv, None).is_some() {
+                tiles = s.tiles.visible(d.t, &lv);
+            }
+        } else if s.tiles.gpu_tiles() > 0 {
+            s.tiles.clear(); // up to 384 MB a layer: 41 maps stacked kept theirs
         }
+        let Some(cube) = s.cube.as_ref().filter(|_| ready) else { return };
+        let Some((q, warp)) = l.place.quad(info, 0.0, 0.0, info.width as f64, info.height as f64) else { return };
+        params.warp = warp;
+        let full = to_map(q);
+        let quads: Vec<_> = tiles
+            .iter()
+            .filter_map(|t| l.place.quad(info, t.x, t.y, t.x + t.sw, t.y + t.sh).map(|(q, w)| (to_map(q), w)))
+            .collect();
+        if !plain && !quads.is_empty() {
+            // the overview only where no tile goes (straight: the tiles are rectangles on the map)
+            let holes: Vec<[f32; 4]> = quads.iter().map(|(r, _)| *r).collect();
+            for clip in janus_gpu::uncovered(full, &holes) {
+                f.clip = Some(clip);
+                gpu.draw_cube(f, cube, full, &params, cmap, l.opacity);
+            }
+            f.clip = None;
+        } else {
+            gpu.draw_cube(f, cube, full, &params, cmap, l.opacity);
+        }
+        for (tile, (rect, warp)) in tiles.iter().zip(quads) {
+            params.warp = warp;
+            gpu.draw_tile(f, cube, &tile.tex, rect, &params, cmap, l.opacity);
+        }
+    }
+
+    /// Which layers not active are seen in the map's view (map space: the active layer's pixels), top down: visible,
+    /// over the view, and not under an opaque layer that covers all of it (41 maps of a date stacked: only the top
+    /// one reads its detail). The active layer covers with `active_size` (its pixels).
+    pub(crate) fn layers_seen(&self, view: &janus_session::ViewRect, active_size: (f64, f64)) -> Vec<bool> {
+        let mut seen = vec![false; self.layers.len()];
+        let mut covered = false;
+        for (i, l) in self.layers.iter().enumerate().rev() {
+            if !l.visible || !l.place.aligned {
+                continue;
+            }
+            let q = if i == self.active {
+                Some([0.0, 0.0, active_size.0, active_size.1])
+            } else {
+                l.session.as_ref().and_then(|s| {
+                    l.place.quad(&s.info, 0.0, 0.0, s.info.width as f64, s.info.height as f64).map(|(q, _)| q)
+                })
+            };
+            let Some(q) = q else { continue };
+            let (x0, x1, y0, y1) = (q[0].min(q[2]), q[0].max(q[2]), q[1].min(q[3]), q[1].max(q[3]));
+            seen[i] = i != self.active && !covered && x0 < view.x1 && x1 > view.x0 && y0 < view.y1 && y1 > view.y0;
+            // a reprojected layer's box is larger than its footprint: it never counts as covering
+            let opaque = l.opacity >= 1.0
+                && l.blend == janus_gpu::Blend::Normal
+                && l.emb.is_none()
+                && (i == self.active || l.place.reproj.is_none());
+            if opaque && x0 <= view.x0 && x1 >= view.x1 && y0 <= view.y0 && y1 >= view.y1 {
+                covered = true;
+            }
+        }
+        seen
+    }
+
+    /// Source pixels of the finest visible layer per pixel of the active one, around map point (x, y) (at least 1):
+    /// the map zooms in until that layer's pixels are as large as the active one's may be.
+    pub(crate) fn finest_layer(&self, x: f64, y: f64) -> f64 {
+        let mut k: f64 = 1.0;
+        for (i, l) in self.layers.iter().enumerate() {
+            if i == self.active || !l.visible || !l.place.aligned || l.session.is_none() {
+                continue;
+            }
+            let lk = match &l.place.reproj {
+                Some((r, _)) => r.layer_px_per_map_px(x, y),
+                None => 1.0 / (l.place.bx * l.place.by).abs().sqrt(),
+            };
+            if lk.is_finite() {
+                k = k.max(lk);
+            }
+        }
+        k
     }
 
     /// The non-active layers' background work: their dates to the GPU, their statistics, their classes.
@@ -688,7 +780,7 @@ impl State {
                     ]
                 };
                 let mut frame = gpu.begin_map(1, [w as u32, h as u32], crate::map::MAP_BACKGROUND);
-                State::draw_layer(f, gpu, &mut frame, &to_map);
+                State::draw_layer(f, gpu, &mut frame, &to_map, None);
                 gpu.end_map(frame);
                 let (_, _, img) = gpu.read_target(1)?;
                 gpu.release_target(1);

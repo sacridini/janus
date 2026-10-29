@@ -989,57 +989,134 @@ fn date_stem(info: &CubeInfo, t: usize) -> String {
     }
 }
 
-/// Images computed at once by `materialize`, each on one thread (GDAL reads a VRT on its caller's), compressed on
-/// two: eight threads at most.
-const MATERIALIZE_THREADS: usize = 4;
+/// Threads computing a stage's images in `materialize`: eight at most, the writing on the caller's.
+const MATERIALIZE_THREADS: usize = 8;
 
 /// A stage's VRTs computed into tiled GeoTIFFs beside them (`.tif` for `.vrt`), read once each by blocks: what reads
-/// them then reads an image, not the reduction again.
-fn materialize(files: Vec<Option<String>>, cancel: &AtomicBool) -> Result<Vec<Option<String>>, String> {
+/// them then reads an image, not the reduction again. Their rows in chunks of whole tiles among the threads (a mean
+/// over every date, one image, on all of them: 4 threads each on an image of its own took 2.9 s a date of 41), each
+/// thread reading through handles opened on it (GDAL pools a VRT's sources by the thread that opened them), the
+/// chunks written here as they come; `progress` the share of rows written.
+fn materialize(
+    files: Vec<Option<String>>,
+    cancel: &AtomicBool,
+    progress: &dyn Fn(f64),
+) -> Result<Vec<Option<String>>, String> {
+    use gdal::Metadata as _;
+    let drv = gdal::DriverManager::get_driver_by_name("GTiff").map_err(|e| e.to_string())?;
+    let co = gdal::raster::RasterCreationOptions::from_iter([
+        "TILED=YES",
+        "COMPRESS=DEFLATE",
+        "ZLEVEL=1",
+        "BIGTIFF=IF_SAFER",
+    ]);
+    // the GeoTIFFs, and the chunks (image, first row, rows, width): a row of tiles each (7 MB for 7318 columns)
+    let mut outs: Vec<Option<(gdal::Dataset, PathBuf)>> = Vec::with_capacity(files.len());
+    let mut jobs = Vec::new();
+    for (i, f) in files.iter().enumerate() {
+        let Some(f) = f else {
+            outs.push(None);
+            continue;
+        };
+        let src = vrt::with_block_reads(true, || gdal::Dataset::open(f)).map_err(|e| format!("{f}: {e}"))?;
+        let (w, h) = src.raster_size();
+        let tif = Path::new(f).with_extension("tif");
+        let mut ds = drv
+            .create_with_band_type_with_options::<f32, _>(&tif, w, h, 1, &co)
+            .map_err(|e| format!("{}: {e}", tif.display()))?;
+        if let Ok(gt) = src.geo_transform() {
+            let _ = ds.set_geo_transform(&gt);
+        }
+        let wkt = src.projection();
+        if !wkt.is_empty() {
+            let _ = ds.set_projection(&wkt);
+        }
+        if let (Ok(sb), Ok(mut b)) = (src.rasterband(1), ds.rasterband(1)) {
+            let _ = b.set_no_data_value(Some(f64::NAN));
+            let _ = b.set_description(&sb.description().unwrap_or_default());
+        }
+        jobs.extend((0..h).step_by(256).map(|y| (i, y, 256.min(h - y), w)));
+        outs.push(Some((ds, tif)));
+    }
     let next = std::sync::atomic::AtomicUsize::new(0);
     let failed = AtomicBool::new(false);
-    let out: Vec<std::sync::Mutex<Option<Result<String, String>>>> =
-        files.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    let mut error = None;
+    // a chunk computed (its index and values), two waiting at most
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(usize, Vec<f32>), String>>(2);
     std::thread::scope(|sc| {
-        for _ in 0..MATERIALIZE_THREADS.min(files.len()) {
-            sc.spawn(|| {
+        for _ in 0..MATERIALIZE_THREADS.min(jobs.len()) {
+            let tx = tx.clone();
+            let (jobs, files, next, failed) = (&jobs, &files, &next, &failed);
+            sc.spawn(move || {
+                let mut handles: HashMap<usize, gdal::Dataset> = HashMap::new();
                 loop {
-                    let i = next.fetch_add(1, Ordering::Relaxed);
-                    if i >= files.len() || failed.load(Ordering::Relaxed) || cancel.load(Ordering::Relaxed) {
+                    let k = next.fetch_add(1, Ordering::Relaxed);
+                    if k >= jobs.len() || failed.load(Ordering::Relaxed) || cancel.load(Ordering::Relaxed) {
                         break;
                     }
-                    let Some(f) = &files[i] else { continue };
-                    let tif = Path::new(f).with_extension("tif");
+                    let (i, y, rows, w) = jobs[k];
+                    let f = files[i].as_deref().unwrap_or_default();
                     let r = vrt::with_block_reads(true, || {
-                        let src = gdal::Dataset::open(f).map_err(|e| format!("{f}: {e}"))?;
-                        let drv = gdal::DriverManager::get_driver_by_name("GTiff").map_err(|e| e.to_string())?;
-                        let co = gdal::raster::RasterCreationOptions::from_iter([
-                            "TILED=YES",
-                            "COMPRESS=DEFLATE",
-                            "ZLEVEL=1",
-                            "NUM_THREADS=2",
-                            "BIGTIFF=IF_SAFER",
-                        ]);
-                        src.create_copy(&drv, &tif, &co).map_err(|e| format!("{}: {e}", tif.display()))?;
-                        Ok(tif.to_string_lossy().into_owned())
+                        let ds = match handles.entry(i) {
+                            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                            std::collections::hash_map::Entry::Vacant(e) => {
+                                e.insert(gdal::Dataset::open(f).map_err(|e| format!("{f}: {e}"))?)
+                            }
+                        };
+                        let mut buf = vec![0f32; w * rows];
+                        ds.rasterband(1)
+                            .and_then(|b| b.read_into_slice((0, y as isize), (w, rows), (w, rows), &mut buf, None))
+                            .map_err(|e| format!("{f}: {e}"))?;
+                        Ok((k, buf))
                     });
                     if r.is_err() {
                         failed.store(true, Ordering::Relaxed);
                     }
-                    *out[i].lock().unwrap() = Some(r);
+                    if tx.send(r).is_err() {
+                        break;
+                    }
                 }
             });
+        }
+        drop(tx);
+        let mut done = 0;
+        for r in rx {
+            match r {
+                Ok((k, buf)) if error.is_none() => {
+                    let (i, y, rows, w) = jobs[k];
+                    let Some((ds, tif)) = &outs[i] else { continue };
+                    let mut buf = gdal::raster::Buffer::new((w, rows), buf);
+                    if let Err(e) = ds.rasterband(1).and_then(|mut b| b.write((0, y as isize), (w, rows), &mut buf)) {
+                        error = Some(format!("{}: {e}", tif.display()));
+                        failed.store(true, Ordering::Relaxed);
+                    }
+                    done += 1;
+                    progress(done as f64 / jobs.len() as f64);
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    error.get_or_insert(e);
+                }
+            }
         }
     });
     if cancel.load(Ordering::Relaxed) {
         return Err("cancelled".into());
     }
-    let out: Vec<Option<Result<String, String>>> = out.into_iter().map(|o| o.into_inner().unwrap()).collect();
-    // the failure that stopped the others
-    if let Some(Some(Err(e))) = out.iter().find(|o| matches!(o, Some(Err(_)))) {
-        return Err(e.clone());
+    if let Some(e) = error {
+        return Err(e);
     }
-    Ok(out.into_iter().map(|o| o.and_then(Result::ok)).collect())
+    let mut paths = Vec::with_capacity(outs.len());
+    for o in outs {
+        paths.push(match o {
+            Some((mut ds, tif)) => {
+                ds.flush_cache().map_err(|e| format!("{}: {e}", tif.display()))?;
+                Some(tif.to_string_lossy().into_owned())
+            }
+            None => None,
+        });
+    }
+    Ok(paths)
 }
 
 impl Plan {
@@ -1156,7 +1233,12 @@ impl Plan {
         let n_dates = self.dates(layers).len();
         for k in &self.inputs {
             if let Key::Stage(j) = k {
-                reads[*j] += n_dates;
+                // a stage of a slot per date (a lag, a window) read by the result: each date its own slot, once (the
+                // first dates of `s - s[-1]`, without a slot, counted as reads made 12 dates computed in 19 s)
+                reads[*j] += match all_slots[*j].0 {
+                    SlotOf::Date => n_dates.min(all_slots[*j].1.iter().filter(|s| !s.1.is_empty()).count()),
+                    _ => n_dates,
+                };
             }
         }
         for (st, (_, sl)) in self.stages.iter().zip(&all_slots) {
@@ -1170,12 +1252,16 @@ impl Plan {
                 }
             }
         }
+        // the progress: the reductions computed into images most of the work when there are any
+        let computed = (0..self.stages.len())
+            .any(|i| opts.materialize && reads[i] > all_slots[i].1.iter().filter(|s| !s.1.is_empty()).count());
+        let stage_share = if computed { 0.9 } else { 0.1 };
         for (i, st) in self.stages.iter().enumerate() {
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled".into());
             }
             progress(
-                0.1 * i as f64 / self.stages.len() as f64,
+                stage_share * i as f64 / self.stages.len() as f64,
                 &format!("reduction {} of {}", i + 1, self.stages.len()),
             );
             let sinfo = self.series_info(layers, st.series);
@@ -1252,11 +1338,14 @@ impl Plan {
             }
             let written = files.iter().flatten().count();
             if opts.materialize && reads[i] > written {
-                progress(
-                    0.1 * i as f64 / self.stages.len() as f64,
-                    &format!("computing reduction {} of {} ({written} images)", i + 1, self.stages.len()),
-                );
-                files = materialize(files, cancel)?;
+                let (n, of) =
+                    (self.stages.len(), if written > 1 { format!(" ({written} images)") } else { String::new() });
+                files = materialize(files, cancel, &|f| {
+                    progress(
+                        stage_share * (i as f64 + f) / n as f64,
+                        &format!("computing reduction {} of {n}{of}: {:.0}%", i + 1, 100.0 * f),
+                    )
+                })?;
             }
             outs.push(StageOut { of, keys: slots.iter().map(|s| s.0).collect(), files, series: st.series });
         }
@@ -1311,7 +1400,10 @@ impl Plan {
             std::fs::write(&f, vrt::vrt_xml(&grid, &[band], (shape.0.min(stage_block.0), shape.1.min(stage_block.1))))
                 .map_err(|e| format!("{}: {e}", f.display()))?;
             files.push(f.to_string_lossy().into_owned());
-            progress(0.1 + 0.9 * (t + 1) as f64 / dates.len() as f64, &format!("{} of {} dates", t + 1, dates.len()));
+            progress(
+                stage_share + (1.0 - stage_share) * (t + 1) as f64 / dates.len() as f64,
+                &format!("{} of {} dates", t + 1, dates.len()),
+            );
         }
         // what was computed, to read again
         let mut j = String::new();

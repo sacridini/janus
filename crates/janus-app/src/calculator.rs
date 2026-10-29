@@ -23,6 +23,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::State;
 use crate::emb_download::EmbDownload;
+
+/// Whether a series is a calculator's result (its dates VRTs of the calculator's pixel function, computed as they
+/// are read), remembered by series.
+pub(crate) fn is_calc_result(info: &janus_cube::CubeInfo) -> bool {
+    thread_local! {
+        static KNOWN: std::cell::RefCell<std::collections::HashMap<u64, bool>> = Default::default();
+    }
+    KNOWN.with_borrow_mut(|k| {
+        *k.entry(info.id).or_insert_with(|| {
+            info.layers.first().is_some_and(|l| janus_cube::calc::vrt::is_calc_vrt(janus_cube::dataset_file(&l.path)))
+        })
+    })
+}
 use crate::theme;
 use crate::zeit::{Job, JobLog, JobState, JobStatus};
 
@@ -344,8 +357,9 @@ impl CalcUi {
         let s = st.lock().unwrap();
         self.status = match s.state {
             JobState::Running => return,
+            // a virtual layer: written at once, computed as it is read (the bar above while it is)
             JobState::Done if s.seconds < 1.0 => {
-                format!("\"{name}\" added as a layer, in {:.0} ms ({folder})", s.seconds * 1000.0)
+                format!("\"{name}\" added as a layer ({folder}): its values are computed as the map reads them")
             }
             JobState::Done => format!("\"{name}\" added as a layer, in {:.1} s ({folder})", s.seconds),
             JobState::Cancelled => format!("\"{name}\" cancelled"),
@@ -549,8 +563,8 @@ impl State {
             },
             resampling: RESAMPLINGS[c.resampling.min(RESAMPLINGS.len() - 1)].0.into(),
             apply_qa: c.apply_qa,
-            // computed once for the GeoTIFFs written; the map reads views of VRTs alone
-            materialize: c.cog,
+            // computed once for a result written (calc_run), not for the live view
+            materialize: false,
         }
     }
 
@@ -620,7 +634,8 @@ impl State {
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut c.cog, false, "Virtual layer").on_hover_text(
                         "A VRT per date, computed as the map, the charts and the tools read it:\n\
-                         nothing is written but the formula (instant, small)",
+                         nothing is written but the formula (instant, small), and a reduction\n\
+                         read at every date (the mean of s - mean(s)) computed once, as an image",
                     );
                     ui.selectable_value(&mut c.cog, true, "GeoTIFFs (cloud-optimized)").on_hover_text(
                         "Every pixel computed once and written as compressed COGs, one per date\n\
@@ -697,6 +712,21 @@ impl State {
                         ui.label(format!("{}: {:.0}% {}", d.title, st.progress * 100.0, st.message));
                     });
                 }
+            }
+            // results added as layers whose values are still being computed (a virtual layer computes as it is
+            // read: listed at once, its dates done one by one)
+            for (i, l) in self.layers.iter().enumerate() {
+                let s = if i == self.active { self.session.as_ref() } else { l.session.as_ref() };
+                let Some(o) = s.map(|s| &s.s.overview).filter(|o| !o.complete() && is_calc_result(&o.info)) else {
+                    continue;
+                };
+                let f = o.layers_done() as f32 / o.t.max(1) as f32;
+                let text = if o.t > 1 {
+                    format!("Computing \"{}\": {} of {} dates", l.name, o.layers_done(), o.t)
+                } else {
+                    format!("Computing \"{}\"...", l.name)
+                };
+                ui.add(egui::ProgressBar::new(f).text(text).animate(true));
             }
             self.calc.below = ui.cursor().top() - top;
         });
@@ -1335,7 +1365,9 @@ impl State {
     /// The result made: its VRTs written (and translated to GeoTIFFs) in a task, the layer added when ready.
     pub(crate) fn calc_run(&mut self, ctx: &egui::Context) {
         let (layers, at) = self.calc_layers();
-        let opts = self.calc_options(&layers, &at);
+        // a virtual layer's reductions read at more dates than they have images (`s - mean(s)`) computed once too:
+        // each of its dates computed the mean over every date again (12 dates: 26 s for the overview, 8 s with it)
+        let opts = Options { materialize: true, ..self.calc_options(&layers, &at) };
         let text = self.calc.text.clone();
         let p = match plan::plan(&text, &layers, &opts) {
             Ok(p) => p,

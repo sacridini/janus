@@ -4660,6 +4660,7 @@ dependencies = [
  "gdal",
  "gdal-sys",
  "janus-gdal",
+ "rayon",
  "regex",
  "serde_json",
 ]

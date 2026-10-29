@@ -193,6 +193,8 @@ impl State {
         let (ow, oh, w, h, fx, fy) = (g.ow, g.oh, g.w, g.h, g.fx, g.fy);
         // the map goes as far as the CRS's area of use and every layer, not only the image
         let ext = self.map_extent(&g);
+        // and as close as the finest visible layer's pixels allow (a coarser active layer held the zoom back)
+        let finest = self.finest_layer(self.map.center[0] * fx, self.map.center[1] * fy);
         // the lens: Alt + wheel sizes it, Ctrl + wheel steps its date (views.rs: swipe_input), not the map's zoom
         let lens = main && self.swipe.as_ref().is_some_and(|s| s.lens);
         let m = &mut self.map;
@@ -209,8 +211,8 @@ impl State {
             m.anchor = None;
             m.fit_pending = false;
         }
-        // up to MAX_ZOOM screen points per source pixel; down to the whole extent (F: the image)
-        let max_scale = MAX_ZOOM * ow / w;
+        // up to MAX_ZOOM screen points per source pixel (the finest layer's); down to the whole extent (F: the image)
+        let max_scale = MAX_ZOOM * ow / w * finest;
         let (ew, eh) = ((ext[2] - ext[0]).max(1e-9), (ext[3] - ext[1]).max(1e-9));
         let min_scale = (0.98 * (f64::from(cw) / ew).min(f64::from(ch) / eh)).min(fit);
         if resp.hovered() {
@@ -259,7 +261,10 @@ impl State {
             if scroll != 0.0 || pinch != 1.0 {
                 let factor = 1.25f64.powf(f64::from(scroll) / 50.0) * f64::from(pinch);
                 m.touched = true;
-                m.target_scale = (m.target_scale * factor).clamp(min_scale.min(max_scale), max_scale.max(fit));
+                // a zoom closer than the limit (carried from another layer made active, a finer layer hidden) is not
+                // pulled back by zooming in, only by zooming out
+                let top = max_scale.max(fit).max(if factor > 1.0 { m.target_scale } else { 0.0 });
+                m.target_scale = (m.target_scale * factor).clamp(min_scale.min(max_scale), top);
                 if let Some(p) = resp.hover_pos() {
                     m.anchor = Some((p - rect.center().to_vec2(), m.image_at(rect, p)));
                 }
@@ -599,24 +604,36 @@ impl State {
         if !wait.is_empty() {
             painter.text(rect.center(), Align2::CENTER_CENTER, wait, font.clone(), Color32::from_gray(220));
         }
+        // a bar for each layer still being read: the active one's, and the others' (a calculator's result is computed
+        // as it is read: its layer is listed before its values are there)
+        let mut bars_loading = Vec::new();
         let ov = &s.s.overview;
         if !ov.complete() && !vectors_only {
             let what = if ov.from_cache() { " (cache)" } else { "" };
-            let f = ov.layers_done() as f32 / n as f32;
-            let p0 = rect.min + vec2(rect.width() - 250.0, 10.0);
-            painter.rect_filled(Rect::from_min_size(p0, vec2(240.0, 18.0)), 3.0, Color32::from_black_alpha(160));
+            let verb = if crate::calculator::is_calc_result(info) { "Computing" } else { "Building overview" };
+            bars_loading.push((format!("{verb} {}/{n}{what}", ov.layers_done()), ov.layers_done() as f32 / n as f32));
+        }
+        for (i, l) in self.layers.iter().enumerate() {
+            let Some(o) = l.session.as_ref().filter(|_| i != self.active && !l.canvas).map(|s| &s.s.overview) else {
+                continue;
+            };
+            if !o.complete() {
+                let verb = if crate::calculator::is_calc_result(&o.info) { "Computing" } else { "Loading" };
+                let name: String = l.name.chars().take(22).collect();
+                let f = o.layers_done() as f32 / o.t.max(1) as f32;
+                bars_loading.push((format!("{verb} {name} {}/{}", o.layers_done(), o.t), f));
+            }
+        }
+        for (k, (label, f)) in bars_loading.iter().enumerate() {
+            let w = 300.0_f32.min(rect.width() - 20.0);
+            let p0 = rect.min + vec2(rect.width() - w - 10.0, 10.0 + 22.0 * k as f32);
+            painter.rect_filled(Rect::from_min_size(p0, vec2(w, 18.0)), 3.0, Color32::from_black_alpha(160));
             painter.rect_filled(
-                Rect::from_min_size(p0, vec2(240.0 * f, 18.0)),
+                Rect::from_min_size(p0, vec2(w * f, 18.0)),
                 3.0,
                 Color32::from_rgba_unmultiplied(70, 130, 220, 220),
             );
-            painter.text(
-                p0 + vec2(6.0, 2.0),
-                Align2::LEFT_TOP,
-                format!("Building overview {}/{n}{what}", ov.layers_done()),
-                font.clone(),
-                Color32::WHITE,
-            );
+            painter.text(p0 + vec2(6.0, 2.0), Align2::LEFT_TOP, label, font.clone(), Color32::WHITE);
         }
         self.draw_embedding_notes(&painter, rect);
         let mut bars = 0;
@@ -730,6 +747,17 @@ impl State {
         let Some(g) = self.grid() else { return };
         let (ow, oh, fx, fy) = (g.ow, g.oh, g.fx, g.fy);
         let rect = Rect::from_min_size(Pos2::ZERO, vec2(canvas[0], canvas[1]));
+        // the detail tiles of the view: the visible part in source pixels, at screen pixels per source pixel
+        let (v0, v1) = (self.map.image_at(rect, rect.min), self.map.image_at(rect, rect.max));
+        let view = ViewRect {
+            x0: v0[0] * fx,
+            y0: v0[1] * fy,
+            x1: v1[0] * fx,
+            y1: v1[1] * fy,
+            scale: self.map.scale * f64::from(ppp) / fx,
+        };
+        // the layers not active seen in it, with their own detail
+        let seen_layers = self.layers_seen(&view, (g.w, g.h));
         // each layer's date of its embeddings
         let emb_dates: Vec<usize> = (0..self.layers.len()).map(|i| self.layer_date(i)).collect();
         let vector_sig = self.vector_gpu_sig();
@@ -749,15 +777,6 @@ impl State {
         let t = self.display.t;
         let ready = self.display.ready(s, &params);
         let vsig = vector_sig;
-        // the detail tiles of the view: the visible part in source pixels, at screen pixels per source pixel
-        let (v0, v1) = (m.image_at(rect, rect.min), m.image_at(rect, rect.max));
-        let view = ViewRect {
-            x0: v0[0] * fx,
-            y0: v0[1] * fy,
-            x1: v1[0] * fx,
-            y1: v1[1] * fy,
-            scale: m.scale * f64::from(ppp) / fx,
-        };
         if slot == 0 {
             m.last_view = Some(view);
         }
@@ -842,7 +861,13 @@ impl State {
                     continue;
                 }
                 if li != self.active {
-                    State::draw_layer(l, gpu, &mut f, &to_map);
+                    State::draw_layer(
+                        l,
+                        gpu,
+                        &mut f,
+                        &to_map,
+                        seen_layers.get(li).is_some_and(|&s| s).then_some(&view),
+                    );
                     f.blend = janus_gpu::Blend::Normal;
                     continue;
                 }

@@ -349,6 +349,81 @@ fn files_in_strips() {
 }
 
 #[test]
+fn a_reduction_computed_by_chunks() {
+    // `s - mean(s)` with its mean computed once into a GeoTIFF, an image of three chunks of rows on several threads:
+    // the values of the mean's VRT; the result's dates read on four threads at once, each in stripes (a handle of
+    // their own on each stripe's thread), as each date's VRT read alone
+    let dir = std::env::temp_dir().join("janus_calc_chunks");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (w, h) = (300, 700);
+    let mut files = Vec::new();
+    for d in 0..6 {
+        let f = dir.join(format!("c_{}0101.tif", 2000 + d));
+        tif(&f, 32720, GT, (w, h), &["Value"], |_, x, y| ((d * 7919 + x * 31 + y * 17) % 1000) as f32);
+        files.push(f.to_string_lossy().to_string());
+    }
+    let info = open_cube(&files, &BandSelection::default()).unwrap();
+    let ls = vec![CalcLayer { name: "s".into(), alias: "s".into(), info: Arc::new(info) }];
+    let text = "s - mean(s)";
+    let write = |o: &Options, out: &str| {
+        plan(text, &ls, o).unwrap().write(text, &ls, o, &dir.join(out), &|_, _| {}, &AtomicBool::new(false)).unwrap()
+    };
+    let lazy = write(&Options::default(), "lazy");
+    let done = write(&Options { materialize: true, ..Default::default() }, "mat");
+    let stage = |out: &str, ext: &str| dir.join(out).join("stages").join(format!("stage1_mean.{ext}"));
+    let mean = janus_cube::calc::vrt::with_block_reads(true, || read(stage("lazy", "vrt").to_str().unwrap()).0);
+    assert_eq!(read(stage("mat", "tif").to_str().unwrap()).0, mean, "the mean computed by chunks");
+    let want: Vec<Vec<f32>> =
+        lazy.files.iter().map(|f| janus_cube::calc::vrt::with_block_reads(true, || read(f).0)).collect();
+    let rinfo = Arc::new(open_cube(&done.files, &BandSelection::default()).unwrap());
+    std::thread::scope(|sc| {
+        for k in 0..4 {
+            let (rinfo, want) = (&rinfo, &want);
+            sc.spawn(move || {
+                for round in 0..3 {
+                    for i in 0..want.len() {
+                        let t = (i + k + round) % want.len();
+                        let mut buf = vec![0f32; w * h];
+                        assert!(with_thread_reader(rinfo, |r| r.read_window(t, (0, 0, w, h), &mut buf, (w, h))));
+                        assert!(buf == want[t], "date {t}: read on thread {k}");
+                    }
+                }
+            });
+        }
+    });
+    // smaller sizes (an overview's): a band read whole at that size (the mean now a GeoTIFF; a lag's and a window's
+    // VRTs with it), the values of the full resolution sampled as GDAL samples it
+    for text in ["s - mean(s)", "s * 2 + 1", "s - s[-1]", "mean(s, 3y) / s"] {
+        let wr = plan(text, &ls, &Options { materialize: true, ..Default::default() })
+            .unwrap()
+            .write(
+                text,
+                &ls,
+                &Options { materialize: true, ..Default::default() },
+                &dir.join("small"),
+                &|_, _| {},
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        assert!(janus_cube::calc::vrt::whole_sources(&wr.files[1]).is_some(), "{text}: read whole");
+        let rinfo = Arc::new(open_cube(&wr.files, &BandSelection::default()).unwrap());
+        for (bw, bh) in [(w / 2, h / 2), (w / 3, h / 3), (97, 233)] {
+            for (t, f) in wr.files.iter().enumerate() {
+                let ds = janus_cube::calc::vrt::with_block_reads(true, || gdal::Dataset::open(f).unwrap());
+                let want = janus_cube::calc::vrt::with_block_reads(true, || {
+                    ds.rasterband(1).unwrap().read_as::<f32>((0, 0), (w, h), (bw, bh), None).unwrap().data().to_vec()
+                });
+                let mut got = vec![0f32; bw * bh];
+                assert!(with_thread_reader(&rinfo, |r| r.read_window(t, (0, 0, w, h), &mut got, (bw, bh))));
+                let same = got.iter().zip(&want).all(|(a, b)| a == b || a.is_nan() && b.is_nan());
+                assert!(same, "{text}: date {t} at {bw} x {bh}");
+            }
+        }
+    }
+}
+
+#[test]
 fn a_series_as_geotiffs() {
     // the calculator's VRTs of a series written as cloud-optimized GeoTIFFs, several dates at once: in order, the
     // values of the VRTs

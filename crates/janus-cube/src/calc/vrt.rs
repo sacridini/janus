@@ -466,6 +466,42 @@ pub fn is_calc_vrt(path: &str) -> bool {
     String::from_utf8_lossy(&head[..n]).contains(PIXEL_FUNCTION)
 }
 
+/// The files a calculator's VRT reads when it may be read as a whole window at a smaller size, each source read at
+/// that size (as GDAL samples a file, through its overviews), instead of block by block at full resolution: the files
+/// of its band and of the calculator's VRTs it reads (a lag's, a window's, a reduction's), none another VRT (a warp's,
+/// which read at a smaller size would warp otherwise). None: a VRT of another kind, or of more than 512 files. The
+/// overview of `s * 2` then reads the rows it shows, as the series' own does (12 dates: 2.7 s, 1.2 s; the series
+/// alone 1.3 s).
+pub fn whole_sources(path: &str) -> Option<usize> {
+    fn count(path: &str, depth: usize, n: &mut usize) -> Option<()> {
+        let text = std::fs::read_to_string(path).ok()?;
+        if depth > 4 || !text.contains(PIXEL_FUNCTION) {
+            return None;
+        }
+        for s in text.split("<SourceFilename").skip(1) {
+            let f = s.split_once('>').and_then(|(_, r)| r.split_once('<')).map(|(f, _)| f)?.trim();
+            let f = f
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&");
+            if f.to_ascii_lowercase().ends_with(".vrt") {
+                count(&f, depth + 1, n)?;
+            } else {
+                *n += 1;
+            }
+            if *n > 512 {
+                return None;
+            }
+        }
+        Some(())
+    }
+    let mut n = 0;
+    count(path, 0, &mut n)?;
+    (n > 0).then_some(n)
+}
+
 /// Runs `f` with GDAL reading through its block cache on this thread (GDAL_FORCE_CACHING) when `on`: a derived
 /// band then computes block by block, each block's sources only in memory, instead of every source of a whole
 /// window at once (a reduction over a hundred dates of the overview).
@@ -626,14 +662,20 @@ pub fn block_side(sources: usize) -> usize {
     side.clamp(64, 512) / 16 * 16
 }
 
-/// The blocks of a band of these sources on the grid: squares of block_side, or, when its first source is the whole
-/// of a file in strips as wide as the grid (a GeoTIFF of rows, a VRT of such strips), strips as wide, of as many rows
-/// as fit in the same memory. A square block of a file in strips decompresses its rows whole: each row of a grid
-/// 7318 wide was decompressed 17 times over (blocks of 448), a reduction over 41 such dates read for minutes.
+/// The blocks of a band of these sources on the grid: squares of block_side, or, when one of its sources (of the
+/// first 16 files) is the whole of a file in strips as wide as the grid (a GeoTIFF of rows, a VRT of such strips),
+/// strips as wide, of as many rows as fit in the same memory. A square block of a file in strips decompresses its
+/// rows whole: each row of a grid 7318 wide was decompressed 17 times over (blocks of 448), a reduction over 41
+/// such dates read for minutes; an anomaly, its mean and deviation (tiled) first, 12 dates in 62 s.
 pub fn block_shape(grid: &Grid, sources: &[Option<Source>]) -> (usize, usize) {
     let n = sources.len();
     let side = block_side(n);
-    let strips = sources.iter().flatten().find(|s| s.rects.is_none()).and_then(|s| {
+    let mut seen: Vec<&str> = Vec::new();
+    let strips = sources.iter().flatten().filter(|s| s.rects.is_none()).find_map(|s| {
+        if seen.contains(&s.path.as_str()) || seen.len() >= 16 {
+            return None;
+        }
+        seen.push(&s.path);
         let ds = with_block_reads(is_calc_vrt(&s.path), || crate::open_raster(&s.path)).ok()?;
         let (bx, by) = ds.rasterband(s.band as usize).ok()?.block_size();
         (bx == ds.raster_size().0 && bx == grid.w && by < bx).then_some(by.max(1))
