@@ -11,6 +11,8 @@ gdal.workspace = true
 gdal-sys.workspace = true
 janus-cube = { path = "../janus-cube" }
 janus-gdal = { path = "../janus-gdal" }
+# the full-resolution cache's blocks compressed with a context kept by each thread
+zstd = { version = "0.13", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

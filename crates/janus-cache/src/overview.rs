@@ -181,6 +181,41 @@ pub struct Overview {
     started: Instant,
     build_seconds: Mutex<Option<f64>>,
     on_ready: Box<dyn Fn() + Send + Sync>,
+    /// the first date built, read by every worker together
+    first: OnceLock<FirstDate>,
+}
+
+/// The first date of a build, its rows read by every worker of the pool before each goes on to a date of its own:
+/// shown once one date is read with all of them, not once as many dates as there are workers are read at once
+/// (41 Landsat dates on a SATA SSD, 8 workers: the first image after 0.36 s rather than 2.3 s).
+struct FirstDate {
+    i: usize,
+    /// source row of each overview row
+    ys: Vec<usize>,
+    next: AtomicUsize,
+    left: AtomicUsize,
+    failed: AtomicBool,
+    buf: Mutex<Vec<f32>>,
+}
+
+impl FirstDate {
+    /// overview rows a worker reads at a time: adjacent source rows, read in order
+    const ROWS: usize = 32;
+
+    fn chunks(&self) -> usize {
+        self.ys.len().div_ceil(Self::ROWS)
+    }
+}
+
+/// Whether a date can be read row by row as fast as in one read, the same pixels: a local GeoTIFF without
+/// overviews (GDAL reads a reduced window from an overview, a row by itself from the full resolution).
+fn rows_readable(info: &CubeInfo) -> bool {
+    let l = &info.layers[0];
+    !info.network_sources
+        && janus_cube::open_raster(&l.path).ok().is_some_and(|ds| {
+            ds.driver().short_name() == "GTiff"
+                && ds.rasterband(l.band.max(1) as usize).ok().is_some_and(|b| b.overview_count().unwrap_or(0) == 0)
+        })
 }
 
 impl Overview {
@@ -253,6 +288,7 @@ impl Overview {
             started: Instant::now(),
             build_seconds: Mutex::new(None),
             on_ready: Box::new(on_ready),
+            first: OnceLock::new(),
         });
 
         if cached == t {
@@ -326,17 +362,78 @@ impl Overview {
                 }
             });
         }
+        // Nothing to show yet: the first date read by every worker (not when the full-resolution cache reads whole
+        // dates for both, on an HDD).
+        let integrated = opts.full_res.as_ref().is_some_and(|c| c.integrates());
+        if ov.cached_layers() == 0
+            && pool.threads() > 1
+            && !integrated
+            && rows_readable(&ov.info)
+            && let Some(i) = ov.claim_next()
+        {
+            let ys = crate::fullres::source_rows(0, ov.info.height, h, ov.info.height);
+            let f = FirstDate {
+                i,
+                next: AtomicUsize::new(0),
+                left: AtomicUsize::new(h.div_ceil(FirstDate::ROWS)),
+                failed: AtomicBool::new(false),
+                buf: Mutex::new(vec![0f32; n]),
+                ys,
+            };
+            let _ = ov.first.set(f);
+        }
         // Build what is missing. The order follows the focused date: if the user jumps to 2010 while loading,
         // 2010 and the following dates come first.
         for _ in ov.cached_layers()..t {
             let o = ov.clone();
             pool.submit(10, move || {
+                o.help_first();
                 if let Some(i) = o.claim_next() {
                     o.decode(i);
                 }
             });
         }
         ov
+    }
+
+    /// Reads rows of the first date while some are left; whoever reads the last ones makes it ready.
+    fn help_first(&self) {
+        let Some(f) = self.first.get() else { return };
+        let (w, ow) = (self.info.width, self.w);
+        let mut rows = Vec::new();
+        loop {
+            let c = f.next.fetch_add(1, Ordering::Relaxed);
+            if c >= f.chunks() {
+                return;
+            }
+            let (j0, j1) = (c * FirstDate::ROWS, ((c + 1) * FirstDate::ROWS).min(self.h));
+            rows.resize((j1 - j0) * ow, 0.0);
+            let ok = !self.abandoned.load(Ordering::Relaxed)
+                && !f.failed.load(Ordering::Relaxed)
+                && with_thread_reader(&self.info, |r| {
+                    // a source row into the overview's columns: GDAL's nearest neighbour as in a read of the whole
+                    // date (the same columns; the rows are the ones it samples)
+                    (j0..j1)
+                        .zip(rows.chunks_mut(ow))
+                        .all(|(j, out)| r.read_window(f.i, (0, f.ys[j], w, 1), out, (ow, 1)))
+                });
+            if ok {
+                f.buf.lock().unwrap()[j0 * ow..j1 * ow].copy_from_slice(&rows);
+            } else {
+                f.failed.store(true, Ordering::Relaxed);
+            }
+            if f.left.fetch_sub(1, Ordering::AcqRel) == 1 {
+                let v = std::mem::take(&mut *f.buf.lock().unwrap());
+                if f.failed.load(Ordering::Relaxed) {
+                    self.failed.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    self.save_layer(f.i, &v);
+                    let _ = self.layers[f.i].set(v.into_boxed_slice());
+                }
+                self.mark_done(f.i);
+                return;
+            }
+        }
     }
 
     /// The series closed: the dates not begun are not read (the one being read is, unless the full-resolution cache

@@ -1,11 +1,11 @@
 //! The whole cube at full resolution on the local disk (src/fullres_cache.cpp): exact series, ROI and detail tiles
 //! without touching the source files, which may sit on an HDD. Stored date by date in 64×64 blocks, each
 //! compressed on its own and losslessly (float bits as integers, difference with the previous pixel, zigzag,
-//! bytes split into 4 planes, zstd through GDAL's compressor registry). A series reads one small block per date;
-//! an ROI or a tile reads the blocks it covers.
+//! bytes split into 4 planes, zstd level 1 with a context kept by each thread; read through GDAL's decompressor
+//! registry). A series reads one small block per date; an ROI or a tile reads the blocks it covers.
 //!
-//! The file is the C++'s `.janusfull`: the same name (key), header, flags, block tables and blocks, compressed by
-//! the same zstd (GDAL's), so either program reads and resumes what the other wrote. A date's blocks are written
+//! The file is the C++'s `.janusfull`: the same name (key), header, flags, block tables and blocks, in zstd frames
+//! GDAL's decompressor reads, so either program reads and resumes what the other wrote. A date's blocks are written
 //! first, then its table, then its flag: a write cut short is never trusted.
 
 use std::fs::File;
@@ -154,12 +154,43 @@ fn date_byte_range(info: &CubeInfo, t: usize) -> Option<(u64, u64)> {
 
 /// HDD: reads a date's bytes ahead of GDAL in large sequential chunks (at most LEAD ahead of what was decoded), so
 /// the disk streams while GDAL decodes from the OS cache in parallel; decoders wait for it (a decoder reading on its
-/// own would pull the head away).
+/// own would pull the head away). Once the date is read it goes on to the next date's first LEAD bytes while the
+/// decoders finish (the disk sat idle ~0.3 s a date, waiting for them).
 struct Prefetcher {
     begin: u64,
     end: u64,
     state: Mutex<PrefetchState>,
     cv: Condvar,
+    /// the date to read once this one is read, and whether it is (then the next one starts at once)
+    then: Mutex<(Option<NextDate>, bool)>,
+}
+
+/// The prefetcher of the date expected next, started by the one before it.
+#[derive(Default)]
+struct Ahead {
+    next: Option<(usize, Arc<Prefetcher>)>,
+    /// the series closed: none started any more
+    closed: bool,
+}
+
+struct NextDate {
+    info: Arc<CubeInfo>,
+    t: usize,
+    slot: Arc<Mutex<Ahead>>,
+}
+
+impl NextDate {
+    fn start(self) {
+        let Some((a, b)) = date_byte_range(&self.info, self.t) else { return };
+        let mut slot = self.slot.lock().unwrap();
+        if slot.closed {
+            return;
+        }
+        let p = Prefetcher::start(&self.info.layers[self.t].path, a, b);
+        if let Some((_, old)) = slot.next.replace((self.t, p)) {
+            old.stop();
+        }
+    }
 }
 
 #[derive(Default)]
@@ -180,6 +211,7 @@ impl Prefetcher {
             end,
             state: Mutex::new(PrefetchState { used: begin, ..Default::default() }),
             cv: Condvar::new(),
+            then: Mutex::new((None, false)),
         });
         let (q, path) = (p.clone(), path.to_string());
         std::thread::Builder::new().name("fullres prefetch".into()).spawn(move || q.run(&path)).expect("thread");
@@ -205,8 +237,32 @@ impl Prefetcher {
             self.state.lock().unwrap().pos = pos;
             self.cv.notify_all();
         }
-        self.state.lock().unwrap().done = true;
+        let read_all = {
+            let mut s = self.state.lock().unwrap();
+            s.done = true;
+            // (stopped after the last chunk, by decoders done with it: read all the same)
+            ok && pos >= self.end
+        };
         self.cv.notify_all();
+        let next = {
+            let mut then = self.then.lock().unwrap();
+            then.1 = read_all;
+            if read_all { then.0.take() } else { None }
+        };
+        if let Some(n) = next {
+            n.start();
+        }
+    }
+
+    /// Reads `next` once this date is read (at once if it is).
+    fn then(&self, next: NextDate) {
+        let mut then = self.then.lock().unwrap();
+        if then.1 {
+            drop(then);
+            next.start();
+        } else {
+            then.0 = Some(next);
+        }
     }
 
     fn at(&self, f: f64) -> u64 {
@@ -292,10 +348,37 @@ pub struct FullResCache {
     last_series_us: AtomicU64,
     window_hits: AtomicUsize,
     window_us_sum: AtomicU64,
+    /// HDD: the next date's prefetcher, started while this date's decoders finish
+    ahead: Arc<Mutex<Ahead>>,
 }
 
 thread_local! {
     static SCRATCH: std::cell::RefCell<(Vec<u8>, Vec<u8>, Vec<f32>)> = const { std::cell::RefCell::new((Vec::new(), Vec::new(), Vec::new())) };
+    /// zstd's context, kept by each thread that compresses: GDAL's compressor makes one per call, which cost 7x the
+    /// compression itself on 64×64 blocks (a date of 7318 × 7329: 2.4 s against 0.35 s, the same bytes)
+    static ZSTD_CTX: std::cell::RefCell<Option<zstd::bulk::Compressor<'static>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Compresses a block into `packed` (zstd level 1, or the codec's): false if it does not fit in `capacity` bytes.
+/// The zstd frames are the ones GDAL's decompressor reads (the C++'s too).
+fn compress_block(setup: &Setup, input: &[u8], packed: &mut Vec<u8>, capacity: usize) -> bool {
+    if setup.codec_name != codec_name(ZSTD) {
+        return setup.codec.compress(input, packed, capacity, &["LEVEL=1"]);
+    }
+    ZSTD_CTX.with_borrow_mut(|ctx| {
+        if ctx.is_none() {
+            *ctx = zstd::bulk::Compressor::new(1).ok();
+        }
+        let Some(c) = ctx.as_mut() else { return setup.codec.compress(input, packed, capacity, &["LEVEL=1"]) };
+        packed.resize(capacity, 0);
+        match c.compress_to_buffer(input, &mut packed[..]) {
+            Ok(n) => {
+                packed.truncate(n);
+                n > 0
+            }
+            Err(_) => false,
+        }
+    })
 }
 
 impl FullResCache {
@@ -333,6 +416,7 @@ impl FullResCache {
             last_series_us: AtomicU64::new(0),
             window_hits: AtomicUsize::new(0),
             window_us_sum: AtomicU64::new(0),
+            ahead: Arc::default(),
         })
     }
 
@@ -365,6 +449,11 @@ impl FullResCache {
             && !self.stop.load(Ordering::Relaxed)
             && !self.read_only.load(Ordering::Relaxed)
             && !self.complete()
+    }
+
+    /// The overview pass reads whole dates here, for both caches (HDD).
+    pub fn integrates(&self) -> bool {
+        self.started() && !self.read_only() && self.setup.get().is_some_and(|s| s.integrate)
     }
 
     pub fn read_only(&self) -> bool {
@@ -412,12 +501,35 @@ impl FullResCache {
     /// Stops building (the date being read is dropped); what is done stays readable.
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
+        if let Some((_, p)) = self.ahead.lock().unwrap().next.take() {
+            p.stop();
+        }
     }
 
     /// Stops for good, the series closed: the date being read is dropped even when the overview reads it here.
     pub fn abandon(&self) {
         self.abandoned.store(true, Ordering::Relaxed);
+        self.ahead.lock().unwrap().closed = true;
         self.stop();
+    }
+
+    /// The prefetcher already reading date t (started by the date before it); one reading another date is stopped.
+    fn take_ahead(&self, t: usize) -> Option<Arc<Prefetcher>> {
+        match self.ahead.lock().unwrap().next.take() {
+            Some((d, p)) if d == t => Some(p),
+            Some((_, p)) => {
+                p.stop();
+                None
+            }
+            None => None,
+        }
+    }
+
+    /// The date built after t, most likely: the next one missing (the overview goes on from the date in focus, the
+    /// build from the first missing).
+    fn next_missing(&self, t: usize) -> Option<usize> {
+        let st = self.state.lock().unwrap();
+        (1..self.t).map(|d| (t + d) % self.t).find(|&d| st.0[d] == DateState::Missing)
     }
 
     /// Stops, with a reason shown until resumed.
@@ -733,7 +845,13 @@ impl FullResCache {
         };
         let threads = self.decode_threads.load(Ordering::Relaxed);
         let prefetch = if threads > 1 {
-            date_byte_range(&self.info, t).map(|(a, b)| Prefetcher::start(&self.info.layers[t].path, a, b))
+            let p = self.take_ahead(t).or_else(|| {
+                date_byte_range(&self.info, t).map(|(a, b)| Prefetcher::start(&self.info.layers[t].path, a, b))
+            });
+            if let (Some(p), Some(n)) = (&p, self.next_missing(t)) {
+                p.then(NextDate { info: self.info.clone(), t: n, slot: self.ahead.clone() });
+            }
+            p
         } else {
             None
         };
@@ -857,8 +975,7 @@ impl FullResCache {
                 a.resize(raw, 0);
                 to_planes(f, a);
                 // stored as is when compression does not pay (the size tells: raw size)
-                let packed_ok =
-                    setup.codec.compress(a, packed, raw + raw / 8 + 1024, &["LEVEL=1"]) && packed.len() < raw;
+                let packed_ok = compress_block(setup, a, packed, raw + raw / 8 + 1024) && packed.len() < raw;
                 out.extend_from_slice(if packed_ok { packed } else { a });
                 *size = if packed_ok { packed.len() } else { raw } as u32;
             }
@@ -995,7 +1112,8 @@ impl FullResCache {
 
 impl Drop for FullResCache {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        self.ahead.lock().unwrap().closed = true;
+        self.stop();
         if let Some(p) = self.retained.lock().unwrap().take() {
             disk::release(&p);
         }

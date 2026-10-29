@@ -1040,6 +1040,12 @@ folder).
   GeoTIFFs stored as 1-row strips must be read almost entirely, even for a
   reduced overview. Cloud-optimized GeoTIFFs (tiled, with internal overviews) or
   an SSD make the first open much faster.
+- On an SSD the first date of a new overview is read by every background
+  reader together, rows split among them, and shown as soon as it is read; the
+  other dates follow, several at once. 41 Landsat dates (7318×7329 Float32, LZW,
+  1-row strips): the first image after 0.15 s on an NVMe SSD and 0.36 s on a
+  SATA SSD (2.3 s when each reader took a date of its own), the whole overview
+  in 3.6 s and 14 s.
 - **Full-resolution cache** (`.janusfull` files next to the overview cache):
   every date in 64×64 blocks, each compressed losslessly (float bits as
   integers, difference with the previous pixel, byte planes, zstd), so a series
@@ -1057,8 +1063,9 @@ folder).
   gives 1.17×). On an HDD the first open builds it in the same read as the
   overview: the overview pass reads each date at full resolution, one thread
   streams the file ahead while four decode and compress, and the overview is
-  taken from those rows (48.7 s for 38 dates, against 52 s for 41 dates of the
-  overview alone). When the overview already came from its cache, the cache is
+  taken from those rows; once a date is read the disk goes on to the next one
+  while its last rows are decoded. 41 dates of 7318×7329 (7.7 GB) on a 4 TB
+  HDD: both caches in 51–52 s, against 47 s to read the files alone. When the overview already came from its cache, the cache is
   built in a pass of its own (54 s per tile, bound by the disk). Each date is saved as it is
   built and used right away; a stopped build resumes.
 - The cache is on by default for series on an HDD; **File → Settings**
