@@ -366,6 +366,12 @@ impl State {
             set_map_options(&mut self.display, options);
         }
         self.update_alignment();
+        // the list's selection (what Space shows / hides) follows a layer made active elsewhere than on its row
+        let me = self.sel_of(crate::order::Item::Series(i));
+        if !me.is_some_and(|s| self.contents.selected.contains(&s)) {
+            self.contents.selected = me.into_iter().collect();
+            self.contents.basemap_selected = false;
+        }
 
         // the view
         match keep_view {

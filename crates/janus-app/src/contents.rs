@@ -32,6 +32,8 @@ pub struct ContentsUi {
     /// them; `anchor`: where a run starts
     pub(crate) selected: HashSet<Sel>,
     anchor: Option<Sel>,
+    /// the basemap's row clicked last (the layers' selection emptied): Space shows / hides the basemap
+    pub(crate) basemap_selected: bool,
     /// the layers' rows as last drawn, top to bottom (Shift + click's run), and the ones being drawn
     pub(crate) order: Vec<Sel>,
     drawing: Vec<Sel>,
@@ -50,6 +52,7 @@ impl ContentsUi {
     /// A click on a layer's row, with the keys held: the selection as a file manager's.
     pub(crate) fn click(&mut self, s: Sel, m: egui::Modifiers) {
         self.focused = true;
+        self.basemap_selected = false;
         if m.shift
             && let Some(a) = self.anchor
             && let (Some(i), Some(j)) =
@@ -689,7 +692,7 @@ impl State {
             detail: source,
             badge: if none || bm.on { String::new() } else { "hidden".into() },
             active: false,
-            selected: false,
+            selected: self.contents.basemap_selected,
             warn: None,
             indent: 0.0,
             swatch: Swatch::Basemap,
@@ -717,6 +720,12 @@ impl State {
         };
         row_r.context_menu(&mut menu);
         egui::Popup::menu(&out.more).show(&mut menu);
+        if row_r.clicked() || row_r.secondary_clicked() {
+            // selected alone: Space shows / hides it
+            self.contents.selected.clear();
+            self.contents.basemap_selected = true;
+            self.contents.focused = true;
+        }
         if out.fold_clicked || row_r.clicked() {
             self.contents.toggle(key, false);
         }

@@ -990,6 +990,37 @@ impl JanusApp {
             self.windows.push(Detached { id, dock: DockState::new(vec![Tab::Map]), at: None });
         }
     }
+
+    /// A "+" after the main map's tabs: another map panel, as Ctrl+T (egui_dock's add buttons would put one on
+    /// every panel's tabs). Placed by the last tab's rect, read back by egui_dock's id for it; none when the tab bar
+    /// has no room left for it.
+    fn new_view_button(&mut self, ui: &mut Ui) {
+        let Some(p) = self.dock.find_tab(&Tab::Map).filter(|p| p.surface.is_main()) else { return };
+        let egui_dock::Node::Leaf(leaf) = &self.dock[p.surface][p.node] else { return };
+        if leaf.tab_bar_hidden || leaf.collapsed || leaf.tabs.is_empty() {
+            return;
+        }
+        let id = Id::new("main dock")
+            .with((p.surface, "surface"))
+            .with((p.node, "node"))
+            .with((leaf.tabs.len() - 1, "tab"));
+        let Some(last) = ui.ctx().read_response(id) else { return };
+        let h = last.rect.height();
+        let rect = egui::Rect::from_min_size(egui::pos2(last.rect.right() + 2.0, last.rect.top()), egui::vec2(h, h));
+        if rect.right() > leaf.rect.right() {
+            return;
+        }
+        let has = self.state.session.is_some();
+        let r = ui
+            .add_enabled_ui(has, |ui| ui.put(rect, egui::Button::new(egui::RichText::new("+").size(16.0)).frame(false)))
+            .inner
+            .on_hover_text("New map panel (Ctrl+T): another layer, or the same series at another date, side by side")
+            .on_disabled_hover_text("New map panel (Ctrl+T), once a layer is open");
+        if r.clicked() {
+            self.state.new_map_view();
+            ui.ctx().request_repaint();
+        }
+    }
 }
 
 impl State {
@@ -1571,10 +1602,23 @@ impl State {
         if ctx.input(|i| i.key_pressed(Key::M) && i.modifiers.is_none()) {
             self.toggle_minimap();
         }
-        if space && let Some(l) = self.layers.get_mut(self.active) {
-            // shows / hides the active layer
-            l.visible = !l.visible;
-            self.map.dirty = true;
+        if space {
+            // shows / hides the layers selected on the Layers list (a run's map, a vector layer: a click selects
+            // them without making them active), all hidden if any is shown, or the basemap when its row was
+            // clicked last; none selected, the active layer
+            let sel: Vec<_> = self.contents.selected.iter().copied().collect();
+            if self.contents.basemap_selected {
+                if self.basemap.ui.source != "none" {
+                    self.basemap.ui.on = !self.basemap.ui.on;
+                    self.map.dirty = true;
+                }
+            } else if !sel.is_empty() {
+                let shown = self.any_visible(&sel);
+                self.set_visible(&sel, !shown);
+            } else if let Some(l) = self.layers.get_mut(self.active) {
+                l.visible = !l.visible;
+                self.map.dirty = true;
+            }
         }
         if esc {
             self.series.roi_drag = None;
@@ -2226,6 +2270,7 @@ impl eframe::App for JanusApp {
                 .show_leaf_collapse_buttons(false)
                 .show_leaf_close_all_buttons(false)
                 .show_inside(ui, &mut Tabs { s: &mut self.state });
+            self.new_view_button(ui);
         });
 
         // tabs dragged out of the window: windows of their own, to take to another screen

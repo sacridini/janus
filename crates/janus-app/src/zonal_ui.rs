@@ -97,6 +97,8 @@ pub struct ZonalUi {
     seen_pick: Option<(u32, usize)>,
     /// GeoPackages to open when their task is done
     gpkgs: Vec<(Arc<Mutex<JobStatus>>, String)>,
+    /// the threads its runs use, set in its window (None: the Settings')
+    pub threads: Option<usize>,
 }
 
 impl State {
@@ -304,6 +306,9 @@ impl State {
             "A pixel in several features counts in each. Writes a long and a wide CSV and the features with a \
              column per date (a GeoPackage, opened as a layer); Analysis > Zonal draws a feature's series.",
         );
+        let mut own = self.zonal.threads;
+        self.threads_ui(ui, &mut own);
+        self.zonal.threads = own;
         ui.add_space(4.0);
         let busy = self.zonal.pending.is_some();
         if ui.add_enabled(!busy, egui::Button::new("▶ Run").min_size(vec2(110.0, 0.0))).clicked() {
@@ -390,7 +395,7 @@ impl State {
             kind: z.kind,
             window,
             transitions,
-            threads: self.processing_threads(),
+            threads: self.zonal.threads.unwrap_or(self.processing_threads()),
         };
         let stat = z.stat;
         let gpkg = folder.join(format!("{stem}.gpkg"));

@@ -76,17 +76,27 @@ impl State {
     /// Whether any of group `g`'s layers is shown.
     pub(crate) fn group_visible(&self, g: u32) -> bool {
         let Some(gr) = self.groups.iter().find(|gr| gr.id == g) else { return false };
-        gr.members.iter().any(|&m| match m {
+        self.any_visible(&gr.members)
+    }
+
+    /// Group `g`'s layers shown or hidden.
+    pub(crate) fn set_group_visible(&mut self, g: u32, visible: bool) {
+        let Some(gr) = self.groups.iter().find(|gr| gr.id == g) else { return };
+        self.set_visible(&gr.members.clone(), visible);
+    }
+
+    /// Whether any of layers `sels` is shown.
+    pub(crate) fn any_visible(&self, sels: &[Sel]) -> bool {
+        sels.iter().any(|&m| match m {
             Sel::Series(id) => self.series_index(id).is_some_and(|i| self.layers[i].visible),
             Sel::Vector(id) => self.vectors.iter().any(|v| v.id == id && v.visible),
             Sel::Result(id) => self.zeit.results.iter().any(|r| r.id == id && r.visible),
         })
     }
 
-    /// Group `g`'s layers shown or hidden.
-    pub(crate) fn set_group_visible(&mut self, g: u32, visible: bool) {
-        let Some(gr) = self.groups.iter().find(|gr| gr.id == g) else { return };
-        for m in gr.members.clone() {
+    /// Layers `sels` shown or hidden, series, vector layers and the runs' maps alike.
+    pub(crate) fn set_visible(&mut self, sels: &[Sel], visible: bool) {
+        for &m in sels {
             match m {
                 Sel::Series(id) => {
                     if let Some(i) = self.series_index(id) {
@@ -133,6 +143,7 @@ impl State {
     pub(crate) fn select_group(&mut self, g: u32) {
         let Some(gr) = self.groups.iter().find(|gr| gr.id == g) else { return };
         self.contents.selected = gr.members.iter().copied().collect();
+        self.contents.basemap_selected = false;
         self.contents.focused = true;
     }
 

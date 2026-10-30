@@ -68,6 +68,8 @@ pub struct ToolUi {
     pub preview_asked: Option<Instant>,
     /// Only where...: a layer on the series' grid (its cube id) whose pixels 0 or without a value are left out
     pub mask: Option<u64>,
+    /// the threads its runs use, set in its window (None: the Settings')
+    pub threads: Option<usize>,
 }
 
 /// A preview's side at most, in pixels (without an ROI: at the centre of the view).
@@ -1628,13 +1630,16 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                 }
             }
         }
+        let mut own = self.zeit.tools.get(&tool.id).and_then(|u| u.threads);
+        let threads = self.threads_ui(ui, &mut own);
+        self.zeit.tools.entry(tool.id.clone()).or_default().threads = own;
         if ui
             .add_enabled(!unavailable, egui::Button::new("Run").min_size(egui::vec2(ui.available_width(), 0.0)))
             .clicked()
         {
             self.run_tool(tool, &ui.ctx().clone());
         }
-        ui.weak(format!("Runs in the background on {} threads; see Tools > Tasks.", self.processing_threads()));
+        ui.weak(format!("Runs in the background on {threads} threads; see Tools > Tasks."));
         self.preview_ui(ui, tool, unavailable);
     }
 
@@ -1719,7 +1724,8 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         let scope = self.zeit.tools.get(&tool.id).map_or(0, |u| u.scope);
         let work = crate::settings::app_data_dir().join("work");
         let _ = std::fs::create_dir_all(&work);
-        let mut spec = base_spec(&info, tool, &params, self.display.t, self.processing_threads());
+        let threads = self.zeit.tools.get(&tool.id).and_then(|u| u.threads).unwrap_or(self.processing_threads());
+        let mut spec = base_spec(&info, tool, &params, self.display.t, threads);
         if self.classes.on() {
             // a categorical layer: its classes' names and colours on the class series a run writes
             spec.classes = self
@@ -2504,7 +2510,11 @@ impl State {
     fn update_estimate(&mut self, tool: &'static Tool, ctx: &egui::Context) {
         let roles = self.active_roles();
         let Some(id) = self.session.as_ref().map(|s| s.info.id) else { return };
-        let key = format!("{id} {} {roles:?}", serde_json::to_string(self.zeit.params(tool)).unwrap_or_default());
+        let threads = self.zeit.tools.get(&tool.id).and_then(|u| u.threads);
+        let key = format!(
+            "{id} {} {roles:?} {threads:?}",
+            serde_json::to_string(self.zeit.params(tool)).unwrap_or_default()
+        );
         let u = self.zeit.tools.entry(tool.id.clone()).or_default();
         if let Some(rx) = &u.est_job {
             if let Ok(r) = rx.try_recv() {

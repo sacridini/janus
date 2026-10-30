@@ -467,6 +467,13 @@ impl State {
                 sw.lens_only = false;
             }
             if !off {
+                // the comparison's layer, date and mode from the bar's middle on, over the side it is drawn on
+                let gap = ui.max_rect().center().x - ui.cursor().min.x;
+                if gap > 0.0 {
+                    ui.add_space(gap);
+                }
+                ui.label(if sw.lens { "Lens:" } else { "Right:" })
+                    .on_hover_text("The comparison: right of the divider (inside the lens), the map left of it");
                 self.view_bar(ui, &mut sw.view);
             }
         });

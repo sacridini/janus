@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use egui::{Ui, vec2};
+use egui::{Slider, Ui, vec2};
 use janus_zeit::regularize::{Composite, Fill, RegOptions, Step, periods, regularize};
 
 use crate::app::State;
@@ -41,6 +41,8 @@ pub struct RegUi {
     pub roi: bool,
     pub name: String,
     pub status: String,
+    /// the threads its runs use, set in its window (None: the Settings')
+    pub threads: Option<usize>,
 }
 
 impl Default for RegUi {
@@ -57,6 +59,7 @@ impl Default for RegUi {
             roi: false,
             name: String::new(),
             status: String::new(),
+            threads: None,
         }
     }
 }
@@ -100,6 +103,38 @@ impl State {
             0 => janus_session::default_processing_threads(),
             n => n,
         }
+    }
+
+    /// A tool window's threads, over the Settings' for its runs (`own`; None: the Settings'): a slider showing the
+    /// threads its runs use, and a button back to the Settings'. The threads a run uses.
+    pub(crate) fn threads_ui(&self, ui: &mut Ui, own: &mut Option<usize>) -> usize {
+        let def = self.processing_threads();
+        let cores = janus_session::logical_cores();
+        let mut n = own.unwrap_or(def).clamp(1, cores);
+        ui.horizontal(|ui| {
+            let mine = own.is_some();
+            let r = ui
+                .add(Slider::new(&mut n, 1..=cores).custom_formatter(move |v, _| {
+                    format!("Threads: {v} of {cores}{}", if mine { "" } else { " (Settings)" })
+                }))
+                .on_hover_text(format!(
+                    "CPU threads this window's runs use: the Settings' ({def}) unless set here,\nfor these runs \
+                     only. Fewer leaves cores free for other programs."
+                ));
+            if r.changed() {
+                *own = Some(n);
+            }
+            if mine
+                && ui
+                    .small_button("Settings'")
+                    .on_hover_text(format!("Back to the Settings' threads ({def})"))
+                    .clicked()
+            {
+                *own = None;
+                n = def;
+            }
+        });
+        n
     }
 
     pub(crate) fn regularize_window(&mut self, ctx: &egui::Context) {
@@ -203,6 +238,9 @@ impl State {
             self.reg.step_text(),
             if empty > 0 { format!(", {empty} without a date") } else { String::new() }
         ));
+        let mut own = self.reg.threads;
+        self.threads_ui(ui, &mut own);
+        self.reg.threads = own;
         ui.add_space(4.0);
         if ui.add(egui::Button::new("▶ Run").min_size(vec2(110.0, 0.0))).clicked() {
             self.regularize_run(ui.ctx());
@@ -218,7 +256,7 @@ impl State {
         let info = s.info.clone();
         let layer = self.layers.get(self.active).map_or(String::new(), |l| l.name.clone());
         let inputs = self.layers.get(self.active).map(|l| l.inputs.clone()).unwrap_or_default();
-        let mut opts = self.reg.options(self.processing_threads());
+        let mut opts = self.reg.options(self.reg.threads.unwrap_or(self.processing_threads()));
         if self.reg.roi {
             opts.window = self.series.roi_rect;
         }

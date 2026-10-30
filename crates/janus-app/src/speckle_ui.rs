@@ -36,6 +36,8 @@ pub struct SpeckleUi {
     pub roi: bool,
     pub name: String,
     pub status: String,
+    /// the threads its runs use, set in its window (None: the Settings')
+    pub threads: Option<usize>,
 }
 
 impl Default for SpeckleUi {
@@ -48,6 +50,7 @@ impl Default for SpeckleUi {
             roi: false,
             name: String::new(),
             status: String::new(),
+            threads: None,
         }
     }
 }
@@ -141,6 +144,9 @@ impl State {
             "Every band of every date, on the linear values (not dB): a COG per date, in a folder that opens \
              as a series shown as this one is.",
         );
+        let mut own = self.speckle.threads;
+        self.threads_ui(ui, &mut own);
+        self.speckle.threads = own;
         ui.add_space(4.0);
         if ui.add_enabled(!quegan || info.t() >= 2, egui::Button::new("▶ Run").min_size(vec2(110.0, 0.0))).clicked() {
             self.speckle_run(ui.ctx());
@@ -156,7 +162,7 @@ impl State {
         let info = s.info.clone();
         let layer = self.layers.get(self.active).map_or(String::new(), |l| l.name.clone());
         let inputs = self.layers.get(self.active).map(|l| l.inputs.clone()).unwrap_or_default();
-        let mut opts = self.speckle.options(self.processing_threads());
+        let mut opts = self.speckle.options(self.speckle.threads.unwrap_or(self.processing_threads()));
         if self.speckle.roi {
             opts.window = self.series.roi_rect;
         }

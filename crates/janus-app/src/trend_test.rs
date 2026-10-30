@@ -36,6 +36,8 @@ pub struct TrendTestUi {
     pub auto_classes: bool,
     pub job: Option<Arc<TrendJob>>,
     pub result: Option<Result<TrendResult, String>>,
+    /// the threads its runs use, set in its window (None: the Settings')
+    pub threads: Option<usize>,
 }
 
 impl Default for TrendTestUi {
@@ -53,6 +55,7 @@ impl Default for TrendTestUi {
             auto_classes: false,
             job: None,
             result: None,
+            threads: None,
         }
     }
 }
@@ -261,7 +264,7 @@ impl State {
             let names = list.iter().map(|e| (e.value, (e.name.clone(), e.color))).collect();
             Some((cs.info.clone(), cs.s.full_res.clone(), t.min(cs.info.t() - 1), place, names, name))
         });
-        let threads = self.processing_threads();
+        let threads = o.threads.unwrap_or(self.processing_threads());
         let settings = Settings {
             per_year: o.per_year && s.info.time_is_date,
             harmonics: o.harmonics,
@@ -395,6 +398,10 @@ impl State {
             ui.checkbox(&mut o.ml_nugget, "Nugget by maximum likelihood")
                 .on_hover_text("Each partition's nugget (the share of variance without spatial correlation), else 0");
         });
+        let mut own = self.analysis.trend.threads;
+        self.threads_ui(ui, &mut own);
+        self.analysis.trend.threads = own;
+        let o = &mut self.analysis.trend;
         let mut start = false;
         ui.horizontal(|ui| {
             if running {

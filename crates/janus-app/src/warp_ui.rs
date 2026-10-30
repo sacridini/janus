@@ -45,6 +45,8 @@ pub struct WarpUi {
     pub format: usize,
     pub name: String,
     pub status: String,
+    /// the threads its runs use, set in its window (None: the Settings')
+    pub threads: Option<usize>,
 }
 
 impl Default for WarpUi {
@@ -67,6 +69,7 @@ impl Default for WarpUi {
             format: 0,
             name: String::new(),
             status: String::new(),
+            threads: None,
         }
     }
 }
@@ -264,6 +267,9 @@ impl State {
                 if let Ok(a) = o.args() {
                     ui.weak(format!("gdalwarp {}", a.join(" ")).replace(&info.crs_wkt, "<the layer's CRS>"));
                 }
+                let mut own = self.warp.threads;
+                self.threads_ui(ui, &mut own);
+                self.warp.threads = own;
                 ui.add_space(4.0);
                 if ui.add(egui::Button::new("▶ Run").min_size(vec2(110.0, 0.0))).clicked() {
                     self.warp_run(ui.ctx());
@@ -287,7 +293,7 @@ impl State {
             dst_nodata: w.nodata_on.then_some(w.nodata),
             data_type: (w.data_type > 0).then(|| TYPES[w.data_type].to_string()),
             format: [Format::Cog, Format::GTiff, Format::Vrt][w.format.min(2)],
-            threads: self.processing_threads(),
+            threads: w.threads.unwrap_or(self.processing_threads()),
             ..Default::default()
         };
         match w.target {

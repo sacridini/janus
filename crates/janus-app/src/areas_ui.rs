@@ -56,6 +56,8 @@ pub struct AreaUi {
     pending: Option<Pending>,
     pub table: Option<(Arc<AreaTable>, AreaMeta)>,
     pub status: String,
+    /// the threads its runs use, set in its window (None: the Settings')
+    pub threads: Option<usize>,
 }
 
 impl AreaMeta {
@@ -137,6 +139,9 @@ impl State {
             self.areas.source = None;
         }
         let series = self.layers.get(self.active).map_or("the active series".into(), |l| l.name.clone());
+        let mut own = self.areas.threads;
+        self.threads_ui(ui, &mut own);
+        self.areas.threads = own;
         ui.horizontal(|ui| {
             ui.label("Map");
             let shown = self
@@ -354,7 +359,7 @@ impl State {
             self.areas.status = format!("could not create {}: {e}", folder.display());
             return;
         }
-        let opts = AreaOptions { window, floor: meta.by_year, threads: self.processing_threads() };
+        let opts = AreaOptions { window, floor: meta.by_year, threads: self.areas.threads.unwrap_or(self.processing_threads()) };
         let title = format!("Areas of {}", meta.title);
         let log = JobLog { path: folder.join("job.log"), t0: Instant::now() };
         log.write(&format!(
