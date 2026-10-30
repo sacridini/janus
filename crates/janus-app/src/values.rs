@@ -48,7 +48,16 @@ pub struct ValuesUi {
     /// the Layers panel's selection when it was last one row (a new one becomes the focus)
     last_selected: Option<Sel>,
     summary: Option<(SummaryKey, Summary)>,
+    /// the table's own width as last drawn (its columns' widths; 0: not drawn yet): the histogram has the rest
+    table_w: f32,
 }
+
+/// Side by side: the table at most this share of the panel's width (it scrolls beyond), the histogram at least this
+/// wide (else under the table), the gap between them.
+const TABLE_SHARE: f32 = 0.65;
+const TABLE_MIN: f32 = 180.0;
+const HISTOGRAM_MIN: f32 = 260.0;
+const GAP: f32 = 18.0;
 
 /// What a summary was computed of: the layer, its data (address, length), its date, the overview's dates read.
 #[derive(Clone, PartialEq)]
@@ -396,18 +405,34 @@ impl State {
             }
             ui.ctx().copy_text(text);
         }
-        let wide = ui.available_width() >= 620.0;
         let table = |s: &mut State, ui: &mut Ui| {
-            egui::ScrollArea::both().id_salt("values table").auto_shrink([false, true]).show(ui, |ui| {
+            let o = egui::ScrollArea::both().id_salt("values table").auto_shrink([false, true]).show(ui, |ui| {
                 s.values_table(ui, &rows, &pins, focus);
             });
+            // its columns' width (a pin adds one), the room for a vertical scroll bar with it
+            let w = o.content_size.x + ui.spacing().scroll.allocated_width();
+            if (w - s.values.table_w).abs() > 0.5 {
+                s.values.table_w = w;
+                ui.ctx().request_repaint();
+            }
         };
-        if wide {
-            // the table wider than the histogram (a column per pin)
-            let (w, h) = (ui.available_width(), ui.available_height());
+        // side by side: the table as wide as its columns (up to a share of the panel, scrolling beyond), the
+        // histogram the rest; under each other when the histogram would be too narrow
+        let (w, h) = (ui.available_width(), ui.available_height());
+        let natural = if self.values.table_w > 0.0 { self.values.table_w } else { w * 0.5 };
+        let table_w = natural.clamp(TABLE_MIN, (w * TABLE_SHARE).max(TABLE_MIN));
+        if w - table_w - GAP >= HISTOGRAM_MIN {
             let down = egui::Layout::top_down(egui::Align::Min);
             ui.horizontal_top(|ui| {
-                ui.allocate_ui_with_layout(vec2(w * 0.6, h), down, |ui| table(self, ui));
+                ui.allocate_ui_with_layout(vec2(table_w, h), down, |ui| table(self, ui));
+                // the gap, the items' spacing on each side of its line included
+                let line_w = (GAP - 2.0 * ui.spacing().item_spacing.x).max(1.0);
+                let (line, _) = ui.allocate_exact_size(vec2(line_w, h), Sense::hover());
+                ui.painter().vline(
+                    line.center().x,
+                    line.y_range().shrink(4.0),
+                    ui.visuals().widgets.noninteractive.bg_stroke,
+                );
                 ui.allocate_ui_with_layout(vec2(ui.available_width(), h), down, |ui| {
                     self.focus_histogram(ui, &rows, &pins)
                 });

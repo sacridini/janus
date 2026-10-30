@@ -3,7 +3,9 @@
 //! same area (they share the main map's view, centred alike). The swipe draws such a view right of a draggable
 //! divider over the main map.
 
-use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, Ui, vec2};
+use std::time::{Duration, Instant};
+
+use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use janus_gpu::{Gpu, MapFrame, Mode};
 use janus_session::ViewRect;
 
@@ -74,11 +76,17 @@ pub struct Swipe {
     pub lens_only: bool,
     /// the wheel's part of a date not stepped yet (a fine wheel's or a touchpad's small deltas)
     wheel: f32,
+    /// the lens' hint (Ctrl + scroll: its date): when the lens opened, and when the hint is gone (seconds after)
+    hint: Option<(Instant, f32)>,
 }
 
 /// The lens' radius, in points: at first, the least and the most.
 const LENS_RADIUS: f32 = 110.0;
 const LENS_RADII: std::ops::RangeInclusive<f32> = 24.0..=800.0;
+/// The lens' hint: how long it is shown, how long it fades in and out (seconds).
+const HINT_SHOWN: f32 = 4.0;
+const HINT_IN: f32 = 0.2;
+const HINT_OUT: f32 = 0.6;
 
 /// The parts of a layer a view draws: the active one's live state, or another's own.
 struct LayerRef<'a> {
@@ -147,6 +155,7 @@ impl State {
             at: None,
             lens_only: false,
             wheel: 0.0,
+            hint: None,
         });
     }
 
@@ -522,6 +531,12 @@ impl State {
                 if size != 0.0 {
                     sw.radius = (sw.radius * 1.12f32.powf(size)).clamp(*LENS_RADII.start(), *LENS_RADII.end());
                 }
+                // the hint has done its job: it fades out now
+                if dates != 0.0
+                    && let Some((t0, end)) = sw.hint.as_mut()
+                {
+                    *end = end.min(t0.elapsed().as_secs_f32().max(HINT_IN) + HINT_OUT);
+                }
                 sw.wheel += dates;
                 let k = sw.wheel.trunc();
                 sw.wheel -= k;
@@ -570,9 +585,12 @@ impl State {
             }
             if sw.lens {
                 self.draw_lens(&sw, texture, painter, rect);
+                draw_lens_hint(&mut sw, painter, rect);
                 self.swipe = Some(sw);
                 return;
             }
+            // the lens opened again: its hint again
+            sw.hint = None;
             let x = rect.min.x + rect.width() * sw.x;
             painter.image(
                 texture,
@@ -649,6 +667,82 @@ impl State {
         let tp = c + vec2(-galley.size().x * 0.5, -r - galley.size().y - 6.0);
         painter.rect_filled(Rect::from_min_size(tp, galley.size()).expand(3.0), 3.0, Color32::from_black_alpha(170));
         painter.galley_with_override_text_color(tp, galley, Color32::WHITE);
+    }
+}
+
+/// The lens' hint, for a few seconds after it opens: Ctrl + scroll changes its date, Alt + scroll its size. A
+/// translucent pill under the lens (over its title when the lens is at the bottom), the keys drawn as key caps; it
+/// fades in, then out.
+fn draw_lens_hint(sw: &mut Swipe, painter: &egui::Painter, rect: Rect) {
+    let (t0, end) = *sw.hint.get_or_insert((Instant::now(), HINT_SHOWN + HINT_OUT));
+    let e = t0.elapsed().as_secs_f32();
+    if e >= end {
+        return;
+    }
+    let fade_in = (e / HINT_IN).min(1.0);
+    let a = fade_in * ((end - e) / HINT_OUT).clamp(0.0, 1.0);
+    let ctx = painter.ctx();
+    if a < 1.0 {
+        ctx.request_repaint();
+    } else {
+        ctx.request_repaint_after(Duration::from_secs_f32((end - HINT_OUT - e).max(0.0)));
+    }
+    let alpha = |x: u8| (f32::from(x) * a).round() as u8;
+    let (text, dim) = (Color32::from_white_alpha(alpha(240)), Color32::from_white_alpha(alpha(175)));
+    let body = body_font(painter);
+    let font = FontId::proportional(body.size * 0.9);
+    let mac = cfg!(target_os = "macos");
+    // each: its key cap, then the rest; between them a dot
+    let lay = |t: &str, c: Color32| painter.layout_no_wrap(t.into(), font.clone(), c);
+    let parts = [
+        (lay(if mac { "Cmd" } else { "Ctrl" }, text), lay(" + scroll", text), lay("  change date", dim)),
+        (lay(if mac { "Option" } else { "Alt" }, text), lay(" + scroll", text), lay("  resize", dim)),
+    ];
+    let dot = lay("   \u{00b7}   ", dim);
+    let (pad, kpad) = (vec2(12.0, 5.0), vec2(5.0, 1.0));
+    let width: f32 = parts.iter().map(|(k, p, w)| k.size().x + 2.0 * kpad.x + p.size().x + w.size().x).sum::<f32>()
+        + dot.size().x * (parts.len() - 1) as f32;
+    let size = vec2(width + 2.0 * pad.x, parts[0].0.size().y + 2.0 * kpad.y + 2.0 * pad.y);
+    // under the lens; at the bottom of the map, over its title (draw_lens)
+    let [fx, fy] = sw.at.unwrap_or([0.5, 0.5]);
+    let c = pos2(rect.min.x + fx * rect.width(), rect.min.y + fy * rect.height());
+    let rise = 4.0 * (1.0 - fade_in);
+    let below = c.y + sw.radius + 10.0;
+    let y = if below + size.y <= rect.max.y - 4.0 {
+        below + rise
+    } else {
+        let title = painter.layout_no_wrap("Ag".into(), body, Color32::WHITE).size().y;
+        c.y - sw.radius - 6.0 - title - 3.0 - 8.0 - size.y + rise
+    };
+    let x = (c.x - size.x * 0.5).clamp(rect.min.x + 4.0, (rect.max.x - 4.0 - size.x).max(rect.min.x + 4.0));
+    let pill = Rect::from_min_size(pos2(x, y), size);
+    painter.rect(
+        pill,
+        size.y * 0.5,
+        Color32::from_black_alpha(alpha(170)),
+        Stroke::new(1.0, Color32::from_white_alpha(alpha(45))),
+        StrokeKind::Inside,
+    );
+    let mut at = pill.min + pad;
+    for (i, (key, plus, what)) in parts.into_iter().enumerate() {
+        if i > 0 {
+            painter.galley(at + vec2(0.0, kpad.y), dot.clone(), dim);
+            at.x += dot.size().x;
+        }
+        let cap = Rect::from_min_size(at, key.size() + 2.0 * kpad);
+        painter.rect(
+            cap,
+            4.0,
+            Color32::from_white_alpha(alpha(30)),
+            Stroke::new(1.0, Color32::from_white_alpha(alpha(150))),
+            StrokeKind::Inside,
+        );
+        painter.galley(cap.min + kpad, key, text);
+        let ty = cap.min.y + kpad.y;
+        let (wp, ww) = (plus.size().x, what.size().x);
+        painter.galley(pos2(cap.max.x, ty), plus, text);
+        painter.galley(pos2(cap.max.x + wp, ty), what, dim);
+        at.x = cap.max.x + wp + ww;
     }
 }
 

@@ -2,7 +2,7 @@
 //! dragged out of the window into windows of their own (the C++'s ImGui viewports), the menu, the shortcuts and
 //! the startup measurements.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -170,7 +170,113 @@ fn dock_shape(d: &DockState<Tab>) -> String {
         Node::Vertical(s) => format!("V{:.4}", s.fraction),
         Node::Horizontal(s) => format!("H{:.4}", s.fraction),
     };
-    d.main_surface().iter().map(node).collect::<Vec<_>>().join(" ")
+    let mut nodes: Vec<String> = d.main_surface().iter().map(node).collect();
+    // the empty places a split left at the end of the tree's array: the same panels in the same places
+    while nodes.last().is_some_and(|n| n == "-") {
+        nodes.pop();
+    }
+    nodes.join(" ")
+}
+
+/// Where a panel was in the main window when it went to a window of its own: it goes back there.
+#[derive(Clone, Debug)]
+struct Home {
+    /// the panels it shared a tab bar with, and its place among them
+    mates: Vec<Tab>,
+    index: usize,
+    /// alone in its area: the panels of the area it was split from, its side of that split and the split's share
+    /// of the left (top) side
+    beside: Vec<Tab>,
+    side: egui_dock::Split,
+    fraction: f32,
+}
+
+/// The tabs of node `n` of `tree` and of the nodes under it.
+fn subtree_tabs(tree: &egui_dock::Tree<Tab>, n: NodeIndex) -> Vec<Tab> {
+    use egui_dock::Node;
+    let (mut out, mut stack) = (Vec::new(), vec![n]);
+    while let Some(n) = stack.pop() {
+        if n.0 >= tree.len() {
+            continue;
+        }
+        match &tree[n] {
+            Node::Leaf(l) => out.extend(l.tabs.iter().copied()),
+            Node::Horizontal(_) | Node::Vertical(_) => stack.extend([n.right(), n.left()]),
+            Node::Empty => {}
+        }
+    }
+    out
+}
+
+/// Where `tab` is in `tree` (the main window's, before it was taken out), `gone` the panels taken out with it.
+fn home_of(tree: &egui_dock::Tree<Tab>, tab: Tab, gone: &[Tab]) -> Option<Home> {
+    use egui_dock::{Node, Split};
+    let (node, leaf) = tree.iter().enumerate().find_map(|(i, n)| match n {
+        Node::Leaf(l) if l.tabs.contains(&tab) => Some((NodeIndex(i), l)),
+        _ => None,
+    })?;
+    let mut home = Home {
+        mates: leaf.tabs.iter().filter(|t| **t != tab && !gone.contains(t)).copied().collect(),
+        index: leaf.tabs.iter().position(|t| *t == tab).unwrap_or(0),
+        beside: Vec::new(),
+        side: Split::Right,
+        fraction: 0.5,
+    };
+    if let Some(parent) = node.parent() {
+        let other = if node.is_left() { parent.right() } else { parent.left() };
+        home.beside = subtree_tabs(tree, other).into_iter().filter(|t| !gone.contains(t)).collect();
+        let (horizontal, fraction) = match &tree[parent] {
+            Node::Horizontal(s) => (true, s.fraction),
+            Node::Vertical(s) => (false, s.fraction),
+            _ => (true, 0.5),
+        };
+        home.fraction = fraction;
+        home.side = match (horizontal, node.is_left()) {
+            (true, true) => Split::Left,
+            (true, false) => Split::Right,
+            (false, true) => Split::Above,
+            (false, false) => Split::Below,
+        };
+    }
+    Some(home)
+}
+
+/// Panel `tab` back in the main window: among the panels it shared a tab bar with, else split again from the area
+/// it was split from (where they are now), else in the first area.
+fn dock_back(dock: &mut DockState<Tab>, tab: Tab, home: Option<Home>) {
+    use egui_dock::Node;
+    if dock.find_tab(&tab).is_some() {
+        return;
+    }
+    let main = |dock: &DockState<Tab>, t: &Tab| dock.find_tab(t).filter(|p| p.surface.is_main()).map(|p| p.node);
+    if let Some(h) = home {
+        if let Some(n) = h.mates.iter().find_map(|t| main(dock, t))
+            && let Node::Leaf(l) = &mut dock.main_surface_mut()[n]
+        {
+            let at = h.index.min(l.tabs.len());
+            l.tabs.insert(at, tab);
+            l.active = egui_dock::TabIndex(at);
+            return;
+        }
+        // the smallest area holding the panels it was beside
+        let nodes: Vec<NodeIndex> = h.beside.iter().filter_map(|t| main(dock, t)).collect();
+        if let Some(&first) = nodes.first() {
+            let n = nodes.iter().fold(first, |mut a, &b| {
+                let mut b = b;
+                while a != b {
+                    if a.0 > b.0 {
+                        a = a.parent().unwrap_or(NodeIndex::root());
+                    } else {
+                        b = b.parent().unwrap_or(NodeIndex::root());
+                    }
+                }
+                a
+            });
+            dock.main_surface_mut().split(n, h.side, h.fraction.clamp(0.05, 0.95), Node::leaf(tab));
+            return;
+        }
+    }
+    dock.push_to_first_leaf(tab);
 }
 
 /// `tab` in the dock: next to the first of `near` found in the main window, else below the map.
@@ -602,6 +708,8 @@ pub struct JanusApp {
     layout_checked: Instant,
     windows: Vec<Detached>,
     window_count: u64,
+    /// where the panels in windows of their own were in the main window (they go back there)
+    homes: HashMap<Tab, Home>,
     /// Ctrl+Shift+R pressed in a window of its own: the layout reset at the next frame
     reset_from_window: bool,
     pub(crate) state: State,
@@ -609,6 +717,8 @@ pub struct JanusApp {
 
 struct Tabs<'a> {
     s: &'a mut State,
+    /// in a window of its own: the panels its tab menus sent back to the main window
+    back: Option<Vec<Tab>>,
 }
 
 impl TabViewer for Tabs<'_> {
@@ -624,6 +734,15 @@ impl TabViewer for Tabs<'_> {
 
     fn id(&mut self, tab: &mut Tab) -> Id {
         Id::new(*tab)
+    }
+
+    fn context_menu(&mut self, ui: &mut Ui, tab: &mut Tab, _path: egui_dock::NodePath) {
+        if let Some(back) = self.back.as_mut()
+            && ui.button("Back to the main window").on_hover_text("Docked where it was before").clicked()
+        {
+            back.push(*tab);
+            ui.close();
+        }
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {
@@ -773,6 +892,7 @@ impl JanusApp {
             layout_saved: String::new(),
             layout_checked: Instant::now(),
             windows: Vec::new(),
+            homes: HashMap::new(),
             window_count: 0,
             reset_from_window: false,
             state: State {
@@ -984,6 +1104,9 @@ impl JanusApp {
     /// The map in a window of its own from the start (--detach-map).
     fn detach_map(&mut self) {
         if let Some(path) = self.dock.find_tab(&Tab::Map) {
+            if let Some(h) = home_of(self.dock.main_surface(), Tab::Map, &[]) {
+                self.homes.insert(Tab::Map, h);
+            }
             self.dock.remove_tab(path);
             self.window_count += 1;
             let id = ViewportId::from_hash_of(("janus window", self.window_count));
@@ -2161,6 +2284,9 @@ impl eframe::App for JanusApp {
             && let Some(p) = self.dock.find_tab(&Tab::Display)
         {
             // Display in a window of its own, as when dragged out
+            if let Some(h) = home_of(self.dock.main_surface(), Tab::Display, &[]) {
+                self.homes.insert(Tab::Display, h);
+            }
             self.dock.remove_tab(p);
             self.window_count += 1;
             let id = ViewportId::from_hash_of(("janus window", self.window_count));
@@ -2173,6 +2299,7 @@ impl eframe::App for JanusApp {
             for w in self.windows.drain(..) {
                 drop(w);
             }
+            self.homes.clear();
             // the floating windows (Exports, Tasks, Log, Settings) back to their first place and size
             ctx.memory_mut(|m| m.reset_areas());
             ctx.data_mut(|d| d.clear());
@@ -2261,13 +2388,15 @@ impl eframe::App for JanusApp {
             self.state.close_map_view(id);
         }
         let style = theme::dock_style(ui.style());
+        // the main window's areas before a tab may be dragged out of it: where it goes back to
+        let before = self.dock.main_surface().clone();
         egui::CentralPanel::default().frame(egui::Frame::new()).show(ui, |ui| {
             DockArea::new(&mut self.dock)
                 .id(Id::new("main dock"))
                 .style(style.clone())
                 .show_leaf_collapse_buttons(false)
                 .show_leaf_close_all_buttons(false)
-                .show_inside(ui, &mut Tabs { s: &mut self.state });
+                .show_inside(ui, &mut Tabs { s: &mut self.state, back: None });
             self.new_view_button(ui);
         });
 
@@ -2276,6 +2405,11 @@ impl eframe::App for JanusApp {
         let origin = ctx.input(|i| i.viewport().outer_rect.map(|r| r.min)).unwrap_or_default();
         let pointer = ctx.input(|i| i.pointer.latest_pos()).unwrap_or_default();
         for group in floating {
+            for &t in &group {
+                if let Some(h) = home_of(&before, t, &group) {
+                    self.homes.insert(t, h);
+                }
+            }
             self.window_count += 1;
             let id = ViewportId::from_hash_of(("janus window", self.window_count));
             let mut dock = DockState::new(vec![group[0]]);
@@ -2299,19 +2433,48 @@ impl eframe::App for JanusApp {
                 builder = builder.with_position(at);
             }
             let style = style.clone();
+            let mut asked = Vec::new();
             let closed = ctx.show_viewport_immediate(w.id, builder, |ui, _class| {
                 // the window's keys: each window has its own keyboard (the map's shortcuts work where the map is)
                 reset |= state.shortcuts(ui.ctx()).reset_layout;
+                let mut all = false;
                 egui::CentralPanel::default().frame(egui::Frame::new()).show(ui, |ui| {
+                    let mut tabs = Tabs { s: state, back: Some(Vec::new()) };
                     DockArea::new(&mut w.dock)
                         .id(Id::new(("window dock", w.id)))
                         .style(style.clone())
                         .show_leaf_collapse_buttons(false)
                         .show_leaf_close_all_buttons(false)
-                        .show_inside(ui, &mut Tabs { s: state });
+                        .show_inside(ui, &mut tabs);
+                    asked = tabs.back.unwrap_or_default();
+                    // at the right of the tab bar: the window's panels docked again (as closing it does)
+                    let bar = egui::Rect::from_min_size(
+                        ui.max_rect().min,
+                        egui::vec2(ui.max_rect().width(), style.tab_bar.height),
+                    );
+                    ui.scope_builder(
+                        egui::UiBuilder::new()
+                            .max_rect(bar.shrink2(egui::vec2(8.0, 0.0)))
+                            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+                        |ui| {
+                            all = ui
+                                .add(egui::Button::new(egui::RichText::new("Back to main window").small()).frame(false))
+                                .on_hover_text(
+                                    "This window's panels docked again where they were (closing the window does too)",
+                                )
+                                .clicked();
+                        },
+                    );
                 });
-                ui.input(|i| i.viewport().close_requested())
+                ui.input(|i| i.viewport().close_requested()) || all
             });
+            // panels sent back by their tab's menu
+            for t in asked {
+                if let Some(p) = w.dock.find_tab(&t) {
+                    w.dock.remove_tab(p);
+                    back.push(t);
+                }
+            }
             // a window closed (or emptied): its panels go back to the main window
             let tabs: Vec<Tab> = w.dock.iter_all_tabs().map(|(_, t)| *t).collect();
             if closed || tabs.is_empty() {
@@ -2321,7 +2484,8 @@ impl eframe::App for JanusApp {
             true
         });
         for t in back {
-            self.dock.push_to_first_leaf(t);
+            let home = self.homes.remove(&t);
+            dock_back(&mut self.dock, t, home);
         }
         self.reset_from_window |= reset;
 
@@ -2414,5 +2578,44 @@ mod tests {
         for leaf in d.main_surface().iter().filter_map(|n| n.get_leaf()) {
             assert!(leaf.active.0 < leaf.tabs.len(), "{:?}", leaf.tabs);
         }
+    }
+
+    /// Panels `out` taken out of `d` to windows of their own (their homes kept), then back in order `back`.
+    fn out_and_back(d: &DockState<Tab>, out: &[Tab], back: &[Tab]) -> DockState<Tab> {
+        let mut d = d.clone();
+        let mut homes = HashMap::new();
+        for &t in out {
+            homes.insert(t, home_of(d.main_surface(), t, &[]).unwrap());
+            let p = d.find_tab(&t).unwrap();
+            d.remove_tab(p);
+        }
+        for &t in back {
+            dock_back(&mut d, t, homes.remove(&t));
+        }
+        d
+    }
+
+    #[test]
+    fn panels_back_from_their_windows_where_they_were() {
+        let d = default_layout();
+        let shape = dock_shape(&d);
+        // alone in its area (the map, the time series, Display), or sharing a tab bar (Files)
+        for t in [Tab::Map, Tab::Layers, Tab::Files, Tab::Display, Tab::TimeSeries, Tab::Statistics] {
+            assert_eq!(dock_shape(&out_and_back(&d, &[t], &[t])), shape, "{t:?}");
+        }
+        // two out, back in either order
+        let two = [Tab::Map, Tab::Display];
+        assert_eq!(dock_shape(&out_and_back(&d, &two, &two)), shape);
+        assert_eq!(dock_shape(&out_and_back(&d, &two, &[Tab::Display, Tab::Map])), shape);
+        let two = [Tab::Map, Tab::TimeSeries];
+        assert_eq!(dock_shape(&out_and_back(&d, &two, &[Tab::TimeSeries, Tab::Map])), shape);
+        // the map beside a map panel: back left of it
+        let mut d = default_layout();
+        let p = d.find_tab(&Tab::Map).unwrap();
+        d.main_surface_mut().split_right(p.node, 0.5, vec![Tab::MapView(2)]);
+        assert_eq!(dock_shape(&out_and_back(&d, &[Tab::Map], &[Tab::Map])), dock_shape(&d));
+        // the panels it was beside gone meanwhile: in the first area, not lost
+        let d = out_and_back(&default_layout(), &[Tab::Display, Tab::Layers, Tab::Files], &[Tab::Display]);
+        assert!(d.find_tab(&Tab::Display).is_some_and(|p| p.surface.is_main()));
     }
 }
