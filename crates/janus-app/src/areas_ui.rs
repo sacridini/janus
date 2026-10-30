@@ -359,7 +359,11 @@ impl State {
             self.areas.status = format!("could not create {}: {e}", folder.display());
             return;
         }
-        let opts = AreaOptions { window, floor: meta.by_year, threads: self.areas.threads.unwrap_or(self.processing_threads()) };
+        let opts = AreaOptions {
+            window,
+            floor: meta.by_year,
+            threads: self.areas.threads.unwrap_or(self.processing_threads()),
+        };
         let title = format!("Areas of {}", meta.title);
         let log = JobLog { path: folder.join("job.log"), t0: Instant::now() };
         log.write(&format!(

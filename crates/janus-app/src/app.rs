@@ -1000,10 +1000,8 @@ impl JanusApp {
         if leaf.tab_bar_hidden || leaf.collapsed || leaf.tabs.is_empty() {
             return;
         }
-        let id = Id::new("main dock")
-            .with((p.surface, "surface"))
-            .with((p.node, "node"))
-            .with((leaf.tabs.len() - 1, "tab"));
+        let id =
+            Id::new("main dock").with((p.surface, "surface")).with((p.node, "node")).with((leaf.tabs.len() - 1, "tab"));
         let Some(last) = ui.ctx().read_response(id) else { return };
         let h = last.rect.height();
         let rect = egui::Rect::from_min_size(egui::pos2(last.rect.right() + 2.0, last.rect.top()), egui::vec2(h, h));

@@ -2511,10 +2511,8 @@ impl State {
         let roles = self.active_roles();
         let Some(id) = self.session.as_ref().map(|s| s.info.id) else { return };
         let threads = self.zeit.tools.get(&tool.id).and_then(|u| u.threads);
-        let key = format!(
-            "{id} {} {roles:?} {threads:?}",
-            serde_json::to_string(self.zeit.params(tool)).unwrap_or_default()
-        );
+        let key =
+            format!("{id} {} {roles:?} {threads:?}", serde_json::to_string(self.zeit.params(tool)).unwrap_or_default());
         let u = self.zeit.tools.entry(tool.id.clone()).or_default();
         if let Some(rx) = &u.est_job {
             if let Ok(r) = rx.try_recv() {
