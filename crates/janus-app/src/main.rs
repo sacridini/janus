@@ -9,6 +9,7 @@ mod animation;
 mod app;
 mod areas_ui;
 mod attributes;
+mod bands_time;
 mod basemap;
 mod calc_live;
 mod calculator;
@@ -19,6 +20,7 @@ mod chips;
 mod classes;
 mod composite;
 mod contents;
+mod cycles;
 mod display;
 mod emb_download;
 mod embeddings;
@@ -78,6 +80,7 @@ mod vector_gpu;
 mod vectors;
 mod views;
 mod warp_ui;
+mod wavelet;
 mod zeit;
 mod zonal_ui;
 
@@ -155,7 +158,8 @@ Developer options:
   --date N            the date (a stack's band) shown, from 1
   --roi X0,Y0,X1,Y1   an ROI rectangle (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline)
-  --analysis seasonal|classes|scatter|trend  the Analysis panel at that tab (seasonal,M: its years from month M;
+  --analysis seasonal|cycles|bands|classes|scatter|trend|areas|zonal  the Analysis panel at that tab
+                      (seasonal,M: its years from month M; cycles,trend: the trend kept; bands,common|zscore;
                       classes,transitions: the matrix of two dates;
                       classes,flows[,changes][,zoom=N][,small=PCT][,window]: the flows between dates
                       (small=0: no Other; window: in a window of its own); trend,run: the trend test run,
@@ -484,6 +488,8 @@ fn main() -> eframe::Result<()> {
                     "trend" => Some(3),
                     "areas" => Some(4),
                     "zonal" => Some(5),
+                    "bands" => Some(6),
+                    "cycles" => Some(7),
                     _ => Some(0),
                 };
                 opts.analysis_view = month.trim().to_string();

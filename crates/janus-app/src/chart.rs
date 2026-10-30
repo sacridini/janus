@@ -248,7 +248,7 @@ impl AsShown {
 
 /// Each date's column on the chart (screen x): from halfway to the previous date to halfway to the next, the outer
 /// ones as wide on both sides; at least a point wide.
-fn date_columns(tr: &egui_plot::PlotTransform, xs: &[f64]) -> Vec<(f32, f32)> {
+pub(crate) fn date_columns(tr: &egui_plot::PlotTransform, xs: &[f64]) -> Vec<(f32, f32)> {
     let sx = |x: f64| tr.position_from_point(&egui_plot::PlotPoint::new(x, 0.0)).x;
     let n = xs.len();
     let mid = |t: usize| 0.5 * (sx(xs[t]) + sx(xs[t + 1]));

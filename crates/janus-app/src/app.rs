@@ -523,6 +523,10 @@ pub struct State {
     pub(crate) measure_vectors: crate::measure_vectors::MeasureVectors,
     /// the Analysis panel's state
     pub analysis: crate::analysis::AnalysisUi,
+    /// Analysis > Bands: a multiband series' bands over time
+    pub bands: crate::bands_time::BandsUi,
+    /// Analysis > Cycles: a series' wavelet scalogram
+    pub cycles: crate::cycles::CyclesUi,
     /// the Embeddings panel is shown
     pub show_embeddings: bool,
     pub(crate) embeddings_test: crate::embeddings_test::EmbeddingsTest,
@@ -928,6 +932,8 @@ impl JanusApp {
                 show_exports: false,
                 measure_vectors: Default::default(),
                 analysis: Default::default(),
+                bands: Default::default(),
+                cycles: Default::default(),
                 show_embeddings: false,
                 embeddings_test: Default::default(),
                 emb_download: Default::default(),
@@ -1460,6 +1466,16 @@ impl State {
                             .position(|&x| i.parse::<f64>().is_ok_and(|v| v == x))
                             .unwrap_or(0);
                     }
+                }
+                // bands,common or bands,zscore: the bands' colours
+                if view.contains(&"common") {
+                    self.bands.scale = 1;
+                } else if view.contains(&"zscore") {
+                    self.bands.scale = 2;
+                }
+                // cycles,trend: the trend kept
+                if view.contains(&"trend") {
+                    self.cycles.detrend = false;
                 }
                 self.analysis.trend.auto_run = view.contains(&"run");
                 self.analysis.trend.auto_classes = view.contains(&"classes");
@@ -2095,6 +2111,7 @@ impl State {
                 && pins_ready
                 && tiles_ready
                 && self.trend_test_settled()
+                && self.bands_settled()
                 && (self.opts.stac.is_none()
                     || self.stac.settled()
                         && !self.stac.open_after

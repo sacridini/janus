@@ -46,7 +46,7 @@ fn lut_at(l: &[[u8; 4]; 256], t: f32) -> Color32 {
 }
 
 /// A vertical colour scale next to a plot: the colormap from `lo` (bottom) to `hi` (top), its ends labelled.
-fn colour_scale(ui: &mut Ui, height: f32, cmap: usize, lo: f64, hi: f64, label: &dyn Fn(f64) -> String) {
+pub(crate) fn colour_scale(ui: &mut Ui, height: f32, cmap: usize, lo: f64, hi: f64, label: &dyn Fn(f64) -> String) {
     let (rect, _) =
         ui.allocate_exact_size(vec2(ui.text_style_height(&egui::TextStyle::Body) * 5.5, height), egui::Sense::hover());
     let bar = Rect::from_min_size(rect.min + vec2(2.0, 8.0), vec2(14.0, (rect.height() - 16.0).max(10.0)));
@@ -245,7 +245,8 @@ pub struct AnalysisUi {
     pub show: bool,
     /// brought to the front (a button elsewhere opened one of its tabs)
     pub focus: bool,
-    /// 0 seasonal, 1 classes, 2 scatter, 3 the trend test, 4 areas (areas_ui.rs)
+    /// 0 seasonal, 1 classes, 2 scatter, 3 the trend test, 4 areas (areas_ui.rs), 5 zonal, 6 bands (bands_time.rs),
+    /// 7 cycles (cycles.rs)
     pub tab: usize,
     seasonal_source: String,
     /// 0 years overlaid, 1 the heatmap
@@ -298,9 +299,20 @@ impl State {
             ui.weak("Open a series.");
             return;
         }
+        // in the order shown (a tab's number is kept: --analysis, the tests)
+        const TABS: [(usize, &str); 8] = [
+            (0, "Seasonal"),
+            (7, "Cycles"),
+            (6, "Bands"),
+            (1, "Classes"),
+            (2, "Scatter"),
+            (3, "Trend test"),
+            (4, "Areas"),
+            (5, "Zonal"),
+        ];
         ui.horizontal(|ui| {
-            for (k, name) in ["Seasonal", "Classes", "Scatter", "Trend test", "Areas", "Zonal"].iter().enumerate() {
-                ui.selectable_value(&mut self.analysis.tab, k, *name);
+            for (k, name) in TABS {
+                ui.selectable_value(&mut self.analysis.tab, k, name);
             }
         });
         ui.separator();
@@ -310,6 +322,8 @@ impl State {
             2 => self.scatter_ui(ui),
             3 => self.trend_test_ui(ui),
             4 => self.areas_ui(ui),
+            6 => self.bands_tab(ui),
+            7 => self.cycles_tab(ui),
             _ => self.zonal_tab(ui),
         }
     }
