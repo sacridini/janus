@@ -1606,7 +1606,7 @@ pub fn sample_series_with(
     classes: &[String],
     min_valid: f64,
     extra: &[janus_ml::extra::Extra],
-) -> Result<(janus_ml::Series, Vec<u32>, Norm, Vec<usize>, Vec<usize>), String> {
+) -> Result<Samples, String> {
     let pixels: Vec<(usize, usize)> = sites.iter().flat_map(|s| s.pixels.iter().copied()).collect();
     let mut raw = janus_ml::data::read_points(info, inputs, &pixels);
     let e = extra.len();

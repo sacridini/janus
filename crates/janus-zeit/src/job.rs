@@ -863,7 +863,12 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
     if spec.tool == "texture" {
         // the window held whole: the summary (0.05 us a pixel and date), then the windows' co-occurrences
         let (t, side) = (spec.years.len().max(1) as f64, p.int("window").max(3) as f64);
-        return Ok(Estimate { sec_per_px: 5e-8 * t + 2e-8 * side * side, sec_per_chunk: 0.0, chunk_cells: cells, sec_fixed: 0.0 });
+        return Ok(Estimate {
+            sec_per_px: 5e-8 * t + 2e-8 * side * side,
+            sec_per_chunk: 0.0,
+            chunk_cells: cells,
+            sec_fixed: 0.0,
+        });
     }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();

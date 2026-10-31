@@ -52,8 +52,11 @@ pub(crate) fn run(
     let (w, h) = (x1 - x0, y1 - y0);
     let (t, n) = (spec.years.len(), w * h);
     let outs_wanted = active_outputs(tool, p);
-    let feats: Vec<Feature> =
-        outs_wanted.iter().map(|o| Feature::parse(&o.id)).collect::<Result<_, _>>().map_err(|e| format!("ValueError: {e}"))?;
+    let feats: Vec<Feature> = outs_wanted
+        .iter()
+        .map(|o| Feature::parse(&o.id))
+        .collect::<Result<_, _>>()
+        .map_err(|e| format!("ValueError: {e}"))?;
     if feats.is_empty() {
         return Err("ValueError: no feature chosen (the GLCM properties, the window statistics or both)".into());
     }

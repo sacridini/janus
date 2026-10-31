@@ -114,9 +114,17 @@ fn main() {
         let standard = ft::standard_of(&chips, 7);
         let hyper = UtaeHyper { patch: cfg.crop, ..UtaeHyper::default() };
         let days = janus_ml::fields::month_positions(t);
-        let (net, trained) =
-            ft::train_field_utae(&chips, &|d| Ok(ft::field_utae(&hyper, 4, d)), &days, &standard, &cfg, &dev, &mut on_epoch, &cancel)
-                .unwrap();
+        let (net, trained) = ft::train_field_utae(
+            &chips,
+            &|d| Ok(ft::field_utae(&hyper, 4, d)),
+            &days,
+            &standard,
+            &cfg,
+            &dev,
+            &mut on_epoch,
+            &cancel,
+        )
+        .unwrap();
         FieldModel {
             header: FieldHeader {
                 arch: FieldArch::Utae { hyper, months: t, first_month: 7, standard },
@@ -127,7 +135,9 @@ fn main() {
         }
     } else {
         let base = std::env::var("FIELDS_BASE").expect("FIELDS_BASE: the checkpoint to start from");
-        let start = |d: &burn::prelude::Device| FieldNet::new(fieldnet::INPUTS, fieldnet::CLASSES, d).load_ftw(Path::new(&base));
+        let start = |d: &burn::prelude::Device| {
+            FieldNet::new(fieldnet::INPUTS, fieldnet::CLASSES, d).load_ftw(Path::new(&base))
+        };
         let (net, trained) = ft::train_fieldnet(&chips, &start, &cfg, &dev, &mut on_epoch, &cancel).unwrap();
         FieldModel {
             header: FieldHeader {

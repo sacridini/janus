@@ -67,7 +67,8 @@ impl Opened {
         }
         let (cw, ch) = ((bx - ax) as usize, (by - ay) as usize);
         let band = self.ds.rasterband(self.band).map_err(|e| e.to_string())?;
-        let buf = band.read_as::<f64>((ax as isize, ay as isize), (cw, ch), (cw, ch), None).map_err(|e| e.to_string())?;
+        let buf =
+            band.read_as::<f64>((ax as isize, ay as isize), (cw, ch), (cw, ch), None).map_err(|e| e.to_string())?;
         let data = buf.data();
         let (ox, oy) = ((ax - rx0) as usize, (ay - ry0) as usize);
         for r in 0..ch {
@@ -210,7 +211,12 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("tex.tif");
         // the series: 10 x 8 pixels of 10 m from (1000, 2000); the raster: 4 x 3 from the series' pixel (5, 2)
-        let info = CubeInfo { width: 10, height: 8, geo_transform: Some([1000.0, 10.0, 0.0, 2000.0, 0.0, -10.0]), ..Default::default() };
+        let info = CubeInfo {
+            width: 10,
+            height: 8,
+            geo_transform: Some([1000.0, 10.0, 0.0, 2000.0, 0.0, -10.0]),
+            ..Default::default()
+        };
         {
             let drv = DriverManager::get_driver_by_name("GTiff").unwrap();
             let mut ds = drv.create_with_band_type::<f32, _>(&path, 4, 3, 1).unwrap();

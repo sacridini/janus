@@ -132,9 +132,8 @@ pub fn find_season(
     let [x0, y0, x1, y1] = window;
     let (w, h) = (x1 - x0, y1 - y0);
     let n = 24usize;
-    let points: Vec<(usize, usize)> = (0..n * n)
-        .map(|i| (x0 + ((i % n) * 2 + 1) * w / (2 * n), y0 + ((i / n) * 2 + 1) * h / (2 * n)))
-        .collect();
+    let points: Vec<(usize, usize)> =
+        (0..n * n).map(|i| (x0 + ((i % n) * 2 + 1) * w / (2 * n), y0 + ((i / n) * 2 + 1) * h / (2 * n))).collect();
     let rn = [bands.bands[0].clone(), bands.bands[3].clone()];
     let s = crate::data::read_points(info, &rn, &points);
     let t = info.t();
@@ -163,7 +162,9 @@ pub fn find_season(
         .max_by(|&a, &b| ndvi[a].total_cmp(&ndvi[b]))
         .ok_or("no date with enough clear pixels to see the season")?;
     // the lowest NDVI within 200 days before and after the peak
-    let low = |range: Vec<usize>| range.into_iter().filter(|&d| ndvi[d].is_finite()).min_by(|&a, &b| ndvi[a].total_cmp(&ndvi[b]));
+    let low = |range: Vec<usize>| {
+        range.into_iter().filter(|&d| ndvi[d].is_finite()).min_by(|&a, &b| ndvi[a].total_cmp(&ndvi[b]))
+    };
     let before = low((0..peak).filter(|&d| days[peak] - days[d] <= 200).collect());
     let after = low((peak + 1..t).filter(|&d| days[d] - days[peak] <= 200).collect());
     let cross = |trough: Option<usize>, rising: bool| -> i64 {
@@ -243,7 +244,12 @@ impl Default for Tiling {
 
 /// The median of each band over the dates of a window, at each pixel of a tile (x, y, w, h): [band][h][w], NaN
 /// where no date has a value. A date's band masked by the quality band (as the series shows it) has none.
-pub fn composite(info: &Arc<CubeInfo>, bands: &[InputBand], dates: &[usize], win: (usize, usize, usize, usize)) -> Vec<f32> {
+pub fn composite(
+    info: &Arc<CubeInfo>,
+    bands: &[InputBand],
+    dates: &[usize],
+    win: (usize, usize, usize, usize),
+) -> Vec<f32> {
     let n = win.2 * win.3;
     let sel = info.sel;
     let per_date: Vec<Vec<f32>> = dates
@@ -323,7 +329,10 @@ pub fn probabilities(net: &FieldNet, x: Tensor<4>, resize: usize) -> Tensor<4> {
     let p = softmax(net.forward(up), 1);
     let device = p.device();
     let keep = |n: usize| {
-        Tensor::<1, Int>::from_data(TensorData::new((0..n).map(|i| (i * resize) as i64).collect::<Vec<_>>(), [n]), &device)
+        Tensor::<1, Int>::from_data(
+            TensorData::new((0..n).map(|i| (i * resize) as i64).collect::<Vec<_>>(), [n]),
+            &device,
+        )
     };
     p.select(2, keep(h)).select(3, keep(w))
 }
@@ -500,7 +509,8 @@ pub fn delineate(
             }
         }
         let input = Tensor::<4>::from_data(TensorData::new(x, [b, 8, p, p]), device);
-        let probs: Vec<f32> = probabilities(net, input, tiling.resize).into_data().try_to_vec().map_err(|e| format!("{e:?}"))?;
+        let probs: Vec<f32> =
+            probabilities(net, input, tiling.resize).into_data().try_to_vec().map_err(|e| format!("{e:?}"))?;
         Ok((probs, valid))
     })
 }
@@ -512,6 +522,10 @@ type TileOut = (Vec<f32>, Vec<Vec<bool>>);
 /// The tiles of side p over a window (their borders `pad` dropped but at the window's edges), `run` giving a
 /// batch's outputs: the probabilities (and a fourth plane, the distance, when `planes` is 4).
 #[allow(clippy::too_many_arguments)]
+/// A batch of tiles (their origins) through the network.
+type TileRun<'a> = dyn FnMut(&[(usize, usize)]) -> Result<TileOut, String> + 'a;
+
+#[allow(clippy::too_many_arguments)]
 fn tiles(
     window: [usize; 4],
     p: usize,
@@ -520,7 +534,7 @@ fn tiles(
     planes: usize,
     progress: &(dyn Fn(f64, &str) + Sync),
     cancel: &AtomicBool,
-    run: &mut dyn FnMut(&[(usize, usize)]) -> Result<TileOut, String>,
+    run: &mut TileRun,
 ) -> Result<Probabilities, String> {
     let [x0, y0, x1, y1] = window;
     let (w, h) = (x1 - x0, y1 - y0);
@@ -568,7 +582,11 @@ fn tiles(
         let el = t0.elapsed().as_secs_f64();
         progress(
             k as f64 / tiles.len() as f64,
-            &format!("tiles {k}/{}, {el:.0} s elapsed, ~{:.0} s left", tiles.len(), el / k as f64 * (tiles.len() - k) as f64),
+            &format!(
+                "tiles {k}/{}, {el:.0} s elapsed, ~{:.0} s left",
+                tiles.len(),
+                el / k as f64 * (tiles.len() - k) as f64
+            ),
         );
     }
     Ok(out)
@@ -600,12 +618,17 @@ pub fn parcels(probs: &Probabilities, method: Parcels, interior: u8) -> Vec<u32>
             // (with a temporal model's distance: the pixels at least `interior` percent of the way to the field's
             // middle, the flood the lowest distance last)
             let with_dist = probs.dist.len() == n;
-            let strong = |j: usize| if with_dist { probs.dist[j] >= interior } else { probs.at(INTERIOR, j) >= interior };
+            let strong =
+                |j: usize| if with_dist { probs.dist[j] >= interior } else { probs.at(INTERIOR, j) >= interior };
             let core: Vec<bool> = (0..n)
                 .map(|i| {
                     let (x, y) = (i % w, i / w);
                     let is = |j: usize| classes[j] as usize == INTERIOR && strong(j);
-                    is(i) && (x == 0 || is(i - 1)) && (x + 1 == w || is(i + 1)) && (y == 0 || is(i - w)) && (y + 1 == h || is(i + w))
+                    is(i)
+                        && (x == 0 || is(i - 1))
+                        && (x + 1 == w || is(i + 1))
+                        && (y == 0 || is(i - w))
+                        && (y + 1 == h || is(i + w))
                 })
                 .collect();
             let mut labels = components(&core, w, h);
@@ -639,8 +662,8 @@ pub fn parcels(probs: &Probabilities, method: Parcels, interior: u8) -> Vec<u32>
                 heap.push((-height, u64::MAX - *order, i as u32));
             };
             let mut order = 0u64;
-            for i in 0..n {
-                if labels[i] > 0 {
+            for (i, &l) in labels.iter().enumerate().take(n) {
+                if l > 0 {
                     push(&mut heap, i, &mut order);
                 }
             }
@@ -738,12 +761,12 @@ pub fn write(
     }
     Ok([
         vec![
-        serde_json::json!({"id": "class", "name": "Fields (background, interior, boundary)", "unit": "class",
+            serde_json::json!({"id": "class", "name": "Fields (background, interior, boundary)", "unit": "class",
             "colormap": "Paired", "classes": CLASS_NAMES, "class_colors": CLASS_COLORS, "path": s("class"),
             "model": model}),
-        serde_json::json!({"id": "interior", "name": "Field interior probability (%)", "unit": "%",
+            serde_json::json!({"id": "interior", "name": "Field interior probability (%)", "unit": "%",
             "colormap": "Viridis", "path": s("interior"), "hidden": true}),
-        serde_json::json!({"id": "boundary", "name": "Field boundary probability (%)", "unit": "%",
+            serde_json::json!({"id": "boundary", "name": "Field boundary probability (%)", "unit": "%",
             "colormap": "Magma", "path": s("boundary"), "hidden": true}),
         ],
         extra,

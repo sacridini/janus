@@ -96,7 +96,13 @@ pub fn distance_to_edge(labels: &[u32], w: usize, h: usize) -> Vec<f32> {
             }
             match (d[i], most.get(&labels[i])) {
                 (u32::MAX, _) | (_, None) => 1.0,
-                (v, Some(&m)) => if m == 0 { 0.0 } else { v as f32 / m as f32 },
+                (v, Some(&m)) => {
+                    if m == 0 {
+                        0.0
+                    } else {
+                        v as f32 / m as f32
+                    }
+                }
             }
         })
         .collect()
@@ -300,7 +306,13 @@ pub fn train_fieldnet(
                 return Err("cancelled".into());
             }
             let bt = batch_of(chips, chunk, s);
-            let x = Tensor::<4>::from_data(TensorData::new(bt.x.iter().map(|v| if v.is_finite() { *v } else { 0.0 }).collect::<Vec<_>>(), [bt.b, chips[0].t * chips[0].c, s, s]), &ad);
+            let x = Tensor::<4>::from_data(
+                TensorData::new(
+                    bt.x.iter().map(|v| if v.is_finite() { *v } else { 0.0 }).collect::<Vec<_>>(),
+                    [bt.b, chips[0].t * chips[0].c, s, s],
+                ),
+                &ad,
+            );
             let Some((logits, targets, _)) = labelled(net.forward(x), &bt.y, &ad) else { continue };
             let m = targets.dims()[0];
             let pred: Vec<i64> = logits.clone().argmax(1).into_data().convert::<i64>().try_to_vec().unwrap_or_default();
@@ -317,7 +329,13 @@ pub fn train_fieldnet(
         let (mut vl, mut vr, mut vn) = (0.0, 0usize, 0usize);
         for chunk in val_picks(&val_idx).chunks(cfg.batch.max(1)) {
             let bt = batch_of(chips, chunk, s);
-            let x = Tensor::<4>::from_data(TensorData::new(bt.x.iter().map(|v| if v.is_finite() { *v } else { 0.0 }).collect::<Vec<_>>(), [bt.b, chips[0].t * chips[0].c, s, s]), device);
+            let x = Tensor::<4>::from_data(
+                TensorData::new(
+                    bt.x.iter().map(|v| if v.is_finite() { *v } else { 0.0 }).collect::<Vec<_>>(),
+                    [bt.b, chips[0].t * chips[0].c, s, s],
+                ),
+                device,
+            );
             let Some((logits, targets, _)) = labelled(v.forward(x), &bt.y, device) else { continue };
             let m = targets.dims()[0];
             let pred: Vec<i64> = logits.clone().argmax(1).into_data().convert::<i64>().try_to_vec().unwrap_or_default();
@@ -398,7 +416,10 @@ pub fn train_field_utae(
         let dist = sigmoid(scores.slice([0..b, 3..4, 0..s, 0..s])).reshape([b * s * s]);
         let (logits, targets, sel) = labelled(classes, &bt.y, dev)?;
         let m = targets.dims()[0];
-        let dt: Vec<f32> = (0..b * s * s).filter(|&i| bt.y[i] != NONE).map(|i| if bt.d[i].is_finite() { bt.d[i] } else { 0.0 }).collect();
+        let dt: Vec<f32> = (0..b * s * s)
+            .filter(|&i| bt.y[i] != NONE)
+            .map(|i| if bt.d[i].is_finite() { bt.d[i] } else { 0.0 })
+            .collect();
         let dt = Tensor::<1>::from_data(TensorData::new(dt, [m]), dev);
         let dl = (dist.select(0, sel) - dt).powf_scalar(2.0).mean();
         let pred: Vec<i64> = logits.clone().argmax(1).into_data().convert::<i64>().try_to_vec().unwrap_or_default();
@@ -500,11 +521,11 @@ pub fn standard_of(chips: &[Chip], step: usize) -> Standard {
 /// shorter than the model's year still delineated.
 fn drop_months(x: &mut [f32], b: usize, t: usize, per_month: usize, rng: &mut Rng) {
     for i in 0..b {
-        if rng.next_u64() % 2 == 0 || t < 3 {
+        if rng.next_u64().is_multiple_of(2) || t < 3 {
             continue;
         }
         let k = 1 + (rng.next_u64() % (t as u64 / 3)) as usize;
-        let months: Vec<usize> = if rng.next_u64() % 2 == 0 { (0..k).collect() } else { (t - k..t).collect() };
+        let months: Vec<usize> = if rng.next_u64().is_multiple_of(2) { (0..k).collect() } else { (t - k..t).collect() };
         for m in months {
             x[(i * t + m) * per_month..(i * t + m + 1) * per_month].fill(f32::NAN);
         }
@@ -607,6 +628,8 @@ pub struct FieldHeader {
     pub training: serde_json::Value,
 }
 
+// one model at a time, kept a while: not worth a box
+#[allow(clippy::large_enum_variant)]
 pub enum FieldNetwork {
     FieldNet(FieldNet),
     Utae(Utae),
@@ -643,7 +666,8 @@ impl FieldModel {
         if bytes.len() < FIELD_MAGIC.len() + 8 || &bytes[..FIELD_MAGIC.len()] != FIELD_MAGIC {
             return Err(bad());
         }
-        let len = u64::from_le_bytes(bytes[FIELD_MAGIC.len()..FIELD_MAGIC.len() + 8].try_into().map_err(|_| bad())?) as usize;
+        let len =
+            u64::from_le_bytes(bytes[FIELD_MAGIC.len()..FIELD_MAGIC.len() + 8].try_into().map_err(|_| bad())?) as usize;
         let start = FIELD_MAGIC.len() + 8;
         let json = bytes.get(start..start + len).ok_or_else(bad)?;
         let header = serde_json::from_slice(json).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -686,14 +710,15 @@ mod tests {
     fn distance_is_zero_at_edges_one_in_the_middle() {
         // a 5x5 field in a 7x7 image
         let (w, h) = (7, 7);
-        let labels: Vec<u32> = (0..49).map(|i| if (1..6).contains(&(i % 7)) && (1..6).contains(&(i / 7)) { 1 } else { 0 }).collect();
+        let labels: Vec<u32> =
+            (0..49).map(|i| if (1..6).contains(&(i % 7)) && (1..6).contains(&(i / 7)) { 1 } else { 0 }).collect();
         let d = distance_to_edge(&labels, w, h);
-        assert_eq!(d[1 * 7 + 1], 0.0);
+        assert_eq!(d[7 + 1], 0.0);
         assert_eq!(d[3 * 7 + 3], 1.0);
         assert_eq!(d[2 * 7 + 2], 0.5);
         assert_eq!(d[0], 0.0);
         let c = classes_of(&labels, w, h);
-        assert_eq!((c[1 * 7 + 1], c[3 * 7 + 3], c[0]), (2, 1, 0));
+        assert_eq!((c[7 + 1], c[3 * 7 + 3], c[0]), (2, 1, 0));
     }
 
     #[test]

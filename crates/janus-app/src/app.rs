@@ -1293,11 +1293,8 @@ impl State {
                         .filter(|r| r.cube == id && !r.preview && !r.path.is_empty())
                         .map(|r| janus_ml::extra::Extra { path: r.path.clone(), band: 1, name: r.name.clone() })
                         .collect();
-                    let running = self
-                        .zeit
-                        .jobs
-                        .iter()
-                        .any(|j| j.status.lock().unwrap().state == crate::zeit::JobState::Running);
+                    let running =
+                        self.zeit.jobs.iter().any(|j| j.status.lock().unwrap().state == crate::zeit::JobState::Running);
                     if running || extra.is_empty() && self.opts.zeit_run {
                         later.push(w.clone());
                         continue;

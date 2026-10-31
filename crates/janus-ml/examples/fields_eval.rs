@@ -133,7 +133,8 @@ fn main() {
             .filter(|n| n.ends_with(".tif"))
             .collect();
         names.sort();
-        let (mut px, mut obj, mut int, mut ws) = (Counts::default(), Counts::default(), Counts::default(), Counts::default());
+        let (mut px, mut obj, mut int, mut ws) =
+            (Counts::default(), Counts::default(), Counts::default(), Counts::default());
         let t0 = std::time::Instant::now();
         for n in &names {
             let set = dir.file_name().unwrap().to_string_lossy().into_owned();
@@ -153,7 +154,8 @@ fn main() {
                     let root = series.as_ref().expect("FIELDS_SERIES: the chips' monthly series");
                     let (x, b, _, _) = read_bands(&root.join(&set).join(n));
                     assert_eq!(b, months * 4, "{n}: {months} months of 4 bands");
-                    let mut x: Vec<f32> = x.iter().map(|&v| if v > 0.0 { v / fields::NORMALIZATION } else { f32::NAN }).collect();
+                    let mut x: Vec<f32> =
+                        x.iter().map(|&v| if v > 0.0 { v / fields::NORMALIZATION } else { f32::NAN }).collect();
                     standard.apply(&mut x, 4, w * h);
                     let input = Tensor::<5>::from_data(TensorData::new(x, [1, *months, 4, h, w]), &dev);
                     let pos: Vec<f32> = fields::month_positions(*months).iter().map(|&d| d as f32).collect();

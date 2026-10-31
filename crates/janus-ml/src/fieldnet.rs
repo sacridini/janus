@@ -210,7 +210,13 @@ impl FieldNet {
             })
             .collect();
         FieldNet {
-            encoder: Encoder { conv_stem: conv(inputs, 40, 3, 2, 1, false, device), bn0: bn(40, eps, device), blocks, stem_lo, stem_hi },
+            encoder: Encoder {
+                conv_stem: conv(inputs, 40, 3, 2, 1, false, device),
+                bn0: bn(40, eps, device),
+                blocks,
+                stem_lo,
+                stem_hi,
+            },
             decoder: Decoder { blocks: dec },
             segmentation_head: Conv2dConfig::new([16, classes], [3, 3])
                 .with_padding(PaddingConfig2d::Explicit(1, 1, 1, 1))
@@ -255,7 +261,8 @@ impl FieldNet {
             .with_key_remapping(r"^decoder\.blocks\.(\d+)\.conv(\d)\.0\.", "decoder.blocks.${1}.conv${2}.")
             .with_key_remapping(r"^decoder\.blocks\.(\d+)\.conv(\d)\.1\.", "decoder.blocks.${1}.bn${2}.")
             .with_key_remapping(r"^segmentation_head\.0\.", "segmentation_head.");
-        let r = self.load_from(&mut store).map_err(|e| format!("{}: the field network's weights: {e}", path.display()))?;
+        let r =
+            self.load_from(&mut store).map_err(|e| format!("{}: the field network's weights: {e}", path.display()))?;
         // EfficientNet's classification head (conv_head, bn1) is in the checkpoint but not in a U-Net's encoder
         let unused: Vec<&String> = r
             .unused

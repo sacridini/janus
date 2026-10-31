@@ -12,7 +12,9 @@ use egui_plot::{Line, Plot, PlotPoints, Polygon};
 use janus_cube::CubeInfo;
 use janus_ml::fieldnet::{self, CHECKPOINTS, FieldNet};
 use janus_ml::fields::{self, FieldBands, Parcels, Season, Tiling};
-use janus_ml::fields_train::{self as ft, ChipInputs, FieldArch, FieldHeader, FieldModel, FieldNetwork, FieldTrainConfig};
+use janus_ml::fields_train::{
+    self as ft, ChipInputs, FieldArch, FieldHeader, FieldModel, FieldNetwork, FieldTrainConfig,
+};
 use janus_ml::model::shared_device;
 use janus_zeit::polygonize::{PolyOptions, polygonize};
 
@@ -88,6 +90,8 @@ impl Default for FieldsUi {
 }
 
 /// A network: a checkpoint of WRI's or FTW's, or a field model trained.
+// a few in a list, cloned when chosen: not worth a box
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 enum Choice {
     Checkpoint(&'static fieldnet::Checkpoint),
@@ -137,8 +141,7 @@ impl FieldsUi {
 
 /// The years of a series' dates.
 fn series_years(info: &CubeInfo) -> Vec<i32> {
-    let mut v: Vec<i32> =
-        (0..info.t()).map(|k| janus_cube::dates::civil_from_days(info.unix_day(k)).0).collect();
+    let mut v: Vec<i32> = (0..info.t()).map(|k| janus_cube::dates::civil_from_days(info.unix_day(k)).0).collect();
     v.dedup();
     v
 }
@@ -480,7 +483,9 @@ impl State {
             ui.weak(&self.fields.status);
         }
         ui.separator();
-        egui::CollapsingHeader::new("Train on your fields").id_salt("fields train").show(ui, |ui| self.fields_train_ui(ui));
+        egui::CollapsingHeader::new("Train on your fields")
+            .id_salt("fields train")
+            .show(ui, |ui| self.fields_train_ui(ui));
     }
 
     /// Training on fields drawn: the model chosen fine-tuned on the polygons of a vector layer inside the ROI.
@@ -513,7 +518,10 @@ impl State {
         }
         egui::Grid::new("fields train grid").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
             ui.label("Fields");
-            let sel = areas.iter().find(|a| a.0 == f.train_vector).map_or("(no polygons open)".to_string(), |a| format!("{} ({} polygons)", a.1, a.2));
+            let sel = areas
+                .iter()
+                .find(|a| a.0 == f.train_vector)
+                .map_or("(no polygons open)".to_string(), |a| format!("{} ({} polygons)", a.1, a.2));
             egui::ComboBox::from_id_salt("fields train vector").selected_text(sel).width(260.0).show_ui(ui, |ui| {
                 for a in &areas {
                     ui.selectable_value(&mut f.train_vector, a.0, format!("{} ({} polygons)", a.1, a.2));
@@ -547,7 +555,11 @@ impl State {
         dir: &std::path::Path,
         status: Arc<Mutex<JobStatus>>,
         log: JobLog,
-        work: impl FnOnce(&JobLog, &(dyn Fn(f64, &str) + Sync), &AtomicBool) -> Result<(Vec<serde_json::Value>, [usize; 4]), String>
+        work: impl FnOnce(
+            &JobLog,
+            &(dyn Fn(f64, &str) + Sync),
+            &AtomicBool,
+        ) -> Result<(Vec<serde_json::Value>, [usize; 4]), String>
         + Send
         + 'static,
     ) {
@@ -875,13 +887,16 @@ impl State {
             for (k, v) in [
                 ("model", serde_json::json!(model.id())),
                 ("weights", serde_json::json!(model.source())),
-                ("season", serde_json::json!(if model.temporal() {
-                    format!("the months of {year}")
-                } else if self.fields.auto {
-                    "found (NDVI)".into()
-                } else {
-                    "chosen".into()
-                })),
+                (
+                    "season",
+                    serde_json::json!(if model.temporal() {
+                        format!("the months of {year}")
+                    } else if self.fields.auto {
+                        "found (NDVI)".into()
+                    } else {
+                        "chosen".into()
+                    }),
+                ),
                 ("half_days", serde_json::json!(spec.half)),
                 ("parcels", serde_json::json!(format!("{:?}", spec.method))),
                 ("seed_percent", serde_json::json!(spec.core)),
@@ -894,7 +909,9 @@ impl State {
             self.begin_provenance(&dir, p);
         }
         let (st, out) = (status_new(), gpkg.clone());
-        self.fields_job(ctx, title, &info, &dir, st.clone(), log, move |log, progress, cancel| run(&spec, &out, log, progress, cancel));
+        self.fields_job(ctx, title, &info, &dir, st.clone(), log, move |log, progress, cancel| {
+            run(&spec, &out, log, progress, cancel)
+        });
         let status = st;
         let gpkg = gpkg.to_string_lossy().into_owned();
         self.fields.pending.push((status, gpkg.clone()));
@@ -978,8 +995,23 @@ fn run(
             let dates = |d: &[usize]| d.iter().map(|&k| info.layers[k].label.clone()).collect::<Vec<_>>().join(", ");
             log.line(&format!("window A ({} dates): {}", season.a.len(), dates(&season.a)));
             log.line(&format!("window B ({} dates): {}", season.b.len(), dates(&season.b)));
-            let tiling = Tiling { patch: spec.patch, pad: spec.patch.div_ceil(16), resize: spec.model.resize(), ..Tiling::default() };
-            fields::delineate(&net, &dev.0, info, &bands, &season, spec.window, &tiling, &|f, m| progress(0.05 + 0.8 * f, m), cancel)?
+            let tiling = Tiling {
+                patch: spec.patch,
+                pad: spec.patch.div_ceil(16),
+                resize: spec.model.resize(),
+                ..Tiling::default()
+            };
+            fields::delineate(
+                net,
+                &dev.0,
+                info,
+                &bands,
+                &season,
+                spec.window,
+                &tiling,
+                &|f, m| progress(0.05 + 0.8 * f, m),
+                cancel,
+            )?
         }
         _ => return Err("the model's file does not fit its network".into()),
     };
@@ -1009,10 +1041,7 @@ fn run(
     };
     let parcels = spec.dir.join(format!("{}_parcels.tif", spec.stem));
     let r = polygonize(&parcels.to_string_lossy(), &opts, gpkg, &|f, m| progress(0.9 + 0.1 * f, m), cancel)?;
-    log.line(&format!(
-        "{} parcels, {:.1} ha ({} under the minimum area left out)",
-        r.polygons, r.area_ha, r.dropped
-    ));
+    log.line(&format!("{} parcels, {:.1} ha ({} under the minimum area left out)", r.polygons, r.area_ha, r.dropped));
     Ok((outputs, spec.window))
 }
 

@@ -21,8 +21,8 @@ pub mod tempcnn;
 pub mod train;
 pub mod utae;
 
+/// The device networks run on (re-exported for the app's closures).
+pub use burn::prelude::Device;
 pub use data::{Calendar, InputBand, Norm, Series};
 pub use model::{Arch, Class, Header, Model, Net};
 pub use train::{Epoch, TrainConfig, Trained};
-/// The device networks run on (re-exported for the app's closures).
-pub use burn::prelude::Device;
