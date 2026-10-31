@@ -1599,7 +1599,7 @@ pub fn assemble(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn train_job(
+pub(crate) fn train_job(
     info: &Arc<CubeInfo>,
     inputs: &[InputBand],
     sites: &[Site],

@@ -329,13 +329,17 @@ answer. Long calls report their progress and stop when the client cancels them.
 | `check_expression` | a raster calculator text planned over named layers: the result (dates or an image), grid, layers read, or the error's line and column |
 | `calculate` | the text computed: a COG per date (or VRTs computed when read) |
 | `list_tools`, `describe_tool` | Zeit's tools, their parameters and outputs |
-| `run_tool` | a Zeit tool on a series or an area of it (BFAST, CCDC, LandTrendr, trends, phenology...); TWDTW from samples (each class's mean series its pattern) |
+| `run_tool` | a Zeit tool on a series or an area of it (BFAST, CCDC, LandTrendr, trends, phenology...); TWDTW from samples (each class's mean series its pattern); the tools on maps (agreement of change maps) on `maps` |
 | `regularize` | a fixed step (16 days, month, year): median, medoid or clearest date, gaps filled |
+| `speckle` | a radar series through Quegan's multitemporal filter or Lee's |
 | `warp` | a raster reprojected, resampled, clipped (gdalwarp) |
 | `zonal` | each polygon's statistics, or areas of each class or change year, of maps; a CSV |
-| `train_classifier` | a Random Forest on samples (places with a class, or a vector file and its class field), validated by place |
+| `areas` | the area of each class or change year of maps (each pixel's own area); a CSV |
+| `polygonize` | a map of classes or dates into polygons (a GeoPackage), small patches merged, simplified |
+| `rasterize` | a vector layer on a raster's or a series' grid: 1 inside, each feature's number or an attribute |
+| `train_classifier` | a Random Forest, TempCNN or L-TAE on samples (places with a class, or a vector file and its class field), validated (by place for the forest) |
 | `classify` | a `.janusmodel` applied to a series or an area: class map, probability, area of applicability |
-| `open_in_janus` | files opened in a window of Janus, places as pins, for you to look at |
+| `open_in_janus` | files shown in Janus, places as pins: as layers of the window already open (it comes to the front; it watches an inbox beside Janus's data), else in a new window |
 
 A series is a path (a folder, a file, a wildcard) or
 `{"paths": [...], "band": 4, "expression": "NDVI", "qa_band": 7}`; a place is

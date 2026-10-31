@@ -1,10 +1,12 @@
 //! `janus mcp`: Janus as a server of the Model Context Protocol (MCP), on the standard input and output. An
 //! assistant (Claude Desktop, Claude Code, any client of MCP) opens series, reads their values at points and over
-//! areas, writes and runs the raster calculator's expressions, runs Zeit's tools and the series' tools (regularize,
-//! reproject, zonal statistics), trains a Random Forest on samples and classifies a series: the engines the
-//! interface runs, without it. Results are files (GeoTIFFs, VRTs, CSVs, models), in the folder the call names or
-//! under Janus's results folder (`mcp/`). A long call tells the client how it goes (progress notifications, when
-//! it gave a token) and stops when the client cancels it.
+//! areas, writes and runs the raster calculator's expressions, runs Zeit's tools (on a series or on maps) and the
+//! series' and maps' tools (regularize, speckle, reproject, zonal statistics, areas, polygonize, rasterize), trains
+//! a Random Forest, TempCNN or L-TAE on samples and classifies a series: the engines the interface runs, without
+//! it. Results are files (GeoTIFFs, VRTs, GeoPackages, CSVs, models), in the folder the call names or under Janus's
+//! results folder (`mcp/`), shown to the user in the window already open (inbox.rs) or a new one. A long call
+//! tells the client how it goes (progress notifications, when it gave a token) and stops when the client cancels
+//! it.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, Write};
@@ -203,6 +205,10 @@ impl Server {
             "train_classifier" => self.train_classifier(&a, c),
             "classify" => self.classify(&a, c),
             "open_in_janus" => open_in_janus(&a),
+            "polygonize" => self.polygonize(&a, c),
+            "rasterize" => self.rasterize(&a, c),
+            "speckle" => self.speckle(&a, c),
+            "areas" => self.areas(&a, c),
             _ => Err(format!("no tool {name:?}")),
         }
     }
@@ -360,11 +366,12 @@ fn catalogue() -> Vec<Value> {
                     "params": { "type": "object", "description": "the tool's parameters by id (describe_tool); the rest at their defaults" },
                     "roles": { "type": "object", "description": "multiband tools: the band of each role, e.g. {\"red\": 3, \"nir\": 4}" },
                     "samples": { "type": "array", "items": place_schema(), "description": "TWDTW: places with a class" },
+                    "maps": { "type": "array", "items": { "type": "string" }, "description": "tools on maps (agreement...): two or more rasters, the first's grid" },
                     "output_dir": out_dir
                 }),
                 area_props(),
             ),
-            &["tool", "series"],
+            &["tool"],
             false,
         ),
         tool(
@@ -422,8 +429,8 @@ fn catalogue() -> Vec<Value> {
         ),
         tool(
             "train_classifier",
-            "Train a Random Forest",
-            "Trains a Random Forest (Breiman 2001) on samples of the series: places with a class, or a vector file's points or polygons and its class field. Validated on whole places held out, out of bag too; a .janusmodel file for classify (and the interface).",
+            "Train a classifier",
+            "Trains a Random Forest (Breiman 2001), TempCNN or L-TAE on samples of the series: places with a class, or a vector file's points or polygons and its class field. Validated on whole places held out, out of bag too; a .janusmodel file for classify (and the interface).",
             json!({
                 "series": series_schema(),
                 "samples": { "type": "array", "items": place_schema(), "description": "places with a \"class\"" },
@@ -431,7 +438,10 @@ fn catalogue() -> Vec<Value> {
                 "field": { "type": "string", "description": "its class field" },
                 "max_pixels": { "type": "integer" },
                 "bands": { "type": "array", "items": { "type": "integer" }, "description": "also these bands of each date (besides the series shown)" },
+                "method": { "type": "string", "enum": ["random_forest", "tempcnn", "ltae"], "description": "the Random Forest (default: quick, on the CPU), or a network as sits builds it (TempCNN, L-TAE; on the GPU when there is one)" },
                 "trees": { "type": "integer" },
+                "epochs": { "type": "integer", "description": "a network's epochs at most (sits' default otherwise)" },
+                "gpu": { "type": "boolean" },
                 "validation_share": { "type": "number" },
                 "min_valid": { "type": "number", "description": "% of the dates a sample needs a value on (default 50)" },
                 "seed": { "type": "integer" },
@@ -457,10 +467,71 @@ fn catalogue() -> Vec<Value> {
             false,
         ),
         tool(
+            "polygonize",
+            "Polygonize a map",
+            "A map of classes or dates into polygons (a GeoPackage): each patch of one value a polygon with its area; small patches merged into a neighbour, the polygons simplified.",
+            json!({
+                "src": { "type": "string" },
+                "band": { "type": "integer" },
+                "eight": { "type": "boolean", "description": "patches joined by their corners too" },
+                "min_area_ha": { "type": "number" },
+                "simplify_m": { "type": "number" },
+                "years": { "type": "boolean", "description": "the values are decimal years (a date column)" },
+                "dst": { "type": "string", "description": "the GeoPackage (default: in the results folder)" }
+            }),
+            &["src"],
+            false,
+        ),
+        tool(
+            "rasterize",
+            "Rasterize a vector layer",
+            "A vector layer burned on a raster's grid (a series', a map's): 1 inside, each feature's number, or an attribute (a number as it is, a text as classes); a GeoTIFF.",
+            json!({
+                "vector": { "type": "string" },
+                "layer": { "type": "string" },
+                "like": { "description": "a raster or a series whose grid it takes", "anyOf": [{ "type": "string" }, { "type": "object" }] },
+                "burn": { "type": "string", "description": "one (default), index or an attribute's name" },
+                "all_touched": { "type": "boolean" },
+                "dst": { "type": "string" }
+            }),
+            &["vector", "like"],
+            false,
+        ),
+        tool(
+            "speckle",
+            "Filter a radar series' speckle",
+            "A radar series (Sentinel-1 VV, VH) through Quegan's multitemporal filter or Lee's: less speckle, a COG a date with every band.",
+            with(
+                json!({
+                    "series": series_schema(),
+                    "filter": { "type": "string", "description": "quegan (default), lee or lee:LOOKS" },
+                    "size": { "type": "integer", "description": "the window's side in pixels (odd, default 7)" },
+                    "output_dir": out_dir
+                }),
+                area_props(),
+            ),
+            &["series"],
+            false,
+        ),
+        tool(
+            "areas",
+            "Areas of each value",
+            "The area of each class (or each change year, with floor) of maps on one grid, each pixel's own area (geodesic): pixels, hectares, share; a CSV.",
+            json!({
+                "maps": { "type": "array", "items": { "type": "string" }, "description": "rasters on one grid (band 1 each, or every band of one file)" },
+                "window": { "type": "array", "items": { "type": "integer" } },
+                "floor": { "type": "boolean", "description": "the values' whole part (decimal years by year), else rounded" },
+                "output_dir": out_dir
+            }),
+            &["maps"],
+            false,
+        ),
+        tool(
             "open_in_janus",
             "Open in Janus",
-            "Opens files (a series' folder, result maps, vector layers) in a new window of Janus's interface, for the user to look at; places with col and row become pins (with their class).",
+            "Shows files (a series' folder, result maps, vector layers) to the user in Janus: as layers of the window already open (it comes to the front), else in a new window; places with col and row become pins (with their class).",
             json!({
+                "window": { "type": "string", "enum": ["auto", "open", "new"], "description": "auto (default): the open window if there is one" },
                 "paths": { "type": "array", "items": { "type": "string" } },
                 "expression": { "type": "string", "description": "the index or formula shown (NDVI...)" },
                 "places": { "type": "array", "items": place_schema() }
@@ -894,7 +965,7 @@ fn list_tools() -> Value {
                 "name": t.name,
                 "category": t.category,
                 "summary": t.description.split(". ").next().unwrap_or(""),
-                "on": if t.input.as_deref() == Some("layers") { "maps (not yet through MCP)" } else { "a series" },
+                "on": if t.input.as_deref() == Some("layers") { "maps (run_tool's maps)" } else { "a series" },
                 "needs": { "time": t.requires.time, "min_dates": t.requires.min_dates, "bands": t.requires.bands },
             })
         })
@@ -1036,7 +1107,7 @@ impl Server {
         let id = a["tool"].as_str().unwrap_or("");
         let tool = manifest().tool(id).ok_or_else(|| format!("no tool {id:?} (list_tools)"))?;
         if tool.input.as_deref() == Some("layers") {
-            return Err(format!("{} runs on maps: not yet through MCP (use the interface)", tool.name));
+            return self.run_on_maps(tool, a, c);
         }
         let info = self.series(&a["series"])?;
         if let Some(why) = crate::zeit::applicability(tool, &info) {
@@ -1174,8 +1245,6 @@ impl Server {
     }
 
     fn zonal(&self, a: &Value, c: &Call) -> R<Value> {
-        use gdal::Metadata;
-        use janus_zeit::areas::AreaSource;
         use janus_zeit::zonal::{STATS, ZonalKind, ZonalOptions, zonal};
         let vector = a["vector"].as_str().ok_or("vector: a vector file")?;
         let maps: Vec<String> = a["maps"]
@@ -1193,24 +1262,7 @@ impl Server {
             w,
             h,
         };
-        // one file of several bands: a band per date
-        let sources: Vec<AreaSource> = if maps.len() == 1 && first.raster_count() > 1 {
-            (1..=first.raster_count())
-                .map(|b| {
-                    let label = first
-                        .rasterband(b)
-                        .map(|r| r.description().unwrap_or_default())
-                        .ok()
-                        .filter(|d| !d.is_empty())
-                        .unwrap_or_else(|| format!("band {b}"));
-                    AreaSource { path: maps[0].clone(), band: b, label }
-                })
-                .collect()
-        } else {
-            maps.iter()
-                .map(|m| AreaSource { path: m.clone(), band: 1, label: janus_cube::inputs::display_name(m) })
-                .collect()
-        };
+        let sources = map_sources(&maps)?;
         let kind = match a["kind"].as_str().unwrap_or("continuous") {
             "continuous" => ZonalKind::Continuous,
             "classes" => ZonalKind::Classes,
@@ -1277,36 +1329,66 @@ impl Server {
             return Err(format!("{} samples with enough dates: ten at least", samples.0.n));
         }
         let per_class = samples.3.clone();
-        let h = ForestHyper { trees: a["trees"].as_u64().unwrap_or(500).clamp(1, 5000) as usize, ..Default::default() };
-        let cfg = TrainConfig {
+        let method = a["method"].as_str().unwrap_or("random_forest");
+        let arch = match method {
+            "random_forest" | "forest" | "rf" => janus_ml::Arch::RandomForest(ForestHyper {
+                trees: a["trees"].as_u64().unwrap_or(500).clamp(1, 5000) as usize,
+                ..Default::default()
+            }),
+            "tempcnn" => janus_ml::Arch::TempCnn(Default::default()),
+            "ltae" | "l-tae" | "lighttae" => janus_ml::Arch::LTae(Default::default()),
+            m => return Err(format!("method: random_forest, tempcnn or ltae, not {m:?}")),
+        };
+        let mut cfg = TrainConfig {
             validation_split: a["validation_share"].as_f64().unwrap_or(0.25).clamp(0.0, 0.9),
             seed: a["seed"].as_u64().unwrap_or(42),
-            ..TrainConfig::tempcnn()
+            ..TrainConfig::for_arch(&arch)
         };
+        if let Some(e) = a["epochs"].as_u64() {
+            cfg.epochs = (e as usize).clamp(1, 2000);
+        }
+        let stem = janus_cube::stac_vrt::sanitize(&arch.name().to_lowercase());
         let model_path = match a["output"].as_str() {
             Some(p) => PathBuf::from(p),
-            None => out_dir(a, "forest")?.join("forest.janusmodel"),
+            None => out_dir(a, &stem)?.join(format!("{stem}.janusmodel")),
         };
         if let Some(p) = model_path.parent() {
             std::fs::create_dir_all(p).map_err(|e| format!("{}: {e}", p.display()))?;
         }
         let log = crate::zeit::JobLog { path: model_path.with_extension("log"), t0: Instant::now() };
         let run = Arc::new(Mutex::new(crate::ml::TrainRun::default()));
-        let header = crate::ml::forest_job(
-            &info,
-            inputs,
-            &classes,
-            &h,
-            &cfg,
-            min_valid,
-            samples,
-            Calendar::of(&info),
-            &model_path.to_string_lossy(),
-            &log,
-            &run,
-            &|f, m| c.progress(f, m),
-            &c.stop,
-        )?;
+        let header = match &arch {
+            janus_ml::Arch::RandomForest(h) => crate::ml::forest_job(
+                &info,
+                inputs,
+                &classes,
+                h,
+                &cfg,
+                min_valid,
+                samples,
+                Calendar::of(&info),
+                &model_path.to_string_lossy(),
+                &log,
+                &run,
+                &|f, m| c.progress(f, m),
+                &c.stop,
+            )?,
+            _ => crate::ml::train_job(
+                &info,
+                &inputs,
+                &sites,
+                &classes,
+                &arch,
+                &cfg,
+                min_valid,
+                a["gpu"].as_bool().unwrap_or(true),
+                &model_path.to_string_lossy(),
+                &log,
+                &run,
+                &|f, m| c.progress(f, m),
+                &c.stop,
+            )?,
+        };
         let tr = &header.training;
         let v = &tr["validation"];
         let imp: Vec<f64> =
@@ -1327,9 +1409,11 @@ impl Server {
                 "producers_accuracy": v["producers_accuracy"],
                 "users_accuracy": v["users_accuracy"],
             },
+            "method": header.arch.name(),
             "out_of_bag_accuracy": tr["oob"]["overall_accuracy"],
+            "best_epoch": tr.get("best_epoch"),
             "note": if v["overall_accuracy"].as_f64().is_some_and(f64::is_finite) {
-                "validated on samples whose places the forest never saw"
+                "validated on samples the model never saw (whole places for the forest)"
             } else {
                 "too few places to hold some out: the out-of-bag accuracy is the guide (give more places per class)"
             },
@@ -1384,6 +1468,14 @@ fn open_in_janus(a: &Value) -> R<Value> {
     if paths.is_empty() {
         return Err("paths: the files or folders to open".into());
     }
+    let want = a["window"].as_str().unwrap_or("auto");
+    if want == "open" || want == "auto" && crate::inbox::watched() {
+        if !crate::inbox::watched() {
+            return Err("no window of Janus is open (window new opens one)".into());
+        }
+        crate::inbox::post(&json!({ "paths": paths, "expression": a["expression"], "places": a["places"] }))?;
+        return Ok(json!({ "opened": paths, "in": "the window already open, as layers" }));
+    }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut cmd = std::process::Command::new(&exe);
     if let Some(e) = a["expression"].as_str() {
@@ -1397,7 +1489,7 @@ fn open_in_janus(a: &Value) -> R<Value> {
     cmd.args(&paths);
     cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     cmd.spawn().map_err(|e| format!("could not start {}: {e}", exe.display()))?;
-    Ok(json!({ "opened": paths }))
+    Ok(json!({ "opened": paths, "in": "a new window" }))
 }
 
 /// TWDTW's patterns from samples: each class's mean series of the shown value at its places.
@@ -1431,6 +1523,221 @@ fn twdtw_patterns(info: &Arc<CubeInfo>, a: &Value) -> R<Value> {
         }));
     }
     Ok(Value::Array(out))
+}
+
+/// Rasters as maps to count: band 1 of each, or every band of one file (a band a date).
+fn map_sources(maps: &[String]) -> R<Vec<janus_zeit::areas::AreaSource>> {
+    use gdal::Metadata;
+    use janus_zeit::areas::AreaSource;
+    let first = gdal::Dataset::open(&maps[0]).map_err(|e| format!("{}: {e}", maps[0]))?;
+    Ok(if maps.len() == 1 && first.raster_count() > 1 {
+        (1..=first.raster_count())
+            .map(|b| {
+                let label = first
+                    .rasterband(b)
+                    .map(|r| r.description().unwrap_or_default())
+                    .ok()
+                    .filter(|d| !d.is_empty())
+                    .unwrap_or_else(|| format!("band {b}"));
+                AreaSource { path: maps[0].clone(), band: b, label }
+            })
+            .collect()
+    } else {
+        maps.iter()
+            .map(|m| AreaSource { path: m.clone(), band: 1, label: janus_cube::inputs::display_name(m) })
+            .collect()
+    })
+}
+
+fn strings(v: &Value) -> Vec<String> {
+    v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
+}
+
+/// A file in the call's results folder unless `dst` names one.
+fn dst_of(a: &Value, tool: &str, name: &str) -> R<PathBuf> {
+    let p = match a["dst"].as_str() {
+        Some(d) => PathBuf::from(d),
+        None => out_dir(a, tool)?.join(name),
+    };
+    if let Some(d) = p.parent() {
+        std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+    }
+    Ok(p)
+}
+
+impl Server {
+    /// A Zeit tool on maps (agreement...): the maps as its layers parameter, on the first's grid.
+    fn run_on_maps(&self, tool: &janus_zeit::Tool, a: &Value, c: &Call) -> R<Value> {
+        let t0 = Instant::now();
+        let maps = strings(&a["maps"]);
+        if maps.len() < 2 {
+            return Err(format!("{} runs on two maps or more: give them as maps", tool.name));
+        }
+        let lp = tool.params.iter().find(|p| p.kind == "layers").ok_or("no maps parameter")?;
+        let mut params: BTreeMap<String, Value> = a["params"]
+            .as_object()
+            .map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default();
+        params.insert(
+            lp.id.clone(),
+            json!(
+                maps.iter()
+                    .map(|m| json!({ "path": m, "name": janus_cube::inputs::display_name(m) }))
+                    .collect::<Vec<_>>()
+            ),
+        );
+        let dir = out_dir(a, &tool.id)?;
+        let spec = janus_zeit::job::JobSpec {
+            tool: tool.id.clone(),
+            params,
+            output_dir: dir.to_string_lossy().into_owned(),
+            threads: Some(self.threads as i64),
+            ..Default::default()
+        };
+        let r = janus_zeit::job::run_job(&spec, &|f, m| c.progress(f, m), &c.stop)?;
+        Ok(json!({
+            "tool": tool.name,
+            "outputs": r.outputs.iter().map(|o| json!({ "name": o["name"].as_str().or(o["id"].as_str()), "path": o["path"] })).collect::<Vec<_>>(),
+            "folder": dir,
+            "seconds": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0,
+        }))
+    }
+
+    fn polygonize(&self, a: &Value, c: &Call) -> R<Value> {
+        let src = a["src"].as_str().ok_or("src: a raster")?;
+        let stem = Path::new(src).file_stem().map_or("polygons".into(), |s| s.to_string_lossy().into_owned());
+        let dst = dst_of(a, "polygonize", &format!("{stem}.gpkg"))?;
+        let opts = janus_zeit::polygonize::PolyOptions {
+            band: a["band"].as_u64().unwrap_or(1).max(1) as usize,
+            eight: a["eight"].as_bool().unwrap_or(false),
+            min_area_ha: a["min_area_ha"].as_f64().unwrap_or(0.0),
+            simplify_m: a["simplify_m"].as_f64().unwrap_or(0.0),
+            years: a["years"].as_bool().unwrap_or(false),
+            layer: janus_cube::stac_vrt::sanitize(&stem),
+            ..Default::default()
+        };
+        let r = janus_zeit::polygonize::polygonize(src, &opts, &dst, &|f, m| c.progress(f, m), &c.stop)?;
+        Ok(json!({
+            "file": dst,
+            "polygons": r.polygons,
+            "area_ha": (r.area_ha * 100.0).round() / 100.0,
+            "patches_dropped": r.dropped,
+        }))
+    }
+
+    fn rasterize(&self, a: &Value, c: &Call) -> R<Value> {
+        use janus_zeit::rasterize::{Burn, RasterizeOptions, rasterize};
+        let vector = a["vector"].as_str().ok_or("vector: a vector file")?;
+        // the grid: a raster's, else a series'
+        let grid = match a["like"].as_str().map(gdal::Dataset::open) {
+            Some(Ok(ds)) if ds.raster_count() > 0 => {
+                let (w, h) = ds.raster_size();
+                janus_zeit::warp::Grid {
+                    wkt: ds.projection(),
+                    gt: ds.geo_transform().map_err(|e| e.to_string())?,
+                    w,
+                    h,
+                }
+            }
+            _ => {
+                let info = self.series(&a["like"])?;
+                janus_zeit::warp::Grid { wkt: info.crs_wkt.clone(), gt: gt_of(&info), w: info.width, h: info.height }
+            }
+        };
+        let burn = match a["burn"].as_str().unwrap_or("one") {
+            "one" => Burn::One,
+            "index" => Burn::Index,
+            f => Burn::Attribute(f.to_string()),
+        };
+        let stem = Path::new(vector).file_stem().map_or("rasterized".into(), |s| s.to_string_lossy().into_owned());
+        let dst = dst_of(a, "rasterize", &format!("{stem}.tif"))?;
+        let opts = RasterizeOptions {
+            layer: a["layer"].as_str().unwrap_or("").into(),
+            burn,
+            all_touched: a["all_touched"].as_bool().unwrap_or(false),
+            grid,
+        };
+        let r = rasterize(vector, &opts, &dst, &|f, m| c.progress(f, m), &c.stop)?;
+        Ok(json!({
+            "file": dst,
+            "kind": r.kind,
+            "burned": r.burned,
+            "features": r.features,
+            "classes": r.classes.iter().map(|(v, t)| json!({ "value": v, "class": t })).collect::<Vec<_>>(),
+        }))
+    }
+
+    fn speckle(&self, a: &Value, c: &Call) -> R<Value> {
+        use janus_zeit::speckle::{Filter, SpeckleOptions, speckle};
+        let t0 = Instant::now();
+        let info = self.series(&a["series"])?;
+        let f = a["filter"].as_str().unwrap_or("quegan").to_lowercase();
+        let filter = match f.split_once(':') {
+            Some(("lee", l)) => Filter::Lee { looks: l.parse().map_err(|_| format!("filter: {f}"))? },
+            _ if f == "lee" => Filter::Lee { looks: 4.4 },
+            _ if f == "quegan" => Filter::Quegan,
+            _ => return Err(format!("filter: quegan, lee or lee:LOOKS, not {f:?}")),
+        };
+        let dir = out_dir(a, "speckle")?;
+        let opts = SpeckleOptions {
+            filter,
+            size: a["size"].as_u64().unwrap_or(7).clamp(3, 51) as usize,
+            window: Some(window_of(&info, a)?),
+            stem: janus_cube::stac_vrt::sanitize(&series_stem(&info)),
+            threads: self.threads,
+        };
+        let files = speckle(&info, &opts, &dir, &|f, m| c.progress(f, m), &c.stop)?;
+        Ok(json!({
+            "files": files,
+            "folder": dir,
+            "seconds": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0,
+            "note": "the folder opens in Janus (describe_series) as the filtered series",
+        }))
+    }
+
+    fn areas(&self, a: &Value, c: &Call) -> R<Value> {
+        use janus_zeit::areas::{AreaOptions, areas};
+        let maps = strings(&a["maps"]);
+        if maps.is_empty() {
+            return Err("maps: one raster or more".into());
+        }
+        let sources = map_sources(&maps)?;
+        let window = a["window"]
+            .as_array()
+            .map(|v| v.iter().filter_map(Value::as_u64).map(|x| x as usize).collect::<Vec<_>>())
+            .filter(|v| v.len() == 4)
+            .map(|v| [v[0], v[1], v[2], v[3]]);
+        let opts = AreaOptions { window, floor: a["floor"].as_bool().unwrap_or(false), threads: self.threads };
+        let t = areas(&sources, &opts, &|f, m| c.progress(f, m), &c.stop)?;
+        let dir = out_dir(a, "areas")?;
+        let csv = dir.join("areas.csv");
+        std::fs::write(&csv, t.csv(&|v| v.to_string())).map_err(|e| format!("{}: {e}", csv.display()))?;
+        let maps: Vec<Value> = t
+            .labels
+            .iter()
+            .enumerate()
+            .take(200)
+            .map(|(s, label)| {
+                let total = t.total(s);
+                let values: Vec<Value> = t
+                    .values
+                    .iter()
+                    .enumerate()
+                    .filter(|(k, _)| t.pixels[s][*k] > 0)
+                    .map(|(k, v)| {
+                        json!({
+                            "value": v,
+                            "pixels": t.pixels[s][k],
+                            "hectares": (t.m2[s][k] / 1e4 * 100.0).round() / 100.0,
+                            "percent": if total > 0.0 { (1e4 * t.m2[s][k] / total).round() / 100.0 } else { 0.0 },
+                        })
+                    })
+                    .collect();
+                json!({ "map": label, "values": values })
+            })
+            .collect();
+        Ok(json!({ "csv": csv, "maps": maps, "note": t.note }))
+    }
 }
 
 #[cfg(test)]

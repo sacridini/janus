@@ -34,6 +34,7 @@ mod gif;
 mod golden;
 mod groups;
 mod histogram;
+mod inbox;
 mod labels;
 mod layers;
 mod map;

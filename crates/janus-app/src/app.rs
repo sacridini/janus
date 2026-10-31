@@ -509,6 +509,8 @@ pub struct State {
     pub vector_loads: crate::vectors::VectorLoads,
     /// --window's windows not opened yet (they wait for the layers; None: the series not ready yet)
     pub windows_pending: Option<Vec<String>>,
+    /// what `janus mcp` asks this window to show
+    pub inbox: crate::inbox::Inbox,
     pub next_vector_id: u32,
     pub hover_vector: Option<(usize, usize)>,
     /// the Attribute table panel
@@ -928,6 +930,7 @@ impl JanusApp {
                 vectors: Vec::new(),
                 vector_loads: Default::default(),
                 windows_pending: None,
+                inbox: Default::default(),
                 next_vector_id: 1,
                 hover_vector: None,
                 attr_table: Default::default(),
@@ -2264,6 +2267,7 @@ impl eframe::App for JanusApp {
         s.pump_basemap(&ctx);
         s.pump_composite(&ctx);
         s.pump_zeit(&ctx);
+        s.pump_inbox(&ctx);
         s.pump_transect(&ctx);
         s.pump_vectors(&ctx);
         s.pump_canvas(&ctx);
