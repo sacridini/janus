@@ -539,6 +539,21 @@ impl State {
                             classes: Vec::new(),
                         });
                     }
+                } else if self.display.mode == Mode::Phase && !comp {
+                    // the months' hues (the saturation the amplitude, the brightness the mean)
+                    const MONTHS: [&str; 12] =
+                        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                    let classes = MONTHS.iter().enumerate().map(|(m, name)| {
+                        let c = crate::phase::hue_colour((m as f32 + 0.5) / 12.0, 1.0);
+                        ([c.r(), c.g(), c.b(), 255], format!("peaks in {name}"))
+                    });
+                    legends.push(Legend {
+                        caption: format!("{} - when it peaks (grey: no season)", a.name),
+                        cmap: None,
+                        lo: 0.0,
+                        hi: 1.0,
+                        classes: classes.collect(),
+                    });
                 } else if self.display.mode != Mode::Rgb && !comp {
                     let mode = self.display.mode;
                     if self.classes.on() && mode == Mode::Value {

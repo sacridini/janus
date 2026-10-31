@@ -24,6 +24,7 @@ pub fn mode_name(m: Mode) -> &'static str {
         Mode::DropMag => "Largest drop: magnitude",
         Mode::Composite => "Temporal composite",
         Mode::Similarity => "Similarity to a series",
+        Mode::Phase => "Seasonal peak (when it greens)",
     }
 }
 
@@ -45,6 +46,7 @@ pub fn mode_by_name(name: &str) -> Option<Mode> {
         "dropmag",
         "composite",
         "similarity",
+        "phase",
     ];
     names.iter().position(|n| *n == name).map(|i| Mode::ALL[i])
 }
@@ -59,12 +61,13 @@ pub fn mode_name_of(m: Mode, info: &janus_cube::CubeInfo) -> &'static str {
 }
 
 /// The order of the modes in the menus (the enum's numbers are fixed by the shaders).
-pub const MODE_ORDER: [Mode; 15] = [
+pub const MODE_ORDER: [Mode; 16] = [
     Mode::Value,
     Mode::Anomaly,
     Mode::Diff,
     Mode::Composite,
     Mode::Similarity,
+    Mode::Phase,
     Mode::Mean,
     Mode::Std,
     Mode::Slope,
@@ -132,8 +135,8 @@ pub struct Histogram {
 pub struct Display {
     pub t: usize,
     pub mode: Mode,
-    pub cmap: [usize; 15],
-    pub ranges: [Range; 15],
+    pub cmap: [usize; 16],
+    pub ranges: [Range; 16],
     /// the reference date of the difference: a date, or -1 the previous one
     pub diff_ref: i32,
     /// the automatic stretch of each date (else the same for every date: colours comparable through time)
@@ -157,6 +160,25 @@ pub struct Display {
     pub(crate) band_ranges: Vec<Range>,
     pub(crate) range_band: Option<usize>,
     pub sim: Similarity,
+    pub phase: Phase,
+    /// the values highlighted on the map (chosen in the histogram), and the mode they are of
+    pub highlight: Option<(Mode, f32, f32)>,
+}
+
+/// The seasonal peak's options (Mode::Phase): its stretch (`ranges`) is of the peak-to-peak amplitude.
+#[derive(Clone)]
+pub struct Phase {
+    /// the brightness by the harmonic's mean (else every pixel bright)
+    pub by_mean: bool,
+    /// the mean's range: the layer's range of values (2-98 % of every date), and the overview it was taken from
+    pub mean_range: (f32, f32),
+    pub(crate) mean_key: u64,
+}
+
+impl Default for Phase {
+    fn default() -> Self {
+        Phase { by_mean: true, mean_range: (0.0, 1.0), mean_key: u64::MAX }
+    }
 }
 
 /// The similarity's reference (Mode::Similarity): every pixel's series against it.
@@ -213,7 +235,7 @@ impl Similarity {
 
 impl Default for Display {
     fn default() -> Self {
-        let mut cmap = [colormaps::VIRIDIS; 15];
+        let mut cmap = [colormaps::VIRIDIS; 16];
         for m in [Mode::Anomaly, Mode::Slope, Mode::Diff] {
             cmap[m as usize] = colormaps::BRBG;
         }
@@ -224,7 +246,7 @@ impl Default for Display {
             t: 0,
             mode: Mode::Value,
             cmap,
-            ranges: [Range::default(); 15],
+            ranges: [Range::default(); 16],
             diff_ref: 0,
             per_date_range: false,
             detail: true,
@@ -239,8 +261,15 @@ impl Default for Display {
             band_ranges: Vec::new(),
             range_band: None,
             sim: Similarity::default(),
+            phase: Phase::default(),
+            highlight: None,
         }
     }
+}
+
+/// The first date's fraction of its year (the GPU's times are years from it): 0 without dates.
+pub fn phase_offset(info: &janus_cube::CubeInfo) -> f32 {
+    if info.time_is_date && info.t() > 0 { info.decimal_year(0).rem_euclid(1.0) as f32 } else { 0.0 }
 }
 
 /// The q-quantiles of a sample, as the C++ takes them (nth_element at floor(q (n - 1))).
@@ -264,6 +293,10 @@ fn percentiles(s: &mut [f32], q_lo: f64, q_hi: f64) -> (f32, f32) {
 pub(crate) fn auto_range(mode: Mode, s: &mut [f32]) -> (f32, f32) {
     match mode {
         Mode::R2 => (0.0, 1.0),
+        Mode::Phase => {
+            let (_, hi) = percentiles(s, 0.0, 0.98);
+            (0.0, if hi > 0.0 { hi } else { 1e-6 })
+        }
         Mode::DropDate => percentiles(s, 0.0, 1.0),
         Mode::DropMag => {
             let (_, hi) = percentiles(s, 0.0, 0.98);
@@ -296,10 +329,13 @@ impl Display {
             }
             // the reference's key: the map drawn again when it changes
             Mode::Similarity => [i32::from(self.sim.shape), self.sim.key as i32, (self.sim.key >> 32) as i32],
+            Mode::Phase => self.phase_layers(&s.info),
             _ => [t, 0, 0],
         };
         let r = self.ranges[self.mode as usize];
-        LayerParams::new(self.mode, layers, [r.lo, r.hi])
+        let mut p = LayerParams::new(self.mode, layers, [r.lo, r.hi]);
+        p.highlight = self.highlight.filter(|h| h.0 == self.mode).map(|h| [h.1, h.2]);
+        p
     }
 
     /// Whether what the mode draws is on the GPU: its dates, its statistics, the composite's window (C++
@@ -311,9 +347,32 @@ impl Display {
             Mode::Diff => up(self.t as i32) && self.diff_ref_date(self.t, s.info.t()).is_some_and(|r| up(r as i32)),
             Mode::Composite => (p.layers[0]..=p.layers[1]).all(up),
             Mode::Similarity => !self.sim.values.is_empty() && (0..s.info.t() as i32).all(up),
+            Mode::Phase => (0..s.info.t() as i32).all(up),
             m if m.needs_stats() => s.stats.is_some(),
             _ => up(self.t as i32),
         }
+    }
+
+    /// The seasonal peak's parameters, as f32 bits: the first date's fraction of its year, and the brightness's
+    /// range (NaN: none).
+    pub fn phase_layers(&self, info: &janus_cube::CubeInfo) -> [i32; 3] {
+        let (lo, hi) = if self.phase.by_mean { self.phase.mean_range } else { (f32::NAN, f32::NAN) };
+        [phase_offset(info).to_bits() as i32, lo.to_bits() as i32, hi.to_bits() as i32]
+    }
+
+    /// The dates' times as the GPU has them (years from the first date, NaN outside the season) and the first
+    /// date's fraction of its year.
+    pub fn gpu_times(&self, s: &Session) -> (Vec<f32>, f32) {
+        (self.season.times(&s.info, &s.s.times_years), phase_offset(&s.info))
+    }
+
+    /// The annual harmonic of an overview pixel (the peak as a fraction of the year, the peak-to-peak amplitude,
+    /// the mean), as the shader fits it; `times` from gpu_times.
+    pub fn phase_at(&self, s: &Session, times: &(Vec<f32>, f32), p: usize) -> Option<[f32; 3]> {
+        let ov = &s.s.overview;
+        janus_gpu::phase::harmonic(&times.0, times.1, |t| {
+            if s.uploaded[t] { ov.layer(t).map_or(f32::NAN, |l| l[p]) } else { f32::NAN }
+        })
     }
 
     /// The similarity of an overview pixel to the reference.
@@ -417,6 +476,12 @@ impl Display {
                 let step = (px / max_n.min(6_000)).max(1);
                 out.extend((step / 2..px).step_by(step).map(|p| self.similarity_at(s, p)).filter(|v| !v.is_nan()));
             }
+            (Mode::Phase, _) => {
+                // the amplitudes (the stretch's), of some thousand pixels
+                let times = self.gpu_times(s);
+                let step = (px / max_n.min(20_000)).max(1);
+                out.extend((step / 2..px).step_by(step).filter_map(|p| self.phase_at(s, &times, p)).map(|h| h[1]));
+            }
             (Mode::Composite, _) => {
                 let (t0, t1) = self.temporal_window(&s.info, t.unwrap_or(self.t));
                 let step = (px / max_n.min(100_000)).max(1);
@@ -458,6 +523,9 @@ impl Display {
             (((self.reducer as u64) * 3 + self.window as u64) * 1000 + self.days as u64)
                 .wrapping_mul(1000003)
                 .wrapping_add(self.season.key())
+        } else if self.mode == Mode::Phase {
+            // the harmonic is fitted to the season's dates
+            self.season.key().wrapping_add(1)
         } else {
             0
         };
@@ -475,6 +543,14 @@ impl Display {
             .wrapping_add(u64::from(per_date))
             .wrapping_add(ref_key.wrapping_mul(65536))
             .wrapping_add((self.mode as u64) << 56);
+        if self.mode == Mode::Phase && self.phase.mean_key != version {
+            // the brightness's range: the values' (Value mode's automatic stretch over every date)
+            if let Some(r) = self.auto_range_of(Mode::Value, s) {
+                self.phase.mean_range = r;
+                self.phase.mean_key = version;
+                changed = true;
+            }
+        }
         let r = &mut self.ranges[self.mode as usize];
         if self.mode == Mode::Similarity && !r.manual {
             // a fixed stretch (the reference follows the cursor: colours that do not jump), by the measure

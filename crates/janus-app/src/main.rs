@@ -40,11 +40,13 @@ mod map;
 mod measure;
 mod measure_vectors;
 mod ml;
+mod mosaic;
 mod navigation;
 mod open;
 mod order;
 mod palette;
 mod panels;
+mod phase;
 mod platform;
 mod polygonize_ui;
 mod project;
@@ -162,9 +164,10 @@ Developer options:
   --roi X0,Y0,X1,Y1   an ROI rectangle (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline)
   --mode NAME[,OPT]    what the map shows: value|anomaly|diff|composite|similarity|mean|std|slope|min|max|
-                      amplitude|r2|dropdate|dropmag|rgb (similarity,shape|pin|roi: the curves' shape, against the
-                      first pin or the ROI's mean rather than the cursor)
-  --analysis seasonal|cycles|atlas|bands|classes|scatter|trend|areas|zonal  the Analysis panel at that tab
+                      amplitude|r2|dropdate|dropmag|rgb|phase (similarity,shape|pin|roi: the curves' shape, against the
+                      first pin or the ROI's mean rather than the cursor; phase,even: no brightness by the mean;
+                      highlight=LO:HI: those values highlighted, the others dimmed)
+  --analysis seasonal|cycles|atlas|dates|bands|classes|scatter|trend|areas|zonal  the Analysis panel at that tab
                       (seasonal,M: its years from month M; cycles,trend: the trend kept; bands,common|zscore;
                       atlas,shapes,groups,density|value|mean|amplitude|trend: the curves' shapes compared,
                       three groups found, the points' colour;
@@ -500,6 +503,7 @@ fn main() -> eframe::Result<()> {
                     "bands" => Some(6),
                     "cycles" => Some(7),
                     "atlas" => Some(9),
+                    "dates" => Some(10),
                     _ => Some(0),
                 };
                 opts.analysis_view = month.trim().to_string();

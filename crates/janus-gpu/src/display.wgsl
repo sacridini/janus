@@ -6,7 +6,8 @@
 struct Draw {
     rect: vec4<f32>,       // NDC: x0, y0 (top), x1, y1 (bottom)
     layers: vec4<i32>,     // x, y, z: dates (Rgb: three; Diff: date, reference; Composite: first, last, reducer;
-                           // Similarity: x 0 the values, 1 the shape)
+                           // Similarity: x 0 the values, 1 the shape; Phase, as f32 bits: x the first date's
+                           // fraction of its year, y and z the mean's range (NaN: no brightness by the mean))
     range: vec2<f32>,
     alpha: f32,
     mode: i32,
@@ -16,8 +17,7 @@ struct Draw {
     nearest: i32,          // images: 1 nearest neighbour, 0 bilinear (the sampler bound)
     nan_bits: u32,
     blend: i32,            // Blend: 0 normal, 1 multiply, 2 screen, 3 add, 4 darken, 5 lighten
-    _pad1: u32,
-    _pad2: u32,
+    highlight: vec2<f32>,  // the values highlighted (lo, hi; none unless hi > lo): the others dimmed
     color: vec4<f32>,      // source 3
     warp_quad: vec4<f32>,  // the quad in the grid's domain: x0, y0, w, h
     warp_src: vec4<f32>,   // the drawn texture in the layer's uv: x0, y0, w, h
@@ -198,6 +198,71 @@ fn similarity(shape: bool) -> f32 {
     return 1.0 - sqrt(dd / c) / max(reference[n], 1e-30);
 }
 
+// When in the year the series peaks: v = m + a cos(θ) + b sin(θ), θ the date's angle in its year (2π times the
+// fraction of its time, in years from the first date, plus the first date's fraction of its year), fitted by least squares over the dates with a value (in the season), 6 at least
+// and spread over the year (the normal matrix, over their number, of determinant 0.02 at least; 0.25 for dates all
+// round the year). The values from the first one (no cancellation in f32). Returns the peak as a fraction of the
+// year, the peak-to-peak amplitude 2·sqrt(a² + b²) and the mean m; x NaN without a fit.
+fn harmonic(offset: f32) -> vec3<f32> {
+    let n = i32(textureNumLayers(cube));
+    var v0 = 0.0;
+    var c = 0.0;
+    var sc = 0.0;
+    var ss = 0.0;
+    var scc = 0.0;
+    var sss = 0.0;
+    var scs = 0.0;
+    var sv = 0.0;
+    var svc = 0.0;
+    var svs = 0.0;
+    for (var t = 0; t < n; t++) {
+        let y = times[t];
+        if (is_nan(y)) { continue; }
+        var v = cube_at(t);
+        if (is_nan(v)) { continue; }
+        if (c == 0.0) { v0 = v; }
+        v -= v0;
+        let th = 6.28318531 * fract(y + offset);
+        let co = cos(th);
+        let si = sin(th);
+        c += 1.0;
+        sc += co;
+        ss += si;
+        scc += co * co;
+        sss += si * si;
+        scs += co * si;
+        sv += v;
+        svc += v * co;
+        svs += v * si;
+    }
+    if (c < 6.0) { return vec3<f32>(nan(), 0.0, 0.0); }
+    let c0 = vec3<f32>(1.0, sc / c, ss / c);
+    let c1 = vec3<f32>(sc / c, scc / c, scs / c);
+    let c2 = vec3<f32>(ss / c, scs / c, sss / c);
+    let r = vec3<f32>(sv / c, svc / c, svs / c);
+    let d = determinant(mat3x3<f32>(c0, c1, c2));
+    if (!(d >= 0.02)) { return vec3<f32>(nan(), 0.0, 0.0); }
+    let m = determinant(mat3x3<f32>(r, c1, c2)) / d;
+    let a = determinant(mat3x3<f32>(c0, r, c2)) / d;
+    let b = determinant(mat3x3<f32>(c0, c1, r)) / d;
+    let peak = fract(atan2(b, a) / 6.28318531 + 1.0);
+    return vec3<f32>(peak, 2.0 * sqrt(a * a + b * b), m + v0);
+}
+
+// A colour dimmed to a dark grey: a value outside the highlight.
+fn dimmed(c: vec3<f32>, v: f32) -> vec3<f32> {
+    if (u.highlight.y > u.highlight.x && !(v >= u.highlight.x && v <= u.highlight.y)) {
+        return vec3<f32>(0.06 + 0.3 * dot(c, vec3<f32>(0.299, 0.587, 0.114)));
+    }
+    return c;
+}
+
+// HSV (each 0-1) to RGB.
+fn hsv(h: f32, s: f32, v: f32) -> vec3<f32> {
+    let p = (vec3<f32>(5.0, 3.0, 1.0) + h * 6.0) % vec3<f32>(6.0);
+    return v - v * s * clamp(min(p, 4.0 - p), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 // Bilinear between the 4 grid nodes around the point, in full float precision (texture filtering weights have
 // only ~8 bits), then into the drawn texture.
 fn warped_uv(vuv: vec2<f32>) -> vec2<f32> {
@@ -237,6 +302,20 @@ fn fs(in: VOut) -> @location(0) vec4<f32> {
         if (is_nan(r) || is_nan(g) || is_nan(b)) { discard; }
         return out_color(vec3<f32>(norm(r), norm(g), norm(b)), u.alpha);
     }
+    if (mode == 15) {
+        // the peak's time of year as the hue, the amplitude (the stretch) as the saturation, the mean as the
+        // brightness (from a quarter, the hue still seen) or full
+        if (u.source != 0) { discard; }
+        let h = harmonic(bitcast<f32>(u.layers.x));
+        if (is_nan(h.x)) { discard; }
+        var bright = 1.0;
+        let lo = bitcast<f32>(u.layers.y);
+        let hi = bitcast<f32>(u.layers.z);
+        if (!is_nan(lo) && !is_nan(hi)) {
+            bright = 0.25 + 0.75 * clamp((h.z - lo) / max(hi - lo, 1e-30), 0.0, 1.0);
+        }
+        return out_color(dimmed(hsv(h.x, norm(h.y), bright), h.y), u.alpha);
+    }
     var v: f32;
     if (u.classes == 1 && mode == 0) {
         v = cube_at(u.layers.x);
@@ -274,5 +353,5 @@ fn fs(in: VOut) -> @location(0) vec4<f32> {
     }
     if (is_nan(v)) { discard; }
     let c = textureSampleLevel(cmap, cmap_sampler, vec2<f32>(norm(v) * (255.0 / 256.0) + 0.5 / 256.0, 0.5), 0.0);
-    return out_color(c.rgb, u.alpha);
+    return out_color(dimmed(c.rgb, v), u.alpha);
 }

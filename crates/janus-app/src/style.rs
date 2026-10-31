@@ -14,9 +14,9 @@ use crate::contents::Sel;
 #[derive(Clone, Debug, PartialEq)]
 pub struct SeriesStyle {
     pub mode: Mode,
-    pub cmap: [usize; 15],
+    pub cmap: [usize; 16],
     /// each mode's range: low, high, set by hand
-    pub ranges: [(f32, f32, bool); 15],
+    pub ranges: [(f32, f32, bool); 16],
     pub per_date_range: bool,
     pub rgb: [usize; 3],
     pub opacity: f32,
@@ -124,7 +124,7 @@ impl LayerStyle {
         }
         let mode = *Mode::ALL.get(get("mode")?.parse::<usize>().ok()?)?;
         let mut cmap = crate::display::Display::default().cmap;
-        for (k, c) in get("cmap").unwrap_or("").split(',').enumerate().take(15) {
+        for (k, c) in get("cmap").unwrap_or("").split(',').enumerate().take(16) {
             let name = unesc(c);
             if let Some(i) =
                 colormaps::by_name(&name).or_else(|| name.parse().ok().filter(|&i| i < colormaps::all().len()))
@@ -132,8 +132,8 @@ impl LayerStyle {
                 cmap[k] = i;
             }
         }
-        let mut ranges = [(0.0, 1.0, false); 15];
-        for (k, r) in get("ranges").unwrap_or("").split(',').enumerate().take(15) {
+        let mut ranges = [(0.0, 1.0, false); 16];
+        for (k, r) in get("ranges").unwrap_or("").split(',').enumerate().take(16) {
             let v: Vec<&str> = r.split(':').collect();
             if let [lo, hi, m] = v[..]
                 && let (Ok(lo), Ok(hi)) = (lo.parse(), hi.parse())
@@ -292,11 +292,11 @@ mod tests {
 
     #[test]
     fn style_text_round_trip() {
-        let mut ranges = [(0.0, 1.0, false); 15];
+        let mut ranges = [(0.0, 1.0, false); 16];
         ranges[0] = (-0.25, 0.875, true);
         let s = LayerStyle::Series(Box::new(SeriesStyle {
             mode: Mode::Rgb,
-            cmap: [colormaps::PLASMA; 15],
+            cmap: [colormaps::PLASMA; 16],
             ranges,
             per_date_range: true,
             rgb: [3, 2, 1],

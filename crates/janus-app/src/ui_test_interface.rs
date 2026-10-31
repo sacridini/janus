@@ -1703,6 +1703,143 @@ impl State {
                 None
             }
             224 => {
+                // a series of 24 months (2022-2023), its left half greening in March, its right half in September,
+                // a cloud over its top rows in the 6th month
+                let dir = std::env::temp_dir().join(format!("janus_selftest_seasons_{}", std::process::id()));
+                let _ = std::fs::remove_dir_all(&dir);
+                std::fs::create_dir_all(&dir).ok()?;
+                let (w, h) = (40usize, 30usize);
+                let wkt = gdal::spatial_ref::SpatialRef::from_epsg(32720).ok()?.to_wkt().ok()?;
+                let drv = gdal::DriverManager::get_driver_by_name("GTiff").ok()?;
+                for k in 0..24 {
+                    let (year, month) = (2022 + k / 12, k % 12 + 1);
+                    let day = janus_cube::dates::days_from_civil(year, month as u32, 15);
+                    let frac = janus_cube::dates::decimal_year(day as f64 * 86400.0).rem_euclid(1.0);
+                    let p = dir.join(format!("ndvi_{year}-{month:02}-15.tif"));
+                    let mut d = drv.create_with_band_type::<f32, _>(&p, w, h, 1).ok()?;
+                    d.set_geo_transform(&[494500.0, 10.0, 0.0, 9005150.0, 0.0, -10.0]).ok()?;
+                    d.set_projection(&wkt).ok()?;
+                    let v: Vec<f32> = (0..w * h)
+                        .map(|i| {
+                            if k == 5 && i / w < 6 {
+                                return f32::NAN;
+                            }
+                            let peak = if i % w < w / 2 { 0.2 } else { 0.7 };
+                            (0.5 + 0.3 * (std::f64::consts::TAU * (frac - peak)).cos()) as f32
+                        })
+                        .collect();
+                    let mut rb = d.rasterband(1).ok()?;
+                    rb.set_no_data_value(Some(f64::NAN)).ok()?;
+                    rb.write((0, 0), (w, h), &mut gdal::raster::Buffer::new((w, h), v)).ok()?;
+                }
+                let status = Arc::new(Mutex::new(crate::zeit::JobStatus {
+                    state: crate::zeit::JobState::Done,
+                    progress: 1.0,
+                    message: String::new(),
+                    error: String::new(),
+                    result: None,
+                    seconds: 0.0,
+                }));
+                self.emb_downloads.push(crate::emb_download::EmbDownload {
+                    title: "Seasons".into(),
+                    status,
+                    started: std::time::Instant::now(),
+                    folder: dir.to_string_lossy().into_owned(),
+                    name: Some("Seasons".into()),
+                    keep_active: false,
+                    sel: None,
+                    opened: false,
+                    ended: None,
+                });
+                st.texts = vec![dir.to_string_lossy().into_owned()];
+                next(st, "a series of two years, greening in March on the left, in September on the right");
+                None
+            }
+            225 => {
+                // the seasonal peak, the share of valid pixels, the dates of a month and the histogram's highlight
+                let k = self.layers.iter().position(|l| l.name == "Seasons")?;
+                if self.opening.is_some() || !super::loaded(self.layer_session(k)) || self.active != k {
+                    return None;
+                }
+                if !self.mode_available(janus_gpu::Mode::Phase) {
+                    return fail("the seasonal peak available for 24 dates round the year");
+                }
+                let s = self.session.as_ref()?;
+                let ov = &s.s.overview;
+                let times = self.display.gpu_times(s);
+                let (left, right) = (15 * ov.w + 5, 15 * ov.w + ov.w - 6);
+                let (pl, pr) = (self.display.phase_at(s, &times, left)?, self.display.phase_at(s, &times, right)?);
+                println!(
+                    "    peaks {} and {}, amplitudes {:.3} and {:.3}",
+                    crate::phase::date_of(pl[0]),
+                    crate::phase::date_of(pr[0]),
+                    pl[1],
+                    pr[1]
+                );
+                if (pl[0] - 0.2).abs() > 0.01 || (pr[0] - 0.7).abs() > 0.01 || (pl[1] - 0.6).abs() > 0.01 {
+                    return fail("the peaks in March and September, a peak-to-peak amplitude of 0.6");
+                }
+                let full = [0.0, 0.0, ov.w as f64, ov.h as f64];
+                let (clean, cloudy) =
+                    (crate::mosaic::valid_share(s, full, 0, 100_000), crate::mosaic::valid_share(s, full, 5, 100_000));
+                println!(
+                    "    valid: {:.0} % on the first date, {:.0} % under the cloud",
+                    clean * 100.0,
+                    cloudy * 100.0
+                );
+                if (clean - 1.0).abs() > 1e-6 || (cloudy - 0.8).abs() > 0.01 {
+                    return fail("every pixel valid on the first date, 80 % on the cloudy one");
+                }
+                // the March dates of both years
+                self.display.t = 2;
+                self.analysis.mosaic.which = 1;
+                let march = self.mosaic_dates(self.session.as_ref()?);
+                self.analysis.mosaic.which = 0;
+                if march != [2, 14] {
+                    return fail(&format!("the March dates of every year: {march:?}"));
+                }
+                // the map: the left half's hue that of March, as the CPU makes it
+                self.test_fit();
+                self.display.mode = janus_gpu::Mode::Phase;
+                self.display.phase.by_mean = false;
+                let r = &mut self.display.ranges[janus_gpu::Mode::Phase as usize];
+                (r.lo, r.hi, r.manual) = (0.0, 0.6, true);
+                let img = self.test_render()?;
+                let (cx, cy) = self.test_pixel_of(10, 15)?;
+                let got = &img[(cy * super::SIZE[0] as usize + cx) * 4..][..3];
+                let want = janus_gpu::phase::hsv(pl[0], (pl[1] / 0.6).min(1.0), 1.0).map(|c| c * 255.0);
+                if (0..3).any(|c| (f32::from(got[c]) - want[c]).abs() > 3.0) {
+                    return fail(&format!("the seasonal peak's colour {got:?}, not {want:?}"));
+                }
+                // the first date (January) with the values 0.6-0.7 highlighted: the left half (0.66) in its
+                // colour, the right half (0.34) grey
+                self.display.mode = janus_gpu::Mode::Value;
+                self.display.t = 0;
+                self.display.highlight = Some((janus_gpu::Mode::Value, 0.6, 0.7));
+                let r = &mut self.display.ranges[janus_gpu::Mode::Value as usize];
+                (r.lo, r.hi, r.manual) = (0.2, 0.8, true);
+                let img = self.test_render()?;
+                let at = |ix: usize| -> Option<[u8; 3]> {
+                    let (cx, cy) = self.test_pixel_of(ix, 15)?;
+                    let p = &img[(cy * super::SIZE[0] as usize + cx) * 4..][..3];
+                    Some([p[0], p[1], p[2]])
+                };
+                let (lc, rc) = (at(10)?, at(30)?);
+                let grey = |c: [u8; 3]| c.iter().max().unwrap() - c.iter().min().unwrap() <= 3 && c[0] < 110;
+                println!("    highlighted 0.6-0.7: the left half {lc:?}, the right half {rc:?}");
+                if grey(lc) || !grey(rc) {
+                    return fail("the highlighted values in colour, the others grey");
+                }
+                self.display.highlight = None;
+                self.display.phase.by_mean = true;
+                self.remove_layer(k, ctx);
+                if let Some(dir) = st.texts.first() {
+                    let _ = std::fs::remove_dir_all(dir);
+                }
+                next(st, "the seasonal peak, the valid share, the dates of a month and the highlight");
+                None
+            }
+            226 => {
                 // the validation's folder (stages 170-179), its strata layer open until now
                 let _ = std::fs::remove_dir_all(&st.dir);
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());

@@ -83,6 +83,9 @@ impl State {
             m == Mode::Value
         } else if m == Mode::Similarity {
             n >= 3 && !stack
+        } else if m == Mode::Phase {
+            // a series of dates round the year
+            n >= 6 && !stack && self.session.as_ref().is_some_and(|s| s.info.time_is_date && !s.info.spectral)
         } else {
             m == Mode::Value || m == Mode::Rgb || (n >= 2 && !stack)
         }
@@ -157,6 +160,16 @@ impl State {
         let available: Vec<bool> = MODE_ORDER.iter().map(|&m| self.mode_available(m)).collect();
         let sim_pins: Vec<u32> = self.series.pins.iter().map(|p| p.id).collect();
         let sim_roi = self.series.roi_rect.is_some();
+        // the cursor's peak, marked on the months' wheel
+        let phase_mark = (self.display.mode == Mode::Phase)
+            .then_some(self.series.hover.as_ref())
+            .flatten()
+            .zip(self.session.as_ref())
+            .and_then(|(h, s)| {
+                let (times, offset) = self.display.gpu_times(s);
+                (h.values.len() == times.len()).then(|| janus_gpu::phase::harmonic(&times, offset, |t| h.values[t]))?
+            })
+            .map(|h| h[0]);
         let d = &mut self.display;
         let mut dirty = false;
         ComboBox::from_id_salt("mode")
@@ -173,6 +186,9 @@ impl State {
             });
         if d.mode == Mode::Similarity {
             dirty |= crate::similarity::options_ui(ui, &mut d.sim, &sim_pins, sim_roi);
+        }
+        if d.mode == Mode::Phase {
+            dirty |= crate::phase::options_ui(ui, &mut d.phase, phase_mark);
         }
         let (changed, turned_on) = self.classes.ui(ui, s, d.t);
         if changed {
@@ -240,7 +256,9 @@ impl State {
                     ui.label("Reference");
                 });
             }
-            if d.mode == Mode::Rgb {
+            if d.mode == Mode::Phase {
+                // no colormap: the months' wheel above
+            } else if d.mode == Mode::Rgb {
                 if info.spectral {
                     // composites by wavelength; the sliders below fine-tune them
                     let current = COMPOSITES
@@ -330,12 +348,38 @@ impl State {
             // the histogram of the values shown, in the colormap, with the stretch's ends to drag
             if !d.hist.xs.is_empty() {
                 ui.add_space(4.0);
-                let cmap = (d.mode != Mode::Rgb).then(|| d.cmap[d.mode as usize]);
+                let cmap = (!matches!(d.mode, Mode::Rgb | Mode::Phase)).then(|| d.cmap[d.mode as usize]);
                 let discrete = d.mode == Mode::DropDate && d.hist.xs.len() == info.t();
                 let mode = d.mode;
                 let label = |v: f32| range_label(mode, v, &info);
                 let r = &mut d.ranges[d.mode as usize];
-                dirty |= crate::histogram::histogram_ui(ui, &d.hist, r, cmap, discrete, &label);
+                let mut hl = d.highlight.filter(|h| h.0 == mode).map(|h| (h.1, h.2));
+                dirty |= crate::histogram::histogram_ui(ui, &d.hist, r, cmap, discrete, &label, &mut hl);
+                d.highlight = hl.map(|(a, b)| (mode, a, b));
+                if let Some((a, b)) = hl {
+                    // its share of the pixels, from the histogram's bars inside it
+                    let share: f64 = d
+                        .hist
+                        .xs
+                        .iter()
+                        .zip(&d.hist.ys)
+                        .filter(|(x, _)| **x >= f64::from(a) && **x <= f64::from(b))
+                        .map(|(_, y)| y)
+                        .sum();
+                    let what = if discrete {
+                        let (t0, t1) = ((a + 0.5).round(), (b - 0.5).round());
+                        if t0 >= t1 { label(t0) } else { format!("{} .. {}", label(t0), label(t1)) }
+                    } else {
+                        format!("{} .. {}", label(a), label(b))
+                    };
+                    ui.horizontal(|ui| {
+                        ui.colored_label(theme::accent(), format!("Highlighted: {what} ({share:.1} % of the pixels)"));
+                        if ui.small_button("Clear").on_hover_text("Every pixel in its colours again").clicked() {
+                            d.highlight = None;
+                            dirty = true;
+                        }
+                    });
+                }
             }
         }
         section(ui, "Detail");

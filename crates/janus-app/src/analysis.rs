@@ -283,6 +283,8 @@ pub struct AnalysisUi {
     density: Option<(u64, egui::TextureHandle, f64)>,
     /// the trend test (PARTS) over a region (trend_test.rs)
     pub trend: crate::trend_test::TrendTestUi,
+    /// the dates side by side (mosaic.rs)
+    pub mosaic: crate::mosaic::MosaicUi,
 }
 
 impl AnalysisUi {
@@ -313,6 +315,7 @@ impl State {
             7 if !dated || crate::wavelet::unsuitable(&times(), &vec![0.0; info.t()]).is_some() => {
                 Some("needs dates, four or more a year over two years or more")
             }
+            10 if info.t() < 2 => Some("needs two dates or more"),
             9 if info.t() < 3 || self.classes.on() => Some("needs a series of values of 3 dates or more"),
             6 if info.stack || info.spectral || info.bands_per_date < 2 => Some("needs several bands a date"),
             1 if !self.classes.on() || self.classes.list.is_empty() => Some("for categorical layers"),
@@ -369,6 +372,7 @@ impl State {
             6 => self.bands_tab(ui),
             7 => self.cycles_tab(ui),
             9 => self.atlas_tab(ui),
+            10 => self.mosaic_tab(ui),
             _ => self.zonal_tab(ui),
         }
     }
@@ -385,8 +389,9 @@ impl State {
 }
 
 /// Analysis' tabs in the order shown (a tab's number is kept: --analysis, the tests).
-const ANALYSIS_TABS: [(usize, &str); 9] = [
+const ANALYSIS_TABS: [(usize, &str); 10] = [
     (0, "Seasonal"),
+    (10, "Dates"),
     (7, "Cycles"),
     (9, "Atlas"),
     (6, "Bands"),

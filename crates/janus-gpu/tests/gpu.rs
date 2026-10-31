@@ -265,3 +265,59 @@ fn similarity_map() {
         assert!(near_colormap(at, &lut, 1.0), "shape {shape}: the reference's pixel {at:?}");
     }
 }
+
+#[test]
+fn phase_map() {
+    let Some((device, queue, backend)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    // 3 years of 20 irregular dates each; every pixel peaks at its own time of year, with its own amplitude and mean
+    let (w, h, t) = (17usize, 11usize, 60usize);
+    // years from the first date, on day 140
+    let times: Vec<f32> = (0..t).map(|i| i as f32 / 20.0 + 0.013 * ((i * 7) % 5) as f32).collect();
+    let offset = 140.0f32 / 365.25;
+    let value = |i: usize, p: usize| -> f32 {
+        if (p + 3 * i).is_multiple_of(11) {
+            return f32::NAN;
+        }
+        let peak = p as f32 / (w * h) as f32;
+        let amp = 0.05 + 0.25 * ((p * 13) % 7) as f32 / 6.0;
+        let mean = 0.2 + 0.5 * ((p * 5) % 9) as f32 / 8.0;
+        let year = (times[i] + offset).rem_euclid(1.0);
+        mean + amp * (std::f32::consts::TAU * (year - peak)).cos() + 0.01 * (i as f32 * 1.7).sin()
+    };
+    let mut gpu = Gpu::new(&device, &queue);
+    gpu.set_backend(backend);
+    let mut cube = gpu.create_cube(w as u32, h as u32, t as u32, &times);
+    for i in 0..t {
+        let layer: Vec<f32> = (0..w * h).map(|p| value(i, p)).collect();
+        cube.upload_layer(i as u32, &layer);
+    }
+    let (lo, hi, amp_hi) = (0.1f32, 0.8f32, 0.5f32);
+    for by_mean in [true, false] {
+        let rect = [0.0, 0.0, w as f32, h as f32];
+        let mut f = gpu.begin_map(0, [w as u32, h as u32], [0.0; 4]);
+        let (mlo, mhi) = if by_mean { (lo, hi) } else { (f32::NAN, f32::NAN) };
+        let layers = [offset.to_bits() as i32, mlo.to_bits() as i32, mhi.to_bits() as i32];
+        let params = LayerParams::new(Mode::Phase, layers, [0.0, amp_hi]);
+        gpu.draw_cube(&mut f, &cube, rect, &params, colormaps::VIRIDIS, 1.0);
+        gpu.end_map(f);
+        let (_, _, px) = gpu.read_target(0).unwrap();
+        for p in 0..w * h {
+            let [peak, amp, mean] = janus_gpu::phase::harmonic(&times, offset, |i| value(i, p)).expect("a fit");
+            // the peak found where it was put
+            let put = p as f32 / (w * h) as f32;
+            let off = (peak - put).abs();
+            assert!(off.min(1.0 - off) < 0.01, "pixel {p}: peak {peak} for {put}");
+            let bright = if by_mean { 0.25 + 0.75 * ((mean - lo) / (hi - lo)).clamp(0.0, 1.0) } else { 1.0 };
+            let want = janus_gpu::phase::hsv(peak, (amp / amp_hi).clamp(0.0, 1.0), bright);
+            let got = &px[p * 4..p * 4 + 4];
+            for c in 0..3 {
+                let e = want[c] * 255.0;
+                assert!((f32::from(got[c]) - e).abs() <= 2.5, "pixel {p} (mean {by_mean}): {got:?} for {want:?}");
+            }
+            assert_eq!(got[3], 255);
+        }
+    }
+}

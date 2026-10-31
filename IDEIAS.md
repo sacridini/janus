@@ -1447,6 +1447,67 @@ olhar os folds no mapa.
 - No Zeit primeiro (uma função de folds: blocos, buffer, agrupamento, kNNDM;
   ver o IDEAS.md do Zeit), o Janus usa.
 
+### Visualizações depois da 1.6.7 (2026-10-31)
+O que funcionou: visões ligadas ao mapa que respondem uma pergunta simples (o
+mapa de similaridade: "onde mais isso aconteceu?"). O que não funcionou e foi
+tirado antes de entrar numa versão: o **cubo espaço-tempo em 3D** (volume, depois
+bloco/superfície/fatias: "achei ruim") e a **matriz de recorrência** (difícil
+de ler; virou o mapa de similaridade). Não propor de novo visões em 3D nem
+gráficos abstratos.
+
+Já existem: swipe, lupa, RGB de três datas, composição, diferença, transecto
+(Hovmöller), Seasonal, Cycles, Bands, Atlas, Similarity, fenologia (ferramenta
+do Zeit). Ideias, na ordem de valor:
+
+1. **Mapa de "quando verdeja"** (fase harmônica; o primeiro a fazer): para cada
+   pixel, o primeiro harmônico anual (somas de v·cos e v·sin do dia do ano,
+   sobre as datas válidas da estação); cor HSV com matiz = o mês do pico,
+   saturação = a amplitude, brilho = a média. Uma soja de setembro e um milho
+   safrinha em cores diferentes, a floresta escura e sem cor (verde o ano
+   todo), a pastagem pálida. Um modo de mapa no shader, como a similaridade;
+   legenda circular dos meses. Precisa de várias datas por ano (como Seasonal).
+   **Feito (sem versão)**: Display → *Seasonal peak (when it greens)*,
+   `--mode phase[,even]`. Ajuste por mínimos quadrados (`m + a cos θ + b sin θ`,
+   não as somas simples: as datas irregulares e as nuvens não puxam o pico), 6
+   datas no mínimo e o determinante da matriz normal sobre n ≥ 0,02 (0,25 com o
+   ano todo coberto); o brilho começa em 1/4 (o matiz ainda se vê nos pixels de
+   média baixa). Atenção: as datas da GPU são anos desde a primeira data, não
+   anos decimais; o shader soma a fração do ano da primeira data. No s2ro
+   (Sentinel-2 de Rondônia, 94 de 107 datas entre maio e setembro) a floresta
+   sai com pico em março/abril (o mínimo de setembro), a pastagem mais pálida.
+   Testes: GPU × CPU (`janus_gpu::phase`), o pico onde foi posto; etapa 225 do
+   autoteste.
+2. **Mosaico de datas** (small multiples): a vista atual em todas as datas, ou
+   no mesmo mês de cada ano, numa grade; clicar numa miniatura vai à data.
+   Mostra de uma vez onde há nuvem, quando algo mudou e quais datas estão
+   limpas. As texturas do overview já estão na GPU.
+   **Feito (sem versão)**: Analysis → *Dates* (`--analysis dates`), na CPU a
+   partir do overview (mais simples que um alvo de GPU por miniatura; ~5 M
+   pixels por vez, refeito no máximo 5 vezes por segundo ao mover o mapa);
+   Value at date (cores ou classes da camada), "o mês da data mostrada em cada
+   ano", "válidos pelo menos N %".
+3. **Faixa de disponibilidade** sob o slider de datas: por data, a fração de
+   pixels válidos (sem nuvem/no-data) na vista. Ajuda a escolher datas limpas e
+   explica os buracos do gráfico. Barato.
+   **Feito (sem versão)**: barras sob o slider (vermelhas abaixo de 50 %), ~3000
+   pixels por data, refeitas quando a vista muda (no máximo 4 vezes por
+   segundo); clique vai à data.
+4. **Distribuição da ROI no tempo**: a mediana e a faixa p10–p90 dos pixels da
+   ROI em vez de só a média; um desmatamento parcial aparece como a faixa
+   abrindo enquanto a média mal se move. Conferir antes o que o gráfico da ROI
+   já mostra (o p10–p90 existia no rs_gui).
+   **Já existia**: o gráfico da ROI mostra a faixa p10–p90 por padrão
+   (`roi_spread: 1`), e também box plot, leque (p10–p90, p25–p75, mediana) e
+   densidade. Nada a fazer.
+5. **Histograma ligado ao mapa**: selecionar um intervalo no histograma do
+   painel Display destaca esses pixels no mapa (com dropdate: clicar em "2019"
+   mostra tudo o que caiu em 2019). Conferir se já existe algo parecido.
+   **Feito (sem versão)**: clique numa barra do histograma do Display destaca
+   seus pixels (os outros em cinza escuro, no shader: `highlight` no uniforme,
+   onde havia o padding), Shift + clique soma barras, Shift + arrastar um
+   intervalo; a parcela dos pixels sob o histograma; `--mode NOME,highlight=A:B`.
+   Vale também para a amplitude do modo *Seasonal peak*.
+
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
 - Ferramentas de IA do Zeit como download opcional (PyTorch é pesado).

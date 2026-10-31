@@ -1,5 +1,6 @@
 //! The Display panel's histogram: the distribution of the values shown, filled in the colormap as the map paints
-//! them, the stretch's two ends as handles to drag (between them, both move), the colormap strip under it.
+//! them, the stretch's two ends as handles to drag (between them, both move), the colormap strip under it. A click
+//! on a bar highlights its values on the map (the others dimmed): Shift + click adds bars, Shift + drag a range.
 
 use egui::epaint::{Mesh, Vertex, WHITE_UV};
 use egui::{Color32, CursorIcon, Rect, Sense, Shape, Stroke, Ui, pos2, vec2};
@@ -21,11 +22,14 @@ enum Grip {
     Hi,
     /// both ends together
     Both,
+    /// Shift + drag: the values to highlight
+    Select,
 }
 
 /// The histogram `h` with the stretch `r` (dragged: set by hand). `cmap`: the colormap (none: red, green and blue
-/// drawn as one). `label`: a value as text (dates for a date mode). `discrete`: one bar per value (dates). Returns
-/// whether the stretch changed.
+/// drawn as one). `label`: a value as text (dates for a date mode). `discrete`: one bar per value (dates).
+/// `highlight`: the values highlighted on the map, chosen here. Returns whether the stretch or the highlight
+/// changed.
 pub fn histogram_ui(
     ui: &mut Ui,
     h: &Histogram,
@@ -33,6 +37,7 @@ pub fn histogram_ui(
     cmap: Option<usize>,
     discrete: bool,
     label: &dyn Fn(f32) -> String,
+    highlight: &mut Option<(f32, f32)>,
 ) -> bool {
     let width = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(vec2(width, PLOT_H + STRIP_H + LABEL_H + 6.0), Sense::click_and_drag());
@@ -74,22 +79,58 @@ pub fn histogram_ui(
             None
         }
     };
+    let shift = ui.input(|i| i.modifiers.shift);
     if resp.drag_started()
         && let Some(p) = pointer
     {
-        // outside the stretch: its nearer end jumps there
-        let g = near(p.x).unwrap_or(if p.x < xl { Grip::Lo } else { Grip::Hi });
+        // outside the stretch: its nearer end jumps there; with Shift, the values to highlight
+        let g = if shift && plot.contains(p) {
+            Grip::Select
+        } else {
+            near(p.x).unwrap_or(if p.x < xl { Grip::Lo } else { Grip::Hi })
+        };
         ui.data_mut(|d| d.insert_temp(grip_id, (g, f64::from(r.lo), f64::from(r.hi), p.x)));
+    }
+    // the bin under a point of the plot: its values (lo, hi)
+    let bin_at = |x: f32| -> Option<(f32, f32)> {
+        let i = ((to_val(x) - h0) / h.bar_w).floor();
+        (i >= 0.0 && (i as usize) < h.xs.len()).then(|| {
+            let c = h.xs[i as usize];
+            ((c - h.bar_w / 2.0) as f32, (c + h.bar_w / 2.0) as f32)
+        })
+    };
+    if resp.dragged()
+        && let (Some(p), Some((Grip::Select, _, _, x0))) =
+            (pointer, ui.data(|d| d.get_temp::<(Grip, f64, f64, f32)>(grip_id)))
+    {
+        let (a, b) = (to_val(x0.min(p.x)) as f32, to_val(x0.max(p.x)) as f32);
+        if b > a && *highlight != Some((a, b)) {
+            *highlight = Some((a, b));
+            changed = true;
+        }
+    }
+    if resp.clicked()
+        && !resp.double_clicked()
+        && let Some(p) = pointer.filter(|p| plot.contains(*p))
+        && let Some(bin) = bin_at(p.x)
+    {
+        *highlight = match *highlight {
+            Some((a, b)) if shift => Some((a.min(bin.0), b.max(bin.1))),
+            Some(cur) if cur == bin => None,
+            _ => Some(bin),
+        };
+        changed = true;
     }
     if resp.dragged()
         && let (Some(p), Some((g, lo0, hi0, x0))) = (pointer, ui.data(|d| d.get_temp::<(Grip, f64, f64, f32)>(grip_id)))
+        && g != Grip::Select
     {
         let eps = (d1 - d0) * 1e-4;
         let val = to_val(p.x).clamp(d0, d1);
         let (lo, hi) = match g {
             Grip::Lo => (val.min(hi0 - eps), hi0),
             Grip::Hi => (lo0, val.max(lo0 + eps)),
-            Grip::Both => {
+            Grip::Both | Grip::Select => {
                 let dv = to_val(p.x) - to_val(x0);
                 (lo0 + dv, hi0 + dv)
             }
@@ -106,6 +147,7 @@ pub fn histogram_ui(
     if resp.double_clicked() {
         r.manual = false;
         r.invalidate();
+        *highlight = None;
         changed = true;
     }
     let held = ui.data(|d| d.get_temp::<(Grip, f64, f64, f32)>(grip_id)).map(|g| g.0).filter(|_| resp.dragged());
@@ -115,7 +157,7 @@ pub fn histogram_ui(
             Some(Grip::Lo | Grip::Hi) => CursorIcon::ResizeHorizontal,
             Some(Grip::Both) if resp.dragged() => CursorIcon::Grabbing,
             Some(Grip::Both) => CursorIcon::Grab,
-            None => CursorIcon::Default,
+            Some(Grip::Select) | None => CursorIcon::Default,
         });
     }
     let (lo, hi) = (f64::from(r.lo), f64::from(r.hi));
@@ -200,8 +242,18 @@ pub fn histogram_ui(
         painter.add(Shape::line(line, Stroke::new(1.0, v.text_color().gamma_multiply(0.55))));
     }
 
-    // the stretch's ends: a line over the distribution, a grip on the strip
+    // the values highlighted on the map
     let accent = v.selection.bg_fill;
+    if let Some((a, b)) = *highlight {
+        let (xa, xb) = (to_x(f64::from(a)).max(plot.left()), to_x(f64::from(b)).min(plot.right()));
+        if xb > xa {
+            let band = Rect::from_x_y_ranges(xa..=xb, plot.y_range());
+            painter.rect_filled(band, 0.0, accent.gamma_multiply(0.22));
+            painter.rect_stroke(band, 0.0, Stroke::new(1.5, accent), egui::StrokeKind::Inside);
+        }
+    }
+
+    // the stretch's ends: a line over the distribution, a grip on the strip
     for (x, g) in [(xl, Grip::Lo), (xh, Grip::Hi)] {
         if x < plot.left() - 1.0 || x > plot.right() + 1.0 {
             continue;
@@ -271,6 +323,13 @@ pub fn histogram_ui(
             painter.rect_filled(bg, 3.0, v.window_fill.gamma_multiply(0.9));
             painter.galley(at, g, v.text_color());
         }
+    }
+    if resp.hover_pos().is_some_and(|p| plot.contains(p)) && !resp.dragged() {
+        resp.clone().on_hover_text(
+            "Click a bar: its pixels highlighted on the map, the others dimmed (click it again: none).
+Shift +              click: add bars; Shift + drag: a range of values.
+Drag an end of the stretch to change the colours.",
+        );
     }
     if resp.hover_pos().is_some_and(|p| p.y > plot.bottom()) {
         resp.on_hover_text(

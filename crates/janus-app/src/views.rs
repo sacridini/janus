@@ -449,7 +449,7 @@ impl State {
         let wait = (mode.needs_stats() && s.stats.is_none())
             .then_some("Computing statistics: waiting for the complete overview...");
         let range = if v.own_mode { v.range } else { disp.ranges[mode as usize] };
-        let bar = (mode != Mode::Rgb && !classes_on)
+        let bar = (!matches!(mode, Mode::Rgb | Mode::Phase) && !classes_on)
             .then(|| (disp.cmap[mode as usize], range_label(mode, range.lo, info), range_label(mode, range.hi, info)));
         (title, bar, wait)
     }
@@ -774,6 +774,10 @@ fn draw_view_layer(
     }
     // the layer's parameters with this view's date and mode
     let mut params = d.layer_params(s);
+    if mode != d.mode {
+        // the highlight is of the layer's mode's values
+        params.highlight = None;
+    }
     params.mode = mode;
     match mode {
         Mode::Diff => params.layers = [t as i32, d.diff_ref_date(t, n).map_or(t as i32, |r| r as i32), 0],
@@ -785,6 +789,7 @@ fn draw_view_layer(
         Mode::Similarity => {
             params.layers = [i32::from(d.sim.shape), d.sim.key as i32, (d.sim.key >> 32) as i32];
         }
+        Mode::Phase => params.layers = d.phase_layers(&info),
         _ => params.layers = [t as i32, 0, 0],
     }
     let range = if v.own_mode { v.range } else { d.ranges[mode as usize] };
@@ -799,6 +804,7 @@ fn draw_view_layer(
         Mode::Diff => up(t as i32) && d.diff_ref_date(t, n).is_some_and(|r| up(r as i32)),
         Mode::Composite => (params.layers[0]..=params.layers[1]).all(up),
         Mode::Similarity => !d.sim.values.is_empty() && (0..n as i32).all(up),
+        Mode::Phase => (0..n as i32).all(up),
         m if m.needs_stats() => s.stats.is_some(),
         _ => up(t as i32),
     };

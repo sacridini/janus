@@ -6,6 +6,7 @@
 //! source (WGSL) for every system.
 
 pub mod colormaps;
+pub mod phase;
 
 pub mod vector;
 pub use vector::{VectorFeatures, VectorGeometry, VectorKind, VectorPoint, VectorStyle, VectorView};
@@ -38,10 +39,15 @@ pub enum Mode {
     /// every pixel's series against a reference series (GpuCube::set_reference): layers[0] 0 the values, 1 the
     /// shape (correlation)
     Similarity = 14,
+    /// when in the year the series peaks: each pixel's annual harmonic as a colour, the hue the peak's day of the
+    /// year, the saturation its amplitude (range: the stretch of the peak-to-peak amplitude), the brightness its
+    /// mean; as f32 bits, layers[0] the first date's fraction of its year (the times are years from it),
+    /// layers[1] and layers[2] the mean's range (NaN: every pixel bright)
+    Phase = 15,
 }
 
 impl Mode {
-    pub const ALL: [Mode; 15] = [
+    pub const ALL: [Mode; 16] = [
         Mode::Value,
         Mode::Anomaly,
         Mode::Mean,
@@ -57,11 +63,12 @@ impl Mode {
         Mode::DropMag,
         Mode::Composite,
         Mode::Similarity,
+        Mode::Phase,
     ];
 
     /// Modes read from the statistics (valid once the overview is complete).
     pub fn needs_stats(self) -> bool {
-        !matches!(self, Mode::Value | Mode::Rgb | Mode::Diff | Mode::Composite | Mode::Similarity)
+        !matches!(self, Mode::Value | Mode::Rgb | Mode::Diff | Mode::Composite | Mode::Similarity | Mode::Phase)
     }
 }
 
@@ -108,11 +115,13 @@ pub struct LayerParams {
     /// Diff on a detail tile: the reference date's tile
     pub tile2: Option<GpuTexture>,
     pub warp: Option<Warp>,
+    /// the values shown (the colormap's; Phase: the amplitude) to highlight, the others dimmed to grey
+    pub highlight: Option<[f32; 2]>,
 }
 
 impl LayerParams {
     pub fn new(mode: Mode, layers: [i32; 3], range: [f32; 2]) -> Self {
-        LayerParams { mode, layers, range, class_lut: None, tile2: None, warp: None }
+        LayerParams { mode, layers, range, class_lut: None, tile2: None, warp: None, highlight: None }
     }
 }
 
@@ -184,7 +193,8 @@ struct DrawUniform {
     nearest: i32,
     nan_bits: u32,
     blend: i32,
-    _pad: [u32; 2],
+    /// the values highlighted (lo, hi; none unless hi > lo): the others dimmed
+    highlight: [f32; 2],
     color: [f32; 4],
     warp_quad: [f32; 4],
     warp_src: [f32; 4],
@@ -935,6 +945,9 @@ impl Gpu {
         u.mode = p.mode as i32;
         u.source = source;
         u.classes = i32::from(p.class_lut.is_some());
+        if let Some([lo, hi]) = p.highlight.filter(|h| h[1] > h[0]) {
+            u.highlight = [lo, hi];
+        }
         if let Some(w) = &p.warp {
             u.warp = 1;
             u.warp_quad = w.quad;

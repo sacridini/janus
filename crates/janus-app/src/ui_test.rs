@@ -33,7 +33,7 @@ use crate::session::Session;
 /// The offscreen targets the test draws into (the map panels use 2, 3...).
 const MAP_SLOT: i32 = 98;
 const VIEW_SLOT: u32 = 99;
-const SIZE: [u32; 2] = [400, 300];
+pub(super) const SIZE: [u32; 2] = [400, 300];
 
 /// Test points, in a 200 × 120 frame scaled to the layer.
 const POINTS: [[usize; 2]; 5] = [[10, 10], [60, 70], [150, 30], [180, 100], [120, 60]];

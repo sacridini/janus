@@ -1462,7 +1462,15 @@ impl State {
                         "shape" => self.display.sim.shape = true,
                         "pin" => self.display.sim.kind = 1,
                         "roi" => self.display.sim.kind = 2,
-                        _ => {}
+                        "even" => self.display.phase.by_mean = false,
+                        o => {
+                            // highlight=LO:HI, the values highlighted (as a click in the histogram)
+                            if let Some((lo, hi)) = o.strip_prefix("highlight=").and_then(|r| r.split_once(':'))
+                                && let (Ok(lo), Ok(hi)) = (lo.parse::<f32>(), hi.parse::<f32>())
+                            {
+                                self.display.highlight = Some((self.display.mode, lo, hi));
+                            }
+                        }
                     }
                 }
                 self.map.dirty = true;

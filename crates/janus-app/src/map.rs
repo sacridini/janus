@@ -3,7 +3,7 @@
 //! right button removes one, Shift + drag draws an ROI; the cursor's pixel, the pins, the ROI, the colour bar and
 //! the status are drawn over it. The map panels and the swipe (views.rs) share its view and its input.
 
-use egui::{Align2, Color32, FontId, Pos2, Rect, Response, Sense, Stroke, Ui, vec2};
+use egui::{Align2, Color32, FontId, Pos2, Rect, Response, Sense, Stroke, Ui, pos2, vec2};
 use janus_gpu::Mode;
 use janus_session::ViewRect;
 
@@ -594,7 +594,7 @@ impl State {
         } else if d.mode == Mode::Composite {
             let (t0, t1) = d.temporal_window(info, d.t);
             if (t0..=t1).all(up) { String::new() } else { "Loading the dates of the composite...".into() }
-        } else if d.mode == Mode::Similarity && !(0..n).all(up) {
+        } else if matches!(d.mode, Mode::Similarity | Mode::Phase) && !(0..n).all(up) {
             "Reading the dates...".into()
         } else if d.mode == Mode::Similarity && d.sim.values.is_empty() {
             match d.sim.kind {
@@ -653,6 +653,15 @@ impl State {
                 State::colour_bar(&painter, rect, *cmap, format_g(f64::from(*lo), 3), format_g(f64::from(*hi), 3));
                 bars = 1;
             }
+        } else if active_shown && d.mode == Mode::Phase && composite.is_none() && !vectors_only {
+            // the months' wheel, the cursor's peak marked
+            let mark = inside.and_then(|(x, y)| {
+                let p = (y * ov.h / info.height).min(ov.h - 1) * ov.w + (x * ov.w / info.width).min(ov.w - 1);
+                d.phase_at(s, &d.gpu_times(s), p).map(|h| h[0])
+            });
+            let centre = rect.left_bottom() + vec2(56.0, -56.0);
+            crate::phase::wheel(&painter, centre, 38.0, body_font(&painter), Color32::from_gray(230), mark);
+            bars = 2;
         } else if active_shown
             && d.mode != Mode::Rgb
             && composite.is_none()
@@ -703,6 +712,16 @@ impl State {
                 if !v.is_nan() {
                     status += &format!("  |  similarity {} (overview)", format_g(f64::from(v), 3));
                 }
+            } else if d.mode == Mode::Phase {
+                status += &match d.phase_at(s, &d.gpu_times(s), p) {
+                    Some([peak, amp, mean]) => format!(
+                        "  |  peaks ~{}, amplitude {}, mean {} (overview)",
+                        crate::phase::date_of(peak),
+                        format_g(f64::from(amp), 3),
+                        format_g(f64::from(mean), 3)
+                    ),
+                    None => "  |  no season (too few dates round the year)".into(),
+                };
             } else if let (true, Some(st)) = (d.mode.needs_stats(), &s.stats) {
                 // the quantity shown (mean, trend...) at the overview pixel under the cursor
                 let (a, b) = (st.s0[p], st.s1[p]);
@@ -991,6 +1010,7 @@ impl State {
             }
             return;
         }
+        let mut slider_rect = None;
         ui.horizontal(|ui| {
             if ui.button("<").clicked() {
                 step = -1;
@@ -1006,9 +1026,11 @@ impl State {
             // room for the date, the speed and the count after it, at the font's size
             let k = ui.text_style_height(&egui::TextStyle::Body) / 13.0;
             ui.spacing_mut().slider_width = (ui.available_width() - 330.0 * k).max(120.0);
-            if ui.add(egui::Slider::new(&mut t, 0..=n - 1).show_value(false)).changed() {
+            let slider = ui.add(egui::Slider::new(&mut t, 0..=n - 1).show_value(false));
+            if slider.changed() {
                 set = Some(t);
             }
+            slider_rect = Some(slider.rect);
             ui.label(label);
             ui.spacing_mut().slider_width = 100.0 * k;
             let unit = if info.spectral { "bands/s" } else { "dates/s" };
@@ -1020,12 +1042,97 @@ impl State {
             );
             ui.weak(format!("{}/{n}", d.t + 1));
         });
+        if let Some(r) = slider_rect
+            && n >= 2
+            && let Some(t) = self.availability_strip(ui, r)
+        {
+            set = Some(t);
+        }
         if step != 0 {
             self.step_date(step);
         }
         if let Some(t) = set {
             self.set_date(t);
         }
+    }
+
+    /// Under the time slider, each date's share of valid pixels in view (no cloud, no gap; of the overview) as a
+    /// bar under its place on the slider, the date shown marked. Returns the date clicked.
+    fn availability_strip(&mut self, ui: &mut Ui, slider: Rect) -> Option<usize> {
+        let s = self.session.as_ref()?;
+        let n = s.info.t();
+        let view = crate::mosaic::visible_overview(self)?;
+        let id = egui::Id::new("availability strip");
+        let mut key = (s.s.overview.layers_done() as u64).wrapping_add(s.info.id.wrapping_mul(1_000_003));
+        for v in view {
+            key = key.wrapping_mul(31).wrapping_add((v * 2.0).round() as u64);
+        }
+        type Strip = (u64, Vec<f32>, std::time::Instant);
+        let old = ui.data(|d| d.get_temp::<Strip>(id));
+        let shares = match old {
+            Some((k, v, _)) if k == key => v,
+            Some((_, v, at)) if at.elapsed().as_millis() < 250 => {
+                // the map moving: made again at most 4 times a second
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(60));
+                v
+            }
+            _ => {
+                let v: Vec<f32> = (0..n).map(|t| crate::mosaic::valid_share(s, view, t, 3000)).collect();
+                ui.data_mut(|d| d.insert_temp(id, (key, v.clone(), std::time::Instant::now())));
+                v
+            }
+        };
+        if shares.len() != n {
+            return None;
+        }
+        let h = 9.0;
+        let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), egui::Sense::click());
+        // the slider's track: its ends inset by the handle's radius (egui's)
+        let inset = slider.height() / 2.5;
+        let (x0, x1) = (slider.left() + inset, slider.right() - inset);
+        let x_of = |t: usize| x0 + (x1 - x0) * t as f32 / (n - 1) as f32;
+        let bar_w = ((x1 - x0) / n as f32 - 0.5).clamp(1.0, 6.0);
+        let painter = ui.painter_at(row);
+        let v = ui.visuals();
+        painter.rect_filled(Rect::from_x_y_ranges(x0 - 1.0..=x1 + 1.0, row.y_range()), 1.0, v.extreme_bg_color);
+        let (good, poor) = (v.text_color().gamma_multiply(0.55), theme::error().gamma_multiply(0.8));
+        for (t, &f) in shares.iter().enumerate() {
+            if f.is_nan() {
+                continue;
+            }
+            let x = x_of(t);
+            let top = row.bottom() - (h * f).max(1.0);
+            let c = if f < 0.5 { poor } else { good };
+            painter.rect_filled(
+                Rect::from_min_max(pos2(x - bar_w / 2.0, top), pos2(x + bar_w / 2.0, row.bottom())),
+                0.0,
+                c,
+            );
+        }
+        let xt = x_of(self.display.t.min(n - 1));
+        painter.rect_filled(
+            Rect::from_min_max(pos2(xt - 1.0, row.top()), pos2(xt + 1.0, row.bottom())),
+            0.0,
+            theme::accent(),
+        );
+        // the date under the pointer
+        let near = |p: Pos2| (((p.x - x0) / (x1 - x0)).clamp(0.0, 1.0) * (n - 1) as f32).round() as usize;
+        let hover = resp.hover_pos().filter(|p| p.x >= x0 - 3.0 && p.x <= x1 + 3.0).map(near);
+        let clicked = resp.clicked();
+        if let Some(t) = hover {
+            let f = shares[t];
+            let what = if f.is_nan() {
+                "not read yet".to_string()
+            } else {
+                format!("{:.0} % of the visible area valid", f * 100.0)
+            };
+            resp.on_hover_text(format!(
+                "{}: {what}
+Click: go to this date. Analysis > Dates: every date at once.",
+                s.info.layers[t].label
+            ));
+        }
+        hover.filter(|_| clicked)
     }
 
     /// What the map shows (app.cpp, the map's title): the dates of the RGB or the difference, the composite's
