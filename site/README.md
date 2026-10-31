@@ -14,7 +14,7 @@ Static site published to GitHub Pages by `.github/workflows/pages.yml`
 `validation.html`, `landtrendr.html`, `ccdc.html`, `coded.html`, `bfast.html`,
 `phenology.html`, `snic.html`, `deep-learning.html`, `presto.html`,
 `trend-test.html`, `calculator.html`, `stac.html`, `series.html`,
-`maps-to-numbers.html` and `workspace.html` walk
+`maps-to-numbers.html`, `workspace.html` and `visualize.html` walk
 through a tool each, with screenshots in
 `assets/img/<guide>/` (and a card each in the Guides section of `index.html`).
 The screenshots come from the program itself: `janus --shots TOUR IN OUT`
@@ -171,3 +171,22 @@ at 20 m with `-tr 20 20 -r mode`); the Sentinel-1 series is
 The timings quoted come from the runs' `job.log` on 2 threads; the benchmark
 tables from `bench/series-io.json`, `bench/regularize-vs-zeit.json` and
 `bench/s1-vs-stackstac.json` (Janus on 8 threads).
+
+The visual analyses' screenshots (`visualize.html`, `assets/img/visualize/`)
+come from `--screenshot` on 4 threads, window 1600 × 950: the Sentinel-2
+series `s2ro` above with the NDVI and the series guide's pins, and the Landsat
+series of the Maps to numbers guide (`target/guide-maps/landsat`) at 2018:
+
+    janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --mode similarity,pin --screenshot similarity.png
+    janus s2ro --interface modern --threads 4 --expr NDVI --pin 179,761 --mode similarity,pin --screenshot sim_values.png
+    janus s2ro --interface modern --threads 4 --expr NDVI --pin 179,761 --mode similarity,pin,shape --screenshot sim_shape.png
+    janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --date 60 --detach-map --analysis cycles --screenshot cycles.png
+    janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --date 60 --detach-map --analysis bands --screenshot bands.png
+    janus landsat --interface modern --threads 4 --pin 71,793 --pin 65,1038 --date 34 --analysis atlas,groups --screenshot atlas.png
+
+With `--detach-map` the Analysis panel takes the main window; those
+screenshots are cropped to the panel (340, 60, 1168, 925). The two similarity
+maps to pin 2 are cropped to the map (724, 103, 1210, 590) and put side by
+side (`01b-similarity-measures.jpg`). All are JPEG at
+quality 88. The timings of the Speed section were measured on the 215/067
+scene of the Trend test guide.

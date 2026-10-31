@@ -79,7 +79,13 @@ impl State {
     pub(crate) fn mode_available(&self, m: Mode) -> bool {
         let n = self.session.as_ref().map_or(0, |s| s.info.t());
         let stack = self.session.as_ref().is_some_and(|s| s.info.stack);
-        if self.classes.on() { m == Mode::Value } else { m == Mode::Value || m == Mode::Rgb || (n >= 2 && !stack) }
+        if self.classes.on() {
+            m == Mode::Value
+        } else if m == Mode::Similarity {
+            n >= 3 && !stack
+        } else {
+            m == Mode::Value || m == Mode::Rgb || (n >= 2 && !stack)
+        }
     }
 
     /// The Display panel (app.cpp, uiLayer): the series, its bands, what the map shows (mode, colormap, stretch,
@@ -149,6 +155,8 @@ impl State {
         section(ui, "Display");
         let Some(s) = &self.session else { return };
         let available: Vec<bool> = MODE_ORDER.iter().map(|&m| self.mode_available(m)).collect();
+        let sim_pins: Vec<u32> = self.series.pins.iter().map(|p| p.id).collect();
+        let sim_roi = self.series.roi_rect.is_some();
         let d = &mut self.display;
         let mut dirty = false;
         ComboBox::from_id_salt("mode")
@@ -163,6 +171,9 @@ impl State {
                         .changed();
                 }
             });
+        if d.mode == Mode::Similarity {
+            dirty |= crate::similarity::options_ui(ui, &mut d.sim, &sim_pins, sim_roi);
+        }
         let (changed, turned_on) = self.classes.ui(ui, s, d.t);
         if changed {
             self.map.dirty = true;

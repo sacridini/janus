@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Seeing a series · Janus</title>
+<meta name="description" content="A guide to the visual analyses of Janus: a map of how alike every pixel's series is to a place's, its cycles by wavelet, every band over time and a UMAP atlas of every pixel's behaviour linked to the map.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Seeing a series · Janus">
+<meta property="og:description" content="Which places behaved like this one, the cycles a place goes through, every band over time and 41 years of Landsat as kinds of behaviour in one plane.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/visualize/04-atlas.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Seeing a series</p>
+    <p class="eyebrow">Analysis · visual</p>
+    <h1>Seeing a series</h1>
+    <p class="lede">A line chart shows one place's values. Four views show other sides of a series: a map of the places that behaved like this one, the cycles a place goes through, every band at once, and every pixel's behaviour in one plane linked to the map. This guide shows each on Sentinel-2 over Rondônia and on 41 years of Landsat in north-eastern Brazil.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#tabs">Four views</a></li>
+      <li><a href="#data">The examples</a></li>
+      <li><a href="#similarity">The similarity map</a></li>
+      <li><a href="#cycles">Cycles</a></li>
+      <li><a href="#bands">Bands</a></li>
+      <li><a href="#atlas">Atlas</a></li>
+      <li><a href="#speed">Speed</a></li>
+      <li><a href="#cli">From the command line</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="tabs">
+      <h2><span class="n">01</span>Four views</h2>
+      <p>Each view answers a different question. The similarity map is a mode of the map; the other three are tabs of the <span class="ui">Analysis</span> panel, open next to <span class="ui">Time series</span> whenever a series is (<span class="ui">View → Analysis</span> hides it). Cycles and Bands are about one place (the cursor, a pin or the ROI's mean); the similarity map and the Atlas about every pixel at once.</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>View</th><th>Answers</th><th>Needs</th></tr></thead>
+          <tbody>
+            <tr><td><span class="ui">Similarity to a series</span> (map)</td><td>Which places behaved like this one over time, by their values or by the shape of their curve.</td><td>3 dates or more</td></tr>
+            <tr><td><span class="ui">Cycles</span></td><td>Which cycles a place goes through (a year, a second crop, none) and when.</td><td>4 dates or more a year, over two years</td></tr>
+            <tr><td><span class="ui">Bands</span></td><td>How every band of a place moved over time, side by side.</td><td>Several bands a date</td></tr>
+            <tr><td><span class="ui">Atlas</span></td><td>What kinds of behaviour the region has, where each one is, and how much of the region it covers.</td><td>3 dates or more</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The Analysis panel only shows the tabs that work on the data open. The others are counted at the end of the row (<span class="ui">+3</span> on the Sentinel-2 series, <span class="ui">+6</span> on the annual Landsat one), and hovering the count lists them with what each one needs: Seasonal and Cycles need several dates a year, Bands several bands a date, Classes and Areas a categorical layer, Zonal a vector layer. A tab chosen stays chosen: open data it fits and it comes back.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The examples</h2>
+      <ul>
+        <li><strong>Sentinel-2 over Rondônia</strong>: the series of the <a href="stac.html">STAC guide</a>, 107 dates from June 2019 to September 2024 (5% of clouds at most, so mostly dry-season dates), six bands, the NDVI shown. Pin 1 (195, 837) is in a forest, pin 2 (179, 761) in a pasture.</li>
+        <li><strong>Landsat over Sergipe and Alagoas</strong>: 41 annual medoid composites of a vegetation index, 1985 to 2025, the 2000 × 2000 pixels around the mouth of the São Francisco river of the <a href="maps-to-numbers.html">Maps to numbers</a> guide, at the date 2018.</li>
+      </ul>
+    </section>
+
+    <section id="similarity">
+      <h2><span class="n">03</span>The similarity map</h2>
+      <p>Choose <span class="ui">Similarity to a series</span> in the Display panel and the map shows, for every pixel, how alike its series is to one place's: the cursor's (the map follows the mouse), a pin's or the ROI's mean. It is the question an embedding's similarity map answers, asked of the series itself: <em>where else did this happen?</em></p>
+      <figure class="fig">
+        <a href="assets/img/visualize/01-similarity.jpg"><img src="assets/img/visualize/01-similarity.jpg" alt="Janus with the Sentinel-2 series of Rondônia shown as Similarity to pin 1 (values): the forest of pin 1 and the other forests in yellow, the pastures and clearings in dark purple, the colour bar from 0.5 to 1; below, the NDVI of pin 1 (forest, high and steady) and pin 2 (pasture, low and seasonal), with the Analysis tab next to Time series." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>Where else is the forest of pin 1.</b> Every pixel's NDVI from 2019 to 2024 compared with pin 1's: the forests that stood all those years are yellow, the pastures and the clearings dark purple.</figcaption>
+      </figure>
+      <p>Two pixels are compared over the dates both have (the season's, if the map shows only part of the year), on the band or index shown:</p>
+      <ul>
+        <li><strong>Values</strong>: 1 less the RMS difference of the two series over the layer's range of values (2 to 98%): 1 the same values at every date, 0.5 half the range apart. The colours run from 0.5 to 1.</li>
+        <li><strong>Shape</strong>: the correlation of the two series: 1 the same curve whatever its level, 0 unrelated, below 0 opposite. A crop's calendar on poorer and richer soils, or a pasture that greens and dries like another, are alike by shape though not by values.</li>
+      </ul>
+      <figure class="fig">
+        <a href="assets/img/visualize/01b-similarity-measures.jpg"><img src="assets/img/visualize/01b-similarity-measures.jpg" alt="The same region twice as similarity to pin 1, a pasture: at the left by values, the pastures green and the forests dark purple; at the right by shape, the pastures and most of the land bright, the forests and the rivers blue-green." width="984" height="487" loading="lazy"></a>
+        <figcaption><b>A pasture, two ways.</b> Similarity to a pasture: by values (left) only the pastures with about its NDVI are bright and the forests dark; by shape (right) every place that greens and dries with its seasons is bright whatever its level, and the forests, whose curve is flat, stand apart.</figcaption>
+      </figure>
+      <p><span class="ui">Reference</span> and <span class="ui">Compare</span> sit under the mode in the Display panel. The map is computed on the GPU from the dates already there for the map, again whenever the reference changes, so with the cursor as reference the comparison moves with the mouse. The status line shows the similarity under the pointer.</p>
+    </section>
+
+    <section id="cycles">
+      <h2><span class="n">04</span>Cycles</h2>
+      <p>A wavelet transform shows which periods a series oscillates at, and when. The horizontal axis is time, the vertical one the period (from two weeks to two years here), and the colour the power: how strongly the series oscillates at that period at that time.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/visualize/02-cycles.jpg"><img src="assets/img/visualize/02-cycles.jpg" alt="The Cycles tab for pin 1: a wavelet scalogram from 2019 to 2024 with period on the vertical axis from 2 weeks to 2 years, a bright band at 1 year outlined in black in 2022 and 2023, the cone of influence darkened at the edges, and at the right the global spectrum peaking at 1 year above the dashed red-noise line." width="828" height="865" loading="lazy"></a>
+        <figcaption><b>The forest's cycles.</b> The strongest power is at one year, the dry season every year, and it is significant (outlined) in 2022 and 2023. The vertical streaks at short periods are single dates far from their neighbours. At the right, the global spectrum: the power's mean over time, peaking at one year above the dashed red-noise level.</figcaption>
+      </figure>
+      <ul>
+        <li><strong>The dates</strong> are put on a regular step first (here 5 days, Sentinel-2's revisit), the gaps filled linearly; columns across a gap longer than two steps are pale. <span class="ui">Trend out</span> removes the linear trend as well as the mean.</li>
+        <li><strong>The power</strong> is over the series' variance: white noise is 1 on average.</li>
+        <li><strong>Outlined</strong>: above red noise at 95%, that is, stronger than a series with only the same memory from one date to the next (its lag-1 correlation, 0.87 here) would give by chance.</li>
+        <li><strong>The cone of influence</strong> (darkened) is where the series' ends weigh on the power: long periods near the start or the end are not to be trusted.</li>
+      </ul>
+      <p>The method is the Morlet wavelet as computed by Torrence &amp; Compo's (1998) code, and Janus' scalogram matches it computed again in numpy. A double crop shows as a second band at six months; a clearing as the yearly band stopping.</p>
+    </section>
+
+    <section id="bands">
+      <h2><span class="n">05</span>Bands</h2>
+      <p>Every band of a place over time, as a heatmap: a row a band, a column a date. It shows at once what a line chart of six bands mixes up.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/visualize/03-bands.jpg"><img src="assets/img/visualize/03-bands.jpg" alt="The Bands tab for pin 1: six rows (blue, green, red, NIR, SWIR 1, SWIR 2) and columns for the dates from 2019 to 2024, each band coloured over its own range; the visible bands dark and steady, the NIR and SWIR high in some years and low in others; the date shown outlined in orange." width="828" height="865" loading="lazy"></a>
+        <figcaption><b>The forest's six bands</b>, each over its own range. The visible bands stay low, as in a forest; the near and short-wave infrared vary from year to year, and together. The date on the map is outlined in orange.</figcaption>
+      </figure>
+      <p>The colours are each band's own range (to see each band's changes), <span class="ui">One range</span> for all (to compare their levels, as a spectrum would) or <span class="ui">Z-scores</span> (each band's departures from its mean, in standard deviations). <span class="ui">Copy CSV</span> copies the dates and every band's value.</p>
+    </section>
+
+    <section id="atlas">
+      <h2><span class="n">06</span>Atlas</h2>
+      <p>The Atlas puts every pixel's series in one picture. Pixels that behaved alike over time land close together in a plane, so each cluster is a kind of behaviour of the place: a forest, a crop, water, a clearing. The plane is linked to the map both ways.</p>
+      <figure class="fig">
+        <a href="assets/img/visualize/04-atlas.jpg"><img src="assets/img/visualize/04-atlas.jpg" alt="Janus with the Landsat series of Sergipe and Alagoas at 2018: the map coloured by three groups (blue, orange, green on the sea and the river), and in the Analysis panel the Atlas tab with the plane of points and three groups drawn around clusters, their shares (A 25.2%, B 44.1%, C 27.3%, others 3.3%) and their curves from 1985 to 2025." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>41 years, three behaviours.</b> 17,689 pixels laid out (one in 15 × 15), the groups drawn around clusters of the plane and coloured on the map. C (green) is the sea and the river, near 0 every year; A (blue) and B (orange) are two kinds of land, B greener. Each group's curve is its mean, with the range of its pixels (10th to 90th percentile) shaded.</figcaption>
+      </figure>
+      <ol class="steps">
+        <li><b>Sample</b>Up to 20,000 pixels on a grid of the ROI or the image, each series as its values at every date (gaps filled linearly from the dates around them).</li>
+        <li><b>Reduce</b>The series projected on their 16 principal components (here 94% of the variation).</li>
+        <li><b>Neighbours</b>Each pixel's 15 nearest neighbours, exactly.</li>
+        <li><b>Lay out</b>UMAP: a plane where those neighbours stay close. The plane settles as it runs.</li>
+        <li><b>Place</b>Every pixel of the region, not only the sample, placed with its nearest sampled pixel, so a group's share is of the whole region.</li>
+      </ol>
+      <p>Drag around points to make a group (three at most, A, B and C), or press <span class="ui">Find groups</span> for three found by k-means. The pointer over the plane lights the pixels like the ones under it on the map; over the map, it rings its pixel in the plane; a click on a point pins its pixel. <span class="ui">Colour</span> shows the points' density, their group, or their value at the date, mean, amplitude or trend. <span class="ui">Shapes</span> compares the curves' form whatever their level (each series standardized): the same crop calendar on poorer and richer soils lands together.</p>
+      <div class="note">
+        <p class="h">Reading the plane</p>
+        <p>UMAP keeps neighbours together, not distances: two clusters far apart are different, but how far apart says little. Read the clusters, not the gaps between them, and check a cluster on the map and in its curve before naming it.</p>
+      </div>
+    </section>
+
+    <section id="speed">
+      <h2><span class="n">07</span>Speed</h2>
+      <p>Measured on a whole Landsat scene of the <a href="trend-test.html">Trend test</a> guide (41 dates of 7478 × 7319 pixels, read as an overview of 5.5 million pixels):</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Step</th><th>Time</th></tr></thead>
+          <tbody>
+            <tr><td>Atlas: 18,900 series sampled, reduced to 16 components</td><td class="num">15 ms</td></tr>
+            <tr><td>Atlas: every sample's 15 nearest neighbours, exact</td><td class="num">0.3 s</td></tr>
+            <tr><td>Atlas: the UMAP layout (8 threads)</td><td class="num">0.7 s</td></tr>
+            <tr><td>Atlas: the 5.5 million pixels placed (4 threads)</td><td class="num">1.2 s</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The Atlas runs on its own thread with the processing threads (<span class="ui">File → Settings</span>), and the interface stays responsive meanwhile; the plane appears as soon as the layout starts and settles as it runs. The similarity map is computed on the GPU like the other modes of the map, so it follows the cursor as it moves.</p>
+    </section>
+
+    <section id="cli">
+      <h2><span class="n">08</span>From the command line</h2>
+      <p><code>--mode</code> shows the similarity map and <code>--analysis</code> opens the panel at a tab, with their options after commas:</p>
+<pre class="code"><code>janus SERIES --mode similarity[,shape][,pin|roi]
+janus SERIES --analysis cycles[,trend]
+janus SERIES --analysis bands[,common|zscore]
+janus SERIES --analysis atlas[,shapes][,groups][,density|value|mean|amplitude|trend]</code></pre>
+      <p><code>shape</code> compares the curves' shape rather than their values, <code>pin</code> and <code>roi</code> with the first pin or the ROI's mean rather than the cursor; <code>trend</code> keeps the trend in the cycles; <code>common</code> and <code>zscore</code> are the bands' scales; <code>groups</code> finds three groups once the atlas is laid out. With <code>--screenshot</code>, Janus waits for the Atlas to settle before taking it.</p>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">09</span>References</h2>
+      <ul class="refs">
+        <li>Torrence, C., Compo, G. P. (1998). A practical guide to wavelet analysis. <em>Bulletin of the American Meteorological Society</em>, 79(1), 61–78. <a href="https://doi.org/10.1175/1520-0477(1998)079%3C0061:APGTWA%3E2.0.CO;2">doi:10.1175/1520-0477(1998)079&lt;0061:APGTWA&gt;2.0.CO;2</a></li>
+        <li>McInnes, L., Healy, J., Melville, J. (2018). UMAP: Uniform Manifold Approximation and Projection for dimension reduction. <a href="https://arxiv.org/abs/1802.03426">arXiv:1802.03426</a></li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

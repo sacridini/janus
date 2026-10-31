@@ -246,7 +246,7 @@ pub struct AnalysisUi {
     /// brought to the front (a button elsewhere opened one of its tabs)
     pub focus: bool,
     /// 0 seasonal, 1 classes, 2 scatter, 3 the trend test, 4 areas (areas_ui.rs), 5 zonal, 6 bands (bands_time.rs),
-    /// 7 cycles (cycles.rs)
+    /// 7 cycles (cycles.rs), 9 atlas (atlas.rs)
     pub tab: usize,
     seasonal_source: String,
     /// 0 years overlaid, 1 the heatmap
@@ -285,6 +285,13 @@ pub struct AnalysisUi {
     pub trend: crate::trend_test::TrendTestUi,
 }
 
+impl AnalysisUi {
+    /// The panel on (as at the start).
+    pub fn shown() -> Self {
+        AnalysisUi { show: true, ..Default::default() }
+    }
+}
+
 impl State {
     /// Analysis > Classes in front: the categorical layer's classes over time.
     pub(crate) fn open_class_timeline(&mut self) {
@@ -293,30 +300,67 @@ impl State {
         self.analysis.focus = true;
     }
 
+    /// Why Analysis' tab `k` does not apply to the data open (None: it does).
+    pub(crate) fn analysis_tab_unavailable(&self, k: usize) -> Option<&'static str> {
+        let s = self.session.as_ref()?;
+        let info = &s.info;
+        let times = || info.layers.iter().map(|l| l.time).collect::<Vec<f64>>();
+        let dated = info.time_is_date && !info.stack && !info.spectral;
+        // a series of values (not categorical) of 4 dates or more
+        let values = |s: &crate::session::Session, categorical: bool| s.info.t() >= 4 && !categorical && !s.info.stack;
+        match k {
+            0 if !dated || observations_per_year(&times()) < 2 => Some("needs dates, two or more a year"),
+            7 if !dated || crate::wavelet::unsuitable(&times(), &vec![0.0; info.t()]).is_some() => {
+                Some("needs dates, four or more a year over two years or more")
+            }
+            9 if info.t() < 3 || self.classes.on() => Some("needs a series of values of 3 dates or more"),
+            6 if info.stack || info.spectral || info.bands_per_date < 2 => Some("needs several bands a date"),
+            1 if !self.classes.on() || self.classes.list.is_empty() => Some("for categorical layers"),
+            2 if info.t() < 2 && self.layers.len() < 2 => Some("needs two dates or two layers"),
+            3 if !values(s, self.classes.on())
+                && !(0..self.layers.len())
+                    .any(|i| self.layer_session(i).is_some_and(|ls| values(ls, self.layers[i].classes.on()))) =>
+            {
+                Some("needs a series of values of 4 dates or more")
+            }
+            4 if !self.classes.on() && !self.zeit.results.iter().any(|r| !r.preview) => {
+                Some("for categorical layers or a run's map")
+            }
+            5 if self.vectors.is_empty() && self.zonal.table.is_none() => Some("needs a vector layer of zones"),
+            _ => None,
+        }
+    }
+
     /// The Analysis panel's tabs.
     pub(crate) fn analysis_ui(&mut self, ui: &mut Ui) {
         if self.session.is_none() {
             ui.weak("Open a series.");
             return;
         }
-        // in the order shown (a tab's number is kept: --analysis, the tests)
-        const TABS: [(usize, &str); 8] = [
-            (0, "Seasonal"),
-            (7, "Cycles"),
-            (6, "Bands"),
-            (1, "Classes"),
-            (2, "Scatter"),
-            (3, "Trend test"),
-            (4, "Areas"),
-            (5, "Zonal"),
-        ];
+        let why: Vec<Option<&str>> = ANALYSIS_TABS.iter().map(|&(k, _)| self.analysis_tab_unavailable(k)).collect();
+        let shown = self.shown_analysis_tab();
         ui.horizontal(|ui| {
-            for (k, name) in TABS {
-                ui.selectable_value(&mut self.analysis.tab, k, name);
+            for ((k, name), w) in ANALYSIS_TABS.iter().zip(&why) {
+                if w.is_none() && ui.selectable_label(shown == *k, *name).clicked() {
+                    self.analysis.tab = *k;
+                }
+            }
+            let hidden: Vec<String> =
+                ANALYSIS_TABS.iter().zip(&why).filter_map(|((_, n), w)| w.map(|w| format!("{n}: {w}"))).collect();
+            if !hidden.is_empty() {
+                ui.add_space(4.0);
+                ui.weak(format!("+{}", hidden.len())).on_hover_text(format!(
+                    "Not for the data open, so not shown:
+{}",
+                    hidden.join(
+                        "
+"
+                    )
+                ));
             }
         });
         ui.separator();
-        match self.analysis.tab {
+        match shown {
             0 => self.seasonal_ui(ui),
             1 => self.class_timeline_ui(ui),
             2 => self.scatter_ui(ui),
@@ -324,10 +368,36 @@ impl State {
             4 => self.areas_ui(ui),
             6 => self.bands_tab(ui),
             7 => self.cycles_tab(ui),
+            9 => self.atlas_tab(ui),
             _ => self.zonal_tab(ui),
         }
     }
 
+    /// The tab shown: the one chosen, or while it does not apply to the data open (or not yet: its dates still
+    /// read), the first that does. The choice is kept.
+    pub(crate) fn shown_analysis_tab(&self) -> usize {
+        let tab = self.analysis.tab;
+        if self.analysis_tab_unavailable(tab).is_none() {
+            return tab;
+        }
+        ANALYSIS_TABS.iter().map(|t| t.0).find(|&k| self.analysis_tab_unavailable(k).is_none()).unwrap_or(tab)
+    }
+}
+
+/// Analysis' tabs in the order shown (a tab's number is kept: --analysis, the tests).
+const ANALYSIS_TABS: [(usize, &str); 9] = [
+    (0, "Seasonal"),
+    (7, "Cycles"),
+    (9, "Atlas"),
+    (6, "Bands"),
+    (1, "Classes"),
+    (2, "Scatter"),
+    (3, "Trend test"),
+    (4, "Areas"),
+    (5, "Zonal"),
+];
+
+impl State {
     // -----------------------------------------------------------------------------------------------------------
     // Seasonal
     // -----------------------------------------------------------------------------------------------------------

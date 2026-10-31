@@ -23,7 +23,30 @@ pub fn mode_name(m: Mode) -> &'static str {
         Mode::DropDate => "Largest drop: date",
         Mode::DropMag => "Largest drop: magnitude",
         Mode::Composite => "Temporal composite",
+        Mode::Similarity => "Similarity to a series",
     }
+}
+
+/// The modes by their names on the command line (--mode).
+pub fn mode_by_name(name: &str) -> Option<Mode> {
+    let names = [
+        "value",
+        "anomaly",
+        "mean",
+        "std",
+        "slope",
+        "min",
+        "max",
+        "amplitude",
+        "r2",
+        "rgb",
+        "diff",
+        "dropdate",
+        "dropmag",
+        "composite",
+        "similarity",
+    ];
+    names.iter().position(|n| *n == name).map(|i| Mode::ALL[i])
 }
 
 /// A spectrum's RGB mode by its name (app.cpp, modeName).
@@ -36,11 +59,12 @@ pub fn mode_name_of(m: Mode, info: &janus_cube::CubeInfo) -> &'static str {
 }
 
 /// The order of the modes in the menus (the enum's numbers are fixed by the shaders).
-pub const MODE_ORDER: [Mode; 14] = [
+pub const MODE_ORDER: [Mode; 15] = [
     Mode::Value,
     Mode::Anomaly,
     Mode::Diff,
     Mode::Composite,
+    Mode::Similarity,
     Mode::Mean,
     Mode::Std,
     Mode::Slope,
@@ -108,8 +132,8 @@ pub struct Histogram {
 pub struct Display {
     pub t: usize,
     pub mode: Mode,
-    pub cmap: [usize; 14],
-    pub ranges: [Range; 14],
+    pub cmap: [usize; 15],
+    pub ranges: [Range; 15],
     /// the reference date of the difference: a date, or -1 the previous one
     pub diff_ref: i32,
     /// the automatic stretch of each date (else the same for every date: colours comparable through time)
@@ -132,11 +156,64 @@ pub struct Display {
     /// band `ranges` holds now
     pub(crate) band_ranges: Vec<Range>,
     pub(crate) range_band: Option<usize>,
+    pub sim: Similarity,
+}
+
+/// The similarity's reference (Mode::Similarity): every pixel's series against it.
+#[derive(Default, Clone)]
+pub struct Similarity {
+    /// 0 the cursor, 1 a pin, 2 the ROI's mean
+    pub kind: usize,
+    pub pin: u32,
+    /// the curves' shape compared (their correlation), else the values
+    pub shape: bool,
+    /// the reference series (a value a date; empty: none yet), what it is, and a key of it
+    pub values: Vec<f32>,
+    pub text: String,
+    pub key: u64,
+    /// the values' scale: the layer's range of values (2-98 % over every date), the unit of the difference
+    pub scale: f32,
+}
+
+impl Similarity {
+    /// The series `v` (a value a date) against the reference, as the shader computes it (display.wgsl).
+    pub fn of(&self, v: impl Fn(usize) -> f32, in_season: impl Fn(usize) -> bool) -> f32 {
+        let r = &self.values;
+        let ok = |t: usize| in_season(t) && !r[t].is_nan() && !v(t).is_nan();
+        let (mut c, mut mv, mut mr) = (0.0f64, 0.0f64, 0.0f64);
+        for t in (0..r.len()).filter(|&t| ok(t)) {
+            c += 1.0;
+            mv += f64::from(v(t));
+            mr += f64::from(r[t]);
+        }
+        if c < 3.0 {
+            return f32::NAN;
+        }
+        (mv, mr) = (mv / c, mr / c);
+        let (mut vv, mut rr, mut vr, mut dd) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        for t in (0..r.len()).filter(|&t| ok(t)) {
+            let (x, y) = (f64::from(v(t)), f64::from(r[t]));
+            vv += (x - mv) * (x - mv);
+            rr += (y - mr) * (y - mr);
+            vr += (x - mv) * (y - mr);
+            dd += (x - y) * (x - y);
+        }
+        if self.shape {
+            if vv <= 0.0 || rr <= 0.0 { f32::NAN } else { (vr / (vv * rr).sqrt()) as f32 }
+        } else {
+            (1.0 - (dd / c).sqrt() / f64::from(self.scale).max(1e-30)) as f32
+        }
+    }
+
+    /// The fixed stretch: correlations 0 to 1, values from half the scale apart to the same.
+    pub fn range(&self) -> (f32, f32) {
+        if self.shape { (0.0, 1.0) } else { (0.5, 1.0) }
+    }
 }
 
 impl Default for Display {
     fn default() -> Self {
-        let mut cmap = [colormaps::VIRIDIS; 14];
+        let mut cmap = [colormaps::VIRIDIS; 15];
         for m in [Mode::Anomaly, Mode::Slope, Mode::Diff] {
             cmap[m as usize] = colormaps::BRBG;
         }
@@ -147,7 +224,7 @@ impl Default for Display {
             t: 0,
             mode: Mode::Value,
             cmap,
-            ranges: [Range::default(); 14],
+            ranges: [Range::default(); 15],
             diff_ref: 0,
             per_date_range: false,
             detail: true,
@@ -161,6 +238,7 @@ impl Default for Display {
             playing: false,
             band_ranges: Vec::new(),
             range_band: None,
+            sim: Similarity::default(),
         }
     }
 }
@@ -216,6 +294,8 @@ impl Display {
                 let (a, b) = self.temporal_window(&s.info, self.t);
                 [a as i32, b as i32, self.reducer]
             }
+            // the reference's key: the map drawn again when it changes
+            Mode::Similarity => [i32::from(self.sim.shape), self.sim.key as i32, (self.sim.key >> 32) as i32],
             _ => [t, 0, 0],
         };
         let r = self.ranges[self.mode as usize];
@@ -230,9 +310,19 @@ impl Display {
             Mode::Rgb => p.layers.iter().all(|&l| up(l)),
             Mode::Diff => up(self.t as i32) && self.diff_ref_date(self.t, s.info.t()).is_some_and(|r| up(r as i32)),
             Mode::Composite => (p.layers[0]..=p.layers[1]).all(up),
+            Mode::Similarity => !self.sim.values.is_empty() && (0..s.info.t() as i32).all(up),
             m if m.needs_stats() => s.stats.is_some(),
             _ => up(self.t as i32),
         }
+    }
+
+    /// The similarity of an overview pixel to the reference.
+    pub fn similarity_at(&self, s: &Session, p: usize) -> f32 {
+        let ov = &s.s.overview;
+        if self.sim.values.len() != ov.t {
+            return f32::NAN;
+        }
+        self.sim.of(|t| ov.layer(t).map_or(f32::NAN, |l| l[p]), |t| self.season.contains(&s.info, t))
     }
 
     /// The composite of an overview pixel over dates t0..t1 (those in the season), as the shader computes it.
@@ -322,6 +412,11 @@ impl Display {
                     _ => f32::NAN,
                 });
             }
+            (Mode::Similarity, _) => {
+                // a few thousand pixels: drawn again as the cursor moves
+                let step = (px / max_n.min(6_000)).max(1);
+                out.extend((step / 2..px).step_by(step).map(|p| self.similarity_at(s, p)).filter(|v| !v.is_nan()));
+            }
             (Mode::Composite, _) => {
                 let (t0, t1) = self.temporal_window(&s.info, t.unwrap_or(self.t));
                 let step = (px / max_n.min(100_000)).max(1);
@@ -381,7 +476,15 @@ impl Display {
             .wrapping_add(ref_key.wrapping_mul(65536))
             .wrapping_add((self.mode as u64) << 56);
         let r = &mut self.ranges[self.mode as usize];
-        if !r.manual && r.key != rkey {
+        if self.mode == Mode::Similarity && !r.manual {
+            // a fixed stretch (the reference follows the cursor: colours that do not jump), by the measure
+            let (lo, hi) = self.sim.range();
+            let key = rkey.wrapping_add(u64::from(self.sim.shape));
+            if r.key != key {
+                (r.lo, r.hi, r.key) = (lo, hi, key);
+                changed = true;
+            }
+        } else if !r.manual && r.key != rkey {
             let mut sample = self.collect_sample(s, range_t, 2_000_000);
             if !sample.is_empty() {
                 let (lo, hi) = auto_range(self.mode, &mut sample);
@@ -392,7 +495,10 @@ impl Display {
         }
         let hist_t = time_dep.then_some(if self.mode == Mode::Rgb { self.rgb[0] } else { self.t });
         let (c0, c1) = if self.mode == Mode::Composite { self.temporal_window(&s.info, self.t) } else { (0, 0) };
+        let sim_key =
+            if self.mode == Mode::Similarity { self.sim.key.wrapping_add(u64::from(self.sim.shape)) } else { 0 };
         let hkey = rkey
+            .wrapping_add(sim_key.wrapping_mul(0x9E37_79B9_7F4A_7C15))
             .wrapping_mul(31)
             .wrapping_add(hist_t.map_or(0, |t| t as u64 + 1))
             .wrapping_add((c0 as u64 * 65537 + c1 as u64).wrapping_mul(31) << 20);

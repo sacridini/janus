@@ -136,7 +136,7 @@ pub struct ChartOptions {
 
 impl Default for ChartOptions {
     fn default() -> Self {
-        ChartOptions { style: 1, values: 0, trend: 1, y_from_map: false, roi_spread: 1, stripes: false, class_style: 0 }
+        ChartOptions { style: 1, values: 0, trend: 1, y_from_map: false, roi_spread: 1, stripes: true, class_style: 0 }
     }
 }
 

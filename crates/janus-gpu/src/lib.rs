@@ -35,10 +35,13 @@ pub enum Mode {
     DropDate = 11,
     DropMag = 12,
     Composite = 13,
+    /// every pixel's series against a reference series (GpuCube::set_reference): layers[0] 0 the values, 1 the
+    /// shape (correlation)
+    Similarity = 14,
 }
 
 impl Mode {
-    pub const ALL: [Mode; 14] = [
+    pub const ALL: [Mode; 15] = [
         Mode::Value,
         Mode::Anomaly,
         Mode::Mean,
@@ -53,11 +56,12 @@ impl Mode {
         Mode::DropDate,
         Mode::DropMag,
         Mode::Composite,
+        Mode::Similarity,
     ];
 
     /// Modes read from the statistics (valid once the overview is complete).
     pub fn needs_stats(self) -> bool {
-        !matches!(self, Mode::Value | Mode::Rgb | Mode::Diff | Mode::Composite)
+        !matches!(self, Mode::Value | Mode::Rgb | Mode::Diff | Mode::Composite | Mode::Similarity)
     }
 }
 
@@ -256,6 +260,8 @@ pub struct GpuCube {
     texture: wgpu::Texture,
     stats: [wgpu::Texture; 3],
     times: wgpu::Buffer,
+    /// the similarity's reference: its value at every date, then the scale of the values' difference
+    reference: wgpu::Buffer,
     /// the display's group 1
     group: wgpu::BindGroup,
     stats_group: wgpu::BindGroup,
@@ -286,6 +292,14 @@ impl GpuCube {
     /// The dates' times (years since the first; NaN = outside the season): the statistics need computing again.
     pub fn set_times(&self, times: &[f32]) {
         self.queue.write_buffer(&self.times, 0, bytemuck::cast_slice(times));
+    }
+
+    /// The similarity's reference series (a value a date, NaN: none) and the values' scale (the difference's
+    /// unit: the layer's range of values).
+    pub fn set_reference(&self, values: &[f32], scale: f32) {
+        let mut v: Vec<f32> = (0..self.t as usize).map(|i| values.get(i).copied().unwrap_or(f32::NAN)).collect();
+        v.push(scale);
+        self.queue.write_buffer(&self.reference, 0, bytemuck::cast_slice(&v));
     }
 
     /// Bytes on the GPU: the dates and the statistics (w × h × (T + 9) floats).
@@ -432,6 +446,7 @@ impl Gpu {
                 tex_entry(2, frag, d2, false),
                 tex_entry(3, frag, d2, false),
                 buffer_entry(4, frag, wgpu::BufferBindingType::Storage { read_only: true }, false),
+                buffer_entry(5, frag, wgpu::BufferBindingType::Storage { read_only: true }, false),
             ],
         });
         let sampler_entry = |binding| wgpu::BindGroupLayoutEntry {
@@ -700,6 +715,11 @@ impl Gpu {
             contents: bytemuck::cast_slice(times),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
+        let reference = d.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("similarity reference"),
+            contents: bytemuck::cast_slice(&vec![f32::NAN; t as usize + 1]),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
         let stats_uniform = d.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("stats params"),
             contents: bytemuck::bytes_of(&StatsUniform { t, nan_bits: NAN_BITS, _pad: [0; 2] }),
@@ -720,6 +740,7 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 2, resource: tv(&sv[1]) },
                 wgpu::BindGroupEntry { binding: 3, resource: tv(&sv[2]) },
                 wgpu::BindGroupEntry { binding: 4, resource: times.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 5, resource: reference.as_entire_binding() },
             ],
         });
         let stats_group = d.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -742,6 +763,7 @@ impl Gpu {
             texture,
             stats,
             times,
+            reference,
             group,
             stats_group,
             loaded: vec![false; t as usize],

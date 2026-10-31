@@ -409,6 +409,7 @@ impl State {
         let Some(g) = self.grid() else { return };
         let m = &self.map;
         let at = |x: f64, y: f64| m.screen_of(rect, x / g.fx, y / g.fy);
+        self.draw_atlas_marks(painter, &at); // under the marks
         if let Some((x, y)) = inside
             && m.scale * g.ow / g.w >= 6.0
         {
@@ -593,6 +594,14 @@ impl State {
         } else if d.mode == Mode::Composite {
             let (t0, t1) = d.temporal_window(info, d.t);
             if (t0..=t1).all(up) { String::new() } else { "Loading the dates of the composite...".into() }
+        } else if d.mode == Mode::Similarity && !(0..n).all(up) {
+            "Reading the dates...".into()
+        } else if d.mode == Mode::Similarity && d.sim.values.is_empty() {
+            match d.sim.kind {
+                0 => "Hover over the map: every pixel's series against the cursor's".into(),
+                1 => "Place a pin: every pixel's series against the pin's".into(),
+                _ => "Draw an ROI (Shift + drag): every pixel's series against its mean".into(),
+            }
         } else if crate::display::time_dependent(d.mode)
             && (!up(if d.mode == Mode::Rgb { d.rgb[0] } else { d.t })
                 || (d.mode == Mode::Diff && !d.diff_ref_date(d.t, n).is_some_and(up)))
@@ -689,6 +698,11 @@ impl State {
             } else if d.mode == Mode::Composite {
                 let (t0, t1) = d.temporal_window(info, d.t);
                 status += &format!("  |  composite {} (overview)", g(f64::from(d.composite_at(s, p, t0, t1))));
+            } else if d.mode == Mode::Similarity {
+                let v = d.similarity_at(s, p);
+                if !v.is_nan() {
+                    status += &format!("  |  similarity {} (overview)", format_g(f64::from(v), 3));
+                }
             } else if let (true, Some(st)) = (d.mode.needs_stats(), &s.stats) {
                 // the quantity shown (mean, trend...) at the overview pixel under the cursor
                 let (a, b) = (st.s0[p], st.s1[p]);
@@ -1026,6 +1040,7 @@ impl State {
                 format!("{} - {}  |  Difference", label(d.t), d.diff_ref_date(d.t, info.t()).map_or("(none)", label))
             }
             Mode::Composite => d.temporal_text(info, d.t),
+            Mode::Similarity => self.similarity_text(),
             m if crate::display::time_dependent(m) => {
                 format!("{}  |  {}", label(d.t), crate::display::mode_name_of(m, info))
             }

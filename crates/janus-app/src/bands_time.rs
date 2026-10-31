@@ -23,14 +23,14 @@ const ROI_CELLS: usize = 128;
 
 /// Where the bands are read: a pixel, or the ROI (its rectangle and polygon, in the layer's pixels).
 #[derive(Clone)]
-enum Place {
+pub(crate) enum Place {
     Pixel(usize, usize),
     Roi([usize; 4], plane::Polygon),
 }
 
 /// What a grid was read for: the series, the place (a pixel, or the ROI's generation) and the quality rule.
 #[derive(Clone, PartialEq, Debug)]
-struct Key {
+pub(crate) struct Key {
     cube: u64,
     x: usize,
     y: usize,
@@ -52,6 +52,8 @@ struct Grid {
     bands: Vec<i32>,
     values: Vec<f32>,
     dates: usize,
+    /// counts the grids received (what was computed from one is redone for the next)
+    generation: u64,
 }
 
 impl Grid {
@@ -67,6 +69,7 @@ pub struct BandsUi {
     /// 0 each band its own range, 1 one range for every band, 2 z-scores
     pub scale: usize,
     grid: Option<Grid>,
+    received: u64,
     asked: Option<Key>,
     tx: Option<Sender<Request>>,
     rx: Option<Receiver<Grid>>,
@@ -83,7 +86,7 @@ fn worker(rx: Receiver<Request>, tx: Sender<Grid>, ctx: egui::Context) {
             Place::Pixel(x, y) => read_pixel(reader, &r, *x, *y),
             Place::Roi(rect, poly) => read_roi(reader, &r, *rect, poly),
         };
-        let grid = Grid { key: r.key, bands: r.bands, values, dates: r.info.t() };
+        let grid = Grid { key: r.key, bands: r.bands, values, dates: r.info.t(), generation: 0 };
         if tx.send(grid).is_err() {
             return;
         }
@@ -229,9 +232,40 @@ impl State {
     /// The bands asked for read (screenshots wait for them while Analysis > Bands is shown).
     pub(crate) fn bands_settled(&self) -> bool {
         let b = &self.bands;
-        !(self.analysis.show && self.analysis.tab == 6)
+        !(self.analysis.show && self.shown_analysis_tab() == 6)
             || b.asked.is_none()
             || b.grid.as_ref().map(|g| &g.key) == b.asked.as_ref()
+    }
+
+    /// Where the bands can be read: the cursor, the pins, the ROI (id, label, place), as in Seasonal.
+    pub(crate) fn band_places(&self) -> Vec<(String, String, Place)> {
+        let mut places = Vec::new();
+        if let Some(h) = &self.series.hover {
+            places.push(("cursor".into(), format!("Cursor ({}, {})", h.x, h.y), Place::Pixel(h.x, h.y)));
+        }
+        for p in &self.series.pins {
+            places.push((format!("pin{}", p.id), format!("Pin {} ({}, {})", p.id, p.x, p.y), Place::Pixel(p.x, p.y)));
+        }
+        if let Some(r) = self.series.roi_rect {
+            places.push(("roi".into(), "ROI mean".into(), Place::Roi(r, self.series.roi_poly.clone())));
+        }
+        places
+    }
+
+    /// Every band but the quality band at `place` asked for (on the bands' thread, unless it is the grid shown or
+    /// the one asked last): (the grid received for it, if it has been: its generation; the place's key).
+    pub(crate) fn bands_at(&mut self, info: &Arc<CubeInfo>, place: &Place, ctx: &egui::Context) -> (Option<u64>, Key) {
+        let bands = shown_bands(info);
+        let qa =
+            (info.sel.qa_band > 0 && info.sel.qa_rule != QaRule::None).then_some((info.sel.qa_band, info.sel.qa_rule));
+        let (x, y, roi) = match place {
+            Place::Pixel(x, y) => (*x, *y, 0),
+            Place::Roi(..) => (usize::MAX, usize::MAX, self.series.roi_gen),
+        };
+        let key = Key { cube: info.id, x, y, roi, qa: qa.map_or((0, 0), |(b, r)| (b, r.code())) };
+        self.bands_request(info, key.clone(), place.clone(), bands, qa, ctx);
+        let generation = self.bands.grid.as_ref().filter(|g| g.key == key && g.dates == info.t()).map(|g| g.generation);
+        (generation, key)
     }
 
     /// Analysis > Bands.
@@ -246,17 +280,7 @@ impl State {
             ui.weak("(For series of several bands a date: surface reflectance, Sentinel-2's bands...)");
             return;
         }
-        // where: the cursor, a pin or the ROI, as in Seasonal
-        let mut sources: Vec<(String, String, Place)> = Vec::new();
-        if let Some(h) = &self.series.hover {
-            sources.push(("cursor".into(), format!("Cursor ({}, {})", h.x, h.y), Place::Pixel(h.x, h.y)));
-        }
-        for p in &self.series.pins {
-            sources.push((format!("pin{}", p.id), format!("Pin {} ({}, {})", p.id, p.x, p.y), Place::Pixel(p.x, p.y)));
-        }
-        if let Some(r) = self.series.roi_rect {
-            sources.push(("roi".into(), "ROI mean".into(), Place::Roi(r, self.series.roi_poly.clone())));
-        }
+        let sources = self.band_places();
         if sources.is_empty() {
             ui.weak("Hover over the map, place a pin or draw an ROI.");
             return;
@@ -287,15 +311,7 @@ impl State {
             );
             copy = ui.button("Copy CSV").on_hover_text("The dates and every band's value (tab-separated)").clicked();
         });
-        let bands = shown_bands(&info);
-        let qa =
-            (info.sel.qa_band > 0 && info.sel.qa_rule != QaRule::None).then_some((info.sel.qa_band, info.sel.qa_rule));
-        let (x, y, roi) = match &sources[src].2 {
-            Place::Pixel(x, y) => (*x, *y, 0),
-            Place::Roi(..) => (usize::MAX, usize::MAX, self.series.roi_gen),
-        };
-        let key = Key { cube: info.id, x, y, roi, qa: qa.map_or((0, 0), |(b, r)| (b, r.code())) };
-        self.bands_request(&info, key.clone(), sources[src].2.clone(), bands, qa, ui.ctx());
+        let key = self.bands_at(&info, &sources[src].2, ui.ctx()).1;
         let b = &self.bands;
         let Some(g) = b.grid.as_ref().filter(|g| g.key.cube == info.id && g.dates == info.t()) else {
             ui.weak("Reading the bands...");
@@ -334,7 +350,8 @@ impl State {
         let b = &mut self.bands;
         if let Some(rx) = &b.rx {
             while let Ok(g) = rx.try_recv() {
-                b.grid = Some(g);
+                b.received += 1;
+                b.grid = Some(Grid { generation: b.received, ..g });
             }
         }
         if b.grid.as_ref().is_some_and(|g| g.key == key) || b.asked.as_ref() == Some(&key) {
@@ -500,7 +517,7 @@ mod tests {
     fn grid(values: Vec<f32>, dates: usize) -> Grid {
         let rows = values.len() / dates;
         let key = Key { cube: 1, x: 0, y: 0, roi: 0, qa: (0, 0) };
-        Grid { key, bands: (1..=rows as i32).collect(), values, dates }
+        Grid { key, bands: (1..=rows as i32).collect(), values, dates, generation: 1 }
     }
 
     #[test]

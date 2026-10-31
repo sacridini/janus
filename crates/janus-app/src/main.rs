@@ -8,6 +8,8 @@ mod analysis;
 mod animation;
 mod app;
 mod areas_ui;
+mod atlas;
+mod atlas_math;
 mod attributes;
 mod bands_time;
 mod basemap;
@@ -61,6 +63,7 @@ mod settings;
 mod shots;
 mod shots_ml;
 mod shots_validation;
+mod similarity;
 mod speckle_ui;
 mod stac;
 mod status;
@@ -158,8 +161,13 @@ Developer options:
   --date N            the date (a stack's band) shown, from 1
   --roi X0,Y0,X1,Y1   an ROI rectangle (X0,Y0,X1,Y1,X2,Y2,...: a polygon)
   --transect X0,Y0,X1,Y1,...  a transect (a line, or a polyline)
-  --analysis seasonal|cycles|bands|classes|scatter|trend|areas|zonal  the Analysis panel at that tab
+  --mode NAME[,OPT]    what the map shows: value|anomaly|diff|composite|similarity|mean|std|slope|min|max|
+                      amplitude|r2|dropdate|dropmag|rgb (similarity,shape|pin|roi: the curves' shape, against the
+                      first pin or the ROI's mean rather than the cursor)
+  --analysis seasonal|cycles|atlas|bands|classes|scatter|trend|areas|zonal  the Analysis panel at that tab
                       (seasonal,M: its years from month M; cycles,trend: the trend kept; bands,common|zscore;
+                      atlas,shapes,groups,density|value|mean|amplitude|trend: the curves' shapes compared,
+                      three groups found, the points' colour;
                       classes,transitions: the matrix of two dates;
                       classes,flows[,changes][,zoom=N][,small=PCT][,window]: the flows between dates
                       (small=0: no Other; window: in a window of its own); trend,run: the trend test run,
@@ -479,6 +487,7 @@ fn main() -> eframe::Result<()> {
                     opts.roi_polygon = v;
                 }
             }
+            "--mode" => opts.mode = args.next(),
             "--analysis" => {
                 let a = args.next().unwrap_or_default();
                 let (tab, month) = a.split_once(',').unwrap_or((&a, ""));
@@ -490,6 +499,7 @@ fn main() -> eframe::Result<()> {
                     "zonal" => Some(5),
                     "bands" => Some(6),
                     "cycles" => Some(7),
+                    "atlas" => Some(9),
                     _ => Some(0),
                 };
                 opts.analysis_view = month.trim().to_string();

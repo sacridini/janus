@@ -5,7 +5,8 @@
 
 struct Draw {
     rect: vec4<f32>,       // NDC: x0, y0 (top), x1, y1 (bottom)
-    layers: vec4<i32>,     // x, y, z: dates (Rgb: three; Diff: date, reference; Composite: first, last, reducer)
+    layers: vec4<i32>,     // x, y, z: dates (Rgb: three; Diff: date, reference; Composite: first, last, reducer;
+                           // Similarity: x 0 the values, 1 the shape)
     range: vec2<f32>,
     alpha: f32,
     mode: i32,
@@ -29,6 +30,8 @@ struct Draw {
 @group(1) @binding(2) var stats1: texture_2d<f32>;
 @group(1) @binding(3) var stats2: texture_2d<f32>;
 @group(1) @binding(4) var<storage, read> times: array<f32>;
+// the similarity's reference: its value at every date, then the values' scale
+@group(1) @binding(5) var<storage, read> reference: array<f32>;
 
 @group(2) @binding(0) var cmap: texture_2d<f32>;
 @group(2) @binding(1) var cmap_sampler: sampler;   // bilinear
@@ -151,6 +154,50 @@ fn composite(t0: i32, t1: i32, reducer: i32) -> f32 {
     return 0.5 * (vals[m / 2 - 1] + vals[m / 2]);
 }
 
+// The pixel's series against the reference, over the dates both have (in the season): the shape, their
+// correlation; the values, 1 - their RMS difference over the values' scale (1: the same values). In two passes,
+// the means first (no cancellation in f32).
+fn similarity(shape: bool) -> f32 {
+    let n = i32(arrayLength(&reference)) - 1;
+    var c = 0.0;
+    var mv = 0.0;
+    var mr = 0.0;
+    for (var t = 0; t < n; t++) {
+        let r = reference[t];
+        if (is_nan(times[t]) || is_nan(r)) { continue; }
+        let v = cube_at(t);
+        if (is_nan(v)) { continue; }
+        c += 1.0;
+        mv += v;
+        mr += r;
+    }
+    if (c < 3.0) { return nan(); }
+    mv /= c;
+    mr /= c;
+    var vv = 0.0;
+    var rr = 0.0;
+    var vr = 0.0;
+    var dd = 0.0;
+    for (var t = 0; t < n; t++) {
+        let r = reference[t];
+        if (is_nan(times[t]) || is_nan(r)) { continue; }
+        let v = cube_at(t);
+        if (is_nan(v)) { continue; }
+        let a = v - mv;
+        let b = r - mr;
+        vv += a * a;
+        rr += b * b;
+        vr += a * b;
+        let d = v - r;
+        dd += d * d;
+    }
+    if (shape) {
+        if (vv <= 0.0 || rr <= 0.0) { return nan(); }
+        return vr / sqrt(vv * rr);
+    }
+    return 1.0 - sqrt(dd / c) / max(reference[n], 1e-30);
+}
+
 // Bilinear between the 4 grid nodes around the point, in full float precision (texture filtering weights have
 // only ~8 bits), then into the drawn texture.
 fn warped_uv(vuv: vec2<f32>) -> vec2<f32> {
@@ -207,6 +254,8 @@ fn fs(in: VOut) -> @location(0) vec4<f32> {
         v = cube_at(u.layers.x);
     } else if (mode == 10) {
         v = cube_at(u.layers.x) - ref_at(u.layers.y);
+    } else if (mode == 14) {
+        if (u.source == 0) { v = similarity(u.layers.x == 1); } else { v = nan(); }
     } else if (mode == 13) {
         if (u.source == 0) { v = composite(u.layers.x, u.layers.y, u.layers.z); } else { v = nan(); }
     } else {

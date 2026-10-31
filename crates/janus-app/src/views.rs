@@ -782,6 +782,9 @@ fn draw_view_layer(
             let (a, b) = d.temporal_window(&info, t);
             params.layers = [a as i32, b as i32, d.reducer];
         }
+        Mode::Similarity => {
+            params.layers = [i32::from(d.sim.shape), d.sim.key as i32, (d.sim.key >> 32) as i32];
+        }
         _ => params.layers = [t as i32, 0, 0],
     }
     let range = if v.own_mode { v.range } else { d.ranges[mode as usize] };
@@ -795,6 +798,7 @@ fn draw_view_layer(
         Mode::Rgb => params.layers.iter().all(|&k| up(k)),
         Mode::Diff => up(t as i32) && d.diff_ref_date(t, n).is_some_and(|r| up(r as i32)),
         Mode::Composite => (params.layers[0]..=params.layers[1]).all(up),
+        Mode::Similarity => !d.sim.values.is_empty() && (0..n as i32).all(up),
         m if m.needs_stats() => s.stats.is_some(),
         _ => up(t as i32),
     };

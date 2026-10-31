@@ -565,7 +565,10 @@ impl State {
                 }
             }
             Cmd::ClearRoi => self.clear_roi(),
-            Cmd::Analysis => self.analysis.show = !self.analysis.show,
+            Cmd::Analysis => {
+                self.analysis.show = !self.analysis.show;
+                self.analysis.focus = self.analysis.show;
+            }
             Cmd::Embeddings => self.show_embeddings = !self.show_embeddings,
             Cmd::Interpretation => self.labels.show = !self.labels.show,
             Cmd::AttributeTable => self.attr_table.show = !self.attr_table.show,

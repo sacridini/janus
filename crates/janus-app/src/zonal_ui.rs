@@ -353,6 +353,7 @@ impl State {
                     self.zonal.table = Some((Arc::new(t), meta));
                     self.analysis.show = true;
                     self.analysis.tab = 5;
+                    self.analysis.focus = true;
                 }
             }
             JobState::Failed => {

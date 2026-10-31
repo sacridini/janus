@@ -201,3 +201,67 @@ fn blend_modes() {
     }
     assert_eq!(Blend::parse(" multiply "), Some(Blend::Multiply));
 }
+
+#[test]
+fn similarity_map() {
+    let Some((device, queue, backend)) = device() else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let (w, h, t) = (19usize, 13usize, 12usize);
+    let times: Vec<f32> = (0..t).map(|i| 2000.0 + i as f32).collect();
+    let value = |i: usize, p: usize| -> f32 {
+        if (p + i).is_multiple_of(7) {
+            f32::NAN
+        } else {
+            0.4 + 0.3 * ((i as f32) * 0.9 + p as f32 * 0.37).sin() + 0.002 * p as f32
+        }
+    };
+    let mut gpu = Gpu::new(&device, &queue);
+    gpu.set_backend(backend);
+    let mut cube = gpu.create_cube(w as u32, h as u32, t as u32, &times);
+    for i in 0..t {
+        let layer: Vec<f32> = (0..w * h).map(|p| value(i, p)).collect();
+        cube.upload_layer(i as u32, &layer);
+    }
+    let reference: Vec<f32> = (0..t).map(|i| value(i, 40)).collect();
+    let scale = 0.6f32;
+    cube.set_reference(&reference, scale);
+    // the CPU's: the values 1 - RMS difference / scale, the shape the correlation
+    let cpu = |p: usize, shape: bool| -> f32 {
+        let pairs: Vec<(f64, f64)> = (0..t)
+            .map(|i| (f64::from(value(i, p)), f64::from(reference[i])))
+            .filter(|(a, b)| !a.is_nan() && !b.is_nan())
+            .collect();
+        let n = pairs.len() as f64;
+        if n < 3.0 {
+            return f32::NAN;
+        }
+        let (ma, mb) = (pairs.iter().map(|x| x.0).sum::<f64>() / n, pairs.iter().map(|x| x.1).sum::<f64>() / n);
+        let (mut aa, mut bb, mut ab, mut dd) = (0.0, 0.0, 0.0, 0.0);
+        for (a, b) in &pairs {
+            aa += (a - ma) * (a - ma);
+            bb += (b - mb) * (b - mb);
+            ab += (a - ma) * (b - mb);
+            dd += (a - b) * (a - b);
+        }
+        if shape { (ab / (aa * bb).sqrt()) as f32 } else { (1.0 - (dd / n).sqrt() / f64::from(scale)) as f32 }
+    };
+    let lut = colormaps::all()[colormaps::VIRIDIS].lut();
+    for shape in [false, true] {
+        let rect = [0.0, 0.0, w as f32, h as f32];
+        let mut f = gpu.begin_map(0, [w as u32, h as u32], [0.0; 4]);
+        let params = LayerParams::new(Mode::Similarity, [i32::from(shape), 0, 0], [-1.0, 1.0]);
+        gpu.draw_cube(&mut f, &cube, rect, &params, colormaps::VIRIDIS, 1.0);
+        gpu.end_map(f);
+        let (_, _, px) = gpu.read_target(0).unwrap();
+        for p in 0..w * h {
+            let want = cpu(p, shape);
+            let got = &px[p * 4..p * 4 + 4];
+            assert!(near_colormap(got, &lut, (want + 1.0) / 2.0), "shape {shape}, pixel {p}: {got:?} for {want}");
+        }
+        // the reference's own pixel: the same series
+        let at = &px[40 * 4..40 * 4 + 4];
+        assert!(near_colormap(at, &lut, 1.0), "shape {shape}: the reference's pixel {at:?}");
+    }
+}

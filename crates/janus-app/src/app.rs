@@ -358,6 +358,8 @@ pub struct Options {
     /// M, 1 January; classes,flows)
     pub analysis: Option<usize>,
     pub analysis_view: String,
+    /// --mode NAME[,OPT...]: what the map shows (similarity,shape,pin|roi: its measure and reference)
+    pub mode: Option<String>,
     /// --chart K=V,...: the chart's options
     pub chart: Option<String>,
     /// --zeit TOOL: that Zeit tool fitted on the chart, its window open
@@ -523,10 +525,14 @@ pub struct State {
     pub(crate) measure_vectors: crate::measure_vectors::MeasureVectors,
     /// the Analysis panel's state
     pub analysis: crate::analysis::AnalysisUi,
+    /// the series and dates read the similarity's scale was taken from
+    pub sim_scale_for: Option<(u64, usize)>,
     /// Analysis > Bands: a multiband series' bands over time
     pub bands: crate::bands_time::BandsUi,
     /// Analysis > Cycles: a series' wavelet scalogram
     pub cycles: crate::cycles::CyclesUi,
+    /// Analysis > Atlas: every pixel's behaviour in a UMAP plane
+    pub atlas: crate::atlas::AtlasUi,
     /// the Embeddings panel is shown
     pub show_embeddings: bool,
     pub(crate) embeddings_test: crate::embeddings_test::EmbeddingsTest,
@@ -931,9 +937,12 @@ impl JanusApp {
                 exports: Vec::new(),
                 show_exports: false,
                 measure_vectors: Default::default(),
-                analysis: Default::default(),
+                // on from the start, a tab next to the time series
+                analysis: crate::analysis::AnalysisUi::shown(),
+                sim_scale_for: None,
                 bands: Default::default(),
                 cycles: Default::default(),
+                atlas: Default::default(),
                 show_embeddings: false,
                 embeddings_test: Default::default(),
                 emb_download: Default::default(),
@@ -1443,8 +1452,23 @@ impl State {
             if !self.opts.roi_polygon.is_empty() {
                 self.set_roi_polygon(vec![self.opts.roi_polygon.clone()]);
             }
+            if let Some(text) = self.opts.mode.clone() {
+                let mut parts = text.split(',');
+                if let Some(m) = parts.next().and_then(crate::display::mode_by_name) {
+                    self.display.mode = m;
+                }
+                for opt in parts {
+                    match opt {
+                        "shape" => self.display.sim.shape = true,
+                        "pin" => self.display.sim.kind = 1,
+                        "roi" => self.display.sim.kind = 2,
+                        _ => {}
+                    }
+                }
+                self.map.dirty = true;
+            }
             if let Some(tab) = self.opts.analysis {
-                (self.analysis.show, self.analysis.tab) = (true, tab);
+                (self.analysis.show, self.analysis.tab, self.analysis.focus) = (true, tab, true);
                 if let Ok(m @ 1..=12) = self.opts.analysis_view.parse::<usize>() {
                     self.analysis.seasonal_start = m - 1;
                 }
@@ -1476,6 +1500,14 @@ impl State {
                 // cycles,trend: the trend kept
                 if view.contains(&"trend") {
                     self.cycles.detrend = false;
+                }
+                // atlas,shapes,groups,mean: the curves' shapes compared, three groups found, coloured by a value
+                self.atlas.shapes = view.contains(&"shapes");
+                self.atlas.find_groups = view.contains(&"groups");
+                for (k, name) in ["density", "groups", "value", "mean", "amplitude", "trend"].iter().enumerate() {
+                    if view.contains(name) {
+                        self.atlas.colouring = k;
+                    }
                 }
                 self.analysis.trend.auto_run = view.contains(&"run");
                 self.analysis.trend.auto_classes = view.contains(&"classes");
@@ -1613,6 +1645,7 @@ impl State {
         self.pump_layers(ctx);
         self.sync_layer_times();
         self.pump_series(ctx);
+        self.update_similarity_ref();
         let (Some(s), Some(gpu)) = (&mut self.session, &mut self.gpu) else { return };
         if s.pump(gpu, ctx) {
             self.map.dirty = true;
@@ -1934,7 +1967,7 @@ impl State {
                     .on_hover_text("Seasonal views, class shares and transitions, scatter of two layers or dates")
                     .clicked()
                 {
-                    self.analysis.show = analysis;
+                    (self.analysis.show, self.analysis.focus) = (analysis, analysis);
                 }
                 let mut emb = self.show_embeddings;
                 if ui.checkbox(&mut emb, "Embeddings").clicked() {
@@ -2112,6 +2145,7 @@ impl State {
                 && tiles_ready
                 && self.trend_test_settled()
                 && self.bands_settled()
+                && self.atlas_settled()
                 && (self.opts.stac.is_none()
                     || self.stac.settled()
                         && !self.stac.open_after
@@ -2342,9 +2376,11 @@ impl eframe::App for JanusApp {
         // map): Embeddings next to Display, Analysis and the transect next to the time series, Validation and
         // Interpretation next to the statistics, the attribute table next to the time series
         let s = &self.state;
+        // Analysis with the series' panels (on from the start: there whenever a series is open)
+        let series_open = s.layers.iter().any(|l| !l.canvas);
         let shown = [
             (Tab::Embeddings, s.show_embeddings, &[Tab::Display][..]),
-            (Tab::Analysis, s.analysis.show, &[Tab::TimeSeries][..]),
+            (Tab::Analysis, s.analysis.show && series_open, &[Tab::TimeSeries][..]),
             (Tab::Validation, s.val.show, &[Tab::Statistics, Tab::Interpretation, Tab::Attributes][..]),
             (Tab::Interpretation, s.labels.show, &[Tab::Statistics, Tab::Validation, Tab::Attributes][..]),
             (Tab::Transect, s.transect.on, &[Tab::TimeSeries][..]),
@@ -2355,10 +2391,27 @@ impl eframe::App for JanusApp {
             ),
         ];
         for (tab, on, near) in shown {
-            match self.dock.find_tab(&tab) {
-                None if on => dock_near(&mut self.dock, tab, near),
-                Some(p) if !on => {
+            // a panel in a window of its own is shown there: not docked again in the main window
+            let window = self.windows.iter().position(|w| w.dock.find_tab(&tab).is_some());
+            match (self.dock.find_tab(&tab), window) {
+                (None, None) if on => {
+                    // Analysis behind the time series unless asked for (its focus brings it to the front)
+                    let behind = tab == Tab::Analysis;
+                    let front =
+                        behind.then(|| self.dock.find_tab(&Tab::TimeSeries).filter(|p| p.surface.is_main())).flatten();
+                    dock_near(&mut self.dock, tab, near);
+                    if let Some(p) = front {
+                        let _ = self.dock.set_active_tab(p);
+                    }
+                }
+                (Some(p), _) if !on => {
                     self.dock.remove_tab(p);
+                }
+                (None, Some(i)) if !on => {
+                    let w = &mut self.windows[i];
+                    if let Some(p) = w.dock.find_tab(&tab) {
+                        w.dock.remove_tab(p);
+                    }
                 }
                 _ => {}
             }
