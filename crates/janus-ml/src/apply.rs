@@ -57,7 +57,7 @@ fn batch_of(model: &Model) -> usize {
 }
 
 /// A GeoTIFF of the window: Byte (its nodata `byte`) or Float32 (NaN).
-fn create(
+pub(crate) fn create(
     path: &Path,
     w: usize,
     h: usize,
@@ -102,7 +102,7 @@ fn describe_classes(ds: &mut Dataset, model: &Model) -> Result<(), String> {
 }
 
 /// A byte map's colours and names, value by value (the nodata transparent).
-fn describe(ds: &mut Dataset, values: &[(&str, [u8; 3])], nodata: u16) -> Result<(), String> {
+pub(crate) fn describe(ds: &mut Dataset, values: &[(&str, [u8; 3])], nodata: u16) -> Result<(), String> {
     let mut ct = ColorTable::default();
     for (k, (_, c)) in values.iter().enumerate() {
         let a = if k as u16 == nodata { 0 } else { 255 };
@@ -137,8 +137,19 @@ pub fn input_of(
             (0..win.2 * win.3).map(|i| ((win.0 + i % win.2) as f64, (win.1 + i / win.2) as f64)).collect();
         return crate::presto::classifier_input(info, &inputs, &sr, &pixels);
     }
-    let keep = fill_gaps(&mut sr, &model.header.calendar.years, model.header.min_valid);
+    let mut keep = fill_gaps(&mut sr, &model.header.calendar.years, model.header.min_valid);
     model.header.norm.apply(&mut sr);
+    // a forest's further predictors (texture, a DEM...) after the series' values; a pixel without them left out
+    if let Arch::RandomForest(h) = &model.header.arch
+        && !h.extra.is_empty()
+    {
+        let e = h.extra.len();
+        let ex = crate::extra::read_window(&h.extra, info, win)?;
+        for (i, k) in keep.iter_mut().enumerate() {
+            *k &= ex[i * e..(i + 1) * e].iter().all(|v| v.is_finite());
+        }
+        sr = crate::extra::append(&sr, &ex, e);
+    }
     Ok((sr, keep))
 }
 

@@ -423,6 +423,7 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 | Post-processing (classes) | a categorical layer (one map or a map per date) | the classes cleaned as a **new layer** with the layer's names and colours: each pixel's short excursions removed (A B A becomes A A A), then each date's map through a majority filter and a minimum mapping unit that merges the small patches into the neighbouring class; how many dates of each pixel changed |
 | SOM clustering | any | cluster map (the typical series of the cluster under the cursor is drawn on the chart), distance to it |
 | SNIC segmentation | any | segments (a colour each), each segment's mean series as a **new layer**, the segments' **polygons** (GeoPackage, opened as a vector layer) with their size, centre and mean of every value compared |
+| Texture (GLCM) | any (raster runs only) | a map per feature of a temporal summary of the shown series in a moving window: the GLCM's contrast, dissimilarity, homogeneity, ASM, energy, correlation, entropy, mean and variance, and the window's mean, standard deviation and Sobel gradient |
 | Agreement of change maps | maps of dates from other tools (any series) | consensus year, how many maps agree (and their share), maps with a change, spread of the years |
 | Smoothing | any | chart only: the smoothed series (Whittaker or Savitzky-Golay) |
 
@@ -478,6 +479,21 @@ segment), each segment's mean series (`snic_mean.tif`, opened as a layer: the
 series as objects) and the polygons (`snic_polygons.gpkg`, layer `segments`:
 `supercells`, `x`, `y`, `n_pixels` and a column per value compared, named
 `date` or `date_band`), opened as a vector layer for interpretation by object.
+
+**Texture (GLCM)** (as `zeit.texture`) maps the texture of the shown series:
+first a summary of its dates (*Summary of the dates*: median, mean, minimum,
+maximum, standard deviation or amplitude, the 95th minus the 5th percentile),
+then, in a *Window* of 7 pixels about each pixel, the grey-level
+co-occurrence matrix's properties (Haralick et al. 1973) as scikit-image's
+`graycomatrix(symmetric=True, normed=True)` and `graycoprops` give them,
+averaged over four directions at the *Pair distance*, the values quantized to
+*Grey levels* over the summary's 2nd to 98th percentile; and three of spfeas's
+window statistics (the mean, the standard deviation and the mean Sobel
+gradient). Fields, pastures, orchards, plantations and forests differ in
+texture where their spectra are alike: the maps are predictors for the
+Random Forest (*Beside the series*) and show the grain of a landscape. The
+windows need their neighbours, so it runs on the raster only. Zeit's texture
+equals scikit-image's to 1e-12, 78 times faster on one thread.
 
 The **agreement** runs on maps Janus already shows, not on the series: check two
 or more results whose values are dates (LandTrendr's year of detection; CCDC,
@@ -706,6 +722,15 @@ without one).
   (19 s, 66 s and 47 s on the 20,000 samples), 5.4 s on four threads
   (scikit-learn 16.7 s); the test samples classified as fast as they are on
   one thread, 1.4 times faster on four.
+- **Beside the series** (the forest's settings): rasters on the series' grid
+  read as further predictors, one value each a sample after its series'
+  values: the maps of runs on the series (**Texture (GLCM)**'s above all, see
+  below) and single rasters open of its size (a DEM, a distance map). A
+  raster may cover part of the series (a run's ROI) but must have its pixel
+  size and be aligned with it; pixels without a value in one are left out. A
+  polygon's mean takes their mean too. The model keeps their files' paths and
+  reads them again when it is applied; their importance is listed after the
+  dates'.
 - **The model** is kept in a `.janusmodel` file (in the results folder's
   `models`): its weights and what applying it needs (the architecture, the
   values and dates, the scaling, the classes and their colours, the samples and
@@ -786,6 +811,49 @@ On sits' own samples (`samples_modis_ndvi`, `samples_l8_rondonia_2bands`), the
 same training and test samples give Janus the test accuracy of sits (within a
 point or two, over three seeds; `tools/ml_sits_reference.R` and
 `crates/janus-ml/tests/sits.rs`).
+
+## Field delineation (parcels)
+
+**Tools > Classification > Field delineation (parcels)** draws the fields of a
+Sentinel-2 series (blue, green, red and NIR, L2A digital numbers) as parcels,
+with the networks of Fields of The World (Kerner et al. 2025) and WRI's Trazo
+(Grupp et al. 2026): a U-Net (EfficientNet-B3) that labels each pixel of two
+composites of a season, window A about the green-up and B about the harvest,
+as background, field interior or field boundary. Ported to Burn from their
+published weights (CC-BY-4.0, downloaded once into Janus's folder), on the GPU
+or the CPU, no Python.
+
+- **Model**: Trazo3 (South America, best in Mato Grosso), Trazo SA (the soy
+  ecoregions), Trazo2, Trazo1, FTW B3 (the world), or a `.janusfields` file
+  trained in Janus (*Open...*). The Trazo networks read the composites as they
+  are (as they were trained: upsampled, their pixel IoU in Mato Grosso falls
+  from 77 to 55 %), FTW's upsampled twice, as `ftw inference run` does.
+- **Season**: found in the series (the area's NDVI date by date; each window
+  *± days* about its start and end, shown by *Find the season*) or two windows
+  chosen; each window's median composite, the quality band applied.
+- **Parcels**: *watershed* (each field's sure interior, *Seeds* %, floods over
+  the boundary's probability, so neighbouring fields touch) or *interiors
+  (FTW)* (each set of connected interior pixels, as `ftw-tools polygonize`);
+  a *Minimum area* (smaller ones merged into a neighbour) and a *Simplify*
+  tolerance. *Tiles* of 128-512 px overlapping, each cut back to its middle.
+- **Outputs**: the class map, the interior and boundary probabilities, the
+  parcels' map and their polygons (`fields_parcels.gpkg`: `area_ha`,
+  `perimeter_m`, `pixels`, `mean_interior`), opened as a vector layer.
+- **Train on your fields**: a vector layer of fields drawn (or opened) in an
+  area and an ROI around that area, where every field is drawn (in the ROI,
+  pixels in no polygon are background and the polygons' edges boundary;
+  outside it nothing is assumed). The chosen model is fine-tuned on chips of
+  the ROI (its batch normalization frozen) for a number of epochs and saved in
+  `field_models/NAME.janusfields`, chosen as the model at once.
+
+On the Trazo dataset's test chips, scored as `ftw model test` scores them,
+Trazo3 in Janus gives WRI's published figures (pixel IoU of the interior
+79.1 % in Mato Grosso, 75.3 % on the soy set, 68.1 % in Chiquitania; WRI:
+79.2, 75.0 and 68.8; `crates/janus-ml/examples/fields_eval.rs`), and its
+scores are those of PyTorch's segmentation_models_pytorch within 1e-3
+(`tools/fieldnet_reference.py`, `crates/janus-ml/tests/fieldnet.rs`). The
+watershed finds more whole fields than the interiors (object recall 36, 49
+and 44 % against 25, 35 and 36 %). The guide: `site/fields.html`.
 
 ## Spectra (hyperspectral)
 

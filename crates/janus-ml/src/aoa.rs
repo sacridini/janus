@@ -77,7 +77,16 @@ impl Applicability {
         let folds: Option<Vec<i64>> = places
             .filter(|pl| idx.iter().map(|&i| pl[i]).collect::<std::collections::BTreeSet<_>>().len() >= 2)
             .map(|pl| idx.iter().map(|&i| pl[i] as i64).collect());
-        let td = zeit_core::aoa::train_di(&values, idx.len(), p, &weights, folds.as_deref(), n_jobs)?;
+        let td = zeit_core::aoa::train_di(
+            &values,
+            idx.len(),
+            p,
+            &weights,
+            folds.as_deref(),
+            None,
+            zeit_core::aoa::Distance::Euclidean,
+            n_jobs,
+        )?;
         if !td.threshold.is_finite() {
             return Err("the samples' dissimilarity has no threshold".into());
         }
@@ -109,6 +118,7 @@ impl Applicability {
             center: self.center.clone(),
             scale: self.scale.clone(),
             weight: self.weight.clone(),
+            whiten: None,
             train,
             mean_distance: self.mean_distance,
             train_di: vec![],
@@ -209,7 +219,7 @@ mod tests {
         // the same as Zeit's on the same values
         let v: Vec<f64> = x.values.iter().map(|&v| v as f64).collect();
         let f: Vec<i64> = places.iter().map(|&p| p as i64).collect();
-        let z = zeit_core::aoa::train_di(&v, n, t * b, &[1.0; 6], Some(&f), 1).unwrap();
+        let z = zeit_core::aoa::train_di(&v, n, t * b, &[1.0; 6], Some(&f), None, zeit_core::aoa::Distance::Euclidean, 1).unwrap();
         assert!((z.threshold - a.threshold).abs() < 1e-12 && (z.mean_distance - a.mean_distance).abs() < 1e-12);
         // samples that do not fit the values
         let a = Applicability { train: String::new(), ..a };

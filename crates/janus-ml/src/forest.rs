@@ -25,11 +25,14 @@ pub struct ForestHyper {
     pub min_leaf: usize,
     /// a tree's depth at most (0: no limit)
     pub max_depth: usize,
+    /// rasters read beside the series as further predictors (texture, a DEM...), a value each a sample
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra: Vec<crate::extra::Extra>,
 }
 
 impl Default for ForestHyper {
     fn default() -> Self {
-        ForestHyper { trees: 500, mtry: 0, min_leaf: 1, max_depth: 0 }
+        ForestHyper { trees: 500, mtry: 0, min_leaf: 1, max_depth: 0, extra: vec![] }
     }
 }
 

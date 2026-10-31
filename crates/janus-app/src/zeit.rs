@@ -618,7 +618,7 @@ impl State {
             let tools: Vec<&Tool> = m.tools.iter().filter(|t| t.category == c).collect();
             // a category with a tool open is marked
             let any_open = tools.iter().any(|t| self.zeit.tools.get(&t.id).is_some_and(|u| u.open))
-                || c == "Classification" && self.ml.open;
+                || c == "Classification" && (self.ml.open || self.fields.show);
             let label = format!("{c}{}", if any_open { "  \u{25cf}" } else { "" });
             ui.menu_button(label, |ui| {
                 for t in tools {
@@ -645,6 +645,7 @@ impl State {
                 if c == "Classification" {
                     ui.separator();
                     self.ml_menu(ui);
+                    self.fields_menu(ui);
                 }
             });
         }

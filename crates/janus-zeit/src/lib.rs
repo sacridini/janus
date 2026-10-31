@@ -37,6 +37,7 @@ mod smooth;
 pub mod snic;
 mod som;
 pub mod speckle;
+pub mod texture;
 mod tmask;
 pub mod trend_test;
 pub mod twdtw;
@@ -45,11 +46,11 @@ pub mod upstream;
 pub mod warp;
 pub mod zonal;
 
-/// The Zeit whose zeit-core is linked (Cargo.toml's revision: 2.0.0 with remotePARTS's methods).
-pub const ZEIT_VERSION: &str = "2.0.0";
+/// The Zeit whose zeit-core is linked (Cargo.toml's revision: 2.5.0 and its texture).
+pub const ZEIT_VERSION: &str = "2.5.0";
 
 /// zeit-core's git revision (Cargo.toml's `rev`), as a run's provenance records it.
-pub const ZEIT_CORE_REV: &str = "8cfbdbf5ecb2ab740332584749d26c18b724b24a";
+pub const ZEIT_CORE_REV: &str = "f47c16dd2f7a22da9a0d93aaf178bf5396f70407";
 
 pub use manifest::{Manifest, Output, Param, Tool, manifest};
 pub use pixel::{Overlay, Params, PixelInput, PixelResult, run_pixel};

@@ -205,7 +205,7 @@ impl MlUi {
 
 /// A job's work, a panic in it (a GPU out of memory, in Burn) its error: the job then fails with a message instead
 /// of running for ever.
-fn guarded<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+pub(crate) fn guarded<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|p| {
         let what = p
             .downcast_ref::<String>()
@@ -788,17 +788,19 @@ impl State {
 
     /// The forest's settings (ranger's and scikit-learn's defaults).
     fn forest_settings_ui(&mut self, ui: &mut Ui, info: &CubeInfo, values: usize) {
-        let p = info.t() * values.max(1);
+        let e = self.ml.forest.extra.len();
+        let p = info.t() * values.max(1) + e;
         egui::Grid::new("ml forest").num_columns(2).show(ui, |ui| {
             let (h, c) = (&mut self.ml.forest, &mut self.ml.cfg);
             ui.label("Trees").on_hover_text("More trees vote more steadily; the accuracy levels off (see its curve)");
             ui.add(egui::DragValue::new(&mut h.trees).range(10..=5000).speed(5.0));
             ui.end_row();
             ui.label("Values tried at each split").on_hover_text(format!(
-                "Of the {p} values of a sample ({} dates x {} values): drawn at random at each split, the best of \
+                "Of the {p} values of a sample ({} dates x {} values{}): drawn at random at each split, the best of \
                  them by the Gini impurity (mtry). 0: the square root of their number, {}",
                 info.t(),
                 values.max(1),
+                if e > 0 { format!(", and {e} beside the series") } else { String::new() },
                 ForestHyper { mtry: 0, ..h.clone() }.mtry_of(p)
             ));
             ui.add(egui::DragValue::new(&mut h.mtry).range(0..=p.max(1)).custom_formatter(|v, _| {
@@ -829,11 +831,66 @@ impl State {
             ui.add(egui::Slider::new(&mut self.ml.min_valid, 1.0..=100.0).fixed_decimals(0));
             ui.end_row();
         });
+        self.forest_extra_ui(ui, info);
         ui.weak("Grown on the CPU, a tree a thread; the same forest whatever the threads.");
         if ui.small_button("ranger's defaults").clicked() {
-            self.ml.forest = ForestHyper::default();
+            self.ml.forest = ForestHyper { extra: std::mem::take(&mut self.ml.forest.extra), ..Default::default() };
             self.ml.cfg.validation_split = 0.2;
         }
+    }
+
+    /// The rasters the forest reads beside the series (its further predictors): the maps of runs on this series
+    /// (Texture's, above all) and the single rasters open of its size.
+    fn forest_extra_ui(&mut self, ui: &mut Ui, info: &CubeInfo) {
+        use janus_ml::extra::Extra;
+        let mut open: Vec<Extra> = self
+            .zeit
+            .results
+            .iter()
+            .filter(|r| r.cube == info.id && !r.preview && !r.path.is_empty())
+            .map(|r| Extra { path: r.path.clone(), band: 1, name: r.name.clone() })
+            .collect();
+        for (i, l) in self.layers.iter().enumerate() {
+            if l.canvas {
+                continue;
+            }
+            let Some(s) = self.layer_session(i) else { continue };
+            let o = &s.info;
+            if o.id != info.id
+                && o.t() == 1
+                && (o.width, o.height) == (info.width, info.height)
+                && let Some(first) = o.layers.first()
+            {
+                open.push(Extra { path: first.path.clone(), band: first.band.max(1) as usize, name: l.name.clone() });
+            }
+        }
+        let same = |a: &Extra, b: &Extra| a.path == b.path && a.band == b.band;
+        // chosen before and no longer open: still listed, to be left out
+        let gone: Vec<Extra> =
+            self.ml.forest.extra.iter().filter(|x| !open.iter().any(|o| same(o, x))).cloned().collect();
+        let n = self.ml.forest.extra.len();
+        egui::CollapsingHeader::new(format!("Beside the series ({n})")).id_salt("ml forest extra").show(ui, |ui| {
+            ui.weak(
+                "Rasters on the series' grid read as further predictors, a value each a sample: Tools > Segmentation \
+                 > Texture (GLCM)'s maps of this series, a DEM, a distance map. The model reads them from their \
+                 files when it is applied.",
+            );
+            if open.is_empty() && gone.is_empty() {
+                ui.weak("None open: run Texture (GLCM) on this series, or open a raster of its grid.");
+            }
+            for c in open.iter().chain(&gone) {
+                let mut on = self.ml.forest.extra.iter().any(|x| same(x, c));
+                let missing = gone.iter().any(|g| same(g, c));
+                let text = if missing { format!("{} (not open)", c.name) } else { c.name.clone() };
+                if ui.checkbox(&mut on, text).on_hover_text(format!("{}, band {}", c.path, c.band)).changed() {
+                    if on {
+                        self.ml.forest.extra.push(c.clone());
+                    } else {
+                        self.ml.forest.extra.retain(|x| !same(x, c));
+                    }
+                }
+            }
+        });
     }
 
     /// The pins' classes: the list (their colours), the class a click's pin is given, the pins without one given
@@ -1521,6 +1578,9 @@ pub fn check_fits(h: &Header, info: &CubeInfo) -> Result<(), String> {
     for b in &h.inputs {
         b.find_in(info)?;
     }
+    if let Arch::RandomForest(f) = &h.arch {
+        janus_ml::extra::check(&f.extra, info)?;
+    }
     Ok(())
 }
 
@@ -1533,16 +1593,46 @@ pub fn sample_series(
     classes: &[String],
     min_valid: f64,
 ) -> (janus_ml::Series, Vec<u32>, Norm, Vec<usize>, Vec<usize>) {
+    sample_series_with(info, inputs, sites, classes, min_valid, &[]).expect("no rasters beside the series to read")
+}
+
+/// [`sample_series`] with rasters read beside the series (`extra`, a forest's further predictors): each sample's
+/// series and then their values (a place's mean of them too), as one date of t * b + e values; the samples without
+/// them left out.
+pub fn sample_series_with(
+    info: &Arc<CubeInfo>,
+    inputs: &[InputBand],
+    sites: &[Site],
+    classes: &[String],
+    min_valid: f64,
+    extra: &[janus_ml::extra::Extra],
+) -> Result<(janus_ml::Series, Vec<u32>, Norm, Vec<usize>, Vec<usize>), String> {
     let pixels: Vec<(usize, usize)> = sites.iter().flat_map(|s| s.pixels.iter().copied()).collect();
-    let raw = janus_ml::data::read_points(info, inputs, &pixels);
+    let mut raw = janus_ml::data::read_points(info, inputs, &pixels);
+    let e = extra.len();
+    if e > 0 {
+        // on every date as further values: a place's mean and the pixels without values as the series'
+        let ex = janus_ml::extra::read_points(extra, info, &pixels)?;
+        raw = janus_ml::extra::repeat(&raw, &ex, e);
+    }
     let (mut s, y, place) = assemble(&raw, sites, classes, &Calendar::of(info).years, min_valid);
+    let ex = if e > 0 {
+        let (series, ex) = janus_ml::extra::split(&s, e);
+        s = series;
+        Some(ex)
+    } else {
+        None
+    };
     let mut per_class = vec![0usize; classes.len()];
     for &k in &y {
         per_class[k as usize] += 1;
     }
     let norm = Norm::fit(&s);
     norm.apply(&mut s);
-    (s, y, norm, per_class, place)
+    if let Some(ex) = ex {
+        s = janus_ml::extra::append(&s, &ex, e);
+    }
+    Ok((s, y, norm, per_class, place))
 }
 
 /// The samples from the sites' pixels' raw series (`raw`, the sites' pixels in order): each pixel a sample, or each
@@ -1630,7 +1720,14 @@ fn train_job(
         *h = PrestoHyper { inputs: pi, hidden: vec![], weights: Some(weights) };
         (x, y, Norm::default(), per_class, None)
     } else {
-        let (x, y, norm, per_class, places) = sample_series(info, &inputs, sites, classes, min_valid);
+        let extra = if let Arch::RandomForest(f) = &arch { f.extra.clone() } else { vec![] };
+        if !extra.is_empty() {
+            log.line(&format!(
+                "beside the series: {}",
+                extra.iter().map(|e| e.name.as_str()).collect::<Vec<_>>().join(", ")
+            ));
+        }
+        let (x, y, norm, per_class, places) = sample_series_with(info, &inputs, sites, classes, min_valid, &extra)?;
         (x, y, norm, per_class, Some(places))
     };
     let arch = &arch;
@@ -1645,7 +1742,7 @@ fn train_job(
     }
     if left > 0 && (x.n < 10 || per_class.iter().filter(|&&n| n > 0).count() < 2) {
         return Err(format!(
-            "{left} of {} samples left out: they have a value on fewer than {min_valid:.0} % of the dates (clouds,              the quality band); lower 'Min dates with a value (%)'",
+            "{left} of {} samples left out: they have a value on fewer than {min_valid:.0} % of the dates (clouds, the quality band); lower 'Min dates with a value (%)'",
             left + x.n
         ));
     }
@@ -1818,7 +1915,11 @@ fn importance_ui(ui: &mut Ui, h: &Header) {
     let Some(imp) = h.training["importance"].as_array() else { return };
     let imp: Vec<f64> = imp.iter().map(|v| v.as_f64().unwrap_or(0.0)).collect();
     let (t, b) = (h.calendar.len(), h.inputs.len().max(1));
-    if imp.len() != t * b || t == 0 {
+    let extra: Vec<&str> = match &h.arch {
+        Arch::RandomForest(f) => f.extra.iter().map(|e| e.name.as_str()).collect(),
+        _ => vec![],
+    };
+    if imp.len() != t * b + extra.len() || t == 0 {
         return;
     }
     let by_date: Vec<f64> = (0..t).map(|i| imp[i * b..(i + 1) * b].iter().sum()).collect();
@@ -1856,6 +1957,11 @@ fn importance_ui(ui: &mut Ui, h: &Header) {
             })
             .collect();
         ui.weak(format!("By value: {}", by_value.join(", ")));
+    }
+    if !extra.is_empty() {
+        let of: Vec<String> =
+            extra.iter().enumerate().map(|(j, n)| format!("{n} {:.0} %", imp[t * b + j] * 100.0)).collect();
+        ui.weak(format!("Beside the series: {}", of.join(", ")));
     }
 }
 

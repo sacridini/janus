@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Field delineation · Janus</title>
+<meta name="description" content="A step-by-step guide to field delineation in Janus: a year of Sentinel-2 over Sorriso, Mato Grosso, as 430 field parcels from WRI's Trazo network, its accuracy against the published one, and a model fine-tuned on fields you draw.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Field delineation · Janus">
+<meta property="og:description" content="A year of Sentinel-2 over Sorriso cut into 430 field parcels in three seconds on the GPU.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/fields/03-parcels.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#tools">Change detection</a></li>
+        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./#cli">Command line</a></li>
+        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Field delineation</p>
+    <p class="eyebrow">Objects · Sentinel-2, a season</p>
+    <h1>Field delineation, step by step.</h1>
+    <p class="lede">A crop map tells what grows; a parcel map tells where each field begins and ends. Janus runs the networks that WRI and Fields of The World trained to draw field boundaries on Sentinel-2, on the GPU and without Python, and turns their maps into parcels you can count, measure and classify. When their fields are not your fields, draw some and fine-tune them.</p>
+  </div>
+</section>
+
+<div class="wrap guide">
+
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#data">The example</a></li>
+      <li><a href="#params">The parameters</a></li>
+      <li><a href="#run">Running it</a></li>
+      <li><a href="#classes">The class map</a></li>
+      <li><a href="#parcels">The parcels</a></li>
+      <li><a href="#accuracy">How accurate</a></li>
+      <li><a href="#train">Training on your fields</a></li>
+      <li><a href="#next">What next</a></li>
+      <li><a href="#refs">References</a></li>
+    </ol>
+  </nav>
+
+  <article class="article">
+
+    <section id="idea">
+      <h2><span class="n">01</span>The idea</h2>
+      <p>A field is easiest to see twice: when it is planted and when it is harvested, its neighbours rarely on the same day. <a href="https://fieldsofthe.world/">Fields of The World</a> (FTW, Kerner et al. 2025) trained a U-Net to label every pixel of two Sentinel-2 images of a season, window <strong>A</strong> about the green-up and <strong>B</strong> about the harvest, as <strong>background</strong>, <strong>field interior</strong> or <strong>field boundary</strong>. WRI's <strong>Trazo</strong> (Grupp et al. 2026) trained the same network further on South America, Mato Grosso above all.</p>
+      <p>Janus finds the season in your series, makes a median composite of each window, runs the network in tiles that overlap and are cut back to their middles, and keeps the three probabilities. The parcels come from them: each field's sure interior seeds a parcel that floods outwards over the boundary's probability (a watershed), so neighbouring fields touch along their shared boundary instead of being left apart by it.</p>
+    </section>
+
+    <section id="data">
+      <h2><span class="n">02</span>The example</h2>
+      <p>A year of Sentinel-2 over Sorriso, Mato Grosso, the largest soy county of Brazil: 47 dates from August 2023 to July 2024, 10 m, 1091 × 1111 pixels, the four bands the networks read (blue, green, red, NIR) as the L2A digital numbers. The map shows the NDVI of three dates as red, green and blue: August 2023, February 2024 and July 2024, so a field's colour is its season. Fields of soy and second-crop maize, centre pivots and the gallery forests along the streams.</p>
+    </section>
+
+    <section id="params">
+      <h2><span class="n">03</span>The parameters</h2>
+      <p><span class="ui">Tools → Classification → Field delineation (parcels)...</span>, with a Sentinel-2 series active.</p>
+      <figure class="fig">
+        <a href="assets/img/fields/01-tool.jpg"><img src="assets/img/fields/01-tool.jpg" alt="The Field delineation window over the series: Trazo3 chosen as the model, the whole image as the area, the season found in the series, watershed parcels seeded at 50 %." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The tool's window</b>: the model and what it was trained on, the area, the season, how the parcels are made.</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Model</td><td class="num">Trazo3</td><td>Trazo3 (South America, best in Mato Grosso), Trazo SA (the soy ecoregions, the most precise), Trazo2, Trazo1, FTW B3 (the world), or a <code>.janusfields</code> file trained in Janus (<span class="ui">Open...</span>). Each is downloaded once and kept.</td></tr>
+            <tr><td>Area</td><td class="num">visible area</td><td>What is on screen, the ROI or the whole image.</td></tr>
+            <tr><td>Season</td><td class="num">found</td><td>Found in the series: the region's NDVI date by date, window A about its green-up and B about its fall. Or two windows chosen by date.</td></tr>
+            <tr><td>Windows</td><td class="num">± 21 days</td><td>A found window's dates: this many days either side of the season's start and end. <span class="ui">Find the season</span> shows them over the NDVI before running.</td></tr>
+            <tr><td>Parcels</td><td class="num">watershed</td><td>Watershed: interiors flooded over the boundary, neighbours touching. Interiors (FTW): each set of connected interior pixels a parcel, as <code>ftw-tools polygonize</code> does.</td></tr>
+            <tr><td>Seeds</td><td class="num">50 %</td><td>How sure an interior pixel must be (its four neighbours interior too) to seed a parcel. Higher: fewer seeds, fields less often split.</td></tr>
+            <tr><td>Minimum area</td><td class="num">0.05 ha</td><td>Smaller parcels merged into a neighbour, or left out without one (ftw-tools: 500 m²).</td></tr>
+            <tr><td>Simplify</td><td class="num">15 m</td><td>The outlines simplified to this tolerance (ftw-tools: 15 m).</td></tr>
+            <tr><td>Tiles</td><td class="num">256 px</td><td>The network's tile; the GPU, or the CPU when unticked.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The networks expect a cropping season: two windows a few months apart with the fields bare in one and green in the other. With a series of another kind (one date, a forest, a year of clouds) choose the windows yourself, or the class map will be poor.</p>
+    </section>
+
+    <section id="run">
+      <h2><span class="n">04</span>Running it</h2>
+      <p><span class="ui">Run</span> on the whole image. The first run of a model downloads its weights (Trazo3: 204 MB) and takes about two minutes; after that the 1.2 million pixels take about three seconds on the GPU. A run makes the <strong>class map</strong>, the <strong>interior</strong> and <strong>boundary</strong> probabilities (hidden layers), and the <strong>parcels</strong>, as a raster of their numbers and as polygons in a GeoPackage, opened as a vector layer.</p>
+    </section>
+
+    <section id="classes">
+      <h2><span class="n">05</span>The class map</h2>
+      <figure class="fig">
+        <a href="assets/img/fields/02-classes.jpg"><img src="assets/img/fields/02-classes.jpg" alt="The class map of the whole image: field interiors green, boundaries brown, background white, the parcels drawn over it; the histogram: 74.7 % interior, 13.9 % boundary, 11.4 % background." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The class map</b>: 74.7 % interior, 13.9 % boundary, 11.4 % background (the streams' forests, roads, the town).</figcaption>
+      </figure>
+      <p>The boundaries are thin and continuous between fields of different crops or dates; between two fields of the same crop sown on the same day they are faint or broken, the network's main source of merged parcels. The boundary's probability (a hidden layer) shows where it hesitated.</p>
+    </section>
+
+    <section id="parcels">
+      <h2><span class="n">06</span>The parcels</h2>
+      <figure class="fig">
+        <a href="assets/img/fields/03-parcels.jpg"><img src="assets/img/fields/03-parcels.jpg" alt="Zoomed on the fields east of a stream: the parcels' outlines over the NDVI of three dates follow each field; the chart shows the NDVI of a pin in a field through the season." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The parcels</b> over the NDVI of three dates: an outline a field.</figcaption>
+      </figure>
+      <p>430 parcels cover 10 752 ha here: 25 ha on average, the largest 483 ha. Each polygon has its <code>area_ha</code>, <code>perimeter_m</code>, <code>pixels</code> and <code>mean_interior</code> (the network's mean certainty in it), so the GeoPackage opens in QGIS as it is. In Janus, <kbd>Alt</kbd> + hover shows a parcel's attributes, <kbd>Alt</kbd> + click makes it the ROI, and the chart then gives its mean series.</p>
+    </section>
+
+    <section id="accuracy">
+      <h2><span class="n">07</span>How accurate</h2>
+      <p>The networks were ported to Rust (Burn) from their published weights. On the test chips of the Trazo dataset, scored as <code>ftw model test</code> scores them (pixels of the field interior; a field found when it overlaps its true one with an IoU above 0.5), Trazo3 in Janus gives what WRI published:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Test set</th><th>Pixel IoU</th><th>Precision</th><th>Recall</th><th>Object precision</th><th>Object recall</th></tr></thead>
+          <tbody>
+            <tr><td>Mato Grosso, Janus</td><td class="num">79.09</td><td class="num">86.81</td><td class="num">89.89</td><td class="num">26.53</td><td class="num">24.78</td></tr>
+            <tr><td>Mato Grosso, published</td><td class="num">79.17</td><td class="num">86.43</td><td class="num">90.41</td><td class="num">26.90</td><td class="num">24.75</td></tr>
+            <tr><td>Soy, Janus</td><td class="num">75.34</td><td class="num">88.25</td><td class="num">83.74</td><td class="num">30.77</td><td class="num">34.76</td></tr>
+            <tr><td>Soy, published</td><td class="num">74.96</td><td class="num">87.55</td><td class="num">83.90</td><td class="num">30.82</td><td class="num">34.59</td></tr>
+            <tr><td>Chiquitania, Janus</td><td class="num">68.05</td><td class="num">80.86</td><td class="num">81.12</td><td class="num">28.00</td><td class="num">35.65</td></tr>
+            <tr><td>Chiquitania, published</td><td class="num">68.77</td><td class="num">81.68</td><td class="num">81.31</td><td class="num">28.00</td><td class="num">35.73</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The pixels are right four times in five; whole fields much less often, because one missing stretch of boundary merges two fields and fails both. The watershed recovers many of them: scored against the true fields, its parcels find 36 % of Mato Grosso's, 49 % of the soy set's and 44 % of Chiquitania's, against 25 %, 35 % and 36 % for the class map's own fields (the table's object recall), at a precision a few points lower (20, 25 and 23 %). These scores ask much (an IoU above 0.5 with each true field); for areas and counts over a region the parcels do far better than for any single field.</p>
+    </section>
+
+    <section id="train">
+      <h2><span class="n">08</span>Training on your fields</h2>
+      <p>Where the networks' fields are not yours (pastures, smallholdings, another country's way of farming) teach them. Draw, or open, the fields of a small area as polygons, <kbd>Shift</kbd> + drag an ROI around that area, and in <span class="ui">Train on your fields</span> choose the vector layer, the epochs and a name.</p>
+      <p>The ROI says where you know every field: inside it, pixels in no polygon are background and the polygons' edges are boundary; outside it nothing is assumed. Janus cuts the ROI into chips with the series' windows, fine-tunes the chosen model on them (its batch normalisation frozen, so a few chips do not upset it) and saves a <code>.janusfields</code> file in Janus's <code>field_models</code> folder, chosen as the model at once.</p>
+      <figure class="fig">
+        <a href="assets/img/fields/04-train.jpg"><img src="assets/img/fields/04-train.jpg" alt="The Field delineation window with my_fields (trained) chosen as the model, Trazo3 fine-tuned on 213 fields; the ROI drawn over the fields in the north-west of the image; the Tasks window above it." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>A model of your own</b>: Trazo3 fine-tuned on the 213 parcels of the ROI (yellow).</figcaption>
+      </figure>
+      <p>Here 213 fields gave 9 chips and two epochs took 19 seconds on the GPU; the model file is 50 MB. Train the more epochs the more fields you have, and check the result on an area you did not train on. On the Trazo dataset, Trazo3 fine-tuned on 250 chips of Mato Grosso lost some of its pixel IoU there (79.1 → 75.8) but found more whole fields (object recall 24.8 → 30.2, watershed 36 → 44 %): it learnt to draw more boundaries. A few dozen fields of your region teach the same.</p>
+    </section>
+
+    <section id="next">
+      <h2><span class="n">09</span>What next</h2>
+      <ul>
+        <li><strong>Classify by parcel</strong>: the parcels as samples or as objects in <span class="ui">Tools → Classification</span>, one class a field instead of a pixel.</li>
+        <li><strong>Each field's series</strong>: <span class="ui">Extract series</span> on the parcels, or <a href="maps-to-numbers.html">zonal statistics</a> of any index through time.</li>
+        <li><strong>Objects of any land</strong>: where there are no fields, <a href="snic.html">SNIC</a> cuts the image into segments of alike series.</li>
+        <li><strong>Score and train in bulk</strong>: the <code>fields_eval</code> and <code>fields_train</code> examples of <code>janus-ml</code> score a model on labelled chips and train one on many.</li>
+      </ul>
+    </section>
+
+    <section id="refs">
+      <h2><span class="n">10</span>References</h2>
+      <ul class="refs">
+        <li>Kerner, H., et al. (2025). Fields of The World: a machine learning benchmark dataset for global agricultural field boundary segmentation. <em>Proceedings of the AAAI Conference on Artificial Intelligence</em>, 39. (<a href="https://github.com/fieldsoftheworld/ftw-baselines">ftw-baselines</a>, CC-BY-4.0 weights)</li>
+        <li>Grupp, D., et al. (2026). <em>Field Boundaries of South America</em>. WRI Technical Note. doi:10.46830/writn.25.00033. (CC-BY-4.0 weights)</li>
+        <li>Ronneberger, O., Fischer, P., Brox, T. (2015). U-Net: convolutional networks for biomedical image segmentation. <em>MICCAI</em>, 234–241.</li>
+        <li>Tan, M., Le, Q. (2019). EfficientNet: rethinking model scaling for convolutional neural networks. <em>ICML</em>, 6105–6114.</li>
+        <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus.</li>
+      </ul>
+    </section>
+
+  </article>
+</div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>

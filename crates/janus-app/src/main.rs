@@ -49,6 +49,7 @@ mod palette;
 mod panels;
 mod phase;
 mod platform;
+mod fields_ui;
 mod polygonize_ui;
 mod project;
 mod provenance;
@@ -197,7 +198,10 @@ Developer options:
   --window NAME,...   tool windows open once the layers are: regularize, speckle, warp, build, save,
                       polygonize (the active series), rasterize, zonal (the first vector layer), areas
                       (Analysis > Areas), classification (a Random Forest on the pins, their samples
-                      checked), classification-twdtw (TWDTW on the pins, estimated); NAME-run also runs it, the screenshot waiting for its result
+                      checked), classification-forest (its settings, the maps of the series' runs beside it, a
+                      --zeit-run's waited for), classification-twdtw (TWDTW on the pins, estimated), fields (Field delineation on the
+                      whole image), fields-train (the model fine-tuned 2 epochs on the first vector layer's polygons in
+                      the ROI); NAME-run also runs it, the screenshot waiting for its result
   --validation-tab N  a validation project (a .gpkg input) on tab N of its panel (0 Design, 1 Accuracy,
                       2 Maps, 3 Interpreters, 4 Report)
   --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation

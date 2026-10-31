@@ -7,7 +7,11 @@ pub mod aoa;
 pub mod apply;
 pub mod data;
 pub mod dense;
+pub mod extra;
 pub mod fetch;
+pub mod fieldnet;
+pub mod fields;
+pub mod fields_train;
 pub mod forest;
 pub mod ltae;
 pub mod model;
@@ -20,3 +24,5 @@ pub mod utae;
 pub use data::{Calendar, InputBand, Norm, Series};
 pub use model::{Arch, Class, Header, Model, Net};
 pub use train::{Epoch, TrainConfig, Trained};
+/// The device networks run on (re-exported for the app's closures).
+pub use burn::prelude::Device;

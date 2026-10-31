@@ -564,6 +564,8 @@ pub struct State {
     /// Tools > Regularize series
     pub reg: crate::regularize_ui::RegUi,
     pub poly: crate::polygonize_ui::PolyUi,
+    /// Tools > Classification > Field delineation
+    pub fields: crate::fields_ui::FieldsUi,
     pub areas: crate::areas_ui::AreaUi,
     pub warp: crate::warp_ui::WarpUi,
     pub raster: crate::rasterize_ui::RasterizeUi,
@@ -953,6 +955,7 @@ impl JanusApp {
                 calc: Default::default(),
                 reg: Default::default(),
                 poly: Default::default(),
+                fields: Default::default(),
                 areas: Default::default(),
                 warp: Default::default(),
                 raster: Default::default(),
@@ -1197,6 +1200,7 @@ impl State {
         if self.session.as_ref().is_some_and(|s| s.info.file_categorical) && self.classes.list.is_empty() {
             return;
         }
+        let mut later = Vec::new();
         for w in self.windows_pending.take().unwrap_or_default() {
             let (name, run) = match w.strip_suffix("-run") {
                 Some(n) => (n, true),
@@ -1233,6 +1237,24 @@ impl State {
                         (true, 3, crate::methods::Kind::Twdtw, 1);
                 }
                 "save" => self.save.show = true,
+                "fields" => {
+                    // the whole image (a small test series), the season found in it
+                    (self.fields.show, self.fields.scope) = (true, 0);
+                    if run {
+                        let _ = self.fields_run(ctx);
+                    }
+                }
+                "fields-train" => {
+                    // the model fine-tuned on the first vector layer's polygons inside the ROI (2 epochs: a test)
+                    self.fields.show = true;
+                    if let Some(v) = vector {
+                        self.fields.train_vector = v;
+                    }
+                    if run {
+                        self.fields.train_epochs = 2;
+                        let _ = self.fields_train_run(ctx);
+                    }
+                }
                 "polygonize" => {
                     self.open_polygonize(crate::contents::Sel::Series(id));
                     if run {
@@ -1258,10 +1280,35 @@ impl State {
                         self.areas_run(ctx);
                     }
                 }
+                "classification-forest" => {
+                    // the Random Forest on the pins, the maps of runs on the series (a --zeit-run's: waited for)
+                    // beside it as further predictors
+                    let extra: Vec<janus_ml::extra::Extra> = self
+                        .zeit
+                        .results
+                        .iter()
+                        .filter(|r| r.cube == id && !r.preview && !r.path.is_empty())
+                        .map(|r| janus_ml::extra::Extra { path: r.path.clone(), band: 1, name: r.name.clone() })
+                        .collect();
+                    let running = self
+                        .zeit
+                        .jobs
+                        .iter()
+                        .any(|j| j.status.lock().unwrap().state == crate::zeit::JobState::Running);
+                    if running || extra.is_empty() && self.opts.zeit_run {
+                        later.push(w.clone());
+                        continue;
+                    }
+                    (self.ml.open, self.ml.source, self.ml.arch, self.ml.tab) = (true, 3, crate::ml::FOREST, 1);
+                    self.ml.forest = janus_ml::forest::ForestHyper { trees: 60, extra, ..Default::default() };
+                    if run {
+                        self.ml_train_now(ctx);
+                    }
+                }
                 other => eprintln!("--window: no window {other} (or no vector layer for it)"),
             }
         }
-        self.windows_pending = Some(Vec::new());
+        self.windows_pending = Some(later);
     }
 
     /// --window's windows open, their runs done and what they made opened.
@@ -1271,6 +1318,9 @@ impl State {
                 && self.zeit.jobs.iter().all(|j| j.status.lock().unwrap().state != crate::zeit::JobState::Running)
                 && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some())
                 && !self.polygonize_pending()
+                && !self.fields_pending()
+                && !self.fields_training()
+                && !self.ml.training()
                 && self.opening.is_none()
                 && self.vector_loads.is_empty()
     }
@@ -2595,6 +2645,7 @@ impl eframe::App for JanusApp {
         self.state.regularize_window(&ctx);
         self.state.speckle_window(&ctx);
         self.state.polygonize_window(&ctx);
+        self.state.fields_window(&ctx);
         self.state.pump_areas();
         self.state.warp_window(&ctx);
         self.state.rasterize_window(&ctx);

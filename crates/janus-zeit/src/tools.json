@@ -2348,6 +2348,173 @@
    "chunk_cells": 2000000
   },
   {
+   "id": "texture",
+   "name": "Texture (GLCM)",
+   "category": "Segmentation",
+   "description": "The texture of the series in a moving window, as zeit.texture: the grey-level co-occurrence matrix's properties (Haralick et al. 1973, as scikit-image's graycomatrix and graycoprops give them, averaged over four directions) and three window statistics of spfeas (the mean, the standard deviation and the mean Sobel gradient), of a temporal summary of the shown series (its median, maximum, amplitude...). Fields, pastures, orchards, plantations and forests differ in texture where their spectra are alike: the maps are inputs for a classifier, and show the grain of a landscape. A raster run writes one map per feature. The windows need their neighbours: raster runs only.",
+   "requires": {
+    "time": "any",
+    "min_dates": 1
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "summary",
+     "label": "Summary of the dates",
+     "type": "enum",
+     "default": "median",
+     "options": [
+      "median",
+      "mean",
+      "min",
+      "max",
+      "std",
+      "amplitude"
+     ],
+     "labels": [
+      "Median",
+      "Mean",
+      "Minimum",
+      "Maximum",
+      "Standard deviation",
+      "Amplitude (95th - 5th percentile)"
+     ],
+     "help": "The image whose texture is measured: each pixel's summary of the shown series over the dates (with a single date, that date)."
+    },
+    {
+     "id": "window",
+     "label": "Window",
+     "type": "int",
+     "default": 7,
+     "min": 3,
+     "max": 51,
+     "unit": "px",
+     "help": "The window's side in pixels (odd; an even one is made odd): the scale of the texture. 5-9 for fields at 10 m."
+    },
+    {
+     "id": "levels",
+     "label": "Grey levels",
+     "type": "int",
+     "default": 32,
+     "min": 2,
+     "max": 254,
+     "help": "The values are quantized to this many levels between their 2nd and 98th percentiles before the co-occurrences are counted (scikit-image's levels). Fewer: smoother, faster."
+    },
+    {
+     "id": "distance",
+     "label": "Pair distance",
+     "type": "int",
+     "default": 1,
+     "min": 1,
+     "max": 10,
+     "unit": "px",
+     "help": "How far apart the pixels of a pair are (in each of the four directions)."
+    },
+    {
+     "id": "glcm",
+     "label": "GLCM properties",
+     "type": "bool",
+     "default": true,
+     "help": "Contrast, dissimilarity, homogeneity, angular second moment, energy, correlation, entropy, and the GLCM's mean and variance."
+    },
+    {
+     "id": "stats",
+     "label": "Window statistics",
+     "type": "bool",
+     "default": true,
+     "help": "The window's mean, standard deviation and mean gradient magnitude (spfeas's simplest features)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "contrast",
+     "name": "Contrast",
+     "colormap": "Inferno",
+     "unit": "",
+     "when": "glcm"
+    },
+    {
+     "id": "dissimilarity",
+     "name": "Dissimilarity",
+     "colormap": "Inferno",
+     "unit": "",
+     "when": "glcm"
+    },
+    {
+     "id": "homogeneity",
+     "name": "Homogeneity",
+     "colormap": "Viridis",
+     "unit": "",
+     "when": "glcm"
+    },
+    {
+     "id": "asm",
+     "name": "Angular second moment",
+     "colormap": "Viridis",
+     "unit": "",
+     "when": "glcm"
+    },
+    {
+     "id": "energy",
+     "name": "Energy",
+     "colormap": "Viridis",
+     "unit": "",
+     "when": "glcm"
+    },
+    {
+     "id": "correlation",
+     "name": "Correlation",
+     "colormap": "RdBu",
+     "unit": "",
+     "when": "glcm"
+    },
+    {
+     "id": "entropy",
+     "name": "Entropy",
+     "colormap": "Magma",
+     "unit": "",
+     "when": "glcm"
+    },
+    {
+     "id": "glcm_mean",
+     "name": "GLCM mean",
+     "colormap": "Greys",
+     "unit": "",
+     "when": "glcm"
+    },
+    {
+     "id": "glcm_variance",
+     "name": "GLCM variance",
+     "colormap": "Inferno",
+     "unit": "",
+     "when": "glcm"
+    },
+    {
+     "id": "mean",
+     "name": "Window mean",
+     "colormap": "Greys",
+     "unit": "",
+     "when": "stats"
+    },
+    {
+     "id": "std",
+     "name": "Window standard deviation",
+     "colormap": "Inferno",
+     "unit": "",
+     "when": "stats"
+    },
+    {
+     "id": "gradient",
+     "name": "Gradient (Sobel) magnitude",
+     "colormap": "Magma",
+     "unit": "",
+     "when": "stats"
+    }
+   ]
+  },
+  {
    "id": "ar_trend",
    "name": "AR(1) trend (remotePARTS)",
    "category": "Trend",
