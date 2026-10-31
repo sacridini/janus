@@ -263,6 +263,9 @@ pub struct Project {
     pub active: Option<usize>,
     /// in the active layer's pixels
     pub pins: Vec<[usize; 2]>,
+    /// each pin's class ("" none) for the classifiers, and the classes in their order
+    pub pin_classes: Vec<String>,
+    pub pin_class_list: Vec<String>,
     pub roi: Option<[usize; 4]>,
     pub roi_polygon: Vec<Vec<f64>>,
     pub transect: Vec<[f64; 2]>,
@@ -484,6 +487,9 @@ impl State {
             .collect();
         p.active = idx.iter().position(|&i| i == self.active);
         p.pins = self.series.pins.iter().map(|q| [q.x, q.y]).collect();
+        p.pin_classes =
+            self.series.pins.iter().map(|q| self.ml.pin_classes.get(&q.id).cloned().unwrap_or_default()).collect();
+        p.pin_class_list = self.ml.pin_class_list.clone();
         p.roi = self.series.roi_rect;
         p.roi_polygon = self.series.roi_poly.clone();
         if self.transect.on {
@@ -990,9 +996,7 @@ impl State {
         if let Some(v) = crate::navigation::SavedView::from_text(&p.view) {
             let _ = self.restore_view(&v);
         }
-        for &[x, y] in &p.pins {
-            self.add_pin(x, y);
-        }
+        self.restore_pins(&p.pins, &p.pin_classes, &p.pin_class_list);
         if let Some([x0, y0, x1, y1]) = p.roi {
             self.set_roi_shape([x0 as i64, y0 as i64, x1 as i64, y1 as i64], p.roi_polygon.clone());
         }

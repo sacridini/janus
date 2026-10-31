@@ -74,7 +74,7 @@ impl Tab {
             Tab::Tool(i) => janus_zeit::manifest().tools.get(i as usize).map_or("Tool", |t| t.name.as_str()),
             Tab::Tasks => "Tasks",
             Tab::Chips => "Chips",
-            Tab::DeepLearning => "Deep learning",
+            Tab::DeepLearning => "Classification",
         }
     }
 }

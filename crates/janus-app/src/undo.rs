@@ -212,7 +212,7 @@ fn describe(a: &Snap, b: &Snap) -> String {
     if a.p.groups != b.p.groups {
         return "Groups".into();
     }
-    if a.p.pins != b.p.pins {
+    if a.p.pins != b.p.pins || a.p.pin_classes != b.p.pin_classes || a.p.pin_class_list != b.p.pin_class_list {
         return "Pins".into();
     }
     if a.p.roi != b.p.roi || a.p.roi_polygon != b.p.roi_polygon {
@@ -609,11 +609,10 @@ impl State {
             self.set_active(i, ctx);
         }
         let cur = self.undo_snap();
-        if cur.p.pins != t.p.pins {
+        if cur.p.pins != t.p.pins || cur.p.pin_classes != t.p.pin_classes || cur.p.pin_class_list != t.p.pin_class_list
+        {
             self.clear_pins();
-            for &[x, y] in &t.p.pins {
-                self.add_pin(x, y);
-            }
+            self.restore_pins(&t.p.pins, &t.p.pin_classes, &t.p.pin_class_list);
         }
         if cur.p.roi != t.p.roi || cur.p.roi_polygon != t.p.roi_polygon {
             match t.p.roi {

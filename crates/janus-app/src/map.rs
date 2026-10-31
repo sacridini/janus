@@ -374,7 +374,7 @@ impl State {
             && !poly_on
             && let Some((x, y)) = inside
         {
-            self.add_pin(x, y);
+            self.drop_pin(x, y);
         }
         if resp.secondary_clicked()
             && let Some(p) = resp.interact_pointer_pos()

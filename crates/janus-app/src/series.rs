@@ -223,6 +223,8 @@ impl State {
         let Some(s) = self.session.as_ref().filter(|s| x < s.info.width && y < s.info.height) else { return };
         // the smallest number free: pin 1 deleted, the next one is pin 1 again
         let id = (1..).find(|&i| self.series.pins.iter().all(|p| p.id != i)).unwrap_or(1);
+        // a number again free: not the class of the pin it was
+        self.ml.pin_classes.remove(&id);
         let p = view(s, id, x, y, pin_color(id));
         if s.s.defer_random_reads() {
             self.series.pins_pending = true;
@@ -233,7 +235,67 @@ impl State {
         self.series.pins.push(p);
     }
 
+    /// A pin dropped by a click: of the class new pins are given (Classification > Pins), if one.
+    pub fn drop_pin(&mut self, x: usize, y: usize) {
+        let before = self.series.pins.len();
+        self.add_pin(x, y);
+        let class = self.ml.drop_class.trim().to_string();
+        if self.series.pins.len() > before
+            && !class.is_empty()
+            && let Some(id) = self.series.pins.last().map(|p| p.id)
+        {
+            self.set_pin_class(id, &class);
+        }
+    }
+
+    /// Pin `id` given a class ("": none), coloured by it when the pins are.
+    pub fn set_pin_class(&mut self, id: u32, class: &str) {
+        let class = class.trim();
+        if class.is_empty() {
+            self.ml.pin_classes.remove(&id);
+        } else {
+            if !self.ml.pin_class_list.iter().any(|c| c == class) {
+                self.ml.pin_class_list.push(class.to_string());
+            }
+            self.ml.pin_classes.insert(id, class.to_string());
+        }
+        self.color_pins();
+    }
+
+    /// Each pin's colour: its class's (as the class map will show it) when the pins are coloured by class, else its
+    /// own.
+    pub fn color_pins(&mut self) {
+        let ml = &self.ml;
+        let color = |id: u32| match ml.pin_classes.get(&id) {
+            Some(c) if ml.pins_by_class => ml.pin_class_list.iter().position(|k| k == c).map_or(pin_color(id), |k| {
+                let [r, g, b] = crate::ml::class_color(k);
+                Color32::from_rgb(r, g, b)
+            }),
+            _ => pin_color(id),
+        };
+        for p in self.series.pins.iter_mut().chain(self.layers.iter_mut().flat_map(|l| l.series.pins.iter_mut())) {
+            p.color = color(p.id);
+        }
+    }
+
+    /// Pins put back (a project, an undo) with their classes.
+    pub fn restore_pins(&mut self, pins: &[[usize; 2]], classes: &[String], class_list: &[String]) {
+        self.ml.pin_class_list = class_list.to_vec();
+        for (i, &[x, y]) in pins.iter().enumerate() {
+            let before = self.series.pins.len();
+            self.add_pin(x, y);
+            if self.series.pins.len() > before
+                && let (Some(id), Some(c)) = (self.series.pins.last().map(|p| p.id), classes.get(i))
+                && !c.is_empty()
+            {
+                self.ml.pin_classes.insert(id, c.clone());
+            }
+        }
+        self.color_pins();
+    }
+
     pub fn remove_pin(&mut self, id: u32) {
+        self.ml.pin_classes.remove(&id);
         self.series.pins.retain(|p| p.id != id);
         for l in &mut self.layers {
             l.series.pins.retain(|p| p.id != id);
@@ -241,6 +303,7 @@ impl State {
     }
 
     pub fn clear_pins(&mut self) {
+        self.ml.pin_classes.clear();
         self.series.pins.clear();
         for l in &mut self.layers {
             l.series.pins.clear();

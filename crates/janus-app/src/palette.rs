@@ -276,7 +276,13 @@ impl State {
         add(Cmd::Warp, "Tools", "Reproject, resample, clip...", "", None);
         add(Cmd::BuildSeries, "File", "Build series...", "", None);
         add(Cmd::SaveSeries, "File", "Save series as...", "", need(self.session.is_some(), "no series open"));
-        add(Cmd::DeepLearning, "Tools > Classification", "Deep learning (TempCNN, L-TAE, Presto, U-TAE)...", "", None);
+        add(
+            Cmd::DeepLearning,
+            "Tools > Classification",
+            "Classification (Random Forest, TempCNN, L-TAE, Presto, U-TAE)...",
+            "",
+            None,
+        );
         add(Cmd::Tasks, "Tools", "Tasks", "", None);
         add(Cmd::Log, "Tools", "Log", "", need(!self.zeit.jobs.is_empty(), "no task has run yet"));
         // Validation

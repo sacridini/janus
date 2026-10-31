@@ -105,7 +105,7 @@ fn growing_window(
             let name = titles
                 .iter()
                 .map(|t| (egui::Id::new(*t), *t))
-                .chain([(egui::Id::new("ml window"), "Deep learning")])
+                .chain([(egui::Id::new("ml window"), "Classification")])
                 .chain([(egui::Id::new("calculator window"), "Raster calculator")])
                 .chain(tools)
                 .find(|(i, _)| *i == id)
@@ -1775,10 +1775,9 @@ impl State {
                 // the middle of the notch's two edges (yellow), and the notch itself (the map's colours)
                 let ppp = ctx.pixels_per_point();
                 let grid = self.grid()?;
-                let rect = egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(self.map.canvas[0].floor(), self.map.canvas[1].floor()),
-                );
+                // the map as it was exported: the PNG's size (the canvas may have changed since, a bar shown or
+                // gone moving the centre)
+                let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w as f32 / ppp, h as f32 / ppp));
                 let yellow = |x: f64, y: f64| {
                     let p = self.map.screen_of(rect, x / grid.fx, y / grid.fy);
                     let (px, py) = (((p.x * ppp) as usize).min(w - 1), ((p.y * ppp) as usize).min(h - 1));

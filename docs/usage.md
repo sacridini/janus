@@ -590,14 +590,16 @@ the cursor; a raster run reads the series in bands of rows (from the
 full-resolution cache when it has the dates) and computes them on every
 processing thread. Nothing starts at startup and no Python runs.
 
-## Deep learning (TempCNN, L-TAE, Presto, U-TAE)
+## Classification (Random Forest, TempCNN, L-TAE, Presto, U-TAE)
 
-**Tools > Classification > Deep learning** trains a neural network on samples you
+**Tools > Classification > Classification** trains a model on samples you
 already have in Janus and classifies every pixel by its whole series, without
-Python: **TempCNN** (Pelletier et al. 2019: convolutions over time) or
-**L-TAE** (Garnot & Landrieu 2020: attention over the dates), both as sits builds
-them (`sits_tempcnn`, `sits_lighttae`) and with sits' defaults, trained and
-applied on the GPU (the same wgpu as the map; the CPU without one).
+Python: a **Random Forest** (Breiman 2001; the first in the list: quick, on the
+CPU, good with few samples), **TempCNN** (Pelletier et al. 2019: convolutions
+over time) or **L-TAE** (Garnot & Landrieu 2020: attention over the dates), the
+networks as sits builds them (`sits_tempcnn`, `sits_lighttae`) and with sits'
+defaults, trained and applied on the GPU (the same wgpu as the map; the CPU
+without one).
 
 - **Samples** from the *interpretation's labels*, a *validation project's*
   references (the adjudicated label, else the interpreters' when they agree),
@@ -605,6 +607,13 @@ applied on the GPU (the same wgpu as the map; the CPU without one).
   pixel inside up to a number, or the mean of their pixels; SNIC's segments
   are such polygons), or *pins* given a class in the window. The classes keep
   the label set's order.
+- **Pins by class** (source *Pins*): a list of classes (type a name, *Add*;
+  its count of pins; *x* removes it), the class **new pins** get (a click on
+  the map drops a pin of it: drop a class's pins one after the other), the
+  pins **grouped by class** (a fold each, *No class* last, its pins given one
+  at once with *All of them*), each pin moved to another class by its menu;
+  *Coloured by class* gives each pin its class's colour, the one the class map
+  will show. The project and undo keep each pin's class.
 - **Values read on each date**: the series shown (the band or normalized
   difference, the quality band applied) and, with several bands per date, any
   of the source bands (screened by the quality band too). Gaps are filled
@@ -620,6 +629,29 @@ applied on the GPU (the same wgpu as the map; the CPU without one).
   classifies everything alike). The window draws the loss and accuracy curves
   and, at the end, the validation samples' confusion matrix with the user's and
   producer's accuracies.
+- **Random Forest**: *Trees* (500), the *values tried at each split* (auto:
+  the square root of their number, a date's values each a value), the
+  *samples in a leaf at least* (1) and the *depth at most* (no limit), as
+  R's randomForest and ranger and scikit-learn's defaults: each tree grown on a
+  bootstrap sample, each split the best by the Gini impurity among the values
+  drawn, a pixel's probabilities the mean of its leaves' class shares over the
+  trees. The validation share is held out by **whole places** (all of a
+  polygon's pixels on one side), so the accuracy is that of places the forest
+  never saw; the **out-of-bag** accuracy (each sample by the trees that did
+  not see it) is drawn beside it as the trees grow. At the end, the
+  **importance of each date** (the mean decrease of the impurity, summing to
+  1; by value too, with several): the dates that tell the classes apart. The
+  trees grow on the CPU's threads, each from its own seed: the same forest
+  whatever the threads. Against scikit-learn and R's randomForest on the same
+  samples (`tools/bench_forest.py`, 500 trees each),
+  the same test accuracy within a point (the mean of 3 seeds: 0.904, 0.907
+  and 0.903 on sits' MODIS NDVI samples; 0.865, 0.875 and 0.875 on its
+  Landsat-8 of Rondonia, where one of the 32 test samples is 3 points; 0.827,
+  0.826 and 0.825 on 20,000 made-up samples of 64 values); grown 3.5 times
+  faster than scikit-learn and 2.5 times faster than randomForest on one thread
+  (19 s, 66 s and 47 s on the 20,000 samples), 5.4 s on four threads
+  (scikit-learn 16.7 s); the test samples classified as fast as they are on
+  one thread, 1.4 times faster on four.
 - **The model** is kept in a `.janusmodel` file (in the results folder's
   `models`): its weights and what applying it needs (the architecture, the
   values and dates, the scaling, the classes and their colours, the samples and
@@ -639,8 +671,8 @@ applied on the GPU (the same wgpu as the map; the CPU without one).
   stays the model's. For a map you already have, Tools > Classification >
   Post-processing (classes).
 - **Area of applicability** (Meyer & Pebesma 2021, as Zeit's `aoa` and R's
-  CAST): where the model can be trusted. A TempCNN or L-TAE model keeps its
-  samples' series as the network reads them (gaps filled, scaled; up to about
+  CAST): where the model can be trusted. A Random Forest, TempCNN or L-TAE
+  model keeps its samples' series as it reads them (gaps filled, scaled; up to about
   a million values, as many of each class as their share) and the threshold of
   their dissimilarity: each sample's distance to the nearest sample of another
   place (another polygon or pin), over the mean distance between samples, and
@@ -650,7 +682,9 @@ applied on the GPU (the same wgpu as the map; the CPU without one).
   and the **AOA** (Byte: 1 inside, 0 outside, 255 not classified): outside it
   the class is an extrapolation the validation says nothing of. The tick's
   tooltip gives the model's samples and threshold; older models, Presto's and
-  U-TAE's keep no samples.
+  U-TAE's keep no samples. A forest's values are weighed by their importance
+  (as CAST weighs a model's variables): a date that does not tell the classes
+  apart does not make a pixel unlike the samples.
 
 **Presto** (Tseng et al. 2023) is pretrained by its authors on monthly series
 of Sentinel-1, Sentinel-2, ERA5 and SRTM worldwide. Janus runs its encoder with

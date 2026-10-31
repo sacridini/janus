@@ -1,6 +1,7 @@
 //! The whole path on a made-up series: three classes of trajectories (stable, seasonal, a rise) in three strips of
 //! a 2-band cube with clouds; samples read at points, gaps filled, scaled; TempCNN and L-TAE trained (on the CPU,
-//! or the GPU with JANUS_ML_GPU=1), kept in a file and read back (the same probabilities), applied to the image.
+//! or the GPU with JANUS_ML_GPU=1) and a Random Forest, kept in a file and read back (the same probabilities),
+//! applied to the image.
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -8,8 +9,9 @@ use std::sync::atomic::AtomicBool;
 use janus_cube::{BandSelection, open_cube};
 use janus_ml::apply::{ApplySpec, apply};
 use janus_ml::data::{fill_gaps, read_points};
+use janus_ml::forest::{ForestHyper, split_by_place};
 use janus_ml::ltae::LTaeHyper;
-use janus_ml::model::{Header, Model, device};
+use janus_ml::model::{Header, Model, Net, device};
 use janus_ml::post::PostProcess;
 use janus_ml::tempcnn::TempCnnHyper;
 use janus_ml::train::{Rng, TrainConfig, train};
@@ -94,16 +96,33 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
             )
         }
     };
-    let trained = train(&s, &y, 3, &arch, &calendar, &cfg, &dev, &mut show, &AtomicBool::new(false)).unwrap();
-    let (oa, _, _) = trained.accuracies();
-    println!(
-        "{tag} on {name}: {} epochs in {:.1} s, best {}, validation accuracy {oa:.3} ({} samples)",
-        trained.history.len(),
-        t0.elapsed().as_secs_f64(),
-        trained.best_epoch,
-        trained.n_val
-    );
-    assert!(oa > 0.9, "{tag}: validation accuracy {oa}");
+    let (net, training, weights) = if let Arch::RandomForest(h) = &arch {
+        let (tr, va, _) = split_by_place(&y, None, 3, cfg.validation_split, cfg.seed);
+        let f = janus_ml::forest::train(&s, &y, 3, h, &tr, &va, cfg.seed, &mut show, &AtomicBool::new(false)).unwrap();
+        let (oa, _, _) = f.accuracies();
+        println!(
+            "{tag}: {} trees in {:.1} s, validation accuracy {oa:.3} ({} samples)",
+            h.trees,
+            t0.elapsed().as_secs_f64(),
+            f.n_val
+        );
+        assert!(oa > 0.9, "{tag}: validation accuracy {oa}");
+        let training = f.summary(h, cfg.validation_split, cfg.seed, &[0, 0, 0]);
+        (Net::forest(f.forest), training, Some(f.importance))
+    } else {
+        let trained = train(&s, &y, 3, &arch, &calendar, &cfg, &dev, &mut show, &AtomicBool::new(false)).unwrap();
+        let (oa, _, _) = trained.accuracies();
+        println!(
+            "{tag} on {name}: {} epochs in {:.1} s, best {}, validation accuracy {oa:.3} ({} samples)",
+            trained.history.len(),
+            t0.elapsed().as_secs_f64(),
+            trained.best_epoch,
+            trained.n_val
+        );
+        assert!(oa > 0.9, "{tag}: validation accuracy {oa}");
+        let training = trained.summary(&cfg, &[0, 0, 0]);
+        (trained.net, training, None)
+    };
 
     // the file and back: the same probabilities
     let header = Header {
@@ -120,11 +139,11 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
             .collect(),
         min_valid: 50.0,
         series: info.description.clone(),
-        training: trained.summary(&cfg, &[0, 0, 0]),
-        applicability: Some(janus_ml::aoa::Applicability::fit(&s, None, &y, -1).unwrap()),
+        training,
+        applicability: Some(janus_ml::aoa::Applicability::fit_weighted(&s, None, &y, weights.as_deref(), -1).unwrap()),
         created: String::new(),
     };
-    let model = Model { header, net: trained.net, device: dev.clone() };
+    let model = Model { header, net, device: dev.clone() };
     let path = dir.join(format!("{tag}.janusmodel")).to_string_lossy().into_owned();
     model.save(&path).unwrap();
     let back = Model::load(&path, &dev).unwrap();
@@ -189,6 +208,11 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
 #[test]
 fn tempcnn_learns_and_classifies() {
     run(Arch::TempCnn(TempCnnHyper::default()), 30, "tempcnn");
+}
+
+#[test]
+fn forest_learns_and_classifies() {
+    run(Arch::RandomForest(ForestHyper { trees: 100, ..Default::default() }), 0, "forest");
 }
 
 #[test]

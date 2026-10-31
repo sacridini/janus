@@ -1,0 +1,132 @@
+{
+ "trees": 500,
+ "seeds": 3,
+ "results": [
+  {
+   "set": "sits samples_modis_ndvi (12 dates x 1 bands, 4 classes)",
+   "train": 974,
+   "test": 244,
+   "values": 12,
+   "janus": {
+    "1": {
+     "fit_ms": 185.8,
+     "predict_ms": 3.8,
+     "accuracy": 0.9043716666666666,
+     "oob": 0.9041750000000001
+    },
+    "4": {
+     "fit_ms": 52.3,
+     "predict_ms": 3.7,
+     "accuracy": 0.9043716666666666,
+     "oob": 0.9041750000000001
+    }
+   },
+   "sklearn": {
+    "1": {
+     "fit_ms": 926.8258999995851,
+     "predict_ms": 16.784200000074634,
+     "accuracy": 0.907103825136612,
+     "oob": 0.9038329911019849
+    },
+    "4": {
+     "fit_ms": 546.1543999999776,
+     "predict_ms": 43.56740000002901,
+     "accuracy": 0.907103825136612,
+     "oob": 0.9038329911019849
+    }
+   },
+   "randomForest": {
+    "1": {
+     "fit_ms": 210.0,
+     "predict_ms": 0.0,
+     "accuracy": 0.9030053333333333,
+     "oob": 0.9052016666666667
+    }
+   }
+  },
+  {
+   "set": "sits samples_l8_rondonia_2bands (25 dates x 2 bands, 4 classes)",
+   "train": 128,
+   "test": 32,
+   "values": 50,
+   "janus": {
+    "1": {
+     "fit_ms": 31.1,
+     "predict_ms": 0.3,
+     "accuracy": 0.8645833333333334,
+     "oob": 0.8203126666666667
+    },
+    "4": {
+     "fit_ms": 9.3,
+     "predict_ms": 0.3,
+     "accuracy": 0.8645833333333334,
+     "oob": 0.8203126666666667
+    }
+   },
+   "sklearn": {
+    "1": {
+     "fit_ms": 467.8135999997721,
+     "predict_ms": 11.759400000300957,
+     "accuracy": 0.875,
+     "oob": 0.8177083333333334
+    },
+    "4": {
+     "fit_ms": 442.0691000000261,
+     "predict_ms": 32.734699999764416,
+     "accuracy": 0.875,
+     "oob": 0.8177083333333334
+    }
+   },
+   "randomForest": {
+    "1": {
+     "fit_ms": 60.0,
+     "predict_ms": 0.0,
+     "accuracy": 0.875,
+     "oob": 0.8203123333333333
+    }
+   }
+  },
+  {
+   "set": "make_classification (64 values, 8 classes)",
+   "train": 20000,
+   "test": 5000,
+   "values": 64,
+   "janus": {
+    "1": {
+     "fit_ms": 18998.7,
+     "predict_ms": 345.3,
+     "accuracy": 0.8272666666666666,
+     "oob": 0.8219
+    },
+    "4": {
+     "fit_ms": 5394.8,
+     "predict_ms": 69.0,
+     "accuracy": 0.8272666666666666,
+     "oob": 0.8219
+    }
+   },
+   "sklearn": {
+    "1": {
+     "fit_ms": 66289.6554000008,
+     "predict_ms": 321.274099999755,
+     "accuracy": 0.8257333333333333,
+     "oob": 0.8235833333333332
+    },
+    "4": {
+     "fit_ms": 16742.85400000008,
+     "predict_ms": 94.88510000028327,
+     "accuracy": 0.8257333333333333,
+     "oob": 0.8235833333333332
+    }
+   },
+   "randomForest": {
+    "1": {
+     "fit_ms": 47070.0,
+     "predict_ms": 330.0,
+     "accuracy": 0.8248666666666665,
+     "oob": 0.8214333333333332
+    }
+   }
+  }
+ ]
+}

@@ -3,7 +3,8 @@
 //! of their dissimilarity to each other; a pixel's dissimilarity index (DI) is its distance to the nearest sample
 //! over their mean distance, and it is in the area of applicability when that is not above the threshold. A
 //! sample's own DI is to the nearest sample of another place (a polygon, a pin), as the model would meet a new place.
-//! The networks have no importance of their values: they weigh alike.
+//! The networks have no importance of their values: they weigh alike; a Random Forest's weighs each by its
+//! importance (CAST's weights from the model's `varImp`).
 
 use serde::{Deserialize, Serialize};
 use zeit_core::aoa::TrainDi;
@@ -35,7 +36,23 @@ impl Applicability {
     /// From the samples as the network reads them, each one's place (`None`: each its own) and class; at most
     /// MAX_VALUES values kept, as many of each class as their share.
     pub fn fit(x: &Series, places: Option<&[usize]>, y: &[u32], n_jobs: i32) -> Result<Applicability, String> {
+        Applicability::fit_weighted(x, places, y, None, n_jobs)
+    }
+
+    /// As `fit`, each value weighed (its importance; `None`: alike).
+    pub fn fit_weighted(
+        x: &Series,
+        places: Option<&[usize]>,
+        y: &[u32],
+        weights: Option<&[f64]>,
+        n_jobs: i32,
+    ) -> Result<Applicability, String> {
         let p = x.t * x.b;
+        let weights = match weights {
+            Some(w) if w.len() == p => w.to_vec(),
+            Some(_) => return Err("a weight for each value is needed".into()),
+            None => vec![1.0; p],
+        };
         let ok: Vec<usize> = (0..x.n).filter(|&i| x.pixel(i).iter().all(|v| v.is_finite())).collect();
         let cap = (MAX_VALUES / p.max(1)).clamp(100, 5000);
         let idx = if ok.len() > cap {
@@ -60,7 +77,7 @@ impl Applicability {
         let folds: Option<Vec<i64>> = places
             .filter(|pl| idx.iter().map(|&i| pl[i]).collect::<std::collections::BTreeSet<_>>().len() >= 2)
             .map(|pl| idx.iter().map(|&i| pl[i] as i64).collect());
-        let td = zeit_core::aoa::train_di(&values, idx.len(), p, &vec![1.0; p], folds.as_deref(), n_jobs)?;
+        let td = zeit_core::aoa::train_di(&values, idx.len(), p, &weights, folds.as_deref(), n_jobs)?;
         if !td.threshold.is_finite() {
             return Err("the samples' dissimilarity has no threshold".into());
         }

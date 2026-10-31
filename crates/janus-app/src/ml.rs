@@ -1,7 +1,7 @@
-//! Deep learning (IDEIAS.md, "IA"; janus-ml): Tools > Deep learning. Samples from what Janus already has (the
-//! interpretation's labels, a validation project's references, a vector layer's class column, pins given a class),
-//! their series read at full resolution; a TempCNN or an L-TAE trained on them in the background (Tools > Tasks),
-//! its curves and the validation samples' confusion matrix in the window; the model kept in a .janusmodel file and
+//! Classification (IDEIAS.md, "IA"; janus-ml): Tools > Classification. Samples from what Janus already has (the
+//! interpretation's labels, a validation project's references, a vector layer's class column, pins given a class,
+//! grouped by class here), their series read at full resolution; a Random Forest, a TempCNN or an L-TAE trained on
+//! them in the background (Tools > Tasks), its curves and the validation samples' confusion matrix in the window; the model kept in a .janusmodel file and
 //! applied to the whole image, the visible area or the ROI, its class map, probability and uncertainty opening as
 //! result layers.
 
@@ -14,22 +14,28 @@ use egui::{ComboBox, Ui};
 use egui_plot::{Legend, Line, Plot, PlotPoints};
 use janus_cube::CubeInfo;
 use janus_geo::vectors::Kind;
+use janus_ml::forest::ForestHyper;
 use janus_ml::model::shared_device;
 use janus_ml::presto::{PrestoHyper, PrestoInputs};
-use janus_ml::{Arch, Calendar, Class, Epoch, Header, InputBand, Model, Norm, TrainConfig};
+use janus_ml::{Arch, Calendar, Class, Epoch, Header, InputBand, Model, Net, Norm, TrainConfig};
 use serde_json::{Value, json};
 
 use crate::app::State;
 use crate::zeit::{Job, JobLog, JobState, JobStatus};
 
-const ARCHS: [&str; 4] = [
+const ARCHS: [&str; 5] = [
     "TempCNN (Pelletier et al. 2019)",
     "L-TAE (Garnot & Landrieu 2020)",
     "Presto (Tseng et al. 2023, pretrained)",
     "U-TAE (Garnot & Landrieu 2021, patches)",
+    "Random Forest (Breiman 2001)",
 ];
 /// The architecture that segments patches (dense labels)
 const UTAE: usize = 3;
+/// The forest (no network: no epochs, no GPU)
+pub(crate) const FOREST: usize = 4;
+/// The order in the list of models: the forest first
+const ARCH_ORDER: [usize; 5] = [FOREST, 0, 1, 2, UTAE];
 const PATCHES: [usize; 3] = [32, 64, 128];
 const SOURCES: [&str; 5] = [
     "Interpretation labels",
@@ -55,6 +61,8 @@ type Counts = Result<Vec<(String, usize)>, String>;
 #[derive(Default)]
 pub struct TrainRun {
     pub arch: String,
+    /// a forest's: `epochs` are its trees grown
+    pub forest: bool,
     pub epochs_asked: usize,
     pub epochs: Vec<Epoch>,
     pub done: bool,
@@ -77,6 +85,13 @@ pub struct MlUi {
     pub shown: bool,
     pub bands: BTreeSet<i32>,
     pub pin_classes: BTreeMap<u32, String>,
+    /// the pins' classes in their order (their colours), the class a click's pin is given ("" none), the pins
+    /// coloured by class, the class being typed
+    pub pin_class_list: Vec<String>,
+    pub drop_class: String,
+    pub pins_by_class: bool,
+    new_class: String,
+    pub forest: ForestHyper,
     pub cfg: TrainConfig,
     cfg_arch: usize,
     pub min_valid: f64,
@@ -115,6 +130,11 @@ impl Default for MlUi {
             shown: true,
             bands: BTreeSet::new(),
             pin_classes: BTreeMap::new(),
+            pin_class_list: vec![],
+            drop_class: String::new(),
+            pins_by_class: true,
+            new_class: String::new(),
+            forest: ForestHyper::default(),
             cfg: TrainConfig::tempcnn(),
             cfg_arch: 0,
             min_valid: 50.0,
@@ -146,6 +166,7 @@ impl MlUi {
                 pastis: self.pastis,
                 ..Default::default()
             }),
+            FOREST => Arch::RandomForest(self.forest.clone()),
             _ => Arch::TempCnn(Default::default()),
         }
     }
@@ -306,6 +327,7 @@ impl State {
                 return Ok((vec![], r.classes.clone()));
             }
             _ => {
+                order = ui.pin_class_list.clone();
                 for p in &self.series.pins {
                     if let Some(c) = ui.pin_classes.get(&p.id).filter(|c| !c.trim().is_empty()) {
                         sites.push(Site { class: c.trim().to_string(), pixels: vec![(p.x, p.y)], mean: false });
@@ -339,7 +361,12 @@ impl State {
     }
 
     pub(crate) fn ml_menu(&mut self, ui: &mut Ui) {
-        if ui.add(egui::Button::selectable(self.ml.open, "Deep learning (TempCNN, L-TAE, Presto, U-TAE)...")).clicked()
+        if ui
+            .add(egui::Button::selectable(
+                self.ml.open,
+                "Classification (Random Forest, TempCNN, L-TAE, Presto, U-TAE)...",
+            ))
+            .clicked()
         {
             self.ml.open = !self.ml.open;
             ui.close();
@@ -351,7 +378,7 @@ impl State {
             return;
         }
         let mut open = true;
-        crate::panels::fitted_window("Deep learning", ctx, 460.0)
+        crate::panels::fitted_window("Classification", ctx, 460.0)
             .id(egui::Id::new("ml window"))
             .open(&mut open)
             .show(ctx, |ui| crate::panels::fitted_body(ui, |ui| self.ml_ui(ui)));
@@ -363,8 +390,8 @@ impl State {
 
     pub(crate) fn ml_ui(&mut self, ui: &mut Ui) {
         ui.label(
-            "Classify every pixel by its whole series with a neural network trained on samples you already have \
-             in Janus. TempCNN reads the series as a sequence of fixed length; L-TAE weighs the dates by attention \
+            "Classify every pixel by its whole series with a model trained on samples you already have in Janus. \
+             A Random Forest learns quickly from few samples (its trees vote on each date's values); TempCNN reads the series as a sequence of fixed length; L-TAE weighs the dates by attention \
              (both as sits builds them); Presto, pretrained on Sentinel-1 and -2 series worldwide, encodes a year \
              of a pixel and a classifier learns from its encodings. Trained here on the GPU (or the CPU), \
              without Python.",
@@ -435,19 +462,7 @@ impl State {
                         }
                     });
             }
-            3 => {
-                if self.series.pins.is_empty() {
-                    ui.weak("Drop pins on places you know (a click on the map), then give each a class.");
-                }
-                let pins: Vec<(u32, egui::Color32)> = self.series.pins.iter().map(|p| (p.id, p.color)).collect();
-                for (id, color) in pins {
-                    ui.horizontal(|ui| {
-                        ui.colored_label(color, format!("Pin {id}"));
-                        let c = self.ml.pin_classes.entry(id).or_default();
-                        changed |= ui.text_edit_singleline(c).changed();
-                    });
-                }
-            }
+            3 => changed |= self.pin_classes_ui(ui),
             _ => {}
         }
         if self.ml.arch == UTAE {
@@ -570,7 +585,8 @@ impl State {
                 ui.colored_label(crate::theme::error(), "Choose at least one value.");
             }
             ui.weak(format!(
-                "{} dates: the model applies to series of the same {} dates (and, for TempCNN, their order).",
+                "{} dates: the model applies to series of the same {} dates (and, for TempCNN and the forest, their \
+                 order).",
                 info.t(),
                 info.t()
             ));
@@ -581,8 +597,8 @@ impl State {
         ComboBox::from_id_salt("ml arch").width(ui.available_width()).selected_text(ARCHS[self.ml.arch]).show_ui(
             ui,
             |ui| {
-                for (i, s) in ARCHS.iter().enumerate() {
-                    ui.selectable_value(&mut self.ml.arch, i, *s);
+                for i in ARCH_ORDER {
+                    ui.selectable_value(&mut self.ml.arch, i, ARCHS[i]);
                 }
             },
         );
@@ -591,6 +607,27 @@ impl State {
             self.ml.cfg = TrainConfig { seed, ..TrainConfig::for_arch(&self.ml.arch()) };
             self.ml.cfg_arch = self.ml.arch;
         }
+        if self.ml.arch == FOREST {
+            self.forest_settings_ui(ui, &info, inputs.len());
+        } else {
+            self.net_settings_ui(ui);
+        }
+        let training = self.ml.training();
+        if ui
+            .add_enabled(
+                can_train && !training,
+                egui::Button::new("Train").min_size(egui::vec2(ui.available_width(), 0.0)),
+            )
+            .clicked()
+        {
+            self.ml_train(&info, inputs.clone(), ui.ctx());
+        }
+        self.ml_progress_ui(ui);
+        self.ml_rest_ui(ui, &info);
+    }
+
+    /// The networks' training settings (sits').
+    fn net_settings_ui(&mut self, ui: &mut Ui) {
         egui::Grid::new("ml cfg").num_columns(2).show(ui, |ui| {
             let c = &mut self.ml.cfg;
             ui.label("Epochs at most");
@@ -627,18 +664,194 @@ impl State {
         if ui.small_button("sits' defaults").clicked() {
             self.ml.cfg = TrainConfig::for_arch(&self.ml.arch());
         }
-        let training = self.ml.training();
-        if ui
-            .add_enabled(
-                can_train && !training,
-                egui::Button::new("Train").min_size(egui::vec2(ui.available_width(), 0.0)),
-            )
-            .clicked()
-        {
-            self.ml_train(&info, inputs.clone(), ui.ctx());
-        }
-        self.ml_progress_ui(ui);
+    }
 
+    /// The forest's settings (ranger's and scikit-learn's defaults).
+    fn forest_settings_ui(&mut self, ui: &mut Ui, info: &CubeInfo, values: usize) {
+        let p = info.t() * values.max(1);
+        egui::Grid::new("ml forest").num_columns(2).show(ui, |ui| {
+            let (h, c) = (&mut self.ml.forest, &mut self.ml.cfg);
+            ui.label("Trees").on_hover_text("More trees vote more steadily; the accuracy levels off (see its curve)");
+            ui.add(egui::DragValue::new(&mut h.trees).range(10..=5000).speed(5.0));
+            ui.end_row();
+            ui.label("Values tried at each split").on_hover_text(format!(
+                "Of the {p} values of a sample ({} dates x {} values): drawn at random at each split, the best of \
+                 them by the Gini impurity (mtry). 0: the square root of their number, {}",
+                info.t(),
+                values.max(1),
+                ForestHyper { mtry: 0, ..h.clone() }.mtry_of(p)
+            ));
+            ui.add(egui::DragValue::new(&mut h.mtry).range(0..=p.max(1)).custom_formatter(|v, _| {
+                if v == 0.0 { format!("auto ({})", ForestHyper::default().mtry_of(p)) } else { format!("{v}") }
+            }));
+            ui.end_row();
+            ui.label("Samples in a leaf at least");
+            ui.add(egui::DragValue::new(&mut h.min_leaf).range(1..=100));
+            ui.end_row();
+            ui.label("Depth at most").on_hover_text("0: the trees grow until their leaves are pure");
+            ui.add(
+                egui::DragValue::new(&mut h.max_depth)
+                    .range(0..=100)
+                    .custom_formatter(|v, _| if v == 0.0 { "no limit".into() } else { format!("{v}") }),
+            );
+            ui.end_row();
+            ui.label("Validation share").on_hover_text(
+                "Held out of the training, by whole places (a polygon's pixels, a pin) when a place has several \
+                 samples: the accuracy on places the forest never saw. The out-of-bag accuracy is the other estimate.",
+            );
+            ui.add(egui::Slider::new(&mut c.validation_split, 0.05..=0.5).fixed_decimals(2));
+            ui.end_row();
+            ui.label("Random seed");
+            ui.add(egui::DragValue::new(&mut c.seed).range(0..=1_000_000));
+            ui.end_row();
+            ui.label("Min dates with a value (%)")
+                .on_hover_text("Gaps are filled linearly in time; pixels with values on fewer dates are left out");
+            ui.add(egui::Slider::new(&mut self.ml.min_valid, 1.0..=100.0).fixed_decimals(0));
+            ui.end_row();
+        });
+        ui.weak("Grown on the CPU, a tree a thread; the same forest whatever the threads.");
+        if ui.small_button("ranger's defaults").clicked() {
+            self.ml.forest = ForestHyper::default();
+            self.ml.cfg.validation_split = 0.2;
+        }
+    }
+
+    /// The pins' classes: the list (their colours), the class a click's pin is given, the pins grouped by class,
+    /// each moved to another. Whether the samples changed.
+    fn pin_classes_ui(&mut self, ui: &mut Ui) -> bool {
+        let mut changed = false;
+        if self.series.pins.is_empty() {
+            ui.weak("Drop pins on places you know (a click on the map), each of the class chosen below.");
+        }
+        // the classes: those given, then any a pin has that the list lacks (an older project's)
+        for c in self.ml.pin_classes.values() {
+            if !self.ml.pin_class_list.contains(c) {
+                self.ml.pin_class_list.push(c.clone());
+            }
+        }
+        let list = self.ml.pin_class_list.clone();
+        let color_of = |k: usize| {
+            let [r, g, b] = class_color(k);
+            egui::Color32::from_rgb(r, g, b)
+        };
+        let count = |c: &str| self.ml.pin_classes.values().filter(|v| v.as_str() == c).count();
+        let mut remove = None;
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Classes:");
+            for (k, c) in list.iter().enumerate() {
+                ui.colored_label(color_of(k), "\u{25cf}");
+                ui.label(format!("{c} ({})", count(c)));
+                if ui
+                    .small_button("x")
+                    .on_hover_text(format!("Remove the class {c} (its pins keep no class)"))
+                    .clicked()
+                {
+                    remove = Some(c.clone());
+                }
+            }
+            let r =
+                ui.add(egui::TextEdit::singleline(&mut self.ml.new_class).hint_text("new class").desired_width(90.0));
+            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let name = self.ml.new_class.trim().to_string();
+            if (ui.add_enabled(!name.is_empty(), egui::Button::new("Add")).clicked() || enter) && !name.is_empty() {
+                if !self.ml.pin_class_list.contains(&name) {
+                    self.ml.pin_class_list.push(name.clone());
+                }
+                // the class just made is the one new pins get
+                self.ml.drop_class = name;
+                self.ml.new_class.clear();
+            }
+        });
+        if let Some(c) = remove {
+            let ids: Vec<u32> = self.ml.pin_classes.iter().filter(|e| *e.1 == c).map(|e| *e.0).collect();
+            for id in ids {
+                self.ml.pin_classes.remove(&id);
+            }
+            self.ml.pin_class_list.retain(|k| *k != c);
+            if self.ml.drop_class == c {
+                self.ml.drop_class.clear();
+            }
+            self.color_pins();
+            changed = true;
+        }
+        let list = self.ml.pin_class_list.clone();
+        let choose = |ui: &mut Ui, salt: egui::Id, cur: &str, none: &str| -> Option<String> {
+            let mut pick = None;
+            ComboBox::from_id_salt(salt).selected_text(if cur.is_empty() { none } else { cur }).show_ui(ui, |ui| {
+                if ui.selectable_label(cur.is_empty(), none).clicked() {
+                    pick = Some(String::new());
+                }
+                for c in &list {
+                    if ui.selectable_label(cur == c, c).clicked() {
+                        pick = Some(c.clone());
+                    }
+                }
+            });
+            pick
+        };
+        ui.horizontal(|ui| {
+            ui.label("New pins:").on_hover_text("A click on the map drops a pin of this class");
+            let cur = self.ml.drop_class.clone();
+            if let Some(c) = choose(ui, egui::Id::new("ml drop class"), &cur, "no class") {
+                self.ml.drop_class = c;
+            }
+            if ui.checkbox(&mut self.ml.pins_by_class, "Coloured by class").changed() {
+                self.color_pins();
+            }
+        });
+        // the pins grouped by class, the ones without one last
+        type PinRow = (u32, egui::Color32, usize, usize);
+        let pins: Vec<PinRow> = self.series.pins.iter().map(|p| (p.id, p.color, p.x, p.y)).collect();
+        let class_of = |id: u32| self.ml.pin_classes.get(&id).cloned().unwrap_or_default();
+        let mut groups: Vec<(String, Vec<PinRow>)> = list.iter().map(|c| (c.clone(), vec![])).collect();
+        groups.push((String::new(), vec![]));
+        for p in &pins {
+            let c = class_of(p.0);
+            let g = groups.iter().position(|g| g.0 == c).unwrap_or(groups.len() - 1);
+            groups[g].1.push(*p);
+        }
+        let mut moves: Vec<(u32, String)> = vec![];
+        for (c, members) in &groups {
+            if members.is_empty() {
+                continue;
+            }
+            let title = if c.is_empty() { "No class" } else { c.as_str() };
+            egui::CollapsingHeader::new(format!("{title} ({})", members.len()))
+                .id_salt(("ml pin group", c.as_str()))
+                .default_open(true)
+                .show(ui, |ui| {
+                    if c.is_empty()
+                        && !list.is_empty()
+                        && let Some(to) = ui
+                            .horizontal(|ui| {
+                                ui.label("All of them:");
+                                choose(ui, egui::Id::new("ml unclassed to"), "", "(choose a class)")
+                            })
+                            .inner
+                            .filter(|t| !t.is_empty())
+                    {
+                        moves.extend(members.iter().map(|m| (m.0, to.clone())));
+                    }
+                    for &(id, color, x, y) in members {
+                        ui.horizontal(|ui| {
+                            ui.colored_label(color, format!("Pin {id}"));
+                            ui.weak(format!("({x}, {y})"));
+                            if let Some(to) = choose(ui, egui::Id::new(("ml pin class", id)), c, "no class") {
+                                moves.push((id, to));
+                            }
+                        });
+                    }
+                });
+        }
+        for (id, to) in moves {
+            self.set_pin_class(id, &to);
+            changed = true;
+        }
+        changed
+    }
+
+    /// Presto's embeddings, then the model to apply.
+    fn ml_rest_ui(&mut self, ui: &mut Ui, info: &Arc<CubeInfo>) {
         if self.ml.arch == 2 {
             crate::panels::section(ui, "Presto embeddings");
             ui.weak(
@@ -692,7 +905,7 @@ impl State {
             std::path::Path::new(&path).file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned())
         ))
         .on_hover_text(&path);
-        let fits = check_fits(&header, &info);
+        let fits = check_fits(&header, info);
         if let Err(e) = &fits {
             ui.colored_label(crate::theme::error(), format!("Not for this series: {e}"));
         }
@@ -723,8 +936,8 @@ impl State {
                      extrapolation the validation says nothing of. This model: {}.",
                     a.describe()
                 ),
-                None => "This model kept no samples for its area of applicability: TempCNN and L-TAE models trained \
-                         by this version of Janus or later keep them."
+                None => "This model kept no samples for its area of applicability: Random Forest, TempCNN and L-TAE \
+                         models trained by this version of Janus or later keep them."
                     .into(),
             });
         });
@@ -754,18 +967,33 @@ impl State {
         let line = |name: &str, f: &dyn Fn(&Epoch) -> f64| {
             Line::new(name, PlotPoints::from_iter(r.epochs.iter().map(|e| [e.epoch as f64, f(e)])))
         };
-        ui.label(format!("{}: epoch {} of at most {}", r.arch, r.epochs.len(), r.epochs_asked));
-        Plot::new("ml loss").height(130.0).legend(Legend::default()).allow_scroll(false).show(ui, |p| {
-            p.line(line("training loss", &|e| e.train_loss));
-            p.line(line("validation loss", &|e| e.val_loss));
-        });
-        Plot::new("ml accuracy").height(110.0).legend(Legend::default()).allow_scroll(false).include_y(1.0).show(
-            ui,
-            |p| {
-                p.line(line("training accuracy", &|e| e.train_acc));
-                p.line(line("validation accuracy", &|e| e.val_acc));
-            },
-        );
+        if r.forest {
+            let grown = r.epochs.last().map_or(0, |e| e.epoch);
+            ui.label(format!("{}: {grown} trees of {}", r.arch, r.epochs_asked));
+            Plot::new("ml forest accuracy")
+                .height(120.0)
+                .legend(Legend::default())
+                .allow_scroll(false)
+                .include_y(1.0)
+                .x_axis_label("trees")
+                .show(ui, |p| {
+                    p.line(line("out-of-bag accuracy", &|e| e.train_acc));
+                    p.line(line("validation accuracy", &|e| e.val_acc));
+                });
+        } else {
+            ui.label(format!("{}: epoch {} of at most {}", r.arch, r.epochs.len(), r.epochs_asked));
+            Plot::new("ml loss").height(130.0).legend(Legend::default()).allow_scroll(false).show(ui, |p| {
+                p.line(line("training loss", &|e| e.train_loss));
+                p.line(line("validation loss", &|e| e.val_loss));
+            });
+            Plot::new("ml accuracy").height(110.0).legend(Legend::default()).allow_scroll(false).include_y(1.0).show(
+                ui,
+                |p| {
+                    p.line(line("training accuracy", &|e| e.train_acc));
+                    p.line(line("validation accuracy", &|e| e.val_acc));
+                },
+            );
+        }
         let Some(h) = &r.header else { return };
         let v = &h.training["validation"];
         let confusion: Vec<Vec<u64>> = v["confusion"]
@@ -781,12 +1009,24 @@ impl State {
         if confusion.is_empty() {
             return;
         }
-        ui.label(format!(
-            "Validation: overall accuracy {:.1} % on {} samples (the model of epoch {})",
-            v["overall_accuracy"].as_f64().unwrap_or(f64::NAN) * 100.0,
-            h.training["samples"]["validation"],
-            h.training["best_epoch"]
-        ));
+        if r.forest {
+            let oob = h.training["oob"]["overall_accuracy"].as_f64().unwrap_or(f64::NAN);
+            let by =
+                if h.training["samples"]["split"] == "places" { "whole places held out" } else { "samples held out" };
+            ui.label(format!(
+                "Validation: overall accuracy {:.1} % on {} samples ({by}); out of bag {:.1} %",
+                v["overall_accuracy"].as_f64().unwrap_or(f64::NAN) * 100.0,
+                h.training["samples"]["validation"],
+                oob * 100.0
+            ));
+        } else {
+            ui.label(format!(
+                "Validation: overall accuracy {:.1} % on {} samples (the model of epoch {})",
+                v["overall_accuracy"].as_f64().unwrap_or(f64::NAN) * 100.0,
+                h.training["samples"]["validation"],
+                h.training["best_epoch"]
+            ));
+        }
         let pct =
             |x: &Value| x.as_f64().filter(|v| v.is_finite()).map_or("-".to_string(), |v| format!("{:.0}%", v * 100.0));
         egui::Grid::new("ml confusion").striped(true).show(ui, |ui| {
@@ -814,6 +1054,9 @@ impl State {
             }
             ui.end_row();
         });
+        if r.forest {
+            importance_ui(ui, h);
+        }
     }
 
     /// Starts a training on the samples (Tools > Tasks follows it; the window shows its curves).
@@ -849,9 +1092,11 @@ impl State {
         let stem = format!("{name}_{}_{}", arch.name().to_lowercase().replace('-', ""), crate::zeit::timestamp());
         let model_path = dir.join(format!("{stem}.janusmodel")).to_string_lossy().into_owned();
         let log = JobLog { path: dir.join(format!("{stem}.log")), t0: Instant::now() };
+        let forest = matches!(arch, Arch::RandomForest(_));
         let run = Arc::new(Mutex::new(TrainRun {
             arch: arch.name().into(),
-            epochs_asked: cfg.epochs,
+            forest,
+            epochs_asked: if let Arch::RandomForest(h) = &arch { h.trees } else { cfg.epochs },
             message: "reading the samples' series".into(),
             ..Default::default()
         }));
@@ -872,7 +1117,13 @@ impl State {
             crate::zeit::timestamp_text(),
             info.description,
             inputs.iter().map(|b| b.name.clone()).collect::<Vec<_>>().join(", "),
-            serde_json::to_string(&cfg).unwrap_or_default()
+            match &arch {
+                Arch::RandomForest(h) => serde_json::to_string(&json!({
+                    "forest": h, "validation_split": cfg.validation_split, "seed": cfg.seed
+                }))
+                .unwrap_or_default(),
+                _ => serde_json::to_string(&cfg).unwrap_or_default(),
+            }
         ));
         self.zeit.jobs.push(Job {
             title,
@@ -1293,10 +1544,27 @@ fn train_job(
             left + x.n
         ));
     }
+    let calendar = Calendar::of(info);
+    if let Arch::RandomForest(h) = arch {
+        return forest_job(
+            info,
+            inputs,
+            classes,
+            h,
+            cfg,
+            min_valid,
+            (x, y, norm, per_class, places.unwrap_or_default()),
+            calendar,
+            model_path,
+            log,
+            run,
+            set,
+            cancel,
+        );
+    }
     let dev = shared_device(gpu);
     log.line(&format!("device: {}", dev.1));
     set(0.02, &format!("training on {} samples ({})", x.n, dev.1));
-    let calendar = Calendar::of(info);
     let epochs = cfg.epochs;
     let mut on_epoch = |e: &Epoch| {
         log.line(&format!(
@@ -1353,6 +1621,137 @@ fn train_job(
     model.save(model_path)?;
     log.line(&format!("model: {model_path}"));
     Ok(header)
+}
+
+/// The samples as the forest reads them: the series, their classes, the scaling, the count of each class and each
+/// sample's place.
+type Samples = (janus_ml::Series, Vec<u32>, Norm, Vec<usize>, Vec<usize>);
+
+/// Grows a Random Forest on the samples (its validation by whole places), keeps it in the model file with its area
+/// of applicability (the values weighed by their importance).
+#[allow(clippy::too_many_arguments)]
+fn forest_job(
+    info: &Arc<CubeInfo>,
+    inputs: Vec<InputBand>,
+    classes: &[String],
+    h: &ForestHyper,
+    cfg: &TrainConfig,
+    min_valid: f64,
+    (x, y, norm, per_class, places): Samples,
+    calendar: Calendar,
+    model_path: &str,
+    log: &JobLog,
+    run: &Arc<Mutex<TrainRun>>,
+    set: &dyn Fn(f64, &str),
+    cancel: &AtomicBool,
+) -> Result<Header, String> {
+    let k = classes.len();
+    let (tr, va, how) = janus_ml::forest::split_by_place(&y, Some(&places), k, cfg.validation_split, cfg.seed);
+    log.line(&format!(
+        "validation: {} samples ({}), training: {}; {} values a sample, {} tried at each split",
+        va.len(),
+        if how == "places" { "whole places" } else { "samples" },
+        tr.len(),
+        x.t * x.b,
+        h.mtry_of(x.t * x.b)
+    ));
+    set(0.02, &format!("growing {} trees on {} samples", h.trees, tr.len()));
+    let trees = h.trees.max(1);
+    let mut on_trees = |e: &Epoch| {
+        log.line(&format!(
+            "{:4} trees: out-of-bag accuracy {:.3}, validation accuracy {:.3} ({:.1} s)",
+            e.epoch, e.train_acc, e.val_acc, e.seconds
+        ));
+        run.lock().unwrap().epochs.push(e.clone());
+        set(
+            0.02 + 0.97 * e.epoch as f64 / trees as f64,
+            &format!("{} trees: out-of-bag accuracy {:.1} %", e.epoch, e.train_acc * 100.0),
+        );
+    };
+    let mut grown = janus_ml::forest::train(&x, &y, k, h, &tr, &va, cfg.seed, &mut on_trees, cancel)?;
+    grown.split = how.into();
+    let (oa, _, _) = grown.accuracies();
+    log.line(&format!("validation overall accuracy {oa:.4}"));
+    let mut training = grown.summary(h, cfg.validation_split, cfg.seed, &per_class);
+    training["device"] = json!("CPU");
+    let applicability =
+        match janus_ml::aoa::Applicability::fit_weighted(&x, Some(&places), &y, Some(&grown.importance), -1) {
+            Ok(a) => {
+                log.line(&format!("area of applicability: {}", a.describe()));
+                Some(a)
+            }
+            Err(e) => {
+                log.line(&format!("no area of applicability: {e}"));
+                None
+            }
+        };
+    let header = Header {
+        format: 1,
+        janus: env!("CARGO_PKG_VERSION").into(),
+        arch: Arch::RandomForest(h.clone()),
+        inputs,
+        calendar,
+        norm,
+        standard: None,
+        classes: classes.iter().enumerate().map(|(k, c)| Class { name: c.clone(), color: class_color(k) }).collect(),
+        min_valid,
+        series: info.description.clone(),
+        training,
+        applicability,
+        created: crate::zeit::timestamp_text(),
+    };
+    let model =
+        Model { header: header.clone(), net: Net::forest(grown.forest), device: shared_device(false).0.clone() };
+    model.save(model_path)?;
+    log.line(&format!("model: {model_path}"));
+    Ok(header)
+}
+
+/// A forest's importance of each date (its values' summed), and of each value read when there are several.
+fn importance_ui(ui: &mut Ui, h: &Header) {
+    use egui_plot::{Bar, BarChart};
+    let Some(imp) = h.training["importance"].as_array() else { return };
+    let imp: Vec<f64> = imp.iter().map(|v| v.as_f64().unwrap_or(0.0)).collect();
+    let (t, b) = (h.calendar.len(), h.inputs.len().max(1));
+    if imp.len() != t * b || t == 0 {
+        return;
+    }
+    let by_date: Vec<f64> = (0..t).map(|i| imp[i * b..(i + 1) * b].iter().sum()).collect();
+    let labels = h.calendar.labels.clone();
+    ui.label("Importance of each date (the mean decrease of the impurity, summing to 1)").on_hover_text(
+        "How much the forest's splits on each date's values separate the classes (scikit-learn's \
+         feature_importances_): the dates that tell the classes apart. Also the weights of the area of applicability.",
+    );
+    let accent = ui.visuals().selection.bg_fill;
+    Plot::new("ml forest importance")
+        .height(110.0)
+        .allow_scroll(false)
+        .include_y(0.0)
+        .x_axis_formatter(move |m, _| {
+            let i = m.value.round();
+            if (m.value - i).abs() < 1e-6 && i >= 0.0 {
+                labels.get(i as usize).cloned().unwrap_or_default()
+            } else {
+                String::new()
+            }
+        })
+        .show(ui, |p| {
+            let bars: Vec<Bar> = by_date
+                .iter()
+                .enumerate()
+                .map(|(i, &v)| Bar::new(i as f64, v).width(0.8).name(&h.calendar.labels[i]))
+                .collect();
+            p.bar_chart(BarChart::new("importance", bars).color(accent));
+        });
+    if b > 1 {
+        let by_value: Vec<String> = (0..b)
+            .map(|j| {
+                let s: f64 = (0..t).map(|i| imp[i * b + j]).sum();
+                format!("{} {:.0} %", h.inputs[j].name, s * 100.0)
+            })
+            .collect();
+        ui.weak(format!("By value: {}", by_value.join(", ")));
+    }
 }
 
 /// Each sample's raw series (each pixel, or a place's mean), its class and a pixel of it (for its place).

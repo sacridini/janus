@@ -80,6 +80,8 @@ impl TrainConfig {
             Arch::LTae(_) => TrainConfig::lighttae(),
             Arch::Presto(_) => TrainConfig::presto(),
             Arch::Utae(_) => crate::dense::utae_config(),
+            // the validation share and the seed only
+            Arch::RandomForest(_) => TrainConfig { epochs: 0, ..TrainConfig::tempcnn() },
         }
     }
 }

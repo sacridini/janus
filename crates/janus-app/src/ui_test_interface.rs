@@ -1832,14 +1832,171 @@ impl State {
                 }
                 self.display.highlight = None;
                 self.display.phase.by_mean = true;
-                self.remove_layer(k, ctx);
-                if let Some(dir) = st.texts.first() {
-                    let _ = std::fs::remove_dir_all(dir);
-                }
                 next(st, "the seasonal peak, the valid share, the dates of a month and the highlight");
                 None
             }
             226 => {
+                // pins dropped by class (the class new pins get): 8 on the left half (greening in March), 8 on the
+                // right (September); coloured by class, kept through the project; a Random Forest of 60 trees on them
+                let k = self.layers.iter().position(|l| l.name == "Seasons")?;
+                if self.active != k {
+                    return None;
+                }
+                self.clear_pins();
+                self.ml.pin_class_list.clear();
+                self.ml.pins_by_class = true;
+                for (class, x0) in [("Early", 2), ("Late", 22)] {
+                    self.ml.drop_class = class.into();
+                    for i in 0..8 {
+                        self.drop_pin(x0 + 2 * i, 3 + 3 * i);
+                    }
+                }
+                self.ml.drop_class.clear();
+                let colour = |k: usize| {
+                    let [r, g, b] = crate::ml::class_color(k);
+                    egui::Color32::from_rgb(r, g, b)
+                };
+                let classed = self.series.pins.iter().all(|p| {
+                    let c = self.ml.pin_classes.get(&p.id).map(String::as_str);
+                    let want = if p.x < 20 { "Early" } else { "Late" };
+                    c == Some(want) && p.color == colour(usize::from(p.x >= 20))
+                });
+                if self.series.pins.len() != 16 || !classed || self.ml.pin_class_list != ["Early", "Late"] {
+                    return fail("16 pins dropped, each of its class and in its colour");
+                }
+                // the project keeps each pin's class
+                let saved = self.project_state(None);
+                self.clear_pins();
+                self.restore_pins(&saved.pins, &saved.pin_classes, &saved.pin_class_list);
+                let again = self.project_state(None);
+                if again.pin_classes != saved.pin_classes
+                    || saved.pin_classes.iter().filter(|c| *c == "Late").count() != 8
+                {
+                    return fail(&format!("the pins' classes kept by the project: {:?}", again.pin_classes));
+                }
+                self.ml.source = 3;
+                self.ml.arch = crate::ml::FOREST;
+                self.ml.forest = janus_ml::forest::ForestHyper { trees: 60, ..Default::default() };
+                self.ml.cfg = janus_ml::TrainConfig { validation_split: 0.25, ..janus_ml::TrainConfig::tempcnn() };
+                self.ml.shown = true;
+                self.ml.bands.clear();
+                self.ml.scope = 0;
+                self.ml.aoa = true;
+                self.ml.post = Default::default();
+                let (sites, classes) = match self.ml_sites() {
+                    Ok(s) => s,
+                    Err(e) => return fail(&format!("the pins should give samples: {e}")),
+                };
+                if classes != ["Early", "Late"] || sites.len() != 16 {
+                    return fail(&format!("16 pins in the classes Early, Late, got {} in {classes:?}", sites.len()));
+                }
+                let stamp =
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+                let dir = std::env::temp_dir().join(format!("janus-selftest-forest-{stamp}"));
+                self.zeit.results_dir = Some(dir.clone());
+                st.texts.push(dir.to_string_lossy().into_owned());
+                self.ml.run = None;
+                self.ml_train_now(ctx);
+                next(st, "pins dropped by class (Early, Late), coloured by it and kept by the project; a forest grown");
+                None
+            }
+            227 => {
+                let run = self.ml.run.clone()?;
+                let r = run.lock().ok()?;
+                if !r.done {
+                    return None;
+                }
+                if !r.error.is_empty() {
+                    return fail(&format!("the forest should grow: {}", r.error));
+                }
+                let h = r.header.clone()?;
+                let (path, trees) = (r.model_path.clone(), r.epochs.last().map_or(0, |e| e.epoch));
+                drop(r);
+                self.pump_ml();
+                let imp: Vec<f64> = h.training["importance"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_f64()).collect())
+                    .unwrap_or_default();
+                let (oa, oob) = (
+                    h.training["validation"]["overall_accuracy"].as_f64().unwrap_or(f64::NAN),
+                    h.training["oob"]["overall_accuracy"].as_f64().unwrap_or(f64::NAN),
+                );
+                println!(
+                    "    {}: {trees} trees, validation accuracy {oa:.2}, out of bag {oob:.2}, {} importances",
+                    h.arch.name(),
+                    imp.len()
+                );
+                let forest = matches!(h.arch, janus_ml::Arch::RandomForest(_));
+                if !forest || trees != 60 || oa < 0.99 || oob < 0.99 || imp.len() != 24 {
+                    return fail("a forest of 60 trees telling the halves apart, an importance for each date");
+                }
+                if (imp.iter().sum::<f64>() - 1.0).abs() > 1e-6 || h.applicability.is_none() {
+                    return fail("the importances summing to 1, the area of applicability kept");
+                }
+                let model = match janus_ml::Model::load(&path, &janus_ml::model::shared_device(false).0) {
+                    Ok(m) => m,
+                    Err(e) => return fail(&format!("the forest should read back from its file: {e}")),
+                };
+                if model.forest().map(|f| f.trees()) != Some(60) || self.ml.model.as_ref().map(|m| &m.0) != Some(&path)
+                {
+                    return fail("the forest kept in its file and the model to apply");
+                }
+                self.ml_apply_now(ctx);
+                next(st, "the forest: validation and out-of-bag accuracy, each date's importance; applied");
+                None
+            }
+            228 => {
+                let tag = st.texts.get(1)?.clone();
+                let job = self.zeit.jobs.last()?;
+                let (state, error) = {
+                    let s = job.status.lock().ok()?;
+                    (s.state, s.error.clone())
+                };
+                match state {
+                    crate::zeit::JobState::Failed | crate::zeit::JobState::Cancelled => {
+                        return fail(&format!("the forest's classification should finish: {error}"));
+                    }
+                    crate::zeit::JobState::Running => return None,
+                    crate::zeit::JobState::Done => {}
+                }
+                let mine: Vec<usize> =
+                    (0..self.zeit.results.len()).filter(|&k| self.zeit.results[k].path.starts_with(&tag)).collect();
+                if mine.len() < 3
+                    || mine.iter().any(|&k| self.zeit.results[k].data.is_empty())
+                    || self.zeit.loads_pending()
+                {
+                    return None;
+                }
+                let class = mine
+                    .iter()
+                    .map(|&k| &self.zeit.results[k])
+                    .find(|r| !r.classes.is_empty() && r.name.contains(": Class"))?;
+                // every pixel of the left half Early (1), of the right half Late (2)
+                let wrong = (0..class.th)
+                    .flat_map(|y| (0..class.tw).map(move |x| (x, y)))
+                    .filter(|&(x, y)| {
+                        let want = if (x * class.w / class.tw) < 20 { 1.0 } else { 2.0 };
+                        class.data[y * class.tw + x] != want
+                    })
+                    .count();
+                println!(
+                    "    the forest's class map: {:?}, {wrong} pixels of {} wrong",
+                    class.classes,
+                    class.data.len()
+                );
+                if class.classes != ["Early", "Late"] || wrong > 0 {
+                    return fail("the class map: Early on the left half, Late on the right");
+                }
+                let k = self.layers.iter().position(|l| l.name == "Seasons")?;
+                self.remove_layer(k, ctx);
+                self.clear_pins();
+                for dir in &st.texts {
+                    let _ = std::fs::remove_dir_all(dir);
+                }
+                next(st, "Random Forest: its class map Early on the left half, Late on the right");
+                None
+            }
+            229 => {
                 // the validation's folder (stages 170-179), its strata layer open until now
                 let _ = std::fs::remove_dir_all(&st.dir);
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());

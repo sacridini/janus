@@ -47,6 +47,10 @@ const AOA_NODATA: u8 = 255;
 
 /// Pixels in a batch: about 256 MB of the network's activations.
 fn batch_of(model: &Model) -> usize {
+    if model.forest().is_some() {
+        // no activations: the trees on the threads, a band of rows a time
+        return 65536;
+    }
     let t = model.header.calendar.len().max(1);
     let per_pixel = 4 * t * 512; // the widest layers' activations, float32
     ((256usize << 20) / per_pixel).clamp(256, 65536)
@@ -158,7 +162,9 @@ pub fn apply(
     let mut entropy_ds = create(&path("entropy"), w, h, None, info, spec.window)?;
     // the area of applicability: the samples the model kept, as the network read them
     let applicability = match (&model.header.applicability, &model.header.arch) {
-        (Some(a), Arch::TempCnn(_) | Arch::LTae(_)) if spec.aoa => Some((a.train_di()?, a.threshold)),
+        (Some(a), Arch::TempCnn(_) | Arch::LTae(_) | Arch::RandomForest(_)) if spec.aoa => {
+            Some((a.train_di()?, a.threshold))
+        }
         _ if spec.aoa => return Err("the model kept no samples for its area of applicability".into()),
         _ => None,
     };

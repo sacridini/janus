@@ -1508,6 +1508,45 @@ do Zeit). Ideias, na ordem de valor:
    intervalo; a parcela dos pixels sob o histograma; `--mode NOME,highlight=A:B`.
    Vale também para a amplitude do modo *Seasonal peak*.
 
+### Random Forest e pinos por classe (2026-10-31)
+Pedido: o Random Forest do backlog ("Mais do Zeit"), funcionando com os pontos
+que já existem no Janus, e uma forma de agrupar os pinos por classe.
+**Feito (sem versão)**:
+- `janus_ml::forest` (Rust puro, sem scikit-learn): CART com Gini, bootstrap,
+  mtry = √p (sorteia mais quando os sorteados são constantes, como o
+  scikit-learn), folhas puras ou de `min_leaf`; probabilidades = média das
+  proporções das folhas (`predict_proba`); OOB; importância MDI (soma 1); uma
+  árvore por tarefa do rayon, cada uma com sua semente (a mesma floresta com
+  qualquer número de threads); formato binário próprio dentro do
+  `.janusmodel` (o `Net::Forest` guarda a floresta onde as redes guardam a
+  rede: `Ignored` do Burn). A validação separa **lugares inteiros**
+  (`split_by_place`: os pixels de um polígono todos de um lado).
+- Na janela (Tools > Classification, renomeada de "Deep learning"): primeiro
+  da lista; árvores, mtry, folha mínima, profundidade; curvas de acurácia OOB e
+  de validação pelas árvores; importância por data (barras) e por valor.
+- **AOA pesado pela importância** (item 3 de "AOA" acima): `fit_weighted`.
+- **Pinos por classe**: lista de classes (cores = as do mapa de classes),
+  "New pins:" (o clique no mapa solta um pino da classe), pinos agrupados por
+  classe (os sem classe com "All of them"), mudar de classe pelo menu, "Coloured
+  by class"; o projeto e o undo guardam a classe de cada pino
+  (`pin_classes`, `pin_class_list`). Um número de pino reaproveitado não herda
+  a classe do anterior.
+- Fontes: as mesmas das redes (rótulos da interpretação, projeto de validação,
+  camada vetorial, pinos).
+- **Benchmark** (`tools/bench_forest.py`, `bench/forest-vs-originals.json`;
+  500 árvores, 4 threads no máximo): acurácia igual à do scikit-learn 1.6.1 e
+  à do randomForest 4.7 do R (o motor do `sits_rfor`) dentro de um ponto;
+  crescer 3,5× mais rápido que o scikit-learn e 2,5× que o randomForest em 1
+  thread (19 s, 66 s, 47 s em 20 000 amostras de 64 valores), 5,4 s em 4
+  threads (scikit-learn 16,7 s). O benchmark achou a predição lenta (cada
+  amostra por todas as árvores tirava as árvores do cache): agora um bloco de
+  256 amostras desce cada árvore, 549 → 345 ms (scikit-learn 321) em 1 thread,
+  143 → 69 ms (95) em 4.
+- Testes: `forest::tests` (aprende, importância, bytes, threads, lugares),
+  `tests/ml.rs` (treino → arquivo → aplicação → AOA → pós-processamento),
+  etapas 226-228 do autoteste (pinos soltos por classe, floresta, mapa).
+- Depois: importância por permutação; ranger no benchmark (não instalado).
+
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
 - Ferramentas de IA do Zeit como download opcional (PyTorch é pesado).

@@ -830,7 +830,7 @@ impl State {
             ui.horizontal_top(|ui| side(ui, self, vec2(w, h)));
         }
         if let Some((x, y)) = clicked_pin {
-            self.add_pin(x, y);
+            self.drop_pin(x, y);
         }
         if let Some(t) = date {
             self.set_date(t);

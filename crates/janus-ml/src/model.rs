@@ -1,6 +1,6 @@
-//! A trained model: its network and what applying it needs (the architecture and its hyperparameters, the values
+//! A trained model: its network (or forest) and what applying it needs (the architecture and its hyperparameters, the values
 //! read on each date, the dates, the scaling, the classes), kept in a `.janusmodel` file: a header of JSON and the
-//! weights as SafeTensors.
+//! weights as SafeTensors (a forest's trees in its own format, forest.rs).
 
 use std::sync::Arc;
 
@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::data::{Calendar, InputBand, Norm};
+use crate::forest::{Forest, ForestHyper};
 use crate::ltae::{LTae, LTaeHyper};
 use crate::presto::{PrestoHyper, PrestoNet};
 use crate::tempcnn::{TempCnn, TempCnnHyper};
@@ -28,6 +29,7 @@ pub enum Arch {
     LTae(LTaeHyper),
     Presto(PrestoHyper),
     Utae(UtaeHyper),
+    RandomForest(ForestHyper),
 }
 
 impl Arch {
@@ -37,6 +39,7 @@ impl Arch {
             Arch::LTae(_) => "L-TAE",
             Arch::Presto(_) => "Presto",
             Arch::Utae(_) => "U-TAE",
+            Arch::RandomForest(_) => "Random Forest",
         }
     }
 }
@@ -76,14 +79,16 @@ pub struct Header {
     pub created: String,
 }
 
-/// One network a model (never many side by side): its size is no matter.
-#[allow(clippy::large_enum_variant)]
+/// One network a model (never many side by side): its size is no matter. A forest is no network (no weights to
+/// learn by gradients), held here as models hold their network.
+#[allow(clippy::large_enum_variant, deprecated)]
 #[derive(Module, Debug)]
 pub enum Net {
     TempCnn(TempCnn),
     LTae(LTae),
     Presto(PrestoNet),
     Utae(Utae),
+    Forest(burn::module::Ignored<Arc<Forest>>),
 }
 
 impl Net {
@@ -93,7 +98,13 @@ impl Net {
             Arch::LTae(h) => Net::LTae(LTae::new(h, bands, &calendar.day_offsets(), classes, device)),
             Arch::Presto(h) => Net::Presto(PrestoNet::new(h, classes, device)?),
             Arch::Utae(h) => Net::Utae(Utae::new(h, bands, classes, device)),
+            Arch::RandomForest(_) => return Err("a forest is grown (forest::train), not made".into()),
         })
+    }
+
+    #[allow(deprecated)]
+    pub fn forest(forest: Forest) -> Net {
+        Net::Forest(burn::module::Ignored(Arc::new(forest)))
     }
 
     /// [n, dates, values] -> the classes' scores [n, classes] (a pixel's networks: U-TAE classifies patches,
@@ -104,6 +115,7 @@ impl Net {
             Net::LTae(m) => m.forward(x),
             Net::Presto(m) => m.forward(x),
             Net::Utae(_) => panic!("U-TAE classifies patches (dense::classify_windows), not pixels"),
+            Net::Forest(_) => panic!("a forest is no network: Model::predict"),
         }
     }
 }
@@ -115,10 +127,22 @@ pub struct Model {
 }
 
 impl Model {
+    /// The model's forest, when it is one.
+    pub fn forest(&self) -> Option<&Forest> {
+        match &self.net {
+            Net::Forest(f) => Some(&***f),
+            _ => None,
+        }
+    }
+
     pub fn save(&self, path: &str) -> Result<(), String> {
-        let mut store = SafetensorsStore::from_bytes(None);
-        self.net.clone().valid().save_into(&mut store).map_err(|e| format!("cannot keep the weights: {e}"))?;
-        let weights = store.get_bytes().map_err(|e| format!("cannot keep the weights: {e}"))?;
+        let weights = if let Some(f) = self.forest() {
+            f.to_bytes()
+        } else {
+            let mut store = SafetensorsStore::from_bytes(None);
+            self.net.clone().valid().save_into(&mut store).map_err(|e| format!("cannot keep the weights: {e}"))?;
+            store.get_bytes().map_err(|e| format!("cannot keep the weights: {e}"))?
+        };
         let header = serde_json::to_vec(&self.header).map_err(|e| e.to_string())?;
         let mut out = Vec::with_capacity(MAGIC.len() + 8 + header.len() + weights.len());
         out.extend_from_slice(MAGIC);
@@ -139,6 +163,13 @@ impl Model {
     pub fn load(path: &str, device: &Device) -> Result<Model, String> {
         let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
         let (header, weights) = split(&bytes, path)?;
+        if let Arch::RandomForest(_) = &header.arch {
+            let f = Forest::from_bytes(weights).map_err(|e| format!("{path}: {e}"))?;
+            if f.classes != header.classes.len() || f.features != header.calendar.len() * header.inputs.len() {
+                return Err(format!("{path}: its forest does not fit its classes and values"));
+            }
+            return Ok(Model { header, net: Net::forest(f), device: device.clone() });
+        }
         let mut net = Net::new(&header.arch, header.inputs.len(), &header.calendar, header.classes.len(), device)?;
         let mut store = SafetensorsStore::from_bytes(Some(weights.to_vec()));
         net.load_from(&mut store).map_err(|e| format!("{path}: its weights do not fit its network: {e}"))?;
@@ -158,6 +189,9 @@ impl Model {
     /// The classes' probabilities [n][classes] of n pixels' inputs (n x steps x values), in batches.
     pub fn predict(&self, x: &[f32], n: usize, batch: usize) -> Vec<f32> {
         let ((t, b), k) = (self.input_shape(), self.header.classes.len());
+        if let Some(f) = self.forest() {
+            return f.predict(&x[..n * t * b], n);
+        }
         let mut out = Vec::with_capacity(n * k);
         let net = self.net.valid();
         for s in (0..n).step_by(batch.max(1)) {
