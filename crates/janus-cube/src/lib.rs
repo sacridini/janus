@@ -6,6 +6,7 @@
 
 pub mod calc;
 pub mod dates;
+mod grouped;
 pub mod inputs;
 pub mod multidim;
 mod raw_blocks;
@@ -561,13 +562,44 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         }
     }
 
+    // several bands a date, date after date, dated by the bands' names, Zeit's tag or a file of dates next to it
+    // (or a band a date, dated so)
+    let groups = if files.len() == 1 && packed_dates == 0 && n >= 2 && !info.remote {
+        grouped::date_groups(&first, &files[0], n)
+    } else {
+        None
+    };
+    let dated = groups.as_ref().is_some_and(|g| g.bands >= 2);
+    if let Some(g) = groups.as_ref().filter(|_| dated) {
+        packed_dates = g.dates.len();
+        packed_dims = g.bands;
+        packed_prefix = g.dates.clone();
+        packed_names = g.names.clone();
+    }
+    let from = |g: &grouped::DateGroups| {
+        if g.source.is_empty() { String::new() } else { format!(", dates from {}", g.source) }
+    };
+    // compressed with every band in each block: each band read decompresses all of them (~70x slower on a
+    // 224-band EnMAP scene)
+    let slow = {
+        let il = first.metadata_item("INTERLEAVE", "IMAGE_STRUCTURE");
+        let comp = first.metadata_item("COMPRESSION", "IMAGE_STRUCTURE");
+        let slow = il.is_some_and(|v| v.eq_ignore_ascii_case("PIXEL")) && comp.is_some() && n >= 16;
+        if slow { ", every band in each block (pixel-interleaved): read block by block" } else { "" }
+    };
+
     if packed_dates > 0 {
         info.bands_per_date = packed_dims;
         info.band_names = packed_names;
         info.sel = *sel;
         info.sel.nd_band = info.sel.nd_band.min(packed_dims as i32);
-        info.sel.qa_band = 0;
-        info.sel.qa_rule = QaRule::None;
+        if dated {
+            info.sel.qa_band = info.sel.qa_band.min(packed_dims as i32);
+            quality_by_name(&mut info, sel);
+        } else {
+            info.sel.qa_band = 0;
+            info.sel.qa_rule = QaRule::None;
+        }
         info.sel.band = info.sel.band.clamp(1, packed_dims as i32);
         if sel.expr.is_some() {
             let e = compile_expr(&info, sel)?;
@@ -596,10 +628,13 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
                 ..Default::default()
             });
         }
-        info.description = format!(
-            "1 file, {packed_dates} date{} x {packed_dims} bands (embeddings)",
-            if packed_dates > 1 { "s" } else { "" }
-        );
+        info.description = match groups.as_ref().filter(|_| dated) {
+            Some(g) => format!("1 file, {packed_dates} dates x {packed_dims} bands{}{slow}", from(g)),
+            None => format!(
+                "1 file, {packed_dates} date{} x {packed_dims} bands (embeddings)",
+                if packed_dates > 1 { "s" } else { "" }
+            ),
+        };
     } else if files.len() == 1 {
         // one file: each band is one date, or one wavelength of a spectrum
         let nm = spectral::band_wavelengths(&first, &files[0]);
@@ -682,11 +717,6 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
                 ..Default::default()
             });
         }
-        // compressed with every band in each block: each band read decompresses all of them (~70x slower on a
-        // 224-band EnMAP scene)
-        let il = first.metadata_item("INTERLEAVE", "IMAGE_STRUCTURE");
-        let comp = first.metadata_item("COMPRESSION", "IMAGE_STRUCTURE");
-        let slow = il.is_some_and(|v| v.eq_ignore_ascii_case("PIXEL")) && comp.is_some() && n >= 16;
         if info.spectral {
             info.layers.sort_by(|a, b| a.time.total_cmp(&b.time));
             for i in 0..info.t() {
@@ -696,14 +726,17 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
                 "1 file, {n} bands, {:.0} to {:.0} nm (spectrum){}",
                 info.layers[0].time,
                 info.layers[info.t() - 1].time,
-                if slow { ", every band in each block (pixel-interleaved): read block by block" } else { "" }
+                slow
             );
             return Ok(info);
         }
-        info.description = format!(
-            "1 file, {n} bands (1 band = 1 date){}",
-            if slow { ", every band in each block (pixel-interleaved): read block by block" } else { "" }
-        );
+        // a band a date, its dates in a file next to it or Zeit's tag
+        let mut dates_from = String::new();
+        if let Some(g) = &groups {
+            time_texts = g.dates.clone();
+            dates_from = from(g);
+        }
+        info.description = format!("1 file, {n} bands (1 band = 1 date){dates_from}{slow}");
     } else {
         info.bands_per_date = n;
         info.band_nm = spectral::series_band_wavelengths(&first, &files[0]);
@@ -719,32 +752,7 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
             info.sel.band = a;
             info.sel.nd_band = b;
         }
-        // a quality band recognised by name masks clouds from the start (the Display panel can turn it off)
-        if !sel.chosen && sel.qa_band == 0 {
-            for (b, name) in info.band_names.iter().enumerate() {
-                let l = name.to_lowercase();
-                let rule = if l.contains("fmask") {
-                    QaRule::Fmask
-                } else if l.contains("qa_pixel") {
-                    QaRule::LandsatC2
-                } else if l == "scl" || l.starts_with("scl ") {
-                    QaRule::Scl
-                } else {
-                    QaRule::None
-                };
-                if rule != QaRule::None {
-                    info.sel.qa_band = b as i32 + 1;
-                    info.sel.qa_rule = rule;
-                    break;
-                }
-            }
-        }
-        if info.sel.qa_band <= 0 {
-            info.sel.qa_rule = QaRule::None;
-        }
-        if info.sel.qa_rule == QaRule::None {
-            info.sel.qa_band = 0;
-        }
+        quality_by_name(&mut info, sel);
         // an expression: compiled over the bands' names, the first band it reads stands for the shown one
         if sel.expr.is_some() {
             let e = compile_expr(&info, sel)?;
@@ -863,6 +871,35 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         }
     }
     Ok(info)
+}
+
+/// A quality band recognised by name masks clouds from the start (the Display panel can turn it off).
+fn quality_by_name(info: &mut CubeInfo, sel: &BandSelection) {
+    if !sel.chosen && sel.qa_band == 0 {
+        for (b, name) in info.band_names.iter().enumerate() {
+            let l = name.to_lowercase();
+            let rule = if l.contains("fmask") {
+                QaRule::Fmask
+            } else if l.contains("qa_pixel") {
+                QaRule::LandsatC2
+            } else if l == "scl" || l.starts_with("scl ") {
+                QaRule::Scl
+            } else {
+                QaRule::None
+            };
+            if rule != QaRule::None {
+                info.sel.qa_band = b as i32 + 1;
+                info.sel.qa_rule = rule;
+                break;
+            }
+        }
+    }
+    if info.sel.qa_band <= 0 {
+        info.sel.qa_rule = QaRule::None;
+    }
+    if info.sel.qa_rule == QaRule::None {
+        info.sel.qa_band = 0;
+    }
 }
 
 /// An index of the library given by its name (--expr EVI) as its formula over the cube's bands, under its name:

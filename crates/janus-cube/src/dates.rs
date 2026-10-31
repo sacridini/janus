@@ -59,24 +59,36 @@ static Y: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[^0-9])((?:19|20)
 
 /// A date in the text: its Unix seconds and how precise it is (`None` without one).
 pub fn parse_date(s: &str) -> Option<(f64, TimeGranularity)> {
+    split_date(s).map(|(d, _)| d)
+}
+
+/// A date in the text and the text without it ("2020-01-15_red": the date and "red").
+pub fn split_date(s: &str) -> Option<((f64, TimeGranularity), String)> {
     let num = |c: &regex::Captures, i: usize| c[i].parse::<u32>().unwrap();
+    let rest = |c: &regex::Captures| {
+        // from the year's first digit to the last number's last (the match takes a character either side)
+        let (start, end) = (c.get(1).unwrap().start(), c.iter().flatten().map(|g| g.end()).skip(1).max().unwrap());
+        let trim = |t: &str| t.trim_matches(|c: char| matches!(c, '_' | '-' | '.' | ' ')).to_string();
+        let (a, b) = (trim(&s[..start]), trim(&s[end..]));
+        if a.is_empty() || b.is_empty() { a + &b } else { a + "_" + &b }
+    };
     if let Some(c) = YMD.captures(s) {
         let days = days_from_civil(num(&c, 1) as i32, num(&c, 2), num(&c, 3));
-        return Some((day_seconds(days), TimeGranularity::Day));
+        return Some(((day_seconds(days), TimeGranularity::Day), rest(&c)));
     }
     if let Some(c) = YDOY.captures(s) {
         let doy = num(&c, 2);
         if (1..=366).contains(&doy) {
             let days = days_from_civil(num(&c, 1) as i32, 1, 1) + i64::from(doy) - 1;
-            return Some((day_seconds(days), TimeGranularity::Day));
+            return Some(((day_seconds(days), TimeGranularity::Day), rest(&c)));
         }
     }
     if let Some(c) = YM.captures(s) {
         let days = days_from_civil(num(&c, 1) as i32, num(&c, 2), 1);
-        return Some((day_seconds(days), TimeGranularity::Month));
+        return Some(((day_seconds(days), TimeGranularity::Month), rest(&c)));
     }
     if let Some(c) = Y.captures(s) {
-        return Some((day_seconds(days_from_civil(num(&c, 1) as i32, 1, 1)), TimeGranularity::Year));
+        return Some(((day_seconds(days_from_civil(num(&c, 1) as i32, 1, 1)), TimeGranularity::Year), rest(&c)));
     }
     None
 }
@@ -148,6 +160,11 @@ mod tests {
         assert_eq!(parse_date("band 7"), None);
         // a number that only contains a year is not one
         assert_eq!(parse_date("tile_120056"), None);
+        let rest = |s| split_date(s).map(|(_, r)| r);
+        assert_eq!(rest("2020-01-15_red").as_deref(), Some("red"));
+        assert_eq!(rest("S2_20230811_NDVI").as_deref(), Some("S2_NDVI"));
+        assert_eq!(rest("yr1985").as_deref(), Some("yr"));
+        assert_eq!(rest("1985").as_deref(), Some(""));
     }
 
     #[test]

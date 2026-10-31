@@ -7,6 +7,13 @@
 - **Opens** a folder of rasters (1 file = 1 date), a multiband file (1 band = 1
   date), a list of files or a wildcard pattern. Dates are parsed from file names
   or band descriptions (`YYYY-MM-DD`, `YYYYMMDD`, `YYYY_MM`, `YYYY`, `A2001001`, ...).
+  A multiband file holding **several bands a date**, date after date, opens as
+  such (each date of several bands, see below) when its bands are named
+  `<date>_<band>` (`2020-01-15_red`, as Zeit's `save_raster` writes a time x band
+  stack), or when a `<name>_dates.csv` next to it (a date a row, from the column
+  named Date, as Zeit and cdts write it) has one date for every few bands: 875
+  bands and 125 dates are 7 bands a date, named Band 1 to Band 7 without names
+  in the file. With a date for every band it dates a file of one band a date.
   A file whose bands have wavelengths (hyperspectral, e.g. EnMAP) opens as a
   **spectrum** (see [Spectra](#spectra-hyperspectral)). A file whose bands each have
   a name that is not a date opens as a **stack of variables**: each band a map of
@@ -953,8 +960,8 @@ It works for any such file; EnMAP is the first case tested.
   block by block, every date of a block at once, its blocks decompressed by
   Janus itself when DEFLATE or ZSTD without a predictor: the overview, an ROI
   and the exact series each decompress a block once (875 Float64 bands of
-  1690 x 1675, a CCDC stack of 3.3 GB: the overview in 4 s rather than over
-  15 minutes). Paging through dates zoomed in still decompresses a block of
+  1690 x 1675, a CCDC stack of 3.3 GB, 125 dates of 7 bands: the overview in
+  5 s rather than over 15 minutes). Paging through dates zoomed in still decompresses a block of
   every band for each date shown; `gdal_translate -co INTERLEAVE=BAND` makes
   that fast.
 - The Zeit tools work along time and are disabled on a spectrum.

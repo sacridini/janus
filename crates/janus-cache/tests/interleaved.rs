@@ -1,6 +1,7 @@
 //! A file whose blocks hold every band (pixel-interleaved, a band a date) read block by block, its blocks
 //! decompressed by Janus: the overview and windows of every date as one read of each date through GDAL gives them
-//! (GDAL's nearest neighbour), bit for bit; in tiles of Float64 and in strips of Int16 (the last strip shorter).
+//! (GDAL's nearest neighbour), bit for bit; in tiles of Float64 and in strips of Int16 (the last strip shorter); of
+//! several bands a date (a normalized difference masked by a quality band, each read from the block).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -11,7 +12,7 @@ use gdal::DriverManager;
 use gdal::raster::{Buffer, GdalType, RasterCreationOptions};
 use janus_cache::blocks::BlockSampling;
 use janus_cache::{JobPool, Overview, OverviewOptions};
-use janus_cube::{BandSelection, CubeInfo, CubeReader, interleaved_blocks, open_cube};
+use janus_cube::{BandSelection, CubeInfo, CubeReader, QaRule, interleaved_blocks, open_cube};
 
 const W: usize = 300;
 const H: usize = 250;
@@ -38,7 +39,7 @@ fn stack<T: GdalType + Copy>(dir: &Path, opts: &[&str], value: impl Fn(f64) -> T
 }
 
 fn check(d: &Path, info: Arc<CubeInfo>, block: (usize, usize)) {
-    assert_eq!(info.t(), BANDS);
+    let dates = info.t();
     let (b, _) = interleaved_blocks(&info).expect("seen as pixel-interleaved");
     assert_eq!(b, block);
     let mut r = CubeReader::new(info.clone());
@@ -46,7 +47,7 @@ fn check(d: &Path, info: Arc<CubeInfo>, block: (usize, usize)) {
 
     // the overview, about a third a side
     let opts = OverviewOptions {
-        budget_bytes: (W * H / 9 * 4 * BANDS) as i64,
+        budget_bytes: (W * H / 9 * 4 * dates) as i64,
         max_texture: 16384,
         cache_dir: d.join("cache"),
         cache_budget: 0,
@@ -62,7 +63,7 @@ fn check(d: &Path, info: Arc<CubeInfo>, block: (usize, usize)) {
     assert!(ov.w < W / 2 && ov.h < H / 2, "a reduced overview: {} x {}", ov.w, ov.h);
     assert_eq!(ov.failed(), 0);
     let mut want = vec![0f32; ov.w * ov.h];
-    for t in 0..BANDS {
+    for t in 0..dates {
         assert!(r.read_window(t, (0, 0, W, H), &mut want, (ov.w, ov.h)));
         let got = ov.layer(t).unwrap();
         let bad = want.iter().zip(got).filter(|(a, b)| a.to_bits() != b.to_bits()).count();
@@ -74,11 +75,11 @@ fn check(d: &Path, info: Arc<CubeInfo>, block: (usize, usize)) {
     for (win, size) in [((37, 21, 200, 190), (61, 55)), ((50, 60, 100, 90), (100, 90)), ((10, 200, 280, 50), (280, 50))]
     {
         let s = BlockSampling::new(&info, win, size, block);
-        let dates: Vec<usize> = (0..BANDS).collect();
-        let mut got = vec![vec![f32::NAN; size.0 * size.1]; BANDS];
+        let all: Vec<usize> = (0..dates).collect();
+        let mut got = vec![vec![f32::NAN; size.0 * size.1]; dates];
         let (mut values, stop) = (Vec::new(), AtomicBool::new(false));
         for k in 0..s.windows.len() {
-            assert!(s.read(&mut r, k, &dates, &mut values, &stop, |j, sc| sc.put(&mut got[j])));
+            assert!(s.read(&mut r, k, &all, &mut values, &stop, |j, sc| sc.put(&mut got[j])));
         }
         let mut want = vec![0f32; size.0 * size.1];
         for (t, got) in got.iter().enumerate() {
@@ -103,5 +104,36 @@ fn strips_of_int16() {
     let d = std::env::temp_dir().join("janus_cache_interleaved_strips");
     let info = stack(&d.join("in"), &["BLOCKYSIZE=7"], |v| v as i16);
     check(&d, info, (W, 7));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn dates_of_four_bands() {
+    let d = std::env::temp_dir().join("janus_cache_interleaved_dated");
+    let info = stack(&d.join("in"), &["TILED=YES", "BLOCKXSIZE=64", "BLOCKYSIZE=64"], |v| v as f32);
+    assert_eq!(info.t(), BANDS);
+    let dates: String = (0..BANDS / 4)
+        .map(|k| {
+            format!(
+                "20{:02}-06-15
+",
+                10 + k
+            )
+        })
+        .collect();
+    std::fs::write(
+        d.join("in").join("stack_dates.csv"),
+        format!(
+            "Date
+{dates}"
+        ),
+    )
+    .unwrap();
+    // (band 3 - band 1) / (band 3 + band 1) where band 4 is not 0
+    let sel =
+        BandSelection { band: 3, nd_band: 1, qa_band: 4, qa_rule: QaRule::NonZero, chosen: true, ..Default::default() };
+    let info = Arc::new(open_cube(&[info.layers[0].path.clone()], &sel).unwrap());
+    assert_eq!((info.t(), info.bands_per_date, info.layers[2].band), (BANDS / 4, 4, 11));
+    check(&d, info, (64, 64));
     let _ = std::fs::remove_dir_all(&d);
 }
