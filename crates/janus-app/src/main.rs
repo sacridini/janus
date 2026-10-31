@@ -55,6 +55,7 @@ mod python;
 mod rasterize_ui;
 mod regularize_ui;
 mod roi;
+mod sample_check;
 mod sankey;
 mod season;
 mod selftest_zeit;
@@ -155,7 +156,7 @@ Developer options:
   --lens              the swipe as a lens (a circle at the cursor)
   --minimap           the minimap in the map's corner
   --goto PLACE        the map centred on a place (as Go to, Ctrl+G, takes it)
-  --pin X,Y           a pin at source pixel (X, Y) (repeatable)
+  --pin X,Y[,CLASS]   a pin at source pixel (X, Y), of CLASS for the classifiers (repeatable)
   --view X,Y,S        the map centred on source pixel (X, Y), S screen pixels per source pixel (with
                       --screenshot: once its full-resolution tiles are drawn)
   --opacity A         the active layer's opacity (0 to 1)
@@ -194,7 +195,8 @@ Developer options:
   --palette TEXT      the command palette open with TEXT typed (screenshots)
   --window NAME,...   tool windows open once the layers are: regularize, speckle, warp, build, save,
                       polygonize (the active series), rasterize, zonal (the first vector layer), areas
-                      (Analysis > Areas); NAME-run also runs it, the screenshot waiting for its result
+                      (Analysis > Areas), classification (a Random Forest on the pins, their samples
+                      checked); NAME-run also runs it, the screenshot waiting for its result
   --validation-tab N  a validation project (a .gpkg input) on tab N of its panel (0 Design, 1 Accuracy,
                       2 Maps, 3 Interpreters, 4 Report)
   --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation
@@ -475,10 +477,13 @@ fn main() -> eframe::Result<()> {
             "--date" => opts.date = args.next().and_then(|v| v.parse().ok()),
             "--chart" => opts.chart = args.next(),
             "--pin" => {
-                let v: Vec<usize> =
-                    args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
-                if let [x, y] = v[..] {
-                    opts.pins.push((x, y));
+                let a = args.next().unwrap_or_default();
+                let parts: Vec<&str> = a.split(',').map(str::trim).collect();
+                let v: Vec<usize> = parts.iter().take(2).filter_map(|v| v.parse().ok()).collect();
+                match (&v[..], parts.get(2)) {
+                    ([x, y], Some(class)) if !class.is_empty() => opts.class_pins.push((*x, *y, class.to_string())),
+                    ([x, y], _) => opts.pins.push((*x, *y)),
+                    _ => {}
                 }
             }
             "--roi" => {

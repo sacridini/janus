@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use egui::{ComboBox, Ui};
+use egui::{ComboBox, RichText, Ui};
 use egui_plot::{Legend, Line, Plot, PlotPoints};
 use janus_cube::CubeInfo;
 use janus_geo::vectors::Kind;
@@ -47,15 +47,18 @@ const SOURCES: [&str; 5] = [
 const POLYGONS: [&str; 3] = ["Its centre", "Each pixel inside", "The mean of its pixels"];
 
 /// A place samples come from: its class and its pixels (in the active layer), one sample each or their mean.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Site {
     pub class: String,
+    /// what it is ("Pin 3", "Feature 12"), and its pin
+    pub label: String,
+    pub pin: Option<u32>,
     pub pixels: Vec<(usize, usize)>,
     pub mean: bool,
 }
 
-/// The samples of each class (or why there are none).
-type Counts = Result<Vec<(String, usize)>, String>;
+/// The samples and their classes (or why there are none).
+type SitesResult = Result<(Vec<Site>, Vec<String>), String>;
 
 /// A training under way or done.
 #[derive(Default)]
@@ -113,8 +116,12 @@ pub struct MlUi {
     pub run: Option<Arc<Mutex<TrainRun>>>,
     /// the model to apply: its file and header
     pub model: Option<(String, Header)>,
-    /// the samples' count by class, and when it was made
-    counted: Option<(Instant, Counts)>,
+    /// the window's tab (Samples, Model, Apply)
+    pub tab: usize,
+    /// the samples of the source, and when they were made
+    sites: Option<(Instant, SitesResult)>,
+    /// the samples' quality, checked as they are gathered
+    pub check: crate::sample_check::SampleCheck,
 }
 
 impl Default for MlUi {
@@ -150,7 +157,9 @@ impl Default for MlUi {
             aoa: true,
             run: None,
             model: None,
-            counted: None,
+            tab: 0,
+            sites: None,
+            check: Default::default(),
         }
     }
 }
@@ -206,6 +215,17 @@ fn guarded<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
             _ => "failed (a panic)".into(),
         })
     })
+}
+
+/// Each class's samples (a pixel each, or a place's mean).
+fn counts_of(sites: &[Site], classes: &[String]) -> Vec<(String, usize)> {
+    classes
+        .iter()
+        .map(|c| {
+            let n = sites.iter().filter(|s| &s.class == c).map(|s| if s.mean { 1 } else { s.pixels.len() }).sum();
+            (c.clone(), n)
+        })
+        .collect()
 }
 
 /// Class k's colour: the Paired colormap's, as the class map shows it.
@@ -283,7 +303,8 @@ impl State {
                         (v.px.get(i).cloned().unwrap_or_default(), v.anchor.get(i).copied().unwrap_or([f64::NAN; 2]));
                     let pixels = feature_pixels(&poly, anchor, f.kind, every, max, info);
                     if !pixels.is_empty() {
-                        sites.push(Site { class: c, pixels, mean: mean && f.kind == Kind::Area });
+                        let label = format!("Feature {}", i + 1);
+                        sites.push(Site { class: c, label, pin: None, pixels, mean: mean && f.kind == Kind::Area });
                     }
                 }
                 Ok(())
@@ -330,7 +351,13 @@ impl State {
                 order = ui.pin_class_list.clone();
                 for p in &self.series.pins {
                     if let Some(c) = ui.pin_classes.get(&p.id).filter(|c| !c.trim().is_empty()) {
-                        sites.push(Site { class: c.trim().to_string(), pixels: vec![(p.x, p.y)], mean: false });
+                        sites.push(Site {
+                            class: c.trim().to_string(),
+                            label: format!("Pin {}", p.id),
+                            pin: Some(p.id),
+                            pixels: vec![(p.x, p.y)],
+                            mean: false,
+                        });
                     }
                 }
             }
@@ -378,7 +405,9 @@ impl State {
             return;
         }
         let mut open = true;
-        crate::panels::fitted_window("Classification", ctx, 460.0)
+        // wide enough for the samples' two columns where the screen allows
+        let width = (ctx.content_rect().width() * 0.5).clamp(440.0, 860.0);
+        crate::panels::fitted_window("Classification", ctx, width)
             .id(egui::Id::new("ml window"))
             .open(&mut open)
             .show(ctx, |ui| crate::panels::fitted_body(ui, |ui| self.ml_ui(ui)));
@@ -389,19 +418,54 @@ impl State {
     }
 
     pub(crate) fn ml_ui(&mut self, ui: &mut Ui) {
-        ui.label(
-            "Classify every pixel by its whole series with a model trained on samples you already have in Janus. \
-             A Random Forest learns quickly from few samples (its trees vote on each date's values); TempCNN reads the series as a sequence of fixed length; L-TAE weighs the dates by attention \
-             (both as sits builds them); Presto, pretrained on Sentinel-1 and -2 series worldwide, encodes a year \
-             of a pixel and a classifier learns from its encodings. Trained here on the GPU (or the CPU), \
-             without Python.",
-        );
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else {
             ui.colored_label(crate::theme::error(), "Open a series first.");
             return;
         };
+        // the samples checked as they are gathered (not a class map's: every pixel a label)
+        let read = self.ml_inputs(&info);
+        if let Ok((sites, classes)) = self.ml_refresh_sites(false)
+            && self.ml.source != 4
+            && !read.is_empty()
+        {
+            self.drive_sample_check(&info, &read, &sites, &classes, ui.ctx());
+        }
+        let to_look = self
+            .ml
+            .check
+            .report
+            .as_deref()
+            .map_or(0, |r| crate::sample_check::warnings(r).iter().filter(|w| w.level > 0).count());
+        ui.horizontal(|ui| {
+            let training = self.ml.training();
+            for (i, name) in ["Samples", "Model", "Apply"].into_iter().enumerate() {
+                let text = match i {
+                    0 if to_look > 0 => RichText::new(format!("{name} ({to_look})")),
+                    1 if training => RichText::new(format!("{name} (training...)")),
+                    _ => RichText::new(name),
+                };
+                ui.selectable_value(&mut self.ml.tab, i, text.strong());
+            }
+        });
+        ui.separator();
+        match self.ml.tab {
+            0 => self.ml_samples_tab(ui, &info),
+            1 => self.ml_model_tab(ui, &info),
+            _ => self.ml_rest_ui(ui, &info),
+        }
+    }
 
-        crate::panels::section(ui, "Samples");
+    /// The samples of the source, again when asked (a choice changed) or a second old; the pins' every frame.
+    fn ml_refresh_sites(&mut self, changed: bool) -> Result<(Vec<Site>, Vec<String>), String> {
+        if changed || self.ml.source == 3 || self.ml.sites.as_ref().is_none_or(|c| c.0.elapsed().as_secs_f64() > 1.0) {
+            let r = self.ml_sites();
+            self.ml.sites = Some((Instant::now(), r));
+        }
+        self.ml.sites.as_ref().map_or(Err(String::new()), |c| c.1.clone())
+    }
+
+    /// Where the samples come from: the source and its choices; whether they changed.
+    fn ml_source_ui(&mut self, ui: &mut Ui, info: &Arc<CubeInfo>) -> bool {
         let mut changed = false;
         ComboBox::from_id_salt("ml source").width(ui.available_width()).selected_text(SOURCES[self.ml.source]).show_ui(
             ui,
@@ -486,64 +550,113 @@ impl State {
                     .changed();
             }
         }
-        if changed || self.ml.counted.as_ref().is_none_or(|c| c.0.elapsed().as_secs_f64() > 1.0) {
-            let counts = self.ml_sites().map(|(sites, classes)| {
-                classes
-                    .iter()
-                    .map(|c| {
-                        let n = sites
-                            .iter()
-                            .filter(|s| &s.class == c)
-                            .map(|s| if s.mean { 1 } else { s.pixels.len() })
-                            .sum();
-                        (c.clone(), n)
-                    })
-                    .collect::<Vec<_>>()
-            });
-            self.ml.counted = Some((Instant::now(), counts));
+        changed
+    }
+
+    /// The Samples tab: where they come from, then their quality as they are gathered (a summary, the classes, what
+    /// to look at, each class's typical series, the samples), in two columns when the window is wide.
+    fn ml_samples_tab(&mut self, ui: &mut Ui, info: &Arc<CubeInfo>) {
+        let changed = self.ml_source_ui(ui, info);
+        let (sites, classes) = match self.ml_refresh_sites(changed) {
+            Ok(s) => s,
+            Err(e) => {
+                ui.colored_label(crate::theme::error(), e);
+                return;
+            }
+        };
+        if self.ml.source == 4 {
+            if let Some(r) = self.zeit.results.iter().find(|r| r.path == self.ml.label_map) {
+                ui.label(format!("{} classes: {}", r.classes.len(), r.classes.join(", ")));
+            }
+            return;
         }
+        if sites.is_empty() && (self.ml.source != 3 || self.series.pins.is_empty()) {
+            ui.weak("No labelled samples yet.");
+            return;
+        }
+        let counts = counts_of(&sites, &classes);
+        crate::panels::section(ui, "Quality");
+        self.samples_summary_ui(ui, &counts);
+        let screen = ui.ctx().content_rect().height();
+        let (table_h, sig_h) = ((screen * 0.3).clamp(140.0, 420.0), (screen * 0.17).clamp(100.0, 190.0));
+        if ui.available_width() >= 640.0 {
+            ui.columns(2, |c| {
+                crate::panels::section(&mut c[0], "Classes");
+                self.classes_table_ui(&mut c[0], &counts);
+                crate::panels::section(&mut c[0], "Typical series (mean, p10-p90)");
+                self.signatures_ui(&mut c[0], sig_h);
+                crate::panels::section(&mut c[1], "To look at");
+                self.warnings_ui(&mut c[1]);
+                crate::panels::section(&mut c[1], "Samples");
+                self.samples_table_ui(&mut c[1], &sites, &classes, table_h);
+            });
+        } else {
+            crate::panels::section(ui, "Classes");
+            self.classes_table_ui(ui, &counts);
+            crate::panels::section(ui, "To look at");
+            self.warnings_ui(ui);
+            egui::CollapsingHeader::new("Typical series (mean, p10-p90)")
+                .id_salt("ml signatures")
+                .default_open(false)
+                .show(ui, |ui| self.signatures_ui(ui, sig_h));
+            crate::panels::section(ui, "Samples");
+            self.samples_table_ui(ui, &sites, &classes, table_h);
+        }
+    }
+
+    /// The Model tab: the samples in a line, the values read, the model and its training.
+    fn ml_model_tab(&mut self, ui: &mut Ui, info: &Arc<CubeInfo>) {
         let mut can_train = false;
-        match &self.ml.counted.as_ref().map(|c| &c.1) {
-            Some(Ok(c)) if !c.is_empty() => {
-                let total: usize = c.iter().map(|x| x.1).sum();
-                ui.label(format!("{total} samples in {} classes", c.len()));
-                ui.weak(c.iter().map(|(k, n)| format!("{k} ({n})")).collect::<Vec<_>>().join(", "));
-                can_train = c.len() >= 2 && total >= 10;
+        match self.ml_refresh_sites(false) {
+            Ok((sites, classes)) if !sites.is_empty() => {
+                let counts = counts_of(&sites, &classes);
+                let total: usize = counts.iter().map(|x| x.1).sum();
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(format!("{total} samples in {} classes", counts.len()));
+                    if let Some(r) = self.ml.check.current() {
+                        let look = crate::sample_check::warnings(r).iter().filter(|w| w.level > 0).count();
+                        if r.accuracy.is_finite() {
+                            ui.weak(format!("estimated accuracy {:.0} %", r.accuracy * 100.0));
+                        }
+                        if look > 0 && ui.link(format!("{look} to look at")).clicked() {
+                            self.ml.tab = 0;
+                        }
+                    }
+                });
+                can_train = counts.len() >= 2 && total >= 10;
                 if !can_train {
                     ui.colored_label(crate::theme::error(), "At least two classes and ten samples are needed.");
                 }
             }
-            Some(Ok(c)) if self.ml.source == 4 && self.ml.arch == UTAE => {
-                let _ = c;
-                if let Some(r) = self.zeit.results.iter().find(|r| r.path == self.ml.label_map) {
-                    ui.label(format!("{} classes: {}", r.classes.len(), r.classes.join(", ")));
-                    can_train = r.classes.len() >= 2;
+            Ok((_, classes)) if self.ml.source == 4 && self.ml.arch == UTAE => {
+                ui.label(format!("{} classes: {}", classes.len(), classes.join(", ")));
+                can_train = classes.len() >= 2;
+            }
+            Ok(_) => {
+                if ui.link("No labelled samples yet: gather them in Samples.").clicked() {
+                    self.ml.tab = 0;
                 }
             }
-            Some(Ok(_)) => {
-                ui.weak("No labelled samples yet.");
+            Err(e) => {
+                ui.colored_label(crate::theme::error(), e);
             }
-            Some(Err(e)) => {
-                ui.colored_label(crate::theme::error(), e.as_str());
-            }
-            None => {}
         }
 
         crate::panels::section(ui, "Values read on each date");
         if self.ml.arch == 2 {
-            can_train &= self.presto_inputs_ui(ui, &info);
+            can_train &= self.presto_inputs_ui(ui, info);
         } else if self.ml.arch == UTAE
-            && pastis_bands(&info).is_some()
+            && pastis_bands(info).is_some()
             && {
                 ui.checkbox(&mut self.ml.pastis, "Start from the authors' PASTIS weights (Sentinel-2 crops, 10 bands)")
                 .on_hover_text("U-TAE trained by its authors on PASTIS (France, 20 crop types): its weights as the starting point, its last layer made for your classes. Downloaded once (13 MB).");
                 self.ml.pastis
             }
         {
-            let b = pastis_bands(&info).unwrap_or_default();
+            let b = pastis_bands(info).unwrap_or_default();
             ui.weak(format!("Its 10 bands: {}", b.iter().map(|x| x.name.clone()).collect::<Vec<_>>().join(", ")));
         } else if info.bands_per_date > 1 {
-            ui.checkbox(&mut self.ml.shown, format!("The series shown ({})", InputBand::shown(&info).name));
+            ui.checkbox(&mut self.ml.shown, format!("The series shown ({})", InputBand::shown(info).name));
             ui.horizontal_wrapped(|ui| {
                 for b in 1..=info.bands_per_date as i32 {
                     let name = info.band_names.get(b as usize - 1).cloned().unwrap_or_else(|| format!("band {b}"));
@@ -558,12 +671,12 @@ impl State {
                 }
             });
         } else {
-            ui.label(format!("The series shown ({})", InputBand::shown(&info).name));
+            ui.label(format!("The series shown ({})", InputBand::shown(info).name));
         }
         let inputs = if self.ml.arch == UTAE && self.ml.pastis {
-            pastis_bands(&info).unwrap_or_default()
+            pastis_bands(info).unwrap_or_default()
         } else {
-            self.ml_inputs(&info)
+            self.ml_inputs(info)
         };
         if self.ml.arch == UTAE {
             ui.horizontal(|ui| {
@@ -602,13 +715,29 @@ impl State {
                 }
             },
         );
+        ui.weak(match self.ml.arch {
+            FOREST => {
+                "Many decision trees, each grown on a bootstrap sample of the samples, vote on each date's values: \
+                 quick on the CPU, good with few samples, and it tells which dates matter."
+            }
+            0 => "Convolutions over the series read as a sequence of fixed length, as sits builds it.",
+            1 => "The dates weighed by attention, as sits builds it.",
+            2 => {
+                "Pretrained on Sentinel-1 and -2 series worldwide, it encodes a year of a pixel; a classifier learns \
+                 from its encodings."
+            }
+            _ => {
+                "A U-Net on each date and attention over the dates: patches segmented, a pixel's class from its \
+                  neighbourhood too."
+            }
+        });
         if self.ml.arch != before || self.ml.cfg_arch != self.ml.arch {
             let seed = self.ml.cfg.seed;
             self.ml.cfg = TrainConfig { seed, ..TrainConfig::for_arch(&self.ml.arch()) };
             self.ml.cfg_arch = self.ml.arch;
         }
         if self.ml.arch == FOREST {
-            self.forest_settings_ui(ui, &info, inputs.len());
+            self.forest_settings_ui(ui, info, inputs.len());
         } else {
             self.net_settings_ui(ui);
         }
@@ -620,12 +749,10 @@ impl State {
             )
             .clicked()
         {
-            self.ml_train(&info, inputs.clone(), ui.ctx());
+            self.ml_train(info, inputs.clone(), ui.ctx());
         }
         self.ml_progress_ui(ui);
-        self.ml_rest_ui(ui, &info);
     }
-
     /// The networks' training settings (sits').
     fn net_settings_ui(&mut self, ui: &mut Ui) {
         egui::Grid::new("ml cfg").num_columns(2).show(ui, |ui| {
@@ -716,8 +843,8 @@ impl State {
         }
     }
 
-    /// The pins' classes: the list (their colours), the class a click's pin is given, the pins grouped by class,
-    /// each moved to another. Whether the samples changed.
+    /// The pins' classes: the list (their colours), the class a click's pin is given, the pins without one given
+    /// one at once (the samples' table lists every pin). Whether the samples changed.
     fn pin_classes_ui(&mut self, ui: &mut Ui) -> bool {
         let mut changed = false;
         if self.series.pins.is_empty() {
@@ -799,49 +926,19 @@ impl State {
                 self.color_pins();
             }
         });
-        // the pins grouped by class, the ones without one last
-        type PinRow = (u32, egui::Color32, usize, usize);
-        let pins: Vec<PinRow> = self.series.pins.iter().map(|p| (p.id, p.color, p.x, p.y)).collect();
-        let class_of = |id: u32| self.ml.pin_classes.get(&id).cloned().unwrap_or_default();
-        let mut groups: Vec<(String, Vec<PinRow>)> = list.iter().map(|c| (c.clone(), vec![])).collect();
-        groups.push((String::new(), vec![]));
-        for p in &pins {
-            let c = class_of(p.0);
-            let g = groups.iter().position(|g| g.0 == c).unwrap_or(groups.len() - 1);
-            groups[g].1.push(*p);
-        }
+        // the pins without a class, given one at once (the table below lists them all)
+        let unclassed: Vec<u32> =
+            self.series.pins.iter().map(|p| p.id).filter(|id| !self.ml.pin_classes.contains_key(id)).collect();
         let mut moves: Vec<(u32, String)> = vec![];
-        for (c, members) in &groups {
-            if members.is_empty() {
-                continue;
-            }
-            let title = if c.is_empty() { "No class" } else { c.as_str() };
-            egui::CollapsingHeader::new(format!("{title} ({})", members.len()))
-                .id_salt(("ml pin group", c.as_str()))
-                .default_open(true)
-                .show(ui, |ui| {
-                    if c.is_empty()
-                        && !list.is_empty()
-                        && let Some(to) = ui
-                            .horizontal(|ui| {
-                                ui.label("All of them:");
-                                choose(ui, egui::Id::new("ml unclassed to"), "", "(choose a class)")
-                            })
-                            .inner
-                            .filter(|t| !t.is_empty())
-                    {
-                        moves.extend(members.iter().map(|m| (m.0, to.clone())));
-                    }
-                    for &(id, color, x, y) in members {
-                        ui.horizontal(|ui| {
-                            ui.colored_label(color, format!("Pin {id}"));
-                            ui.weak(format!("({x}, {y})"));
-                            if let Some(to) = choose(ui, egui::Id::new(("ml pin class", id)), c, "no class") {
-                                moves.push((id, to));
-                            }
-                        });
-                    }
-                });
+        if !unclassed.is_empty() && !list.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label(format!("{} pins without a class:", unclassed.len()));
+                if let Some(to) =
+                    choose(ui, egui::Id::new("ml unclassed to"), "", "(give them a class)").filter(|t| !t.is_empty())
+                {
+                    moves.extend(unclassed.iter().map(|&id| (id, to.clone())));
+                }
+            });
         }
         for (id, to) in moves {
             self.set_pin_class(id, &to);
@@ -1101,6 +1198,7 @@ impl State {
             ..Default::default()
         }));
         self.ml.run = Some(run.clone());
+        self.ml.tab = 1;
         let status = Arc::new(Mutex::new(JobStatus {
             state: JobState::Running,
             progress: 0.0,
@@ -1444,6 +1542,27 @@ pub fn sample_series(
 ) -> (janus_ml::Series, Vec<u32>, Norm, Vec<usize>, Vec<usize>) {
     let pixels: Vec<(usize, usize)> = sites.iter().flat_map(|s| s.pixels.iter().copied()).collect();
     let raw = janus_ml::data::read_points(info, inputs, &pixels);
+    let (mut s, y, place) = assemble(&raw, sites, classes, &Calendar::of(info).years, min_valid);
+    let mut per_class = vec![0usize; classes.len()];
+    for &k in &y {
+        per_class[k as usize] += 1;
+    }
+    let norm = Norm::fit(&s);
+    norm.apply(&mut s);
+    (s, y, norm, per_class, place)
+}
+
+/// The samples from the sites' pixels' raw series (`raw`, the sites' pixels in order): each pixel a sample, or each
+/// place's mean (of each date's values over the pixels with one); gaps filled linearly in time, the samples with
+/// values on fewer than `min_valid` % of the dates left out. The series (not scaled), the classes and each sample's
+/// place (its site).
+pub fn assemble(
+    raw: &janus_ml::Series,
+    sites: &[Site],
+    classes: &[String],
+    years: &[f64],
+    min_valid: f64,
+) -> (janus_ml::Series, Vec<u32>, Vec<usize>) {
     let (t, b) = (raw.t, raw.b);
     let mut values = vec![];
     let mut y = vec![];
@@ -1453,7 +1572,6 @@ pub fn sample_series(
         let k = classes.iter().position(|c| c == &s.class).unwrap_or(0) as u32;
         let n = s.pixels.len();
         if s.mean {
-            // the mean of each date's values over the pixels with one
             let mut m = vec![f32::NAN; t * b];
             for (j, v) in m.iter_mut().enumerate() {
                 let (mut sum, mut cnt) = (0f64, 0);
@@ -1479,18 +1597,12 @@ pub fn sample_series(
         at += n;
     }
     let mut s = janus_ml::Series { n: y.len(), t, b, values };
-    let keep = janus_ml::data::fill_gaps(&mut s, &Calendar::of(info).years, min_valid);
+    let keep = janus_ml::data::fill_gaps(&mut s, years, min_valid);
     let idx: Vec<usize> = (0..s.n).filter(|&i| keep[i]).collect();
-    let mut s = s.select(&idx);
+    let s = s.select(&idx);
     let y: Vec<u32> = idx.iter().map(|&i| y[i]).collect();
     let place: Vec<usize> = idx.iter().map(|&i| place[i]).collect();
-    let mut per_class = vec![0usize; classes.len()];
-    for &k in &y {
-        per_class[k as usize] += 1;
-    }
-    let norm = Norm::fit(&s);
-    norm.apply(&mut s);
-    (s, y, norm, per_class, place)
+    (s, y, place)
 }
 
 #[allow(clippy::too_many_arguments)]

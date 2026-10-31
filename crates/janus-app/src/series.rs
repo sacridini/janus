@@ -239,11 +239,13 @@ impl State {
     pub fn drop_pin(&mut self, x: usize, y: usize) {
         let before = self.series.pins.len();
         self.add_pin(x, y);
+        let Some(id) = self.series.pins.last().map(|p| p.id).filter(|_| self.series.pins.len() > before) else {
+            return;
+        };
+        // its verdict shown in the samples' summary
+        self.ml.check.last_pin = Some(id);
         let class = self.ml.drop_class.trim().to_string();
-        if self.series.pins.len() > before
-            && !class.is_empty()
-            && let Some(id) = self.series.pins.last().map(|p| p.id)
-        {
+        if !class.is_empty() {
             self.set_pin_class(id, &class);
         }
     }

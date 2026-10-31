@@ -1987,16 +1987,64 @@ impl State {
                 if class.classes != ["Early", "Late"] || wrong > 0 {
                     return fail("the class map: Early on the left half, Late on the right");
                 }
-                let k = self.layers.iter().position(|l| l.name == "Seasons")?;
-                self.remove_layer(k, ctx);
-                self.clear_pins();
-                for dir in &st.texts {
-                    let _ = std::fs::remove_dir_all(dir);
-                }
                 next(st, "Random Forest: its class map Early on the left half, Late on the right");
+                // the samples checked as they are gathered: the window open on them
+                self.ml.open = true;
+                self.ml.tab = 0;
                 None
             }
             229 => {
+                let r = self.ml.check.current()?;
+                if r.samples != 16 {
+                    return None;
+                }
+                let w = crate::sample_check::warnings(r);
+                println!(
+                    "    checked: {} samples, estimated accuracy {:.2} ({} folds), {} suspect, {} warnings",
+                    r.samples,
+                    r.accuracy,
+                    r.folds,
+                    r.suspects(),
+                    w.len()
+                );
+                let sig = r.signatures.len() == 2 && r.signatures.iter().all(|s| s.len() == 24 && s[0][1].is_finite());
+                if r.accuracy < 0.99 || r.suspects() != 0 || w.iter().any(|x| x.level > 1) || !sig {
+                    return fail("16 pins of two halves: all fitting their class, each class's typical series");
+                }
+                // a pin of the left half given the right half's class: taken for what it is
+                let id = self.series.pins.iter().find(|p| p.x == 2)?.id;
+                self.set_pin_class(id, "Late");
+                st.texts.push(id.to_string());
+                next(st, "the samples checked: the estimated accuracy, each class's series, no warning to fix");
+                None
+            }
+            230 => {
+                let r = self.ml.check.current()?;
+                let id: u32 = st.texts.last()?.parse().ok()?;
+                let p = r.places.iter().find(|p| p.pin == Some(id))?;
+                let w = crate::sample_check::warnings(r);
+                println!(
+                    "    pin {id} (Late) fits Late {:.2}, looks like {} {:.2}; {}",
+                    p.own,
+                    r.classes[p.likely].name,
+                    p.likely_p,
+                    w.first().map_or("", |x| x.text.as_str())
+                );
+                if !p.suspect() || !r.suspect_pins().contains(&id) || w.first().is_none_or(|x| x.level != 2) {
+                    return fail("the mislabelled pin should look like its half's class, a warning to fix");
+                }
+                self.ml.open = false;
+                let k = self.layers.iter().position(|l| l.name == "Seasons")?;
+                self.remove_layer(k, ctx);
+                self.clear_pins();
+                st.texts.pop();
+                for dir in &st.texts {
+                    let _ = std::fs::remove_dir_all(dir);
+                }
+                next(st, "a pin given the wrong class: flagged as looking like another, ringed on the map");
+                None
+            }
+            231 => {
                 // the validation's folder (stages 170-179), its strata layer open until now
                 let _ = std::fs::remove_dir_all(&st.dir);
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());

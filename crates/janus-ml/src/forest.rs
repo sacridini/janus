@@ -462,6 +462,77 @@ impl Forest {
     }
 }
 
+/// Each sample's classes' probabilities by a forest that never saw its place (scikit-learn's `cross_val_predict`
+/// with a `GroupKFold`): the places dealt into `folds` (each class's places spread over them), a forest grown on
+/// the other folds for each. A sample whose class has no place in the other folds (a class of one place) is not
+/// predicted (NaN). And each value's importance, the folds' mean.
+pub struct CrossPredicted {
+    pub probs: Vec<f32>,
+    pub importance: Vec<f64>,
+    pub folds: usize,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn cross_predict(
+    x: &Series,
+    y: &[u32],
+    k: usize,
+    places: &[usize],
+    folds: usize,
+    h: &ForestHyper,
+    seed: u64,
+    cancel: &AtomicBool,
+) -> Result<CrossPredicted, String> {
+    let (n, p) = (x.n, x.t * x.b);
+    let mut probs = vec![f32::NAN; n * k];
+    let mut importance = vec![0f64; p];
+    // the places, dealt class by class so that each fold has some of each class
+    let mut rng = Rng::new(seed);
+    let mut fold_of = std::collections::HashMap::new();
+    let mut next = 0usize;
+    for c in 0..k as u32 {
+        let mut of: Vec<usize> = (0..n)
+            .filter(|&i| y[i] == c)
+            .map(|i| places[i])
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        rng.shuffle(&mut of);
+        for pl in of {
+            fold_of.entry(pl).or_insert_with(|| {
+                next += 1;
+                next % folds.max(2)
+            });
+        }
+    }
+    let folds = folds.max(2).min(fold_of.len().max(2));
+    let fold = |i: usize| fold_of[&places[i]] % folds;
+    let mut grown = 0;
+    for f in 0..folds {
+        let (test, train_idx): (Vec<usize>, Vec<usize>) = (0..n).partition(|&i| fold(i) == f);
+        let present: std::collections::BTreeSet<u32> = train_idx.iter().map(|&i| y[i]).collect();
+        if test.is_empty() || present.len() < 2 {
+            continue;
+        }
+        let t = train(x, y, k, h, &train_idx, &[], seed.wrapping_add(f as u64), &mut |_| {}, cancel)?;
+        let xt: Vec<f32> = test.iter().flat_map(|&i| x.pixel(i).iter().copied()).collect();
+        let pr = t.forest.predict(&xt, test.len());
+        for (j, &i) in test.iter().enumerate() {
+            if present.contains(&y[i]) {
+                probs[i * k..(i + 1) * k].copy_from_slice(&pr[j * k..(j + 1) * k]);
+            }
+        }
+        for (a, b) in importance.iter_mut().zip(&t.importance) {
+            *a += b;
+        }
+        grown += 1;
+    }
+    if grown > 0 {
+        importance.iter_mut().for_each(|v| *v /= grown as f64);
+    }
+    Ok(CrossPredicted { probs, importance, folds })
+}
+
 /// The samples split for the validation, by place: a place's samples (a polygon's pixels, a pin) all on one side, so
 /// the validation meets places the forest never saw (`share` of each class's samples, about, in whole places; a
 /// class of one place only for the training). Without places (or one place a sample), by sample. Returns the
@@ -548,6 +619,35 @@ mod tests {
         let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
         let one = pool.install(|| train(&x, &y, 3, &h, &tr, &va, 7, &mut |_| {}, &AtomicBool::new(false)).unwrap());
         assert_eq!(one.forest, f.forest);
+    }
+
+    #[test]
+    fn predicts_each_place_unseen() {
+        // 3 classes, places of 5 samples; one place of class 0 labelled 1: it is the one taken for another class
+        let (x, mut y) = data(300, 5);
+        let places: Vec<usize> = (0..300).map(|i| (i / 3) / 5 * 3 + i % 3).collect();
+        let wrong: Vec<usize> = (0..300).filter(|&i| places[i] == 0).collect();
+        for &i in &wrong {
+            y[i] = 1;
+        }
+        let h = ForestHyper { trees: 40, ..Default::default() };
+        let c = cross_predict(&x, &y, 3, &places, 5, &h, 1, &AtomicBool::new(false)).unwrap();
+        let best = |i: usize| (0..3).fold(0, |b, j| if c.probs[i * 3 + j] > c.probs[i * 3 + b] { j } else { b });
+        assert!(wrong.iter().all(|&i| best(i) == 0), "the mislabelled place taken for its own class");
+        let right = (0..300).filter(|i| !wrong.contains(i) && best(*i) == y[*i] as usize).count();
+        assert!(right as f64 / (300 - wrong.len()) as f64 > 0.95);
+        assert!((c.importance.iter().sum::<f64>() - 1.0).abs() < 1e-9 && c.folds == 5);
+        // a class of a single place: not predicted
+        let mut y2 = y.clone();
+        for i in 0..300 {
+            if places[i] == 3 {
+                y2[i] = 2;
+            } else if y2[i] == 2 {
+                y2[i] = 0;
+            }
+        }
+        let c = cross_predict(&x, &y2, 3, &places, 5, &h, 1, &AtomicBool::new(false)).unwrap();
+        assert!((0..300).all(|i| (y2[i] == 2) == c.probs[i * 3].is_nan()));
     }
 
     #[test]

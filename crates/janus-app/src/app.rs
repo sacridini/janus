@@ -341,6 +341,8 @@ pub struct Options {
     pub goto: Option<String>,
     /// --pin, --roi: pins and an ROI once the series is open (screenshots)
     pub pins: Vec<(usize, usize)>,
+    /// --pin X,Y,CLASS: pins dropped of a class (Classification > Samples)
+    pub class_pins: Vec<(usize, usize, String)>,
     /// --view X,Y,S: the map centred on source pixel (X, Y) at S screen pixels per source pixel; --opacity: the
     /// active layer's (screenshots)
     pub view: Option<[f64; 3]>,
@@ -1221,6 +1223,10 @@ impl State {
                     }
                 }
                 "build" => self.build.show = true,
+                "classification" => {
+                    // the Random Forest on the pins, its samples' tab
+                    (self.ml.open, self.ml.source, self.ml.arch, self.ml.tab) = (true, 3, crate::ml::FOREST, 0);
+                }
                 "save" => self.save.show = true,
                 "polygonize" => {
                     self.open_polygonize(crate::contents::Sel::Series(id));
@@ -1426,6 +1432,13 @@ impl State {
             }
             for (x, y) in self.opts.pins.clone() {
                 self.add_pin(x, y);
+            }
+            for (x, y, class) in self.opts.class_pins.clone() {
+                self.ml.drop_class = class;
+                self.drop_pin(x, y);
+            }
+            if !self.opts.class_pins.is_empty() {
+                self.ml.drop_class.clear();
             }
             if let Some([x, y, scale]) = self.opts.view {
                 self.view_at(x, y, scale);
@@ -2160,7 +2173,8 @@ impl State {
                         && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()))
                 && (!self.opts.calc_run
                     || !self.calc.run_pending && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()))
-                && self.windows_settled();
+                && self.windows_settled()
+                && (!self.ml.open || self.ml.check.settled());
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
                 self.shots_pending += 1;

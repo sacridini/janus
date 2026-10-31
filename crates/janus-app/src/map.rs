@@ -431,9 +431,17 @@ impl State {
                 }
             }
         }
+        // pins that look like another class (Classification > Samples): a red ring around them
+        let suspects = (self.ml.open && self.ml.source == 3)
+            .then(|| self.ml.check.current().map(|r| r.suspect_pins()))
+            .flatten()
+            .unwrap_or_default();
         for pin in &self.series.pins {
             // a dark ring and a white one: visible over any colormap
             let c = at(pin.x as f64 + 0.5, pin.y as f64 + 0.5);
+            if suspects.contains(&pin.id) {
+                painter.circle_stroke(c, 12.0, Stroke::new(2.5, crate::theme::error()));
+            }
             painter.circle_stroke(c, 8.5, Stroke::new(3.0, Color32::from_black_alpha(220)));
             painter.circle_filled(c, 6.5, pin.color);
             painter.circle_stroke(c, 6.5, Stroke::new(1.5, Color32::WHITE));

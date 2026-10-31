@@ -610,10 +610,42 @@ without one).
 - **Pins by class** (source *Pins*): a list of classes (type a name, *Add*;
   its count of pins; *x* removes it), the class **new pins** get (a click on
   the map drops a pin of it: drop a class's pins one after the other), the
-  pins **grouped by class** (a fold each, *No class* last, its pins given one
-  at once with *All of them*), each pin moved to another class by its menu;
-  *Coloured by class* gives each pin its class's colour, the one the class map
-  will show. The project and undo keep each pin's class.
+  pins without a class given one at once; *Coloured by class* gives each pin
+  its class's colour, the one the class map will show. The project and undo
+  keep each pin's class.
+- The window has three tabs: **Samples** (where they come from and their
+  quality), **Model** (the values, the model, its training) and **Apply**. It
+  opens as wide as half the screen and lays the Samples tab in two columns
+  when there is room, in one when narrow; every list scrolls in a box of its
+  own, so the window never grows past the screen.
+- **The samples' quality, as they are gathered**: whenever the samples change
+  (a pin dropped or moved to a class, a polygon labelled), after a short pause
+  and in the background, Janus reads the new places' series (each pixel once)
+  and grows quick forests cross-validated **by place** (each sample classified
+  by forests that never saw its place, 5 folds, 60 trees each). It shows:
+  - a summary: the samples, the classes, the **estimated accuracy** (with a
+    small curve of it as the samples grew), the warnings, and the verdict on
+    the **last pin dropped** ("looks like Pasture, 92 %", or "looks more like
+    Soy: check it");
+  - the **classes**: samples and places, their balance, each class's accuracy
+    and the class it is most often taken for (a click shows its samples);
+  - **what to look at**, the worst first: samples that look like another class
+    (mislabelled, or a mixed place: their pins ringed in red on the map),
+    samples of different classes on the same pixel, classes of few samples or
+    few places, unbalanced classes, classes taken for one another, samples
+    left out for too few dates with a value (a click shows those samples);
+  - each class's **typical series**: its mean and p10-p90 band on each date
+    (of the value chosen), where the classes part and where they overlap;
+  - the **samples' table**: each pin or place with its class (a pin's changed
+    there), how well it **fits its class** (its class's probability, or the
+    class it looks like), its share of dates with a value, *>* to go to it and
+    *x* to remove a pin; filtered (all, those that look like another class, on
+    a shared pixel, without a class, a class) and sorted (in order, least
+    fitting first, by class). Only the rows seen are drawn: thousands of
+    samples scroll smoothly.
+  The estimate guides the gathering; the training's validation is the
+  measure. `--window classification` opens it on the pins; `--pin X,Y,CLASS`
+  drops a pin of a class.
 - **Values read on each date**: the series shown (the band or normalized
   difference, the quality band applied) and, with several bands per date, any
   of the source bands (screened by the quality band too). Gaps are filled

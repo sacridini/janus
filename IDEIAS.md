@@ -1547,6 +1547,35 @@ que já existem no Janus, e uma forma de agrupar os pinos por classe.
   etapas 226-228 do autoteste (pinos soltos por classe, floresta, mapa).
 - Depois: importância por permutação; ranger no benchmark (não instalado).
 
+**Janela de amostras profissional (pedido 2026-10-31: "a barra vai aumentando
+sem fim"; estatísticas em tempo real da qualidade das amostras; respeitar a
+tela) — feito (sem versão)**: abas Samples / Model / Apply; Samples em duas
+colunas quando cabe (janela de metade da tela, 440-860 px), cada lista numa
+caixa de rolagem própria. `sample_check.rs`: a cada mudança das amostras (350
+ms de pausa, numa thread; cache das séries por pixel: um pino novo lê só ele),
+florestas rápidas em validação cruzada **por lugar** (`forest::cross_predict`,
+GroupKFold de 5, 60 árvores): acurácia estimada (e a curvinha dela conforme as
+amostras crescem), acurácia por classe e "confundida com", amostras que
+parecem de outra classe (anel vermelho no mapa), pixels compartilhados (com
+classes diferentes: erro), classes com poucas amostras ou poucos lugares,
+desbalanço, deixadas de fora; série típica de cada classe (média e p10-p90 por
+data, em quadriláteros: o egui_plot só preenche polígonos convexos); a tabela
+das amostras virtualizada (filtro, ordem, ir, mudar classe, remover); o
+veredito do último pino. Autoteste 229-230 (um pino com a classe errada é
+apontado). `--window classification`, `--pin X,Y,CLASSE`.
+
+**Próximas (propostas pelo usuário em 2026-10-31, a decidir)**:
+- **Uma janela de classificadores em geral**: a janela Classification já é
+  genérica (amostras e qualidade comuns; o método escolhido em Model); juntar
+  nela os classificadores espalhados: TWDTW e SOM (ferramentas do Zeit), a
+  classificação few-shot dos embeddings (painel Embeddings), talvez os não
+  supervisionados (k-means, SOM) como métodos sem amostras.
+- **Servidor MCP do Janus** (`janus mcp`, stdio): a calculadora raster, as
+  ferramentas que o CLI já roda (`--window NOME-run`: regularize, speckle,
+  warp, polygonize, rasterize, zonal, areas, as do Zeit), abrir/inspecionar
+  séries, treinar e aplicar classificadores, estatísticas de pinos/ROI;
+  resultados como arquivos (e o app aberto acompanhando, como o Terraflux).
+
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
 - Ferramentas de IA do Zeit como download opcional (PyTorch é pesado).
