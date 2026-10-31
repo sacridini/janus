@@ -39,7 +39,7 @@ mod som;
 pub mod speckle;
 mod tmask;
 pub mod trend_test;
-mod twdtw;
+pub mod twdtw;
 mod unmix;
 pub mod upstream;
 pub mod warp;

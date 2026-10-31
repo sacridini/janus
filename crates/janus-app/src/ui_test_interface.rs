@@ -2033,6 +2033,77 @@ impl State {
                 if !p.suspect() || !r.suspect_pins().contains(&id) || w.first().is_none_or(|x| x.level != 2) {
                     return fail("the mislabelled pin should look like its half's class, a warning to fix");
                 }
+                // the pin given back its class; TWDTW chosen in the same window, on the same samples
+                self.set_pin_class(id, "Early");
+                (self.ml.kind, self.ml.tab) = (crate::methods::Kind::Twdtw, 1);
+                next(st, "a pin given the wrong class: flagged as looking like another, ringed on the map");
+                None
+            }
+            231 => {
+                let e = self.ml.method_check.current()?;
+                if e.method != "TWDTW" {
+                    return None;
+                }
+                let names: Vec<&str> = e.patterns.as_array()?.iter().filter_map(|p| p["name"].as_str()).collect();
+                println!(
+                    "    TWDTW by place: accuracy {:.2} on {} samples ({} folds, {:.2} s), patterns {names:?}",
+                    e.accuracy, e.checked, e.folds, e.seconds
+                );
+                if e.accuracy < 0.99 || e.checked != 16 || names != ["Early", "Late"] {
+                    return fail("TWDTW estimated on the pins: each class's mean series its pattern, all right");
+                }
+                let tool = janus_zeit::manifest().tool("twdtw")?;
+                if self.zeit.params(tool).get("patterns") != Some(&e.patterns.clone()) {
+                    return fail("the TWDTW run should get the classes' patterns");
+                }
+                self.zeit.tools.entry("twdtw".into()).or_default().scope = 0;
+                self.run_tool(tool, ctx);
+                next(
+                    st,
+                    "TWDTW in the Classification window: estimated by place, the classes' mean series its patterns",
+                );
+                None
+            }
+            232 => {
+                let job = self.zeit.jobs.last()?;
+                let (state, error) = {
+                    let s = job.status.lock().ok()?;
+                    (s.state, s.error.clone())
+                };
+                match state {
+                    crate::zeit::JobState::Failed | crate::zeit::JobState::Cancelled => {
+                        return fail(&format!("the TWDTW run should finish: {error}"));
+                    }
+                    crate::zeit::JobState::Running => return None,
+                    crate::zeit::JobState::Done => {}
+                }
+                let tag = job.output_dir.clone();
+                let mine: Vec<usize> =
+                    (0..self.zeit.results.len()).filter(|&k| self.zeit.results[k].path.starts_with(&tag)).collect();
+                if mine.is_empty()
+                    || mine.iter().any(|&k| self.zeit.results[k].data.is_empty())
+                    || self.zeit.loads_pending()
+                {
+                    return None;
+                }
+                let class = mine.iter().map(|&k| &self.zeit.results[k]).find(|r| !r.classes.is_empty())?;
+                let wrong = (0..class.th)
+                    .flat_map(|y| (0..class.tw).map(move |x| (x, y)))
+                    .filter(|&(x, y)| {
+                        let want = if (x * class.w / class.tw) < 20 { 1.0 } else { 2.0 };
+                        class.data[y * class.tw + x] != want
+                    })
+                    .count();
+                println!(
+                    "    TWDTW's class map ({}): {:?}, {wrong} pixels of {} wrong",
+                    class.name,
+                    class.classes,
+                    class.data.len()
+                );
+                if class.classes != ["Early", "Late"] || wrong > 0 {
+                    return fail("TWDTW's class map: Early on the left half, Late on the right");
+                }
+                (self.ml.kind, self.ml.tab) = (Default::default(), 0);
                 self.ml.open = false;
                 let k = self.layers.iter().position(|l| l.name == "Seasons")?;
                 self.remove_layer(k, ctx);
@@ -2041,10 +2112,10 @@ impl State {
                 for dir in &st.texts {
                     let _ = std::fs::remove_dir_all(dir);
                 }
-                next(st, "a pin given the wrong class: flagged as looking like another, ringed on the map");
+                next(st, "TWDTW run from the window: its class map Early on the left half, Late on the right");
                 None
             }
-            231 => {
+            233 => {
                 // the validation's folder (stages 170-179), its strata layer open until now
                 let _ = std::fs::remove_dir_all(&st.dir);
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());

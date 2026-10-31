@@ -427,8 +427,9 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 | Smoothing | any | chart only: the smoothed series (Whittaker or Savitzky-Golay) |
 
 **TWDTW classes** come from the series itself: drop pins on places you know
-(forest, crop, pasture...), open the tool and *Add a pattern from* each pin (or
-the ROI mean), and name the classes. The distance is that of the R package
+(forest, crop, pasture...) and give them a class in **Tools > Classification**
+(the window opens on TWDTW): each class's mean series of its samples is its
+pattern, and the method is estimated on the samples by place. The distance is that of the R package
 twdtw: a pattern may match any stretch of the series, and dates without a value
 are left out of each pixel's series. By default time is measured between the
 dates (*Time measured*), so patterns should cover the same period as the
@@ -590,7 +591,7 @@ the cursor; a raster run reads the series in bands of rows (from the
 full-resolution cache when it has the dates) and computes them on every
 processing thread. Nothing starts at startup and no Python runs.
 
-## Classification (Random Forest, TempCNN, L-TAE, Presto, U-TAE)
+## Classification (Random Forest, TWDTW, embeddings, SOM, networks)
 
 **Tools > Classification > Classification** trains a model on samples you
 already have in Janus and classifies every pixel by its whole series, without
@@ -613,8 +614,29 @@ without one).
   pins without a class given one at once; *Coloured by class* gives each pin
   its class's colour, the one the class map will show. The project and undo
   keep each pin's class.
+- **One window for every classifier**, the method chosen in it (tab
+  *Method*), on the same samples and their quality check:
+  - *learned from the samples*: the Random Forest and the networks below;
+  - *matched to each class's series*: **TWDTW** (Zeit's): each class's
+    **mean series of its samples** is its pattern (no pin to pick per class:
+    every sample counts), with its settings (time weight, time measured, max
+    distance); *Classify the cursor, pins and ROI on the chart* gives each
+    series its class as it is fitted; *Apply* runs it on the raster (whole
+    image, visible area or ROI, its preview);
+  - *on a layer of embeddings*: the Embeddings panel's **logistic regression
+    or nearest centroid**, fitted on the samples' vectors in the year shown;
+    *Apply* makes the samples the layer's classes and shows its Classes view;
+  - *without samples*: the **Self-Organizing Map** (Zeit's), run from *Apply*.
+  Tools > Classification > TWDTW and SOM open this window on them. TWDTW and
+  the embeddings' classifier are **estimated on the samples** as the forest
+  is, cross-validated by place (5 folds; at most 3000 samples classified):
+  the estimated accuracy, kappa, the confusion matrix (with the samples left
+  unclassified) and each class's accuracy, the forest's check beside it, so
+  the methods are compared on the same samples (s2ro, 54 pins of three
+  classes: TWDTW 91 %, the forest 96 %).
 - The window has three tabs: **Samples** (where they come from and their
-  quality), **Model** (the values, the model, its training) and **Apply**. It
+  quality), **Method** (the method, the values, its settings, its training or
+  estimate) and **Apply**. It
   opens as wide as half the screen and lays the Samples tab in two columns
   when there is room, in one when narrow; every list scrolls in a box of its
   own, so the window never grows past the screen.

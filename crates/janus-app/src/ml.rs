@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 use crate::app::State;
 use crate::zeit::{Job, JobLog, JobState, JobStatus};
 
-const ARCHS: [&str; 5] = [
+pub(crate) const ARCHS: [&str; 5] = [
     "TempCNN (Pelletier et al. 2019)",
     "L-TAE (Garnot & Landrieu 2020)",
     "Presto (Tseng et al. 2023, pretrained)",
@@ -35,7 +35,7 @@ const UTAE: usize = 3;
 /// The forest (no network: no epochs, no GPU)
 pub(crate) const FOREST: usize = 4;
 /// The order in the list of models: the forest first
-const ARCH_ORDER: [usize; 5] = [FOREST, 0, 1, 2, UTAE];
+pub(crate) const ARCH_ORDER: [usize; 5] = [FOREST, 0, 1, 2, UTAE];
 const PATCHES: [usize; 3] = [32, 64, 128];
 const SOURCES: [&str; 5] = [
     "Interpretation labels",
@@ -116,10 +116,14 @@ pub struct MlUi {
     pub run: Option<Arc<Mutex<TrainRun>>>,
     /// the model to apply: its file and header
     pub model: Option<(String, Header)>,
-    /// the window's tab (Samples, Model, Apply)
+    /// the window's tab (Samples, Method, Apply)
     pub tab: usize,
+    /// the kind of method (the forest and networks by `arch`, TWDTW, embeddings, SOM)
+    pub kind: crate::methods::Kind,
+    /// its estimate on the samples (TWDTW, embeddings)
+    pub method_check: crate::methods::MethodCheck,
     /// the samples of the source, and when they were made
-    sites: Option<(Instant, SitesResult)>,
+    pub(crate) sites: Option<(Instant, SitesResult)>,
     /// the samples' quality, checked as they are gathered
     pub check: crate::sample_check::SampleCheck,
 }
@@ -158,6 +162,8 @@ impl Default for MlUi {
             run: None,
             model: None,
             tab: 0,
+            kind: Default::default(),
+            method_check: Default::default(),
             sites: None,
             check: Default::default(),
         }
@@ -391,7 +397,7 @@ impl State {
         if ui
             .add(egui::Button::selectable(
                 self.ml.open,
-                "Classification (Random Forest, TempCNN, L-TAE, Presto, U-TAE)...",
+                "Classification (Random Forest, TWDTW, embeddings, SOM, networks)...",
             ))
             .clicked()
         {
@@ -430,6 +436,7 @@ impl State {
         {
             self.drive_sample_check(&info, &read, &sites, &classes, ui.ctx());
         }
+        self.drive_method_check(&info, ui.ctx());
         let to_look = self
             .ml
             .check
@@ -438,7 +445,7 @@ impl State {
             .map_or(0, |r| crate::sample_check::warnings(r).iter().filter(|w| w.level > 0).count());
         ui.horizontal(|ui| {
             let training = self.ml.training();
-            for (i, name) in ["Samples", "Model", "Apply"].into_iter().enumerate() {
+            for (i, name) in ["Samples", "Method", "Apply"].into_iter().enumerate() {
                 let text = match i {
                     0 if to_look > 0 => RichText::new(format!("{name} ({to_look})")),
                     1 if training => RichText::new(format!("{name} (training...)")),
@@ -448,10 +455,21 @@ impl State {
             }
         });
         ui.separator();
-        match self.ml.tab {
-            0 => self.ml_samples_tab(ui, &info),
-            1 => self.ml_model_tab(ui, &info),
-            _ => self.ml_rest_ui(ui, &info),
+        use crate::methods::Kind;
+        match (self.ml.tab, self.ml.kind) {
+            (0, _) => self.ml_samples_tab(ui, &info),
+            (1, kind) => {
+                self.method_choice_ui(ui);
+                match kind {
+                    Kind::Learned => self.ml_model_tab(ui, &info),
+                    Kind::Twdtw => self.twdtw_method_ui(ui, &info),
+                    Kind::Embeddings => self.embeddings_method_ui(ui),
+                    Kind::Som => self.som_method_ui(ui, &info),
+                }
+            }
+            (_, Kind::Learned) => self.ml_rest_ui(ui, &info),
+            (_, Kind::Embeddings) => self.embeddings_apply_ui(ui),
+            (_, kind) => self.zeit_method_apply_ui(ui, &info, kind.tool().unwrap_or_default()),
         }
     }
 
@@ -705,33 +723,8 @@ impl State {
             ));
         }
 
-        crate::panels::section(ui, "Model");
-        let before = self.ml.arch;
-        ComboBox::from_id_salt("ml arch").width(ui.available_width()).selected_text(ARCHS[self.ml.arch]).show_ui(
-            ui,
-            |ui| {
-                for i in ARCH_ORDER {
-                    ui.selectable_value(&mut self.ml.arch, i, ARCHS[i]);
-                }
-            },
-        );
-        ui.weak(match self.ml.arch {
-            FOREST => {
-                "Many decision trees, each grown on a bootstrap sample of the samples, vote on each date's values: \
-                 quick on the CPU, good with few samples, and it tells which dates matter."
-            }
-            0 => "Convolutions over the series read as a sequence of fixed length, as sits builds it.",
-            1 => "The dates weighed by attention, as sits builds it.",
-            2 => {
-                "Pretrained on Sentinel-1 and -2 series worldwide, it encodes a year of a pixel; a classifier learns \
-                 from its encodings."
-            }
-            _ => {
-                "A U-Net on each date and attention over the dates: patches segmented, a pixel's class from its \
-                  neighbourhood too."
-            }
-        });
-        if self.ml.arch != before || self.ml.cfg_arch != self.ml.arch {
+        crate::panels::section(ui, "Settings");
+        if self.ml.cfg_arch != self.ml.arch {
             let seed = self.ml.cfg.seed;
             self.ml.cfg = TrainConfig { seed, ..TrainConfig::for_arch(&self.ml.arch()) };
             self.ml.cfg_arch = self.ml.arch;
@@ -2241,4 +2234,12 @@ fn utae_job(
     model.save(model_path)?;
     log.line(&format!("model: {model_path}"));
     Ok(header)
+}
+
+impl MlUi {
+    /// The method's estimate settled (or none is made for it).
+    pub fn method_settled(&self) -> bool {
+        !matches!(self.kind, crate::methods::Kind::Twdtw | crate::methods::Kind::Embeddings)
+            || self.method_check.settled()
+    }
 }

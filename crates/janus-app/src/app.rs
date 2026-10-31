@@ -1227,6 +1227,11 @@ impl State {
                     // the Random Forest on the pins, its samples' tab
                     (self.ml.open, self.ml.source, self.ml.arch, self.ml.tab) = (true, 3, crate::ml::FOREST, 0);
                 }
+                "classification-twdtw" => {
+                    // TWDTW on the pins: its patterns, settings and estimate
+                    (self.ml.open, self.ml.source, self.ml.kind, self.ml.tab) =
+                        (true, 3, crate::methods::Kind::Twdtw, 1);
+                }
                 "save" => self.save.show = true,
                 "polygonize" => {
                     self.open_polygonize(crate::contents::Sel::Series(id));
@@ -2174,7 +2179,7 @@ impl State {
                 && (!self.opts.calc_run
                     || !self.calc.run_pending && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()))
                 && self.windows_settled()
-                && (!self.ml.open || self.ml.check.settled());
+                && (!self.ml.open || self.ml.check.settled() && self.ml.method_settled());
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
                 self.shots_pending += 1;

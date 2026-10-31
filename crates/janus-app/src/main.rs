@@ -39,6 +39,7 @@ mod layers;
 mod map;
 mod measure;
 mod measure_vectors;
+mod methods;
 mod ml;
 mod mosaic;
 mod navigation;
@@ -196,7 +197,7 @@ Developer options:
   --window NAME,...   tool windows open once the layers are: regularize, speckle, warp, build, save,
                       polygonize (the active series), rasterize, zonal (the first vector layer), areas
                       (Analysis > Areas), classification (a Random Forest on the pins, their samples
-                      checked); NAME-run also runs it, the screenshot waiting for its result
+                      checked), classification-twdtw (TWDTW on the pins, estimated); NAME-run also runs it, the screenshot waiting for its result
   --validation-tab N  a validation project (a .gpkg input) on tab N of its panel (0 Design, 1 Accuracy,
                       2 Maps, 3 Interpreters, 4 Report)
   --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation

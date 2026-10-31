@@ -128,7 +128,7 @@ pub enum Sort {
 
 /// Each pixel's raw series read, for the series and values they were read of.
 #[derive(Default)]
-struct RawCache {
+pub(crate) struct RawCache {
     key: String,
     px: HashMap<(usize, usize), Vec<f32>>,
 }
@@ -143,7 +143,7 @@ pub struct SampleCheck {
     want: u64,
     since: Option<Instant>,
     job: Option<(u64, Pending)>,
-    cache: Arc<Mutex<RawCache>>,
+    pub(crate) cache: Arc<Mutex<RawCache>>,
     /// the estimated accuracy as the samples grew: (samples, accuracy)
     pub history: Vec<(usize, f64)>,
     pub filter: Filter,
@@ -185,21 +185,14 @@ pub fn key_of(sites: &[Site], classes: &[String], inputs: &[InputBand], min_vali
     h.finish()
 }
 
-/// The check of the samples (on a thread: reads the pixels not read yet).
-fn analyse(
+/// The sites' pixels' series of the inputs (in order), those not read yet read and kept in the cache.
+pub(crate) fn read_cached(
     info: &Arc<CubeInfo>,
     inputs: &[InputBand],
     sites: &[Site],
-    classes: &[String],
-    min_valid: f64,
     cache: &Mutex<RawCache>,
-    key: u64,
-) -> Result<Report, String> {
-    let t0 = Instant::now();
+) -> janus_ml::Series {
     let (t, b) = (info.t(), inputs.len());
-    if b == 0 {
-        return Err("no value is read on the dates".into());
-    }
     let pixels: Vec<(usize, usize)> = sites.iter().flat_map(|s| s.pixels.iter().copied()).collect();
     // the pixels not read yet
     let ckey = format!("{}:{}", info.id, inputs.iter().map(|b| b.name.clone()).collect::<Vec<_>>().join(","));
@@ -220,17 +213,33 @@ fn analyse(
             }
         }
     }
-    let raw = {
-        let c = cache.lock().unwrap();
-        let mut values = Vec::with_capacity(pixels.len() * t * b);
-        for p in &pixels {
-            match c.px.get(p) {
-                Some(v) => values.extend_from_slice(v),
-                None => values.extend(std::iter::repeat_n(f32::NAN, t * b)),
-            }
+    let c = cache.lock().unwrap();
+    let mut values = Vec::with_capacity(pixels.len() * t * b);
+    for p in &pixels {
+        match c.px.get(p) {
+            Some(v) => values.extend_from_slice(v),
+            None => values.extend(std::iter::repeat_n(f32::NAN, t * b)),
         }
-        janus_ml::Series { n: pixels.len(), t, b, values }
-    };
+    }
+    janus_ml::Series { n: pixels.len(), t, b, values }
+}
+
+/// The check of the samples (on a thread: reads the pixels not read yet).
+fn analyse(
+    info: &Arc<CubeInfo>,
+    inputs: &[InputBand],
+    sites: &[Site],
+    classes: &[String],
+    min_valid: f64,
+    cache: &Mutex<RawCache>,
+    key: u64,
+) -> Result<Report, String> {
+    let t0 = Instant::now();
+    let (t, b) = (info.t(), inputs.len());
+    if b == 0 {
+        return Err("no value is read on the dates".into());
+    }
+    let raw = read_cached(info, inputs, sites, cache);
     let calendar = Calendar::of(info);
     let (x, y, place) = crate::ml::assemble(&raw, sites, classes, &calendar.years, min_valid);
     let k = classes.len();

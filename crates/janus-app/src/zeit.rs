@@ -622,13 +622,23 @@ impl State {
             let label = format!("{c}{}", if any_open { "  \u{25cf}" } else { "" });
             ui.menu_button(label, |ui| {
                 for t in tools {
-                    let open = self.zeit.tools.get(&t.id).is_some_and(|u| u.open);
+                    // TWDTW and SOM: methods of the Classification window
+                    let method = crate::methods::Kind::of_tool(&t.id);
+                    let open = match method {
+                        Some(k) => self.ml.open && self.ml.kind == k,
+                        None => self.zeit.tools.get(&t.id).is_some_and(|u| u.open),
+                    };
                     let mut b = ui.add(egui::Button::selectable(open, &t.name));
                     if !t.description.is_empty() {
                         b = b.on_hover_text(&t.description);
                     }
                     if b.clicked() {
-                        self.set_tool_open(t, !open);
+                        match method {
+                            Some(k) => {
+                                (self.ml.open, self.ml.kind, self.ml.tab) = (!open, k, 1);
+                            }
+                            None => self.set_tool_open(t, !open),
+                        }
                         ui.close();
                     }
                 }
@@ -827,8 +837,17 @@ impl State {
         }
     }
 
+    /// The parameters' form without its lists of series (TWDTW's patterns: the Classification window makes them).
+    pub(crate) fn tool_params_ui(&mut self, ui: &mut Ui, tool: &Tool) -> bool {
+        self.params_form(ui, tool, false)
+    }
+
     /// The parameters' form, from the descriptor. Returns whether a value changed.
     fn params_ui(&mut self, ui: &mut Ui, tool: &Tool) -> bool {
+        self.params_form(ui, tool, true)
+    }
+
+    fn params_form(&mut self, ui: &mut Ui, tool: &Tool, lists: bool) -> bool {
         let mut changed = false;
         let pins: Vec<(u32, usize, usize, bool, Vec<f32>)> =
             self.series.pins.iter().map(|p| (p.id, p.x, p.y, p.exact, p.values.clone())).collect();
@@ -904,7 +923,7 @@ impl State {
                 ui.end_row();
             }
         });
-        for p in tool.params.iter().filter(|p| p.kind == "patterns" || p.kind == "endmembers") {
+        for p in tool.params.iter().filter(|p| lists && (p.kind == "patterns" || p.kind == "endmembers")) {
             let v = values.entry(p.id.clone()).or_insert_with(|| p.default.clone());
             changed |= if p.kind == "patterns" {
                 patterns_ui(ui, p, v, &pins, roi.as_deref(), info.as_deref())
@@ -1548,7 +1567,7 @@ impl State {
     }
 
     /// A raster run of the tool (scope, output folder, Run).
-    fn raster_run_ui(&mut self, ui: &mut Ui, tool: &'static Tool, unavailable: bool) {
+    pub(crate) fn raster_run_ui(&mut self, ui: &mut Ui, tool: &'static Tool, unavailable: bool) {
         if self.session.is_none() {
             return;
         }

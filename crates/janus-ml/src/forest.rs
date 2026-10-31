@@ -472,26 +472,14 @@ pub struct CrossPredicted {
     pub folds: usize,
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn cross_predict(
-    x: &Series,
-    y: &[u32],
-    k: usize,
-    places: &[usize],
-    folds: usize,
-    h: &ForestHyper,
-    seed: u64,
-    cancel: &AtomicBool,
-) -> Result<CrossPredicted, String> {
-    let (n, p) = (x.n, x.t * x.b);
-    let mut probs = vec![f32::NAN; n * k];
-    let mut importance = vec![0f64; p];
-    // the places, dealt class by class so that each fold has some of each class
+/// Each sample's fold for a cross-validation by place: the places dealt class by class (shuffled) so that each fold
+/// has some of each class, a place's samples all in one fold. The folds and their number (at most the places').
+pub fn place_folds(y: &[u32], k: usize, places: &[usize], folds: usize, seed: u64) -> (Vec<usize>, usize) {
     let mut rng = Rng::new(seed);
     let mut fold_of = std::collections::HashMap::new();
     let mut next = 0usize;
     for c in 0..k as u32 {
-        let mut of: Vec<usize> = (0..n)
+        let mut of: Vec<usize> = (0..y.len())
             .filter(|&i| y[i] == c)
             .map(|i| places[i])
             .collect::<std::collections::BTreeSet<_>>()
@@ -506,7 +494,25 @@ pub fn cross_predict(
         }
     }
     let folds = folds.max(2).min(fold_of.len().max(2));
-    let fold = |i: usize| fold_of[&places[i]] % folds;
+    ((0..y.len()).map(|i| fold_of[&places[i]] % folds).collect(), folds)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn cross_predict(
+    x: &Series,
+    y: &[u32],
+    k: usize,
+    places: &[usize],
+    folds: usize,
+    h: &ForestHyper,
+    seed: u64,
+    cancel: &AtomicBool,
+) -> Result<CrossPredicted, String> {
+    let (n, p) = (x.n, x.t * x.b);
+    let mut probs = vec![f32::NAN; n * k];
+    let mut importance = vec![0f64; p];
+    let (fold_of, folds) = place_folds(y, k, places, folds, seed);
+    let fold = |i: usize| fold_of[i];
     let mut grown = 0;
     for f in 0..folds {
         let (test, train_idx): (Vec<usize>, Vec<usize>) = (0..n).partition(|&i| fold(i) == f);

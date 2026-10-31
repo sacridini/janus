@@ -1565,11 +1565,11 @@ veredito do último pino. Autoteste 229-230 (um pino com a classe errada é
 apontado). `--window classification`, `--pin X,Y,CLASSE`.
 
 **Próximas (propostas pelo usuário em 2026-10-31, a decidir)**:
-- **Uma janela de classificadores em geral**: a janela Classification já é
-  genérica (amostras e qualidade comuns; o método escolhido em Model); juntar
-  nela os classificadores espalhados: TWDTW e SOM (ferramentas do Zeit), a
-  classificação few-shot dos embeddings (painel Embeddings), talvez os não
-  supervisionados (k-means, SOM) como métodos sem amostras.
+- ~~**Uma janela de classificadores em geral**~~ (feito, 2026-10-31): a aba
+  Method escolhe entre Random Forest e redes, TWDTW (padrões = média de cada
+  classe), o classificador dos embeddings e SOM; TWDTW e embeddings estimados
+  nas amostras por lugar, ao lado do forest. Falta: k-means; nomear os
+  clusters do SOM pelas amostras.
 - **Servidor MCP do Janus** (`janus mcp`, stdio): a calculadora raster, as
   ferramentas que o CLI já roda (`--window NOME-run`: regularize, speckle,
   warp, polygonize, rasterize, zonal, areas, as do Zeit), abrir/inspecionar
