@@ -1730,12 +1730,12 @@ fn train_job(
 
 /// The samples as the forest reads them: the series, their classes, the scaling, the count of each class and each
 /// sample's place.
-type Samples = (janus_ml::Series, Vec<u32>, Norm, Vec<usize>, Vec<usize>);
+pub(crate) type Samples = (janus_ml::Series, Vec<u32>, Norm, Vec<usize>, Vec<usize>);
 
 /// Grows a Random Forest on the samples (its validation by whole places), keeps it in the model file with its area
 /// of applicability (the values weighed by their importance).
 #[allow(clippy::too_many_arguments)]
-fn forest_job(
+pub(crate) fn forest_job(
     info: &Arc<CubeInfo>,
     inputs: Vec<InputBand>,
     classes: &[String],

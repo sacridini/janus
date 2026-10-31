@@ -1570,7 +1570,7 @@ apontado). `--window classification`, `--pin X,Y,CLASSE`.
   classe), o classificador dos embeddings e SOM; TWDTW e embeddings estimados
   nas amostras por lugar, ao lado do forest. Falta: k-means; nomear os
   clusters do SOM pelas amostras.
-- **Servidor MCP do Janus** (`janus mcp`, stdio): a calculadora raster, as
+- ~~**Servidor MCP do Janus**~~ (feito, 2026-10-31: 15 ferramentas, mcp.rs; falta: ferramentas sobre mapas como agreement, polygonize, rasterize, speckle, areas, as redes além do forest, e o app aberto acompanhando ao vivo) (`janus mcp`, stdio): a calculadora raster, as
   ferramentas que o CLI já roda (`--window NOME-run`: regularize, speckle,
   warp, polygonize, rasterize, zonal, areas, as do Zeit), abrir/inspecionar
   séries, treinar e aplicar classificadores, estatísticas de pinos/ROI;

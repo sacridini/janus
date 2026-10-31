@@ -309,6 +309,51 @@ jn NETCDF:"cmip6.nc":tas --band 3     (the 3rd level of a variable with levels)
 a small console launcher next to `janus.exe`, the same trick Visual Studio uses with
 `devenv.com`).
 
+## MCP server
+
+`janus mcp` (or `jn mcp`) makes Janus a server of the **Model Context Protocol**
+on its standard input and output: an assistant (Claude Desktop, Claude Code,
+any MCP client) works with your series through Janus's own engines, without
+the window and without Python. Every result is a file (cloud-optimized
+GeoTIFFs, VRTs, CSVs, `.janusmodel`), in the folder the call names or under
+Janus's results folder (`results/mcp/<tool>_<time>`); its paths are in the
+answer. Long calls report their progress and stop when the client cancels them.
+`--threads N` caps the processing threads (default: Settings').
+
+| Tool | What it does |
+|------|--------------|
+| `describe_series` | a series' size, CRS, pixel size, extent (also in longitude and latitude), bands, dates, what is shown |
+| `list_indices` | the spectral indices by name, with their formulas |
+| `pixel_series` | the values of places through time (pixels, coordinates or longitude and latitude; other bands too) |
+| `region_series` | each date's statistics of an area (valid share, mean, std, min, p10, median, p90, max); sampled when large |
+| `check_expression` | a raster calculator text planned over named layers: the result (dates or an image), grid, layers read, or the error's line and column |
+| `calculate` | the text computed: a COG per date (or VRTs computed when read) |
+| `list_tools`, `describe_tool` | Zeit's tools, their parameters and outputs |
+| `run_tool` | a Zeit tool on a series or an area of it (BFAST, CCDC, LandTrendr, trends, phenology...); TWDTW from samples (each class's mean series its pattern) |
+| `regularize` | a fixed step (16 days, month, year): median, medoid or clearest date, gaps filled |
+| `warp` | a raster reprojected, resampled, clipped (gdalwarp) |
+| `zonal` | each polygon's statistics, or areas of each class or change year, of maps; a CSV |
+| `train_classifier` | a Random Forest on samples (places with a class, or a vector file and its class field), validated by place |
+| `classify` | a `.janusmodel` applied to a series or an area: class map, probability, area of applicability |
+| `open_in_janus` | files opened in a window of Janus, places as pins, for you to look at |
+
+A series is a path (a folder, a file, a wildcard) or
+`{"paths": [...], "band": 4, "expression": "NDVI", "qa_band": 7}`; a place is
+`{"col", "row"}`, `{"x", "y"}` (the series' CRS) or `{"lon", "lat"}`; an area a
+`window` in pixels, a `bbox` in the CRS or a `bbox_lonlat`.
+
+Claude Code:
+
+```
+claude mcp add janus -- "C:\Program Files\Janus\janus.exe" mcp --threads 8
+```
+
+Claude Desktop (`claude_desktop_config.json`):
+
+```json
+{ "mcpServers": { "janus": { "command": "C:\\Program Files\\Janus\\janus.exe", "args": ["mcp", "--threads", "8"] } } }
+```
+
 ## Using the window
 
 | Action | How |
