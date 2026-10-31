@@ -10,7 +10,9 @@ fn main() {
         .ok()
         .and_then(|p| p.parent().map(|d| d.join(if cfg!(windows) { "janus.exe" } else { "janus" })))
         .unwrap_or_else(|| "janus".into());
-    let print = args.iter().any(|a| matches!(a.as_str(), "-h" | "--help" | "/?" | "--version"));
+    // `jn mcp`: the MCP server, on this process's standard input and output (inherited) until they close
+    let print = args.iter().any(|a| matches!(a.as_str(), "-h" | "--help" | "/?" | "--version"))
+        || args.first().is_some_and(|a| a == "mcp");
     let mut cmd = Command::new(&exe);
     cmd.args(&args);
     if print {

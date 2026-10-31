@@ -34,9 +34,11 @@ mod gif;
 mod golden;
 mod groups;
 mod histogram;
+mod inbox;
 mod labels;
 mod layers;
 mod map;
+mod mcp;
 mod measure;
 mod measure_vectors;
 mod methods;
@@ -104,6 +106,10 @@ const USAGE: &str = "Janus - raster time series analysis
 
 Usage:
   jn [options] [input ...]
+  jn mcp [--threads N]  a server of the Model Context Protocol on the standard input and output: an
+                      assistant (Claude Desktop, Claude Code...) describes series, reads their values,
+                      runs the raster calculator, Zeit's tools, regularize, warp, zonal statistics, trains
+                      and applies a Random Forest; results as files (docs/usage.md, MCP server)
 
 Inputs:
   folder\\             every raster in the folder, 1 file = 1 date
@@ -426,6 +432,19 @@ fn main() -> eframe::Result<()> {
     // --budget: this run only (0: the Settings value)
     let mut opts = app::Options::default();
     let mut args = std::env::args().skip(1);
+    // `janus mcp [--threads N]`: the MCP server on the standard input and output (mcp.rs)
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        let all: Vec<String> = std::env::args().skip(2).collect();
+        let threads = all
+            .iter()
+            .position(|a| a == "--threads")
+            .and_then(|i| all.get(i + 1)?.parse::<usize>().ok())
+            .unwrap_or_else(|| match settings::load().0.threads {
+                0 => std::thread::available_parallelism().map_or(4, |n| n.get()),
+                n => n,
+            });
+        std::process::exit(mcp::serve(threads));
+    }
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {
