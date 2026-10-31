@@ -4,7 +4,12 @@
 
 use janus_gpu::{Blend, CLASS_LUT_SIZE, Gpu, LayerParams, Mode, colormaps};
 
-fn device() -> Option<(wgpu::Device, wgpu::Queue, wgpu::Backend)> {
+/// One test on the GPU at a time: devices made side by side crash Windows' software adapter (WARP) on the CI's
+/// runners (STATUS_ACCESS_VIOLATION once there were four tests). The guard comes first, so it is dropped last.
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn device() -> Option<(std::sync::MutexGuard<'static, ()>, wgpu::Device, wgpu::Queue, wgpu::Backend)> {
+    let one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
     let limits = janus_gpu::required_limits(&adapter);
@@ -12,7 +17,7 @@ fn device() -> Option<(wgpu::Device, wgpu::Queue, wgpu::Backend)> {
         adapter.request_device(&wgpu::DeviceDescriptor { required_limits: limits, ..Default::default() }),
     )
     .ok()?;
-    Some((d, q, adapter.get_info().backend))
+    Some((one, d, q, adapter.get_info().backend))
 }
 
 /// The C++ shader's statistics of one series, in f32 as the GPU computes them.
@@ -59,7 +64,7 @@ fn near_colormap(got: &[u8], lut: &[[u8; 4]; 256], v: f32) -> bool {
 
 #[test]
 fn statistics_and_map() {
-    let Some((device, queue, backend)) = device() else {
+    let Some((_one, device, queue, backend)) = device() else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
@@ -170,7 +175,7 @@ fn statistics_and_map() {
 
 #[test]
 fn blend_modes() {
-    let Some((device, queue, backend)) = device() else {
+    let Some((_one, device, queue, backend)) = device() else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
@@ -204,7 +209,7 @@ fn blend_modes() {
 
 #[test]
 fn similarity_map() {
-    let Some((device, queue, backend)) = device() else {
+    let Some((_one, device, queue, backend)) = device() else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
@@ -268,7 +273,7 @@ fn similarity_map() {
 
 #[test]
 fn phase_map() {
-    let Some((device, queue, backend)) = device() else {
+    let Some((_one, device, queue, backend)) = device() else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
