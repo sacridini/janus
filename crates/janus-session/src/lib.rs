@@ -10,9 +10,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering}
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
+use janus_cache::blocks::{BlockSampling, readers_for, usable_ram};
 use janus_cache::{FullResCache, JobPool, Overview, OverviewOptions};
 use janus_cube::stats::{SampleStats, sample_stats};
-use janus_cube::{CubeInfo, with_thread_reader};
+use janus_cube::{CubeInfo, CubeReader, with_thread_reader};
 
 pub use tiles::{TileManager, ViewRect};
 
@@ -174,6 +175,9 @@ pub struct Session {
     pub opened: Instant,
     settings: Mutex<SessionSettings>,
     series: Arc<SeriesState>,
+    /// a pixel-interleaved file's exact series all read by one reader: the block a series decompressed serves the
+    /// next places in it (the cursor moving), not only when the pool gives the read to the same thread
+    series_reader: Option<Arc<Mutex<CubeReader>>>,
 }
 
 impl Session {
@@ -207,6 +211,8 @@ impl Session {
         if want_full {
             submit_full_res_build(&full_res, &bg);
         }
+        let series_reader =
+            janus_cube::interleaved_blocks(&info).map(|_| Arc::new(Mutex::new(CubeReader::new(info.clone()))));
         Session {
             fg,
             bg,
@@ -218,6 +224,7 @@ impl Session {
             opened: Instant::now(),
             settings: Mutex::new(s.clone()),
             series: Arc::new(SeriesState::default()),
+            series_reader,
         }
     }
 
@@ -248,6 +255,7 @@ impl Session {
             st.latest_hover.store(id, Ordering::Release);
         }
         let (st, info, full) = (st.clone(), self.info.clone(), self.full_res.clone());
+        let one = self.series_reader.clone();
         self.fg.submit(0, move || {
             let stale = || cancellable && st.latest_hover.load(Ordering::Acquire) != id;
             if stale() {
@@ -288,7 +296,7 @@ impl Session {
                     }
                     gone.into_inner()
                 } else {
-                    with_thread_reader(&info, |r| {
+                    let mut read = |r: &mut CubeReader| {
                         for &i in &todo {
                             if stale() {
                                 return true;
@@ -296,7 +304,23 @@ impl Session {
                             values[i] = r.read_pixel(i, x, y).unwrap_or(f32::NAN);
                         }
                         false
-                    })
+                    };
+                    match &one {
+                        // every band of the pixel decompressed here at once, else through GDAL
+                        Some(r) => {
+                            let mut r = r.lock().unwrap();
+                            if r.sample_pixels(&[(x, y)]) {
+                                let mut v = [f32::NAN];
+                                for &i in &todo {
+                                    values[i] = if r.sampled_values(i, &mut v) { v[0] } else { f32::NAN };
+                                }
+                                false
+                            } else {
+                                read(&mut r)
+                            }
+                        }
+                        None => with_thread_reader(&info, read),
+                    }
                 };
                 if gone {
                     return;
@@ -346,6 +370,13 @@ impl Session {
             ms: Mutex::new(None),
             cached_dates: AtomicUsize::new(0),
         });
+        // a file whose blocks hold every band, not in the full-resolution cache: block by block
+        if !self.full_res.complete()
+            && let Some((block, block_bytes)) = janus_cube::interleaved_blocks(&self.info)
+        {
+            self.roi_by_blocks(&roi, block, block_bytes);
+            return roi;
+        }
         for i in 0..t {
             let (roi, info, full) = (roi.clone(), self.info.clone(), self.full_res.clone());
             // chronological: the oldest date first
@@ -374,6 +405,32 @@ impl Session {
         roi
     }
 
+    /// An ROI of a pixel-interleaved file (janus_cube::interleaved_blocks): the dates in groups that fit in memory,
+    /// oldest first, each group's blocks read by the workers, every date of the group from a block before the next
+    /// (each block decompressed once a group, not once a date).
+    fn roi_by_blocks(&self, roi: &Arc<RoiData>, block: (usize, usize), block_bytes: u64) {
+        let (x, y, w, h) = (roi.x0, roi.y0, roi.x1 - roi.x0, roi.y1 - roi.y0);
+        let sampling = Arc::new(BlockSampling::new(&self.info, (x, y, w, h), (roi.bw, roi.bh), block));
+        let date_bytes = (roi.bw * roi.bh * 4) as u64;
+        let group = ((usable_ram() / 8).clamp(64 << 20, 1 << 30) / date_bytes).clamp(1, roi.per_t.len() as u64);
+        let dates: Vec<usize> = (0..roi.per_t.len()).collect();
+        let readers = readers_for(block_bytes, self.fg.threads());
+        for (g, dates) in dates.chunks(group as usize).enumerate() {
+            let grp = Arc::new(RoiGroup {
+                dates: dates.to_vec(),
+                bufs: dates.iter().map(|_| Mutex::new(Vec::new())).collect(),
+                next: AtomicUsize::new(0),
+                left: AtomicUsize::new(sampling.windows.len()),
+                failed: AtomicBool::new(false),
+                threads: self.fg.threads(),
+            });
+            for _ in 0..readers.min(sampling.windows.len()) {
+                let (roi, info, grp, sampling) = (roi.clone(), self.info.clone(), grp.clone(), sampling.clone());
+                self.fg.submit(5 + g as i32, move || roi_group_work(&roi, &info, &grp, &sampling));
+            }
+        }
+    }
+
     /// Starts (or resumes) building the full-resolution cache now, whatever the setting. False if it cannot be
     /// built: see full_res.error().
     pub fn build_full_res(&self) -> bool {
@@ -393,6 +450,71 @@ impl Session {
         self.fg.set_threads(s.fg_threads(self.rotational));
         *self.settings.lock().unwrap() = s.clone();
     }
+}
+
+/// A group of an ROI's dates read block by block: each one's pixels as they are filled.
+struct RoiGroup {
+    dates: Vec<usize>,
+    bufs: Vec<Mutex<Vec<f32>>>,
+    next: AtomicUsize,
+    left: AtomicUsize,
+    failed: AtomicBool,
+    /// the threads the statistics are computed by (the readers', free by then)
+    threads: usize,
+}
+
+/// Takes the group's blocks while some are left; whoever reads the last one computes the group's statistics.
+fn roi_group_work(roi: &RoiData, info: &Arc<CubeInfo>, grp: &RoiGroup, sampling: &BlockSampling) {
+    let mut tile = Vec::new();
+    loop {
+        let k = grp.next.fetch_add(1, Ordering::Relaxed);
+        if k >= sampling.windows.len() {
+            break;
+        }
+        let ok = !grp.failed.load(Ordering::Relaxed)
+            && with_thread_reader(info, |r| {
+                sampling.read(r, k, &grp.dates, &mut tile, &roi.cancel, |j, sc| {
+                    let mut b = grp.bufs[j].lock().unwrap();
+                    if b.is_empty() {
+                        b.resize(sampling.w * sampling.h, f32::NAN);
+                    }
+                    sc.put(&mut b);
+                })
+            });
+        if !ok {
+            grp.failed.store(true, Ordering::Relaxed);
+        }
+        if grp.left.fetch_sub(1, Ordering::AcqRel) == 1 {
+            // each date's statistics (41 quantiles: 5 ms a date of 512 x 512) by this thread and as many more
+            let next = AtomicUsize::new(0);
+            let stats = || {
+                loop {
+                    let j = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(&i) = grp.dates.get(j) else { break };
+                    let mut buf = std::mem::take(&mut *grp.bufs[j].lock().unwrap());
+                    if !grp.failed.load(Ordering::Relaxed) {
+                        for (v, &keep) in buf.iter_mut().zip(&roi.mask) {
+                            if !keep {
+                                *v = f32::NAN;
+                            }
+                        }
+                        let _ = roi.per_t[i].set(sample_stats(&mut buf));
+                    }
+                    if roi.done.fetch_add(1, Ordering::AcqRel) + 1 == roi.per_t.len() {
+                        *roi.ms.lock().unwrap() = Some(roi.started.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+            };
+            std::thread::scope(|sc| {
+                for _ in 1..grp.threads.min(grp.dates.len()) {
+                    sc.spawn(stats);
+                }
+                stats();
+            });
+        }
+    }
+    // GDAL's decompressed block of every band goes with the files
+    janus_cube::drop_thread_reader();
 }
 
 /// The missing dates of the full-resolution cache, after the overview's jobs (priorities 0 and 10): on an HDD the

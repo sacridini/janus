@@ -628,7 +628,8 @@ impl State {
         if !ov.complete() && !vectors_only {
             let what = if ov.from_cache() { " (cache)" } else { "" };
             let verb = if crate::calculator::is_calc_result(info) { "Computing" } else { "Building overview" };
-            bars_loading.push((format!("{verb} {}/{n}{what}", ov.layers_done()), ov.layers_done() as f32 / n as f32));
+            let (f, done) = ov.progress();
+            bars_loading.push((format!("{verb} {done}{what}"), f));
         }
         for (i, l) in self.layers.iter().enumerate() {
             let Some(o) = l.session.as_ref().filter(|_| i != self.active && !l.canvas).map(|s| &s.s.overview) else {
@@ -637,8 +638,8 @@ impl State {
             if !o.complete() {
                 let verb = if crate::calculator::is_calc_result(&o.info) { "Computing" } else { "Loading" };
                 let name: String = l.name.chars().take(22).collect();
-                let f = o.layers_done() as f32 / o.t.max(1) as f32;
-                bars_loading.push((format!("{verb} {name} {}/{}", o.layers_done(), o.t), f));
+                let (f, done) = o.progress();
+                bars_loading.push((format!("{verb} {name} {done}"), f));
             }
         }
         for (k, (label, f)) in bars_loading.iter().enumerate() {

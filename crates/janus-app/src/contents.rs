@@ -975,7 +975,7 @@ impl State {
             self.layers[i].session.as_ref().map(|s| &s.s.overview)
         }
         .filter(|o| !o.complete())
-        .map(|o| format!("loading {}/{}", o.layers_done(), info.t()));
+        .map(|o| format!("loading {}", o.progress().1));
         // its picture in the colours the map draws it with (red, green and blue for a composite of three dates)
         let d = if is_active { &self.display } else { &self.layers[i].disp };
         let cmap = (d.mode != janus_gpu::Mode::Rgb).then(|| d.cmap[d.mode as usize]);

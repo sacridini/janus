@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use gdal::Dataset;
 use gdal::raster::ResampleAlg;
 
+use crate::raw_blocks::{RawBlocks, SysBuf};
 use crate::{BandMeta, CubeInfo, QaRule};
 
 pub struct CubeReader {
@@ -22,6 +23,14 @@ pub struct CubeReader {
     tmp: Vec<f32>,
     /// an expression's bands
     bands: Vec<Vec<f32>>,
+    /// a pixel-interleaved file's blocks decompressed here (opened on the first use; None inside: not this file)
+    raw: Option<Option<RawBlocks>>,
+    /// the block decompressed last, its rows, and its bytes
+    decoded: Option<((usize, usize), usize)>,
+    data: SysBuf,
+    /// every band of the pixels sampled last ([band][pixel]), and their number
+    sampled: Vec<f32>,
+    sampled_n: usize,
 }
 
 /// The threads reading a calculator's band in stripes (eight, kept for the process), each reading through handles it
@@ -212,9 +221,23 @@ fn post_process(m: &BandMeta, v: &mut [f32]) {
     }
 }
 
+/// A date's band (0: the shown one; 1..=bands_per_date: the date's) into a buffer, with its no data, scale and offset.
+type BandRead<'a> = dyn FnMut(&mut CubeReader, i32, &mut [f32]) -> Option<BandMeta> + 'a;
+
 impl CubeReader {
     pub fn new(info: Arc<CubeInfo>) -> Self {
-        CubeReader { info, datasets: HashMap::new(), whole: HashMap::new(), tmp: Vec::new(), bands: Vec::new() }
+        CubeReader {
+            info,
+            datasets: HashMap::new(),
+            whole: HashMap::new(),
+            tmp: Vec::new(),
+            bands: Vec::new(),
+            raw: None,
+            decoded: None,
+            data: SysBuf::new(),
+            sampled: Vec::new(),
+            sampled_n: 0,
+        }
     }
 
     pub fn cube_id(&self) -> u64 {
@@ -332,7 +355,59 @@ impl CubeReader {
         buf: &mut [f32],
         size: (usize, usize),
     ) -> bool {
-        let n = size.0 * size.1;
+        self.quantity(layer, size.0 * size.1, buf, &mut |r, b, out| r.read_raw(layer, b, win, out, size))
+    }
+
+    /// Prepares every band of `pixels` (source x, y, all in one block) of a pixel-interleaved file, its block
+    /// decompressed here (crate::raw_blocks): sampled_values then gives each date's quantity at them. False if this
+    /// file is not read so (read_window then).
+    pub fn sample_pixels(&mut self, pixels: &[(usize, usize)]) -> bool {
+        if self.raw.is_none() {
+            self.raw = Some(RawBlocks::open(&self.info));
+        }
+        let Some(Some(raw)) = self.raw.as_mut() else { return false };
+        let Some(&(x, y)) = pixels.first() else { return false };
+        let (bw, bh) = raw.block;
+        let block = (x / bw, y / bh);
+        if self.decoded.map(|d| d.0) != Some(block) {
+            self.decoded = None;
+            let Some(rows) = raw.decode(block, &mut self.data) else { return false };
+            self.decoded = Some((block, rows));
+        }
+        let rows = self.decoded.map_or(0, |d| d.1);
+        let (x0, y0) = (block.0 * bw, block.1 * bh);
+        let local: Vec<(usize, usize)> =
+            pixels.iter().map(|&(x, y)| (x.wrapping_sub(x0), y.wrapping_sub(y0))).collect();
+        if local.iter().any(|&(c, r)| c >= bw || r >= rows) {
+            return false;
+        }
+        raw.extract(self.data.bytes(), &local, &mut self.sampled);
+        self.sampled_n = pixels.len();
+        true
+    }
+
+    /// Date `layer`'s quantity (as read_window gives it) at the pixels of the last sample_pixels, in their order.
+    pub fn sampled_values(&mut self, layer: usize, out: &mut [f32]) -> bool {
+        let Some(Some(raw)) = self.raw.take() else { return false };
+        let (sampled, n) = (std::mem::take(&mut self.sampled), self.sampled_n);
+        let l = &self.info.layers[layer];
+        let (band, base, meta) = (l.band, l.band_base, l.meta);
+        let ok = self.quantity(layer, n, out, &mut |_, b, dst| {
+            let fb = if b <= 0 { band } else { b + base } as usize;
+            if fb < 1 || fb > raw.bands {
+                return None;
+            }
+            dst.copy_from_slice(&sampled[(fb - 1) * n..fb * n]);
+            Some(if b <= 0 { meta } else { raw.metas[fb - 1] })
+        });
+        self.sampled = sampled;
+        self.raw = Some(Some(raw));
+        ok
+    }
+
+    /// The shown quantity of `layer` over n pixels from its bands as `raw` gives them (band 0: the shown one;
+    /// 1..=bands_per_date: the date's), no post-processing yet, with their no data, scale and offset.
+    fn quantity(&mut self, layer: usize, n: usize, buf: &mut [f32], raw: &mut BandRead) -> bool {
         let sel = self.info.sel;
         if let Some(e) = self.info.expr.clone() {
             // the expression over its bands, each scaled and with its no data as NaN
@@ -340,7 +415,7 @@ impl CubeReader {
             bands.resize_with(e.bands.len(), Vec::new);
             for (k, &b) in e.bands.iter().enumerate() {
                 bands[k].resize(n, 0.0);
-                let Some(meta) = self.read_raw(layer, b, win, &mut bands[k], size) else {
+                let Some(meta) = raw(self, b, &mut bands[k][..n]) else {
                     self.bands = bands;
                     return false;
                 };
@@ -356,14 +431,14 @@ impl CubeReader {
             }
             self.bands = bands;
         } else {
-            let Some(meta) = self.read_raw(layer, 0, win, buf, size) else { return false };
+            let Some(meta) = raw(self, 0, &mut buf[..n]) else { return false };
             post_process(&meta, &mut buf[..n]);
         }
         let mut tmp = std::mem::take(&mut self.tmp);
         tmp.resize(n, 0.0);
         let mut ok = true;
         if sel.nd_band > 0 && self.info.expr.is_none() {
-            match self.read_raw(layer, sel.nd_band, win, &mut tmp, size) {
+            match raw(self, sel.nd_band, &mut tmp[..n]) {
                 Some(_) => {
                     post_process(&self.info.layers[layer].nd_meta, &mut tmp);
                     for (a, &b) in buf[..n].iter_mut().zip(&tmp) {
@@ -376,7 +451,7 @@ impl CubeReader {
             }
         }
         if ok && sel.qa_band > 0 && sel.qa_rule != QaRule::None {
-            match self.read_raw(layer, sel.qa_band, win, &mut tmp, size) {
+            match raw(self, sel.qa_band, &mut tmp[..n]) {
                 Some(_) => {
                     for (v, &q) in buf[..n].iter_mut().zip(&tmp) {
                         if q.is_nan() || q < 0.0 || !sel.qa_rule.usable(q as u32) {
@@ -424,6 +499,12 @@ impl CubeReader {
 
 thread_local! {
     static READER: RefCell<Option<CubeReader>> = const { RefCell::new(None) };
+}
+
+/// Closes the current thread's files: GDAL's buffers go with them (a pixel-interleaved block of every band, hundreds
+/// of MB).
+pub fn drop_thread_reader() {
+    READER.with_borrow_mut(|r| *r = None);
 }
 
 /// Runs `f` with the current thread's reader for this cube (made on demand).

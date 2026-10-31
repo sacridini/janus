@@ -15,6 +15,7 @@ use std::time::Instant;
 
 use janus_cube::{CubeInfo, with_thread_reader};
 
+use crate::blocks::{BlockSampling, readers_for};
 use crate::disk;
 use crate::fullres::FullResCache;
 use crate::pool::JobPool;
@@ -183,6 +184,22 @@ pub struct Overview {
     on_ready: Box<dyn Fn() + Send + Sync>,
     /// the first date built, read by every worker together
     first: OnceLock<FirstDate>,
+    /// every date built together, block by block (a pixel-interleaved file)
+    blocks: OnceLock<BlockPass>,
+}
+
+/// The dates of a file whose blocks hold all its bands, built together: each worker takes a source block and puts
+/// its overview pixels into every date before the next block, so each block is decompressed once (the file's 875
+/// bands of a CCDC stack: 49 blocks decompressed rather than 49 for each date).
+struct BlockPass {
+    /// the dates built, and each one's pixels as they are filled
+    dates: Vec<usize>,
+    bufs: Vec<Mutex<Vec<f32>>>,
+    /// the whole image into the overview, by source blocks
+    sampling: BlockSampling,
+    next: AtomicUsize,
+    left: AtomicUsize,
+    failed: AtomicBool,
 }
 
 /// The first date of a build, its rows read by every worker of the pool before each goes on to a date of its own:
@@ -289,6 +306,7 @@ impl Overview {
             build_seconds: Mutex::new(None),
             on_ready: Box::new(on_ready),
             first: OnceLock::new(),
+            blocks: OnceLock::new(),
         });
 
         if cached == t {
@@ -362,6 +380,34 @@ impl Overview {
                 }
             });
         }
+        // One file whose blocks hold every band: all the dates missing, block by block, by as many workers as the
+        // memory holds (each keeps a decompressed block of every band, GDAL's)
+        if let Some((block, block_bytes)) =
+            (ov.cached_layers() < t).then(|| janus_cube::interleaved_blocks(&ov.info)).flatten()
+        {
+            let (sw, sh) = (ov.info.width, ov.info.height);
+            let sampling = BlockSampling::new(&ov.info, (0, 0, sw, sh), (w, h), block);
+            let dates: Vec<usize> = {
+                let mut claimed = ov.claimed.lock().unwrap();
+                let d = (0..t).filter(|&i| !claimed[i]).collect();
+                claimed.fill(true);
+                d
+            };
+            let workers = readers_for(block_bytes, pool.threads()).min(sampling.windows.len());
+            let _ = ov.blocks.set(BlockPass {
+                bufs: dates.iter().map(|_| Mutex::new(vec![f32::NAN; n])).collect(),
+                dates,
+                left: AtomicUsize::new(sampling.windows.len()),
+                sampling,
+                next: AtomicUsize::new(0),
+                failed: AtomicBool::new(false),
+            });
+            for _ in 0..workers {
+                let o = ov.clone();
+                pool.submit(10, move || o.help_blocks());
+            }
+            return ov;
+        }
         // Nothing to show yet: the first date read by every worker (not when the full-resolution cache reads whole
         // dates for both, on an HDD).
         let integrated = opts.full_res.as_ref().is_some_and(|c| c.integrates());
@@ -433,6 +479,63 @@ impl Overview {
                 self.mark_done(f.i);
                 return;
             }
+        }
+    }
+
+    /// Takes source blocks while some are left, each one's pixels into every date; whoever does the last one makes
+    /// the dates ready.
+    fn help_blocks(&self) {
+        let Some(p) = self.blocks.get() else { return };
+        let mut tile = Vec::new();
+        loop {
+            let k = p.next.fetch_add(1, Ordering::Relaxed);
+            if k >= p.sampling.windows.len() {
+                break;
+            }
+            let ok = !p.failed.load(Ordering::Relaxed)
+                && with_thread_reader(&self.info, |r| {
+                    p.sampling.read(r, k, &p.dates, &mut tile, &self.abandoned, |j, sc| {
+                        sc.put(&mut p.bufs[j].lock().unwrap());
+                    })
+                });
+            if !ok {
+                p.failed.store(true, Ordering::Relaxed);
+            }
+            if p.left.fetch_sub(1, Ordering::AcqRel) == 1 {
+                let failed = p.failed.load(Ordering::Relaxed);
+                for (k, &i) in p.dates.iter().enumerate() {
+                    let v = std::mem::take(&mut *p.bufs[k].lock().unwrap());
+                    if failed {
+                        self.failed.fetch_add(1, Ordering::Relaxed); // left out of the cache: retried on the next open
+                    } else {
+                        self.save_layer(i, &v);
+                        let _ = self.layers[i].set(v.into_boxed_slice());
+                    }
+                    self.mark_done(i);
+                }
+            } else {
+                (self.on_ready)(); // the progress shown
+            }
+        }
+        // GDAL's decompressed block of every band goes with the files
+        janus_cube::drop_thread_reader();
+    }
+
+    /// While the dates are built together block by block (a pixel-interleaved file): the blocks done and their
+    /// number.
+    pub fn blocks_progress(&self) -> Option<(usize, usize)> {
+        let p = self.blocks.get()?;
+        let left = p.left.load(Ordering::Relaxed);
+        let n = p.sampling.windows.len();
+        (left > 0).then(|| (n - left, n))
+    }
+
+    /// How far the build is (0 to 1) and what to say of it: dates done, or blocks done when the dates are built
+    /// together.
+    pub fn progress(&self) -> (f32, String) {
+        match self.blocks_progress() {
+            Some((d, n)) => (d as f32 / n.max(1) as f32, format!("block {d}/{n} of every date")),
+            None => (self.layers_done() as f32 / self.t.max(1) as f32, format!("{}/{}", self.layers_done(), self.t)),
         }
     }
 

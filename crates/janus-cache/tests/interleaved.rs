@@ -1,0 +1,107 @@
+//! A file whose blocks hold every band (pixel-interleaved, a band a date) read block by block, its blocks
+//! decompressed by Janus: the overview and windows of every date as one read of each date through GDAL gives them
+//! (GDAL's nearest neighbour), bit for bit; in tiles of Float64 and in strips of Int16 (the last strip shorter).
+
+use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::time::{Duration, Instant};
+
+use gdal::DriverManager;
+use gdal::raster::{Buffer, GdalType, RasterCreationOptions};
+use janus_cache::blocks::BlockSampling;
+use janus_cache::{JobPool, Overview, OverviewOptions};
+use janus_cube::{BandSelection, CubeInfo, CubeReader, interleaved_blocks, open_cube};
+
+const W: usize = 300;
+const H: usize = 250;
+const BANDS: usize = 20;
+
+fn stack<T: GdalType + Copy>(dir: &Path, opts: &[&str], value: impl Fn(f64) -> T) -> Arc<CubeInfo> {
+    let _ = std::fs::remove_dir_all(dir);
+    std::fs::create_dir_all(dir).unwrap();
+    let f = dir.join("stack.tif");
+    let opts = RasterCreationOptions::from_iter(opts.iter().copied().chain(["COMPRESS=DEFLATE", "INTERLEAVE=PIXEL"]));
+    let drv = DriverManager::get_driver_by_name("GTiff").unwrap();
+    let mut ds = drv.create_with_band_type_with_options::<T, _>(&f, W, H, BANDS, &opts).unwrap();
+    ds.set_geo_transform(&[500000.0, 30.0, 0.0, 8900000.0, 0.0, -30.0]).unwrap();
+    for b in 1..=BANDS {
+        let v: Vec<T> = (0..W * H)
+            .map(|i| value(if i % 997 == b { 0.0 } else { ((i * 7919 + b * 104729) % 10007) as f64 * 0.37 - b as f64 }))
+            .collect();
+        let mut rb = ds.rasterband(b).unwrap();
+        rb.set_no_data_value(Some(0.0)).unwrap();
+        rb.write((0, 0), (W, H), &mut Buffer::new((W, H), v)).unwrap();
+    }
+    drop(ds);
+    Arc::new(open_cube(&[f.to_string_lossy().to_string()], &BandSelection::default()).unwrap())
+}
+
+fn check(d: &Path, info: Arc<CubeInfo>, block: (usize, usize)) {
+    assert_eq!(info.t(), BANDS);
+    let (b, _) = interleaved_blocks(&info).expect("seen as pixel-interleaved");
+    assert_eq!(b, block);
+    let mut r = CubeReader::new(info.clone());
+    assert!(r.sample_pixels(&[(0, 0), (1, 0)]), "its blocks decompressed by Janus");
+
+    // the overview, about a third a side
+    let opts = OverviewOptions {
+        budget_bytes: (W * H / 9 * 4 * BANDS) as i64,
+        max_texture: 16384,
+        cache_dir: d.join("cache"),
+        cache_budget: 0,
+        full_res: None,
+    };
+    let pool = JobPool::new(3, "test", None);
+    let ov = Overview::start(info.clone(), &opts, &pool, || {});
+    let start = Instant::now();
+    while !ov.complete() {
+        assert!(start.elapsed() < Duration::from_secs(60), "the overview never done");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(ov.w < W / 2 && ov.h < H / 2, "a reduced overview: {} x {}", ov.w, ov.h);
+    assert_eq!(ov.failed(), 0);
+    let mut want = vec![0f32; ov.w * ov.h];
+    for t in 0..BANDS {
+        assert!(r.read_window(t, (0, 0, W, H), &mut want, (ov.w, ov.h)));
+        let got = ov.layer(t).unwrap();
+        let bad = want.iter().zip(got).filter(|(a, b)| a.to_bits() != b.to_bits()).count();
+        assert_eq!(bad, 0, "date {t}: {bad} pixels of the overview differ from the file's");
+    }
+    assert!(ov.layer(0).unwrap().iter().any(|v| v.is_nan()), "no data as NaN");
+
+    // a window across blocks, subsampled (an ROI's), one at full resolution, one at the bottom edge
+    for (win, size) in [((37, 21, 200, 190), (61, 55)), ((50, 60, 100, 90), (100, 90)), ((10, 200, 280, 50), (280, 50))]
+    {
+        let s = BlockSampling::new(&info, win, size, block);
+        let dates: Vec<usize> = (0..BANDS).collect();
+        let mut got = vec![vec![f32::NAN; size.0 * size.1]; BANDS];
+        let (mut values, stop) = (Vec::new(), AtomicBool::new(false));
+        for k in 0..s.windows.len() {
+            assert!(s.read(&mut r, k, &dates, &mut values, &stop, |j, sc| sc.put(&mut got[j])));
+        }
+        let mut want = vec![0f32; size.0 * size.1];
+        for (t, got) in got.iter().enumerate() {
+            assert!(r.read_window(t, win, &mut want, size));
+            let bad = want.iter().zip(got).filter(|(a, b)| a.to_bits() != b.to_bits()).count();
+            assert_eq!(bad, 0, "window {win:?}, date {t}: {bad} pixels differ");
+        }
+    }
+    drop((ov, pool));
+}
+
+#[test]
+fn tiles_of_float64() {
+    let d = std::env::temp_dir().join("janus_cache_interleaved_tiles");
+    let info = stack(&d.join("in"), &["TILED=YES", "BLOCKXSIZE=64", "BLOCKYSIZE=64"], |v| v);
+    check(&d, info, (64, 64));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn strips_of_int16() {
+    let d = std::env::temp_dir().join("janus_cache_interleaved_strips");
+    let info = stack(&d.join("in"), &["BLOCKYSIZE=7"], |v| v as i16);
+    check(&d, info, (W, 7));
+    let _ = std::fs::remove_dir_all(&d);
+}

@@ -947,10 +947,16 @@ It works for any such file; EnMAP is the first case tested.
 - **A series of scenes** (one file per date, e.g. a folder holding several
   EnMAP products): dates from the names, each band named with its wavelength,
   and the *Index by wavelength* list in the Bands section. It opens in NDVI.
-- **Slow files**: a compressed GeoTIFF with every band in each block
-  (pixel-interleaved, `gdal_translate`'s default) is read band by band about 70
-  times slower; the series description says so. `gdal_translate -co
-  INTERLEAVE=BAND` makes it fast.
+- **Every band in each block**: a compressed GeoTIFF with every band in each
+  block (pixel-interleaved, `gdal_translate`'s default; a stack exported from
+  Earth Engine) decompresses all its bands for any one of them. Janus reads it
+  block by block, every date of a block at once, its blocks decompressed by
+  Janus itself when DEFLATE or ZSTD without a predictor: the overview, an ROI
+  and the exact series each decompress a block once (875 Float64 bands of
+  1690 x 1675, a CCDC stack of 3.3 GB: the overview in 4 s rather than over
+  15 minutes). Paging through dates zoomed in still decompresses a block of
+  every band for each date shown; `gdal_translate -co INTERLEAVE=BAND` makes
+  that fast.
 - The Zeit tools work along time and are disabled on a spectrum.
 
 ## Embeddings

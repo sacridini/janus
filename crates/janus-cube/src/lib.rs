@@ -8,6 +8,7 @@ pub mod calc;
 pub mod dates;
 pub mod inputs;
 pub mod multidim;
+mod raw_blocks;
 mod reader;
 pub mod remote;
 pub mod roles;
@@ -25,7 +26,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use gdal::{Dataset, DatasetOptions, GdalOpenFlags, Metadata};
 
 pub use dates::TimeGranularity;
-pub use reader::{CubeReader, with_thread_reader};
+pub use reader::{CubeReader, drop_thread_reader, with_thread_reader};
 pub use remote::{dataset_file, display_name, gdal_path, is_remote_path};
 
 /// Nodata and scale/offset of one source band.
@@ -307,6 +308,32 @@ pub fn same_axis(a: &CubeInfo, b: &CubeInfo) -> bool {
 /// Both dated or both spectral: the same time or wavelength can be matched.
 pub fn matchable_axis(a: &CubeInfo, b: &CubeInfo) -> bool {
     (a.time_is_date && b.time_is_date) || (a.spectral && b.spectral)
+}
+
+/// A series in one local GeoTIFF whose every block holds all its bands (pixel-interleaved), compressed, of many
+/// bands: a band read anywhere decompresses all of them, so a date read whole decompresses the whole file (875
+/// Landsat bands of a CCDC stack: 20 GB for each date). GDAL keeps the block last decompressed, so a block's
+/// other bands cost nothing after its first: read block by block, every date of a block before the next, the file
+/// is decompressed once. The block's size and the bytes one decompressed takes, if so.
+pub fn interleaved_blocks(info: &CubeInfo) -> Option<((usize, usize), u64)> {
+    use gdal::Metadata;
+    let path = &info.layers.first()?.path;
+    if info.network_sources || info.t() < 2 || info.layers.iter().any(|l| &l.path != path) {
+        return None;
+    }
+    let ds = open_raster(path).ok()?;
+    let n = ds.raster_count();
+    let pixel = ds.metadata_item("INTERLEAVE", "IMAGE_STRUCTURE").is_some_and(|v| v.eq_ignore_ascii_case("PIXEL"));
+    let compressed =
+        ds.metadata_item("COMPRESSION", "IMAGE_STRUCTURE").is_some_and(|v| !v.eq_ignore_ascii_case("NONE"));
+    if ds.driver().short_name() != "GTiff" || !pixel || !compressed || n < 16 {
+        return None;
+    }
+    let rb = ds.rasterband(1).ok()?;
+    let (bw, bh) = rb.block_size();
+    let bytes =
+        (bw * bh * n) as u64 * u64::from(unsafe { gdal_sys::GDALGetDataTypeSizeBytes(rb.band_type() as _) } as u32);
+    Some(((bw, bh), bytes))
 }
 
 /// Opens a raster read-only. Remote paths are opened without listing their "folder" (one request less per
@@ -669,15 +696,14 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
                 "1 file, {n} bands, {:.0} to {:.0} nm (spectrum){}",
                 info.layers[0].time,
                 info.layers[info.t() - 1].time,
-                if slow {
-                    ". Slow to read: compressed pixel-interleaved (gdal_translate -co INTERLEAVE=BAND makes it fast)"
-                } else {
-                    ""
-                }
+                if slow { ", every band in each block (pixel-interleaved): read block by block" } else { "" }
             );
             return Ok(info);
         }
-        info.description = format!("1 file, {n} bands (1 band = 1 date)");
+        info.description = format!(
+            "1 file, {n} bands (1 band = 1 date){}",
+            if slow { ", every band in each block (pixel-interleaved): read block by block" } else { "" }
+        );
     } else {
         info.bands_per_date = n;
         info.band_nm = spectral::series_band_wavelengths(&first, &files[0]);
