@@ -47,11 +47,11 @@ pub mod upstream;
 pub mod warp;
 pub mod zonal;
 
-/// The Zeit whose zeit-core is linked (Cargo.toml's revision: 2.5.0 and its texture).
+/// The Zeit whose zeit-core is linked (Cargo.toml's revision: 2.5.0, its texture and its best available pixel).
 pub const ZEIT_VERSION: &str = "2.5.0";
 
 /// zeit-core's git revision (Cargo.toml's `rev`), as a run's provenance records it.
-pub const ZEIT_CORE_REV: &str = "f47c16dd2f7a22da9a0d93aaf178bf5396f70407";
+pub const ZEIT_CORE_REV: &str = "e26966dc81e77624873673cb8554588b4443db2b";
 
 pub use manifest::{Manifest, Output, Param, Tool, manifest};
 pub use pixel::{Overlay, Params, PixelInput, PixelResult, run_pixel};
