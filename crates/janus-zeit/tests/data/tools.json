@@ -1043,7 +1043,7 @@
   {
    "id": "mann_kendall",
    "name": "Mann-Kendall trend",
-   "category": "Trend",
+   "category": "Temporal dynamics",
    "description": "Mann-Kendall monotonic trend test with Sen's slope, ported from pymannkendall to C++ in Zeit. Hamed-Rao and Yue-Wang correct the variance for serial correlation (usual in EO composites); the seasonal variant (Hirsch & Slack) tests sub-annual series per season. The first map shows Sen's slope only where the trend is significant.",
    "requires": {
     "time": "any",
@@ -1158,7 +1158,7 @@
   {
    "id": "ndfi",
    "name": "NDFI (spectral unmixing)",
-   "category": "Indices",
+   "category": "Spectral analysis",
    "description": "Spectral mixture analysis (Zeit's zeit.unmix) of every observation into green vegetation, non-photosynthetic vegetation, soil, shade and cloud fractions, with the endmembers of Souza et al. (2005), and their NDFI: near 1 in closed forest, lower where logging or fire opened the canopy, below 0 on soil and pasture. Needs Landsat-style surface reflectance (blue, green, red, NIR, SWIR1, SWIR2) with real dates. A raster run writes the NDFI as a series and opens it as a new layer, ready for LandTrendr, BFAST and the other tools.",
    "requires": {
     "time": "any",
@@ -1282,7 +1282,7 @@
   {
    "id": "phenology",
    "name": "Phenology",
-   "category": "Phenology",
+   "category": "Temporal dynamics",
    "description": "Land surface phenology as implemented in Zeit (a port of phenofit): smooths the series, splits it into growing seasons, fits a curve to each season and derives its start (SOS), peak (POS) and end (EOS). Needs a sub-annual vegetation index series (e.g. NDVI/EVI, 8-16 day or monthly). Maps summarize the seasons per pixel (median, latest or a given year); dates are days of the year of the season's peak.",
    "requires": {
     "time": "any",
@@ -1486,7 +1486,7 @@
   {
    "id": "smooth",
    "name": "Smoothing",
-   "category": "Preprocessing",
+   "category": "Data preparation",
    "description": "Smoothed curve of the series on the chart, with Zeit's Whittaker smoother (penalises roughness, follows the real spacing of the dates and fills gaps with the curve) or Savitzky-Golay filter (local polynomial over evenly spaced dates; gaps are interpolated first).",
    "requires": {
     "time": "any",
@@ -1544,7 +1544,7 @@
   {
    "id": "som",
    "name": "SOM clustering",
-   "category": "Classification",
+   "category": "Classification & pattern recognition",
    "description": "Self-Organizing Map (Kohonen), as implemented in Zeit: unsupervised clustering of the pixels by their whole series. The map is trained on a sample of the area, then every pixel goes to the nearest neuron; neighbouring neurons hold similar series. The result is a cluster map; hover it to see the typical series of the cluster under the cursor on the chart. Good for a first look at what kinds of trajectories an area has.",
    "requires": {
     "time": "any",
@@ -1643,7 +1643,7 @@
   {
    "id": "tmask",
    "name": "Tmask (cloud screening)",
-   "category": "Preprocessing",
+   "category": "Data preparation",
    "description": "Tmask (Zhu & Woodcock 2014), as implemented in Zeit: a robust harmonic model of each pixel's green and SWIR1 series flags the observations that are too bright in green (clouds) or too dark in SWIR (shadows) for their date, which a quality band often misses (haze, thin clouds, shadow edges). Needs the green and SWIR1 bands and real dates. A raster run writes the series shown without the flagged observations and opens it as a new layer. The model spans the whole series: after a sudden lasting change (a clearing) the observations can look like clouds to it, so check such pixels on the chart.",
    "requires": {
     "time": "any",
@@ -1712,7 +1712,7 @@
   {
    "id": "twdtw",
    "name": "TWDTW classification",
-   "category": "Classification",
+   "category": "Classification & pattern recognition",
    "description": "Time-Weighted Dynamic Time Warping (Maus et al. 2016), as implemented in Zeit (the distance of the R package twdtw). Each pixel gets the class of the most similar pattern: drop pins on places you know (forest, crop, pasture...), add them below as classes and name them. A pattern may match any stretch of the series; matching dates far apart in time is penalised by the time weight.",
    "requires": {
     "time": "any",

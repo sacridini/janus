@@ -10,7 +10,7 @@ METHODS = ["hamed_rao", "original", "yue_wang", "seasonal"]
 MANIFEST = {
     "id": "mann_kendall",
     "name": "Mann-Kendall trend",
-    "category": "Trend",
+    "category": "Temporal dynamics",
     "description": (
         "Mann-Kendall monotonic trend test with Sen's slope, ported from pymannkendall to C++ in "
         "Zeit. Hamed-Rao and Yue-Wang correct the variance for serial correlation (usual in EO "

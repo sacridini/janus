@@ -1332,6 +1332,14 @@ termina.
   (0.6 s). O Live usa o mesmo `reduce_dates` sobre as datas já lidas.
 
 ### Menu Tools pela pergunta, não pela família do método (2026-10-29)
+**Feito (2026-11-01, sem versão)**: as categorias da tabela abaixo nos
+`tools.json` (o do Janus e o da ponte, `tests/data`) e nos `MANIFEST` da ponte
+(`tools/zeit_bridge`); a ordem do menu é `janus_zeit::CATEGORIES`; Regularize,
+Speckle filter e Reproject no fim de Data preparation, a calculadora e Tasks
+no fim do menu; Texture (GLCM) junto de SNIC em Spatial pattern analysis; o
+menu Validation chama-se "Validation & uncertainty"; paleta, `docs/usage.md`
+e os guias do site com os caminhos novos.
+
 Hoje as categorias do Tools são famílias de método (Preprocessing, Indices,
 Trend, Phenology, Change detection, Classification, Segmentation), e quatro
 ferramentas ficam soltas no fim do menu (Regularize, Speckle filter,

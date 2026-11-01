@@ -100,7 +100,7 @@
         <img src="assets/img/landtrendr/02-menu.png" alt="The Tools menu: change detection (agreement, BFAST, BFAST Lite, BFAST Monitor, CCDC, CCDC synthetic image, CODED, LandTrendr), trend, indices, phenology, preprocessing and classification tools, then Tasks and Log." loading="lazy">
         <figcaption><b>Tools menu.</b> The Zeit tools by category.</figcaption>
       </figure>
-      <p><span class="ui">Tools → LandTrendr</span> opens its window. The tools come from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a>, whose methods are part of Janus: nothing to install. A tool that does not fit the series open is disabled, with the reason (LandTrendr on a monthly series: it needs one date per year).</p>
+      <p><span class="ui">Tools → Change detection → LandTrendr</span> opens its window. The tools come from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a>, whose methods are part of Janus: nothing to install. A tool that does not fit the series open is disabled, with the reason (LandTrendr on a monthly series: it needs one date per year).</p>
     </section>
 
     <section id="chart">
@@ -210,7 +210,7 @@
 
     <section id="recovery">
       <h2><span class="n">08</span>Recovery</h2>
-      <p>The maps above say when a forest was lost. <span class="ui">Tools → Recovery (LandTrendr)</span> asks what came after: it segments each series as LandTrendr does, takes the greatest loss as the <strong>disturbance</strong>, and measures the fitted trajectory after its lowest point, the <strong>trough</strong>. Measured on the fit, not on the yearly values, a dry year or a missed cloud does not end a recovery.</p>
+      <p>The maps above say when a forest was lost. <span class="ui">Tools → Change detection → Recovery (LandTrendr)</span> asks what came after: it segments each series as LandTrendr does, takes the greatest loss as the <strong>disturbance</strong>, and measures the fitted trajectory after its lowest point, the <strong>trough</strong>. Measured on the fit, not on the yearly values, a dry year or a missed cloud does not end a recovery.</p>
       <dl class="terms">
         <dt>Pre-disturbance value</dt><dd>The mean of the years just before the disturbance (2 by default).</dd>
         <dt>Y2R</dt><dd>Years to recovery: from the trough until the fit first gets back to 80% of the pre-disturbance value (White et al. 2017). 0 when it never fell below that; no value when it has not got back by the last year.</dd>
@@ -275,7 +275,7 @@
       <h2><span class="n">09</span>What next</h2>
       <ul>
         <li><strong>Validate it.</strong> The year of detection is a map of events: <a href="validation.html">the Validation guide</a> stratifies it, draws a sample and estimates its accuracy and the area of loss by year, with confidence intervals.</li>
-        <li><strong>Compare it.</strong> <span class="ui">Tools → Agreement of change maps</span> takes several maps of dates (LandTrendr, <a href="ccdc.html">CCDC</a>, <a href="bfast.html">BFAST</a>, <a href="coded.html">CODED</a>) and maps where and when they agree.</li>
+        <li><strong>Compare it.</strong> <span class="ui">Tools → Change detection → Agreement of change maps</span> takes several maps of dates (LandTrendr, <a href="ccdc.html">CCDC</a>, <a href="bfast.html">BFAST</a>, <a href="coded.html">CODED</a>) and maps where and when they agree.</li>
         <li><strong>Export it.</strong> Right click a result in the Layers panel to save it as GeoTIFF, or save the map as a PNG figure.</li>
         <li><strong>Script it.</strong> The same algorithm is <code>zeit.landtrendr</code> and <code>zeit.extract_events</code> in Python.</li>
       </ul>

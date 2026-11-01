@@ -108,6 +108,21 @@ pub struct Output {
     pub each: Option<String>,
 }
 
+/// The Tools menu's categories, by the question asked and in the order of a workflow: the data prepared, its
+/// spectra, its dynamics through time, its changes, its patterns in space, its classes (each tool's `category`).
+pub const CATEGORIES: [&str; 6] = [
+    DATA_PREPARATION,
+    "Spectral analysis",
+    "Temporal dynamics",
+    "Change detection",
+    "Spatial pattern analysis",
+    CLASSIFICATION,
+];
+/// The category Janus' own preparations join (regularize, speckle filter, reproject).
+pub const DATA_PREPARATION: &str = "Data preparation";
+/// The category the Classification window and the field delineation join.
+pub const CLASSIFICATION: &str = "Classification & pattern recognition";
+
 /// Every tool's descriptor (read once).
 pub fn manifest() -> &'static Manifest {
     static M: OnceLock<Manifest> = OnceLock::new();

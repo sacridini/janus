@@ -1345,7 +1345,7 @@ impl State {
             ui.checkbox(&mut blind, "Blind");
             chips = ui
                 .small_button("Chips")
-                .on_hover_text("The point at every date, around it (Validation > Chips)")
+                .on_hover_text("The point at every date, around it (Validation & uncertainty > Chips)")
                 .clicked();
             if !self.val.blind {
                 let names = ["points by state", "points by stratum", "right / wrong (selected map)"];

@@ -1,4 +1,4 @@
-//! Texture (Tools > Segmentation > Texture), as Zeit's texture: the shown series of a window summarized over its
+//! Texture (Tools > Spatial pattern analysis > Texture), as Zeit's texture: the shown series of a window summarized over its
 //! dates (median, mean, minimum, maximum, standard deviation or amplitude), then zeit-core's `texture` of that image:
 //! the grey-level co-occurrence matrix's properties (scikit-image's graycomatrix and graycoprops, averaged over four
 //! directions) and spfeas's window mean, deviation and gradient. The windows need their neighbours, so a raster run

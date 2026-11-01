@@ -1,4 +1,4 @@
-//! The Classification window's methods (Tools > Classification), on the same samples: besides the forest and the
+//! The Classification window's methods (Tools > Classification & pattern recognition), on the same samples: besides the forest and the
 //! networks (ml.rs), TWDTW (Zeit's tool: each class's pattern the mean series of its samples, every pixel the class
 //! of the pattern most like its series), the classifier of a layer of embeddings (the Embeddings panel's logistic
 //! regression or nearest centroid, fitted on the samples' vectors) and SOM (Zeit's tool: clusters, no samples).
@@ -636,7 +636,7 @@ impl State {
             ui.colored_label(crate::theme::error(), format!("Not yet: {w}"));
         }
         self.raster_run_ui(ui, tool, why.is_some());
-        ui.weak("The maps are layers of their own when the run ends; Tools > Classification > Post-processing smooths a class map.");
+        ui.weak("The maps are layers of their own when the run ends; Tools > Classification & pattern recognition > Post-processing smooths a class map.");
     }
 
     /// SOM in the Method tab: its settings (no samples).

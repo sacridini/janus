@@ -215,7 +215,7 @@ impl State {
         let cur = self.labels.current;
         let (Some(li), Some(s), Some(cur)) = (li, &self.session, cur) else {
             ui.label(
-                "Start an interpretation (a vector layer's Interpret..., or Validation > Interpret the sample): the \
+                "Start an interpretation (a vector layer's Interpret..., or Validation & uncertainty > Interpret the sample): the \
                  feature being interpreted is shown at every date of the active layer, around it.",
             );
             return;

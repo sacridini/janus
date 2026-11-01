@@ -798,7 +798,9 @@ impl State {
     /// areas, convergence, dates, change by year.
     pub(crate) fn validation_accuracy_ui(&mut self, ui: &mut Ui) {
         let Some(p) = &self.val.project else {
-            ui.label("Open a validation project (Validation > Open project...) or draw a sample (Design).");
+            ui.label(
+                "Open a validation project (Validation & uncertainty > Open project...) or draw a sample (Design).",
+            );
             return;
         };
         if p.maps.is_empty() {

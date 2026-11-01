@@ -1,4 +1,4 @@
-//! Speckle filters of a radar series (IDEIAS phase 47; Tools > Speckle filter): Lee's, spatial, each date in a
+//! Speckle filters of a radar series (IDEIAS phase 47; Tools > Data preparation > Speckle filter): Lee's, spatial, each date in a
 //! window of its own, and Quegan's multitemporal one, each date's window mean times the mean of every date's ratio
 //! to its own; on the bands' linear values (σ⁰ or γ⁰, not dB), every band of every date, into a folder of COGs as
 //! Regularize writes them.

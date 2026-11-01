@@ -565,10 +565,10 @@ pub struct State {
     pub stac: crate::stac::StacUi,
     /// Tools > Raster calculator
     pub calc: crate::calculator::CalcUi,
-    /// Tools > Regularize series
+    /// Tools > Data preparation > Regularize series
     pub reg: crate::regularize_ui::RegUi,
     pub poly: crate::polygonize_ui::PolyUi,
-    /// Tools > Classification > Field delineation
+    /// Tools > Classification & pattern recognition > Field delineation
     pub fields: crate::fields_ui::FieldsUi,
     pub areas: crate::areas_ui::AreaUi,
     pub warp: crate::warp_ui::WarpUi,
@@ -2097,7 +2097,7 @@ impl State {
                 ui.min_rect()
             });
             self.shots_menu("Tools", r.response.rect, r.inner);
-            let r = ui.menu_button("Validation", |ui| {
+            let r = ui.menu_button(crate::palette::VALIDATION, |ui| {
                 self.validation_menu(ui);
                 ui.min_rect()
             });

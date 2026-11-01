@@ -604,11 +604,14 @@ impl State {
         self.zeit.fits_of(s.info.id, Which::Roi, self.series.roi_gen as usize, 0)
     }
 
-    /// The Tools menu: a submenu per category, its tools beside it (each opens its window); deep learning with
-    /// the classifications.
+    /// The Tools menu: a submenu per category, by the question asked in the order of a workflow (janus_zeit's
+    /// CATEGORIES), its tools beside it (each opens its window); Janus' own preparations (regularize, speckle
+    /// filter, reproject) with the data's preparation, the Classification window and the field delineation with the
+    /// classifications; the calculator and Tasks at the end.
     pub(crate) fn tools_menu(&mut self, ui: &mut Ui) {
         let m = manifest();
-        let mut categories: Vec<&str> = vec![];
+        let mut categories: Vec<&str> = janus_zeit::CATEGORIES.to_vec();
+        // a category the list does not have (a tool added without one of them) still shown, after
         for t in &m.tools {
             if !categories.contains(&t.category.as_str()) {
                 categories.push(&t.category);
@@ -616,9 +619,15 @@ impl State {
         }
         for c in categories {
             let tools: Vec<&Tool> = m.tools.iter().filter(|t| t.category == c).collect();
+            let preparation = c == janus_zeit::DATA_PREPARATION;
+            let classification = c == janus_zeit::CLASSIFICATION;
+            if tools.is_empty() && !preparation && !classification {
+                continue;
+            }
             // a category with a tool open is marked
             let any_open = tools.iter().any(|t| self.zeit.tools.get(&t.id).is_some_and(|u| u.open))
-                || c == "Classification" && (self.ml.open || self.fields.show);
+                || classification && (self.ml.open || self.fields.show)
+                || preparation && (self.reg.show || self.speckle.show || self.warp.show);
             let label = format!("{c}{}", if any_open { "  \u{25cf}" } else { "" });
             ui.menu_button(label, |ui| {
                 for t in tools {
@@ -642,7 +651,11 @@ impl State {
                         ui.close();
                     }
                 }
-                if c == "Classification" {
+                if preparation {
+                    ui.separator();
+                    self.preparation_menu(ui);
+                }
+                if classification {
                     ui.separator();
                     self.ml_menu(ui);
                     self.fields_menu(ui);
@@ -661,6 +674,15 @@ impl State {
             self.calc.show = !self.calc.show;
             ui.close();
         }
+        if ui.add(egui::Button::selectable(self.zeit.show_tasks, "Tasks")).clicked() {
+            self.zeit.show_tasks = !self.zeit.show_tasks;
+            ui.close();
+        }
+        ui.weak(format!("Zeit {} (native, zeit-core)", janus_zeit::ZEIT_VERSION));
+    }
+
+    /// Janus' own preparations of a series, in Tools > Data preparation after Zeit's.
+    fn preparation_menu(&mut self, ui: &mut Ui) {
         if ui
             .add(egui::Button::selectable(self.reg.show, "Regularize series..."))
             .on_hover_text(
@@ -694,11 +716,6 @@ impl State {
             self.warp.show = !self.warp.show;
             ui.close();
         }
-        if ui.add(egui::Button::selectable(self.zeit.show_tasks, "Tasks")).clicked() {
-            self.zeit.show_tasks = !self.zeit.show_tasks;
-            ui.close();
-        }
-        ui.weak(format!("Zeit {} (native, zeit-core)", janus_zeit::ZEIT_VERSION));
     }
 
     /// A tool's window opened or closed: opened, a tool of the chart is fitted on it (if the series suits it);

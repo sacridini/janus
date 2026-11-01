@@ -1,4 +1,4 @@
-//! The samples' quality as they are gathered (Tools > Classification > Samples): whenever the samples change (a
+//! The samples' quality as they are gathered (Tools > Classification & pattern recognition > Samples): whenever the samples change (a
 //! pin dropped or given a class, a polygon labelled), after a short pause and on a thread of its own, every place's
 //! series read (each pixel once: a cache keeps them), and a quick Random Forest cross-validated by place (each
 //! sample classified by forests that never saw its place: GroupKFold). From it the estimated accuracy and each

@@ -352,7 +352,7 @@ impl State {
         if sv.format == SaveFormat::Cog {
             sv.all_bands = false;
         }
-        ui.weak("Reprojected or clipped by polygons: Tools > Reproject, resample, clip first.");
+        ui.weak("Reprojected or clipped by polygons: Tools > Data preparation > Reproject, resample, clip first.");
         ui.checkbox(&mut sv.dont_open, "Don't open it when saved");
         ui.add_space(4.0);
         if ui.add(egui::Button::new("Save as...").min_size(vec2(110.0, 0.0))).clicked() {

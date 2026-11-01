@@ -101,7 +101,7 @@
         <img src="assets/img/sccd/01-tool.png" alt="The S-CCD (stochastic CCDC) window: its description, the six bands mapped to blue, green, red, NIR, SWIR1 and SWIR2, a note that no quality band is set, and the first parameters." width="441" height="547" loading="lazy">
         <figcaption><b>The S-CCD window.</b> Janus maps the bands from their names.</figcaption>
       </figure>
-      <p><span class="ui">Tools → S-CCD (stochastic CCDC)</span>, among the change detection tools. The tool needs real dates and the six Landsat-style reflectance bands. They are mapped from the band names when it can. It comes from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a> (<code>zeit.sccd</code>) and is built into Janus, so there is nothing to install. The units are found from the values: reflectance 0–1, reflectance × 10,000 or Collection 2 digital numbers.</p>
+      <p><span class="ui">Tools → Change detection → S-CCD (stochastic CCDC)</span>, among the change detection tools. The tool needs real dates and the six Landsat-style reflectance bands. They are mapped from the band names when it can. It comes from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a> (<code>zeit.sccd</code>) and is built into Janus, so there is nothing to install. The units are found from the values: reflectance 0–1, reflectance × 10,000 or Collection 2 digital numbers.</p>
       <p>The window notes that there is no quality band. In this series the clouds are already no data, so nothing is lost. In a series with its <code>QA_PIXEL</code> band, set that band as the quality band.</p>
     </section>
 
@@ -235,7 +235,7 @@
       <h2><span class="n">10</span>What next</h2>
       <ul>
         <li><strong>Other ways to read every date</strong>: <a href="ccdc.html">CCDC</a> for the whole history and its synthetic images, <a href="ewmacd.html">EWMACD</a> for control charts on one index, and <a href="coded.html">CODED</a> to tell degradation from deforestation with the NDFI.</li>
-        <li><strong>Compare it.</strong> <span class="ui">Tools → Agreement of change maps</span> takes several maps of dates (S-CCD's largest break date, CCDC, <a href="landtrendr.html">LandTrendr</a>) and maps where and when they agree.</li>
+        <li><strong>Compare it.</strong> <span class="ui">Tools → Change detection → Agreement of change maps</span> takes several maps of dates (S-CCD's largest break date, CCDC, <a href="landtrendr.html">LandTrendr</a>) and maps where and when they agree.</li>
         <li><strong>Validate it.</strong> The break dates make a map of events. <a href="validation.html">The Validation guide</a> shows how to sample it and estimate its accuracy and areas.</li>
         <li><strong>Script it.</strong> The same algorithm is <code>zeit.sccd</code> in Python; Zeit's <a href="https://sacridini.github.io/zeit-cdts/tutorials/sccd/">S-CCD tutorial</a> follows the same pixels.</li>
       </ul>

@@ -86,6 +86,9 @@ pub(crate) enum Cmd {
     PasteStyle,
 }
 
+/// The Validation menu's name (and its commands' category).
+pub(crate) const VALIDATION: &str = "Validation & uncertainty";
+
 /// A command as listed: its name, category, keys, a longer description, and why it cannot run now (None: it can).
 pub(crate) struct Command {
     pub cmd: Cmd,
@@ -271,14 +274,16 @@ impl State {
             out.push(Command { cmd, label: label.into(), category: cat.into(), keys, detail: String::new(), disabled });
         };
         add(Cmd::Calculator, "Tools", "Raster calculator...", "", None);
-        add(Cmd::Regularize, "Tools", "Regularize series...", "", None);
-        add(Cmd::Speckle, "Tools", "Speckle filter...", "radar Sentinel-1 Lee Quegan", None);
-        add(Cmd::Warp, "Tools", "Reproject, resample, clip...", "", None);
+        // Janus' own preparations, in Tools > Data preparation as Zeit's
+        let prep = format!("Tools > {}", janus_zeit::DATA_PREPARATION);
+        add(Cmd::Regularize, &prep, "Regularize series...", "", None);
+        add(Cmd::Speckle, &prep, "Speckle filter...", "radar Sentinel-1 Lee Quegan", None);
+        add(Cmd::Warp, &prep, "Reproject, resample, clip...", "", None);
         add(Cmd::BuildSeries, "File", "Build series...", "", None);
         add(Cmd::SaveSeries, "File", "Save series as...", "", need(self.session.is_some(), "no series open"));
         add(
             Cmd::DeepLearning,
-            "Tools > Classification",
+            &format!("Tools > {}", janus_zeit::CLASSIFICATION),
             "Classification (Random Forest, TempCNN, L-TAE, Presto, U-TAE)...",
             "",
             None,
@@ -288,13 +293,13 @@ impl State {
         // Validation
         let project = self.validation_project_open();
         let no_project = need(project, "no validation project is open");
-        add(Cmd::NewDesign, "Validation", "New sampling design...", "", None);
-        add(Cmd::OpenValidation, "Validation", "Open validation project...", "", None);
-        add(Cmd::CloseValidation, "Validation", "Close validation project", "", no_project.clone());
-        add(Cmd::ValidationPanel, "Validation", "Validation panel", "", None);
-        add(Cmd::InterpretSample, "Validation", "Interpret the sample", "", no_project.clone());
-        add(Cmd::Chips, "Validation", "Chips", "", None);
-        add(Cmd::Accuracy, "Validation", "Accuracy and areas", "", no_project);
+        add(Cmd::NewDesign, VALIDATION, "New sampling design...", "", None);
+        add(Cmd::OpenValidation, VALIDATION, "Open validation project...", "", None);
+        add(Cmd::CloseValidation, VALIDATION, "Close validation project", "", no_project.clone());
+        add(Cmd::ValidationPanel, VALIDATION, "Validation panel", "", None);
+        add(Cmd::InterpretSample, VALIDATION, "Interpret the sample", "", no_project.clone());
+        add(Cmd::Chips, VALIDATION, "Chips", "", None);
+        add(Cmd::Accuracy, VALIDATION, "Accuracy and areas", "", no_project);
         // Help
         add(Cmd::Help, "Help", "Shortcuts and usage", "", None);
         add(Cmd::Updates, "Help", "Check for updates...", "", None);
@@ -732,7 +737,7 @@ mod tests {
         // a word's start beats its middle; the name beats the category and the description
         assert!(score("map", "Map as PNG", "", "").unwrap() > score("map", "Fit map", "", "").unwrap());
         assert!(score("map", "Fit map", "", "").unwrap() > score("map", "Swipe", "", "a map").unwrap());
-        assert!(score("tools", "BFAST...", "Tools > Trend", "").is_some());
+        assert!(score("tools", "BFAST...", "Tools > Temporal dynamics", "").is_some());
         // letters in order for a short word
         assert!(score("bfm", "BFAST Monitor...", "", "").is_some());
         assert!(score("xyz", "BFAST Monitor...", "", "").is_none());

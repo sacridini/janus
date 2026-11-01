@@ -89,7 +89,7 @@
         <table class="tbl">
           <thead><tr><th>Where</th><th>Answers</th><th>Gives</th></tr></thead>
           <tbody>
-            <tr><td><span class="ui">Tools → AR(1) trend</span></td><td>Does this pixel's series have a trend, allowing for the persistence of its errors from year to year?</td><td>On the chart: the line and its test. On the image: maps of the slope, p, t, its standard error, ρ.</td></tr>
+            <tr><td><span class="ui">Tools → Temporal dynamics → AR(1) trend</span></td><td>Does this pixel's series have a trend, allowing for the persistence of its errors from year to year?</td><td>On the chart: the line and its test. On the image: maps of the slope, p, t, its standard error, ρ.</td></tr>
             <tr><td><span class="ui">View → Analysis → Trend test</span></td><td>Does the mean trend of the ROI, the visible area or the image differ from 0? Of each class of a land-cover layer? Do the classes differ?</td><td>A table of estimates, standard errors, t and p, and the chi-square test of the classes.</td></tr>
           </tbody>
         </table>
@@ -114,7 +114,7 @@
 
     <section id="pixel">
       <h2><span class="n">03</span>One pixel: the AR(1) trend</h2>
-      <p><span class="ui">Tools → AR(1) trend</span> fits each series on the chart (the cursor, the pins and the ROI mean) with a straight line whose errors follow an AR(1) process, by REML, as remotePARTS's <code>fitAR</code>. The line is drawn on the chart and its test goes into the <span class="ui">Statistics</span> table.</p>
+      <p><span class="ui">Tools → Temporal dynamics → AR(1) trend</span> fits each series on the chart (the cursor, the pins and the ROI mean) with a straight line whose errors follow an AR(1) process, by REML, as remotePARTS's <code>fitAR</code>. The line is drawn on the chart and its test goes into the <span class="ui">Statistics</span> table.</p>
       <figure class="fig">
         <a href="assets/img/trend-test/02-ar-pixel.jpg"><img src="assets/img/trend-test/02-ar-pixel.jpg" alt="The AR(1) trend window open, a pin on a pixel near the river, its 41-year series falling from about 0.1 to 0 on the chart, and the Statistics table." width="1600" height="950" loading="lazy"></a>
         <figcaption><b>A pin near the river.</b> The index was high in the late 1980s, then low for decades.</figcaption>
@@ -314,7 +314,7 @@
       <h2><span class="n">11</span>What next</h2>
       <ul>
         <li><strong>The method in depth</strong>, covariates, sensitivity checks and parity with remotePARTS: <a href="https://sacridini.github.io/zeit-cdts/tutorials/regional-trends/">Regional Trends (PARTS)</a> in Zeit's documentation, with <code>zeit.ar_trend</code> and <code>zeit.parts</code> in Python.</li>
-        <li><strong>A non-parametric pixel trend</strong>: <span class="ui">Tools → Mann-Kendall</span>, Sen's slope with the Hamed-Rao correction.</li>
+        <li><strong>A non-parametric pixel trend</strong>: <span class="ui">Tools → Temporal dynamics → Mann-Kendall</span>, Sen's slope with the Hamed-Rao correction.</li>
         <li><strong>When the land changed</strong>, not only whether it trends: <a href="landtrendr.html">LandTrendr</a> and <a href="bfast.html">BFAST</a>.</li>
         <li><strong>Classes over time</strong>: <span class="ui">View → Analysis → Classes</span>.</li>
       </ul>

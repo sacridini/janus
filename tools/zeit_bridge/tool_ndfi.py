@@ -26,7 +26,7 @@ FRACTION_NAMES = {"gv": "GV fraction", "npv": "NPV fraction", "soil": "Soil frac
 MANIFEST = {
     "id": "ndfi",
     "name": "NDFI (spectral unmixing)",
-    "category": "Indices",
+    "category": "Spectral analysis",
     "description": (
         "Spectral mixture analysis (Zeit's zeit.unmix) of every observation into green vegetation, "
         "non-photosynthetic vegetation, soil, shade and cloud fractions, with the endmembers of Souza et "

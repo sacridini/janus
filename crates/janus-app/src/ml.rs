@@ -1,4 +1,4 @@
-//! Classification (IDEIAS.md, "IA"; janus-ml): Tools > Classification. Samples from what Janus already has (the
+//! Classification (IDEIAS.md, "IA"; janus-ml): Tools > Classification & pattern recognition. Samples from what Janus already has (the
 //! interpretation's labels, a validation project's references, a vector layer's class column, pins given a class,
 //! grouped by class here), their series read at full resolution; a Random Forest, a TempCNN or an L-TAE trained on
 //! them in the background (Tools > Tasks), its curves and the validation samples' confusion matrix in the window; the model kept in a .janusmodel file and
@@ -871,7 +871,7 @@ impl State {
         let n = self.ml.forest.extra.len();
         egui::CollapsingHeader::new(format!("Beside the series ({n})")).id_salt("ml forest extra").show(ui, |ui| {
             ui.weak(
-                "Rasters on the series' grid read as further predictors, a value each a sample: Tools > Segmentation \
+                "Rasters on the series' grid read as further predictors, a value each a sample: Tools > Spatial pattern analysis \
                  > Texture (GLCM)'s maps of this series, a DEM, a distance map. The model reads them from their \
                  files when it is applied.",
             );

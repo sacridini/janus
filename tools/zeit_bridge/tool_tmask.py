@@ -19,7 +19,7 @@ ROLES = ["green", "swir1"]
 MANIFEST = {
     "id": "tmask",
     "name": "Tmask (cloud screening)",
-    "category": "Preprocessing",
+    "category": "Data preparation",
     "description": (
         "Tmask (Zhu & Woodcock 2014), as implemented in Zeit: a robust harmonic model of each pixel's green "
         "and SWIR1 series flags the observations that are too bright in green (clouds) or too dark in "

@@ -216,7 +216,7 @@
         <figcaption><b>A year of radar in dB</b>: VV on 2024-09-12; the forest of pin 1 (red) around −5 dB, the pasture of pin 2 (blue) lowest at the end of the dry season.</figcaption>
       </figure>
       <h3>Speckle</h3>
-      <p>Radar images are grainy: each cell sums the echoes of many scatterers, which add up or cancel at random. This <em>speckle</em> is not noise to be fixed but part of the signal; it is averaged away, over neighbouring cells or over dates. <span class="ui">Tools → Speckle filter...</span> writes a filtered copy of the series:</p>
+      <p>Radar images are grainy: each cell sums the echoes of many scatterers, which add up or cancel at random. This <em>speckle</em> is not noise to be fixed but part of the signal; it is averaged away, over neighbouring cells or over dates. <span class="ui">Tools → Data preparation → Speckle filter...</span> writes a filtered copy of the series:</p>
       <dl class="terms">
         <dt>Quegan (multitemporal)</dt><dd>Each date's window mean times the mean, over all the dates, of each date's value divided by its own window mean (Quegan &amp; Yu 2001). The speckle is averaged through time, so a date keeps its own changes and the cells keep more detail than a window alone would leave.</dd>
         <dt>Lee (spatial)</dt><dd>Each date alone: the window's mean, plus the cell's departure from it in proportion to how much more the window varies than speckle of that many looks would (Lee 1980; Sentinel-1's IW scenes have 4.4). Smooth fields are averaged, edges kept.</dd>
@@ -230,7 +230,7 @@
       <p>The radar follows the season where the optical scenes stop. On the five largest patches whose VH fell by more than 3 dB between the year's first six dates and its last six (10 to 12 ha each, around 62.966° W, 9.982° S), VH holds at −12 to −13.5 dB from January to May, falls through June, July and August, and stays near −20 dB from mid-August to the end of September; with the rains it comes back to between −12 and −18 dB from October, rising and falling with wet and dry spells. They are pastures drying out: in the Sentinel-2 series above their NDVI fell from about 0.4 at the end of May 2024 to 0.09 on 11 September, lower than in any dry season since 2019 (lows of 0.16 to 0.26), and rose again with every rainy season. The forest of pin 1, whose NDVI fell to 0.25 at the end of that dry season, keeps its VH between −9 and −13 dB all year (after Quegan's filter): the radar sees a canopy that dried, not one that fell.</p>
       <div class="note">
         <p class="h">One pass, one series</p>
-        <p>CUSUM, BEAST and the trend tools work on the dB series as they are. The tools that want a fixed step (BFAST, BFAST Monitor) want <span class="ui">Tools → Regularize series...</span> first: the 12 days of one pass become 12 or 16 days exactly.</p>
+        <p>CUSUM, BEAST and the trend tools work on the dB series as they are. The tools that want a fixed step (BFAST, BFAST Monitor) want <span class="ui">Tools → Data preparation → Regularize series...</span> first: the 12 days of one pass become 12 or 16 days exactly.</p>
       </div>
     </section>
 

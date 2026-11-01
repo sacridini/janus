@@ -101,7 +101,7 @@
         <img src="assets/img/beast/01-tool.png" alt="The BEAST (Bayesian changepoints) window: its description and the parameters Season, Grid step, Max trend and season changepoints, Max trend order, MCMC samples 2000, Chains 2, Burn-in 200, Thinning 5 and Seed 42." width="439" height="559" loading="lazy">
         <figcaption><b>The BEAST window</b> and its parameters.</figcaption>
       </figure>
-      <p><span class="ui">Tools → BEAST (Bayesian changepoints)</span>, among the change detection tools. It takes any series of one band with at least 12 dates. It comes from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a> (<code>zeit.beast</code>, a port of the C code of the R package Rbeast) and is built into Janus, so there is nothing to install.</p>
+      <p><span class="ui">Tools → Change detection → BEAST (Bayesian changepoints)</span>, among the change detection tools. It takes any series of one band with at least 12 dates. It comes from <a href="https://github.com/sacridini/zeit-cdts">Zeit</a> (<code>zeit.beast</code>, a port of the C code of the R package Rbeast) and is built into Janus, so there is nothing to install.</p>
       <p><span class="ui">Season</span> is automatic: a harmonic season of one year when the series has dates and four or more a year, none for an annual series like this one. The tool runs 2000 samples on 2 chains, a quarter of Rbeast's default (8000 on 3): enough for the probabilities, and four to five times faster on an image.</p>
     </section>
 
@@ -256,7 +256,7 @@
       <h2><span class="n">11</span>What next</h2>
       <ul>
         <li><strong>Other ways to date a change</strong>: <a href="landtrendr.html">LandTrendr</a> and its recovery metrics for annual series, <a href="bfast.html">BFAST</a> for regular series, <a href="ccdc.html">CCDC</a> and <a href="sccd.html">S-CCD</a> on every observation.</li>
-        <li><strong>Compare it.</strong> <span class="ui">Tools → Agreement of change maps</span> takes several maps of dates (BEAST's most probable changepoint, LandTrendr's year of detection) and maps where and when they agree.</li>
+        <li><strong>Compare it.</strong> <span class="ui">Tools → Change detection → Agreement of change maps</span> takes several maps of dates (BEAST's most probable changepoint, LandTrendr's year of detection) and maps where and when they agree.</li>
         <li><strong>Validate it.</strong> The changepoint dates make a map of events. <a href="validation.html">The Validation guide</a> shows how to sample it and estimate its accuracy and areas.</li>
         <li><strong>Script it.</strong> The same algorithm is <code>zeit.beast</code> in Python; Zeit's <a href="https://sacridini.github.io/zeit-cdts/tutorials/beast/">BEAST tutorial</a> follows the same pixels, with every output (the probability of each number of changepoints, the season's changepoints, the slope's sign).</li>
       </ul>

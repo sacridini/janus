@@ -1,4 +1,4 @@
-//! Tools > Regularize series... (IDEIAS phase 40): the active series as one composite per period of a fixed step
+//! Tools > Data preparation > Regularize series... (IDEIAS phase 40): the active series as one composite per period of a fixed step
 //! (the median, the medoid across its bands, the clearest date), its empty periods filled up to a gap, written as a
 //! folder of COGs (a task) that opens as a new series when done.
 

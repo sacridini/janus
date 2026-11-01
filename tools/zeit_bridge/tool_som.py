@@ -22,7 +22,7 @@ MAX_CLUSTERS = 12  # the class colours Janus has (qualitative colormaps)
 MANIFEST = {
     "id": "som",
     "name": "SOM clustering",
-    "category": "Classification",
+    "category": "Classification & pattern recognition",
     "description": (
         "Self-Organizing Map (Kohonen), as implemented in Zeit: unsupervised clustering of the pixels by "
         "their whole series. The map is trained on a sample of the area, then every pixel goes to the "

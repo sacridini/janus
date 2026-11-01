@@ -1,4 +1,4 @@
-//! Tools > Classification > Field delineation: the fields of the active Sentinel-2 series as parcels (janus_ml's
+//! Tools > Classification & pattern recognition > Field delineation: the fields of the active Sentinel-2 series as parcels (janus_ml's
 //! fields and fieldnet: the Fields of The World / WRI Trazo network on two median composites of the season, then
 //! the parcels found in its probabilities), a task whose class map opens as a run's layers and whose parcels open
 //! as a vector layer (a GeoPackage: each parcel's area, perimeter and mean interior probability).

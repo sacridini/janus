@@ -41,7 +41,7 @@ METHODS = {
 MANIFEST = {
     "id": "phenology",
     "name": "Phenology",
-    "category": "Phenology",
+    "category": "Temporal dynamics",
     "description": (
         "Land surface phenology as implemented in Zeit (a port of phenofit): smooths the series, "
         "splits it into growing seasons, fits a curve to each season and derives its start (SOS), "

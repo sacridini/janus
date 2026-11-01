@@ -19,7 +19,7 @@ import zeit_common as zc
 MANIFEST = {
     "id": "twdtw",
     "name": "TWDTW classification",
-    "category": "Classification",
+    "category": "Classification & pattern recognition",
     "description": (
         "Time-Weighted Dynamic Time Warping (Maus et al. 2016), as implemented in Zeit (the distance "
         "of the R package twdtw). Each pixel gets the class of the most similar pattern: drop pins on "

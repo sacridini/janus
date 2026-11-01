@@ -1,4 +1,4 @@
-//! Tools > Reproject, resample, clip... (IDEIAS phase 43): the active series' files (or a run's map) through
+//! Tools > Data preparation > Reproject, resample, clip... (IDEIAS phase 43): the active series' files (or a run's map) through
 //! gdalwarp (janus_zeit::warp: its code, so the command's result bit for bit) to another CRS, pixel size or another
 //! layer's grid, on the visible area, the ROI or cut by a vector layer's polygons; COGs, GeoTIFFs or virtual
 //! (warped VRTs), in a folder that opens as a new series when done (a task).

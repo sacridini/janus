@@ -86,7 +86,7 @@
 
     <section id="ndfi">
       <h2><span class="n">03</span>The NDFI</h2>
-      <p><span class="ui">Tools → NDFI (spectral unmixing)</span> unmixes every observation with the endmembers of Souza et al. (2005). Run on the raster, it writes the NDFI of every date as a <strong>new series</strong>, opened as a layer over the others, ready for LandTrendr, BFAST or the agreement; and three maps: the mean NDFI, the lowest, and the observations used.</p>
+      <p><span class="ui">Tools → Spectral analysis → NDFI (spectral unmixing)</span> unmixes every observation with the endmembers of Souza et al. (2005). Run on the raster, it writes the NDFI of every date as a <strong>new series</strong>, opened as a layer over the others, ready for LandTrendr, BFAST or the agreement; and three maps: the mean NDFI, the lowest, and the observations used.</p>
       <figure class="fig narrow">
         <img src="assets/img/coded/01-ndfi-tool.png" alt="The NDFI tool's window: its bands, the reflectance units, max cloud fraction 0.05, the option to write the fractions too, and the run on the raster." loading="lazy">
         <figcaption><b>The NDFI tool.</b> <span class="ui">Also write the fractions</span> adds the GV, NPV, soil and shade series.</figcaption>
@@ -100,7 +100,7 @@
 
     <section id="coded">
       <h2><span class="n">04</span>CODED on the chart</h2>
-      <p><span class="ui">Tools → CODED (degradation)</span>. Its bands are found as for CCDC. On the chart, with the layer showing a normalized difference, CODED adds the NDFI of each observation, the training mean, and a vertical line at each change.</p>
+      <p><span class="ui">Tools → Change detection → CODED (degradation)</span>. Its bands are found as for CCDC. On the chart, with the layer showing a normalized difference, CODED adds the NDFI of each observation, the training mean, and a vertical line at each change.</p>
       <figure class="fig">
         <a href="assets/img/coded/03-fit.jpg"><img src="assets/img/coded/03-fit.jpg" alt="CODED's window with monitoring from 2022 and two years of training; on the chart the NDVI of the cleared pixel, the NDFI of each observation and a change line in 2022; the Statistics table with the training, the stratum and the change." width="1680" height="1050" loading="lazy"></a>
         <figcaption><b>The clearing</b>: trained as forest (mean NDFI 1.0 over 9 clear observations of 2020–2021), then a deforestation in May 2022: the NDFI fell by 1.19, to 0.14.</figcaption>

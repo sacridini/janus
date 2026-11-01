@@ -179,7 +179,7 @@ pub fn plan(files: &[String]) -> Result<BuildPlan, String> {
         if !same {
             p.skipped.push((
                 path.clone(),
-                "another CRS than the first file's: reproject it first (Tools > Reproject, resample, clip)".into(),
+                "another CRS than the first file's: reproject it first (Tools > Data preparation > Reproject, resample, clip)".into(),
             ));
             continue;
         }

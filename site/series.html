@@ -76,9 +76,9 @@
       <p>Janus opens a folder of files as a series, one file a date, the date read from each name. These tools deal with what comes before and after that: files that are not yet one a date, dates that are not evenly spaced, and a series that has to leave Janus for another program.</p>
       <dl class="terms">
         <dt>Build series</dt><dd><span class="ui">File → Build series...</span>: loose files grouped by the date in their names, a date's bands stacked and its tiles mosaicked on one grid; a VRT or a COG per date.</dd>
-        <dt>Regularize series</dt><dd><span class="ui">Tools → Regularize series...</span>: one composite per period of a fixed step (8 or 16 days, a month, a year, any number of days), the empty periods filled or left empty; a COG per regular date.</dd>
+        <dt>Regularize series</dt><dd><span class="ui">Tools → Data preparation → Regularize series...</span>: one composite per period of a fixed step (8 or 16 days, a month, a year, any number of days), the empty periods filled or left empty; a COG per regular date.</dd>
         <dt>Save series as</dt><dd><span class="ui">File → Save series as...</span>: the active series as a multiband COG, a NetCDF or a Zarr with a time axis, over the whole layer, the visible area or the ROI.</dd>
-        <dt>Speckle filter</dt><dd><span class="ui">Tools → Speckle filter...</span>: a radar series smoothed by Quegan's multitemporal filter or by Lee's; a COG per date.</dd>
+        <dt>Speckle filter</dt><dd><span class="ui">Tools → Data preparation → Speckle filter...</span>: a radar series smoothed by Quegan's multitemporal filter or by Lee's; a COG per date.</dd>
       </dl>
       <p>Each runs as a task in <span class="ui">Tools → Tasks</span>, writes a folder under <code>%LOCALAPPDATA%\Janus\results</code> with its log and its <code>provenance.json</code>, and opens what it made as a new layer.</p>
     </section>
@@ -130,7 +130,7 @@ T20LNP_20240608T142721_B04_10m.tif
 
     <section id="regularize">
       <h2><span class="n">04</span>Regularize: one date every 16 days</h2>
-      <p>The 107 dates of the Sentinel-2 series are where the sky was clear: a dozen or more in each dry season, few from October to May. Many tools want a fixed step: BFAST and BEAST read the season from it, the phenology fits a curve per year, a neural network wants the same number of dates everywhere. <span class="ui">Tools → Regularize series...</span> cuts the time into periods and gives each one value:</p>
+      <p>The 107 dates of the Sentinel-2 series are where the sky was clear: a dozen or more in each dry season, few from October to May. Many tools want a fixed step: BFAST and BEAST read the season from it, the phenology fits a curve per year, a neural network wants the same number of dates everywhere. <span class="ui">Tools → Data preparation → Regularize series...</span> cuts the time into periods and gives each one value:</p>
       <figure class="fig">
         <a href="assets/img/series/03-regularize.jpg"><img src="assets/img/series/03-regularize.jpg" alt="The Regularize series window over the Sentinel-2 series: s2ro: 107 dates, 2019-06-05 to 2024-09-11; Step 16 days; A period gives Median; Bands: as shown (ND(NIR (B08), Red (B04)), QA SCL) ticked, or all 7; Empty periods Whittaker with lambda 10.0; Longest gap 0 days; Area the whole layer (the ROI greyed); Name s2ro regular; the line 121 periods of 16 days, 66 without a date: one COG each, in a folder that opens as a series; Run. Behind it the NDVI map with pins 1 and 2 in the south-west and the chart of their five years." width="1600" height="950" loading="lazy"></a>
         <figcaption><b>16 days, the median, gaps from a Whittaker curve</b>: 121 periods, 66 of them without a clear date.</figcaption>
@@ -158,7 +158,7 @@ T20LNP_20240608T142721_B04_10m.tif
       <h2><span class="n">05</span>Save as COG, NetCDF or Zarr</h2>
       <p>A series in Janus is a folder of files, one a date. <span class="ui">File → Save series as...</span> writes the active series as one file with its dates in it, for a program that reads data cubes:</p>
       <figure class="fig">
-        <a href="assets/img/series/05-save.jpg"><img src="assets/img/series/05-save.jpg" alt="The Save series as window over the Sentinel-2 series: s2ro: 107 dates; Format: COG: a band per date (its date in the band's name), NetCDF (CF), with a time axis (ticked), Zarr, with a time axis; Values: ND(NIR (B08), Red (B04)), QA SCL (as shown, its mask applied), or every band (7), a variable each (ticked); Area: whole layer, visible area, ROI (ticked); the note Reprojected or clipped by polygons: Tools > Reproject, resample, clip first; Don't open it when saved; Save as.... Behind it the map with a yellow ROI rectangle in the south-west around the two pins, and the chart with the ROI's mean and its p10 to p90 band." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/series/05-save.jpg"><img src="assets/img/series/05-save.jpg" alt="The Save series as window over the Sentinel-2 series: s2ro: 107 dates; Format: COG: a band per date (its date in the band's name), NetCDF (CF), with a time axis (ticked), Zarr, with a time axis; Values: ND(NIR (B08), Red (B04)), QA SCL (as shown, its mask applied), or every band (7), a variable each (ticked); Area: whole layer, visible area, ROI (ticked); the note Reprojected or clipped by polygons: Tools > Data preparation > Reproject, resample, clip first; Don't open it when saved; Save as.... Behind it the map with a yellow ROI rectangle in the south-west around the two pins, and the chart with the ROI's mean and its p10 to p90 band." width="1600" height="950" loading="lazy"></a>
         <figcaption><b>Saving the ROI</b>: every band of the 107 dates as a NetCDF, a variable per band.</figcaption>
       </figure>
       <dl class="terms">
@@ -166,7 +166,7 @@ T20LNP_20240608T142721_B04_10m.tif
         <dt>NetCDF</dt><dd>NetCDF 4 written through GDAL's multidimensional API, following the CF conventions: dimensions <code>time</code>, <code>y</code>, <code>x</code> with their coordinates (<code>lat</code> and <code>lon</code> in degrees for a series in geographic coordinates), time in days since 1970-01-01, the CRS as a grid mapping (here <code>transverse_mercator</code>). Float32 with NaN for no data, in chunks of 1 × 512 × 512, compressed with deflate.</dd>
         <dt>Zarr</dt><dd>A Zarr v2 store with the same axes and chunks, compressed with Blosc LZ4 and byte shuffling, as xarray writes it.</dd>
         <dt>Values</dt><dd>The quantity shown (a band, an index, an expression), its quality mask applied; or, for NetCDF and Zarr, every band, a variable each, named after the bands (<code>Red__B04___665_0_nm</code>).</dd>
-        <dt>Area</dt><dd>The whole layer, the visible area or the ROI. To reproject it or clip it by polygons, <span class="ui">Tools → Reproject, resample, clip</span> first.</dd>
+        <dt>Area</dt><dd>The whole layer, the visible area or the ROI. To reproject it or clip it by polygons, <span class="ui">Tools → Data preparation → Reproject, resample, clip</span> first.</dd>
       </dl>
       <p>The regular NDVI of section 04 (121 dates of 877 × 886) took 6.4 s as a NetCDF and 1.8 s as a Zarr, on two threads; the ROI of the figure, 350 × 236 cells, every band of the 107 dates, 3.4 s as a NetCDF. What is saved opens back as a layer unless <span class="ui">Don't open it when saved</span> is ticked.</p>
     </section>
@@ -214,7 +214,7 @@ Name: value, dtype: float32</code></pre>
     <section id="radar">
       <h2><span class="n">07</span>Radar: decibels and speckle</h2>
       <p>Sentinel-1's backscatter comes as linear powers, 0.01 to 0.3 over land, which are hard to look at: a series of Sentinel-1 RTC from the STAC window opens in decibels, the VVdB index (<code>10 * log10(VV)</code>). Any radar series does with an index of the Display panel (VVdB, VHdB, VHVVdB) or <code>--expr VHdB</code>. The figures here show VH, where pasture and forest differ most.</p>
-      <p>The values are grainy: each cell sums the echoes of many scatterers that add up or cancel at random. This speckle is averaged away over neighbouring cells, or over dates. <span class="ui">Tools → Speckle filter...</span>:</p>
+      <p>The values are grainy: each cell sums the echoes of many scatterers that add up or cancel at random. This speckle is averaged away over neighbouring cells, or over dates. <span class="ui">Tools → Data preparation → Speckle filter...</span>:</p>
       <figure class="fig">
         <a href="assets/img/series/06-speckle.jpg"><img src="assets/img/series/06-speckle.jpg" alt="The Speckle filter window over the Sentinel-1 series shown as VHdB (10.0 * log10(VH)) at 2024-09-12: linear: 24 dates of 2 band(s) (VV, VH); Filter Quegan (multitemporal); Window 7 x 7 pixels; Area the whole layer; Name linear filtered; the line Every band of every date, on the linear values (not dB): a COG per date, in a folder that opens as a series shown as this one is; Run. The map grainy from -21 to -9.2 dB, the dry pastures dark purple, the forest green; the chart: pin 1 (red) between about -8 and -17 dB, pin 2 (blue) falling to about -24 dB in September; the Statistics: standard deviation 2.375 dB for pin 1 and 3.3202 for pin 2." width="1600" height="950" loading="lazy"></a>
         <figcaption><b>The speckle filter</b> on 24 dates of VV and VH, the series shown as VH in dB.</figcaption>

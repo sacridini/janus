@@ -14,7 +14,7 @@ import zeit_common as zc
 MANIFEST = {
     "id": "smooth",
     "name": "Smoothing",
-    "category": "Preprocessing",
+    "category": "Data preparation",
     "description": (
         "Smoothed curve of the series on the chart, with Zeit's Whittaker smoother (penalises "
         "roughness, follows the real spacing of the dates and fills gaps with the curve) or "

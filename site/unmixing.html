@@ -94,7 +94,7 @@
           </tbody>
         </table>
       </div>
-      <p>Both are under <span class="ui">Tools → Indices</span>, both run Zeit's <code>unmix</code>, and both are fitted live on the chart before they run on the image.</p>
+      <p>Both are under <span class="ui">Tools → Spectral analysis</span>, both run Zeit's <code>unmix</code>, and both are fitted live on the chart before they run on the image.</p>
     </section>
 
     <section id="data">
@@ -108,7 +108,7 @@
 
     <section id="endmembers">
       <h2><span class="n">04</span>Endmembers from pins</h2>
-      <p><span class="ui">Tools → Spectral unmixing (endmembers)</span>. Go to a clear date (here the last, 23 August 2026, in the dry season) and drop pins on pure covers: a dense forest, a field cleared to bare soil, open water. <span class="ui">Add one from 2026-08-23...</span> adds a pin's six bands at that date as an endmember; name each in its box.</p>
+      <p><span class="ui">Tools → Spectral analysis → Spectral unmixing (endmembers)</span>. Go to a clear date (here the last, 23 August 2026, in the dry season) and drop pins on pure covers: a dense forest, a field cleared to bare soil, open water. <span class="ui">Add one from 2026-08-23...</span> adds a pin's six bands at that date as an endmember; name each in its box.</p>
       <figure class="fig narrow">
         <a href="assets/img/unmixing/01-tool.png"><img src="assets/img/unmixing/01-tool.png" alt="The Spectral unmixing (endmembers) window: constraints non-negative, summing to one (FCLS); three endmembers, Forest, Soil and Water, from pins 1, 2 and 3 at 2026-08-23 with 6 bands each; Add one from 2026-08-23; Fit the cursor, pins and ROI series ticked; Run on the raster: whole image." loading="lazy"></a>
         <figcaption><b>Three endmembers</b>, each the six bands of a pin on 23 August 2026.</figcaption>
@@ -192,7 +192,7 @@
 
     <section id="spectrum">
       <h2><span class="n">08</span>A hyperspectral scene</h2>
-      <p>An EnMAP scene (L2A, surface reflectance) of 10 August 2022 on the coast of Groningen, the Netherlands: 1335 × 1288 pixels of 30 m, 224 bands from 418 to 2446 nm. Janus opens the file as it is, as a spectrum, a series whose axis is the wavelength, and the chart draws each pixel's spectrum. <span class="ui">Tools → Spectral unmixing (spectrum)</span> takes pins' spectra as endmembers, the same way: here a green crop (vegetation), a bare field (soil) and the Wadden Sea (water).</p>
+      <p>An EnMAP scene (L2A, surface reflectance) of 10 August 2022 on the coast of Groningen, the Netherlands: 1335 × 1288 pixels of 30 m, 224 bands from 418 to 2446 nm. Janus opens the file as it is, as a spectrum, a series whose axis is the wavelength, and the chart draws each pixel's spectrum. <span class="ui">Tools → Spectral analysis → Spectral unmixing (spectrum)</span> takes pins' spectra as endmembers, the same way: here a green crop (vegetation), a bare field (soil) and the Wadden Sea (water).</p>
       <div class="note warn">
         <p class="h">Bands without data</p>
         <p>EnMAP's L2A product leaves six bands, 1331 to 1391 nm in the water vapour absorption, without data in every pixel. The endmembers have no value there either, and the tool leaves those bands out on its own: the pixels are unmixed on the other 218, and the rebuilt spectrum breaks at the gap. Nothing to prepare.</p>
@@ -242,7 +242,7 @@
       <h2><span class="n">10</span>What next</h2>
       <ul>
         <li><strong>Date the change</strong>: <a href="landtrendr.html">LandTrendr</a> or <a href="bfast.html">BFAST</a> on a fraction series.</li>
-        <li><strong>Forest degradation</strong>: <span class="ui">Tools → NDFI (spectral unmixing)</span> unmixes Landsat with the fixed endmembers of Souza et al. (GV, NPV, soil, shade, cloud) into the NDFI, the index <a href="coded.html">CODED</a> uses for logging and fire.</li>
+        <li><strong>Forest degradation</strong>: <span class="ui">Tools → Spectral analysis → NDFI (spectral unmixing)</span> unmixes Landsat with the fixed endmembers of Souza et al. (GV, NPV, soil, shade, cloud) into the NDFI, the index <a href="coded.html">CODED</a> uses for logging and fire.</li>
         <li><strong>Validate it</strong>: classify the fractions and check the map with the <a href="validation.html">Validation guide</a>.</li>
         <li><strong>Script it</strong>: the same unmixing is <code>zeit.unmix</code> in Python.</li>
       </ul>

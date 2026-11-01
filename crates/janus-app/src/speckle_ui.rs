@@ -1,4 +1,4 @@
-//! Tools > Speckle filter... (IDEIAS phase 47): a radar series (Sentinel-1's VV and VH) through Lee's filter, a
+//! Tools > Data preparation > Speckle filter... (IDEIAS phase 47): a radar series (Sentinel-1's VV and VH) through Lee's filter, a
 //! window of each date, or Quegan's multitemporal one, every date's window means put together; on the bands'
 //! linear values, written as a folder of COGs (a task) that opens as a new series shown as the one filtered.
 

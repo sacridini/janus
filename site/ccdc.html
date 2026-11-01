@@ -108,7 +108,7 @@
 
     <section id="window">
       <h2><span class="n">04</span>The tool's window</h2>
-      <p><span class="ui">Tools → CCDC</span>. Its window starts with the <strong>Bands</strong>: which band of each date plays each role. Janus guesses them from the band names (<code>NIR</code>, <code>SWIR1</code>, <code>SR_B5</code>...), and stacks of six or more unnamed bands are taken as blue to SWIR2; change any of them in the lists. The quality band in use is named under them.</p>
+      <p><span class="ui">Tools → Change detection → CCDC</span>. Its window starts with the <strong>Bands</strong>: which band of each date plays each role. Janus guesses them from the band names (<code>NIR</code>, <code>SWIR1</code>, <code>SR_B5</code>...), and stacks of six or more unnamed bands are taken as blue to SWIR2; change any of them in the lists. The quality band in use is named under them.</p>
       <div class="tbl-wrap">
         <table class="tbl">
           <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
@@ -186,7 +186,7 @@
 
     <section id="synthetic">
       <h2><span class="n">08</span>A synthetic image</h2>
-      <p>The models describe every band on every day of each segment, so they can give the image of a date that has no observation, or a cloudy one. <span class="ui">Tools → CCDC synthetic image</span> runs CCDC and predicts the date in <span class="ui">Date</span> (a decimal year; 0 follows the date on the map): every band, in the series' units, and what the layer shows.</p>
+      <p>The models describe every band on every day of each segment, so they can give the image of a date that has no observation, or a cloudy one. <span class="ui">Tools → Change detection → CCDC synthetic image</span> runs CCDC and predicts the date in <span class="ui">Date</span> (a decimal year; 0 follows the date on the map): every band, in the series' units, and what the layer shows.</p>
       <div class="fig-pair">
         <figure class="fig">
           <a href="assets/img/ccdc/07-observed.jpg"><img src="assets/img/ccdc/07-observed.jpg" alt="The observed image of 16 January 2025: entirely covered by cloud." width="1680" height="1050" loading="lazy"></a>
@@ -205,7 +205,7 @@
       <ul>
         <li><strong>Degradation apart from clearing</strong>: <a href="coded.html">CODED</a> works on the same kind of series, with the NDFI.</li>
         <li><strong>Validate the dates</strong>: the largest break date is a map of events; see <a href="validation.html">the Validation guide</a>.</li>
-        <li><strong>Compare with LandTrendr or BFAST</strong>: <span class="ui">Tools → Agreement of change maps</span>.</li>
+        <li><strong>Compare with LandTrendr or BFAST</strong>: <span class="ui">Tools → Change detection → Agreement of change maps</span>.</li>
         <li><strong>Script it</strong>: <code>zeit.ccdc</code> and <code>zeit.predict_synthetic_image</code> in Python.</li>
       </ul>
     </section>

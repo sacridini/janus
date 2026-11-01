@@ -76,7 +76,7 @@
       <h2><span class="n">01</span>The idea</h2>
       <p>A class map is a grid of codes; a report wants hectares, polygons and tables. Five tools of Janus go between the two, each a task in <span class="ui">Tools → Tasks</span> whose result opens as a layer and keeps its provenance (what was run, on what, with which options):</p>
       <dl class="terms">
-        <dt>Reproject, resample, clip</dt><dd><span class="ui">Tools → Reproject, resample, clip...</span>: a series' files through gdalwarp's own code, to a CRS, a pixel size or <em>the grid of another layer</em>, so two maps line up pixel for pixel.</dd>
+        <dt>Reproject, resample, clip</dt><dd><span class="ui">Tools → Data preparation → Reproject, resample, clip...</span>: a series' files through gdalwarp's own code, to a CRS, a pixel size or <em>the grid of another layer</em>, so two maps line up pixel for pixel.</dd>
         <dt>Areas</dt><dd><span class="ui">Analysis → Areas</span>: the area of each class at every date, each pixel counted with its true area on the ellipsoid, in ha, km² or %.</dd>
         <dt>Polygonize</dt><dd>In a map's or a series' menu in the <span class="ui">Layers</span> panel: the patches of a map as polygons in a GeoPackage, each with its class, its area and its perimeter.</dd>
         <dt>Rasterize</dt><dd>In a vector layer's menu: its features burned on the active series' grid, as a mask, their numbers or an attribute; a Zeit tool can then run only inside them.</dd>
@@ -96,7 +96,7 @@
 
     <section id="warp">
       <h2><span class="n">03</span>Onto one grid</h2>
-      <p>Two maps can be compared, combined or used one as the other's mask only when their pixels coincide. <span class="ui">Tools → Reproject, resample, clip...</span> warps the active series' files (or a run's map) and opens the result as a new series:</p>
+      <p>Two maps can be compared, combined or used one as the other's mask only when their pixels coincide. <span class="ui">Tools → Data preparation → Reproject, resample, clip...</span> warps the active series' files (or a run's map) and opens the result as a new series:</p>
       <figure class="fig">
         <a href="assets/img/maps-to-numbers/01-warp.png"><img src="assets/img/maps-to-numbers/01-warp.png" alt="The Reproject, resample, clip window: Layer mapbiomas (34 files); To: A CRS, EPSG:4326 typed below; Pixel size unticked, as gdalwarp chooses; Resampling mode; Area Whole layer; No data unticked, the source's; Type as it is; Format COG (GeoTIFF and Virtual the other choices); Name mapbiomas warped; under it the arguments gdalwarp -t_srs EPSG:4326 -r mode -of COG -co COMPRESS=DEFLATE -co PREDICTOR=YES -co BIGTIFF=IF_SAFER -co NUM_THREADS=2 -multi -wo NUM_THREADS=2 -overwrite, and a Run button." width="478" height="421" loading="lazy"></a>
         <figcaption><b>The window</b> as it opens on the MapBiomas years: to a CRS (EPSG:4326 at first), mode for a map of classes, the whole layer, COGs, and the gdalwarp arguments those choices make.</figcaption>
