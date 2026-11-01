@@ -101,8 +101,10 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
             )
         }
     };
-    let (net, training, weights) = if let Arch::RandomForest(h) = &arch {
-        let (tr, va, _) = split_by_place(&y, None, 3, cfg.validation_split, cfg.seed);
+    // places of 5 samples each (a polygon's pixels): the validation holds whole places out
+    let places: Vec<usize> = (0..y.len()).map(|i| i / 5).collect();
+    let (net, training, weights, held_out) = if let Arch::RandomForest(h) = &arch {
+        let (tr, va, _) = split_by_place(&y, Some(&places), 3, cfg.validation_split, cfg.seed);
         let f = janus_ml::forest::train(&s, &y, 3, h, &tr, &va, cfg.seed, &mut show, &AtomicBool::new(false)).unwrap();
         let (oa, _, _) = f.accuracies();
         println!(
@@ -113,10 +115,9 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
         );
         assert!(oa > 0.9, "{tag}: validation accuracy {oa}");
         let training = f.summary(h, cfg.validation_split, cfg.seed, &[0, 0, 0]);
-        (Net::forest(f.forest), training, Some(f.importance))
+        assert_eq!(f.held_out.len(), f.n_val);
+        (Net::forest(f.forest), training, Some(f.importance), f.held_out)
     } else {
-        // places of 5 samples each (a polygon's pixels): the validation holds whole places out
-        let places: Vec<usize> = (0..y.len()).map(|i| i / 5).collect();
         let trained =
             train(&s, &y, Some(&places), 3, &arch, &calendar, &cfg, &dev, &mut show, &AtomicBool::new(false)).unwrap();
         assert_eq!(trained.split, "places");
@@ -130,8 +131,24 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
         );
         assert!(oa > 0.9, "{tag}: validation accuracy {oa}");
         let training = trained.summary(&cfg, &[0, 0, 0]);
-        (trained.net, training, None)
+        assert_eq!(trained.held_out.len(), trained.n_val);
+        (trained.net, training, None, trained.held_out)
     };
+    // the area of applicability with its error profile: the validation samples' accuracy by their DI
+    let how = janus_ml::aoa::Fit { weights: weights.as_deref(), held_out: Some(&held_out), mahalanobis: false };
+    let applicability = janus_ml::aoa::Applicability::fit_with(&s, Some(&places), &y, how, -1).unwrap();
+    let profile = applicability.profile.as_ref().expect("an error profile");
+    let at = profile.at(&[0.0, applicability.threshold]);
+    println!("{tag}: {}", applicability.describe());
+    assert!(at[0] > 0.8 && at[0] >= at[1] && (0.0..=1.0).contains(&at[1]), "{tag}: profile {at:?}");
+    assert!(profile.points.windows(2).all(|w| w[0][0] <= w[1][0]) && profile.samples <= held_out.len());
+    // the Mahalanobis distance: these series' values are collinear (gaps filled between dates), which it refuses
+    // with its reason (aoa.rs's tests compare it with Zeit's on values of full rank)
+    let md = janus_ml::aoa::Fit { mahalanobis: true, ..how };
+    match janus_ml::aoa::Applicability::fit_with(&s, Some(&places), &y, md, -1) {
+        Ok(a) => assert!(a.whiten.is_some() && a.distance == "mahalanobis"),
+        Err(e) => assert!(e.contains("full rank"), "{tag}: {e}"),
+    }
 
     // the file and back: the same probabilities
     let header = Header {
@@ -149,7 +166,7 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
         min_valid: 50.0,
         series: info.description.clone(),
         training,
-        applicability: Some(janus_ml::aoa::Applicability::fit_weighted(&s, None, &y, weights.as_deref(), -1).unwrap()),
+        applicability: Some(applicability),
         created: String::new(),
     };
     let model = Model { header, net, device: dev.clone() };
@@ -170,6 +187,7 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
         batch: 300,
         post: Default::default(),
         aoa: true,
+        lpd: true,
     };
     let res = apply(&spec, &info, &back, &|_, _| {}, &AtomicBool::new(false)).unwrap();
     let ds = gdal::Dataset::open(out.join(format!("{tag}_class.tif"))).unwrap();
@@ -178,7 +196,8 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
     let acc = right as f64 / (W * H) as f64;
     println!("{tag}: {} of {} pixels classified, {:.3} right", res.classified, W * H, acc);
     assert!(acc > 0.9, "{tag}: the class map is {acc} right");
-    assert_eq!(res.outputs.len(), 5);
+    // class, probability, entropy, DI, AOA, LPD, expected accuracy
+    assert_eq!(res.outputs.len(), 7);
 
     // the area of applicability: the image is like its samples, its DI that of Zeit's on the same inputs
     let td = back.header.applicability.as_ref().unwrap().train_di().unwrap();
@@ -193,10 +212,32 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
     let di = ds.rasterband(1).unwrap().read_as::<f32>((0, 0), (W, H), (W, H), None).unwrap();
     let (row, keep) = janus_ml::apply::input_of(&back, &info, &inputs, (0, 7, W, 1)).unwrap();
     let d = zeit_core::aoa::di(&row.values.iter().map(|&v| v as f64).collect::<Vec<_>>(), W, &td, false, 1).0;
+    let (_, lpd) = zeit_core::aoa::di(&row.values.iter().map(|&v| v as f64).collect::<Vec<_>>(), W, &td, true, 1);
+    let read = |id: &str| {
+        let ds = gdal::Dataset::open(out.join(format!("{tag}_{id}.tif"))).unwrap();
+        ds.rasterband(1).unwrap().read_as::<f32>((0, 0), (W, H), (W, H), None).unwrap().data().to_vec()
+    };
+    let (lpd_map, accuracy) = (read("lpd"), read("accuracy"));
+    let profile = back.header.applicability.as_ref().unwrap().profile.as_ref().unwrap();
     for x in (0..W).filter(|&x| keep[x]) {
         assert!((di.data()[7 * W + x] as f64 - d[x]).abs() < 1e-5 * d[x].max(1.0), "{tag}: DI at {x}");
         assert_eq!(inside.data()[7 * W + x], (d[x] <= td.threshold) as u8);
+        assert_eq!(lpd_map[7 * W + x] as f64, lpd[x], "{tag}: LPD at {x}");
+        let a = accuracy[7 * W + x];
+        if d[x] <= td.threshold {
+            assert!((a as f64 - profile.at(&[d[x]])[0]).abs() < 1e-6, "{tag}: expected accuracy at {x}");
+        } else {
+            assert!(a.is_nan(), "{tag}: an expected accuracy outside the AOA at {x}");
+        }
     }
+    // only the area of applicability: the same maps, no class
+    let only = ApplySpec { stem: format!("{tag}_aoa_only"), ..spec.clone() };
+    let res = janus_ml::apply::map_aoa(&only, &info, &back, &|_, _| {}, &AtomicBool::new(false)).unwrap();
+    let ids: Vec<&str> = res.outputs.iter().map(|o| o["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["di", "aoa", "lpd", "accuracy"]);
+    let ds = gdal::Dataset::open(out.join(format!("{tag}_aoa_only_di.tif"))).unwrap();
+    let di_only = ds.rasterband(1).unwrap().read_as::<f32>((0, 0), (W, H), (W, H), None).unwrap();
+    assert!(di_only.data().iter().zip(di.data()).all(|(a, b)| a == b || (a.is_nan() && b.is_nan())));
     // far from the samples: outside
     let far = vec![50f32; T * 2];
     assert!(janus_ml::aoa::di(&far, 1, &td, 1)[0] > td.threshold);

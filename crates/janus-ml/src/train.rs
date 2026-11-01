@@ -29,6 +29,10 @@ pub struct TrainConfig {
     pub seed: u64,
     /// each class's loss weighed by the inverse of its share of the samples
     pub class_weights: bool,
+    /// the area of applicability by the Mahalanobis distance (the samples whitened by their covariance, CAST's
+    /// `method = "MD"`) instead of the Euclidean
+    #[serde(default)]
+    pub aoa_mahalanobis: bool,
 }
 
 impl TrainConfig {
@@ -46,6 +50,7 @@ impl TrainConfig {
             min_delta: 0.01,
             seed: 42,
             class_weights: false,
+            aoa_mahalanobis: false,
         }
     }
 
@@ -112,6 +117,9 @@ pub struct Trained {
     pub batch_size: usize,
     /// the validation split: "places" (a polygon's or a pin's samples on one side), "samples" or "patches" (U-TAE's)
     pub split: &'static str,
+    /// each validation sample (its index) and the class the model gave it: the model's error against the samples'
+    /// dissimilarity (aoa.rs's error profile)
+    pub held_out: Vec<(usize, u32)>,
 }
 
 impl Trained {
@@ -245,11 +253,12 @@ fn evaluate(
     classes: usize,
     weights: Option<Vec<f32>>,
     device: &Device,
-) -> (f64, f64, Vec<Vec<u32>>) {
+) -> (f64, f64, Vec<Vec<u32>>, Vec<u32>) {
     let mut confusion = vec![vec![0u32; classes]; classes];
     if idx.is_empty() {
-        return (f64::NAN, f64::NAN, confusion);
+        return (f64::NAN, f64::NAN, confusion, vec![]);
     }
+    let mut predicted = Vec::with_capacity(idx.len());
     let loss_fn = CrossEntropyLossConfig::new().with_weights(weights).init(device);
     let (mut loss_sum, mut right) = (0.0, 0);
     for chunk in idx.chunks(batch.max(1)) {
@@ -267,9 +276,10 @@ fn evaluate(
         for (p, t) in pred.iter().zip(&yt) {
             confusion[*t as usize][*p as usize] += 1;
             right += (p == t) as usize;
+            predicted.push(*p as u32);
         }
     }
-    (loss_sum / idx.len() as f64, right as f64 / idx.len() as f64, confusion)
+    (loss_sum / idx.len() as f64, right as f64 / idx.len() as f64, confusion, predicted)
 }
 
 /// Trains a network of `arch` on scaled series `x` (gaps filled) and their classes `y` (0..classes), each sample's
@@ -361,7 +371,7 @@ pub fn train(
         }
         let valid = net.valid();
         let xv = xs.clone().inner();
-        let (val_loss, val_acc, _) =
+        let (val_loss, val_acc, _, _) =
             evaluate(&valid, &xv, y, &val_idx, cfg.batch_size.max(256), classes, weights.clone(), device);
         let e = Epoch {
             epoch,
@@ -397,7 +407,7 @@ pub fn train(
     }
     let net = best_net.valid();
     let xv = xs.inner();
-    let (_, _, confusion) = evaluate(&net, &xv, y, &val_idx, cfg.batch_size.max(256), classes, None, device);
+    let (_, _, confusion, predicted) = evaluate(&net, &xv, y, &val_idx, cfg.batch_size.max(256), classes, None, device);
     Ok(Trained {
         net,
         history,
@@ -408,5 +418,6 @@ pub fn train(
         stopped_early,
         batch_size,
         split,
+        held_out: val_idx.iter().copied().zip(predicted).collect(),
     })
 }

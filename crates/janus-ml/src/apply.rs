@@ -33,6 +33,8 @@ pub struct ApplySpec {
     pub post: PostProcess,
     /// also the area of applicability (the dissimilarity index and the AOA), if the model kept its samples
     pub aoa: bool,
+    /// and the local point density (how many samples are as near as the threshold: slower)
+    pub lpd: bool,
 }
 
 /// The maps written (their descriptions as a Zeit run's outputs) and the window.
@@ -44,6 +46,174 @@ pub struct Applied {
 
 /// The AOA map's nodata (0 is outside).
 const AOA_NODATA: u8 = 255;
+
+/// The area of applicability's maps of a window: the DI, the AOA, the LPD (if asked) and the accuracy to expect
+/// (if the model has an error profile).
+struct AoaMaps {
+    td: zeit_core::aoa::TrainDi,
+    threshold: f64,
+    profile: Option<crate::aoa::Profile>,
+    w: usize,
+    di: Dataset,
+    aoa: Dataset,
+    lpd: Option<Dataset>,
+    accuracy: Option<Dataset>,
+    paths: Vec<(&'static str, PathBuf)>,
+}
+
+impl AoaMaps {
+    /// None when not asked; an error when asked of a model that kept no samples.
+    fn new(
+        spec: &ApplySpec,
+        model: &Model,
+        info: &Arc<CubeInfo>,
+        path: &dyn Fn(&str) -> PathBuf,
+    ) -> Result<Option<AoaMaps>, String> {
+        if !spec.aoa {
+            return Ok(None);
+        }
+        let a = match (&model.header.applicability, &model.header.arch) {
+            (Some(a), Arch::TempCnn(_) | Arch::LTae(_) | Arch::RandomForest(_)) => a,
+            _ => return Err("the model kept no samples for its area of applicability".into()),
+        };
+        let [x0, y0, x1, y1] = spec.window;
+        let (w, h) = (x1 - x0, y1 - y0);
+        let di = create(&path("di"), w, h, None, info, spec.window)?;
+        let mut aoa = create(&path("aoa"), w, h, Some(AOA_NODATA), info, spec.window)?;
+        describe(&mut aoa, &[("outside the AOA", [215, 48, 39]), ("inside the AOA", [69, 117, 180])], 255)?;
+        let lpd = spec.lpd.then(|| create(&path("lpd"), w, h, None, info, spec.window)).transpose()?;
+        let accuracy =
+            a.profile.as_ref().map(|_| create(&path("accuracy"), w, h, None, info, spec.window)).transpose()?;
+        let mut paths = vec![("di", path("di")), ("aoa", path("aoa"))];
+        if lpd.is_some() {
+            paths.push(("lpd", path("lpd")));
+        }
+        if accuracy.is_some() {
+            paths.push(("accuracy", path("accuracy")));
+        }
+        Ok(Some(AoaMaps {
+            td: a.train_di()?,
+            threshold: a.threshold,
+            profile: a.profile.clone(),
+            w,
+            di,
+            aoa,
+            lpd,
+            accuracy,
+            paths,
+        }))
+    }
+
+    /// The rows from `r` (hh of them): the pixels `idx` of the band, their inputs `sel`.
+    fn write(&mut self, r: usize, hh: usize, idx: &[usize], sel: &Series) -> Result<(), String> {
+        let (w, n) = (self.w, self.w * hh);
+        let (d, l) = crate::aoa::di_lpd(&sel.values, sel.n, &self.td, self.lpd.is_some(), -1);
+        let (mut di, mut inside) = (vec![f32::NAN; n], vec![AOA_NODATA; n]);
+        let mut lpd = vec![f32::NAN; if self.lpd.is_some() { n } else { 0 }];
+        for (j, &i) in idx.iter().enumerate() {
+            if d[j].is_finite() {
+                di[i] = d[j] as f32;
+                inside[i] = (d[j] <= self.threshold) as u8;
+                if !lpd.is_empty() {
+                    lpd[i] = l[j] as f32;
+                }
+            }
+        }
+        // the accuracy to expect, inside the AOA
+        let accuracy = self.profile.as_ref().map(|p| {
+            let mut a = vec![f32::NAN; n];
+            let at = p.at(&d);
+            for (j, &i) in idx.iter().enumerate() {
+                if d[j].is_finite() && d[j] <= self.threshold {
+                    a[i] = at[j] as f32;
+                }
+            }
+            a
+        });
+        let put = |ds: &mut Dataset, data: Vec<f32>| -> Result<(), String> {
+            ds.rasterband(1)
+                .map_err(|e| e.to_string())?
+                .write((0, r as isize), (w, hh), &mut Buffer::new((w, hh), data))
+                .map_err(|e| e.to_string())
+        };
+        put(&mut self.di, di)?;
+        self.aoa
+            .rasterband(1)
+            .map_err(|e| e.to_string())?
+            .write((0, r as isize), (w, hh), &mut Buffer::new((w, hh), inside))
+            .map_err(|e| e.to_string())?;
+        if let Some(ds) = &mut self.lpd {
+            put(ds, lpd)?;
+        }
+        if let (Some(ds), Some(a)) = (&mut self.accuracy, accuracy) {
+            put(ds, a)?;
+        }
+        Ok(())
+    }
+
+    /// The maps' descriptions (as a Zeit run's outputs); the files closed.
+    fn outputs(self) -> Vec<Value> {
+        let threshold = self.threshold;
+        let paths = self.paths;
+        drop((self.di, self.aoa, self.lpd, self.accuracy));
+        let mut out = vec![];
+        for (id, p) in paths {
+            let p = p.to_string_lossy().into_owned();
+            out.push(match id {
+                "di" => json!({"id": "di", "name": format!("Dissimilarity index (AOA threshold {threshold:.3})"),
+                               "unit": "DI", "colormap": "Hot", "path": p}),
+                "aoa" => json!({"id": "aoa", "name": "Area of applicability", "unit": "class",
+                                "classes": ["outside the AOA", "inside the AOA"],
+                                "class_colors": [[215, 48, 39], [69, 117, 180]], "path": p}),
+                "lpd" => json!({"id": "lpd", "name": "Local point density (samples as near as the threshold)",
+                                "unit": "samples", "colormap": "Viridis", "path": p}),
+                _ => json!({"id": "accuracy", "name": "Expected accuracy (error profile, inside the AOA)",
+                            "unit": "accuracy", "colormap": "Spectral", "path": p}),
+            });
+        }
+        out
+    }
+}
+
+/// Maps the model's area of applicability over the window, without classifying it: the DI, the AOA, the LPD (if
+/// asked), the accuracy to expect (if the model has an error profile).
+pub fn map_aoa(
+    spec: &ApplySpec,
+    info: &Arc<CubeInfo>,
+    model: &Model,
+    progress: &(dyn Fn(f64, &str) + Sync),
+    cancel: &AtomicBool,
+) -> Result<Applied, String> {
+    let inputs = model.inputs_in(info)?;
+    let [x0, y0, x1, y1] = spec.window;
+    let (w, h) = (x1 - x0, y1 - y0);
+    let dir = PathBuf::from(&spec.output_dir);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let path = |id: &str| dir.join(format!("{}_{id}.tif", spec.stem));
+    let spec_aoa = ApplySpec { aoa: true, ..spec.clone() };
+    let mut maps = AoaMaps::new(&spec_aoa, model, info, &path)?.ok_or("no area of applicability")?;
+    let rows = (65536 / w.max(1)).clamp(1, 256).min(h.max(1));
+    let t0 = std::time::Instant::now();
+    let mut done = 0;
+    let mut measured = 0;
+    for r in (0..h).step_by(rows) {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".into());
+        }
+        let hh = rows.min(h - r);
+        let (sr, keep) = input_of(model, info, &inputs, (x0, y0 + r, w, hh))?;
+        let idx: Vec<usize> = (0..sr.n).filter(|&i| keep[i]).collect();
+        maps.write(r, hh, &idx, &sr.select(&idx))?;
+        measured += idx.len();
+        done += hh;
+        let el = t0.elapsed().as_secs_f64();
+        progress(
+            done as f64 / h as f64,
+            &format!("rows {done}/{h}, {el:.0} s elapsed, ~{:.0} s left", el / done as f64 * (h - done) as f64),
+        );
+    }
+    Ok(Applied { outputs: maps.outputs(), window: spec.window, classified: measured })
+}
 
 /// Pixels in a batch: about 256 MB of the network's activations.
 fn batch_of(model: &Model) -> usize {
@@ -172,22 +342,7 @@ pub fn apply(
     let mut prob_ds = create(&path("probability"), w, h, None, info, spec.window)?;
     let mut entropy_ds = create(&path("entropy"), w, h, None, info, spec.window)?;
     // the area of applicability: the samples the model kept, as the network read them
-    let applicability = match (&model.header.applicability, &model.header.arch) {
-        (Some(a), Arch::TempCnn(_) | Arch::LTae(_) | Arch::RandomForest(_)) if spec.aoa => {
-            Some((a.train_di()?, a.threshold))
-        }
-        _ if spec.aoa => return Err("the model kept no samples for its area of applicability".into()),
-        _ => None,
-    };
-    let mut aoa_ds = match &applicability {
-        Some(_) => {
-            let di = create(&path("di"), w, h, None, info, spec.window)?;
-            let mut a = create(&path("aoa"), w, h, Some(AOA_NODATA), info, spec.window)?;
-            describe(&mut a, &[("outside the AOA", [215, 48, 39]), ("inside the AOA", [69, 117, 180])], 255)?;
-            Some((di, a))
-        }
-        None => None,
-    };
+    let mut aoa_maps = AoaMaps::new(spec, model, info, &path)?;
     let k = model.header.classes.len();
     let batch = if spec.batch > 0 { spec.batch } else { batch_of(model) };
     let rows = (batch / w.max(1)).clamp(1, 256).min(h.max(1));
@@ -271,25 +426,8 @@ pub fn apply(
                 let sel = sr.select(&idx);
                 let p = model.predict(&sel.values, sel.n, batch);
                 let n = w * hh;
-                if let (Some((td, threshold)), Some((di_ds, aoa_ds))) = (&applicability, &mut aoa_ds) {
-                    let d = crate::aoa::di(&sel.values, sel.n, td, -1);
-                    let (mut di, mut inside) = (vec![f32::NAN; n], vec![AOA_NODATA; n]);
-                    for (j, &i) in idx.iter().enumerate() {
-                        if d[j].is_finite() {
-                            di[i] = d[j] as f32;
-                            inside[i] = (d[j] <= *threshold) as u8;
-                        }
-                    }
-                    di_ds
-                        .rasterband(1)
-                        .map_err(|e| e.to_string())?
-                        .write((0, r as isize), (w, hh), &mut Buffer::new((w, hh), di))
-                        .map_err(|e| e.to_string())?;
-                    aoa_ds
-                        .rasterband(1)
-                        .map_err(|e| e.to_string())?
-                        .write((0, r as isize), (w, hh), &mut Buffer::new((w, hh), inside))
-                        .map_err(|e| e.to_string())?;
+                if let Some(m) = &mut aoa_maps {
+                    m.write(r, hh, &idx, &sel)?;
                 }
                 let (mut cls, mut prob, mut ent) = (vec![0u8; n], vec![f32::NAN; n], vec![f32::NAN; n]);
                 for (j, &i) in idx.iter().enumerate() {
@@ -335,7 +473,7 @@ pub fn apply(
                 .map_err(|e| e.to_string())?;
         }
     }
-    drop((class_ds, prob_ds, entropy_ds, aoa_ds));
+    drop((class_ds, prob_ds, entropy_ds));
     let names: Vec<&str> = model.header.classes.iter().map(|c| c.name.as_str()).collect();
     let arch = model.header.arch.name();
     let post_name = if spec.post.on() { format!(" ({})", spec.post.describe()) } else { String::new() };
@@ -349,12 +487,8 @@ pub fn apply(
         json!({"id": "entropy", "name": "Uncertainty (entropy)", "unit": "entropy", "colormap": "Plasma",
                "path": path("entropy").to_string_lossy()}),
     ];
-    if let Some((_, threshold)) = applicability {
-        outputs.push(json!({"id": "di", "name": format!("Dissimilarity index (AOA threshold {threshold:.3})"),
-                            "unit": "DI", "colormap": "Hot", "path": path("di").to_string_lossy()}));
-        outputs.push(json!({"id": "aoa", "name": "Area of applicability", "unit": "class",
-                            "classes": ["outside the AOA", "inside the AOA"],
-                            "class_colors": [[215, 48, 39], [69, 117, 180]], "path": path("aoa").to_string_lossy()}));
+    if let Some(m) = aoa_maps {
+        outputs.extend(m.outputs());
     }
     Ok(Applied { outputs, window: spec.window, classified })
 }

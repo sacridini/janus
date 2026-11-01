@@ -112,6 +112,13 @@ impl State {
                 );
                 let places = self.layout_places(std::env::var("JANUS_AUDIT_PLACES").ok().as_deref());
                 println!("    {} places at {} font sizes: {fonts:?}", places.len(), fonts.len());
+                // a model in the Classification window's Apply tab (its area of applicability, its error profile)
+                if let Ok(p) = std::env::var("JANUS_AUDIT_MODEL") {
+                    match janus_ml::Model::read_header(&p) {
+                        Ok(h) => self.ml.model = Some((p, h)),
+                        Err(e) => println!("    JANUS_AUDIT_MODEL: {e}"),
+                    }
+                }
                 sh.audit = LayoutTour { fonts, places, ..Default::default() };
                 sh.next("the places listed");
                 None

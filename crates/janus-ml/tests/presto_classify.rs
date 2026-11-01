@@ -125,6 +125,7 @@ fn presto_classifies_and_embeds() {
         batch: 200,
         post: Default::default(),
         aoa: false,
+        lpd: false,
     };
     apply(&spec, &info, &back, &|_, _| {}, &AtomicBool::new(false)).unwrap();
     let ds = gdal::Dataset::open(out.join("presto_class.tif")).unwrap();

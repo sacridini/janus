@@ -69,6 +69,7 @@ pub(crate) enum Cmd {
     InterpretSample,
     Chips,
     Accuracy,
+    Applicability,
     Help,
     Updates,
     About,
@@ -300,6 +301,7 @@ impl State {
         add(Cmd::InterpretSample, VALIDATION, "Interpret the sample", "", no_project.clone());
         add(Cmd::Chips, VALIDATION, "Chips", "", None);
         add(Cmd::Accuracy, VALIDATION, "Accuracy and areas", "", no_project);
+        add(Cmd::Applicability, VALIDATION, "Area of applicability (AOA)...", "", None);
         // Help
         add(Cmd::Help, "Help", "Shortcuts and usage", "", None);
         add(Cmd::Updates, "Help", "Check for updates...", "", None);
@@ -648,6 +650,10 @@ impl State {
             Cmd::Accuracy => {
                 self.val.show = true;
                 self.val.select_tab = Some(1);
+            }
+            Cmd::Applicability => {
+                (self.ml.open, self.ml.kind, self.ml.tab) = (true, crate::methods::Kind::default(), 2);
+                (self.ml.aoa_only, self.ml.aoa) = (true, true);
             }
             Cmd::Help => self.help_popup = true,
             Cmd::Updates => {

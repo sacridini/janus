@@ -1270,6 +1270,21 @@ impl State {
             ui.ctx().copy_text(val::python_snippet(p, &p.maps[k], f64::from(self.val.confidence)));
             ui.close();
         }
+        ui.separator();
+        // a model's uncertainty where it is applied: the Classification window's Apply, the classes left out
+        if ui
+            .add(egui::Button::selectable(self.ml.open && self.ml.aoa_only, "Area of applicability..."))
+            .on_hover_text(
+                "Where a classification model can be trusted (Meyer & Pebesma 2021, CAST's aoa): each pixel's\n\
+                 dissimilarity to the training samples, the area of applicability, the local point density and\n\
+                 the accuracy to expect there (the model's error profile), mapped without classifying",
+            )
+            .clicked()
+        {
+            (self.ml.open, self.ml.kind, self.ml.tab) = (true, crate::methods::Kind::default(), 2);
+            (self.ml.aoa_only, self.ml.aoa) = (true, true);
+            ui.close();
+        }
     }
 
     /// The Validation panel: the project's state, then its tabs.

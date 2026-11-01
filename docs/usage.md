@@ -821,6 +821,26 @@ without one).
   U-TAE's keep no samples. A forest's values are weighed by their importance
   (as CAST weighs a model's variables): a date that does not tell the classes
   apart does not make a pixel unlike the samples.
+  - **Error profile** (CAST's `errorProfiles`, Zeit's `error_profile`): the
+    validation samples (whole places held out from the training) sorted by
+    their DI to the samples of the other places, the accuracy in moving
+    windows of 5 of them, and a curve that only falls fitted to those (a
+    monotone P-spline). The model keeps it; the Apply tab draws it, and an
+    applied model gives the **expected accuracy** of each pixel inside the
+    AOA (NaN outside), a continuous map of its uncertainty.
+  - **Local point density** (ticked under *Area of applicability*; slower):
+    how many training samples are as near a pixel as the threshold, i.e.
+    whether the model learned from many samples like it or from one.
+  - **Mahalanobis distance** (Classification window, Settings: *Area of
+    applicability by the Mahalanobis distance*; CAST's `method = "MD"`): the
+    samples whitened by their covariance, so values that move together
+    count once. It needs values of full rank: a series' filled gaps are
+    combinations of the dates around them, and then the Euclidean distance is
+    kept (the task's log says why).
+  - **Validation & uncertainty > Area of applicability (AOA)...** opens the
+    Apply tab with *Only the area of applicability* ticked: the DI, the AOA,
+    the LPD and the expected accuracy, mapped without classifying (the
+    network is not run).
 
 **Presto** (Tseng et al. 2023) is pretrained by its authors on monthly series
 of Sentinel-1, Sentinel-2, ERA5 and SRTM worldwide. Janus runs its encoder with

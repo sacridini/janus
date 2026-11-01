@@ -111,8 +111,11 @@ pub struct MlUi {
     pub scope: usize,
     /// the class map's post-processing when a model is applied
     pub post: janus_ml::post::PostProcess,
-    /// also the model's area of applicability (when it kept its samples)
+    /// also the model's area of applicability (when it kept its samples), its local point density (slower), or
+    /// only the area of applicability (no classes: Validation & uncertainty > Area of applicability)
     pub aoa: bool,
+    pub lpd: bool,
+    pub aoa_only: bool,
     pub run: Option<Arc<Mutex<TrainRun>>>,
     /// the model to apply: its file and header
     pub model: Option<(String, Header)>,
@@ -159,6 +162,8 @@ impl Default for MlUi {
             scope: 0,
             post: Default::default(),
             aoa: true,
+            lpd: false,
+            aoa_only: false,
             run: None,
             model: None,
             tab: 0,
@@ -725,14 +730,23 @@ impl State {
 
         crate::panels::section(ui, "Settings");
         if self.ml.cfg_arch != self.ml.arch {
-            let seed = self.ml.cfg.seed;
-            self.ml.cfg = TrainConfig { seed, ..TrainConfig::for_arch(&self.ml.arch()) };
+            let (seed, aoa_mahalanobis) = (self.ml.cfg.seed, self.ml.cfg.aoa_mahalanobis);
+            self.ml.cfg = TrainConfig { seed, aoa_mahalanobis, ..TrainConfig::for_arch(&self.ml.arch()) };
             self.ml.cfg_arch = self.ml.arch;
         }
         if self.ml.arch == FOREST {
             self.forest_settings_ui(ui, info, inputs.len());
         } else {
             self.net_settings_ui(ui);
+        }
+        // the area of applicability the model keeps (the pixel models: Presto's and U-TAE's inputs are not theirs)
+        if matches!(self.ml.arch(), Arch::RandomForest(_) | Arch::TempCnn(_) | Arch::LTae(_)) {
+            ui.checkbox(&mut self.ml.cfg.aoa_mahalanobis, "Area of applicability by the Mahalanobis distance")
+                .on_hover_text(
+                    "The samples' dissimilarity measured once their values are whitened by their covariance (CAST's \
+                     method \"MD\"): values that move together count once. Needs more samples than values; \
+                     Euclidean otherwise (the default).",
+                );
         }
         let training = self.ml.training();
         if ui
@@ -1077,7 +1091,8 @@ impl State {
         self.ml_post_ui(ui);
         let kept = header.applicability.as_ref();
         ui.add_enabled_ui(kept.is_some(), |ui| {
-            ui.checkbox(&mut self.ml.aoa, "Area of applicability").on_hover_text(match kept {
+            let aoa = egui::Checkbox::new(&mut self.ml.aoa, "Area of applicability");
+            ui.add_enabled(!self.ml.aoa_only, aoa).on_hover_text(match kept {
                 Some(a) => format!(
                     "Where the model can be trusted (Meyer & Pebesma 2021, Zeit's aoa, CAST's): each pixel's \
                      dissimilarity index to the training samples, as the network reads them (their distance to the \
@@ -1090,16 +1105,33 @@ impl State {
                          models trained by this version of Janus or later keep them."
                     .into(),
             });
+            let any = self.ml.aoa || self.ml.aoa_only;
+            ui.add_enabled(any, egui::Checkbox::new(&mut self.ml.lpd, "Local point density")).on_hover_text(
+                "Also how many training samples are as near a pixel as the threshold (CAST's LPD): where the model \
+                 learned from many samples like it, or from one. Slower: every sample within reach is counted.",
+            );
+            ui.checkbox(&mut self.ml.aoa_only, "Only the area of applicability (no classes)").on_hover_text(
+                "The dissimilarity index, the area of applicability, the local point density if ticked and the \
+                 accuracy to expect (the model's error profile), without classifying: quicker, the network not run.",
+            );
         });
+        let only = self.ml.aoa_only && kept.is_some();
+        // the accuracy to expect by the DI (the model's error profile), drawn when it has one
+        if let Some(p) = kept.and_then(|a| a.profile.as_ref().map(|p| (p, a.threshold))) {
+            profile_plot(ui, p.0, p.1);
+        }
+        let label = if only { "Map the area of applicability" } else { "Apply" };
         if ui
-            .add_enabled(fits.is_ok(), egui::Button::new("Apply").min_size(egui::vec2(ui.available_width(), 0.0)))
+            .add_enabled(fits.is_ok(), egui::Button::new(label).min_size(egui::vec2(ui.available_width(), 0.0)))
             .clicked()
         {
             self.ml_apply(&path, &header, ui.ctx());
         }
-        ui.weak(
-            "Runs in the background; see Tools > Tasks. The class map, its probability and uncertainty open as layers.",
-        );
+        ui.weak(if only {
+            "Runs in the background; see Tools > Tasks. The DI, the AOA and the expected accuracy open as layers."
+        } else {
+            "Runs in the background; see Tools > Tasks. The class map, its probability and uncertainty open as layers."
+        });
     }
 
     /// The training's curves, then its validation (confusion matrix, accuracies).
@@ -1453,8 +1485,9 @@ impl State {
             self.error_popup = Some(format!("could not create {}: {e}", out.display()));
             return;
         }
-        let title =
-            format!("{arch} classification - {scope_name} ({} x {} px)", window[2] - window[0], window[3] - window[1]);
+        let only = self.ml.aoa_only && header.applicability.is_some();
+        let what = if only { "area of applicability" } else { "classification" };
+        let title = format!("{arch} {what} - {scope_name} ({} x {} px)", window[2] - window[0], window[3] - window[1]);
         let log = JobLog { path: out.join("job.log"), t0: Instant::now() };
         log.write(&format!(
             "=== {} {title}\nmodel: {path}\nwindow: {window:?}\noutput: {}\n{}",
@@ -1467,7 +1500,7 @@ impl State {
         }
         {
             use crate::provenance::{Provenance, SeriesRecord};
-            let mut p = Provenance::start("model", arch, &format!("{arch} classification"));
+            let mut p = Provenance::start("model", arch, &format!("{arch} {what}"));
             let lname = self.layers.get(self.active).map_or(name.clone(), |l| l.name.clone());
             p.series = Some(SeriesRecord::of(&info, &lname, &layer_inputs));
             (p.scope, p.scope_index, p.window) = (scope_name.to_string(), self.ml.scope, Some(window));
@@ -1481,6 +1514,8 @@ impl State {
                 ("neigh_fraction", post.neigh_fraction.into()),
                 ("min_size", post.min_size.into()),
                 ("aoa", (self.ml.aoa && header.applicability.is_some()).into()),
+                ("lpd", (self.ml.aoa && self.ml.lpd && header.applicability.is_some()).into()),
+                ("aoa_only", only.into()),
             ] {
                 p.extra.insert(k.into(), v);
             }
@@ -1515,7 +1550,8 @@ impl State {
             stem: arch.to_lowercase().replace('-', ""),
             batch: 0,
             post: self.ml.post.clone(),
-            aoa: self.ml.aoa && header.applicability.is_some(),
+            aoa: (self.ml.aoa || only) && header.applicability.is_some(),
+            lpd: (self.ml.aoa || only) && self.ml.lpd,
         };
         std::thread::Builder::new()
             .name("ml-apply".into())
@@ -1530,8 +1566,13 @@ impl State {
                     c.request_repaint();
                 };
                 let r = guarded(|| {
-                    Model::load(&path, &dev.0)
-                        .and_then(|m| janus_ml::apply::apply(&spec, &info, &m, &progress, &cancel))
+                    Model::load(&path, &dev.0).and_then(|m| {
+                        if only {
+                            janus_ml::apply::map_aoa(&spec, &info, &m, &progress, &cancel)
+                        } else {
+                            janus_ml::apply::apply(&spec, &info, &m, &progress, &cancel)
+                        }
+                    })
                 });
                 let mut s = status.lock().unwrap();
                 s.seconds = t0.elapsed().as_secs_f64();
@@ -1815,16 +1856,14 @@ pub(crate) fn train_job(
     training["device"] = json!(dev.1);
     // the samples kept for the area of applicability (the pixel networks: Presto's inputs are its encoder's)
     let applicability = match places.filter(|_| !matches!(arch, Arch::Presto(_))) {
-        Some(places) => match janus_ml::aoa::Applicability::fit(&x, Some(&places), &y, -1) {
-            Ok(a) => {
-                log.line(&format!("area of applicability: {}", a.describe()));
-                Some(a)
-            }
-            Err(e) => {
-                log.line(&format!("no area of applicability: {e}"));
-                None
-            }
-        },
+        Some(places) => {
+            let how = janus_ml::aoa::Fit {
+                weights: None,
+                held_out: Some(&trained.held_out),
+                mahalanobis: cfg.aoa_mahalanobis,
+            };
+            fit_applicability(&x, &places, &y, how, log)
+        }
         None => None,
     };
     let header = Header {
@@ -1908,17 +1947,12 @@ pub(crate) fn forest_job(
     log.line(&format!("validation overall accuracy {oa:.4}"));
     let mut training = grown.summary(h, cfg.validation_split, cfg.seed, &per_class);
     training["device"] = json!("CPU");
-    let applicability =
-        match janus_ml::aoa::Applicability::fit_weighted(&x, Some(&places), &y, Some(&grown.importance), -1) {
-            Ok(a) => {
-                log.line(&format!("area of applicability: {}", a.describe()));
-                Some(a)
-            }
-            Err(e) => {
-                log.line(&format!("no area of applicability: {e}"));
-                None
-            }
-        };
+    let how = janus_ml::aoa::Fit {
+        weights: Some(&grown.importance),
+        held_out: Some(&grown.held_out),
+        mahalanobis: cfg.aoa_mahalanobis,
+    };
+    let applicability = fit_applicability(&x, &places, &y, how, log);
     let header = Header {
         format: 1,
         janus: env!("CARGO_PKG_VERSION").into(),
@@ -2391,5 +2425,76 @@ impl MlUi {
     pub fn method_settled(&self) -> bool {
         !matches!(self.kind, crate::methods::Kind::Twdtw | crate::methods::Kind::Embeddings)
             || self.method_check.settled()
+    }
+}
+
+/// A model's error profile: each window's accuracy by its DI (points), the curve fitted (CAST's errorProfiles),
+/// from 0 to the AOA's threshold.
+fn profile_plot(ui: &mut Ui, p: &janus_ml::aoa::Profile, threshold: f64) {
+    use egui_plot::Points;
+    let n = 60;
+    let xs: Vec<f64> = (0..=n).map(|i| threshold * i as f64 / n as f64).collect();
+    let curve: Vec<[f64; 2]> = xs.iter().zip(p.at(&xs)).map(|(&x, y)| [x, 100.0 * y]).collect();
+    let pts: Vec<[f64; 2]> = p.points.iter().map(|q| [q[0], 100.0 * q[1]]).collect();
+    ui.label(RichText::new("Expected accuracy by the dissimilarity index").small());
+    Plot::new("ml error profile")
+        .height(crate::fit::scaled(ui, 110.0))
+        .allow_scroll(false)
+        .allow_drag(false)
+        .allow_zoom(false)
+        .include_y(0.0)
+        .include_y(100.0)
+        .x_axis_label("DI")
+        .y_axis_label("%")
+        .show(ui, |pl| {
+            pl.points(
+                Points::new(format!("windows of {} validation samples", p.window), PlotPoints::from(pts)).radius(2.0),
+            );
+            pl.line(Line::new("error profile", PlotPoints::from(curve)));
+        })
+        .response
+        .on_hover_text(format!(
+            "The validation samples (whole places held out from the training) sorted by their dissimilarity to the \
+             samples of the other places, the accuracy in moving windows of {} of them (points), and a curve that only \
+             falls fitted to those (CAST's errorProfiles, Zeit's error_profile): applied to a pixel's DI, the accuracy \
+             to expect there. From {} validation samples within the threshold.",
+            p.window, p.samples
+        ));
+}
+
+/// The area of applicability a model keeps, with its error profile; the Mahalanobis distance refused (values that
+/// are combinations of others, as a series' gaps filled between dates) gives way to the Euclidean, the log says why.
+fn fit_applicability(
+    x: &janus_ml::data::Series,
+    places: &[usize],
+    y: &[u32],
+    how: janus_ml::aoa::Fit,
+    log: &JobLog,
+) -> Option<janus_ml::aoa::Applicability> {
+    let fitted = match janus_ml::aoa::Applicability::fit_with(x, Some(places), y, how, -1) {
+        Err(e) if how.mahalanobis => {
+            log.line(&format!("Mahalanobis distance: {e}; the Euclidean instead"));
+            janus_ml::aoa::Applicability::fit_with(
+                x,
+                Some(places),
+                y,
+                janus_ml::aoa::Fit { mahalanobis: false, ..how },
+                -1,
+            )
+        }
+        r => r,
+    };
+    match fitted {
+        Ok(a) => {
+            log.line(&format!("area of applicability: {}", a.describe()));
+            if a.profile.is_none() {
+                log.line("no error profile: too few validation samples within the threshold (or no places)");
+            }
+            Some(a)
+        }
+        Err(e) => {
+            log.line(&format!("no area of applicability: {e}"));
+            None
+        }
     }
 }

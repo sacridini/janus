@@ -369,6 +369,7 @@ pub fn train_utae(
         stopped_early,
         batch_size: batch,
         split: "patches",
+        held_out: vec![],
     })
 }
 

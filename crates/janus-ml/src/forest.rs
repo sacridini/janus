@@ -101,6 +101,8 @@ pub struct TrainedForest {
     pub n_val: usize,
     /// the validation split: "places" (a polygon's or a pin's samples on one side) or "samples"
     pub split: String,
+    /// each validation sample (its index) and the class the forest gave it (aoa.rs's error profile)
+    pub held_out: Vec<(usize, u32)>,
 }
 
 impl TrainedForest {
@@ -355,7 +357,17 @@ pub fn train(
     if total > 0.0 {
         importance.iter_mut().for_each(|v| *v /= total);
     }
+    // the class of each validation sample (the most votes; none without a vote)
+    let held_out = val_idx
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &s)| {
+            let q = &val[i * k..(i + 1) * k];
+            (q.iter().sum::<f64>() > 0.0).then(|| (s, (0..k).fold(0, |b, j| if q[j] > q[b] { j } else { b }) as u32))
+        })
+        .collect();
     Ok(TrainedForest {
+        held_out,
         confusion: score(&val, &yv, k).2,
         oob_confusion: score(&oob, &yt, k).2,
         forest,

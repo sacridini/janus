@@ -1386,6 +1386,21 @@ Referência: o tutorial do CAST
 (https://hannameyer.github.io/CAST/articles/cast02-AOA-tutorial.html; Meyer &
 Pebesma 2021). Entra em "Validation & uncertainty" do menu novo (acima).
 
+**Feito (2026-11-01, sem versão)**, itens 1, 2, 4 e a distância de Mahalanobis
+do 5 (o Zeit já tinha `error_profile`, a curva monótona no `zeit-core` e a
+Mahalanobis): a LPD no Janus (`aoa::di_lpd`, mapa `lpd` com o checkbox *Local
+point density*); o perfil de erro guardado no modelo
+(`aoa::Profile`, das predições da validação por lugares que o treino já separa:
+`Trained::held_out` nas redes, `TrainedForest::held_out` no Random Forest), seu
+gráfico na aba Apply e o mapa `accuracy` (acurácia esperada dentro da AOA); a
+opção de Mahalanobis no treino (`TrainConfig::aoa_mahalanobis`, o
+branqueamento guardado no modelo; recusada com valores colineares, como as
+lacunas preenchidas de uma série, e então a euclidiana, dito no log);
+"Validation & uncertainty > Area of applicability (AOA)..." abre a aba Apply
+com *Only the area of applicability* (`apply::map_aoa`, sem rodar a rede).
+Falta: o kNNDM (fica com a validação cruzada espacial, abaixo) e a AOA do
+Presto (entradas do encoder).
+
 O que já existe:
 - Janus: `crates/janus-ml/src/aoa.rs` (DI e AOA por `zeit_core::aoa`), só para
   TempCNN e L-TAE, um checkbox "Area of applicability" na janela de Deep
