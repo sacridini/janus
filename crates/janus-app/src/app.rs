@@ -379,6 +379,8 @@ pub struct Options {
     pub stac: Option<String>,
     /// --stac-open: its series opened as a layer once found
     pub stac_open: bool,
+    /// --stac-composite METHOD[;yearly]: its composite downloaded once found
+    pub stac_composite: Option<String>,
     /// --expr TEXT|INDEX: the inputs opened showing an expression of their bands (or an index of the library)
     pub expr: Option<String>,
     /// --calc TEXT: the raster calculator open with this text (statements apart by ;)
@@ -1040,6 +1042,11 @@ impl JanusApp {
             eprintln!("--stac: {e}");
         }
         app.state.stac.open_after = app.state.opts.stac_open;
+        if let Some(spec) = app.state.opts.stac_composite.clone()
+            && let Err(e) = app.state.stac.apply_composite_option(&spec)
+        {
+            eprintln!("--stac-composite: {e}");
+        }
         if let Some(text) = app.state.opts.palette.clone() {
             app.state.toggle_palette();
             app.state.palette.set_query(&text);
@@ -2225,6 +2232,7 @@ impl State {
                 && (self.opts.stac.is_none()
                     || self.stac.settled()
                         && !self.stac.open_after
+                        && !self.stac.composite_after
                         && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()))
                 && (!self.opts.calc_run
                     || !self.calc.run_pending && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()))

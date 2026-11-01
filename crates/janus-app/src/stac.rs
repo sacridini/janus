@@ -1,7 +1,9 @@
 //! File > Search STAC catalog (janus_cube::stac): a catalog's collection searched over the visible area, the ROI or
 //! a box of longitudes and latitudes, between two dates, below a cloud cover; its dates and bands picked; the series
-//! opened in place (a VRT per date, read as the map needs it) or downloaded as GeoTIFFs. Both are jobs of
-//! Tools > Tasks, like the embeddings' download, the layer added when it is ready.
+//! opened in place (a VRT per date, read as the map needs it), downloaded as GeoTIFFs, or downloaded as a composite
+//! (janus_zeit::composite: one image of the dates, or one a year, by the best available pixel, the greenest, the
+//! medoid or the median; the best available pixel and the greenest read the bands of the dates that win only). All
+//! are jobs of Tools > Tasks, like the embeddings' download, the layer added when it is ready.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -12,6 +14,7 @@ use std::time::Instant;
 use egui::{Ui, vec2};
 use janus_cube::stac::{self, BandChoice, CATALOGS, DateGroup, Item, Orbit, Search};
 use janus_cube::stac_vrt::{self, BuildSpec};
+use janus_zeit::composite::{CompOptions, Method};
 
 use crate::app::State;
 use crate::emb_download::EmbDownload;
@@ -22,6 +25,88 @@ use crate::zeit::{Job, JobLog, JobState, JobStatus};
 const RESOLUTIONS: [f64; 7] = [0.0, 10.0, 20.0, 30.0, 60.0, 100.0, 250.0];
 /// at most this many items in a search
 const MAX_ITEMS: usize = 2000;
+
+/// What a STAC job makes of the dates ticked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobKind {
+    /// a VRT per date, read in place
+    Open,
+    /// a COG per date
+    Download,
+    /// a composite of the dates (one, or one a year)
+    Composite,
+}
+
+/// The composite's choices.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompUi {
+    /// index into Method::ALL
+    pub method: usize,
+    /// one composite a year (else one of all the dates ticked)
+    pub yearly: bool,
+    /// the best available pixel's target day, "MM-DD" ("": the middle of the dates)
+    pub target: String,
+    pub sigma: f64,
+    /// metres to a cloud at which its score is 0 and 1
+    pub near: f64,
+    pub far: f64,
+    /// weights: day of the year, distance to clouds, sensor, scene's cover
+    pub weights: [f64; 4],
+    pub info: bool,
+}
+
+impl Default for CompUi {
+    fn default() -> Self {
+        CompUi {
+            method: 0,
+            yearly: false,
+            target: String::new(),
+            sigma: 30.0,
+            near: 30.0,
+            far: 1500.0,
+            weights: [0.3, 0.5, 0.1, 0.1],
+            info: true,
+        }
+    }
+}
+
+/// The best available pixel's settings of the window's choices (cloud distances in metres).
+fn bap_options(c: &CompUi, target: f64) -> janus_zeit::composite::BapOptions {
+    janus_zeit::composite::BapOptions {
+        target_doy: target,
+        doy_sigma: c.sigma,
+        cloud_min: c.near,
+        cloud_max: c.far,
+        w_doy: c.weights[0],
+        w_cloud: c.weights[1],
+        w_sensor: c.weights[2],
+        w_cover: c.weights[3],
+    }
+}
+
+/// The red and NIR bands (1-based, 0 none) among the bands, by their labels.
+fn red_nir(bands: &[BandChoice]) -> (i32, i32) {
+    let find = |p: &dyn Fn(&str) -> bool| bands.iter().position(|b| p(&b.label)).map_or(0, |i| i as i32 + 1);
+    (find(&|l| l == "Red" || l.starts_with("Red (")), find(&|l| l == "NIR" || l.starts_with("NIR (")))
+}
+
+/// "MM-DD" as a day of the year (in a year that is not a leap year).
+fn parse_month_day(s: &str) -> Option<f64> {
+    let (m, d) = s.trim().split_once('-')?;
+    let (m, d): (u32, u32) = (m.parse().ok()?, d.parse().ok()?);
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    let first = janus_cube::dates::days_from_civil(2001, m, 1);
+    Some((first - janus_cube::dates::days_from_civil(2001, 1, 1)) as f64 + f64::from(d))
+}
+
+/// A day of the year as "MM-DD".
+fn month_day(doy: f64) -> String {
+    let d = janus_cube::dates::days_from_civil(2001, 1, 1) + doy.round().clamp(1.0, 365.0) as i64 - 1;
+    let (_, m, dd) = janus_cube::dates::civil_from_days(d);
+    format!("{m:02}-{dd:02}")
+}
 
 struct Searching {
     rx: Receiver<Result<Vec<Item>, String>>,
@@ -66,6 +151,9 @@ pub struct StacUi {
     start_pending: bool,
     /// its series opened once found (--stac-open)
     pub open_after: bool,
+    pub comp: CompUi,
+    /// its composite downloaded once found (--stac-composite)
+    pub composite_after: bool,
 }
 
 /// "YYYY-MM-DD" of a day `back` days before today.
@@ -99,6 +187,8 @@ impl Default for StacUi {
             orbit: 0,
             start_pending: false,
             open_after: false,
+            comp: CompUi::default(),
+            composite_after: false,
         }
     }
 }
@@ -128,6 +218,34 @@ impl StacUi {
         self.show = true;
         self.start_pending = true;
         Ok(())
+    }
+
+    /// --stac-composite METHOD[;yearly]: the composite's method (bap, greenest, medoid, median), one a year if said.
+    pub fn apply_composite_option(&mut self, spec: &str) -> Result<(), String> {
+        let mut p = spec.split(';').map(str::trim);
+        let m = p.next().unwrap_or("bap");
+        self.comp.method = Method::ALL
+            .iter()
+            .position(|x| x.id() == m)
+            .ok_or_else(|| format!("{m}: bap, greenest, medoid or median"))?;
+        self.comp.yearly = p.any(|x| x == "yearly");
+        self.composite_after = true;
+        Ok(())
+    }
+
+    /// The target day of the dates ticked: typed, else the middle of their span within a year (else July 2nd).
+    fn target_doy(&self) -> f64 {
+        if let Some(d) = parse_month_day(&self.comp.target) {
+            return d;
+        }
+        let ticked: Vec<i64> = self.dates.iter().filter(|d| d.1).map(|d| d.0.day).collect();
+        let (Some(&a), Some(&b)) = (ticked.iter().min(), ticked.iter().max()) else { return 183.0 };
+        if b - a > 365 {
+            return 183.0;
+        }
+        let mid = (a + b) / 2;
+        let (y, _, _) = janus_cube::dates::civil_from_days(mid);
+        (mid - janus_cube::dates::days_from_civil(y, 1, 1) + 1) as f64
     }
 
     /// Nothing under way: the search answered (or none was asked for).
@@ -189,7 +307,13 @@ impl State {
         if self.stac.open_after && self.stac.searching.is_none() && !self.stac.start_pending {
             self.stac.open_after = false;
             if !self.stac.items.is_empty() {
-                self.start_stac_job(false, ctx);
+                self.start_stac_job(JobKind::Open, ctx);
+            }
+        }
+        if self.stac.composite_after && self.stac.searching.is_none() && !self.stac.start_pending {
+            self.stac.composite_after = false;
+            if !self.stac.items.is_empty() {
+                self.start_stac_job(JobKind::Composite, ctx);
             }
         }
         let s = &mut self.stac;
@@ -284,8 +408,10 @@ impl State {
         s.searching = Some(Searching { rx, cancel, count, started: Instant::now(), search });
     }
 
-    /// The series of the dates and bands ticked: built (and downloaded) in a job, the layer added when it is ready.
-    fn start_stac_job(&mut self, download: bool, ctx: &egui::Context) {
+    /// The series of the dates and bands ticked: built (and downloaded, or composited) in a job, the layer added when
+    /// it is ready.
+    fn start_stac_job(&mut self, kind: JobKind, ctx: &egui::Context) {
+        let download = kind == JobKind::Download;
         let s = &self.stac;
         let Some(search) = s.searched.clone() else { return };
         let bands: Vec<BandChoice> = s.bands.iter().filter(|b| b.1).map(|b| b.0.clone()).collect();
@@ -317,14 +443,19 @@ impl State {
             self.error_popup = Some(format!("could not create {}: {e}", folder.display()));
             return;
         }
-        let title =
-            format!("{} {name}: {n_dates} dates, {} bands", if download { "Download" } else { "STAC" }, bands.len());
+        let comp = (kind == JobKind::Composite).then(|| self.composite_options(&bands, &items));
+        let verb = match kind {
+            JobKind::Open => "STAC".to_string(),
+            JobKind::Download => "Download".to_string(),
+            JobKind::Composite => format!("Composite ({})", Method::ALL[s.comp.method.min(3)].label()),
+        };
+        let title = format!("{verb} {name}: {n_dates} dates, {} bands", bands.len());
         let spec = BuildSpec {
             items,
             bands,
             bbox: search.bbox,
             res: (res > 0.0).then_some(res),
-            dir: if download { folder.join("vrt") } else { folder.clone() },
+            dir: if kind == JobKind::Open { folder.clone() } else { folder.join("vrt") },
             planetary: stac::is_planetary(&search.url),
         };
         let log = JobLog { path: folder.join("job.log"), t0: Instant::now() };
@@ -343,6 +474,32 @@ impl State {
         ));
         if let Some(o) = &orbit {
             log.line(&format!("pass: {o}"));
+        }
+        if let Some(c) = &comp {
+            log.line(&format!(
+                "composite: {}, {}; bands {:?} ({}), quality band {} ({}){}",
+                c.method.label(),
+                if c.step.is_some() { "one a year" } else { "one of every date" },
+                c.bands,
+                c.names.join(", "),
+                c.qa_band,
+                c.qa_rule.label(),
+                if c.method == Method::Bap {
+                    format!(
+                        "; target day {} (+- {} days), clouds {} to {} m, weights doy {} cloud {} sensor {} cover {}",
+                        month_day(c.bap.target_doy),
+                        c.bap.doy_sigma,
+                        c.bap.cloud_min,
+                        c.bap.cloud_max,
+                        c.bap.w_doy,
+                        c.bap.w_cloud,
+                        c.bap.w_sensor,
+                        c.bap.w_cover
+                    )
+                } else {
+                    String::new()
+                }
+            ));
         }
         let log_path = log.path.to_string_lossy().into_owned();
         let status = Arc::new(Mutex::new(JobStatus {
@@ -374,7 +531,7 @@ impl State {
                     c.request_repaint();
                 };
                 // a download builds the VRTs first (a tenth of the job), then reads them whole
-                let split = if download { 0.1 } else { 1.0 };
+                let split = if kind == JobKind::Open { 1.0 } else { 0.1 };
                 let r = stac_vrt::build(&spec, &|f, m| progress(f * split, m), &cn).and_then(|built| {
                     log.line(&format!(
                         "grid: {} x {} cells of {} in {}{}",
@@ -388,10 +545,29 @@ impl State {
                             String::new()
                         }
                     ));
-                    if download {
-                        stac_vrt::download(&built.files, &out, &|f, m| progress(split + (1.0 - split) * f, m), &cn)
-                    } else {
-                        Ok(built.files)
+                    let rest = |f: f64, m: &str| progress(split + (1.0 - split) * f, m);
+                    match (&comp, download) {
+                        (Some(c), _) => {
+                            let info = janus_cube::open_cube(&built.files, &janus_cube::BandSelection::default())?;
+                            let r = janus_zeit::composite::composite(&Arc::new(info), c, &out, &rest, &cn)?;
+                            log.line(&format!(
+                                "read {:.1} of the {:.1} million pixels every date's bands would need ({:.0}%){}",
+                                r.reads as f64 / 1e6,
+                                r.full_reads as f64 / 1e6,
+                                100.0 * r.reads as f64 / r.full_reads.max(1) as f64,
+                                if r.failed > 0 {
+                                    format!("; {} not read (left out)", r.failed)
+                                } else {
+                                    String::new()
+                                }
+                            ));
+                            for f in &r.info_files {
+                                log.line(&format!("info: {f}"));
+                            }
+                            Ok(r.files)
+                        }
+                        (None, true) => stac_vrt::download(&built.files, &out, &rest, &cn),
+                        (None, false) => Ok(built.files),
                     }
                 });
                 let mut s = st.lock().unwrap();
@@ -430,7 +606,11 @@ impl State {
             loaded: true, // nothing for the Zeit results to load
         });
         self.emb_downloads.push(EmbDownload {
-            title: if download { format!("Download {name}") } else { name.clone() },
+            title: match kind {
+                JobKind::Open => name.clone(),
+                JobKind::Download => format!("Download {name}"),
+                JobKind::Composite => format!("Composite of {name}"),
+            },
             status,
             started: Instant::now(),
             folder,
@@ -440,6 +620,179 @@ impl State {
             opened: false,
             ended: None,
         });
+    }
+
+    /// The Composite section: one image of the dates ticked (or one a year), its method and score, its button.
+    fn stac_composite_ui(&mut self, ui: &mut Ui, w: f32, can: bool) {
+        let ctx = ui.ctx().clone();
+        crate::panels::section(ui, "Composite");
+        let auto = month_day(self.stac.target_doy());
+        let s = &mut self.stac;
+        let ticked: Vec<BandChoice> = s.bands.iter().filter(|b| b.1).map(|b| b.0.clone()).collect();
+        let has_qa = ticked.iter().any(|b| b.quality != janus_cube::QaRule::None);
+        let (red, nir) = red_nir(&ticked);
+        let reflectances = ticked.iter().filter(|b| b.quality == janus_cube::QaRule::None).count();
+        let c = &mut s.comp;
+        ui.add(
+            egui::Label::new(
+                "One image of the dates ticked (or one a year) instead of the series: each pixel from the date \
+                 that suits it best.",
+            )
+            .wrap(),
+        );
+        let method = Method::ALL[c.method.min(3)];
+        ui.horizontal(|ui| {
+            ui.label("Method");
+            egui::ComboBox::from_id_salt("stac composite method").selected_text(method.label()).show_ui(ui, |ui| {
+                let tips = [
+                    "Each pixel's clear observation of the highest score: its day near the target day, far from\n\
+                     clouds and shadows, its sensor, its scene's cloud cover (Griffiths et al. 2013, White et al.\n\
+                     2014). Every band from one date. The quality band of every date is read first, then the\n\
+                     bands of the dates that win only: most of the series is never downloaded.",
+                    "Each pixel's clear observation of the highest NDVI (Earth Engine's qualityMosaic): the peak\n\
+                     of the season. Reads the red, NIR and quality bands of every date, the others of the winners.",
+                    "The clear observation nearest the bands' medians: a typical date, every band from it. Reads\n\
+                     every date's bands.",
+                    "Each band's median of the clear observations. Reads every date's bands.",
+                ];
+                for (i, m) in Method::ALL.iter().enumerate() {
+                    ui.selectable_value(&mut c.method, i, m.label()).on_hover_text(tips[i]);
+                }
+            });
+        });
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut c.yearly, false, "One of all the dates");
+            ui.radio_value(&mut c.yearly, true, "One a year")
+                .on_hover_text("A composite of each calendar year's dates (search the same season of several years)");
+        });
+        if method == Method::Bap {
+            ui.horizontal(|ui| {
+                ui.label("Target day");
+                ui.add(egui::TextEdit::singleline(&mut c.target).hint_text(auto.clone()).desired_width(50.0))
+                    .on_hover_text(format!(
+                        "MM-DD: the day of the year the composite aims at (empty: {auto}, the middle of the dates)"
+                    ));
+                ui.label("+-");
+                ui.add(egui::DragValue::new(&mut c.sigma).range(3.0..=180.0).speed(1.0).suffix(" days"))
+                    .on_hover_text("Days from the target at which the day's score falls to 0.61 (a Gaussian)");
+            });
+            if !c.target.trim().is_empty() && parse_month_day(&c.target).is_none() {
+                ui.colored_label(theme::warning(), "the target day as MM-DD");
+            }
+            ui.horizontal(|ui| {
+                ui.label("Clouds");
+                ui.add(egui::DragValue::new(&mut c.near).range(0.0..=10000.0).speed(10.0).suffix(" m"));
+                ui.label("to");
+                ui.add(egui::DragValue::new(&mut c.far).range(10.0..=20000.0).speed(10.0).suffix(" m"));
+            })
+            .response
+            .on_hover_text(
+                "A pixel this near the nearest cloud or shadow of its date scores 0 for it, this far\n\
+                 or farther 1 (linear between; a date without clouds scores 1)",
+            );
+            c.far = c.far.max(c.near + 10.0);
+            egui::CollapsingHeader::new("Weights of the score").id_salt("stac bap weights").show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (k, (label, tip)) in [
+                        ("day", "Near the target day"),
+                        ("clouds", "Far from clouds and shadows"),
+                        ("sensor", "Its sensor: Landsat 7 after its scan line corrector failed (2003) scores 0.5"),
+                        ("cover", "Its scene's cloud cover: 1 - eo:cloud_cover"),
+                    ]
+                    .iter()
+                    .enumerate()
+                    {
+                        ui.label(*label);
+                        ui.add(egui::DragValue::new(&mut c.weights[k]).range(0.0..=1.0).speed(0.01).fixed_decimals(2))
+                            .on_hover_text(*tip);
+                    }
+                    if ui.small_button("Defaults").clicked() {
+                        c.weights = CompUi::default().weights;
+                    }
+                });
+            });
+        }
+        ui.checkbox(&mut c.info, "The date, score and clear observations of each pixel").on_hover_text(
+            "A second GeoTIFF per composite in its info folder: year, day of the year, score, clear dates",
+        );
+        let mut why = None;
+        if !can {
+            why = Some("");
+        } else if reflectances == 0 {
+            why = Some("tick a band besides the quality band");
+        } else if method == Method::Greenest && (red == 0 || nir == 0) {
+            why = Some("the greenest needs the red and NIR bands ticked");
+        } else if method == Method::Bap && c.weights.iter().all(|&w| w <= 0.0) {
+            why = Some("a weight at least above 0");
+        } else if method == Method::Bap && !c.target.trim().is_empty() && parse_month_day(&c.target).is_none() {
+            why = Some("the target day as MM-DD");
+        }
+        if !has_qa && why.is_none() {
+            ui.colored_label(theme::warning(), "no quality band ticked: clouds are not masked");
+        }
+        let label = format!("Download the composite ({})", method.label().to_lowercase());
+        if ui
+            .add_enabled(why.is_none(), egui::Button::new(label).min_size(vec2(w, 0.0)))
+            .on_hover_text(
+                "The composite written as cloud-optimized GeoTIFFs (one, or one a year) and opened as a layer.\n\
+                 Progress in Tools > Tasks.",
+            )
+            .clicked()
+        {
+            self.start_stac_job(JobKind::Composite, &ctx);
+        }
+        if let Some(w) = why.filter(|w| !w.is_empty()) {
+            ui.colored_label(theme::warning(), w);
+        }
+    }
+
+    /// The composite of the bands and items ticked: its bands (the reflectances, the quality band apart), each date's
+    /// sensor and cover scores (the dates as stac_vrt::build makes them: the items' days in order).
+    fn composite_options(&self, bands: &[BandChoice], items: &[Item]) -> CompOptions {
+        let s = &self.stac;
+        let c = &s.comp;
+        let (mut idx, mut names) = (Vec::new(), Vec::new());
+        let (mut qa_band, mut qa_rule) = (0, janus_cube::QaRule::None);
+        for (i, b) in bands.iter().enumerate() {
+            if b.quality != janus_cube::QaRule::None {
+                if qa_band == 0 {
+                    (qa_band, qa_rule) = (i as i32 + 1, b.quality);
+                }
+            } else {
+                idx.push(i as i32 + 1);
+                names.push(b.label.clone());
+            }
+        }
+        let red = red_nir(bands).0;
+        let nir = red_nir(bands).1;
+        let groups = stac::group_by_day(items);
+        let sensor = groups
+            .iter()
+            .map(|g| {
+                let v: Vec<f64> =
+                    g.items.iter().map(|&i| janus_zeit::composite::sensor_score(&items[i].platform, g.day)).collect();
+                v.iter().sum::<f64>() / v.len().max(1) as f64
+            })
+            .collect();
+        let cover = groups.iter().map(|g| g.cloud.map_or(1.0, |c| 1.0 - c.clamp(0.0, 100.0) / 100.0)).collect();
+        CompOptions {
+            method: Method::ALL[c.method.min(3)],
+            step: c.yearly.then_some(janus_zeit::regularize::Step::Year),
+            bands: idx,
+            names,
+            qa_band,
+            qa_rule,
+            red,
+            nir,
+            bap: bap_options(c, s.target_doy()),
+            sensor,
+            cover,
+            info: c.info,
+            window: None,
+            block: 1024,
+            threads: self.processing_threads(),
+            stem: "composite".into(),
+        }
     }
 
     /// The items' footprints as a vector layer (a GeoJSON in the results folder).
@@ -755,7 +1108,7 @@ impl State {
                 ))
                 .clicked()
             {
-                self.start_stac_job(false, &ctx);
+                self.start_stac_job(JobKind::Open, &ctx);
             }
             if ui
                 .add_enabled(block.is_none(), egui::Button::new("Download as GeoTIFFs").min_size(vec2(bw, 0.0)))
@@ -765,12 +1118,13 @@ impl State {
                 )
                 .clicked()
             {
-                self.start_stac_job(true, &ctx);
+                self.start_stac_job(JobKind::Download, &ctx);
             }
         });
         if let Some(b) = block {
             ui.colored_label(theme::warning(), b);
         }
+        self.stac_composite_ui(ui, w, block.is_none());
         if ui
             .add(egui::Button::new("Footprints as a vector layer").min_size(vec2(w, 0.0)))
             .on_hover_text("The scenes' outlines, with their id, date and cloud cover")

@@ -28,6 +28,22 @@ pub fn fmask_codes(
                 let code = if fin { q as i64 } else { 255 };
                 let f = match rule {
                     "fmask" => code as i32,
+                    // HLS's bits: 1 cloud, 2 adjacent, 3 shadow, 4 snow, 5 water; 255 fill
+                    "hls_fmask" => {
+                        if code == 255 {
+                            255
+                        } else if code & 0b110 != 0 {
+                            4
+                        } else if code & 0b1000 != 0 {
+                            2
+                        } else if code & 0b10000 != 0 {
+                            3
+                        } else if code & 0b100000 != 0 {
+                            1
+                        } else {
+                            0
+                        }
+                    }
                     "landsat_c2" => {
                         let mut f = 0;
                         if code & (1 << 7) != 0 {

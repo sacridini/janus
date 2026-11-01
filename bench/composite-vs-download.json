@@ -1,0 +1,54 @@
+{
+  "bands": [
+    "blue",
+    "green",
+    "red",
+    "nir",
+    "swir16",
+    "swir22",
+    "scl"
+  ],
+  "bbox": [
+    -63.05,
+    -9.95,
+    -62.95,
+    -9.85
+  ],
+  "catalog": "https://earth-search.aws.element84.com/v1",
+  "cells": [
+    1098,
+    1107
+  ],
+  "collection": "sentinel-2-c1-l2a",
+  "dates": [
+    "2024-06-01",
+    "2024-09-30"
+  ],
+  "runs": [
+    {
+      "megabytes": 1992.301892,
+      "method": "medoid",
+      "pixels_of_every_date": 204201648,
+      "pixels_read": 204201648,
+      "seconds": 541.292459
+    },
+    {
+      "megabytes": 572.315854,
+      "method": "bap",
+      "pixels_of_every_date": 204201648,
+      "pixels_read": 91844856,
+      "seconds": 241.0480861
+    },
+    {
+      "megabytes": 1804.329299,
+      "method": "greenest",
+      "pixels_of_every_date": 204201648,
+      "pixels_read": 189270348,
+      "seconds": 560.4129192
+    }
+  ],
+  "scenes": 46,
+  "series_dates": 24,
+  "threads": 4,
+  "what": "a composite of a STAC series: time and bytes downloaded (GDAL's network statistics)"
+}

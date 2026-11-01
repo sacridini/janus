@@ -68,6 +68,20 @@ pub const CATALOGS: [Catalog; 3] = [
                        clouds",
             },
             Collection {
+                id: "hls2-s30",
+                name: "HLS Sentinel-2 (S30)",
+                bands: &["B02", "B03", "B04", "B8A", "B11", "B12", "Fmask"],
+                help: "Harmonized Landsat Sentinel-2 v2.0: Sentinel-2 adjusted to Landsat's bands and resampled to \
+                       its 30 m grid (2015 on); Fmask masks clouds",
+            },
+            Collection {
+                id: "hls2-l30",
+                name: "HLS Landsat (L30)",
+                bands: &["B02", "B03", "B04", "B05", "B06", "B07", "Fmask"],
+                help: "Harmonized Landsat Sentinel-2 v2.0: Landsat 8 and 9 on the same 30 m grid as S30 (2013 on); \
+                       with S30, a scene every 2 to 3 days",
+            },
+            Collection {
                 id: "sentinel-1-rtc",
                 name: "Sentinel-1 RTC (radar)",
                 bands: &["vv", "vh"],
@@ -307,6 +321,20 @@ pub fn parse_item(f: &Value) -> Option<Item> {
             shape: a.get("proj:shape").and_then(shape),
             gt: a.get("proj:transform").and_then(geotransform),
         };
+        // HLS gives no raster:bands: its reflectances are DN / 10000, L30's thermal bands DN / 100 (HLS v2.0 User
+        // Guide, tables 6 to 8); S30's narrow NIR (B8A, the one matched to OLI's) has no common name
+        if item.id.starts_with("HLS.") && asset.scale.is_none() {
+            let k = key.to_ascii_uppercase();
+            let thermal = item.id.starts_with("HLS.L30") && (k == "B10" || k == "B11");
+            if thermal {
+                asset.scale = Some(0.01);
+            } else if k.starts_with('B') && k.len() == 3 {
+                asset.scale = Some(1e-4);
+            }
+            if k == "B8A" && asset.common_name.is_none() {
+                asset.common_name = Some("nir08".into());
+            }
+        }
         if asset.scale.is_none()
             && asset.wavelength_nm.is_some()
             && let Some(b) = baseline
@@ -433,6 +461,8 @@ pub fn quality_rule(key: &str) -> QaRule {
     match key.to_ascii_lowercase().as_str() {
         "scl" => QaRule::Scl,
         "qa_pixel" => QaRule::LandsatC2,
+        // HLS's: bits, not Fmask's codes
+        "fmask" => QaRule::HlsFmask,
         _ => QaRule::None,
     }
 }
@@ -482,6 +512,7 @@ pub fn band_choices(items: &[Item]) -> Vec<BandChoice> {
                 // a radar's polarizations
                 _ if ["vv", "vh", "hh", "hv"].contains(&key.to_ascii_lowercase().as_str()) => key.to_uppercase(),
                 _ if quality == QaRule::LandsatC2 => "QA_PIXEL".into(),
+                _ if quality == QaRule::HlsFmask => "Fmask".into(),
                 _ => key.clone(),
             };
             seen.insert(
@@ -737,6 +768,37 @@ pub fn asset_path(href: &str, planetary: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hls_scales_its_reflectances_and_masks_by_fmask_bits() {
+        let a = |cn: Option<&str>| {
+            let mut v = json!({"href": "https://hls2euwest.blob.core.windows.net/hls2/x.tif",
+                "type": "image/tiff; application=geotiff; profile=cloud-optimized", "roles": ["data"]});
+            if let Some(c) = cn {
+                v["eo:bands"] = json!([{"name": "x", "common_name": c}]);
+            }
+            v
+        };
+        let f = |id: &str| {
+            json!({"type": "Feature", "id": id, "collection": "hls2-s30", "geometry": null,
+                "properties": {"datetime": "2023-07-29T14:27:19Z", "platform": "sentinel-2b", "eo:cloud_cover": 7.0,
+                    "proj:epsg": 32620},
+                "assets": {"B04": a(Some("red")), "B8A": a(None), "B10": a(Some("cirrus")), "B11": a(Some("swir16")),
+                    "Fmask": a(None), "SZA": a(None)}})
+        };
+        let s30 = parse_item(&f("HLS.S30.T20LMQ.2023210T142719.v2.0")).unwrap();
+        assert_eq!(s30.assets["B04"].scale, Some(1e-4));
+        assert_eq!(s30.assets["B11"].scale, Some(1e-4), "S30's B11 is a SWIR");
+        assert_eq!(s30.assets["B8A"].common_name.as_deref(), Some("nir08"));
+        assert_eq!(s30.assets["Fmask"].scale, None);
+        assert_eq!(s30.assets["SZA"].scale, None);
+        let l30 = parse_item(&f("HLS.L30.T20LMQ.2023205T143343.v2.0")).unwrap();
+        assert_eq!(l30.assets["B10"].scale, Some(0.01), "L30's B10 and B11 are thermal");
+        let choices = band_choices(&[s30]);
+        let fm = choices.iter().find(|c| c.key == "Fmask").unwrap();
+        assert_eq!((fm.quality, fm.label.as_str()), (QaRule::HlsFmask, "Fmask"));
+        assert_eq!(choices.iter().find(|c| c.key == "B8A").unwrap().label, "NIR (narrow) (B8A)");
+    }
 
     fn feature() -> Value {
         json!({

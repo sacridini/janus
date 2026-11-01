@@ -40,6 +40,8 @@ def usable(q, rule):
         return ok & ((c & 0x3B) == 0)
     if rule == "scl":            # Sentinel-2 SCL: 4 vegetation, 5 bare soil, 6 water
         return ok & (c >= 4) & (c <= 6)
+    if rule == "hls_fmask":      # HLS Fmask bits 1 cloud, 2 adjacent, 3 shadow, 4 snow; 255 fill
+        return ok & (c != 255) & ((c & 0x1E) == 0)
     return ok & (c != 0)         # a 0/1 mask
 "#;
 
@@ -353,6 +355,8 @@ if y.size >= 2:
                           if qa_rule == \"fmask\":\n    f = c.astype(np.int32)\n\
                           elif qa_rule == \"landsat_c2\":\n    f = np.zeros(c.shape, np.int32)\n    \
                           f[(c & 128) != 0] = 1; f[(c & 32) != 0] = 3; f[(c & 16) != 0] = 2; f[(c & 10) != 0] = 4; f[(c & 1) != 0] = 255\n\
+                          elif qa_rule == \"hls_fmask\":\n    f = np.zeros(c.shape, np.int32)\n    \
+                          f[(c & 32) != 0] = 1; f[(c & 16) != 0] = 3; f[(c & 8) != 0] = 2; f[(c & 6) != 0] = 4; f[c == 255] = 255\n\
                           else:\n    f = np.where(c != 0, 0, 4).astype(np.int32)\nfmask_codes = np.where(complete, f, 255)\n";
                 } else {
                     o += "fmask_codes = np.where(complete, 0, 255)  # no quality band: every complete observation is clear\n";
@@ -549,6 +553,8 @@ pub(crate) fn run_code(
                   if qa_rule == \"fmask\":\n    f = c.astype(np.int32)\n\
                   elif qa_rule == \"landsat_c2\":\n    f = np.zeros(c.shape, np.int32)\n    \
                   f[(c & 128) != 0] = 1; f[(c & 32) != 0] = 3; f[(c & 16) != 0] = 2; f[(c & 10) != 0] = 4; f[(c & 1) != 0] = 255\n\
+                  elif qa_rule == \"hls_fmask\":\n    f = np.zeros(c.shape, np.int32)\n    \
+                  f[(c & 32) != 0] = 1; f[(c & 16) != 0] = 3; f[(c & 8) != 0] = 2; f[(c & 6) != 0] = 4; f[c == 255] = 255\n\
                   else:\n    f = np.where(c != 0, 0, 4).astype(np.int32)\n\
                   fmask = np.where(complete, f, 255).astype(np.int32)\n";
         } else {

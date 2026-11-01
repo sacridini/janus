@@ -63,6 +63,7 @@
       <li><a href="#open">Open as a layer</a></li>
       <li><a href="#grid">One grid for every date</a></li>
       <li><a href="#download">Download as GeoTIFFs</a></li>
+      <li><a href="#composite">Download a composite</a></li>
       <li><a href="#footprints">Footprints</a></li>
       <li><a href="#radar">Sentinel-1: radar through the clouds</a></li>
       <li><a href="#next">What next</a></li>
@@ -139,7 +140,7 @@
       <p>The map's overview of the 107 dates was read in 98 s: every date opens its scenes over the network and reads one of their overview levels. It is then cached on disk like any series: opening the folder again, the overview took 0.1 s. A pixel's series reads every date from the catalog's files, a few round trips each, so Janus reads twelve dates at once: the two pins' 107 dates came in under a minute (one date at a time, they took nine). Zoomed in, the map reads the blocks on screen at full resolution, as for any cloud-optimized GeoTIFF.</p>
       <div class="note warn">
         <p class="h">Read in place: online</p>
-        <p>The layer reads the catalog's files as you zoom in and look at pixels, so it needs the connection while you work. Planetary Computer's files are read with tokens that expire within the hour: Janus renews them in the background, and asks for new ones when the folder is opened again another day. For offline work, download the series (section 07).</p>
+        <p>The layer reads the catalog's files as you zoom in and look at pixels, so it needs the connection while you work. Planetary Computer's files are read with tokens that expire within the hour: Janus renews them in the background, and asks for new ones when the folder is opened again another day. For offline work, download the series (section 07) or a composite of it (section 08).</p>
       </div>
     </section>
 
@@ -161,8 +162,37 @@
       <p>The window gives the size before you start: here 877 × 886 cells, 107 dates × 7 bands, about 1.2 GB uncompressed, less on disk. For a larger area or a longer series, coarser <span class="ui">Cells</span> or fewer bands make it lighter; the <span class="ui">Clearest</span> dates alone too.</p>
     </section>
 
+    <section id="composite">
+      <h2><span class="n">08</span>Download a composite</h2>
+      <p>Often one image of a season is what is wanted, not the series: a map of the dry season, a mosaic without clouds to classify. <span class="ui">Composite</span>, under the bands, makes it from the dates ticked, each pixel from the date that suits it best, and downloads only that: <span class="ui">Download the composite</span> writes a cloud-optimized GeoTIFF (or <em>one a year</em> of the dates of each year, for the same season of several years) and opens it as a layer.</p>
+      <dl class="terms">
+        <dt>Best available pixel</dt><dd>Each pixel's clear observation of the highest score (after Griffiths et al. 2013 and White et al. 2014), every band from that date. The score adds four things, weighted 0.3, 0.5, 0.1 and 0.1: how near its day of the year is to the <em>target day</em> (a Gaussian of ± 30 days around it; the middle of the dates unless typed as MM-DD), how far the pixel is from the nearest cloud or shadow of its date (0 at 30 m or nearer, 1 at 1500 m or farther, 1 on a date without clouds), its sensor (Landsat 7 after its scan line corrector failed in 2003 scores 0.5) and its scene's cloud cover. The same as zeit's <code>build_annual_composites(method="bap")</code>.</dd>
+        <dt>Greenest</dt><dd>The clear observation of the highest NDVI, Earth Engine's <code>qualityMosaic</code>: the peak of the season.</dd>
+        <dt>Medoid, median</dt><dd>The clear observation nearest the bands' medians (a real date, every band from it), or each band's median.</dd>
+        <dt>Info</dt><dd>A second GeoTIFF in the composite's <code>info</code> folder: each pixel's year and day of the year, its score and its number of clear observations.</dd>
+      </dl>
+      <p>The composite opens as a layer of its six bands, their wavelengths kept, so in true colour; the Display panel's indices and composites work on it as on any spectrum.</p>
+      <figure class="fig">
+        <a href="assets/img/stac/05-composite.jpg"><img src="assets/img/stac/05-composite.jpg" alt="The best available pixel composite of June and July 2024 over Esri's imagery: a square of 11 km in true colour (665, 560 and 490 nm), without a cloud: the town of Ariquemes in the middle, forest and pastures around it, the imagery's own colours around the square. The Layers panel lists composite_20240603, 6 bands from 490 to 2190 nm; the Display panel says 1098 x 1107 px, Float32, UTM zone 20 S; the chart shows the spectrum of a pin in the town, from 0.08 at 490 nm to 0.29 at 1610 nm." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>A composite of June and July 2024</b>: the best available pixel of 12 dates, downloaded and written in 3 min 32 s, without a cloud.</figcaption>
+      </figure>
+      <p>The best available pixel needs only the quality band to choose: Janus reads it for every date first, block by block (1024 pixels with the cloud distance around them, so the clouds of the neighbouring blocks count), chooses each pixel's date, then reads the bands of the dates that won in the block, over the box of their winners. Where a winner has no value in a band (the edge of a scene) the pixel takes its next best date. The rest of the series is never downloaded. The greenest reads the red, NIR and quality bands of every date; the medoid and the median, every band of every date: what downloading the series would.</p>
+      <p>On Earth Search's Sentinel-2 C1 L2A over a square of 11 km of Rondônia (63.05° to 62.95° W, 9.95° to 9.85° S), June to September 2024 with 70% of clouds at most: 46 scenes on 24 dates, 1098 × 1107 cells of 10 m, six bands and SCL. Four threads, GDAL's caches emptied before each composite, the bytes from GDAL's network statistics:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Composite</th><th>Time</th><th>Downloaded</th><th>Pixels read</th></tr></thead>
+          <tbody>
+            <tr><td>Medoid (every date's bands)</td><td>541 s</td><td>1992 MB</td><td>204 million (all)</td></tr>
+            <tr><td>Greenest</td><td>560 s</td><td>1804 MB</td><td>189 million (93%)</td></tr>
+            <tr><td>Best available pixel</td><td>241 s</td><td>572 MB</td><td>92 million (45%)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The best available pixel downloaded 29% of what the medoid did, in 45% of the time. Its target day was the 196th (14 July): 99.4% of its pixels came from 13 July, a clear date, and the rest, near that date's few clouds, from 13 other dates. A pixel had 21 clear observations in the median, 7 at the fewest.</p>
+    </section>
+
     <section id="footprints">
-      <h2><span class="n">08</span>Footprints</h2>
+      <h2><span class="n">09</span>Footprints</h2>
       <p><span class="ui">Footprints as a vector layer</span> adds the scenes found as polygons, with their id, date, cloud cover and tile in the attribute table: where each tile lies, and which dates cover only part of the area.</p>
       <figure class="fig">
         <a href="assets/img/stac/03-footprints.jpg"><img src="assets/img/stac/03-footprints.jpg" alt="The map zoomed out to about 60 km over the Esri imagery: the footprints of the 375 scenes as outlines, the Sentinel-2 tiles' edges as vertical and horizontal strips where neighbouring tiles overlap, a diagonal line where an orbit's swath ends, and the series' square of NDVI at the corner where four tiles meet." width="1600" height="950" loading="lazy"></a>
@@ -172,7 +202,7 @@
     </section>
 
     <section id="radar">
-      <h2><span class="n">09</span>Sentinel-1: radar through the clouds</h2>
+      <h2><span class="n">10</span>Sentinel-1: radar through the clouds</h2>
       <p>In Rondônia the clear optical scenes thin out from October to April: with 5% of clouds at most, the series above has 107 dates in five years. Sentinel-1's radar sees through the clouds, every 12 days whatever the weather. Planetary Computer's <strong>Sentinel-1 RTC</strong> collection gives its backscatter in VV and VH as <em>gamma0</em> already corrected for the terrain, at 10 m, as cloud-optimized GeoTIFFs read with the same tokens.</p>
       <p>The same square, all of 2024: <strong>24 scenes</strong>, every one of the descending pass of relative orbit 83 (09:49 UTC, about 05:49 local time).</p>
       <dl class="terms">
@@ -205,7 +235,7 @@
     </section>
 
     <section id="next">
-      <h2><span class="n">10</span>What next</h2>
+      <h2><span class="n">11</span>What next</h2>
       <ul>
         <li><strong>Detect change on it</strong>: a series of every date suits <a href="ccdc.html">CCDC</a>, <a href="sccd.html">S-CCD</a> and <a href="ewmacd.html">EWMACD</a>; a regular one (Brazil Data Cube's 16 days) <a href="bfast.html">BFAST</a> and <a href="beast.html">BEAST</a>.</li>
         <li><strong>Classify it</strong>: the <a href="deep-learning.html">Deep learning guide</a> trains TempCNN or L-TAE on samples over the series.</li>
@@ -215,7 +245,7 @@
     </section>
 
     <section id="refs">
-      <h2><span class="n">11</span>References</h2>
+      <h2><span class="n">12</span>References</h2>
       <ul class="refs">
         <li>STAC: the SpatioTemporal Asset Catalog specification and its API, <a href="https://stacspec.org">stacspec.org</a>.</li>
         <li>Earth Search by Element 84, <a href="https://element84.com/earth-search/">element84.com/earth-search</a>; Sentinel-2 Collection 1 L2A, Copernicus Sentinel data (ESA).</li>
@@ -224,6 +254,8 @@
         <li>ESA (2022). Sentinel-2: new processing baseline 04.00 and the radiometric offset of the L1C and L2A products.</li>
         <li>U.S. Geological Survey. Landsat Collection 2 Level-2 Science Products.</li>
         <li>Sentinel-1 Radiometrically Terrain Corrected (RTC), Planetary Computer, from Copernicus Sentinel-1 data (ESA), processed by Catalyst.</li>
+        <li>Griffiths, P., van der Linden, S., Kuemmerle, T., &amp; Hostert, P. (2013). A pixel-based Landsat compositing algorithm for large area land cover mapping. <em>IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing</em>, 6(5), 2088–2101.</li>
+        <li>White, J. C., Wulder, M. A., Hobart, G. W., Luther, J. E., Hermosilla, T., Griffiths, P., et al. (2014). Pixel-based image compositing for large-area dense time series applications and science. <em>Canadian Journal of Remote Sensing</em>, 40(3), 192–212.</li>
         <li>Quegan, S., &amp; Yu, J. J. (2001). Filtering of multichannel SAR images. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 39(11), 2373–2379.</li>
         <li>Lee, J.-S. (1980). Digital image enhancement and noise filtering by use of local statistics. <em>IEEE Transactions on Pattern Analysis and Machine Intelligence</em>, PAMI-2(2), 165–168.</li>
       </ul>

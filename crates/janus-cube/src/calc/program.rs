@@ -357,6 +357,7 @@ pub fn qa_rule(code: f32) -> QaRule {
         2 => QaRule::LandsatC2,
         3 => QaRule::NonZero,
         4 => QaRule::Scl,
+        5 => QaRule::HlsFmask,
         _ => QaRule::None,
     }
 }

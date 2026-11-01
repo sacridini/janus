@@ -124,7 +124,7 @@ fn median(v: &mut [f64]) -> f64 {
 
 /// One pixel's composite of a period: `obs` its dates' values (dates x bands), `rank` the dates' order for
 /// Clearest; into `out` (bands), NaN without a value.
-fn composite(c: Composite, obs: &[f64], bands: usize, rank: &[usize], tmp: &mut Vec<f64>, out: &mut [f64]) {
+pub(crate) fn composite(c: Composite, obs: &[f64], bands: usize, rank: &[usize], tmp: &mut Vec<f64>, out: &mut [f64]) {
     let n = obs.len() / bands;
     match c {
         Composite::Median => {
@@ -260,7 +260,7 @@ pub(crate) fn read_date(
 }
 
 /// The day's text, YYYYMMDD.
-fn ymd(d: i64) -> String {
+pub(crate) fn ymd(d: i64) -> String {
     let (y, m, dd) = civil_from_days(d);
     format!("{y:04}{m:02}{dd:02}")
 }

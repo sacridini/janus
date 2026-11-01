@@ -14,6 +14,7 @@ mod beast;
 mod bfast;
 mod ccdc;
 mod coded;
+pub mod composite;
 pub mod ewmacd;
 pub mod hotspots;
 pub mod job;

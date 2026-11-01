@@ -58,6 +58,9 @@ pub enum QaRule {
     /// Sentinel-2's scene classification (SCL): 4 vegetation, 5 bare soil, 6 water usable; no data, saturated,
     /// shadows, clouds, cirrus, snow and unclassified masked
     Scl,
+    /// HLS's Fmask bits (Harmonized Landsat Sentinel-2 v2.0): 1 cloud, 2 adjacent to a cloud or shadow, 3 cloud
+    /// shadow, 4 snow or ice masked; 255 fill
+    HlsFmask,
 }
 
 impl QaRule {
@@ -72,6 +75,7 @@ impl QaRule {
             QaRule::LandsatC2 => "landsat_c2",
             QaRule::NonZero => "nonzero",
             QaRule::Scl => "scl",
+            QaRule::HlsFmask => "hls_fmask",
             QaRule::None => "none",
         }
     }
@@ -82,6 +86,7 @@ impl QaRule {
             QaRule::LandsatC2 => "Landsat C2 QA_PIXEL bits",
             QaRule::NonZero => "Mask (0 = invalid)",
             QaRule::Scl => "Sentinel-2 SCL classes",
+            QaRule::HlsFmask => "HLS Fmask bits",
             QaRule::None => "None",
         }
     }
@@ -93,7 +98,21 @@ impl QaRule {
             QaRule::LandsatC2 => code & 0x3B == 0,
             QaRule::NonZero => code != 0,
             QaRule::Scl => (4..=6).contains(&code),
+            QaRule::HlsFmask => code != 255 && code & 0x1E == 0,
             QaRule::None => true,
+        }
+    }
+
+    /// A cloud or a cloud's shadow (what a best available pixel's score keeps its distance from), not merely a
+    /// pixel without data: SCL's cloud shadow, cloud of medium and high probability and thin cirrus; QA_PIXEL's
+    /// dilated cloud, cirrus, cloud and shadow bits (not a fill); Fmask's shadow and cloud.
+    pub fn is_cloud(self, code: u32) -> bool {
+        match self {
+            QaRule::Fmask => code == 2 || code == 4,
+            QaRule::LandsatC2 => code & 1 == 0 && code & 0x1E != 0,
+            QaRule::Scl => matches!(code, 3 | 8 | 9 | 10),
+            QaRule::HlsFmask => code != 255 && code & 0x0E != 0,
+            QaRule::NonZero | QaRule::None => false,
         }
     }
 }
@@ -1084,6 +1103,12 @@ mod tests {
     #[test]
     fn quality_rules() {
         assert!(QaRule::Fmask.usable(1) && !QaRule::Fmask.usable(4));
+        // HLS: water (bit 5) and aerosol (6, 7) usable; cloud, adjacent, shadow, snow and the fill masked
+        assert!(QaRule::HlsFmask.usable(0) && QaRule::HlsFmask.usable(32 | 64) && !QaRule::HlsFmask.usable(255));
+        assert!(!QaRule::HlsFmask.usable(2) && !QaRule::HlsFmask.usable(16));
+        assert!(QaRule::HlsFmask.is_cloud(8) && !QaRule::HlsFmask.is_cloud(16) && !QaRule::HlsFmask.is_cloud(255));
+        assert!(QaRule::Scl.is_cloud(9) && !QaRule::Scl.is_cloud(0) && QaRule::LandsatC2.is_cloud(1 << 3));
+        assert!(!QaRule::LandsatC2.is_cloud(1 | 1 << 3), "a fill is no cloud");
         // Landsat C2: bit 3 (cloud) masks, bit 6 (clear) does not
         assert!(!QaRule::LandsatC2.usable(1 << 3) && QaRule::LandsatC2.usable(1 << 6));
         assert!(QaRule::NonZero.usable(7) && !QaRule::NonZero.usable(0));

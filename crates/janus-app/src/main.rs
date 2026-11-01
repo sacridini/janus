@@ -196,6 +196,8 @@ Developer options:
   --stac CATALOG;COLLECTION;W,S,E,N;START;END[;CLOUD]  the Search STAC catalog window filled in (CATALOG:
                       earth-search, planetary-computer, bdc or an API's URL) and its search run
   --stac-open         and the series found opened as a layer (its bands at first, every date)
+  --stac-composite METHOD[;yearly]  or its composite downloaded and opened (bap, greenest, medoid,
+                      median; one a year with ;yearly)
   --expr TEXT|INDEX   the inputs shown as an expression of their bands, e.g. \"(N - R) / (N + R)\", or an
                       index of the Awesome Spectral Indices by name (EVI, NDWI, NBR...)
   --calc TEXT         Tools > Raster calculator open with TEXT (statements apart by ;)
@@ -484,6 +486,7 @@ fn main() -> eframe::Result<()> {
             "--embedding-view" => opts.embedding_view = args.next(),
             "--stac" => opts.stac = args.next(),
             "--stac-open" => opts.stac_open = true,
+            "--stac-composite" => opts.stac_composite = args.next(),
             "--expr" => opts.expr = args.next(),
             "--calc" => opts.calc = args.next(),
             "--calc-run" => opts.calc_run = true,

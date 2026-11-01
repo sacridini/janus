@@ -142,7 +142,7 @@ impl Selection {
 
     pub(crate) fn band_selection(&self) -> janus_cube::BandSelection {
         use janus_cube::QaRule;
-        let rule = [QaRule::Fmask, QaRule::LandsatC2, QaRule::NonZero, QaRule::Scl]
+        let rule = [QaRule::Fmask, QaRule::LandsatC2, QaRule::NonZero, QaRule::Scl, QaRule::HlsFmask]
             .into_iter()
             .find(|r| r.id() == self.qa_rule)
             .unwrap_or(QaRule::None);
