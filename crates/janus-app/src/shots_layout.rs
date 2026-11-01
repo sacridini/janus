@@ -234,6 +234,8 @@ impl State {
             }
             Place::Classification(k, _) => {
                 (self.ml.open, self.ml.source, self.ml.arch, self.ml.tab) = (true, 3, crate::ml::FOREST, *k);
+                // the spatial folds' settings shown (blocks: the most rows)
+                self.ml.cfg.folds.method = janus_ml::folds::Method::Blocks;
             }
             Place::Settings => self.settings.show = true,
             Place::Palette => {

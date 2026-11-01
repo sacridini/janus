@@ -1473,6 +1473,19 @@ olhar os folds no mapa.
   a acurácia da validação cruzada.
 - No Zeit primeiro (uma função de folds: blocos, buffer, agrupamento, kNNDM;
   ver o IDEAS.md do Zeit), o Janus usa.
+- **Feito (2026-11-01, sem versão)**: o `spatial_folds` do Zeit portado para
+  Rust no janus-ml (`folds.rs`: blocos hexagonais ou quadrados ao acaso, em
+  linhas ou xadrez, buffer, k-means dos valores, kNNDM; `cluster.rs`: k-means
+  e Ward), com o kNNDM e o variograma do zeit-core. Os mesmos blocos, buffers e
+  grupos de Ward do Zeit, o kNNDM com o mesmo W e 2-3x mais rápido
+  (`tests/folds_zeit.rs`). Na janela de classificação, *Validation*: lugares
+  ao acaso, blocos (tamanho pelo alcance da autocorrelação), buffer, clusters,
+  kNNDM; a floresta faz validação cruzada em todos os folds e as redes validam
+  num fold; a AOA usa os folds como o CAST; *Show the folds on the map* abre os
+  folds como camada (GeoPackage); a nota de Wadoux et al. 2021 junto da
+  acurácia. Falta: kNNDM e clusters no espaço das variáveis para o mapa
+  (o kNNDM usa o espaço geográfico), e a validação cruzada das redes (um
+  treino por fold).
 
 ### Visualizações depois da 1.6.7 (2026-10-31)
 O que funcionou: visões ligadas ao mapa que respondem uma pergunta simples (o

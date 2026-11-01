@@ -33,6 +33,7 @@ mod exports;
 mod fields_ui;
 mod files;
 mod fit;
+mod folds_ui;
 mod gif;
 mod golden;
 mod groups;

@@ -5,6 +5,7 @@
 
 pub mod aoa;
 pub mod apply;
+pub mod cluster;
 pub mod data;
 pub mod dense;
 pub mod extra;
@@ -12,6 +13,7 @@ pub mod fetch;
 pub mod fieldnet;
 pub mod fields;
 pub mod fields_train;
+pub mod folds;
 pub mod forest;
 pub mod ltae;
 pub mod model;

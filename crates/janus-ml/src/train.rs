@@ -33,6 +33,10 @@ pub struct TrainConfig {
     /// `method = "MD"`) instead of the Euclidean
     #[serde(default)]
     pub aoa_mahalanobis: bool,
+    /// how the places are held out for the validation: whole places at random (`validation_split` of them), or
+    /// spatial folds (folds.rs; the forest cross-validates on all of them)
+    #[serde(default)]
+    pub folds: crate::folds::FoldSpec,
 }
 
 impl TrainConfig {
@@ -51,6 +55,7 @@ impl TrainConfig {
             seed: 42,
             class_weights: false,
             aoa_mahalanobis: false,
+            folds: crate::folds::FoldSpec::default(),
         }
     }
 
@@ -298,6 +303,25 @@ pub fn train(
     on_epoch: &mut dyn FnMut(&Epoch),
     cancel: &AtomicBool,
 ) -> Result<Trained, String> {
+    let split = split_by_place(y, places, classes, cfg.validation_split, cfg.seed);
+    train_on(x, y, split, classes, arch, calendar, cfg, device, on_epoch, cancel)
+}
+
+/// [`train`] on a split made already (`folds::holdout`'s): the training and validation indices, and how they were
+/// held out (the model's "split").
+#[allow(clippy::too_many_arguments)]
+pub fn train_on(
+    x: &Series,
+    y: &[u32],
+    (train_idx, val_idx, split): (Vec<usize>, Vec<usize>, &'static str),
+    classes: usize,
+    arch: &Arch,
+    calendar: &Calendar,
+    cfg: &TrainConfig,
+    device: &Device,
+    on_epoch: &mut dyn FnMut(&Epoch),
+    cancel: &AtomicBool,
+) -> Result<Trained, String> {
     if x.n != y.len() || x.n == 0 {
         return Err("no samples to train on".into());
     }
@@ -307,7 +331,6 @@ pub fn train(
     if matches!(arch, Arch::Utae(_)) {
         return Err("U-TAE trains on patches: dense::train_utae".into());
     }
-    let (train_idx, val_idx, split) = split_by_place(y, places, classes, cfg.validation_split, cfg.seed);
     if train_idx.len() < 2 {
         return Err("too few samples to train on".into());
     }

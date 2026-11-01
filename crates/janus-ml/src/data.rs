@@ -173,12 +173,22 @@ pub fn read_window(info: &Arc<CubeInfo>, inputs: &[InputBand], win: (usize, usiz
 
 /// The series of single pixels (samples), in their order.
 pub fn read_points(info: &Arc<CubeInfo>, inputs: &[InputBand], points: &[(usize, usize)]) -> Series {
-    let (t, b) = (info.t(), inputs.len());
+    read_points_on(info, inputs, points, &(0..info.t()).collect::<Vec<_>>())
+}
+
+/// [`read_points`] on some of the dates only (`dates`, the series' layers): a series of their number of dates.
+pub fn read_points_on(
+    info: &Arc<CubeInfo>,
+    inputs: &[InputBand],
+    points: &[(usize, usize)],
+    dates: &[usize],
+) -> Series {
+    let (t, b) = (dates.len(), inputs.len());
     let mut values = vec![f32::NAN; points.len() * t * b];
     // date by date (a reader per thread), every point of the date
-    let per_date: Vec<Vec<f32>> = (0..t)
-        .into_par_iter()
-        .map(|d| {
+    let per_date: Vec<Vec<f32>> = dates
+        .par_iter()
+        .map(|&d| {
             let mut out = vec![f32::NAN; points.len() * b];
             for (i, &(x, y)) in points.iter().enumerate() {
                 if x < info.width && y < info.height {

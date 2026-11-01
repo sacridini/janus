@@ -524,16 +524,34 @@ pub fn cross_predict(
     seed: u64,
     cancel: &AtomicBool,
 ) -> Result<CrossPredicted, String> {
+    let (fold_of, folds) = place_folds(y, k, places, folds, seed);
+    let fold_of: Vec<i64> = fold_of.iter().map(|&f| f as i64).collect();
+    cross_predict_folds(x, y, k, &fold_of, folds, h, seed, &mut |_, _| {}, cancel)
+}
+
+/// [`cross_predict`] on folds given (`fold_of` each sample's, 0..folds; a negative one: always trained on, never
+/// tested): `on_fold(done, folds)` after each forest.
+#[allow(clippy::too_many_arguments)]
+pub fn cross_predict_folds(
+    x: &Series,
+    y: &[u32],
+    k: usize,
+    fold_of: &[i64],
+    folds: usize,
+    h: &ForestHyper,
+    seed: u64,
+    on_fold: &mut dyn FnMut(usize, usize),
+    cancel: &AtomicBool,
+) -> Result<CrossPredicted, String> {
     let (n, p) = (x.n, x.t * x.b);
     let mut probs = vec![f32::NAN; n * k];
     let mut importance = vec![0f64; p];
-    let (fold_of, folds) = place_folds(y, k, places, folds, seed);
-    let fold = |i: usize| fold_of[i];
     let mut grown = 0;
     for f in 0..folds {
-        let (test, train_idx): (Vec<usize>, Vec<usize>) = (0..n).partition(|&i| fold(i) == f);
+        let (test, train_idx): (Vec<usize>, Vec<usize>) = (0..n).partition(|&i| fold_of[i] == f as i64);
         let present: std::collections::BTreeSet<u32> = train_idx.iter().map(|&i| y[i]).collect();
         if test.is_empty() || present.len() < 2 {
+            on_fold(f + 1, folds);
             continue;
         }
         let t = train(x, y, k, h, &train_idx, &[], seed.wrapping_add(f as u64), &mut |_| {}, cancel)?;
@@ -548,11 +566,31 @@ pub fn cross_predict(
             *a += b;
         }
         grown += 1;
+        on_fold(f + 1, folds);
     }
     if grown > 0 {
         importance.iter_mut().for_each(|v| *v /= grown as f64);
     }
     Ok(CrossPredicted { probs, importance, folds })
+}
+
+impl CrossPredicted {
+    /// The samples predicted (those of a class the other folds had) and their classes, and the confusion (rows:
+    /// the samples' classes; columns: the forests').
+    pub fn confusion(&self, y: &[u32], k: usize) -> (Vec<(usize, u32)>, Vec<Vec<u32>>) {
+        let mut confusion = vec![vec![0u32; k]; k];
+        let mut predicted = vec![];
+        for (i, &c) in y.iter().enumerate() {
+            let pr = &self.probs[i * k..(i + 1) * k];
+            if pr[0].is_nan() {
+                continue;
+            }
+            let best = (0..k).fold(0, |b, j| if pr[j] > pr[b] { j } else { b });
+            confusion[c as usize][best] += 1;
+            predicted.push((i, best as u32));
+        }
+        (predicted, confusion)
+    }
 }
 
 #[cfg(test)]

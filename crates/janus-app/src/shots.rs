@@ -256,7 +256,7 @@ impl State {
         sh.frames += 1;
         sh.done = match sh.tour.as_str() {
             "validation" => self.shots_validation(sh, ctx),
-            "snic" | "ml" | "presto" => self.shots_ml(sh, ctx),
+            "snic" | "ml" | "presto" | "folds" => self.shots_ml(sh, ctx),
             "layout" => self.shots_layout(sh, ctx),
             _ => self.shots_tool(sh, ctx),
         };

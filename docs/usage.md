@@ -779,6 +779,54 @@ without one).
   (19 s, 66 s and 47 s on the 20,000 samples), 5.4 s on four threads
   (scikit-learn 16.7 s); the test samples classified as fast as they are on
   one thread, 1.4 times faster on four.
+- **Validation** (the settings of the forest and the networks): how the places
+  are held out, so that the accuracy is not that of places next to those the
+  model learned from (blockCV, Valavi et al. 2019; CAST's kNNDM, Linnenbrink et
+  al. 2024; as Zeit's `spatial_folds`). Each place (a polygon, a pin) is a
+  point, its pixels' middle, in metres.
+  - *Whole places at random* (the default): the validation share of each
+    class's places.
+  - *Spatial blocks*: a grid of hexagons or squares, the blocks dealt into
+    *Folds* at random (the most even of 100 draws, each fold near a k-th of
+    each class's places), in rows, or as a checkerboard (squares, 2 folds).
+    Their size is given, or found from the values read: the median range of
+    the spatial autocorrelation of up to 12 dates' values, semivariograms of
+    2000 pixels drawn at random, each the spherical, exponential or Gaussian
+    model that fits best (blockCV's `cv_spatial_autocor`, zeit-core's
+    variogram).
+  - *Buffer around the places tested*: the validation share of the places,
+    and the places within the distance of them out of the training too
+    (blockCV's `cv_buffer`).
+  - *Clusters of the values (k-means)*: the places' mean values, standardised,
+    in k clusters (blockCV's `cv_cluster`): a validation of conditions the
+    model has not seen.
+  - *kNNDM*: the places grouped by Ward's hierarchical clustering (k-means
+    beyond 4000 places, or chosen) into q clusters, merged into k folds of
+    about equal size, for q from k to the number of places; kept, the folds
+    whose distances from each place to the nearest place of another fold are
+    distributed most like those from the map (a grid of about 1000 cells) to
+    the nearest place. The window draws the three distributions, as CAST's
+    plot of `knndm`.
+
+  With folds, the **forest is cross-validated**: a forest for each fold,
+  grown on the others, predicts its samples (the confusion matrix is of every
+  sample), and the forest kept is grown on all of them. A **network**
+  validates, and stops early, on one fold: the one whose classes the others
+  keep best. The area of applicability takes the folds as CAST does (each
+  sample's dissimilarity to the samples of the other folds), and its error
+  profile the cross-validation's predictions. *Show the folds on the map*
+  makes them now and opens them as a vector layer coloured by fold (the
+  blocks and the places; written as a GeoPackage in the results folder's
+  `folds`); a training writes its folds beside the model
+  (`<model>.folds.gpkg`). Spatial folds choose a model and calibrate its
+  area of applicability; a map's accuracy is still estimated from a
+  probability sample (Validation & uncertainty; Wadoux et al. 2021). Against
+  Zeit's `spatial_folds` on the same points (`crates/janus-ml/tests/folds_zeit.rs`):
+  the same blocks in rows and as a checkerboard, the same buffers, Ward's
+  clusters as scipy's, k-means as tight as scikit-learn's, and kNNDM's folds
+  as near the map's distances (W 130.4 against 129.7, from different random
+  draws) in 0.03 s against 0.07 s (k-means: 1.0 s against 3.2 s), for 1000
+  places.
 - **Beside the series** (the forest's settings): rasters on the series' grid
   read as further predictors, one value each a sample after its series'
   values: the maps of runs on the series (**Texture (GLCM)**'s above all, see

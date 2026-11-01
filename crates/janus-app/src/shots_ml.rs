@@ -231,6 +231,111 @@ impl State {
             return None;
         }
 
+        if sh.tour == "folds" {
+            // spatial folds of pins (any series: `--shots folds SERIES OUT`): blocks, kNNDM, a forest cross-validated
+            let show = |s: &mut State, method: janus_ml::folds::Method, ctx: &Context| {
+                s.ml.cfg.folds.method = method;
+                let info = s.session.as_ref().map(|x| x.info.clone());
+                if let Some(info) = info {
+                    s.show_folds(&info, ctx);
+                }
+            };
+            let folds_done = |s: &State, sh: &Shots| -> Option<Option<i32>> {
+                let v = &s.ml.folds_view;
+                if v.busy() {
+                    return None;
+                }
+                if !v.error.is_empty() {
+                    return Some(fail(sh, &v.error));
+                }
+                if let Some(x) = v.shown.as_ref().filter(|_| sh.printed != sh.stage) {
+                    println!("    {:?}: places by fold {:?}; {}", x.folds.method, x.folds.counts(), x.notes.join("; "));
+                }
+                Some(None)
+            };
+            match sh.stage {
+                0 => {
+                    let input = sh.input.clone();
+                    self.shots_open(&input, janus_cube::BandSelection::default(), ctx);
+                    sh.next("the series opening");
+                }
+                1 => {
+                    if !ready(self) || !self.shots_quiet() {
+                        return None;
+                    }
+                    let (w, h) = self.session.as_ref().map_or((0, 0), |s| (s.info.width, s.info.height));
+                    // 9 x 7 pins, a class for each third of the image from west to east
+                    let classes = ["west", "centre", "east"];
+                    for j in 0..7 {
+                        for i in 0..9 {
+                            let (x, y) = ((2 * i + 1) * w / 18, (2 * j + 1) * h / 14);
+                            self.add_pin(x, y);
+                            if let Some(id) = self.series.pins.last().map(|p| p.id) {
+                                self.set_pin_class(id, classes[(i * 3) / 9]);
+                            }
+                        }
+                    }
+                    self.ml.open = true;
+                    self.ml.source = 3;
+                    self.ml.arch = crate::ml::FOREST;
+                    self.ml.tab = 1;
+                    self.ml.cfg.folds = janus_ml::folds::FoldSpec { k: 4, ..Default::default() };
+                    self.map.fit();
+                    sh.layout = Some((vec![dl], vec![Tab::Tasks]));
+                    sh.next("63 pins of three classes");
+                }
+                2 => {
+                    if sh.frames < 10 {
+                        return None;
+                    }
+                    show(self, janus_ml::folds::Method::Blocks, ctx);
+                    sh.next("spatial blocks being made");
+                }
+                3 | 5 => {
+                    match folds_done(self, sh) {
+                        None => return None,
+                        Some(Some(code)) => return Some(code),
+                        Some(None) => sh.printed = sh.stage,
+                    }
+                    sh.focus.push(dl);
+                    sh.scroll = Some((dl, f32::MAX));
+                    if !sh.docked.contains(&dl) || t < 4.0 || !self.shots_quiet() {
+                        return None;
+                    }
+                    let file = if sh.stage == 3 { "01-blocks" } else { "02-knndm" };
+                    sh.shoot(file, &[(&format!("{file}-window"), Shots::fit(dl))]);
+                    sh.next("the folds on the map");
+                }
+                4 => {
+                    show(self, janus_ml::folds::Method::Knndm, ctx);
+                    sh.next("kNNDM's folds being made");
+                }
+                6 => {
+                    self.ml.cfg.folds.method = janus_ml::folds::Method::Blocks;
+                    self.ml_train_now(ctx);
+                    sh.next("a forest cross-validated on the blocks");
+                }
+                7 => {
+                    match self.shots_trained(sh) {
+                        r if r < 0 => return None,
+                        r if r > 0 => return fail(sh, "the training failed"),
+                        _ => {}
+                    }
+                    sh.scroll = Some((dl, f32::MAX));
+                    if t < 3.0 || sh.frames < 10 {
+                        return None;
+                    }
+                    sh.shoot("-", &[("03-validation", Shots::tab(dl))]);
+                    sh.next("the cross-validation");
+                }
+                _ => {
+                    println!("OK");
+                    return Some(0);
+                }
+            }
+            return None;
+        }
+
         if sh.tour == "ml" {
             match sh.stage {
                 0 => {
