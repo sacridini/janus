@@ -19,7 +19,7 @@ use janus_zeit::twdtw::{Pattern, distances_many};
 use serde_json::{Value, json};
 
 use crate::app::State;
-use crate::ml::{FOREST, Site, assemble, class_color};
+use crate::ml::{FOREST, Site, assemble};
 use crate::sample_check::{RawCache, key_of, read_cached};
 
 /// What a method is: learned from the samples (the forest, the networks: ml.rs), matched to each class's series
@@ -473,7 +473,7 @@ impl State {
         egui::Grid::new("method confusion").striped(true).show(ui, |ui| {
             ui.weak("reference \\ method");
             for (j, c) in e.classes.iter().enumerate() {
-                let [r, g, b] = class_color(j);
+                let [r, g, b] = self.ml.class_color(j, c);
                 ui.label(RichText::new(c).color(Color32::from_rgb(r, g, b)));
             }
             if unclassified > 0 {
@@ -537,8 +537,9 @@ impl State {
             crate::panels::section(ui, "Patterns");
             ui.horizontal_wrapped(|ui| {
                 for (k, p) in list.iter().enumerate() {
-                    let [r, g, b] = class_color(k);
-                    ui.label(RichText::new(p["name"].as_str().unwrap_or("")).color(Color32::from_rgb(r, g, b)))
+                    let name = p["name"].as_str().unwrap_or("");
+                    let [r, g, b] = self.ml.class_color(k, name);
+                    ui.label(RichText::new(name).color(Color32::from_rgb(r, g, b)))
                         .on_hover_text(p["from"].as_str().unwrap_or(""));
                 }
             });
@@ -781,7 +782,7 @@ impl State {
             .map(|(k, name)| {
                 let samples: Vec<Vec<f32>> =
                     vectors.iter().zip(&y).filter(|(_, c)| **c as usize == k).map(|(v, _)| v.clone()).collect();
-                let [r, g, b] = class_color(k);
+                let [r, g, b] = self.ml.class_color(k, name);
                 crate::embeddings::EmbClass {
                     name: name.clone(),
                     color: Color32::from_rgb(r, g, b),

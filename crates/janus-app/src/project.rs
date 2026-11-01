@@ -266,6 +266,8 @@ pub struct Project {
     /// each pin's class ("" none) for the classifiers, and the classes in their order
     pub pin_classes: Vec<String>,
     pub pin_class_list: Vec<String>,
+    /// the classes' colours, in the list's order
+    pub pin_class_colors: Vec<[u8; 3]>,
     pub roi: Option<[usize; 4]>,
     pub roi_polygon: Vec<Vec<f64>>,
     pub transect: Vec<[f64; 2]>,
@@ -490,6 +492,7 @@ impl State {
         p.pin_classes =
             self.series.pins.iter().map(|q| self.ml.pin_classes.get(&q.id).cloned().unwrap_or_default()).collect();
         p.pin_class_list = self.ml.pin_class_list.clone();
+        p.pin_class_colors = self.ml.pin_class_colors();
         p.roi = self.series.roi_rect;
         p.roi_polygon = self.series.roi_poly.clone();
         if self.transect.on {
@@ -996,7 +999,7 @@ impl State {
         if let Some(v) = crate::navigation::SavedView::from_text(&p.view) {
             let _ = self.restore_view(&v);
         }
-        self.restore_pins(&p.pins, &p.pin_classes, &p.pin_class_list);
+        self.restore_pins(&p.pins, &p.pin_classes, &p.pin_class_list, &p.pin_class_colors);
         if let Some([x0, y0, x1, y1]) = p.roi {
             self.set_roi_shape([x0 as i64, y0 as i64, x1 as i64, y1 as i64], p.roi_polygon.clone());
         }

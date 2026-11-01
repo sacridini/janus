@@ -256,9 +256,7 @@ impl State {
         if class.is_empty() {
             self.ml.pin_classes.remove(&id);
         } else {
-            if !self.ml.pin_class_list.iter().any(|c| c == class) {
-                self.ml.pin_class_list.push(class.to_string());
-            }
+            self.ml.add_pin_class(class);
             self.ml.pin_classes.insert(id, class.to_string());
         }
         self.color_pins();
@@ -270,7 +268,7 @@ impl State {
         let ml = &self.ml;
         let color = |id: u32| match ml.pin_classes.get(&id) {
             Some(c) if ml.pins_by_class => ml.pin_class_list.iter().position(|k| k == c).map_or(pin_color(id), |k| {
-                let [r, g, b] = crate::ml::class_color(k);
+                let [r, g, b] = ml.class_color(k, c);
                 Color32::from_rgb(r, g, b)
             }),
             _ => pin_color(id),
@@ -280,9 +278,15 @@ impl State {
         }
     }
 
-    /// Pins put back (a project, an undo) with their classes.
-    pub fn restore_pins(&mut self, pins: &[[usize; 2]], classes: &[String], class_list: &[String]) {
+    /// Pins put back (a project, an undo) with their classes and the classes' colours (in the list's order; an older
+    /// project's none: the palette's by their place).
+    pub fn restore_pins(&mut self, pins: &[[usize; 2]], classes: &[String], class_list: &[String], colors: &[[u8; 3]]) {
         self.ml.pin_class_list = class_list.to_vec();
+        self.ml.class_colors = class_list
+            .iter()
+            .enumerate()
+            .map(|(k, c)| (c.clone(), colors.get(k).copied().unwrap_or_else(|| crate::ml::class_color(k))))
+            .collect();
         for (i, &[x, y]) in pins.iter().enumerate() {
             let before = self.series.pins.len();
             self.add_pin(x, y);

@@ -91,6 +91,8 @@ pub struct MlUi {
     /// the pins' classes in their order (their colours), the class a click's pin is given ("" none), the pins
     /// coloured by class, the class being typed
     pub pin_class_list: Vec<String>,
+    /// each pin class's colour (given when the class is made, the palette's first free one, or picked)
+    pub class_colors: BTreeMap<String, [u8; 3]>,
     pub drop_class: String,
     pub pins_by_class: bool,
     new_class: String,
@@ -138,7 +140,8 @@ impl Default for MlUi {
         MlUi {
             open: false,
             arch: 0,
-            source: 0,
+            // the pins: a click on the map is a sample
+            source: 3,
             vector: 0,
             field: 0,
             polygons: 0,
@@ -147,6 +150,7 @@ impl Default for MlUi {
             bands: BTreeSet::new(),
             pin_classes: BTreeMap::new(),
             pin_class_list: vec![],
+            class_colors: BTreeMap::new(),
             drop_class: String::new(),
             pins_by_class: true,
             new_class: String::new(),
@@ -179,6 +183,35 @@ impl Default for MlUi {
 }
 
 impl MlUi {
+    /// The colour of class `name`, the `k`th of its list: the one it was given, else the palette's `k`th.
+    pub fn class_color(&self, k: usize, name: &str) -> [u8; 3] {
+        self.class_colors.get(name).copied().unwrap_or_else(|| class_color(k))
+    }
+
+    /// The colours of `classes` in their order (a model's classes, as its class map shows them).
+    pub fn class_colors_of(&self, classes: &[String]) -> Vec<[u8; 3]> {
+        classes.iter().enumerate().map(|(k, c)| self.class_color(k, c)).collect()
+    }
+
+    /// Class `name` added to the pins' classes if new, with a colour no other class has.
+    pub fn add_pin_class(&mut self, name: &str) {
+        if self.pin_class_list.iter().any(|c| c == name) {
+            return;
+        }
+        let used = self.class_colors_of(&self.pin_class_list);
+        let color = (0..CLASS_PALETTE.len())
+            .map(class_color)
+            .find(|c| !used.contains(c))
+            .unwrap_or_else(|| class_color(self.pin_class_list.len()));
+        self.class_colors.insert(name.to_string(), color);
+        self.pin_class_list.push(name.to_string());
+    }
+
+    /// The pins' classes' colours in the list's order (a project's, an undo step's).
+    pub fn pin_class_colors(&self) -> Vec<[u8; 3]> {
+        self.class_colors_of(&self.pin_class_list)
+    }
+
     pub fn arch(&self) -> Arch {
         match self.arch {
             1 => Arch::LTae(Default::default()),
@@ -242,13 +275,56 @@ fn counts_of(sites: &[Site], classes: &[String]) -> Vec<(String, usize)> {
         .collect()
 }
 
-/// Class k's colour: the Paired colormap's, as the class map shows it.
+/// Colours for classes, each as unlike those before it as can be: Tableau 10's (without its grey), then each the
+/// farthest in CIELAB from all before it (Glasbey et al. 2007's greedy choice, of lightness 30-88 and chroma over 25,
+/// on a grid of 8 levels a channel).
+const CLASS_PALETTE: [[u8; 3]; 32] = [
+    [31, 119, 180],
+    [255, 127, 14],
+    [44, 160, 44],
+    [214, 39, 40],
+    [148, 103, 189],
+    [140, 86, 75],
+    [227, 119, 194],
+    [188, 189, 34],
+    [23, 190, 207],
+    [0, 0, 248],
+    [248, 24, 248],
+    [0, 248, 0],
+    [24, 88, 56],
+    [216, 224, 176],
+    [0, 248, 192],
+    [0, 80, 232],
+    [248, 0, 120],
+    [208, 200, 248],
+    [104, 96, 0],
+    [248, 168, 120],
+    [136, 8, 168],
+    [144, 16, 80],
+    [168, 240, 32],
+    [152, 72, 0],
+    [248, 120, 136],
+    [32, 248, 120],
+    [224, 0, 168],
+    [96, 176, 128],
+    [176, 232, 128],
+    [88, 64, 104],
+    [192, 136, 0],
+    [32, 120, 232],
+];
+
+/// Class k's colour by default, as the class map shows it: distinct from those of the classes before it.
 pub fn class_color(k: usize) -> [u8; 3] {
-    let maps = janus_gpu::colormaps::all();
-    let cm = &maps[janus_gpu::colormaps::by_name("Paired").unwrap_or(0)];
-    let n = cm.keys().count().max(1);
-    let [r, g, b, _] = cm.sample(((k % n) as f32 + 0.5) / n as f32);
-    [r, g, b]
+    CLASS_PALETTE[k % CLASS_PALETTE.len()]
+}
+
+/// A model's classes: their names and colours (`colors` in their order, the palette's where it lacks one).
+fn header_classes(classes: &[String], colors: &[[u8; 3]]) -> Vec<Class> {
+    classes
+        .iter()
+        .enumerate()
+        .map(|(k, c)| Class { name: c.clone(), color: colors.get(k).copied().unwrap_or_else(|| class_color(k)) })
+        .collect()
 }
 
 /// The pixels of a placed feature: its anchor, or those whose centres are inside (at most `max`, spread evenly).
@@ -929,23 +1005,30 @@ impl State {
             ui.weak("Drop pins on places you know (a click on the map), each of the class chosen below.");
         }
         // the classes: those given, then any a pin has that the list lacks (an older project's)
-        for c in self.ml.pin_classes.values() {
-            if !self.ml.pin_class_list.contains(c) {
-                self.ml.pin_class_list.push(c.clone());
-            }
+        let missing: Vec<String> =
+            self.ml.pin_classes.values().filter(|c| !self.ml.pin_class_list.contains(c)).cloned().collect();
+        for c in missing {
+            self.ml.add_pin_class(&c);
         }
         let list = self.ml.pin_class_list.clone();
-        let color_of = |k: usize| {
-            let [r, g, b] = class_color(k);
-            egui::Color32::from_rgb(r, g, b)
-        };
-        let count = |c: &str| self.ml.pin_classes.values().filter(|v| v.as_str() == c).count();
+        let colors = self.ml.pin_class_colors();
+        let counts: Vec<usize> =
+            list.iter().map(|c| self.ml.pin_classes.values().filter(|v| *v == c).count()).collect();
+        let count = |k: usize| counts[k];
         let mut remove = None;
+        let mut recolor = None;
         ui.horizontal_wrapped(|ui| {
             ui.label("Classes:");
             for (k, c) in list.iter().enumerate() {
-                ui.colored_label(color_of(k), "\u{25cf}");
-                ui.label(format!("{c} ({})", count(c)));
+                // its colour, the pins' and the class map's: a click picks another
+                let mut rgb = colors[k];
+                if egui::color_picker::color_edit_button_srgb(ui, &mut rgb)
+                    .on_hover_text(format!("The colour of {c}: its pins' and the class map's (a click picks another)"))
+                    .changed()
+                {
+                    recolor = Some((c.clone(), rgb));
+                }
+                ui.label(format!("{c} ({})", count(k)));
                 if ui
                     .small_button("x")
                     .on_hover_text(format!("Remove the class {c} (its pins keep no class)"))
@@ -962,20 +1045,23 @@ impl State {
             let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let name = self.ml.new_class.trim().to_string();
             if (ui.add_enabled(!name.is_empty(), egui::Button::new("Add")).clicked() || enter) && !name.is_empty() {
-                if !self.ml.pin_class_list.contains(&name) {
-                    self.ml.pin_class_list.push(name.clone());
-                }
+                self.ml.add_pin_class(&name);
                 // the class just made is the one new pins get
                 self.ml.drop_class = name;
                 self.ml.new_class.clear();
             }
         });
+        if let Some((c, rgb)) = recolor {
+            self.ml.class_colors.insert(c, rgb);
+            self.color_pins();
+        }
         if let Some(c) = remove {
             let ids: Vec<u32> = self.ml.pin_classes.iter().filter(|e| *e.1 == c).map(|e| *e.0).collect();
             for id in ids {
                 self.ml.pin_classes.remove(&id);
             }
             self.ml.pin_class_list.retain(|k| *k != c);
+            self.ml.class_colors.remove(&c);
             if self.ml.drop_class == c {
                 self.ml.drop_class.clear();
             }
@@ -1300,6 +1386,8 @@ impl State {
             .flatten();
         let roi = (self.ml.arch == UTAE && self.ml.in_roi).then_some(self.series.roi_rect).flatten();
         let cfg = self.ml.cfg.clone();
+        // the classes' colours as the pins show them (those picked), the class map's
+        let colors = self.ml.class_colors_of(&classes);
         let (min_valid, gpu) = (self.ml.min_valid, self.ml.gpu);
         let threads = self.processing_threads();
         let layer_inputs = self.layers.get(self.active).map(|l| l.inputs.clone()).unwrap_or_default();
@@ -1376,6 +1464,7 @@ impl State {
                             label_map.as_ref(),
                             roi,
                             &classes,
+                            &colors,
                             h,
                             &cfg,
                             gpu,
@@ -1391,6 +1480,7 @@ impl State {
                             &inputs,
                             &sites,
                             &classes,
+                            &colors,
                             &arch,
                             &cfg,
                             min_valid,
@@ -1775,6 +1865,7 @@ pub(crate) fn train_job(
     inputs: &[InputBand],
     sites: &[Site],
     classes: &[String],
+    colors: &[[u8; 3]],
     arch: &Arch,
     cfg: &TrainConfig,
     min_valid: f64,
@@ -1865,6 +1956,7 @@ pub(crate) fn train_job(
             info,
             inputs,
             classes,
+            colors,
             h,
             cfg,
             min_valid,
@@ -1928,7 +2020,7 @@ pub(crate) fn train_job(
         calendar,
         norm,
         standard: None,
-        classes: classes.iter().enumerate().map(|(k, c)| Class { name: c.clone(), color: class_color(k) }).collect(),
+        classes: header_classes(classes, colors),
         min_valid,
         series: info.description.clone(),
         training,
@@ -1975,6 +2067,7 @@ pub(crate) fn forest_job(
     info: &Arc<CubeInfo>,
     inputs: Vec<InputBand>,
     classes: &[String],
+    colors: &[[u8; 3]],
     h: &ForestHyper,
     cfg: &TrainConfig,
     min_valid: f64,
@@ -2060,7 +2153,7 @@ pub(crate) fn forest_job(
         calendar,
         norm,
         standard: None,
-        classes: classes.iter().enumerate().map(|(k, c)| Class { name: c.clone(), color: class_color(k) }).collect(),
+        classes: header_classes(classes, colors),
         min_valid,
         series: info.description.clone(),
         training,
@@ -2396,6 +2489,7 @@ fn utae_job(
     label_map: Option<&(String, usize, usize, usize, usize)>,
     roi: Option<[usize; 4]>,
     classes: &[String],
+    colors: &[[u8; 3]],
     h: &janus_ml::utae::UtaeHyper,
     cfg: &TrainConfig,
     gpu: bool,
@@ -2506,7 +2600,7 @@ fn utae_job(
         calendar,
         norm: Norm::default(),
         standard: Some(standard),
-        classes: classes.iter().enumerate().map(|(k, c)| Class { name: c.clone(), color: class_color(k) }).collect(),
+        classes: header_classes(classes, colors),
         min_valid: 0.0,
         series: info.description.clone(),
         training,
@@ -2597,5 +2691,38 @@ fn fit_applicability(
             log.line(&format!("no area of applicability: {e}"));
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_palette_has_no_two_alike() {
+        for (i, a) in CLASS_PALETTE.iter().enumerate() {
+            for b in &CLASS_PALETTE[i + 1..] {
+                let d: i32 = a.iter().zip(b).map(|(x, y)| (*x as i32 - *y as i32).abs()).sum();
+                assert!(d > 50, "{a:?} and {b:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_new_class_takes_a_colour_no_class_has() {
+        let mut ml = MlUi::default();
+        assert_eq!(ml.source, 3, "the window opens on the pins");
+        ml.add_pin_class("Forest");
+        ml.add_pin_class("Water");
+        assert_eq!(ml.pin_class_colors(), [class_color(0), class_color(1)]);
+        // the first class given the second's colour: the next takes the first's, free again
+        ml.class_colors.insert("Forest".into(), class_color(1));
+        ml.add_pin_class("Crop");
+        assert_eq!(ml.class_color(2, "Crop"), class_color(0));
+        // a class added again: nothing changes; a class not among the pins': the palette's by its place
+        ml.add_pin_class("Water");
+        assert_eq!(ml.pin_class_list, ["Forest", "Water", "Crop"]);
+        assert_eq!(ml.class_color(1, "Water"), class_color(1));
+        assert_eq!(ml.class_colors_of(&["Crop".into(), "Pasture".into()]), [class_color(0), class_color(1)]);
     }
 }

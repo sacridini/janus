@@ -306,7 +306,9 @@ pub fn train_utae(
     let loss_fn = CrossEntropyLossConfig::new().init(&ad);
     let mut opt = AdamWConfig::new().with_epsilon(cfg.eps as f32).with_weight_decay(cfg.weight_decay as f32).init();
     let (mut history, mut best, mut best_epoch, mut since) = (vec![], f64::INFINITY, 0, 0);
-    let mut best_net = net.clone();
+    // the best epoch's network copied as it is (`valid` copies the batch norms' running statistics, which a
+    // clone shares with the network still learning: the best epoch's weights kept the last epoch's statistics)
+    let mut best_net = net.valid();
     let mut stopped_early = false;
     let batch = cfg.batch_size.max(1);
     for epoch in 1..=cfg.epochs {
@@ -347,7 +349,7 @@ pub fn train_utae(
         history.push(e);
         if val_loss < best - cfg.min_delta || epoch == 1 {
             (best, best_epoch, since) = (val_loss, epoch, 0);
-            best_net = net.clone();
+            best_net = net.valid();
         } else {
             since += 1;
             if since >= cfg.patience {

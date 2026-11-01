@@ -1867,7 +1867,7 @@ impl State {
                 // the project keeps each pin's class
                 let saved = self.project_state(None);
                 self.clear_pins();
-                self.restore_pins(&saved.pins, &saved.pin_classes, &saved.pin_class_list);
+                self.restore_pins(&saved.pins, &saved.pin_classes, &saved.pin_class_list, &saved.pin_class_colors);
                 let again = self.project_state(None);
                 if again.pin_classes != saved.pin_classes
                     || saved.pin_classes.iter().filter(|c| *c == "Late").count() != 8

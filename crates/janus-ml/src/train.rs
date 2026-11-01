@@ -357,7 +357,9 @@ pub fn train_on(
     let mut opt = AdamWConfig::new().with_epsilon(cfg.eps as f32).with_weight_decay(cfg.weight_decay as f32).init();
     let mut rng = Rng::new(cfg.seed ^ 0x5EED);
     let (mut history, mut best, mut best_epoch, mut since_best) = (vec![], f64::INFINITY, 0, 0);
-    let mut best_net = net.clone();
+    // the best epoch's network copied as it is (`valid` copies the batch norms' running statistics, which a
+    // clone shares with the network still learning: the best epoch's weights kept the last epoch's statistics)
+    let mut best_net = net.valid();
     let mut stopped_early = false;
     for epoch in 1..=cfg.epochs {
         let t0 = std::time::Instant::now();
@@ -412,7 +414,7 @@ pub fn train_on(
         if monitored < best - cfg.min_delta || epoch == 1 {
             best = monitored;
             best_epoch = epoch;
-            best_net = net.clone();
+            best_net = net.valid();
             since_best = 0;
         } else {
             since_best += 1;
@@ -420,7 +422,7 @@ pub fn train_on(
                 // better, by less than min_delta: kept, but it does not reset the patience
                 best = monitored;
                 best_epoch = epoch;
-                best_net = net.clone();
+                best_net = net.valid();
             }
             if since_best >= cfg.patience {
                 stopped_early = true;

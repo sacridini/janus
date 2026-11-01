@@ -215,6 +215,9 @@ fn describe(a: &Snap, b: &Snap) -> String {
     if a.p.pins != b.p.pins || a.p.pin_classes != b.p.pin_classes || a.p.pin_class_list != b.p.pin_class_list {
         return "Pins".into();
     }
+    if a.p.pin_class_colors != b.p.pin_class_colors {
+        return "Colours of the classes".into();
+    }
     if a.p.roi != b.p.roi || a.p.roi_polygon != b.p.roi_polygon {
         return "ROI".into();
     }
@@ -612,7 +615,13 @@ impl State {
         if cur.p.pins != t.p.pins || cur.p.pin_classes != t.p.pin_classes || cur.p.pin_class_list != t.p.pin_class_list
         {
             self.clear_pins();
-            self.restore_pins(&t.p.pins, &t.p.pin_classes, &t.p.pin_class_list);
+            self.restore_pins(&t.p.pins, &t.p.pin_classes, &t.p.pin_class_list, &t.p.pin_class_colors);
+        } else if cur.p.pin_class_colors != t.p.pin_class_colors {
+            for (k, c) in t.p.pin_class_list.iter().enumerate() {
+                let rgb = t.p.pin_class_colors.get(k).copied().unwrap_or_else(|| crate::ml::class_color(k));
+                self.ml.class_colors.insert(c.clone(), rgb);
+            }
+            self.color_pins();
         }
         if cur.p.roi != t.p.roi || cur.p.roi_polygon != t.p.roi_polygon {
             match t.p.roi {

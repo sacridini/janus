@@ -130,6 +130,10 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
             trained.n_val
         );
         assert!(oa > 0.9, "{tag}: validation accuracy {oa}");
+        // the network kept is the best epoch's as it was then: its batch norms' running statistics too, not those
+        // of the epochs after it (a clone shared them, and L-TAE's kept model was worse than its best epoch)
+        let at_best = trained.history[trained.best_epoch - 1].val_acc;
+        assert!((oa - at_best).abs() < 1e-9, "{tag}: the model kept is {oa} right, its best epoch was {at_best}");
         let training = trained.summary(&cfg, &[0, 0, 0]);
         assert_eq!(trained.held_out.len(), trained.n_val);
         (trained.net, training, None, trained.held_out)

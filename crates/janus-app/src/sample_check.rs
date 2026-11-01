@@ -21,7 +21,7 @@ use janus_ml::forest::{ForestHyper, cross_predict};
 use janus_ml::{Calendar, InputBand};
 
 use crate::app::State;
-use crate::ml::{Site, class_color};
+use crate::ml::Site;
 
 /// A place is suspect when the forests that never saw it give its own class less than this, and another at least
 /// LIKELY.
@@ -536,8 +536,7 @@ fn fit_color(p: f32) -> Color32 {
     }
 }
 
-fn swatch(ui: &mut Ui, k: usize) {
-    let [r, g, b] = class_color(k);
+fn swatch(ui: &mut Ui, [r, g, b]: [u8; 3]) {
     let (rect, _) = ui.allocate_exact_size(vec2(10.0, 10.0), egui::Sense::hover());
     ui.painter().rect_filled(rect, 2.0, Color32::from_rgb(r, g, b));
 }
@@ -766,7 +765,7 @@ impl State {
                 let st = rep.as_deref().and_then(|r| r.classes.iter().find(|c| &c.name == name));
                 let pick = ui
                     .horizontal(|ui| {
-                        swatch(ui, k);
+                        swatch(ui, self.ml.class_color(k, name));
                         ui.add(egui::Label::new(name).sense(egui::Sense::click()))
                     })
                     .inner;
@@ -782,7 +781,7 @@ impl State {
                 } else {
                     ui.label(txt);
                 }
-                let [r, g, b] = class_color(k);
+                let [r, g, b] = self.ml.class_color(k, name);
                 bar(ui, *n as f32 / most as f32, 70.0, Color32::from_rgb(r, g, b)).on_hover_text(format!(
                     "{:.0} % of the samples",
                     *n as f64 / counts.iter().map(|c| c.1).sum::<usize>().max(1) as f64 * 100.0
@@ -870,9 +869,9 @@ impl State {
                     if pts.is_empty() {
                         continue;
                     }
-                    let [r, g, bl] = class_color(k);
-                    let col = Color32::from_rgb(r, g, bl);
                     let name = &rep.classes[k].name;
+                    let [r, g, bl] = self.ml.class_color(k, name);
+                    let col = Color32::from_rgb(r, g, bl);
                     // the p10-p90 band a quad between each two dates (the plot fills convex shapes only)
                     for w in pts.windows(2) {
                         let ((x0, a), (x1, c)) = (w[0], w[1]);
@@ -1023,7 +1022,7 @@ impl State {
                     let st = stats(r);
                     row.col(|ui| {
                         if let Some(k) = color_of(&r.class) {
-                            swatch(ui, k);
+                            swatch(ui, self.ml.class_color(k, &r.class));
                         }
                         if ui
                             .add(egui::Label::new(&r.label).sense(egui::Sense::click()))

@@ -296,7 +296,9 @@ pub fn train_fieldnet(
     let mut opt = AdamWConfig::new().with_weight_decay(1e-4).init();
     let mut out = FieldTrained { n_train: train_idx.len(), n_val: val_idx.len(), ..Default::default() };
     let (mut best, mut since) = (f64::INFINITY, 0);
-    let mut best_net = net.clone();
+    // the best epoch's network copied as it is (`valid` copies the batch norms' running statistics, which a
+    // clone shares with the network still learning: the best epoch's weights kept the last epoch's statistics)
+    let mut best_net = net.valid();
     for epoch in 1..=cfg.epochs {
         let t0 = std::time::Instant::now();
         let picks = epoch_picks(chips, &train_idx, s, cfg.crops, &mut rng);
@@ -358,7 +360,7 @@ pub fn train_fieldnet(
         out.history.push(e);
         if val_loss < best || epoch == 1 {
             (best, out.best_epoch, since) = (val_loss, epoch, 0);
-            best_net = net.clone();
+            best_net = net.valid();
         } else {
             since += 1;
             if since >= cfg.patience {
@@ -408,7 +410,9 @@ pub fn train_field_utae(
     let mut opt = AdamWConfig::new().init();
     let mut out = FieldTrained { n_train: train_idx.len(), n_val: val_idx.len(), ..Default::default() };
     let (mut best, mut since) = (f64::INFINITY, 0);
-    let mut best_net = net.clone();
+    // the best epoch's network copied as it is (`valid` copies the batch norms' running statistics, which a
+    // clone shares with the network still learning: the best epoch's weights kept the last epoch's statistics)
+    let mut best_net = net.valid();
     // the step's loss: the classes' cross entropy and the distance's squared error over the labelled pixels
     let step_loss = |scores: Tensor<4>, bt: &Batch, dev: &Device, ce: &burn::nn::loss::CrossEntropyLoss| {
         let [b, _, s, _] = scores.dims();
@@ -475,7 +479,7 @@ pub fn train_field_utae(
         out.history.push(e);
         if val_loss < best || epoch == 1 {
             (best, out.best_epoch, since) = (val_loss, epoch, 0);
-            best_net = net.clone();
+            best_net = net.valid();
         } else {
             since += 1;
             if since >= cfg.patience {

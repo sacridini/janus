@@ -860,6 +860,7 @@ mod tests {
             &[InputBand::shown(&info)],
             &sites,
             &classes,
+            &[],
             &arch,
             &cfg,
             50.0,

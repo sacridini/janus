@@ -679,14 +679,17 @@ without one).
   references (the adjudicated label, else the interpreters' when they agree),
   a *vector layer's* class column (points, or polygons: their centre, each
   pixel inside up to a number, or the mean of their pixels; SNIC's segments
-  are such polygons), or *pins* given a class in the window. The classes keep
-  the label set's order.
+  are such polygons), or *pins* given a class in the window (the source the
+  window opens on). The classes keep the label set's order.
 - **Pins by class** (source *Pins*): a list of classes (type a name, *Add*;
-  its count of pins; *x* removes it), the class **new pins** get (a click on
-  the map drops a pin of it: drop a class's pins one after the other), the
-  pins without a class given one at once; *Coloured by class* gives each pin
-  its class's colour, the one the class map will show. The project and undo
-  keep each pin's class.
+  its colour, its count of pins; *x* removes it), the class **new pins** get
+  (a click on the map drops a pin of it: drop a class's pins one after the
+  other), the pins without a class given one at once; *Coloured by class*
+  gives each pin its class's colour, the one the class map will show. A new
+  class takes the first colour no other class has, from a palette of
+  colours each as unlike those before it as can be (Tableau 10's, then
+  Glasbey's farthest in CIELAB); a click on a class's colour picks another.
+  The project and undo keep each pin's class and each class's colour.
 - **One window for every classifier**, the method chosen in it (tab
   *Method*), on the same samples and their quality check:
   - *learned from the samples*: the Random Forest and the networks below;
