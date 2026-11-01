@@ -33,6 +33,8 @@ pub struct Settings {
     pub check_updates: bool,
     /// processing threads; 0: every logical core but 2
     pub threads: usize,
+    /// downloads transferring at once (STAC series and composites, embeddings), the others waiting in line
+    pub downloads_at_once: usize,
     pub overview_budget_mb: i32,
     /// the disk cache budget; 0: automatic
     pub cache_budget_gb: u64,
@@ -85,6 +87,7 @@ impl Default for Settings {
             reveal_opened: true,
             check_updates: true,
             threads: 0,
+            downloads_at_once: crate::downloads::DEFAULT_AT_ONCE,
             overview_budget_mb: 1024,
             cache_budget_gb: 0,
             full_res: FullResMode::Hdd,
@@ -161,6 +164,9 @@ pub fn parse(text: &str) -> (Settings, BasemapSetting) {
             }
             ("janus", "OverviewBudgetMB") => s.overview_budget_mb = int().unwrap_or(1024).clamp(64, 1 << 20) as i32,
             ("janus", "Threads") => s.threads = int().unwrap_or(0).max(0) as usize,
+            ("janus", "DownloadsAtOnce") => {
+                s.downloads_at_once = int().unwrap_or(crate::downloads::DEFAULT_AT_ONCE as i64).clamp(1, 8) as usize
+            }
             ("janus", "FontSize") => {
                 s.font_size =
                     int().unwrap_or(13).clamp(i64::from(theme::MIN_FONT_SIZE), i64::from(theme::MAX_FONT_SIZE)) as i32
@@ -235,6 +241,7 @@ pub fn to_ini(s: &Settings, b: &crate::basemap::BasemapUi) -> String {
         if s.modern { "Modern" } else { "Classic" },
         theme::MODERN_NAMES[s.modern_theme]
     );
+    out += &format!("DownloadsAtOnce={}\n", s.downloads_at_once);
     out += &format!("CheckUpdates={}\n", i32::from(s.check_updates));
     if !s.interpreter.is_empty() {
         out += &format!("Interpreter={}\n", s.interpreter);
@@ -576,6 +583,22 @@ impl State {
         {
             st.s.threads = 0;
             threads_changed = true;
+        }
+        let st = &mut self.settings;
+        fit_slider(ui, w, SLIDER_TEXT);
+        if ui
+            .add(
+                Slider::new(&mut st.s.downloads_at_once, 1..=8)
+                    .custom_formatter(|v, _| format!("Downloads at once: {v}")),
+            )
+            .on_hover_text(
+                "STAC series and composites and embeddings transferring at the same time; the others\nwait their \
+                 turn in Tools > Tasks (where one can be moved to the front or cancelled).\nDefault: 2.",
+            )
+            .changed()
+        {
+            crate::downloads::set_at_once(st.s.downloads_at_once);
+            changed = true;
         }
         if let Some(s) = &self.session {
             let r = ui.weak(format!(

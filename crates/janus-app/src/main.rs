@@ -24,6 +24,7 @@ mod composite;
 mod contents;
 mod cycles;
 mod display;
+mod downloads;
 mod emb_download;
 mod embeddings;
 mod embeddings_test;

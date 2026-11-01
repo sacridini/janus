@@ -1712,7 +1712,12 @@ pub(crate) fn train_job(
     let mut inputs = inputs.to_vec();
     let (x, y, norm, per_class, places) = if let Arch::Presto(h) = &mut arch {
         set(0.0, "Presto's weights");
-        let weights = janus_ml::presto::weights(&crate::settings::app_data_dir().join("weights"), &|_| {}, cancel)?;
+        // the bytes downloaded said (the first time; their size is not known before)
+        let weights = janus_ml::presto::weights(
+            &crate::settings::app_data_dir().join("weights"),
+            &|b| set(0.0, &format!("downloading Presto's weights: {:.0} MB", b / 1e6)),
+            cancel,
+        )?;
         let (x, y, per_class, place, pi) = presto_samples(info, sites, classes, h.inputs.year)?;
         log.line(&format!(
             "Presto's inputs: {}; reflectance x {}{}",
@@ -2192,7 +2197,11 @@ impl State {
                     c.request_repaint();
                 };
                 let r = guarded(|| -> Result<usize, String> {
-                    let weights = janus_ml::presto::weights(&crate::settings::app_data_dir().join("weights"), &|_| {}, &cancel)?;
+                    let weights = janus_ml::presto::weights(
+                        &crate::settings::app_data_dir().join("weights"),
+                        &|b| progress(0.0, &format!("downloading Presto's weights: {:.0} MB", b / 1e6)),
+                        &cancel,
+                    )?;
                     // the units from a sample of the window
                     let first = PrestoInputs::of(&info, &vec![(0.0, 1.0); info.bands_per_date.max(1)], year)?;
                     let read = first.read_bands();
@@ -2305,7 +2314,11 @@ fn utae_job(
     ));
     let pastis = if h.pastis {
         set(0.0, "U-TAE's PASTIS weights");
-        Some(janus_ml::utae::pastis_weights(&crate::settings::app_data_dir().join("weights"), &|_| {}, cancel)?)
+        Some(janus_ml::utae::pastis_weights(
+            &crate::settings::app_data_dir().join("weights"),
+            &|b| set(0.0, &format!("downloading U-TAE's PASTIS weights: {:.0} MB", b / 1e6)),
+            cancel,
+        )?)
     } else {
         None
     };

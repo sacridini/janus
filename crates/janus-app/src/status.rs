@@ -459,8 +459,16 @@ impl State {
             return;
         }
         let Some((title, p)) = jobs.first().or(exports.first()).cloned() else { return };
-        let text = if n == 1 { title.clone() } else { format!("{n} tasks: {title}") };
-        let bar = egui::ProgressBar::new(p as f32).desired_width(110.0).text(format!("{:.0}%", p * 100.0));
+        // the downloads waiting their turn said apart
+        let waiting = crate::downloads::counts().0;
+        let text = match (n, waiting) {
+            (1, _) => title.clone(),
+            (_, 0) => format!("{n} tasks: {title}"),
+            _ => format!("{n} tasks ({waiting} waiting): {title}"),
+        };
+        let bar = egui::ProgressBar::new(p as f32)
+            .desired_width(crate::fit::scaled(ui, 110.0))
+            .text(format!("{:.0}%", p * 100.0));
         let r = ui.add(bar);
         let label =
             ui.add(egui::Label::new(RichText::new(text).color(theme::accent())).truncate().sense(egui::Sense::click()));

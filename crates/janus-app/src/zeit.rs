@@ -2249,10 +2249,13 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             }
             for (i, j) in self.zeit.jobs.iter().enumerate() {
                 ui.push_id(i, |ui| {
+                    // its place in the line of downloads, read before its status is locked (the line locks it)
+                    let place = crate::downloads::place(&j.status);
                     let s = j.status.lock().unwrap();
                     ui.label(&j.title);
                     let el = if s.state == JobState::Running { j.started.elapsed().as_secs_f64() } else { s.seconds };
                     let name = match s.state {
+                        JobState::Running if place.is_some() => "waiting",
                         JobState::Running => "running",
                         JobState::Done => "done",
                         JobState::Cancelled => "cancelled",
@@ -2266,6 +2269,14 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                         if s.state == JobState::Running {
                             if ui.add(egui::Button::new("Cancel").min_size(egui::vec2(bw, 0.0))).clicked() {
                                 j.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            if place.is_some_and(|p| p > 0)
+                                && ui
+                                    .add(egui::Button::new("Move first").min_size(egui::vec2(bw, 0.0)))
+                                    .on_hover_text("The next download to start, once one under way ends")
+                                    .clicked()
+                            {
+                                crate::downloads::move_first(&j.status);
                             }
                         } else {
                             if ui.add(egui::Button::new("Remove").min_size(egui::vec2(bw, 0.0))).clicked() {

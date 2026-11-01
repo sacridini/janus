@@ -291,6 +291,10 @@ fn alphaearth(
     http_options();
     // the file index (78 MB), downloaded once a month
     let index_path = spec.cache_dir.join("alphaearth").join(INDEX);
+    // one download of it at a time (two downloads of embeddings would write the same .part): the second waits,
+    // then finds it fresh
+    static INDEX_LOCK: Mutex<()> = Mutex::new(());
+    let _one = INDEX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let stale = std::fs::metadata(&index_path)
         .and_then(|m| m.modified())
         .ok()
@@ -313,6 +317,7 @@ fn alphaearth(
     }
     progress(0.05, "finding the data");
     let index = read_index(&index_path)?;
+    drop(_one);
     let mut available: Vec<i32> = index.iter().map(|r| r.year).collect();
     available.sort_unstable();
     available.dedup();

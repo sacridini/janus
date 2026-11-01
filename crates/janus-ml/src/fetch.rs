@@ -1,12 +1,18 @@
 //! Pretrained weights downloaded once (through GDAL's /vsicurl/, the program's libcurl, as the embeddings are), and
 //! their SHA-256.
 
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 
-/// A file over HTTP copied to `path`, through a temporary file (one request, streamed).
+/// The files being downloaded, each with its lock.
+static PATHS: LazyLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = LazyLock::new(Default::default);
+
+/// A file over HTTP copied to `path`, through a temporary file (one request, streamed); `progress` gets the bytes
+/// downloaded so far (the size is not known before).
 pub fn fetch(url: &str, path: &Path, progress: &dyn Fn(f64), cancel: &AtomicBool) -> Result<(), String> {
     fetch_vsi(&format!("/vsicurl_streaming/{url}"), url, path, progress, cancel)
 }
@@ -34,6 +40,18 @@ fn http_options() {
 /// A file GDAL's virtual file systems reach (e.g. one member of a zip over HTTP: /vsizip/{/vsicurl/URL}/member,
 /// read by ranges) copied to `path`; `url` names it in the messages.
 pub fn fetch_vsi(vsi: &str, url: &str, path: &Path, progress: &dyn Fn(f64), cancel: &AtomicBool) -> Result<(), String> {
+    // one download of a file at a time (two tasks asking for the same weights would write the same .part): the
+    // second waits for the first, and finds the file there (a file there before, one that failed its check, is
+    // downloaded again)
+    let there = path.exists();
+    let lock = {
+        let mut locks = PATHS.lock().unwrap_or_else(|e| e.into_inner());
+        locks.entry(path.to_path_buf()).or_default().clone()
+    };
+    let _one = lock.lock().unwrap_or_else(|e| e.into_inner());
+    if !there && path.exists() {
+        return Ok(());
+    }
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
     }

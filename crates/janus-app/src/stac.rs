@@ -530,35 +530,51 @@ impl State {
                     }
                     c.request_repaint();
                 };
+                // a download or a composite waits its turn in the line of downloads (Settings: at once); opening
+                // in place reads only the grids
+                let turn = if kind == JobKind::Open {
+                    Ok(None)
+                } else {
+                    let r = crate::downloads::turn(&st, &cn).map(Some);
+                    if r.is_ok() && t0.elapsed().as_secs_f64() > 1.0 {
+                        log.line(&format!("waited {:.0} s in the line of downloads", t0.elapsed().as_secs_f64()));
+                    }
+                    r
+                };
                 // a download builds the VRTs first (a tenth of the job), then reads them whole
                 let split = if kind == JobKind::Open { 1.0 } else { 0.1 };
-                let r = stac_vrt::build(&spec, &|f, m| progress(f * split, m), &cn).and_then(|built| {
-                    log.line(&format!(
-                        "grid: {} x {} cells of {} in {}{}",
-                        built.grid.w,
-                        built.grid.h,
-                        built.grid.gt[1],
-                        if built.grid.crs.len() > 40 { "its WKT" } else { &built.grid.crs },
-                        if built.warped > 0 {
-                            format!(", {} items warped onto it", built.warped)
-                        } else {
-                            String::new()
-                        }
-                    ));
-                    let rest = |f: f64, m: &str| progress(split + (1.0 - split) * f, m);
-                    match (&comp, download) {
-                        (Some(c), _) => {
-                            let info = janus_cube::open_cube(&built.files, &janus_cube::BandSelection::default())?;
-                            let r = janus_zeit::composite::composite(&Arc::new(info), c, &out, &rest, &cn)?;
-                            log.line(&format!(
-                                "read {:.1} of the {:.1} million pixels every date's bands would need ({:.0}%){}",
-                                r.reads as f64 / 1e6,
-                                r.full_reads as f64 / 1e6,
-                                100.0 * r.reads as f64 / r.full_reads.max(1) as f64,
-                                if r.failed > 0 {
-                                    format!("; {} not read (left out)", r.failed)
-                                } else {
-                                    String::new()
+                let r = turn.and_then(|_turn| {
+                    stac_vrt::build(&spec, &|f, m| progress(f * split, m), &cn).and_then(|built| {
+                        log.line(&format!(
+                            "grid: {} x {} cells of {} in {}{}",
+                            built.grid.w,
+                            built.grid.h,
+                            built.grid.gt[1],
+                            if built.grid.crs.len() > 40 { "its WKT" } else { &built.grid.crs },
+                            if built.warped > 0 {
+                                format!(", {} items warped onto it", built.warped)
+                            } else {
+                                String::new()
+                            }
+                        ));
+                        let rest = |f: f64, m: &str| progress(split + (1.0 - split) * f, m);
+                        match (&comp, download) {
+                            (Some(c), _) => {
+                                let info = janus_cube::open_cube(&built.files, &janus_cube::BandSelection::default())?;
+                                let r = janus_zeit::composite::composite(&Arc::new(info), c, &out, &rest, &cn)?;
+                                log.line(&format!(
+                                    "read {:.1} of the {:.1} million pixels every date's bands would need ({:.0}%){}",
+                                    r.reads as f64 / 1e6,
+                                    r.full_reads as f64 / 1e6,
+                                    100.0 * r.reads as f64 / r.full_reads.max(1) as f64,
+                                    if r.failed > 0 {
+                                        format!("; {} not read (left out)", r.failed)
+                                    } else {
+                                        String::new()
+                                    }
+                                ));
+                                for f in &r.info_files {
+                                    log.line(&format!("info: {f}"));
                                 }
                                 Ok(r.files)
                             }

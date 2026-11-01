@@ -5,7 +5,7 @@
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use egui::{Ui, vec2};
 use egui_plot::{Line, Plot, PlotPoints, Polygon};
@@ -55,6 +55,8 @@ pub struct FieldsUi {
     pub status: String,
     /// the season last found (series id): its NDVI and windows, shown
     pub found: Option<(u64, fields::SeasonFound)>,
+    /// the season being found on its own thread (the series read: remote files must not stall the interface)
+    finding: Option<(u64, std::sync::mpsc::Receiver<Result<fields::SeasonFound, String>>)>,
     /// runs under way: their status and GeoPackage, opened when done
     pending: Vec<(Arc<Mutex<JobStatus>>, String)>,
 }
@@ -84,6 +86,7 @@ impl Default for FieldsUi {
             patch: 256,
             status: String::new(),
             found: None,
+            finding: None,
             pending: vec![],
         }
     }
@@ -464,16 +467,43 @@ impl State {
             season_plot(ui, &info, s);
         }
         let temporal = self.fields.choice().temporal();
-        ui.horizontal(|ui| {
-            if self.fields.auto && !temporal && ui.button("Find the season").clicked() {
-                let (window, _) = self.run_window(self.fields.scope);
-                match fields::find_season(&info, &bands, window, None, self.fields.half) {
-                    Ok(s) => {
-                        self.fields.status = season_text(&s, &info);
-                        self.fields.found = Some((info.id, s));
+        // the season found on its thread, once it is
+        if let Some((id, rx)) = &self.fields.finding {
+            match rx.try_recv() {
+                Ok(r) => {
+                    match r {
+                        Ok(s) if *id == info.id => {
+                            self.fields.status = season_text(&s, &info);
+                            self.fields.found = Some((info.id, s));
+                        }
+                        Ok(_) => {}
+                        Err(e) => self.fields.status = e,
                     }
-                    Err(e) => self.fields.status = e,
+                    self.fields.finding = None;
                 }
+                Err(std::sync::mpsc::TryRecvError::Empty) => ui.ctx().request_repaint_after(Duration::from_millis(100)),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.fields.finding = None,
+            }
+        }
+        ui.horizontal(|ui| {
+            let finding = self.fields.finding.is_some();
+            if self.fields.auto && !temporal && ui.add_enabled(!finding, egui::Button::new("Find the season")).clicked()
+            {
+                let (window, _) = self.run_window(self.fields.scope);
+                let (tx, rx) = std::sync::mpsc::channel();
+                let (inf, b, half, c) = (info.clone(), bands.clone(), self.fields.half, ui.ctx().clone());
+                std::thread::Builder::new()
+                    .name("find the season".into())
+                    .spawn(move || {
+                        let _ = tx.send(fields::find_season(&inf, &b, window, None, half));
+                        c.request_repaint();
+                    })
+                    .ok();
+                self.fields.finding = Some((info.id, rx));
+                self.fields.status = "finding the season (reading the series)...".into();
+            }
+            if finding {
+                ui.spinner();
             }
             if ui.add(egui::Button::new("▶ Run").min_size(vec2(110.0, 0.0))).clicked() {
                 let _ = self.fields_run(ui.ctx());
@@ -940,7 +970,8 @@ fn run(
             let weights = fieldnet::weights(
                 &crate::settings::app_data_dir().join("weights"),
                 ck,
-                &|f| progress(0.05 * f, &format!("downloading {} ({:.0} %)", ck.title, 100.0 * f)),
+                // bytes (the size is not known before)
+                &|b| progress(0.0, &format!("downloading {}: {:.0} MB", ck.title, b / 1e6)),
                 cancel,
             )?;
             log.line(&format!("device: {}, weights: {}", dev.1, weights.display()));

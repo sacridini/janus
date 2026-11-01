@@ -881,6 +881,9 @@ impl JanusApp {
         settings.minimap |= opts.minimap;
         theme::load_fonts(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx, settings.look(), settings.panel_opacity, settings.font_size);
+        // the line of downloads: how many transfer at once, the interface woken when it moves
+        crate::downloads::set_context(&cc.egui_ctx);
+        crate::downloads::set_at_once(settings.downloads_at_once);
         let no_save = opts.scripted() || opts.screenshot.is_some() || opts.measure_startup;
         let favorites = settings.favorites.clone();
         let render_state = cc.wgpu_render_state.clone().expect("Janus draws with wgpu");

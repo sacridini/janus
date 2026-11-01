@@ -219,7 +219,13 @@ impl State {
                     }
                     c.request_repaint();
                 };
-                let r = download(&spec, &progress, &cn);
+                // its turn in the line of downloads first (Settings: downloads at once), kept while it transfers
+                let r = crate::downloads::turn(&st, &cn).and_then(|_turn| {
+                    if t0.elapsed().as_secs_f64() > 1.0 {
+                        log.line(&format!("waited {:.0} s in the line of downloads", t0.elapsed().as_secs_f64()));
+                    }
+                    download(&spec, &progress, &cn)
+                });
                 let mut s = st.lock().unwrap();
                 s.seconds = t0.elapsed().as_secs_f64();
                 match r {
@@ -299,9 +305,13 @@ impl State {
                 o.name = name;
             }
         }
+        // a finished download waits while something else opens (it is opened after, never dropped unopened); a
+        // failed or cancelled one stays on the map 20 s
         self.emb_downloads.retain(|d| {
-            let running = d.status.lock().unwrap().state == JobState::Running;
-            running || d.ended.is_none_or(|t| !d.opened && t.elapsed().as_secs_f64() < 20.0)
+            let state = d.status.lock().unwrap().state;
+            state == JobState::Running
+                || (state == JobState::Done && !d.opened)
+                || d.ended.is_none_or(|t| !d.opened && t.elapsed().as_secs_f64() < 20.0)
         });
         if self.emb_downloads.iter().any(|d| d.status.lock().unwrap().state == JobState::Running) {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
@@ -311,12 +321,19 @@ impl State {
     /// The downloads' progress, top right of the map.
     pub(crate) fn draw_download_notes(&self, painter: &egui::Painter, rect: Rect, y0: f32) {
         let mut y = y0;
-        let bw = 300.0;
+        // as wide and tall as the font asks
+        let bw = 300.0 * crate::fit::scale_of(painter.ctx());
         let font = body_font(painter);
+        let h = font.size + 5.0;
         for d in &self.emb_downloads {
+            // waiting its turn (read before its status is locked: the line locks it)
+            let waiting = crate::downloads::place(&d.status).is_some();
             let s = d.status.lock().unwrap();
             let el = d.started.elapsed().as_secs_f64();
             let (frac, text, col) = match s.state {
+                JobState::Running if waiting => {
+                    (0.0, format!("{}: {}", d.title, s.message), Color32::from_rgba_unmultiplied(120, 120, 120, 230))
+                }
                 JobState::Running => (
                     s.progress as f32,
                     format!("{}: {} ({el:.0} s)", d.title, if s.message.is_empty() { "starting" } else { &s.message }),
@@ -333,9 +350,9 @@ impl State {
                 _ => continue,
             };
             let p0 = Pos2::new(rect.right() - bw - 10.0, rect.top() + y);
-            let r = Rect::from_min_size(p0, vec2(bw, 18.0));
+            let r = Rect::from_min_size(p0, vec2(bw, h));
             painter.rect_filled(r, 3.0, Color32::from_black_alpha(170));
-            painter.rect_filled(Rect::from_min_size(p0, vec2(bw * frac.clamp(0.0, 1.0), 18.0)), 3.0, col);
+            painter.rect_filled(Rect::from_min_size(p0, vec2(bw * frac.clamp(0.0, 1.0), h)), 3.0, col);
             painter.with_clip_rect(r).text(
                 p0 + vec2(6.0, 2.0),
                 egui::Align2::LEFT_TOP,
@@ -343,7 +360,7 @@ impl State {
                 font.clone(),
                 Color32::WHITE,
             );
-            y += 24.0;
+            y += h + 6.0;
         }
     }
 
