@@ -1431,7 +1431,11 @@ olhar os folds no mapa.
   (`crates/janus-ml/src/train.rs`, `split`) sorteia *pixels* por classe; os
   pixels de um mesmo polígono caem no treino e na validação, e a acurácia de
   validação (e a parada antecipada) sai otimista. Correção mínima, sem nada
-  novo: separar por lugar (polígono, pino), como a AOA já faz. Depois: blocos
+  novo: separar por lugar (polígono, pino), como a AOA já faz. **Feito
+  (2026-11-01, sem versão)**: `train::split_by_place` (o do Random Forest,
+  movido para `train.rs`) nas redes de pixel (TempCNN, L-TAE, Presto); o modelo
+  guarda `samples.split` ("places", "samples", "patches" no U-TAE) e a janela o
+  diz ao lado da acurácia. Depois: blocos
   espaciais e kNNDM como opção ("Validation: random | places | spatial blocks |
   kNNDM").
 - O tamanho do bloco pelo alcance da autocorrelação: o Zeit já ajusta

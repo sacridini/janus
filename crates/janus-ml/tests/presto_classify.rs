@@ -89,7 +89,7 @@ fn presto_classifies_and_embeds() {
     let calendar = Calendar::of(&info);
     let cfg = TrainConfig::for_arch(&arch);
     let t0 = std::time::Instant::now();
-    let trained = train(&x, &y, 3, &arch, &calendar, &cfg, &dev, &mut |_| {}, &AtomicBool::new(false)).unwrap();
+    let trained = train(&x, &y, None, 3, &arch, &calendar, &cfg, &dev, &mut |_| {}, &AtomicBool::new(false)).unwrap();
     let (oa, _, _) = trained.accuracies();
     println!(
         "Presto head on {name}: {} epochs in {:.1} s, validation accuracy {oa:.3}",

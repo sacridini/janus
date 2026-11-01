@@ -61,7 +61,12 @@ fn make_cube(dir: &std::path::Path) {
     }
 }
 
+/// One training at a time: the backend's random generator is seeded once a training (`device.seed`) and shared, so
+/// trainings side by side draw from each other's and stop at other epochs from run to run.
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn run(arch: Arch, epochs: usize, tag: &str) {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("janus-ml-test-{tag}"));
     make_cube(&dir);
     let info = Arc::new(open_cube(&[dir.to_string_lossy().into_owned()], &BandSelection::default()).unwrap());
@@ -110,7 +115,11 @@ fn run(arch: Arch, epochs: usize, tag: &str) {
         let training = f.summary(h, cfg.validation_split, cfg.seed, &[0, 0, 0]);
         (Net::forest(f.forest), training, Some(f.importance))
     } else {
-        let trained = train(&s, &y, 3, &arch, &calendar, &cfg, &dev, &mut show, &AtomicBool::new(false)).unwrap();
+        // places of 5 samples each (a polygon's pixels): the validation holds whole places out
+        let places: Vec<usize> = (0..y.len()).map(|i| i / 5).collect();
+        let trained =
+            train(&s, &y, Some(&places), 3, &arch, &calendar, &cfg, &dev, &mut show, &AtomicBool::new(false)).unwrap();
+        assert_eq!(trained.split, "places");
         let (oa, _, _) = trained.accuracies();
         println!(
             "{tag} on {name}: {} epochs in {:.1} s, best {}, validation accuracy {oa:.3} ({} samples)",

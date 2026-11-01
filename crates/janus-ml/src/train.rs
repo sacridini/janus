@@ -110,6 +110,8 @@ pub struct Trained {
     pub stopped_early: bool,
     /// the batch size used (smaller than asked for few samples: see `train`)
     pub batch_size: usize,
+    /// the validation split: "places" (a polygon's or a pin's samples on one side), "samples" or "patches" (U-TAE's)
+    pub split: &'static str,
 }
 
 impl Trained {
@@ -123,7 +125,7 @@ impl Trained {
         let (oa, ua, pa) = self.accuracies();
         json!({
             "config": cfg,
-            "samples": { "per_class": per_class, "train": self.n_train, "validation": self.n_val },
+            "samples": { "per_class": per_class, "train": self.n_train, "validation": self.n_val, "split": self.split },
             "batch_size": self.batch_size,
             "history": self.history,
             "best_epoch": self.best_epoch,
@@ -188,6 +190,50 @@ pub fn split(labels: &[u32], classes: usize, share: f64, seed: u64) -> (Vec<usiz
     (train, val)
 }
 
+/// The samples split for the validation, by place: a place's samples (a polygon's pixels, a pin) all on one side, so
+/// the validation meets places the model never saw (`share` of each class's samples, about, in whole places; a
+/// class of one place only for the training). Without places (or one place a sample), by sample. Returns the
+/// training and validation indices, and how ("places" or "samples").
+pub fn split_by_place(
+    y: &[u32],
+    places: Option<&[usize]>,
+    k: usize,
+    share: f64,
+    seed: u64,
+) -> (Vec<usize>, Vec<usize>, &'static str) {
+    let Some(pl) = places.filter(|pl| {
+        let distinct: std::collections::BTreeSet<_> = pl.iter().collect();
+        distinct.len() < pl.len()
+    }) else {
+        let (a, b) = split(y, k, share, seed);
+        return (a, b, "samples");
+    };
+    let mut rng = Rng::new(seed);
+    let (mut train, mut val) = (vec![], vec![]);
+    for c in 0..k as u32 {
+        let idx: Vec<usize> = (0..y.len()).filter(|&i| y[i] == c).collect();
+        let mut of: Vec<usize> =
+            idx.iter().map(|&i| pl[i]).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+        rng.shuffle(&mut of);
+        let want = (idx.len() as f64 * share).round() as usize;
+        let mut chosen = std::collections::BTreeSet::new();
+        let mut n_val = 0;
+        for &place in of.iter().take(of.len().saturating_sub(1)) {
+            if n_val >= want.max(1) {
+                break;
+            }
+            chosen.insert(place);
+            n_val += idx.iter().filter(|&&i| pl[i] == place).count();
+        }
+        for i in idx {
+            if chosen.contains(&pl[i]) { val.push(i) } else { train.push(i) }
+        }
+    }
+    train.sort_unstable();
+    val.sort_unstable();
+    (train, val, "places")
+}
+
 /// The loss and the accuracy of a network on samples (in batches, validation mode), and their confusion.
 #[allow(clippy::too_many_arguments)]
 fn evaluate(
@@ -226,12 +272,14 @@ fn evaluate(
     (loss_sum / idx.len() as f64, right as f64 / idx.len() as f64, confusion)
 }
 
-/// Trains a network of `arch` on scaled series `x` (gaps filled) and their classes `y` (0..classes).
+/// Trains a network of `arch` on scaled series `x` (gaps filled) and their classes `y` (0..classes), each sample's
+/// place in `places` (a polygon, a pin: the validation holds out whole places, `split_by_place`; None: samples).
 /// `on_epoch` follows the training; `cancel` stops it between batches (an error "cancelled").
 #[allow(clippy::too_many_arguments)]
 pub fn train(
     x: &Series,
     y: &[u32],
+    places: Option<&[usize]>,
     classes: usize,
     arch: &Arch,
     calendar: &Calendar,
@@ -249,7 +297,7 @@ pub fn train(
     if matches!(arch, Arch::Utae(_)) {
         return Err("U-TAE trains on patches: dense::train_utae".into());
     }
-    let (train_idx, val_idx) = split(y, classes, cfg.validation_split, cfg.seed);
+    let (train_idx, val_idx, split) = split_by_place(y, places, classes, cfg.validation_split, cfg.seed);
     if train_idx.len() < 2 {
         return Err("too few samples to train on".into());
     }
@@ -359,5 +407,6 @@ pub fn train(
         n_val: val_idx.len(),
         stopped_early,
         batch_size,
+        split,
     })
 }

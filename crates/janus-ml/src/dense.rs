@@ -368,6 +368,7 @@ pub fn train_utae(
         n_val: val_idx.len(),
         stopped_early,
         batch_size: batch,
+        split: "patches",
     })
 }
 

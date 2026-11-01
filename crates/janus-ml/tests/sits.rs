@@ -91,9 +91,19 @@ fn compare(name: &str) {
         for &seed in &seeds {
             let cfg = TrainConfig { seed, ..TrainConfig::for_arch(&arch) };
             let t0 = std::time::Instant::now();
-            let tr =
-                train(&xtr, &ytr, set.classes, &arch, &set.calendar, &cfg, &dev, &mut |_| {}, &AtomicBool::new(false))
-                    .unwrap();
+            let tr = train(
+                &xtr,
+                &ytr,
+                None,
+                set.classes,
+                &arch,
+                &set.calendar,
+                &cfg,
+                &dev,
+                &mut |_| {},
+                &AtomicBool::new(false),
+            )
+            .unwrap();
             let a = accuracy(&tr.net, &xte, &yte, &dev);
             println!(
                 "{name} {key} seed {seed} on {dev_name}: {} epochs, test accuracy {a:.4} ({:.0} s)",

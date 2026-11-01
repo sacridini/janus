@@ -1158,8 +1158,7 @@ impl State {
         }
         if r.forest {
             let oob = h.training["oob"]["overall_accuracy"].as_f64().unwrap_or(f64::NAN);
-            let by =
-                if h.training["samples"]["split"] == "places" { "whole places held out" } else { "samples held out" };
+            let by = held_out(h.training["samples"]["split"].as_str().unwrap_or("samples"));
             ui.label(format!(
                 "Validation: overall accuracy {:.1} % on {} samples ({by}); out of bag {:.1} %",
                 v["overall_accuracy"].as_f64().unwrap_or(f64::NAN) * 100.0,
@@ -1167,8 +1166,10 @@ impl State {
                 oob * 100.0
             ));
         } else {
+            // models trained before the split by place have no "split": their validation drew samples
+            let by = held_out(h.training["samples"]["split"].as_str().unwrap_or("samples"));
             ui.label(format!(
-                "Validation: overall accuracy {:.1} % on {} samples (the model of epoch {})",
+                "Validation: overall accuracy {:.1} % on {} samples ({by}; the model of epoch {})",
                 v["overall_accuracy"].as_f64().unwrap_or(f64::NAN) * 100.0,
                 h.training["samples"]["validation"],
                 h.training["best_epoch"]
@@ -1709,7 +1710,7 @@ pub(crate) fn train_job(
     let (x, y, norm, per_class, places) = if let Arch::Presto(h) = &mut arch {
         set(0.0, "Presto's weights");
         let weights = janus_ml::presto::weights(&crate::settings::app_data_dir().join("weights"), &|_| {}, cancel)?;
-        let (x, y, per_class, pi) = presto_samples(info, sites, classes, h.inputs.year)?;
+        let (x, y, per_class, place, pi) = presto_samples(info, sites, classes, h.inputs.year)?;
         log.line(&format!(
             "Presto's inputs: {}; reflectance x {}{}",
             pi.read_bands().iter().map(|b| b.name.clone()).collect::<Vec<_>>().join(", "),
@@ -1718,7 +1719,8 @@ pub(crate) fn train_job(
         ));
         inputs = pi.read_bands();
         *h = PrestoHyper { inputs: pi, hidden: vec![], weights: Some(weights) };
-        (x, y, Norm::default(), per_class, None)
+        // its places for the validation (no area of applicability: below)
+        (x, y, Norm::default(), per_class, Some(place))
     } else {
         let extra = if let Arch::RandomForest(f) = &arch { f.extra.clone() } else { vec![] };
         if !extra.is_empty() {
@@ -1779,19 +1781,32 @@ pub(crate) fn train_job(
             &format!("epoch {}: validation accuracy {:.1} %", e.epoch, e.val_acc * 100.0),
         );
     };
-    let trained = janus_ml::train::train(&x, &y, classes.len(), arch, &calendar, cfg, &dev.0, &mut on_epoch, cancel)?;
+    let trained = janus_ml::train::train(
+        &x,
+        &y,
+        places.as_deref(),
+        classes.len(),
+        arch,
+        &calendar,
+        cfg,
+        &dev.0,
+        &mut on_epoch,
+        cancel,
+    )?;
     let (oa, _, _) = trained.accuracies();
     log.line(&format!(
-        "best epoch {} of {}{}; validation overall accuracy {:.4}",
+        "best epoch {} of {}{}; validation overall accuracy {:.4} on {} samples ({})",
         trained.best_epoch,
         trained.history.len(),
         if trained.stopped_early { " (stopped early)" } else { "" },
-        oa
+        oa,
+        trained.n_val,
+        held_out(trained.split)
     ));
     let mut training = trained.summary(cfg, &per_class);
     training["device"] = json!(dev.1);
     // the samples kept for the area of applicability (the pixel networks: Presto's inputs are its encoder's)
-    let applicability = match places {
+    let applicability = match places.filter(|_| !matches!(arch, Arch::Presto(_))) {
         Some(places) => match janus_ml::aoa::Applicability::fit(&x, Some(&places), &y, -1) {
             Ok(a) => {
                 log.line(&format!("area of applicability: {}", a.describe()));
@@ -1823,6 +1838,15 @@ pub(crate) fn train_job(
     model.save(model_path)?;
     log.line(&format!("model: {model_path}"));
     Ok(header)
+}
+
+/// How a training's validation was held out (its summary's "split"; samples in models made before it was kept).
+fn held_out(split: &str) -> &'static str {
+    match split {
+        "places" => "whole places held out",
+        "patches" => "whole patches held out",
+        _ => "samples held out",
+    }
 }
 
 /// The samples as the forest reads them: the series, their classes, the scaling, the count of each class and each
@@ -1965,19 +1989,20 @@ fn importance_ui(ui: &mut Ui, h: &Header) {
     }
 }
 
+/// The samples' raw values (a place's mean, or each of its pixels), their classes, their pixels and their places.
+type RawSamples = (janus_ml::Series, Vec<u32>, Vec<(f64, f64)>, Vec<usize>);
+
+/// Presto's samples: its inputs, their classes, the count of each class, their places and the inputs found.
+type PrestoSamples = (janus_ml::Series, Vec<u32>, Vec<usize>, Vec<usize>, PrestoInputs);
+
 /// Each sample's raw series (each pixel, or a place's mean), its class and a pixel of it (for its place).
-fn raw_samples(
-    info: &Arc<CubeInfo>,
-    read: &[InputBand],
-    sites: &[Site],
-    classes: &[String],
-) -> (janus_ml::Series, Vec<u32>, Vec<(f64, f64)>) {
+fn raw_samples(info: &Arc<CubeInfo>, read: &[InputBand], sites: &[Site], classes: &[String]) -> RawSamples {
     let pixels: Vec<(usize, usize)> = sites.iter().flat_map(|s| s.pixels.iter().copied()).collect();
     let raw = janus_ml::data::read_points(info, read, &pixels);
     let (t, b) = (raw.t, raw.b);
-    let (mut values, mut y, mut at_px) = (vec![], vec![], vec![]);
+    let (mut values, mut y, mut at_px, mut place) = (vec![], vec![], vec![], vec![]);
     let mut at = 0;
-    for s in sites {
+    for (site, s) in sites.iter().enumerate() {
         let k = classes.iter().position(|c| c == &s.class).unwrap_or(0) as u32;
         let n = s.pixels.len();
         if s.mean {
@@ -1995,14 +2020,16 @@ fn raw_samples(
             }
             y.push(k);
             at_px.push((s.pixels[0].0 as f64, s.pixels[0].1 as f64));
+            place.push(site);
         } else {
             values.extend_from_slice(&raw.values[at * t * b..(at + n) * t * b]);
             y.extend(std::iter::repeat_n(k, n));
             at_px.extend(s.pixels.iter().map(|&(x, y)| (x as f64, y as f64)));
+            place.extend(std::iter::repeat_n(site, n));
         }
         at += n;
     }
-    (janus_ml::Series { n: y.len(), t, b, values }, y, at_px)
+    (janus_ml::Series { n: y.len(), t, b, values }, y, at_px, place)
 }
 
 /// Each band's 2 % and 98 % quantiles in raw values (1-based bands of `read`), by band number.
@@ -2027,20 +2054,21 @@ fn presto_samples(
     sites: &[Site],
     classes: &[String],
     year: Option<i32>,
-) -> Result<(janus_ml::Series, Vec<u32>, Vec<usize>, PrestoInputs), String> {
+) -> Result<PrestoSamples, String> {
     let first = PrestoInputs::of(info, &vec![(0.0, 1.0); info.bands_per_date.max(1)], year)?;
     let read = first.read_bands();
-    let (raw, y, pixels) = raw_samples(info, &read, sites, classes);
+    let (raw, y, pixels, place) = raw_samples(info, &read, sites, classes);
     let pi = PrestoInputs::of(info, &band_ranges(info, &read, &raw), year)?;
     let (x, keep) = janus_ml::presto::classifier_input(info, &pi, &raw, &pixels)?;
     let idx: Vec<usize> = (0..x.n).filter(|&i| keep[i]).collect();
     let x = x.select(&idx);
     let y: Vec<u32> = idx.iter().map(|&i| y[i]).collect();
+    let place: Vec<usize> = idx.iter().map(|&i| place[i]).collect();
     let mut per_class = vec![0usize; classes.len()];
     for &k in &y {
         per_class[k as usize] += 1;
     }
-    Ok((x, y, per_class, pi))
+    Ok((x, y, per_class, place, pi))
 }
 
 impl State {

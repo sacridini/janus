@@ -13,6 +13,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::data::Series;
+pub use crate::train::split_by_place;
 use crate::train::{Epoch, Rng, accuracies};
 
 /// The forest's settings (ranger's and scikit-learn's defaults for classification).
@@ -540,50 +541,6 @@ pub fn cross_predict(
         importance.iter_mut().for_each(|v| *v /= grown as f64);
     }
     Ok(CrossPredicted { probs, importance, folds })
-}
-
-/// The samples split for the validation, by place: a place's samples (a polygon's pixels, a pin) all on one side, so
-/// the validation meets places the forest never saw (`share` of each class's samples, about, in whole places; a
-/// class of one place only for the training). Without places (or one place a sample), by sample. Returns the
-/// training and validation indices, and how ("places" or "samples").
-pub fn split_by_place(
-    y: &[u32],
-    places: Option<&[usize]>,
-    k: usize,
-    share: f64,
-    seed: u64,
-) -> (Vec<usize>, Vec<usize>, &'static str) {
-    let Some(pl) = places.filter(|pl| {
-        let distinct: std::collections::BTreeSet<_> = pl.iter().collect();
-        distinct.len() < pl.len()
-    }) else {
-        let (a, b) = crate::train::split(y, k, share, seed);
-        return (a, b, "samples");
-    };
-    let mut rng = Rng::new(seed);
-    let (mut train, mut val) = (vec![], vec![]);
-    for c in 0..k as u32 {
-        let idx: Vec<usize> = (0..y.len()).filter(|&i| y[i] == c).collect();
-        let mut of: Vec<usize> =
-            idx.iter().map(|&i| pl[i]).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
-        rng.shuffle(&mut of);
-        let want = (idx.len() as f64 * share).round() as usize;
-        let mut chosen = std::collections::BTreeSet::new();
-        let mut n_val = 0;
-        for &place in of.iter().take(of.len().saturating_sub(1)) {
-            if n_val >= want.max(1) {
-                break;
-            }
-            chosen.insert(place);
-            n_val += idx.iter().filter(|&&i| pl[i] == place).count();
-        }
-        for i in idx {
-            if chosen.contains(&pl[i]) { val.push(i) } else { train.push(i) }
-        }
-    }
-    train.sort_unstable();
-    val.sort_unstable();
-    (train, val, "places")
 }
 
 #[cfg(test)]
