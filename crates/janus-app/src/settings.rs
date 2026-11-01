@@ -514,7 +514,10 @@ impl State {
         }
         if st.s.font_size != theme::DEFAULT_FONT_SIZE
             && ui
-                .add_sized([w, 20.0], egui::Button::new(format!("Default font size ({} px)", theme::DEFAULT_FONT_SIZE)))
+                .add_sized(
+                    [w, crate::fit::button_height(ui)],
+                    egui::Button::new(format!("Default font size ({} px)", theme::DEFAULT_FONT_SIZE)),
+                )
                 .clicked()
         {
             st.s.font_size = theme::DEFAULT_FONT_SIZE;
@@ -564,7 +567,12 @@ impl State {
         let def = janus_session::default_processing_threads();
         if st.s.threads > 0
             && st.s.threads != def
-            && ui.add_sized([w, 20.0], egui::Button::new(format!("Default ({def}: every core but 2)"))).clicked()
+            && ui
+                .add_sized(
+                    [w, crate::fit::button_height(ui)],
+                    egui::Button::new(format!("Default ({def}: every core but 2)")),
+                )
+                .clicked()
         {
             st.s.threads = 0;
             threads_changed = true;
@@ -599,7 +607,7 @@ impl State {
         let mut reopen = false;
         if st.budget_ui != st.s.overview_budget_mb {
             let label = if self.session.is_some() { "Apply (reopens the active layer)" } else { "Apply" };
-            if ui.add_sized([w, 20.0], egui::Button::new(label)).clicked() {
+            if ui.add_sized([w, crate::fit::button_height(ui)], egui::Button::new(label)).clicked() {
                 st.s.overview_budget_mb = st.budget_ui;
                 self.opts.budget_mb = 0; // the --budget of this run gives way to the setting
                 changed = true;
@@ -671,7 +679,7 @@ impl State {
         ))
         .on_hover_text(dir.to_string_lossy());
         if ui
-            .add_sized([w, 20.0], egui::Button::new("Clear overview cache"))
+            .add_sized([w, crate::fit::button_height(ui)], egui::Button::new("Clear overview cache"))
             .on_hover_text(format!("{:.1} GB in {} (the open series' are kept)", b.overview as f64 / gb, dir.display()))
             .clicked()
         {
@@ -701,7 +709,7 @@ impl State {
                  millisecond. On an HDD the\nfirst build shares the overview's read of the files.",
             );
         if ui
-            .add_sized([w, 20.0], egui::Button::new("Clear full-resolution cache"))
+            .add_sized([w, crate::fit::button_height(ui)], egui::Button::new("Clear full-resolution cache"))
             .on_hover_text(format!("{:.1} GB in {} (series open now are kept)", b.full_res as f64 / gb, dir.display()))
             .clicked()
         {
@@ -774,7 +782,7 @@ impl State {
                     });
                 }
                 if ui
-                    .add_sized([w, 20.0], egui::Button::new("Build it now"))
+                    .add_sized([w, crate::fit::button_height(ui)], egui::Button::new("Build it now"))
                     .on_hover_text(format!(
                         "Copies the series at full resolution to the cache folder (about {:.1} GB),\nin the background: \
                          exact series, ROI and detail tiles are then read\nfrom there in about a millisecond, even \
@@ -809,7 +817,9 @@ impl State {
                         ui.weak("Building in the background; cached dates are used already");
                     }
                     // also after a stop for room: resumes if the dates fit now
-                    if !c.building() && !c.read_only() && ui.add_sized([w, 20.0], egui::Button::new("Resume")).clicked()
+                    if !c.building()
+                        && !c.read_only()
+                        && ui.add_sized([w, crate::fit::button_height(ui)], egui::Button::new("Resume")).clicked()
                     {
                         s.s.build_full_res();
                     }
@@ -875,7 +885,8 @@ fn clear_overview_cache(dir: &Path) {
 fn modern_themes(ui: &mut Ui, w: f32, chosen: &mut usize) -> bool {
     let n = theme::MODERN_NAMES.len();
     let gap = ui.spacing().item_spacing.x;
-    let size = egui::vec2((w - gap * (n - 1) as f32) / n as f32, 34.0);
+    let size = egui::vec2((w - gap * (n - 1) as f32) / n as f32, crate::fit::scaled(ui, 34.0));
+    let font = egui::FontId::proportional(crate::fit::scaled(ui, 11.5));
     let mut changed = false;
     ui.horizontal(|ui| {
         for (i, name) in theme::MODERN_NAMES.iter().enumerate() {
@@ -888,13 +899,7 @@ fn modern_themes(ui: &mut Ui, w: f32, chosen: &mut usize) -> bool {
                 egui::CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 },
                 bar,
             );
-            p.text(
-                rect.center() + egui::vec2(0.0, 3.0),
-                egui::Align2::CENTER_CENTER,
-                *name,
-                egui::FontId::proportional(11.5),
-                text,
-            );
+            p.text(rect.center() + egui::vec2(0.0, 3.0), egui::Align2::CENTER_CENTER, *name, font.clone(), text);
             let stroke = if *chosen == i {
                 egui::Stroke::new(2.0, ui.visuals().selection.bg_fill)
             } else if resp.hovered() {

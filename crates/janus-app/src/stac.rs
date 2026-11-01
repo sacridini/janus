@@ -560,15 +560,12 @@ impl State {
                                 } else {
                                     String::new()
                                 }
-                            ));
-                            for f in &r.info_files {
-                                log.line(&format!("info: {f}"));
+                                Ok(r.files)
                             }
-                            Ok(r.files)
+                            (None, true) => stac_vrt::download(&built.files, &out, &rest, &cn),
+                            (None, false) => Ok(built.files),
                         }
-                        (None, true) => stac_vrt::download(&built.files, &out, &rest, &cn),
-                        (None, false) => Ok(built.files),
-                    }
+                    })
                 });
                 let mut s = st.lock().unwrap();
                 s.seconds = t0.elapsed().as_secs_f64();
@@ -668,10 +665,14 @@ impl State {
         if method == Method::Bap {
             ui.horizontal(|ui| {
                 ui.label("Target day");
-                ui.add(egui::TextEdit::singleline(&mut c.target).hint_text(auto.clone()).desired_width(50.0))
-                    .on_hover_text(format!(
-                        "MM-DD: the day of the year the composite aims at (empty: {auto}, the middle of the dates)"
-                    ));
+                ui.add(
+                    egui::TextEdit::singleline(&mut c.target)
+                        .hint_text(auto.clone())
+                        .desired_width(crate::fit::text_width(ui, "00-00", egui::TextStyle::Body) + 8.0),
+                )
+                .on_hover_text(format!(
+                    "MM-DD: the day of the year the composite aims at (empty: {auto}, the middle of the dates)"
+                ));
                 ui.label("+-");
                 ui.add(egui::DragValue::new(&mut c.sigma).range(3.0..=180.0).speed(1.0).suffix(" days"))
                     .on_hover_text("Days from the target at which the day's score falls to 0.61 (a Gaussian)");
@@ -850,9 +851,12 @@ impl State {
         let url = s.url();
         ui.horizontal(|ui| {
             let shown = s.preset().map_or(s.collection.clone(), |p| p.name.to_string());
-            egui::ComboBox::from_id_salt("stac collection").width((w - 90.0).max(120.0)).selected_text(shown).show_ui(
-                ui,
-                |ui| {
+            // the button's room at the font size ("Listing..." its longest text)
+            let button = crate::fit::button_width(ui, "Listing...") + 2.0 * ui.spacing().item_spacing.x;
+            egui::ComboBox::from_id_salt("stac collection")
+                .width((w - button).max(120.0))
+                .selected_text(shown)
+                .show_ui(ui, |ui| {
                     if let Some(c) = CATALOGS.get(s.catalog) {
                         for p in c.collections {
                             ui.selectable_value(&mut s.collection, p.id.to_string(), p.name).on_hover_text(p.help);
@@ -873,8 +877,7 @@ impl State {
                             ui.weak("List all to see the catalog's other collections");
                         }
                     }
-                },
-            );
+                });
             let listing = s.listing.is_some();
             if ui
                 .add_enabled(
@@ -927,9 +930,11 @@ impl State {
         }
         ui.horizontal(|ui| {
             ui.label("From");
-            ui.add(egui::TextEdit::singleline(&mut s.start).desired_width(90.0));
+            // as wide as a date at the font size
+            let date_w = crate::fit::text_width(ui, "0000-00-00", egui::TextStyle::Body) + 8.0;
+            ui.add(egui::TextEdit::singleline(&mut s.start).desired_width(date_w));
             ui.label("to");
-            ui.add(egui::TextEdit::singleline(&mut s.end).desired_width(90.0)).on_hover_text("YYYY-MM-DD, inclusive");
+            ui.add(egui::TextEdit::singleline(&mut s.end).desired_width(date_w)).on_hover_text("YYYY-MM-DD, inclusive");
         });
         if stac::has_clouds(&s.collection) {
             ui.add(

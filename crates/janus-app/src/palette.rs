@@ -464,7 +464,29 @@ impl State {
                                         ui.horizontal(|ui| {
                                             ui.set_min_height(row_h);
                                             ui.set_width(ui.available_width());
-                                            ui.add(egui::Label::new(RichText::new(&c.label).color(text)).truncate());
+                                            // the name cut short where the category and the keys on the right
+                                            // begin, never under them
+                                            let gap = ui.spacing().item_spacing.x;
+                                            let keys = if c.keys.is_empty() {
+                                                0.0
+                                            } else {
+                                                crate::fit::text_width(ui, c.keys, egui::TextStyle::Monospace) + gap
+                                            };
+                                            let right = crate::fit::text_width(ui, &c.category, egui::TextStyle::Small)
+                                                + keys
+                                                + 2.0 * gap;
+                                            let name_w = (ui.available_width() - right).max(40.0);
+                                            ui.allocate_ui_with_layout(
+                                                egui::vec2(name_w, row_h),
+                                                Layout::left_to_right(Align::Center),
+                                                |ui| {
+                                                    ui.set_max_width(name_w);
+                                                    ui.add(
+                                                        egui::Label::new(RichText::new(&c.label).color(text))
+                                                            .truncate(),
+                                                    );
+                                                },
+                                            );
                                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                                 if !c.keys.is_empty() {
                                                     ui.label(RichText::new(c.keys).monospace().weak());

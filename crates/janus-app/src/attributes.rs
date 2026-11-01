@@ -347,7 +347,7 @@ impl State {
         ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt("attribute table layer")
                 .selected_text(&self.vectors[li].name)
-                .width(220.0)
+                .width(crate::fit::scaled(ui, 220.0))
                 .show_ui(ui, |ui| {
                     for v in &self.vectors {
                         if ui.selectable_value(&mut at.layer, v.id, &v.name).changed() {
@@ -386,7 +386,11 @@ impl State {
         }
         let v = &self.vectors[li];
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut at.filter).hint_text("Filter (any field)").desired_width(220.0));
+            ui.add(
+                egui::TextEdit::singleline(&mut at.filter)
+                    .hint_text("Filter (any field)")
+                    .desired_width(crate::fit::scaled(ui, 220.0)),
+            );
             if !at.filter.is_empty() && ui.small_button("x").on_hover_text("Clear the filter").clicked() {
                 at.filter.clear();
             }

@@ -133,7 +133,11 @@ impl State {
             });
             ui.end_row();
             ui.label("Name");
-            ui.add(egui::TextEdit::singleline(&mut r.name).hint_text(format!("{layer} filtered")).desired_width(220.0));
+            ui.add(
+                egui::TextEdit::singleline(&mut r.name)
+                    .hint_text(format!("{layer} filtered"))
+                    .desired_width(crate::fit::scaled(ui, 220.0)),
+            );
             ui.end_row();
         });
         let quegan = self.speckle.filter == 0;

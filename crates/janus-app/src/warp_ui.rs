@@ -143,12 +143,15 @@ impl State {
                 .source
                 .and_then(|id| maps.iter().find(|m| m.0 == id))
                 .map_or(format!("{series} ({} files)", files_of(&info).len()), |m| m.1.clone());
-            egui::ComboBox::from_id_salt("warp source").selected_text(shown).width(260.0).show_ui(ui, |ui| {
-                ui.selectable_value(&mut w.source, None, format!("{series} ({} files)", files_of(&info).len()));
-                for (id, n) in &maps {
-                    ui.selectable_value(&mut w.source, Some(*id), n);
-                }
-            });
+            egui::ComboBox::from_id_salt("warp source")
+                .selected_text(shown)
+                .width(crate::fit::scaled(ui, 260.0))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut w.source, None, format!("{series} ({} files)", files_of(&info).len()));
+                    for (id, n) in &maps {
+                        ui.selectable_value(&mut w.source, Some(*id), n);
+                    }
+                });
             ui.end_row();
             ui.label("To");
             ui.vertical(|ui| {
@@ -159,22 +162,26 @@ impl State {
                 });
                 match w.target {
                     1 => {
-                        ui.add(egui::TextEdit::singleline(&mut w.srs).hint_text("EPSG:4326").desired_width(220.0))
-                            .on_hover_text("Any CRS GDAL reads: EPSG:31983, ESRI:102033, a PROJ string, a WKT");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut w.srs)
+                                .hint_text("EPSG:4326")
+                                .desired_width(crate::fit::scaled(ui, 220.0)),
+                        )
+                        .on_hover_text("Any CRS GDAL reads: EPSG:31983, ESRI:102033, a PROJ string, a WKT");
                     }
                     2 | 3 => {
                         let shown = w
                             .layer
                             .and_then(|s| layers.iter().find(|l| l.0 == s))
                             .map_or("choose a layer".into(), |l| l.1.clone());
-                        egui::ComboBox::from_id_salt("warp layer").selected_text(shown).width(240.0).show_ui(
-                            ui,
-                            |ui| {
+                        egui::ComboBox::from_id_salt("warp layer")
+                            .selected_text(shown)
+                            .width(crate::fit::scaled(ui, 240.0))
+                            .show_ui(ui, |ui| {
                                 for (s, n) in &layers {
                                     ui.selectable_value(&mut w.layer, Some(*s), n);
                                 }
-                            },
-                        );
+                            });
                         if w.target == 3 {
                             ui.weak("its CRS, origin, pixel size and extent: the maps aligned pixel to pixel");
                         }
@@ -223,11 +230,14 @@ impl State {
                         .vector
                         .and_then(|id| vectors.iter().find(|v| v.0 == id))
                         .map_or("choose one".into(), |v| v.1.clone());
-                    egui::ComboBox::from_id_salt("warp vector").selected_text(shown).width(240.0).show_ui(ui, |ui| {
-                        for (id, n) in &vectors {
-                            ui.selectable_value(&mut w.vector, Some(*id), n);
-                        }
-                    });
+                    egui::ComboBox::from_id_salt("warp vector")
+                        .selected_text(shown)
+                        .width(crate::fit::scaled(ui, 240.0))
+                        .show_ui(ui, |ui| {
+                            for (id, n) in &vectors {
+                                ui.selectable_value(&mut w.vector, Some(*id), n);
+                            }
+                        });
                     ui.weak("the pixels outside its polygons without a value, the result cropped to them");
                 }
                 if w.target == 3 && (w.area == 1 || w.area == 2) {
@@ -259,7 +269,11 @@ impl State {
             });
             ui.end_row();
             ui.label("Name");
-            ui.add(egui::TextEdit::singleline(&mut w.name).hint_text(format!("{series} warped")).desired_width(220.0));
+            ui.add(
+                egui::TextEdit::singleline(&mut w.name)
+                    .hint_text(format!("{series} warped"))
+                    .desired_width(crate::fit::scaled(ui, 220.0)),
+            );
             ui.end_row();
         });
         match self.warp_options() {

@@ -31,6 +31,7 @@ mod export_map;
 mod exports;
 mod fields_ui;
 mod files;
+mod fit;
 mod gif;
 mod golden;
 mod groups;
@@ -38,6 +39,7 @@ mod histogram;
 mod inbox;
 mod labels;
 mod layers;
+mod layout_audit;
 mod map;
 mod mcp;
 mod measure;
@@ -68,6 +70,7 @@ mod series_ui;
 mod session;
 mod settings;
 mod shots;
+mod shots_layout;
 mod shots_ml;
 mod shots_validation;
 mod similarity;
@@ -214,7 +217,8 @@ Developer options:
                       2 Maps, 3 Interpreters, 4 Report)
   --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation
                       (IN from tools/make_tutorial_data.py), landtrendr, ccdc, coded (tools/make_guide_data.py),
-                      bfast, phenology (an EVI series)
+                      bfast, phenology (an EVI series); layout (IN any series: every panel, window and menu at
+                      font sizes of 10 to 28 px, the texts that do not fit their place in OUT/report.txt)
   Self-tests (tools/make_selftest_data.py makes their inputs):
   --selftest-zeit IN...  every Zeit tool on the series without a window: a pixel fit, its Python calls, the
                       estimate and a raster run of 256 x 256 px (LandTrendr also 512 x 512), the outputs read

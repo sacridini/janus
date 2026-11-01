@@ -97,7 +97,11 @@ impl State {
             });
             ui.end_row();
             ui.label("Name");
-            ui.add(egui::TextEdit::singleline(&mut r.name).hint_text(format!("{vname} raster")).desired_width(220.0));
+            ui.add(
+                egui::TextEdit::singleline(&mut r.name)
+                    .hint_text(format!("{vname} raster"))
+                    .desired_width(crate::fit::scaled(ui, 220.0)),
+            );
             ui.end_row();
         });
         ui.weak("Opens as a layer; a Zeit tool can then run only where it is not 0 (Only where..., under its scope).");

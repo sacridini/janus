@@ -78,16 +78,18 @@ pub struct Shots {
     /// the panels' scroll range at the last frame
     reach: HashMap<Tab, f32>,
     /// the menus' titles, and the items of the one open in this frame and in the last
-    menus: HashMap<&'static str, Rect>,
+    pub(crate) menus: HashMap<&'static str, Rect>,
     popup: Option<Rect>,
     last_popup: Option<Rect>,
     /// the pointer's events for the next frame (none: the pointer away)
-    events: Vec<Event>,
+    pub(crate) events: Vec<Event>,
     /// a panel scrolled to this offset (f32::MAX: its end)
     pub(crate) scroll: Option<(Tab, f32)>,
     pub(crate) val: crate::shots_validation::ValShots,
     /// the stage whose summary was printed (shots_ml.rs)
     pub(crate) printed: usize,
+    /// the font sizes' tour (shots_layout.rs)
+    pub(crate) audit: crate::shots_layout::LayoutTour,
     /// the tour's end: its exit code
     done: Option<i32>,
 }
@@ -255,6 +257,7 @@ impl State {
         sh.done = match sh.tour.as_str() {
             "validation" => self.shots_validation(sh, ctx),
             "snic" | "ml" | "presto" => self.shots_ml(sh, ctx),
+            "layout" => self.shots_layout(sh, ctx),
             _ => self.shots_tool(sh, ctx),
         };
         sh.done

@@ -1020,6 +1020,9 @@ impl JanusApp {
         };
         if let Some(tour) = &app.state.opts.shots {
             app.state.shots = Some(Box::new(crate::shots::Shots::new(tour, &app.state.opts.shots_args)));
+            if tour == "layout" {
+                cc.egui_ctx.add_plugin(crate::layout_audit::LayoutAudit);
+            }
         }
         if !vector_inputs.is_empty() {
             app.state.add_vector_files(vector_inputs, &cc.egui_ctx);
@@ -1162,8 +1165,9 @@ impl JanusApp {
             return;
         }
         let has = self.state.session.is_some();
+        let size = crate::fit::scaled(ui, 16.0);
         let r = ui
-            .add_enabled_ui(has, |ui| ui.put(rect, egui::Button::new(egui::RichText::new("+").size(16.0)).frame(false)))
+            .add_enabled_ui(has, |ui| ui.put(rect, egui::Button::new(egui::RichText::new("+").size(size)).frame(false)))
             .inner
             .on_hover_text("New map panel (Ctrl+T): another layer, or the same series at another date, side by side")
             .on_disabled_hover_text("New map panel (Ctrl+T), once a layer is open");
@@ -2137,7 +2141,12 @@ impl State {
                         ui.separator();
                     }
                     if let Some(s) = &self.session {
-                        ui.weak(&s.info.description);
+                        // in what the menus leave: cut short with an ellipsis (the whole on hover), never over them
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(&s.info.description).weak())
+                                .truncate()
+                                .halign(egui::Align::Max),
+                        );
                     }
                 });
             }
@@ -2164,7 +2173,13 @@ impl State {
         if self.help_popup {
             let m = egui::Modal::new(egui::Id::new("help")).show(ctx, |ui| {
                 ui.heading("Shortcuts and usage");
-                ui.monospace(HELP);
+                // its columns kept (no wrapping), scrolled both ways when larger than the screen (a large font)
+                let screen = ctx.content_rect();
+                let (max_w, max_h) = ((screen.width() - 80.0).max(200.0), (screen.height() - 160.0).max(120.0));
+                egui::ScrollArea::both()
+                    .max_width(max_w)
+                    .max_height(max_h)
+                    .show(ui, |ui| ui.add(egui::Label::new(egui::RichText::new(HELP).monospace()).extend()));
                 ui.button("Close").clicked()
             });
             if m.inner || m.should_close() {

@@ -166,12 +166,15 @@ impl State {
             ui.label("Mean of");
             let shown = p.mean_of.and_then(|id| same.iter().find(|s| s.0 == id)).map_or("none".into(), |s| s.1.clone());
             ui.add_enabled_ui(!same.is_empty(), |ui| {
-                egui::ComboBox::from_id_salt("poly mean").selected_text(shown).width(220.0).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut p.mean_of, None, "none");
-                    for (id, n) in &same {
-                        ui.selectable_value(&mut p.mean_of, Some(*id), n);
-                    }
-                });
+                egui::ComboBox::from_id_salt("poly mean")
+                    .selected_text(shown)
+                    .width(crate::fit::scaled(ui, 220.0))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut p.mean_of, None, "none");
+                        for (id, n) in &same {
+                            ui.selectable_value(&mut p.mean_of, Some(*id), n);
+                        }
+                    });
             })
             .response
             .on_hover_text("Each polygon gets the mean of this map's values in it (a map of the same grid)");
@@ -180,7 +183,7 @@ impl State {
             ui.add(
                 egui::TextEdit::singleline(&mut p.name)
                     .hint_text(format!("{} polygons", src.name))
-                    .desired_width(220.0),
+                    .desired_width(crate::fit::scaled(ui, 220.0)),
             );
             ui.end_row();
         });

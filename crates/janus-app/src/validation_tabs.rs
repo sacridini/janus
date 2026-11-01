@@ -355,7 +355,7 @@ impl State {
         let mut add = false;
         ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt("morestratum")
-                .width(220.0)
+                .width(crate::fit::scaled(ui, 220.0))
                 .selected_text(names.get(v.more_stratum).cloned().unwrap_or_default())
                 .show_ui(ui, |ui| {
                     for (s, n) in names.iter().enumerate() {
@@ -432,7 +432,7 @@ impl State {
                     ui.horizontal(|ui| {
                         let mut kind = r.kind;
                         egui::ComboBox::from_id_salt("kind")
-                            .width(130.0)
+                            .width(crate::fit::scaled(ui, 130.0))
                             .selected_text(kind.name())
                             .show_ui(ui, |ui| {
                                 for k in [MapKind::Classes, MapKind::Intervals, MapKind::Events] {
@@ -647,7 +647,7 @@ impl State {
         ui.horizontal(|ui| {
             let names = ["proportional", "equal", "Neyman", "by hand"];
             egui::ComboBox::from_id_salt("alloc")
-                .width(160.0)
+                .width(crate::fit::scaled(ui, 160.0))
                 .selected_text(names[v.alloc.min(3)])
                 .show_ui(ui, |ui| {
                     for (k, n) in names.iter().enumerate() {
@@ -1078,12 +1078,15 @@ impl State {
                 } else {
                     format!("area of {}", a.classes[v.conv_class as usize])
                 };
-                egui::ComboBox::from_id_salt("convc").width(220.0).selected_text(shown).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut v.conv_class, -1, "overall accuracy");
-                    for c in 0..nc {
-                        ui.selectable_value(&mut v.conv_class, c as i32, format!("area of {}", a.classes[c]));
-                    }
-                });
+                egui::ComboBox::from_id_salt("convc")
+                    .width(crate::fit::scaled(ui, 220.0))
+                    .selected_text(shown)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut v.conv_class, -1, "overall accuracy");
+                        for c in 0..nc {
+                            ui.selectable_value(&mut v.conv_class, c as i32, format!("area of {}", a.classes[c]));
+                        }
+                    });
                 let key = ((v.version.wrapping_mul(131) + v.selected as u64).wrapping_mul(131)
                     + (v.conv_class + 1) as u64)
                     .wrapping_mul(131)
@@ -1350,11 +1353,14 @@ impl State {
         let mut changed = false;
         ui.horizontal(|ui| {
             let mut kind = r.kind;
-            egui::ComboBox::from_id_salt("kindm").width(130.0).selected_text(kind.name()).show_ui(ui, |ui| {
-                for k in [MapKind::Classes, MapKind::Intervals, MapKind::Events] {
-                    ui.selectable_value(&mut kind, k, k.name());
-                }
-            });
+            egui::ComboBox::from_id_salt("kindm")
+                .width(crate::fit::scaled(ui, 130.0))
+                .selected_text(kind.name())
+                .show_ui(ui, |ui| {
+                    for k in [MapKind::Classes, MapKind::Intervals, MapKind::Events] {
+                        ui.selectable_value(&mut kind, k, k.name());
+                    }
+                });
             if kind != r.kind {
                 r.kind = kind;
                 changed = true;

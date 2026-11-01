@@ -357,7 +357,7 @@ impl State {
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut self.nav.goto_text)
                         .hint_text("-23.55, -46.63   23°33'S 46°38'W   23S 333000 7394000")
-                        .desired_width(360.0),
+                        .desired_width(crate::fit::scaled(ui, 360.0)),
                 );
                 if std::mem::take(&mut self.nav.goto_focus) {
                     r.request_focus();
@@ -523,7 +523,11 @@ impl State {
     pub(crate) fn saved_views_menu(&mut self, ui: &mut Ui) {
         let has = self.session.is_some();
         ui.horizontal(|ui| {
-            let r = ui.add(egui::TextEdit::singleline(&mut self.nav.view_name).hint_text("name").desired_width(120.0));
+            let r = ui.add(
+                egui::TextEdit::singleline(&mut self.nav.view_name)
+                    .hint_text("name")
+                    .desired_width(crate::fit::scaled(ui, 120.0)),
+            );
             let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let ok = has && !self.nav.view_name.trim().is_empty();
             if (ui.add_enabled(ok, egui::Button::new("Save view")).clicked() || (enter && ok))

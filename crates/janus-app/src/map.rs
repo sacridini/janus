@@ -464,8 +464,13 @@ impl State {
     /// A colour bar at the bottom left of a canvas: the colormap and its range's ends.
     pub(crate) fn colour_bar(painter: &egui::Painter, rect: Rect, cmap: usize, lo: String, hi: String) {
         let cm = &janus_gpu::colormaps::all()[cmap];
-        let b0 = rect.left_bottom() + vec2(10.0, -34.0);
-        let bar = Rect::from_min_size(b0, vec2(220.0, 10.0));
+        // the ends' labels under the bar, inside the canvas at any font size; the bar as wide as they need
+        let font = body_font(painter);
+        let width = |s: &str| painter.layout_no_wrap(s.to_string(), font.clone(), Color32::WHITE).size();
+        let (wl, wh) = (width(&lo), width(&hi));
+        let line = wl.y.max(wh.y);
+        let b0 = rect.left_bottom() + vec2(10.0, -(line + 24.0));
+        let bar = Rect::from_min_size(b0, vec2(220f32.max(wl.x + wh.x + 16.0), 10.0));
         for i in 0..48 {
             let c = cm.sample((i as f32 + 0.5) / 48.0);
             let x0 = bar.min.x + bar.width() * i as f32 / 48.0;
@@ -1024,7 +1029,13 @@ impl State {
             if ui.button("<").clicked() {
                 step = -1;
             }
-            if ui.add_sized([60.0, 18.0], egui::Button::new(if d.playing { "Pause" } else { "Play" })).clicked() {
+            if ui
+                .add_sized(
+                    [crate::fit::scaled(ui, 60.0), crate::fit::button_height(ui)],
+                    egui::Button::new(if d.playing { "Pause" } else { "Play" }),
+                )
+                .clicked()
+            {
                 d.playing = !d.playing;
             }
             if ui.button(">").clicked() {

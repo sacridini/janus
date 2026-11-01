@@ -238,7 +238,8 @@ impl State {
             }
         }
         let wrap = (rect.width() - 260.0).max(80.0); // the colour bar is bottom left
-        let galley = painter.layout(text, FontId::proportional(11.0), Color32::from_gray(220), wrap);
+        let font = FontId::proportional(11.0 * crate::fit::scale_of(painter.ctx()));
+        let galley = painter.layout(text, font, Color32::from_gray(220), wrap);
         let pad = 3.0;
         let at = rect.max - galley.size() - vec2(pad + 2.0, pad + 2.0);
         painter.rect_filled(

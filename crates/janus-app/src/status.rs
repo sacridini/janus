@@ -329,7 +329,12 @@ impl State {
                 let m = &self.status.map;
                 if !fresh || (m.pixel.is_none() && m.geo.is_none()) {
                     if self.session.is_some() {
-                        ui.weak("Point at the map: its pixel, coordinates and value here");
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new("Point at the map: its pixel, coordinates and value here").weak(),
+                            )
+                            .truncate(),
+                        );
                     }
                     return;
                 }

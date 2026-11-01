@@ -260,13 +260,18 @@ impl State {
                     p.rect_stroke(img_rect, 0.0, stroke, egui::StrokeKind::Outside);
                     let text = format!("{label}  {:.0} %", share * 100.0);
                     let colour = if current { accent } else { ui.visuals().text_color() };
-                    p.text(
-                        rect.left_bottom() + vec2(1.0, -1.0),
-                        egui::Align2::LEFT_BOTTOM,
+                    // cut short to the picture's width (a large font: not over the next one's)
+                    let mut job = egui::text::LayoutJob::single_section(
                         text,
-                        egui::FontId::proportional(11.0),
-                        colour,
+                        egui::TextFormat {
+                            font_id: egui::FontId::proportional(crate::fit::scaled(ui, 11.0)),
+                            color: colour,
+                            ..Default::default()
+                        },
                     );
+                    job.wrap = egui::text::TextWrapping::truncate_at_width((rect.width() - 2.0).max(8.0));
+                    let g = p.layout_job(job);
+                    p.galley(rect.left_bottom() + vec2(1.0, -1.0 - g.size().y), g, colour);
                     if resp
                         .on_hover_text(format!("{label}: {:.1} % of the visible area valid", share * 100.0))
                         .clicked()

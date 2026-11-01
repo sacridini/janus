@@ -187,7 +187,7 @@ impl State {
             });
             ui.end_row();
             ui.label("Bands");
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.radio_value(&mut r.all_bands, false, format!("as shown ({})", info.selection_text()));
                 ui.add_enabled_ui(info.bands_per_date > 1, |ui| {
                     ui.radio_value(&mut r.all_bands, true, format!("all {}", info.bands_per_date))
@@ -225,7 +225,11 @@ impl State {
             });
             ui.end_row();
             ui.label("Name");
-            ui.add(egui::TextEdit::singleline(&mut r.name).hint_text(format!("{layer} regular")).desired_width(220.0));
+            ui.add(
+                egui::TextEdit::singleline(&mut r.name)
+                    .hint_text(format!("{layer} regular"))
+                    .desired_width(crate::fit::scaled(ui, 220.0)),
+            );
             ui.end_row();
         });
         let opts = self.reg.options(1);

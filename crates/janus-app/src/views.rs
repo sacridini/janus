@@ -231,7 +231,7 @@ impl State {
         let classes_on = if i == self.active { self.classes.on() } else { self.layers[i].classes.on() };
         ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt(("view layer", v.id))
-                .width(170.0)
+                .width(crate::fit::scaled(ui, 170.0))
                 .selected_text(if v.basemap_only { "Basemap only".to_string() } else { name.clone() })
                 .show_ui(ui, |ui| {
                     for (cube, nm) in &names {

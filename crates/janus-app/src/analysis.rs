@@ -342,7 +342,8 @@ impl State {
         }
         let why: Vec<Option<&str>> = ANALYSIS_TABS.iter().map(|&(k, _)| self.analysis_tab_unavailable(k)).collect();
         let shown = self.shown_analysis_tab();
-        ui.horizontal(|ui| {
+        // wrapped: the tabs on two lines (or more) when the panel is narrow or the font large, none cut
+        ui.horizontal_wrapped(|ui| {
             for ((k, name), w) in ANALYSIS_TABS.iter().zip(&why) {
                 if w.is_none() && ui.selectable_label(shown == *k, *name).clicked() {
                     self.analysis.tab = *k;
@@ -389,7 +390,7 @@ impl State {
 }
 
 /// Analysis' tabs in the order shown (a tab's number is kept: --analysis, the tests).
-const ANALYSIS_TABS: [(usize, &str); 10] = [
+pub(crate) const ANALYSIS_TABS: [(usize, &str); 10] = [
     (0, "Seasonal"),
     (10, "Dates"),
     (7, "Cycles"),
@@ -543,61 +544,55 @@ impl State {
             let size = vec2(ui.available_width() - scale_w, ui.available_height());
             ui.horizontal_top(|ui| {
                 ui.allocate_ui(size, |ui| {
-                    months(Plot::new("seasonal years"))
-                        .width(size.x)
-                        .height(size.y)
-                        .legend(Legend::default().position(egui_plot::Corner::LeftTop).background_alpha(0.6))
-                        .show_background(false)
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .show(ui, |plot| {
-                            let grey = theme::on_plot(Color32::from_gray(217));
-                            if !mx.is_empty() {
-                                let name = "Mean of all years (+/- 1 sd)";
-                                plot.add(
-                                    FilledArea::new(name, &mx, &lo, &hi)
-                                        .fill_color(grey.gamma_multiply(0.15))
-                                        .stroke(Stroke::NONE),
-                                );
-                                let pts: Vec<[f64; 2]> = mx.iter().zip(&mean).map(|(&x, &y)| [x, y]).collect();
-                                plot.line(Line::new(name, PlotPoints::from(pts)).color(grey).width(2.0));
+                    let mut p = months(Plot::new("seasonal years")).width(size.x).height(size.y);
+                    if crate::fit::legend_fits(ui, size.y, 2) {
+                        p = p.legend(Legend::default().position(egui_plot::Corner::LeftTop).background_alpha(0.6));
+                    }
+                    p.show_background(false).allow_drag(false).allow_scroll(false).show(ui, |plot| {
+                        let grey = theme::on_plot(Color32::from_gray(217));
+                        if !mx.is_empty() {
+                            let name = "Mean of all years (+/- 1 sd)";
+                            plot.add(
+                                FilledArea::new(name, &mx, &lo, &hi)
+                                    .fill_color(grey.gamma_multiply(0.15))
+                                    .stroke(Stroke::NONE),
+                            );
+                            let pts: Vec<[f64; 2]> = mx.iter().zip(&mean).map(|(&x, &y)| [x, y]).collect();
+                            plot.line(Line::new(name, PlotPoints::from(pts)).color(grey).width(2.0));
+                        }
+                        // the current year last: on top
+                        years.sort_by_key(|(y, _)| *y == cur_year);
+                        for (y, pts) in &years {
+                            if pts.is_empty() {
+                                continue;
                             }
-                            // the current year last: on top
-                            years.sort_by_key(|(y, _)| *y == cur_year);
-                            for (y, pts) in &years {
-                                if pts.is_empty() {
-                                    continue;
-                                }
-                                let current = *y == cur_year;
-                                let k = if y1 > y0 { (y - y0) as f32 / (y1 - y0) as f32 } else { 0.5 };
-                                let col = theme::on_plot(lut_at(&viridis, k));
-                                // only the current year in the legend (an item without a name has no entry)
-                                let name = if current {
-                                    format!("{} (current date)", year_label(*y, s0))
-                                } else {
-                                    String::new()
-                                };
-                                let mut line = Line::new(name, PlotPoints::from(pts.clone()))
-                                    .color(col)
-                                    .width(if current { 2.5 } else { 1.0 });
-                                if !current {
-                                    line = line.allow_hover(false);
-                                }
-                                plot.line(line);
-                                plot.points(
-                                    egui_plot::Points::new(
-                                        if current {
-                                            format!("{} (current date)", year_label(*y, s0))
-                                        } else {
-                                            String::new()
-                                        },
-                                        PlotPoints::from(pts.clone()),
-                                    )
-                                    .color(col)
-                                    .radius(if current { 3.0 } else { 1.5 }),
-                                );
+                            let current = *y == cur_year;
+                            let k = if y1 > y0 { (y - y0) as f32 / (y1 - y0) as f32 } else { 0.5 };
+                            let col = theme::on_plot(lut_at(&viridis, k));
+                            // only the current year in the legend (an item without a name has no entry)
+                            let name =
+                                if current { format!("{} (current date)", year_label(*y, s0)) } else { String::new() };
+                            let mut line = Line::new(name, PlotPoints::from(pts.clone()))
+                                .color(col)
+                                .width(if current { 2.5 } else { 1.0 });
+                            if !current {
+                                line = line.allow_hover(false);
                             }
-                        });
+                            plot.line(line);
+                            plot.points(
+                                egui_plot::Points::new(
+                                    if current {
+                                        format!("{} (current date)", year_label(*y, s0))
+                                    } else {
+                                        String::new()
+                                    },
+                                    PlotPoints::from(pts.clone()),
+                                )
+                                .color(col)
+                                .radius(if current { 3.0 } else { 1.5 }),
+                            );
+                        }
+                    });
                 });
                 colour_scale(ui, size.y, janus_gpu::colormaps::VIRIDIS, f64::from(y0), f64::from(y1), &|v| {
                     year_label(v.round() as i32, s0)
@@ -1467,10 +1462,12 @@ impl State {
         let size = vec2(ui.available_width() - scale_w, ui.available_height());
         ui.horizontal_top(|ui| {
             ui.allocate_ui(size, |ui| {
-                Plot::new("scatter")
-                    .width(size.x)
-                    .height(size.y)
-                    .x_axis_label(x_name)
+                let legend = crate::fit::legend_fits(ui, size.y, 2);
+                let mut p = Plot::new("scatter").width(size.x).height(size.y);
+                if legend {
+                    p = p.legend(Legend::default().position(egui_plot::Corner::LeftTop).background_alpha(0.6));
+                }
+                p.x_axis_label(x_name)
                     .y_axis_label(y_name)
                     .include_x(plo[0])
                     .include_x(phi[0])
@@ -1480,7 +1477,6 @@ impl State {
                     .show_background(false)
                     .allow_drag(false)
                     .allow_scroll(false)
-                    .legend(Legend::default().position(egui_plot::Corner::LeftTop).background_alpha(0.6))
                     .show(ui, |plot| {
                         let centre = PlotPoint::new((lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0);
                         let extent = vec2((hi[0] - lo[0]) as f32, (hi[1] - lo[1]) as f32);

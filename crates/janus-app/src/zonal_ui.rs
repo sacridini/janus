@@ -229,12 +229,15 @@ impl State {
                 .source
                 .and_then(|id| maps.iter().find(|m| m.0 == id))
                 .map_or(format!("{series} (each date)"), |m| m.1.clone());
-            egui::ComboBox::from_id_salt("zonal source").selected_text(shown).width(280.0).show_ui(ui, |ui| {
-                ui.selectable_value(&mut z.source, None, format!("{series} (each date)"));
-                for (id, n) in &maps {
-                    ui.selectable_value(&mut z.source, Some(*id), n);
-                }
-            });
+            egui::ComboBox::from_id_salt("zonal source")
+                .selected_text(shown)
+                .width(crate::fit::scaled(ui, 280.0))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut z.source, None, format!("{series} (each date)"));
+                    for (id, n) in &maps {
+                        ui.selectable_value(&mut z.source, Some(*id), n);
+                    }
+                });
             ui.end_row();
             ui.label("What");
             ui.vertical(|ui| {
@@ -299,7 +302,11 @@ impl State {
             });
             ui.end_row();
             ui.label("Name");
-            ui.add(egui::TextEdit::singleline(&mut z.name).hint_text(format!("{vname} zonal")).desired_width(220.0));
+            ui.add(
+                egui::TextEdit::singleline(&mut z.name)
+                    .hint_text(format!("{vname} zonal"))
+                    .desired_width(crate::fit::scaled(ui, 220.0)),
+            );
             ui.end_row();
         });
         ui.weak(
@@ -566,11 +573,14 @@ impl State {
             ui.separator();
             ui.label("Feature");
             let mut pick = z;
-            egui::ComboBox::from_id_salt("zonal zone").selected_text(id(z)).width(180.0).show_ui(ui, |ui| {
-                for k in 0..zones {
-                    ui.selectable_value(&mut pick, k, format!("{} ({} px)", id(k), t.pixels[k]));
-                }
-            });
+            egui::ComboBox::from_id_salt("zonal zone")
+                .selected_text(id(z))
+                .width(crate::fit::scaled(ui, 180.0))
+                .show_ui(ui, |ui| {
+                    for k in 0..zones {
+                        ui.selectable_value(&mut pick, k, format!("{} ({} px)", id(k), t.pixels[k]));
+                    }
+                });
             self.zonal.zone = pick;
             ui.weak(format!("{} pixels", t.pixels[z]));
         });

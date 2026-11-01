@@ -663,14 +663,14 @@ impl State {
             let kinds = ["Values", "Anomaly (- sample mean)"];
             let mut kind = self.transect.kind;
             ui.add_enabled_ui(!classes_on, |ui| {
-                egui::ComboBox::from_id_salt("transect kind").width(170.0).selected_text(kinds[kind]).show_ui(
-                    ui,
-                    |ui| {
+                egui::ComboBox::from_id_salt("transect kind")
+                    .width(crate::fit::scaled(ui, 170.0))
+                    .selected_text(kinds[kind])
+                    .show_ui(ui, |ui| {
                         for (i, k) in kinds.iter().enumerate() {
                             ui.selectable_value(&mut kind, i, *k);
                         }
-                    },
-                )
+                    })
             })
             .response
             .on_hover_text(

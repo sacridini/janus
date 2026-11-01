@@ -926,8 +926,11 @@ impl State {
                     remove = Some(c.clone());
                 }
             }
-            let r =
-                ui.add(egui::TextEdit::singleline(&mut self.ml.new_class).hint_text("new class").desired_width(90.0));
+            let r = ui.add(
+                egui::TextEdit::singleline(&mut self.ml.new_class)
+                    .hint_text("new class")
+                    .desired_width(crate::fit::scaled(ui, 90.0)),
+            );
             let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let name = self.ml.new_class.trim().to_string();
             if (ui.add_enabled(!name.is_empty(), egui::Button::new("Add")).clicked() || enter) && !name.is_empty() {

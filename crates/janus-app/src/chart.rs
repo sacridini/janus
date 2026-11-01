@@ -907,7 +907,7 @@ impl State {
             const STYLES: [&str; 6] = ["Lines", "Lines + markers", "Markers", "Stems", "Stairs", "Bars"];
             if categorical {
                 ComboBox::from_id_salt("class style")
-                    .width(130.0)
+                    .width(crate::fit::scaled(ui, 130.0))
                     .selected_text(CLASS_STYLES[o.class_style])
                     .show_ui(ui, |ui| {
                         for (i, n) in CLASS_STYLES.iter().enumerate() {
@@ -921,7 +921,7 @@ impl State {
                     );
             } else {
             ComboBox::from_id_salt("style")
-                .width(130.0)
+                .width(crate::fit::scaled(ui, 130.0))
                 .selected_text(STYLES[o.style])
                 .show_ui(ui, |ui| {
                     for (i, n) in STYLES.iter().enumerate() {
@@ -940,7 +940,7 @@ impl State {
                                        Categorical). Its classes over time: Classes over time...";
             ui.add_enabled_ui(!categorical, |ui| {
             ComboBox::from_id_salt("values")
-                .width(160.0)
+                .width(crate::fit::scaled(ui, 160.0))
                 .selected_text(VALUES[o.values])
                 .show_ui(ui, |ui| {
                     for (i, n) in VALUES.iter().enumerate() {
@@ -959,7 +959,7 @@ impl State {
                 .on_disabled_hover_text(FOR_CLASSES);
             const TRENDS: [&str; 3] = ["No trend", "OLS trend", "Sen trend"];
             ComboBox::from_id_salt("trend")
-                .width(110.0)
+                .width(crate::fit::scaled(ui, 110.0))
                 .selected_text(TRENDS[o.trend])
                 .show_ui(ui, |ui| {
                     for (i, n) in TRENDS.iter().enumerate() {
@@ -995,7 +995,7 @@ impl State {
             if n_layers > 1 {
                 const LAYERS: [&str; 2] = ["Active layer", "All visible layers"];
                 ComboBox::from_id_salt("chart layers")
-                    .width(140.0)
+                    .width(crate::fit::scaled(ui, 140.0))
                     .selected_text(LAYERS[chart_layers as usize])
                     .show_ui(ui, |ui| {
                         for (i, n) in LAYERS.iter().enumerate() {
@@ -1011,7 +1011,7 @@ impl State {
             if has_roi {
                 const SPREAD: [&str; 5] = ["ROI: mean", "ROI: p10-p90", "ROI: box plot", "ROI: fan", "ROI: density"];
                 ComboBox::from_id_salt("roi spread")
-                    .width(120.0)
+                    .width(crate::fit::scaled(ui, 120.0))
                     .selected_text(SPREAD[o.roi_spread])
                     .show_ui(ui, |ui| {
                         for (i, n) in SPREAD.iter().enumerate() {
@@ -1075,14 +1075,22 @@ impl State {
             .show_y(false)
             .grid_color(weak.gamma_multiply(0.55))
             .grid_fade(0.9)
-            .custom_y_axes(vec![egui_plot::AxisHints::new_y().tick_label_color(weak)])
-            .legend(
+            .custom_y_axes(vec![egui_plot::AxisHints::new_y().tick_label_color(weak)]);
+        // the legend while it leaves the curves room (a short panel or a large font: the lines' colours say it)
+        let entries = usize::from(self.series.hover.is_some())
+            + self.series.pins.len()
+            + usize::from(!self.series.roi.mean.is_empty())
+            + self.zeit.chart_tools().len()
+            + 1;
+        if crate::fit::legend_fits(ui, ui.available_height(), entries) {
+            plot = plot.legend(
                 egui_plot::Legend::default()
                     .position(egui_plot::Corner::LeftTop)
                     .background_alpha(0.75)
                     // a series and its trend (thinner, fainter) are one entry, in the series' colour
                     .color_conflict_handling(egui_plot::ColorConflictHandling::PickFirst),
             );
+        }
         if dated {
             plot = time_axis(plot, Some(weak));
         } else {
@@ -1356,7 +1364,8 @@ impl State {
         if (frame.left()..=frame.right()).contains(&x) {
             // the date's tag at the foot of its line
             let painter = ui.painter_at(frame.expand(1.0));
-            let font = crate::theme::strong_font(if crate::theme::modern() { 11.0 } else { 12.0 });
+            let base = if crate::theme::modern() { 11.0 } else { 12.0 };
+            let font = crate::theme::strong_font(crate::fit::scaled(ui, base));
             let galley = painter.layout_no_wrap(info.layers[t].label.clone(), font, Color32::BLACK);
             let r = egui::Rect::from_min_size(
                 egui::pos2(x + 3.0, frame.bottom() - galley.size().y - 5.0),

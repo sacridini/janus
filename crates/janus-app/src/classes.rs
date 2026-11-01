@@ -329,7 +329,7 @@ impl LayerClasses {
                         }
                     });
                     ui.label(c.value.to_string());
-                    ui.add(egui::TextEdit::singleline(&mut c.name).desired_width(140.0));
+                    ui.add(egui::TextEdit::singleline(&mut c.name).desired_width(crate::fit::scaled(ui, 140.0)));
                     ui.weak(format!("{:.1}%", if total > 0 { 100.0 * c.count as f64 / total as f64 } else { 0.0 }));
                     ui.end_row();
                 }

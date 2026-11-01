@@ -1026,6 +1026,7 @@ pub fn apply(ctx: &egui::Context, id: usize, opacity: f32, font_px: i32) {
         if modern {
             // airier than ImGui's: Photoshop's controls, 22 points high at 13
             let k = size / 13.0;
+            follow_font(&mut s.spacing, k);
             s.spacing.item_spacing = egui::vec2(8.0, 5.0);
             s.spacing.button_padding = egui::vec2(8.0, 3.0) * k.max(1.0);
             s.spacing.interact_size.y = (size + 9.0).max(20.0);
@@ -1044,6 +1045,7 @@ pub fn apply(ctx: &egui::Context, id: usize, opacity: f32, font_px: i32) {
         }
         // the spacing grows with the text, as ImGui's frames follow its font
         let k = size / 16.0;
+        follow_font(&mut s.spacing, k);
         s.spacing.item_spacing = egui::vec2(8.0, 4.0);
         s.spacing.button_padding = egui::vec2(4.0, 3.0) * k.max(1.0);
         s.spacing.interact_size.y = (size + 6.0).max(19.0);
@@ -1059,6 +1061,21 @@ pub fn apply(ctx: &egui::Context, id: usize, opacity: f32, font_px: i32) {
         ]
         .into();
     });
+}
+
+/// The sizes egui gives its widgets for its own text size, times `k` (the text's size over the default's; never
+/// smaller): the check boxes' and radio buttons' boxes, a combo box's, a field's and a slider's default widths, a
+/// small widget's least width. At the default font size they are egui's.
+fn follow_font(s: &mut egui::style::Spacing, k: f32) {
+    let k = k.max(1.0);
+    let d = egui::style::Spacing::default();
+    s.icon_width = d.icon_width * k;
+    s.icon_width_inner = d.icon_width_inner * k;
+    s.icon_spacing = d.icon_spacing * k;
+    s.combo_width = d.combo_width * k;
+    s.text_edit_width = d.text_edit_width * k;
+    s.slider_width = d.slider_width * k;
+    s.interact_size.x = d.interact_size.x * k;
 }
 
 /// The map's empty background: the C++'s (the modern dark themes' ground), or nothing (the panel's own, at its

@@ -46,7 +46,7 @@ pub(crate) fn section(ui: &mut Ui, title: &str) {
 
 /// A colormap's gradient with its name, `width` points wide (ImPlot's ColormapButton).
 fn colormap_button(ui: &mut Ui, cmap: usize, width: f32) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, 20.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, crate::fit::scaled(ui, 20.0)), Sense::click());
     let cm = &colormaps::all()[cmap];
     let n = if cm.qualitative { cm.keys().count() } else { 48 };
     for i in 0..n {
@@ -57,7 +57,7 @@ fn colormap_button(ui: &mut Ui, cmap: usize, width: f32) -> egui::Response {
         ui.painter().rect_filled(r, 0.0, Color32::from_rgb(c[0], c[1], c[2]));
     }
     // the name over it, legible on any colours
-    let font = egui::FontId::proportional(13.0);
+    let font = egui::FontId::proportional(crate::fit::scaled(ui, 13.0));
     ui.painter().text(
         rect.center() + vec2(1.0, 1.0),
         egui::Align2::CENTER_CENTER,
@@ -107,12 +107,16 @@ impl State {
         }
         let Some(s) = &self.session else {
             ui.weak("No series open.");
-            if ui.add_sized([ui.available_width(), 20.0], egui::Button::new("Open file(s)...")).clicked()
+            if ui
+                .add_sized([ui.available_width(), crate::fit::button_height(ui)], egui::Button::new("Open file(s)..."))
+                .clicked()
                 && let Some(files) = rfd::FileDialog::new().pick_files()
             {
                 self.open_inputs(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), true, &ctx);
             }
-            if ui.add_sized([ui.available_width(), 20.0], egui::Button::new("Open folder...")).clicked()
+            if ui
+                .add_sized([ui.available_width(), crate::fit::button_height(ui)], egui::Button::new("Open folder..."))
+                .clicked()
                 && let Some(dir) = rfd::FileDialog::new().pick_folder()
             {
                 self.open_inputs(vec![dir.to_string_lossy().into_owned()], true, &ctx);
@@ -307,7 +311,7 @@ impl State {
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
                 popup.show(|ui| {
                     for (i, c) in colormaps::all().iter().enumerate() {
-                        if !c.qualitative && colormap_button(ui, i, 220.0).clicked() {
+                        if !c.qualitative && colormap_button(ui, i, crate::fit::scaled(ui, 220.0)).clicked() {
                             *cmap = i;
                             dirty = true;
                             ui.close();
@@ -327,7 +331,7 @@ impl State {
                     dirty = true;
                 }
                 if ui
-                    .add_sized([ui.available_width(), 18.0], egui::Button::new("Auto"))
+                    .add_sized([ui.available_width(), crate::fit::button_height(ui)], egui::Button::new("Auto"))
                     .on_hover_text("Automatic range: 2-98% percentiles (symmetric for anomaly, difference and trend)")
                     .clicked()
                 {
@@ -877,7 +881,10 @@ impl State {
                             for n in names {
                                 ui.weak(n);
                                 for r in &rows {
-                                    ui.label(r.iter().find(|(k, _)| k == n).map_or("", |(_, v)| v.as_str()));
+                                    // a long one (a message: "add at least one class pattern...") wrapped, not
+                                    // widening its column past the panel
+                                    let v = r.iter().find(|(k, _)| k == n).map_or("", |(_, v)| v.as_str());
+                                    crate::fit::cell(ui, v, 16.0 * crate::fit::em(ui));
                                 }
                                 ui.end_row();
                             }
@@ -1014,7 +1021,7 @@ impl State {
         let n = self.processing_threads();
         ui.label(format!("Processing threads: {n} of {cores}"));
         if ui
-            .add_sized([ui.available_width(), 20.0], egui::Button::new("Settings..."))
+            .add_sized([ui.available_width(), crate::fit::button_height(ui)], egui::Button::new("Settings..."))
             .on_hover_text("Processing threads, overview memory, full-resolution cache (Ctrl+,)")
             .clicked()
         {

@@ -149,12 +149,15 @@ impl State {
                 .source
                 .and_then(|id| maps.iter().find(|m| m.0 == id))
                 .map_or(format!("{series} (each date)"), |m| m.1.clone());
-            egui::ComboBox::from_id_salt("areas source").selected_text(shown).width(260.0).show_ui(ui, |ui| {
-                ui.selectable_value(&mut self.areas.source, None, format!("{series} (each date)"));
-                for (id, n) in &maps {
-                    ui.selectable_value(&mut self.areas.source, Some(*id), n);
-                }
-            });
+            egui::ComboBox::from_id_salt("areas source")
+                .selected_text(shown)
+                .width(crate::fit::scaled(ui, 260.0))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.areas.source, None, format!("{series} (each date)"));
+                    for (id, n) in &maps {
+                        ui.selectable_value(&mut self.areas.source, Some(*id), n);
+                    }
+                });
             ui.separator();
             ui.radio_value(&mut self.areas.roi, false, "whole layer");
             ui.add_enabled_ui(self.series.roi_rect.is_some(), |ui| {

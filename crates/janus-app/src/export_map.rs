@@ -1112,7 +1112,7 @@ impl State {
                     o.scale = scale;
                     ui.add_space(4.0);
                     let bgs = ["Map's (dark)", "White", "Transparent"];
-                    egui::ComboBox::from_label("Background").width(200.0).selected_text(bgs[o.background.min(2)]).show_ui(ui, |ui| {
+                    egui::ComboBox::from_label("Background").width(crate::fit::scaled(ui, 200.0)).selected_text(bgs[o.background.min(2)]).show_ui(ui, |ui| {
                         for (k, b) in bgs.iter().enumerate() {
                             ui.selectable_value(&mut o.background, k, *b);
                         }

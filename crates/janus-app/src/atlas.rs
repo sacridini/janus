@@ -1098,13 +1098,19 @@ impl State {
             );
         }
         if a.groups.is_empty() && a.job.is_none() {
-            painter.text(
-                rect.center_bottom() - vec2(0.0, 8.0),
-                egui::Align2::CENTER_BOTTOM,
-                "Drag around points to make a group  ·  scroll: zoom  ·  right drag: move  ·  double click: all",
+            // wrapped to the plot's width (a narrow panel, a large font), centred at its bottom
+            let mut job = egui::text::LayoutJob::simple(
+                "Drag around points to make a group  ·  scroll: zoom  ·  right drag: move  ·  double click: all".into(),
                 egui::FontId::proportional(body * 0.8),
                 weak,
+                (rect.width() - 16.0).max(40.0),
             );
+            job.halign = egui::Align::Center;
+            let g = painter.layout_job(job);
+            // none when the plot is too short for it (the hint over the points)
+            if g.size().y + 16.0 <= rect.height() * 0.3 {
+                painter.galley(rect.center_bottom() - vec2(0.0, 8.0 + g.size().y), g, weak);
+            }
         }
         // the colour's scale
         if let Some((cm, lo, hi)) = legend {

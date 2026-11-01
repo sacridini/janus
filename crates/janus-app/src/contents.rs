@@ -648,10 +648,12 @@ impl State {
             return;
         }
         let Some(l) = self.layers.get_mut(self.active).filter(|l| !l.canvas) else { return };
-        ui.horizontal(|ui| {
+        // wrapped: in a narrow panel or at a large font the slider goes to a line of its own
+        ui.horizontal_wrapped(|ui| {
             let blend = l.blend;
+            let combo = crate::fit::combo_width(ui, janus_gpu::Blend::ALL.iter().map(|b| b.name()));
             egui::ComboBox::from_id_salt("blend strip")
-                .width(76.0)
+                .width(combo)
                 .selected_text(blend.name())
                 .show_ui(ui, |ui| {
                     for b in janus_gpu::Blend::ALL {
@@ -663,7 +665,13 @@ impl State {
                 .response
                 .on_hover_text(format!("{}: how it combines with the layers under it", l.name));
             ui.label(RichText::new("Opacity").weak());
-            ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(40.0);
+            // the value's box ("100 %") and the gap before it take what the slider does not
+            let value = crate::fit::button_width(ui, "100 %") + ui.spacing().item_spacing.x;
+            let em = crate::fit::em(ui);
+            if ui.available_width() - value < 4.0 * em {
+                ui.end_row();
+            }
+            ui.spacing_mut().slider_width = (ui.available_width() - value).max(4.0 * em);
             let slider = egui::Slider::new(&mut l.opacity, 0.0..=1.0)
                 .custom_formatter(|v, _| format!("{:.0} %", v * 100.0))
                 .custom_parser(|s| s.trim().trim_end_matches('%').trim().parse::<f64>().ok().map(|v| v / 100.0));
@@ -1500,7 +1508,8 @@ impl State {
                 }
                 ui.horizontal(|ui| {
                     ui.label("Name");
-                    let r = ui.add(egui::TextEdit::singleline(&mut text.1).desired_width(140.0));
+                    let r =
+                        ui.add(egui::TextEdit::singleline(&mut text.1).desired_width(crate::fit::scaled(ui, 140.0)));
                     if r.changed()
                         && !text.1.trim().is_empty()
                         && let Some(gr) = groups.iter_mut().find(|x| x.id == g)
@@ -1584,7 +1593,8 @@ fn style_menu(ui: &mut Ui, me: Sel, x: &RowExtras, name: &mut String, acts: &mut
         }
         ui.separator();
         ui.horizontal(|ui| {
-            let r = ui.add(egui::TextEdit::singleline(name).hint_text("name").desired_width(110.0));
+            let r =
+                ui.add(egui::TextEdit::singleline(name).hint_text("name").desired_width(crate::fit::scaled(ui, 110.0)));
             let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if (ui.add_enabled(!name.trim().is_empty(), egui::Button::new("Save style")).clicked() || enter)
                 && !name.trim().is_empty()

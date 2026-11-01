@@ -329,7 +329,7 @@ impl State {
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt("fields model")
                     .selected_text(&titles[f.model.min(titles.len() - 1)])
-                    .width(300.0)
+                    .width(crate::fit::scaled(ui, 300.0))
                     .show_ui(ui, |ui| {
                         for (k, t) in titles.iter().enumerate() {
                             let about = match CHECKPOINTS.get(k) {
@@ -406,7 +406,7 @@ impl State {
                         for (k, v) in [&mut w.0, &mut w.1].into_iter().enumerate() {
                             egui::ComboBox::from_id_salt(format!("fields {name} {k}"))
                                 .selected_text(label(*v))
-                                .width(110.0)
+                                .width(crate::fit::scaled(ui, 110.0))
                                 .show_ui(ui, |ui| {
                                     for d in 0..t {
                                         ui.selectable_value(v, d, label(d));
@@ -522,11 +522,14 @@ impl State {
                 .iter()
                 .find(|a| a.0 == f.train_vector)
                 .map_or("(no polygons open)".to_string(), |a| format!("{} ({} polygons)", a.1, a.2));
-            egui::ComboBox::from_id_salt("fields train vector").selected_text(sel).width(260.0).show_ui(ui, |ui| {
-                for a in &areas {
-                    ui.selectable_value(&mut f.train_vector, a.0, format!("{} ({} polygons)", a.1, a.2));
-                }
-            });
+            egui::ComboBox::from_id_salt("fields train vector")
+                .selected_text(sel)
+                .width(crate::fit::scaled(ui, 260.0))
+                .show_ui(ui, |ui| {
+                    for a in &areas {
+                        ui.selectable_value(&mut f.train_vector, a.0, format!("{} ({} polygons)", a.1, a.2));
+                    }
+                });
             ui.end_row();
             ui.label("Epochs");
             ui.add(egui::DragValue::new(&mut f.train_epochs).range(1..=300));

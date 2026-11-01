@@ -770,19 +770,22 @@ impl State {
                     }
                 };
                 ui.horizontal(|ui| {
-                    ComboBox::from_id_salt(("role", role)).width(220.0).selected_text(label(cur)).show_ui(ui, |ui| {
-                        for b in 0..=info.bands_per_date as i32 {
-                            if ui.selectable_label(b == cur, label(b)).clicked() {
-                                if b == 0 {
-                                    self.zeit.roles.remove(role);
-                                } else {
-                                    self.zeit.roles.insert(role.clone(), b);
+                    ComboBox::from_id_salt(("role", role))
+                        .width(crate::fit::scaled(ui, 220.0))
+                        .selected_text(label(cur))
+                        .show_ui(ui, |ui| {
+                            for b in 0..=info.bands_per_date as i32 {
+                                if ui.selectable_label(b == cur, label(b)).clicked() {
+                                    if b == 0 {
+                                        self.zeit.roles.remove(role);
+                                    } else {
+                                        self.zeit.roles.insert(role.clone(), b);
+                                    }
+                                    // every tool reads these bands
+                                    self.zeit.version += 1;
                                 }
-                                // every tool reads these bands
-                                self.zeit.version += 1;
                             }
-                        }
-                    });
+                        });
                     ui.label(if is_optional { format!("{role} (optional)") } else { role.clone() });
                 });
             }
@@ -901,17 +904,17 @@ impl State {
                         let cur = v.as_str().unwrap_or("").to_string();
                         let k = options.iter().position(|o| *o == cur).unwrap_or(0);
                         let shown = |i: usize| labels.get(i).or(options.get(i)).cloned().unwrap_or_default();
-                        ComboBox::from_id_salt(("enum", &p.id)).width(220.0).selected_text(shown(k)).show_ui(
-                            ui,
-                            |ui| {
+                        ComboBox::from_id_salt(("enum", &p.id))
+                            .width(crate::fit::scaled(ui, 220.0))
+                            .selected_text(shown(k))
+                            .show_ui(ui, |ui| {
                                 for (i, option) in options.iter().enumerate() {
                                     if ui.selectable_label(i == k, shown(i)).clicked() {
                                         *v = json!(option);
                                         changed = true;
                                     }
                                 }
-                            },
-                        );
+                            });
                     }
                     "layers" => {
                         ui.end_row();
@@ -957,7 +960,7 @@ fn patterns_ui(
         for (k, pat) in list.iter_mut().enumerate() {
             ui.horizontal(|ui| {
                 let mut name = pat["name"].as_str().unwrap_or("").to_string();
-                if ui.add(egui::TextEdit::singleline(&mut name).desired_width(160.0)).changed() {
+                if ui.add(egui::TextEdit::singleline(&mut name).desired_width(crate::fit::scaled(ui, 160.0))).changed() {
                     pat["name"] = json!(name);
                     changed = true;
                 }
@@ -987,7 +990,7 @@ fn patterns_ui(
             }));
             changed = true;
         };
-        ComboBox::from_id_salt(("add pattern", &p.id)).width(260.0).selected_text("Add a pattern from...").show_ui(ui, |ui| {
+        ComboBox::from_id_salt(("add pattern", &p.id)).width(crate::fit::scaled(ui, 260.0)).selected_text("Add a pattern from...").show_ui(ui, |ui| {
             for (id, x, y, exact, values) in pins {
                 let label = format!("Pin {id} ({x}, {y}){}", if *exact { "" } else { " - reading..." });
                 if ui.add_enabled(*exact, egui::Button::selectable(false, label)).clicked() {
@@ -1030,7 +1033,7 @@ fn endmembers_ui(
         for (k, e) in list.iter_mut().enumerate() {
             ui.horizontal(|ui| {
                 let mut name = e["name"].as_str().unwrap_or("").to_string();
-                if ui.add(egui::TextEdit::singleline(&mut name).desired_width(160.0)).changed() {
+                if ui.add(egui::TextEdit::singleline(&mut name).desired_width(crate::fit::scaled(ui, 160.0))).changed() {
                     e["name"] = json!(name);
                     changed = true;
                 }
@@ -1061,7 +1064,7 @@ fn endmembers_ui(
         };
         let date = info.layers.get(t).map(|l| l.label.clone()).unwrap_or_default();
         let text = if info.spectral { "Add an endmember from...".to_string() } else { format!("Add one from {date}...") };
-        ComboBox::from_id_salt(("add endmember", &p.id)).width(260.0).selected_text(text).show_ui(ui, |ui| {
+        ComboBox::from_id_salt(("add endmember", &p.id)).width(crate::fit::scaled(ui, 260.0)).selected_text(text).show_ui(ui, |ui| {
             for (id, x, y, exact, values) in pins {
                 let label = format!("Pin {id} ({x}, {y}){}", if *exact { "" } else { " - reading..." });
                 if ui.add_enabled(*exact, egui::Button::selectable(false, label)).clicked() {
@@ -2036,7 +2039,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         let running =
             self.zeit.jobs.iter().any(|j| j.output_dir == p.dir && j.status.lock().unwrap().state == JobState::Running);
         let label = if running { "Preview..." } else { "preview" };
-        let font = egui::FontId::proportional(12.0);
+        let font = egui::FontId::proportional(12.0 * crate::fit::scale_of(painter.ctx()));
         painter.text(pts[0] + egui::vec2(4.0, 2.0), egui::Align2::LEFT_TOP, label, font, colour);
     }
 

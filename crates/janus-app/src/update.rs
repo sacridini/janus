@@ -310,7 +310,7 @@ impl State {
                 ui.horizontal(|ui| {
                     let f = if total > 0 { (got as f32 / total as f32).min(1.0) } else { 0.0 };
                     let text = if total > 0 { format!("{} of {}", mb(got), mb(total)) } else { mb(got) };
-                    ui.add(egui::ProgressBar::new(f).text(text).desired_width(300.0));
+                    ui.add(egui::ProgressBar::new(f).text(text).desired_width(crate::fit::scaled(ui, 300.0)));
                     if ui.button("Cancel").clicked() {
                         self.update.cancel.store(true, Ordering::Relaxed);
                     }

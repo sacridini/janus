@@ -623,7 +623,7 @@ impl State {
             ui.label("Output");
             let c = &mut self.calc;
             if ui
-                .add(egui::TextEdit::singleline(&mut c.out_name).desired_width(140.0).hint_text("name"))
+                .add(egui::TextEdit::singleline(&mut c.out_name).desired_width(crate::fit::scaled(ui, 140.0)).hint_text("name"))
                 .on_hover_text("The layer's name (and its folder's)")
                 .changed()
             {
@@ -1077,8 +1077,9 @@ impl State {
                     });
                 ui.end_row();
                 ui.label("Quality");
-                ui.checkbox(&mut c.apply_qa, "Mask the bands named by their layer's quality band")
-                    .on_hover_text("Clouds, shadows and fill as no data (the quality band shown in Display)");
+                ui.checkbox(&mut c.apply_qa, "Mask by the quality band").on_hover_text(
+                    "The bands named masked by their layer's quality band: clouds, shadows and fill as no data (the                      quality band shown in Display)",
+                );
                 ui.end_row();
             });
         });

@@ -985,16 +985,18 @@ impl State {
         let mut goto = None;
         let mut moves: Vec<(u32, String)> = vec![];
         let mut remove = None;
-        let row_h = 20.0;
+        // a line of text and the buttons' padding, at any font size
+        let row_h = (ui.text_style_height(&egui::TextStyle::Body) + 6.0).max(20.0);
+        let k = crate::fit::scale_of(ui.ctx());
         TableBuilder::new(ui)
             .id_salt("samples table")
             .striped(true)
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-            .column(Column::initial(84.0).at_least(60.0).clip(true))
-            .column(Column::initial(110.0).at_least(70.0).clip(true))
-            .column(Column::remainder().at_least(110.0).clip(true))
-            .column(Column::initial(44.0).at_least(36.0))
-            .column(Column::exact(if pins { 52.0 } else { 28.0 }))
+            .column(Column::initial(k * 84.0).at_least(60.0).clip(true))
+            .column(Column::initial(k * 110.0).at_least(70.0).clip(true))
+            .column(Column::remainder().at_least(k * 110.0).clip(true))
+            .column(Column::initial(k * 44.0).at_least(36.0))
+            .column(Column::exact(k * (if pins { 52.0 } else { 28.0 })))
             .min_scrolled_height(0.0)
             .max_scroll_height(height)
             .header(row_h, |mut h| {
@@ -1034,9 +1036,10 @@ impl State {
                     row.col(|ui| match r.pin {
                         Some(id) => {
                             let cur = if r.class.is_empty() { "no class" } else { r.class.as_str() };
-                            ComboBox::from_id_salt(("sample pin class", id)).width(100.0).selected_text(cur).show_ui(
-                                ui,
-                                |ui| {
+                            ComboBox::from_id_salt(("sample pin class", id))
+                                .width(crate::fit::scaled(ui, 100.0))
+                                .selected_text(cur)
+                                .show_ui(ui, |ui| {
                                     if ui.selectable_label(r.class.is_empty(), "no class").clicked() {
                                         moves.push((id, String::new()));
                                     }
@@ -1045,8 +1048,7 @@ impl State {
                                             moves.push((id, c.clone()));
                                         }
                                     }
-                                },
-                            );
+                                });
                         }
                         None => {
                             ui.label(&r.class);

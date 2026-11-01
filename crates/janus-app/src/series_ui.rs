@@ -198,7 +198,11 @@ impl State {
             });
             ui.end_row();
             ui.label("Name");
-            ui.add(egui::TextEdit::singleline(&mut b.name).hint_text("series").desired_width(220.0));
+            ui.add(
+                egui::TextEdit::singleline(&mut b.name)
+                    .hint_text("series")
+                    .desired_width(crate::fit::scaled(ui, 220.0)),
+            );
             ui.end_row();
         });
         if ui.add_enabled(ok, egui::Button::new("▶ Build").min_size(vec2(110.0, 0.0))).clicked() {

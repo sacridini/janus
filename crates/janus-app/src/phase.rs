@@ -73,9 +73,9 @@ pub(crate) fn options_ui(ui: &mut Ui, p: &mut Phase, mark: Option<f32>) -> bool 
              than bare soil.\nOff: every pixel bright, only when (hue) and how much (saturation) it peaks.",
         )
         .changed();
-    let size = 132.0;
+    let size = crate::fit::scaled(ui, 132.0);
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), size + 8.0), egui::Sense::hover());
-    let font = FontId::proportional(11.0);
+    let font = FontId::proportional(crate::fit::scaled(ui, 11.0));
     wheel(ui.painter(), rect.center(), size / 2.0 - 14.0, font, ui.visuals().text_color(), mark);
     ui.weak(
         "Each pixel's annual harmonic, fitted to its dates: the hue is when it peaks, the saturation how much it \

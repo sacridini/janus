@@ -1586,7 +1586,15 @@ apontado). `--window classification`, `--pin X,Y,CLASSE`.
 - Releases no GitHub com o instalador anexado.
 - Linux (os stubs de `platform.cpp` existem; falta testar).
 - Escala de interface (DPI) para telas 4K: o tamanho da fonte já é ajustável
-  (0.25.0); faltam as larguras fixas dos widgets.
+  (0.25.0). **Feito (2026-11-01, sem versão): as larguras fixas dos widgets**
+  crescem com a fonte (`fit.rs`: proporcional à fonte padrão, 13 px igual a
+  antes), o espaçamento do egui também (ícones, combos, campos, sliders), e
+  textos longos são cortados com o inteiro no hover. Verificado por uma
+  auditoria (`--shots layout IN OUT`, `layout_audit.rs`: um plugin do egui que
+  acha texto cortado, fora da moldura, sobre outro texto ou em fonte fixa
+  pequena) em 71 lugares (painéis, janelas, ferramentas, abas, menus, paleta)
+  a 10, 13, 16, 20, 24 e 28 px, nas duas interfaces: de 585 achados para ~40,
+  quase todos textos cortados de propósito (com hover).
 
 ## Histórico
 

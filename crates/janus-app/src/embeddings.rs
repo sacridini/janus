@@ -1639,7 +1639,10 @@ impl State {
                         if ui.color_edit_button_srgba(&mut c.color).changed() {
                             dirty = true;
                         }
-                        if ui.add(egui::TextEdit::singleline(&mut c.name).desired_width(110.0)).changed() {
+                        if ui
+                            .add(egui::TextEdit::singleline(&mut c.name).desired_width(crate::fit::scaled(ui, 110.0)))
+                            .changed()
+                        {
                             dirty = true;
                         }
                         let n = c.samples.len();
