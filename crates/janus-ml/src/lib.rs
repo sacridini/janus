@@ -5,7 +5,8 @@
 
 pub mod aoa;
 pub mod apply;
-pub mod cluster;
+/// k-means and Ward's clustering, in janus-zeit (its k-means tool's too)
+pub use janus_zeit::cluster;
 pub mod data;
 pub mod dense;
 pub mod extra;

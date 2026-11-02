@@ -1,7 +1,7 @@
 //! `janus mcp`: Janus as a server of the Model Context Protocol (MCP), on the standard input and output. An
 //! assistant (Claude Desktop, Claude Code, any client of MCP) opens series, reads their values at points and over
 //! areas, writes and runs the raster calculator's expressions, runs Zeit's tools (on a series or on maps) and the
-//! series' and maps' tools (regularize, speckle, reproject, zonal statistics, areas, polygonize, rasterize), trains
+//! series' and maps' tools (regularize, speckle, sensor harmonization, reproject, zonal statistics, areas, polygonize, rasterize), trains
 //! a Random Forest, TempCNN or L-TAE on samples and classifies a series: the engines the interface runs, without
 //! it. Results are files (GeoTIFFs, VRTs, GeoPackages, CSVs, models), in the folder the call names or under Janus's
 //! results folder (`mcp/`), shown to the user in the window already open (inbox.rs) or a new one. A long call
@@ -208,6 +208,7 @@ impl Server {
             "polygonize" => self.polygonize(&a, c),
             "rasterize" => self.rasterize(&a, c),
             "speckle" => self.speckle(&a, c),
+            "harmonize" => self.harmonize(&a, c),
             "areas" => self.areas(&a, c),
             _ => Err(format!("no tool {name:?}")),
         }
@@ -506,6 +507,24 @@ fn catalogue() -> Vec<Value> {
                     "series": series_schema(),
                     "filter": { "type": "string", "description": "quegan (default), lee or lee:LOOKS" },
                     "size": { "type": "integer", "description": "the window's side in pixels (odd, default 7)" },
+                    "output_dir": out_dir
+                }),
+                area_props(),
+            ),
+            &["series"],
+            false,
+        ),
+        tool(
+            "harmonize",
+            "Harmonize Landsat and Sentinel-2",
+            "Sentinel-2 dates taken to Landsat 8's OLI by HLS's bandpass adjustment (Claverie et al. 2018), Landsat 7 and 4-5 by Roy et al. 2016's lines if asked: no step where the sensor changes. With join, a second series on the same grid adjusted and joined in time, the bands they share named by role. Each date's sensor from its STAC item or file name, or given. A COG a date.",
+            with(
+                json!({
+                    "series": series_schema(),
+                    "join": { "description": "another series on the same grid, joined in time", "anyOf": [{ "type": "string" }, { "type": "object" }] },
+                    "sensor": { "type": "string", "description": "every date's sensor of series when the scenes do not say it: sentinel-2a, sentinel-2b, sentinel-2c, sentinel-2, landsat-8, landsat-7, landsat-5" },
+                    "join_sensor": { "type": "string", "description": "the same for join" },
+                    "etm": { "type": "string", "description": "Landsat 7 and 4-5: none (default, as they are), rma or ols (Roy et al. 2016)" },
                     "output_dir": out_dir
                 }),
                 area_props(),
@@ -1697,6 +1716,44 @@ impl Server {
             "folder": dir,
             "seconds": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0,
             "note": "the folder opens in Janus (describe_series) as the filtered series",
+        }))
+    }
+
+    fn harmonize(&self, a: &Value, c: &Call) -> R<Value> {
+        use janus_zeit::harmonize::{EtmLines, HarmonizeOptions, harmonize, sensor_of, source};
+        let t0 = Instant::now();
+        let sensor = |k: &str| -> R<Option<janus_zeit::harmonize::Sensor>> {
+            match a[k].as_str().filter(|s| !s.is_empty()) {
+                None => Ok(None),
+                Some(s) => sensor_of(s).map(Some).ok_or_else(|| format!("{k}: no sensor known as {s:?}")),
+            }
+        };
+        let info = self.series(&a["series"])?;
+        let mut sources = vec![source(&info, sensor("sensor")?)?];
+        if !a["join"].is_null() {
+            sources.push(source(&self.series(&a["join"])?, sensor("join_sensor")?)?);
+        }
+        let etm = match a["etm"].as_str().unwrap_or("none").to_lowercase().as_str() {
+            "none" | "" => None,
+            "rma" => Some(EtmLines::Rma),
+            "ols" => Some(EtmLines::Ols),
+            e => return Err(format!("etm: none, rma or ols, not {e:?}")),
+        };
+        let dir = out_dir(a, "harmonize")?;
+        let opts = HarmonizeOptions {
+            etm,
+            window: Some(window_of(&info, a)?),
+            stem: janus_cube::stac_vrt::sanitize(&series_stem(&info)),
+            threads: self.threads,
+        };
+        let h = harmonize(&sources, &opts, &dir, &|f, m| c.progress(f, m), &c.stop)?;
+        Ok(json!({
+            "files": h.files,
+            "bands": h.bands,
+            "notes": h.notes,
+            "folder": dir,
+            "seconds": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0,
+            "note": "the folder opens in Janus (describe_series) as the harmonized series",
         }))
     }
 

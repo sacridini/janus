@@ -37,6 +37,7 @@ mod folds_ui;
 mod gif;
 mod golden;
 mod groups;
+mod harmonize_ui;
 mod histogram;
 mod inbox;
 mod labels;
@@ -48,6 +49,7 @@ mod measure;
 mod measure_vectors;
 mod methods;
 mod ml;
+mod ml_advice;
 mod mosaic;
 mod navigation;
 mod open;
@@ -208,7 +210,7 @@ Developer options:
   --calc TEXT         Tools > Raster calculator open with TEXT (statements apart by ;)
   --calc-run          and run once the layers are open: its result added as a layer
   --palette TEXT      the command palette open with TEXT typed (screenshots)
-  --window NAME,...   tool windows open once the layers are: regularize, speckle, warp, build, save,
+  --window NAME,...   tool windows open once the layers are: regularize, speckle, harmonize, warp, build, save,
                       polygonize (the active series), rasterize, zonal (the first vector layer), areas
                       (Analysis > Areas), classification (a Random Forest on the pins, their samples
                       checked), classification-forest (its settings, the maps of the series' runs beside it, a

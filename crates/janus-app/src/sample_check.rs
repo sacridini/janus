@@ -90,6 +90,11 @@ pub struct Report {
     pub importance_by_date: Vec<f64>,
     /// pairs of places on a pixel (indices into `places`), and whether their classes differ
     pub shared: Vec<(usize, usize, bool)>,
+    /// the accuracy on places as far from the others as the map is from the samples (kNNDM folds: CAST's
+    /// Linnenbrink et al. 2024): NaN when not checked, `spatial_note` saying why
+    pub spatial: f64,
+    pub spatial_folds: usize,
+    pub spatial_note: String,
     pub seconds: f64,
 }
 
@@ -285,7 +290,12 @@ fn analyse(
     }
 
     // the check: forests that never saw the place
-    let mut report = Report { key, inputs: inputs.iter().map(|b| b.name.clone()).collect(), ..Default::default() };
+    let mut report = Report {
+        key,
+        inputs: inputs.iter().map(|b| b.name.clone()).collect(),
+        spatial: f64::NAN,
+        ..Default::default()
+    };
     let present = y.iter().collect::<BTreeSet<_>>().len();
     if present >= 2 && x.n >= 6 {
         let pick: Vec<usize> = if x.n > MAX_CHECKED {
@@ -356,6 +366,8 @@ fn analyse(
         }
         report.folds = cp.folds;
         report.importance_by_date = (0..t).map(|d| cp.importance[d * b..(d + 1) * b].iter().sum()).collect();
+        (report.spatial, report.spatial_folds, report.spatial_note) =
+            spatial_check(info, inputs, sites, classes, min_valid, (&xs, &ys, &ps), k, &h);
     } else {
         report.accuracy = f64::NAN;
         report.kappa = f64::NAN;
@@ -407,6 +419,67 @@ fn analyse(
     report.years = calendar.years;
     report.seconds = t0.elapsed().as_secs_f64();
     Ok(report)
+}
+
+/// Places a spatial check needs at least (and 2 of a class, for a fold to hold some of it out).
+const SPATIAL_PLACES: usize = 10;
+
+/// The same forests' accuracy on folds made by kNNDM (folds_ui::make_folds): the places dealt so that the distances
+/// from each fold to the places of the others are distributed as those from the map's pixels to the samples are.
+/// Samples spread over the area: about the accuracy by place at random; bunched, lower (the map far from them is
+/// what the model knows least). (accuracy, folds, why not when NaN.)
+#[allow(clippy::too_many_arguments)]
+fn spatial_check(
+    info: &Arc<CubeInfo>,
+    inputs: &[InputBand],
+    sites: &[Site],
+    classes: &[String],
+    min_valid: f64,
+    (xs, ys, ps): (&janus_ml::Series, &[u32], &[usize]),
+    k: usize,
+    h: &ForestHyper,
+) -> (f64, usize, String) {
+    let used: BTreeSet<usize> = ps.iter().copied().collect();
+    if used.len() < SPATIAL_PLACES {
+        return (
+            f64::NAN,
+            0,
+            format!("{} places: {SPATIAL_PLACES} or more, spread over the area, for a spatial check", used.len()),
+        );
+    }
+    if info.geo_transform.is_none() {
+        return (f64::NAN, 0, "the series has no georeference".into());
+    }
+    let spec = janus_ml::folds::FoldSpec {
+        method: janus_ml::folds::Method::Knndm,
+        k: 5.min(used.len() / 2).max(2),
+        candidates: 40,
+        ..Default::default()
+    };
+    let folds = match crate::folds_ui::make_folds(info, inputs, sites, classes, &spec, None, min_valid, 7, 2, &|_| {}) {
+        Ok(f) => f,
+        Err(e) => return (f64::NAN, 0, format!("no spatial folds: {e}")),
+    };
+    let fold_of = crate::folds_ui::sample_folds(&folds, ps);
+    let cp = match janus_ml::forest::cross_predict_folds(
+        xs,
+        ys,
+        k,
+        &fold_of,
+        folds.k,
+        h,
+        7,
+        &mut |_, _| {},
+        &AtomicBool::new(false),
+    ) {
+        Ok(c) => c,
+        Err(e) => return (f64::NAN, 0, e),
+    };
+    let (predicted, confusion) = cp.confusion(ys, k);
+    if predicted.is_empty() {
+        return (f64::NAN, folds.k, "no fold could be predicted".into());
+    }
+    (janus_ml::train::accuracies(&confusion).0, folds.k, String::new())
 }
 
 /// A warning on the samples: how bad (0 good news, 1 to look at, 2 to fix), what, and the samples it is about.
@@ -502,6 +575,32 @@ pub fn warnings(r: &Report) -> Vec<Warning> {
             );
         }
     }
+    if r.spatial.is_finite() && r.accuracy.is_finite() {
+        let drop = r.accuracy - r.spatial;
+        if drop >= 0.10 {
+            add(
+                2,
+                format!(
+                    "Bunched samples: on places as far from the others as most of the map is from your samples, the                      model is right {:.0} % of the time, not {:.0} %. Add samples spread over the whole area, away                      from those you have.",
+                    r.spatial * 100.0,
+                    r.accuracy * 100.0
+                ),
+                None,
+            );
+        } else if drop >= 0.05 {
+            add(
+                1,
+                format!(
+                    "Somewhat bunched samples: {:.0} % right far from the others ({:.0} % near them). Samples in the                      parts of the area with none would help.",
+                    r.spatial * 100.0,
+                    r.accuracy * 100.0
+                ),
+                None,
+            );
+        }
+    } else if !r.spatial_note.is_empty() && r.checked > 0 {
+        add(1, format!("Not checked across the area: {}.", r.spatial_note), None);
+    }
     let left: usize = r.classes.iter().map(|c| c.left_out).sum();
     if left > 0 {
         add(1, format!("{left} samples left out: values on too few dates (clouds, gaps)."), None);
@@ -512,7 +611,15 @@ pub fn warnings(r: &Report) -> Vec<Warning> {
     }
     w.sort_by_key(|x| std::cmp::Reverse(x.level));
     if w.is_empty() && r.checked > 0 {
-        w.push(Warning { level: 0, text: "The samples look consistent.".into(), filter: None });
+        w.push(Warning {
+            level: 0,
+            text: if r.spatial.is_finite() {
+                "The samples look consistent, and cover the area: the accuracy holds far from them.".into()
+            } else {
+                "The samples look consistent.".into()
+            },
+            filter: None,
+        });
     }
     w
 }
@@ -680,6 +787,24 @@ impl State {
                 _ => ("-".into(), "Two classes and a few samples are needed for an estimate".into()),
             };
             card(ui, RichText::new(acc).size(18.0).strong(), "estimated accuracy", &hover);
+            if let Some(r) = rep.as_deref().filter(|r| r.spatial.is_finite()) {
+                let color = if r.accuracy - r.spatial >= 0.10 {
+                    level_color(2)
+                } else if r.accuracy - r.spatial >= 0.05 {
+                    level_color(1)
+                } else {
+                    ui.visuals().text_color()
+                };
+                card(
+                    ui,
+                    RichText::new(format!("{:.0} %", r.spatial * 100.0)).size(18.0).strong().color(color),
+                    "far from the samples",
+                    &format!(
+                        "The accuracy where the map is far from your samples: the forests tested on folds of places                          ({}) as far from the others as the map's pixels are from the samples (kNNDM, Linnenbrink                          et al. 2024). Close to the estimated accuracy: the samples cover the area. Much lower: they                          are bunched, and the map far from them is less sure.",
+                        r.spatial_folds
+                    ),
+                );
+            }
             let bad = warns.iter().filter(|w| w.level > 0).count();
             let worst = warns.iter().map(|w| w.level).max().unwrap_or(0);
             card(
@@ -1147,6 +1272,7 @@ mod tests {
             checked: 76,
             accuracy: 0.9,
             shared: vec![(0, 1, true)],
+            spatial: f64::NAN,
             ..Default::default()
         }
     }
@@ -1172,9 +1298,26 @@ mod tests {
                 ClassStats { name: "B".into(), samples: 40, places: 40, ..Default::default() },
             ],
             checked: 70,
+            accuracy: 0.92,
+            spatial: f64::NAN,
             ..Default::default()
         };
         let w = warnings(&good);
         assert_eq!((w.len(), w[0].level), (1, 0));
+        assert_eq!(w[0].text, "The samples look consistent.");
+        // checked across the area too: it holds far from the samples
+        let spread = Report { spatial: 0.90, spatial_folds: 5, ..good.clone() };
+        let w = warnings(&spread);
+        assert_eq!((w.len(), w[0].level), (1, 0));
+        assert!(w[0].text.contains("cover the area"), "{}", w[0].text);
+        // bunched: 20 points lower far from them, the first thing to fix
+        let bunched = Report { spatial: 0.72, spatial_folds: 5, ..good.clone() };
+        let w = warnings(&bunched);
+        assert_eq!(w[0].level, 2);
+        assert!(w[0].text.starts_with("Bunched samples") && w[0].text.contains("72 %"), "{}", w[0].text);
+        // too few places to check it: said, once
+        let few = Report { spatial_note: "6 places: 10 or more".into(), ..good };
+        let w = warnings(&few);
+        assert!(w.iter().any(|x| x.level == 1 && x.text.starts_with("Not checked across the area: 6 places")));
     }
 }

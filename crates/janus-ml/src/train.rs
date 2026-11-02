@@ -37,6 +37,10 @@ pub struct TrainConfig {
     /// spatial folds (folds.rs; the forest cross-validates on all of them)
     #[serde(default)]
     pub folds: crate::folds::FoldSpec,
+    /// with spatial folds, the networks cross-validated: a network for each fold, trained on the others, predicts
+    /// it (`cross_validate`), before the one kept (which validates on one fold, as without)
+    #[serde(default)]
+    pub cross_validate: bool,
 }
 
 impl TrainConfig {
@@ -56,6 +60,7 @@ impl TrainConfig {
             class_weights: false,
             aoa_mahalanobis: false,
             folds: crate::folds::FoldSpec::default(),
+            cross_validate: false,
         }
     }
 
@@ -305,6 +310,68 @@ pub fn train(
 ) -> Result<Trained, String> {
     let split = split_by_place(y, places, classes, cfg.validation_split, cfg.seed);
     train_on(x, y, split, classes, arch, calendar, cfg, device, on_epoch, cancel)
+}
+
+/// What a cross-validation of networks gives: each sample predicted by the network that never saw its fold (those of
+/// a class the other folds lack are not), and the confusion (rows: the samples' classes; columns: the networks').
+pub struct CrossValidated {
+    pub predicted: Vec<(usize, u32)>,
+    pub confusion: Vec<Vec<u32>>,
+    pub folds: usize,
+    /// the epochs each fold's network trained, and its best
+    pub epochs: Vec<(usize, usize)>,
+}
+
+/// A network for each fold (`fold_of`: each sample's, 0..folds; a negative one always trained on, never tested),
+/// trained on the other folds, predicting it (the networks' answer to the forest's `cross_predict_folds`, sits'
+/// `sits_kfold_validate`). Each stops early on whole places of its training folds held out (`validation_split` of
+/// them, `split_by_place`), never on the fold it predicts. `on_fold(done, folds)` after each network.
+#[allow(clippy::too_many_arguments)]
+pub fn cross_validate(
+    x: &Series,
+    y: &[u32],
+    places: &[usize],
+    fold_of: &[i64],
+    folds: usize,
+    classes: usize,
+    arch: &Arch,
+    calendar: &Calendar,
+    cfg: &TrainConfig,
+    device: &Device,
+    on_fold: &mut dyn FnMut(usize, usize),
+    cancel: &AtomicBool,
+) -> Result<CrossValidated, String> {
+    let mut confusion = vec![vec![0u32; classes]; classes];
+    let mut predicted = Vec::new();
+    let mut epochs = Vec::new();
+    let xs = Tensor::<3>::from_data(TensorData::new(x.values.clone(), [x.n, x.t, x.b]), device);
+    for f in 0..folds {
+        let (test, rest): (Vec<usize>, Vec<usize>) = (0..x.n).partition(|&i| fold_of[i] == f as i64);
+        let present: std::collections::BTreeSet<u32> = rest.iter().map(|&i| y[i]).collect();
+        let test: Vec<usize> = test.into_iter().filter(|i| present.contains(&y[*i])).collect();
+        if test.is_empty() || present.len() < 2 || rest.len() < 2 {
+            on_fold(f + 1, folds);
+            continue;
+        }
+        // the training folds' own split, by place, for the early stopping
+        let (ys, ps): (Vec<u32>, Vec<usize>) = rest.iter().map(|&i| (y[i], places[i])).unzip();
+        let seed = cfg.seed.wrapping_add(f as u64 + 1);
+        let (a, b, how) = split_by_place(&ys, Some(&ps), classes, cfg.validation_split, seed);
+        let split = (a.iter().map(|&j| rest[j]).collect(), b.iter().map(|&j| rest[j]).collect(), how);
+        let fold_cfg = TrainConfig { seed, ..cfg.clone() };
+        let t = train_on(x, y, split, classes, arch, calendar, &fold_cfg, device, &mut |_| {}, cancel)?;
+        epochs.push((t.history.len(), t.best_epoch));
+        let (_, _, c, pred) = evaluate(&t.net, &xs, y, &test, cfg.batch_size.max(256), classes, None, device);
+        for (row, add) in confusion.iter_mut().zip(&c) {
+            for (a, b) in row.iter_mut().zip(add) {
+                *a += b;
+            }
+        }
+        predicted.extend(test.iter().copied().zip(pred));
+        on_fold(f + 1, folds);
+    }
+    predicted.sort_unstable();
+    Ok(CrossValidated { predicted, confusion, folds, epochs })
 }
 
 /// [`train`] on a split made already (`folds::holdout`'s): the training and validation indices, and how they were

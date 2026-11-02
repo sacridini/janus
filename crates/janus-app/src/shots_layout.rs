@@ -151,6 +151,7 @@ impl State {
             "stac",
             "regularize",
             "speckle",
+            "harmonize",
             "warp",
             "build",
             "save",
@@ -201,6 +202,7 @@ impl State {
         self.stac.show = false;
         self.reg.show = false;
         self.speckle.show = false;
+        self.harmonize.show = false;
         self.warp.show = false;
         self.build.show = false;
         self.save.show = false;
@@ -248,6 +250,7 @@ impl State {
                 "stac" => self.stac.show = true,
                 "regularize" => self.reg.show = true,
                 "speckle" => self.speckle.show = true,
+                "harmonize" => self.harmonize.show = true,
                 "warp" => self.warp.show = true,
                 "build" => self.build.show = true,
                 "save" => self.save.show = true,

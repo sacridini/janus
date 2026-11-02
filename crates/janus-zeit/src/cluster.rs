@@ -1,11 +1,26 @@
 //! Clusters of points: k-means (Lloyd's, started by k-means++ as scikit-learn's `KMeans`, the best of several
 //! starts) and Ward's hierarchical clustering (scipy's `linkage(method="ward")`, by the nearest-neighbour chain,
-//! cut into a number of clusters as `fcluster(criterion="maxclust")`). The spatial folds' (folds.rs) and the
-//! Classification window's clusters.
+//! cut into a number of clusters as `fcluster(criterion="maxclust")`). The spatial folds' (janus-ml's folds.rs)
+//! and the k-means tool's (kmeans.rs) clusters.
 
 use rayon::prelude::*;
 
-use crate::train::Rng;
+/// SplitMix64 (janus-ml's train::Rng: the same draws, the same folds as before the move here).
+pub struct Rng(u64);
+
+impl Rng {
+    pub fn new(seed: u64) -> Rng {
+        Rng(seed)
+    }
+
+    pub fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+}
 
 /// A uniform number in [0, 1).
 fn uniform(rng: &mut Rng) -> f64 {

@@ -273,3 +273,55 @@ fn forest_learns_and_classifies() {
 fn ltae_learns_and_classifies() {
     run(Arch::LTae(LTaeHyper::default()), 40, "ltae");
 }
+
+/// TempCNN cross-validated on 3 folds of places: every sample predicted by a network that never trained on its fold
+/// (each class has places in every fold), as right as one network validated on whole places.
+#[test]
+fn tempcnn_cross_validates() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join("janus-ml-test-cv");
+    make_cube(&dir);
+    let info = Arc::new(open_cube(&[dir.to_string_lossy().into_owned()], &BandSelection::default()).unwrap());
+    let inputs = vec![InputBand::source(&info, 1), InputBand::source(&info, 2)];
+    let calendar = Calendar::of(&info);
+    let mut rng = Rng::new(3);
+    let points: Vec<(usize, usize)> =
+        (0..240).map(|_| ((rng.next_u64() % W as u64) as usize, (rng.next_u64() % H as u64) as usize)).collect();
+    let mut s = read_points(&info, &inputs, &points);
+    let keep = fill_gaps(&mut s, &calendar.years, 50.0);
+    let idx: Vec<usize> = (0..s.n).filter(|&i| keep[i]).collect();
+    let mut s = s.select(&idx);
+    let y: Vec<u32> = idx.iter().map(|&i| class_at(points[i].0)).collect();
+    Norm::fit(&s).apply(&mut s);
+    let (dev, _) = device(false);
+    let arch = Arch::TempCnn(TempCnnHyper::default());
+    let cfg = TrainConfig { epochs: 20, ..TrainConfig::for_arch(&arch) };
+    let places: Vec<usize> = (0..y.len()).map(|i| i / 5).collect();
+    // the places dealt into 3 folds; a place in none (-1) always trained on
+    let fold_of: Vec<i64> = places.iter().map(|&p| if p % 7 == 6 { -1 } else { (p % 3) as i64 }).collect();
+    let mut done = vec![];
+    let c = janus_ml::train::cross_validate(
+        &s,
+        &y,
+        &places,
+        &fold_of,
+        3,
+        3,
+        &arch,
+        &calendar,
+        &cfg,
+        &dev,
+        &mut |d, of| done.push((d, of)),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    assert_eq!(done, [(1, 3), (2, 3), (3, 3)]);
+    assert_eq!(c.epochs.len(), 3);
+    let tested: Vec<usize> = (0..y.len()).filter(|&i| fold_of[i] >= 0).collect();
+    assert_eq!(c.predicted.iter().map(|p| p.0).collect::<Vec<_>>(), tested, "each sample of a fold, once");
+    let total: u32 = c.confusion.iter().flatten().sum();
+    assert_eq!(total as usize, tested.len());
+    let (oa, _, _) = janus_ml::train::accuracies(&c.confusion);
+    println!("tempcnn cross-validated: {oa:.3} on {} samples, epochs {:?}", tested.len(), c.epochs);
+    assert!(oa > 0.9, "cross-validated accuracy {oa}");
+}

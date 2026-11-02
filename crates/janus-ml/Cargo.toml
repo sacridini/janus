@@ -10,6 +10,7 @@ burn = { version = "0.22.1", default-features = false, features = ["std", "optim
 gdal.workspace = true
 gdal-sys.workspace = true
 janus-cube = { path = "../janus-cube" }
+janus-zeit = { path = "../janus-zeit" }
 rayon = "1.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }

@@ -56,6 +56,7 @@ pub(crate) enum Cmd {
     Calculator,
     Regularize,
     Speckle,
+    Harmonize,
     Warp,
     BuildSeries,
     SaveSeries,
@@ -279,6 +280,7 @@ impl State {
         let prep = format!("Tools > {}", janus_zeit::DATA_PREPARATION);
         add(Cmd::Regularize, &prep, "Regularize series...", "", None);
         add(Cmd::Speckle, &prep, "Speckle filter...", "radar Sentinel-1 Lee Quegan", None);
+        add(Cmd::Harmonize, &prep, "Harmonize sensors...", "Landsat Sentinel-2 HLS bandpass", None);
         add(Cmd::Warp, &prep, "Reproject, resample, clip...", "", None);
         add(Cmd::BuildSeries, "File", "Build series...", "", None);
         add(Cmd::SaveSeries, "File", "Save series as...", "", need(self.session.is_some(), "no series open"));
@@ -625,6 +627,7 @@ impl State {
             Cmd::Calculator => self.calc.show = true,
             Cmd::Regularize => self.reg.show = true,
             Cmd::Speckle => self.speckle.show = true,
+            Cmd::Harmonize => self.harmonize.show = true,
             Cmd::Warp => self.warp.show = true,
             Cmd::BuildSeries => self.build.show = true,
             Cmd::SaveSeries => self.save.show = true,

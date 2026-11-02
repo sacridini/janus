@@ -155,7 +155,7 @@ impl Default for MlUi {
             pins_by_class: true,
             new_class: String::new(),
             forest: ForestHyper::default(),
-            cfg: TrainConfig::tempcnn(),
+            cfg: window_cfg(TrainConfig::tempcnn()),
             cfg_arch: 0,
             min_valid: 50.0,
             presto_year: 0,
@@ -809,9 +809,11 @@ impl State {
 
         crate::panels::section(ui, "Settings");
         if self.ml.cfg_arch != self.ml.arch {
-            let (seed, aoa_mahalanobis) = (self.ml.cfg.seed, self.ml.cfg.aoa_mahalanobis);
+            let (seed, aoa_mahalanobis, cross_validate) =
+                (self.ml.cfg.seed, self.ml.cfg.aoa_mahalanobis, self.ml.cfg.cross_validate);
             let folds = std::mem::take(&mut self.ml.cfg.folds);
-            self.ml.cfg = TrainConfig { seed, aoa_mahalanobis, folds, ..TrainConfig::for_arch(&self.ml.arch()) };
+            self.ml.cfg =
+                TrainConfig { seed, aoa_mahalanobis, folds, cross_validate, ..TrainConfig::for_arch(&self.ml.arch()) };
             self.ml.cfg_arch = self.ml.arch;
         }
         if self.ml.arch == FOREST {
@@ -882,7 +884,9 @@ impl State {
         let gpu_name = if self.ml.gpu { "the GPU (wgpu), else the CPU" } else { "the CPU" };
         ui.checkbox(&mut self.ml.gpu, "Use the GPU").on_hover_text(format!("Trains and classifies on {gpu_name}"));
         if ui.small_button("sits' defaults").clicked() {
-            self.ml.cfg = TrainConfig::for_arch(&self.ml.arch());
+            // the training's; the validation (Validation, below) kept
+            let (folds, cross_validate) = (std::mem::take(&mut self.ml.cfg.folds), self.ml.cfg.cross_validate);
+            self.ml.cfg = TrainConfig { folds, cross_validate, ..TrainConfig::for_arch(&self.ml.arch()) };
         }
     }
 
@@ -1312,12 +1316,20 @@ impl State {
         } else {
             // models trained before the split by place have no "split": their validation drew samples
             let by = held_out(h.training["samples"]["split"].as_str().unwrap_or("samples"));
-            ui.label(format!(
-                "Validation: overall accuracy {:.1} % on {} samples ({by}; the model of epoch {})",
-                v["overall_accuracy"].as_f64().unwrap_or(f64::NAN) * 100.0,
-                h.training["samples"]["validation"],
-                h.training["best_epoch"]
-            ));
+            let oa = v["overall_accuracy"].as_f64().unwrap_or(f64::NAN) * 100.0;
+            let n = &h.training["samples"]["validation"];
+            match cross_validated(split).filter(|_| h.training["cross_validated"].as_bool() == Some(true)) {
+                Some(how) => ui.label(format!(
+                    "Overall accuracy {oa:.1} % on {n} samples ({how}, a network for each); the network kept, of \
+                     epoch {}, {:.1} % on its one fold",
+                    h.training["best_epoch"],
+                    h.training["kept_validation"]["overall_accuracy"].as_f64().unwrap_or(f64::NAN) * 100.0
+                )),
+                None => ui.label(format!(
+                    "Validation: overall accuracy {oa:.1} % on {n} samples ({by}; the model of epoch {})",
+                    h.training["best_epoch"]
+                )),
+            };
         }
         if janus_ml::folds::Method::of_name(split).is_some_and(|m| m != janus_ml::folds::Method::Places) {
             ui.weak(
@@ -1328,6 +1340,23 @@ impl State {
                 "Wadoux, Heuvelink, de Bruin & Brus 2021, Spatial cross-validation is not the right way to evaluate \
                  map accuracy, Ecological Modelling 457, 109692",
             );
+        }
+        // what it means, in plain words, and what to do
+        let names: Vec<String> = h.classes.iter().map(|c| c.name.clone()).collect();
+        let advice = crate::ml_advice::advise(&h.training, &names);
+        if !advice.is_empty() {
+            crate::panels::section(ui, "What this means");
+            for a in &advice {
+                let color = match a.level {
+                    2 => crate::theme::error(),
+                    1 => crate::theme::warning(),
+                    _ => ui.visuals().text_color(),
+                };
+                ui.horizontal_wrapped(|ui| {
+                    ui.colored_label(color, if a.level == 0 { "\u{2022}" } else { "\u{26a0}" });
+                    ui.colored_label(color, &a.text);
+                });
+            }
         }
         let pct =
             |x: &Value| x.as_f64().filter(|v| v.is_finite()).map_or("-".to_string(), |v| format!("{:.0}%", v * 100.0));
@@ -1932,7 +1961,9 @@ pub(crate) fn train_job(
         None
     } else {
         set(0.01, "dealing the places into folds");
-        let f = crate::folds_ui::make_folds(
+        // folds that cannot be made (too few places, a series without georeference): whole places at random, said
+        // in the log, rather than no training
+        match crate::folds_ui::make_folds(
             info,
             &inputs,
             sites,
@@ -1943,13 +1974,20 @@ pub(crate) fn train_job(
             cfg.seed,
             threads,
             &|m| log.line(m),
-        )?;
-        let path = std::path::Path::new(model_path).with_extension("folds.gpkg");
-        match crate::folds_ui::save_folds(&path, &f, sites, info) {
-            Ok(_) => log.line(&format!("folds: {}", path.display())),
-            Err(e) => log.line(&format!("the folds were not written: {e}")),
+        ) {
+            Ok(f) => {
+                let path = std::path::Path::new(model_path).with_extension("folds.gpkg");
+                match crate::folds_ui::save_folds(&path, &f, sites, info) {
+                    Ok(_) => log.line(&format!("folds: {}", path.display())),
+                    Err(e) => log.line(&format!("the folds were not written: {e}")),
+                }
+                Some(f)
+            }
+            Err(e) => {
+                log.line(&format!("{} folds not made ({e}): whole places at random instead", cfg.folds.method.label()));
+                None
+            }
         }
-        Some(f)
     };
     if let Arch::RandomForest(h) = arch {
         return forest_job(
@@ -1973,7 +2011,46 @@ pub(crate) fn train_job(
     }
     let dev = shared_device(gpu);
     log.line(&format!("device: {}", dev.1));
-    set(0.02, &format!("training on {} samples ({})", x.n, dev.1));
+    // with folds, if asked: a network for each fold, trained on the others, predicts it (every sample's validation);
+    // the network kept is trained after, validating on one fold
+    let cv = folds.as_ref().filter(|f| cfg.cross_validate && f.method.has_folds());
+    let crossed = match cv {
+        Some(f) => {
+            log.line(&format!("cross-validation: a network for each of {} folds, trained on the others", f.k));
+            let fold_of = crate::folds_ui::sample_folds(f, &places);
+            let mut on_fold = |done: usize, of: usize| {
+                set(0.02 + 0.6 * done as f64 / of as f64, &format!("cross-validation: fold {done} of {of}"))
+            };
+            set(0.02, &format!("cross-validation: fold 1 of {} ({})", f.k, dev.1));
+            let c = janus_ml::train::cross_validate(
+                &x,
+                &y,
+                &places,
+                &fold_of,
+                f.k,
+                classes.len(),
+                arch,
+                &calendar,
+                cfg,
+                &dev.0,
+                &mut on_fold,
+                cancel,
+            )?;
+            let (oa, _, _) = janus_ml::train::accuracies(&c.confusion);
+            for (k, (n, best)) in c.epochs.iter().enumerate() {
+                log.line(&format!("fold network {}: {n} epochs, the best {best}", k + 1));
+            }
+            log.line(&format!(
+                "cross-validated overall accuracy {oa:.4} on {} samples ({} of a class no other fold has, not predicted)",
+                c.predicted.len(),
+                x.n - c.predicted.len()
+            ));
+            Some(c)
+        }
+        None => None,
+    };
+    let (from, span) = if crossed.is_some() { (0.62, 0.37) } else { (0.02, 0.97) };
+    set(from, &format!("training on {} samples ({})", x.n, dev.1));
     let epochs = cfg.epochs;
     let mut on_epoch = |e: &Epoch| {
         log.line(&format!(
@@ -1982,13 +2059,20 @@ pub(crate) fn train_job(
         ));
         run.lock().unwrap().epochs.push(e.clone());
         set(
-            0.02 + 0.97 * e.epoch as f64 / epochs as f64,
+            from + span * e.epoch as f64 / epochs as f64,
             &format!("epoch {}: validation accuracy {:.1} %", e.epoch, e.val_acc * 100.0),
         );
     };
     let split = crate::folds_ui::holdout(folds.as_ref(), &places, &y, classes.len(), cfg);
-    let trained =
+    let mut trained =
         janus_ml::train::train_on(&x, &y, split, classes.len(), arch, &calendar, cfg, &dev.0, &mut on_epoch, cancel)?;
+    // the validation reported, and the error profile of the area of applicability: the cross-validation's
+    let one_fold = trained.accuracies().0;
+    if let Some(c) = &crossed {
+        log.line(&format!("the network kept: validation overall accuracy {one_fold:.4} on its one fold"));
+        (trained.n_val, trained.confusion, trained.held_out) =
+            (c.predicted.len(), c.confusion.clone(), c.predicted.clone());
+    }
     let (oa, _, _) = trained.accuracies();
     log.line(&format!(
         "best epoch {} of {}{}; validation overall accuracy {:.4} on {} samples ({})",
@@ -2001,6 +2085,10 @@ pub(crate) fn train_job(
     ));
     let mut training = trained.summary(cfg, &per_class);
     training["device"] = json!(dev.1);
+    if crossed.is_some() {
+        training["cross_validated"] = json!(true);
+        training["kept_validation"] = json!({ "overall_accuracy": one_fold });
+    }
     if let Some(f) = &folds {
         training["samples"]["folds"] = crate::folds_ui::summary(f, &cfg.folds, crate::folds_ui::Frame::of(info));
     }
@@ -2031,6 +2119,19 @@ pub(crate) fn train_job(
     model.save(model_path)?;
     log.line(&format!("model: {model_path}"));
     Ok(header)
+}
+
+/// The Classification window's training settings: an architecture's (`base`, sits'), validated by default on
+/// kNNDM folds (CAST's spatial cross-validation, which needs no setting: the places dealt so that the distances
+/// between folds are those from the map to the samples) and, for the networks, cross-validated on them: the accuracy
+/// reported is the one to expect on the map's places, not only near the samples. Too few places for folds: whole
+/// places at random (said in the log).
+pub(crate) fn window_cfg(base: TrainConfig) -> TrainConfig {
+    TrainConfig {
+        folds: janus_ml::folds::FoldSpec { method: janus_ml::folds::Method::Knndm, ..Default::default() },
+        cross_validate: true,
+        ..base
+    }
 }
 
 /// How a training's validation was held out (its summary's "split"; samples in models made before it was kept).

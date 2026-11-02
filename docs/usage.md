@@ -340,6 +340,7 @@ answer. Long calls report their progress and stop when the client cancels them.
 | `run_tool` | a Zeit tool on a series or an area of it (BFAST, CCDC, LandTrendr, trends, phenology...); TWDTW from samples (each class's mean series its pattern); the tools on maps (agreement of change maps) on `maps` |
 | `regularize` | a fixed step (16 days, month, year): median, medoid or clearest date, gaps filled |
 | `speckle` | a radar series through Quegan's multitemporal filter or Lee's |
+| `harmonize` | Sentinel-2 taken to Landsat 8's OLI by HLS's bandpass adjustment (Landsat 7 and 4-5 by Roy et al. 2016 if asked); with `join`, a second series on the same grid joined in time |
 | `warp` | a raster reprojected, resampled, clipped (gdalwarp) |
 | `zonal` | each polygon's statistics, or areas of each class or change year, of maps; a CSV |
 | `areas` | the area of each class or change year of maps (each pixel's own area); a CSV |
@@ -408,6 +409,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Raster calculator | **Tools → Raster calculator...**: an expression over the open layers, each by a short name in the *Layers* list (`s2.nir`, `dem`, `"any layer".band4`); bare band names are the active layer's. A series with an image uses the image at every date; two series are matched by date (the same day, the nearest within N days, the same month or year: a date without a match is no data); a layer on another grid is resampled, in another CRS reprojected (*Options*: whose dates, whose grid, the resampling, the quality masks). Operators `+ - * / % ^ < <= > >= == != and or not`, `name = expression` lines, rules `condition = value` (the result starts from the condition's first operand, or `result = ...`; `x == nan` tests no data), functions (`where`, `coalesce`, `clamp`, `nd`, `bit`, `qa`, math...), the date's `year`, `month`, `doy`... One argument of `max`, `min`, `mean`, `sum`, `median`, `std` (the population's, numpy's), `count`, `percentile` reduces a series over time to an image (no data skipped; `ndvi - mean(ndvi)` is each date's anomaly); `at(ndvi, 2003)` is one of its dates (a year, `200307` a month, `20030715` a day; the *Layers* list gives each date's), `at(ndvi, 2020) - at(ndvi, 1990)` two of them. Over time, in the series' real dates: `argmax(ndvi)`/`argmin` the date (decimal year) of the largest/smallest value, `first(ndvi < 0.3 and year >= 2020)`/`last(...)` of the first/last date a condition held, `longest(ndvi < 0.3)` the longest it held in days, `persist(ndvi < 0.3, 3)` 1 where the last 3 observations held; slices of the calendar `median(ndvi[2019-06 .. 2019-09])`, `mean(ndvi[11 .. 2])` (those months of every year); periods `max(ndvi) by year`, `mean(ndvi) by month` (a series of the years or months); windows `mean(ndvi, 90d)` (the dates of the 90 days up to each, `w` weeks, `y` years); lags `ndvi[-1]`, `lag(ndvi, 2)` (the pixel's previous observations with a value), `lag(ndvi, 1y)` (the nearest date a year before); `anomaly(ndvi, base=2015..2019, by=month)` (each date's z-score against its month in the base years; `by=doy, window=15d`). **Live** shows the result on the map as it is typed (the overview's size, a layer marked preview; a reduction drawn as its dates are read, "max so far: 23 of 107 dates"; a series at the date shown); **Chart** gives its values at the cursor or the first pin under the editor (the result's series, or an image's value with the values its reductions reduce; a part of the text selected drawn too). A reduction read by several dates (`ndvi - mean(ndvi)`, an anomaly's climatology, `(s - min(s)) / (max(s) - min(s))`) is computed once, on every thread, into an image beside the result, by a virtual layer too (each date computed it again); a result's overview reads only the rows it shows, as a series' own does, also through a lag's or a window's VRTs (41 dates of 7318 × 7329, 8 threads: `s - mean(s)` 7 s + 5 s, `s * 2` 2 s, `mean(s, 3y)` 6 s, `s - s[-1]` 23 s). While a result's dates are computed, a bar on the map and one in the calculator say so (`Computing "calc": 12 of 41 dates`). The editor colours the text, completes names (`Tab`/`Enter`, `Ctrl+Space`), explains the name under the pointer and underlines an error as it is typed; `Ctrl+Enter` or **Run** adds the result as a layer: VRTs computed as the map reads them, or cloud-optimized GeoTIFFs (a task). History and favourites kept; *Examples*; the index library inserts formulas. `--calc TEXT [--calc-run]` |
 | Regularize series | **Tools → Data preparation → Regularize series...**: the active series at a fixed step (8 or 16 days, monthly, yearly, any number of days; periods from the first date's day, month or year, as pandas' resample, the empty ones too): each period's **median** (each band's), **medoid** (the observation nearest the bands' medians, so its bands come from one date; zeit.regularize_time_series) or **clearest date** (the value of the period's date with the most clear pixels that has one); the band, index or expression shown with its quality mask, or every band (masked). Empty periods left empty, or filled **linearly** in time or from a **Whittaker** curve (λ; the values kept, the ends not extended) when the values around are at most N days apart. On the whole layer or the ROI, in blocks of rows on the processing threads; a COG per regular date (`<name>_<YYYYMMDD>.tif`) in a folder that opens as a new series when done (a task in Tools → Tasks; its provenance kept) |
 | Speckle filter | **Tools → Data preparation → Speckle filter...**: a radar series (Sentinel-1's VV and VH) through **Quegan's multitemporal filter** (each date's window mean times the mean, over the dates with a value, of each date's value over its own window mean; Quegan & Yu 2001: the speckle averaged through time, each date's changes kept) or **Lee's** (each date alone: the window's mean plus the pixel's departure from it, weighted by how much more the window varies than the speckle of L looks does; Lee 1980; Sentinel-1 IW GRDH 4.4 looks); a window of 3 to 15 pixels, cut by the series' edges, counting the pixels with a value only. Every band of every date on the linear values (not dB), the whole layer or the ROI, in blocks of rows on the processing threads; a COG per date in a folder that opens as a new series shown as the one filtered (its dB) |
+| Harmonize sensors | **Tools → Data preparation → Harmonize sensors...** (zeit's `bandpass_adjust`): a series that mixes Landsat and Sentinel-2 has a step wherever the sensor changes, which CCDC or BFAST read as a break. The Sentinel-2 dates go through the **bandpass adjustment of HLS** (Claverie et al. 2018; HLS v2.0 User Guide, table 5): a line per band and unit (2A, 2B, 2C; unknown taken as 2A), `OLI = slope × MSI + intercept`, for the coastal, blue, green, red, narrow NIR (B8A) and SWIR bands; Landsat 8 and 9 stay as they are (OLI is the reference, as in HLS). Landsat 7 and 4-5 stay as they are too unless asked: then Roy et al. 2016's lines (reduced major axis or least squares), fitted on pre-collection data. Each date's sensor comes from its scene (the STAC item a search's VRT records, else the file's name: `S2B_MSIL2A_...`, `LC08_L2SP_...`) or is chosen for all; HLS products are refused (already adjusted). Sentinel-2's broad NIR (B08) has no line and is left as it is (search with B8A to adjust it). The values are reflectance or reflectance × 10000, as found (the intercepts scaled). **Join with** another open series on the same grid (a Sentinel-2 search and a Landsat one, the second reprojected onto the first's grid): both adjusted, their dates in one series, the bands they share named by role (Blue, Green, Red, NIR (narrow), SWIR 1, SWIR 2), in the units of the first, each masked by its own quality band. Only HLS's bandpass step, not its atmospheric correction or BRDF normalization. The whole layer or the ROI; a COG per date in a folder that opens as a new series; `--window harmonize[-run]` |
 | Polygonize | **Polygonize...** in the menu of a run's map or of a series (its date shown) in the Layers panel: the map's patches (pixels of one value, 4 or 8 neighbours) as polygons in a GeoPackage that opens as a vector layer, each with its `value`, `class` (the class names), `date` (a map of years), `area_ha` and `perimeter_m` (geodesic, on the CRS's ellipsoid), `pixels` and the mean of another map of the same grid (`mean_<map>`, a loss's magnitude). A **minimum area** first merges the smaller patches into the neighbour they share the longest border with (the minimum mapping unit of Post-process), a patch with none is left out; the outlines can be **simplified** (a tolerance in metres, their topology kept). A task in Tools → Tasks; its provenance kept |
 | Rasterize | **Rasterize on the series' grid...** in a vector layer's menu: its features burned on the active series' grid (its CRS, origin, pixel size and size; the features reprojected to it) through GDAL's own rasterizer (the same pixels as `gdal_rasterize`): **1 inside, 0 outside** (a mask), **the feature's number** (1, 2... in reading order) or **an attribute** (a number as it is; a text as **classes**, numbered by name, their names and colours on the layer); the pixels whose **centre** is inside or **every pixel touched**; a later feature over an earlier one. A task whose GeoTIFF opens as a layer, ready as a Zeit tool's mask (*Only where ... is not 0*, under its scope); its provenance kept |
 | Zonal statistics over time | **Zonal statistics over time...** in a vector layer's menu: each feature is a zone (its pixels those whose centre is inside, or every pixel touched; a pixel in several features counts in each), through every date of the active series or a run's map, on every feature or within the ROI: for **values** each date's count, mean, standard deviation, least, percentiles 10, 25, 50, 75, 90 and largest; for **classes** each class's pixels and area (each pixel's true area, as in Areas) at every date and the **transitions** between two dates; for a **map of change dates** the area by year. The zones named by an attribute or their FID. A task writing `zonal_long.csv` (a row per feature and date, and class), `zonal_wide.csv` (a row per feature, a column per date: the statistic chosen, or each class's ha), `transitions.csv`, and a GeoPackage of the features with those columns added, opened as a layer; Analysis → Zonal draws a feature's series; its provenance kept |
@@ -439,7 +441,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Export progress | File → Exports (`Ctrl+J`; opens by itself with each export): progress, cancel, open the folder |
 | Shortcuts on a Mac | `Command` instead of `Ctrl` (e.g. `Command+E`, `Command+Shift+S`) |
 | Series as text | **Copy CSV** in the Time series and Transect panels |
-| Zeit tools | **Tools** menu, grouped by the question asked in the order of a workflow (*Data preparation*: Tmask, Smoothing, Regularize, Speckle filter, Reproject; *Spectral analysis*: NDFI, spectral unmixing; *Temporal dynamics*: phenology, Mann-Kendall, AR(1) trend; *Change detection*; *Spatial pattern analysis*: emerging hot spots, SNIC, texture; *Classification & pattern recognition*: TWDTW, SOM, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
+| Zeit tools | **Tools** menu, grouped by the question asked in the order of a workflow (*Data preparation*: Tmask, Smoothing, Regularize, Speckle filter, Harmonize sensors, Reproject; *Spectral analysis*: NDFI, spectral unmixing; *Temporal dynamics*: phenology, Mann-Kendall, AR(1) trend; *Change detection*; *Spatial pattern analysis*: emerging hot spots, SNIC, texture; *Classification & pattern recognition*: TWDTW, SOM, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
 | Zeit logs | **Tools → Log** (or **Log** next to a task): the log of each raster run, followed live (what ran, its progress, outputs, the end or the error); Copy, open the file or its folder |
 | Tool results | layers of their own in the **Layers** panel (over the rasters): show/hide, order, groups, colormap, range, opacity; their values at the cursor and pins, histogram and statistics in **Pixel values** (hide the series) |
 | Embeddings | **View → Embeddings**: principal components as RGB (of every year, or *local* to the ROI), similarity to the cursor, a pin or the ROI, change between years; see [Embeddings](#embeddings) |
@@ -732,7 +734,14 @@ without one).
     (mislabelled, or a mixed place: their pins ringed in red on the map),
     samples of different classes on the same pixel, classes of few samples or
     few places, unbalanced classes, classes taken for one another, samples
-    left out for too few dates with a value (a click shows those samples);
+    left out for too few dates with a value (a click shows those samples),
+    and **bunched samples**: with 10 places or more, the forests are
+    cross-validated again on kNNDM folds (as far from the training as the map
+    is from the samples); an accuracy 5 points below the place-by-place one or
+    more ("somewhat bunched"; 10 points: "bunched") says that the samples
+    cover the area unevenly and the map far from them will do worse: samples
+    from the places left out help. The summary shows it as the accuracy
+    *far from the samples*;
   - each class's **typical series**: its mean and p10-p90 band on each date
     (of the value chosen), where the classes part and where they overlap;
   - the **samples' table**: each pin or place with its class (a pin's changed
@@ -788,8 +797,10 @@ without one).
   model learned from (blockCV, Valavi et al. 2019; CAST's kNNDM, Linnenbrink et
   al. 2024; as Zeit's `spatial_folds`). Each place (a polygon, a pin) is a
   point, its pixels' middle, in metres.
-  - *Whole places at random* (the default): the validation share of each
-    class's places.
+  - *kNNDM* (the default, *recommended*): see below. If its folds cannot be
+    made (too few places, no coordinates), the training says so and holds out
+    whole places at random instead.
+  - *Whole places at random*: the validation share of each class's places.
   - *Spatial blocks*: a grid of hexagons or squares, the blocks dealt into
     *Folds* at random (the most even of 100 draws, each fold near a k-th of
     each class's places), in rows, or as a checkerboard (squares, 2 folds).
@@ -814,9 +825,13 @@ without one).
 
   With folds, the **forest is cross-validated**: a forest for each fold,
   grown on the others, predicts its samples (the confusion matrix is of every
-  sample), and the forest kept is grown on all of them. A **network**
-  validates, and stops early, on one fold: the one whose classes the others
-  keep best. The area of applicability takes the folds as CAST does (each
+  sample), and the forest kept is grown on all of them. A **network** is
+  **cross-validated** too (*Cross-validate*, on by default; k+1 trainings): a
+  network for each fold, trained on the others and stopping early on places
+  of its own training, predicts its fold, and the confusion matrix is of
+  every sample; the network kept validates, and stops early, on one fold (the
+  one whose classes the others keep best), its accuracy there shown beside.
+  Off, the network is only trained on that split. The area of applicability takes the folds as CAST does (each
   sample's dissimilarity to the samples of the other folds), and its error
   profile the cross-validation's predictions. *Show the folds on the map*
   makes them now and opens them as a vector layer coloured by fold (the
@@ -831,6 +846,18 @@ without one).
   as near the map's distances (W 130.4 against 129.7, from different random
   draws) in 0.03 s against 0.07 s (k-means: 1.0 s against 3.2 s), for 1000
   places.
+- **What this means** (the Model tab, after a training, or a model opened):
+  the validation read in plain words, the most pressing first: how good the
+  accuracy is (good from 85 %, fair from 70 %) and how it was measured (as
+  far from the training as the map, on places at random, or on pixels of the
+  places learned from); with fewer than 100 validation samples, the range
+  the accuracy could be in (95 %); each class found less than 70 % of the
+  time and the class it is taken for, with what to do (samples of both, from
+  more places, where they differ; or join them); a network that learned its
+  samples by heart (15 points more on them than on the others); a forest
+  whose out-of-bag accuracy is far above its spatial one (neighbouring
+  samples alike); kNNDM suggested when the validation was not spatial; and
+  that the map's own accuracy comes from a probability sample.
 - **Beside the series** (the forest's settings): rasters on the series' grid
   read as further predictors, one value each a sample after its series'
   values: the maps of runs on the series (**Texture (GLCM)**'s above all, see

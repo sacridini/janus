@@ -627,7 +627,7 @@ impl State {
             // a category with a tool open is marked
             let any_open = tools.iter().any(|t| self.zeit.tools.get(&t.id).is_some_and(|u| u.open))
                 || classification && (self.ml.open || self.fields.show)
-                || preparation && (self.reg.show || self.speckle.show || self.warp.show);
+                || preparation && (self.reg.show || self.speckle.show || self.harmonize.show || self.warp.show);
             let label = format!("{c}{}", if any_open { "  \u{25cf}" } else { "" });
             ui.menu_button(label, |ui| {
                 for t in tools {
@@ -703,6 +703,17 @@ impl State {
             .clicked()
         {
             self.speckle.show = !self.speckle.show;
+            ui.close();
+        }
+        if ui
+            .add(egui::Button::selectable(self.harmonize.show, "Harmonize sensors..."))
+            .on_hover_text(
+                "Sentinel-2 taken to Landsat 8's bands by HLS's bandpass adjustment, so that a series mixing
+                 sensors has no step where the sensor changes; joined with another series on its grid; COGs",
+            )
+            .clicked()
+        {
+            self.harmonize.show = !self.harmonize.show;
             ui.close();
         }
         if ui

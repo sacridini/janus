@@ -1364,7 +1364,16 @@ pergunta do usuário, na ordem de um fluxo de trabalho.
   ferramenta, e dentro de Tools ficaria escondido.
 - **Não pôr no menu o que não existe.** A harmonização de sensores já
   existe no Zeit (fase 16: `bandpass_adjust`, o HLS no `build_time_series`),
-  falta só expô-la no Janus (Data preparation). Da proposta faltam: agrupamento
+  falta só expô-la no Janus (Data preparation). **Feito (2026-11-02, sem
+  versão)**: Tools > Data preparation > Harmonize sensors
+  (`janus_zeit::harmonize`, `harmonize_ui.rs`, a ferramenta `harmonize` do
+  MCP): as retas do HLS v2.0 por unidade do Sentinel-2 (2A, 2B, 2C; sem
+  unidade, a da 2A) e, se pedido, as de Roy et al. 2016 para o Landsat 7 e
+  4-5; o sensor de cada data pelo item STAC que o VRT guarda (`STAC_ITEMS`)
+  ou pelo nome do arquivo, ou escolhido; HLS recusado; o NIR largo (B08) fica
+  como está; valores em reflectância ou × 10000 (achado como o `scale="auto"`
+  do Zeit); juntar com outra série aberta na mesma grade (bandas em comum
+  por papel, nas unidades da primeira), como a lista de cubos do Zeit. Da proposta faltam: agrupamento
   espacial além do Gi* dos hot spots (LISA, Moran local), classificação de ML
   clássica (Random Forest a partir de pinos/amostras; hoje só deep learning)
   e índices espectrais como ferramenta (hoje vêm da biblioteca ao abrir e da
@@ -1478,14 +1487,32 @@ olhar os folds no mapa.
   linhas ou xadrez, buffer, k-means dos valores, kNNDM; `cluster.rs`: k-means
   e Ward), com o kNNDM e o variograma do zeit-core. Os mesmos blocos, buffers e
   grupos de Ward do Zeit, o kNNDM com o mesmo W e 2-3x mais rápido
-  (`tests/folds_zeit.rs`). Na janela de classificação, *Validation*: lugares
+  (`tests/folds_zeit.rs`). **Validação cruzada das redes feita (2026-11-02,
+  sem versão)**: com folds, *Cross-validate: a network for each fold*
+  (`TrainConfig::cross_validate`, `train::cross_validate`): cada fold previsto
+  por uma rede treinada nos outros (parando cedo em lugares inteiros dos seus
+  próprios folds, nunca no fold que prevê), a acurácia e o perfil de erro da
+  AOA a partir delas; a rede guardada treinada depois, validando num fold. Na janela de classificação, *Validation*: lugares
   ao acaso, blocos (tamanho pelo alcance da autocorrelação), buffer, clusters,
   kNNDM; a floresta faz validação cruzada em todos os folds e as redes validam
   num fold; a AOA usa os folds como o CAST; *Show the folds on the map* abre os
   folds como camada (GeoPackage); a nota de Wadoux et al. 2021 junto da
   acurácia. Falta: kNNDM e clusters no espaço das variáveis para o mapa
-  (o kNNDM usa o espaço geográfico), e a validação cruzada das redes (um
-  treino por fold).
+  (o kNNDM usa o espaço geográfico).
+- **Validação cruzada por padrão, para quem não conhece os conceitos (feito
+  2026-11-02, sem versão)**: a janela de classificação abre com *kNNDM*
+  (*recommended*) e, nas redes, *Cross-validate* ligado; se os folds não saem
+  (poucos lugares), o treino avisa e volta a lugares inteiros ao acaso. A
+  checagem das amostras, ao juntá-las, valida de novo as florestas rápidas em
+  folds kNNDM (com 10 lugares ou mais): 5 pontos abaixo da validação por
+  lugar, "amostras um pouco agrupadas"; 10, "agrupadas" (o mapa longe delas
+  vai pior; amostrar onde faltam); o resumo mostra a acurácia "far from the
+  samples". Na aba Model, *What this means* (`ml_advice.rs`): o veredito
+  (bom ≥ 85 %, razoável ≥ 70 %) e como foi medido, o intervalo com menos de
+  100 amostras, as classes fracas e com o que se confundem (o que fazer), a
+  rede que decorou as amostras, o out-of-bag da floresta muito acima da
+  validação espacial, o kNNDM sugerido se a validação não foi espacial, e a
+  acurácia do mapa por amostra probabilística.
 
 ### Visualizações depois da 1.6.7 (2026-10-31)
 O que funcionou: visões ligadas ao mapa que respondem uma pergunta simples (o

@@ -577,6 +577,7 @@ pub struct State {
     pub build: crate::series_ui::BuildUi,
     pub save: crate::series_ui::SaveUi,
     pub speckle: crate::speckle_ui::SpeckleUi,
+    pub harmonize: crate::harmonize_ui::HarmonizeUi,
     /// the status bar and the notices of tasks that end
     pub status: crate::status::StatusUi,
     /// the command palette (Ctrl+K)
@@ -971,6 +972,7 @@ impl JanusApp {
                 build: Default::default(),
                 save: Default::default(),
                 speckle: Default::default(),
+                harmonize: Default::default(),
                 status: Default::default(),
                 palette: Default::default(),
                 nav: Default::default(),
@@ -1235,6 +1237,12 @@ impl State {
                     self.speckle.show = true;
                     if run {
                         self.speckle_run(ctx);
+                    }
+                }
+                "harmonize" => {
+                    self.harmonize.show = true;
+                    if run {
+                        self.harmonize_run(ctx);
                     }
                 }
                 "warp" => {
@@ -2671,6 +2679,7 @@ impl eframe::App for JanusApp {
         self.state.calculator_window(&ctx);
         self.state.regularize_window(&ctx);
         self.state.speckle_window(&ctx);
+        self.state.harmonize_window(&ctx);
         self.state.polygonize_window(&ctx);
         self.state.fields_window(&ctx);
         self.state.pump_areas();

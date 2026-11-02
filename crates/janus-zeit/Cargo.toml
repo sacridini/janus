@@ -10,6 +10,7 @@ gdal.workspace = true
 gdal-sys.workspace = true
 geographiclib-rs = "0.2.7"
 janus-cube = { path = "../janus-cube" }
+rayon = "1.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 # Zeit 2.0.0 (its core is Rust only) with remotePARTS's methods (ar_reml, gls, spatial, parts) and the recovery

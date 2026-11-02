@@ -62,14 +62,10 @@ pub(crate) fn fill_gaps(v: &[f64], t: usize, x: &[f64], p: &Params) -> Vec<f64> 
     out
 }
 
-/// The SOM trained on a sample of the window (`sample`: [T][pixels] of rows spread over it): its prototypes
-/// (the neurons a sampled pixel chose) and the clusters' names and typical series.
-pub fn fit(p: &Params, sample: &Chunk, ctx: &JobCtx) -> Result<Value, String> {
-    let (gx, gy) = (p.int("x"), p.int("y"));
-    let k_n = (gx * gy) as usize;
-    if gx * gy > MAX_CLUSTERS {
-        return Err(format!("ValueError: at most {MAX_CLUSTERS} clusters (columns x rows), got {gx} x {gy}"));
-    }
+/// The pixels of a sample of the window (`sample`: [T][pixels] of rows spread over it) a model is fitted on: up to
+/// 3 x the "sample" parameter of those with a value (drawn with the seed), their gaps filled (`fill_gaps`), those
+/// still with a gap left out; [n][T].
+pub(crate) fn sampled_series(p: &Params, sample: &Chunk, ctx: &JobCtx) -> Vec<f64> {
     let t = sample.t;
     let flat = sample.by_pixel(&sample.stack);
     let mut cand: Vec<usize> =
@@ -84,10 +80,24 @@ pub fn fit(p: &Params, sample: &Chunk, ctx: &JobCtx) -> Result<Value, String> {
     }
     let picked: Vec<f64> = cand.iter().flat_map(|&i| flat[i * t..(i + 1) * t].iter().copied()).collect();
     let filled = fill_gaps(&picked, t, &ctx.input.years, p);
-    let x: Vec<f64> = (0..cand.len())
+    (0..cand.len())
         .filter(|&i| filled[i * t..(i + 1) * t].iter().all(|v| v.is_finite()))
         .flat_map(|i| filled[i * t..(i + 1) * t].iter().copied())
-        .collect();
+        .collect()
+}
+
+/// The SOM trained on a sample of the window (`sample`: [T][pixels] of rows spread over it): its prototypes
+/// (the neurons a sampled pixel chose) and the clusters' names and typical series.
+pub fn fit(p: &Params, sample: &Chunk, ctx: &JobCtx) -> Result<Value, String> {
+    let (gx, gy) = (p.int("x"), p.int("y"));
+    let k_n = (gx * gy) as usize;
+    if gx * gy > MAX_CLUSTERS {
+        return Err(format!("ValueError: at most {MAX_CLUSTERS} clusters (columns x rows), got {gx} x {gy}"));
+    }
+    let t = sample.t;
+    let n_sample = p.int("sample").max(1) as usize;
+    let seed = p.int("seed").max(0) as u64;
+    let x = sampled_series(p, sample, ctx);
     let n = x.len() / t.max(1);
     if n < k_n {
         return Err(format!("ValueError: only {n} sampled pixels have enough values for {k_n} clusters"));

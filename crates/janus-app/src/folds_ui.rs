@@ -467,14 +467,20 @@ impl State {
         let forest = self.ml.arch == crate::ml::FOREST;
         let unit = Frame::of(info).unit();
         let spec = &mut self.ml.cfg.folds;
+        ui.weak(
+            "How the accuracy is measured: on samples the model did not learn from. Samples next to those it learned              from are easy, and the accuracy they give is too good for the map far from them; kNNDM (the default)              tests on places as far from the training as the map is.",
+        );
+        let label = |m: Method| {
+            if m == Method::Knndm { format!("{} (recommended)", m.label()) } else { m.label().to_string() }
+        };
         egui::Grid::new("ml folds").num_columns(2).show(ui, |ui| {
             ui.label("Validation").on_hover_text(method_help(spec.method));
             ComboBox::from_id_salt("ml folds method")
-                .selected_text(spec.method.label())
-                .width(crate::fit::scaled(ui, 220.0))
+                .selected_text(label(spec.method))
+                .width(crate::fit::scaled(ui, 260.0))
                 .show_ui(ui, |ui| {
                     for m in Method::ALL {
-                        ui.selectable_value(&mut spec.method, m, m.label()).on_hover_text(method_help(m));
+                        ui.selectable_value(&mut spec.method, m, label(m)).on_hover_text(method_help(m));
                     }
                 });
             ui.end_row();
@@ -529,12 +535,29 @@ impl State {
             }
         });
         if spec.method.has_folds() {
-            ui.weak(if forest {
-                "Cross-validated: a forest for each fold, grown on the others, predicts it; the forest kept is \
-                 grown on all the samples."
+            if forest {
+                ui.weak(
+                    "Cross-validated: a forest for each fold, grown on the others, predicts it; the forest kept is \
+                     grown on all the samples.",
+                );
             } else {
-                "The network validates (and stops early) on one fold: the one whose classes the others keep best."
-            });
+                let k = spec.k;
+                ui.checkbox(
+                    &mut self.ml.cfg.cross_validate,
+                    format!("Cross-validate: a network for each fold ({} trainings)", k + 1),
+                )
+                .on_hover_text(
+                    "Each fold predicted by a network trained on the other folds (each stopping early on whole \
+                         places of its own folds): the accuracy of every sample on places the network never saw, \
+                         and the error profile of the area of applicability from them. Then the network kept, \
+                         validating on one fold.",
+                );
+                ui.weak(if self.ml.cfg.cross_validate {
+                    "The accuracy is the cross-validation's; the network kept validates (and stops early) on one fold."
+                } else {
+                    "The network validates (and stops early) on one fold: the one whose classes the others keep best."
+                });
+            }
         }
         if spec.method != Method::Places {
             ui.horizontal_wrapped(|ui| {
