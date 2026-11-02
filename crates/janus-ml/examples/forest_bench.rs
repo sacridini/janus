@@ -1,7 +1,8 @@
-//! The Random Forest against scikit-learn's and R's randomForest (tools/bench_forest.py runs it): the samples of
-//! `xtr.f32` (n x p) and their classes `ytr.u8`, the test samples `xte.f32` and `yte.u8`. For each seed, grows the
+//! The Random Forest against scikit-learn's, R's randomForest and ranger (tools/bench_forest.py runs it): the samples
+//! of `xtr.f32` (n x p) and their classes `ytr.u8`, the test samples `xte.f32` and `yte.u8`. For each seed, grows the
 //! forest (the best of a few runs on 1 thread and on 4) and classifies the test samples; prints a JSON line a run
-//! (times in ms, the test accuracy, the out-of-bag accuracy).
+//! (times in ms, the test accuracy, the out-of-bag accuracy). Then the forest of seed 0 grown with the importance by
+//! permutation, once on 1 thread and once on 4: its time and the importances.
 //!
 //!     cargo run --release -p janus-ml --example forest_bench -- DIR P TREES SEEDS
 
@@ -64,5 +65,17 @@ fn main() {
                 right as f64 / yte.len() as f64
             );
         }
+    }
+    let hp = ForestHyper { permutation: true, ..h.clone() };
+    for threads in [1, 4] {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        let t = Instant::now();
+        let f = pool.install(|| train(&x, &ytr, k, &hp, &all, &[], 0, &mut |_| {}, &AtomicBool::new(false)).unwrap());
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        let imp: Vec<String> = f.permutation.iter().map(|v| format!("{v:.8}")).collect();
+        println!(
+            "{{\"threads\": {threads}, \"permutation\": true, \"fit_ms\": {ms:.1}, \"importance\": [{}]}}",
+            imp.join(", ")
+        );
     }
 }

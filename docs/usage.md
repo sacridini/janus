@@ -809,7 +809,11 @@ without one).
   never saw; the **out-of-bag** accuracy (each sample by the trees that did
   not see it) is drawn beside it as the trees grow. At the end, the
   **importance of each date** (the mean decrease of the impurity, summing to
-  1; by value too, with several): the dates that tell the classes apart. The
+  1; by value too, with several): the dates that tell the classes apart. With
+  *Importance: by permutation too*, also the out-of-bag accuracy lost when a
+  value is shuffled (each tree's out-of-bag samples classified again, ranger's
+  `importance = "permutation"`, unscaled), which does not favour values of many
+  levels; the trees take about twice as long. The
   trees grow on the CPU's threads, each from its own seed: the same forest
   whatever the threads. Against scikit-learn and R's randomForest on the same
   samples (`tools/bench_forest.py`, 500 trees each),
@@ -820,7 +824,13 @@ without one).
   faster than scikit-learn and 2.5 times faster than randomForest on one thread
   (19 s, 66 s and 47 s on the 20,000 samples), 5.4 s on four threads
   (scikit-learn 16.7 s); the test samples classified as fast as they are on
-  one thread, 1.4 times faster on four.
+  one thread, 1.4 times faster on four. Against ranger 0.18 too: the same
+  accuracy within a point, grown 2.8 times faster on one thread (56 s) and 2.3
+  on four (14 s); with the importance by permutation, 39 s on one thread
+  against ranger's 93 s and randomForest's 126 s, the same ten most important
+  values as randomForest's and nine of ranger's (Spearman 0.90 and 0.85 over
+  the 64, the uninformative ones near 0 in any order; 0.95 to 0.99 on sits'
+  samples).
 - **Validation** (the settings of the forest and the networks): how the places
   are held out, so that the accuracy is not that of places next to those the
   model learned from (blockCV, Valavi et al. 2019; CAST's kNNDM, Linnenbrink et

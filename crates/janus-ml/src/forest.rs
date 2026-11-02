@@ -4,8 +4,10 @@
 //! scikit-learn's), down to leaves of `min_leaf` samples or pure; a pixel's probabilities the mean over the trees of
 //! its leaf's share of each class (scikit-learn's `predict_proba`). Its out-of-bag accuracy (each sample by the
 //! trees that did not see it) and each value's importance, the mean decrease of the impurity (scikit-learn's
-//! `feature_importances_`, Zeit's weights of the area of applicability). Trees grown in parallel, each from its
-//! own seed: the same forest whatever the threads.
+//! `feature_importances_`, Zeit's weights of the area of applicability), and, if asked, by permutation (ranger's
+//! `importance = "permutation"`, randomForest's mean decrease of the accuracy unscaled: for each tree, the share of
+//! its out-of-bag samples it gets right less when a value is shuffled among them; the mean over the trees). Trees
+//! grown in parallel, each from its own seed: the same forest whatever the threads.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -29,11 +31,15 @@ pub struct ForestHyper {
     /// rasters read beside the series as further predictors (texture, a DEM...), a value each a sample
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra: Vec<crate::extra::Extra>,
+    /// each value's importance by permutation too (the out-of-bag samples through each tree again for each value
+    /// it splits on)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub permutation: bool,
 }
 
 impl Default for ForestHyper {
     fn default() -> Self {
-        ForestHyper { trees: 500, mtry: 0, min_leaf: 1, max_depth: 0, extra: vec![] }
+        ForestHyper { trees: 500, mtry: 0, min_leaf: 1, max_depth: 0, extra: vec![], permutation: false }
     }
 }
 
@@ -63,6 +69,43 @@ struct Tree {
 }
 
 impl Tree {
+    /// The class of sample `x`: its leaf's most common (the first of equals).
+    fn class(&self, x: &[f32], k: usize) -> u32 {
+        let q = self.leaf(x, k);
+        (0..k).fold(0, |b, j| if q[j] > q[b] { j } else { b }) as u32
+    }
+
+    /// The share of the accuracy on samples `out` (of `x`, p values each) lost when each value is shuffled among them
+    /// (`rng` the shuffles): p drops, 0 for the values the tree does not split on (ranger's
+    /// `computePermutationImportance`, a tree's part).
+    fn permutation_drops(&self, x: &[f32], p: usize, y: &[u32], k: usize, out: &[u32], rng: &mut Rng) -> Vec<f64> {
+        let mut drops = vec![0f64; p];
+        let m = out.len();
+        if m == 0 {
+            return drops;
+        }
+        let right = out.iter().filter(|&&i| self.class(&x[i as usize * p..][..p], k) == y[i as usize]).count();
+        let mut used = vec![false; p];
+        for n in &self.nodes {
+            if n.feature != LEAF {
+                used[n.feature as usize] = true;
+            }
+        }
+        let mut order: Vec<u32> = out.to_vec();
+        let mut row = vec![0f32; p];
+        for j in (0..p).filter(|&j| used[j]) {
+            rng.shuffle(&mut order);
+            let mut r = 0usize;
+            for (&i, &o) in out.iter().zip(&order) {
+                row.copy_from_slice(&x[i as usize * p..][..p]);
+                row[j] = x[o as usize * p + j];
+                r += usize::from(self.class(&row, k) == y[i as usize]);
+            }
+            drops[j] = (right as f64 - r as f64) / m as f64;
+        }
+        drops
+    }
+
     /// The shares of the classes in the leaf of sample `x`.
     fn leaf<'a>(&'a self, x: &[f32], k: usize) -> &'a [f32] {
         let mut i = 0;
@@ -97,6 +140,8 @@ pub struct TrainedForest {
     pub oob_confusion: Vec<Vec<u32>>,
     /// each value's mean decrease of the impurity, summing to 1
     pub importance: Vec<f64>,
+    /// each value's mean decrease of the out-of-bag accuracy when shuffled (empty: not asked)
+    pub permutation: Vec<f64>,
     pub n_train: usize,
     pub n_val: usize,
     /// the validation split: "places" (a polygon's or a pin's samples on one side) or "samples"
@@ -120,7 +165,7 @@ impl TrainedForest {
     ) -> serde_json::Value {
         let (oa, ua, pa) = self.accuracies();
         let (ooa, oua, opa) = accuracies(&self.oob_confusion);
-        serde_json::json!({
+        let mut v = serde_json::json!({
             "config": { "forest": hyper, "mtry": hyper.mtry_of(self.forest.features), "validation_split": validation_split, "seed": seed },
             "samples": { "per_class": per_class, "train": self.n_train, "validation": self.n_val, "split": self.split },
             "history": self.history,
@@ -129,7 +174,11 @@ impl TrainedForest {
             "validation": { "confusion": self.confusion, "overall_accuracy": oa, "users_accuracy": ua, "producers_accuracy": pa },
             "oob": { "confusion": self.oob_confusion, "overall_accuracy": ooa, "users_accuracy": oua, "producers_accuracy": opa },
             "importance": self.importance,
-        })
+        });
+        if !self.permutation.is_empty() {
+            v["permutation_importance"] = serde_json::json!(self.permutation);
+        }
+        v
     }
 }
 
@@ -238,6 +287,9 @@ fn grow(
     tree
 }
 
+/// A tree grown: the tree, its importances by the impurity, its out-of-bag samples and its drops by permutation.
+type Grown = (Tree, Vec<f64>, Vec<u32>, Vec<f64>);
+
 /// The cross-entropy and the accuracy of probabilities (n x k) against `y`, and their confusion.
 fn score(probs: &[f64], y: &[u32], k: usize) -> (f64, f64, Vec<Vec<u32>>) {
     let mut confusion = vec![vec![0u32; k]; k];
@@ -295,6 +347,7 @@ pub fn train(
     let group = (trees_n / 40).clamp(8, 32);
     let mut forest = Forest { features: p, classes: k, trees: Vec::with_capacity(trees_n) };
     let mut importance = vec![0f64; p];
+    let mut permutation = vec![0f64; if h.permutation { p } else { 0 }];
     let (mut oob, mut val) = (vec![0f64; n * k], vec![0f64; yv.len() * k]);
     let mut history = vec![];
     let t0 = std::time::Instant::now();
@@ -302,7 +355,7 @@ pub fn train(
         if cancel.load(Ordering::Relaxed) {
             return Err("cancelled".into());
         }
-        let grown: Vec<(Tree, Vec<f64>, Vec<u32>)> = (g0..(g0 + group).min(trees_n))
+        let grown: Vec<Grown> = (g0..(g0 + group).min(trees_n))
             .into_par_iter()
             .map(|t| {
                 let mut rng = Rng::new(tree_seed(seed, t));
@@ -319,11 +372,20 @@ pub fn train(
                     imp.iter_mut().for_each(|v| *v /= total);
                 }
                 let out: Vec<u32> = (0..n as u32).filter(|&i| !seen[i as usize]).collect();
-                (tree, imp, out)
+                // the shuffles' own stream: the forest the same with or without them
+                let drops = if h.permutation {
+                    tree.permutation_drops(&xt, p, &yt, k, &out, &mut Rng::new(tree_seed(!seed, t)))
+                } else {
+                    vec![]
+                };
+                (tree, imp, out, drops)
             })
             .collect();
-        for (tree, imp, out) in grown {
+        for (tree, imp, out, drops) in grown {
             for (a, b) in importance.iter_mut().zip(&imp) {
+                *a += b;
+            }
+            for (a, b) in permutation.iter_mut().zip(&drops) {
                 *a += b;
             }
             for &i in &out {
@@ -357,6 +419,7 @@ pub fn train(
     if total > 0.0 {
         importance.iter_mut().for_each(|v| *v /= total);
     }
+    permutation.iter_mut().for_each(|v| *v /= forest.trees.len().max(1) as f64);
     // the class of each validation sample (the most votes; none without a vote)
     let held_out = val_idx
         .iter()
@@ -373,6 +436,7 @@ pub fn train(
         forest,
         history,
         importance,
+        permutation,
         n_train: n,
         n_val: yv.len(),
         split: String::new(),
@@ -635,6 +699,51 @@ mod tests {
         let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
         let one = pool.install(|| train(&x, &y, 3, &h, &tr, &va, 7, &mut |_| {}, &AtomicBool::new(false)).unwrap());
         assert_eq!(one.forest, f.forest);
+        assert!(f.permutation.is_empty() && f.summary(&h, 0.25, 7, &[]).get("permutation_importance").is_none());
+    }
+
+    #[test]
+    fn importance_by_permutation() {
+        let (x, y) = data(600, 3);
+        let all: Vec<usize> = (0..x.n).collect();
+        let h = ForestHyper { trees: 60, permutation: true, ..Default::default() };
+        let f = train(&x, &y, 3, &h, &all, &[], 7, &mut |_| {}, &AtomicBool::new(false)).unwrap();
+        // the same forest as without it
+        let plain = ForestHyper { permutation: false, ..h.clone() };
+        let g = train(&x, &y, 3, &plain, &all, &[], 7, &mut |_| {}, &AtomicBool::new(false)).unwrap();
+        assert_eq!(f.forest, g.forest);
+        // the level (values 0 and 2) shuffled costs much of the accuracy, the noise (1 and 3) nearly none
+        let d = &f.permutation;
+        assert_eq!(d.len(), 4);
+        assert!(d[0].max(d[2]) > 0.1 && d[1].abs() < 0.02 && d[3].abs() < 0.02, "{d:?}");
+        assert!(f.summary(&h, 0.0, 7, &[])["permutation_importance"].as_array().is_some_and(|a| a.len() == 4));
+        // the same drops whatever the threads
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+        let one = pool.install(|| train(&x, &y, 3, &h, &all, &[], 7, &mut |_| {}, &AtomicBool::new(false)).unwrap());
+        assert_eq!(one.permutation, f.permutation);
+        // a tree's drops by hand: its out-of-bag samples, value 0 shuffled
+        let t = &f.forest.trees[0];
+        let out: Vec<u32> = (0..50).collect();
+        let xs = &x.values;
+        let mut rng = Rng::new(1);
+        let drops = t.permutation_drops(xs, 4, &y, 3, &out, &mut rng);
+        let mut order = out.clone();
+        Rng::new(1).shuffle(&mut order);
+        let right = |shuffled: bool| {
+            out.iter()
+                .zip(&order)
+                .filter(|&(&i, &o)| {
+                    let mut r = xs[i as usize * 4..][..4].to_vec();
+                    if shuffled {
+                        r[0] = xs[o as usize * 4];
+                    }
+                    t.class(&r, 3) == y[i as usize]
+                })
+                .count() as f64
+        };
+        let used0 = t.nodes.iter().any(|n| n.feature == 0);
+        let want = if used0 { (right(false) - right(true)) / 50.0 } else { 0.0 };
+        assert!((drops[0] - want).abs() < 1e-12, "{} vs {want}", drops[0]);
     }
 
     #[test]

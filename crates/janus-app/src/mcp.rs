@@ -473,6 +473,7 @@ fn catalogue() -> Vec<Value> {
                 "pastis": { "type": "boolean", "description": "U-TAE: start from the weights trained on PASTIS (Sentinel-2's ten bands needed)" },
                 "window": { "type": "array", "items": { "type": "integer" }, "description": "U-TAE: the area its patches are cut from (default around the samples)" },
                 "trees": { "type": "integer" },
+                "permutation_importance": { "type": "boolean", "description": "the forest: each value's importance by permutation too (the out-of-bag accuracy lost when shuffled; slower)" },
                 "epochs": { "type": "integer", "description": "a network's epochs at most (sits' default otherwise)" },
                 "gpu": { "type": "boolean" },
                 "validation_share": { "type": "number" },
@@ -1475,6 +1476,7 @@ impl Server {
         let arch = match method {
             "random_forest" | "forest" | "rf" => janus_ml::Arch::RandomForest(ForestHyper {
                 trees: a["trees"].as_u64().unwrap_or(500).clamp(1, 5000) as usize,
+                permutation: a["permutation_importance"].as_bool().unwrap_or(false),
                 ..Default::default()
             }),
             "tempcnn" => janus_ml::Arch::TempCnn(Default::default()),
@@ -1580,13 +1582,24 @@ impl Server {
         };
         let tr = &header.training;
         let v = &tr["validation"];
-        let imp: Vec<f64> =
-            tr["importance"].as_array().map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
         let b = header.inputs.len().max(1);
-        let mut by_date: Vec<(usize, f64)> = (0..header.calendar.len())
-            .map(|t| (t, imp.get(t * b..(t + 1) * b).map_or(0.0, |s| s.iter().sum())))
-            .collect();
-        by_date.sort_by(|x, y| y.1.total_cmp(&x.1));
+        // a forest's dates by an importance, the most important first
+        let ranked = |key: &str| -> Vec<Value> {
+            let imp: Vec<f64> =
+                tr[key].as_array().map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+            let mut by_date: Vec<(usize, f64)> = (0..header.calendar.len())
+                .map(|t| (t, imp.get(t * b..(t + 1) * b).map_or(0.0, |s| s.iter().sum())))
+                .collect();
+            by_date.sort_by(|x, y| y.1.total_cmp(&x.1));
+            if imp.is_empty() {
+                return vec![];
+            }
+            by_date
+                .iter()
+                .take(8)
+                .map(|&(t, w)| json!({ "date": header.calendar.labels[t], "importance": (w * 1e4).round() / 1e4 }))
+                .collect()
+        };
         Ok(json!({
             "model": model_path,
             "classes": classes.iter().zip(&per_class).map(|(c, n)| json!({ "class": c, "samples": n })).collect::<Vec<_>>(),
@@ -1606,7 +1619,8 @@ impl Server {
             } else {
                 "too few places to hold some out: the out-of-bag accuracy is the guide (give more places per class)"
             },
-            "most_important_dates": by_date.iter().take(8).map(|&(t, w)| json!({ "date": header.calendar.labels[t], "importance": (w * 1e4).round() / 1e4 })).collect::<Vec<_>>(),
+            "most_important_dates": ranked("importance"),
+            "most_important_dates_by_permutation": ranked("permutation_importance"),
             "area_of_applicability": header.applicability.is_some(),
             "log": log.path,
             "seconds": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0,

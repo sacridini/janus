@@ -1615,7 +1615,12 @@ que já existem no Janus, e uma forma de agrupar os pinos por classe.
 - Testes: `forest::tests` (aprende, importância, bytes, threads, lugares),
   `tests/ml.rs` (treino → arquivo → aplicação → AOA → pós-processamento),
   etapas 226-228 do autoteste (pinos soltos por classe, floresta, mapa).
-- Depois: importância por permutação; ranger no benchmark (não instalado).
+- Importância por permutação (feito 2026-11-02): a do ranger (`importance =
+  "permutation"`, sem escala), opcional (*by permutation too*; MCP
+  `permutation_importance`), a mesma floresta com ou sem; ranger 0.18 no
+  benchmark: mesma acurácia, Janus 2,8× mais rápido em 1 thread; com a
+  permutação 39 s contra 93 s (ranger) e 126 s (randomForest), os mesmos 10
+  valores mais importantes que o randomForest, 9 do ranger.
 
 **Janela de amostras profissional (pedido 2026-10-31: "a barra vai aumentando
 sem fim"; estatísticas em tempo real da qualidade das amostras; respeitar a

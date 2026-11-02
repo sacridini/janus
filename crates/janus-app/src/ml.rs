@@ -921,6 +921,13 @@ impl State {
                     .custom_formatter(|v, _| if v == 0.0 { "no limit".into() } else { format!("{v}") }),
             );
             ui.end_row();
+            ui.label("Importance");
+            ui.checkbox(&mut h.permutation, "by permutation too").on_hover_text(
+                "Besides the impurity's: each tree's out-of-bag samples classified again with each value shuffled, \
+                 the accuracy lost (ranger's importance = \"permutation\"). Slower: the trees take about as long \
+                 again for each value they split on.",
+            );
+            ui.end_row();
             ui.label("Validation share").on_hover_text(
                 "Held out of the training, by whole places (a polygon's pixels, a pin) when a place has several \
                  samples: the accuracy on places the forest never saw. The out-of-bag accuracy is the other estimate. \
@@ -2268,10 +2275,33 @@ pub(crate) fn forest_job(
     Ok(header)
 }
 
-/// A forest's importance of each date (its values' summed), and of each value read when there are several.
+/// A forest's importance of each date (its values' summed), and of each value read when there are several: by the
+/// impurity, and by permutation when the training measured it.
 fn importance_ui(ui: &mut Ui, h: &Header) {
+    importance_chart(
+        ui,
+        h,
+        "importance",
+        "Importance of each date (the mean decrease of the impurity, summing to 1)",
+        "How much the forest's splits on each date's values separate the classes (scikit-learn's \
+         feature_importances_): the dates that tell the classes apart. Also the weights of the area of applicability.",
+    );
+    importance_chart(
+        ui,
+        h,
+        "permutation_importance",
+        "Importance by permutation (the out-of-bag accuracy lost when shuffled)",
+        "Each tree's out-of-bag samples classified again with one value shuffled among them: the share of them it \
+         gets right less, the mean over the trees (ranger's importance = \"permutation\", randomForest's mean \
+         decrease of the accuracy). Unlike the impurity's, it does not favour values with many distinct levels; two \
+         values alike share it (each can stand in for the other), and near 0 or below: the forest does not need it.",
+    );
+}
+
+/// One of a forest's importances (`key` of its training), by date, by value and beside the series.
+fn importance_chart(ui: &mut Ui, h: &Header, key: &str, title: &str, help: &str) {
     use egui_plot::{Bar, BarChart};
-    let Some(imp) = h.training["importance"].as_array() else { return };
+    let Some(imp) = h.training[key].as_array() else { return };
     let imp: Vec<f64> = imp.iter().map(|v| v.as_f64().unwrap_or(0.0)).collect();
     let (t, b) = (h.calendar.len(), h.inputs.len().max(1));
     let extra: Vec<&str> = match &h.arch {
@@ -2283,12 +2313,11 @@ fn importance_ui(ui: &mut Ui, h: &Header) {
     }
     let by_date: Vec<f64> = (0..t).map(|i| imp[i * b..(i + 1) * b].iter().sum()).collect();
     let labels = h.calendar.labels.clone();
-    ui.label("Importance of each date (the mean decrease of the impurity, summing to 1)").on_hover_text(
-        "How much the forest's splits on each date's values separate the classes (scikit-learn's \
-         feature_importances_): the dates that tell the classes apart. Also the weights of the area of applicability.",
-    );
+    ui.label(title).on_hover_text(help);
     let accent = ui.visuals().selection.bg_fill;
-    Plot::new("ml forest importance")
+    let pct =
+        |v: f64| if key == "importance" { format!("{:.0} %", v * 100.0) } else { format!("{:+.1} pt", v * 100.0) };
+    Plot::new(format!("ml forest {key}"))
         .height(110.0)
         .allow_scroll(false)
         .include_y(0.0)
@@ -2306,20 +2335,19 @@ fn importance_ui(ui: &mut Ui, h: &Header) {
                 .enumerate()
                 .map(|(i, &v)| Bar::new(i as f64, v).width(0.8).name(&h.calendar.labels[i]))
                 .collect();
-            p.bar_chart(BarChart::new("importance", bars).color(accent));
+            p.bar_chart(BarChart::new(key, bars).color(accent));
         });
     if b > 1 {
         let by_value: Vec<String> = (0..b)
             .map(|j| {
                 let s: f64 = (0..t).map(|i| imp[i * b + j]).sum();
-                format!("{} {:.0} %", h.inputs[j].name, s * 100.0)
+                format!("{} {}", h.inputs[j].name, pct(s))
             })
             .collect();
         ui.weak(format!("By value: {}", by_value.join(", ")));
     }
     if !extra.is_empty() {
-        let of: Vec<String> =
-            extra.iter().enumerate().map(|(j, n)| format!("{n} {:.0} %", imp[t * b + j] * 100.0)).collect();
+        let of: Vec<String> = extra.iter().enumerate().map(|(j, n)| format!("{n} {}", pct(imp[t * b + j]))).collect();
         ui.weak(format!("Beside the series: {}", of.join(", ")));
     }
 }

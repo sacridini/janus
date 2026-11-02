@@ -1,9 +1,12 @@
-"""Janus's Random Forest (crates/janus-ml/src/forest.rs) against scikit-learn's RandomForestClassifier and R's
-randomForest (Breiman & Cutler's code, the engine of sits_rfor), on the same samples: sits' own (MODIS NDVI and
+"""Janus's Random Forest (crates/janus-ml/src/forest.rs) against scikit-learn's RandomForestClassifier, R's
+randomForest (Breiman & Cutler's code, the engine of sits_rfor) and ranger (Wright & Ziegler 2017), on the same samples: sits' own (MODIS NDVI and
 Landsat-8 of Rondonia, its train/test split of tools/ml_sits_reference.R) and a larger made-up set
 (make_classification). 500 trees, sqrt(p) values tried at each split, leaves down to 1 sample, bootstrap samples,
 for all three. The test accuracy (the mean of 3 seeds) and the out-of-bag accuracy; the time to grow the forest and
 to classify the test samples, the best of 3 (1 run on the large set), on 1 thread and on 4 (randomForest: 1 only).
+And the importance by permutation (the out-of-bag accuracy lost when a value is shuffled, unscaled): Janus's against
+ranger's (importance = "permutation") and randomForest's (importance(type = 1, scale = FALSE)), the time to grow the
+forest with it and the rank correlation of the importances (scikit-learn has none out of bag).
 
     python tools/bench_forest.py      (writes bench/forest-vs-originals.json)
 """
@@ -15,6 +18,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+from scipy.stats import spearmanr
 from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 
@@ -43,6 +47,40 @@ for (seed in seeds) {
     oob <- 1 - m$err.rate[trees, "OOB"]
     cat(sprintf('{"threads": 1, "seed": %d, "fit_ms": %.1f, "predict_ms": %.1f, "accuracy": %.6f, "oob": %.6f}\n',
                 seed, fit * 1000, pred * 1000, acc, oob))
+}
+set.seed(seeds[[1]])
+t <- system.time(m <- randomForest(xtr, ytr, ntree = trees, importance = TRUE))[["elapsed"]]
+imp <- importance(m, type = 1, scale = FALSE)[, 1]
+cat(sprintf('{"threads": 1, "permutation": true, "fit_ms": %.1f, "importance": [%s]}\n', t * 1000,
+            paste(sprintf("%.8f", imp), collapse = ", ")))
+"""
+
+RANGER_CODE = r"""
+suppressMessages(library(ranger))
+a <- commandArgs(trailingOnly = TRUE)
+d <- a[[1]]; p <- as.integer(a[[2]]); trees <- as.integer(a[[3]]); seeds <- as.integer(strsplit(a[[4]], ",")[[1]]); runs <- as.integer(a[[5]])
+rd <- function(f, what, size) readBin(file.path(d, f), what, n = file.size(file.path(d, f)) / size, size = size)
+xtr <- matrix(rd("xtr.f32", "numeric", 4), ncol = p, byrow = TRUE)
+xte <- matrix(rd("xte.f32", "numeric", 4), ncol = p, byrow = TRUE)
+colnames(xtr) <- colnames(xte) <- paste0("v", seq_len(p))
+ytr <- factor(rd("ytr.u8", "integer", 1)); yte <- rd("yte.u8", "integer", 1)
+for (threads in c(1, 4)) for (seed in seeds) {
+    fit <- Inf; pred <- Inf
+    for (r in seq_len(runs)) {
+        t <- system.time(m <- ranger(x = xtr, y = ytr, num.trees = trees, num.threads = threads, seed = seed))[["elapsed"]]
+        fit <- min(fit, t)
+        t <- system.time(got <- predict(m, xte, num.threads = threads)$predictions)[["elapsed"]]
+        pred <- min(pred, t)
+    }
+    acc <- mean(as.integer(as.character(got)) == yte)
+    cat(sprintf('{"threads": %d, "seed": %d, "fit_ms": %.1f, "predict_ms": %.1f, "accuracy": %.6f, "oob": %.6f}\n',
+                threads, seed, fit * 1000, pred * 1000, acc, 1 - m$prediction.error))
+}
+for (threads in c(1, 4)) {
+    t <- system.time(m <- ranger(x = xtr, y = ytr, num.trees = trees, num.threads = threads, seed = seeds[[1]],
+                                 importance = "permutation"))[["elapsed"]]
+    cat(sprintf('{"threads": %d, "permutation": true, "fit_ms": %.1f, "importance": [%s]}\n', threads, t * 1000,
+                paste(sprintf("%.8f", m$variable.importance), collapse = ", ")))
 }
 """
 
@@ -95,6 +133,7 @@ def sklearn_runs(xtr, ytr, xte, yte, runs):
 
 
 def summary(runs):
+    runs = [r for r in runs if not r.get("permutation")]
     by = {}
     for t in sorted({r["threads"] for r in runs}):
         rs = [r for r in runs if r["threads"] == t]
@@ -107,6 +146,7 @@ def main():
     d = Path(tempfile.gettempdir()) / "janus-forest-bench"
     d.mkdir(exist_ok=True)
     (d / "rf.R").write_text(R_CODE)
+    (d / "ranger.R").write_text(RANGER_CODE)
     env = dict(os.environ, CARGO_BUILD_JOBS="8", RAYON_NUM_THREADS="4", OMP_NUM_THREADS="4")
     subprocess.run(["cargo", "build", "--release", "-q", "-j", "8", "-p", "janus-ml", "--example", "forest_bench"],
                    check=True, cwd=ROOT, env=env)
@@ -124,18 +164,36 @@ def main():
         janus = [json.loads(l) for l in subprocess.run([str(exe), str(d), str(p), str(TREES), str(SEEDS)], check=True,
                                                         capture_output=True, text=True, env=env).stdout.splitlines()]
         sk = sklearn_runs(xtr, ytr, xte, yte, runs)
-        r = subprocess.run([RSCRIPT, str(d / "rf.R"), str(d), str(p), str(TREES), ",".join(map(str, range(1, SEEDS + 1))),
-                            str(runs)], capture_output=True, text=True, env=env)
-        if r.returncode:
-            raise SystemExit(r.stderr)
-        rf = [json.loads(l) for l in r.stdout.splitlines() if l.startswith("{")]
+        def r_lines(script):
+            r = subprocess.run([RSCRIPT, str(d / script), str(d), str(p), str(TREES),
+                                ",".join(map(str, range(1, SEEDS + 1))), str(runs)], capture_output=True, text=True,
+                               env=env)
+            if r.returncode:
+                raise SystemExit(r.stderr)
+            return [json.loads(l) for l in r.stdout.splitlines() if l.startswith("{")]
+        rf, rg = r_lines("rf.R"), r_lines("ranger.R")
         row = {"set": name, "train": len(ytr), "test": len(yte), "values": p,
-               "janus": summary(janus), "sklearn": summary(sk), "randomForest": summary(rf)}
+               "janus": summary(janus), "sklearn": summary(sk), "randomForest": summary(rf), "ranger": summary(rg)}
+        perm = {who: [r for r in runs_ if r.get("permutation")]
+                for who, runs_ in (("janus", janus), ("randomForest", rf), ("ranger", rg))}
+        ours = np.array(perm["janus"][0]["importance"])
+        row["permutation"] = {
+            who: {
+                "fit_ms": {str(r["threads"]): r["fit_ms"] for r in rs},
+                "spearman_with_janus": float(spearmanr(ours, rs[0]["importance"]).statistic),
+                "top10_shared_with_janus": len(set(np.argsort(-ours)[:10]) & set(np.argsort(-np.array(rs[0]["importance"]))[:10])),
+                "importance": rs[0]["importance"],
+            } for who, rs in perm.items()
+        }
         results.append(row)
         print(f"{'':14}{'threads':>8}{'grow (ms)':>12}{'classify (ms)':>15}{'test acc.':>11}{'OOB acc.':>10}")
-        for who in ("janus", "sklearn", "randomForest"):
+        for who in ("janus", "sklearn", "randomForest", "ranger"):
             for t, s in row[who].items():
                 print(f"{who:14}{t:>8}{s['fit_ms']:>12.1f}{s['predict_ms']:>15.1f}{s['accuracy']:>11.4f}{s['oob']:>10.4f}")
+        print(f"permutation importance: {'':5}{'threads':>8}{'grow (ms)':>12}{'Spearman':>10}{'top 10':>8}")
+        for who, v in row["permutation"].items():
+            for t, ms in v["fit_ms"].items():
+                print(f"{'':10}{who:14}{t:>8}{ms:>12.1f}{v['spearman_with_janus']:>10.3f}{v['top10_shared_with_janus']:>8}")
     out = ROOT / "bench" / "forest-vs-originals.json"
     out.write_text(json.dumps({"trees": TREES, "seeds": SEEDS, "results": results}, indent=1))
     print(f"\n{out}")
