@@ -1717,13 +1717,13 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             let b = ui.add_enabled(!unavailable, egui::Button::new(if running { "Preview..." } else { "Preview" }));
             preview = b
                 .on_hover_text(format!(
-                    "The tool on {} ({w} x {h} px) before the whole scene: its maps as layers marked preview,                      its window dashed on the map, replaced by the next preview",
+                    "The tool on {} ({w} x {h} px) before the whole scene: its maps as layers marked preview, \
+                     its window dashed on the map, replaced by the next preview",
                     if self.series.roi_rect.is_some() { "the ROI" } else { "the centre of the view" }
                 ))
                 .clicked();
-            ui.checkbox(&mut u.auto_preview, "Auto-preview").on_hover_text(
-                "A preview again whenever a parameter changes, when one takes a few seconds or less",
-            );
+            ui.checkbox(&mut u.auto_preview, "Auto-preview")
+                .on_hover_text("A preview again whenever a parameter changes, when one takes a few seconds or less");
         });
         if let Some(s) = est {
             ui.weak(format!("Preview: {} for {w} x {h} px", format_duration(s)));

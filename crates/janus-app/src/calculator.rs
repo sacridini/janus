@@ -623,7 +623,11 @@ impl State {
             ui.label("Output");
             let c = &mut self.calc;
             if ui
-                .add(egui::TextEdit::singleline(&mut c.out_name).desired_width(crate::fit::scaled(ui, 140.0)).hint_text("name"))
+                .add(
+                    egui::TextEdit::singleline(&mut c.out_name)
+                        .desired_width(crate::fit::scaled(ui, 140.0))
+                        .hint_text("name"),
+                )
                 .on_hover_text("The layer's name (and its folder's)")
                 .changed()
             {
@@ -668,10 +672,12 @@ impl State {
             }
             ui.separator();
             ui.checkbox(&mut c.live.on, "Live").on_hover_text(
-                "The result on the map as you type, at the overview's size (a layer marked preview): a reduction                  over time shown as its dates are read (\"max so far: 23 of 107 dates\"), a series at the date shown",
+                "The result on the map as you type, at the overview's size (a layer marked preview): a reduction \
+                 over time shown as its dates are read (\"max so far: 23 of 107 dates\"), a series at the date shown",
             );
             ui.checkbox(&mut c.live.chart, "Chart").on_hover_text(
-                "The expression's values at the cursor (or the first pin) under the editor: its series, what its                  reductions reduce, and a part of the text selected",
+                "The expression's values at the cursor (or the first pin) under the editor: its series, what its \
+                 reductions reduce, and a part of the text selected",
             );
         });
         ui.add_space(2.0);
@@ -1078,7 +1084,8 @@ impl State {
                 ui.end_row();
                 ui.label("Quality");
                 ui.checkbox(&mut c.apply_qa, "Mask by the quality band").on_hover_text(
-                    "The bands named masked by their layer's quality band: clouds, shadows and fill as no data (the                      quality band shown in Display)",
+                    "The bands named masked by their layer's quality band: clouds, shadows and fill as no data (the \
+                     quality band shown in Display)",
                 );
                 ui.end_row();
             });

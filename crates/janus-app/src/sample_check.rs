@@ -581,7 +581,9 @@ pub fn warnings(r: &Report) -> Vec<Warning> {
             add(
                 2,
                 format!(
-                    "Bunched samples: on places as far from the others as most of the map is from your samples, the                      model is right {:.0} % of the time, not {:.0} %. Add samples spread over the whole area, away                      from those you have.",
+                    "Bunched samples: on places as far from the others as most of the map is from your samples, the \
+                     model is right {:.0} % of the time, not {:.0} %. Add samples spread over the whole area, away \
+                     from those you have.",
                     r.spatial * 100.0,
                     r.accuracy * 100.0
                 ),
@@ -591,7 +593,8 @@ pub fn warnings(r: &Report) -> Vec<Warning> {
             add(
                 1,
                 format!(
-                    "Somewhat bunched samples: {:.0} % right far from the others ({:.0} % near them). Samples in the                      parts of the area with none would help.",
+                    "Somewhat bunched samples: {:.0} % right far from the others ({:.0} % near them). Samples in the \
+                     parts of the area with none would help.",
                     r.spatial * 100.0,
                     r.accuracy * 100.0
                 ),
@@ -800,7 +803,10 @@ impl State {
                     RichText::new(format!("{:.0} %", r.spatial * 100.0)).size(18.0).strong().color(color),
                     "far from the samples",
                     &format!(
-                        "The accuracy where the map is far from your samples: the forests tested on folds of places                          ({}) as far from the others as the map's pixels are from the samples (kNNDM, Linnenbrink                          et al. 2024). Close to the estimated accuracy: the samples cover the area. Much lower: they                          are bunched, and the map far from them is less sure.",
+                        "The accuracy where the map is far from your samples: the forests tested on folds of places \
+                         ({}) as far from the others as the map's pixels are from the samples (kNNDM, Linnenbrink \
+                         et al. 2024). Close to the estimated accuracy: the samples cover the area. Much lower: they \
+                         are bunched, and the map far from them is less sure.",
                         r.spatial_folds
                     ),
                 );
