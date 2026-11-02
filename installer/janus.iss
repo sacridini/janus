@@ -39,13 +39,15 @@ WizardStyle=modern
 Name: "en"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "addtopath"; Description: "Add Janus to PATH (run ""jn folder\"" from a terminal)"
+Name: "addtopath"; Description: "Add jn to PATH (run ""jn folder\"" from a terminal; no DLL of Janus's goes on PATH)"
 Name: "contextmenu"; Description: "Add ""Open in Janus"" to the context menu of folders and rasters"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
 
 [Files]
 Source: "{#BuildDir}\janus.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\jn.com"; DestDir: "{app}"; Flags: ignoreversion
+; the folder on PATH: jn.com alone (it imports only Windows' DLLs), see UpdatePath
+Source: "{#BuildDir}\bin\jn.com"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#BuildDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
@@ -62,9 +64,7 @@ Name: "{autoprograms}\Janus"; Filename: "{app}\janus.exe"
 Name: "{autodesktop}\Janus"; Filename: "{app}\janus.exe"; Tasks: desktopicon
 
 [Registry]
-; PATH (user or system, depending on the install mode)
-Root: HKA; Subkey: "{code:EnvKey}"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; \
-  Check: NeedsAddPath(ExpandConstant('{app}')); Tasks: addtopath
+; PATH: in [Code] (UpdatePath)
 ; Right click > "Open in Janus" on folders and rasters
 Root: HKA; Subkey: "Software\Classes\Directory\shell\Janus"; ValueType: string; ValueName: ""; ValueData: "Open in Janus"; Flags: uninsdeletekey; Tasks: contextmenu
 Root: HKA; Subkey: "Software\Classes\Directory\shell\Janus"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\janus.exe"; Tasks: contextmenu
@@ -125,31 +125,69 @@ begin
   if IsAdminInstallMode then Result := HKEY_LOCAL_MACHINE else Result := HKEY_CURRENT_USER;
 end;
 
-function NeedsAddPath(Dir: String): Boolean;
-var
-  Path: String;
+// A PATH entry compared with a folder: case and a trailing backslash aside.
+function SameDir(Entry, Dir: String): Boolean;
 begin
-  if not RegQueryStringValue(EnvRoot, EnvKey(''), 'Path', Path) then
-  begin
-    Result := True;
-    exit;
-  end;
-  Result := Pos(';' + Uppercase(Dir) + ';', ';' + Uppercase(Path) + ';') = 0;
+  Entry := Trim(Entry);
+  if (Length(Entry) > 0) and (Entry[Length(Entry)] = '\') then
+    Entry := Copy(Entry, 1, Length(Entry) - 1);
+  Result := CompareText(Entry, Dir) = 0;
 end;
 
-// Remove the install folder from PATH on uninstall.
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+// PATH (the user's or the system's, as the install mode) without the entries that are the install folder or its bin\,
+// and with bin\ at its end when Add is set. Up to 1.7 the install folder itself was on PATH, with every DLL Janus
+// carries (GDAL, PROJ, curl, sqlite, the VC runtime...): other programs found them there in place of their own, as
+// a conda environment's Python importing rasterio ("DLL load failed while importing _warp: The specified procedure
+// could not be found"). Now only bin\ is, with jn.com alone in it.
+procedure UpdatePath(Add: Boolean);
 var
-  Path, Dir: String;
+  Path, Rest, Entry, Kept, App, Bin: String;
   P: Integer;
+  Changed: Boolean;
 begin
-  if CurUninstallStep <> usPostUninstall then exit;
-  if not RegQueryStringValue(EnvRoot, EnvKey(''), 'Path', Path) then exit;
-  Dir := ExpandConstant('{app}');
-  P := Pos(';' + Uppercase(Dir), Uppercase(Path));
-  if P > 0 then
+  if not RegQueryStringValue(EnvRoot, EnvKey(''), 'Path', Path) then Path := '';
+  App := ExpandConstant('{app}');
+  Bin := App + '\bin';
+  Kept := '';
+  Changed := False;
+  Rest := Path;
+  while Rest <> '' do
   begin
-    Delete(Path, P, Length(Dir) + 1);
-    RegWriteExpandStringValue(EnvRoot, EnvKey(''), 'Path', Path);
+    P := Pos(';', Rest);
+    if P > 0 then
+    begin
+      Entry := Copy(Rest, 1, P - 1);
+      Delete(Rest, 1, P);
+    end else
+    begin
+      Entry := Rest;
+      Rest := '';
+    end;
+    if SameDir(Entry, App) or SameDir(Entry, Bin) then
+      Changed := True
+    else if Trim(Entry) <> '' then
+    begin
+      if Kept <> '' then Kept := Kept + ';';
+      Kept := Kept + Entry;
+    end;
   end;
+  if Add then
+  begin
+    if Kept <> '' then Kept := Kept + ';';
+    Kept := Kept + Bin;
+    Changed := True;
+  end;
+  if Changed then
+    RegWriteExpandStringValue(EnvRoot, EnvKey(''), 'Path', Kept);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then UpdatePath(WizardIsTaskSelected('addtopath'));
+end;
+
+// Remove the install folder (older versions) and its bin\ from PATH on uninstall.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then UpdatePath(False);
 end;

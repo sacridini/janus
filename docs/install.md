@@ -8,13 +8,22 @@ Run `janus-<version>-setup.exe`. It installs per user (no administrator prompt),
 bundles GDAL (no Python or conda needed: Zeit is part of the program), adds a
 Start menu entry and, optionally:
 
-- adds Janus to `PATH`, so you can call it as `jn` from any terminal;
+- adds `jn` to `PATH`, so you can call it from any terminal (only the
+  install folder's `bin`, which holds `jn.com` alone: none of the DLLs Janus
+  carries, GDAL, PROJ, curl, sqlite..., is on `PATH`, where conda environments,
+  R or QGIS would load them in place of their own);
 - adds **Open in Janus** to the right-click menu of folders and `.tif` files;
 - creates a desktop shortcut.
 
 Installing 1.0 over an older version removes the Python runtime the versions up
 to 0.39 carried; settings, layouts, labels and caches are kept and read as
 they are.
+
+Up to 1.7 the installer put the install folder itself on `PATH`, DLLs and all,
+and a conda environment's Python could then fail to import rasterio or GDAL
+(`ImportError: DLL load failed while importing _warp: The specified procedure
+could not be found`). Installing a newer version replaces that entry with
+`bin`; uninstalling removes both.
 
 ## Linux x86_64
 

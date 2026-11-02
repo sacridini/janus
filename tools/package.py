@@ -15,8 +15,8 @@ Usage: python tools/package.py [--no-build] [--prefix PREFIX] [--out DIR] [--str
 
 Layouts:
   Windows  janus.exe, jn.com (the command line), the DLLs, gdalplugins/, share/gdal, share/proj, LICENSE,
-           THIRD_PARTY_NOTICES.txt; the installer
-           (installer/janus.iss) puts them in Program Files or the user's folder, on PATH, in the context menu.
+           THIRD_PARTY_NOTICES.txt, bin/jn.com (alone: the folder on PATH, no DLL in it); the installer
+           (installer/janus.iss) puts them in Program Files or the user's folder, bin/ on PATH, in the context menu.
   Linux    janus-<version>/: janus (RPATH $ORIGIN/lib), jn (the command line), lib/ (lib/gdalplugins/), share/gdal,
            share/proj, share/ssl/cacert.pem, janus.desktop, janus.png, README.md, LICENSE, THIRD_PARTY_NOTICES.txt.
   macOS    Janus.app/Contents/: MacOS/janus and jn (RPATH @executable_path/../Frameworks), Frameworks/
@@ -145,7 +145,17 @@ def windows(args, ver, exe_dir):
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
     shutil.copyfile(exe_dir / "janus.exe", stage / "janus.exe")
-    shutil.copyfile(exe_dir / "jn.exe", stage / "jn.com")  # "jn" in a terminal finds jn.com first (PATHEXT)
+    # "jn" in a terminal finds jn.com first (PATHEXT). bin\ is the folder the installer puts on PATH: jn.com alone,
+    # which imports only Windows' DLLs (build.rs links the VC runtime into it), so that none of the DLLs below is on
+    # PATH for other programs (a conda environment's Python, R, QGIS) to load in place of their own. One next to
+    # janus.exe as well, for the scripts that call it there.
+    shutil.copyfile(exe_dir / "jn.exe", stage / "jn.com")
+    (stage / "bin").mkdir()
+    shutil.copyfile(exe_dir / "jn.exe", stage / "bin" / "jn.com")
+    foreign = [n for n in pe_imports(stage / "bin" / "jn.com")
+               if not n.lower().startswith(("api-ms-", "ext-ms-")) and n.lower() not in ("kernel32.dll", "ntdll.dll")]
+    if foreign:
+        sys.exit(f"package: jn.com imports {foreign}: bin\\ (on PATH) would need DLLs beside it")
 
     plugins = [p for p in (prefix / "lib" / "gdalplugins" / f"{n}.dll" for n in PLUGINS) if p.exists()]
     if len(plugins) < len(PLUGINS):

@@ -18,6 +18,22 @@ fn main() {
     if let Some(v) = version {
         println!("cargo:rustc-env=JANUS_GDAL_BUILT={v}");
     }
+    // jn: the Visual C++ runtime linked into it (the UCRT is part of Windows), so that it imports only the system's
+    // DLLs. The installer puts it alone in bin\, the one folder on PATH: no DLL of Janus's (GDAL, PROJ, curl,
+    // sqlite, the VC runtime...) is then on PATH, where conda's Pythons, R and QGIS would load them instead of their
+    // own ("DLL load failed while importing _warp: The specified procedure could not be found").
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        for a in [
+            "/NODEFAULTLIB:msvcrt.lib",
+            "/NODEFAULTLIB:vcruntime.lib",
+            "/NODEFAULTLIB:libucrt.lib",
+            "/DEFAULTLIB:libcmt.lib",
+            "/DEFAULTLIB:libvcruntime.lib",
+            "/DEFAULTLIB:ucrt.lib",
+        ] {
+            println!("cargo:rustc-link-arg-bin=jn={a}");
+        }
+    }
     // the build script runs on the host: a Windows host building for Windows
     #[cfg(windows)]
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {

@@ -314,7 +314,8 @@ jn NETCDF:"cmip6.nc":tas --band 3     (the 3rd level of a variable with levels)
 
 `jn` opens the window and returns the prompt immediately (on Windows `jn.com` is
 a small console launcher next to `janus.exe`, the same trick Visual Studio uses with
-`devenv.com`).
+`devenv.com`; the one on `PATH` is in the install folder's `bin`, alone, so that
+Janus's DLLs stay out of other programs' way).
 
 ## MCP server
 

@@ -143,6 +143,15 @@ jobs:
           $env:PATH = "C:\Windows\system32;C:\Windows"
           & "$env:RUNNER_TEMP\Janus\jn.com" --version   # the command line (a console program)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # the folder on PATH: jn.com alone (no DLL of Janus's for other programs to load), janus.exe found above it
+          $extra = Get-ChildItem "$env:RUNNER_TEMP\Janus\bin" | Where-Object Name -ne 'jn.com'
+          if ($extra) { Write-Error "bin\ holds more than jn.com: $($extra.Name)"; exit 1 }
+          & "$env:RUNNER_TEMP\Janus\bin\jn.com" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $path = [Environment]::GetEnvironmentVariable('Path', 'User') -split ';'
+          if ($path -notcontains "$env:RUNNER_TEMP\Janus\bin" -or $path -contains "$env:RUNNER_TEMP\Janus") {
+            Write-Error "the user's PATH should hold Janus\bin and not Janus: $($path -join ';')"; exit 1
+          }
           # janus.exe is a GUI program: & would not wait for it.
           $p = Start-Process "$env:RUNNER_TEMP\Janus\janus.exe" -ArgumentList '--selftest-zeit', 'td\serie' `
                  -WorkingDirectory $env:RUNNER_TEMP -Wait -PassThru -NoNewWindow `
