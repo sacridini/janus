@@ -1655,7 +1655,7 @@ apontado). `--window classification`, `--pin X,Y,CLASSE`.
   atribuição (blocos fixos de 4096: os mesmos bits com qualquer número de
   threads). Autoteste 233 (k-means na janela, os pinos Early/Late nomeiam os
   clusters).
-- ~~**Servidor MCP do Janus**~~ (feito, 2026-10-31: 19 ferramentas, mcp.rs; ferramentas sobre mapas, polygonize, rasterize, speckle, areas, TempCNN/L-TAE e a janela aberta recebendo os resultados pela inbox; falta: Presto, U-TAE, STAC, vetores) (`janus mcp`, stdio): a calculadora raster, as
+- ~~**Servidor MCP do Janus**~~ (feito, 2026-10-31: 19 ferramentas, mcp.rs; ferramentas sobre mapas, polygonize, rasterize, speckle, areas, TempCNN/L-TAE e a janela aberta recebendo os resultados pela inbox; 2026-11-02: Presto e U-TAE no train_classifier, stac_catalogs, stac_search, stac_series (abrir, baixar, composições BAP/greenest/medoid/mediana), describe_vector e vector_series, mcp_more.rs: 25 ferramentas) (`janus mcp`, stdio): a calculadora raster, as
   ferramentas que o CLI já roda (`--window NOME-run`: regularize, speckle,
   warp, polygonize, rasterize, zonal, areas, as do Zeit), abrir/inspecionar
   séries, treinar e aplicar classificadores, estatísticas de pinos/ROI;

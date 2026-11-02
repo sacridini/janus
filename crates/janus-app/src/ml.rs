@@ -2583,7 +2583,7 @@ fn pastis_bands(info: &CubeInfo) -> Option<Vec<InputBand>> {
 /// A U-TAE trained on dense labels: the labelled places' pixels (or a class map's), patches over them, each
 /// band standardized; from the authors' PASTIS weights if asked.
 #[allow(clippy::too_many_arguments)]
-fn utae_job(
+pub(crate) fn utae_job(
     info: &Arc<CubeInfo>,
     inputs: &[InputBand],
     sites: &[Site],

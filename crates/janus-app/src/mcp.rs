@@ -1,4 +1,4 @@
-//! `janus mcp`: Janus as a server of the Model Context Protocol (MCP), on the standard input and output. An
+﻿//! `janus mcp`: Janus as a server of the Model Context Protocol (MCP), on the standard input and output. An
 //! assistant (Claude Desktop, Claude Code, any client of MCP) opens series, reads their values at points and over
 //! areas, writes and runs the raster calculator's expressions, runs Zeit's tools (on a series or on maps) and the
 //! series' and maps' tools (regularize, speckle, sensor harmonization, reproject, zonal statistics, areas, polygonize, rasterize), trains
@@ -25,6 +25,9 @@ use serde_json::{Value, json};
 
 use crate::ml::Site;
 
+#[path = "mcp_more.rs"]
+mod more;
+
 /// The versions of the protocol spoken (the newest first): the client's, when it is one of them.
 const VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -37,8 +40,10 @@ The raster calculator (check_expression, then calculate) takes Janus's language 
 the alias alone is the quantity the layer shows (its expression), `s2.nir` a band by name or role; lines such as \
 `ndvi = (s2.nir - s2.red) / (s2.nir + s2.red)`, then `ndvi - mean(ndvi)`, `at(ndvi, 2020)`, rules \
 `ndvi < 0.2 = 0`, `max(ndvi) by year`. list_indices gives the spectral indices' formulas. Zeit's tools \
-(list_tools, describe_tool, run_tool) write maps of change, trends, phenology, classes. Every result is files on \
-disk, their paths in the answer; open_in_janus shows them to the user in Janus.";
+(list_tools, describe_tool, run_tool) write maps of change, trends, phenology, classes. A series from a STAC catalog \
+(stac_catalogs, stac_search, stac_series: Sentinel-2, Landsat, HLS, Sentinel-1 over an area and dates, read in \
+place, downloaded or composited) is a folder like any other. describe_vector and vector_series read vector files. \
+Every result is files on disk, their paths in the answer; open_in_janus shows them to the user in Janus.";
 
 /// The server's output, shared by the calls that answer from their threads: a message per line.
 type Out = Arc<Mutex<std::io::Stdout>>;
@@ -210,6 +215,11 @@ impl Server {
             "speckle" => self.speckle(&a, c),
             "harmonize" => self.harmonize(&a, c),
             "areas" => self.areas(&a, c),
+            "stac_catalogs" => self.stac_catalogs(&a),
+            "stac_search" => self.stac_search(&a, c),
+            "stac_series" => self.stac_series(&a, c),
+            "describe_vector" => self.describe_vector(&a),
+            "vector_series" => self.vector_series(&a, c),
             _ => Err(format!("no tool {name:?}")),
         }
     }
@@ -274,6 +284,22 @@ fn tool(name: &str, title: &str, description: &str, props: Value, required: &[&s
         "inputSchema": { "type": "object", "properties": props, "required": required },
         "annotations": { "readOnlyHint": read_only, "openWorldHint": false },
     })
+}
+
+/// A STAC search's arguments, with others.
+fn stac_props(extra: Value) -> Value {
+    with(
+        json!({
+            "catalog": { "type": "string", "description": "earth-search (default), planetary-computer, bdc or a STAC API's URL" },
+            "collection": { "type": "string", "description": "e.g. sentinel-2-c1-l2a, sentinel-2-l2a, landsat-c2-l2, hls2-s30, sentinel-1-rtc (stac_catalogs)" },
+            "bbox_lonlat": { "type": "array", "items": { "type": "number" }, "description": "[lon_min, lat_min, lon_max, lat_max]" },
+            "start": { "type": "string", "description": "YYYY-MM-DD" },
+            "end": { "type": "string", "description": "YYYY-MM-DD (included)" },
+            "max_cloud": { "type": "number", "description": "at most this % of clouds per scene" },
+            "max_items": { "type": "integer", "description": "items at most (default and limit 2000)" }
+        }),
+        extra,
+    )
 }
 
 fn catalogue() -> Vec<Value> {
@@ -433,7 +459,7 @@ fn catalogue() -> Vec<Value> {
         tool(
             "train_classifier",
             "Train a classifier",
-            "Trains a Random Forest (Breiman 2001), TempCNN or L-TAE on samples of the series: places with a class, or a vector file's points or polygons and its class field. Validated on whole places held out, out of bag too; a .janusmodel file for classify (and the interface).",
+            "Trains a Random Forest (Breiman 2001), TempCNN, L-TAE, Presto or U-TAE on samples of the series: places with a class, or a vector file's points or polygons and its class field. Validated on whole places held out, out of bag too; a .janusmodel file for classify (and the interface).",
             json!({
                 "series": series_schema(),
                 "samples": { "type": "array", "items": place_schema(), "description": "places with a \"class\"" },
@@ -441,7 +467,11 @@ fn catalogue() -> Vec<Value> {
                 "field": { "type": "string", "description": "its class field" },
                 "max_pixels": { "type": "integer" },
                 "bands": { "type": "array", "items": { "type": "integer" }, "description": "also these bands of each date (besides the series shown)" },
-                "method": { "type": "string", "enum": ["random_forest", "tempcnn", "ltae"], "description": "the Random Forest (default: quick, on the CPU), or a network as sits builds it (TempCNN, L-TAE; on the GPU when there is one)" },
+                "method": { "type": "string", "enum": ["random_forest", "tempcnn", "ltae", "presto", "utae"], "description": "the Random Forest (default: quick, on the CPU), a network as sits builds it (TempCNN, L-TAE; on the GPU when there is one), Presto (Tseng et al. 2023: pretrained on Sentinel-1 and -2 worldwide, fine-tuned on the samples; its weights downloaded once) or U-TAE (Garnot & Landrieu 2021: patches segmented, a pixel's class from its neighbourhood too)" },
+                "presto_year": { "description": "Presto: the year of its monthly composites (default the series' last), or \"dates\" for the series' own dates", "anyOf": [{ "type": "integer" }, { "type": "string" }] },
+                "patch": { "type": "integer", "description": "U-TAE: the patches' side in pixels (default 64)" },
+                "pastis": { "type": "boolean", "description": "U-TAE: start from the weights trained on PASTIS (Sentinel-2's ten bands needed)" },
+                "window": { "type": "array", "items": { "type": "integer" }, "description": "U-TAE: the area its patches are cut from (default around the samples)" },
                 "trees": { "type": "integer" },
                 "epochs": { "type": "integer", "description": "a network's epochs at most (sits' default otherwise)" },
                 "gpu": { "type": "boolean" },
@@ -545,6 +575,68 @@ fn catalogue() -> Vec<Value> {
                 "output_dir": out_dir
             }),
             &["maps"],
+            false,
+        ),
+        tool(
+            "stac_catalogs",
+            "STAC catalogs and collections",
+            "The STAC catalogs Janus knows (Earth Search, Planetary Computer, Brazil Data Cube) with their collections and the bands each starts with; with catalog (an id or any STAC API's URL), all its collections.",
+            json!({
+                "catalog": { "type": "string", "description": "earth-search, planetary-computer, bdc or a STAC API's URL" },
+                "filter": { "type": "string", "description": "only the collections whose id or title has this text" }
+            }),
+            &[],
+            true,
+        ),
+        tool(
+            "stac_search",
+            "Search a STAC catalog",
+            "The items of a collection over an area and dates: how many, by date (with their clouds), the bands they have (those a series starts with marked), the platforms and the radar passes. Nothing is downloaded.",
+            stac_props(
+                json!({ "footprints": { "type": "boolean", "description": "also write the items' footprints as a GeoJSON" }, "output_dir": out_dir.clone() }),
+            ),
+            &["collection", "bbox_lonlat", "start", "end"],
+            true,
+        ),
+        tool(
+            "stac_series",
+            "Build a series from a STAC catalog",
+            "A series of a search's items on one grid over the area (the items of a day mosaicked into a date; Sentinel-1: one pass): VRTs reading the catalog in place (mode open), downloaded as cloud-optimized GeoTIFFs (download), or composited (composite: the best available pixel after Griffiths et al. 2013 and White et al. 2014, the greenest, the medoid or the median; of all the dates or one a year). Its folder is a series for the other tools.",
+            stac_props(json!({
+                "bands": { "type": "array", "items": { "type": "string" }, "description": "asset keys or labels in order (stac_search); default the collection's, its quality band last" },
+                "orbit": { "type": "string", "description": "Sentinel-1: the pass kept (\"descending 83\"); default the one with the most scenes" },
+                "resolution": { "type": "number", "description": "the pixel size in metres (default the finest of the bands)" },
+                "mode": { "type": "string", "enum": ["open", "download", "composite"] },
+                "composite": { "type": "object", "description": "mode composite: {method: bap|greenest|medoid|median, yearly: bool, target: \"MM-DD\" (bap's day; default the middle of the dates), doy_sigma: days, info: bool}" },
+                "output_dir": out_dir.clone()
+            })),
+            &["collection", "bbox_lonlat", "start", "end"],
+            false,
+        ),
+        tool(
+            "describe_vector",
+            "Describe a vector file",
+            "A vector file's layers: geometry, number of features, CRS, extent (also in longitude and latitude), fields and their types, the first features' attributes.",
+            json!({
+                "path": { "type": "string" },
+                "features": { "type": "integer", "description": "how many features' attributes to show (default 3)" }
+            }),
+            &["path"],
+            true,
+        ),
+        tool(
+            "vector_series",
+            "Series at a vector file's features",
+            "The series at each feature of a vector file: a point's pixel, a polygon's mean of its pixels inside (up to max_pixels spread over it); a CSV (feature, id, date, value, pixels read) and the first features' summary.",
+            json!({
+                "series": series_schema(),
+                "vector": { "type": "string" },
+                "layer": { "type": "string" },
+                "id_field": { "type": "string", "description": "the field naming each feature (default its id)" },
+                "max_pixels": { "type": "integer", "description": "a polygon's pixels read at most (default 500)" },
+                "output_dir": out_dir.clone()
+            }),
+            &["series", "vector"],
             false,
         ),
         tool(
@@ -1040,7 +1132,9 @@ fn sites_of(info: &Arc<CubeInfo>, a: &Value) -> R<(Vec<Site>, Vec<String>)> {
     if let Some(vector) = a["vector"].as_str() {
         let field = a["field"].as_str().ok_or("field: the vector's class field")?;
         let max = a["max_pixels"].as_u64().unwrap_or(50).max(1) as usize;
-        for (k, (class, pixels)) in vector_samples(info, vector, field, max)?.into_iter().enumerate() {
+        for (k, (class, pixels)) in
+            vector_features(info, vector, a["layer"].as_str(), Some(field), max)?.into_iter().enumerate()
+        {
             sites.push(Site {
                 class: class_of(class),
                 label: format!("Feature {}", k + 1),
@@ -1056,16 +1150,29 @@ fn sites_of(info: &Arc<CubeInfo>, a: &Value) -> R<(Vec<Site>, Vec<String>)> {
     Ok((sites, classes))
 }
 
-/// A feature's class and its pixels.
+/// A feature's label (its class, its id) and its pixels.
 type Labelled = (String, Vec<(usize, usize)>);
 
-/// A vector file's features as samples: each point's pixel, each polygon's pixels inside it (up to `max`, spread
-/// evenly), with the class field's value.
-fn vector_samples(info: &CubeInfo, path: &str, field: &str, max: usize) -> R<Vec<Labelled>> {
+/// A vector file's features on the series (of its layer named, else the first): each point's pixel, each polygon's
+/// pixels inside it (up to `max`, spread evenly), with the field's value (those without one left out), else the
+/// feature's id; the features off the series left out.
+fn vector_features(
+    info: &CubeInfo,
+    path: &str,
+    layer: Option<&str>,
+    field: Option<&str>,
+    max: usize,
+) -> R<Vec<Labelled>> {
     use gdal::vector::LayerAccess;
     let ds = gdal::Dataset::open(path).map_err(|e| format!("{path}: {e}"))?;
-    let mut layer = ds.layer(0).map_err(|e| format!("{path}: {e}"))?;
-    let fi = layer.defn().field_index(field).map_err(|e| format!("{path}: field {field:?}: {e}"))?;
+    let mut layer = match layer {
+        Some(l) => ds.layer_by_name(l),
+        None => ds.layer(0),
+    }
+    .map_err(|e| format!("{path}: {e}"))?;
+    let fi = field
+        .map(|field| layer.defn().field_index(field).map_err(|e| format!("{path}: field {field:?}: {e}")))
+        .transpose()?;
     let mut crs = SpatialRef::from_wkt(&info.crs_wkt).map_err(|e| e.to_string())?;
     crs.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
     let ct = match layer.spatial_ref() {
@@ -1078,7 +1185,13 @@ fn vector_samples(info: &CubeInfo, path: &str, field: &str, max: usize) -> R<Vec
     let g = gt_of(info);
     let mut out = vec![];
     for f in layer.features() {
-        let Some(class) = f.field_as_string(fi).ok().flatten().filter(|s| !s.is_empty()) else { continue };
+        let class = match fi {
+            Some(fi) => match f.field_as_string(fi).ok().flatten().filter(|s| !s.is_empty()) {
+                Some(c) => c,
+                None => continue,
+            },
+            None => f.fid().map_or(String::new(), |i| i.to_string()),
+        };
         let Some(geom) = f.geometry().filter(|g| !g.is_empty()) else { continue };
         let geom = match &ct {
             Some(ct) => geom.transform(ct).map_err(|e| e.to_string())?,
@@ -1366,7 +1479,26 @@ impl Server {
             }),
             "tempcnn" => janus_ml::Arch::TempCnn(Default::default()),
             "ltae" | "l-tae" | "lighttae" => janus_ml::Arch::LTae(Default::default()),
-            m => return Err(format!("method: random_forest, tempcnn or ltae, not {m:?}")),
+            "presto" => {
+                // a year's monthly composites (the series' last year by default), or the series' own dates
+                let mut h = janus_ml::presto::PrestoHyper::default();
+                h.inputs.year = match &a["presto_year"] {
+                    Value::String(s) if s == "dates" => None,
+                    Value::Number(n) => Some(n.as_i64().ok_or("presto_year: a year")? as i32),
+                    _ => Some(info.decimal_year(info.t().saturating_sub(1)).floor() as i32),
+                };
+                janus_ml::Arch::Presto(h)
+            }
+            "utae" | "u-tae" => {
+                let patch = a["patch"].as_u64().unwrap_or(64).clamp(16, 512) as usize;
+                janus_ml::Arch::Utae(janus_ml::utae::UtaeHyper {
+                    patch,
+                    overlap: patch / 4,
+                    pastis: a["pastis"].as_bool().unwrap_or(false),
+                    ..Default::default()
+                })
+            }
+            m => return Err(format!("method: random_forest, tempcnn, ltae, presto or utae, not {m:?}")),
         };
         let mut cfg = TrainConfig {
             validation_split: a["validation_share"].as_f64().unwrap_or(0.25).clamp(0.0, 0.9),
@@ -1387,6 +1519,29 @@ impl Server {
         let log = crate::zeit::JobLog { path: model_path.with_extension("log"), t0: Instant::now() };
         let run = Arc::new(Mutex::new(crate::ml::TrainRun::default()));
         let header = match &arch {
+            janus_ml::Arch::Utae(h) => {
+                let colors: Vec<[u8; 3]> = (0..classes.len()).map(crate::ml::class_color).collect();
+                let roi = (a.get("window").is_some() || a.get("bbox").is_some() || a.get("bbox_lonlat").is_some())
+                    .then(|| window_of(&info, a))
+                    .transpose()?;
+                crate::ml::utae_job(
+                    &info,
+                    &inputs,
+                    &sites,
+                    None,
+                    roi,
+                    &classes,
+                    &colors,
+                    h,
+                    &cfg,
+                    a["gpu"].as_bool().unwrap_or(true),
+                    &model_path.to_string_lossy(),
+                    &log,
+                    &run,
+                    &|f, m| c.progress(f, m),
+                    &c.stop,
+                )?
+            }
             janus_ml::Arch::RandomForest(h) => crate::ml::forest_job(
                 &info,
                 inputs,
@@ -1833,6 +1988,16 @@ mod tests {
         dir.to_string_lossy().into_owned()
     }
 
+    /// GDAL's data, plugins and drivers set once: the tests run on threads at once, and two setting them
+    /// together crashed (STATUS_ACCESS_VIOLATION)
+    fn setup() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            crate::configure_data();
+            gdal::DriverManager::register_all();
+        });
+    }
+
     fn quiet() -> Call {
         Call {
             out: Arc::new(Mutex::new(std::io::stdout())),
@@ -1874,8 +2039,7 @@ mod tests {
     #[test]
     fn reads_and_computes_a_series() {
         // PROJ's data, as Janus finds it
-        crate::configure_data();
-        gdal::DriverManager::register_all();
+        setup();
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let dir = std::env::temp_dir().join(format!("janus-mcp-test-{stamp}"));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1913,6 +2077,122 @@ mod tests {
         let ds = gdal::Dataset::open(f).unwrap();
         let px = ds.rasterband(1).unwrap().read_as::<f32>((0, 0), (4, 3), (4, 3), None).unwrap();
         assert!(px.data().iter().all(|&x| (x - 20.0).abs() < 1e-6), "{:?}", px.data());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn temp(name: &str) -> PathBuf {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("janus-mcp-{name}-{stamp}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn reads_vectors_and_their_series() {
+        setup();
+        let dir = temp("vectors");
+        let path = series(&dir);
+        // a point on col 3, row 0 and a polygon over cols 0 and 1 (every row), in the series' CRS (UTM 20S)
+        let gj = dir.join("places.geojson");
+        std::fs::write(
+            &gj,
+            r#"{"type": "FeatureCollection", "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::32720"}},
+            "features": [
+              {"type": "Feature", "properties": {"name": "east", "kind": "pin"}, "geometry": {"type": "Point", "coordinates": [500035.0, 8999995.0]}},
+              {"type": "Feature", "properties": {"name": "west", "kind": "field"}, "geometry": {"type": "Polygon", "coordinates": [[[500000.0, 9000000.0], [500020.0, 9000000.0], [500020.0, 8999970.0], [500000.0, 8999970.0], [500000.0, 9000000.0]]]}}
+            ]}"#,
+        )
+        .unwrap();
+        let s = Server { threads: 2, ..Default::default() };
+        let d = s.describe_vector(&json!({ "path": gj })).unwrap();
+        let l = &d["layers"][0];
+        assert_eq!(l["features"], 2);
+        assert_eq!(l["epsg"], 32720);
+        let fields: Vec<&str> = l["fields"].as_array().unwrap().iter().map(|f| f["name"].as_str().unwrap()).collect();
+        assert_eq!(fields, ["name", "kind"]);
+        assert_eq!(l["first_features"][1]["attributes"]["name"], "west");
+        let ll = l["extent_lonlat"].as_array().unwrap();
+        assert!((ll[0].as_f64().unwrap() + 63.0).abs() < 0.01, "{ll:?}");
+        let c = quiet();
+        let r = s
+            .vector_series(
+                &json!({ "series": path, "vector": gj, "id_field": "name", "output_dir": dir.join("out") }),
+                &c,
+            )
+            .unwrap();
+        assert_eq!(r["features"], 2);
+        let csv = std::fs::read_to_string(r["csv"].as_str().unwrap()).unwrap();
+        let rows: Vec<&str> = csv.lines().collect();
+        assert_eq!(rows[0], "feature,id,date,value,pixels");
+        assert_eq!(rows[1], "1,\"east\",2020-01-15,3,1");
+        assert_eq!(rows[3], "1,\"east\",2020-03-15,23,1");
+        // the polygon's mean of its 6 pixels (cols 0 and 1)
+        assert_eq!(rows[5], "2,\"west\",2020-02-15,10.5,6");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn kmeans_named_by_the_samples() {
+        setup();
+        let dir = temp("kmeans");
+        let path = series(&dir);
+        let s = Server { threads: 2, ..Default::default() };
+        let r = s
+            .run_tool(
+                &json!({
+                    "tool": "kmeans", "series": path, "params": { "k": 2 },
+                    "samples": [{ "col": 0, "row": 0, "class": "low" }, { "col": 0, "row": 2, "class": "low" }, { "col": 3, "row": 1, "class": "high" }],
+                    "output_dir": dir.join("out"),
+                }),
+                &quiet(),
+            )
+            .unwrap();
+        let cluster = r["outputs"].as_array().unwrap().iter().find(|o| o["unit"] == "class").unwrap();
+        assert_eq!(cluster["classes"], json!(["low (cluster 1, 50%)", "high (cluster 2, 50%)"]));
+        assert_eq!(cluster["class_samples"][0], json!({ "low": 2 }));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A search and a series of Earth Search's Sentinel-2 over a small area (needs the network).
+    #[test]
+    #[ignore]
+    fn stac_search_and_series() {
+        setup();
+        let s = Server { threads: 2, ..Default::default() };
+        let c = quiet();
+        let k = s.stac_catalogs(&json!({})).unwrap();
+        assert!(k["catalogs"].as_array().unwrap().len() >= 3);
+        let search = json!({
+            "catalog": "earth-search", "collection": "sentinel-2-c1-l2a",
+            "bbox_lonlat": [-62.9, -9.92, -62.89, -9.91], "start": "2024-07-01", "end": "2024-08-31", "max_cloud": 20,
+        });
+        let r = s.stac_search(&search, &c).unwrap();
+        println!("{}", serde_json::to_string_pretty(&r["by_date"]).unwrap());
+        assert!(r["items"].as_u64().unwrap() > 0);
+        assert!(r["bands"].as_array().unwrap().iter().any(|b| b["key"] == "nir" && b["default"] == true));
+        let dir = temp("stac");
+        // in place: a VRT a date, the dates the search found
+        let mut a = search.clone();
+        a["bands"] = json!(["red", "nir", "scl"]);
+        a["output_dir"] = json!(dir.join("open"));
+        let r = s.stac_series(&a, &c).unwrap();
+        let d = s.describe_series(&json!({ "series": r["series"] })).unwrap();
+        assert_eq!(d["dates"], r["dates"]);
+        assert_eq!(r["dates"].as_u64(), s.stac_search(&search, &c).unwrap()["dates"].as_u64());
+        // a median of the dates: one file of the two reflectances (the quality band masks them)
+        a["mode"] = json!("composite");
+        a["composite"] = json!({ "method": "median" });
+        a["output_dir"] = json!(dir.join("composite"));
+        let r = s.stac_series(&a, &c).unwrap();
+        println!("{}", serde_json::to_string_pretty(&r).unwrap());
+        assert_eq!(r["dates"], 1);
+        assert!(r["composite"]["one_period"].is_string());
+        let f = gdal::Dataset::open(r["first_file"].as_str().unwrap()).unwrap();
+        assert_eq!(f.raster_count(), 2);
+        // the pattern names the composite alone (not its info/ and vrt/ beside it)
+        let d = s.describe_series(&json!({ "series": r["series"] })).unwrap();
+        println!("{}", serde_json::to_string_pretty(&d).unwrap());
+        assert!(r["series"].as_str().unwrap().ends_with("composite_*.tif"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

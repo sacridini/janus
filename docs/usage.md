@@ -337,7 +337,7 @@ answer. Long calls report their progress and stop when the client cancels them.
 | `check_expression` | a raster calculator text planned over named layers: the result (dates or an image), grid, layers read, or the error's line and column |
 | `calculate` | the text computed: a COG per date (or VRTs computed when read) |
 | `list_tools`, `describe_tool` | Zeit's tools, their parameters and outputs |
-| `run_tool` | a Zeit tool on a series or an area of it (BFAST, CCDC, LandTrendr, trends, phenology...); TWDTW from samples (each class's mean series its pattern); the tools on maps (agreement of change maps) on `maps` |
+| `run_tool` | a Zeit tool on a series or an area of it (BFAST, CCDC, LandTrendr, trends, phenology...); TWDTW from samples (each class's mean series its pattern); the SOM's and k-means' clusters named by the samples' classes; the tools on maps (agreement of change maps) on `maps` |
 | `regularize` | a fixed step (16 days, month, year): median, medoid or clearest date, gaps filled |
 | `speckle` | a radar series through Quegan's multitemporal filter or Lee's |
 | `harmonize` | Sentinel-2 taken to Landsat 8's OLI by HLS's bandpass adjustment (Landsat 7 and 4-5 by Roy et al. 2016 if asked); with `join`, a second series on the same grid joined in time |
@@ -346,8 +346,13 @@ answer. Long calls report their progress and stop when the client cancels them.
 | `areas` | the area of each class or change year of maps (each pixel's own area); a CSV |
 | `polygonize` | a map of classes or dates into polygons (a GeoPackage), small patches merged, simplified |
 | `rasterize` | a vector layer on a raster's or a series' grid: 1 inside, each feature's number or an attribute |
-| `train_classifier` | a Random Forest, TempCNN or L-TAE on samples (places with a class, or a vector file and its class field), validated (by place for the forest) |
+| `train_classifier` | a Random Forest, TempCNN, L-TAE, Presto (a year's dates, fine-tuned) or U-TAE (patches of the area, on PASTIS's weights or none) on samples (places with a class, or a vector file and its class field), validated (by place for the forest) |
 | `classify` | a `.janusmodel` applied to a series or an area: class map, probability, area of applicability |
+| `stac_catalogs` | the STAC catalogues Janus knows (Earth Search, Planetary Computer, ...) and their collections |
+| `stac_search` | a collection's items over an area and dates (and cloud cover): the dates found, the clouds of each, the bands to choose |
+| `stac_series` | the search as a series: VRTs read in place, downloaded (a cloud-optimized GeoTIFF a date) or composited (best available pixel, greenest, medoid or median, the whole range or a year a period); clouds masked by the quality band |
+| `describe_vector` | a vector file's layers: features, geometry, CRS, extent (also in longitude and latitude), fields, the first features |
+| `vector_series` | each feature's series (a point's pixel, a polygon's mean) of a series; a CSV of feature, id, date, value and pixels |
 | `open_in_janus` | files shown in Janus, places as pins: as layers of the window already open (it comes to the front; it watches an inbox beside Janus's data), else in a new window |
 
 A series is a path (a folder, a file, a wildcard) or
