@@ -1105,9 +1105,11 @@ It works for any such file; EnMAP is the first case tested.
   Janus itself when DEFLATE or ZSTD without a predictor: the overview, an ROI
   and the exact series each decompress a block once (875 Float64 bands of
   1690 x 1675, a CCDC stack of 3.3 GB, 125 dates of 7 bands: the overview in
-  5 s rather than over 15 minutes). Paging through dates zoomed in still decompresses a block of
-  every band for each date shown; `gdal_translate -co INTERLEAVE=BAND` makes
-  that fast.
+  5 s rather than over 15 minutes). Zoomed in, the first date shown at a
+  place reads every date there at once (each block decompressed once) and
+  keeps them in memory (an eighth of it at most, the places seen longest ago
+  let go first): paging or playing through the dates there reads nothing
+  more.
 - The Zeit tools work along time and are disabled on a spectrum.
 
 ## Embeddings

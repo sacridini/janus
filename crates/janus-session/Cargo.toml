@@ -8,3 +8,7 @@ license.workspace = true
 [dependencies]
 janus-cache = { path = "../janus-cache" }
 janus-cube = { path = "../janus-cube" }
+
+[dev-dependencies]
+gdal.workspace = true
+rayon = "1.12"

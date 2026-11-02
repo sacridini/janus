@@ -4726,8 +4726,10 @@ dependencies = [
 name = "janus-session"
 version = "1.8.0"
 dependencies = [
+ "gdal",
  "janus-cache",
  "janus-cube",
+ "rayon",
 ]
 
 [[package]]

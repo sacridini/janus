@@ -2,14 +2,145 @@
 //! overview's resolution. Only the current date (and the next one while playing) is asked for; requests that left
 //! the screen are dropped before being read. The textures are the caller's (`T`, made by `upload_ready`), kept in
 //! an LRU within a budget of bytes.
+//!
+//! A file whose blocks hold every band (pixel-interleaved, janus_cube::interleaved_blocks: a CCDC stack of 875
+//! bands, 459 MB a block decompressed) is paged otherwise: a date's tile decompresses its blocks whole, so the
+//! first tile read at a place reads it for every date at once (each block decompressed once,
+//! janus_cache::blocks::BlockSampling) and keeps them in memory (an eighth of it at most, the least recently used
+//! places going first): the other dates there, paged or played, come from memory.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Instant;
 
+use janus_cache::blocks::{BlockSampling, usable_ram};
 use janus_cache::{FullResCache, JobPool};
-use janus_cube::{CubeInfo, with_thread_reader};
+use janus_cube::{CubeInfo, drop_thread_reader, interleaved_blocks, with_thread_reader};
+
+/// A place's tile of every date (dates x h x w), or None if it could not be read so (read date by date then).
+type Page = Option<Arc<Vec<f32>>>;
+
+/// A place's page (made once) and when it was last used.
+type Place = (Arc<OnceLock<Page>>, u64);
+
+/// The tiles of every date of a pixel-interleaved file, by place (a tile's key of date 0).
+struct Pages {
+    block: (usize, usize),
+    /// bytes kept at most
+    max_bytes: usize,
+    /// each place's page (made once, whoever asks first; the others wait for it) and when it was last used
+    map: Mutex<(HashMap<u64, Place>, u64)>,
+    /// pages made at once, at most: each holds a decompressed block of every band
+    making: (Mutex<usize>, Condvar),
+    limit: usize,
+}
+
+impl Pages {
+    fn new(info: &CubeInfo) -> Option<Pages> {
+        let (block, block_bytes) = interleaved_blocks(info)?;
+        let budget = usable_ram() / 8;
+        Some(Pages {
+            block,
+            max_bytes: budget as usize,
+            map: Mutex::default(),
+            making: (Mutex::new(0), Condvar::new()),
+            limit: (budget / block_bytes.max(1)).clamp(1, 4) as usize,
+        })
+    }
+
+    /// Date t's tile at a place (`key`): the window `win` of the source in `size` pixels, from its page (made now
+    /// if it is not there). False: not read so.
+    fn read(
+        &self,
+        info: &Arc<CubeInfo>,
+        key: u64,
+        t: usize,
+        win: (usize, usize, usize, usize),
+        size: (usize, usize),
+        out: &mut [f32],
+    ) -> bool {
+        let cell = {
+            let mut m = self.map.lock().unwrap();
+            m.1 += 1;
+            let now = m.1;
+            let e = m.0.entry(key).or_insert_with(|| (Arc::default(), now));
+            e.1 = now;
+            e.0.clone()
+        };
+        let mut made = false;
+        let page = cell
+            .get_or_init(|| {
+                made = true;
+                self.make(info, win, size)
+            })
+            .clone();
+        if made {
+            self.evict(key);
+        }
+        let n = size.0 * size.1;
+        match page {
+            Some(p) if p.len() >= (t + 1) * n => {
+                out.copy_from_slice(&p[t * n..(t + 1) * n]);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Every date of the window, block by block.
+    fn make(&self, info: &Arc<CubeInfo>, win: (usize, usize, usize, usize), size: (usize, usize)) -> Page {
+        let (lock, cv) = &self.making;
+        {
+            let mut n = cv.wait_while(lock.lock().unwrap(), |n| *n >= self.limit).unwrap();
+            *n += 1;
+        }
+        let dates: Vec<usize> = (0..info.t()).collect();
+        let n = size.0 * size.1;
+        let mut out = vec![f32::NAN; dates.len() * n];
+        let sampling = BlockSampling::new(info, win, size, self.block);
+        let (mut values, stop) = (Vec::new(), AtomicBool::new(false));
+        let ok = with_thread_reader(info, |r| {
+            (0..sampling.windows.len())
+                .all(|k| sampling.read(r, k, &dates, &mut values, &stop, |j, sc| sc.put(&mut out[j * n..(j + 1) * n])))
+        });
+        // the decompressed block of every band goes with the reader
+        drop_thread_reader();
+        *lock.lock().unwrap() -= 1;
+        cv.notify_one();
+        ok.then(|| Arc::new(out))
+    }
+
+    /// The least recently used pages go while they are over the budget (never `keep`, the one just made).
+    fn evict(&self, keep: u64) {
+        let mut m = self.map.lock().unwrap();
+        let size = |c: &OnceLock<Page>| c.get().and_then(|p| p.as_ref()).map_or(0, |p| p.len() * 4);
+        let mut bytes: usize = m.0.values().map(|(c, _)| size(c)).sum();
+        if bytes <= self.max_bytes {
+            return;
+        }
+        let mut order: Vec<(u64, u64)> =
+            m.0.iter().filter(|(k, _)| **k != keep).map(|(&k, (_, used))| (*used, k)).collect();
+        order.sort_unstable();
+        for (_, k) in order {
+            if bytes <= self.max_bytes {
+                break;
+            }
+            if let Some((c, _)) = m.0.remove(&k) {
+                bytes -= size(&c);
+            }
+        }
+    }
+
+    fn clear(&self) {
+        self.map.lock().unwrap().0.clear();
+    }
+
+    fn bytes(&self) -> usize {
+        let m = self.map.lock().unwrap();
+        m.0.values().map(|(c, _)| c.get().and_then(|p| p.as_ref()).map_or(0, |p| p.len() * 4)).sum()
+    }
+}
 
 pub const TILE_SIZE: usize = 256;
 
@@ -60,6 +191,8 @@ struct Shared {
 pub struct TileManager<T> {
     info: Arc<CubeInfo>,
     full_res: Option<Arc<FullResCache>>,
+    /// a pixel-interleaved file's tiles of every date
+    pages: Option<Arc<Pages>>,
     overview_factor: f64,
     /// the coarsest level still finer than the overview (None: the overview is enough at every zoom)
     max_level: Option<u32>,
@@ -99,6 +232,7 @@ impl<T> TileManager<T> {
         // the largest level L (2^L source pixels per texel) still finer than the overview
         let max_level = (overview_factor > 1.0001).then(|| (overview_factor.log2().ceil() as i64 - 1).max(0) as u32);
         TileManager {
+            pages: Pages::new(&info).map(Arc::new),
             info,
             full_res,
             overview_factor,
@@ -167,8 +301,13 @@ impl<T> TileManager<T> {
                     continue;
                 }
             }
-            let (shared, frame, info, full) =
-                (self.shared.clone(), self.shared_frame.clone(), self.info.clone(), self.full_res.clone());
+            let (shared, frame, info, full, pages) = (
+                self.shared.clone(),
+                self.shared_frame.clone(),
+                self.info.clone(),
+                self.full_res.clone(),
+                self.pages.clone(),
+            );
             pool.submit(priority, move || {
                 {
                     let mut sh = shared.lock().unwrap();
@@ -187,6 +326,9 @@ impl<T> TileManager<T> {
                 let mut data = vec![0f32; tw * th];
                 let win = (x, y, sw, sh);
                 let ok = full.as_ref().is_some_and(|c| c.read_window(t, win, &mut data, (tw, th)))
+                    || pages
+                        .as_ref()
+                        .is_some_and(|p| p.read(&info, make_key(0, level, tx, ty), t, win, (tw, th), &mut data))
                     || with_thread_reader(&info, |r| r.read_window(t, win, &mut data, (tw, th)));
                 if !ok {
                     data.fill(f32::NAN);
@@ -290,10 +432,19 @@ impl<T> TileManager<T> {
         self.bytes
     }
 
-    /// Every tile let go (the layer no longer active: it draws its overview; a view that shows it asks again).
+    /// Every tile let go (the layer no longer active, or zoomed out: it draws its overview; a view that shows it
+    /// asks again), and the pages of a pixel-interleaved file.
     pub fn clear(&mut self) {
         self.resident.clear();
         self.bytes = 0;
+        if let Some(p) = &self.pages {
+            p.clear();
+        }
+    }
+
+    /// The bytes of a pixel-interleaved file's tiles of every date kept in memory (None: not paged so).
+    pub fn paged_bytes(&self) -> Option<usize> {
+        self.pages.as_ref().map(|p| p.bytes())
     }
 
     pub fn gpu_tiles(&self) -> usize {
