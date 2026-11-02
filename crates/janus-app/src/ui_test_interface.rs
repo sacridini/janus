@@ -2103,6 +2103,42 @@ impl State {
                 if class.classes != ["Early", "Late"] || wrong > 0 {
                     return fail("TWDTW's class map: Early on the left half, Late on the right");
                 }
+                // k-means in the same window: two clusters without samples, named by the same pins
+                (self.ml.kind, self.ml.tab) = (crate::methods::Kind::Kmeans, 2);
+                let tool = janus_zeit::manifest().tool("kmeans")?;
+                self.zeit.params(tool).insert("k".into(), serde_json::json!(2));
+                self.zeit.tools.entry("kmeans".into()).or_default().scope = 0;
+                self.run_tool(tool, ctx);
+                next(st, "TWDTW run from the window: its class map Early on the left half, Late on the right");
+                None
+            }
+            233 => {
+                let job = self.zeit.jobs.last().filter(|j| j.tool == "kmeans")?;
+                let (state, error) = {
+                    let s = job.status.lock().ok()?;
+                    (s.state, s.error.clone())
+                };
+                match state {
+                    crate::zeit::JobState::Failed | crate::zeit::JobState::Cancelled => {
+                        return fail(&format!("the k-means run should finish: {error}"));
+                    }
+                    crate::zeit::JobState::Running => return None,
+                    crate::zeit::JobState::Done => {}
+                }
+                let tag = job.output_dir.clone();
+                let cluster = self.zeit.results.iter().find(|r| r.path.starts_with(&tag) && !r.classes.is_empty());
+                let cluster = cluster.filter(|r| !r.data.is_empty() && !self.zeit.loads_pending())?;
+                let (left, right) = (cluster.value_at(2, 5), cluster.value_at(cluster.w - 3, 5));
+                let name = |v: f32| cluster.classes.get((v as usize).wrapping_sub(1)).cloned().unwrap_or_default();
+                println!(
+                    "    k-means from the window: {:?}; left {left} ({}), right {right} ({})",
+                    cluster.classes,
+                    name(left),
+                    name(right)
+                );
+                if !name(left).starts_with("Early (cluster ") || !name(right).starts_with("Late (cluster ") {
+                    return fail("k-means' clusters named by the pins: Early on the left half, Late on the right");
+                }
                 (self.ml.kind, self.ml.tab) = (Default::default(), 0);
                 self.ml.open = false;
                 let k = self.layers.iter().position(|l| l.name == "Seasons")?;
@@ -2112,10 +2148,10 @@ impl State {
                 for dir in &st.texts {
                     let _ = std::fs::remove_dir_all(dir);
                 }
-                next(st, "TWDTW run from the window: its class map Early on the left half, Late on the right");
+                next(st, "k-means run from the window: its two clusters named Early and Late by the pins in them");
                 None
             }
-            233 => {
+            234 => {
                 // the validation's folder (stages 170-179), its strata layer open until now
                 let _ = std::fs::remove_dir_all(&st.dir);
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());

@@ -90,7 +90,7 @@ which ships with Janus: there is nothing else to install. Its command line is `j
   and its trend: new, intensifying, persistent... hot and cold spots, as ESRI's), BFAST, CCDC, EWMACD
   (monitoring every observation with control charts: disturbance, recovery, gain),
   CODED (forest degradation, with the NDFI), spectral unmixing with endmembers
-  from pins (of every date's bands, or of a hyperspectral scene), phenology, TWDTW, SOM clustering,
+  from pins (of every date's bands, or of a hyperspectral scene), phenology, TWDTW, SOM and k-means clustering (named by your samples),
   the post-processing of classifications (one-year flickers, majority, minimum mapping unit),
   SNIC segmentation, texture (the GLCM's properties, as scikit-image's), Tmask cloud screening and more from [Zeit](https://github.com/sacridini/zeit-cdts),
   fitted live on the chart (BFAST and CCDC models drawn over the series) or

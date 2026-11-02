@@ -1,7 +1,8 @@
 //! The Classification window's methods (Tools > Classification & pattern recognition), on the same samples: besides the forest and the
 //! networks (ml.rs), TWDTW (Zeit's tool: each class's pattern the mean series of its samples, every pixel the class
 //! of the pattern most like its series), the classifier of a layer of embeddings (the Embeddings panel's logistic
-//! regression or nearest centroid, fitted on the samples' vectors) and SOM (Zeit's tool: clusters, no samples).
+//! regression or nearest centroid, fitted on the samples' vectors), SOM and k-means (clusters found without samples,
+//! each named by the class of most of the samples in it when there are samples).
 //! The supervised ones estimated on the samples as the forest is, cross-validated by place (each sample classified
 //! by a model that never saw its place), on a thread when the samples or the settings change.
 
@@ -23,7 +24,7 @@ use crate::ml::{FOREST, Site, assemble};
 use crate::sample_check::{RawCache, key_of, read_cached};
 
 /// What a method is: learned from the samples (the forest, the networks: ml.rs), matched to each class's series
-/// (TWDTW), fitted on a layer of embeddings, or clusters found without samples (SOM).
+/// (TWDTW), fitted on a layer of embeddings, or clusters found without samples (SOM, k-means).
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum Kind {
     #[default]
@@ -31,6 +32,7 @@ pub enum Kind {
     Twdtw,
     Embeddings,
     Som,
+    Kmeans,
 }
 
 impl Kind {
@@ -39,14 +41,21 @@ impl Kind {
         match self {
             Kind::Twdtw => Some("twdtw"),
             Kind::Som => Some("som"),
+            Kind::Kmeans => Some("kmeans"),
             _ => None,
         }
+    }
+
+    /// Clusters found without samples (SOM, k-means), named by the samples when there are some.
+    pub fn clusters(self) -> bool {
+        matches!(self, Kind::Som | Kind::Kmeans)
     }
 
     pub fn of_tool(id: &str) -> Option<Kind> {
         match id {
             "twdtw" => Some(Kind::Twdtw),
             "som" => Some(Kind::Som),
+            "kmeans" => Some(Kind::Kmeans),
             _ => None,
         }
     }
@@ -356,6 +365,23 @@ fn embeddings_estimate(
     })
 }
 
+/// The pixels of samples on the series, for a clustering to name its clusters by (at most 200 of a place, 20 000 in
+/// all: every n-th beyond).
+pub(crate) fn sample_pixels(sites: &[Site], info: &CubeInfo) -> Vec<janus_zeit::job::SamplePixel> {
+    let total: usize = sites.iter().map(|s| s.pixels.len().min(200)).sum();
+    let every = total.div_ceil(20_000).max(1);
+    let mut out = vec![];
+    for (place, s) in sites.iter().enumerate() {
+        let step = s.pixels.len().div_ceil(200).max(1) * every;
+        for &(x, y) in s.pixels.iter().step_by(step) {
+            if x < info.width && y < info.height {
+                out.push(janus_zeit::job::SamplePixel { x, y, class: s.class.clone(), place });
+            }
+        }
+    }
+    out
+}
+
 /// A method in the window's list: its kind, the network's or forest's index (Learned), its name.
 type MethodEntry = (Kind, usize, &'static str);
 
@@ -368,7 +394,7 @@ pub(crate) fn methods() -> Vec<(&'static str, Vec<MethodEntry>)> {
         ),
         ("Matched to each class's series", vec![(Kind::Twdtw, 0, "TWDTW")]),
         ("On a layer of embeddings", vec![(Kind::Embeddings, 0, "Logistic regression or nearest centroid")]),
-        ("Without samples (clusters)", vec![(Kind::Som, 0, "Self-Organizing Map (SOM)")]),
+        ("Without samples (clusters)", vec![(Kind::Som, 0, "Self-Organizing Map (SOM)"), (Kind::Kmeans, 0, "k-means")]),
     ]
 }
 
@@ -402,6 +428,11 @@ pub(crate) fn describe(kind: Kind, arch: usize) -> &'static str {
         (Kind::Som, _) => {
             "Kohonen's Self-Organizing Map: the pixels grouped by their whole series without samples, \
              neighbouring clusters alike. A first look at the kinds of trajectories an area has."
+        }
+        (Kind::Kmeans, _) => {
+            "k-means: the pixels grouped by their whole series without samples, each into the cluster whose mean \
+             series (its centre) is nearest. Quick, its clusters compact: a first map of the kinds of trajectories \
+             an area has."
         }
     }
 }
@@ -623,7 +654,7 @@ impl State {
         });
     }
 
-    /// TWDTW or SOM in the Apply tab: Zeit's run on the raster (its scope, mask, threads, preview).
+    /// TWDTW, SOM or k-means in the Apply tab: the run on the raster (its scope, mask, threads, preview).
     pub(crate) fn zeit_method_apply_ui(&mut self, ui: &mut Ui, info: &Arc<CubeInfo>, id: &str) {
         let tool = janus_zeit::manifest::manifest().tool(id).expect("a Zeit tool");
         let mut why = crate::zeit::applicability(tool, info);
@@ -640,9 +671,9 @@ impl State {
         ui.weak("The maps are layers of their own when the run ends; Tools > Classification & pattern recognition > Post-processing smooths a class map.");
     }
 
-    /// SOM in the Method tab: its settings (no samples).
-    pub(crate) fn som_method_ui(&mut self, ui: &mut Ui, info: &Arc<CubeInfo>) {
-        let tool = janus_zeit::manifest::manifest().tool("som").expect("the SOM tool");
+    /// SOM or k-means in the Method tab: its settings, and the samples that will name its clusters.
+    pub(crate) fn clusters_method_ui(&mut self, ui: &mut Ui, info: &Arc<CubeInfo>, id: &str) {
+        let tool = janus_zeit::manifest::manifest().tool(id).expect("a clustering tool");
         crate::panels::section(ui, "Values read on each date");
         ui.label(format!("The series shown ({})", InputBand::shown(info).name));
         if let Some(why) = crate::zeit::applicability(tool, info) {
@@ -653,10 +684,56 @@ impl State {
         if self.tool_params_ui(ui, tool) {
             self.zeit.tools.entry(tool.id.clone()).or_default().version += 1;
         }
-        ui.weak("No samples: the clusters are named after the run, by what their series show.");
+        crate::panels::section(ui, "Names of the clusters");
+        match self.cluster_samples(info) {
+            Some((pixels, places, classes)) => {
+                ui.label(format!(
+                    "Named by the samples: {places} places ({pixels} pixels) of {classes} classes. Each cluster \
+                     takes the class of most of the samples in it (a place counting once), \"A or B\" when none \
+                     has two thirds of them; a cluster without samples keeps its number."
+                ));
+            }
+            None => {
+                ui.weak(
+                    "The clusters are numbered. With samples (the Samples tab), each is named by the class of most \
+                     of the samples in it.",
+                );
+            }
+        }
+        let tag = format!("_{id}_");
+        let last =
+            self.zeit.results.iter().rev().find(|r| r.cube == info.id && r.run.contains(&tag) && !r.classes.is_empty());
+        if let Some(r) = last {
+            crate::panels::section(ui, "Clusters of the last run");
+            for (k, c) in r.classes.iter().enumerate() {
+                ui.label(format!("{}. {c}", k + 1));
+            }
+        }
         if ui.button("Run it (Apply)").clicked() {
             self.ml.tab = 2;
         }
+    }
+
+    /// The samples a clustering run is given to name its clusters: the Classification window's.
+    pub(crate) fn cluster_samples_spec(&self, info: &CubeInfo) -> Vec<janus_zeit::job::SamplePixel> {
+        match self.ml.sites.as_ref().map(|c| &c.1) {
+            Some(Ok((sites, _))) => sample_pixels(sites, info),
+            _ => vec![],
+        }
+    }
+
+    /// The pixels, places and classes of the samples a clustering run would be named by, if any.
+    fn cluster_samples(&self, info: &CubeInfo) -> Option<(usize, usize, usize)> {
+        let px = self.cluster_samples_spec(info);
+        if px.is_empty() {
+            return None;
+        }
+        let mut places: Vec<usize> = px.iter().map(|p| p.place).collect();
+        places.dedup();
+        let mut classes: Vec<&str> = px.iter().map(|p| p.class.as_str()).collect();
+        classes.sort_unstable();
+        classes.dedup();
+        Some((px.len(), places.len(), classes.len()))
     }
 
     /// The vectors of the samples' pixels in layer i's year shown (a place's mean for a mean site), their classes

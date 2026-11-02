@@ -631,7 +631,7 @@ impl State {
             let label = format!("{c}{}", if any_open { "  \u{25cf}" } else { "" });
             ui.menu_button(label, |ui| {
                 for t in tools {
-                    // TWDTW and SOM: methods of the Classification window
+                    // TWDTW, SOM and k-means: methods of the Classification window
                     let method = crate::methods::Kind::of_tool(&t.id);
                     let open = match method {
                         Some(k) => self.ml.open && self.ml.kind == k,
@@ -1812,6 +1812,10 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             series_inputs(&info, tool, &roles, &work.join(format!("{name}_{}", info.id)), &mut spec)?;
         }
         spec.window = Some(window);
+        if crate::methods::Kind::of_tool(&tool.id).is_some_and(|k| k.clusters()) {
+            // the Classification window's samples name the clusters
+            spec.samples = self.cluster_samples_spec(&info);
+        }
         if tool.input.as_deref() != Some("layers")
             && let Some((path, mask)) =
                 self.zeit.tools.get(&tool.id).and_then(|u| u.mask).and_then(|m| self.mask_path(m))

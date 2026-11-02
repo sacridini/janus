@@ -20,6 +20,7 @@ pub mod ewmacd;
 pub mod harmonize;
 pub mod hotspots;
 pub mod job;
+mod kmeans;
 mod landtrendr;
 pub mod manifest;
 mod mann_kendall;

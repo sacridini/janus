@@ -481,7 +481,7 @@ impl State {
         if ui
             .add(egui::Button::selectable(
                 self.ml.open,
-                "Classification (Random Forest, TWDTW, embeddings, SOM, networks)...",
+                "Classification (Random Forest, TWDTW, embeddings, SOM, k-means, networks)...",
             ))
             .clicked()
         {
@@ -548,7 +548,7 @@ impl State {
                     Kind::Learned => self.ml_model_tab(ui, &info),
                     Kind::Twdtw => self.twdtw_method_ui(ui, &info),
                     Kind::Embeddings => self.embeddings_method_ui(ui),
-                    Kind::Som => self.som_method_ui(ui, &info),
+                    Kind::Som | Kind::Kmeans => self.clusters_method_ui(ui, &info, kind.tool().unwrap_or_default()),
                 }
             }
             (_, Kind::Learned) => self.ml_rest_ui(ui, &info),

@@ -1940,6 +1940,96 @@
    "chunk_cells": 100000
   },
   {
+   "id": "kmeans",
+   "name": "k-means clustering",
+   "category": "Classification & pattern recognition",
+   "description": "k-means (Lloyd's, started by k-means++ as scikit-learn's KMeans, the best of several starts): unsupervised clustering of the pixels by their whole series. The centres are fitted on a sample of the area, then every pixel goes to the nearest one; the clusters are ordered by their centres' mean value, low to high. Run from the Classification window with samples, each cluster is named by the class of most of the samples in it. The result is a cluster map; hover it to see the typical series (the centre) of the cluster under the cursor on the chart.",
+   "requires": {
+    "time": "any",
+    "min_dates": 3
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "k",
+     "label": "Clusters",
+     "type": "int",
+     "default": 6,
+     "min": 2,
+     "max": 12,
+     "help": "Number of clusters (at most 12)."
+    },
+    {
+     "id": "sample",
+     "label": "Training sample (pixels)",
+     "type": "int",
+     "default": 20000,
+     "min": 500,
+     "max": 500000,
+     "help": "Pixels the centres are fitted on, drawn at random from rows spread over the area."
+    },
+    {
+     "id": "starts",
+     "label": "Starts",
+     "type": "int",
+     "default": 10,
+     "min": 1,
+     "max": 50,
+     "help": "k-means runs from different k-means++ starts; the one whose pixels are nearest their centres (least inertia) is kept, as scikit-learn's n_init."
+    },
+    {
+     "id": "gaps",
+     "label": "Dates without a value",
+     "type": "enum",
+     "default": "interpolate",
+     "options": [
+      "interpolate",
+      "skip"
+     ],
+     "labels": [
+      "Interpolate in time",
+      "Leave the pixel out"
+     ],
+     "help": "A pixel needs a value on every date: fill the gaps linearly between its neighbours in time (the first and last values repeat at the ends), or leave such pixels without a cluster."
+    },
+    {
+     "id": "min_valid",
+     "label": "Min dates with a value (%)",
+     "type": "float",
+     "default": 50.0,
+     "min": 1.0,
+     "max": 100.0,
+     "help": "When interpolating: pixels with values on fewer dates get no cluster."
+    },
+    {
+     "id": "seed",
+     "label": "Random seed",
+     "type": "int",
+     "default": 42,
+     "min": 0,
+     "max": 1000000,
+     "help": "Seed of the sample and of the starts (same seed, same clusters)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "cluster",
+     "name": "Cluster",
+     "colormap": "Paired",
+     "unit": "class"
+    },
+    {
+     "id": "distance",
+     "name": "Distance to the centre",
+     "colormap": "Plasma",
+     "unit": "value"
+    }
+   ],
+   "chunk_cells": 100000
+  },
+  {
    "id": "tmask",
    "name": "Tmask (cloud screening)",
    "category": "Data preparation",

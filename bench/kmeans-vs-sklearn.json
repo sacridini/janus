@@ -1,0 +1,44 @@
+{
+ "sklearn": "1.9.0",
+ "k": 8,
+ "starts": 10,
+ "dates": 60,
+ "sets": [
+  {
+   "pixels": 20000,
+   "runs": 3,
+   "inertia_janus": 4823.414047581445,
+   "inertia_sklearn": 4823.414226832772,
+   "inertia_ratio": 0.999999962837252,
+   "adjusted_rand": 1.0,
+   "seconds_1t": {
+    "janus": 0.1267,
+    "sklearn": 0.156,
+    "speedup": 1.23
+   },
+   "seconds_4t": {
+    "janus": 0.0538,
+    "sklearn": 0.0781,
+    "speedup": 1.45
+   }
+  },
+  {
+   "pixels": 200000,
+   "runs": 1,
+   "inertia_janus": 48475.41114352472,
+   "inertia_sklearn": 48475.41248676912,
+   "inertia_ratio": 0.9999999722901913,
+   "adjusted_rand": 0.999961833370282,
+   "seconds_1t": {
+    "janus": 1.6567,
+    "sklearn": 2.0192,
+    "speedup": 1.22
+   },
+   "seconds_4t": {
+    "janus": 0.7188,
+    "sklearn": 1.1406,
+    "speedup": 1.59
+   }
+  }
+ ]
+}

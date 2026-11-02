@@ -1635,8 +1635,26 @@ apontado). `--window classification`, `--pin X,Y,CLASSE`.
 - ~~**Uma janela de classificadores em geral**~~ (feito, 2026-10-31): a aba
   Method escolhe entre Random Forest e redes, TWDTW (padrões = média de cada
   classe), o classificador dos embeddings e SOM; TWDTW e embeddings estimados
-  nas amostras por lugar, ao lado do forest. Falta: k-means; nomear os
-  clusters do SOM pelas amostras.
+  nas amostras por lugar, ao lado do forest. ~~Falta: k-means; nomear os
+  clusters do SOM pelas amostras~~ — **feito (2026-11-02, sem versão)**: a
+  ferramenta **k-means** (`janus_zeit::kmeans`, nativa, depois da ponte: o
+  k-means++ e o Lloyd de `cluster.rs`, a melhor de *Starts* partidas, ajustado
+  na mesma amostra do SOM e com as lacunas preenchidas igual; clusters em
+  ordem da média dos centros) entra na janela de classificação ao lado do SOM
+  (*Without samples*) e no menu Tools. Os dois **nomeiam os clusters pelas
+  amostras**: `JobSpec.samples` (os pixels das amostras da janela, até 200 por
+  lugar e 20 000 no todo) lidos pelo próprio job como a rodada lê a área (a
+  amostra cai no cluster que o seu pixel tem no mapa); cada cluster recebe a
+  classe da maioria (cada lugar pesa 1), "A or B" sem dois terços, "Cluster k,
+  no samples" sem amostras; `class_samples` na saída. Contra o scikit-learn
+  1.9 (`tools/bench_kmeans_vs_sklearn.py`): a mesma partição (ARI 1,0 e
+  0,99996) e inércia (4e-8), 1,2× mais rápido em 1 thread e 1,5× em 4, depois
+  de: distâncias em 8 somas (vetorizáveis) com AVX2 escolhido em tempo de
+  execução (sem FMA: os mesmos bits em qualquer CPU), os candidatos do
+  k-means++ medidos numa passada só e as somas dos centros na passada da
+  atribuição (blocos fixos de 4096: os mesmos bits com qualquer número de
+  threads). Autoteste 233 (k-means na janela, os pinos Early/Late nomeiam os
+  clusters).
 - ~~**Servidor MCP do Janus**~~ (feito, 2026-10-31: 19 ferramentas, mcp.rs; ferramentas sobre mapas, polygonize, rasterize, speckle, areas, TempCNN/L-TAE e a janela aberta recebendo os resultados pela inbox; falta: Presto, U-TAE, STAC, vetores) (`janus mcp`, stdio): a calculadora raster, as
   ferramentas que o CLI já roda (`--window NOME-run`: regularize, speckle,
   warp, polygonize, rasterize, zonal, areas, as do Zeit), abrir/inspecionar

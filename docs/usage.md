@@ -246,8 +246,8 @@
   **BFAST Monitor**, **phenology** (season start/peak/end, length, amplitude),
   **CCDC** (multiband), **CODED** (forest degradation, multiband), the
   **NDFI** (spectral unmixing), **Tmask** (clouds the quality band missed),
-  **TWDTW classification** (classes from pins), **SOM clustering** (typical
-  trajectories), **SNIC segmentation** (segments of alike trajectories, with
+  **TWDTW classification** (classes from pins), **SOM** and **k-means clustering** (typical
+  trajectories, named by the samples in them), **SNIC segmentation** (segments of alike trajectories, with
   their polygons), the **agreement** of several change maps and **smoothing**
   (Whittaker, Savitzky-Golay; chart only). Each is fitted live on the cursor, pins and ROI series
   (segments, trend lines, break dates, seasons or CCDC models drawn on the chart),
@@ -441,7 +441,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Export progress | File → Exports (`Ctrl+J`; opens by itself with each export): progress, cancel, open the folder |
 | Shortcuts on a Mac | `Command` instead of `Ctrl` (e.g. `Command+E`, `Command+Shift+S`) |
 | Series as text | **Copy CSV** in the Time series and Transect panels |
-| Zeit tools | **Tools** menu, grouped by the question asked in the order of a workflow (*Data preparation*: Tmask, Smoothing, Regularize, Speckle filter, Harmonize sensors, Reproject; *Spectral analysis*: NDFI, spectral unmixing; *Temporal dynamics*: phenology, Mann-Kendall, AR(1) trend; *Change detection*; *Spatial pattern analysis*: emerging hot spots, SNIC, texture; *Classification & pattern recognition*: TWDTW, SOM, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
+| Zeit tools | **Tools** menu, grouped by the question asked in the order of a workflow (*Data preparation*: Tmask, Smoothing, Regularize, Speckle filter, Harmonize sensors, Reproject; *Spectral analysis*: NDFI, spectral unmixing; *Temporal dynamics*: phenology, Mann-Kendall, AR(1) trend; *Change detection*; *Spatial pattern analysis*: emerging hot spots, SNIC, texture; *Classification & pattern recognition*: TWDTW, SOM, k-means, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
 | Zeit logs | **Tools → Log** (or **Log** next to a task): the log of each raster run, followed live (what ran, its progress, outputs, the end or the error); Copy, open the file or its folder |
 | Tool results | layers of their own in the **Layers** panel (over the rasters): show/hide, order, groups, colormap, range, opacity; their values at the cursor and pins, histogram and statistics in **Pixel values** (hide the series) |
 | Embeddings | **View → Embeddings**: principal components as RGB (of every year, or *local* to the ROI), similarity to the cursor, a pin or the ROI, change between years; see [Embeddings](#embeddings) |
@@ -481,7 +481,8 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 | Tmask (cloud screening) | one file per date with green and SWIR1, ≥ 2 dates per year | observations flagged and their share; the series shown without them as a **new layer** |
 | TWDTW classification | dates | class map (one class per pattern, with a legend), distance, margin to the 2nd class |
 | Post-processing (classes) | a categorical layer (one map or a map per date) | the classes cleaned as a **new layer** with the layer's names and colours: each pixel's short excursions removed (A B A becomes A A A), then each date's map through a majority filter and a minimum mapping unit that merges the small patches into the neighbouring class; how many dates of each pixel changed |
-| SOM clustering | any | cluster map (the typical series of the cluster under the cursor is drawn on the chart), distance to it |
+| SOM clustering | any | cluster map (the typical series of the cluster under the cursor is drawn on the chart; with samples, each cluster named by them), distance to it |
+| k-means clustering | any | cluster map, ordered by the centres' mean value (the centre of the cluster under the cursor is drawn on the chart; with samples, each cluster named by them), distance to it |
 | SNIC segmentation | any | segments (a colour each), each segment's mean series as a **new layer**, the segments' **polygons** (GeoPackage, opened as a vector layer) with their size, centre and mean of every value compared |
 | Texture (GLCM) | any (raster runs only) | a map per feature of a temporal summary of the shown series in a moving window: the GLCM's contrast, dissimilarity, homogeneity, ASM, energy, correlation, entropy, mean and variance, and the window's mean, standard deviation and Sobel gradient |
 | Agreement of change maps | maps of dates from other tools (any series) | consensus year, how many maps agree (and their share), maps with a change, spread of the years |
@@ -524,6 +525,26 @@ neuron: pixels with alike trajectories share a cluster, and neighbouring
 clusters are alike. Each pixel needs a value on every date: gaps are filled
 linearly in time (or the pixel is left out). Hover the cluster map: the chart
 draws the typical series of the cluster under the cursor, in its colour.
+
+**k-means clustering** (Janus' own, as scikit-learn's `KMeans`: k-means++
+starts, Lloyd's iterations, the best of *Starts* runs) fits its centres on
+the same sample of the area as the SOM, its gaps filled the same way, and
+gives every pixel the nearest centre; the clusters are ordered by their
+centres' mean value, low to high. Against scikit-learn 1.9 on the same
+series (8 kinds of NDVI-like trajectory, 60 dates, 8 clusters, 10 starts):
+the same partition (adjusted Rand index 1.0 on 20 000 pixels, 0.99996 on
+200 000) and inertia (within 4e-8), 1.2 times as fast on one thread and 1.5
+times on four (`tools/bench_kmeans_vs_sklearn.py`,
+`bench/kmeans-vs-sklearn.json`).
+
+Run from the Classification window with samples (its *Samples* tab), the SOM
+and k-means **name their clusters by the samples in them**: each cluster
+takes the class of most of its samples, each place (a polygon, a pin)
+counting once however many pixels it has, as in *Forest (cluster 3, 21%)*;
+*Forest or Pasture (cluster 2, 9%)* when no class has two thirds of them;
+*Cluster 4, 6%, no samples* when none falls in it. The samples are read as
+the run reads the area, so a sample is in the cluster its pixel has on the
+map.
 
 **SNIC segmentation** (Achanta & Süsstrunk 2017, as `zeit.snic` and R's
 `sits_segment`) divides the area into segments of neighbouring pixels whose
@@ -667,7 +688,7 @@ the cursor; a raster run reads the series in bands of rows (from the
 full-resolution cache when it has the dates) and computes them on every
 processing thread. Nothing starts at startup and no Python runs.
 
-## Classification (Random Forest, TWDTW, embeddings, SOM, networks)
+## Classification (Random Forest, TWDTW, embeddings, SOM, k-means, networks)
 
 **Tools > Classification & pattern recognition > Classification** trains a model on samples you
 already have in Janus and classifies every pixel by its whole series, without
@@ -705,8 +726,11 @@ without one).
   - *on a layer of embeddings*: the Embeddings panel's **logistic regression
     or nearest centroid**, fitted on the samples' vectors in the year shown;
     *Apply* makes the samples the layer's classes and shows its Classes view;
-  - *without samples*: the **Self-Organizing Map** (Zeit's), run from *Apply*.
-  Tools > Classification & pattern recognition > TWDTW and SOM open this window on them. TWDTW and
+  - *without samples*: the **Self-Organizing Map** (Zeit's) and **k-means**,
+    run from *Apply*; with samples, each cluster is named by the class of most
+    of the samples in it (*Names of the clusters* in the Method tab, the last
+    run's clusters below it).
+  Tools > Classification & pattern recognition > TWDTW, SOM and k-means open this window on them. TWDTW and
   the embeddings' classifier are **estimated on the samples** as the forest
   is, cross-validated by place (5 folds; at most 3000 samples classified):
   the estimated accuracy, kappa, the confusion matrix (with the samples left

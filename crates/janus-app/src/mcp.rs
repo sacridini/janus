@@ -343,7 +343,7 @@ fn catalogue() -> Vec<Value> {
         tool(
             "list_tools",
             "List Zeit's tools",
-            "Zeit's tools Janus runs on a series (change detection: BFAST, CCDC, LandTrendr, EWMACD, CODED...; trends, phenology, TWDTW and SOM classification, segmentation...): id, name, category, what it needs.",
+            "Zeit's tools Janus runs on a series (change detection: BFAST, CCDC, LandTrendr, EWMACD, CODED...; trends, phenology, TWDTW classification, SOM and k-means clustering, segmentation...): id, name, category, what it needs.",
             json!({}),
             &[],
             true,
@@ -359,14 +359,16 @@ fn catalogue() -> Vec<Value> {
         tool(
             "run_tool",
             "Run a Zeit tool on a series",
-            "Runs one of Zeit's tools on the series (or an area of it): its maps as GeoTIFFs. TWDTW takes `samples` (places with a class) instead of patterns: each class's mean series becomes its pattern.",
+            "Runs one of Zeit's tools on the series (or an area of it): its maps as GeoTIFFs. TWDTW takes `samples` (places with a class) instead of patterns: each class's mean series becomes its pattern. SOM and k-means (clusters without samples) name each cluster by the class of most of the `samples` (or a vector's) in it, when given.",
             with(
                 json!({
                     "tool": { "type": "string" },
                     "series": series_schema(),
                     "params": { "type": "object", "description": "the tool's parameters by id (describe_tool); the rest at their defaults" },
                     "roles": { "type": "object", "description": "multiband tools: the band of each role, e.g. {\"red\": 3, \"nir\": 4}" },
-                    "samples": { "type": "array", "items": place_schema(), "description": "TWDTW: places with a class" },
+                    "samples": { "type": "array", "items": place_schema(), "description": "TWDTW: places with a class (its patterns); SOM, k-means: places with a class naming the clusters" },
+                    "vector": { "type": "string", "description": "instead of samples: a vector file of samples (points or polygons)" },
+                    "field": { "type": "string", "description": "its class field" },
                     "maps": { "type": "array", "items": { "type": "string" }, "description": "tools on maps (agreement...): two or more rasters, the first's grid" },
                     "output_dir": out_dir
                 }),
@@ -1151,6 +1153,13 @@ impl Server {
         crate::zeit::series_inputs(&info, tool, &roles, &dir.join("series"), &mut spec)?;
         spec.window = Some(window_of(&info, a)?);
         spec.output_dir = dir.to_string_lossy().into_owned();
+        if crate::methods::Kind::of_tool(id).is_some_and(|k| k.clusters())
+            && (a["samples"].is_array() || a["vector"].is_string())
+        {
+            // the samples name the clusters
+            let (sites, _) = sites_of(&info, a)?;
+            spec.samples = crate::methods::sample_pixels(&sites, &info);
+        }
         let _ = std::fs::write(dir.join("job.json"), serde_json::to_string_pretty(&spec).unwrap_or_default());
         let r = janus_zeit::job::run_job(&spec, &|f, m| c.progress(f, m), &c.stop)?;
         Ok(json!({
@@ -1161,6 +1170,7 @@ impl Server {
                 "path": o["path"],
                 "unit": o["unit"],
                 "classes": o.get("classes"),
+                "class_samples": o.get("class_samples"),
             })).collect::<Vec<_>>(),
             "folder": dir,
             "seconds": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0,

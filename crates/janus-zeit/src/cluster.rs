@@ -27,8 +27,139 @@ fn uniform(rng: &mut Rng) -> f64 {
     (rng.next_u64() >> 11) as f64 / (1u64 << 53) as f64
 }
 
+/// The squared distance, in eight running sums (the compiler vectorizes them and their additions overlap; a single
+/// sum of floats it may not reorder). The same sums in the same order with any vector width: the same bits on any
+/// CPU (no fused multiply-add).
+#[inline(always)]
 fn d2(a: &[f64], b: &[f64]) -> f64 {
-    a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum()
+    let mut s = [0.0f64; 8];
+    let ((ca, ra), (cb, rb)) = (a.as_chunks::<8>(), b.as_chunks::<8>());
+    for (x, y) in ca.iter().zip(cb) {
+        for j in 0..8 {
+            let d = x[j] - y[j];
+            s[j] += d * d;
+        }
+    }
+    let mut tail = 0.0;
+    for (x, y) in ra.iter().zip(rb) {
+        tail += (x - y) * (x - y);
+    }
+    ((s[0] + s[1]) + (s[2] + s[3])) + ((s[4] + s[5]) + (s[6] + s[7])) + tail
+}
+
+/// The distance kernels on a block of points (`xs`: m x p), compiled twice: for any x86-64 (SSE2) and for AVX2,
+/// chosen once at run time.
+mod kernels {
+    use super::d2;
+    use std::sync::OnceLock;
+
+    #[inline(always)]
+    fn nearest_body(xs: &[f64], p: usize, centres: &[f64], k: usize, out: &mut [(usize, f64)]) {
+        for (v, o) in xs.chunks_exact(p).zip(out.iter_mut()) {
+            let mut best = (0, f64::INFINITY);
+            for c in 0..k {
+                let d = d2(v, &centres[c * p..(c + 1) * p]);
+                if d < best.1 {
+                    best = (c, d);
+                }
+            }
+            *o = best;
+        }
+    }
+
+    #[inline(always)]
+    fn min_body(xs: &[f64], p: usize, cands: &[f64], prev: &[f64], out: &mut [f64]) {
+        let m = cands.len() / p;
+        for ((v, &d), o) in xs.chunks_exact(p).zip(prev).zip(out.chunks_exact_mut(m)) {
+            for (t, c) in cands.chunks_exact(p).enumerate() {
+                o[t] = d.min(d2(v, c));
+            }
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    unsafe fn nearest_avx2(xs: &[f64], p: usize, centres: &[f64], k: usize, out: &mut [(usize, f64)]) {
+        nearest_body(xs, p, centres, k, out)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    unsafe fn min_avx2(xs: &[f64], p: usize, cands: &[f64], prev: &[f64], out: &mut [f64]) {
+        min_body(xs, p, cands, prev, out)
+    }
+
+    fn avx2() -> bool {
+        static A: OnceLock<bool> = OnceLock::new();
+        #[cfg(target_arch = "x86_64")]
+        return *A.get_or_init(|| is_x86_feature_detected!("avx2"));
+        #[cfg(not(target_arch = "x86_64"))]
+        return *A.get_or_init(|| false);
+    }
+
+    /// Each point's nearest centre (of the k x p `centres`) and its squared distance.
+    pub fn nearest(xs: &[f64], p: usize, centres: &[f64], k: usize, out: &mut [(usize, f64)]) {
+        #[cfg(target_arch = "x86_64")]
+        if avx2() {
+            // SAFETY: the CPU has AVX2.
+            return unsafe { nearest_avx2(xs, p, centres, k, out) };
+        }
+        nearest_body(xs, p, centres, k, out)
+    }
+
+    /// Each point's squared distance to each of the m candidates (`cands`: m x p) where below `prev`, else
+    /// `prev` (`out`: points x m).
+    pub fn min_to(xs: &[f64], p: usize, cands: &[f64], prev: &[f64], out: &mut [f64]) {
+        #[cfg(target_arch = "x86_64")]
+        if avx2() {
+            // SAFETY: the CPU has AVX2.
+            return unsafe { min_avx2(xs, p, cands, prev, out) };
+        }
+        min_body(xs, p, cands, prev, out)
+    }
+}
+
+/// Points a thread takes at once in the distance kernels.
+const KERNEL_BLOCK: usize = 512;
+
+/// Points summed per block when the centres are updated: the blocks on the threads, their sums added in order (the
+/// same centres whatever the threads).
+const BLOCK: usize = 4096;
+
+/// Each point's nearest centre and its squared distance, and each cluster's sum of its points (k x p) and their
+/// count, in one pass over the points (a block's sums while its points are in the cache).
+fn assign_sums(x: &[f64], p: usize, centres: &[f64], k: usize) -> (Vec<(usize, f64)>, Vec<f64>, Vec<usize>) {
+    let mut near = vec![(0, 0.0); x.len() / p];
+    let parts: Vec<(Vec<f64>, Vec<usize>)> = near
+        .par_chunks_mut(BLOCK)
+        .enumerate()
+        .map(|(b, block)| {
+            let i0 = b * BLOCK;
+            for (j, o) in block.chunks_mut(KERNEL_BLOCK).enumerate() {
+                let i = i0 + j * KERNEL_BLOCK;
+                kernels::nearest(&x[i * p..(i + o.len()) * p], p, centres, k, o);
+            }
+            let (mut sums, mut counts) = (vec![0.0; k * p], vec![0usize; k]);
+            for (o, &(c, _)) in block.iter().enumerate() {
+                let i = i0 + o;
+                counts[c] += 1;
+                for (s, v) in sums[c * p..(c + 1) * p].iter_mut().zip(&x[i * p..(i + 1) * p]) {
+                    *s += v;
+                }
+            }
+            (sums, counts)
+        })
+        .collect();
+    let (mut sums, mut counts) = (vec![0.0; k * p], vec![0usize; k]);
+    for (s, c) in parts {
+        for (a, b) in sums.iter_mut().zip(&s) {
+            *a += b;
+        }
+        for (a, b) in counts.iter_mut().zip(&c) {
+            *a += b;
+        }
+    }
+    (near, sums, counts)
 }
 
 /// k-means of the `n` points `x` (n x p, row-major): each point's cluster (0..k), the centres (k x p) and the sum
@@ -51,52 +182,53 @@ fn plus_plus(x: &[f64], n: usize, p: usize, k: usize, rng: &mut Rng) -> Vec<f64>
     let trials = 2 + (k as f64).ln() as usize;
     for _ in 1..k {
         let total: f64 = nearest.iter().sum();
-        let mut best: Option<(f64, usize, Vec<f64>)> = None;
-        for _ in 0..trials {
-            let pick = if total > 0.0 {
-                let r = uniform(rng) * total;
-                let mut acc = 0.0;
-                let mut c = n - 1;
-                for (i, d) in nearest.iter().enumerate() {
-                    acc += d;
-                    if acc > r {
-                        c = i;
-                        break;
+        // the candidates drawn first (from the same distances), then their distances in one pass over the points
+        let picks: Vec<usize> = (0..trials)
+            .map(|_| {
+                if total > 0.0 {
+                    let r = uniform(rng) * total;
+                    let mut acc = 0.0;
+                    let mut c = n - 1;
+                    for (i, d) in nearest.iter().enumerate() {
+                        acc += d;
+                        if acc > r {
+                            c = i;
+                            break;
+                        }
                     }
+                    c
+                } else {
+                    (rng.next_u64() % n as u64) as usize
                 }
-                c
-            } else {
-                (rng.next_u64() % n as u64) as usize
-            };
-            let cand = &x[pick * p..(pick + 1) * p];
-            let after: Vec<f64> =
-                nearest.par_iter().enumerate().map(|(i, &d)| d.min(d2(&x[i * p..(i + 1) * p], cand))).collect();
-            let s: f64 = after.iter().sum();
-            if best.as_ref().is_none_or(|b| s < b.0) {
-                best = Some((s, pick, after));
+            })
+            .collect();
+        let cands: Vec<f64> = picks.iter().flat_map(|&i| x[i * p..(i + 1) * p].iter().copied()).collect();
+        let mut after = vec![0.0; n * trials];
+        after.par_chunks_mut(KERNEL_BLOCK * trials).zip(nearest.par_chunks(KERNEL_BLOCK)).enumerate().for_each(
+            |(b, (out, prev))| {
+                let i = b * KERNEL_BLOCK;
+                kernels::min_to(&x[i * p..(i + prev.len()) * p], p, &cands, prev, out);
+            },
+        );
+        // the candidate that lowers the sum most (the first of equal sums)
+        let mut sums = vec![0.0; trials];
+        for row in after.chunks_exact(trials) {
+            for (s, d) in sums.iter_mut().zip(row) {
+                *s += d;
             }
         }
-        let (_, pick, after) = best.unwrap();
+        let mut t_best = 0;
+        for t in 1..trials {
+            if sums[t] < sums[t_best] {
+                t_best = t;
+            }
+        }
+        let (pick, after): (usize, Vec<f64>) =
+            (picks[t_best], after.iter().skip(t_best).step_by(trials).copied().collect());
         centres.extend_from_slice(&x[pick * p..(pick + 1) * p]);
         nearest = after;
     }
     centres
-}
-
-/// Each point's nearest centre and its squared distance.
-fn assign(x: &[f64], p: usize, centres: &[f64], k: usize) -> Vec<(usize, f64)> {
-    x.par_chunks(p.max(1))
-        .map(|v| {
-            let mut best = (0, f64::INFINITY);
-            for c in 0..k {
-                let d = d2(v, &centres[c * p..(c + 1) * p]);
-                if d < best.1 {
-                    best = (c, d);
-                }
-            }
-            best
-        })
-        .collect()
 }
 
 /// k-means of the points `x` (n x p) into `k` clusters, the best (least inertia) of `starts` runs from k-means++,
@@ -104,7 +236,7 @@ fn assign(x: &[f64], p: usize, centres: &[f64], k: usize) -> Vec<(usize, f64)> {
 /// variance (scikit-learn's defaults: 300, 1e-4). Fewer distinct points than k: some clusters empty, kept where
 /// they were. The rayon pool of the caller's threads.
 pub fn kmeans(x: &[f64], n: usize, p: usize, k: usize, starts: usize, seed: u64) -> KMeans {
-    assert!(x.len() == n * p && n > 0 && k > 0, "x must be n x p, n and k positive");
+    assert!(x.len() == n * p && n > 0 && p > 0 && k > 0, "x must be n x p, n, p and k positive");
     let k = k.min(n);
     let (max_iter, tol) = (300, 1e-4);
     let var: f64 = (0..p)
@@ -120,17 +252,9 @@ pub fn kmeans(x: &[f64], n: usize, p: usize, k: usize, starts: usize, seed: u64)
     for _ in 0..starts.max(1) {
         let mut centres = plus_plus(x, n, p, k, &mut rng);
         let mut iterations = 0;
-        let mut near = assign(x, p, &centres, k);
+        let (mut near, mut sums, mut counts) = assign_sums(x, p, &centres, k);
         for it in 1..=max_iter {
             iterations = it;
-            let mut sums = vec![0.0; k * p];
-            let mut counts = vec![0usize; k];
-            for (i, &(c, _)) in near.iter().enumerate() {
-                counts[c] += 1;
-                for j in 0..p {
-                    sums[c * p + j] += x[i * p + j];
-                }
-            }
             let mut shift = 0.0;
             for c in 0..k {
                 if counts[c] == 0 {
@@ -142,7 +266,7 @@ pub fn kmeans(x: &[f64], n: usize, p: usize, k: usize, starts: usize, seed: u64)
                     centres[c * p + j] = v;
                 }
             }
-            near = assign(x, p, &centres, k);
+            (near, sums, counts) = assign_sums(x, p, &centres, k);
             if shift <= tol {
                 break;
             }
@@ -297,6 +421,23 @@ mod tests {
         assert_eq!(k.labels.iter().collect::<std::collections::BTreeSet<_>>().len(), 3);
         // each centre about its group's middle (0.5 off the corner)
         assert!(k.inertia < 60.0 * 0.2, "{}", k.inertia);
+    }
+
+    /// The same clusters to the bit on any number of threads (the sums by fixed blocks, added in order), with more
+    /// points than a block and a dimension the eight sums do not divide.
+    #[test]
+    fn kmeans_same_on_any_threads() {
+        let (n, p) = (9000, 13);
+        let mut rng = Rng::new(3);
+        let x: Vec<f64> = (0..n * p).map(|i| uniform(&mut rng) + ((i / p) % 4) as f64).collect();
+        let on = |threads: usize| {
+            let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+            pool.install(|| kmeans(&x, n, p, 5, 3, 7))
+        };
+        let (a, b) = (on(1), on(3));
+        assert_eq!(a.labels, b.labels);
+        assert_eq!(a.inertia.to_bits(), b.inertia.to_bits());
+        assert!(a.centres.iter().zip(&b.centres).all(|(u, v)| u.to_bits() == v.to_bits()));
     }
 
     #[test]

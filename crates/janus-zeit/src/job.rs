@@ -66,6 +66,20 @@ pub struct JobSpec {
     /// missing at every date
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mask: Option<String>,
+    /// pixels whose class is known (the Classification window's samples): a clustering (SOM, k-means) names its
+    /// clusters by the samples in them
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub samples: Vec<SamplePixel>,
+}
+
+/// A pixel of a sample: its column and row in the input, its class and its place (the pixels of a place count as
+/// one sample together).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct SamplePixel {
+    pub x: usize,
+    pub y: usize,
+    pub class: String,
+    pub place: usize,
 }
 
 /// A class of a categorical layer: its value, name and colour.
@@ -656,7 +670,7 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "beast" => crate::beast::chunk(p, chunk, ctx),
         "phenology" => crate::phenology::chunk(p, chunk, ctx),
         "twdtw" => crate::twdtw::chunk(p, chunk, ctx),
-        "som" => crate::som::chunk(p, chunk, ctx),
+        "som" | "kmeans" => crate::som::chunk(p, chunk, ctx),
         "ccdc_synthetic" => crate::ccdc::synthetic_chunk(p, chunk, ctx),
         "bfast_lite" => crate::bfast::lite_chunk(p, chunk, ctx),
         "bfast_monitor" => crate::bfast::monitor_chunk(p, chunk, ctx),
@@ -712,6 +726,51 @@ fn sample_rows(
     Ok(Chunk { t, h: 1, w: n, stack, bands, qa })
 }
 
+/// The pixels of the samples inside the window as one chunk of 1 x N, read as the run reads its rows (each row
+/// of samples once, from its first sample to its last), and the class and weight of each.
+fn sample_pixels<'a>(
+    inputs: &mut Inputs,
+    window: [usize; 4],
+    samples: &'a [SamplePixel],
+) -> Result<(Chunk, Vec<crate::som::Named<'a>>), String> {
+    let [x0, y0, x1, y1] = window;
+    let inside: Vec<&SamplePixel> =
+        samples.iter().filter(|s| (x0..x1).contains(&s.x) && (y0..y1).contains(&s.y)).collect();
+    let mut per_place: BTreeMap<usize, usize> = BTreeMap::new();
+    for s in &inside {
+        *per_place.entry(s.place).or_default() += 1;
+    }
+    let mut rows: BTreeMap<usize, Vec<&SamplePixel>> = BTreeMap::new();
+    for s in inside {
+        rows.entry(s.y).or_default().push(s);
+    }
+    let t = inputs.spec.years.len();
+    let mut named = vec![];
+    let mut values: Vec<Vec<f64>> = vec![]; // [pixel][T]
+    for (&r, list) in &rows {
+        let (a, b) = (list.iter().map(|s| s.x).min().unwrap(), list.iter().map(|s| s.x).max().unwrap());
+        let c = inputs.read(a, r, b - a + 1, 1)?;
+        let w = c.w;
+        for s in list {
+            values.push((0..t).map(|i| c.stack[i * w + s.x - a]).collect());
+            named.push(crate::som::Named { class: &s.class, weight: 1.0 / per_place[&s.place] as f64 });
+        }
+    }
+    let n = values.len();
+    let mut stack = vec![f64::NAN; t * n];
+    for (px, v) in values.iter().enumerate() {
+        for i in 0..t {
+            stack[i * n + px] = v[i];
+        }
+    }
+    Ok((Chunk { t, h: 1, w: n, stack, ..Default::default() }, named))
+}
+
+/// A clustering's fit (SOM, k-means) on a sample of the window.
+fn fit_clusters(tool: &str, p: &Params, sample: &Chunk, ctx: &JobCtx) -> Result<Value, String> {
+    if tool == "kmeans" { crate::kmeans::fit(p, sample, ctx) } else { crate::som::fit(p, sample, ctx) }
+}
+
 /// A run's result: the outputs written (paths and descriptions) and the window.
 pub struct JobResult {
     pub outputs: Vec<Value>,
@@ -749,13 +808,20 @@ pub fn run_job(
     let dir = PathBuf::from(&spec.output_dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut ctx = JobCtx { input: spec.context(), n_jobs: spec.n_jobs(), ..Default::default() };
-    // a tool with a model of the whole window (a SOM) fits it first, on rows spread over it
-    let base = if spec.tool == "som" {
+    // a tool with a model of the whole window (a SOM, k-means) fits it first, on rows spread over it; the
+    // samples, if any, name its clusters
+    let base = if spec.tool == "som" || spec.tool == "kmeans" {
         let sample = sample_rows(&mut inputs, [x0, y0, x1, y1], FIT_ROWS, &|f| {
             progress(0.05 * f, "reading a sample of the image")
         })?;
         progress(0.05, &format!("fitting on a sample of {} pixels", sample.pixels()));
-        ctx.model = Some(crate::som::fit(&p, &sample, &ctx)?);
+        let mut model = fit_clusters(&spec.tool, &p, &sample, &ctx)?;
+        if !spec.samples.is_empty() {
+            progress(0.08, &format!("naming the clusters by {} sample pixels", spec.samples.len()));
+            let (chunk, named) = sample_pixels(&mut inputs, window, &spec.samples)?;
+            crate::som::name_by_samples(&mut model, &p, &chunk, &named, &ctx);
+        }
+        ctx.model = Some(model);
         0.1
     } else {
         0.0
@@ -876,11 +942,11 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
     let (w, h) = (x1 - x0, y1 - y0);
     let mut ctx = JobCtx { input: spec.context(), n_jobs: spec.n_jobs(), ..Default::default() };
     let mut fixed = 0.0;
-    if spec.tool == "som" {
+    if spec.tool == "som" || spec.tool == "kmeans" {
         // fewer rows than a run reads
         let t = std::time::Instant::now();
         let sample = sample_rows(&mut inputs, [x0, y0, x1, y1], 16, &|_| {})?;
-        ctx.model = Some(crate::som::fit(&p, &sample, &ctx)?);
+        ctx.model = Some(fit_clusters(&spec.tool, &p, &sample, &ctx)?);
         fixed = t.elapsed().as_secs_f64();
     }
     let ctx = ctx;
