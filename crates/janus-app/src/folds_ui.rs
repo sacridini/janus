@@ -11,7 +11,7 @@ use egui::{Color32, ComboBox, Ui};
 use egui_plot::{Legend, Line, Plot, PlotPoints};
 use janus_cube::CubeInfo;
 use janus_geo::vectors::{Feature, Kind, VectorData};
-use janus_ml::folds::{self, Clustering, FoldSpec, Folds, Method, Selection, Shape};
+use janus_ml::folds::{self, Clustering, FoldSpec, Folds, Method, Selection, Shape, Space};
 use janus_ml::{InputBand, Series, TrainConfig};
 use serde_json::{Value, json};
 
@@ -167,79 +167,150 @@ pub(crate) fn make_folds(
         }
         Method::Buffer => folds::buffer(&xy, size("a buffer")?)?,
         Method::Clusters => {
-            let owned;
-            let (x, place) = match values {
-                Some(v) => v,
-                None => {
-                    owned = crate::ml::sample_series(info, inputs, sites, classes, min_valid);
-                    (&owned.0, &owned.4[..])
+            let c = if spec.space() == Space::Feature {
+                let (with, vals, p) = place_values(info, inputs, sites, classes, values, min_valid);
+                let c = folds::clusters(&vals, with.len(), p, k.min(with.len()), true, seed)?;
+                let mut fold = vec![-1; n];
+                for (j, &i) in with.iter().enumerate() {
+                    fold[i] = c.fold[j];
                 }
+                Folds { fold, ..c }
+            } else {
+                let train: Vec<f64> = xy.iter().flatten().copied().collect();
+                folds::clusters(&train, n, 2, k, false, seed)?
             };
-            let p = x.t * x.b;
-            let (mut sum, mut count) = (vec![0f64; n * p], vec![0usize; n]);
-            for (i, &pl) in place.iter().enumerate() {
-                count[pl] += 1;
-                for j in 0..p {
-                    let v = x.values[i * p + j];
-                    if v.is_finite() {
-                        sum[pl * p + j] += v as f64;
-                    }
-                }
-            }
-            let with: Vec<usize> = (0..n).filter(|&i| count[i] > 0).collect();
-            let vals: Vec<f64> = with
-                .iter()
-                .flat_map(|&i| (0..p).map(move |j| (i, j)))
-                .map(|(i, j)| sum[i * p + j] / count[i] as f64)
-                .collect();
-            let c = folds::clusters(&vals, with.len(), p, k.min(with.len()), seed)?;
-            let mut fold = vec![-1; n];
-            for (j, &i) in with.iter().enumerate() {
-                fold[i] = c.fold[j];
-            }
-            Folds { fold, ..c }
+            note(&format!(
+                "k-means of the places' {}",
+                if spec.space() == Space::Feature { "values (standardised)" } else { "positions on the map" }
+            ));
+            c
         }
         Method::Knndm => {
+            // about 1000 points of the area to predict, on a regular grid (pixels' centres)
             let (w, h) = (info.width, info.height);
             let step = ((w * h) as f64 / 1000.0).sqrt().max(1.0);
-            let mut pred = vec![];
+            let mut grid = vec![];
             let mut gy = step / 2.0;
             while gy < h as f64 {
                 let mut gx = step / 2.0;
                 while gx < w as f64 {
-                    pred.extend_from_slice(&frame.to_m(gx, gy));
+                    grid.push((gx, gy));
                     gx += step;
                 }
                 gy += step;
             }
-            let train: Vec<f64> = xy.iter().flatten().copied().collect();
+            let (with, mut train, mut pred, p) = if spec.space() == Space::Feature {
+                let (with, train, p) = place_values(info, inputs, sites, classes, values, min_valid);
+                let pred = area_values(info, inputs, &grid, p, min_valid)?;
+                (with, train, pred, p)
+            } else {
+                let pred: Vec<f64> = grid.iter().flat_map(|&(gx, gy)| frame.to_m(gx, gy)).collect();
+                ((0..n).collect(), xy.iter().flatten().copied().collect(), pred, 2)
+            };
+            let feature = spec.space() == Space::Feature;
+            let m = pred.len() / p;
+            if feature {
+                folds::standardise_pair(&mut train, with.len(), &mut pred, m, p);
+            }
+            let kw = k.min(with.len());
             let f = folds::knndm(
                 &train,
-                n,
-                2,
+                with.len(),
+                p,
                 &pred,
-                pred.len() / 2,
-                k,
+                m,
+                kw,
                 spec.clustering,
                 spec.maxp,
                 spec.candidates,
                 seed,
                 threads,
             )?;
+            let unit = if feature { "standard deviations of the values" } else { frame.unit() };
             note(&format!(
-                "kNNDM: {} clusters merged into {k} folds, W {:.1} {} (a random {k}-fold's {:.1})",
+                "kNNDM{}: {} clusters merged into {kw} folds, W {:.2} {unit} (a random {kw}-fold's {:.2})",
+                if feature { " between the values" } else { "" },
                 f.q,
                 f.w,
-                frame.unit(),
-                folds::random_w(&train, n, 2, k, &f.gij, seed)
+                folds::random_w(&train, with.len(), p, kw, &f.gij, seed)
             ));
-            f
+            let mut fold = vec![-1; n];
+            for (j, &i) in with.iter().enumerate() {
+                fold[i] = f.fold[j];
+            }
+            Folds { fold, ..f }
         }
     };
     if spec.method == Method::Blocks {
         note(&format!("{} blocks hold places", f.blocks.len()));
     }
     Ok(f)
+}
+
+/// The places' values (each place's mean of its samples' series, dates by bands): the places with any, their
+/// values (with.len() x p) and p; the training's samples (`values`) or read now.
+fn place_values(
+    info: &Arc<CubeInfo>,
+    inputs: &[InputBand],
+    sites: &[Site],
+    classes: &[String],
+    values: Option<(&Series, &[usize])>,
+    min_valid: f64,
+) -> (Vec<usize>, Vec<f64>, usize) {
+    let n = sites.len();
+    let owned;
+    let (x, place) = match values {
+        Some(v) => v,
+        None => {
+            owned = crate::ml::sample_series(info, inputs, sites, classes, min_valid);
+            (&owned.0, &owned.4[..])
+        }
+    };
+    let p = x.t * x.b;
+    let (mut sum, mut count) = (vec![0f64; n * p], vec![0usize; n]);
+    for (i, &pl) in place.iter().enumerate() {
+        count[pl] += 1;
+        for j in 0..p {
+            let v = x.values[i * p + j];
+            if v.is_finite() {
+                sum[pl * p + j] += v as f64;
+            }
+        }
+    }
+    let with: Vec<usize> = (0..n).filter(|&i| count[i] > 0).collect();
+    let vals: Vec<f64> =
+        with.iter().flat_map(|&i| (0..p).map(move |j| (i, j))).map(|(i, j)| sum[i * p + j] / count[i] as f64).collect();
+    (with, vals, p)
+}
+
+/// The area's values at the `grid`'s pixels (their series, gaps filled as the samples'), those with values on
+/// enough dates: kNNDM's points to predict between the values. `p`, the places' values (a forest's further
+/// predictors are not read here: the series' alone).
+fn area_values(
+    info: &Arc<CubeInfo>,
+    inputs: &[InputBand],
+    grid: &[(f64, f64)],
+    p: usize,
+    min_valid: f64,
+) -> Result<Vec<f64>, String> {
+    let pixels: Vec<(usize, usize)> = grid.iter().map(|&(x, y)| (x as usize, y as usize)).collect();
+    let mut raw = janus_ml::data::read_points(info, inputs, &pixels);
+    if raw.t * raw.b != p {
+        return Err(format!(
+            "kNNDM between the values: the places have {p} values each, the series {} (the forest's further \
+             predictors are not read for the area: choose the map's distances)",
+            raw.t * raw.b
+        ));
+    }
+    let keep = janus_ml::data::fill_gaps(&mut raw, &janus_ml::Calendar::of(info).years, min_valid);
+    let out: Vec<f64> = (0..raw.n)
+        .filter(|&i| keep[i])
+        .flat_map(|i| raw.values[i * p..(i + 1) * p].iter().map(|&v| v as f64))
+        .collect();
+    if out.iter().any(|v| !v.is_finite()) {
+        return Err("kNNDM between the values: the area's values have gaps left".into());
+    }
+    Ok(out)
 }
 
 /// The validation's split: whole places at random (`folds` None), or by the folds (the held-out fold, or the
@@ -295,6 +366,9 @@ pub(crate) fn summary(f: &Folds, spec: &FoldSpec, frame: Frame) -> Value {
         v["shape"] = json!(spec.shape);
         v["selection"] = json!(spec.selection);
         v["blocks"] = json!(f.blocks.len());
+    }
+    if f.method.has_space() {
+        v["space"] = json!(spec.space());
     }
     if f.method == Method::Knndm {
         v["clustering"] = json!(spec.clustering);
@@ -449,8 +523,8 @@ fn method_help(m: Method) -> &'static str {
              (blockCV's cv_buffer)"
         }
         Method::Clusters => {
-            "k-means of the places' values: a fold's places are unlike the others', a validation of conditions the \
-             model has not seen (blockCV's cv_cluster)"
+            "k-means of the places' values (a fold's places unlike the others': a validation of conditions the model \
+             has not seen) or of their positions (a fold's places together on the map): blockCV's cv_cluster"
         }
         Method::Knndm => {
             "The folds whose distances from each place to the nearest place of another fold are distributed most \
@@ -468,7 +542,9 @@ impl State {
         let unit = Frame::of(info).unit();
         let spec = &mut self.ml.cfg.folds;
         ui.weak(
-            "How the accuracy is measured: on samples the model did not learn from. Samples next to those it learned              from are easy, and the accuracy they give is too good for the map far from them; kNNDM (the default)              tests on places as far from the training as the map is.",
+            "How the accuracy is measured: on samples the model did not learn from. Samples next to those it learned \
+             from are easy, and the accuracy they give is too good for the map far from them; kNNDM (the default) \
+             tests on places as far from the training as the map is.",
         );
         let label = |m: Method| {
             if m == Method::Knndm { format!("{} (recommended)", m.label()) } else { m.label().to_string() }
@@ -487,6 +563,23 @@ impl State {
             if spec.method.has_folds() {
                 ui.label("Folds");
                 ui.add(egui::DragValue::new(&mut spec.k).range(2..=20));
+                ui.end_row();
+            }
+            if spec.method.has_space() {
+                ui.label("Measured").on_hover_text(
+                    "On the map: the places' positions (kNNDM: the distances from the map to the nearest place). \
+                     Between the values: the places' series (each date's bands, standardised by the places'), as \
+                     CAST's and Zeit's space \"feature\" (kNNDM: from about 1000 pixels of the area to the most \
+                     alike place): a validation of values the model has not seen, wherever they are",
+                );
+                let mut space = spec.space();
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut space, Space::Geographic, "on the map");
+                    ui.selectable_value(&mut space, Space::Feature, "between the values");
+                });
+                if space != spec.space() {
+                    spec.space = Some(space);
+                }
                 ui.end_row();
             }
             if matches!(spec.method, Method::Blocks | Method::Buffer) {
@@ -616,12 +709,17 @@ impl State {
                     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
                     let path = dir.join(&name);
                     let features = save_folds(&path, &f, &sites, &info)?;
+                    let unit = if f.method == Method::Knndm && spec.space() == Space::Feature {
+                        "standard deviations"
+                    } else {
+                        Frame::of(&info).unit()
+                    };
                     Ok(Shown {
                         folds: f,
                         path: path.to_string_lossy().into_owned(),
                         features,
                         notes: notes.into_inner().unwrap(),
-                        unit: Frame::of(&info).unit(),
+                        unit,
                         crs_wkt: info.crs_wkt.clone(),
                     })
                 });
@@ -843,6 +941,23 @@ mod tests {
             of.len() == 1
         });
         assert_eq!(pure.count(), 3, "a cluster of two classes: {:?}", c.fold);
+        // clusters on the map: each fold's places together (three strips of the 3:2 grid keep 0.38 of the spread)
+        let g = make(FoldSpec { method: Method::Clusters, k: 3, space: Some(Space::Geographic), ..Default::default() })
+            .unwrap();
+        let xy = place_points(&sites, frame);
+        let spread = |of: &dyn Fn(usize) -> bool| {
+            let pts: Vec<[f64; 2]> = (0..n).filter(|&i| of(i)).map(|i| xy[i]).collect();
+            let m = [0, 1].map(|d| pts.iter().map(|p| p[d]).sum::<f64>() / pts.len() as f64);
+            pts.iter().map(|p| (p[0] - m[0]).powi(2) + (p[1] - m[1]).powi(2)).sum::<f64>()
+        };
+        let within: f64 = (0..3).map(|f| spread(&|i| g.fold[i] == f)).sum();
+        assert!(within < spread(&|_| true) / 2.0, "{within} of {}", spread(&|_| true));
+        // kNNDM between the values: the area's pixels to the most alike place
+        let kf =
+            make(FoldSpec { method: Method::Knndm, k: 3, space: Some(Space::Feature), ..Default::default() }).unwrap();
+        assert!(kf.w.is_finite() && kf.counts().iter().all(|&c| c > 0), "{:?}", kf.counts());
+        assert!(kf.gij.len() > 500, "{} points of the area", kf.gij.len());
+        assert!(notes.lock().unwrap().iter().any(|m| m.starts_with("kNNDM between the values")));
         let u = make(FoldSpec { method: Method::Buffer, size: 200.0, ..Default::default() }).unwrap();
         // neighbours 6 pixels (180 m) apart: 4 of them within 200 m inside the grid
         assert_eq!(u.exclude.iter().map(Vec::len).max(), Some(4));

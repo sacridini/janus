@@ -841,16 +841,21 @@ without one).
   - *Buffer around the places tested*: the validation share of the places,
     and the places within the distance of them out of the training too
     (blockCV's `cv_buffer`).
-  - *Clusters of the values (k-means)*: the places' mean values, standardised,
-    in k clusters (blockCV's `cv_cluster`): a validation of conditions the
-    model has not seen.
+  - *Clusters (k-means)*: the places' mean values, standardised, in k
+    clusters (blockCV's `cv_cluster`): a validation of conditions the model
+    has not seen; or, *measured on the map*, their positions (a fold's places
+    together).
   - *kNNDM*: the places grouped by Ward's hierarchical clustering (k-means
     beyond 4000 places, or chosen) into q clusters, merged into k folds of
     about equal size, for q from k to the number of places; kept, the folds
     whose distances from each place to the nearest place of another fold are
     distributed most like those from the map (a grid of about 1000 cells) to
     the nearest place. The window draws the three distributions, as CAST's
-    plot of `knndm`.
+    plot of `knndm`. *Measured between the values* (CAST's and Zeit's
+    `space="feature"`): the distances between the places' series (each date's
+    bands, standardised by the places'), and from the series of about 1000
+    pixels of the area to the most alike place: a validation of values the
+    model has not seen, wherever they are.
 
   With folds, the **forest is cross-validated**: a forest for each fold,
   grown on the others, predicts its samples (the confusion matrix is of every

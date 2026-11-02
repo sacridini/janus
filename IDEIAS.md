@@ -1497,8 +1497,11 @@ olhar os folds no mapa.
   kNNDM; a floresta faz validação cruzada em todos os folds e as redes validam
   num fold; a AOA usa os folds como o CAST; *Show the folds on the map* abre os
   folds como camada (GeoPackage); a nota de Wadoux et al. 2021 junto da
-  acurácia. Falta: kNNDM e clusters no espaço das variáveis para o mapa
-  (o kNNDM usa o espaço geográfico).
+  acurácia. kNNDM e clusters no espaço das variáveis (feito 2026-11-02):
+  *Measured: on the map | between the values*, o `space` do Zeit (o kNNDM
+  das séries dos lugares a ~1000 pixels da área, padronizadas pelos lugares;
+  os clusters das posições ou dos valores; sem escolha, cada método o seu de
+  antes).
 - **Validação cruzada por padrão, para quem não conhece os conceitos (feito
   2026-11-02, sem versão)**: a janela de classificação abre com *kNNDM*
   (*recommended*) e, nas redes, *Cross-validate* ligado; se os folds não saem

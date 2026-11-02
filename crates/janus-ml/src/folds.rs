@@ -55,7 +55,7 @@ impl Method {
             Method::Places => "Whole places at random",
             Method::Blocks => "Spatial blocks",
             Method::Buffer => "Buffer around the places tested",
-            Method::Clusters => "Clusters of the values (k-means)",
+            Method::Clusters => "Clusters (k-means)",
             Method::Knndm => "kNNDM (distances as the map's)",
         }
     }
@@ -63,6 +63,11 @@ impl Method {
     /// Folds the places are dealt into (not the buffer's, nor whole places at random)
     pub fn has_folds(self) -> bool {
         matches!(self, Method::Blocks | Method::Clusters | Method::Knndm)
+    }
+
+    /// Measured on the map or between the values, as chosen
+    pub fn has_space(self) -> bool {
+        matches!(self, Method::Clusters | Method::Knndm)
     }
 }
 
@@ -81,6 +86,16 @@ pub enum Selection {
     Random,
     Systematic,
     Checkerboard,
+}
+
+/// Where the clusters and kNNDM's distances are measured: between the places on the map, or between their values
+/// (the predictors, standardised by the places'), Zeit's `space`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Space {
+    #[default]
+    Geographic,
+    Feature,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +120,16 @@ pub struct FoldSpec {
     pub clustering: Clustering,
     pub maxp: f64,
     pub candidates: usize,
+    /// the clusters' and kNNDM's space; none: each method's own (the clusters' values, kNNDM's map)
+    pub space: Option<Space>,
+}
+
+impl FoldSpec {
+    /// Where the clusters or kNNDM measure: as chosen, else the clusters by the places' values (as Janus made them
+    /// before the choice) and kNNDM on the map (CAST's and Zeit's default).
+    pub fn space(&self) -> Space {
+        self.space.unwrap_or(if self.method == Method::Clusters { Space::Feature } else { Space::Geographic })
+    }
 }
 
 impl Default for FoldSpec {
@@ -119,6 +144,7 @@ impl Default for FoldSpec {
             clustering: Clustering::Hierarchical,
             maxp: 0.5,
             candidates: 100,
+            space: None,
         }
     }
 }
@@ -366,11 +392,14 @@ fn standardise(v: &mut [f64], n: usize, p: usize, ddof: f64) {
     }
 }
 
-/// `k` clusters of the places by k-means (10 starts) of their `values` (n x p), standardised.
-pub fn clusters(values: &[f64], n: usize, p: usize, k: usize, seed: u64) -> Result<Folds, String> {
+/// `k` clusters of the places by k-means (10 starts) of their `values` (n x p): their values standardised
+/// (`standardised`, Zeit's space "feature"), or their coordinates as they are ("geographic").
+pub fn clusters(values: &[f64], n: usize, p: usize, k: usize, standardised: bool, seed: u64) -> Result<Folds, String> {
     check_k(k, n)?;
     let mut v = values.to_vec();
-    standardise(&mut v, n, p, 0.0);
+    if standardised {
+        standardise(&mut v, n, p, 0.0);
+    }
     let km = cluster::kmeans(&v, n, p, k, 10, seed);
     Ok(Folds { method: Method::Clusters, k, fold: km.labels.iter().map(|&l| l as i64).collect(), ..Default::default() })
 }
