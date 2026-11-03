@@ -2321,10 +2321,7 @@ impl State {
                 st.stage = 240;
                 None
             }
-            240 => {
-                st.stage = 250;
-                None
-            }
+            240..=249 => self.test_transitions(st, t0, ctx),
             250 => {
                 st.stage = 259;
                 None

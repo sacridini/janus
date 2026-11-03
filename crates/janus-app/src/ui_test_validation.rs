@@ -16,7 +16,7 @@ use janus_validation as val;
 use super::UiTest;
 use crate::app::State;
 use crate::exports::ExportState;
-use crate::validation::fmt_pm;
+use crate::validation::{fmt_area, fmt_pm};
 
 impl State {
     pub(super) fn test_validation(
@@ -421,6 +421,311 @@ impl State {
                 // the folder is kept to the end of the test (stage 224): the strata layer stays open on its file,
                 // and a project saved later (192) must find it when it opens (Windows could not delete it, Linux
                 // did)
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Stages 240-244, the transitions between two dates and the model-assisted estimators, on the project of
+    /// stages 170-179 (D in 2000 and in 2007, strata of D's first date with a buffer: not the transitions): 240
+    /// opens it again; 241 gives some points a change to Pasture between the dates (an event); 242 checks the
+    /// mapped transitions against a pixel-by-pixel count and the estimates of each estimator; 243 reads the
+    /// project back, draws the Accuracy tab's transitions and checks Copy Python against zeit.transitions; 244
+    /// checks the report's transitions and closes the project.
+    pub(super) fn test_transitions(
+        &mut self,
+        st: &mut UiTest,
+        t0: std::time::Instant,
+        ctx: &egui::Context,
+    ) -> Option<i32> {
+        let stage = st.stage;
+        let fail = |what: &str| {
+            println!("FAIL (stage {stage}): {what}");
+            Some(1)
+        };
+        let next = |st: &mut UiTest, done: &str| {
+            println!("[{:5.1} s] {done}", t0.elapsed().as_secs_f64());
+            st.stage += 1;
+            st.since = Some(std::time::Instant::now());
+        };
+        // the given change to Pasture: every 4th point not Pasture already
+        let edited = |l: &val::Label, i: usize| i % 4 == 1 && !l.label.is_empty() && l.label != "Pasture";
+        match stage {
+            240 => {
+                if self.opening.is_some() {
+                    return None;
+                }
+                let path = st.dir.join("proj.gpkg").to_string_lossy().into_owned();
+                self.open_validation_project(&path, ctx);
+                let Some(p) = &self.val.project else { return fail("the project of stages 170-179 should open") };
+                if p.maps.len() != 2 || p.maps.iter().any(|m| m.rule.kind != val::MapKind::Classes) {
+                    return fail("the project should assess D in 2000 and in 2007");
+                }
+                if p.transition.is_some() || p.estimator != val::AreaEstimator::Direct {
+                    return fail("a project of before: no transitions, the direct estimator");
+                }
+                next(st, "the validation project opened again: D in 2000 and in 2007");
+            }
+            241 => {
+                if self.val.data.len() < 2 || self.val.data.iter().any(|d| !d.ready()) || !self.val.idle() {
+                    return None;
+                }
+                let p = self.val.project.as_ref()?;
+                let Some(spec) = crate::validation::transition_spec(p) else {
+                    return fail("two maps of classes: transitions");
+                };
+                if (spec.from, spec.to) != (0, 1)
+                    || val::year_of(&spec.from_date) != 2000
+                    || val::year_of(&spec.to_date) != 2007
+                {
+                    return fail(&format!("the transitions from D's first date to its last: {spec:?}"));
+                }
+                // every 4th point (but the Pasture ones) became Pasture in 2004: an event
+                let who = self.interpreter_name();
+                let mine = p.labels.get(&who).cloned().unwrap_or_default();
+                let mut changed = 0;
+                for (i, l) in mine.iter().enumerate() {
+                    if !edited(l, i) {
+                        continue;
+                    }
+                    let mut l = l.clone();
+                    l.events.push(val::Event { label: "Pasture".into(), date: "2004-06-01".into() });
+                    l.updated = val::now_iso();
+                    if self.labels.project && self.labels.who == who && i < self.labels.entries.len() {
+                        self.labels.entries[i] = l;
+                        self.validation_labels_changed(i);
+                    } else {
+                        let v = &mut self.val;
+                        v.project.as_mut()?.labels.get_mut(&who)?[i] = l.clone();
+                        v.pending.insert(i, l);
+                        v.pending_as = who.clone();
+                        v.version += 1;
+                    }
+                    changed += 1;
+                }
+                self.validation_save_labels();
+                // kept in the project, as the interface keeps them
+                let v = &mut self.val;
+                v.project.as_mut()?.transition = Some(spec);
+                v.meta_dirty = true;
+                v.version += 1;
+                st.frames = changed;
+                next(st, &format!("{changed} point(s) became Pasture in 2004-06 (an event)"));
+            }
+            242 => {
+                if !self.validation_transitions(ctx) {
+                    if !self.val.trans.error.is_empty() {
+                        return fail(&self.val.trans.error.clone());
+                    }
+                    return None;
+                }
+                let p = self.val.project.as_ref()?;
+                let tr = &self.val.trans;
+                // the mapped transitions, pixel by pixel over the strata
+                let read = |path: &str, band: usize| -> Vec<f64> {
+                    gdal::Dataset::open(path)
+                        .ok()
+                        .and_then(|ds| {
+                            let (w, h) = ds.raster_size();
+                            ds.rasterband(band).ok()?.read_as::<f64>((0, 0), (w, h), (w, h), None).ok()
+                        })
+                        .map(|b| b.into_shape_and_vec().1)
+                        .unwrap_or_default()
+                };
+                let (m0, m1) = (&p.maps[0].rule, &p.maps[1].rule);
+                let s = read(&p.strata_path, 1);
+                let (a, b) = (read(&m0.path, m0.band.max(1) as usize), read(&m1.path, m1.band.max(1) as usize));
+                let w = p.strata.grid.w;
+                if s.is_empty() || a.len() != s.len() || b.len() != s.len() || w == 0 {
+                    return fail("the strata and D on one grid");
+                }
+                let mut want: BTreeMap<(i32, i32), f64> = BTreeMap::new();
+                for i in 0..s.len() {
+                    if s[i] >= 1.0 {
+                        *want.entry((a[i] as i32, b[i] as i32)).or_insert(0.0) += p.strata.row_area[i / w];
+                    }
+                }
+                let Some(mapped) = tr.mapped.as_ref() else { return fail("the mapped transitions") };
+                let near = |x: f64, y: f64| (x - y).abs() <= 1e-9 * x.abs().max(y.abs()).max(1.0);
+                if want.len() != mapped.len()
+                    || want.iter().any(|(k, v)| !near(*v, mapped.get(k).copied().unwrap_or(0.0)))
+                {
+                    println!("    mapped {mapped:?}\n    counted {want:?}");
+                    return fail("the mapped transitions differ from a pixel-by-pixel count");
+                }
+                // the points given a change are X -> Pasture at the second date
+                let mine = p.labels.get(&self.interpreter_name())?;
+                let to_pasture = (0..mine.len().min(tr.t.ref_to.len()))
+                    .filter(|&i| {
+                        edited(&mine[i], i)
+                            && tr.t.ref_to[i].as_deref() == Some("Pasture")
+                            && tr.t.ref_from[i].as_deref() != Some("Pasture")
+                    })
+                    .count();
+                let ta = &tr.a;
+                let sum: f64 = ta.area.iter().map(|x| x.est).sum();
+                if to_pasture + 3 < st.frames || ta.n < 50 || !near(sum, ta.total_area) {
+                    return fail(&format!(
+                        "the transitions' estimates: {to_pasture} to Pasture of {} given, {} points, {sum} of {}",
+                        st.frames, ta.n, ta.total_area
+                    ));
+                }
+                // the change with the most points, by each estimator: the same points, other areas
+                let change = |c: &String| c.split(val::ARROW).collect::<Vec<_>>().windows(2).any(|w| w[0] != w[1]);
+                let pts = |c: usize| (0..ta.classes.len()).map(|r| ta.counts[r][c] + ta.counts[c][r]).sum::<i32>();
+                let Some(k) = (0..ta.classes.len()).filter(|&c| change(&ta.classes[c])).max_by_key(|&c| pts(c)) else {
+                    return fail("no change among the transitions");
+                };
+                let name = ta.classes[k].clone();
+                let (n, direct) = (ta.n, ta.area[k]);
+                println!(
+                    "    {} transitions, {} points ({to_pasture} given a change to Pasture); {name}: mapped {}",
+                    ta.classes.len(),
+                    n,
+                    fmt_area(direct.mapped)
+                );
+                println!("    direct: {} +- {}", fmt_area(direct.est), fmt_area(direct.ci));
+                for e in [val::AreaEstimator::Difference, val::AreaEstimator::Ratio] {
+                    let v = &mut self.val;
+                    v.project.as_mut()?.estimator = e;
+                    v.meta_dirty = true;
+                    v.version += 1;
+                    if !self.validation_transitions(ctx) {
+                        return fail("the transitions recomputed");
+                    }
+                    let ta = &self.val.trans.a;
+                    if ta.estimator != e || ta.n != n || ta.classes[k] != name {
+                        return fail("the transitions by another estimator: the same points");
+                    }
+                    let ar = ta.area[k];
+                    if e == val::AreaEstimator::Difference {
+                        let sum: f64 = ta.area.iter().map(|x| x.est).sum();
+                        if !near(sum, ta.total_area) || near(ar.est, direct.est) {
+                            return fail("the difference estimates: another area, the same total");
+                        }
+                    }
+                    println!("    {}: {} +- {}", e.name(), fmt_area(ar.est), fmt_area(ar.ci));
+                }
+                // the maps' areas by the estimator chosen too
+                let p = self.val.project.as_ref()?;
+                let d = &self.val.data[0];
+                let pp = val::prepare(p, &p.maps[0], &d.values, &d.mapped, 0.95, &[]);
+                if pp.input.estimator != val::AreaEstimator::Ratio
+                    || val::assess(&pp.input).estimator != val::AreaEstimator::Ratio
+                {
+                    return fail("the maps' areas by the estimator chosen");
+                }
+                let v = &mut self.val;
+                v.project.as_mut()?.estimator = val::AreaEstimator::Difference;
+                v.version += 1;
+                v.meta_dirty = true;
+                st.frames = 0;
+                next(st, "mapped transitions as counted pixel by pixel; the three estimators");
+            }
+            243 => {
+                if !self.val.idle() || self.val.meta_dirty {
+                    return None;
+                }
+                // the Accuracy tab with its transitions (and only the changes), drawn for a few frames
+                self.val.show = true;
+                self.val.select_tab = Some(1);
+                self.val.sections = Some(1 << 4);
+                if st.frames < 6 {
+                    self.val.trans_changes = st.frames % 2 == 1;
+                    st.frames += 1;
+                    return None;
+                }
+                st.frames = 0;
+                self.val.trans_changes = false;
+                let p = self.val.project.as_ref()?;
+                let back = match val::load_project(&p.path) {
+                    Ok(b) => b,
+                    Err(e) => return fail(&e),
+                };
+                if back.estimator != val::AreaEstimator::Difference || back.transition != p.transition {
+                    return fail("the estimator and the transitions read back from the project");
+                }
+                if !self.validation_transitions(ctx) {
+                    return None;
+                }
+                // Copy Python: zeit.transitions on the project's files, the same areas
+                let p = self.val.project.as_ref()?;
+                let tr = &self.val.trans;
+                let code = val::transitions_snippet(p, tr.spec.as_ref()?, &tr.t, f64::from(self.val.confidence));
+                if !code.contains("zeit.transitions(") || !code.contains("estimator=\"difference\"") {
+                    return fail("Copy Python for the transitions");
+                }
+                if super::run_python("zeit.transitions\nvalues = [0.0]").is_err() {
+                    println!("    Copy Python: skipped (no Python with zeit.transitions; JANUS_PYTHON names one)");
+                } else {
+                    // Zeit names a transition by the maps' class names, or by their codes
+                    let keys: Vec<String> =
+                        tr.t.pairs
+                            .iter()
+                            .zip(&tr.a.classes)
+                            .map(|(&(a, b), c)| format!("[\"{c}\", \"{a}{}{b}\"]", val::ARROW))
+                            .collect();
+                    let check = format!(
+                        "{code}\nkeys = [{}]\nvalues = []\nfor ks in keys:\n    k = next((k for k in ks if k in \
+                         tr.area.index), None)\n    values += [float('nan')] * 2 if k is None else \
+                         [float(tr.area.estimate[k]), float(tr.area.se[k])]\n",
+                        keys.join(", ")
+                    );
+                    let theirs = match super::run_python(&check) {
+                        Ok(v) => v,
+                        Err(e) => return fail(&format!("zeit.transitions did not run: {e}")),
+                    };
+                    let ours: Vec<f64> = tr.a.area.iter().flat_map(|x| [x.est, x.se]).collect();
+                    let same = ours.len() == theirs.len()
+                        && ours
+                            .iter()
+                            .zip(&theirs)
+                            .all(|(a, b)| (a.is_nan() && b.is_nan()) || (a - b).abs() <= 1e-9 * a.abs().max(1.0));
+                    if !same {
+                        return fail(&format!("zeit.transitions gives other areas: {theirs:?}, Janus {ours:?}"));
+                    }
+                    println!("    Copy Python: zeit.transitions gives the same areas ({} transitions)", keys.len());
+                }
+                let dir = st.dir.join("report_transitions");
+                let _ = std::fs::create_dir_all(&dir);
+                let Some(job) = self.export_validation_report(&dir.to_string_lossy(), ctx) else {
+                    return fail("the report did not start");
+                };
+                st.jobs = vec![job];
+                next(st, "the project read back; transitions drawn in Accuracy; Copy Python; the report being written");
+            }
+            244 => {
+                if st.jobs.first().is_none_or(|j| j.state() == ExportState::Running) || !self.val.idle() {
+                    return None;
+                }
+                if st.jobs[0].state() != ExportState::Done {
+                    return fail(&format!("the report failed: {}", st.jobs[0].error()));
+                }
+                let dir = st.dir.join("report_transitions");
+                let csv = std::fs::read_to_string(dir.join("transitions.csv")).unwrap_or_default();
+                let html = std::fs::read_to_string(dir.join("report.html")).unwrap_or_default();
+                let rows = csv.lines().count().saturating_sub(1);
+                if rows != self.val.trans.a.classes.len()
+                    || !csv.starts_with("transition,from,to,mapped,adjusted")
+                    || !html.contains("<h2>Transitions</h2>")
+                    || !html.contains("difference estimator")
+                {
+                    return fail("the report's transitions (transitions.csv, report.html)");
+                }
+                st.jobs.clear();
+                self.val.sections = None;
+                self.val.select_tab = None;
+                self.close_validation_project();
+                if self.val.project.is_some() || self.labels.project {
+                    return fail("closing the project");
+                }
+                println!(
+                    "[{:5.1} s] the report's transitions ({rows} rows); project closed",
+                    t0.elapsed().as_secs_f64()
+                );
+                st.stage = 250;
+                st.since = Some(std::time::Instant::now());
             }
             _ => {}
         }

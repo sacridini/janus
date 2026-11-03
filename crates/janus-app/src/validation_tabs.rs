@@ -18,7 +18,7 @@ use val::{Alloc, AssessedMap, MapKind, MapRule, Progress, Project};
 use crate::app::State;
 use crate::exports::{ExportJob, start_export_job};
 use crate::theme;
-use crate::validation::{DrawResult, EVENT_LABELS, Job, binary_change, fmt_area, fmt_pm, html_esc};
+use crate::validation::{DrawResult, EVENT_LABELS, Job, binary_change, fmt_area, fmt_pm, html_esc, transition_spec};
 
 /// The project as a sentence for a paper's methods.
 fn methods_text(p: &Project, labelled: usize, interpreters: usize, confidence: f64) -> String {
@@ -31,7 +31,7 @@ fn methods_text(p: &Project, labelled: usize, interpreters: usize, confidence: f
          were interpreted visually from its time series and images in Janus by {} interpreter(s); {} \
          points had a reference label. Accuracies (overall, user's and producer's) and error-adjusted \
          areas were estimated, with {}% confidence intervals, by the stratified estimators of \
-         Stehman (2014), which equal those of Olofsson et al. (2014) when the strata are the map's classes.",
+         Stehman (2014), which equal those of Olofsson et al. (2014) when the strata are the map's classes{}.",
         p.points.len(),
         p.strata.strata.len(),
         maps.join(", "),
@@ -46,14 +46,51 @@ fn methods_text(p: &Project, labelled: usize, interpreters: usize, confidence: f
         p.seed,
         interpreters,
         labelled,
-        (confidence * 100.0).round() as i32
+        (confidence * 100.0).round() as i32,
+        match p.estimator {
+            val::AreaEstimator::Direct => "",
+            val::AreaEstimator::Difference => {
+                "; the areas by the model-assisted difference estimator (the mapped area corrected by the \
+                 estimated area of the map's errors; Stehman 2013; McRoberts et al. 2018)"
+            }
+            val::AreaEstimator::Ratio => {
+                "; the areas by the model-assisted ratio estimator (the mapped area times the estimated \
+                 ratio of the reference's area to the map's; Cochran 1977; Stehman 2013)"
+            }
+        }
     )
+}
+
+/// An estimator of the areas as the interface names it, and what it does.
+pub(crate) fn estimator_label(e: val::AreaEstimator) -> (&'static str, &'static str) {
+    match e {
+        val::AreaEstimator::Direct => (
+            "direct",
+            "The sample alone: the reference's share of each stratum, weighed by its area (Stehman 2014; \
+             Olofsson et al. 2014 when the strata are the map's classes).",
+        ),
+        val::AreaEstimator::Difference => (
+            "difference",
+            "Model-assisted: the mapped area plus the estimated area where the reference has the class minus where \
+             the map has it (the map's net error). Narrower intervals when the strata are not the map's classes, \
+             and for rare classes and changes, if the map is good (Stehman 2013; McRoberts et al. 2018).",
+        ),
+        val::AreaEstimator::Ratio => (
+            "ratio",
+            "Model-assisted: the mapped area times the estimated ratio of the reference's area to the map's (the \
+             combined ratio estimator, Cochran 1977). Needs points the map calls the class.",
+        ),
+    }
 }
 
 const REFERENCES: &str = "Olofsson, P., Foody, G. M., Herold, M., Stehman, S. V., Woodcock, C. E., Wulder, M. A. (2014). \
      Good practices for estimating area and assessing accuracy of land change. Remote Sensing of Environment, 148, \
      42-57.\nStehman, S. V. (2014). Estimating area and map accuracy for stratified random sampling when the strata \
-     are different from the map classes. International Journal of Remote Sensing, 35(13), 4923-4939.";
+     are different from the map classes. International Journal of Remote Sensing, 35(13), 4923-4939.\nStehman, S. V. \
+     (2013). Estimating area from an accuracy assessment error matrix. Remote Sensing of Environment, 132, 202-211.\n\
+     McRoberts, R. E., Stehman, S. V., Liknes, G. C., Naesset, E., Sannier, C., Walters, B. F. (2018). The effects of \
+     imperfect reference data on remote sensing-assisted estimators of land cover class proportions. ISPRS Journal of \
+     Photogrammetry and Remote Sensing, 142, 292-300.\nCochran, W. G. (1977). Sampling Techniques, 3rd ed. Wiley.";
 
 /// A bar chart with error bars as SVG (the report's figures).
 fn svg_bars(labels: &[String], series: &[Vec<f64>], errors: &[Vec<f64>], names: &[String], unit: &str) -> String {
@@ -1017,6 +1054,22 @@ impl State {
 
         // --- accuracies and areas ---
         crate::panels::section(ui, "Accuracy and areas");
+        let mut est = p.estimator;
+        ui.horizontal(|ui| {
+            ui.label("Areas by the");
+            egui::ComboBox::from_id_salt("estimator").selected_text(estimator_label(est).0).show_ui(ui, |ui| {
+                for e in val::AreaEstimator::ALL {
+                    let (name, help) = estimator_label(e);
+                    ui.selectable_value(&mut est, e, name).on_hover_text(help);
+                }
+            });
+            ui.label("estimator").on_hover_text(estimator_label(est).1);
+        });
+        if est != p.estimator {
+            p.estimator = est;
+            v.version += 1;
+            v.meta_dirty = true;
+        }
         egui::Grid::new("acc").striped(true).num_columns(5).show(ui, |ui| {
             ui.strong("class");
             ui.strong("user's");
@@ -1247,6 +1300,7 @@ impl State {
         if adjudicate {
             self.start_adjudication();
         }
+        self.validation_transitions_ui(ui);
         if let Some((i, j)) = cell {
             let a = &self.val.data[k].a;
             self.labels.filter_name = format!("map {}, reference {}", a.classes[i], a.classes[j]);
@@ -1258,6 +1312,135 @@ impl State {
                 self.interp_go(f);
             }
             self.labels.show = true;
+        }
+    }
+
+    /// Transitions between two dates: two of the project's maps of classes (e.g. two dates of a categorical series),
+    /// the dates the reference's classes are read at, and the error-adjusted area of each transition with its
+    /// interval, by the estimator chosen above.
+    fn validation_transitions_ui(&mut self, ui: &mut Ui) {
+        let ready = self.validation_transitions(ui.ctx());
+        let v = &mut self.val;
+        let Some(p) = v.project.as_mut() else { return };
+        let pct = (v.confidence * 100.0).round() as i32;
+        let unit = p.strata.unit.clone();
+        let mut python = false;
+        egui::CollapsingHeader::new("Transitions between two dates")
+            .id_salt("transitions")
+            .open(v.sections.map(|s| s >> 4 & 1 == 1))
+            .show(ui, |ui| {
+                let Some(mut spec) = transition_spec(p) else {
+                    ui.weak(
+                        "Add another date of a map of classes in Maps (the same series at a second date): the area \
+                         of each transition between the two, from the reference's class at each date.",
+                    );
+                    return;
+                };
+                let classes: Vec<usize> =
+                    (0..p.maps.len()).filter(|&k| p.maps[k].rule.kind == MapKind::Classes).collect();
+                let before = spec.clone();
+                let help = "The date the reference's class is read at: a point's label and its events are each a class \
+                            from its date on (an undated one, before them)";
+                egui::Grid::new("trspec").num_columns(4).show(ui, |ui| {
+                    for (label, k, date, id) in [
+                        ("from", &mut spec.from, &mut spec.from_date, "trf"),
+                        ("to", &mut spec.to, &mut spec.to_date, "trt"),
+                    ] {
+                        ui.label(label);
+                        egui::ComboBox::from_id_salt(id)
+                            .width((ui.available_width() - 150.0).max(80.0))
+                            .selected_text(&p.maps[*k].rule.name)
+                            .show_ui(ui, |ui| {
+                                for &c in &classes {
+                                    ui.selectable_value(k, c, &p.maps[c].rule.name);
+                                }
+                            });
+                        ui.label("on");
+                        ui.add(egui::TextEdit::singleline(date).desired_width(90.0)).on_hover_text(help);
+                        ui.end_row();
+                    }
+                });
+                if spec != before {
+                    p.transition = Some(spec.clone());
+                    v.meta_dirty = true;
+                }
+                if spec.from == spec.to {
+                    ui.colored_label(theme::warning(), "Choose two different maps.");
+                    return;
+                }
+                let tr = &v.trans;
+                if !tr.error.is_empty() {
+                    ui.colored_label(theme::error(), &tr.error);
+                    return;
+                }
+                if !ready || tr.spec.as_ref() != Some(&spec) {
+                    ui.weak("Reading the transitions of the two maps over the strata...");
+                    if tr.busy() {
+                        ui.add(egui::ProgressBar::new(tr.prog.done() as f32));
+                    }
+                    return;
+                }
+                let (t, a) = (&tr.t, &tr.a);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(format!("{} point(s) used", a.n));
+                    if t.prep.no_date > 0 {
+                        ui.colored_label(theme::warning(), format!("{} without a class at a date", t.prep.no_date))
+                            .on_hover_text(
+                                "Give the class before the change as the label and the change as an event with its \
+                                 date, or a date to each.",
+                            );
+                    }
+                    if t.prep.unmapped > 0 {
+                        let ls: Vec<&str> = t.prep.unmapped_labels.iter().map(String::as_str).collect();
+                        ui.colored_label(
+                            theme::warning(),
+                            format!("{} with labels the maps have no class for: {}", t.prep.unmapped, ls.join(", ")),
+                        );
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut v.trans_changes, "only changes");
+                    python = ui
+                        .small_button("Copy Python")
+                        .on_hover_text("zeit.transitions on the project's files: the same numbers")
+                        .clicked();
+                });
+                egui::ScrollArea::horizontal().id_salt("trscroll").show(ui, |ui| {
+                    egui::Grid::new("trgrid").striped(true).num_columns(5).show(ui, |ui| {
+                        ui.strong("transition");
+                        ui.strong(format!("mapped ({unit})"));
+                        ui.strong(format!("adjusted ({unit}, +- {pct}%)"));
+                        ui.strong("user's");
+                        ui.strong("producer's");
+                        ui.end_row();
+                        for c in 0..a.classes.len() {
+                            let stable = a.classes[c].split_once(val::ARROW).is_some_and(|(x, y)| x == y);
+                            if v.trans_changes && stable {
+                                continue;
+                            }
+                            let ar = &a.area[c];
+                            ui.label(&a.classes[c]);
+                            ui.label(fmt_area(ar.mapped));
+                            ui.label(if ar.est.is_finite() {
+                                format!("{} +- {}", fmt_area(ar.est), fmt_area(ar.ci))
+                            } else {
+                                "-".into()
+                            });
+                            ui.label(fmt_pm(&a.users[c]));
+                            ui.label(fmt_pm(&a.producers[c]));
+                            ui.end_row();
+                        }
+                    });
+                });
+                ui.weak(format!(
+                    "Areas by the {} estimator (chosen above); the strata weigh the points (Stehman 2014).",
+                    estimator_label(p.estimator).0
+                ));
+            });
+        if python && let Some(spec) = v.trans.spec.clone() {
+            let conf = f64::from(v.confidence);
+            ui.ctx().copy_text(val::transitions_snippet(p, &spec, &v.trans.t, conf));
+            v.message = "Python copied: zeit.transitions on the project's files gives the same numbers.".into();
         }
     }
 
@@ -1539,6 +1722,7 @@ impl State {
 
     /// Report: the export, Copy Python, the methods and references.
     pub(crate) fn validation_report_ui(&mut self, ui: &mut Ui) {
+        let trans_ready = self.validation_transitions(ui.ctx());
         let Some(p) = &self.val.project else {
             ui.label("Open a project first.");
             return;
@@ -1557,7 +1741,8 @@ impl State {
             python = ui
                 .button("Copy Python")
                 .on_hover_text(
-                    "zeit.accuracy on the project's GeoPackage and rasters, for the map selected in Accuracy",
+                    "zeit.accuracy on the project's GeoPackage and rasters, for the map selected in Accuracy (and \
+                     zeit.transitions for the transitions between two dates)",
                 )
                 .clicked();
         });
@@ -1570,7 +1755,13 @@ impl State {
         ui.weak(REFERENCES);
         if python && !p.maps.is_empty() {
             let k = self.val.selected.min(p.maps.len() - 1);
-            ui.ctx().copy_text(val::python_snippet(p, &p.maps[k], f64::from(self.val.confidence)));
+            let conf = f64::from(self.val.confidence);
+            let mut code = val::python_snippet(p, &p.maps[k], conf);
+            if trans_ready && let Some(spec) = &self.val.trans.spec {
+                code += "\n\n";
+                code += &val::transitions_snippet(p, spec, &self.val.trans.t, conf);
+            }
+            ui.ctx().copy_text(code);
             self.val.message = format!(
                 "Python for {} copied: zeit.accuracy on the project's files gives the same numbers.",
                 p.maps[k].rule.name
@@ -1587,9 +1778,19 @@ impl State {
         for k in 0..n {
             self.validation_assess(k, false);
         }
+        let trans_ready = self.validation_transitions(ctx);
         let v = &self.val;
         let p = v.project.as_ref()?;
         let conf = f64::from(v.confidence);
+        // the transitions, when their maps' areas are read
+        let trans: Option<(String, val::Assessment)> = v.trans.spec.as_ref().filter(|_| trans_ready).map(|s| {
+            let name = |k: usize, d: &str| {
+                let m = &p.maps[k].rule.name;
+                if d.is_empty() { m.clone() } else { format!("{m} ({d})") }
+            };
+            (format!("{} to {}", name(s.from, &s.from_date), name(s.to, &s.to_date)), v.trans.a.clone())
+        });
+        let estimator = estimator_label(p.estimator).0;
         // everything the report needs, computed now (cheap), written in the background
         struct MapOut {
             name: String,
@@ -1728,7 +1929,8 @@ impl State {
                 let nc = a.classes.len();
                 let tag = format!("map{}", k + 1);
                 h += &format!(
-                    "<h2>{}</h2><p>Overall accuracy {} ({pct}% interval), {} points.</p>",
+                    "<h2>{}</h2><p>Overall accuracy {} ({pct}% interval), {} points; areas by the {estimator} \
+                     estimator.</p>",
                     html_esc(&m.name),
                     fmt_pm(&a.overall),
                     a.n
@@ -1827,6 +2029,54 @@ impl State {
                     h += "<p>Area of change by year (the reference's dates):</p>";
                     h += &svg_bars(&yl, &ys, &ye, &[format!("area of change (+- {pct}%)")], &p.strata.unit);
                 }
+            }
+            // the transitions between two dates
+            if let Some((title, a)) = &trans {
+                h += &format!(
+                    "<h2>Transitions</h2><p>From {}: the area of each transition, by the {estimator} estimator \
+                     ({pct}% intervals), from {} points.</p><table><tr><th>transition</th><th>mapped ({u})</th>\
+                     <th>adjusted ({u})</th><th>user's</th><th>producer's</th></tr>",
+                    html_esc(title),
+                    a.n,
+                    u = html_esc(&p.strata.unit)
+                );
+                let mut tc = String::from(
+                    "transition,from,to,mapped,adjusted,adjusted_se,adjusted_ci,users,users_ci,producers,producers_ci\n",
+                );
+                for c in 0..a.classes.len() {
+                    let (u, pr, ar) = (&a.users[c], &a.producers[c], &a.area[c]);
+                    let (from, to) = a.classes[c].split_once(val::ARROW).unwrap_or((&a.classes[c], ""));
+                    tc += &format!(
+                        "{},{},{},{:.4},{:.4},{:.4},{:.4},{:.6},{:.6},{:.6},{:.6}\n",
+                        csv_field(&a.classes[c]),
+                        csv_field(from),
+                        csv_field(to),
+                        ar.mapped,
+                        ar.est,
+                        ar.se,
+                        ar.ci,
+                        u.est,
+                        u.hi - u.est,
+                        pr.est,
+                        pr.hi - pr.est
+                    );
+                    h += &format!(
+                        "<tr{}><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                        if from == to { "" } else { " class=\"diag\"" },
+                        html_esc(&a.classes[c]),
+                        fmt_area(ar.mapped),
+                        if ar.est.is_finite() {
+                            format!("{} &plusmn; {}", fmt_area(ar.est), fmt_area(ar.ci))
+                        } else {
+                            "-".into()
+                        },
+                        fmt_pm(u),
+                        fmt_pm(pr)
+                    );
+                }
+                h += "</table><p class=\"small\">Changes highlighted. The reference's class at each date: a \
+                      point's label and its events, each a class from its date on.</p>";
+                write("transitions.csv", &tc)?;
             }
             j.set_progress(0.7);
             // interpreters

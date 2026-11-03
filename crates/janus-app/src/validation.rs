@@ -135,8 +135,8 @@ pub(crate) fn binary_change(r: &MapRule, p: &Prepared) -> BinaryChange {
     }
     b.users = e.ratio(&both, &m);
     b.producers = e.ratio(&both, &rf);
-    let a = e.mean(&rf);
     let total: f64 = p.input.stratum_area.iter().map(|v| v.max(0.0)).sum();
+    let a = e.share(p.input.estimator, &rf, &m, if total > 0.0 { b.mapped / total } else { 0.0 });
     b.area = Est { est: a.est * total, se: a.se * total, lo: a.lo * total, hi: a.hi * total };
     b
 }
@@ -215,6 +215,55 @@ impl MapData {
     pub fn mapped_busy(&self) -> bool {
         self.mapped_job.busy()
     }
+}
+
+/// The area of each transition (class at the first date, class at the second) inside the strata.
+type MappedTransitions = BTreeMap<(i32, i32), f64>;
+
+/// The transitions between two of the project's maps of classes: their mapped areas (read in the background) and
+/// their assessment.
+#[derive(Default)]
+pub(crate) struct TransData {
+    /// the maps (files and bands) and the strata the mapped areas are of
+    pub key: String,
+    job: Job<Result<MappedTransitions, String>>,
+    pub prog: Arc<Progress>,
+    pub mapped: Option<MappedTransitions>,
+    pub error: String,
+    /// of the cached assessment, and the transitions it is of
+    pub version: u64,
+    pub spec: Option<val::TransitionSpec>,
+    pub t: val::Transitions,
+    pub a: Assessment,
+}
+
+impl TransData {
+    pub fn busy(&self) -> bool {
+        self.job.busy()
+    }
+}
+
+/// The transitions assessed: the project's, else from its first map of classes to its last (their dates guessed from
+/// their names); None without two maps of classes.
+pub(crate) fn transition_spec(p: &Project) -> Option<val::TransitionSpec> {
+    let classes: Vec<usize> = (0..p.maps.len()).filter(|&k| p.maps[k].rule.kind == MapKind::Classes).collect();
+    if classes.len() < 2 {
+        return None;
+    }
+    if let Some(t) = &p.transition
+        && t.from != t.to
+        && classes.contains(&t.from)
+        && classes.contains(&t.to)
+    {
+        return Some(t.clone());
+    }
+    let (from, to) = (classes[0], classes[classes.len() - 1]);
+    Some(val::TransitionSpec {
+        from,
+        to,
+        from_date: val::guess_date(&p.maps[from].rule.name),
+        to_date: val::guess_date(&p.maps[to].rule.name),
+    })
 }
 
 /// The strata computed for a design, or why not.
@@ -324,6 +373,11 @@ pub struct ValidationUi {
 
     // --- Chips (chips.rs) ---
     pub(crate) chips: crate::chips::Chips,
+
+    // --- Transitions ---
+    pub(crate) trans: TransData,
+    /// the transitions' table: only those that change
+    pub(crate) trans_changes: bool,
 }
 
 impl Default for ValidationUi {
@@ -386,6 +440,8 @@ impl Default for ValidationUi {
             placer_key: 0,
             placer_vector: 0,
             chips: Default::default(),
+            trans: TransData::default(),
+            trans_changes: false,
         }
     }
 }
@@ -573,6 +629,42 @@ impl State {
         out
     }
 
+    /// The transitions brought up to date: their maps' areas read (once, in the background), their assessment redone
+    /// when labels, translations, the estimator, the confidence or the transitions change. True when there is one.
+    pub(crate) fn validation_transitions(&mut self, ctx: &egui::Context) -> bool {
+        let threads = self.session_settings().processing_threads();
+        let v = &mut self.val;
+        let Some(p) = &v.project else { return false };
+        let Some(spec) = transition_spec(p) else { return false };
+        let (Some(df), Some(dt)) = (v.data.get(spec.from), v.data.get(spec.to)) else { return false };
+        if !df.ready() || !dt.ready() {
+            return false;
+        }
+        let (rf, rt) = (&p.maps[spec.from].rule, &p.maps[spec.to].rule);
+        let key = format!("{}|{}|{}|{}|{}", rf.path, rf.band, rt.path, rt.band, p.strata_path);
+        let tr = &mut v.trans;
+        if tr.key != key {
+            *tr = TransData { key, prog: Arc::new(Progress::with_threads(threads)), ..Default::default() };
+            let (a, b, path, strata, prog) =
+                (rf.clone(), rt.clone(), p.strata_path.clone(), p.strata.clone(), tr.prog.clone());
+            tr.job = Job::start(move || val::mapped_transitions(&a, &b, &path, &strata, Some(&prog)), ctx);
+        }
+        if let Some(r) = tr.job.poll() {
+            match r {
+                Ok(m) => tr.mapped = Some(m),
+                Err(e) => tr.error = e,
+            }
+        }
+        let Some(mapped) = &tr.mapped else { return false };
+        if tr.version != v.version || tr.spec.as_ref() != Some(&spec) {
+            tr.t = val::prepare_transitions(p, &spec, &df.values, &dt.values, mapped, f64::from(v.confidence), &[]);
+            tr.a = val::assess(&tr.t.prep.input);
+            tr.version = v.version;
+            tr.spec = Some(spec);
+        }
+        true
+    }
+
     /// Map k of the project: its values at the points read, and its areas (those of a map of the strata came with
     /// them).
     pub(crate) fn validation_add_map_data(&mut self, k: usize, ctx: &egui::Context) {
@@ -749,6 +841,7 @@ impl State {
         let v = &mut self.val;
         v.vector_id = 0;
         v.data.clear();
+        v.trans = TransData::default();
         v.project = None;
         v.placer = None;
         v.placer_vector = 0;
