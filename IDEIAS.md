@@ -1788,7 +1788,7 @@ Verificação na main juntada: fmt e clippy do workspace limpos, testes de
 janus-app, janus-cube e janus-validation passando, autoteste da interface
 completo (release, 8 threads) `OK (43.7 s)`.
 
-### Vetores: OGC, ROI salva e editada, perfis de todas as linhas (2026-11-04, sem versão)
+### Vetores: OGC, ROI salva e editada, perfis, rótulos, camadas grandes e alertas (2026-11-04, sem versão)
 Pedido do usuário depois da 1.11.0: "pode implementar essas aqui": salvar a ROI
 como vetor, rótulos por uma coluna, perfis de todas as linhas para CSV, desenhar
 camadas muito grandes, editar os vértices da ROI, comparar com alertas oficiais
@@ -1853,6 +1853,80 @@ classes por baixo) nunca dispara.
 Verificação: o OGC entrou na main sem rebase (17b6859); a ROI rebaseada sem
 conflito (9969276), com fmt, clippy, os testes de janus-app e janus-geo e o
 autoteste da interface completo (release, 3 threads) `OK (42.7 s)`.
+
+**Rótulos e camadas grandes (feito):** os rótulos de uma coluna (menu da camada
+→ Labels, `--labels CAMPO[,TAMANHO]`), com tamanho, cor e halo. O de um polígono
+fica no ponto interior, o de uma linha no meio do comprimento e o de um ponto à
+direita. As feições maiores vêm primeiro, nenhum rótulo cobre outro (nem entre
+camadas) e nenhum vai numa feição menor na tela que duas vezes a altura do
+rótulo (1500 por vista no máximo). A coluna é lida numa thread (OGR sem
+geometrias). Ficam no estilo (Copy style), no projeto e no PNG/animação. As
+camadas grandes são lidas inteiras até 100 milhões de vértices (antes cortadas
+em 20 milhões). Os níveis da GPU são feitos só onde ficam, um lote de pedaços
+por vez, e um anel menor que a tolerância vira um ponto; enquanto são feitos, a
+CPU desenha no máximo 300 mil vértices por quadro. O pick usa uma grade das
+caixas: 38 µs em vez de 0,7 ms. Num CAR estadual sintético (1,2 milhão de
+polígonos, 34 milhões de vértices; tools/bench_vector_draw.py,
+bench/vector-draw.json), a camada aparece inteira em 3–4 s e 97% dos contornos
+acendem com tudo à vista (antes 56%, de um arquivo cortado). Um quadro leva de 4
+a 9 ms com tudo à vista e 0,4 ms de perto, com 4,9 GB de memória. Autoteste nos
+estágios 270–274.
+
+Faltou: menos memória (subir em partes, liberar as coordenadas `px` já
+colocadas), busca de feição pelo texto do rótulo, a figura dos rótulos com zoom
+(o `--view` nas capturas).
+
+Verificação dos rótulos: rebaseados sobre a ROI e o OGC (conflitos só em
+project.rs, nos dois campos novos de VectorEntry, no usage.md e nos blocos do
+autoteste; os dois lados mantidos), fmt e clippy limpos, os testes de janus-app
+(79) e janus-geo passando, o autoteste da interface completo `OK (43.8 s)` com o
+build do agente. O build release e o autoteste depois do rebase ficaram por
+rodar: o trabalho foi encerrado a pedido do usuário.
+
+**Alertas oficiais (em andamento, branch `vec-alerts`, 87aee90, fora da main).**
+Validation → Official alerts... (aba Alerts) compara o mapa de datas de mudança
+de uma rodada com o DETER (WFS do TerraBrasilis, Amazônia ou Cerrado, baixado
+numa tarefa e aberto como camada), qualquer camada de polígonos datados, ou os
+rasters GLAD-L, GLAD-S2, RADD e integrados (o GLAD dos GeoTIFFs públicos da UMD,
+sem chave, por /vsicurl/; o RADD e os integrados dos tiles z14 públicos do GFW,
+decodificados pelas cores, ou de arquivos), na grade do mapa, sobre a área comum
+e uma janela de datas (janus_validation::alerts): área nos dois, só no mapa, só
+nos alertas; as frações detectadas e confirmadas por área e por contagem, Dice;
+o atraso (mediana, quantis, dentro de 30/90/365 dias, histograma); por classe ou
+confiança; o mapa de concordância e as datas dos alertas como camadas; CSV;
+`--alerts FONTE[,CHAVE=VALOR...]`. Testes no WFS de mentira e em rasters
+GLAD/RADD sintéticos (números exatos), as fontes reais sobre Rondônia em
+#[ignore]; autoteste 290-296 (ui_test_alerts.rs). O trabalho foi parado a pedido
+do usuário e o commit ficou como WIP, sem a verificação: o worktree
+`../janus-vec-alerts` (com o target) ficou para retomar.
+
+**O que ficou para trás:**
+- Alertas: rebasear `vec-alerts` sobre a main (conflitos esperados em
+  ui_test_interface.rs, app.rs, main.rs, usage.md), fmt/clippy/testes, o
+  autoteste completo (o fim em 299); rodar o benchmark contra o Python
+  (`tools/bench_alerts_vs_python.py` e o exemplo `vs_python_alerts` estão
+  escritos, não rodados; falta `bench/alerts-vs-python.json`); as capturas sobre
+  o s2ro e a seção em validation.html; o trecho do IDEIAS com os números.
+- Rótulos e camadas grandes: o build release e o autoteste depois do rebase (o
+  do agente, antes do rebase, deu OK); menos memória nas camadas grandes (subir
+  em partes, liberar as coordenadas `px`); busca de feição pelo texto do rótulo;
+  a figura dos rótulos com zoom.
+- Um crash raro nos testes de janus-geo (STATUS_HEAP_CORRUPTION, 1 em 81
+  rodadas, com os testes de vectors, polygon_file, profiles e ogc em paralelo):
+  não reproduzido em 80 rodadas seguidas; suspeita de GDAL usado por várias
+  threads de teste ao mesmo tempo.
+- Capturas com `--view`: dois agentes acharam que nunca disparam; um deles
+  atribuiu ao PowerShell partir o valor sem aspas num array (com aspas
+  funciona). Confirmar na main. A captura com `--roi` e um mapa de classes por
+  baixo (mapbiomas_grid) também não dispara: não investigado.
+- OGC: passar as capabilities do diálogo ao driver WFS (~3 s a menos no IBGE),
+  testar um WMTS ao vivo e a reabertura de um projeto com camadas web,
+  GetFeatureInfo, zoom para a extensão de um mapa, a auditoria de layout do
+  diálogo novo.
+- ROI e perfis: saída em shapefile; o tempo no build release sobre os dados do
+  guia.
+- Nada disso foi para o GitHub: a main local está à frente do origin (8502e0f em
+  diante), sem tag.
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
