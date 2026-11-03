@@ -134,6 +134,7 @@ fn local_pyramid_lands_where_proj_puts_it() {
         terms: String::new(),
         connections: 4,
         cache_days: 1,
+        service: String::new(),
     };
     let mut no_crs = info.clone();
     no_crs.crs_wkt.clear();

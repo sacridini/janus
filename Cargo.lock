@@ -4695,7 +4695,9 @@ dependencies = [
  "gdal-sys",
  "janus-cache",
  "janus-cube",
+ "janus-gdal",
  "rayon",
+ "serde_json",
 ]
 
 [[package]]

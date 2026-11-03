@@ -2,6 +2,8 @@
 //! src/basemap.cpp, src/geom.cpp).
 
 pub mod basemap;
+pub mod ogc;
+pub mod ogc_mock;
 pub mod plane;
 pub mod reproject;
 pub mod vectors;

@@ -40,7 +40,7 @@ fn tile_key(z: i32, x: i32, y: i32) -> u64 {
     ((z as u64) << 44) | ((x as u64) << 22) | y as u64
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct BasemapSource {
     /// "esri", "eox", "osm" or "custom" (kept in the settings)
     pub id: String,
@@ -57,8 +57,10 @@ pub struct BasemapSource {
     pub terms: String,
     /// concurrent requests
     pub connections: usize,
-    /// how long a tile stays in the disk cache
+    /// how long a tile stays in the disk cache (0: no disk cache)
     pub cache_days: i32,
+    /// GDAL_WMS's <Service> element in place of the XYZ template's TMS one (a WMS layer, ogc.rs); empty: `url`
+    pub service: String,
 }
 
 impl BasemapSource {
@@ -68,6 +70,7 @@ impl BasemapSource {
             && self.max_zoom == o.max_zoom
             && self.tile_size == o.tile_size
             && self.attribution == o.attribution
+            && self.service == o.service
     }
 }
 
@@ -84,6 +87,7 @@ pub fn presets() -> Vec<BasemapSource> {
             terms: terms.into(),
             connections,
             cache_days,
+            service: String::new(),
         }
     };
     vec![
@@ -186,8 +190,13 @@ fn wms_xml(s: &BasemapSource, cache_dir: &str) -> String {
         .replace("{y}", "${y}")
         .replace("{s}", "a");
     let ts = s.tile_size;
+    let service = if s.service.is_empty() {
+        format!("<Service name=\"TMS\"><ServerUrl>{}</ServerUrl></Service>", xml_escape(&url))
+    } else {
+        s.service.clone()
+    };
     let mut x = format!(
-        "<GDAL_WMS><Service name=\"TMS\"><ServerUrl>{}</ServerUrl></Service><DataWindow>\
+        "<GDAL_WMS>{service}<DataWindow>\
          <UpperLeftX>-20037508.342789244</UpperLeftX><UpperLeftY>20037508.342789244</UpperLeftY>\
          <LowerRightX>20037508.342789244</LowerRightX><LowerRightY>-20037508.342789244</LowerRightY>\
          <TileLevel>{}</TileLevel><TileCountX>1</TileCountX>\
@@ -195,13 +204,14 @@ fn wms_xml(s: &BasemapSource, cache_dir: &str) -> String {
          <Projection>EPSG:3857</Projection><BlockSizeX>{ts}</BlockSizeX><BlockSizeY>{ts}</BlockSizeY>\
          <BandsCount>4</BandsCount>\
          <UserAgent>Janus/{} (+https://github.com/sacridini/janus)</UserAgent>\
-         <Timeout>20</Timeout><ZeroBlockHttpCodes>204,404</ZeroBlockHttpCodes>",
-        xml_escape(&url),
+         <Timeout>{}</Timeout><ZeroBlockHttpCodes>204,404</ZeroBlockHttpCodes>",
         s.max_zoom,
         if from_bottom { "bottom" } else { "top" },
         env!("CARGO_PKG_VERSION"),
+        // a WMS renders each tile (TerraBrasilis' DETER: 6 to 16 s at zoom 10)
+        if s.service.is_empty() { 20 } else { 60 },
     );
-    if !is_file_url(&s.url) {
+    if !is_file_url(&s.url) && s.cache_days > 0 {
         // local tiles need no copy
         x += &format!(
             "<Cache><Path>{}</Path><Expires>{}</Expires><MaxSize>536870912</MaxSize></Cache>",
@@ -335,6 +345,27 @@ fn read_tile(
         "the tile could not be read".into()
     };
     Err((http, error))
+}
+
+/// Tile (x, y) of zoom z of `src` as RGBA rows, read as the map reads it (one request; benchmarks against a
+/// direct request to the server).
+pub fn read_one_tile(src: &BasemapSource, cache_dir: &Path, z: i32, x: i32, y: i32) -> Result<Vec<u8>, String> {
+    let mut src = src.clone();
+    src.max_zoom = src.max_zoom.clamp(0, if src.tile_size > 256 { 21 } else { 22 });
+    let ca = curl_ca_bundle();
+    if !ca.is_empty() {
+        let _ = gdal::config::set_thread_local_config_option("CURL_CA_BUNDLE", &ca);
+    }
+    let opts = DatasetOptions {
+        open_flags: GdalOpenFlags::GDAL_OF_RASTER | GdalOpenFlags::GDAL_OF_READONLY,
+        allowed_drivers: Some(&["WMS"]),
+        ..Default::default()
+    };
+    let d = Dataset::open_ex(wms_xml(&src, &cache_dir.to_string_lossy()), opts).map_err(|e| e.to_string())?;
+    let ts = src.tile_size;
+    let mut rgba = vec![0u8; (ts * ts * 4) as usize];
+    read_tile(&d, src.max_zoom, ts, z, x, y, &mut rgba).map_err(|e| e.1)?;
+    Ok(rgba)
 }
 
 /// Where a tile is drawn: `quad`, the map-space box of its part inside the frame; `warp_quad` that box in the warp
@@ -669,7 +700,8 @@ impl<T> Basemap<T> {
     /// few of a coarser one first, a quick preview); returns that level.
     pub fn update(&mut self, view: &[f64; 4], px_per_map_px: f64) -> Option<i32> {
         let (z, b) = self.view_tiles(view, px_per_map_px)?;
-        if z >= 3 {
+        // (a WMS renders each tile: a coarser one covers 64 times the ground, slow to draw on the server)
+        if z >= 3 && self.src.service.is_empty() {
             self.request(z - 3, &b, 0); // a coarse preview first: 1/64 of the tiles
         }
         self.request(z, &b, 1);
@@ -831,11 +863,25 @@ impl<T> Basemap<T> {
 
     /// The cached tiles covering the view, coarser levels first (they fill what the wanted level still lacks):
     /// f(tile, the warp grid, where).
-    pub fn for_each_visible(&mut self, view: &[f64; 4], px_per_map_px: f64, mut f: impl FnMut(&T, &T, &Placement)) {
+    pub fn for_each_visible(&mut self, view: &[f64; 4], px_per_map_px: f64, f: impl FnMut(&T, &T, &Placement)) {
+        self.visit(view, px_per_map_px, false, f);
+    }
+
+    /// As for_each_visible, but once the wanted level has every tile of the view only that level: a layer drawn
+    /// translucent over others (a WMS layer) shows each place once.
+    pub fn for_each_visible_once(&mut self, view: &[f64; 4], px_per_map_px: f64, f: impl FnMut(&T, &T, &Placement)) {
+        self.visit(view, px_per_map_px, true, f);
+    }
+
+    fn visit(&mut self, view: &[f64; 4], px_per_map_px: f64, once: bool, mut f: impl FnMut(&T, &T, &Placement)) {
         let Some((z, b)) = self.view_tiles(view, px_per_map_px) else { return };
+        let complete = once && {
+            let r = tile_range(z, &b);
+            (r[1]..=r[3]).all(|y| (r[0]..=r[2]).all(|x| self.gpu.contains_key(&tile_key(z, x, y))))
+        };
         // coarse to fine; the next finer level (zooming out) before the wanted one
-        let mut levels: Vec<i32> = ((z - 8).max(0)..z).collect();
-        if z < self.src.max_zoom {
+        let mut levels: Vec<i32> = if complete { Vec::new() } else { ((z - 8).max(0)..z).collect() };
+        if z < self.src.max_zoom && !complete {
             levels.push(z + 1);
         }
         levels.push(z);
