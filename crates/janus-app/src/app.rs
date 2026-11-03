@@ -550,6 +550,8 @@ pub struct State {
     pub contents: crate::contents::ContentsUi,
     /// series to open as layers of their own, one after the other (one open at a time)
     pub pending_opens: Vec<Vec<String>>,
+    /// a series split into layers, a date dragged out of it: the files opened, the series opened again or closed
+    pub layer_jobs: crate::split::LayerJobs,
     /// the canvases made for vector layers alone (their files' numbers)
     pub canvas_count: u64,
     /// the export dialog and the animation being exported
@@ -980,6 +982,7 @@ impl JanusApp {
                 ml: Default::default(),
                 contents: Default::default(),
                 pending_opens: Vec::new(),
+                layer_jobs: Default::default(),
                 canvas_count: 0,
                 export: Default::default(),
                 layout_cmd: None,
@@ -1391,8 +1394,9 @@ impl State {
             .map(|l| l.info.t())
             .sum();
         // a layer waiting: a date a file (a stack's bands are not known yet)
-        let waiting: usize =
-            self.pending_opens.iter().map(|p| p.len().max(1)).sum::<usize>() + self.opts.extra_layers.len();
+        let waiting: usize = self.pending_opens.iter().map(|p| p.len().max(1)).sum::<usize>()
+            + self.opts.extra_layers.len()
+            + self.layer_jobs.waiting_opens();
         let t = t.max(1);
         let total = s.overview_budget_bytes;
         let share = (total as f64 * t as f64 / (open + waiting + t) as f64) as i64;
@@ -1411,7 +1415,9 @@ impl State {
                 l.inputs = o.inputs.clone();
                 l.name = name;
             }
+            let id = info.id;
             self.replace_layer_session(i, info, &o, ctx);
+            self.after_open(id, o.after);
             return;
         }
         if !o.add {
@@ -1461,6 +1467,7 @@ impl State {
             canvas,
             z,
         });
+        let new_id = self.layers.last().and_then(|l| l.session.as_ref()).map(|s| s.info.id).filter(|_| !canvas);
         // over the other series, under the vector layers above them
         self.place_new_series();
         // the panel comes up with the first layer of embeddings
@@ -1501,6 +1508,10 @@ impl State {
             && let Some(l) = self.layers.last_mut()
         {
             l.visible = false;
+        }
+        // a date of a series split or detached: its group, the series' colours
+        if let Some(id) = new_id {
+            self.after_open(id, o.after.clone());
         }
         if first {
             // test runs: a season, a basemap
@@ -1599,9 +1610,14 @@ impl State {
                 if view.contains(&"trend") {
                     self.cycles.detrend = false;
                 }
-                // atlas,shapes,groups,mean: the curves' shapes compared, three groups found, coloured by a value
+                // atlas,shapes,groups,mean: the curves' shapes compared, three groups found (groups=N: N), coloured by
+                // a value
                 self.atlas.shapes = view.contains(&"shapes");
-                self.atlas.find_groups = view.contains(&"groups");
+                let n_groups = view.iter().find_map(|v| v.strip_prefix("groups=")?.parse::<usize>().ok());
+                self.atlas.find_groups = view.contains(&"groups") || n_groups.is_some();
+                if let Some(n) = n_groups {
+                    self.atlas.n_groups = n;
+                }
                 for (k, name) in ["density", "groups", "value", "mean", "amplitude", "trend"].iter().enumerate() {
                     if view.contains(name) {
                         self.atlas.colouring = k;
@@ -2368,6 +2384,7 @@ impl eframe::App for JanusApp {
         s.pump_trend_test();
         s.pump_ml();
         s.pump_notices(&ctx);
+        s.pump_layer_jobs(&ctx);
         if s.opening.is_none() && !s.pending_opens.is_empty() {
             let next = s.pending_opens.remove(0);
             s.open_inputs(next, true, &ctx);

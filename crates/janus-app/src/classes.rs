@@ -73,6 +73,9 @@ pub struct LayerClasses {
     /// the other bands' (their state, whether complete, their classes)
     band: Option<usize>,
     bands: BTreeMap<usize, (ClassState, bool, Vec<ClassEntry>)>,
+    /// a style given before the classes were found (a layer just opened): their names, colours and visibility,
+    /// taken by the same values once they are
+    pending: Option<Vec<ClassEntry>>,
 }
 
 /// Counts of the whole values (every `stride`-th); None if a finite value is not whole or there are more than
@@ -122,6 +125,10 @@ impl LayerClasses {
             }
             return;
         };
+        if self.state == ClassState::Undecided && self.list.is_empty() {
+            self.pending = Some(list.to_vec());
+            return;
+        }
         for e in &mut self.list {
             if let Some(s) = list.iter().find(|s| s.value == e.value) {
                 (e.name, e.color, e.visible) = (s.name.clone(), s.color, s.visible);
@@ -166,15 +173,19 @@ impl LayerClasses {
             .iter()
             .map(|(&value, &count)| match self.find(value) {
                 Some(old) => ClassEntry { count, ..old.clone() },
-                None => ClassEntry {
-                    value,
-                    name: info.class_names.get(&value).cloned().unwrap_or_else(|| format!("Class {value}")),
-                    color: match info.class_colors.get(&value) {
-                        Some(c) => [c[0], c[1], c[2]],
-                        None => PALETTE[next_free()],
+                // a style given before the classes were found: its class of the same value
+                None => match self.pending.as_ref().and_then(|p| p.iter().find(|s| s.value == value)) {
+                    Some(s) => ClassEntry { count, ..s.clone() },
+                    None => ClassEntry {
+                        value,
+                        name: info.class_names.get(&value).cloned().unwrap_or_else(|| format!("Class {value}")),
+                        color: match info.class_colors.get(&value) {
+                            Some(c) => [c[0], c[1], c[2]],
+                            None => PALETTE[next_free()],
+                        },
+                        visible: true,
+                        count,
                     },
-                    visible: true,
-                    count,
                 },
             })
             .collect();
@@ -254,6 +265,8 @@ impl LayerClasses {
                 self.set(info, &counts);
             }
             self.complete = true;
+            // a pending style: kept until every date is counted (the classes that appear later take theirs too)
+            self.pending = None;
         }
         if self.lut_dirty && self.on() {
             let mut lut = vec![0u8; CLASS_LUT_SIZE as usize * 4];
@@ -396,6 +409,21 @@ impl LayerClasses {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A style given to a layer just opened (a date split out of its series): its classes, once found, take its
+    /// names, colours and visibility; the values it does not have, the file's.
+    #[test]
+    fn a_style_waits_for_the_classes() {
+        let mut c = LayerClasses::default();
+        let forest = ClassEntry { value: 3, name: "Mata".into(), color: [1, 2, 3], visible: false, count: 0 };
+        c.apply_style(Some(std::slice::from_ref(&forest)));
+        assert!(c.list.is_empty() && c.state == ClassState::Undecided);
+        let counts: BTreeMap<i32, usize> = [(3, 10), (15, 5)].into_iter().collect();
+        c.set(&CubeInfo::default(), &counts);
+        assert_eq!((c.list[0].name.as_str(), c.list[0].color, c.list[0].visible), ("Mata", [1, 2, 3], false));
+        assert_eq!(c.list[0].count, 10);
+        assert_eq!(c.list[1].name, "Class 15");
+    }
 
     #[test]
     fn whole_values_only() {

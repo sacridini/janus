@@ -1,7 +1,7 @@
 //! Analysis > Atlas: every pixel's series in one picture. The series of the ROI (or the whole image) are sampled on
 //! a grid (up to MAX_SAMPLES pixels), reduced to their principal components and laid out in a plane by UMAP
 //! (atlas_math.rs): pixels that behave alike over time land close together, so the kinds of behaviour of the place
-//! (a crop, a forest, water, a clearing) are the clusters. Drawn around with the mouse, up to three groups: each its
+//! (a crop, a forest, water, a clearing) are the clusters. Drawn around with the mouse, or found by k-means, up to Groups groups (3 at first, at most MAX_GROUPS): each its
 //! colour on the map (every pixel of the region placed with the sample nearest to it), its share of the region, its
 //! mean curve and the range of its pixels (10th to 90th percentile) over time. The pointer over the plane lights
 //! the pixels like the ones under it on the map; the pointer over the map rings its pixel in the plane. The work
@@ -28,7 +28,10 @@ const MAX_SAMPLES: usize = 20_000;
 const BRUSH: f32 = 12.0;
 const NONE: u32 = u32::MAX;
 const COLOURINGS: [&str; 6] = ["Density", "Groups", "Value at the date", "Mean", "Amplitude", "Trend"];
-const NAMES: [&str; 3] = ["A", "B", "C"];
+/// The groups at first: the most drawn and the number found.
+const DEFAULT_GROUPS: usize = 3;
+/// The most groups the tab can have (as many colours).
+const MAX_GROUPS: usize = 10;
 const YEAR: f64 = 365.2425 * 86400.0;
 
 /// The density's ramp, from the background to the densest: blue, as the palette's sequential scale (light on a
@@ -52,9 +55,18 @@ pub(crate) fn ramp_at(r: &[Color32; 5], t: f32) -> Color32 {
     Color32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
 }
 
-/// The groups' colours: the palette's first three categorical hues (distinct for every kind of colour vision).
+/// The groups' colours: the palette's first three categorical hues (distinct for every kind of colour vision), then
+/// seven more of Tableau 10's, those least like them.
 pub(crate) fn group_colour(k: usize) -> Color32 {
-    [Color32::from_rgb(0x39, 0x87, 0xe5), Color32::from_rgb(0xd9, 0x59, 0x26), Color32::from_rgb(0x19, 0x9e, 0x70)][k]
+    const HUES: [u32; MAX_GROUPS] =
+        [0x3987e5, 0xd95926, 0x199e70, 0x9467bd, 0xe377c2, 0x17becf, 0xbcbd22, 0x8c564b, 0xf2c12e, 0xa1162b];
+    let v = HUES[k % MAX_GROUPS];
+    Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
+}
+
+/// A group's name: A, B, C...
+fn group_name(slot: usize) -> String {
+    char::from(b'A' + (slot % 26) as u8).to_string()
 }
 
 /// What the atlas is of: the region of the overview and how series are compared.
@@ -136,7 +148,7 @@ impl Drop for Job {
 
 /// A group drawn around points of the plane.
 struct Group {
-    /// its colour and name: 0..3, kept while it lives
+    /// its colour and name: 0..MAX_GROUPS, kept while it lives
     slot: usize,
     /// the outline, in the plane
     poly: Vec<[f32; 2]>,
@@ -160,6 +172,8 @@ pub struct AtlasUi {
     pub hide_map: bool,
     /// groups found by themselves once laid out (for the screenshots: --analysis atlas,groups)
     pub find_groups: bool,
+    /// the most groups drawn and the number found (0: DEFAULT_GROUPS)
+    pub n_groups: usize,
     request: Option<Request>,
     job: Option<Job>,
     atlas: Option<Atlas>,
@@ -180,6 +194,21 @@ pub struct AtlasUi {
     hovered: Option<usize>,
     curves: Option<(u64, Vec<Curve>)>,
     attr: Option<(u64, Vec<f32>)>,
+}
+
+impl AtlasUi {
+    /// The most groups drawn and the number Find groups finds.
+    fn group_limit(&self) -> usize {
+        if self.n_groups == 0 { DEFAULT_GROUPS } else { self.n_groups.clamp(2, MAX_GROUPS) }
+    }
+
+    /// A slot for one more group: none when there are as many as the limit.
+    fn free_slot(&self) -> Option<usize> {
+        if self.groups.len() >= self.group_limit() {
+            return None;
+        }
+        (0..MAX_GROUPS).find(|s| self.groups.iter().all(|g| g.slot != *s))
+    }
 }
 
 fn hash<T: Hash>(v: T) -> u64 {
@@ -398,7 +427,7 @@ fn hull(mut pts: Vec<[f32; 2]>) -> Vec<[f32; 2]> {
     h
 }
 
-/// Up to three groups found in the plane: k-means of the points, each group the hull of its core (the points
+/// Up to `k` groups found in the plane: k-means of the points, each group the hull of its core (the points
 /// nearest its centre, its strays left out).
 fn suggest_groups(xy: &[f32], n: usize, k: usize) -> Vec<Vec<[f32; 2]>> {
     let pt = |i: usize| [xy[2 * i], xy[2 * i + 1]];
@@ -650,9 +679,21 @@ impl State {
                 a.hide_map = !on_map;
             }
             let laid_out = a.job.is_none() && a.atlas.is_some();
+            ui.label("Groups");
+            let mut k = a.group_limit();
+            if ui
+                .add(egui::DragValue::new(&mut k).range(2..=MAX_GROUPS).speed(0.05))
+                .on_hover_text(format!(
+                    "How many groups Find groups finds and the most drawn with the mouse ({DEFAULT_GROUPS} at first, \
+                     {MAX_GROUPS} at most)"
+                ))
+                .changed()
+            {
+                a.n_groups = k;
+            }
             if ui
                 .add_enabled(laid_out, egui::Button::new("Find groups"))
-                .on_hover_text("Three groups found in the plane (k-means), in place of the ones drawn")
+                .on_hover_text(format!("{k} groups found in the plane (k-means), in place of the ones drawn"))
                 .clicked()
             {
                 find = true;
@@ -757,7 +798,7 @@ impl State {
             return;
         };
         if find {
-            a.groups = suggest_groups(&at.xy, at.n, 3)
+            a.groups = suggest_groups(&at.xy, at.n, a.group_limit())
                 .into_iter()
                 .enumerate()
                 .map(|(slot, poly)| Group { slot, poly })
@@ -781,7 +822,7 @@ impl State {
         }
         // each group's share of the region's pixels
         let total: f64 = at.weight.iter().map(|&w| f64::from(w)).sum::<f64>().max(1.0);
-        let mut shares = [0f64; 3];
+        let mut shares = [0f64; MAX_GROUPS];
         for (&g, &w) in a.group_of.iter().zip(&at.weight) {
             if g != 255 {
                 shares[g as usize] += f64::from(w) / total;
@@ -895,8 +936,7 @@ impl State {
         }
         if resp.drag_stopped_by(egui::PointerButton::Primary) && a.lasso.len() >= 3 {
             let lasso = std::mem::take(&mut a.lasso);
-            let free = (0..3).find(|s| a.groups.iter().all(|g| g.slot != *s));
-            if let Some(slot) = free {
+            if let Some(slot) = a.free_slot() {
                 a.groups.push(Group { slot, poly: lasso });
                 a.groups.sort_by_key(|g| g.slot);
                 a.generation += 1;
@@ -999,11 +1039,8 @@ impl State {
             painter.add(egui::Shape::line(closed, Stroke::new(1.6, col)));
             // the name at the top of the outline
             let top = pts.iter().copied().min_by(|a, b| a.y.total_cmp(&b.y)).unwrap_or(rect.center());
-            let galley = painter.layout_no_wrap(
-                NAMES[g.slot].to_string(),
-                egui::FontId::proportional(body * 0.95),
-                Color32::WHITE,
-            );
+            let galley =
+                painter.layout_no_wrap(group_name(g.slot), egui::FontId::proportional(body * 0.95), Color32::WHITE);
             let r =
                 Rect::from_center_size(top - vec2(0.0, galley.size().y * 0.5 + 4.0), galley.size() + vec2(10.0, 2.0));
             painter.rect_filled(r, r.height() * 0.5, col);
@@ -1011,14 +1048,14 @@ impl State {
         }
         if a.lasso.len() >= 2 {
             let pts: Vec<Pos2> = a.lasso.iter().map(|p| to_screen(p[0], p[1])).collect();
-            let free = (0..3).find(|s| a.groups.iter().all(|g| g.slot != *s));
+            let free = a.free_slot();
             let col = free.map_or(weak, group_colour);
             painter.add(egui::Shape::dashed_line(&pts, Stroke::new(1.5, col), 6.0, 4.0));
             if free.is_none() {
                 painter.text(
                     rect.center_top() + vec2(0.0, 8.0),
                     egui::Align2::CENTER_TOP,
-                    "Three groups already: clear one first",
+                    format!("{} groups already: clear one, or raise Groups", a.groups.len()),
                     egui::FontId::proportional(body * 0.85),
                     ink,
                 );
@@ -1200,7 +1237,7 @@ impl State {
     }
 
     /// The groups: each one's colour, name and share of the region.
-    fn atlas_legend(&mut self, ui: &mut Ui, shares: &[f64; 3]) {
+    fn atlas_legend(&mut self, ui: &mut Ui, shares: &[f64; MAX_GROUPS]) {
         let a = &mut self.atlas;
         ui.label(egui::RichText::new("Groups").strong());
         if a.groups.is_empty() {
@@ -1211,7 +1248,7 @@ impl State {
             ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), egui::Sense::hover());
                 ui.painter().rect_filled(r, 3.0, group_colour(g.slot));
-                ui.label(egui::RichText::new(NAMES[g.slot]).strong());
+                ui.label(egui::RichText::new(group_name(g.slot)).strong());
                 ui.label(format!("{:.1} %", 100.0 * shares[g.slot]))
                     .on_hover_text("Its share of the region's pixels (each placed with its nearest point)");
                 if ui.small_button("×").on_hover_text("Remove the group").clicked() {
@@ -1223,7 +1260,7 @@ impl State {
             a.groups.retain(|g| g.slot != s);
             a.generation += 1;
         }
-        let rest = 1.0 - (0..3).filter(|s| a.groups.iter().any(|g| g.slot == *s)).map(|s| shares[s]).sum::<f64>();
+        let rest = 1.0 - a.groups.iter().map(|g| shares[g.slot]).sum::<f64>();
         if !a.groups.is_empty() {
             ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), egui::Sense::hover());
@@ -1347,7 +1384,7 @@ impl State {
                 if dated { info.format_time(at.bin_x[b]) } else { format!("band {}", at.bin_x[b].round() + 1.0) };
             let mut text = when;
             for (k, c) in curves.iter().enumerate() {
-                let name = a.groups.get(k).map_or("all", |g| NAMES[g.slot]);
+                let name = a.groups.get(k).map_or_else(|| "all".to_string(), |g| group_name(g.slot));
                 text += &format!(
                     "\n{name}: {}  ({} to {})",
                     format_g(f64::from(c.mean[b]), 3),
@@ -1410,5 +1447,52 @@ mod tests {
         for (cx, cy) in [(0.0, 0.0), (10.0, 0.0), (5.0, 9.0)] {
             assert_eq!(groups.iter().filter(|g| in_poly(g, cx, cy)).count(), 1);
         }
+    }
+
+    #[test]
+    fn as_many_groups_as_asked() {
+        // six blobs on a ring, six groups asked: one around each
+        let centres: Vec<(f32, f32)> = (0..6)
+            .map(|j| (j as f32 * std::f32::consts::TAU / 6.0).sin_cos())
+            .map(|(s, c)| (20.0 * c, 20.0 * s))
+            .collect();
+        let mut xy = Vec::new();
+        for &(cx, cy) in &centres {
+            for k in 0..150 {
+                let a = k as f32 * 0.7;
+                let r = (k % 17) as f32 * 0.08;
+                xy.extend([cx + r * a.cos(), cy + r * a.sin()]);
+            }
+        }
+        let groups = suggest_groups(&xy, 900, 6);
+        assert_eq!(groups.len(), 6);
+        for &(cx, cy) in &centres {
+            assert_eq!(groups.iter().filter(|g| in_poly(g, cx, cy)).count(), 1);
+        }
+    }
+
+    #[test]
+    fn the_limit_holds_for_drawn_groups() {
+        let mut a = AtlasUi::default();
+        assert_eq!(a.group_limit(), DEFAULT_GROUPS);
+        for _ in 0..DEFAULT_GROUPS {
+            let slot = a.free_slot().expect("a slot under the limit");
+            a.groups.push(Group { slot, poly: Vec::new() });
+        }
+        assert_eq!(a.free_slot(), None, "three by default");
+        a.n_groups = 5;
+        assert_eq!(a.free_slot(), Some(3));
+        // lowered below the groups there are: none more, the ones there kept
+        a.n_groups = 2;
+        assert_eq!(a.free_slot(), None);
+        assert_eq!(a.groups.len(), 3);
+        // a slot let go is taken again first
+        a.n_groups = MAX_GROUPS;
+        a.groups.retain(|g| g.slot != 1);
+        assert_eq!(a.free_slot(), Some(1));
+        // the names and colours of every slot, all different
+        let names: std::collections::HashSet<String> = (0..MAX_GROUPS).map(group_name).collect();
+        let colours: std::collections::HashSet<Color32> = (0..MAX_GROUPS).map(group_colour).collect();
+        assert_eq!((names.len(), colours.len()), (MAX_GROUPS, MAX_GROUPS));
     }
 }

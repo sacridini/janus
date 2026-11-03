@@ -617,7 +617,8 @@ impl State {
     pub fn statistics_ui(&mut self, ui: &mut Ui) {
         let Some(s) = &self.session else { return };
         // no series shown: the statistics of the map described in Pixel values (a stack shown keeps its bands')
-        let stack_shown = s.info.stack && self.layers.get(self.active).is_some_and(|l| l.visible);
+        let stack_shown =
+            s.info.stack && self.layers.get(self.active).is_some_and(|l| l.visible && !self.result_over(l.z));
         if !self.chart_shown() && !stack_shown {
             self.values_statistics_ui(ui);
             return;

@@ -176,10 +176,17 @@ fn pixels_text(c: usize, scale: f64) -> String {
 
 impl State {
     /// The chart is shown (else Pixel values): the active layer is a series shown, of several dates, or a layer of
-    /// embeddings.
+    /// embeddings, and no run's map is shown over it (the view follows the layer on top: a class map just made
+    /// over its series, its values; a tool's preview aside).
     pub(crate) fn chart_shown(&self) -> bool {
         let (Some(s), Some(l)) = (&self.session, self.layers.get(self.active)) else { return false };
-        !l.canvas && l.visible && (l.emb.is_some() || (s.info.t() > 1 && !s.info.stack))
+        let chart = !l.canvas && l.visible && (l.emb.is_some() || (s.info.t() > 1 && !s.info.stack));
+        chart && !self.result_over(l.z)
+    }
+
+    /// A run's map shown over the place `z` of the drawing order (not a tool's preview).
+    pub(crate) fn result_over(&self, z: u64) -> bool {
+        self.zeit.results.iter().any(|r| r.visible && !r.preview && r.place.aligned && r.opacity > 0.0 && r.z >= z)
     }
 
     /// The rows: every map shown, top of the drawing order first.
@@ -685,7 +692,7 @@ impl State {
         crate::zeit::result_details_ui(ui, r, &mut dirty);
         self.map.dirty |= dirty;
         ui.add_space(6.0);
-        ui.weak("Its values at the cursor and the pins, its histogram: Pixel values (with the series hidden, or a single image active). Click a series in Layers for its own display.");
+        ui.weak("Its values at the cursor and the pins, its histogram: Pixel values, in the chart's place while it is shown over the series (hide it, or move it under the series, for the series' chart). Click a series in Layers for its own display.");
     }
 
     /// Pixel values' rows at the cursor: name, value as shown (the self-test).

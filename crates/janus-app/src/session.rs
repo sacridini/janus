@@ -20,6 +20,8 @@ pub struct Opening {
     pub replace: Option<usize>,
     /// the name of the layer it adds (None: from its files)
     pub name: Option<String>,
+    /// what the layer is given once open (a split's or a detach's group and colours)
+    pub after: crate::split::AfterOpen,
     pub started: Instant,
     rx: Receiver<crate::open::OpenResult>,
 }
@@ -40,7 +42,7 @@ impl Opening {
                 ctx.request_repaint();
             })
             .expect("thread");
-        Opening { inputs, add, replace: None, name: None, started: Instant::now(), rx }
+        Opening { inputs, add, replace: None, name: None, after: Default::default(), started: Instant::now(), rx }
     }
 
     pub fn poll(&self) -> Option<crate::open::OpenResult> {

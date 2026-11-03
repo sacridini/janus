@@ -10,7 +10,10 @@
 //! the window, the maps; Copy Python of the run and, with a Python that has Zeit, its p-values against Janus'; Run
 //! again brings the parameters and the run's window back). 187-190: a preview (at most 256 px a side at the centre
 //! of the view; its 7 maps marked preview over its window; the next preview replaces them and deletes their folder;
-//! Auto-preview runs again when a parameter changes; the tool's window closed removes it).
+//! Auto-preview runs again when a parameter changes; the tool's window closed removes it). 233: the k-means' map over
+//! its series puts Pixel values in the chart's place, a cluster renamed in its legend is named so there. 234-236: a
+//! date of D dragged out of it (a layer of its own with the series' class names, the series without it, its name
+//! kept), the rest split into layers (a date each, in a group named after the series, all shown, the series closed).
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -43,6 +46,16 @@ fn fake_job(title: &str) -> Job {
 }
 
 impl State {
+    /// The series of the folder D (a file a date) while it has several dates.
+    fn d_series(&self) -> Option<usize> {
+        (0..self.layers.len()).find(|&i| {
+            self.layer_session(i).is_some_and(|s| {
+                let dir = std::path::Path::new(&s.info.layers[0].path).parent().and_then(|p| p.file_name());
+                s.info.t() > 1 && dir.is_some_and(|d| d == "D")
+            })
+        })
+    }
+
     pub(super) fn test_interface(
         &mut self,
         st: &mut UiTest,
@@ -382,8 +395,29 @@ impl State {
                 if order[k + 1..].iter().any(|it| matches!(it, crate::order::Item::Series(_))) {
                     return fail("a run's map should go over every raster");
                 }
-                // the series hidden: Pixel values in the chart's place, the map's value at the cursor
+                // the view follows the layer on top: the map over the series shown, Pixel values; the map hidden or
+                // moved under the series, the series' chart again
                 let was = self.layers[self.active].visible;
+                self.layers[self.active].visible = true;
+                let rk = self.zeit.results.iter().position(|r| r.id == id)?;
+                if self.chart_shown() {
+                    return fail("a run's map shown over the series should put Pixel values in the chart's place");
+                }
+                self.zeit.results[rk].visible = false;
+                let hidden = self.chart_shown();
+                self.zeit.results[rk].visible = true;
+                let top = self.draw_order().len() - 1;
+                let series_at =
+                    self.draw_order().iter().position(|&it| it == crate::order::Item::Series(self.active))?;
+                self.move_in_order(series_at, top);
+                let under = self.chart_shown();
+                self.move_in_order(top, series_at);
+                if !hidden || !under {
+                    return fail(&format!(
+                        "the series' chart should come back with the map hidden ({hidden}) or under it ({under})"
+                    ));
+                }
+                // the series hidden: Pixel values in the chart's place, the map's value at the cursor
                 self.layers[self.active].visible = false;
                 if self.chart_shown() {
                     return fail("with the active series hidden, Pixel values should replace the chart");
@@ -2139,6 +2173,30 @@ impl State {
                 if !name(left).starts_with("Early (cluster ") || !name(right).starts_with("Late (cluster ") {
                     return fail("k-means' clusters named by the pins: Early on the left half, Late on the right");
                 }
+                // its map shown over its series, the series shown too: the view follows the map on top, Pixel
+                // values in the chart's place
+                let (rname, rx, ry, rid) = (cluster.name.clone(), cluster.x0 + 2, cluster.y0 + 5, cluster.id);
+                let ck = self.zeit.results.iter().position(|r| r.id == rid)?;
+                let si = self.layers.iter().position(|l| l.name == "Seasons")?;
+                if si != self.active {
+                    self.set_active(si, ctx);
+                }
+                let si = self.layers.iter().position(|l| l.name == "Seasons")?;
+                self.layers[si].visible = true;
+                self.zeit.results[ck].visible = true;
+                if self.chart_shown() {
+                    return fail("the k-means' map shown over its series should put Pixel values in the chart's place");
+                }
+                // a cluster renamed in the map's legend: Pixel values names it so
+                let c = (left as usize).checked_sub(1)?;
+                let before = std::mem::replace(&mut self.zeit.results[ck].classes[c], "Renamed cluster".into());
+                self.set_hover(Some((rx, ry)));
+                let shown = self.cursor_values().into_iter().find(|(n, _)| *n == rname).map(|x| x.1);
+                self.zeit.results[ck].classes[c] = before;
+                println!("    k-means' map over its series: Pixel values; a cluster renamed: {shown:?}");
+                if !shown.as_deref().is_some_and(|s| s.starts_with("Renamed cluster")) {
+                    return fail("a class renamed in the map's legend should be named so in Pixel values");
+                }
                 (self.ml.kind, self.ml.tab) = (Default::default(), 0);
                 self.ml.open = false;
                 let k = self.layers.iter().position(|l| l.name == "Seasons")?;
@@ -2152,6 +2210,112 @@ impl State {
                 None
             }
             234 => {
+                // D (a file a date, categorical) left open: a class renamed, then its third date dragged out of it
+                let Some(i) = self.d_series() else { return fail("D should still be open") };
+                if self.opening.is_some() {
+                    return None;
+                }
+                let info = self.layer_session(i)?.info.clone();
+                if !crate::ui_test::loaded(self.layer_session(i)) {
+                    return None;
+                }
+                if i != self.active {
+                    self.set_active(i, ctx);
+                }
+                let i = self.d_series()?;
+                if !self.classes.on() || self.classes.list.is_empty() {
+                    return None;
+                }
+                if let Some(e) = self.classes.list.iter_mut().find(|e| e.value == 3) {
+                    e.name = "Mata".into();
+                }
+                st.texts = vec![self.layers[i].name.clone(), info.layers[2].path.clone()];
+                self.detach_step(info.id, 2);
+                if self.layer_jobs.queue.len() != 2 {
+                    return fail("a date dragged out: its file opened, then the series opened again without it");
+                }
+                next(st, "D's third date dragged out of it");
+                None
+            }
+            235 => {
+                if !self.layer_jobs.queue.is_empty() || self.opening.is_some() {
+                    return None;
+                }
+                let (name, file) = (st.texts.first()?.clone(), st.texts.get(1)?.clone());
+                let Some(i) = self.d_series() else { return fail("D should stay open without its third date") };
+                let Some(d) = self.layers.iter().position(|l| l.inputs == [file.clone()]) else {
+                    return fail("the date dragged out should be a layer of its own");
+                };
+                if !crate::ui_test::loaded(self.layer_session(i)) || !crate::ui_test::loaded(self.layer_session(d)) {
+                    return None;
+                }
+                let classes = if d == self.active { &self.classes } else { &self.layers[d].classes };
+                if !classes.on() {
+                    return None;
+                }
+                let mata = classes.find(3).map(|e| e.name.clone());
+                let info = self.layer_session(i)?.info.clone();
+                println!(
+                    "    D: {} ({} dates, {} without it); the date alone: {} ({} date), class 3 {mata:?}",
+                    self.layers[i].name,
+                    info.t(),
+                    if info.layers.iter().any(|l| l.path == file) { "not" } else { "" },
+                    self.layers[d].name,
+                    self.layer_session(d)?.info.t(),
+                );
+                if info.t() != 7 || info.layers.iter().any(|l| l.path == file) || self.layers[i].name != name {
+                    return fail("the series should keep its name and lose the date dragged out (7 dates of 8)");
+                }
+                if !self.layers[d].name.starts_with(&name) || self.layer_session(d)?.info.t() != 1 {
+                    return fail("the date dragged out: one date, named after the series and the date");
+                }
+                if mata.as_deref() != Some("Mata") {
+                    return fail("the date dragged out should keep the series' class names (3: Mata)");
+                }
+                // the rest split into layers: a layer a date, in a group named after the series
+                self.split_series(info.id);
+                next(st, "the date a layer of its own, the series without it; the rest split into layers");
+                None
+            }
+            236 => {
+                if !self.layer_jobs.queue.is_empty() || self.opening.is_some() {
+                    return None;
+                }
+                let name = st.texts.first()?.clone();
+                if self.d_series().is_some() {
+                    return fail("the series split should be closed once its dates are open");
+                }
+                let dates: Vec<usize> =
+                    (0..self.layers.len()).filter(|&k| self.layers[k].name.starts_with(&format!("{name} ["))).collect();
+                if dates.iter().any(|&k| !crate::ui_test::loaded(self.layer_session(k))) {
+                    return None;
+                }
+                let sels: Vec<Sel> =
+                    dates.iter().filter_map(|&k| self.layer_session(k).map(|s| Sel::Series(s.info.id))).collect();
+                // (the date dragged out is in D's group, if it had one)
+                let in_group = self
+                    .groups
+                    .iter()
+                    .filter(|g| g.name == name)
+                    .map(|g| sels.iter().filter(|s| g.members.contains(s)).count())
+                    .max()
+                    .unwrap_or(0);
+                let shown = dates.iter().filter(|&&k| self.layers[k].visible).count();
+                println!(
+                    "    split: {} layers of one date ({} in the group {name:?}, {shown} shown at once)",
+                    dates.len(),
+                    in_group
+                );
+                if dates.len() != 8 || in_group != 7 || shown != 8 {
+                    return fail("a layer a date (7 in a group named after the series, with the one dragged out: 8)");
+                }
+                for &k in dates.iter().rev() {
+                    self.remove_layer(k, ctx);
+                }
+                next(st, "D split into layers: a date each, in a group, every one shown");
+                None
+            }
+            237 => {
                 // the validation's folder (stages 170-179), its strata layer open until now
                 let _ = std::fs::remove_dir_all(&st.dir);
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());

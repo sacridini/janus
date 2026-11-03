@@ -2481,14 +2481,18 @@ pub(crate) fn result_details_ui(ui: &mut Ui, r: &mut ResultLayer, dirty: &mut bo
             }
         });
     } else {
-        // a class map's legend
+        // a class map's legend, its names edited in place (Pixel values, Statistics, the areas and the project
+        // take them)
         let cm = &janus_gpu::colormaps::all()[r.cmap];
-        for (k, c) in r.classes.iter().enumerate() {
+        let width = crate::fit::scaled(ui, 140.0);
+        for (k, c) in r.classes.iter_mut().enumerate() {
             ui.horizontal(|ui| {
                 let [cr, cg, cb, _] = cm.sample((k as f32 + 0.5) / cm.keys().count() as f32);
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
                 ui.painter().rect_filled(rect, 2.0, Color32::from_rgb(cr, cg, cb));
-                ui.label(c);
+                ui.weak(format!("{}", k + 1));
+                ui.add(egui::TextEdit::singleline(c).desired_width(width))
+                    .on_hover_text(format!("The name of class {} (its value in the map)", k + 1));
             });
         }
     }

@@ -79,6 +79,7 @@ mod shots_ml;
 mod shots_validation;
 mod similarity;
 mod speckle_ui;
+mod split;
 mod stac;
 mod status;
 mod style;
@@ -185,8 +186,8 @@ Developer options:
                       highlight=LO:HI: those values highlighted, the others dimmed)
   --analysis seasonal|cycles|atlas|dates|bands|classes|scatter|trend|areas|zonal  the Analysis panel at that tab
                       (seasonal,M: its years from month M; cycles,trend: the trend kept; bands,common|zscore;
-                      atlas,shapes,groups,density|value|mean|amplitude|trend: the curves' shapes compared,
-                      three groups found, the points' colour;
+                      atlas,shapes,groups[=N],density|value|mean|amplitude|trend: the curves' shapes compared,
+                      three groups found (or N, 2 to 10), the points' colour;
                       classes,transitions: the matrix of two dates;
                       classes,flows[,changes][,zoom=N][,small=PCT][,window]: the flows between dates
                       (small=0: no Other; window: in a window of its own); trend,run: the trend test run,

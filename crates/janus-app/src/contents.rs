@@ -11,6 +11,7 @@ use janus_geo::vectors::write_vector_table;
 
 use crate::app::State;
 use crate::order::Item;
+use crate::split::step_input;
 use crate::theme;
 
 /// A layer's row in the selection: a series by its cube's id, a vector layer or a run's map by its id.
@@ -46,6 +47,8 @@ pub struct ContentsUi {
     /// the name a style is saved under (its menu's field); a group being renamed
     style_name: String,
     group_name: Option<(u32, String)>,
+    /// each series' rows as drawn (its row and its dates'): a date let go outside them leaves the series
+    step_areas: Vec<(u64, Rect)>,
 }
 
 impl ContentsUi {
@@ -365,6 +368,13 @@ pub(crate) fn row(ui: &mut Ui, visible: Option<&mut bool>, r: &Row) -> RowOut {
 /// A row being dragged: its place in the drawing order.
 struct Dragged(usize);
 
+/// A series' date (band) being dragged out of it: the series' cube id, the date, its name.
+struct DraggedStep {
+    id: u64,
+    t: usize,
+    label: String,
+}
+
 /// What the panel asks for, done after it is drawn.
 enum Act {
     Activate(usize),
@@ -411,6 +421,10 @@ enum Act {
     /// shown, then the export dialog of that kind
     ExportStep(usize, usize, usize),
     OpenStep(usize, usize),
+    /// a series' date (by the series' cube id) dragged out of it: a layer of its own, the series without it
+    Detach(u64, usize),
+    /// every date of the series a layer of its own, in a group
+    Split(u64),
     /// a run's provenance (its folder, or a file in it): the window, run again, its Python, the folder
     Provenance(String),
     RunAgain(String),
@@ -476,6 +490,7 @@ impl State {
         if ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !list.contains(p))) {
             self.contents.focused = false;
         }
+        self.drag_step_out(&ctx, &mut acts);
         ui.add_space(6.0);
         egui::CollapsingHeader::new(RichText::new("Add embeddings").strong())
             .id_salt("emb dl layers")
@@ -575,6 +590,8 @@ impl State {
                     self.open_export(kind);
                 }
                 Act::OpenStep(i, t) => self.open_step_as_layer(i, t, &ctx),
+                Act::Detach(id, t) => self.detach_step(id, t),
+                Act::Split(id) => self.split_series(id),
                 Act::Provenance(p) => self.show_provenance(&p),
                 Act::RunAgain(p) => {
                     match crate::provenance::find(&p).map(|d| crate::provenance::Provenance::read(&d)) {
@@ -754,6 +771,7 @@ impl State {
     fn layer_rows(&mut self, ui: &mut Ui, acts: &mut Vec<Act>) {
         let order = self.draw_order();
         self.contents.drawing.clear();
+        self.contents.step_areas.clear();
         if !order.is_empty() {
             // the canvas stays at the bottom
             let lo = usize::from(matches!(order.first(), Some(Item::Series(i)) if self.layers[*i].canvas));
@@ -1002,6 +1020,8 @@ impl State {
         let closes = self.contents.closes_selection(me);
         let extra = self.row_extras(me);
         let indent = self.contents.indent;
+        let splittable = crate::split::splittable(&info);
+        let mut row_rect = Rect::NOTHING;
         let l = &mut self.layers[i];
         ui.push_id(("series", i), |ui| {
             let r = Row {
@@ -1016,6 +1036,7 @@ impl State {
                 fold: (info.t() > 1).then_some(open),
             };
             let out = row(ui, Some(&mut l.visible), &r);
+            row_rect = out.row.rect;
             if out.visible_changed {
                 self.map.dirty = true;
             }
@@ -1079,6 +1100,20 @@ impl State {
                 move_menu(ui, place, acts);
                 group_items(ui, me, &extra, acts);
                 if ui
+                    .add_enabled(splittable, egui::Button::new("Split into layers"))
+                    .on_hover_text(format!(
+                        "Each {} a layer of its own, with this one's colours, in a group named after it (to show \
+                         several at once); this layer closed once they are open.\nOne alone: unfold the layer and \
+                         drag a {} out of it.",
+                        if info.stack || info.spectral { "band" } else { "date" },
+                        if info.stack || info.spectral { "band" } else { "date" },
+                    ))
+                    .clicked()
+                {
+                    acts.push(Act::Split(info.id));
+                    ui.close();
+                }
+                if ui
                     .add_enabled(!info.multidim && !info.remote, egui::Button::new("Polygonize..."))
                     .on_hover_text("The date shown's patches (a class or change map) as polygons in a GeoPackage")
                     .clicked()
@@ -1106,14 +1141,22 @@ impl State {
         });
         // unfolded: its dates (a stack's bands)
         if open && info.t() > 1 {
-            self.step_rows(ui, i, &info, is_active, acts);
+            row_rect = row_rect.union(self.step_rows(ui, i, &info, is_active, acts));
         }
+        self.contents.step_areas.push((info.id, row_rect));
     }
 
     /// An unfolded series' dates, or a stack's bands, a row each: the map shows one at a time, the one whose eye is
     /// open (a click on the row or its eye shows it, the eye of the one shown hides the layer); its menu exports it
-    /// alone or opens it as a layer of its own.
-    fn step_rows(&mut self, ui: &mut Ui, i: usize, info: &janus_cube::CubeInfo, is_active: bool, acts: &mut Vec<Act>) {
+    /// alone or opens it as a layer of its own, and a date dragged out leaves the series. Where they are drawn.
+    fn step_rows(
+        &mut self,
+        ui: &mut Ui,
+        i: usize,
+        info: &janus_cube::CubeInfo,
+        is_active: bool,
+        acts: &mut Vec<Act>,
+    ) -> Rect {
         let d = if is_active { &self.display } else { &self.layers[i].disp };
         let (t_now, cmap) = (d.t, d.cmap[janus_gpu::Mode::Value as usize]);
         let layer_visible = self.layers[i].visible;
@@ -1130,6 +1173,7 @@ impl State {
                         continue;
                     }
                     let can_open = step_input(info, t).is_some();
+                    let detachable = can_open && crate::split::inputs_without(info, t).is_some();
                     let mut shown = layer_visible && t == t_now;
                     let r = Row {
                         name: &l.label,
@@ -1149,11 +1193,18 @@ impl State {
                         }
                         let resp = out.row.on_hover_text(format!(
                             "{} {} of {}: {}\nClick, or its eye: shown on the map (one {noun} at a time).\nIts menu: \
-                             export it alone, or open it as a layer of its own.",
+                             export it alone, or open it as a layer of its own.{}",
                             if info.stack || info.spectral { "Band" } else { "Date" },
                             t + 1,
                             info.t(),
-                            l.label
+                            l.label,
+                            if detachable {
+                                format!(
+                                    "\nDrag it out of the series: a layer of its own, the series without this {noun}."
+                                )
+                            } else {
+                                String::new()
+                            }
                         ));
                         if resp.clicked() && !(is_active && t == t_now && layer_visible) {
                             acts.push(Act::ShowStep(i, t));
@@ -1182,9 +1233,51 @@ impl State {
                         };
                         resp.context_menu(&mut menu);
                         egui::Popup::menu(&out.more).show(&mut menu);
+                        // dragged out of the series: it leaves it (contents_ui sees where it is let go)
+                        if detachable && resp.drag_started() {
+                            resp.dnd_set_drag_payload(DraggedStep { id: info.id, t, label: l.label.clone() });
+                        }
                     });
                 }
-            });
+            })
+            .inner_rect
+    }
+
+    /// A series' date being dragged: what letting it go does, by the pointer; let go outside the series' rows, it
+    /// leaves the series (anywhere else: the list, the map), Escape or let go on them, nothing.
+    fn drag_step_out(&mut self, ctx: &egui::Context, acts: &mut Vec<Act>) {
+        let Some(p) = egui::DragAndDrop::payload::<DraggedStep>(ctx) else { return };
+        let Some(at) = ctx.pointer_latest_pos() else { return };
+        let inside = self.contents.step_areas.iter().any(|(id, r)| *id == p.id && r.contains(at));
+        if ctx.input(|i| i.pointer.any_released()) {
+            egui::DragAndDrop::clear_payload(ctx);
+            if !inside {
+                acts.push(Act::Detach(p.id, p.t));
+            }
+            return;
+        }
+        let text = if inside {
+            format!("{}: drag it out of the series", p.label)
+        } else {
+            format!("Let go: {} a layer of its own", p.label)
+        };
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("detach a date")));
+        let style = ctx.global_style();
+        let galley = painter.layout_no_wrap(
+            text,
+            egui::TextStyle::Body.resolve(&style),
+            if inside { style.visuals.weak_text_color() } else { style.visuals.strong_text_color() },
+        );
+        let r = Rect::from_min_size(at + vec2(14.0, 10.0), galley.size() + vec2(12.0, 6.0));
+        painter.rect(
+            r,
+            4.0,
+            style.visuals.window_fill,
+            Stroke::new(1.0, if inside { style.visuals.window_stroke.color } else { theme::accent() }),
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(r.min + vec2(6.0, 3.0), galley, Color32::WHITE);
+        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
     }
 
     /// Layer i shown at date (band) t: made active and visible.
@@ -1636,22 +1729,6 @@ fn move_menu(ui: &mut Ui, place: (usize, usize, usize), acts: &mut Vec<Act>) {
             }
         }
     });
-}
-
-/// What opens date (band) t of a series alone: its file as the series reads it, or a band of a file of several
-/// dates through GDAL's vrt:// connection (None: a NetCDF variable's level, or embeddings' dimensions).
-fn step_input(info: &janus_cube::CubeInfo, t: usize) -> Option<(String, janus_cube::BandSelection)> {
-    let l = info.layers.get(t)?;
-    let one_file = info.layers.iter().all(|x| x.path == l.path);
-    if info.multidim || l.band_base != 0 || (one_file && info.bands_per_date > 1) {
-        return None;
-    }
-    if one_file {
-        let path = l.path.replace('\\', "/");
-        Some((format!("vrt://{path}?bands={}", l.band), janus_cube::BandSelection::default()))
-    } else {
-        Some((l.path.clone(), info.sel))
-    }
 }
 
 #[cfg(test)]

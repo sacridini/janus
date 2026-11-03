@@ -154,7 +154,7 @@
         <li><b>Lay out</b>UMAP: a plane where those neighbours stay close. The plane settles as it runs.</li>
         <li><b>Place</b>Every pixel of the region, not only the sample, placed with its nearest sampled pixel, so a group's share is of the whole region.</li>
       </ol>
-      <p>Drag around points to make a group (three at most, A, B and C), or press <span class="ui">Find groups</span> for three found by k-means. The pointer over the plane lights the pixels like the ones under it on the map; over the map, it rings its pixel in the plane; a click on a point pins its pixel. <span class="ui">Colour</span> shows the points' density, their group, or their value at the date, mean, amplitude or trend. <span class="ui">Shapes</span> compares the curves' form whatever their level (each series standardized): the same crop calendar on poorer and richer soils lands together.</p>
+      <p>Drag around points to make a group (A, B, C...), or press <span class="ui">Find groups</span> to have them found by k-means. <span class="ui">Groups</span>, next to it, is how many Find groups finds and the most you can draw: 3 at first, from 2 to 10. The pointer over the plane lights the pixels like the ones under it on the map; over the map, it rings its pixel in the plane; a click on a point pins its pixel. <span class="ui">Colour</span> shows the points' density, their group, or their value at the date, mean, amplitude or trend. <span class="ui">Shapes</span> compares the curves' form whatever their level (each series standardized): the same crop calendar on poorer and richer soils lands together.</p>
       <div class="note">
         <p class="h">Reading the plane</p>
         <p>UMAP keeps neighbours together, not distances: two clusters far apart are different, but how far apart says little. Read the clusters, not the gaps between them, and check a cluster on the map and in its curve before naming it.</p>
@@ -184,8 +184,8 @@
 <pre class="code"><code>janus SERIES --mode similarity[,shape][,pin|roi]
 janus SERIES --analysis cycles[,trend]
 janus SERIES --analysis bands[,common|zscore]
-janus SERIES --analysis atlas[,shapes][,groups][,density|value|mean|amplitude|trend]</code></pre>
-      <p><code>shape</code> compares the curves' shape rather than their values, <code>pin</code> and <code>roi</code> with the first pin or the ROI's mean rather than the cursor; <code>trend</code> keeps the trend in the cycles; <code>common</code> and <code>zscore</code> are the bands' scales; <code>groups</code> finds three groups once the atlas is laid out. With <code>--screenshot</code>, Janus waits for the Atlas to settle before taking it.</p>
+janus SERIES --analysis atlas[,shapes][,groups[=N]][,density|value|mean|amplitude|trend]</code></pre>
+      <p><code>shape</code> compares the curves' shape rather than their values, <code>pin</code> and <code>roi</code> with the first pin or the ROI's mean rather than the cursor; <code>trend</code> keeps the trend in the cycles; <code>common</code> and <code>zscore</code> are the bands' scales; <code>groups</code> finds three groups once the atlas is laid out, <code>groups=N</code> N of them. With <code>--screenshot</code>, Janus waits for the Atlas to settle before taking it.</p>
     </section>
 
     <section id="refs">

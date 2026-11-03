@@ -64,7 +64,9 @@
   difference mode, the difference shown on the map (the Mann-Kendall test, with
   autocorrelation corrections, is a Zeit tool).
 - **Pixel values**: when the active layer is not a series shown (hidden, a single
-  image, a stack of bands), the chart's panel becomes *Pixel values*: a row per
+  image, a stack of bands), or a run's map is shown over it (a class map just
+  made over its series: the view follows the layer on top; a tool's preview
+  aside), the chart's panel becomes *Pixel values*: a row per
   layer the map shows (the maps of the runs, single images, the other series at
   their dates), top of the drawing order first, with its value under the cursor
   and at each pin (a class by its name, a year as a year; `*` while a series'
@@ -228,7 +230,11 @@
   it. Whatever is opened joins the map as a new layer, as in a GIS (*File → Close
   all* starts again); dropping several files with **Shift** held makes each one a
   layer of its own (*File → Open files as separate layers...* too), without it
-  they make one series.
+  they make one series. In **Layers**, a series unfolded lists its dates: one
+  dragged out of it becomes a layer of its own and the series is opened again
+  without it; the series' menu *Split into layers* makes every date a layer of
+  its own, in a group named after the series, to show several at once. Either
+  way the new layers take the series' colours (its ranges and class names too).
 - **Detachable panels**: drag any panel out of the main window, e.g. the map on
   a second monitor and the charts on the first.
 - **Settings** (File → Settings, `Ctrl+,`): a colour theme (dark, light,
@@ -448,7 +454,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Series as text | **Copy CSV** in the Time series and Transect panels |
 | Zeit tools | **Tools** menu, grouped by the question asked in the order of a workflow (*Data preparation*: Tmask, Smoothing, Regularize, Speckle filter, Harmonize sensors, Reproject; *Spectral analysis*: NDFI, spectral unmixing; *Temporal dynamics*: phenology, Mann-Kendall, AR(1) trend; *Change detection*; *Spatial pattern analysis*: emerging hot spots, SNIC, texture; *Classification & pattern recognition*: TWDTW, SOM, k-means, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
 | Zeit logs | **Tools → Log** (or **Log** next to a task): the log of each raster run, followed live (what ran, its progress, outputs, the end or the error); Copy, open the file or its folder |
-| Tool results | layers of their own in the **Layers** panel (over the rasters): show/hide, order, groups, colormap, range, opacity; their values at the cursor and pins, histogram and statistics in **Pixel values** (hide the series) |
+| Tool results | layers of their own in the **Layers** panel (over the rasters): show/hide, order, groups, colormap, range, opacity, a class map's class names (edited in its legend); their values at the cursor and pins, histogram and statistics in **Pixel values** (in the chart's place while a map is shown over its series) |
 | Embeddings | **View → Embeddings**: principal components as RGB (of every year, or *local* to the ROI), similarity to the cursor, a pin or the ROI, change between years; see [Embeddings](#embeddings) |
 | Add embeddings of the visible area | **Layers** panel → Embeddings (above the basemap): AlphaEarth or TESSERA, years, cell size, visible area or ROI, then **Add embeddings**; progress on the map, the layer comes on top when it is ready |
 
