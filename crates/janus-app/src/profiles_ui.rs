@@ -39,7 +39,9 @@ pub struct ProfilesUi {
 impl State {
     pub(crate) fn open_profiles(&mut self, vector: u32) {
         if self.profiles.vector != Some(vector) {
-            (self.profiles.fields, self.profiles.name) = (Vec::new(), String::new());
+            // the first field (often the line's name or code) ticked
+            let first = self.vectors.iter().find(|v| v.id == vector).is_some_and(|v| !v.data.fields.is_empty());
+            (self.profiles.fields, self.profiles.name) = (if first { vec![0] } else { Vec::new() }, String::new());
             self.profiles.all_dates = true;
         }
         self.profiles.vector = Some(vector);

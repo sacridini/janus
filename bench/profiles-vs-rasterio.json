@@ -1,0 +1,78 @@
+{
+  "grid": "4096 x 4096 x 12, 30 m, UTM 23S, Float32 tiled DEFLATE",
+  "profiles": {
+    "lines": 200,
+    "dates": 12,
+    "threads": 3,
+    "janus": {
+      "seconds": 0.7155489,
+      "write_seconds": 0.7684745,
+      "runs": [
+        0.7172552,
+        0.7155489,
+        0.7495668
+      ],
+      "samples": 235175,
+      "pixels_read": 222266,
+      "windows_a_date": 890
+    },
+    "python": {
+      "samples_seconds": 0.2558221999970556,
+      "read_numpy_seconds": 3.351913800001057,
+      "read_rasterio_sample_seconds": 70.6177448999988,
+      "write_seconds": 9.85219330000109,
+      "samples": 235175,
+      "rasterio_sample_equals_numpy": true
+    },
+    "speedup": {
+      "vs_numpy": 5.041913976805935,
+      "vs_rasterio_sample": 99.04783181134908,
+      "csv": 12.820455721043562
+    },
+    "agreement": {
+      "rows_janus": 2822100,
+      "rows_python": 2822100,
+      "only_janus": 0,
+      "only_python": 0,
+      "same_pixel": 2822100,
+      "same_value": 2822100,
+      "compared": 2822100,
+      "max_distance_diff_m": 5.0009584811050445e-06,
+      "max_xy_diff_m": 5.000270903110504e-06
+    }
+  },
+  "roi": {
+    "janus": {
+      "gpkg_seconds": 0.0148673,
+      "geojson_seconds": 0.0039834,
+      "pixels": 5146615
+    },
+    "pixels": 5146615,
+    "roi.gpkg": {
+      "crs": "EPSG:32723",
+      "type": "Polygon",
+      "vertices": 600,
+      "holes": 1,
+      "fields": {
+        "name": "ROI",
+        "pixels": "5146615"
+      },
+      "pixels_rasterio": 5146615,
+      "differ": 0,
+      "geopandas_write_seconds": 0.03280780000204686
+    },
+    "roi.geojson": {
+      "crs": "EPSG:32723",
+      "type": "Polygon",
+      "vertices": 600,
+      "holes": 1,
+      "fields": {
+        "name": "ROI",
+        "pixels": "5146615"
+      },
+      "pixels_rasterio": 5146615,
+      "differ": 0,
+      "geopandas_write_seconds": 0.0030340000012074597
+    }
+  }
+}

@@ -427,7 +427,11 @@ impl State {
             let n: usize = self.series.roi_poly.iter().map(|r| r.len() / 2).sum();
             format!("a polygon of {n} vertices")
         };
-        let crs = self.session.as_ref().map_or(String::new(), |s| s.info.crs_authority.clone());
+        // the CRS by its name and code ("WGS 84 EPSG:4326"), either alone if the other is missing
+        let crs = self
+            .session
+            .as_ref()
+            .map_or(String::new(), |s| format!("{} {}", s.info.crs_name, s.info.crs_authority).trim().to_string());
         let (mut go, mut cancel) = (false, false);
         let mut target = String::new();
         egui::Modal::new(egui::Id::new("save roi")).show(ctx, |ui| {

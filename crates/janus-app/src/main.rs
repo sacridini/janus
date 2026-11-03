@@ -224,7 +224,9 @@ Developer options:
                       checked), classification-forest (its settings, the maps of the series' runs beside it, a
                       --zeit-run's waited for), classification-twdtw (TWDTW on the pins, estimated), fields (Field delineation on the
                       whole image), fields-train (the model fine-tuned 2 epochs on the first vector layer's polygons in
-                      the ROI); NAME-run also runs it, the screenshot waiting for its result
+                      the ROI), profiles (Profiles of every line of the first vector layer), roi-save (Save ROI
+                      as vector), roi-edit (the ROI's vertices edited); NAME-run also runs it, the screenshot
+                      waiting for its result
   --validation-tab N  a validation project (a .gpkg input) on tab N of its panel (0 Design, 1 Accuracy,
                       2 Maps, 3 Interpreters, 4 Report)
   --shots TOUR IN OUT  a website guide's screenshots (PNGs in OUT) in a window of 1680 x 1050: validation

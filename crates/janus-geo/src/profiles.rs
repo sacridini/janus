@@ -48,15 +48,18 @@ impl LineSamples {
 }
 
 /// The line through `pts` (the grid's pixels, two or more) sampled about once per pixel: n = its length in pixels,
-/// rounded up, plus one, at most `max_samples`, evenly spaced in distance. Distances in metres for an EPSG CRS
-/// (haversine on the mean sphere in degrees), map units for another CRS, else pixels. `clipped`: a straight line
+/// rounded up, plus one, at most `max_samples`, evenly spaced in distance. Distances in metres for an EPSG CRS or a
+/// geographic one (haversine on the mean sphere in degrees), map units for another CRS, else pixels. `clipped`: a straight line
 /// clipped to the grid, its ends kept on the grid. None: a line of no length.
 pub fn sample_line(info: &CubeInfo, pts: &[[f64; 2]], max_samples: usize, clipped: bool) -> Option<LineSamples> {
     if pts.len() < 2 {
         return None;
     }
     let auth = &info.crs_authority;
-    let degrees = auth.len() == 9 && auth.starts_with("EPSG:4");
+    // longitude and latitude: an EPSG:4xxx code, or a geographic CRS without a code (a VRT's WKT often has none)
+    let wkt = info.crs_wkt.trim_start();
+    let degrees = auth.len() == 9 && auth.starts_with("EPSG:4")
+        || auth.is_empty() && ["GEOGCS[", "GEOGCRS[", "GEODCRS["].iter().any(|k| wkt.starts_with(k));
     let georef = info.geo_transform.is_some();
     let mut s = LineSamples {
         unit: if !georef {
@@ -330,6 +333,13 @@ fn number(v: f64, digits: usize) -> String {
     if v.is_nan() { String::new() } else { format_g(v, digits) }
 }
 
+/// A value as the shortest text that reads back as the same f32 (nothing for NaN).
+fn value(out: &mut String, v: f32) {
+    if !v.is_nan() {
+        let _ = write!(out, "{v}");
+    }
+}
+
 impl Profiles {
     /// The distance's column: "distance_m", "distance_px"...
     fn distance_name(&self) -> String {
@@ -377,15 +387,27 @@ impl Profiles {
     /// by date.
     pub fn long_csv(&self) -> String {
         let mut out = self.head() + ",date,value\n";
-        let mut cells = String::new();
+        let labels: Vec<String> = self.labels.iter().map(|l| csv_field(l)).collect();
         for (li, l) in self.lines.iter().enumerate() {
             let n = l.s.n;
-            for (k, label) in self.labels.iter().enumerate() {
-                let label = csv_field(label);
-                for i in (0..n).filter(|&i| l.s.px[i] >= 0) {
-                    cells.clear();
-                    self.sample_cells(l, i, &mut cells);
-                    let _ = writeln!(out, "{cells},{label},{}", number(f64::from(self.values[li][k * n + i]), 7));
+            // each sample's cells, written once for every date
+            let on: Vec<usize> = (0..n).filter(|&i| l.s.px[i] >= 0).collect();
+            let cells: Vec<String> = on
+                .iter()
+                .map(|&i| {
+                    let mut c = String::new();
+                    self.sample_cells(l, i, &mut c);
+                    c
+                })
+                .collect();
+            for (k, label) in labels.iter().enumerate() {
+                for (&i, c) in on.iter().zip(&cells) {
+                    out.push_str(c);
+                    out.push(',');
+                    out.push_str(label);
+                    out.push(',');
+                    value(&mut out, self.values[li][k * n + i]);
+                    out.push('\n');
                 }
             }
         }
@@ -406,7 +428,7 @@ impl Profiles {
                 self.sample_cells(l, i, &mut out);
                 for k in 0..self.labels.len() {
                     out.push(',');
-                    out.push_str(&number(f64::from(self.values[li][k * n + i]), 7));
+                    value(&mut out, self.values[li][k * n + i]);
                 }
                 out.push('\n');
             }
@@ -522,6 +544,33 @@ mod tests {
         // cancelled
         let c = AtomicBool::new(true);
         assert_eq!(profiles(v, &info, None, &opts, &|_| {}, &c).unwrap_err(), "cancelled");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn distances_in_the_crs_units() {
+        let d = std::env::temp_dir().join(format!("janus-geo-profiles-units-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&d);
+        let utm = series(&d, 20, 20, 1);
+        let line = [[0.5, 0.5], [10.5, 0.5]];
+        let unit = |auth: &str, wkt: &str, gt: Option<[f64; 6]>| {
+            let mut i = (*utm).clone();
+            (i.crs_authority, i.crs_wkt, i.geo_transform) = (auth.into(), wkt.into(), gt);
+            let s = sample_line(&i, &line, usize::MAX, false).unwrap();
+            (s.unit, s.length)
+        };
+        assert_eq!(unit("EPSG:32723", "PROJCS[...]", utm.geo_transform), ("m".into(), 300.0));
+        // degrees: on the sphere, with a code or (a VRT's WKT) without one
+        let deg = Some([-37.0, 0.001, 0.0, -10.0, 0.0, -0.001]);
+        let (u, l) = unit("EPSG:4326", "GEOGCS[\"WGS 84\"]", deg);
+        assert_eq!(u, "m");
+        assert!(
+            (l - 10.0 * 0.001 * std::f64::consts::PI / 180.0 * 6371008.8 * (10.0005f64).to_radians().cos()).abs()
+                < 0.01
+        );
+        assert_eq!(unit("", "GEOGCS[\"WGS 84\"]", deg), ("m".into(), l));
+        assert_eq!(unit("", "PROJCS[\"local\"]", utm.geo_transform), ("map units".into(), 300.0));
+        assert_eq!(unit("", "", None), ("px".into(), 10.0));
         let _ = std::fs::remove_dir_all(&d);
     }
 }
