@@ -2315,7 +2315,21 @@ impl State {
                 next(st, "D split into layers: a date each, in a group, every one shown");
                 None
             }
+            // blocks of the next phases, each ending by going to the next block: 240-249 the validation's
+            // transitions and model-assisted estimators, 250-258 the calculator's own reader
             237 => {
+                st.stage = 240;
+                None
+            }
+            240 => {
+                st.stage = 250;
+                None
+            }
+            250 => {
+                st.stage = 259;
+                None
+            }
+            259 => {
                 // the validation's folder (stages 170-179), its strata layer open until now
                 let _ = std::fs::remove_dir_all(&st.dir);
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
