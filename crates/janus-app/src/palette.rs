@@ -41,6 +41,8 @@ pub(crate) enum Cmd {
     Transect,
     ClearTransect,
     RoiPolygon,
+    EditRoi,
+    SaveRoi,
     ClearRoi,
     Analysis,
     Embeddings,
@@ -234,7 +236,10 @@ impl State {
         add(Cmd::Transect, "View", "Draw transect", "T", series.clone());
         add(Cmd::ClearTransect, "View", "Clear transect", "", need(self.transect.on, "there is no transect"));
         add(Cmd::RoiPolygon, "View", "Draw ROI polygon", "R", series.clone());
-        add(Cmd::ClearRoi, "View", "Clear ROI", "", need(self.series.roi_rect.is_some(), "there is no ROI"));
+        let roi = need(self.series.roi_rect.is_some(), "there is no ROI");
+        add(Cmd::EditRoi, "View", "Edit ROI vertices", "Shift+R", roi.clone());
+        add(Cmd::SaveRoi, "View", "Save ROI as vector...", "GeoPackage GeoJSON", roi.clone());
+        add(Cmd::ClearRoi, "View", "Clear ROI", "", roi);
         add(Cmd::Analysis, "View", "Analysis panel", "", series.clone());
         add(Cmd::Embeddings, "View", "Embeddings panel", "", None);
         add(Cmd::Interpretation, "View", "Interpretation panel", "", None);
@@ -612,6 +617,8 @@ impl State {
                     self.toggle_polygon();
                 }
             }
+            Cmd::EditRoi => self.set_roi_edit(true),
+            Cmd::SaveRoi => self.open_roi_save(),
             Cmd::ClearRoi => self.clear_roi(),
             Cmd::Analysis => {
                 self.analysis.show = !self.analysis.show;

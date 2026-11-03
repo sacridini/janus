@@ -20,6 +20,8 @@ mod fullres;
 mod interface;
 #[path = "ui_test_misc.rs"]
 mod misc;
+#[path = "ui_test_roi.rs"]
+mod roi;
 #[path = "ui_test_validation.rs"]
 mod validation;
 #[path = "ui_test_vectors.rs"]

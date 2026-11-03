@@ -578,6 +578,10 @@ pub struct State {
     pub warp: crate::warp_ui::WarpUi,
     pub raster: crate::rasterize_ui::RasterizeUi,
     pub zonal: crate::zonal_ui::ZonalUi,
+    /// the ROI's vertices edited, the ROI saved as a vector; a line layer's profiles (roi_edit.rs, profiles_ui.rs)
+    pub roi_edit: crate::roi_edit::RoiEdit,
+    pub roi_save: crate::roi_edit::RoiSaveUi,
+    pub profiles: crate::profiles_ui::ProfilesUi,
     pub build: crate::series_ui::BuildUi,
     pub save: crate::series_ui::SaveUi,
     pub speckle: crate::speckle_ui::SpeckleUi,
@@ -975,6 +979,9 @@ impl JanusApp {
                 warp: Default::default(),
                 raster: Default::default(),
                 zonal: Default::default(),
+                roi_edit: Default::default(),
+                roi_save: Default::default(),
+                profiles: Default::default(),
                 build: Default::default(),
                 save: Default::default(),
                 speckle: Default::default(),
@@ -1300,6 +1307,14 @@ impl State {
                         self.rasterize_run(ctx);
                     }
                 }
+                "profiles" if vector.is_some() => {
+                    self.open_profiles(vector.unwrap_or_default());
+                    if run {
+                        self.profiles_run(ctx);
+                    }
+                }
+                "roi-save" => self.open_roi_save(),
+                "roi-edit" => self.set_roi_edit(true),
                 "zonal" if vector.is_some() => {
                     self.open_zonal(vector.unwrap_or_default());
                     self.zonal.kind = self.zonal_guess();
@@ -2086,6 +2101,19 @@ impl State {
                 if ui.add_enabled(has, egui::Checkbox::new(&mut poly, "Draw ROI polygon (R)")).clicked() {
                     self.toggle_polygon();
                 }
+                let mut edit = self.roi_edit.on;
+                if ui
+                    .add_enabled(self.series.roi_rect.is_some(), egui::Checkbox::new(&mut edit, "Edit ROI vertices (Shift+R)"))
+                    .on_hover_text(
+                        "Drag a vertex; drag an edge's middle: a new vertex; right click or Delete on a vertex: remove                          it. Each change can be undone (Ctrl+Z).",
+                    )
+                    .clicked()
+                {
+                    self.set_roi_edit(edit);
+                }
+                if item(ui, "Save ROI as vector...", "", self.series.roi_rect.is_some()) {
+                    self.open_roi_save();
+                }
                 if item(ui, "Clear ROI", "", self.series.roi_rect.is_some()) {
                     self.clear_roi();
                 }
@@ -2366,6 +2394,7 @@ impl eframe::App for JanusApp {
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.shots_input(raw);
+        self.state.roi_edit_test_input(raw);
     }
 
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
@@ -2723,6 +2752,8 @@ impl eframe::App for JanusApp {
         self.state.warp_window(&ctx);
         self.state.rasterize_window(&ctx);
         self.state.zonal_window(&ctx);
+        self.state.profiles_window(&ctx);
+        self.state.roi_save_window(&ctx);
         self.state.series_windows(&ctx);
         self.state.apply_windows(&ctx);
         self.state.class_flows_window(&ctx);

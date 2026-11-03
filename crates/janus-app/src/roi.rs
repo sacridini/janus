@@ -184,6 +184,7 @@ impl State {
         if r {
             self.toggle_polygon();
         }
+        self.roi_edit_shortcuts(ctx);
         if !self.series.poly.on {
             return;
         }
@@ -200,6 +201,9 @@ impl State {
 
     pub(crate) fn toggle_polygon(&mut self) {
         let on = !self.series.poly.on;
+        if on {
+            self.set_roi_edit(false);
+        }
         self.series.poly = PolygonDraft { on, ..Default::default() };
     }
 
@@ -238,6 +242,7 @@ impl State {
                 }
             }
         }
+        self.draw_roi_edit_marks(painter, rect, at);
         let d = &sr.poly;
         if !d.on {
             return;

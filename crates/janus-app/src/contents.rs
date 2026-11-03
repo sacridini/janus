@@ -427,6 +427,7 @@ pub(crate) enum Act {
     Areas(u32),
     Rasterize(u32),
     Zonal(u32),
+    Profiles(u32),
     RemoveVector(usize),
     ExtractVector(u32),
     Interpret(u32),
@@ -579,6 +580,7 @@ impl State {
                 Act::Areas(id) => self.open_areas(Some(id)),
                 Act::Rasterize(id) => self.open_rasterize(id),
                 Act::Zonal(id) => self.open_zonal(id),
+                Act::Profiles(id) => self.open_profiles(id),
                 Act::SaveRun(k) => self.open_save_run(k),
                 Act::RemoveResult(k) => {
                     if k < self.zeit.results.len() {
@@ -977,6 +979,15 @@ impl State {
                     .clicked()
                 {
                     acts.push(Act::Zonal(id));
+                    ui.close();
+                }
+                if v.data.lines > 0
+                    && ui
+                        .add_enabled(has, egui::Button::new("Profiles of every line..."))
+                        .on_hover_text("Each line sampled along its length at every date of the active series (a CSV)")
+                        .clicked()
+                {
+                    acts.push(Act::Profiles(id));
                     ui.close();
                 }
                 if ui.add_enabled(!v.px.is_empty(), egui::Button::new("Zoom to it")).clicked() {

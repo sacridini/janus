@@ -5,6 +5,8 @@ pub mod basemap;
 pub mod ogc;
 pub mod ogc_mock;
 pub mod plane;
+pub mod polygon_file;
+pub mod profiles;
 pub mod reproject;
 pub mod vectors;
 

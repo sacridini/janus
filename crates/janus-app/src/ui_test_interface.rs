@@ -2396,10 +2396,7 @@ impl State {
             // vector, a polygon's vertices edited and the profiles of every line of a layer; 270-279 the features'
             // labels and layers too large to draw a vertex at a time; 280-289 OGC layers (WMS, WFS, OGC API);
             // 290-298 official alerts against a map of change
-            260 => {
-                st.stage = 270;
-                None
-            }
+            260..=269 => self.test_roi_profiles(st, t0, ctx),
             270 => {
                 st.stage = 280;
                 None

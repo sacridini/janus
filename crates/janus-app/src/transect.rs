@@ -150,90 +150,20 @@ impl State {
             }
             pts = vec![a, b];
         }
+        // the samples along it (janus_geo::profiles, as a vector layer's profiles take them)
+        let clipped = pts.len() == 2;
+        let Some(ls) = janus_geo::profiles::sample_line(&info, &pts, MAX_SAMPLES, clipped) else {
+            self.clear_transect();
+            return;
+        };
         let tr = &mut self.transect;
         tr.on = true;
         tr.cube = info.id;
-        // each segment's length: metres on the ellipsoid's mean sphere for geographic CRSs (EPSG:4xxx, degrees),
-        // map units otherwise (metres for an EPSG projected CRS), else pixels
-        let auth = &info.crs_authority;
-        let degrees = auth.len() == 9 && auth.starts_with("EPSG:4");
-        let georef = info.geo_transform.is_some();
-        tr.unit = if !georef {
-            "px"
-        } else if degrees || !auth.is_empty() {
-            "m"
-        } else {
-            "map units"
-        }
-        .to_string();
-        let segs = pts.len() - 1;
-        let len_px: Vec<f64> =
-            (0..segs).map(|k| (pts[k + 1][0] - pts[k][0]).hypot(pts[k + 1][1] - pts[k][1])).collect();
-        let total_px: f64 = len_px.iter().sum();
-        let len: Vec<f64> = (0..segs)
-            .map(|k| {
-                let g = georef
-                    .then(|| {
-                        info.pixel_to_geo(pts[k][0], pts[k][1]).zip(info.pixel_to_geo(pts[k + 1][0], pts[k + 1][1]))
-                    })
-                    .flatten();
-                match g {
-                    None => len_px[k],
-                    Some(((g0x, g0y), (g1x, g1y))) if degrees => {
-                        let (rad, r) = (std::f64::consts::PI / 180.0, 6371008.8);
-                        let (la1, la2) = (g0y * rad, g1y * rad);
-                        let (dla, dlo) = (la2 - la1, (g1x - g0x) * rad);
-                        let h = (dla / 2.0).sin().powi(2) + la1.cos() * la2.cos() * (dlo / 2.0).sin().powi(2);
-                        2.0 * r * h.sqrt().min(1.0).asin()
-                    }
-                    Some(((g0x, g0y), (g1x, g1y))) => (g1x - g0x).hypot(g1y - g0y),
-                }
-            })
-            .collect();
-        let dists = |l: &[f64]| -> Vec<f64> {
-            let mut v = vec![0.0];
-            for &x in l {
-                v.push(v.last().unwrap() + x);
-            }
-            v
-        };
-        tr.vdist = dists(&len);
-        tr.length = *tr.vdist.last().unwrap();
-        if tr.length.is_nan() || tr.length <= 0.0 {
-            // a degenerate line, or no georeferencing: pixels
-            tr.unit = "px".into();
-            tr.vdist = dists(&len_px);
-            tr.length = *tr.vdist.last().unwrap();
-        }
-        if tr.length.is_nan() || tr.length <= 0.0 {
-            self.clear_transect();
-            return;
-        }
-        // samples evenly spaced along the line (in distance), about one per pixel
-        let n = ((total_px.ceil() as usize) + 1).clamp(2, MAX_SAMPLES);
         let t_n = info.t();
-        (tr.n, tr.t_n) = (n, t_n);
-        (tr.px, tr.py, tr.at) = (vec![-1; n], vec![-1; n], vec![[0.0; 2]; n]);
-        let mut k = 0;
-        let mut inside = 0;
-        for i in 0..n {
-            let d = tr.length * i as f64 / (n - 1) as f64;
-            while k + 1 < segs && tr.vdist[k + 1] < d {
-                k += 1;
-            }
-            let seg = tr.vdist[k + 1] - tr.vdist[k];
-            let f = if seg > 0.0 { ((d - tr.vdist[k]) / seg).clamp(0.0, 1.0) } else { 0.0 };
-            let q = [pts[k][0] + (pts[k + 1][0] - pts[k][0]) * f, pts[k][1] + (pts[k + 1][1] - pts[k][1]) * f];
-            tr.at[i] = q;
-            let (x, y) = (q[0].floor() as i64, q[1].floor() as i64);
-            let (w, h) = (info.width as i64, info.height as i64);
-            // a straight line's ends may sit on the far edge (clipped): kept on the layer
-            let inn = segs == 1 || (x >= 0 && y >= 0 && x < w && y < h);
-            if inn {
-                (tr.px[i], tr.py[i]) = (x.clamp(0, w - 1), y.clamp(0, h - 1));
-                inside += 1;
-            }
-        }
+        let inside = ls.inside;
+        (tr.unit, tr.vdist, tr.length, tr.n, tr.t_n) = (ls.unit, ls.vdist, ls.length, ls.n, t_n);
+        (tr.px, tr.py, tr.at) = (ls.px, ls.py, ls.at);
+        let n = tr.n;
         tr.pts = pts;
         if inside == 0 {
             self.clear_transect();
