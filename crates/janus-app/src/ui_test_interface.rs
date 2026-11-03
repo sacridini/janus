@@ -2389,10 +2389,30 @@ impl State {
                 }
                 self.remove_layer(k, ctx);
                 next(st, "the calculator's result read by Janus: GDAL's values, bit for bit");
-                st.stage = 259;
+                st.stage = 260;
                 None
             }
-            259 => {
+            // blocks of the vector phases, each ending by going to the next block: 260-269 the ROI saved as a
+            // vector, a polygon's vertices edited and the profiles of every line of a layer; 270-279 the features'
+            // labels and layers too large to draw a vertex at a time; 280-289 OGC layers (WMS, WFS, OGC API);
+            // 290-298 official alerts against a map of change
+            260 => {
+                st.stage = 270;
+                None
+            }
+            270 => {
+                st.stage = 280;
+                None
+            }
+            280 => {
+                st.stage = 290;
+                None
+            }
+            290 => {
+                st.stage = 299;
+                None
+            }
+            299 => {
                 // the validation's folder (stages 170-179), its strata layer open until now
                 let _ = std::fs::remove_dir_all(&st.dir);
                 println!("OK ({:.1} s)", t0.elapsed().as_secs_f64());
