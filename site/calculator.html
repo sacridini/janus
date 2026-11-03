@@ -214,7 +214,7 @@ m &gt;= 0.7 = 3</code></pre>
 
     <section id="checked">
       <h2><span class="n">10</span>Checked against the originals</h2>
-      <p>The calculator was run against the Python libraries it stands in for, on the same files, comparing the values and the time each took (<code>tools/bench_calc_vs_originals.py</code>; the numbers in <code>bench/calc-vs-originals.json</code>). It was run on a 20-thread laptop, so the times move by about a tenth from one run to the next.</p>
+      <p>The calculator was run against the Python libraries it stands in for, on the same files, comparing the values and the time each took (<code>tools/bench_calc_vs_originals.py</code>; the numbers in <code>bench/calc-vs-originals.json</code>). It was run on a 20-thread laptop held to three of its threads (Janus's reads and NumPy's alike), so the times move by about a tenth from one run to the next.</p>
       <dl class="terms">
         <dt>The indices, against spyndex 0.12</dt><dd>spyndex computes the same Awesome Spectral Indices catalogue with NumPy. All 184 indices that both can compute from six bands (two more need a second NIR band that spyndex does not default) were run over 2048 × 2048 random reflectances. Janus matched spyndex within 3 × 10⁻⁷ relative to its value (MSAVI the farthest, the rounding of single precision) and had no data on the same pixels. Together they took 3.7 s in Janus on one thread against 6.6 s in spyndex.</dd>
         <dt>The reductions, against xarray 2025.12</dt><dd>A series of 48 monthly dates of 1024 × 1024 pixels with a fifth of every date clouded (NaN). xarray read the files with rasterio, Janus through the result's VRT as a GeoTIFF translation reads it; the times include the reading.</dd>
@@ -223,13 +223,13 @@ m &gt;= 0.7 = 3</code></pre>
         <table class="tbl">
           <thead><tr><th>Janus</th><th>In xarray</th><th class="num">xarray</th><th class="num">Janus</th><th class="num">Faster</th><th class="num">Largest difference</th></tr></thead>
           <tbody>
-            <tr><td><code>max(s)</code></td><td><code>max("time")</code></td><td class="num">388 ms</td><td class="num">270 ms</td><td class="num">1.4×</td><td class="num">0</td></tr>
-            <tr><td><code>mean(s)</code></td><td><code>mean("time")</code></td><td class="num">806 ms</td><td class="num">188 ms</td><td class="num">4.3×</td><td class="num">2.4 × 10⁻⁷</td></tr>
-            <tr><td><code>median(s)</code></td><td><code>median("time")</code></td><td class="num">4609 ms</td><td class="num">489 ms</td><td class="num">9.4×</td><td class="num">0</td></tr>
-            <tr><td><code>std(s)</code></td><td><code>std("time")</code></td><td class="num">1169 ms</td><td class="num">449 ms</td><td class="num">2.6×</td><td class="num">6 × 10⁻⁸</td></tr>
-            <tr><td><code>count(s &gt; 0.5)</code></td><td><code>(da &gt; 0.5).sum("time")</code></td><td class="num">431 ms</td><td class="num">473 ms</td><td class="num">0.9×</td><td class="num">0</td></tr>
-            <tr><td><code>percentile(s, 90)</code></td><td><code>quantile(0.9, "time")</code></td><td class="num">103.8 s</td><td class="num">755 ms</td><td class="num">137×</td><td class="num">3 × 10⁻⁸</td></tr>
-            <tr><td><code>s - mean(s)</code>, the last date</td><td><code>(da - da.mean("time"))</code></td><td class="num">874 ms</td><td class="num">293 ms</td><td class="num">3.0×</td><td class="num">2.4 × 10⁻⁷</td></tr>
+            <tr><td><code>max(s)</code></td><td><code>max("time")</code></td><td class="num">183 ms</td><td class="num">63 ms</td><td class="num">2.9×</td><td class="num">0</td></tr>
+            <tr><td><code>mean(s)</code></td><td><code>mean("time")</code></td><td class="num">445 ms</td><td class="num">57 ms</td><td class="num">7.8×</td><td class="num">2.4 × 10⁻⁷</td></tr>
+            <tr><td><code>median(s)</code></td><td><code>median("time")</code></td><td class="num">2135 ms</td><td class="num">185 ms</td><td class="num">11.6×</td><td class="num">0</td></tr>
+            <tr><td><code>std(s)</code></td><td><code>std("time")</code></td><td class="num">717 ms</td><td class="num">71 ms</td><td class="num">10.1×</td><td class="num">6 × 10⁻⁸</td></tr>
+            <tr><td><code>count(s &gt; 0.5)</code></td><td><code>(da &gt; 0.5).sum("time")</code></td><td class="num">244 ms</td><td class="num">85 ms</td><td class="num">2.9×</td><td class="num">0</td></tr>
+            <tr><td><code>percentile(s, 90)</code></td><td><code>quantile(0.9, "time")</code></td><td class="num">29.8 s</td><td class="num">176 ms</td><td class="num">169×</td><td class="num">3 × 10⁻⁸</td></tr>
+            <tr><td><code>s - mean(s)</code>, the last date</td><td><code>(da - da.mean("time"))</code></td><td class="num">511 ms</td><td class="num">54 ms</td><td class="num">9.5×</td><td class="num">2.4 × 10⁻⁷</td></tr>
           </tbody>
         </table>
       </div>
@@ -240,19 +240,19 @@ m &gt;= 0.7 = 3</code></pre>
         <table class="tbl">
           <thead><tr><th>Janus</th><th>In xarray, pandas</th><th class="num">xarray</th><th class="num">Janus</th><th class="num">Faster</th><th class="num">Largest difference</th></tr></thead>
           <tbody>
-            <tr><td><code>max(s) by year</code></td><td><code>groupby("time.year").max()</code></td><td class="num">180 ms</td><td class="num">158 ms</td><td class="num">1.1×</td><td class="num">0</td></tr>
-            <tr><td><code>mean(s) by month</code></td><td><code>resample(time="MS").mean()</code></td><td class="num">310 ms</td><td class="num">336 ms</td><td class="num">0.9×</td><td class="num">0</td></tr>
-            <tr><td><code>mean(s, 90d)</code></td><td>pandas <code>rolling("90D").mean()</code></td><td class="num">2839 ms</td><td class="num">1002 ms</td><td class="num">2.8×</td><td class="num">6 × 10⁻⁸</td></tr>
-            <tr><td><code>argmax(s)</code></td><td><code>idxmax("time")</code></td><td class="num">316 ms</td><td class="num">198 ms</td><td class="num">1.6×</td><td class="num">6 × 10⁻⁵ years</td></tr>
-            <tr><td><code>anomaly(s, base=2020..2021, by=month)</code></td><td>a <code>groupby("time.month")</code> climatology</td><td class="num">502 ms</td><td class="num">928 ms</td><td class="num">0.5×</td><td class="num">4 × 10⁻⁴</td></tr>
-            <tr><td><code>median(s[2021-06 .. 2021-09])</code></td><td><code>sel(time=slice(...)).median()</code></td><td class="num">205 ms</td><td class="num">34 ms</td><td class="num">6.1×</td><td class="num">0</td></tr>
-            <tr><td><code>s - mean(s)</code>, every date</td><td><code>da - da.mean("time")</code></td><td class="num">261 ms</td><td class="num">608 ms</td><td class="num">0.4×</td><td class="num">2.4 × 10⁻⁷</td></tr>
+            <tr><td><code>max(s) by year</code></td><td><code>groupby("time.year").max()</code></td><td class="num">171 ms</td><td class="num">46 ms</td><td class="num">3.7×</td><td class="num">0</td></tr>
+            <tr><td><code>mean(s) by month</code></td><td><code>resample(time="MS").mean()</code></td><td class="num">299 ms</td><td class="num">132 ms</td><td class="num">2.3×</td><td class="num">0</td></tr>
+            <tr><td><code>mean(s, 90d)</code></td><td>pandas <code>rolling("90D").mean()</code></td><td class="num">2761 ms</td><td class="num">294 ms</td><td class="num">9.4×</td><td class="num">6 × 10⁻⁸</td></tr>
+            <tr><td><code>argmax(s)</code></td><td><code>idxmax("time")</code></td><td class="num">298 ms</td><td class="num">59 ms</td><td class="num">5.1×</td><td class="num">6 × 10⁻⁵ years</td></tr>
+            <tr><td><code>anomaly(s, base=2020..2021, by=month)</code></td><td>a <code>groupby("time.month")</code> climatology</td><td class="num">479 ms</td><td class="num">387 ms</td><td class="num">1.2×</td><td class="num">4 × 10⁻⁴</td></tr>
+            <tr><td><code>median(s[2021-06 .. 2021-09])</code></td><td><code>sel(time=slice(...)).median()</code></td><td class="num">198 ms</td><td class="num">15 ms</td><td class="num">13.4×</td><td class="num">0</td></tr>
+            <tr><td><code>s - mean(s)</code>, every date</td><td><code>da - da.mean("time")</code></td><td class="num">256 ms</td><td class="num">185 ms</td><td class="num">1.4×</td><td class="num">2.4 × 10⁻⁷</td></tr>
           </tbody>
         </table>
       </div>
-      <p>The dates in years differ by single precision (2021.5 is kept to about 10⁻⁴ of a year), the anomaly's z-scores likewise; where a month's base had no deviation xarray gives an infinity and Janus no data, and those pixels were left out. xarray holds the whole series in memory and subtracts it once; Janus writes and reads each of the 64 dates as files, so a series returned whole is slower, a reduction faster.</p>
-      <p>Every result had no data on the same pixels as xarray's. A count is a sum of comparisons, cheap for both; it is as fast as reading the 48 files, which is the same work on each side. xarray's quantile with NaNs sorts the values of every pixel one by one; Janus selects the rank in place.</p>
-      <p>On the map, an expression costs little over a band. Reading the overview of 24 dates of 2048 × 2048 pixels took 29 ms for a band, 65 ms for NDVI as a normalized difference, 76 ms for NDVI written as an expression, and 276 ms for EVI, whose three bands are read at every date. On the five years of Sentinel-2 of this guide, the count of section 06, <code>count(ndvi &lt; 0.4)</code> over its 107 dates, is on the map in 2 s; a pin's value at the 107 dates takes under half a second.</p>
+      <p>The dates in years differ by single precision (2021.5 is kept to about 10⁻⁴ of a year), the anomaly's z-scores likewise; where a month's base had no deviation xarray gives an infinity and Janus no data, and those pixels were left out. xarray holds the whole series in memory and subtracts it once; Janus writes and reads each of the 64 dates as files, so a series returned whole gains least, a reduction most.</p>
+      <p>Every result had no data on the same pixels as xarray's. A count is a sum of comparisons, cheap for both; its time is mostly reading the 48 files, which Janus does on its threads, each block of a file read once. xarray's quantile with NaNs sorts the values of every pixel one by one; Janus selects the rank in place.</p>
+      <p>On the map, an expression costs little over a band. Reading the overview of 24 dates of 2048 × 2048 pixels took 28 ms for a band, 66 ms for NDVI as a normalized difference, 81 ms for NDVI written as an expression, and 122 ms for EVI, whose three bands are read at every date. On the five years of Sentinel-2 of this guide, a count over its 107 dates like section 06's (<code>count(nd(N, R) &gt; 0.5)</code>) is on the map in 0.8 s on three threads, 2.6 s when GDAL's VRT reads it; a pin's value at the 107 dates takes 0.1 s, and the median written as a cloud-optimized GeoTIFF 1.1 s (3.7 s). Janus reads its VRTs itself: each date's file straight, each block of a file by one thread, the values those of GDAL's VRT bit for bit; GDAL still reads what Janus does not cover (a file on the network, another kind of VRT), and the VRTs stay files GDAL and QGIS open.</p>
     </section>
 
     <section id="refs">
