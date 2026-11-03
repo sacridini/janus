@@ -1051,5 +1051,8 @@ pub(crate) fn progress_row<R>(ui: &mut Ui, bar: egui::ProgressBar, buttons: impl
 /// A long text without spaces (a path) on one line, cut with "..." to the room it has (its whole on hover):
 /// it would not wrap, and would widen its window to its own length.
 pub(crate) fn path_label(ui: &mut Ui, text: &str) -> egui::Response {
-    ui.add(egui::Label::new(egui::RichText::new(text).weak()).truncate()).on_hover_text(text)
+    // whole on hover, cut or not (egui's own tooltip of a cut label left out: it would show it twice)
+    crate::layout_audit::cut_on_purpose(text);
+    ui.add(egui::Label::new(egui::RichText::new(text).weak()).truncate().show_tooltip_when_elided(false))
+        .on_hover_text(text)
 }

@@ -288,7 +288,9 @@ impl State {
         let b = &mut self.bands;
         let src = sources.iter().position(|s| s.0 == b.source).unwrap_or(0);
         let mut copy = false;
-        ui.horizontal(|ui| {
+        // wrapped at a large font or in a narrow panel, each widget moved down whole
+        ui.horizontal_wrapped(|ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             egui::ComboBox::from_id_salt("bands source")
                 .width(ui.text_style_height(&egui::TextStyle::Body) * 13.0)
                 .selected_text(&sources[src].1)
@@ -385,7 +387,10 @@ impl State {
         let rows = g.bands.len();
         let names: Vec<String> = g.bands.iter().map(|&b| band_name(info, b)).collect();
         let weak = ui.visuals().weak_text_color();
-        let scale_w = ui.text_style_height(&egui::TextStyle::Body) * 6.0;
+        // the colour scale's room (its widest labels: "band's high", "band's low") and the gap before it
+        let scale_w = (crate::analysis::colour_scale_width(ui, "band's high", "band's low")
+            + ui.spacing().item_spacing.x)
+            .max(ui.text_style_height(&egui::TextStyle::Body) * 6.0);
         let size = vec2((ui.available_width() - scale_w).max(120.0), ui.available_height().max(80.0));
         ui.horizontal_top(|ui| {
             let label_names = names.clone();

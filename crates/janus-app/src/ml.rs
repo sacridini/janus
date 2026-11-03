@@ -681,7 +681,8 @@ impl State {
         self.samples_summary_ui(ui, &counts);
         let screen = ui.ctx().content_rect().height();
         let (table_h, sig_h) = ((screen * 0.3).clamp(140.0, 420.0), (screen * 0.17).clamp(100.0, 190.0));
-        if ui.available_width() >= 640.0 {
+        // two columns when each holds the samples' table (its columns, 400 points at the default font, grow with it)
+        if ui.available_width() >= (2.0 * 400.0 * crate::fit::scale_of(ui.ctx())).max(640.0) {
             ui.columns(2, |c| {
                 crate::panels::section(&mut c[0], "Classes");
                 self.classes_table_ui(&mut c[0], &counts);

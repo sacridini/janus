@@ -938,6 +938,9 @@ impl State {
             // classes are codes: no anomaly, trend or map range of them
             const FOR_CLASSES: &str = "Not for a categorical layer: its values are class codes (Display > \
                                        Categorical). Its classes over time: Classes over time...";
+            // each box disabled on its own, on the next row when this one has no room for it (one group of them
+            // ran past the panel: a wrapping row never moves a group down)
+            crate::fit::wrap_before(ui, crate::fit::scaled(ui, 160.0));
             ui.add_enabled_ui(!categorical, |ui| {
             ComboBox::from_id_salt("values")
                 .width(crate::fit::scaled(ui, 160.0))
@@ -957,7 +960,10 @@ impl State {
                      series hides in its noise",
                 )
                 .on_disabled_hover_text(FOR_CLASSES);
+            });
             const TRENDS: [&str; 3] = ["No trend", "OLS trend", "Sen trend"];
+            crate::fit::wrap_before(ui, crate::fit::scaled(ui, 110.0));
+            ui.add_enabled_ui(!categorical, |ui| {
             ComboBox::from_id_salt("trend")
                 .width(crate::fit::scaled(ui, 110.0))
                 .selected_text(TRENDS[o.trend])
@@ -972,10 +978,10 @@ impl State {
                      median of pairwise slopes, robust to outliers",
                 )
                 .on_disabled_hover_text(FOR_CLASSES);
-            ui.add_enabled(o.values == 0, egui::Checkbox::new(&mut o.y_from_map, "Y = map range"))
+            });
+            ui.add_enabled(!categorical && o.values == 0, egui::Checkbox::new(&mut o.y_from_map, "Y = map range"))
                 .on_hover_text("Locks the Y axis to the map's color range (compare without the axis jumping)")
                 .on_disabled_hover_text(FOR_CLASSES);
-            });
             if categorical
                 && ui
                     .button("Classes over time...")
@@ -994,6 +1000,7 @@ impl State {
             );
             if n_layers > 1 {
                 const LAYERS: [&str; 2] = ["Active layer", "All visible layers"];
+                crate::fit::wrap_before(ui, crate::fit::scaled(ui, 140.0));
                 ComboBox::from_id_salt("chart layers")
                     .width(crate::fit::scaled(ui, 140.0))
                     .selected_text(LAYERS[chart_layers as usize])
@@ -1010,6 +1017,7 @@ impl State {
             }
             if has_roi {
                 const SPREAD: [&str; 5] = ["ROI: mean", "ROI: p10-p90", "ROI: box plot", "ROI: fan", "ROI: density"];
+                crate::fit::wrap_before(ui, crate::fit::scaled(ui, 120.0));
                 ComboBox::from_id_salt("roi spread")
                     .width(crate::fit::scaled(ui, 120.0))
                     .selected_text(SPREAD[o.roi_spread])

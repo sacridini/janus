@@ -453,9 +453,14 @@ impl State {
                         ui.weak("No command matches.");
                     }
                     let row_h = ui.text_style_height(&egui::TextStyle::Body) + 8.0;
+                    // twelve whole rows (as tall as the last frame drew them) and the spaces between them: the
+                    // last not cut at the bottom
+                    let drawn = egui::Id::new("palette row height");
+                    let row_drawn = ui.data(|d| d.get_temp::<f32>(drawn)).unwrap_or(row_h);
+                    let list_h = 12.0 * row_drawn + 11.0 * ui.spacing().item_spacing.y;
                     egui::ScrollArea::vertical()
-                        .max_height(row_h * 12.0)
-                        .min_scrolled_height(row_h * 12.0)
+                        .max_height(list_h)
+                        .min_scrolled_height(list_h)
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
                             for (k, c) in matches.iter().enumerate() {
@@ -490,9 +495,9 @@ impl State {
                                                 Layout::left_to_right(Align::Center),
                                                 |ui| {
                                                     ui.set_max_width(name_w);
-                                                    ui.add(
-                                                        egui::Label::new(RichText::new(&c.label).color(text))
-                                                            .truncate(),
+                                                    crate::fit::truncated(
+                                                        ui,
+                                                        egui::Label::new(RichText::new(&c.label).color(text)),
                                                     );
                                                 },
                                             );
@@ -505,6 +510,9 @@ impl State {
                                         });
                                     })
                                     .response;
+                                if k == 0 {
+                                    ui.data_mut(|d| d.insert_temp(drawn, row.rect.height()));
+                                }
                                 let r = ui.interact(row.rect, ui.id().with(("command", k)), Sense::click());
                                 if r.hovered() && ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
                                     p.sel = k;

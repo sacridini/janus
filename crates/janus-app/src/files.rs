@@ -369,13 +369,28 @@ impl FileBrowser {
 
     pub fn ui(&mut self, ui: &mut Ui) -> Action {
         let mut act = Action::None;
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.show_all, "All files")
-                .on_hover_text("Off: only rasters (.tif, .tiff, .vrt, .nc, .img, .jp2, ...)");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.filter).hint_text("filter by name").desired_width(f32::INFINITY),
-            );
-        });
+        // the filter beside the checkbox, or under it when the panel is too narrow for its hint (a large font)
+        let hint = "filter by name";
+        let field = |ui: &mut Ui, filter: &mut String| {
+            // (one id in either place: the focus kept when it moves)
+            let edit = egui::TextEdit::singleline(filter).id(egui::Id::new("files filter")).hint_text(hint);
+            ui.add(edit.desired_width(f32::INFINITY));
+        };
+        let need = crate::fit::text_width(ui, hint, egui::TextStyle::Body) + 4.0 * ui.spacing().button_padding.x;
+        let below = ui
+            .horizontal(|ui| {
+                ui.checkbox(&mut self.show_all, "All files")
+                    .on_hover_text("Off: only rasters (.tif, .tiff, .vrt, .nc, .img, .jp2, ...)");
+                let fits = ui.available_width() >= need;
+                if fits {
+                    field(ui, &mut self.filter);
+                }
+                !fits
+            })
+            .inner;
+        if below {
+            field(ui, &mut self.filter);
+        }
         if !self.selected.is_empty() {
             ui.horizontal(|ui| {
                 let n = self.selected.len();

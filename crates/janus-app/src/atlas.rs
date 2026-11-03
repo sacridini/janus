@@ -648,7 +648,9 @@ impl State {
         let a = &mut self.atlas;
         let mut restart = false;
         let mut find = false;
-        ui.horizontal(|ui| {
+        // wrapped at a large font or in a narrow panel, each widget moved down whole
+        ui.horizontal_wrapped(|ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             restart |= ui
                 .radio_value(&mut a.shapes, false, "Values")
                 .on_hover_text("Pixels alike when their values are, date by date")
@@ -661,6 +663,12 @@ impl State {
                 )
                 .changed();
             ui.separator();
+            let line = ui.text_style_height(&egui::TextStyle::Body);
+            let item = ui.spacing().item_spacing.x;
+            crate::fit::wrap_before(
+                ui,
+                crate::fit::text_width(ui, "Colour", egui::TextStyle::Body) + item + line * 9.0,
+            );
             ui.label("Colour");
             egui::ComboBox::from_id_salt("atlas colouring")
                 .width(ui.text_style_height(&egui::TextStyle::Body) * 9.0)
@@ -842,7 +850,9 @@ impl State {
         let avail = ui.available_size();
         let wide = avail.x > avail.y * 1.5;
         let plane = if wide {
-            vec2((avail.x * 0.48).min(avail.y * 1.25), avail.y - 4.0)
+            // (never negative: a large font's wrapped rows above may leave the panel no height, it scrolls)
+            let h = (avail.y - 4.0).max(160.0);
+            vec2((avail.x * 0.48).min(h * 1.25), h)
         } else {
             vec2(avail.x, (avail.y * 0.58).max(160.0))
         };
@@ -1115,24 +1125,21 @@ impl State {
         // under way: the stage and a thin bar
         if let Some(_job) = &a.job {
             let (stage, f) = a.stage;
-            painter.text(
-                rect.left_top() + vec2(10.0, 8.0),
-                egui::Align2::LEFT_TOP,
+            // wrapped in the plane (a narrow one at a large font: not cut at its side)
+            let g = painter.layout(
                 format!("{stage}{}", if f > 0.0 { format!("  {:.0} %", 100.0 * f) } else { "...".into() }),
                 egui::FontId::proportional(body * 0.85),
                 weak,
+                (rect.width() - 20.0).max(20.0),
             );
+            painter.galley(rect.left_top() + vec2(10.0, 8.0), g, weak);
             let bar =
                 Rect::from_min_size(rect.left_top() + vec2(1.0, 1.0), vec2((rect.width() - 2.0) * f.max(0.02), 2.0));
             painter.rect_filled(bar, 1.0, theme::on_plot(group_colour(0)));
         } else if !placed {
-            painter.text(
-                rect.left_top() + vec2(10.0, 8.0),
-                egui::Align2::LEFT_TOP,
-                "Placing every pixel...",
-                egui::FontId::proportional(body * 0.85),
-                weak,
-            );
+            let font = egui::FontId::proportional(body * 0.85);
+            let g = painter.layout("Placing every pixel...".into(), font, weak, (rect.width() - 20.0).max(20.0));
+            painter.galley(rect.left_top() + vec2(10.0, 8.0), g, weak);
         }
         if a.groups.is_empty() && a.job.is_none() {
             // wrapped to the plot's width (a narrow panel, a large font), centred at its bottom

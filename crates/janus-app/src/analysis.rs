@@ -45,10 +45,17 @@ fn lut_at(l: &[[u8; 4]; 256], t: f32) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
+/// The width of `colour_scale`: the bar and the wider of its two labels (at least five and a half lines).
+pub(crate) fn colour_scale_width(ui: &Ui, top: &str, bottom: &str) -> f32 {
+    let text = |s: &str| crate::fit::text_width(ui, s, egui::TextStyle::Body);
+    (2.0 + 14.0 + 4.0 + text(top).max(text(bottom)) + 4.0).max(ui.text_style_height(&egui::TextStyle::Body) * 5.5)
+}
+
 /// A vertical colour scale next to a plot: the colormap from `lo` (bottom) to `hi` (top), its ends labelled.
 pub(crate) fn colour_scale(ui: &mut Ui, height: f32, cmap: usize, lo: f64, hi: f64, label: &dyn Fn(f64) -> String) {
-    let (rect, _) =
-        ui.allocate_exact_size(vec2(ui.text_style_height(&egui::TextStyle::Body) * 5.5, height), egui::Sense::hover());
+    let (top, bottom) = (label(hi), label(lo));
+    let width = colour_scale_width(ui, &top, &bottom);
+    let (rect, _) = ui.allocate_exact_size(vec2(width, height), egui::Sense::hover());
     let bar = Rect::from_min_size(rect.min + vec2(2.0, 8.0), vec2(14.0, (rect.height() - 16.0).max(10.0)));
     let l = lut(cmap);
     let p = ui.painter();
@@ -60,8 +67,8 @@ pub(crate) fn colour_scale(ui: &mut Ui, height: f32, cmap: usize, lo: f64, hi: f
     }
     let font = egui::TextStyle::Body.resolve(ui.style());
     let col = ui.visuals().text_color();
-    p.text(Pos2::new(bar.right() + 4.0, bar.top()), egui::Align2::LEFT_CENTER, label(hi), font.clone(), col);
-    p.text(Pos2::new(bar.right() + 4.0, bar.bottom()), egui::Align2::LEFT_CENTER, label(lo), font, col);
+    p.text(Pos2::new(bar.right() + 4.0, bar.top()), egui::Align2::LEFT_CENTER, top, font.clone(), col);
+    p.text(Pos2::new(bar.right() + 4.0, bar.bottom()), egui::Align2::LEFT_CENTER, bottom, font, col);
 }
 
 /// A class's swatch: filled when the class is shown, its outline when it is hidden.
@@ -435,7 +442,10 @@ impl State {
         }
         let a = &mut self.analysis;
         let src = sources.iter().position(|s| s.0 == a.seasonal_source).unwrap_or(0);
-        ui.horizontal(|ui| {
+        // wrapped at a large font or in a narrow panel (a row past the panel widened what is under it), each widget
+        // moved down whole
+        ui.horizontal_wrapped(|ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             egui::ComboBox::from_id_salt("seasonal source")
                 .width(ui.text_style_height(&egui::TextStyle::Body) * 13.0)
                 .selected_text(&sources[src].1)
@@ -450,6 +460,12 @@ impl State {
                 .on_hover_text("The series shown (the cursor follows the mouse over the map)");
             ui.radio_value(&mut a.seasonal_view, 0, "Years overlaid");
             ui.radio_value(&mut a.seasonal_view, 1, "Year x day heatmap");
+            let line = ui.text_style_height(&egui::TextStyle::Body);
+            let item = ui.spacing().item_spacing.x;
+            crate::fit::wrap_before(
+                ui,
+                crate::fit::text_width(ui, "Year from", egui::TextStyle::Body) + item + line * 4.0,
+            );
             ui.label("Year from");
             egui::ComboBox::from_id_salt("seasonal start")
                 .width(ui.text_style_height(&egui::TextStyle::Body) * 4.0)
@@ -541,7 +557,12 @@ impl State {
                 lo.push(mu - sd);
                 hi.push(mu + sd);
             }
-            let size = vec2(ui.available_width() - scale_w, ui.available_height());
+            // eight lines high at least (a large font's controls may leave the panel little room: it
+            // scrolls), the colour scale's labels apart
+            let size = vec2(
+                ui.available_width() - scale_w,
+                ui.available_height().max(ui.text_style_height(&egui::TextStyle::Body) * 8.0),
+            );
             ui.horizontal_top(|ui| {
                 ui.allocate_ui(size, |ui| {
                     let mut p = months(Plot::new("seasonal years")).width(size.x).height(size.y);
@@ -613,7 +634,12 @@ impl State {
         }
         let cmap = self.display.cmap[Mode::Value as usize];
         let colours = lut(cmap);
-        let size = vec2(ui.available_width() - scale_w, ui.available_height());
+        // eight lines high at least (a large font's controls may leave the panel little room: it
+        // scrolls), the colour scale's labels apart
+        let size = vec2(
+            ui.available_width() - scale_w,
+            ui.available_height().max(ui.text_style_height(&egui::TextStyle::Body) * 8.0),
+        );
         ui.horizontal_top(|ui| {
             ui.allocate_ui(size, |ui| {
                 let (y0, years) = (f64::from(g.year0), g.years as f64);
@@ -1012,7 +1038,10 @@ impl State {
                             ui.set_width(name_w);
                             let name = egui::RichText::new(&e.name);
                             let name = if e.visible { name } else { name.weak() };
-                            ui.add(egui::Label::new(name).truncate()).on_hover_text(format!("{} ({v})", e.name));
+                            // the whole name on hover, with its value (not egui's tooltip of the cut text too)
+                            crate::layout_audit::cut_on_purpose(&e.name);
+                            ui.add(egui::Label::new(name).truncate().show_tooltip_when_elided(false))
+                                .on_hover_text(format!("{} ({v})", e.name));
                         });
                         ui.weak(share.map_or(String::new(), percent));
                     });
@@ -1163,7 +1192,7 @@ impl State {
                 }
                 for &(m, i, j) in moves.iter().take(8) {
                     let text = format!("{} -> {}: {}", name_of(i), name_of(j), percent(f64::from(m) / both));
-                    ui.add(egui::Label::new(&text).truncate()).on_hover_text(&text);
+                    crate::fit::truncated(ui, egui::Label::new(&text));
                 }
                 if ui
                     .small_button("Copy CSV")
@@ -1288,6 +1317,10 @@ impl State {
                     .unwrap_or(self.active.min(self.layers.len() - 1));
                 // (the default not kept: Y goes to a layer added later)
                 let Some(info) = self.layer_session(li).map(|s| s.info.clone()) else { continue };
+                // its name and layer's box on one row, the date's on the next when there is no room
+                let line = ui.text_style_height(&egui::TextStyle::Body);
+                let item = ui.spacing().item_spacing.x;
+                crate::fit::wrap_before(ui, crate::fit::text_width(ui, id, egui::TextStyle::Body) + item + line * 11.0);
                 ui.label(*id);
                 let mut chosen = li;
                 egui::ComboBox::from_id_salt(("scatter layer", k))
@@ -1317,6 +1350,7 @@ impl State {
                     -2 => format!("{} (previous)", info.layers[t].label),
                     _ => info.layers[t].label.clone(),
                 };
+                crate::fit::wrap_before(ui, line * 10.0);
                 egui::ComboBox::from_id_salt(("scatter date", k))
                     .width(ui.text_style_height(&egui::TextStyle::Body) * 10.0)
                     .selected_text(label)
@@ -1332,6 +1366,12 @@ impl State {
             }
             let a = &mut self.analysis;
             let cur = sources.iter().position(|s| s.0 == traj_key);
+            let line = ui.text_style_height(&egui::TextStyle::Body);
+            let item = ui.spacing().item_spacing.x;
+            crate::fit::wrap_before(
+                ui,
+                crate::fit::text_width(ui, "Trajectory", egui::TextStyle::Body) + item + line * 9.0,
+            );
             ui.label("Trajectory");
             egui::ComboBox::from_id_salt("scatter trajectory")
                 .width(ui.text_style_height(&egui::TextStyle::Body) * 9.0)
@@ -1359,12 +1399,22 @@ impl State {
             && !why.is_empty()
         {
             let mut on = false;
-            ui.horizontal(|ui| {
+            let button = self.series.chart_layers == 0;
+            // the button after the message when both fit on a line, else under it (a wrapped message: not over it)
+            let need = crate::fit::text_width(ui, why, egui::TextStyle::Body)
+                + ui.spacing().item_spacing.x
+                + crate::fit::button_width(ui, "Turn it on");
+            let mut message = |ui: &mut Ui| {
                 ui.weak(why);
-                if self.series.chart_layers == 0 {
+                if button {
                     on = ui.small_button("Turn it on").clicked();
                 }
-            });
+            };
+            if need <= ui.available_width() {
+                ui.horizontal(message);
+            } else {
+                message(ui);
+            }
             if on {
                 self.set_chart_layers(1);
             }
@@ -1459,7 +1509,12 @@ impl State {
         let Some((_, tex, max_count)) = self.analysis.density.as_ref().map(|d| (d.0, d.1.id(), d.2)) else { return };
         let scale_w = ui.text_style_height(&egui::TextStyle::Body) * 6.0;
         let (a, b) = (sc.a, sc.b);
-        let size = vec2(ui.available_width() - scale_w, ui.available_height());
+        // eight lines high at least (a large font's controls may leave the panel little room: it
+        // scrolls), the colour scale's labels apart
+        let size = vec2(
+            ui.available_width() - scale_w,
+            ui.available_height().max(ui.text_style_height(&egui::TextStyle::Body) * 8.0),
+        );
         ui.horizontal_top(|ui| {
             ui.allocate_ui(size, |ui| {
                 let legend = crate::fit::legend_fits(ui, size.y, 2);

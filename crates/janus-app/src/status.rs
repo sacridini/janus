@@ -249,7 +249,7 @@ impl State {
                             let (mark, c) =
                                 if n.failed { ("Failed", theme::error()) } else { ("Done", theme::accent()) };
                             ui.label(RichText::new(mark).strong().color(c));
-                            ui.add(egui::Label::new(RichText::new(&n.title).strong()).truncate());
+                            crate::fit::truncated(ui, egui::Label::new(RichText::new(&n.title).strong()));
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 if ui.small_button("×").on_hover_text("Dismiss").clicked() {
                                     close = Some(k);
@@ -329,11 +329,11 @@ impl State {
                 let m = &self.status.map;
                 if !fresh || (m.pixel.is_none() && m.geo.is_none()) {
                     if self.session.is_some() {
-                        ui.add(
+                        crate::fit::truncated(
+                            ui,
                             egui::Label::new(
                                 egui::RichText::new("Point at the map: its pixel, coordinates and value here").weak(),
-                            )
-                            .truncate(),
+                            ),
                         );
                     }
                     return;

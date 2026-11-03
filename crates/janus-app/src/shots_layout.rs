@@ -223,7 +223,8 @@ impl State {
     /// Shows a place.
     fn layout_open(&mut self, sh: &mut Shots, place: &Place) {
         match place {
-            Place::Main => {}
+            // (the Layers panel in front: the Files one was brought there at the last font size)
+            Place::Main => sh.focus.push(Tab::Layers),
             Place::Dock(t) => sh.focus.push(*t),
             Place::Command(key, _) => self.palette.run_next = Some(key.clone()),
             Place::Tool(id) => {
@@ -368,6 +369,7 @@ impl State {
     fn layout_report(&mut self, sh: &mut Shots) -> i32 {
         let tour = &mut sh.audit;
         let mut out = String::new();
+        // (texts cut short on purpose, whole on hover, are marked where they are drawn and not found)
         let _ = writeln!(
             out,
             "Font sizes' layout audit: {} places at {:?} px, {} texts that do not fit\n",
@@ -375,18 +377,6 @@ impl State {
             tour.fonts,
             tour.found.len()
         );
-        // texts cut short at the smallest font size too are cut on purpose (a long name in a list): left out
-        let smallest = tour.fonts.iter().copied().min().unwrap_or(0);
-        let short: std::collections::HashSet<(String, String)> = tour
-            .found
-            .iter()
-            .filter(|(f, _, x)| *f == smallest && x.kind == crate::layout_audit::Kind::Elided)
-            .map(|(_, p, x)| (p.clone(), x.text.clone()))
-            .collect();
-        tour.found.retain(|(f, p, x)| {
-            x.kind != crate::layout_audit::Kind::Elided
-                || *f != smallest && !short.contains(&(p.clone(), x.text.clone()))
-        });
         tour.found.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)).then(a.2.kind.cmp(&b.2.kind)));
         let mut last = (String::new(), 0);
         for (font, place, f) in &tour.found {

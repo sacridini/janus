@@ -2,9 +2,12 @@
 //! text cut by the side of its clip rectangle (a column, a panel, a window narrower than it), taller than its clip,
 //! out of the frame it is drawn in (a button, a field, a tab narrower than its label), or over another text of
 //! the same layer (a fixed width a longer label runs past, into its neighbour). Read at the end of each pass, from
-//! the layers' shapes before they are flattened (a window's texts are compared with its own only).
+//! the layers' shapes before they are flattened (a window's texts are compared with its own only), counted when two
+//! passes in a row show it. A text cut short on purpose, with the whole of it on hover, is marked where it is drawn
+//! (`cut_on_purpose`) and not reported.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use egui::epaint::{Shape, TextShape};
@@ -25,8 +28,8 @@ pub enum Kind {
     CutBelow,
     /// drawn in a fixed size much smaller than the interface's text (it does not follow the Font size setting)
     Small,
-    /// cut short with an ellipsis (a combo box's or a column's fixed width): reported where the smallest font
-    /// size of the tour does not cut it
+    /// cut short with an ellipsis (a combo box's or a column's fixed width) and not marked as cut on purpose
+    /// (the whole text on hover)
     Elided,
 }
 
@@ -57,14 +60,39 @@ pub struct Finding {
     pub layer: String,
 }
 
+/// A finding's identity: its kind, layer, text and the other text.
+type Key = (Kind, String, String, String);
+
 /// Whether the frames are read, and what they found (deduplicated by kind, layer and text).
 #[derive(Default)]
 struct Audit {
     on: bool,
-    found: HashMap<(Kind, String, String, String), Finding>,
+    found: HashMap<Key, Finding>,
+    /// what the last pass found: a text counts when two passes in a row find it (a grid's columns take their
+    /// width from the pass before, and a cell grown in this one is over the next for a single frame)
+    last: HashSet<Key>,
 }
 
 static AUDIT: LazyLock<Mutex<Audit>> = LazyLock::new(Default::default);
+
+/// Whether the plugin is there (the font sizes' tour): texts cut on purpose are noted only then.
+static INSTALLED: AtomicBool = AtomicBool::new(false);
+
+/// The texts of this pass cut short on purpose (as `Text::text`: trimmed, its first 80 characters).
+static ON_PURPOSE: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+/// A text cut short on purpose where it is drawn, the whole of it on hover (a long name in a column, a caption
+/// under a picture): not reported as cut short. Called in the pass that draws it; nothing outside the tour.
+pub fn cut_on_purpose(text: &str) {
+    if INSTALLED.load(Ordering::Relaxed) {
+        ON_PURPOSE.lock().unwrap().insert(key_of(text));
+    }
+}
+
+/// A text as the audit keeps it: trimmed, its first 80 characters.
+fn key_of(text: &str) -> String {
+    text.trim().chars().take(80).collect()
+}
 
 /// Points a text may pass its place by before it counts (antialiasing, a glyph's side bearing).
 const SLACK: f32 = 1.5;
@@ -74,6 +102,7 @@ pub fn start() {
     let mut a = AUDIT.lock().unwrap();
     a.on = true;
     a.found.clear();
+    a.last.clear();
 }
 
 /// Stops reading them; what they found, the worst first.
@@ -93,11 +122,24 @@ impl egui::Plugin for LayoutAudit {
         "layout audit"
     }
 
+    fn setup(&mut self, _ctx: &egui::Context) {
+        INSTALLED.store(true, Ordering::Relaxed);
+    }
+
+    fn on_begin_pass(&mut self, _ui: &mut egui::Ui) {
+        ON_PURPOSE.lock().unwrap().clear();
+    }
+
     fn on_end_pass(&mut self, ui: &mut egui::Ui) {
         if !AUDIT.lock().unwrap().on {
             return;
         }
+        let on_purpose = std::mem::take(&mut *ON_PURPOSE.lock().unwrap());
         let ctx = ui.ctx();
+        // a pass egui throws away (it lays out again before painting) is never seen
+        if ctx.will_discard() {
+            return;
+        }
         let body = ctx.style_of(ctx.theme()).text_styles.get(&egui::TextStyle::Body).map_or(13.0, |f| f.size);
         let layers: Vec<LayerId> = ctx.memory(|m| m.layer_ids().collect());
         let mut found = vec![];
@@ -115,11 +157,16 @@ impl egui::Plugin for LayoutAudit {
                 }
                 (s.texts, s.frames, s.bars)
             });
-            check(&texts, &frames, &bars, body, &layer.short_debug_format(), &mut found);
+            check(&texts, &frames, &bars, &on_purpose, body, &layer.short_debug_format(), &mut found);
         }
+        let key = |f: &Finding| (f.kind, f.layer.clone(), f.text.clone(), f.other.clone());
         let mut a = AUDIT.lock().unwrap();
+        let last = std::mem::replace(&mut a.last, found.iter().map(key).collect());
         for f in found {
-            let key = (f.kind, f.layer.clone(), f.text.clone(), f.other.clone());
+            let key = key(&f);
+            if !last.contains(&key) {
+                continue;
+            }
             match a.found.get_mut(&key) {
                 Some(old) if old.by >= f.by => {}
                 Some(old) => *old = f,
@@ -135,6 +182,9 @@ impl egui::Plugin for LayoutAudit {
 struct Text {
     text: String,
     ink: Rect,
+    /// its lines' glyphs, each line's box within `ink` (a text wrapped in a row of widgets starts its first line
+    /// after them and its next ones under them: its box is over them, its lines are not)
+    lines: Vec<Rect>,
     clip: Rect,
     /// its font's size (the first section's)
     size: f32,
@@ -209,10 +259,29 @@ fn text_of(t: &TextShape, clip: Rect) -> Option<Text> {
         return None;
     }
     let size = t.galley.job.sections.first().map_or(0.0, |s| s.format.font_id.size);
-    Some(Text { text: text.chars().take(80).collect(), ink, clip, size, elided: t.galley.elided })
+    let lines = if t.galley.rows.len() > 1 {
+        let at = t.pos.to_vec2();
+        t.galley
+            .rows
+            .iter()
+            .map(|r| r.rect_without_leading_space().translate(at).intersect(ink))
+            .filter(|r| r.is_positive())
+            .collect()
+    } else {
+        vec![ink]
+    };
+    Some(Text { text: key_of(text), ink, lines, clip, size, elided: t.galley.elided })
 }
 
-fn check(texts: &[Text], frames: &[(Rect, Rect)], bars: &[Rect], body: f32, layer: &str, found: &mut Vec<Finding>) {
+fn check(
+    texts: &[Text],
+    frames: &[(Rect, Rect)],
+    bars: &[Rect],
+    on_purpose: &HashSet<String>,
+    body: f32,
+    layer: &str,
+    found: &mut Vec<Finding>,
+) {
     let finding = |kind, t: &Text, other: &str, by: f32| Finding {
         kind,
         text: t.text.clone(),
@@ -236,7 +305,7 @@ fn check(texts: &[Text], frames: &[(Rect, Rect)], bars: &[Rect], body: f32, laye
         } else if below > SLACK && !scrolls(clip, bars, true) {
             found.push(finding(Kind::CutBelow, t, "", below));
         }
-        if t.elided {
+        if t.elided && !on_purpose.contains(&t.text) {
             found.push(finding(Kind::Elided, t, "", 0.0));
         }
         // a size of its own, well under the body's once the setting makes the body large
@@ -259,7 +328,7 @@ fn check(texts: &[Text], frames: &[(Rect, Rect)], bars: &[Rect], body: f32, laye
             }
         }
     }
-    // a text over another: their visible parts crossing by more than a sliver (a shadow, the same text drawn
+    // a text over another: their visible lines crossing by more than a sliver (a shadow, the same text drawn
     // twice at a point's offset, is not)
     let visible: Vec<Rect> = texts.iter().map(|t| t.ink.intersect(t.clip)).collect();
     let mut order: Vec<usize> = (0..texts.len()).collect();
@@ -271,11 +340,15 @@ fn check(texts: &[Text], frames: &[(Rect, Rect)], bars: &[Rect], body: f32, laye
             if b.min.x > a.max.x {
                 break;
             }
-            let x = a.intersect(b);
-            if !x.is_positive() || x.width() < 2.0 || x.height() < 2.0 {
-                continue;
-            }
             let (ti, tj) = (&texts[i], &texts[j]);
+            // where their lines cross most
+            let x = ti
+                .lines
+                .iter()
+                .flat_map(|p| tj.lines.iter().map(move |q| p.intersect(*q).intersect(a).intersect(b)))
+                .filter(|x| x.is_positive())
+                .max_by(|p, q| p.area().total_cmp(&q.area()));
+            let Some(x) = x.filter(|x| x.width() >= 2.0 && x.height() >= 2.0) else { continue };
             let shadow = ti.text == tj.text && (ti.ink.min - tj.ink.min).length() < 3.0;
             let small = a.area().min(b.area());
             if !shadow && x.area() > 0.15 * small {

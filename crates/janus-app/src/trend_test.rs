@@ -364,8 +364,14 @@ impl State {
                     }
                 }
             });
-            ui.label("Classes");
             let current = class_layers.iter().zip(&ids).find(|(_, id)| **id == o.class_cube).map(|((_, n), _)| n.clone());
+            // the label and its box on the next row together when this one has no room for them
+            let shown = current.as_deref().unwrap_or("None (the region's mean)");
+            let need = crate::fit::text_width(ui, "Classes", egui::TextStyle::Body)
+                + ui.spacing().item_spacing.x
+                + crate::fit::combo_width(ui, [shown]);
+            crate::fit::wrap_before(ui, need);
+            ui.label("Classes");
             egui::ComboBox::from_id_salt("trend classes")
                 .selected_text(current.unwrap_or_else(|| "None (the region's mean)".into()))
                 .show_ui(ui, |ui| {

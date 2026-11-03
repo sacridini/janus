@@ -144,16 +144,20 @@ impl State {
             ""
         };
         let a = &mut self.analysis.mosaic;
-        ui.horizontal(|ui| {
+        // wrapped at a large font or in a narrow panel, each widget moved down whole (a slider: its own row)
+        ui.horizontal_wrapped(|ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             ui.radio_value(&mut a.which, 0, "Every date");
             if info.time_is_date {
                 ui.radio_value(&mut a.which, 1, format!("{month} of every year"))
                     .on_hover_text("The dates in the month of the date shown, year after year");
             }
             ui.separator();
+            crate::fit::wrap_before(ui, crate::fit::slider_width(ui, "100 %", "valid at least"));
             ui.add(egui::Slider::new(&mut a.min_valid, 0.0..=100.0).suffix(" %").integer().text("valid at least"))
                 .on_hover_text("Only the dates with this share of the visible area valid (no cloud, no gap), or more");
             ui.separator();
+            crate::fit::wrap_before(ui, crate::fit::slider_width(ui, "320", "size"));
             ui.add(egui::Slider::new(&mut a.size, 64.0..=320.0).integer().text("size"));
         });
         let Some(r) = visible_overview(self) else {
@@ -234,12 +238,15 @@ impl State {
         ));
         let mut go = None;
         let accent = theme::accent();
+        // the caption's font and its line under each picture (taller with the font: not over the picture)
+        let caption = egui::FontId::proportional(crate::fit::scaled(ui, 11.0));
+        let caption_h = ui.painter().layout_no_wrap("0".into(), caption.clone(), Color32::WHITE).size().y + 3.0;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                 for (t, tex, share) in shown {
                     let label = &info.layers[*t].label;
-                    let cell = vec2(tw as f32, th as f32 + 16.0);
+                    let cell = vec2(tw as f32, th as f32 + caption_h.max(16.0));
                     let (rect, resp) = ui.allocate_exact_size(cell, Sense::click());
                     let img_rect = egui::Rect::from_min_size(rect.min, vec2(tw as f32, th as f32));
                     let p = ui.painter();
@@ -260,14 +267,12 @@ impl State {
                     p.rect_stroke(img_rect, 0.0, stroke, egui::StrokeKind::Outside);
                     let text = format!("{label}  {:.0} %", share * 100.0);
                     let colour = if current { accent } else { ui.visuals().text_color() };
-                    // cut short to the picture's width (a large font: not over the next one's)
+                    // cut short to the picture's width (a large font: not over the next one's), the date and the
+                    // share on hover
+                    crate::layout_audit::cut_on_purpose(&text);
                     let mut job = egui::text::LayoutJob::single_section(
                         text,
-                        egui::TextFormat {
-                            font_id: egui::FontId::proportional(crate::fit::scaled(ui, 11.0)),
-                            color: colour,
-                            ..Default::default()
-                        },
+                        egui::TextFormat { font_id: caption.clone(), color: colour, ..Default::default() },
                     );
                     job.wrap = egui::text::TextWrapping::truncate_at_width((rect.width() - 2.0).max(8.0));
                     let g = p.layout_job(job);

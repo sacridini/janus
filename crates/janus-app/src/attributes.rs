@@ -460,7 +460,7 @@ impl State {
                     let values = v.row(i).unwrap_or_default();
                     for k in 0..fields.len() {
                         row.col(|ui| {
-                            ui.add(egui::Label::new(values.get(k).map_or("", String::as_str)).truncate());
+                            crate::fit::truncated(ui, egui::Label::new(values.get(k).map_or("", String::as_str)));
                         });
                     }
                     let r = row.response();

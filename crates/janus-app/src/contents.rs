@@ -343,10 +343,13 @@ pub(crate) fn row(ui: &mut Ui, visible: Option<&mut bool>, r: &Row) -> RowOut {
         ui.fonts_mut(|f| f.layout_job(job))
     };
     if !r.badge.is_empty() {
-        let g = text(&r.badge, &small, v.weak_text_color(), 90.0);
-        let at = egui::pos2(right - g.size().x, name_y + (line - g.size().y) * 0.5 + 1.0);
-        right = at.x - 6.0;
-        ui.painter().galley(at, g, v.weak_text_color());
+        let g = text(&r.badge, &small, v.weak_text_color(), crate::fit::scaled(ui, 90.0));
+        // where it leaves the name three ems at least (a narrow panel, a large font: the name first)
+        if right - g.size().x - 6.0 - x >= 3.0 * body.size {
+            let at = egui::pos2(right - g.size().x, name_y + (line - g.size().y) * 0.5 + 1.0);
+            right = at.x - 6.0;
+            ui.painter().galley(at, g, v.weak_text_color());
+        }
     }
     // the name, strong on the active row, faint on a hidden one; its detail under it
     let name_c = if r.active {
@@ -357,10 +360,25 @@ pub(crate) fn row(ui: &mut Ui, visible: Option<&mut bool>, r: &Row) -> RowOut {
         v.weak_text_color()
     };
     let font = if r.active { theme::strong_font(body.size) } else { body.clone() };
-    ui.painter().galley(egui::pos2(x, name_y), text(r.name, &font, name_c, right - x), name_c);
+    // a name or a detail cut short (a narrow panel, a large font): the whole on hover, before the row's own tip
+    let mut cut = vec![];
+    let g = text(r.name, &font, name_c, right - x);
+    if g.elided {
+        cut.push(r.name);
+    }
+    ui.painter().galley(egui::pos2(x, name_y), g, name_c);
     if two {
         let g = text(&r.detail, &small, v.weak_text_color(), rect.right() - 8.0 - x);
+        if g.elided {
+            cut.push(&r.detail);
+        }
         ui.painter().galley(egui::pos2(x, name_y + line + 1.0), g, v.weak_text_color());
+    }
+    if !cut.is_empty() {
+        for t in &cut {
+            crate::layout_audit::cut_on_purpose(t);
+        }
+        out.row = out.row.on_hover_text(cut.join("\n"));
     }
     out
 }
@@ -682,13 +700,15 @@ impl State {
                 .response
                 .on_hover_text(format!("{}: how it combines with the layers under it", l.name));
             ui.label(RichText::new("Opacity").weak());
-            // the value's box ("100 %") and the gap before it take what the slider does not
-            let value = crate::fit::button_width(ui, "100 %") + ui.spacing().item_spacing.x;
+            // the value's box ("100 %", at least a field's width) and the gap before it take what the slider does not
+            let value =
+                crate::fit::button_width(ui, "100 %").max(ui.spacing().interact_size.x) + ui.spacing().item_spacing.x;
             let em = crate::fit::em(ui);
-            if ui.available_width() - value < 4.0 * em {
+            // (what is left of this line: a wrapping layout's available width is a whole line's)
+            if ui.available_size_before_wrap().x - value < 4.0 * em {
                 ui.end_row();
             }
-            ui.spacing_mut().slider_width = (ui.available_width() - value).max(4.0 * em);
+            ui.spacing_mut().slider_width = (ui.available_size_before_wrap().x - value).max(4.0 * em);
             let slider = egui::Slider::new(&mut l.opacity, 0.0..=1.0)
                 .custom_formatter(|v, _| format!("{:.0} %", v * 100.0))
                 .custom_parser(|s| s.trim().trim_end_matches('%').trim().parse::<f64>().ok().map(|v| v / 100.0));

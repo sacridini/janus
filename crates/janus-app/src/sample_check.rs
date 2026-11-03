@@ -774,9 +774,11 @@ impl State {
         let rep = c.report.clone();
         let stale = c.checking();
         let warns = rep.as_deref().map(warnings).unwrap_or_default();
+        // the cards' numbers larger than the text at any font size
+        let big = crate::fit::scaled(ui, 18.0);
         ui.horizontal_wrapped(|ui| {
-            card(ui, RichText::new(total.to_string()).size(18.0).strong(), "samples", "Samples kept for the training");
-            card(ui, RichText::new(counts.len().to_string()).size(18.0).strong(), "classes", "Classes with samples");
+            card(ui, RichText::new(total.to_string()).size(big).strong(), "samples", "Samples kept for the training");
+            card(ui, RichText::new(counts.len().to_string()).size(big).strong(), "classes", "Classes with samples");
             let (acc, hover) = match rep.as_deref() {
                 Some(r) if r.accuracy.is_finite() => (
                     format!("{:.0} %", r.accuracy * 100.0),
@@ -789,7 +791,7 @@ impl State {
                 ),
                 _ => ("-".into(), "Two classes and a few samples are needed for an estimate".into()),
             };
-            card(ui, RichText::new(acc).size(18.0).strong(), "estimated accuracy", &hover);
+            card(ui, RichText::new(acc).size(big).strong(), "estimated accuracy", &hover);
             if let Some(r) = rep.as_deref().filter(|r| r.spatial.is_finite()) {
                 let color = if r.accuracy - r.spatial >= 0.10 {
                     level_color(2)
@@ -800,7 +802,7 @@ impl State {
                 };
                 card(
                     ui,
-                    RichText::new(format!("{:.0} %", r.spatial * 100.0)).size(18.0).strong().color(color),
+                    RichText::new(format!("{:.0} %", r.spatial * 100.0)).size(big).strong().color(color),
                     "far from the samples",
                     &format!(
                         "The accuracy where the map is far from your samples: the forests tested on folds of places \
@@ -815,7 +817,7 @@ impl State {
             let worst = warns.iter().map(|w| w.level).max().unwrap_or(0);
             card(
                 ui,
-                RichText::new(bad.to_string()).size(18.0).strong().color(level_color(if bad == 0 { 0 } else { worst })),
+                RichText::new(bad.to_string()).size(big).strong().color(level_color(if bad == 0 { 0 } else { worst })),
                 "warnings",
                 "What to look at in the samples (below)",
             );

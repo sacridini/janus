@@ -2169,10 +2169,9 @@ impl State {
                     }
                     if let Some(s) = &self.session {
                         // in what the menus leave: cut short with an ellipsis (the whole on hover), never over them
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(&s.info.description).weak())
-                                .truncate()
-                                .halign(egui::Align::Max),
+                        crate::fit::truncated(
+                            ui,
+                            egui::Label::new(egui::RichText::new(&s.info.description).weak()).halign(egui::Align::Max),
                         );
                     }
                 });

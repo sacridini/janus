@@ -27,6 +27,23 @@ pub(crate) fn button_width(ui: &Ui, label: &str) -> f32 {
     text_width(ui, label, TextStyle::Button) + 2.0 * ui.spacing().button_padding.x + 2.0
 }
 
+/// In a wrapping row (`horizontal_wrapped`), goes to the next row when what this one leaves is narrower than
+/// `width` (the widgets to come): egui lays a combo box or a slider out in a row of its own, which a wrapping row
+/// never moves down whole (it ran past the panel instead).
+pub(crate) fn wrap_before(ui: &mut Ui, width: f32) {
+    let started = ui.cursor().min.x > ui.max_rect().min.x + 0.5;
+    if started && ui.available_size_before_wrap().x < width {
+        ui.end_row();
+    }
+}
+
+/// A slider's width: its rail, its value's box (for `value`, at least a field's width) and its text.
+pub(crate) fn slider_width(ui: &Ui, value: &str, text: &str) -> f32 {
+    let s = ui.spacing();
+    let label = if text.is_empty() { 0.0 } else { s.item_spacing.x + text_width(ui, text, TextStyle::Body) };
+    s.slider_width + s.item_spacing.x + button_width(ui, value).max(s.interact_size.x) + label
+}
+
 /// A button's height for one line of text at the current font.
 pub(crate) fn button_height(ui: &Ui) -> f32 {
     let s = ui.spacing();
@@ -62,6 +79,15 @@ pub(crate) fn cell(ui: &mut Ui, text: &str, max_width: f32) {
         ui.label(text);
     } else {
         let h = ui.text_style_height(&TextStyle::Body);
-        ui.add_sized([max_width, h], egui::Label::new(text).truncate()).on_hover_text(text);
+        // whole on hover: egui's tooltip of a label it cut
+        crate::layout_audit::cut_on_purpose(text);
+        ui.add_sized([max_width, h], egui::Label::new(text).truncate());
     }
+}
+
+/// A label cut short with an ellipsis where its place ends, whole on hover (egui's tooltip of a label it cut):
+/// a cut on purpose for the layout audit.
+pub(crate) fn truncated(ui: &mut Ui, label: egui::Label) -> egui::Response {
+    crate::layout_audit::cut_on_purpose(label.text());
+    ui.add(label.truncate())
 }

@@ -354,10 +354,13 @@ impl State {
             .resizable(false)
             .anchor(egui::Align2::CENTER_TOP, vec2(0.0, 60.0))
             .show(ctx, |ui| {
+                // the window as wide as the field's hint, the examples of what it takes (with the field's margins)
+                let hint = "-23.55, -46.63   23°33'S 46°38'W   23S 333000 7394000";
+                let pad = 4.0 * ui.spacing().button_padding.x;
+                let width = crate::fit::text_width(ui, hint, egui::TextStyle::Body) + pad;
+                ui.set_width(width.max(crate::fit::scaled(ui, 360.0)));
                 let r = ui.add(
-                    egui::TextEdit::singleline(&mut self.nav.goto_text)
-                        .hint_text("-23.55, -46.63   23°33'S 46°38'W   23S 333000 7394000")
-                        .desired_width(crate::fit::scaled(ui, 360.0)),
+                    egui::TextEdit::singleline(&mut self.nav.goto_text).hint_text(hint).desired_width(f32::INFINITY),
                 );
                 if std::mem::take(&mut self.nav.goto_focus) {
                     r.request_focus();
