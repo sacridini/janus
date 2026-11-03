@@ -1354,6 +1354,28 @@ labelled.
 - Maps of events: the agreement of the **dates** (within ± k years, the
   histogram of the differences) and the **area of change by year** with its
   interval, from the reference's dates.
+- *Areas by the ... estimator*: **direct** (the sample alone, Olofsson et al.
+  2014; Stehman 2014 when the strata are not the map's classes),
+  **difference** (model-assisted: the mapped area plus the estimated net
+  error, the share where the reference has the class minus where the map has
+  it) or **ratio** (the mapped area times the estimated ratio of the two;
+  needs points the map calls the class) (Stehman 2013; McRoberts et al. 2018).
+  When the strata are the map's classes the three agree; when they are not
+  (another map assessed with the sample, transitions, a buffer stratum) the
+  model-assisted ones give narrower intervals where the map is good. The
+  accuracies do not change with the estimator. The choice is kept in the
+  project and used by the report and Copy Python.
+- **Transitions between two dates**: two of the project's maps of classes
+  (e.g. two dates of a categorical series): each pair of classes (*Forest ->
+  Pasture*) is a class, its mapped area counted pixel by pixel inside the
+  strata (in the background) and its reference read from each point's label
+  and its dated events: the class at a date is the label, or the last event
+  on or before it with one of the maps' classes (the dates are guessed from
+  the maps' names, and can be typed). The table gives each transition's
+  mapped and adjusted area ± its interval, user's and producer's accuracy
+  (*only changes* hides the persistences); *Copy Python* gives the
+  `zeit.transitions` code. The strata need not be the transitions: the
+  points are weighed by the project's strata (Stehman 2014).
 
 **Maps**: one sample assesses many maps. Add a Zeit result, a layer at a date
 or a file (*Assess another map...*): each is read at the points and its areas
@@ -1371,9 +1393,10 @@ settles each (the others' labels shown).
 
 **Report**: *Export the report...* writes `report.html` (design, maps,
 matrices, accuracies, areas with figures, interpreters, a methods paragraph
-and the references) and a CSV of every table. *Copy Python* gives the
-`zeit.accuracy` code that computes the same estimates from the project's
-files.
+and the references; the transitions between two dates, when chosen, with
+`transitions.csv`) and a CSV of every table. *Copy Python* gives the
+`zeit.accuracy` (and `zeit.transitions`) code that computes the same estimates,
+by the same estimator, from the project's files.
 
 ## Animation (GIF, MP4, WebM)
 

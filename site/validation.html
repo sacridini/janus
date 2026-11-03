@@ -258,6 +258,14 @@
         <a href="assets/img/validation/08-translations.png"><img src="assets/img/validation/08-translations.png" alt="The translations of the reference labels: Stable forest no change, Deforestation change, Degradation change, Regeneration no change, Agriculture and Pasture no change, Water no change, Cloud / no data left out, Other no change." loading="lazy"></a>
         <figcaption><b>Translations</b> of the labels for a map of events. Change one if your map means something else (is degradation loss?).</figcaption>
       </figure>
+      <h3>The estimator of the areas</h3>
+      <p><span class="ui">Areas by the ... estimator</span> chooses how the adjusted areas are computed from the points:</p>
+      <ul>
+        <li><strong>Direct</strong> (the default): the sample alone, each stratum's share of points with the class weighed by the stratum's area (Olofsson et al. 2014; Stehman 2014).</li>
+        <li><strong>Difference</strong>: the map's own area of the class, corrected by its net error estimated at the points (where the reference has the class minus where the map has it).</li>
+        <li><strong>Ratio</strong>: the map's area times the estimated ratio of the reference's share to the map's. It needs points the map calls the class.</li>
+      </ul>
+      <p>The last two are <em>model-assisted</em> (Stehman 2013; McRoberts et al. 2018): they use the map's pixel count, known without error, and estimate only its error. When the strata are the map's classes the three give the same numbers. When they are not (a second map assessed with the same sample, the transitions below, a buffer stratum mixing classes), a good map gives much narrower intervals with them. The accuracies do not depend on the estimator; the choice is kept in the project, and the report and Copy Python use it.</p>
     </section>
 
     <!-- ===================================================== -->
@@ -277,6 +285,9 @@
         <a href="assets/img/validation/10-by-year.png"><img src="assets/img/validation/10-by-year.png" alt="A bar chart of the estimated area of change by year from the reference labels, with error bars." loading="lazy"></a>
         <figcaption><b>Area of change by year</b>, with its 95% intervals.</figcaption>
       </figure>
+      <h3>Transitions between two dates</h3>
+      <p>With two maps of classes in the project (two dates of a categorical series, such as MapBiomas in 2000 and in 2020), <span class="ui">Transitions between two dates</span> in the Accuracy tab estimates the area of each transition, <em>Forest -&gt; Pasture</em>, <em>Forest -&gt; Forest</em>..., with its interval. The mapped areas are counted pixel by pixel inside the strata, in the background. The reference of each point at each date comes from its label and its dated events: the label holds until the first event with one of the maps' classes, which holds from its date on. A forest labelled <em>Forest</em> with an event <em>Pasture</em> in 2012 is <em>Forest -&gt; Pasture</em> between 2005 and 2020, and <em>Forest -&gt; Forest</em> between 2005 and 2010. The dates are guessed from the maps' names; type them if they are not right.</p>
+      <p>The table gives each transition's mapped and adjusted area ± its interval and its user's and producer's accuracy; <span class="ui">only changes</span> hides the classes that stayed. The sample need not have been stratified by the transitions: the points are weighed by the project's strata. Rare transitions are where the difference estimator helps most. <span class="ui">Copy Python</span> gives the <code>zeit.transitions</code> code that computes the same numbers.</p>
       <h3>Right and wrong on the map</h3>
       <p>Once the interpretation is done, untick <span class="ui">Blind</span>: the map and the strata come back, and in the Interpretation panel the points can be coloured <span class="ui">by stratum</span> or <span class="ui">right / wrong</span> for the selected map. The errors often cluster (along roads, at the edges of clearings), which tells you where the map struggles.</p>
       <figure class="fig">
@@ -320,12 +331,12 @@
         <a href="assets/img/validation/15-report.png"><img src="assets/img/validation/15-report.png" alt="The Report tab: Export the report and Copy Python buttons, the generated methods paragraph and the references." loading="lazy"></a>
         <figcaption><b>Report tab.</b> The methods paragraph is written from the project.</figcaption>
       </figure>
-      <p><span class="ui">Export the report...</span> writes to a folder a <code>report.html</code> (the design, the comparison of the maps, each map's error matrix, accuracies and areas with figures, the area of change by year, the interpreters' agreement, the methods and the references) and a CSV of every table, for your own figures.</p>
+      <p><span class="ui">Export the report...</span> writes to a folder a <code>report.html</code> (the design, the comparison of the maps, each map's error matrix, accuracies and areas with figures, the area of change by year, the transitions between two dates, the interpreters' agreement, the methods and the references) and a CSV of every table (<code>transitions.csv</code> for the transitions), for your own figures.</p>
       <figure class="fig">
         <a href="assets/img/validation/16-report-html.png"><img src="assets/img/validation/16-report-html.png" alt="The exported report.html open in a browser: the methods paragraph, the sampling design table and the comparison of the maps." loading="lazy"></a>
         <figcaption><b>report.html</b>, as exported.</figcaption>
       </figure>
-      <p><span class="ui">Copy Python</span> copies the <code>zeit.accuracy</code> call that computes the same estimates from the project's GeoPackage and rasters: a check that does not depend on Janus, and a start for scripts of your own.</p>
+      <p><span class="ui">Copy Python</span> copies the <code>zeit.accuracy</code> (and <code>zeit.transitions</code>) call that computes the same estimates, by the same estimator, from the project's GeoPackage and rasters: a check that does not depend on Janus, and a start for scripts of your own.</p>
     </section>
 
     <!-- ===================================================== -->
@@ -349,6 +360,8 @@
         <li>Olofsson, P., Foody, G. M., Herold, M., Stehman, S. V., Woodcock, C. E., Wulder, M. A. (2014). Good practices for estimating area and assessing accuracy of land change. <em>Remote Sensing of Environment</em>, 148, 42–57.</li>
         <li>Olofsson, P., Arévalo, P., Espejo, A. B., Green, C., Lindquist, E., McRoberts, R. E., Sanz, M. J. (2020). Mitigating the effects of omission errors on area and area change estimates. <em>Remote Sensing of Environment</em>, 236, 111492.</li>
         <li>Stehman, S. V. (2014). Estimating area and map accuracy for stratified random sampling when the strata are different from the map classes. <em>International Journal of Remote Sensing</em>, 35(13), 4923–4939.</li>
+        <li>Stehman, S. V. (2013). Estimating area from an accuracy assessment error matrix. <em>Remote Sensing of Environment</em>, 132, 202–211.</li>
+        <li>McRoberts, R. E., Stehman, S. V., Liknes, G. C., Næsset, E., Sannier, C., Walters, B. F. (2018). The effects of imperfect reference data on remote sensing-assisted estimators of land cover class proportions. <em>ISPRS Journal of Photogrammetry and Remote Sensing</em>, 142, 292–300.</li>
         <li>Hansen, M. C. et al. (2013). High-resolution global maps of 21st-century forest cover change. <em>Science</em>, 342, 850–853. Data: Global Forest Change 2000–2023 v1.11.</li>
         <li>Souza, C. M. et al. (2020). Reconstructing three decades of land use and land cover changes in Brazilian biomes with Landsat archive and Earth Engine. <em>Remote Sensing</em>, 12(17), 2735. Data: MapBiomas Collection 9.</li>
         <li>Sentinel-2 L2A: Copernicus Sentinel data, processed by ESA; cloud-optimized GeoTIFFs from Earth Search (Element 84).</li>

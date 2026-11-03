@@ -1,0 +1,169 @@
+{
+  "size": [
+    4096,
+    4096
+  ],
+  "pixel_ha": 0.09,
+  "threads": 3,
+  "numpy_count_s": 0.12197290000040084,
+  "typical": {
+    "points": 600,
+    "transitions": 16,
+    "survey_version": "4.5",
+    "janus_count_s": 0.2085633,
+    "max_rel_diff_mapped_janus_numpy": 1.6408925312514878e-14,
+    "rscript_wall_s": 1.1119171000009374,
+    "direct": {
+      "janus_assess_s": 7.5e-05,
+      "janus_s": 0.2086383,
+      "zeit_s": 1.7294192999997904,
+      "survey_s": 0.0360021591186523,
+      "max_rel_diff_janus_survey": 3.2381809996101456e-15,
+      "max_rel_diff_zeit_survey": 2.6105249377170456e-15,
+      "max_rel_diff_accuracies_janus_survey": 1.0761998337763065e-13,
+      "max_rel_diff_accuracies_zeit_survey": 4.243276813535162e-15,
+      "change_ci_ha": {
+        "1 -> 2": 9241.4,
+        "1 -> 3": 0.0,
+        "1 -> 4": 0.0,
+        "2 -> 1": 0.0,
+        "2 -> 3": 10931.4,
+        "2 -> 4": 0.0,
+        "3 -> 1": 2560.7,
+        "3 -> 2": 0.0,
+        "3 -> 4": 0.0,
+        "4 -> 1": 0.0,
+        "4 -> 2": 0.0,
+        "4 -> 3": 0.0
+      }
+    },
+    "difference": {
+      "janus_assess_s": 7.76e-05,
+      "janus_s": 0.20864090000000002,
+      "zeit_s": 1.9180560000004334,
+      "survey_s": 0.0356531143188477,
+      "max_rel_diff_janus_survey": 1.959127628054797e-13,
+      "max_rel_diff_zeit_survey": 3.5983976841822804e-14,
+      "max_rel_diff_accuracies_janus_survey": 1.0761998337763065e-13,
+      "max_rel_diff_accuracies_zeit_survey": 4.243276813535162e-15,
+      "change_ci_ha": {
+        "1 -> 2": 5476.2,
+        "1 -> 3": 0.0,
+        "1 -> 4": 12900.2,
+        "2 -> 1": 4662.0,
+        "2 -> 3": 1566.3,
+        "2 -> 4": 0.0,
+        "3 -> 1": 1285.5,
+        "3 -> 2": 8522.5,
+        "3 -> 4": 0.0,
+        "4 -> 1": 647.6,
+        "4 -> 2": 913.6,
+        "4 -> 3": 913.6
+      }
+    },
+    "ratio": {
+      "janus_assess_s": 7.99e-05,
+      "janus_s": 0.2086432,
+      "zeit_s": 1.6388623999991978,
+      "survey_s": 0.0383591651916504,
+      "max_rel_diff_janus_survey": 2.6494325721453867e-14,
+      "max_rel_diff_zeit_survey": 2.5141086267803115e-15,
+      "max_rel_diff_accuracies_janus_survey": 1.0761998337763065e-13,
+      "max_rel_diff_accuracies_zeit_survey": 4.243276813535162e-15,
+      "change_ci_ha": {
+        "1 -> 2": 7031.3,
+        "1 -> 3": null,
+        "1 -> 4": 0.0,
+        "2 -> 1": 0.0,
+        "2 -> 3": 1513.8,
+        "2 -> 4": null,
+        "3 -> 1": 2997.3,
+        "3 -> 2": 0.0,
+        "3 -> 4": null,
+        "4 -> 1": 0.0,
+        "4 -> 2": 0.0,
+        "4 -> 3": 0.0
+      }
+    }
+  },
+  "large": {
+    "points": 6000,
+    "transitions": 16,
+    "survey_version": "4.5",
+    "janus_count_s": 0.2108201,
+    "max_rel_diff_mapped_janus_numpy": 1.6408925312514878e-14,
+    "rscript_wall_s": 1.0450054000011733,
+    "direct": {
+      "janus_assess_s": 0.0013503,
+      "janus_s": 0.2121704,
+      "zeit_s": 1.4563878000008117,
+      "survey_s": 0.121249914169312,
+      "max_rel_diff_janus_survey": 3.031241711356001e-14,
+      "max_rel_diff_zeit_survey": 1.6628434180797058e-14,
+      "max_rel_diff_accuracies_janus_survey": 1.17266896627896e-12,
+      "max_rel_diff_accuracies_zeit_survey": 3.535740920532592e-14,
+      "change_ci_ha": {
+        "1 -> 2": 3687.9,
+        "1 -> 3": 0.0,
+        "1 -> 4": 0.0,
+        "2 -> 1": 0.0,
+        "2 -> 3": 2580.0,
+        "2 -> 4": 0.0,
+        "3 -> 1": 1980.0,
+        "3 -> 2": 0.0,
+        "3 -> 4": 0.0,
+        "4 -> 1": 0.0,
+        "4 -> 2": 0.0,
+        "4 -> 3": 0.0
+      }
+    },
+    "difference": {
+      "janus_assess_s": 0.0013438,
+      "janus_s": 0.21216390000000002,
+      "zeit_s": 1.3866766999999527,
+      "survey_s": 0.0841848850250244,
+      "max_rel_diff_janus_survey": 8.555221426156828e-14,
+      "max_rel_diff_zeit_survey": 4.333213595870279e-14,
+      "max_rel_diff_accuracies_janus_survey": 1.17266896627896e-12,
+      "max_rel_diff_accuracies_zeit_survey": 3.535740920532592e-14,
+      "change_ci_ha": {
+        "1 -> 2": 3303.3,
+        "1 -> 3": 1834.5,
+        "1 -> 4": 2268.3,
+        "2 -> 1": 814.7,
+        "2 -> 3": 2091.3,
+        "2 -> 4": 2188.1,
+        "3 -> 1": 2227.1,
+        "3 -> 2": 1104.1,
+        "3 -> 4": 1206.8,
+        "4 -> 1": 112.1,
+        "4 -> 2": 1229.0,
+        "4 -> 3": 994.8
+      }
+    },
+    "ratio": {
+      "janus_assess_s": 0.0012853,
+      "janus_s": 0.2121054,
+      "zeit_s": 1.3414847000003647,
+      "survey_s": 0.0944070816040039,
+      "max_rel_diff_janus_survey": 2.141459456302744e-13,
+      "max_rel_diff_zeit_survey": 9.56721111035491e-15,
+      "max_rel_diff_accuracies_janus_survey": 1.17266896627896e-12,
+      "max_rel_diff_accuracies_zeit_survey": 3.535740920532592e-14,
+      "change_ci_ha": {
+        "1 -> 2": 3387.5,
+        "1 -> 3": 0.0,
+        "1 -> 4": 0.0,
+        "2 -> 1": 0.0,
+        "2 -> 3": 2580.2,
+        "2 -> 4": 0.0,
+        "3 -> 1": 1770.7,
+        "3 -> 2": 0.0,
+        "3 -> 4": 0.0,
+        "4 -> 1": 0.0,
+        "4 -> 2": 0.0,
+        "4 -> 3": 0.0
+      }
+    }
+  }
+}
