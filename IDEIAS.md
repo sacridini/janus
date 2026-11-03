@@ -1669,6 +1669,48 @@ apontado). `--window classification`, `--pin X,Y,CLASSE`.
   séries, treinar e aplicar classificadores, estatísticas de pinos/ROI;
   resultados como arquivos (e o app aberto acompanhando, como o Terraflux).
 
+### Grupos do Atlas, nomes das classes, a camada de cima, datas soltas (2026-11-03, 1.10.0)
+Pedidos do usuário: "por que no Atlas eu só posso criar 3 classes e o Find
+groups também só cria 3?"; trocar o nome das classes do k-means no Display ("de
+forma geral"); com a série original ligada e o k-means por cima, o gráfico
+continuava o da série ("a visualização gráfica deve sempre seguir a camada que
+está aparecendo por cima"); arquivos abertos juntos viram uma série só e não dá
+para ver mais de um ao mesmo tempo nem desacoplar um "puxando ele para fora".
+**Feito (1.10.0)**:
+- **Atlas**: o campo *Groups* (3 no início, de 2 a 10) é quantos grupos o *Find
+  groups* acha (k-means) e quantos se pode desenhar com o mouse; nomes A a J,
+  dez cores (as três primeiras da paleta categórica, depois as do Tableau 10
+  menos parecidas com elas); baixar o número abaixo dos grupos que já existem
+  não apaga nenhum. `--analysis atlas,groups=N`.
+- **Nomes das classes de um mapa de classes** (k-means, SOM, Random Forest,
+  redes...) editáveis na legenda (Display e a linha em Layers): o Pixel values,
+  as estatísticas, as áreas e o projeto usam o nome novo (não é gravado no
+  GeoTIFF). As séries categóricas já tinham os nomes editáveis; um estilo dado
+  a uma camada que acabou de abrir (as classes ainda não achadas) agora espera
+  por elas em vez de se perder (vale também para o projeto reaberto).
+- **O painel do gráfico segue a camada de cima**: um mapa de uma rodada visível
+  por cima da série ativa põe o *Pixel values* no lugar do gráfico (a prévia de
+  uma ferramenta não conta); escondido ou movido para baixo da série, o
+  gráfico volta.
+- **Datas soltas da série** (`split.rs`): numa série aberta (a setinha), uma
+  data arrastada para fora das linhas da série vira uma camada própria e a
+  série é aberta de novo sem ela, com o mesmo nome (só em séries de arquivos
+  separados); *Split into layers* no menu da série faz isso com todas as datas,
+  num grupo com o nome da série, que fecha. As camadas novas levam as cores da
+  série: o colormap, o intervalo como a série o mostra (fixado, para que datas
+  lado a lado se leiam igual) e os nomes das classes. Um arquivo por vez (uma
+  fila de passos: abrir, abrir de novo, fechar).
+- Autoteste: 184 (o mapa por cima, escondido, embaixo), 233 (o k-means sobre a
+  série, um cluster renomeado no Pixel values), 234-236 (uma data de D
+  arrastada para fora, com a classe 3 renomeada; o resto em camadas, 7 no
+  grupo, as 8 visíveis).
+
+**Próximos (pedidos em 2026-11-03, em sub-agentes, cada um num worktree)**: a
+fase 10 do plano de novas ferramentas (área ± IC por transição e estimadores de
+diferença e razão, Zeit e Janus); o avaliador próprio da calculadora (ler os
+arquivos da série direto, sem o VRT e a trava do pool do GDAL); os achados que
+restam da auditoria de layout.
+
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
 - Ferramentas de IA do Zeit como download opcional (PyTorch é pesado).
