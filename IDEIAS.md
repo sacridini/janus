@@ -1788,6 +1788,72 @@ Verificação na main juntada: fmt e clippy do workspace limpos, testes de
 janus-app, janus-cube e janus-validation passando, autoteste da interface
 completo (release, 8 threads) `OK (43.7 s)`.
 
+### Vetores: OGC, ROI salva e editada, perfis de todas as linhas (2026-11-04, sem versão)
+Pedido do usuário depois da 1.11.0: "pode implementar essas aqui": salvar a ROI
+como vetor, rótulos por uma coluna, perfis de todas as linhas para CSV, desenhar
+camadas muito grandes, editar os vértices da ROI, comparar com alertas oficiais
+(DETER, GLAD, RADD) e camadas OGC. Três sub-agentes na primeira leva, cada um
+num worktree e nos seus núcleos (3 + 3 + 2); os alertas numa segunda leva,
+depois do OGC (o DETER vem por WFS). Os blocos do autoteste reservados antes
+(8502e0f): 260-269 ROI e perfis, 270-279 rótulos e camadas grandes, 280-289 OGC,
+290-298 alertas, o fim em 299. A CI da 1.11.0 (build da tag e da main, site;
+testes, wheels e docs do Zeit) passou, e o release tem os três instaladores.
+
+**Camadas OGC (feito):** File → Add web layer... (também no + Add das Camadas e
+na paleta): a URL de um servidor ou um preset (TerraBrasilis: DETER e PRODES;
+IBGE; uma OGC API de demonstração), o serviço achado pela URL ou escolhido (WMS,
+WMTS, WFS, OGC API - Features), as camadas listadas com título, resumo e filtro
+(as 10 178 do IBGE). Um mapa (WMS/WMTS) vira camada da ordem de desenho,
+desenhado como o basemap (um GetMap por tile em Web Mercator pelo driver WMS do
+GDAL), com opacidade, transparência e TIME (o padrão do servidor, uma data
+digitada, a data da série ou até ela: o PRODES anual acumulado acompanhando o
+slider), o crédito no mapa e nas exportações. Feições (WFS/OGC API) da área
+visível, da ROI, da camada ativa ou da camada toda, entre duas datas e com
+filtro, paginadas até um teto (avisado no nome e numa notificação), baixadas
+numa tarefa (Tools → Tasks, com cancelar) para um GeoPackage do cache (12 h) que
+abre como camada vetorial: tudo de vetor funciona nela. Projetos guardam os dois
+(o GeoPackage que sumiu é baixado de novo); `--web-layer` para as capturas.
+Contra o Python: as mesmas 55 feições do DETER 2023, as 2 do IBGE e os 25 lagos
+do pygeoapi que o geopandas, o OWSLib e o requests trazem, no tempo do geopandas
+(4,5 s, 4,3 s, 0,8 s; os dois usam os drivers do GDAL); um tile WMS do DETER
+igual pixel a pixel a um GetMap direto. API `janus_geo::ogc::fetch_features`
+reutilizável pela fase de alertas (DETER/GLAD/RADD). Self-test 280-289 num
+servidor OGC local.
+
+Faltou: as capabilities passadas do diálogo ao driver WFS (~3 s a menos no
+IBGE), um WMTS ao vivo, reabrir um projeto com camadas web (só as entradas são
+checadas), GetFeatureInfo, zoom para a extensão de um mapa, a auditoria de
+layout do diálogo novo.
+
+**Vetores: ROI salva, vértices e perfis de todas as linhas (feito).** A ROI não
+se perde mais ao fechar: View → *Save ROI as vector...* (e a paleta) grava um
+GeoPackage ou GeoJSON no CRS da camada ativa (anéis aninhados por profundidade,
+buracos mantidos; campos `name`, `layer`, `pixels`), opcionalmente aberto como
+camada; Alt+clique nele refaz a mesma ROI, os mesmos pixels. *Edit ROI vertices*
+(Shift+R): arrastar um vértice, puxar o ponto do meio de uma aresta para inserir
+um, clique direito ou Delete para remover; cada mudança é um passo do Undo; um
+polígono de camada tomado como ROI se edita igual, sem tocar no arquivo (modesto
+de propósito, não é editor de SIG). *Profiles of every line...* no menu de uma
+camada de linhas: cada linha amostrada a cerca de um pixel como o transecto (o
+mesmo `sample_line`), todas as datas ou um intervalo, lida só nas janelas de até
+128 px em volta das amostras, uma data por thread, como tarefa com progresso e
+cancelamento; CSV longo e, se pedido, largo. Contra shapely + rasterio (200
+linhas, 4096² × 12 datas): 2 822 100 linhas, mesmos pixels e valores float32 bit
+a bit, distâncias a 5 µm; 0,72 s (3 threads) contra 3,6 s (numpy, cada data
+inteira) e 71 s (`src.sample`); o CSV em 0,77 s contra 9,9 s do pandas. A ROI
+salva, relida pelo geopandas e queimada pelo rasterio, dá os mesmos 5 146 615
+pixels. Distâncias em metros também num CRS geográfico sem código EPSG (o WKT de
+um VRT; vale para o transecto). Autoteste 260–267; guia maps-to-numbers seção
+09.
+
+Faltou: saída em shapefile; o tempo no build release sobre os dados do guia.
+Visto e não investigado: a captura com `--roi` e o mapbiomas_grid (um mapa de
+classes por baixo) nunca dispara.
+
+Verificação: o OGC entrou na main sem rebase (17b6859); a ROI rebaseada sem
+conflito (9969276), com fmt, clippy, os testes de janus-app e janus-geo e o
+autoteste da interface completo (release, 3 threads) `OK (42.7 s)`.
+
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
 - Ferramentas de IA do Zeit como download opcional (PyTorch é pesado).
