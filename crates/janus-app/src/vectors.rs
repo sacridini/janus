@@ -21,8 +21,10 @@ use crate::theme;
 const COLORS: [[f32; 3]; 5] =
     [[1.0, 0.45, 0.15], [0.95, 0.30, 0.95], [0.70, 1.00, 0.20], [1.0, 1.0, 1.0], [0.35, 0.55, 1.0]];
 
-/// Vertices read at most from a file.
-const MAX_VERTICES: usize = 20_000_000;
+/// Vertices read at most from a file: about 140 bytes each once drawn (the file's coordinates, their place on the
+/// map, the GPU's levels; bench/vector-draw.json: 1.2 million polygons of 34 million vertices, a state's CAR, took
+/// 4.9 GB), 14 GB at the limit.
+const MAX_VERTICES: usize = 100_000_000;
 
 pub struct VectorLayer {
     pub id: u32,
@@ -52,6 +54,10 @@ pub struct VectorLayer {
     pub z: u64,
     /// its fields' values, read when asked (attributes.rs)
     pub attrs: crate::attributes::LayerAttributes,
+    /// its features' labels (vector_labels.rs)
+    pub labels: crate::vector_labels::Labels,
+    /// its features by place (the one under the cursor)
+    pub pick: Arc<crate::vector_pick::BoxIndex>,
 }
 
 /// A layer being placed on a thread: for the grid `key`, of the layer's data `data`. Dropped (superseded),
@@ -75,6 +81,7 @@ impl Drop for PlaceJob {
 pub struct Placed {
     px: Vec<Polygon>,
     boxes: Vec<[f32; 4]>,
+    pick: crate::vector_pick::BoxIndex,
     anchor: Vec<[f64; 2]>,
     why: String,
     off_map: bool,
@@ -140,6 +147,7 @@ fn place(data: &VectorData, info: Option<&janus_cube::CubeInfo>, cancel: &Atomic
         out.boxes.push(b);
         out.anchor.push(a);
     }
+    out.pick = crate::vector_pick::BoxIndex::new(&out.boxes);
     out
 }
 
@@ -256,6 +264,7 @@ impl State {
         let v = &mut self.vectors[i];
         v.placed_for = key;
         (v.px, v.boxes, v.anchor) = (Arc::new(p.px), p.boxes, p.anchor);
+        v.pick = Arc::new(p.pick);
         (v.why, v.off_map) = (p.why, p.off_map);
         self.hover_vector = None;
         self.map.dirty = true;
@@ -311,6 +320,7 @@ impl State {
             v.placing = Some(PlaceJob { key, data: v.data.clone(), rx, cancel });
             v.placed_for = 0;
             (v.px, v.boxes, v.anchor) = (Arc::default(), Vec::new(), Vec::new());
+            v.pick = Arc::default();
             v.why.clear();
             self.hover_vector = None;
             self.map.dirty = true;
@@ -363,11 +373,14 @@ impl State {
                     placing: None,
                     z,
                     attrs: Default::default(),
+                    labels: Default::default(),
+                    pick: Default::default(),
                 });
             }
             self.map.dirty = true;
         }
         self.pump_placements(ctx);
+        self.pump_vector_labels(ctx);
     }
 
     pub fn vector_index(&self, id: u32) -> Option<usize> {
@@ -386,11 +399,17 @@ impl State {
     }
 
     /// The vector layers over a map canvas, under the pins and the ROI: what is on screen, about a vertex per
-    /// 1.5 screen points, at most 2 million vertices a frame.
+    /// 1.5 screen points, at most 2 million vertices a frame (300 000 while the GPU's levels are being made: they
+    /// draw it whole in a moment); the layers the GPU draws, only their highlighted feature. Their labels over them.
     pub(crate) fn draw_vector_marks(&self, painter: &egui::Painter, rect: Rect, at: &dyn Fn(f64, f64) -> Pos2) {
         if self.vectors.is_empty() {
             return;
         }
+        self.draw_vector_features(painter, rect, at);
+        self.draw_vector_labels(painter, rect, at);
+    }
+
+    fn draw_vector_features(&self, painter: &egui::Painter, rect: Rect, at: &dyn Fn(f64, f64) -> Pos2) {
         let Some(g) = self.grid() else { return };
         let k = self.screen_per_px();
         // what is on screen, in active pixels (a margin for the lines' width)
@@ -408,6 +427,7 @@ impl State {
         };
         let dark = Color32::from_black_alpha(170);
         let mut budget: usize = 2_000_000; // vertices per frame: beyond, the rest waits for a closer zoom
+        let mut building = false;
         let interp = self.labels.vector.and_then(|id| self.vector_index(id));
         // the feature picked in the Attribute table
         let picked = self.attr_table.picked.and_then(|i| Some((self.vector_index(self.attr_table.layer)?, i)));
@@ -454,7 +474,26 @@ impl State {
                 squares_mesh.reserve_vertices(v.data.points * 8);
                 squares_mesh.reserve_triangles(v.data.points * 4);
             }
-            for (i, parts) in v.px.iter().enumerate() {
+            // its GPU levels being made: a lighter budget (each vertex costs 8 in egui's meshes, kept by its
+            // renderer at their largest)
+            if !on_gpu && self.gpu.is_some() && v.gpu.job.is_some() {
+                budget = budget.min(300_000);
+                building = true;
+            }
+            // drawn by the GPU: its highlighted features alone, by their index
+            let hot_ones: Vec<usize> = [
+                self.hover_vector.filter(|h| h.0 == li).map(|h| h.1),
+                self.labels.current.filter(|_| interp == Some(li)),
+                picked.filter(|p| p.0 == li).map(|p| p.1),
+            ]
+            .into_iter()
+            .flatten()
+            .filter(|&i| i < v.px.len())
+            .collect();
+            let features: Box<dyn Iterator<Item = usize>> =
+                if on_gpu { Box::new(hot_ones.into_iter()) } else { Box::new(0..v.px.len()) };
+            for i in features {
+                let parts = &v.px[i];
                 if budget == 0 {
                     break;
                 }
@@ -540,7 +579,11 @@ impl State {
             painter.text(
                 Pos2::new(clip.min.x + 10.0, clip.max.y - 52.0),
                 egui::Align2::LEFT_TOP,
-                "Vectors: too many vertices to draw at this zoom; zoom in",
+                if building {
+                    "Vectors: preparing the whole layer for drawing..."
+                } else {
+                    "Vectors: too many vertices to draw at this zoom; zoom in"
+                },
                 body_font(painter),
                 Color32::from_rgb(255, 220, 120),
             );
@@ -558,8 +601,10 @@ impl State {
             if !v.visible || v.px.is_empty() {
                 continue;
             }
-            for (i, parts) in v.px.iter().enumerate() {
-                let b = v.boxes[i].map(f64::from);
+            // the features whose box is within reach (vector_pick.rs), in their order
+            for i in v.pick.query(x - t, y - t, x + t, y + t) {
+                let (Some(parts), Some(b)) = (v.px.get(i), v.boxes.get(i)) else { continue };
+                let b = b.map(f64::from);
                 if b[0] > b[2] || x < b[0] - t || x > b[2] + t || y < b[1] - t || y > b[3] + t {
                     continue;
                 }

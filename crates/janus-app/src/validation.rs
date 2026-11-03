@@ -759,6 +759,8 @@ impl State {
             placing: None,
             z,
             attrs: Default::default(),
+            labels: Default::default(),
+            pick: Default::default(),
         });
         self.val.vector_id = id;
         self.val.colors_for = 0;

@@ -187,6 +187,8 @@ pub struct VectorEntry {
     /// fetched from a server: its request, to fetch it again when the file is gone (web_layers.rs)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web: Option<crate::web_layers::WebFeatureEntry>,
+    /// its labels (vector_labels.rs)
+    pub labels: crate::vector_labels::LabelStyle,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -454,6 +456,7 @@ impl State {
                 visible: v.visible,
                 color: v.color.to_array(),
                 web: self.web.source_of(&v.data.path).map(|w| crate::web_layers::WebFeatureEntry::of(&w.req)),
+                labels: v.labels.style.clone(),
             });
         }
         let mut result_key = std::collections::HashMap::new();
@@ -956,6 +959,7 @@ impl State {
                 let v = &mut self.vectors[j];
                 (v.name, v.visible) = (e.name.clone(), e.visible);
                 v.color = egui::Color32::from_rgba_premultiplied(e.color[0], e.color[1], e.color[2], e.color[3]);
+                v.labels.set_style(e.labels.clone());
                 items.insert(format!("v{k}"), Item::Vector(j));
             }
         }

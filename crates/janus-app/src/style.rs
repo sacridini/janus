@@ -2,7 +2,7 @@
 //! style keeps by name in the settings. A series': its display mode, each mode's colormap and range (the ranges set
 //! by hand; the others computed again from the layer's own values), the stretch per date, the RGB bands, its
 //! opacity and blend mode, and whether it is shown as classes, with their names, colours and visibility (given to
-//! the same values of the other layer). A vector layer's: its colour.
+//! the same values of the other layer). A vector layer's: its colour and its labels (column, size, colours).
 
 use egui::Color32;
 use janus_gpu::{Blend, Mode, colormaps};
@@ -26,9 +26,15 @@ pub struct SeriesStyle {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct VectorStyle {
+    pub color: Color32,
+    pub labels: crate::vector_labels::LabelStyle,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum LayerStyle {
     Series(Box<SeriesStyle>),
-    Vector(Color32),
+    Vector(Box<VectorStyle>),
 }
 
 /// A name or a number in the style's text: the characters that separate its fields escaped.
@@ -78,7 +84,9 @@ impl LayerStyle {
     /// "vector;color=rrggbbaa".
     pub fn to_text(&self) -> String {
         match self {
-            LayerStyle::Vector(c) => format!("vector;color={}", hex(&c.to_srgba_unmultiplied())),
+            LayerStyle::Vector(v) => {
+                format!("vector;color={}{}", hex(&v.color.to_srgba_unmultiplied()), v.labels.to_text())
+            }
             LayerStyle::Series(s) => {
                 let cmaps = colormaps::all();
                 let cmap: Vec<String> =
@@ -117,7 +125,11 @@ impl LayerStyle {
         let get = |k: &str| fields.iter().find(|f| f.0 == k).map(|f| f.1);
         if kind == "vector" {
             let [r, g, b, a] = unhex::<4>(get("color")?)?;
-            return Some(LayerStyle::Vector(Color32::from_rgba_unmultiplied(r, g, b, a)));
+            let labels = crate::vector_labels::LabelStyle::from_fields(&|k| get(k).map(String::from));
+            return Some(LayerStyle::Vector(Box::new(VectorStyle {
+                color: Color32::from_rgba_unmultiplied(r, g, b, a),
+                labels,
+            })));
         }
         if kind != "series" {
             return None;
@@ -181,7 +193,11 @@ impl State {
         match sel {
             // a run's map: its colours are its own (its row's details)
             Sel::Result(_) => None,
-            Sel::Vector(id) => self.vectors.iter().find(|v| v.id == id).map(|v| LayerStyle::Vector(v.color)),
+            Sel::Vector(id) => {
+                self.vectors.iter().find(|v| v.id == id).map(|v| {
+                    LayerStyle::Vector(Box::new(VectorStyle { color: v.color, labels: v.labels.style.clone() }))
+                })
+            }
             Sel::Series(id) => {
                 let i = self.series_index(id)?;
                 let l = &self.layers[i];
@@ -204,9 +220,10 @@ impl State {
     /// `style` given to layer `sel`; false if it is a style of the other kind of layer.
     pub(crate) fn apply_style(&mut self, sel: Sel, style: &LayerStyle) -> bool {
         match (sel, style) {
-            (Sel::Vector(id), LayerStyle::Vector(c)) => {
+            (Sel::Vector(id), LayerStyle::Vector(st)) => {
                 let Some(v) = self.vectors.iter_mut().find(|v| v.id == id) else { return false };
-                v.color = *c;
+                v.color = st.color;
+                v.labels.set_style(st.labels.clone());
             }
             (Sel::Series(id), LayerStyle::Series(st)) => {
                 let Some(i) = self.series_index(id) else { return false };
@@ -311,8 +328,23 @@ mod tests {
             }]),
         }));
         assert_eq!(LayerStyle::from_text(&s.to_text()), Some(s));
-        let v = LayerStyle::Vector(Color32::from_rgba_unmultiplied(255, 128, 0, 200));
+        let v = LayerStyle::Vector(Box::new(VectorStyle {
+            color: Color32::from_rgba_unmultiplied(255, 128, 0, 200),
+            labels: Default::default(),
+        }));
         assert_eq!(LayerStyle::from_text(&v.to_text()), Some(v));
+        let labels = crate::vector_labels::LabelStyle {
+            field: "CAR; id=x".into(),
+            size: 15.0,
+            color: [255, 255, 0, 255],
+            halo: true,
+            halo_color: [10, 20, 30, 200],
+        };
+        let v = LayerStyle::Vector(Box::new(VectorStyle { color: Color32::from_rgb(1, 2, 3), labels }));
+        assert_eq!(LayerStyle::from_text(&v.to_text()), Some(v));
+        // a style saved before labels: none
+        let old = LayerStyle::from_text("vector;color=ff800080");
+        assert!(matches!(old, Some(LayerStyle::Vector(v)) if !v.labels.on()));
         assert_eq!(LayerStyle::from_text("nonsense"), None);
     }
 }

@@ -939,6 +939,7 @@ impl State {
                         self.map.dirty = true;
                     }
                 });
+                self.map.dirty |= crate::vector_labels::labels_menu(ui, v);
                 style_menu(ui, me, &extra, style_name, acts);
                 ui.separator();
                 if ui

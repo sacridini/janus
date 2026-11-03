@@ -794,6 +794,8 @@ impl State {
             placing: None,
             z,
             attrs: Default::default(),
+            labels: Default::default(),
+            pick: Default::default(),
         });
         self.ml.folds_view.layer = Some(id);
         let i = self.vectors.len() - 1;

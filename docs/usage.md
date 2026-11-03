@@ -404,7 +404,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Polygonal ROI | `R` (or View → Draw ROI polygon), then click the vertices and close it on the first one, with a double click or `Enter` (`Backspace` undoes a vertex, `Esc` cancels); or, after `R`, drag a freehand outline (lasso), closed when you let go. The statistics, the local PCA of embeddings, the similarity to the ROI and the scatter use the pixels whose centres are inside; a Zeit run on the ROI covers its bounding box. **Alt + click** a polygon of a vector layer (holes included) to make it the ROI; View → Clear ROI |
 | Edit ROI vertices | `Shift+R` (or View → Edit ROI vertices, the command palette) with an ROI, drawn or taken from a polygon of a vector layer (its file is not changed): a square at each vertex, a dot in the middle of each edge. Drag a vertex to move it; drag an edge's middle to add a vertex there; right click a vertex, or `Delete` / `Backspace` over it, to remove it (a ring keeps three). Each change is the ROI at once (its statistics read again) and a step of **Undo** (`Ctrl+Z`); `Shift+R`, `Esc` or `Enter` end the editing. A rectangle edited becomes a polygon of four vertices. Not a GIS editor: one ROI, its vertices only |
 | Save ROI as vector | View → **Save ROI as vector...** (or the command palette): the ROI (a rectangle or a polygon, holes kept) as a GeoPackage (`.gpkg`) or GeoJSON (`.geojson`), by the name's extension, in the active layer's CRS (a GeoJSON in WGS 84 when the CRS has no EPSG code, as RFC 7946 asks), a feature with `name`, `layer` and `pixels`; *Open it as a vector layer* adds it to the map. **Alt + click** it later makes the same ROI again, the same pixels inside. A project (File → Save project) keeps the ROI too |
-| Vector layers | File → Add vector layer..., the **Layers** panel (*Add vector layer...*), a drop or the command line: GeoJSON, Shapefile, GeoPackage (each of its layers), KML, FlatGeobuf, GML, GPX or a CSV of points; listed in the **Layers** panel with the series (a new one on top): show/hide, colour, move, remove; right click → Zoom to it, Attribute table, Extract series, Interpret. Hovering a point shows its attributes (lines and polygons: hold `Alt`); see [Vector layers](#vector-layers) |
+| Vector layers | File → Add vector layer..., the **Layers** panel (*Add vector layer...*), a drop or the command line: GeoJSON, Shapefile, GeoPackage (each of its layers), KML, FlatGeobuf, GML, GPX or a CSV of points; listed in the **Layers** panel with the series (a new one on top): show/hide, colour, labels (a column's values on the map), move, remove; right click → Zoom to it, Attribute table, Extract series, Interpret. Hovering a point shows its attributes (lines and polygons: hold `Alt`); see [Vector layers](#vector-layers) |
 | Series at points or polygons | a vector layer → **Extract series...**: the active layer or every visible one, a row per feature (a column per date) or a row per feature and date; CSV |
 | Interpretation (labelling) | a vector layer → **Interpret...** (the **Interpretation** panel): `N` / `Shift+N` (or Page Down / Page Up) next / previous feature, `1`–`9` its label, `0` clears it, `D` the date of the change (the date on the map), `Shift+D` none; notes; *Export table...* |
 | Animation | File → Export animation (`Ctrl+Shift+A`): dates (from, to, step), frame rate, resolution, GIF / MP4 / WebM, date stamp, legend, scale bar, pins, ROI and vector layers; see [Animation](#animation-gif-mp4-webm) |
@@ -1228,8 +1228,38 @@ read as longitude and latitude).
   16.9 million vertices) draw in about 0.3 ms a frame, the whole country or
   zoomed in to the street, against 45 ms (and an incomplete map) on the CPU;
   read in 0.5 s, placed in 0.05 s (0.4 s reprojected to UTM), built for the
-  GPU in 0.4–1.2 s, 230–380 MB of GPU memory. Until a layer is uploaded, and
-  for the feature under the cursor, the CPU draws it.
+  GPU in 0.4–1.2 s, 230–380 MB of GPU memory. A level is kept when it has at
+  most 60% of the points of the finer one kept (counted on a sample of the
+  pieces first, so only those are made); a ring smaller than a level's
+  tolerance is a dot in it. A file is read whole up to 100 million vertices
+  (about 140 bytes each once drawn). A state's CAR, made up
+  (`tools/bench_vector_draw.py`: 1.2 million polygons, 34 million vertices,
+  `bench/vector-draw.json`), is read in 1.6 s, placed in 0.4 s, built for the
+  GPU in 1.0–1.3 s (730 MB on the GPU, 4.9 GB of memory in all) and drawn
+  whole 3–4 s after it was opened; a frame takes 4–9 ms with the whole layer
+  in view, 1 ms 8 times closer, 0.4 ms zoomed in, and 97% of its outlines (as
+  GDAL rasterizes them) are lit zoomed out, where the CPU drew 56% of a file
+  cut at 20 million vertices. Until a layer is uploaded the CPU draws it
+  (300 000 vertices a frame), and always the feature under the cursor, the
+  one interpreted and those picked in the attribute table. The feature under
+  the cursor (and `Alt` + click) is found through a grid of the features'
+  boxes: 38 µs among those 1.2 million polygons (0.7 ms before).
+- **Labels** (the layer's menu → *Labels*): the values of a column (a
+  field's name, a municipality, a CAR id...) written on the map, their size,
+  colour and halo (an outline that keeps them legible over any image). A
+  polygon's label at its point inside (the one Alt + click and the
+  interpretation use), a line's at the middle of its length, a point's to its
+  right. A polygon or a line is labelled only when its box on screen is at
+  least twice the label's height; no two labels overlap: the larger features
+  first (a polygon's box, a line's length), a label that would cover one
+  already placed is left out, as are those of a layer under another's; at
+  most 1500 a view. The column is read on a thread (OGR skipping the
+  geometries and the other fields), the label points made once per placement
+  in a grid of cells, each cell's features from the largest, so a view of a
+  million polygons takes only those large enough. Kept in the project, copied
+  with *Copy style* (a saved style too), drawn in the map's PNG and the
+  animation (*Pins, ROI and vector layers*). `--labels FIELD[,SIZE]` labels
+  every vector layer (screenshots).
 - **Attributes**: a file opens with its geometries alone (OGR skips the
   fields: 200 000 polygons of 16 fields read in 0.23 s from a GeoPackage
   instead of 1.07 s, 0.68 s instead of 1.85 s from a Shapefile); the fields

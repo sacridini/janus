@@ -466,6 +466,8 @@ impl State {
                     }
                 }
             }
+            // their labels over them, placed as the map places them
+            self.draw_vector_labels_on(&mut cv, &|x, y| to_px(x, y), ps);
             let yellow = rgba(255, 210, 60, 255);
             if let Some(r) = self.series.roi_rect {
                 if self.series.roi_poly.is_empty() {

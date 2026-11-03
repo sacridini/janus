@@ -1,0 +1,191 @@
+{
+  "layer": {
+    "polygons": 1201616,
+    "vertices": 35640920,
+    "crs": "EPSG:4674",
+    "series": "2000 x 2000 x 3 Float32 on the same extent"
+  },
+  "machine": "RTX 3060 (Direct3D 12), Janus pinned to 3 cores, --threads 3, release build",
+  "runs": {
+    "before": {
+      "cpu_draw": {
+        "whole series": {
+          "p50_ms": 9.999999999999999e-05,
+          "p95_ms": 0.0031,
+          "vertices": 0
+        },
+        "whole series, a feature hovered": {
+          "p50_ms": 1.5384,
+          "p95_ms": 1.5848,
+          "vertices": 8
+        },
+        "zoomed in": {
+          "p50_ms": 9.999999999999999e-05,
+          "p95_ms": 9.999999999999999e-05,
+          "vertices": 0
+        }
+      },
+      "first_whole_draw_ms": 2325.2307,
+      "frames_until_whole": 167,
+      "gpu": [
+        {
+          "build_ms": 775.1686,
+          "gpu_mb": 430.60536193847656,
+          "level_points": [
+            21427881,
+            9184597,
+            4146550,
+            2390138
+          ]
+        }
+      ],
+      "gpu_frames": {
+        "8x closer": {
+          "p50_ms": 1.0734,
+          "p95_ms": 1.909
+        },
+        "whole series": {
+          "p50_ms": 4.6754,
+          "p95_ms": 5.7062
+        },
+        "zoomed in": {
+          "p50_ms": 0.34469999999999995,
+          "p95_ms": 0.41140000000000004
+        }
+      },
+      "layers": [
+        {
+          "features": 713937,
+          "name": "car.gpkg",
+          "place_ms": 189.9419,
+          "read_ms": 941.3694,
+          "truncated": true,
+          "vertices": 20000007
+        }
+      ],
+      "memory_layers_mb": 4792.8203125,
+      "memory_mb": 5587.86328125,
+      "memory_peak_mb": 5587.86328125,
+      "memory_placed_mb": 1099.8515625,
+      "memory_read_mb": 475.57421875,
+      "picking_us, whole series": 679.49685,
+      "picking_us, zoomed in": 652.35085,
+      "read_and_placed_ms": 1191.8580000000002,
+      "series_in_frame": [
+        359.0,
+        9.0,
+        1241.0,
+        891.0
+      ],
+      "series_in_frame_8x": [
+        -2728.0,
+        -3078.0,
+        4328.0,
+        3978.0
+      ],
+      "completeness": {
+        "whole layer": {
+          "outline_pixels": 777924,
+          "drawn_of_them": 438261,
+          "share": 0.5633725145386953
+        },
+        "8x closer": {
+          "outline_pixels": 414819,
+          "drawn_of_them": 408402,
+          "share": 0.9845306025037426
+        }
+      }
+    },
+    "after": {
+      "cpu_draw": {
+        "whole series": {
+          "p50_ms": 0.00019999999999999998,
+          "p95_ms": 0.0059,
+          "vertices": 0
+        },
+        "whole series, a feature hovered": {
+          "p50_ms": 0.0006,
+          "p95_ms": 0.011300000000000001,
+          "vertices": 8
+        },
+        "zoomed in": {
+          "p50_ms": 9.999999999999999e-05,
+          "p95_ms": 0.0003,
+          "vertices": 0
+        }
+      },
+      "first_whole_draw_ms": 4032.8345,
+      "frames_until_whole": 312,
+      "gpu": [
+        {
+          "build_ms": 1290.8215,
+          "gpu_mb": 730.4822235107422,
+          "level_points": [
+            36842536,
+            15503353,
+            7003785,
+            2466748,
+            1210006
+          ]
+        }
+      ],
+      "gpu_frames": {
+        "8x closer": {
+          "p50_ms": 1.0186,
+          "p95_ms": 1.3652
+        },
+        "whole series": {
+          "p50_ms": 8.611600000000001,
+          "p95_ms": 14.5854
+        },
+        "zoomed in": {
+          "p50_ms": 0.3993,
+          "p95_ms": 0.4547
+        }
+      },
+      "layers": [
+        {
+          "features": 1201616,
+          "name": "car.gpkg",
+          "place_ms": 386.395,
+          "read_ms": 1621.5456000000001,
+          "truncated": false,
+          "vertices": 34439304
+        }
+      ],
+      "memory_drawn_mb": 4904.63671875,
+      "memory_layers_mb": 5639.9921875,
+      "memory_mb": 6446.78515625,
+      "memory_peak_mb": 6446.78515625,
+      "memory_placed_mb": 1957.87890625,
+      "memory_read_mb": 857.54296875,
+      "picking_us, whole series": 37.595299999999995,
+      "picking_us, zoomed in": 4.7171,
+      "read_and_placed_ms": 2138.4127,
+      "series_in_frame": [
+        359.0,
+        9.0,
+        1241.0,
+        891.0
+      ],
+      "series_in_frame_8x": [
+        -2728.0,
+        -3078.0,
+        4328.0,
+        3978.0
+      ],
+      "completeness": {
+        "whole layer": {
+          "outline_pixels": 777924,
+          "drawn_of_them": 757529,
+          "share": 0.9737827859790931
+        },
+        "8x closer": {
+          "outline_pixels": 414819,
+          "drawn_of_them": 414769,
+          "share": 0.9998794655018213
+        }
+      }
+    }
+  }
+}

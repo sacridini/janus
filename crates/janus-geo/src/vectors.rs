@@ -445,6 +445,56 @@ pub fn read_attributes(v: &VectorData, done: &AtomicUsize, cancel: &AtomicBool) 
     r.map(|_| rows)
 }
 
+/// Field k's values of v's features (a layer's labels), a value per feature in the order they were read: those
+/// read with its geometries, else from its file again with OGR told to skip the geometries and the other fields;
+/// `cancel` stops it. Err if the file changed since (its features are not the same).
+pub fn read_field(v: &VectorData, k: usize, cancel: &AtomicBool) -> Result<Vec<String>, String> {
+    if k >= v.fields.len() {
+        return Err(format!("{} has no field {k}", v.layer));
+    }
+    if v.has_values() {
+        return Ok(v.features.iter().map(|f| f.values.get(k).cloned().unwrap_or_default()).collect());
+    }
+    let (ds, l) = reopen(v)?;
+    let n = v.features.len();
+    let mut out = Vec::with_capacity(n);
+    let changed = || format!("{} changed since it was read: open it again", v.path);
+    let r = unsafe {
+        let mut skip: Vec<&str> = vec!["OGR_GEOMETRY", "OGR_STYLE"];
+        skip.extend(v.fields.iter().enumerate().filter(|(j, _)| *j != k).map(|(_, f)| f.as_str()));
+        ignore_fields(l, &skip);
+        gdal_sys::OGR_L_ResetReading(l);
+        loop {
+            if out.len() == n {
+                break Ok(());
+            }
+            if cancel.load(Ordering::Relaxed) {
+                break Err("cancelled".to_string());
+            }
+            let f = gdal_sys::OGR_L_GetNextFeature(l);
+            if f.is_null() {
+                break Err(changed());
+            }
+            let same = gdal_sys::OGR_F_GetFID(f) == v.features[out.len()].fid
+                && gdal_sys::OGR_F_GetFieldCount(f) as usize == v.fields.len();
+            if same {
+                let k = k as i32;
+                out.push(if gdal_sys::OGR_F_IsFieldSetAndNotNull(f, k) != 0 {
+                    c_string(gdal_sys::OGR_F_GetFieldAsString(f, k))
+                } else {
+                    String::new()
+                });
+            }
+            gdal_sys::OGR_F_Destroy(f);
+            if !same {
+                break Err(changed());
+            }
+        }
+    };
+    unsafe { gdal_sys::GDALClose(ds) };
+    r.map(|_| out)
+}
+
 /// The fields' values of every feature of v: those read with its geometries, else read from its file now.
 pub fn attributes(v: &VectorData) -> Result<Vec<Vec<String>>, String> {
     if v.has_values() {
@@ -909,6 +959,13 @@ mod tests {
             assert_eq!((rows.len(), done.load(Ordering::Relaxed)), (2, 2));
             assert_eq!(rows[1], row1);
             assert_eq!(attributes(v).unwrap(), rows);
+            // a column alone (a layer's labels): the same values
+            for k in 0..fields.len() {
+                let col: Vec<String> = rows.iter().map(|r| r[k].clone()).collect();
+                assert_eq!(read_field(v, k, &AtomicBool::new(false)).unwrap(), col);
+                assert_eq!(read_field(full, k.min(1), &AtomicBool::new(false)).unwrap().len(), 2);
+            }
+            assert!(read_field(v, fields.len(), &AtomicBool::new(false)).is_err());
             let mut r = FeatureReader::open(v).unwrap();
             assert_eq!(r.values(v.features[1].fid).as_ref(), Some(&rows[1]));
             assert_eq!(r.values(v.features[0].fid).as_ref(), Some(&rows[0]));
@@ -931,6 +988,7 @@ mod tests {
         )
         .unwrap();
         assert!(read_attributes(v, &AtomicUsize::new(0), &AtomicBool::new(false)).unwrap_err().contains("changed"));
+        assert!(read_field(v, 0, &AtomicBool::new(false)).unwrap_err().contains("changed"));
         let _ = std::fs::remove_dir_all(&d);
     }
 }

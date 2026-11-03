@@ -97,6 +97,8 @@ mod validation;
 mod validation_tabs;
 mod values;
 mod vector_gpu;
+mod vector_labels;
+mod vector_pick;
 mod vectors;
 mod views;
 mod warp_ui;
@@ -162,8 +164,9 @@ Developer options:
   --measure-cache on|off IN  time exact series and an ROI from the files, build the overview (and the
                       full-resolution cache if on), time the reads again from the cache, check them
                       against the files; without a window
-  --measure-vectors IN VEC...  a series and vector files over it: reading, placing, drawing, picking and
-                      extracting the series at every feature, timed
+  --measure-vectors IN VEC...  a series and vector files over it: reading, placing, drawing (CPU and GPU frames,
+                      time to the first whole draw, memory), picking and extracting the series at every
+                      feature, timed (JANUS_MEASURE_JSON, JANUS_MEASURE_PNG: the numbers, the frames)
   --measure-validation IN  the strata of a map (a buffer of 1 px), its areas, a sample of 1000 points, the
                       map at them and the estimators, timed
   The state of the window once the series is open (for screenshots):
@@ -174,6 +177,7 @@ Developer options:
                       shown as filled), filter=TEXT; repeatable
   --season A-B        a season (days of the year A to B, e.g. 152-243)
   --layer IN          IN added as a layer (repeatable)
+  --labels FIELD[,SIZE]  every vector layer's features labelled by FIELD (SIZE points; before --screenshot)
   --map-view          a map panel
   --swipe             the swipe
   --lens              the swipe as a lens (a circle at the cursor)
@@ -498,6 +502,7 @@ fn main() -> eframe::Result<()> {
             "--basemap" => opts.basemap = args.next(),
             "--web-layer" => opts.web_layers.extend(args.next()),
             "--layer" => opts.extra_layers.extend(args.next()),
+            "--labels" => opts.labels = args.next(),
             "--map-view" => opts.map_view = true,
             "--validation-tab" => opts.validation_tab = args.next().and_then(|v| v.parse().ok()),
             "--swipe" => opts.swipe = true,

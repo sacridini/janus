@@ -55,7 +55,7 @@ runs on thread pools; a GDAL dataset is never shared between threads (each threa
 | `panels.rs`, `display.rs`, `layers.rs`, `files.rs`, `settings.rs`, `theme.rs` | Display, Layers, Files, Statistics, Performance and Settings; the seven themes and the fonts (ProggyClean at 13 px, ProggyForever at other sizes) |
 | `series.rs`, `chart.rs`, `roi.rs`, `season.rs` | The series on the chart (cursor, pins, ROI, other layers'), the chart, the ROI's shape, the season and temporal composites |
 | `classes.rs`, `composite.rs`, `analysis.rs`, `transect.rs` | Categorical series, RGB composites of three bands, the Analysis panel, the space-time transect |
-| `vectors.rs`, `labels.rs` | Vector layers (placing, drawing, picking, extracting series) and interpretation (TimeSync style) |
+| `vectors.rs`, `vector_gpu.rs`, `vector_pick.rs`, `vector_labels.rs`, `labels.rs` | Vector layers (placing, drawing, picking, extracting series), their levels of detail on the GPU, the grid of their boxes for picking, their labels; interpretation (TimeSync style) |
 | `zeit.rs`, `python.rs` | The Tools menu, a panel per tool made from its descriptor, fits on the chart, Tasks, Log, result layers; *Copy Python* |
 | `embeddings.rs`, `emb_download.rs` | Embeddings in the interface and their download for the visible area |
 | `validation.rs`, `validation_tabs.rs`, `chips.rs` | The Validation menu and panel, the project's sample as a vector layer, blind interpretation, Chips |

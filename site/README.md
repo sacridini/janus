@@ -135,6 +135,7 @@ pixels differ from the source), the names written back as `.aux.xml`;
     janus landsat --layer mapbiomas_grid --interface modern --date 34 --pin 71,793 --pin 65,1038 --view 260,890,1.5 --screenshot grid.png
     janus landsat --layer mapbiomas_grid --interface modern --date 34 --window areas-run --analysis areas --detach-map --screenshot areas.png
     janus landsat --layer mapbiomas_grid --layer poly/mapbiomas_1985_polygons.gpkg --interface modern --date 1 --window polygonize --pin 71,793 --view 160,800,3 --screenshot poly.png
+    janus landsat --layer mapbiomas_grid --layer poly/mapbiomas_1985_polygons.gpkg --interface modern --date 1 --labels class --screenshot labels.png
     janus mapbiomas_grid --layer landsat --layer poly/forest_1985.gpkg --interface modern --window rasterize-run --screenshot rasterize.png
     janus poly/forest_1985_mask_landsat.tif --layer landsat --interface modern --zeit mann_kendall --screenshot only.png
     janus landsat --layer mapbiomas_grid --layer poly/forest_1985.gpkg --interface modern --date 34 --window zonal-run --analysis zonal --screenshot zonal.png

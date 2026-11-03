@@ -2397,10 +2397,7 @@ impl State {
             // labels and layers too large to draw a vertex at a time; 280-289 OGC layers (WMS, WFS, OGC API);
             // 290-298 official alerts against a map of change
             260..=269 => self.test_roi_profiles(st, t0, ctx),
-            270 => {
-                st.stage = 280;
-                None
-            }
+            270..=279 => self.test_vector_draw(st, t0, ctx),
             280..=289 => self.test_web(st, t0, ctx),
             290 => {
                 st.stage = 299;

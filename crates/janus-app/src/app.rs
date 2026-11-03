@@ -330,6 +330,8 @@ pub struct Options {
     pub season: Option<(i32, i32)>,
     /// --layer: series added as layers once the first is open
     pub extra_layers: Vec<String>,
+    /// --labels FIELD[,SIZE]: every vector layer labelled by FIELD (screenshots)
+    pub labels: Option<String>,
     /// --map-view, --swipe: a map panel, the swipe, once every series is open (screenshots)
     pub map_view: bool,
     /// a validation project opened: its panel on this tab (0 Design ... 4 Report)
@@ -2314,6 +2316,7 @@ impl State {
                 && pins_ready
                 && tiles_ready
                 && self.trend_test_settled()
+                && self.vectors_settled()
                 && self.bands_settled()
                 && self.atlas_settled()
                 && (self.opts.stac.is_none()

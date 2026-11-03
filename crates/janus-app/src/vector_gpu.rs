@@ -10,6 +10,9 @@
 //!   in view, near each other along the curve, make a few runs, a draw call each.
 //! - Fills (when the layer is filled): each polygon's triangles (earcut), its holes the rings turning the other
 //!   way.
+//! - Dots: a ring smaller than a level's tolerance is a point of that level, drawn as a square as wide as a line
+//!   (one instance instead of the three of a line of two equal points and its break: a state's CAR zoomed out is
+//!   mostly dots).
 //!
 //! Made on a thread (in parallel over the pieces) from the layer as placed on the active layer's grid; drawn into
 //! the map's frame in the drawing order of the layers (order.rs). Picking and the highlighted feature stay on the
@@ -37,6 +40,9 @@ struct Level {
     tris: Vec<u32>,
     ranges: Vec<Range<u32>>,
     tri_ranges: Vec<Range<u32>>,
+    /// the rings smaller than its tolerance, a point each
+    dots: Vec<VectorPoint>,
+    dot_ranges: Vec<Range<u32>>,
 }
 
 /// A layer's geometry made for the GPU.
@@ -52,8 +58,9 @@ pub struct Built {
     pub ms: f64,
 }
 
-/// A level on the GPU: its geometry, each piece's ranges of points and of triangles.
-type GpuLevel = (VectorGeometry, Vec<Range<u32>>, Vec<Range<u32>>);
+/// A level on the GPU: its geometry, each piece's ranges of points and of triangles; its dots and each piece's
+/// range of them.
+type GpuLevel = (VectorGeometry, Vec<Range<u32>>, Vec<Range<u32>>, Option<(VectorGeometry, Vec<Range<u32>>)>);
 
 /// A layer on the GPU.
 pub struct VectorGpu {
@@ -144,6 +151,22 @@ impl Simplified {
         }
         keep2.truncate(pts.len());
         Simplified { pts, keep2, size: (x1 - x0).max(y1 - y0), closed }
+    }
+
+    /// How many points a level of tolerance `tol` has of it (with its break; a dot: one).
+    fn count(&self, tol: f64) -> usize {
+        let p = &self.pts;
+        if p.is_empty() {
+            0
+        } else if tol <= 0.0 {
+            p.len() + 1
+        } else if self.size < tol {
+            1
+        } else {
+            let t2 = tol * tol;
+            let n = if self.closed { p.len() - 1 } else { p.len() };
+            self.keep2[..n].iter().filter(|k| **k > t2).count() + usize::from(self.closed) + 1
+        }
     }
 
     /// Its points at `tol` (0: as it is), into `out`: closed again for a closed one; smaller than the tolerance,
@@ -274,67 +297,29 @@ pub fn build(px: &[Polygon], kinds: &[Kind], fill: bool, key: u64) -> Built {
             piece_of[i] = k as u32;
         }
     }
-    // each piece: its box, origin, point features and levels
-    type Piece = ([f64; 4], [f64; 2], Vec<VectorPoint>, Vec<(Vec<VectorPoint>, Vec<u32>)>);
-    let pieces: Vec<Piece> = pieces_of
-        .par_iter()
-        .map(|feats| {
-            let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
-            for &i in feats {
-                let c = boxes[i].unwrap();
-                b = [b[0].min(c[0]), b[1].min(c[1]), b[2].max(c[2]), b[3].max(c[3])];
-            }
-            let origin = [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0];
-            let rel = |q: [f64; 2], f: usize| VectorPoint {
-                x: (q[0] - origin[0]) as f32,
-                y: (q[1] - origin[1]) as f32,
-                f: f as u32,
-            };
-            let mut points = vec![];
-            for &i in feats.iter().filter(|&&i| kinds[i] == Kind::Point) {
-                points.extend(px[i].iter().filter(|r| r.len() >= 2).map(|r| rel([r[0], r[1]], i)));
-            }
-            // each ring's Douglas-Peucker once, every level then a filter of it
-            let shapes: Vec<(usize, Vec<Simplified>)> = feats
-                .iter()
-                .filter(|&&i| matches!(kinds[i], Kind::Line | Kind::Area))
-                .map(|&i| (i, px[i].iter().map(|r| Simplified::new(r, kinds[i] == Kind::Area)).collect()))
-                .collect();
-            let mut levels = Vec::with_capacity(tols.len());
-            let (mut at, mut ring) = (Vec::new(), Vec::new());
-            let mut rings: Vec<Vec<[f64; 2]>> = Vec::new();
-            for &tol in &tols {
-                let (mut pts, mut tris) = (Vec::new(), Vec::new());
-                for (i, s) in &shapes {
-                    let filled = fill && kinds[*i] == Kind::Area;
-                    // each ring a line of its own: a break after it
-                    at.clear();
-                    rings.clear();
-                    for r in s {
-                        let start = pts.len();
-                        if !r.at(tol, &mut |q| pts.push(rel(q, *i))) {
-                            continue;
-                        }
-                        at.push(start as u32);
-                        if filled {
-                            ring.clear();
-                            r.at(tol, &mut |q| ring.push(q));
-                            rings.push(ring.clone());
-                        }
-                        pts.push(VectorPoint::BREAK);
-                    }
-                    if filled {
-                        triangulate(&rings, &at, &mut tris);
-                    }
-                }
-                levels.push((pts, tris));
-            }
-            (b, origin, points, levels)
-        })
-        .collect();
+    // each piece's rings: Douglas-Peucker once, every level then a filter of it
+    let simplify = |feats: &[usize]| -> Vec<(usize, Vec<Simplified>)> {
+        feats
+            .iter()
+            .filter(|&&i| matches!(kinds[i], Kind::Line | Kind::Area))
+            .map(|&i| (i, px[i].iter().map(|r| Simplified::new(r, kinds[i] == Kind::Area)).collect()))
+            .collect()
+    };
     // a level kept only if it has at most 60% of the points of the finer one kept (a frame then draws at most
-    // twice the detail it needs; levels nearly as large as the one before them cost memory for nothing)
-    let totals: Vec<usize> = (0..tols.len()).map(|l| pieces.iter().map(|p| p.3[l].0.len()).sum()).collect();
+    // twice the detail it needs; levels nearly as large as the one before them cost memory for nothing): counted
+    // first on a sample of the pieces (every k-th of them, along the curve: all over the layer), so that only the
+    // levels kept are made (made all, the levels of a state's CAR took 1.4 GB more while it was built)
+    let stride = (pieces_of.len() / 256).max(1);
+    let totals = pieces_of
+        .par_iter()
+        .step_by(stride)
+        .map(|feats| {
+            let shapes = simplify(feats);
+            tols.iter()
+                .map(|&tol| shapes.iter().flat_map(|(_, s)| s).map(|r| r.count(tol)).sum::<usize>())
+                .collect::<Vec<usize>>()
+        })
+        .reduce(|| vec![0; tols.len()], |a, b| a.iter().zip(&b).map(|(x, y)| x + y).collect());
     let mut keep = vec![false; tols.len()];
     let mut last = usize::MAX;
     for (l, &n) in totals.iter().enumerate() {
@@ -343,24 +328,91 @@ pub fn build(px: &[Polygon], kinds: &[Kind], fill: bool, key: u64) -> Built {
         }
     }
     let tols: Vec<f64> = tols.iter().zip(&keep).filter(|(_, k)| **k).map(|(t, _)| *t).collect();
-    // the pieces one after the other, level by level
+    // each piece: its box, origin, point features and levels
+    type Piece = ([f64; 4], [f64; 2], Vec<VectorPoint>, Vec<(Vec<VectorPoint>, Vec<u32>, Vec<VectorPoint>)>);
+    let make = |feats: &Vec<usize>| -> Piece {
+        let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+        for &i in feats {
+            let c = boxes[i].unwrap();
+            b = [b[0].min(c[0]), b[1].min(c[1]), b[2].max(c[2]), b[3].max(c[3])];
+        }
+        let origin = [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0];
+        let rel = |q: [f64; 2], f: usize| VectorPoint {
+            x: (q[0] - origin[0]) as f32,
+            y: (q[1] - origin[1]) as f32,
+            f: f as u32,
+        };
+        let mut points = vec![];
+        for &i in feats.iter().filter(|&&i| kinds[i] == Kind::Point) {
+            points.extend(px[i].iter().filter(|r| r.len() >= 2).map(|r| rel([r[0], r[1]], i)));
+        }
+        let shapes = simplify(feats);
+        let mut levels = Vec::with_capacity(tols.len());
+        let (mut at, mut ring) = (Vec::new(), Vec::new());
+        let mut rings: Vec<Vec<[f64; 2]>> = Vec::new();
+        for &tol in &tols {
+            let (mut pts, mut tris, mut dots) = (Vec::new(), Vec::new(), Vec::new());
+            for (i, s) in &shapes {
+                let filled = fill && kinds[*i] == Kind::Area;
+                // each ring a line of its own: a break after it
+                at.clear();
+                rings.clear();
+                for r in s {
+                    if tol > 0.0 && r.size < tol {
+                        if let Some(&q) = r.pts.first() {
+                            dots.push(rel(q, *i));
+                        }
+                        continue;
+                    }
+                    let start = pts.len();
+                    if !r.at(tol, &mut |q| pts.push(rel(q, *i))) {
+                        continue;
+                    }
+                    at.push(start as u32);
+                    if filled {
+                        ring.clear();
+                        r.at(tol, &mut |q| ring.push(q));
+                        rings.push(ring.clone());
+                    }
+                    pts.push(VectorPoint::BREAK);
+                }
+                if filled {
+                    triangulate(&rings, &at, &mut tris);
+                }
+            }
+            levels.push((pts, tris, dots));
+        }
+        (b, origin, points, levels)
+    };
+    // the pieces made a batch at a time (in parallel) and put one after the other, level by level: a batch's
+    // buffers given back before the next is made
     let mut levels: Vec<Level> = (0..tols.len()).map(|_| Level::default()).collect();
     let mut points = Level::default();
-    let (mut bboxes, mut origins) = (Vec::with_capacity(pieces.len()), Vec::with_capacity(pieces.len()));
-    for (b, o, pp, ls) in pieces {
-        bboxes.push(b);
-        origins.push(o);
-        let s = points.pts.len() as u32;
-        points.pts.extend(pp);
-        points.ranges.push(s..points.pts.len() as u32);
-        let ls = ls.into_iter().zip(&keep).filter(|(_, k)| **k).map(|(l, _)| l);
-        for (l, (pts, tris)) in levels.iter_mut().zip(ls) {
-            let (s, ts) = (l.pts.len() as u32, l.tris.len() as u32);
-            l.tris.extend(tris.iter().map(|t| t + s));
-            l.pts.extend(pts);
-            l.ranges.push(s..l.pts.len() as u32);
-            l.tri_ranges.push(ts..l.tris.len() as u32);
+    let (mut bboxes, mut origins) = (Vec::with_capacity(pieces_of.len()), Vec::with_capacity(pieces_of.len()));
+    for batch in pieces_of.chunks(rayon::current_num_threads().max(1) * 4) {
+        let made: Vec<Piece> = batch.par_iter().map(make).collect();
+        for (b, o, pp, ls) in made {
+            bboxes.push(b);
+            origins.push(o);
+            let s = points.pts.len() as u32;
+            points.pts.extend(pp);
+            points.ranges.push(s..points.pts.len() as u32);
+            for (l, (pts, tris, dots)) in levels.iter_mut().zip(ls) {
+                let (s, ts, ds) = (l.pts.len() as u32, l.tris.len() as u32, l.dots.len() as u32);
+                l.tris.extend(tris.iter().map(|t| t + s));
+                l.pts.extend(pts);
+                l.dots.extend(dots);
+                l.ranges.push(s..l.pts.len() as u32);
+                l.tri_ranges.push(ts..l.tris.len() as u32);
+                l.dot_ranges.push(ds..l.dots.len() as u32);
+            }
         }
+    }
+    // at their size (grown by doubling)
+    for l in &mut levels {
+        l.pts.shrink_to_fit();
+        l.tris.shrink_to_fit();
+        l.dots.shrink_to_fit();
     }
     Built { key, tols, bboxes, origins, piece_of, levels, points, ms: t0.elapsed().as_secs_f64() * 1000.0 }
 }
@@ -394,14 +446,19 @@ impl VectorGpu {
     pub fn upload(gpu: &Gpu, b: Built, colors: &[u32], sig: u64) -> VectorGpu {
         let features = gpu.create_vector_features(colors, &b.piece_of, &b.origins);
         let mut bytes = features.bytes;
-        let level_points = b.levels.iter().map(|l| l.pts.len()).collect();
+        let level_points = b.levels.iter().map(|l| l.pts.len() + l.dots.len()).collect();
         let levels = b
             .levels
             .into_iter()
             .map(|l| {
                 let g = gpu.upload_vector_geometry(&l.pts, &l.tris, &features);
                 bytes += g.bytes;
-                (g, l.ranges, l.tri_ranges)
+                let dots = (!l.dots.is_empty()).then(|| {
+                    let d = gpu.upload_vector_geometry(&l.dots, &[], &features);
+                    bytes += d.bytes;
+                    (d, l.dot_ranges)
+                });
+                (g, l.ranges, l.tri_ranges, dots)
             })
             .collect();
         let points = (!b.points.pts.is_empty()).then(|| {
@@ -440,12 +497,17 @@ impl VectorGpu {
         let allowed = 0.5 / view.a[0].abs().max(1e-12);
         let level = self.tols.iter().rposition(|&t| t <= allowed).unwrap_or(0);
         let dark = [0.0, 0.0, 0.0, 170.0 / 255.0];
-        if let Some((g, ranges, tri_ranges)) = self.levels.get(level) {
+        if let Some((g, ranges, tri_ranges, dots)) = self.levels.get(level) {
             if fill > 0.0 {
                 let style = VectorStyle { width: 0.0, halo: 0.0, halo_color: dark, alpha: fill };
                 gpu.draw_vector(f, g, VectorKind::Fill, runs(&self.bboxes, seen, tri_ranges), view, &style);
             }
             let style = VectorStyle { width: ppp, halo: ppp, halo_color: dark, alpha: 1.0 };
+            if let Some((d, ranges)) = dots {
+                // squares as wide as the lines (a line of two equal points draws one)
+                let square = VectorKind::Points { round: false };
+                gpu.draw_vector(f, d, square, runs(&self.bboxes, seen, ranges), view, &style);
+            }
             gpu.draw_vector(f, g, VectorKind::Lines, runs(&self.bboxes, seen, ranges), view, &style);
         }
         if let Some((g, ranges)) = &self.points {
@@ -505,6 +567,7 @@ impl crate::app::State {
     /// Each placed vector layer built for the GPU (on a thread), uploaded once built; its colours kept up to date.
     pub(crate) fn pump_vector_gpu(&mut self, ctx: &egui::Context) {
         let Some(gpu) = self.gpu.as_ref() else { return };
+        let measure = self.opts.measure_vectors;
         for v in &mut self.vectors {
             let key = v.placed_for;
             if v.px.is_empty() || key == 0 {
@@ -522,7 +585,22 @@ impl crate::app::State {
                     Ok(b) => {
                         v.gpu.job = None;
                         if b.key == key {
+                            let before = measure.then(crate::measure_vectors::process_memory_mb);
+                            let t = std::time::Instant::now();
                             v.gpu.ready = Some(VectorGpu::upload(gpu, b, &v.gpu.colors, sig));
+                            if let Some(m0) = before {
+                                // --measure-vectors: what the upload costs
+                                gpu.finish();
+                                let m1 = crate::measure_vectors::process_memory_mb();
+                                println!(
+                                    "  uploaded in {:.0} ms: {:.0} MB before (peak {:.0}), {:.0} MB after (peak {:.0})",
+                                    t.elapsed().as_secs_f64() * 1e3,
+                                    m0.0,
+                                    m0.1,
+                                    m1.0,
+                                    m1.1
+                                );
+                            }
                             self.map.dirty = true;
                         }
                     }
@@ -532,6 +610,10 @@ impl crate::app::State {
             }
             if !v.gpu.draws(key) && v.gpu.job.as_ref().is_none_or(|j| j.key != key) {
                 let kinds = v.data.features.iter().map(|f| f.kind).collect();
+                if measure {
+                    let m = crate::measure_vectors::process_memory_mb();
+                    println!("  GPU build started: {:.0} MB (peak {:.0})", m.0, m.1);
+                }
                 let c = ctx.clone();
                 v.gpu.job = Some(start(v.px.clone(), kinds, false, key, move || c.request_repaint()));
             }
@@ -588,6 +670,37 @@ mod tests {
             }
         }
         p.iter().zip(&keep).filter(|(_, k)| **k).map(|(q, _)| *q).collect()
+    }
+
+    #[test]
+    fn rings_smaller_than_a_level_are_its_dots() {
+        // a square of 2000 pixels (32 points on each side) and 300 squares of a fifth of a pixel along it
+        let mut big = Vec::new();
+        for k in 0..128 {
+            let t = k as f64 / 32.0;
+            let (x, y) = match k / 32 {
+                0 => (t * 2000.0, 0.0),
+                1 => (2000.0, (t - 1.0) * 2000.0),
+                2 => ((3.0 - t) * 2000.0, 2000.0),
+                _ => (0.0, (4.0 - t) * 2000.0),
+            };
+            big.extend([x, y]);
+        }
+        let mut px: Vec<Polygon> = vec![vec![big]];
+        for k in 0..300 {
+            let x = 10.0 + 6.0 * k as f64;
+            px.push(vec![vec![x, 50.0, x + 0.2, 50.0, x + 0.2, 50.2, x, 50.2]]);
+        }
+        let kinds = vec![Kind::Area; px.len()];
+        let b = build(&px, &kinds, false, 1);
+        let total = |l: &Level| l.pts.len() + l.dots.len();
+        // as it is: every ring a line (its points, closed, and a break)
+        assert_eq!((b.levels[0].pts.len(), b.levels[0].dots.len()), (129 + 1 + 300 * 6, 0));
+        // the coarsest: the large square's corners, each small one a dot
+        let last = b.levels.last().unwrap();
+        assert_eq!((last.pts.len(), last.dots.len()), (5 + 1, 300));
+        assert!(b.levels.windows(2).all(|w| total(&w[1]) < total(&w[0])));
+        assert_eq!(last.dot_ranges.iter().map(|r| r.len()).sum::<usize>(), 300);
     }
 
     #[test]
