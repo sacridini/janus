@@ -64,6 +64,7 @@
       <li><a href="#rasterize">Back to the grid</a></li>
       <li><a href="#zonal">Zonal statistics over time</a></li>
       <li><a href="#values">A series by zone</a></li>
+      <li><a href="#lines">Along lines, and the ROI kept</a></li>
       <li><a href="#checked">Checked against the originals</a></li>
       <li><a href="#next">What next</a></li>
       <li><a href="#refs">References</a></li>
@@ -239,8 +240,39 @@
       <p>Patch 1, nearly all forest still, is the highest after 2005 and rises to 0.444 in 2025. The two patches that lost most of their forest fell from about 0.36 in 1985 to 0.20–0.25 by 2005–2008, the years MapBiomas gives their least forest; patch 11's lowest median is 0.234 (2015), patch 40's 0.092 (2017), when part of it was water. Both are higher in 2025: the series goes seven years past the last map of MapBiomas collection 4.1, and the same zones follow it there. The 49 patches through the 41 years took 24.2 s, most of it reading: each medoid is stored a row of the whole 7478-pixel scene per block, so every date reads whole rows of the scene for the window's 2000 columns.</p>
     </section>
 
+    <section id="lines">
+      <h2><span class="n">09</span>Along lines, and the ROI kept</h2>
+      <p>A transect (<kbd>Ctrl</kbd> + drag, or <kbd>Alt</kbd> + click a line of a vector layer) shows one line at a time. <span class="ui">Profiles of every line...</span>, in a line layer's menu, puts every line of the layer through the series at once: each line, or each part of a multi-line, is sampled about a pixel apart along its length as the transect samples it (its length in pixels, rounded up, plus one samples, evenly spaced; distances in metres, on the sphere for longitudes and latitudes), at every date or those from one to another. It runs as a task (<span class="ui">Tools → Tasks</span>, with its progress and a cancel) on the processing threads, and reads only the windows of up to 128 × 128 pixels around the samples, each once a date: the values the chart shows.</p>
+      <figure class="fig">
+        <a href="assets/img/maps-to-numbers/09-profiles.jpg"><img src="assets/img/maps-to-numbers/09-profiles.jpg" alt="The Profiles of every line window over Janus: lines.gpkg: 3 lines, on landsat; Dates every date (41) ticked, from 1985 to 2025; Fields name ticked; Tables a row per sample and date (long), and a row per sample, a column per date (wide) unticked; Name lines.gpkg profiles; the note: each line sampled about a pixel apart along its length, as the transect samples it, samples off the series left out, the values the chart shows; Threads 3 of 20; Run; the status Done in 7.5 s: 3 lines, 1471 samples, 41 dates (1428 pixels in 12 windows a date), 0 lines off the series, and the results folder. Behind it the index of 2018 zoomed in, from -0.07 (purple) to 0.43 (yellow), the three lines drawn over it, the first one in light blue as the transect. Below, the Transect panel: landsat 14.79 km, 2 bends, 496 samples, full resolution; the distance from A in metres against the dates from 1985 at the top to 2025, yellow where the index is high, the bends dashed. A notice: Done, Profiles of lines.gpkg, in 7 s." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>Three lines through the Landsat series</b>, all 41 years: the first one is also the transect below, the same 496 samples.</figcaption>
+      </figure>
+      <p><code>profiles.csv</code> has a row per sample and date: <code>fid</code>, the fields ticked, <code>part</code>, <code>sample</code>, <code>distance_m</code>, <code>x</code>, <code>y</code> (in the series' CRS), <code>col</code>, <code>row</code>, <code>date</code> and <code>value</code>; samples off the series are left out. <span class="ui">and a row per sample, a column per date</span> also writes <code>profiles_wide.csv</code>. Here the three lines gave 1471 samples, 60 311 rows, and the mean of the index along each:</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Line</th><th class="num">Length</th><th class="num">Samples</th><th class="num">1985</th><th class="num">2008</th><th class="num">2018</th><th class="num">2025</th></tr></thead>
+          <tbody>
+            <tr><td>through the patches</td><td class="num">14.79 km</td><td class="num">496</td><td class="num">0.272</td><td class="num">0.245</td><td class="num">0.291</td><td class="num">0.336</td></tr>
+            <tr><td>west to east</td><td class="num">12.40 km</td><td class="num">423</td><td class="num">0.249</td><td class="num">0.216</td><td class="num">0.270</td><td class="num">0.329</td></tr>
+            <tr><td>north to south</td><td class="num">16.44 km</td><td class="num">552</td><td class="num">0.278</td><td class="num">0.203</td><td class="num">0.231</td><td class="num">0.294</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>All three are at their lowest, or nearly, in 2008, the years the patches of section 07 had least forest; the line from north to south is still the lowest in 2018, and all three are higher in 2025.</p>
+      <p>The ROI is kept the same way. <span class="ui">View → Edit ROI vertices</span> (<kbd>Shift</kbd>+<kbd>R</kbd>) puts a square on each of its vertices and a dot in the middle of each edge: drag a vertex to move it, drag a dot to add a vertex there, right click a vertex (or <kbd>Delete</kbd> over it) to remove it. Each change is the ROI at once, its statistics read again, and a step of <span class="ui">Edit → Undo</span>. A polygon of a vector layer taken as the ROI with <kbd>Alt</kbd> + click is edited the same way, its file untouched: it is meant for adjusting an ROI before using it, not for editing a layer.</p>
+      <figure class="fig">
+        <a href="assets/img/maps-to-numbers/10-roi-edit.jpg"><img src="assets/img/maps-to-numbers/10-roi-edit.jpg" alt="Janus with forest_1985.gpkg over landsat, zoomed in on patch 11, its outline in dark brown along the pixels. The ROI, the patch's outline simplified to 54 vertices, drawn in white with a white square at each vertex and a small dot in the middle of each edge. The chart: the ROI's mean between 0.25 and 0.38 from 1985 to 2025 with its band from the 10th to the 90th percentile; the Statistics of the ROI: 41 valid, mean 0.32515, OLS trend -0.00036449 per year, least 0.25182 (2008)." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>The ROI's vertices</b>: patch 11's outline, simplified, ready to be moved, added to or removed.</figcaption>
+      </figure>
+      <p><span class="ui">View → Save ROI as vector...</span> (also in the command palette) writes it as a GeoPackage or a GeoJSON, by the name's extension, in the active layer's CRS (a GeoJSON in WGS 84 when the CRS has no EPSG code, as RFC 7946 asks): one polygon, its holes kept, with <code>name</code>, <code>layer</code> and <code>pixels</code>. Opened as a vector layer, <kbd>Alt</kbd> + click on it gives back the same ROI, pixel for pixel; a project keeps the ROI as well.</p>
+      <figure class="fig">
+        <a href="assets/img/maps-to-numbers/11-roi-save.png"><img src="assets/img/maps-to-numbers/11-roi-save.png" alt="The Save ROI as vector window: The ROI, a polygon of 54 vertices over 5536 pixels, in the active layer's CRS (WGS 84); the file landsat_roi.gpkg in the guide's poly folder, Browse...; Open it as a vector layer ticked; Save and Cancel." width="569" height="142" loading="lazy"></a>
+        <figcaption><b>Save ROI as vector</b>: the file named after the active layer, in the export folder.</figcaption>
+      </figure>
+    </section>
+
     <section id="checked">
-      <h2><span class="n">09</span>Checked against the originals</h2>
+      <h2><span class="n">10</span>Checked against the originals</h2>
       <p>Each tool was run against the program it stands in for, on the same files, comparing the results and the time (scripts <code>tools/bench_*.py</code>, results in <code>bench/*.json</code>; synthetic maps at 30 m, 8 threads where a tool takes them, GDAL 3.11.5):</p>
       <div class="tbl-wrap">
         <table class="tbl">
@@ -256,6 +288,8 @@
             <tr><td></td><td></td><td>45 711 polygons on 4096 × 4096, Int32</td><td class="num">0.29 s</td><td class="num">9.6 s; 1.6 s</td><td>equal pixel for pixel</td></tr>
             <tr><td>Zonal, values</td><td>rasterstats</td><td>2100 zones, 8 dates of 4096 × 4096</td><td class="num">1.8 s</td><td class="num">62 s</td><td>equal to single precision</td></tr>
             <tr><td>Zonal, classes</td><td>rasterstats</td><td>the same, 5 classes</td><td class="num">1.3 s</td><td class="num">39 s</td><td>every count equal</td></tr>
+            <tr><td>Profiles of every line</td><td>shapely + rasterio</td><td>200 lines, 12 dates of 4096 × 4096: 2 822 100 values</td><td class="num">0.72 s</td><td class="num">3.6 s; 71 s</td><td>the same pixels and values</td></tr>
+            <tr><td>Save ROI as vector</td><td>geopandas + <code>rasterio.features.rasterize</code></td><td>600 vertices and a hole: 5 146 615 pixels</td><td class="num">0.015 s</td><td class="num">0.020 s</td><td>the same pixels</td></tr>
           </tbody>
         </table>
       </div>
@@ -265,11 +299,13 @@
         <dt>Areas</dt><dd>The pixel counts equal numpy's. A count times the nominal pixel area, what a script usually does, took 1.5 s; it is off by up to 0.007% in UTM, and in degrees it gives square degrees, not square metres. On a map of years of loss 8192 × 4096 crossing UTM's central meridian, terra took 373 s and gave 4 × 10⁻⁴ less; PROJ's area factor, pixel by pixel, gives Janus's value.</dd>
         <dt>Rasterize</dt><dd>GDAL burns into a GeoTIFF through its block cache; Janus burns strips of rows in memory (256 MB at most) and writes them, 2 to 30 times faster. The values burned by the centres give back the map polygonized.</dd>
         <dt>Zonal</dt><dd>2000 Voronoi cells and 100 circles over them, 327 975 pixels in more than one zone. Means within 1.7 × 10⁻⁷ and 90th percentiles within 2.5 × 10⁻⁶ of rasterstats' (single precision against double), counts, least, largest and deviations equal. R's exactextractr weights each pixel by the part of it inside: 20 s and 7 s, its means 1.9 × 10⁻⁴ (the median zone) to 2.5 × 10⁻³ (the 99th percentile) from the centres'.</dd>
+        <dt>Profiles</dt><dd>shapely's <code>line_interpolate_point</code> at the same distances along each line (in the grid's pixels), the pixel under each read by rasterio, each date whole and indexed with numpy (3.6 s) or with <code>src.sample</code> (71 s); Janus read 890 windows a date with 3 threads. Every row on both sides, the same pixel and the same float32 value; distances and places within 5 µm. The long CSV written in 0.77 s, by pandas in 9.9 s.</dd>
+        <dt>Save ROI as vector</dt><dd>The GeoPackage and the GeoJSON read back by geopandas (EPSG:32723, a polygon of 600 vertices with its hole) and burned by their pixels' centres on the grid: the ROI's own pixels, none more or less. geopandas wrote the GeoJSON in 0.003 s, as Janus did.</dd>
       </dl>
     </section>
 
     <section id="next">
-      <h2><span class="n">10</span>What next</h2>
+      <h2><span class="n">11</span>What next</h2>
       <ul>
         <li><strong>Adjusted areas</strong>: the <a href="validation.html">Validation guide</a> turns a map's areas into estimates with confidence intervals from a sample.</li>
         <li><strong>Trends inside the zones</strong>: the <a href="trend-test.html">Trend test guide</a> tests whether a class or a region of the same Landsat series is really greening or browning.</li>
@@ -279,7 +315,7 @@
     </section>
 
     <section id="refs">
-      <h2><span class="n">11</span>References</h2>
+      <h2><span class="n">12</span>References</h2>
       <ul class="refs">
         <li>Souza, C. M., Jr., et al. (2020). Reconstructing three decades of land use and land cover changes in Brazilian biomes with Landsat archive and Earth Engine. <em>Remote Sensing</em>, 12(17), 2735. MapBiomas Project, collection 4.1 of the annual land use and land cover maps of Brazil, <a href="https://mapbiomas.org">mapbiomas.org</a>.</li>
         <li>GDAL: <a href="https://gdal.org/en/stable/programs/gdalwarp.html">gdalwarp</a>, <a href="https://gdal.org/en/stable/programs/gdal_polygonize.html">gdal_polygonize</a>, <a href="https://gdal.org/en/stable/programs/gdal_rasterize.html">gdal_rasterize</a>.</li>

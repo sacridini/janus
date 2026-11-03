@@ -402,6 +402,8 @@ Claude Desktop (`claude_desktop_config.json`):
 | Remove a pin | right click it (Mac: Control + click, or a two-finger click on the trackpad), `Delete` (last one) or the **x** in the statistics table |
 | ROI | `Shift` + drag: rectangular ROI, mean and p10–p90 per date (or a box plot per date: the *ROI* list above the chart); with *All visible layers* on the chart, also on every visible layer (its own pixels under the rectangle, reprojected if needed) |
 | Polygonal ROI | `R` (or View → Draw ROI polygon), then click the vertices and close it on the first one, with a double click or `Enter` (`Backspace` undoes a vertex, `Esc` cancels); or, after `R`, drag a freehand outline (lasso), closed when you let go. The statistics, the local PCA of embeddings, the similarity to the ROI and the scatter use the pixels whose centres are inside; a Zeit run on the ROI covers its bounding box. **Alt + click** a polygon of a vector layer (holes included) to make it the ROI; View → Clear ROI |
+| Edit ROI vertices | `Shift+R` (or View → Edit ROI vertices, the command palette) with an ROI, drawn or taken from a polygon of a vector layer (its file is not changed): a square at each vertex, a dot in the middle of each edge. Drag a vertex to move it; drag an edge's middle to add a vertex there; right click a vertex, or `Delete` / `Backspace` over it, to remove it (a ring keeps three). Each change is the ROI at once (its statistics read again) and a step of **Undo** (`Ctrl+Z`); `Shift+R`, `Esc` or `Enter` end the editing. A rectangle edited becomes a polygon of four vertices. Not a GIS editor: one ROI, its vertices only |
+| Save ROI as vector | View → **Save ROI as vector...** (or the command palette): the ROI (a rectangle or a polygon, holes kept) as a GeoPackage (`.gpkg`) or GeoJSON (`.geojson`), by the name's extension, in the active layer's CRS (a GeoJSON in WGS 84 when the CRS has no EPSG code, as RFC 7946 asks), a feature with `name`, `layer` and `pixels`; *Open it as a vector layer* adds it to the map. **Alt + click** it later makes the same ROI again, the same pixels inside. A project (File → Save project) keeps the ROI too |
 | Vector layers | File → Add vector layer..., the **Layers** panel (*Add vector layer...*), a drop or the command line: GeoJSON, Shapefile, GeoPackage (each of its layers), KML, FlatGeobuf, GML, GPX or a CSV of points; listed in the **Layers** panel with the series (a new one on top): show/hide, colour, move, remove; right click → Zoom to it, Attribute table, Extract series, Interpret. Hovering a point shows its attributes (lines and polygons: hold `Alt`); see [Vector layers](#vector-layers) |
 | Series at points or polygons | a vector layer → **Extract series...**: the active layer or every visible one, a row per feature (a column per date) or a row per feature and date; CSV |
 | Interpretation (labelling) | a vector layer → **Interpret...** (the **Interpretation** panel): `N` / `Shift+N` (or Page Down / Page Up) next / previous feature, `1`–`9` its label, `0` clears it, `D` the date of the change (the date on the map), `Shift+D` none; notes; *Export table...* |
@@ -442,6 +444,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Maps side by side | View → New map view (`Ctrl+T`): pick the layer and, if wanted, its own date and mode in the panel's bar; every panel follows the same pan/zoom; close it with its tab's **x** or `Ctrl+W` (the focused panel, else the last one opened) |
 | Swipe | View → Swipe (`C`): drag the divider (white line with a handle); the bar above the map picks what is right of it: a layer and, if wanted, its own date and mode, or *Basemap only*; **Swipe off** or `C` again closes it |
 | Space-time transect | `Ctrl` + drag a line on the map (Mac: `Command` + drag), or `T` / View → Draw transect, then drag; a **polyline** (a river, a road, a valley): `T`, then click its vertices, a double click or `Enter` ends it (`Backspace` undoes a vertex); **Alt + click** a line of a vector layer: the transect along it; `Esc` cancels. **Transect** panel: distance from A along the line (X; dashed verticals at the bends; no data where a polyline leaves the layer) × dates (Y, oldest on top); hover a cell = distance, date, value, marked on the map; click = go to that date; Values / Anomaly (− each place's mean); Copy CSV (a row per date, a column per sample); Clear, or close the panel |
+| Profiles of every line | **Profiles of every line...** in a line layer's menu (Layers panel): every line (each part of a multi-line) sampled about a pixel apart along its length, as the transect samples it, through every date of the active series or those from one to another; the values the chart shows. A task (Tools → Tasks: progress, cancel; the processing threads) writing `profiles.csv`, a row per sample and date (`fid`, the fields chosen, `part`, `sample`, `distance_m` (metres; `distance_map_units` in a CRS without an EPSG code), `x`, `y`, `col`, `row`, `date`, `value`; samples off the series left out), and optionally `profiles_wide.csv` (a row per sample, a column per date); its provenance kept |
 | Chart options | style (lines ... bars; a categorical layer: steps, markers, class blocks), values/anomaly/z-score/seasonal anomaly/CUSUM, trend (OLS/Sen), Y = map range, stripes, the ROI's spread (p10–p90, box plot, fan, density) |
 | Map as a figure | File → Export map as PNG... (`Ctrl+E`): resolution (1×, 2×, 4×), background, date label, legend, scale bar, pins, ROI and vector layers; *Save to*: the file (a path, a name alone for the last export folder, or **Browse...**), then **Export** (or `Enter`) |
 | Data for QGIS | File → Export values as GeoTIFF... (`Ctrl+Shift+E`; the active layer at the date: visible area or whole image) or Export rendered view as GeoTIFF... (`Ctrl+Shift+V`; RGBA as shown, georeferenced) |
@@ -1242,6 +1245,33 @@ read as longitude and latitude).
 - **A polygon as the ROI**: `Alt` + click it. Its holes are left out; the
   statistics, box plots, embeddings' local PCA and the scatter use the pixels
   whose centres are inside, on every layer.
+- **The ROI's vertices edited** (`Shift+R`, View → *Edit ROI vertices*): the
+  ROI's polygon (drawn, or taken from a layer with `Alt` + click: the file is
+  not changed) adjusted before it is used. Drag a vertex; drag the dot in the
+  middle of an edge to add a vertex there; right click a vertex, or `Delete`
+  over it, to remove it. Every change is a step of Undo (`Ctrl+Z`).
+- **The ROI saved** (View → *Save ROI as vector...*): a GeoPackage or GeoJSON
+  of one polygon in the active layer's CRS (fields `name`, `layer`, `pixels`),
+  opened as a vector layer if asked; `Alt` + click on it gives back the same
+  ROI, pixel for pixel. Read back by geopandas and burned by
+  `rasterio.features.rasterize` on the grid, an outline of 600 vertices with a
+  hole gives the same 5 146 615 pixels (`tools/bench_profiles_vs_rasterio.py`,
+  `bench/profiles-vs-rasterio.json`).
+- **Profiles of every line** (right click a line layer → *Profiles of every
+  line...*): each line, or each part of a multi-line, sampled about a pixel
+  apart as the transect samples it (n = its length in pixels, rounded up,
+  plus one, evenly spaced; distances in metres), through every date or a range
+  of them, the values the chart shows. A task (Tools → Tasks, with progress and
+  cancel, on the processing threads) that reads only the windows of up to
+  128 × 128 pixels around the samples, each once a date, and writes
+  `profiles.csv` (a row per sample and date: `fid`, the fields chosen, `part`,
+  `sample`, `distance_m`, `x`, `y`, `col`, `row`, `date`, `value`) and, if
+  asked, `profiles_wide.csv` (a row per sample, a column per date). Against
+  shapely (`line_interpolate_point`) and rasterio on 200 lines over 4096 ×
+  4096 pixels and 12 dates (2 822 100 rows): the same pixels and the same
+  values, float32 for float32, distances within 5 µm; 0.72 s with 3 threads
+  against 3.6 s reading each date whole with numpy and 71 s with
+  `src.sample`; the CSV written in 0.77 s against 9.9 s by pandas.
 - **Extract series** (right click, or the *Extract series...* button under
   the layer): the series of every feature at full resolution, as the chart
   shows them (band or normalized difference, quality mask applied), for the

@@ -140,11 +140,19 @@ pixels differ from the source), the names written back as `.aux.xml`;
     janus landsat --layer mapbiomas_grid --layer poly/forest_1985.gpkg --interface modern --date 34 --window zonal-run --analysis zonal --screenshot zonal.png
     janus mapbiomas_grid --layer landsat --layer poly/forest_1985.gpkg --interface modern --window zonal-run --analysis zonal
     janus mapbiomas_grid --layer landsat --layer poly/forest_1985.gpkg --interface modern --date 34 --pin 71,793 --pin 65,1038 --view 200,880,1.5 --screenshot index.png
+    janus mapbiomas_grid --layer landsat --layer poly/lines.gpkg --interface modern --date 34 --transect 20.5,720.5,71.5,793.5,65.5,1038.5,140.5,1180.5 --view 330,930,1.5 --window profiles-run --screenshot profiles.png
+    janus landsat --layer poly/forest_1985.gpkg --interface modern --date 34 --roi 99,725,93,738,103,735,105,743,94,750,106,748,110,774,102,776,111,778,111,785,91,792,93,781,85,776,79,789,53,764,48,781,36,778,37,805,47,789,58,789,56,779,63,785,56,798,91,794,83,808,95,805,100,818,81,814,78,818,85,820,84,829,83,823,77,825,85,831,89,823,99,832,105,824,91,862,114,875,117,865,124,875,150,869,155,881,143,846,106,833,110,824,127,829,154,775,139,768,131,779,115,778,127,762,114,765,113,736 --view 96,803,2.8 --window roi-edit --screenshot roi-edit.png
+    janus landsat --layer poly/forest_1985.gpkg --interface modern --date 34 --roi 99,725,93,738,103,735,105,743,94,750,106,748,110,774,102,776,111,778,111,785,91,792,93,781,85,776,79,789,53,764,48,781,36,778,37,805,47,789,58,789,56,779,63,785,56,798,91,794,83,808,95,805,100,818,81,814,78,818,85,820,84,829,83,823,77,825,85,831,89,823,99,832,105,824,91,862,114,875,117,865,124,875,150,869,155,881,143,846,106,833,110,824,127,829,154,775,139,768,131,779,115,778,127,762,114,765,113,736 --view 96,803,2.8 --window roi-save --screenshot roi-save.png
 
 `01-warp.png` is a crop of `warp.png` (17, 18, 495, 439) and
-`06-only-where.png` of `only.png` (15, 478, 467, 684); the others are the PNGs
-as JPEG. The numbers come from the runs' `areas.csv`, `zonal_long.csv` and
-logs.
+`06-only-where.png` of `only.png` (15, 478, 467, 684), `11-roi-save.png` of
+`roi-save.png` (516, 404, 1085, 546); the others are the PNGs
+as JPEG. The numbers come from the runs' `areas.csv`, `zonal_long.csv`,
+`profiles.csv` and logs. `poly/lines.gpkg` is three lines in EPSG:4326 drawn
+over the patches (a `name` column; their vertices in the Landsat grid's pixels
+are the `--transect` above and 0.5,900.5,420.5,870.5 and
+150.5,650.5,260.5,900.5,380.5,1150.5); the ROI is patch 11's outline
+simplified by 7 pixels (shapely's `simplify`), in the grid's pixels.
 
 The series guide's screenshots (`series.html`, and the STAC guide's
 `04-*.jpg`) come from `--screenshot`, and where a file dialog or a combo box
