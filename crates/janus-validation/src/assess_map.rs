@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::NONE;
-use crate::estimate::{AssessInput, ClassArea, Estimator};
+use crate::estimate::{AreaEstimator, AssessInput, ClassArea, Estimator};
 use crate::labels::{Label, resolve, year_of};
 use crate::project::{AssessedMap, Project};
 use crate::rules::{MapKind, MapRule, fmt_g};
@@ -148,6 +148,7 @@ pub fn prepare(
         o.input.classes.len() - 1
     };
     o.input.confidence = confidence;
+    o.input.estimator = p.estimator;
     o.input.stratum_area = p.strata.strata.iter().map(|s| s.area).collect();
     o.input.stratum = vec![None; n];
     o.input.map = vec![None; n];
@@ -290,7 +291,7 @@ pub fn change_by_year(p: &Project, m: &AssessedMap, confidence: f64) -> Vec<(i32
     out
 }
 
-fn py_str(s: &str) -> String {
+pub(crate) fn py_str(s: &str) -> String {
     let mut o = String::from("\"");
     for c in s.chars() {
         match c {
@@ -306,7 +307,7 @@ fn py_str(s: &str) -> String {
     o
 }
 
-fn py_num(v: f64) -> String {
+pub(crate) fn py_num(v: f64) -> String {
     if v.is_infinite() {
         return if v < 0.0 { "float(\"-inf\")".into() } else { "float(\"inf\")".into() };
     }
@@ -314,7 +315,7 @@ fn py_num(v: f64) -> String {
 }
 
 /// A path for Python: forward slashes.
-fn py_path(p: &str) -> String {
+pub(crate) fn py_path(p: &str) -> String {
     py_str(&p.replace('\\', "/"))
 }
 
@@ -394,8 +395,15 @@ pub fn python_snippet(p: &Project, m: &AssessedMap, confidence: f64) -> String {
     if r.kind == MapKind::Events {
         s += "the_map = xr.Dataset({\"yod\": the_map.fillna(0)})  # a map of events: > 0 change\n";
     }
+    // the model-assisted estimators use the map's areas inside the strata, which Zeit counts as Janus does when
+    // the map is on the strata's grid
+    let estimator = if p.estimator == AreaEstimator::Direct {
+        String::new()
+    } else {
+        format!(", estimator={}", py_str(p.estimator.name()))
+    };
     s += &format!(
-        "acc = zeit.accuracy(the_map, samples, strata={}{bins}, confidence={})\n",
+        "acc = zeit.accuracy(the_map, samples, strata={}{bins}, confidence={}{estimator})\n",
         py_path(&p.strata_path),
         fmt_g(confidence, 6)
     );

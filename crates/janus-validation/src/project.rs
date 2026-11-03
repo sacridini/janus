@@ -13,10 +13,12 @@ use serde_json::{Value, json};
 
 use crate::NONE;
 use crate::design::{Point, Rng};
+use crate::estimate::AreaEstimator;
 use crate::labels::{Label, events_from, events_text, resolve};
 use crate::reader::last_error;
 use crate::rules::{Grid, MapRule, row_areas};
 use crate::strata::{Strata, StrataSpec, Stratum};
+use crate::transitions::TransitionSpec;
 
 /// A map assessed with the sample, and how the reference labels translate to its classes.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -47,6 +49,10 @@ pub struct Project {
     /// interpreter -> per point
     pub labels: BTreeMap<String, Vec<Label>>,
     pub maps: Vec<AssessedMap>,
+    /// how the areas are estimated
+    pub estimator: AreaEstimator,
+    /// the transitions assessed between two of the maps (dates of a map of classes)
+    pub transition: Option<TransitionSpec>,
 }
 
 impl Default for Project {
@@ -63,6 +69,8 @@ impl Default for Project {
             points: Vec::new(),
             labels: BTreeMap::new(),
             maps: Vec::new(),
+            estimator: AreaEstimator::Direct,
+            transition: None,
         }
     }
 }
@@ -230,6 +238,15 @@ fn write_strata_table(ds: &Dataset, p: &Project) -> Result<(), String> {
     Ok(())
 }
 
+/// The estimator of the areas and the transitions assessed.
+fn analysis_json(p: &Project) -> Value {
+    let mut j = json!({"estimator": p.estimator.name()});
+    if let Some(t) = &p.transition {
+        j["transition"] = t.to_json();
+    }
+    j
+}
+
 fn write_project_table(ds: &Dataset, p: &Project) -> Result<(), String> {
     let layer = ds.layer_by_name("project").map_err(|_| "the project has no project table".to_string())?;
     sql(ds, "DELETE FROM project");
@@ -254,6 +271,7 @@ fn write_project_table(ds: &Dataset, p: &Project) -> Result<(), String> {
         ("label_set", json!(p.label_set).to_string()),
         ("maps", Value::Array(maps).to_string()),
         ("mapped", Value::Array(mapped).to_string()),
+        ("analysis", analysis_json(p).to_string()),
         ("strata_raster", rel),
     ];
     for (k, v) in kv {
@@ -550,6 +568,9 @@ pub fn load_project(path: &str) -> Result<Project, String> {
             .collect();
         p.strata.mapped.push(o);
     }
+    let analysis = parse("analysis")?;
+    p.estimator = AreaEstimator::from_name(analysis.get("estimator").and_then(Value::as_str).unwrap_or(""));
+    p.transition = analysis.get("transition").and_then(TransitionSpec::from_json);
     let raster = PathBuf::from(get("strata_raster"));
     let raster =
         if raster.is_absolute() { raster } else { Path::new(&p.path).parent().unwrap_or(Path::new("")).join(raster) };

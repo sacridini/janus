@@ -50,6 +50,151 @@ fn read_raster(path: &str) -> (Vec<f32>, usize, usize) {
     (v, w, h)
 }
 
+/// Runs `code` (which prints "JANUS_CHECK " and JSON) with `python`; the JSON.
+fn run_check(python: &str, dir: &Path, code: &str, rep: &mut String) -> Result<Value, &'static str> {
+    let script = dir.join("check.py");
+    if std::fs::write(&script, code).is_err() {
+        return Err("cannot write the Python check");
+    }
+    let out = std::process::Command::new(python).arg(&script).output().map_err(|_| "cannot run Python")?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    let Some(k) = text.find("JANUS_CHECK ").filter(|_| out.status.success()) else {
+        rep.push_str(&format!("  Python said:\n{text}\n  code:\n{code}\n"));
+        return Err("the Python check did not run");
+    };
+    serde_json::from_str(text[k + 12..].lines().next().unwrap_or("")).map_err(|_| "the Python check's numbers not read")
+}
+
+/// The transitions between two maps of classes on the strata's grid (a second date with a block cleared and one
+/// cropped): their mapped areas against a pixel-by-pixel count; labels that give the class at each date (an event
+/// where it changed); every estimator, and with Python, zeit.transitions on the project's files (the code of the
+/// Copy Python) for each.
+fn test_transitions(
+    rep: &mut String,
+    dir: &Path,
+    back: &Project,
+    strata_path: &str,
+    (w, h): (usize, usize),
+    gt: &[f64; 6],
+    python: Option<&str>,
+) -> Result<(), &'static str> {
+    let first = |x: usize, y: usize| (1 + (x / 9 + y / 7) % 3) as f32;
+    let second = |x: usize, y: usize| {
+        let c = first(x, y);
+        if (30..60).contains(&x) && (20..45).contains(&y) && c == 1.0 {
+            2.0 // cleared
+        } else if x > 100 && y > 70 && c == 2.0 {
+            3.0 // cropped
+        } else {
+            c
+        }
+    };
+    let (a, b): (Vec<f32>, Vec<f32>) = (0..w * h).map(|i| (first(i % w, i / w), second(i % w, i / w))).unzip();
+    let (pf, pt) = (dir.join("lc_2005.tif"), dir.join("lc_2020.tif"));
+    let (pf, pt) = (pf.to_string_lossy().into_owned(), pt.to_string_lossy().into_owned());
+    if write_raster(&pf, w, h, gt, &a, Some(0.0)).is_err() || write_raster(&pt, w, h, gt, &b, Some(0.0)).is_err() {
+        return Err("cannot write the maps of two dates");
+    }
+    let rule =
+        |path: &str| MapRule { path: path.into(), name: path.into(), kind: MapKind::Classes, ..Default::default() };
+    let (rf, rt) = (rule(&pf), rule(&pt));
+    // the mapped areas inside the strata, pixel by pixel
+    let mapped =
+        mapped_transitions(&rf, &rt, strata_path, &back.strata, None).map_err(|_| "mappedTransitions failed")?;
+    let (st, _, _) = read_raster(strata_path);
+    let mut want: BTreeMap<(i32, i32), f64> = BTreeMap::new();
+    for i in 0..w * h {
+        if st[i] >= 1.0 {
+            *want.entry((a[i] as i32, b[i] as i32)).or_insert(0.0) += back.strata.row_area[i / w];
+        }
+    }
+    if want.len() != mapped.len() || want.iter().any(|(k, v)| !near(*v, mapped.get(k).copied().unwrap_or(0.0), 1e-12)) {
+        return Err("the mapped transitions differ from a pixel-by-pixel count");
+    }
+    // the reference: the class at the first date, every 8th wrong; where it changed, an event in 2012
+    let mut p = back.clone();
+    p.labels.clear();
+    let xy: Vec<[f64; 2]> = p.points.iter().map(|q| [q.x, q.y]).collect();
+    let fv = values_at(&rf, &p.strata.grid.wkt, &xy).map_err(|_| "valuesAt failed")?;
+    let tv = values_at(&rt, &p.strata.grid.wkt, &xy).map_err(|_| "valuesAt failed")?;
+    let labels: Vec<Label> = (0..p.points.len())
+        .map(|i| {
+            let (c0, c1) = (fv[i] as i32, tv[i] as i32);
+            let c0 = if i % 8 == 0 { c0 % 3 + 1 } else { c0 };
+            let mut l = Label { label: c0.to_string(), updated: now_iso(), ..Default::default() };
+            if c1 != fv[i] as i32 {
+                l.events.push(Event { label: c1.to_string(), date: "2012-05-01".into() });
+            }
+            if i == 3 {
+                l.label = "Can't tell".into();
+            }
+            l
+        })
+        .collect();
+    p.labels.insert("ana".into(), labels);
+    let left_out: BTreeMap<String, String> = [("Can't tell".to_string(), String::new())].into();
+    p.maps = vec![
+        AssessedMap { rule: rf.clone(), mapping: left_out.clone() },
+        AssessedMap { rule: rt.clone(), mapping: left_out },
+    ];
+    let spec = TransitionSpec { from: 0, to: 1, from_date: "2005".into(), to_date: "2020-01-01".into() };
+    p.transition = Some(spec.clone());
+    let mut areas = Vec::new();
+    for e in AreaEstimator::ALL {
+        p.estimator = e;
+        let t = prepare_transitions(&p, &spec, &fv, &tv, &mapped, 0.95, &[]);
+        let r = assess(&t.prep.input);
+        let k = r.classes.iter().position(|c| c == "1 -> 2").ok_or("no transition 1 -> 2")?;
+        rep.push_str(&format!(
+            "  transitions ({}): {} points, {} left out, 1 -> 2: {:.1} +- {:.1} ha (mapped {:.1})\n",
+            e.name(),
+            r.n,
+            t.prep.excluded,
+            r.area[k].est,
+            r.area[k].ci,
+            r.area[k].mapped
+        ));
+        if r.n < 50 || t.prep.excluded != 1 || r.estimator != e {
+            return Err("the transitions' points");
+        }
+        let total: f64 = r.area.iter().map(|x| x.est).sum();
+        if e != AreaEstimator::Ratio && !near(total, r.total_area, 1e-9) {
+            return Err("the transitions' areas should add up to the strata's");
+        }
+        areas.push(r.area[k].ci);
+        let Some(python) = python else { continue };
+        let code = transitions_snippet(&p, &spec, &t, 0.95)
+            + "import json\n\
+               num = lambda v: None if v != v else float(v)\n\
+               print(\"JANUS_CHECK \" + json.dumps({\"n\": int(tr.n), \"estimator\": tr.estimator, \"area\": \
+               {str(k): [num(m), num(v), num(s)] for k, m, v, s in \
+               zip(tr.area.index, tr.area.mapped, tr.area.estimate, tr.area.se)}}))\n";
+        let j = run_check(python, dir, &code, rep)?;
+        let f = |v: &Value| v.as_f64().unwrap_or(f64::NAN);
+        if j["n"].as_i64() != Some(i64::from(r.n)) || j["estimator"].as_str() != Some(e.name()) {
+            rep.push_str(&format!("  zeit: {j}\n"));
+            return Err("zeit.transitions used other points");
+        }
+        for (ci, c) in r.classes.iter().enumerate() {
+            let Some(z) = j["area"].get(c) else {
+                rep.push_str(&format!("  zeit: {j}\n"));
+                return Err("zeit.transitions has not every transition");
+            };
+            let same = |a: f64, b: f64| (a.is_nan() && b.is_nan()) || near(a, b, 1e-9);
+            if !same(f(&z[0]), r.area[ci].mapped) || !same(f(&z[1]), r.area[ci].est) || !same(f(&z[2]), r.area[ci].se) {
+                rep.push_str(&format!("  transition {c}, zeit: {z}, janus: {:?}\n", r.area[ci]));
+                return Err("zeit.transitions gives another area");
+            }
+        }
+        rep.push_str("    the same as zeit.transitions on the project's files\n");
+    }
+    // the strata are not the transitions: the model-assisted intervals of the change are narrower
+    if !(areas[1] < areas[0]) {
+        return Err("the difference estimator should narrow the interval of the change");
+    }
+    Ok(())
+}
+
 /// Olofsson et al. (2014), tables 8-10 (zeit.accuracy's numbers); the design (zeit.sampling_design on the same
 /// map); interpreters and dates.
 fn test_olofsson(rep: &mut String) -> Result<(), &'static str> {
@@ -566,51 +711,54 @@ pub fn self_test(rep: &mut String, python: Option<&str>) -> Result<(), &'static 
             return Err("the labelled project's points");
         }
         let Some(python) = python else { continue };
-        let code = python_snippet(&back, m, 0.95)
-            + "import json\n\
-               print(\"JANUS_CHECK \" + json.dumps({\"n\": int(acc.n), \"overall\": float(acc.overall.estimate), \
-               \"se\": float(acc.overall.se), \"area\": {str(k): [float(v), float(s)] for k, v, s in \
-               zip(acc.area.index, acc.area.estimate, acc.area.se)}}))\n";
-        let script = dir.join("check.py");
-        if std::fs::write(&script, &code).is_err() {
-            return Err("cannot write the Python check");
-        }
-        let out = std::process::Command::new(python).arg(&script).output().map_err(|_| "cannot run Python")?;
-        let text = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
-        let Some(k) = text.find("JANUS_CHECK ").filter(|_| out.status.success()) else {
-            rep.push_str(&format!("  Python said:\n{text}\n  code:\n{code}\n"));
-            return Err("zeit.accuracy did not run");
-        };
-        let line = text[k + 12..].lines().next().unwrap_or("");
-        let j: Value = serde_json::from_str(line).map_err(|_| "zeit.accuracy's numbers not read")?;
-        let f = |v: &Value| v.as_f64().unwrap_or(f64::NAN);
-        if j["n"].as_i64() != Some(i64::from(r.n))
-            || !near(f(&j["overall"]), r.overall.est, 1e-9)
-            || !near(f(&j["se"]), r.overall.se, 1e-9)
-        {
-            rep.push_str(&format!("  zeit: {j}\n"));
-            return Err("zeit.accuracy gives another overall accuracy");
-        }
-        for (ci, c) in r.classes.iter().enumerate() {
-            let Some(z) = j["area"].get(c) else {
-                if r.area[ci].est == 0.0 {
-                    continue;
-                }
+        // every estimator for the maps on the strata's grid (whose areas Zeit counts inside the strata, as Janus)
+        let on_grid = m.rule.path == pa;
+        let estimators: &[AreaEstimator] = if on_grid { &AreaEstimator::ALL } else { &[AreaEstimator::Direct] };
+        let mut q = back.clone();
+        for &e in estimators {
+            q.estimator = e;
+            let r = assess(&prepare(&q, m, &v, &mp, 0.95, &[]).input);
+            let code = python_snippet(&q, m, 0.95)
+                + "import json\n\
+                   num = lambda v: None if v != v else float(v)\n\
+                   print(\"JANUS_CHECK \" + json.dumps({\"n\": int(acc.n), \"overall\": float(acc.overall.estimate), \
+                   \"se\": float(acc.overall.se), \"area\": {str(k): [num(v), num(s)] for k, v, s in \
+                   zip(acc.area.index, acc.area.estimate, acc.area.se)}}))\n";
+            let j = run_check(python, &dir, &code, rep).map_err(|_| "zeit.accuracy did not run")?;
+            let f = |v: &Value| v.as_f64().unwrap_or(f64::NAN);
+            if j["n"].as_i64() != Some(i64::from(r.n))
+                || !near(f(&j["overall"]), r.overall.est, 1e-9)
+                || !near(f(&j["se"]), r.overall.se, 1e-9)
+            {
                 rep.push_str(&format!("  zeit: {j}\n"));
-                return Err("zeit.accuracy has not every class");
-            };
-            if !near(f(&z[0]), r.area[ci].est, 1e-9) || !near(f(&z[1]), r.area[ci].se, 1e-9) {
-                rep.push_str(&format!("  class {c}, zeit: {z}\n"));
-                return Err("zeit.accuracy gives another area");
+                return Err("zeit.accuracy gives another overall accuracy");
+            }
+            let same = |a: f64, b: f64| (a.is_nan() && b.is_nan()) || near(a, b, 1e-9);
+            for (ci, c) in r.classes.iter().enumerate() {
+                let Some(z) = j["area"].get(c) else {
+                    if r.area[ci].est == 0.0 {
+                        continue;
+                    }
+                    rep.push_str(&format!("  zeit: {j}\n"));
+                    return Err("zeit.accuracy has not every class");
+                };
+                if !same(f(&z[0]), r.area[ci].est) || !same(f(&z[1]), r.area[ci].se) {
+                    rep.push_str(&format!("  class {c} ({}), zeit: {z}, janus: {:?}\n", e.name(), r.area[ci]));
+                    return Err("zeit.accuracy gives another area");
+                }
             }
         }
-        rep.push_str("    the same as zeit.accuracy on the project's files\n");
+        rep.push_str(&format!(
+            "    the same as zeit.accuracy on the project's files ({})\n",
+            estimators.iter().map(|e| e.name()).collect::<Vec<_>>().join(", ")
+        ));
     }
     let years = change_by_year(&back, &plain, 0.95);
     let sum: f64 = years.iter().map(|(_, a)| a.est).sum();
     if years.is_empty() || !(sum > 0.0) {
         return Err("the area of change by year");
     }
+    test_transitions(rep, &dir, &back, &kept_path, (w, h), &gt_a, python)?;
     if std::env::var_os("JANUS_KEEP_VALIDATION").is_none() {
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -790,8 +938,10 @@ mod tests {
 
     #[test]
     fn selftest_validation() {
+        // with JANUS_PYTHON (a Python with Zeit), against zeit.accuracy and zeit.transitions too
+        let python = std::env::var("JANUS_PYTHON").ok();
         let mut rep = String::new();
-        let r = super::self_test(&mut rep, None);
+        let r = super::self_test(&mut rep, python.as_deref());
         print!("{rep}");
         r.unwrap();
     }

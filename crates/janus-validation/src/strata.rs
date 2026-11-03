@@ -614,6 +614,67 @@ pub fn mapped_areas(
     Ok(area)
 }
 
+/// The area of each transition (class of `from`, class of `to`) over the pixels of the strata raster that are in a
+/// stratum, both maps read on the strata's grid: the mapped areas of the transitions between two dates.
+pub fn mapped_transitions(
+    from: &MapRule,
+    to: &MapRule,
+    strata_path: &str,
+    s: &Strata,
+    p: Option<&Progress>,
+) -> Result<BTreeMap<(i32, i32), f64>, String> {
+    let st = MapReader::open(strata_path, 1, None, threads_of(p))?;
+    let ra = MapReader::open(&from.path, from.band, Some(&s.grid), threads_of(p))?;
+    let rb = MapReader::open(&to.path, to.band, Some(&s.grid), threads_of(p))?;
+    let (w, h) = (st.w, st.h);
+    let rows_per = band_rows(w, 3, 0);
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads_of(p).max(1)).build().map_err(|e| e.to_string())?;
+    let (mut a, mut b, mut c) = (Vec::new(), Vec::new(), Vec::new());
+    let mut area = BTreeMap::new();
+    for y0 in (0..h).step_by(rows_per) {
+        if cancelled(p) {
+            return Err("cancelled".into());
+        }
+        let n = rows_per.min(h - y0);
+        for v in [&mut a, &mut b, &mut c] {
+            v.resize(w * n, 0.0);
+        }
+        st.rows(y0, n, &mut a).map_err(|e| format!("{strata_path}: read failed: {e}"))?;
+        ra.rows(y0, n, &mut b).map_err(|e| format!("{}: read failed: {e}", from.path))?;
+        rb.rows(y0, n, &mut c).map_err(|e| format!("{}: read failed: {e}", to.path))?;
+        // each row's pixels of every pair of classes, rows in parallel, then the areas added row by row
+        let rows: Vec<Vec<((i32, i32), i64)>> = pool.install(|| {
+            a.par_chunks(w)
+                .zip(b.par_chunks(w))
+                .zip(c.par_chunks(w))
+                .map(|((ar, br), cr)| {
+                    let mut acc: HashMap<(i32, i32), i64> = HashMap::new();
+                    for x in 0..w {
+                        if !(ar[x] >= 1.0) {
+                            continue;
+                        }
+                        let (i, j) = (from.class_of(f64::from(br[x])), to.class_of(f64::from(cr[x])));
+                        if i != NONE && j != NONE {
+                            *acc.entry((i, j)).or_insert(0) += 1;
+                        }
+                    }
+                    acc.into_iter().collect()
+                })
+                .collect()
+        });
+        for (r, row) in rows.into_iter().enumerate() {
+            let ra = s.row_area.get(y0 + r).copied().unwrap_or(1.0);
+            for (k, n) in row {
+                *area.entry(k).or_insert(0.0) += n as f64 * ra;
+            }
+        }
+        if let Some(p) = p {
+            p.set_done((y0 + n) as f64 / h as f64);
+        }
+    }
+    Ok(area)
+}
+
 /// The raw values of `map` at points (x, y in the CRS `wkt`): NaN off the map or no data.
 pub fn values_at(map: &MapRule, wkt: &str, xy: &[[f64; 2]]) -> Result<Vec<f64>, String> {
     let ds = open_raster(&map.path, 1)?;

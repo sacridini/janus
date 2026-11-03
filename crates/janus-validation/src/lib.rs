@@ -1,7 +1,8 @@
 //! Validation of maps after the good practices of Olofsson et al. (2014): the strata of a map (or of several
 //! maps), the sample size and its allocation, a stratified random sample of pixels, and Stehman's (2014)
-//! estimators of the accuracies and of the error-adjusted areas from the reference labels of the sample; the
-//! project that keeps all of it, a GeoPackage. The interface is in janus-app (validation.rs). Ported from
+//! estimators of the accuracies and of the error-adjusted areas from the reference labels of the sample (direct,
+//! or model-assisted: difference and ratio), and of the area of each transition between two dates of a map of
+//! classes; the project that keeps all of it, a GeoPackage. The interface is in janus-app (validation.rs). Ported from
 //! src/validation.cpp: the same strata, the same sample for the same seed, the same project files.
 //!
 //! The estimators are those of zeit.accuracy, so the numbers are the same: with the strata being the classes of the
@@ -23,13 +24,15 @@ mod reader;
 pub mod rules;
 pub mod selftest;
 pub mod strata;
+pub mod transitions;
 
 pub use assess_map::{
     CHANGE, NO_CHANGE, Prepared, change_by_year, default_mapping, map_classes, prepare, python_snippet,
 };
 pub use design::{Alloc, Expected, Point, allocate, draw_sample, expected_errors, sample_size};
 pub use estimate::{
-    Agreement, AssessInput, Assessment, ClassArea, DateAgreement, Est, Estimator, assess, cohen, date_agreement, z_of,
+    Agreement, AreaEstimator, AssessInput, Assessment, ClassArea, DateAgreement, Est, Estimator, assess, cohen,
+    date_agreement, z_of,
 };
 pub use labels::{ADJUDICATED, Event, Label, now_iso, resolve, year_of};
 pub use project::{
@@ -37,7 +40,12 @@ pub use project::{
     read_labels, save_labels, save_project_meta,
 };
 pub use rules::{Grid, MapKind, MapRule, bins_text, fmt_g, interval_name, parse_bins, read_grid, row_areas};
-pub use strata::{Strata, StrataSpec, Stratum, compute_strata, count_strata, mapped_areas, values_at};
+pub use strata::{
+    Strata, StrataSpec, Stratum, compute_strata, count_strata, mapped_areas, mapped_transitions, values_at,
+};
+pub use transitions::{
+    ARROW, TransitionSpec, Transitions, can_transition, guess_date, label_at, prepare_transitions, transitions_snippet,
+};
 
 /// A value outside every class.
 pub const NONE: i32 = i32::MIN;

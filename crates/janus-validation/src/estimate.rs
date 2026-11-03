@@ -1,5 +1,5 @@
 //! Stehman's (2014) estimators of a stratified random sample, the confusion matrix, accuracies and
-//! error-adjusted areas, the agreement of dates and of interpreters (src/validation.cpp: zOf, Estimator, assess,
+//! error-adjusted areas (direct, or model-assisted: difference and ratio), the agreement of dates and of interpreters (src/validation.cpp: zOf, Estimator, assess,
 //! dateAgreement, cohen).
 
 use std::collections::BTreeMap;
@@ -141,6 +141,25 @@ impl Estimator {
         self.interval(est, var.sqrt())
     }
 
+    /// The share of the area where `y` (the reference's indicator of a class), given the map's indicator `x` of it
+    /// and its share of the area `x_share` (known: the mapped area over the total). Direct: the mean of y.
+    /// Difference: x_share plus the mean of y - x, with its variance. Ratio: x_share times the ratio of the means
+    /// of y and x, its standard error x_share times the ratio's (NaN when no point has x).
+    pub fn share(&self, how: AreaEstimator, y: &[f64], x: &[f64], x_share: f64) -> Est {
+        match how {
+            AreaEstimator::Direct => self.mean(y),
+            AreaEstimator::Difference => {
+                let d: Vec<f64> = y.iter().zip(x).map(|(a, b)| a - b).collect();
+                let m = self.mean(&d);
+                self.interval(x_share + m.est, m.se)
+            }
+            AreaEstimator::Ratio => {
+                let r = self.ratio(y, x);
+                self.interval(x_share * r.est, x_share * r.se)
+            }
+        }
+    }
+
     pub fn ratio(&self, y: &[f64], x: &[f64]) -> Est {
         if self.members.is_empty() {
             return Est::default();
@@ -181,6 +200,42 @@ impl Estimator {
     }
 }
 
+/// How the areas are estimated (zeit.accuracy's `estimator=`): from the sample alone, or model-assisted, the map's
+/// areas (known everywhere) corrected by the sample.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AreaEstimator {
+    /// Stehman (2014): the reference's share of each stratum, weighed by its area
+    #[default]
+    Direct,
+    /// the mapped area plus the estimated area of the reference minus the map's (Sarndal et al. 1992, sec. 6.3;
+    /// Stehman 2013; McRoberts et al. 2018)
+    Difference,
+    /// the mapped area times the estimated ratio of the reference's area to the map's (the combined ratio
+    /// estimator: Cochran 1977, sec. 6.11)
+    Ratio,
+}
+
+impl AreaEstimator {
+    pub const ALL: [AreaEstimator; 3] = [AreaEstimator::Direct, AreaEstimator::Difference, AreaEstimator::Ratio];
+
+    /// As Zeit names it.
+    pub fn name(self) -> &'static str {
+        match self {
+            AreaEstimator::Direct => "direct",
+            AreaEstimator::Difference => "difference",
+            AreaEstimator::Ratio => "ratio",
+        }
+    }
+
+    pub fn from_name(s: &str) -> AreaEstimator {
+        match s {
+            "difference" => AreaEstimator::Difference,
+            "ratio" => AreaEstimator::Ratio,
+            _ => AreaEstimator::Direct,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ClassArea {
     pub mapped: f64,
@@ -210,6 +265,8 @@ pub struct Assessment {
     pub users: Vec<Est>,
     pub producers: Vec<Est>,
     pub area: Vec<ClassArea>,
+    /// how `area` was estimated
+    pub estimator: AreaEstimator,
     pub total_area: f64,
     /// points used
     pub n: i32,
@@ -231,12 +288,15 @@ pub struct AssessInput {
     /// per class: the area the map gives it
     pub mapped: Vec<f64>,
     pub confidence: f64,
+    /// of the areas
+    pub estimator: AreaEstimator,
 }
 
 pub fn assess(inp: &AssessInput) -> Assessment {
     let nc = inp.classes.len();
     let np = inp.stratum.len();
-    let mut a = Assessment { classes: inp.classes.clone(), covered: 1.0, ..Default::default() };
+    let mut a =
+        Assessment { classes: inp.classes.clone(), covered: 1.0, estimator: inp.estimator, ..Default::default() };
     let mut st: Vec<Option<usize>> = vec![None; np];
     // (map, reference) of each point used
     let mut mr: Vec<(usize, usize)> = vec![(usize::MAX, usize::MAX); np];
@@ -290,14 +350,17 @@ pub fn assess(inp: &AssessInput) -> Assessment {
     }
     fill(&mut y, &|m, r| m == r);
     a.overall = e.mean(&y);
+    let mut xm = vec![0.0; np];
     for c in 0..nc {
         fill(&mut y, &|m, r| m == c && r == c);
-        fill(&mut x, &|m, _| m == c);
-        a.users.push(e.ratio(&y, &x));
+        fill(&mut xm, &|m, _| m == c);
+        a.users.push(e.ratio(&y, &xm));
         fill(&mut x, &|_, r| r == c);
         a.producers.push(e.ratio(&y, &x));
-        let p = e.mean(&x);
-        let mut ar = ClassArea { mapped: inp.mapped.get(c).copied().unwrap_or(0.0), ..Default::default() };
+        let mapped = inp.mapped.get(c).copied().unwrap_or(0.0);
+        let x_share = if a.total_area > 0.0 { mapped / a.total_area } else { 0.0 };
+        let p = e.share(inp.estimator, &x, &xm, x_share);
+        let mut ar = ClassArea { mapped, ..Default::default() };
         ar.est = p.est * a.total_area;
         ar.se = p.se * a.total_area;
         ar.ci = e.z * ar.se;
