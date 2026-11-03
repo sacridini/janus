@@ -1705,11 +1705,88 @@ para ver mais de um ao mesmo tempo nem desacoplar um "puxando ele para fora".
   arrastada para fora, com a classe 3 renomeada; o resto em camadas, 7 no
   grupo, as 8 visíveis).
 
-**Próximos (pedidos em 2026-11-03, em sub-agentes, cada um num worktree)**: a
-fase 10 do plano de novas ferramentas (área ± IC por transição e estimadores de
-diferença e razão, Zeit e Janus); o avaliador próprio da calculadora (ler os
-arquivos da série direto, sem o VRT e a trava do pool do GDAL); os achados que
-restam da auditoria de layout.
+### Fase 10, o leitor da calculadora e a auditoria do layout (2026-11-03, sem versão)
+Pedido do usuário depois da 1.10.0: "Fechar a v1.10.0 […] A fase 10 do plano […]
+O avaliador próprio da calculadora […] A auditoria de layout […] pode usar
+sub-agentes para as fases diferentes". Três sub-agentes, cada um num worktree e
+nos seus núcleos (3 + 3 + 2, oito no total); as branches rebaseadas sobre a
+main, sem conflito a não ser os blocos do autoteste (240-249 e 250-258). A CI da
+1.10.0 (build da tag e da main, site) passou, e o release tem os três
+instaladores.
+
+**Fase 10 — Transições entre duas datas e estimadores assistidos por modelo.**
+A área de cada transição i→j entre dois mapas de classes (duas datas de uma
+série categórica) com IC, pela amostra estratificada (Olofsson et al. 2014;
+Stehman 2014: os estratos não precisam ser as transições). A referência de cada
+ponto em cada data vem do rótulo e dos seus eventos datados, e a área mapeada
+de cada transição é contada pixel a pixel dentro dos estratos. Os estimadores
+direto, de diferença e de razão (Stehman 2013; McRoberts et al. 2018) ficam à
+escolha no projeto; com estratos diferentes do mapa, os assistidos por modelo
+estreitam os intervalos das mudanças raras. Estão em `crates/janus-validation`
+(AreaEstimator, mapped_transitions, transitions.rs), no
+`zeit.accuracy(estimator=)` e no novo `zeit.transitions`, na aba Accuracy
+(combo do estimador, tabela de transições com ± IC), no relatório (seção e
+`transitions.csv`) e no Copy Python. Batem com o pacote survey 4.5 do R como
+caixa-preta a 1e-10 (`make_survey_fixtures.R`, `tests/survey_parity.rs`,
+`test_accuracy_survey.py`). Autoteste 240-244.
+- O Zeit era mais lento que o R no próprio benchmark (0,73-0,85 s contra
+  0,42-0,51 s, 2048² px): cada etapa relia os três rasters pelo dask (os
+  unique, os pontos, um `(codes == c).sum` por transição). Agora um mapa de
+  classes inteiras de até 2^26 px é lido uma vez para a memória e contado com
+  poucos bincount (classes, pares em int32, pixels por estrato e linha), sem a
+  cópia float com NaN; os maiores seguem preguiçosos. 0,18-0,21 s contra
+  0,40-0,48 s do survey + terra (1,9-2,7×), os mesmos números a 7,6e-15; no
+  4096² em memória, de 1,3-1,9 s para 0,57-0,83 s (o Janus conta em 0,22 s; o
+  resto do caminho seria Rust no zeit-core). `accuracy`, `sampling_design` e
+  `stratified_sample` ganham igual.
+- Janus 3874a7e, 28cf5e4, 2625ac9, 9e26048; Zeit 6c07a13, c7e198c, cd9f969.
+
+**O leitor próprio da calculadora (calc::eval).** Os VRTs da calculadora passam
+a ser lidos pelo próprio Janus, direto dos arquivos de cada data, sem o VRT do
+GDAL no meio (o pool de datasets sob um lock do processo e o XML a cada
+leitura). Os valores são os do GDAL bit a bit: as janelas das fontes
+(GetSrcDstWindow), o no data e a escala (VRTComplexSource) e a leitura pelos
+blocos com vizinho mais próximo foram portados à risca. Uma leitura que só
+amostra pixels da grade é feita em partes de blocos inteiros dos arquivos, cada
+bloco lido por uma só thread, nas threads de processamento (oito no máximo).
+Vale para o mapa, o gráfico, os pins, o Live, os estágios gravados em GeoTIFF e
+os COGs (agora calculados uma vez, não duas). O GDAL continua lendo o que não é
+coberto (arquivo na rede, outro tipo de VRT). De propósito, uma banda de uma só
+fonte com overviews, vista de longe, agora mostra a expressão (o GDAL mostrava
+a overview do arquivo: `x * 2` como `x`). Nas 107 datas do guia, com 3 threads:
+a contagem no mapa de 2,6 s para 0,8 s, a série de um pin de 1,1 s para 0,09 s,
+a mediana gravada como COG de 3,7 s para 1,1 s; contra o xarray, as reduções
+2,9 a 12 vezes mais rápidas (a parte do spyndex não foi refeita: o spyndex não
+está instalado aqui). O que mais pesava: a busca de overviews do GDAL em cada
+abertura de cada thread (~400 ms), agora uma vez por VRT. Testes em
+`tests/calc_eval.rs` (12 pedidos contra GDALRasterIOEx, todo tipo de fonte) e
+autoteste 250-251. Resta: o calc_eval imprime "ERROR 5 … Illegal band #" do GDAL
+ao sair (um VRT reprojetado fechando; o teste passa). 66b40ce, 80a52cb.
+
+**Auditoria do layout polida.** O texto cortado de propósito, com o texto
+inteiro no hover, agora é marcado onde é desenhado (`cut_on_purpose`,
+`fit::truncated`, `fit::cell`) e não entra no relatório; acabou o palpite da
+menor fonte, que escondia cortes reais. Um achado só conta quando duas passadas
+seguidas o mostram, as passadas descartadas são puladas e a sobreposição é
+comparada linha a linha. Layers passa a ser auditado em todos os tamanhos.
+Consertos nas fontes grandes e nos painéis estreitos:
+- as linhas da Análise (Datas, Sazonal, Dispersão, Bandas, Atlas), a barra do
+  gráfico e as Classes do teste de tendência quebram um widget por vez
+  (`fit::wrap_before`);
+- os gráficos têm pelo menos oito linhas de altura; o plano do Atlas nunca tem
+  altura negativa (era um panic em debug) e o texto de progresso quebra;
+- as legendas das Datas usam a fonte da interface; o filtro de Files e o campo
+  do Go to são tão largos quanto a dica; a paleta mostra 12 linhas;
+- o selo de Layers some antes de cobrir o nome, e os nomes cortados aparecem
+  inteiros no hover.
+No tour das fontes em s2ro, de 10 a 28 px: de 24 para 0 achados (modern) e de 35
+para 0 (classic). Fica de fora o ponto cego das abas do dock, que rolam na
+horizontal (o que passa da largura não é cobrado ali: a árvore de Files, as
+colunas de Statistics, a Help). 7a945cd.
+
+Verificação na main juntada: fmt e clippy do workspace limpos, testes de
+janus-app, janus-cube e janus-validation passando, autoteste da interface
+completo (release, 8 threads) `OK (43.7 s)`.
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
