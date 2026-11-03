@@ -81,6 +81,7 @@ impl BasemapUi {
             terms: "The provider's terms (a key in the URL is sent with every request)".into(),
             connections: 4,
             cache_days: 7,
+            service: String::new(),
         }
     }
 }
@@ -224,18 +225,26 @@ impl State {
     /// Bottom right of the map: the attribution, always, and a short state (offline, a server error); wrapped to
     /// the map's width.
     pub(crate) fn basemap_note(&self, painter: &egui::Painter, rect: Rect) {
-        if !self.basemap.shown() {
-            return;
-        }
-        let b = self.basemap.b.as_ref().unwrap();
-        let mut text = b.source().attribution.clone();
-        if b.offline() {
-            text = format!("Basemap unavailable (offline)  |  {text}");
-        } else {
-            let e = b.error();
-            if !e.is_empty() {
-                text = format!("Basemap: {e}  |  {text}");
+        // the web layers' credits too (web_layers.rs)
+        let web = self.web.credits().join("  |  ");
+        let mut text = web.clone();
+        if self.basemap.shown() {
+            let b = self.basemap.b.as_ref().unwrap();
+            text = b.source().attribution.clone();
+            if b.offline() {
+                text = format!("Basemap unavailable (offline)  |  {text}");
+            } else {
+                let e = b.error();
+                if !e.is_empty() {
+                    text = format!("Basemap: {e}  |  {text}");
+                }
             }
+            if !web.is_empty() {
+                text = format!("{web}  |  {text}");
+            }
+        }
+        if text.is_empty() {
+            return;
         }
         let wrap = (rect.width() - 260.0).max(80.0); // the colour bar is bottom left
         let font = FontId::proportional(11.0 * crate::fit::scale_of(painter.ctx()));

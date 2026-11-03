@@ -184,6 +184,9 @@ pub struct VectorEntry {
     pub name: String,
     pub visible: bool,
     pub color: [u8; 4],
+    /// fetched from a server: its request, to fetch it again when the file is gone (web_layers.rs)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web: Option<crate::web_layers::WebFeatureEntry>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -259,6 +262,9 @@ pub struct Project {
     /// the drawing order, bottom to top ("s0", "v1", "r2")
     pub order: Vec<String>,
     pub groups: Vec<GroupEntry>,
+    /// maps from servers (WMS, WMTS), "w0"... in the order (web_layers.rs)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub web_maps: Vec<crate::web_layers::WebMapEntry>,
     /// the active series (its place in `series`)
     pub active: Option<usize>,
     /// in the active layer's pixels
@@ -447,6 +453,7 @@ impl State {
                 name: v.name.clone(),
                 visible: v.visible,
                 color: v.color.to_array(),
+                web: self.web.source_of(&v.data.path).map(|w| crate::web_layers::WebFeatureEntry::of(&w.req)),
             });
         }
         let mut result_key = std::collections::HashMap::new();
@@ -477,7 +484,15 @@ impl State {
                 Sel::Result(id) => result_key.get(&id).map(|k| format!("r{k}")),
             }
         };
-        p.order = self.draw_order().into_iter().filter_map(|it| self.sel_of(it)).filter_map(|s| key(self, s)).collect();
+        p.order = self
+            .draw_order()
+            .into_iter()
+            .filter_map(|it| match it {
+                Item::Web(k) => Some(format!("w{k}")),
+                _ => self.sel_of(it).and_then(|s| key(self, s)),
+            })
+            .collect();
+        p.web_maps = self.web_map_entries();
         p.groups = self
             .groups
             .iter()
@@ -546,6 +561,9 @@ impl State {
             self.remove_vector(self.vectors.len() - 1);
         }
         self.zeit.results.clear();
+        while !self.web.maps.is_empty() {
+            self.remove_web_map(self.web.maps.len() - 1);
+        }
         self.groups.clear();
         self.clear_pins();
         self.clear_roi();
@@ -839,8 +857,18 @@ impl State {
             let mut files: Vec<String> = vec![];
             for v in &r.project.vectors {
                 match v.file.resolve(r.base.as_deref()) {
-                    Some(f) if !files.contains(&f) => files.push(f),
+                    Some(f) if !files.contains(&f) => {
+                        if let Some(w) = &v.web {
+                            self.restore_web_source(&f, w, &v.name, false, ctx);
+                        }
+                        files.push(f)
+                    }
                     Some(_) => {}
+                    // fetched from a server: fetched again
+                    None if v.web.is_some() => {
+                        let f = if v.file.absolute.is_empty() { v.file.path.clone() } else { v.file.absolute.clone() };
+                        self.restore_web_source(&f, v.web.as_ref().unwrap(), &v.name, true, ctx);
+                    }
                     None => r.missing.push(format!("{}: {} not found", v.name, v.file.shown())),
                 }
             }
@@ -850,7 +878,7 @@ impl State {
             self.project.restore = Some(r);
             return;
         }
-        if !self.vector_loads.is_empty() {
+        if !self.vector_loads.is_empty() || self.web.fetching() {
             self.project.restore = Some(r);
             return;
         }
@@ -936,6 +964,10 @@ impl State {
             if let Some(j) = self.zeit.results.iter().position(|x| &x.path == path) {
                 items.insert(format!("r{k}"), Item::Result(j));
             }
+        }
+        // the maps from servers
+        for (k, j) in self.restore_web_maps(&p.web_maps).into_iter().enumerate() {
+            items.insert(format!("w{k}"), Item::Web(j));
         }
         let extra: Vec<usize> = (0..self.vectors.len()).filter(|&j| !taken[j]).collect();
         // the drawing order: the project's, any other layer kept on top

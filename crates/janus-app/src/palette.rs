@@ -20,6 +20,7 @@ pub(crate) enum Cmd {
     OpenFolder,
     OpenUrl,
     Stac,
+    WebLayer,
     OpenSeparate,
     OpenVector,
     Export(usize),
@@ -187,6 +188,7 @@ impl State {
         add(Cmd::OpenFolder, "File", "Open folder...", "Ctrl+Shift+O", None);
         add(Cmd::OpenUrl, "File", "Open URL (COG, S3, GCS)...", "Ctrl+U", None);
         add(Cmd::Stac, "File", "Search STAC catalog...", "", None);
+        add(Cmd::WebLayer, "File", "Add web layer (WMS, WMTS, WFS, OGC API)...", "", None);
         add(Cmd::OpenSeparate, "File", "Open files as separate layers...", "", None);
         add(Cmd::OpenVector, "File", "Open vector file...", "", None);
         add(Cmd::Export(1), "File", "Export map as PNG...", "Ctrl+E", series.clone());
@@ -573,6 +575,7 @@ impl State {
             Cmd::OpenFolder => self.open_folder_dialog(true, ctx),
             Cmd::OpenUrl => self.open_url_dialog(true),
             Cmd::Stac => self.stac.show = true,
+            Cmd::WebLayer => self.open_web_dialog(),
             Cmd::OpenSeparate => {
                 if let Some(files) = rfd::FileDialog::new().pick_files() {
                     self.pending_opens.extend(files.iter().map(|f| vec![f.to_string_lossy().into_owned()]));

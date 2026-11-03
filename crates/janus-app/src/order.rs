@@ -13,6 +13,8 @@ pub enum Item {
     Series(usize),
     Vector(usize),
     Result(usize),
+    /// a map from a server (into `web.maps`, web_layers.rs)
+    Web(usize),
 }
 
 /// The permutation that sorts `z` (stable), None if it is sorted.
@@ -41,6 +43,7 @@ impl State {
         out.extend(self.layers.iter().enumerate().map(|(i, l)| (l.z, Item::Series(i))));
         out.extend(self.vectors.iter().enumerate().map(|(j, v)| (v.z, Item::Vector(j))));
         out.extend(self.zeit.results.iter().enumerate().map(|(k, r)| (r.z, Item::Result(k))));
+        out.extend(self.web.maps.iter().enumerate().map(|(k, m)| (m.z, Item::Web(k))));
         // stable: each list's order kept
         out.sort_by_key(|&(z, it)| (z, matches!(it, Item::Vector(_)) as u8 + 2 * matches!(it, Item::Result(_)) as u8));
         out.into_iter().map(|(_, it)| it).collect()
@@ -58,6 +61,7 @@ impl State {
                 }
                 Item::Vector(j) => self.vectors[j].z = z,
                 Item::Result(k) => self.zeit.results[k].z = z,
+                Item::Web(k) => self.web.maps[k].z = z,
             }
         }
         self.next_z = self.next_z.max(order.len() as u64);
@@ -71,6 +75,9 @@ impl State {
         }
         if let Some(p) = sorting(&self.zeit.results.iter().map(|r| r.z).collect::<Vec<_>>()) {
             permute(&mut self.zeit.results, &p);
+        }
+        if let Some(p) = sorting(&self.web.maps.iter().map(|m| m.z).collect::<Vec<_>>()) {
+            permute(&mut self.web.maps, &p);
         }
         self.map.dirty = true;
     }

@@ -24,6 +24,8 @@ mod misc;
 mod validation;
 #[path = "ui_test_vectors.rs"]
 mod vectors;
+#[path = "ui_test_web.rs"]
+mod web;
 
 use crate::app::State;
 use crate::classes::ClassState;
@@ -77,6 +79,8 @@ pub struct UiTest {
     /// each window's width at the last frame and how many frames in a row it grew (a window must not widen by
     /// itself: a row a fraction of a point wider than it grows it frame after frame)
     widths: std::collections::HashMap<egui::Id, (f32, usize)>,
+    /// stages 280-289: the OGC test server (ui_test_web.rs)
+    web: Option<janus_geo::ogc_mock::MockServer>,
 }
 
 /// Frames in a row a window may widen (its content changed) before it is a window growing by itself.

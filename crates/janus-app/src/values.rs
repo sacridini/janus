@@ -225,7 +225,7 @@ impl State {
                         detail,
                     });
                 }
-                Item::Vector(_) => {}
+                Item::Vector(_) | Item::Web(_) => {}
             }
         }
         rows

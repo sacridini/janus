@@ -25,6 +25,8 @@ impl State {
             }
             Item::Vector(j) => self.vectors.get(j).map(|v| Sel::Vector(v.id)),
             Item::Result(k) => self.zeit.results.get(k).map(|r| Sel::Result(r.id)),
+            // a map from a server: not selected, grouped or styled (web_layers.rs)
+            Item::Web(_) => None,
         }
     }
 

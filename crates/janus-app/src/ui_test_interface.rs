@@ -2404,10 +2404,7 @@ impl State {
                 st.stage = 280;
                 None
             }
-            280 => {
-                st.stage = 290;
-                None
-            }
+            280..=289 => self.test_web(st, t0, ctx),
             290 => {
                 st.stage = 299;
                 None

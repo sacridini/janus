@@ -341,12 +341,15 @@ impl State {
         name + suffix
     }
 
-    /// The basemap's credit, whenever it is drawn.
+    /// The basemap's credit, whenever it is drawn, and the web layers' shown (web_layers.rs).
     pub(crate) fn basemap_attribution(&self) -> String {
-        if !self.basemap.shown() {
-            return String::new();
+        let mut parts = self.web.credits();
+        if self.basemap.shown()
+            && let Some(b) = self.basemap.b.as_ref()
+        {
+            parts.push(b.source().attribution.clone());
         }
-        self.basemap.b.as_ref().map(|b| b.source().attribution.clone()).unwrap_or_default()
+        parts.join("  |  ")
     }
 
     /// The top result drawn, as on the map: the top visible result placed on it (they are layers of their own),

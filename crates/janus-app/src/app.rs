@@ -406,6 +406,8 @@ pub struct Options {
     /// --selftest-embeddings-ui DIR [OUT]
     pub selftest_embeddings_ui: bool,
     pub selftest_embeddings_out: Option<PathBuf>,
+    /// --web-layer URL,LAYER[,...]: web layers added once the series is open (screenshots, web_layers.rs)
+    pub web_layers: Vec<String>,
 }
 
 impl Options {
@@ -630,6 +632,8 @@ pub struct State {
     pub(crate) tour: crate::tour::Tour,
     pub(crate) golden: crate::golden::Golden,
     pub basemap: crate::basemap::BasemapState,
+    /// maps and features from servers (WMS, WMTS, WFS, OGC API): web_layers.rs
+    pub web: crate::web_layers::WebState,
     /// three bands of each date as RGB (series with several bands per date)
     pub composite: Option<crate::composite::BandComposite>,
     pub(crate) composite_test: crate::composite::SelfTest,
@@ -1017,6 +1021,7 @@ impl JanusApp {
                 tour: Default::default(),
                 golden: Default::default(),
                 basemap: Default::default(),
+                web: Default::default(),
                 composite: None,
                 composite_test: Default::default(),
                 reproject_test: Default::default(),
@@ -1962,6 +1967,16 @@ impl State {
                     self.stac.show = true;
                 }
                 if ui
+                    .button("Add web layer...")
+                    .on_hover_text(
+                        "A map (WMS, WMTS) or features (WFS, OGC API) from a server: TerraBrasilis'
+                         DETER and PRODES, IBGE's maps...",
+                    )
+                    .clicked()
+                {
+                    self.open_web_dialog();
+                }
+                if ui
                     .button("Open files as separate layers...")
                     .on_hover_text("Each file a layer of its own (images that are not dates of one series)")
                     .clicked()
@@ -2232,6 +2247,8 @@ impl State {
         }
         if let Some(path) = self.opts.screenshot.clone().filter(|_| !self.opts.profile_tour) {
             // the series ready, and the basemap's tiles if asked for (none loading, the map placed)
+            let web_ready = self.opts.web_layers.is_empty()
+                || self.web.cli_done && self.web_ready() && self.vector_loads.is_empty();
             let basemap_ready = self.opts.basemap.is_none()
                 || !self.basemap.why.is_empty()
                 || self.basemap.b.as_ref().is_some_and(|b| b.has_map() && b.loads() > 0 && b.inflight() == 0);
@@ -2262,6 +2279,7 @@ impl State {
                 && layers_ready
                 && self.opts.embedding_view.is_none()
                 && basemap_ready
+                && web_ready
                 && zeit_ready
                 && emb_ready
                 && roi_ready
@@ -2694,6 +2712,7 @@ impl eframe::App for JanusApp {
         self.state.tool_windows(&ctx);
         self.state.ml_window(&ctx);
         self.state.stac_window(&ctx);
+        self.state.web_window(&ctx);
         self.state.calculator_window(&ctx);
         self.state.regularize_window(&ctx);
         self.state.speckle_window(&ctx);

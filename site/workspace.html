@@ -67,6 +67,7 @@
       <li><a href="#preview">Preview on a corner</a></li>
       <li><a href="#projects">Projects and the last session</a></li>
       <li><a href="#undo">Undo</a></li>
+      <li><a href="#web">Web layers</a></li>
       <li><a href="#keys">Keys</a></li>
       <li><a href="#refs">References</a></li>
     </ol>
@@ -293,8 +294,42 @@
       <p>A layer closed by mistake comes back by <kbd>Ctrl</kbd>+<kbd>Z</kbd> in its place, with its files, band, style and date, opened again as a project opens its layers. A slider or a layer dragged is one step, whatever the frames in between: nothing is recorded while a button is held. The last 100 steps are kept; <span class="ui">New project</span> and opening a project start the history again. A text field keeps its own <kbd>Ctrl</kbd>+<kbd>Z</kbd>, and drawing an ROI polygon or a transect its own <kbd>Backspace</kbd> for the last vertex.</p>
     </section>
 
+    <section id="web">
+      <h2><span class="n">12</span>Web layers</h2>
+      <p><span class="ui">File → Add web layer...</span> (also the Layers panel's <span class="ui">+ Add</span> and the palette) adds a layer from a map server: a URL, or a preset (INPE's TerraBrasilis, DETER and PRODES; IBGE's geoservices; an OGC API demo). The service is found from the URL (OGC API - Features, WFS and WMS tried in turn) or chosen; <span class="ui">Connect</span> reads its capabilities and lists its layers with their titles, a filter above them (IBGE's server has more than ten thousand), the abstract on hover.</p>
+      <figure class="fig narrow">
+        <img src="assets/img/workspace/09-web-dialog.png" alt="The Add web layer window: Server, Presets and WFS, the URL https://terrabrasilis.dpi.inpe.br/geoserver/deter-amz/ows and Connect; the server's three layers, DETER Daily - Anonymous (deter-amz:deter_amz) selected, prodes_reference and updated_date; under it the layer's abstract, For anonymous users. Filtered by areatotalkm &gt;= 0.0625, its extent in longitude and latitude, then Where: The visible area, At most 50000 features, Dates: view_date from 2016-08-01 to 2024-12-31, an empty Filter, the layer's fields (gml_id, gid, classname, quadrant, path_row, view_date, sensor, satellite, areauckm, uc, areamunkm, municipality, mun_geocod, uf, publish_month), Fetch features, and the status: DETER Daily - Anonymous: 4 features, from the cache; INPE's open data: cite INPE (PRODES, DETER) when you use it." width="560" height="565" loading="lazy">
+        <figcaption><b>DETER's WFS</b>: the layer, the area, a cap and a date field, before <span class="ui">Fetch features</span>.</figcaption>
+      </figure>
+      <h3>Maps: WMS and WMTS</h3>
+      <p>A map becomes a layer of the drawing order, drawn as the basemap is: tiles of Web Mercator asked for around the view (a WMS GetMap per tile, its box computed by GDAL's WMS driver; a WMTS layer by its tile matrix), warped onto the active layer's grid, transparent where the server draws nothing, at its own opacity, its credit at the bottom of the map and in the exports. A layer with a time dimension shows the server's default time, a time typed, <em>the series' date</em> (the last time listed not after the date shown) or <em>up to the series' date</em> (every time from the first to it: PRODES' yearly deforestation accumulated to the date shown, following the slider). Its row's menu: opacity, time, reload, move, remove.</p>
+      <h3>Features: WFS and OGC API</h3>
+      <p>Features are fetched for the visible area, the ROI, the active layer or the whole layer (the box sent to the server), between two dates of a date field and with an attribute filter (sent to the server when it takes it), paged, up to a cap: when the server has more there, the layer is named <em>(first N)</em> and a notice says so. The fetch is a task of <span class="ui">Tools → Tasks</span>, with its progress and <span class="ui">Cancel</span>; its GeoPackage, in Janus' cache, opens as a vector layer: its colour, attribute table, an alert as the ROI (<kbd>Alt</kbd>+click), the series of every alert, zonal statistics, rasterize, <span class="ui">Export as...</span> to keep it. The same request within twelve hours is read from the cache. A project keeps the map layers and the fetched layers' requests: opened again, a GeoPackage no longer there is fetched again.</p>
+      <figure class="fig">
+        <a href="assets/img/workspace/08-web-layers.jpg"><img src="assets/img/workspace/08-web-layers.jpg" alt="The Sentinel-2 series of Rondônia, NDVI on 2020-08-18 in viridis, over the Esri World Imagery basemap. Over it, translucent in tan, PRODES' yearly deforestation since 2008 up to the series' date (a WMS layer of TerraBrasilis), patches around the series and along its edges; on top, outlined in dark red, four DETER alerts of 2016 to 2024 of the visible area (WFS), two at the bottom left of the series and a long one at its top right. The Layers panel lists DETER Daily - Anonymous (4 polygons), Yearly deforestation since 2008 (WMS terrabrasilis.dpi.inpe.br), s2ro (107 dates, 2019-06-05 .. 2024-09-11) and the basemap, Esri World Imagery. Bottom right of the map the credits: INPE / TerraBrasilis (PRODES, DETER) | Powered by Esri | Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community." width="1600" height="950" loading="lazy"></a>
+        <figcaption><b>PRODES and DETER over a series</b>: <code>jn s2ro --expr NDVI --date 30 --basemap esri --web-layer https://terrabrasilis.dpi.inpe.br/geoserver/prodes-legal-amz/ows,yearly_deforestation,wms,time=upto,opacity=0.75 --web-layer https://terrabrasilis.dpi.inpe.br/geoserver/deter-amz/ows,deter_amz,wfs,field=view_date,from=2016-08-01,to=2024-12-31</code></figcaption>
+      </figure>
+      <h3>Against Python</h3>
+      <p>The same requests by Janus, by <code>geopandas.read_file</code> on the same source (GDAL's same drivers), by OWSLib and by <code>requests</code> asking the server's GeoJSON directly (<a href="https://github.com/sacridini/janus/blob/main/tools/bench_ogc_vs_python.py">tools/bench_ogc_vs_python.py</a>, the median of three, the network included):</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Layer</th><th>Features</th><th>Janus</th><th>geopandas</th><th>OWSLib</th><th>requests</th></tr></thead>
+          <tbody>
+            <tr><td>DETER, 2023, a box of 0.4° around Novo Progresso (WFS)</td><td>55</td><td>4.5 s</td><td>4.5 s</td><td>2.8 s</td><td>1.9 s</td></tr>
+            <tr><td>IBGE's municipalities, the same box (WFS)</td><td>2</td><td>4.3 s</td><td>4.2 s</td><td>6.4 s</td><td>0.6 s</td></tr>
+            <tr><td>pygeoapi's lakes (OGC API, every page)</td><td>25</td><td>0.8 s</td><td>1.0 s</td><td>0.8 s</td><td>0.7 s</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The same features, with the same keys, in all four. Janus and geopandas take the same time: both read the server's capabilities and the layer's description first, then page; a single GeoJSON request is faster when its form is known beforehand. IBGE's server answers the box with a third municipality whose outline does not meet it (the box of its outline does): GDAL keeps the two that do, as the table counts them. A WMS tile of DETER (zoom 10) read as the map reads it and a GetMap of the same box asked for directly: the same 21121 drawn pixels, 0 different, 6.1 and 6.2 s (the server renders each).</p>
+      <div class="note">
+        <p class="h">The servers' terms</p>
+        <p>The presets are public services: INPE asks to be cited (PRODES, DETER) and IBGE's data are open with attribution. Each map's credit is drawn on the map and in the exports. Ask for the area you need: a whole layer can be large, and the cap keeps a fetch within bounds.</p>
+      </div>
+    </section>
+
     <section id="keys">
-      <h2><span class="n">12</span>Keys</h2>
+      <h2><span class="n">13</span>Keys</h2>
       <div class="tbl-wrap">
         <table class="tbl keys">
           <thead><tr><th>Keys</th><th>Does</th></tr></thead>
@@ -317,11 +352,13 @@
     </section>
 
     <section id="refs">
-      <h2><span class="n">13</span>References</h2>
+      <h2><span class="n">14</span>References</h2>
       <ul class="refs">
         <li>Ives, A. R., Zhu, L., Wang, F., Zhu, J., Morrow, C. J., Radeloff, V. C. (2021). Statistical inference for trends in spatiotemporal data. <em>Remote Sensing of Environment</em>, 266, 112678. <a href="https://doi.org/10.1016/j.rse.2021.112678">doi:10.1016/j.rse.2021.112678</a> (the AR(1) trend run in this guide; see the <a href="trend-test.html">Trend test guide</a>).</li>
         <li>Montero, D., Aybar, C., Mahecha, M. D., Martinuzzi, F., Söchting, M., &amp; Wieneke, S. (2023). A standardized catalogue of spectral indices to advance the use of remote sensing in Earth system research. <em>Scientific Data</em>, 10, 197 (the Awesome Spectral Indices).</li>
         <li>Esri World Imagery basemap: Esri, Vantor, Earthstar Geographics, and the GIS User Community.</li>
+        <li>INPE, TerraBrasilis: PRODES and DETER (<a href="https://terrabrasilis.dpi.inpe.br">terrabrasilis.dpi.inpe.br</a>). Assis, L. F. F. G., Ferreira, K. R., Vinhas, L., Maurano, L., Almeida, C., Carvalho, A., Rodrigues, J., Maciel, A., Camargo, C. (2019). TerraBrasilis: a spatial data analytics infrastructure for large-scale thematic mapping. <em>ISPRS International Journal of Geo-Information</em>, 8(11), 513.</li>
+        <li>IBGE's geoservices (<a href="https://geoservicos.ibge.gov.br">geoservicos.ibge.gov.br</a>); the OGC's Web Map Service 1.3.0, Web Feature Service 2.0 and API - Features, Part 1: Core.</li>
         <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus, whose Python <code>rerun.py</code> calls.</li>
         <li>The full reference of the window: <a href="https://github.com/sacridini/janus/blob/main/docs/usage.md">docs/usage.md</a>.</li>
       </ul>

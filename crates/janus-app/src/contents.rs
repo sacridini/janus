@@ -41,7 +41,7 @@ pub struct ContentsUi {
     /// the last click was on the list: Delete and Ctrl+D are its keys
     pub(crate) focused: bool,
     /// the rows being drawn are a group's: indented
-    indent: f32,
+    pub(crate) indent: f32,
     /// a layer's style copied (Copy style), pasted on others
     pub(crate) style_clip: Option<crate::style::LayerStyle>,
     /// the name a style is saved under (its menu's field); a group being renamed
@@ -92,7 +92,7 @@ impl ContentsUi {
         }
     }
 
-    fn shows(&self, name: &str) -> bool {
+    pub(crate) fn shows(&self, name: &str) -> bool {
         let f = self.filter.trim();
         f.is_empty() || name.to_lowercase().contains(&f.to_lowercase())
     }
@@ -394,7 +394,7 @@ struct DraggedStep {
 }
 
 /// What the panel asks for, done after it is drawn.
-enum Act {
+pub(crate) enum Act {
     Activate(usize),
     Remove(usize),
     /// the rows selected
@@ -469,7 +469,10 @@ impl State {
         let mut acts = vec![];
         self.contents_toolbar(ui);
         self.opacity_strip(ui);
-        let total = self.layers.iter().filter(|l| !l.canvas).count() + self.vectors.len() + self.zeit.results.len();
+        let total = self.layers.iter().filter(|l| !l.canvas).count()
+            + self.vectors.len()
+            + self.zeit.results.len()
+            + self.web.maps.len();
         // the list: series and vector layers in one drawing order, the basemap under them all
         list_header(ui, "Layers", &total.to_string()).on_hover_text(
             "Top of the list = drawn on top, series and vector layers alike: drag a row onto another to \
@@ -658,6 +661,10 @@ impl State {
                 {
                     self.add_vector_files(files.iter().map(|f| f.to_string_lossy().into_owned()).collect(), &ctx);
                 }
+                if ui.button("Web layer (WMS, WFS, OGC API)...").clicked() {
+                    self.open_web_dialog();
+                    ui.close();
+                }
             });
             let n = self.layers.len() + self.vectors.len() + self.zeit.results.len();
             if n >= 5 || !self.contents.filter.is_empty() {
@@ -817,6 +824,7 @@ impl State {
                     Item::Series(i) => self.series_row(ui, i, (pos, lo, top), acts),
                     Item::Vector(li) => self.vector_row(ui, li, (pos, lo, top), acts),
                     Item::Result(k) => self.result_row(ui, k, (pos, lo, top), acts),
+                    Item::Web(k) => self.web_row(ui, k, (pos, lo, top), acts),
                 }
             }
             self.contents.indent = 0.0;
@@ -1527,7 +1535,7 @@ fn close_item(ui: &mut Ui, label: &str, closes: Option<usize>, alone: Act, acts:
 }
 
 /// A row dragged onto another: moved to its place in the drawing order (a line shows where it goes).
-fn drag_to_reorder(ui: &Ui, row: &Response, pos: usize, acts: &mut Vec<Act>) {
+pub(crate) fn drag_to_reorder(ui: &Ui, row: &Response, pos: usize, acts: &mut Vec<Act>) {
     if row.drag_started() {
         row.dnd_set_drag_payload(Dragged(pos));
     }
@@ -1734,7 +1742,7 @@ fn group_items(ui: &mut Ui, me: Sel, x: &RowExtras, acts: &mut Vec<Act>) {
 }
 
 /// A row's Move menu: `place` is its place in the drawing order, the lowest a layer can go and the top.
-fn move_menu(ui: &mut Ui, place: (usize, usize, usize), acts: &mut Vec<Act>) {
+pub(crate) fn move_menu(ui: &mut Ui, place: (usize, usize, usize), acts: &mut Vec<Act>) {
     let (pos, lo, top) = place;
     ui.menu_button("Move", |ui| {
         for (label, ok, to) in [

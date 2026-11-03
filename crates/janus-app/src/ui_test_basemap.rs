@@ -139,6 +139,7 @@ impl State {
                         terms: String::new(),
                         connections: 2,
                         cache_days: 0,
+                        service: String::new(),
                     };
                     let mut bm = Basemap::<()>::new(&src, &dir, std::sync::Arc::new(|| {}));
                     match bm.set_map(&c, None, |_, _, _| ()) {

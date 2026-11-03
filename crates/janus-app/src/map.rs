@@ -871,7 +871,16 @@ impl State {
             let (mut vi, mut ri) = (0, 0);
             let no_vectors = m.export_no_vectors;
             let (vectors, results) = (&self.vectors, &self.zeit.results);
+            let (webs, mut wi) = (&mut self.web.maps, 0);
             let mut drawn_under = |gpu: &mut janus_gpu::Gpu, f: &mut janus_gpu::MapFrame, z: u64| loop {
+                // a map from a server (web_layers.rs) before a vector layer or a run's map above it
+                if let Some(w) = webs.get_mut(wi).filter(|w| {
+                    w.z < z && vectors.get(vi).is_none_or(|v| w.z < v.z) && results.get(ri).is_none_or(|r| w.z < r.z)
+                }) {
+                    crate::web_layers::draw_web_map(gpu, f, w, &view, &to_map);
+                    wi += 1;
+                    continue;
+                }
                 let v = vectors.get(vi).filter(|v| v.z < z);
                 match (v, results.get(ri).filter(|r| r.z < z)) {
                     (Some(v), r) if r.is_none_or(|r| v.z < r.z) => {

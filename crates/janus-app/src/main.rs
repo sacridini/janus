@@ -99,6 +99,7 @@ mod vectors;
 mod views;
 mod warp_ui;
 mod wavelet;
+mod web_layers;
 mod zeit;
 mod zonal_ui;
 
@@ -165,6 +166,10 @@ Developer options:
                       map at them and the estimators, timed
   The state of the window once the series is open (for screenshots):
   --basemap ID|URL    a basemap under the series: esri, eox, osm or an XYZ URL
+  --web-layer URL,LAYER[,SERVICE][,KEY=VALUE...]  a web layer: a map (WMS, WMTS) drawn, features (WFS,
+                      OGC API) of the view fetched; keys time=DATE|series|upto, field=, from=, to=, max=,
+                      opacity=, area=0..3 (view, ROI, active layer, whole layer), dialog=1 (the dialog
+                      shown as filled), filter=TEXT; repeatable
   --season A-B        a season (days of the year A to B, e.g. 152-243)
   --layer IN          IN added as a layer (repeatable)
   --map-view          a map panel
@@ -487,6 +492,7 @@ fn main() -> eframe::Result<()> {
             "--tour-json" => opts.tour_json = args.next().map(Into::into),
             "--dump-golden" => opts.dump_golden = Some(Default::default()),
             "--basemap" => opts.basemap = args.next(),
+            "--web-layer" => opts.web_layers.extend(args.next()),
             "--layer" => opts.extra_layers.extend(args.next()),
             "--map-view" => opts.map_view = true,
             "--validation-tab" => opts.validation_tab = args.next().and_then(|v| v.parse().ok()),
