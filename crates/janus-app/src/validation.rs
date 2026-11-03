@@ -1014,6 +1014,7 @@ impl State {
     /// Once a frame: strata and samples computed, rasters opened and closed, the maps read, translations guessed,
     /// writes, the blind mode, the points' colours.
     pub(crate) fn pump_validation(&mut self, ctx: &egui::Context) {
+        self.pump_alerts(ctx);
         // strata computed: shown as a layer (their raster has names and colours), the previous ones closed
         if let Some((r, path)) = self.val.strata_job.poll() {
             let v = &mut self.val;
@@ -1365,6 +1366,17 @@ impl State {
             ui.ctx().copy_text(val::python_snippet(p, &p.maps[k], f64::from(self.val.confidence)));
             ui.close();
         }
+        if ui
+            .button("Official alerts...")
+            .on_hover_text(
+                "A map of change dates against DETER, GLAD or RADD alerts: the area of change in both\n\
+                 or in one only, the alerts detected, the lag between their dates",
+            )
+            .clicked()
+        {
+            self.open_alerts();
+            ui.close();
+        }
         ui.separator();
         // a model's uncertainty where it is applied: the Classification window's Apply, the classes left out
         if ui
@@ -1426,7 +1438,7 @@ impl State {
             self.val.tab = t;
         }
         ui.horizontal(|ui| {
-            for (i, name) in ["Design", "Accuracy", "Maps", "Interpreters", "Report"].iter().enumerate() {
+            for (i, name) in ["Design", "Accuracy", "Maps", "Interpreters", "Report", "Alerts"].iter().enumerate() {
                 ui.selectable_value(&mut self.val.tab, i, *name);
             }
         });
@@ -1436,7 +1448,8 @@ impl State {
             1 => self.validation_accuracy_ui(ui),
             2 => self.validation_maps_ui(ui),
             3 => self.validation_interpreters_ui(ui),
-            _ => self.validation_report_ui(ui),
+            4 => self.validation_report_ui(ui),
+            _ => self.alerts_ui(ui),
         }
     }
 

@@ -410,6 +410,8 @@ pub struct Options {
     pub selftest_embeddings_out: Option<PathBuf>,
     /// --web-layer URL,LAYER[,...]: web layers added once the series is open (screenshots, web_layers.rs)
     pub web_layers: Vec<String>,
+    /// --alerts SOURCE[,KEY=VALUE...]: a map of change against official alerts (screenshots, alerts_ui.rs)
+    pub alerts: Vec<String>,
 }
 
 impl Options {
@@ -640,6 +642,8 @@ pub struct State {
     pub basemap: crate::basemap::BasemapState,
     /// maps and features from servers (WMS, WMTS, WFS, OGC API): web_layers.rs
     pub web: crate::web_layers::WebState,
+    /// official alerts against a map of change (Validation > Alerts): alerts_ui.rs
+    pub alerts: crate::alerts_ui::AlertsUi,
     /// three bands of each date as RGB (series with several bands per date)
     pub composite: Option<crate::composite::BandComposite>,
     pub(crate) composite_test: crate::composite::SelfTest,
@@ -1031,6 +1035,7 @@ impl JanusApp {
                 golden: Default::default(),
                 basemap: Default::default(),
                 web: Default::default(),
+                alerts: Default::default(),
                 composite: None,
                 composite_test: Default::default(),
                 reproject_test: Default::default(),
@@ -2310,6 +2315,7 @@ impl State {
                 && self.opts.embedding_view.is_none()
                 && basemap_ready
                 && web_ready
+                && self.alerts_settled()
                 && zeit_ready
                 && emb_ready
                 && roi_ready

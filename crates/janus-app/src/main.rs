@@ -4,6 +4,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod alerts_ui;
 mod analysis;
 mod animation;
 mod app;
@@ -175,6 +176,10 @@ Developer options:
                       OGC API) of the view fetched; keys time=DATE|series|upto, field=, from=, to=, max=,
                       opacity=, area=0..3 (view, ROI, active layer, whole layer), dialog=1 (the dialog
                       shown as filled), filter=TEXT; repeatable
+  --alerts SOURCE[,KEY=VALUE...]  a run's map of change dates against official alerts (Validation >
+                      Alerts): deter-amz, deter-cerrado, glad-l, glad-s2, radd, integrated, or wfs with
+                      url=, layer=, date=, class=; keys from=, to=, map=PART OF ITS NAME, files=A;B (rasters
+                      on disk), download=1 (the rasters of the map's area)
   --season A-B        a season (days of the year A to B, e.g. 152-243)
   --layer IN          IN added as a layer (repeatable)
   --labels FIELD[,SIZE]  every vector layer's features labelled by FIELD (SIZE points; before --screenshot)
@@ -501,6 +506,7 @@ fn main() -> eframe::Result<()> {
             "--dump-golden" => opts.dump_golden = Some(Default::default()),
             "--basemap" => opts.basemap = args.next(),
             "--web-layer" => opts.web_layers.extend(args.next()),
+            "--alerts" => opts.alerts.extend(args.next()),
             "--layer" => opts.extra_layers.extend(args.next()),
             "--labels" => opts.labels = args.next(),
             "--map-view" => opts.map_view = true,

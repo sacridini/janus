@@ -348,6 +348,12 @@ pub fn all() -> &'static [Colormap] {
                     rgbf(0.82, 0.90, 0.97),
                 ],
             },
+            // a map of change against official alerts: in both, only in the map, only in the alerts
+            Colormap {
+                name: "Agreement",
+                qualitative: true,
+                keys: vec![rgbf(0.60, 0.20, 0.75), rgbf(0.15, 0.50, 0.90), rgbf(0.98, 0.55, 0.05)],
+            },
         ]
     })
 }

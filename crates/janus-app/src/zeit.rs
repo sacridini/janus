@@ -156,7 +156,7 @@ pub struct ZeitUi {
     loaded: Arc<std::sync::Mutex<Vec<Result<ResultLayer, String>>>>,
     /// shown results' copies at full resolution read (path, data, width, height)
     upgraded: Arc<std::sync::Mutex<Vec<FullCopy>>>,
-    pending_loads: usize,
+    pub(crate) pending_loads: usize,
 }
 
 /// The worker: the newest request of each series, in turn; a multiband pixel's bands read first.

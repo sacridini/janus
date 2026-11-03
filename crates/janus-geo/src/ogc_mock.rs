@@ -33,13 +33,15 @@ impl Default for MockData {
     }
 }
 
-/// A served feature: its number (from 1), name, day, area, square (x0, y0, x1, y1 in the grid's CRS) and its
-/// corners in longitude and latitude.
+/// A served feature: its number (from 1), name, day, class (DETER's classnames: every third a degradation, the
+/// others clear-cut deforestation), area, square (x0, y0, x1, y1 in the grid's CRS) and its corners in longitude
+/// and latitude.
 #[derive(Clone, Debug)]
 pub struct MockFeature {
     pub id: usize,
     pub name: String,
     pub day: String,
+    pub class: String,
     pub area_ha: f64,
     pub square: [f64; 4],
     pub lonlat: Vec<[f64; 2]>,
@@ -71,6 +73,7 @@ impl MockData {
                     id,
                     name: format!("plot {id}"),
                     day: day_of(id),
+                    class: if id % 3 == 0 { "DEGRADACAO" } else { "DESMATAMENTO_CR" }.into(),
                     area_ha: self.side * self.side / 10000.0,
                     square: sq,
                     lonlat,
@@ -399,6 +402,7 @@ const DESCRIBE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <xsd:complexType name="plotsType"><xsd:complexContent><xsd:extension base="gml:AbstractFeatureType"><xsd:sequence>
 <xsd:element name="name" type="xsd:string" minOccurs="0"/>
 <xsd:element name="day" type="xsd:date" minOccurs="0"/>
+<xsd:element name="classname" type="xsd:string" minOccurs="0"/>
 <xsd:element name="area_ha" type="xsd:double" minOccurs="0"/>
 <xsd:element name="geom" type="gml:SurfacePropertyType" minOccurs="0"/>
 </xsd:sequence></xsd:extension></xsd:complexContent></xsd:complexType>
@@ -450,11 +454,12 @@ fn get_feature(c: &Ctx, p: &[(String, String)]) -> String {
         let q = f.square;
         s += &format!(
             "<wfs:member><test:plots gml:id=\"plots.{id}\"><test:name>{}</test:name><test:day>{}</test:day>\
-             <test:area_ha>{}</test:area_ha><test:geom><gml:Polygon gml:id=\"g{id}\" srsName=\"{srs}\"><gml:exterior>\
+             <test:classname>{}</test:classname><test:area_ha>{}</test:area_ha><test:geom><gml:Polygon gml:id=\"g{id}\" srsName=\"{srs}\"><gml:exterior>\
              <gml:LinearRing><gml:posList>{x0} {y0} {x1} {y0} {x1} {y1} {x0} {y1} {x0} {y0}</gml:posList></gml:LinearRing>\
              </gml:exterior></gml:Polygon></test:geom></test:plots></wfs:member>",
             f.name,
             f.day,
+            f.class,
             f.area_ha,
             id = f.id,
             x0 = q[0],
@@ -534,7 +539,7 @@ fn oapi(c: &Ctx, rest: &str, p: &[(String, String)]) -> Answer {
                     serde_json::json!({
                         "type": "Feature",
                         "id": f.id,
-                        "properties": {"name": f.name, "day": f.day, "area_ha": f.area_ha},
+                        "properties": {"name": f.name, "day": f.day, "classname": f.class, "area_ha": f.area_ha},
                         "geometry": {"type": "Polygon", "coordinates": [f.lonlat]}
                     })
                 })

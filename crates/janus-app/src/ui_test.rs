@@ -10,6 +10,8 @@
 
 use janus_gpu::Mode;
 
+#[path = "ui_test_alerts.rs"]
+mod alerts;
 #[path = "ui_test_animation.rs"]
 mod animation;
 #[path = "ui_test_basemap.rs"]
@@ -83,7 +85,7 @@ pub struct UiTest {
     /// each window's width at the last frame and how many frames in a row it grew (a window must not widen by
     /// itself: a row a fraction of a point wider than it grows it frame after frame)
     widths: std::collections::HashMap<egui::Id, (f32, usize)>,
-    /// stages 280-289: the OGC test server (ui_test_web.rs)
+    /// stages 280-289: the OGC test server (ui_test_web.rs; 290-298 too, ui_test_alerts.rs)
     web: Option<janus_geo::ogc_mock::MockServer>,
 }
 

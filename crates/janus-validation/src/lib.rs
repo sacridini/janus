@@ -15,6 +15,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+pub mod alerts;
 pub mod assess_map;
 pub mod design;
 pub mod estimate;

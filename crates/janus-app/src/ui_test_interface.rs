@@ -2399,10 +2399,7 @@ impl State {
             260..=269 => self.test_roi_profiles(st, t0, ctx),
             270..=279 => self.test_vector_draw(st, t0, ctx),
             280..=289 => self.test_web(st, t0, ctx),
-            290 => {
-                st.stage = 299;
-                None
-            }
+            290..=298 => self.test_alerts(st, t0, ctx),
             299 => {
                 // the validation's folder (stages 170-179), its strata layer open until now
                 let _ = std::fs::remove_dir_all(&st.dir);

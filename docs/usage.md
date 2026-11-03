@@ -436,6 +436,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Blend, styles, groups | **Layers** panel: the active layer's **blend mode** beside its opacity (Normal, Multiply darkens by the layers under it, Screen lightens, Add sums, Darken and Lighten keep the darker or lighter of each channel), also under *Blend* in a series' menu (`--blend MODE` on the command line). A row's menu → **Style**: *Copy style* (its mode, each mode's colormap and the ranges set by hand, the stretch per date, the RGB bands, opacity, blend, its classes' names, colours and visibility; a vector layer's colour), *Paste style* on the layers selected (or the row), the **saved styles** (kept in the settings, given with a click, `x` deletes one) and *Save style* under a name. **Groups**: select rows (`Ctrl`/`Shift` + click) → *Group the N selected*: they go next to each other in the drawing order under a row of their own, whose eye shows or hides them all, whose arrow folds them, whose click selects them (`Delete` closes them) and whose menu renames it, moves it to the top or the bottom, ungroups it or closes its layers; a row dropped on a member (or on the group's row) joins it, *Out of its group* takes one out. The palette has *Blend: ...*, *Copy style of the active layer*, *Paste style on the selected layers* and *Group the selected layers* |
 | Basemap | **Layers** panel → Basemap (the list's last row): its eye shows or hides it; click the row (or its arrow) to pick a source (None = nothing downloaded); opacity in its **⋯** menu; `S` shows or hides satellite imagery (Esri World Imagery, or the imagery source picked); *Custom XYZ URL*: the URL (`{z}`, `{x}`, `{y}`; `{-y}` for TMS rows; applied when you leave the field), the attribution to show, the finest zoom and the tile size. The source and its settings are kept between sessions, but it starts hidden, as does every series opened (its eye shows it); the map panels' and the swipe's layer list has *Basemap only* |
 | Web layers | **File → Add web layer...** (also *+ Add* in the Layers panel and the palette): a server's URL or a preset (TerraBrasilis' DETER and PRODES, IBGE, an OGC API demo); the service found from the URL (OGC API - Features, WFS, WMS tried in turn) or chosen (WMS, WMTS, WFS, OGC API - Features); *Connect* lists its layers (title, name, the abstract on hover; a filter by name, title or abstract). **A map** (WMS, WMTS): *Add map layer* puts it on top of the drawing order, drawn as the basemap (Web Mercator tiles around the view, a GetMap per tile through GDAL's WMS driver; WMTS by a Google-compatible tile matrix set), with its style, format, *Transparent*, opacity and, for a layer with a time dimension, the server's default, a time typed, *the series' date* (the last time listed not after the date shown) or *up to the series' date* (from the first time to it); its credit on the map and in the exports; its row's menu: opacity, time, reload its tiles, move, remove. **Features** (WFS, OGC API): the visible area, the ROI, the active layer or the whole layer (the box sent to the server), *At most* (50000 by default), a date field with two dates and an attribute filter (OGR SQL; both sent to the server when it takes them); *Fetch features* is a task of Tools → Tasks (progress, Cancel): paged into a GeoPackage in the cache's `web` folder (the same request within 12 h read from it; files older than 7 days removed), opened as a vector layer named after the server's layer (*(first N)* and a notice when the cap was reached); every vector tool works on it, *Export as...* keeps it. Errors (no connection, the server's error, a bad URL) are said in the window; nothing waits on the interface. Projects keep the maps and the fetched layers' requests (fetched again when the GeoPackage is gone). `--web-layer URL,LAYER[,SERVICE][,KEY=VALUE...]` adds one once the series is open (keys `time=DATE|series|upto`, `field=`, `from=`, `to=`, `max=`, `opacity=`, `area=0..3`, `dialog=1`, `filter=`). Compared with geopandas, OWSLib and requests: `tools/bench_ogc_vs_python.py`, `bench/ogc-vs-python.json` |
+| Official alerts | **Validation & uncertainty → Official alerts...** (the Validation panel's *Alerts* tab): a run's map of change dates (LandTrendr, CCDC, BFAST, CODED...) against official alerts, on the map's grid, over the area both cover and a window of dates: **DETER** (INPE; TerraBrasilis' WFS, Amazon or Cerrado, fetched for the map's area in a task and opened as a vector layer), any **vector layer** of dated polygons (a date field, a class field), or **alert rasters**: UMD's **GLAD-L** and **GLAD-S2** (read from UMD's public GeoTIFFs for the map's area, no key, or from files), Wageningen's **RADD** and GFW's **integrated alerts** (their GeoTIFFs need a GFW API key: open them from disk, or *Of the map's area* reads GFW's public map tiles, zoom 14, and decodes their colours). **Compare** (a task of Tools → Tasks) gives the area of change in both, only in the map, only in the alerts; the alerts the map detects (by area, by count, by their own area) and the map's change the alerts confirm (by area, by patches), Dice; the lag (the map's date minus the alert's: median, quantiles, the share within 30, 90 and 365 days, a histogram); by class (DETER's classname) or confidence; the **agreement map** (both, only the map, only the alerts) and, for rasters, the alerts' dates join the layers; *Export CSV...* writes the summary, the classes, every alert, the lags and the agreement map. See [Official alerts](#official-alerts-against-a-map-of-change). `--alerts SOURCE[,KEY=VALUE...]` compares once a map of change is there |
 | Browse files | **Files** panel: double click opens, right click → Add as layer or Add to favorites; Ctrl+click selects several files; hover a folder for what it would open as. Opening a series expands the tree down to it (Settings → *Files panel follows what is opened*) |
 | Add by dropping | drop files or a folder on the window: a new layer (several files make one series of their dates; with `Shift` held, each file a layer of its own) |
 | Seasonal views, classes over time, scatter | **View → Analysis** (see above) |
@@ -1458,6 +1459,80 @@ and the references; the transitions between two dates, when chosen, with
 `transitions.csv`) and a CSV of every table. *Copy Python* gives the
 `zeit.accuracy` (and `zeit.transitions`) code that computes the same estimates,
 by the same estimator, from the project's files.
+
+## Official alerts against a map of change
+
+**Validation & uncertainty → Official alerts...** (the Validation panel's
+*Alerts* tab) compares a run's map of change dates (a Zeit result in years:
+LandTrendr, CCDC, BFAST, CODED...) with the alerts the agencies publish. It is
+not an accuracy assessment (the alerts are another map, with errors of their
+own; see the sampling design above for that); it tells where and when the two
+maps agree, and how late or early one is against the other.
+
+**Sources**
+
+| Source | What it is | How Janus reads it |
+|---|---|---|
+| **DETER** (INPE) | Polygons of deforestation and degradation seen in daily WFI/AWiFS images, dated (`view_date`) and classed (`classname`: DESMATAMENTO_CR, DEGRADACAO, CICATRIZ_DE_QUEIMADA, MINERACAO...) | TerraBrasilis' WFS (`https://terrabrasilis.dpi.inpe.br/geoserver/ows`): `deter-amz:deter_amz` (Amazon) or `deter-cerrado-nb:deter_cerrado` (Cerrado), the map's box and window fetched in a task (Tools → Tasks) into a GeoPackage of the cache and opened as a vector layer (as *Add web layer...* does) |
+| Any vector layer | Dated polygons (a date field, a class field optional) | An open vector layer or a file |
+| **GLAD-L** (UMD; Hansen et al. 2016) | Landsat, 30 m (0.00025°), a pair of files per year and 10° tile: `alertYY` (2 probable, 3 confirmed) and `alertDateYY` (the day of the year, 1 = 1 January) | UMD's public bucket, no key: `storage.googleapis.com/earthenginepartners-hansen/GLADalert/C2/current/` (2021 to now), read over the network (`/vsicurl/`) for the map's box only; or files |
+| **GLAD-S2** (UMD; Pickens et al. 2020) | Sentinel-2, 10 m (0.0001°), Amazon basin: `alert` (1 loss in the most recent observation only, 2 low, 3 medium, 4 high confidence) and `alertDate` (days since 2018-12-31) | The same bucket's `S2alert/alert/` and `S2alert/alertDate/`, no key; or files |
+| **RADD** (Wageningen; Reiche et al. 2021) | Sentinel-1, 10 m, the tropics: as GFW encodes it, one band `confidence * 10000 + days since 2014-12-31` (2 low, 3 high) | GFW's GeoTIFFs need a GFW API key: open them from disk. *Of the map's area* reads GFW's public map tiles instead (`tiles.globalforestwatch.org/wur_radd_alerts/latest/default/14/x/y.png`, zoom 14, about 10 m at the equator; at most 400 tiles) and decodes their colours: the day is `R * 255 + G`, the confidence `B / 100 - 1` (gfw-data-api's `date_conf_rgb_calc`). The export of Google Earth Engine (Alert 2/3, Date `yyDOY`) is not read |
+| **Integrated alerts** (GFW) | GLAD-L, GLAD-S2 and RADD in one band: `confidence * 10000 + days since 2014-12-31` (2 low, 3 high, 4 highest: two or more systems) | As RADD (`gfw_integrated_alerts`; the confidence of a tile's pixel in its alpha, `A >> 2`: 1 low, 2 high, 4 highest) |
+
+GLAD-L's files of the years the window covers are paired by name
+(`alert21_*`, `alertDate21_*`); several tiles or years keep each pixel's
+earliest alert. The hover text of each product says where its files are.
+
+**Rules** (the same in `tools/bench_alerts_vs_python.py`):
+
+- The grid is the map's. A polygon covers the pixels whose centres it holds
+  (GDAL's rasterization, as `rasterio.features.rasterize`); where polygons
+  overlap, the earliest alert holds the pixel. A raster of alerts is warped
+  onto the grid by the nearest pixel. Pixels outside the alerts' cover (a
+  raster's tiles) are left out of everything.
+- A map pixel changed when its date (decimal years; Janus's: the year plus
+  the days since 1 January over the year's length, to the nearest day) is in
+  the window; an alert pixel when its alert's date is. The window is *From*
+  and *To* (by default all dates).
+- **Areas**: of change in both, only in the map, only in the alerts (ha, a
+  geographic CRS's pixels by their latitude); the share of the alerts' area
+  the map detects, of the map's change the alerts confirm, Dice's coefficient.
+- **Counts**: an alert (a polygon, or a raster's patch of 8-connected alert
+  pixels: its date the earliest, its confidence the highest) is detected when
+  one of its pixels changed in the map; a patch of the map's change
+  (8-connected) is confirmed when one of its pixels is an alert's. Polygons too
+  small to hold a pixel's centre are counted apart.
+- **Lag**: the map's date minus the alert's, in days, at every pixel in both
+  (positive: the map later). Median, mean, quantiles (5, 25, 75, 95%; numpy's
+  linear), the share within 30, 90 and 365 days either way, and a histogram of
+  bins of *Bin* days (30 by default). A map of whole years (LandTrendr's) is
+  said: its lags count from 1 January.
+- **By class**: DETER's classname, or the raster's confidence: alerts,
+  detected, their area, the median lag.
+
+**Layers and files**: the **agreement map** (1 both, 2 only the map, 3 only
+the alerts; the *Agreement* colours) joins the Layers panel, and for rasters
+the alerts' dates (decimal years, as the map) too; the run's folder is
+`RESULTS/alerts/NAME_TIME`. *Export CSV...* writes `NAME_summary.csv`
+(metric,value), `NAME_classes.csv`, `NAME_alerts.csv` (every alert: its id,
+date, class, pixels and hectares, those the map changed, detected, its median
+lag, a polygon's own area), `NAME_lags.csv` (the
+histogram) and `NAME_agreement.tif`.
+
+**Command line**: `--alerts SOURCE[,KEY=VALUE...]` compares once a map of
+change dates is there (with `--zeit NAME --zeit-run`, or `--layer` of a
+result): SOURCE is `deter-amz`, `deter-cerrado`, `wfs`/`oapif`
+(`url=`, `layer=`, `date=`, `class=`, `name=`), `glad-l`, `glad-s2`, `radd` or
+`integrated` (`files=CONF;DATE;...` or `download=1` for the map's area); keys
+`map=` (part of the map's name), `from=`, `to=` (YYYY-MM-DD), `tab=0` (the
+panel left closed). `--screenshot` waits for the comparison and its layers.
+
+Compared with geopandas, rasterio, numpy and scipy (the same rules written
+with them): `tools/bench_alerts_vs_python.py` (`conda run -n geo`), results in
+`bench/alerts-vs-python.json`:
+
+*(Not run yet: the table comes from its first run.)*
 
 ## Animation (GIF, MP4, WebM)
 

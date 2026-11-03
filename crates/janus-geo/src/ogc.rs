@@ -239,7 +239,7 @@ fn user_agent() -> String {
 }
 
 /// The thread's HTTP settings for GDAL's drivers: timeouts, retries, the User-Agent, certificates.
-fn http_config() {
+pub fn http_config() {
     let set = |k: &str, v: &str| {
         let _ = gdal::config::set_thread_local_config_option(k, v);
     };
@@ -1295,7 +1295,7 @@ pub fn fetch_features(
             OGR_F_SetFromWithMap(o, f, 1, map.as_ptr());
             let g = OGR_F_GetGeometryRef(f);
             if !g.is_null() {
-                if OGR_G_HasCurveGeometry(g, 1) != 0 {
+                if OGR_G_HasCurveGeometry(g, 0) != 0 {
                     OGR_F_SetGeometryDirectly(o, OGR_G_GetLinearGeometry(g, 0.0, std::ptr::null_mut()));
                 } else {
                     OGR_F_SetGeometry(o, g);
