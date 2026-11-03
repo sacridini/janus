@@ -87,7 +87,14 @@ fn indices_bench(dir: &Path, n: usize) {
     println!("{} indices over {n} pixels", out.len());
 }
 
+/// A VRT's band read whole as Janus reads it to write it (calc::eval, a COG of it), else through GDAL's blocks.
 fn read_all(path: &str) -> Vec<f32> {
+    if let Some(v) = janus_cube::calc::eval::open(path) {
+        let mut out = vec![0f32; v.width * v.height];
+        if v.read_rows(1, 0, v.height, &mut out).is_ok() {
+            return out;
+        }
+    }
     janus_cube::calc::vrt::with_block_reads(true, || {
         let ds = gdal::Dataset::open(path).unwrap();
         let (w, h) = ds.raster_size();
@@ -201,6 +208,10 @@ fn shown_bench(dir: &Path) {
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let dir = Path::new(&a[2]);
+    // the calculator's reads on RAYON_NUM_THREADS threads if set (else the processors, eight at most)
+    if let Some(n) = std::env::var("RAYON_NUM_THREADS").ok().and_then(|n| n.parse().ok()) {
+        janus_cube::calc::eval::set_threads(n);
+    }
     match a[1].as_str() {
         "indices" => indices_bench(dir, a[3].parse().unwrap()),
         "reduce" => reduce_bench(dir),

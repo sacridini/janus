@@ -989,14 +989,12 @@ fn date_stem(info: &CubeInfo, t: usize) -> String {
     }
 }
 
-/// Threads computing a stage's images in `materialize`: eight at most, the writing on the caller's.
-const MATERIALIZE_THREADS: usize = 8;
-
 /// A stage's VRTs computed into tiled GeoTIFFs beside them (`.tif` for `.vrt`), read once each by blocks: what reads
 /// them then reads an image, not the reduction again. Their rows in chunks of whole tiles among the threads (a mean
 /// over every date, one image, on all of them: 4 threads each on an image of its own took 2.9 s a date of 41), each
 /// thread reading through handles opened on it (GDAL pools a VRT's sources by the thread that opened them), the
-/// chunks written here as they come; `progress` the share of rows written.
+/// chunks written here as they come; `progress` the share of rows written. As many threads as the reads of the
+/// calculator's bands (`eval::threads`), the writing on the caller's; each chunk read by Janus (`eval`) when it can.
 fn materialize(
     files: Vec<Option<String>>,
     cancel: &AtomicBool,
@@ -1044,7 +1042,7 @@ fn materialize(
     // a chunk computed (its index and values), two waiting at most
     let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(usize, Vec<f32>), String>>(2);
     std::thread::scope(|sc| {
-        for _ in 0..MATERIALIZE_THREADS.min(jobs.len()) {
+        for _ in 0..super::eval::threads().min(jobs.len()) {
             let tx = tx.clone();
             let (jobs, files, next, failed) = (&jobs, &files, &next, &failed);
             sc.spawn(move || {
@@ -1056,6 +1054,16 @@ fn materialize(
                     }
                     let (i, y, rows, w) = jobs[k];
                     let f = files[i].as_deref().unwrap_or_default();
+                    // read by Janus (as GDAL reads it through its blocks), else by GDAL
+                    if let Some(v) = super::eval::open(f) {
+                        let mut buf = vec![0f32; w * rows];
+                        if v.read(1, (0, y, w, rows), None, (w, rows), super::eval::How::Cached, &mut buf).is_ok() {
+                            if tx.send(Ok((k, buf))).is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+                    }
                     let r = vrt::with_block_reads(true, || {
                         let ds = match handles.entry(i) {
                             std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
@@ -1173,6 +1181,8 @@ impl Plan {
         cancel: &AtomicBool,
     ) -> Result<Written, String> {
         vrt::register();
+        // what Janus kept open of an earlier result here (its GeoTIFFs computed), written again
+        super::eval::close_files_under(dir);
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let grid_info = layers[self.grid].info.clone();
         let mut places = HashMap::new();

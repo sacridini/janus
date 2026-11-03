@@ -15,6 +15,7 @@
 pub mod canonical;
 pub mod compile;
 pub mod editor;
+pub mod eval;
 pub mod funcs;
 pub mod indices;
 pub mod lex;

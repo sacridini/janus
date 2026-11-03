@@ -2360,6 +2360,8 @@ impl eframe::App for JanusApp {
         s.measurements(ui, &detached);
         s.map.prev_pointer_panel = s.map.pointer_panel.take();
         s.pump_settings(&ctx);
+        // the calculator's reads on the processing threads (eight at most, as GDAL's VRT reads were)
+        janus_cube::calc::eval::set_threads(s.processing_threads().min(8));
         s.pump(&ctx);
         s.pump_basemap(&ctx);
         s.pump_composite(&ctx);

@@ -2322,7 +2322,73 @@ impl State {
                 None
             }
             240..=249 => self.test_transitions(st, t0, ctx),
+            // the calculator's own reader (calc::eval): a result of VRTs (reductions read through the VRTs of
+            // reductions) read by Janus, the same values as through GDAL's VRT
             250 => {
+                // the active layer if a series, else the first series open (A opened again if none is)
+                if self.opening.is_some() || !self.layer_jobs.queue.is_empty() {
+                    return None;
+                }
+                let (ls, at) = self.calc_layers();
+                let series = |k: usize| ls[k].info.t() > 1;
+                let active = at.iter().position(|&i| i == self.active).filter(|&k| series(k));
+                let Some(k) = active.or_else(|| (0..ls.len()).find(|&k| series(k))) else {
+                    if st.texts.first().is_none_or(|t| t != "A opened") {
+                        st.texts = vec!["A opened".into()];
+                        self.open_inputs(vec!["A".into()], true, ctx);
+                    }
+                    return None;
+                };
+                let a = ls[k].alias.clone();
+                self.calc.text = format!("count({a} > 0) + max({a}) - min({a})");
+                self.calc.out_name = "Own reader".into();
+                self.calc.cog = false;
+                self.calc_run(ctx);
+                next(st, "the calculator run on count + max - min for its own reader");
+                None
+            }
+            251 => {
+                let Some(k) = self.layers.iter().position(|l| l.name == "Own reader") else {
+                    if self.emb_downloads.iter().any(|d| d.status.lock().unwrap().state == JobState::Failed) {
+                        return fail("the calculator failed (Tools > Tasks > Log)");
+                    }
+                    return None;
+                };
+                if self.opening.is_some() || !super::loaded(self.layer_session(k)) {
+                    return None;
+                }
+                let info = self.layer_session(k)?.info.clone();
+                let path = info.layers.first()?.path.clone();
+                if janus_cube::calc::eval::open(&path).is_none() {
+                    return fail("the result's VRT should be read by Janus");
+                }
+                // a third of it whole (as the overview reads it) and a pixel, by Janus and through GDAL's VRT
+                let (w, h) = (info.width, info.height);
+                let size = ((w / 3).max(1), (h / 3).max(1));
+                let read = |own: bool| {
+                    janus_cube::calc::eval::set_enabled(own);
+                    janus_cube::drop_thread_reader();
+                    let t = Instant::now();
+                    let mut v = vec![0f32; size.0 * size.1];
+                    let ok = janus_cube::with_thread_reader(&info, |r| r.read_window(0, (0, 0, w, h), &mut v, size));
+                    let px = janus_cube::with_thread_reader(&info, |r| r.read_pixel(0, w / 2, h / 2));
+                    janus_cube::calc::eval::set_enabled(true);
+                    janus_cube::drop_thread_reader();
+                    (ok, v, px.map(f32::to_bits), t.elapsed().as_secs_f64() * 1e3)
+                };
+                let (own, by_gdal) = (read(true), read(false));
+                let same = |a: &f32, b: &f32| a.to_bits() == b.to_bits() || a.is_nan() && b.is_nan();
+                let differ = own.1.iter().zip(&by_gdal.1).filter(|(a, b)| !same(a, b)).count();
+                let values = own.1.iter().filter(|v| v.is_finite()).count();
+                println!(
+                    "    {} x {} read at {} x {}: {values} values, {differ} differ from GDAL's; {:.0} ms by Janus, {:.0} ms through GDAL",
+                    w, h, size.0, size.1, own.3, by_gdal.3
+                );
+                if !own.0 || !by_gdal.0 || values == 0 || differ > 0 || own.2 != by_gdal.2 {
+                    return fail("Janus's reader should give GDAL's values, bit for bit");
+                }
+                self.remove_layer(k, ctx);
+                next(st, "the calculator's result read by Janus: GDAL's values, bit for bit");
                 st.stage = 259;
                 None
             }

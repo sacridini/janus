@@ -590,11 +590,52 @@ pub fn download(
     results.into_iter().map(|r| r.unwrap_or_else(|| Err("stopped".into()))).collect()
 }
 
+/// A calculator's VRT whose pixels are each computed from their own (`eval`'s pointwise) computed by Janus into a
+/// plain GeoTIFF `computed` (the same values GDAL's pixel function gives, on the reads' threads, read once: the COG
+/// reads its source twice, the overviews and the copy); `p` given the first `share` of the date. None: not one.
+fn computed(f: &str, computed: &Path, p: &Progress, share: f64) -> Option<Result<(), String>> {
+    let v = crate::calc::eval::open(f).filter(|v| v.pointwise())?;
+    let co = ["TILED=YES", "BIGTIFF=IF_SAFER"];
+    let r = v.write_tif(computed, &co, &|d| {
+        (p.f)(d * share);
+        !p.stopped()
+    });
+    Some(match r {
+        Ok(()) => Ok(()),
+        Err(_) if p.stopped() => Err("stopped".into()),
+        Err(crate::calc::eval::Miss::Failed(e)) => Err(e),
+        Err(crate::calc::eval::Miss::NotCovered) => return None,
+    })
+}
+
 /// One date of `download`.
 fn download_one(f: &str, out: &Path, stem: &str, p: &Progress) -> Result<String, String> {
     let dst = out.join(format!("{stem}.tif"));
     let part = out.join(format!("{stem}.tif.part"));
-    let src = crate::open_raster(f).map_err(|e| format!("{f}: {e}"))?;
+    let plain = out.join(format!("{stem}.computed.tif.part"));
+    // a calculator's band computed here first, the rest of the date's share its COG
+    const SHARE: f64 = 0.8;
+    let r = computed(f, &plain, p, SHARE);
+    if let Some(Err(e)) = r {
+        let _ = std::fs::remove_file(&plain);
+        return Err(if p.also.load(Ordering::Relaxed) { "cancelled".into() } else { e });
+    }
+    let (from, rest) = if r.is_some() { (plain.to_string_lossy().into_owned(), SHARE) } else { (f.to_string(), 0.0) };
+    let report = |d: f64| (p.f)(rest + d * (1.0 - rest));
+    let p = &Progress { f: &report, cancel: p.cancel, also: p.also };
+    let r = translate(f, &from, &part, stem, p);
+    if from != f {
+        let _ = std::fs::remove_file(&plain);
+    }
+    r?;
+    std::fs::rename(&part, &dst).map_err(|e| format!("{}: {e}", dst.display()))?;
+    (p.f)(1.0);
+    Ok(dst.to_string_lossy().into_owned())
+}
+
+/// `from` (the date `f`, or what was computed of it) written as a COG at `part`.
+fn translate(f: &str, from: &str, part: &Path, stem: &str, p: &Progress) -> Result<(), String> {
+    let src = crate::open_raster(from).map_err(|e| format!("{f}: {e}"))?;
     let mut a: Vec<String> = [
         "-of",
         "COG",
@@ -637,7 +678,7 @@ fn download_one(f: &str, out: &Path, stem: &str, p: &Progress) -> Result<String,
         !h.is_null()
     };
     if !ok || p.stopped() {
-        let _ = std::fs::remove_file(&part);
+        let _ = std::fs::remove_file(part);
         return Err(if p.also.load(Ordering::Relaxed) {
             "cancelled".into()
         } else if p.cancel.load(Ordering::Relaxed) {
@@ -646,9 +687,7 @@ fn download_one(f: &str, out: &Path, stem: &str, p: &Progress) -> Result<String,
             last_error(stem)
         });
     }
-    std::fs::rename(&part, &dst).map_err(|e| format!("{}: {e}", dst.display()))?;
-    (p.f)(1.0);
-    Ok(dst.to_string_lossy().into_owned())
+    Ok(())
 }
 
 #[cfg(test)]

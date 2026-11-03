@@ -470,7 +470,12 @@ fn main() -> eframe::Result<()> {
             }
             "--budget" => opts.budget_mb = args.next().and_then(|v| v.parse().ok()).unwrap_or(1024).max(64),
             "--band" => opts.band = args.next().and_then(|v| v.parse().ok()).unwrap_or(1).max(1),
-            "--threads" => opts.threads = args.next().and_then(|v| v.parse::<usize>().ok()).map(|n| n.max(1)),
+            "--threads" => {
+                opts.threads = args.next().and_then(|v| v.parse::<usize>().ok()).map(|n| n.max(1));
+                if let Some(n) = opts.threads {
+                    janus_cube::calc::eval::set_threads(n.min(8));
+                }
+            }
             "--measure-startup" => opts.measure_startup = true,
             "--screenshot" => opts.screenshot = args.next().map(Into::into),
             "--detach-map" => opts.detach_map = true,

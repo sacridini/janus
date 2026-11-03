@@ -68,6 +68,7 @@ struct Server {
 pub fn serve(threads: usize) -> i32 {
     let threads = threads.max(1);
     let _ = rayon::ThreadPoolBuilder::new().num_threads(threads).build_global();
+    janus_cube::calc::eval::set_threads(threads.min(8));
     let server = Arc::new(Server { threads, ..Default::default() });
     let out: Out = Arc::new(Mutex::new(std::io::stdout()));
     let calls: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>> = Arc::default();

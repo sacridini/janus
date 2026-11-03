@@ -40,7 +40,7 @@ pub fn register() {
 }
 
 /// A band's arguments by name.
-struct Args(Vec<(String, String)>);
+pub(crate) struct Args(pub(crate) Vec<(String, String)>);
 
 impl Args {
     /// # Safety
@@ -197,7 +197,8 @@ fn place<'a>(total: usize, absent: &[usize], src: &[&'a [f32]], nan: &'a [f32]) 
     Ok(v)
 }
 
-fn evaluate(args: &Args, src: &[&[f32]], out: &mut [f32]) -> Result<(), String> {
+/// The band's values from its sources' (as GDAL gives them to the pixel function: Float32, no data NaN), in `out`.
+pub(crate) fn evaluate(args: &Args, src: &[&[f32]], out: &mut [f32]) -> Result<(), String> {
     let n = out.len();
     let text = args.get("expr").ok_or("no expr")?;
     let absent = args.list("absent");
@@ -457,13 +458,16 @@ pub fn percentile(v: &mut [f32], q: f64) -> f32 {
     (f64::from(a) + f * (f64::from(b) - f64::from(a))) as f32
 }
 
+/// The element naming the pixel function in a calculator's VRT (not merely its name: a folder may be named so).
+pub(crate) const PIXEL_FUNCTION_ELEMENT: &str = "<PixelFunctionType>janus_calc</PixelFunctionType>";
+
 /// Whether a file is a VRT of the calculator (its first bytes name the pixel function).
 pub fn is_calc_vrt(path: &str) -> bool {
     use std::io::Read;
     let Ok(mut f) = std::fs::File::open(path) else { return false };
-    let mut head = vec![0u8; 4096];
+    let mut head = vec![0u8; 8192];
     let n = f.read(&mut head).unwrap_or(0);
-    String::from_utf8_lossy(&head[..n]).contains(PIXEL_FUNCTION)
+    String::from_utf8_lossy(&head[..n]).contains(PIXEL_FUNCTION_ELEMENT)
 }
 
 /// The files a calculator's VRT reads when it may be read as a whole window at a smaller size, each source read at
@@ -475,7 +479,7 @@ pub fn is_calc_vrt(path: &str) -> bool {
 pub fn whole_sources(path: &str) -> Option<usize> {
     fn count(path: &str, depth: usize, n: &mut usize) -> Option<()> {
         let text = std::fs::read_to_string(path).ok()?;
-        if depth > 4 || !text.contains(PIXEL_FUNCTION) {
+        if depth > 4 || !text.contains(PIXEL_FUNCTION_ELEMENT) {
             return None;
         }
         for s in text.split("<SourceFilename").skip(1) {

@@ -39,8 +39,14 @@ fn live_size(w: usize, h: usize, side: usize, dates: usize) -> (usize, usize) {
     if w >= h { (side, (side * h / w).max(1)) } else { ((side * w / h).max(1), side) }
 }
 
-/// A VRT's band 1 read whole at `size` (nearest).
+/// A VRT's band 1 read whole at `size` (nearest): by Janus (`eval`, as GDAL reads it opened as is), else by GDAL.
 fn read_small(path: &str, size: (usize, usize)) -> Result<Vec<f32>, String> {
+    if let Some(v) = super::eval::open(path) {
+        let mut out = vec![0f32; size.0 * size.1];
+        if v.read(1, (0, 0, v.width, v.height), None, size, super::eval::How::Direct, &mut out).is_ok() {
+            return Ok(out);
+        }
+    }
     let ds = gdal::Dataset::open(path).map_err(|e| format!("{path}: {e}"))?;
     let (w, h) = ds.raster_size();
     let b = ds.rasterband(1).map_err(|e| e.to_string())?;
@@ -111,6 +117,7 @@ pub fn live(
     cancel: &AtomicBool,
     on: &mut dyn FnMut(LiveUpdate),
 ) -> Result<(), String> {
+    super::eval::close_files_under(dir);
     let _ = std::fs::remove_dir_all(dir);
     let g = &layers[p.grid].info;
     let progressive = p.series.is_none()
@@ -190,24 +197,34 @@ pub fn live(
     Ok(())
 }
 
-/// The value at pixel (x, y) of the grid of each file (a VRT a date): a series at the cursor.
+/// The value at pixel (x, y) of the grid of each file (a VRT a date): a series at the cursor. The files on the
+/// threads of the calculator's reads, each by Janus (`eval`) when it can, else by GDAL.
 pub fn read_pixel(files: &[String], x: usize, y: usize) -> Vec<f32> {
-    files
-        .iter()
-        .map(|f| {
-            gdal::Dataset::open(f)
-                .ok()
-                .and_then(|ds| {
-                    let (w, h) = ds.raster_size();
-                    if x >= w || y >= h {
-                        return None;
-                    }
-                    let b = ds.rasterband(1).ok()?;
-                    b.read_as::<f32>((x as isize, y as isize), (1, 1), (1, 1), None).ok().map(|v| v.data()[0])
-                })
-                .unwrap_or(f32::NAN)
+    use rayon::prelude::*;
+    super::eval::pool().install(|| files.par_iter().map(|f| pixel(f, x, y)).collect())
+}
+
+fn pixel(f: &str, x: usize, y: usize) -> f32 {
+    if let Some(v) = super::eval::open(f) {
+        if x >= v.width || y >= v.height {
+            return f32::NAN;
+        }
+        let mut out = [0f32];
+        if v.read(1, (x, y, 1, 1), None, (1, 1), super::eval::How::Direct, &mut out).is_ok() {
+            return out[0];
+        }
+    }
+    gdal::Dataset::open(f)
+        .ok()
+        .and_then(|ds| {
+            let (w, h) = ds.raster_size();
+            if x >= w || y >= h {
+                return None;
+            }
+            let b = ds.rasterband(1).ok()?;
+            b.read_as::<f32>((x as isize, y as isize), (1, 1), (1, 1), None).ok().map(|v| v.data()[0])
         })
-        .collect()
+        .unwrap_or(f32::NAN)
 }
 
 #[cfg(test)]

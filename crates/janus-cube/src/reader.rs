@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use gdal::Dataset;
 use gdal::raster::ResampleAlg;
 
+use crate::calc::eval::{CalcVrt, How, Part};
 use crate::raw_blocks::{RawBlocks, SysBuf};
 use crate::{BandMeta, CubeInfo, QaRule};
 
@@ -25,6 +26,9 @@ pub struct CubeReader {
     bands: Vec<Vec<f32>>,
     /// a pixel-interleaved file's blocks decompressed here (opened on the first use; None inside: not this file)
     raw: Option<Option<RawBlocks>>,
+    /// the calculator's VRTs read here (calc::eval), and the files each reads when it may be read whole at a
+    /// smaller size (vrt::whole_sources)
+    evals: HashMap<String, (Option<Arc<CalcVrt>>, Option<usize>)>,
     /// the block decompressed last, its rows, and its bytes
     decoded: Option<((usize, usize), usize)>,
     data: SysBuf,
@@ -88,10 +92,10 @@ impl CalcRead {
         CalcRead
     }
 
-    /// The threads for this read's stripes: its share of eight (at most the processors), one at least.
+    /// The threads for this read's stripes: its share of the calculator's (calc::eval::threads: eight at most), one
+    /// at least.
     fn threads(&self) -> usize {
-        let all = std::thread::available_parallelism().map_or(1, |n| n.get()).min(8);
-        (all / CALC_READS.load(Ordering::Relaxed).max(1)).max(1)
+        (crate::calc::eval::threads() / CALC_READS.load(Ordering::Relaxed).max(1)).max(1)
     }
 }
 
@@ -133,6 +137,21 @@ fn stripes((y, h): (usize, usize), bh: usize, block_rows: usize, threads: usize)
     out
 }
 
+/// The window read_rows gives GDAL for output rows j0..j1: whole pixels (x, y, w, h), the floating-point window and
+/// the rows.
+fn rows_window(
+    (x, y, w, h): (usize, usize, usize, usize),
+    bh: usize,
+    (j0, j1): (usize, usize),
+) -> ((usize, usize, usize, usize), [f64; 4]) {
+    let scale = h as f64 / bh as f64;
+    let fy = y as f64 + j0 as f64 * scale;
+    let fh = (j1 - j0) as f64 * scale;
+    let iy = fy.floor() as usize;
+    let iy1 = ((fy + fh).ceil() as usize).min(y + h);
+    ((x, iy, w, iy1 - iy), [x as f64, fy, w as f64, fh])
+}
+
 /// Output rows j0..j1 of a window (x, y, w, h) read into bw × bh, as the whole read would sample them: the source
 /// window of those rows given to GDAL as a floating-point window.
 fn read_rows(
@@ -144,11 +163,8 @@ fn read_rows(
     out: &mut [f32],
 ) -> bool {
     let Ok(rb) = ds.rasterband(band) else { return false };
-    let scale = h as f64 / bh as f64;
-    let fy = y as f64 + j0 as f64 * scale;
-    let fh = (j1 - j0) as f64 * scale;
-    let iy = fy.floor() as usize;
-    let iy1 = ((fy + fh).ceil() as usize).min(y + h);
+    let ((_, iy, _, rows), [_, fy, _, fh]) = rows_window((x, y, w, h), bh, (j0, j1));
+    let iy1 = iy + rows;
     let mut extra = gdal_sys::GDALRasterIOExtraArg {
         nVersion: 1,
         eResampleAlg: gdal_sys::GDALRIOResampleAlg::GRIORA_NearestNeighbour,
@@ -233,6 +249,7 @@ impl CubeReader {
             tmp: Vec::new(),
             bands: Vec::new(),
             raw: None,
+            evals: HashMap::new(),
             decoded: None,
             data: SysBuf::new(),
             sampled: Vec::new(),
@@ -256,6 +273,11 @@ impl CubeReader {
     ) -> Option<BandMeta> {
         let l = &self.info.layers[layer];
         let band = if b <= 0 { l.band } else { b + l.band_base };
+        // a calculator's VRT read here, else (or what is not read here) through GDAL
+        if let Some(r) = self.read_calc(layer, b, band, (x, y, w, h), buf, (bw, bh)) {
+            return r;
+        }
+        let l = &self.info.layers[layer];
         let (ds, calc, whole) = self
             .datasets
             .entry(l.path.clone())
@@ -343,6 +365,111 @@ impl CubeReader {
         })
         .ok()?;
         Some(meta)
+    }
+
+    /// Band `band` of a calculator's VRT read here (calc::eval) as read_raw reads it through GDAL: the same windows,
+    /// in the same runs of rows (a window read whole at a smaller size, by chunks; else through its blocks, in
+    /// stripes), on the calculator's threads. None: not a VRT read here, or a read it does not cover (then GDAL).
+    fn read_calc(
+        &mut self,
+        layer: usize,
+        b: i32,
+        band: i32,
+        (x, y, w, h): (usize, usize, usize, usize),
+        buf: &mut [f32],
+        (bw, bh): (usize, usize),
+    ) -> Option<Option<BandMeta>> {
+        let l = &self.info.layers[layer];
+        let path = &l.path;
+        let (v, whole) = self
+            .evals
+            .entry(path.clone())
+            .or_insert_with(|| {
+                let calc = path.len() > 4
+                    && path[path.len() - 4..].eq_ignore_ascii_case(".vrt")
+                    && crate::calc::vrt::is_calc_vrt(path);
+                let v = if calc { crate::calc::eval::open(path) } else { None };
+                let whole = if v.is_some() { crate::calc::vrt::whole_sources(path) } else { None };
+                (v, whole)
+            })
+            .clone();
+        let v = v?;
+        if band < 1 || band as usize > v.bands() {
+            return Some(None);
+        }
+        // the derived band's no data (NaN), no scale
+        let meta = if b <= 0 { l.meta } else { BandMeta { no_data: Some(f64::NAN), scale: 1.0, offset: 0.0 } };
+        let band = band as usize;
+        let reading = CalcRead::enter();
+        let threads = reading.threads();
+        let win = (x, y, w, h);
+        let out = &mut buf[..bw * bh];
+        // the runs of output rows, each on a thread, and how each of its parts is read
+        let chunks = match whole {
+            Some(n) if bw < w || bh < h => {
+                let k = ((16usize << 20) / (4 * bw.max(1) * n.max(1))).clamp(1, bh.div_ceil(threads).max(1));
+                whole_chunks((y, h), bh, k)
+            }
+            _ => None,
+        };
+        let (runs, how): (Vec<Vec<(usize, usize)>>, How) = match &chunks {
+            // read whole at a smaller size, by chunks
+            Some(c) => (c.chunks(c.len().div_ceil(threads)).map(<[_]>::to_vec).collect(), How::Direct),
+            // at full resolution, a VRT of pixels each its own: in any rows
+            None if bw == w && bh == h && v.pointwise() => {
+                let per = bh.div_ceil(threads.min(bh.max(1)));
+                ((0..bh).step_by(per.max(1)).map(|j| vec![(j, (j + per).min(bh))]).collect(), How::Cached)
+            }
+            // through its blocks, in stripes of whole block rows
+            None => (stripes((y, h), bh, v.block.1, threads).into_iter().map(|g| vec![g]).collect(), How::Cached),
+        };
+        // the request of output rows a..c
+        let part = |(a, c): (usize, usize)| -> Part {
+            if how == How::Cached && (runs.len() == 1 || bh == h && bw == w) {
+                // one read of the window (GDAL's integer window), or rows of it at full resolution
+                let (yy, hh) = if runs.len() == 1 { (y, h) } else { (y + a, c - a) };
+                ((x, yy, w, hh), None, (bw, c - a))
+            } else {
+                let (iwin, fwin) = rows_window(win, bh, (a, c));
+                (iwin, Some(fwin), (bw, c - a))
+            }
+        };
+        // every part a sampling of the grid: read at once, each block of a file by one thread
+        let parts: Vec<Part> = runs.iter().flatten().map(|&g| part(g)).collect();
+        match v.read_parts(band, &parts, how, out) {
+            Ok(true) => return Some(Some(meta)),
+            Ok(false) => {}
+            Err(_) => return None,
+        }
+        let read = |run: &[(usize, usize)], dst: &mut [f32]| -> Result<(), crate::calc::eval::Miss> {
+            let j0 = run[0].0;
+            for &(a, c) in run {
+                let (win, fwin, size) = part((a, c));
+                v.read(band, win, fwin, size, how, &mut dst[(a - j0) * bw..(c - j0) * bw])?;
+            }
+            Ok(())
+        };
+        let ok = if runs.len() == 1 {
+            read(&runs[0], out).is_ok()
+        } else {
+            let failed = std::sync::atomic::AtomicBool::new(false);
+            crate::calc::eval::pool().scope(|sc| {
+                let mut rest = out;
+                for run in &runs {
+                    let (part, tail) = std::mem::take(&mut rest).split_at_mut((run[run.len() - 1].1 - run[0].0) * bw);
+                    rest = tail;
+                    let (read, failed) = (&read, &failed);
+                    sc.spawn(move |_| {
+                        if read(run, part).is_err() {
+                            failed.store(true, Ordering::Relaxed);
+                        }
+                    });
+                }
+            });
+            !failed.into_inner()
+        };
+        // what is not read here (or failed) is read through GDAL
+        ok.then_some(Some(meta))
     }
 
     /// The shown quantity over the window (x, y, w, h) resampled (nearest neighbour) to bw × bh, as GDAL
@@ -505,6 +632,7 @@ thread_local! {
 /// of MB).
 pub fn drop_thread_reader() {
     READER.with_borrow_mut(|r| *r = None);
+    crate::calc::eval::drop_thread_handles();
 }
 
 /// Runs `f` with the current thread's reader for this cube (made on demand).
