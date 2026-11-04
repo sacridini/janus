@@ -1402,8 +1402,7 @@ mod tests {
 
     /// GDAL's drivers registered once (two threads registering at once corrupt the heap).
     fn setup() {
-        static ONCE: std::sync::Once = std::sync::Once::new();
-        ONCE.call_once(gdal::DriverManager::register_all);
+        crate::vectors::register();
     }
 
     #[test]

@@ -217,8 +217,9 @@ fn anchor(f: &Feature) -> Option<(f64, f64)> {
     }
 }
 
-/// GDAL's drivers, registered once (raw calls do not register them).
-fn register() {
+/// GDAL's drivers, registered once (raw calls do not register them). The one place in the crate that registers
+/// them: GDALAllRegister run by two threads at once corrupts the heap (the tests run in parallel).
+pub(crate) fn register() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(gdal::DriverManager::register_all);
 }

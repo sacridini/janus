@@ -85,7 +85,7 @@ pub fn write_polygon(
     };
     let wkt = to_wkt(rings).ok_or("no ring of three vertices")?;
     let geom = Geometry::from_wkt(&wkt).map_err(|e| e.to_string())?;
-    gdal::DriverManager::register_all();
+    crate::vectors::register();
     let drv = gdal::DriverManager::get_driver_by_name(driver).map_err(|e| e.to_string())?;
     for side in ["", "-wal", "-shm"] {
         let _ = std::fs::remove_file(format!("{path}{side}"));

@@ -450,7 +450,7 @@ mod tests {
     /// A series of `t` dates of w x h pixels of 30 m in UTM 23S, value = date * 10000 + row * w + col (no data at
     /// row 5).
     fn series(dir: &std::path::Path, w: usize, h: usize, t: usize) -> Arc<CubeInfo> {
-        gdal::DriverManager::register_all();
+        crate::vectors::register();
         let drv = gdal::DriverManager::get_driver_by_name("GTiff").unwrap();
         let srs = gdal::spatial_ref::SpatialRef::from_epsg(32723).unwrap();
         let mut files = Vec::new();
