@@ -586,7 +586,8 @@ impl State {
                 for (k, c) in r.classes.iter().enumerate() {
                     rule.names.insert(k as i32 + 1, c.clone());
                 }
-            } else if r.unit == "year" || r.unit == "years" {
+            } else if r.unit == "year" {
+                // a map of dates: change where it has one ("years", a length of time, is in intervals)
                 rule.kind = MapKind::Events;
             } else {
                 rule.kind = MapKind::Intervals;

@@ -129,7 +129,7 @@ impl State {
     /// The kind of the map chosen: a map of years, classes, else values.
     pub(crate) fn zonal_guess(&self) -> ZonalKind {
         match self.zonal.source.and_then(|id| self.zeit.results.iter().find(|r| r.id == id)) {
-            Some(r) if r.unit == "year" || r.unit == "years" => ZonalKind::Years,
+            Some(r) if r.unit == "year" => ZonalKind::Years,
             Some(r) if !r.classes.is_empty() => ZonalKind::Classes,
             Some(_) => ZonalKind::Continuous,
             None if self.classes.on() || self.session.as_ref().is_some_and(|s| s.info.file_categorical) => {

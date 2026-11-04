@@ -37,6 +37,8 @@ pub struct AreaMeta {
     pub names: HashMap<i64, String>,
     pub colors: HashMap<i64, [u8; 3]>,
     pub by_year: bool,
+    /// a map of lengths of time in years (LandTrendr's duration, years to recovery): counted by whole years
+    pub duration: bool,
     pub folder: String,
     pub seconds: f64,
 }
@@ -62,6 +64,9 @@ pub struct AreaUi {
 
 impl AreaMeta {
     fn name(&self, v: i64) -> String {
+        if self.duration {
+            return format!("{v}-{} years", v + 1);
+        }
         self.names.get(&v).cloned().unwrap_or_else(|| v.to_string())
     }
 
@@ -85,8 +90,9 @@ impl State {
         let roi = if self.areas.roi { self.series.roi_rect } else { None };
         if let Some(id) = self.areas.source {
             let r = self.zeit.results.iter().find(|r| r.id == id).ok_or("the map was closed")?;
-            let by_year = r.unit == "year" || r.unit == "years";
-            let mut meta = AreaMeta { title: r.name.clone(), by_year, ..Default::default() };
+            // "year": a date (by the year it falls in); "years": a length of time (by whole years)
+            let (by_year, duration) = (r.unit == "year", r.unit == "years");
+            let mut meta = AreaMeta { title: r.name.clone(), by_year, duration, ..Default::default() };
             for (k, n) in r.classes.iter().enumerate() {
                 meta.names.insert(k as i64 + 1, n.clone());
             }
@@ -292,7 +298,14 @@ impl State {
         let total = t.total(s);
         egui::ScrollArea::vertical().id_salt("areas table").auto_shrink([false, true]).show(ui, |ui| {
             egui::Grid::new("areas grid").num_columns(5).striped(true).spacing(vec2(14.0, 3.0)).show(ui, |ui| {
-                for h in [if meta.by_year { "year" } else { "class" }, "pixels", "ha", "km²", "%"] {
+                let first = if meta.by_year {
+                    "year"
+                } else if meta.duration {
+                    "length"
+                } else {
+                    "class"
+                };
+                for h in [first, "pixels", "ha", "km²", "%"] {
                     ui.strong(h);
                 }
                 ui.end_row();
@@ -364,7 +377,7 @@ impl State {
         }
         let opts = AreaOptions {
             window,
-            floor: meta.by_year,
+            floor: meta.by_year || meta.duration,
             threads: self.areas.threads.unwrap_or(self.processing_threads()),
         };
         let title = format!("Areas of {}", meta.title);

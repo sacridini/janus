@@ -16,7 +16,7 @@ use egui::{RichText, Ui};
 use egui_plot::{Bar, BarChart, Plot};
 use janus_geo::ogc::{FeatureRequest, Service};
 use janus_validation::alerts::{
-    self, AGREEMENT_CLASSES, AlertsOnGrid, CompareOptions, Comparison, Product, RasterFile, parse_day, ymd,
+    self, AGREEMENT_CLASSES, AlertsOnGrid, CompareOptions, Comparison, DateCode, Product, RasterFile, parse_day, ymd,
 };
 
 use crate::app::State;
@@ -79,7 +79,7 @@ pub struct Done {
     /// rasters: the alerts' dates on the map's grid
     pub alert_dates: Option<String>,
     /// the map's path (its layer: the grid the new maps take)
-    map_path: String,
+    pub map_path: String,
     alerts: Arc<AlertsOnGrid>,
 }
 
@@ -93,6 +93,10 @@ pub struct AlertsUi {
     pub server: Option<WfsAlerts>,
     /// the map of change (its path)
     pub map: String,
+    /// how a map from disk gives its dates (a run's maps: decimal years)
+    pub map_code: DateCode,
+    /// a map of dates chosen as a file (File...), listed with the runs' and the layers'
+    pub map_file: Option<String>,
     /// a vector layer (its path) and its fields
     pub vector: String,
     pub date_field: String,
@@ -120,6 +124,8 @@ impl Default for AlertsUi {
             preset: 0,
             server: None,
             map: String::new(),
+            map_code: DateCode::Auto,
+            map_file: None,
             vector: String::new(),
             date_field: String::new(),
             class_field: String::new(),
@@ -186,18 +192,43 @@ pub fn pair_files(product: Product, paths: &[String]) -> Vec<RasterFile> {
 }
 
 impl State {
-    /// The maps of change dates: run's maps of dates in decimal years (path, name). Unit "year" is a date (a year of
-    /// detection, a break date); "years" a length of time (LandTrendr's duration, years to recovery, the spread of
-    /// the agreement's years), left out.
+    /// The maps of change dates (path, name): runs' maps of dates in decimal years, then the single maps open as
+    /// layers from disk and the file chosen (their dates read as `map_code` says). Unit "year" is a date (a year
+    /// of detection, a break date); "years" a length of time (LandTrendr's duration, years to recovery, the spread
+    /// of the agreement's years), left out.
     pub(crate) fn alert_maps(&self) -> Vec<(String, String)> {
         let ours = self.results_dir().join("alerts");
-        self.zeit
+        let mut maps: Vec<(String, String)> = self
+            .zeit
             .results
             .iter()
             .filter(|r| r.unit == "year" && !r.preview && !r.path.is_empty())
             .filter(|r| !std::path::Path::new(&r.path).starts_with(&ours))
             .map(|r| (r.path.clone(), r.name.clone()))
-            .collect()
+            .collect();
+        for k in 0..self.layers.len() {
+            let Some(s) = self.layer_session(k) else { continue };
+            let i = &s.info;
+            if self.layers[k].canvas || i.t() != 1 || i.remote || i.multidim || i.layers[0].band > 1 {
+                continue;
+            }
+            let p = &i.layers[0].path;
+            if !std::path::Path::new(p).starts_with(&ours) && !maps.iter().any(|m| &m.0 == p) {
+                maps.push((p.clone(), format!("{} (layer)", self.layers[k].name)));
+            }
+        }
+        if let Some(f) = &self.alerts.map_file
+            && !maps.iter().any(|m| &m.0 == f)
+        {
+            let name = std::path::Path::new(f).file_name().map_or(f.clone(), |n| n.to_string_lossy().into_owned());
+            maps.push((f.clone(), format!("{name} (file)")));
+        }
+        maps
+    }
+
+    /// How the map's values give its dates: a run's map in decimal years, else as chosen (detected by default).
+    fn alert_map_code(&self, map: &str) -> DateCode {
+        if self.zeit.results.iter().any(|r| r.path == map) { DateCode::DecimalYear } else { self.alerts.map_code }
     }
 
     /// Validation > Alerts in front.
@@ -286,7 +317,8 @@ impl State {
         let Ok(window) = window_of(&a.from, &a.to) else { return };
         let opts = CompareOptions { from: window.0, to: window.1, bin_days: a.bin_days.max(1) };
         let map = a.map.clone();
-        let map_name = self.zeit.results.iter().find(|r| r.path == map).map_or(map.clone(), |r| r.name.clone());
+        let code = self.alert_map_code(&map);
+        let map_name = self.alert_maps().into_iter().find(|m| m.0 == map).map_or(map.clone(), |m| m.1);
         let alerts_name = match &what {
             Alerts::Vector { name, .. } => name.clone(),
             Alerts::Rasters { product, .. } => product.name().to_string(),
@@ -309,6 +341,7 @@ impl State {
         {
             let mut p = crate::provenance::Provenance::start("alerts", "alerts", "Alerts against a map of change");
             p.params.insert("map".into(), serde_json::json!(map));
+            p.params.insert("map_dates".into(), serde_json::json!(code.name()));
             p.params.insert("alerts".into(), serde_json::json!(format!("{what:?}")));
             p.params.insert("from".into(), serde_json::json!(ymd(opts.from)));
             p.params.insert("to".into(), serde_json::json!(ymd(opts.to)));
@@ -338,7 +371,7 @@ impl State {
                     }
                     c.request_repaint();
                 };
-                let r = run(&map, &what, &opts, threads, &dir, &progress, &cn);
+                let r = run(&map, code, &what, &opts, threads, &dir, &progress, &cn, &log);
                 let seconds = t0.elapsed().as_secs_f64();
                 let mut s = st.lock().unwrap();
                 s.seconds = seconds;
@@ -448,7 +481,7 @@ impl State {
             && self.frame > 10
             && (!self.opts.zeit_run || self.zeit.runs_settled())
             && self.zeit.pending_loads == 0
-            && !self.alert_maps().is_empty()
+            && (!self.alert_maps().is_empty() || self.opts.alerts.iter().any(|a| a.contains("mapfile=")))
         {
             self.alerts.cli_done = true;
             for arg in self.opts.alerts.clone() {
@@ -465,7 +498,13 @@ impl State {
     fn alerts_layers(&mut self, d: &Done, ctx: &egui::Context) {
         let prev: Vec<String> = self.alerts.done.iter().map(|p| p.folder.to_string_lossy().into_owned()).collect();
         self.zeit.results.retain(|r| !prev.contains(&r.run));
-        let Some(base) = self.zeit.results.iter().find(|r| r.path == d.map_path) else { return };
+        let Some(base) = self.zeit.results.iter().find(|r| r.path == d.map_path) else {
+            // a map from disk: the agreement opens as a layer of its own (its classes named in the file)
+            if self.opening.is_none() {
+                self.open_inputs(vec![d.agreement.clone()], true, ctx);
+            }
+            return;
+        };
         let make = |name: String, path: &str, unit: &str, output: usize| {
             let mut r = ResultLayer::for_test(vec![], 0, 0, unit.into());
             (r.cube, r.grid, r.source) = (base.cube, base.grid.clone(), base.source.clone());
@@ -491,7 +530,8 @@ impl State {
     }
 
     /// --alerts SOURCE[,KEY=VALUE...]: a comparison once a map of change is there (screenshots). SOURCE: deter-amz,
-    /// deter-cerrado, glad-l, glad-s2, radd, integrated; keys: from, to, map (a part of its name), files (paths
+    /// deter-cerrado, glad-l, glad-s2, radd, integrated; keys: from, to, map (a part of its name), mapfile (a map
+    /// of dates from disk), dates (its encoding: auto, decimal, yearday, ymd, days), files (paths
     /// separated by ';'), download=1 (the rasters of the map's area), url, layer, date, class (another WFS), tab=0
     /// (the panel left as it is).
     pub(crate) fn alerts_option(&mut self, arg: &str, ctx: &egui::Context) -> Result<(), String> {
@@ -502,10 +542,24 @@ impl State {
             .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
             .collect();
         let get = |k: &str| kv.iter().find(|x| x.0 == k).map(|x| x.1.clone());
+        if let Some(f) = get("mapfile") {
+            self.alerts.map_file = Some(f);
+        }
+        if let Some(d) = get("dates") {
+            self.alerts.map_code = match d.to_ascii_lowercase().as_str() {
+                "auto" => DateCode::Auto,
+                "decimal" | "years" => DateCode::DecimalYear,
+                "yearday" | "yyyyddd" => DateCode::YearDay,
+                "ymd" | "yyyymmdd" => DateCode::Ymd,
+                "days" => DateCode::Days1970,
+                _ => return Err(format!("dates={d}: auto, decimal, yearday, ymd or days")),
+            };
+        }
         let maps = self.alert_maps();
-        let map = match get("map") {
-            Some(m) => maps.iter().find(|x| x.1.to_lowercase().contains(&m.to_lowercase())),
-            None => maps.first(),
+        let map = match (get("map"), get("mapfile")) {
+            (Some(m), _) => maps.iter().find(|x| x.1.to_lowercase().contains(&m.to_lowercase())),
+            (None, Some(f)) => maps.iter().find(|x| x.0 == f),
+            (None, None) => maps.first(),
         };
         let a = &mut self.alerts;
         a.map = map.ok_or("no map of change dates with that name")?.0.clone();
@@ -576,17 +630,43 @@ impl State {
         let busy = self.alerts.busy();
         egui::Grid::new("alerts_in").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
             ui.label("Map of change");
-            if maps.is_empty() {
-                ui.weak("No map of dates yet: run LandTrendr, CCDC, BFAST or CODED first.");
-            } else {
-                let shown = maps.iter().find(|m| m.0 == self.alerts.map).map_or("", |m| m.1.as_str());
-                egui::ComboBox::from_id_salt("alerts_map").selected_text(shown).width(300.0).show_ui(ui, |ui| {
-                    for (p, n) in &maps {
-                        ui.selectable_value(&mut self.alerts.map, p.clone(), n).on_hover_text(p);
-                    }
-                });
-            }
+            ui.horizontal(|ui| {
+                if maps.is_empty() {
+                    ui.weak("No map of dates yet: run LandTrendr, CCDC, BFAST or CODED, or choose a file.");
+                } else {
+                    let shown = maps.iter().find(|m| m.0 == self.alerts.map).map_or("", |m| m.1.as_str());
+                    egui::ComboBox::from_id_salt("alerts_map").selected_text(shown).width(300.0).show_ui(ui, |ui| {
+                        for (p, n) in &maps {
+                            ui.selectable_value(&mut self.alerts.map, p.clone(), n).on_hover_text(p);
+                        }
+                    });
+                }
+                if ui
+                    .add_enabled(!busy, egui::Button::new("File..."))
+                    .on_hover_text("A map of change dates from disk (band 1; 0 or no data: no change)")
+                    .clicked()
+                    && let Some(f) = rfd::FileDialog::new().add_filter("Raster", &["tif", "tiff", "vrt", "img"]).pick_file()
+                {
+                    let f = f.to_string_lossy().into_owned();
+                    self.alerts.map = f.clone();
+                    self.alerts.map_file = Some(f);
+                }
+            });
             ui.end_row();
+            if !self.alerts.map.is_empty() && !self.zeit.results.iter().any(|r| r.path == self.alerts.map) {
+                ui.label("Its dates as");
+                let a = &mut self.alerts;
+                egui::ComboBox::from_id_salt("alerts_code").selected_text(a.map_code.name()).show_ui(ui, |ui| {
+                    for c in DateCode::ALL {
+                        ui.selectable_value(&mut a.map_code, c, c.name());
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "How the map's values give its dates. Detected: from its largest value (up to 3000 decimal                      years, 1000001-3000366 a year and day, 10000101-30001231 YYYYMMDD, else days since 1970)",
+                );
+                ui.end_row();
+            }
             ui.label("Alerts");
             ui.horizontal(|ui| {
                 let a = &mut self.alerts;
@@ -978,17 +1058,24 @@ fn window_of(from: &str, to: &str) -> Result<(i32, i32), String> {
 
 /// The comparison: the map read, the alerts placed on its grid, compared; the agreement (and the alerts' dates)
 /// written in `dir`.
+#[allow(clippy::too_many_arguments)]
 fn run(
     map: &str,
+    code: DateCode,
     what: &Alerts,
     o: &CompareOptions,
     threads: usize,
     dir: &std::path::Path,
     progress: &dyn Fn(f64, &str),
     cancel: &AtomicBool,
+    log: &JobLog,
 ) -> Result<(Comparison, AlertsOnGrid, String, Option<String>), String> {
     progress(0.0, "reading the map");
-    let (grid, change) = alerts::read_change_map(map, threads)?;
+    let (grid, change, used) = alerts::read_change_map_as(map, code, threads)?;
+    log.line(&format!("the map's dates: {}", used.name()));
+    if !change.iter().any(|v| v.is_finite()) {
+        return Err(format!("no dates in the map read as {}", used.name()));
+    }
     if cancel.load(Ordering::Relaxed) {
         return Err("cancelled".into());
     }

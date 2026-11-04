@@ -4,7 +4,9 @@
 //! them as DETER is compared (the WFS fetched in a task, a vector layer); 292 checks every number against a count
 //! made here, pixel by pixel (centres in squares); 293 the CSVs and the agreement map exported, the tab shown;
 //! 294-295 GLAD-S2 rasters written here (a tile of a third of the pixel over the top-left quarter, confidence 4 on
-//! 2020-02-04 in its left half) compared the same way, their dates a layer; 296 everything removed.
+//! 2020-02-04 in its left half) compared the same way, their dates a layer; 296-297 the same map as a file from
+//! disk in YYYYMMDD (Int32: past float's whole numbers), its encoding detected, the same numbers, its agreement a
+//! layer of its own; 298 everything removed.
 
 use std::time::Instant;
 
@@ -292,6 +294,79 @@ impl State {
                 None
             }
             296 => {
+                // the run's map as a file from disk, its dates in YYYYMMDD
+                let r = self.zeit.results.iter().find(|r| r.name == MAP_NAME)?;
+                let info = r.grid.clone()?;
+                let (w, h) = (info.width, info.height);
+                let path = dir.join("change_ymd.tif").to_string_lossy().into_owned();
+                let write = || -> Result<(), String> {
+                    let drv = gdal::DriverManager::get_driver_by_name("GTiff").map_err(|e| e.to_string())?;
+                    let mut ds =
+                        drv.create_with_band_type::<i32, _>(&path, w, h, 1).map_err(|e| format!("{path}: {e}"))?;
+                    ds.set_geo_transform(&info.geo_transform.unwrap_or_default()).map_err(|e| e.to_string())?;
+                    ds.set_projection(&info.crs_wkt).map_err(|e| e.to_string())?;
+                    let mut b = ds.rasterband(1).map_err(|e| e.to_string())?;
+                    b.set_no_data_value(Some(0.0)).map_err(|e| e.to_string())?;
+                    let v: Vec<i32> = (0..w * h).map(|i| if i % w < w / 2 { 20200301 } else { 0 }).collect();
+                    let mut buf = gdal::raster::Buffer::new((w, h), v);
+                    b.write((0, 0), (w, h), &mut buf).map_err(|e| e.to_string())
+                };
+                if let Err(e) = write() {
+                    return fail(&format!("the map in YYYYMMDD: {e}"));
+                }
+                st.run_vectors = self.layers.len();
+                let arg = format!(
+                    "glad-s2,mapfile={path},tab=0,files={};{}",
+                    self.alerts.files[0].conf, self.alerts.files[0].date
+                );
+                if let Err(e) = self.alerts_option(&arg, ctx) {
+                    return fail(&e);
+                }
+                if self.alerts.map != path || self.alerts.map_code != alerts::DateCode::Auto {
+                    return fail("the file should be the map compared, its dates detected");
+                }
+                next(st, "a map of change from disk in YYYYMMDD (File..., Its dates as: detected) against GLAD-S2");
+                None
+            }
+            297 => {
+                let done = self.alerts.done.clone();
+                let path = dir.join("change_ymd.tif").to_string_lossy().into_owned();
+                if self.alerts.busy() || done.as_ref().is_none_or(|d| d.map_path != path) {
+                    if !self.alerts.error.is_empty() {
+                        return fail(&self.alerts.error.clone());
+                    }
+                    return if waited > 60.0 { fail("the comparison should end") } else { None };
+                }
+                let d = done.as_ref()?;
+                let agreement = (0..self.layers.len())
+                    .find(|&k| self.layer_session(k).is_some_and(|s| s.info.layers[0].path == d.agreement));
+                if self.opening.is_some() || agreement.is_none() {
+                    return if waited > 60.0 { fail("the agreement should open as a layer") } else { None };
+                }
+                let c = &d.cmp;
+                let info = self.zeit.results.iter().find(|r| r.name == MAP_NAME)?.grid.clone()?;
+                let (cw, ch) = (info.width / 2, info.height / 2);
+                let alerted = (cw / 2) * ch;
+                let log = std::fs::read_to_string(d.folder.join("job.log")).unwrap_or_default();
+                if (c.covered_pixels, c.both, c.only_map, c.only_alerts) != (cw * ch, alerted, cw * ch - alerted, 0)
+                    || c.lag.median != 26.0
+                    || !log.contains("YYYYMMDD")
+                {
+                    return fail(&format!(
+                        "the file's numbers: covered {}, both {}, only the map {}, lag {}",
+                        c.covered_pixels, c.both, c.only_map, c.lag.median
+                    ));
+                }
+                if let Some(k) = agreement {
+                    self.remove_layer(k, ctx);
+                }
+                next(
+                    st,
+                    "the file's dates read as YYYYMMDD: GLAD-S2's numbers as with the run's map; the agreement a layer",
+                );
+                None
+            }
+            298 => {
                 let ours = dir.to_string_lossy().into_owned();
                 let runs: Vec<String> =
                     self.alerts.done.iter().map(|d| d.folder.to_string_lossy().into_owned()).collect();

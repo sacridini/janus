@@ -48,7 +48,8 @@ impl State {
                     band: 1,
                     name: r.name.clone(),
                     classes: r.classes.iter().enumerate().map(|(k, n)| (k as i64 + 1, n.clone())).collect(),
-                    years: r.unit == "year" || r.unit == "years",
+                    // a date column for dates ("year"), not for lengths of time ("years")
+                    years: r.unit == "year",
                     size: (r.w, r.h),
                 })
             }

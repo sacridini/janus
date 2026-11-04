@@ -1982,11 +1982,25 @@ célula, tolerando a última casa escrita): regularize 4 arquivos iguais,
 polygonize 5 feições (4 com o sieve), zonal 3 CSVs (369, 210 e 54 células),
 build 8 VRTs, calculadora 16 datas × 60 000 valores com diferença máxima 0.
 
+**Alertas com mapas do disco; "years" é duração (2026-11-04, sem versão).** A
+aba Alerts lista, além dos mapas de datas das rodadas, os mapas únicos abertos
+como camada do disco e um arquivo escolhido em *File...*; suas datas (banda 1, 0
+ou sem dado: sem mudança) são lidas como anos decimais, ano e dia (2019183),
+YYYYMMDD ou dias desde 1970, escolhidos em *Its dates as* ou detectados pelo
+maior valor (`alerts::DateCode`, `read_change_map_as`: lidos em f64, porque
+YYYYMMDD passa dos inteiros exatos do float). Sem camada de rodada por baixo, o
+mapa de concordância abre como camada própria. `--alerts ...,mapfile=,dates=`.
+Autoteste 296-297: o mapa da rodada regravado em YYYYMMDD (Int32) dá os mesmos
+números contra o GLAD-S2. A unidade "years" (uma duração: a do LandTrendr, anos
+até a recuperação) deixou de ser tratada como data: Areas conta por anos
+inteiros ("2-3 years", coluna "length"), Polygonize não põe coluna de data, a
+validação a trata como intervalos, Pixel values mostra "2.5 years", Zonal a
+trata como valores. Pixel values mostra um ano decimal como a data
+(2019-07-02), não arredondado ao ano.
+
 **O que ficou para trás:**
-- Alertas: mapas de datas abertos do disco (não de uma rodada do Zeit) não
-  entram na aba Alerts; areas_ui ainda trata a unidade "years" como por ano; o
-  tour de validação precisa do MapBiomas, que respondeu 403 em 2026-11-04 (o
-  make_tutorial_data.py segue sem ele).
+- Alertas: o tour de validação precisa do MapBiomas, que respondeu 403 em
+  2026-11-04 (o make_tutorial_data.py segue sem ele).
 - Rótulos e camadas grandes: o build release e o autoteste depois do rebase (o
   do agente, antes do rebase, deu OK); menos memória nas camadas grandes (subir
   em partes, liberar as coordenadas `px`); busca de feição pelo texto do rótulo;

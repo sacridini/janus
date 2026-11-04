@@ -285,8 +285,16 @@ impl State {
                 } else if !r.classes.is_empty() {
                     let k = v.round() as usize;
                     k.checked_sub(1).and_then(|i| r.classes.get(i)).map_or(format!("{k}"), |c| format!("{c} ({k})"))
-                } else if r.unit == "year" || r.unit == "years" {
-                    format!("{v:.0}")
+                } else if r.unit == "year" {
+                    // a whole year as it is, a decimal year as its day
+                    if v.fract() == 0.0 {
+                        format!("{v:.0}")
+                    } else {
+                        janus_validation::alerts::day_of_decimal_year(v)
+                            .map_or(format!("{v:.3}"), janus_validation::alerts::ymd)
+                    }
+                } else if r.unit == "years" {
+                    format!("{} years", format_g(v, 3))
                 } else {
                     format_g(v, 6)
                 }

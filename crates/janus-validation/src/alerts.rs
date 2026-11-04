@@ -732,6 +732,113 @@ pub fn read_change_map(path: &str, threads: usize) -> Result<(Grid, Vec<f32>), S
     Ok((grid, v))
 }
 
+/// How a map's values give its dates: a Zeit run's maps are in decimal years; a map from elsewhere may be in
+/// year and day of the year, YYYYMMDD or days since 1970.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DateCode {
+    /// the encoding its largest value suggests (`detect`)
+    #[default]
+    Auto,
+    /// 2019.5 (whole years too: 2019)
+    DecimalYear,
+    /// 2019183: the year times 1000 plus the day of the year
+    YearDay,
+    /// 20190702
+    Ymd,
+    /// days since 1970-01-01
+    Days1970,
+}
+
+impl DateCode {
+    pub const ALL: [DateCode; 5] =
+        [DateCode::Auto, DateCode::DecimalYear, DateCode::YearDay, DateCode::Ymd, DateCode::Days1970];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            DateCode::Auto => "detected",
+            DateCode::DecimalYear => "decimal years (2019.5, 2019)",
+            DateCode::YearDay => "year and day (2019183)",
+            DateCode::Ymd => "YYYYMMDD (20190702)",
+            DateCode::Days1970 => "days since 1970-01-01",
+        }
+    }
+
+    /// The encoding of a map whose largest date is `max`: up to 3000 years, 1000001-3000366 a year and day,
+    /// 10000101-30001231 YYYYMMDD, else days since 1970.
+    pub fn detect(max: f64) -> DateCode {
+        if max <= 3000.0 {
+            DateCode::DecimalYear
+        } else if (1_000_001.0..=3_000_366.0).contains(&max) {
+            DateCode::YearDay
+        } else if (10_000_101.0..=30_001_231.0).contains(&max) {
+            DateCode::Ymd
+        } else {
+            DateCode::Days1970
+        }
+    }
+
+    /// A value as a decimal year; NaN when it is no date (not finite, <= 0, no such day). Auto: as decimal years.
+    pub fn decimal(self, v: f64) -> f64 {
+        if !v.is_finite() || v <= 0.0 {
+            return f64::NAN;
+        }
+        let day = match self {
+            DateCode::Auto | DateCode::DecimalYear => return v,
+            DateCode::YearDay => {
+                let v = v.round() as i64;
+                let (y, d) = ((v / 1000) as i32, (v % 1000) as i32);
+                (d >= 1 && d <= year_len(y)).then(|| days_from_civil(y, 1, 1) + d - 1)
+            }
+            DateCode::Ymd => {
+                let v = v.round() as i64;
+                let (y, m, d) = ((v / 10_000) as i32, (v / 100 % 100) as u32, (v % 100) as u32);
+                let ok = (1..=12).contains(&m) && d >= 1 && civil_from_days(days_from_civil(y, m, d)) == (y, m, d);
+                ok.then(|| days_from_civil(y, m, d))
+            }
+            DateCode::Days1970 => Some(v.round() as i32),
+        };
+        day.map_or(f64::NAN, decimal_year)
+    }
+}
+
+/// A map of change dates (band 1) in decimal years, its values read as `code` says (Auto: detected from its
+/// largest value), and the encoding used.
+pub fn read_change_map_as(path: &str, code: DateCode, threads: usize) -> Result<(Grid, Vec<f32>, DateCode), String> {
+    let code = match code {
+        DateCode::Auto => {
+            let ds = crate::reader::open_raster(path, threads)?;
+            let band = ds.rasterband(1).map_err(|e| format!("{path}: {e}"))?;
+            band.compute_raster_min_max(true).map_or(DateCode::DecimalYear, |m| DateCode::detect(m.max))
+        }
+        c => c,
+    };
+    if code == DateCode::DecimalYear {
+        let (g, v) = read_change_map(path, threads)?;
+        return Ok((g, v, code));
+    }
+    // the values exactly (YYYYMMDD is past float's whole numbers), a band of rows at a time
+    let grid = read_grid(path)?;
+    if !grid.has_gt {
+        return Err(format!("{path}: the map has no geotransform"));
+    }
+    let ds = crate::reader::open_raster(path, threads)?;
+    let band = ds.rasterband(1).map_err(|e| format!("{path}: {e}"))?;
+    let nodata = band.no_data_value().filter(|v| !v.is_nan());
+    let mut out = vec![f32::NAN; grid.w * grid.h];
+    let mut buf = vec![0f64; grid.w * 256];
+    for y0 in (0..grid.h).step_by(256) {
+        let n = 256.min(grid.h - y0);
+        let b = &mut buf[..grid.w * n];
+        band.read_into_slice::<f64>((0, y0 as isize), (grid.w, n), (grid.w, n), b, None).map_err(|e| e.to_string())?;
+        for (o, &v) in out[y0 * grid.w..(y0 + n) * grid.w].iter_mut().zip(b.iter()) {
+            if Some(v) != nodata {
+                *o = code.decimal(v) as f32;
+            }
+        }
+    }
+    Ok((grid, out, code))
+}
+
 /// The grid's box in longitude and latitude (west, south, east, north), its edges densified.
 pub fn lonlat_bounds(grid: &Grid) -> Result<[f64; 4], String> {
     if grid.wkt.is_empty() || !grid.has_gt {
@@ -1374,6 +1481,21 @@ mod tests {
         }
         assert_eq!(day_of_decimal_year(0.0), None);
         assert_eq!(day_of_decimal_year(f64::NAN), None);
+        // a map's dates in other encodings, as decimal years
+        let day = days_from_civil(2019, 7, 2);
+        let dec = decimal_year(day);
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(DateCode::detect(2019.5), DateCode::DecimalYear);
+        assert_eq!(DateCode::detect(2019183.0), DateCode::YearDay);
+        assert_eq!(DateCode::detect(20190702.0), DateCode::Ymd);
+        assert_eq!(DateCode::detect(f64::from(day)), DateCode::Days1970);
+        assert_eq!(DateCode::YearDay.decimal(2019183.0), dec);
+        assert_eq!(DateCode::Ymd.decimal(20190702.0), dec);
+        assert_eq!(DateCode::Days1970.decimal(f64::from(day)), dec);
+        assert_eq!(DateCode::DecimalYear.decimal(2019.25), 2019.25);
+        assert!(DateCode::Ymd.decimal(20190230.0).is_nan());
+        assert!(DateCode::YearDay.decimal(2019366.0).is_nan());
+        assert!(DateCode::YearDay.decimal(0.0).is_nan());
     }
 
     #[test]
