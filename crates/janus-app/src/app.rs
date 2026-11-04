@@ -302,6 +302,8 @@ pub struct Options {
     pub band: i32,
     /// --threads N: the processing threads of this run (None: Settings')
     pub threads: Option<usize>,
+    /// --full-res off|hdd|all: the full-resolution cache of this run (None: Settings')
+    pub full_res: Option<janus_session::FullResMode>,
     pub budget_mb: i64,
     pub measure_startup: bool,
     /// a PNG of the window once the series is ready, then exit
@@ -1418,7 +1420,7 @@ impl State {
             overview_budget_bytes: self.opts.budget_bytes.unwrap_or(mb << 20),
             max_texture: max_tex.min(16384),
             threads: self.opts.threads.unwrap_or(s.threads),
-            full_res: s.full_res,
+            full_res: self.opts.full_res.unwrap_or(s.full_res),
             cache_budget: s.cache_budget_gb << 30,
             ..Default::default()
         }

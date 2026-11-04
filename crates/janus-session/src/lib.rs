@@ -519,8 +519,11 @@ fn roi_group_work(roi: &RoiData, info: &Arc<CubeInfo>, grp: &RoiGroup, sampling:
 
 /// The missing dates of the full-resolution cache, after the overview's jobs (priorities 0 and 10): on an HDD the
 /// single reader finishes the overview first, then sweeps the files again for the dates whose overview came from
-/// its cache.
+/// its cache. A file whose blocks hold every band: all its dates at once, block by block.
 fn submit_full_res_build(full: &Arc<FullResCache>, pool: &JobPool) {
+    if full.submit_by_blocks(pool, 20) {
+        return;
+    }
     for _ in 0..full.missing_dates() {
         let f = full.clone();
         pool.submit(20, move || f.build_next());

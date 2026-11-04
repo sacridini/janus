@@ -46,7 +46,7 @@ fn ms(t: Instant) -> f64 {
     t.elapsed().as_secs_f64() * 1000.0
 }
 
-pub fn measure_cache(args: &[String]) -> i32 {
+pub fn measure_cache(args: &[String], threads: Option<usize>) -> i32 {
     if args.len() < 2 || (args[0] != "on" && args[0] != "off") {
         println!("usage: --measure-cache on|off INPUT...");
         return 2;
@@ -88,8 +88,11 @@ pub fn measure_cache(args: &[String]) -> i32 {
     }
     println!("  source ROI 256x256 x {t} dates: {:.0} ms (cold)", ms(s));
 
-    let settings =
-        SessionSettings { full_res: if on { FullResMode::All } else { FullResMode::Off }, ..Default::default() };
+    let settings = SessionSettings {
+        full_res: if on { FullResMode::All } else { FullResMode::Off },
+        threads: threads.unwrap_or(0),
+        ..Default::default()
+    };
     let opened = Instant::now();
     let session = Session::new(info.clone(), &settings, Arc::new(|| {}));
     while !session.overview.complete() {

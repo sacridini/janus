@@ -1,7 +1,8 @@
 //! A file whose blocks hold every band (pixel-interleaved, a band a date) read block by block, its blocks
-//! decompressed by Janus: the overview and windows of every date as one read of each date through GDAL gives them
-//! (GDAL's nearest neighbour), bit for bit; in tiles of Float64 and in strips of Int16 (the last strip shorter); of
-//! several bands a date (a normalized difference masked by a quality band, each read from the block).
+//! decompressed by Janus: the overview, windows of every date and the full-resolution cache (built block by block)
+//! as one read of each date through GDAL gives them (GDAL's nearest neighbour), bit for bit; in tiles of Float64 and
+//! in strips of Int16 (the last strip shorter, the cache's bands of 64 rows across strips); of several bands a date
+//! (a normalized difference masked by a quality band, each read from the block).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -11,7 +12,7 @@ use std::time::{Duration, Instant};
 use gdal::DriverManager;
 use gdal::raster::{Buffer, GdalType, RasterCreationOptions};
 use janus_cache::blocks::BlockSampling;
-use janus_cache::{JobPool, Overview, OverviewOptions};
+use janus_cache::{FullResCache, JobPool, Overview, OverviewOptions};
 use janus_cube::{BandSelection, CubeInfo, CubeReader, QaRule, interleaved_blocks, open_cube};
 
 const W: usize = 300;
@@ -88,7 +89,36 @@ fn check(d: &Path, info: Arc<CubeInfo>, block: (usize, usize)) {
             assert_eq!(bad, 0, "window {win:?}, date {t}: {bad} pixels differ");
         }
     }
-    drop((ov, pool));
+
+    // the full-resolution cache, every date built at once block by block; read again from its file
+    let cache = d.join("fullres");
+    let full = FullResCache::new(info.clone(), cache.clone());
+    assert!(full.start(1, 0));
+    assert!(full.submit_by_blocks(&pool, 20), "built block by block");
+    let start = Instant::now();
+    while !full.complete() {
+        assert!(start.elapsed() < Duration::from_secs(60), "the cache never done: {}", full.error());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    drop(full);
+    let full = FullResCache::new(info.clone(), cache);
+    assert!(full.start(1, 0) && full.complete(), "the dates read back from the file");
+    let mut got = vec![0f32; W * H];
+    for (win, size) in [((0, 0, W, H), (W, H)), ((37, 21, 200, 190), (61, 55))] {
+        let mut want = vec![0f32; size.0 * size.1];
+        for t in 0..dates {
+            assert!(r.read_window(t, win, &mut want, size));
+            assert!(full.read_window(t, win, &mut got[..size.0 * size.1], size));
+            let bad = want.iter().zip(&got).filter(|(a, b)| a.to_bits() != b.to_bits()).count();
+            assert_eq!(bad, 0, "cache, window {win:?}, date {t}: {bad} pixels differ");
+        }
+    }
+    let (mut v, mut seen) = (vec![0f32; dates], vec![false; dates]);
+    assert_eq!(full.read_series(W - 1, H - 1, &mut v, &mut seen), dates);
+    for (t, v) in v.iter().enumerate() {
+        assert_eq!(v.to_bits(), r.read_pixel(t, W - 1, H - 1).unwrap().to_bits(), "series, date {t}");
+    }
+    drop((ov, full, pool));
 }
 
 #[test]

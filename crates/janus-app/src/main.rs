@@ -150,6 +150,8 @@ Options:
                       (default: Settings, 1024)
   --threads N         processing threads, this run only (default: Settings);
                       with --selftest-zeit, Zeit's threads
+  --full-res off|hdd|all  the full-resolution cache, this run only (default: Settings): on demand,
+                      for series on an HDD, for every series
   -h, --help          show this help
   --version           show the version
 
@@ -498,6 +500,15 @@ fn main() -> eframe::Result<()> {
                     janus_cube::calc::eval::set_threads(n.min(8));
                 }
             }
+            "--full-res" => {
+                use janus_session::FullResMode as M;
+                opts.full_res = match args.next().as_deref() {
+                    Some("off") => Some(M::Off),
+                    Some("hdd") => Some(M::Hdd),
+                    Some("all") => Some(M::All),
+                    _ => None,
+                };
+            }
             "--measure-startup" => opts.measure_startup = true,
             "--screenshot" => opts.screenshot = args.next().map(Into::into),
             "--detach-map" => opts.detach_map = true,
@@ -654,7 +665,7 @@ fn main() -> eframe::Result<()> {
             }
             "--measure-cache" => {
                 attach_console();
-                std::process::exit(measure::measure_cache(&args.by_ref().collect::<Vec<_>>()));
+                std::process::exit(measure::measure_cache(&args.by_ref().collect::<Vec<_>>(), opts.threads));
             }
             _ => opts.inputs.push(a),
         }

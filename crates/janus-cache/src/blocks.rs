@@ -29,6 +29,22 @@ pub struct Scatter<'a> {
 }
 
 impl Scatter<'_> {
+    /// The output rows it holds.
+    pub fn rows(&self) -> Range<usize> {
+        self.rows.clone()
+    }
+
+    /// The output columns it holds.
+    pub fn cols(&self) -> Range<usize> {
+        self.cols.clone()
+    }
+
+    /// Its values of output row `oy` (one of rows()), over cols().
+    pub fn row(&self, oy: usize) -> &[f32] {
+        let (n, a) = (self.cols.len(), oy - self.rows.start);
+        &self.values[a * n..(a + 1) * n]
+    }
+
     pub fn put(&self, out: &mut [f32]) {
         let n = self.cols.len();
         for (a, oy) in self.rows.clone().enumerate() {

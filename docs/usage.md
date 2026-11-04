@@ -289,6 +289,8 @@ Options:
                       (default: Settings, 1024)
   --threads N         processing threads, this run only (default: Settings);
                       with --selftest-zeit, Zeit's threads
+  --full-res off|hdd|all  the full-resolution cache, this run only (default: Settings): on demand,
+                      for series on an HDD, for every series
   -h, --help          show this help
   --version           show the version
 
@@ -1172,7 +1174,8 @@ It works for any such file; EnMAP is the first case tested.
   place reads every date there at once (each block decompressed once) and
   keeps them in memory (an eighth of it at most, the places seen longest ago
   let go first): paging or playing through the dates there reads nothing
-  more.
+  more. The full-resolution cache of such a file is built block by block
+  too, every date at once (the CCDC stack: 7 s rather than about two hours).
 - The Zeit tools work along time and are disabled on a spectrum.
 
 ## Embeddings
