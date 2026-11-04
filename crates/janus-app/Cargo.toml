@@ -42,6 +42,8 @@ janus-gpu = { path = "../janus-gpu" }
 janus-session = { path = "../janus-session" }
 janus-validation = { path = "../janus-validation" }
 mimalloc = { version = "0.1", default-features = false }
+# mi_collect: the memory freed by a large job given back to the system (vectors.rs: give_back)
+libmimalloc-sys = { version = "0.1", default-features = false, features = ["extended"] }
 rayon = "1.12"
 rfd = "0.17"
 serde = { version = "1", features = ["derive"] }

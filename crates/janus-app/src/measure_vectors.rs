@@ -202,6 +202,11 @@ impl State {
                 }
                 let mem = process_memory_mb().0 - st.mem_before;
                 println!("memory once drawn: +{mem:.0} MB for the layers");
+                if let Some((a, r)) = self.gpu.as_ref().and_then(|g| g.allocator_mb()) {
+                    println!("  the GPU's allocator: {a:.0} MB allocated, {r:.0} MB reserved (in the process' memory)");
+                    st.json.insert("gpu_allocated_mb".into(), json!(a));
+                    st.json.insert("gpu_reserved_mb".into(), json!(r));
+                }
                 st.json.insert("memory_drawn_mb".into(), json!(mem));
                 let info = self.session.as_ref()?.info.clone();
                 println!("series: {} x {} px, {} dates ({})", info.width, info.height, info.t(), info.description);

@@ -21,10 +21,21 @@ use crate::theme;
 const COLORS: [[f32; 3]; 5] =
     [[1.0, 0.45, 0.15], [0.95, 0.30, 0.95], [0.70, 1.00, 0.20], [1.0, 1.0, 1.0], [0.35, 0.55, 1.0]];
 
-/// Vertices read at most from a file: about 140 bytes each once drawn (the file's coordinates, their place on the
-/// map, the GPU's levels; bench/vector-draw.json: 1.2 million polygons of 34 million vertices, a state's CAR, took
-/// 4.9 GB), 14 GB at the limit.
+/// Vertices read at most from a file: about 80 bytes each once drawn (the file's coordinates, their place on the
+/// map, the GPU's levels; 1.2 million polygons of 34 million vertices, a state's CAR (tools/bench_vector_draw.py),
+/// take 2.8 GB, 4.9 GB before the memory freed by reading, placing and building was given back), 8 GB at the
+/// limit.
 const MAX_VERTICES: usize = 100_000_000;
+
+/// The memory freed by a large job (reading, placing or building a layer for the GPU: millions of small
+/// allocations) given back to the system: mimalloc keeps the pages a thread freed for that thread (and those of a
+/// thread that ended), counted in the process' memory, until it allocates again. Collected on every thread of
+/// the pool and on the caller's.
+pub(crate) fn give_back() {
+    // SAFETY: mi_collect only walks the calling thread's heap (and the abandoned pages) and gives back free pages.
+    rayon::broadcast(|_| unsafe { libmimalloc_sys::mi_collect(true) });
+    unsafe { libmimalloc_sys::mi_collect(true) };
+}
 
 pub struct VectorLayer {
     pub id: u32,
@@ -233,7 +244,9 @@ impl State {
             let c = ctx.clone();
             std::thread::spawn(move || {
                 // the geometries alone: the fields' values are read when asked (attributes.rs)
-                let _ = tx.send(load_vector_geometry(&path, MAX_VERTICES));
+                let read = load_vector_geometry(&path, MAX_VERTICES);
+                give_back();
+                let _ = tx.send(read);
                 c.request_repaint();
             });
             self.vector_loads.pending.push(rx);
@@ -313,7 +326,9 @@ impl State {
             std::thread::Builder::new()
                 .name("vector-place".into())
                 .spawn(move || {
-                    let _ = tx.send(place(&data, info.as_deref(), &stop));
+                    let placed = place(&data, info.as_deref(), &stop);
+                    give_back();
+                    let _ = tx.send(placed);
                     c.request_repaint();
                 })
                 .ok();

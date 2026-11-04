@@ -340,6 +340,13 @@ impl Gpu {
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
     }
 
+    /// The GPU allocator's memory in MB: allocated, and reserved in its blocks (None: the backend does not say).
+    pub fn allocator_mb(&self) -> Option<(f64, f64)> {
+        let r = self.device.generate_allocator_report()?;
+        let mb = |b: u64| b as f64 / (1024.0 * 1024.0);
+        Some((mb(r.total_allocated_bytes), mb(r.total_reserved_bytes)))
+    }
+
     /// The uniforms of the frame's vector draws, at UNIFORM_STRIDE each (None: no vector draw).
     pub(crate) fn vector_uniforms(&self, f: &MapFrame) -> Option<wgpu::BindGroup> {
         if f.vdraws.is_empty() {

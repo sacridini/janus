@@ -1285,10 +1285,11 @@ read as longitude and latitude).
   most 60% of the points of the finer one kept (counted on a sample of the
   pieces first, so only those are made); a ring smaller than a level's
   tolerance is a dot in it. A file is read whole up to 100 million vertices
-  (about 140 bytes each once drawn). A state's CAR, made up
+  (about 80 bytes each once drawn). A state's CAR, made up
   (`tools/bench_vector_draw.py`: 1.2 million polygons, 34 million vertices,
   `bench/vector-draw.json`), is read in 1.6 s, placed in 0.4 s, built for the
-  GPU in 1.0–1.3 s (730 MB on the GPU, 4.9 GB of memory in all) and drawn
+  GPU in 1.0–1.3 s (730 MB on the GPU, 2.8 GB of memory in all: the memory
+  freed by reading, placing and building given back; 4.9 GB before) and drawn
   whole 3–4 s after it was opened; a frame takes 4–9 ms with the whole layer
   in view, 1 ms 8 times closer, 0.4 ms zoomed in, and 97% of its outlines (as
   GDAL rasterizes them) are lit zoomed out, where the CPU drew 56% of a file

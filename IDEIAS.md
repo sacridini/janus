@@ -2031,12 +2031,27 @@ texto (a paleta redesenha a cada quadro e uma camada pode ter um milhão de
 rótulos), e as feições não entram nos comandos recentes. Autoteste 272: "riv"
 acha River, "FIELD" acha Big field, e ir até ela move o mapa e a marca.
 
+**Menos memória nas camadas vetoriais grandes (2026-11-04, sem versão).** No CAR
+sintético (1,2 milhão de polígonos, 34 milhões de vértices; `--measure-vectors`,
+3 núcleos) a camada desenhada ocupava +4865 MB; a conta não fechava: dados 852,
+colocação ~1080, GPU 730 (o relatório do alocador do wgpu, agora impresso pelo
+`--measure-vectors`: 1007 MB alocados depois do upload, 1738 durante, com o
+staging). O resto (~2,2 GB) era memória liberada que o mimalloc (v3) guarda na
+thread que a liberou: as threads do rayon e a thread do build, que termina e
+deixa as páginas abandonadas, só as devolvem quando voltam a alocar.
+`vectors::give_back()` (`mi_collect(true)` em cada thread do pool e na que
+chama; `libmimalloc-sys` com `extended`) depois da leitura, da colocação, do
+build para a GPU e do upload: +2765 MB desenhada (−43%), pico 5882 MB em vez de
+6633; quadros e pick iguais (7–11 ms com tudo à vista, 2 ms 8× mais perto, 0,6
+ms de perto). Restam os dados (f64) e as coordenadas colocadas (`px`).
+
 **O que ficou para trás:**
 - Alertas: o tour de validação precisa do MapBiomas, que respondeu 403 em
   2026-11-04 (o make_tutorial_data.py segue sem ele).
 - Rótulos e camadas grandes: o build release e o autoteste depois do rebase (o
-  do agente, antes do rebase, deu OK); menos memória nas camadas grandes (subir
-  em partes, liberar as coordenadas `px`);
+  do agente, antes do rebase, deu OK); ainda menos memória nas camadas grandes
+  (liberar as coordenadas `px`, ~0,9 GB no CAR sintético; as do arquivo em
+  f64, 0,85 GB);
   a figura dos rótulos com zoom.
 - ~~Um crash raro nos testes de janus-geo~~ **Resolvido (f44f4d0, 1.12.1):**
   quatro lugares registravam os drivers do GDAL cada um por si, e dois

@@ -417,6 +417,22 @@ pub fn build(px: &[Polygon], kinds: &[Kind], fill: bool, key: u64) -> Built {
     Built { key, tols, bboxes, origins, piece_of, levels, points, ms: t0.elapsed().as_secs_f64() * 1000.0 }
 }
 
+impl Built {
+    /// Its size on the CPU (the vectors' capacities).
+    pub fn bytes(&self) -> usize {
+        use std::mem::size_of;
+        let level = |l: &Level| {
+            l.pts.capacity() * size_of::<VectorPoint>()
+                + l.dots.capacity() * size_of::<VectorPoint>()
+                + l.tris.capacity() * 4
+                + (l.ranges.capacity() + l.tri_ranges.capacity() + l.dot_ranges.capacity()) * 8
+        };
+        self.levels.iter().map(level).sum::<usize>()
+            + level(&self.points)
+            + (self.bboxes.capacity() * 32 + self.origins.capacity() * 16 + self.piece_of.capacity() * 4)
+    }
+}
+
 /// A colour as the shader reads it (RGBA bytes, red in the low byte).
 pub fn pack(c: egui::Color32) -> u32 {
     let [r, g, b, a] = c.to_srgba_unmultiplied();
@@ -530,7 +546,10 @@ pub fn start(px: Arc<Vec<Polygon>>, kinds: Vec<Kind>, fill: bool, key: u64, wake
     std::thread::Builder::new()
         .name("vector-gpu".into())
         .spawn(move || {
-            let _ = tx.send(build(&px, &kinds, fill, key));
+            let built = build(&px, &kinds, fill, key);
+            // what the build freed (pieces, simplified rings: several times the result) given back to the system
+            crate::vectors::give_back();
+            let _ = tx.send(built);
             wake();
         })
         .ok();
@@ -586,8 +605,13 @@ impl crate::app::State {
                         v.gpu.job = None;
                         if b.key == key {
                             let before = measure.then(crate::measure_vectors::process_memory_mb);
+                            if measure {
+                                println!("  built: {:.0} MB on the CPU", b.bytes() as f64 / 1048576.0);
+                            }
                             let t = std::time::Instant::now();
                             v.gpu.ready = Some(VectorGpu::upload(gpu, b, &v.gpu.colors, sig));
+                            // the build's buffers, freed here, given back
+                            crate::vectors::give_back();
                             if let Some(m0) = before {
                                 // --measure-vectors: what the upload costs
                                 gpu.finish();
@@ -600,6 +624,9 @@ impl crate::app::State {
                                     m1.0,
                                     m1.1
                                 );
+                                if let Some((a, r)) = gpu.allocator_mb() {
+                                    println!("  the GPU's allocator: {a:.0} MB allocated, {r:.0} MB reserved");
+                                }
                             }
                             self.map.dirty = true;
                         }
