@@ -384,12 +384,14 @@ impl State {
             {
                 self.feature_as_transect(li, i);
             }
-        } else if resp.clicked()
-            && !shift
-            && !poly_on
-            && let Some((x, y)) = inside
-        {
-            self.drop_pin(x, y);
+        } else if resp.clicked() && !shift && !poly_on {
+            if let Some((x, y)) = inside {
+                self.drop_pin(x, y);
+            }
+            // the web maps that answer GetFeatureInfo asked what is there (on the layer or beyond it)
+            if let Some([x, y]) = pointer {
+                self.web_info_at(x, y, ui.ctx());
+            }
         }
         if resp.secondary_clicked()
             && let Some(p) = resp.interact_pointer_pos()

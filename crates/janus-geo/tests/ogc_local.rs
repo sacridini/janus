@@ -275,6 +275,65 @@ fn wms_tiles_are_getmaps_of_their_boxes() {
 }
 
 #[test]
+fn wms_feature_info_of_a_point() {
+    setup();
+    let srv = MockServer::start(MockData::default()).unwrap();
+    let caps = ogc::capabilities(&srv.url("/ows"), Some(Service::Wms)).unwrap();
+    let l = caps.layers.iter().find(|l| l.name == "test:alerts").unwrap();
+    assert!(l.queryable);
+    // GeoJSON before plain text, GML not read
+    assert_eq!(ogc::pick_info_format(&caps.info_formats), "application/json");
+    assert_eq!(ogc::pick_info_format(&["application/vnd.ogc.gml".into()]), "");
+    let mut spec = MapLayerSpec {
+        service: Service::Wms,
+        url: caps.url.clone(),
+        version: caps.version.clone(),
+        layer: l.name.clone(),
+        format: "image/png".into(),
+        time: "2020-01-01".into(),
+        srs: l.web_mercator_code().into(),
+        info_format: ogc::pick_info_format(&caps.info_formats),
+        info_url: caps.info_url.clone(),
+        ..Default::default()
+    };
+    // the middle of the third square
+    let f = &srv.data.features()[2];
+    let n = (f.lonlat.len() - 1) as f64;
+    let (lon, lat) = f.lonlat[..f.lonlat.len() - 1].iter().fold((0.0, 0.0), |a, p| (a.0 + p[0] / n, a.1 + p[1] / n));
+    srv.clear_log();
+    let got = ogc::feature_info(&spec, lon, lat, 2.0).unwrap();
+    assert_eq!(got.len(), 1, "{got:?}");
+    let field =
+        |g: &ogc::FeatureInfo, k: &str| g.fields.iter().find(|f| f.0 == k).map(|f| f.1.clone()).unwrap_or_default();
+    assert_eq!(got[0].id, "alerts.3");
+    assert_eq!((field(&got[0], "name"), field(&got[0], "time")), ("plot 3".into(), "2020-01-01".into()));
+    let log = srv.requests();
+    assert!(log.iter().any(|q| q.contains("GetFeatureInfo") && q.contains("QUERY_LAYERS=test")), "{log:?}");
+    // in plain text (GeoServer's): the same fields, the geometry left out
+    spec.info_format = "text/plain".into();
+    let got = ogc::feature_info(&spec, lon, lat, 2.0).unwrap();
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(field(&got[0], "name"), "plot 3");
+    assert_eq!(field(&got[0], "classname"), "DEGRADACAO");
+    assert!(got[0].fields.iter().all(|f| f.0 != "the_geom"), "{got:?}");
+    // between the squares: nothing
+    let d = &srv.data;
+    let ct = {
+        let mut a = SpatialRef::from_epsg(d.epsg).unwrap();
+        let mut b = SpatialRef::from_epsg(4326).unwrap();
+        a.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
+        b.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
+        CoordTransform::new(&a, &b).unwrap()
+    };
+    let (mut x, mut y) = ([d.x0 + d.cell], [d.y0 - d.cell / 2.0]);
+    ct.transform_coords(&mut x, &mut y, &mut []).unwrap();
+    assert!(ogc::feature_info(&spec, x[0], y[0], 1.0).unwrap().is_empty());
+    // a layer not queried
+    spec.info_format.clear();
+    assert!(ogc::feature_info_url(&spec, lon, lat, 2.0).is_none());
+}
+
+#[test]
 fn errors_are_plain() {
     setup();
     // no server there

@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 use gdal::spatial_ref::SpatialRef;
+use gdal::vector::LayerAccess;
 use janus_cube::CubeInfo;
 use janus_geo::basemap::Basemap;
 use janus_geo::ogc::{self, FeatureRequest, MapLayerSpec, Service};
@@ -258,4 +259,72 @@ fn nasa_gibs_wmts_tiles() {
     );
     assert!(bm.error().is_empty());
     assert!(opaque > 0, "the relief drawn over the box");
+}
+
+#[test]
+#[ignore]
+fn terrabrasilis_deter_feature_info() {
+    setup();
+    let url = "https://terrabrasilis.dpi.inpe.br/geoserver/deter-amz/ows";
+    // an alert of 2023 in the box (WFS), then the WMS asked what is at a point inside it
+    let req = FeatureRequest {
+        service: Service::Wfs,
+        url: url.into(),
+        layer: "deter-amz:deter_amz".into(),
+        bbox: Some(AMAZON),
+        date_field: "view_date".into(),
+        from: "2023-01-01".into(),
+        to: "2023-12-31".into(),
+        max_features: 1,
+        ..Default::default()
+    };
+    let dir = tmp("deter-info");
+    let r = ogc::fetch_features(&req, &dir.join("one.gpkg"), &|_, _| {}, &AtomicBool::new(false)).unwrap();
+    assert_eq!(r.features, 1);
+    let ds = gdal::Dataset::open(&r.path).unwrap();
+    let mut lay = ds.layer_by_name(&r.layer).unwrap();
+    let f = lay.features().next().unwrap();
+    let day = f.field_as_string(f.field_index("view_date").unwrap()).unwrap().unwrap_or_default();
+    let mut g = f.geometry().unwrap().clone();
+    let mut wgs = SpatialRef::from_epsg(4326).unwrap();
+    wgs.set_axis_mapping_strategy(gdal::spatial_ref::AxisMappingStrategy::TraditionalGisOrder);
+    g.transform_to_inplace(&wgs).unwrap();
+    // SAFETY: a geometry owned here; the point returned is owned and destroyed after reading it
+    let (lon, lat) = unsafe {
+        let p = gdal_sys::OGR_G_PointOnSurface(g.c_geometry());
+        assert!(!p.is_null());
+        let xy = (gdal_sys::OGR_G_GetX(p, 0), gdal_sys::OGR_G_GetY(p, 0));
+        gdal_sys::OGR_G_DestroyGeometry(p);
+        xy
+    };
+    let caps = ogc::capabilities(url, Some(Service::Wms)).unwrap();
+    let l = caps.layers.iter().find(|l| l.name.ends_with("deter_amz")).unwrap();
+    println!("GetFeatureInfo formats: {:?}; queryable {}", caps.info_formats, l.queryable);
+    println!("{} times: {:?} ... {:?}; the alert's day {day}", l.times.len(), l.times.first(), l.times.last());
+    let mut spec = MapLayerSpec {
+        service: Service::Wms,
+        url: caps.url.clone(),
+        version: caps.version.clone(),
+        layer: l.name.clone(),
+        format: "image/png".into(),
+        srs: l.web_mercator_code().into(),
+        // the alert's day as the series' date mode asks (the last time listed not after it)
+        time: ogc::time_at(&l.times, &day[..10.min(day.len())].replace('/', "-")).unwrap_or_default(),
+        info_format: ogc::pick_info_format(&caps.info_formats),
+        info_url: caps.info_url.clone(),
+        ..Default::default()
+    };
+    assert!(l.queryable && !spec.info_format.is_empty());
+    for format in [spec.info_format.clone(), "text/plain".into()] {
+        spec.info_format = format;
+        let t = Instant::now();
+        let got = ogc::feature_info(&spec, lon, lat, 10.0).unwrap();
+        println!(
+            "{} at {lon:.5}, {lat:.5} ({}): {:.1} s, {got:?}",
+            spec.info_format,
+            spec.time,
+            t.elapsed().as_secs_f64()
+        );
+        assert!(!got.is_empty() && got[0].fields.iter().any(|f| f.0 == "classname"), "{got:?}");
+    }
 }

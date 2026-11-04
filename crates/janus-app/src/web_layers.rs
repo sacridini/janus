@@ -183,6 +183,27 @@ pub struct WebState {
     pub sources: Vec<WebSource>,
     /// --web-layer applied
     pub cli_done: bool,
+    /// what the WMS maps answered at the last click (the Map info window)
+    pub info: Option<WebInfo>,
+}
+
+/// A WMS map's GetFeatureInfo answer (None: still asked).
+pub type InfoAnswer = Option<Result<Vec<ogc::FeatureInfo>, String>>;
+
+/// GetFeatureInfo at a click on the map: what each visible WMS map that answers it says is there.
+pub struct WebInfo {
+    /// the longitude and latitude clicked
+    pub at: (f64, f64),
+    /// per map asked: its name and its answer (None: still asked)
+    pub answers: Vec<(String, InfoAnswer)>,
+    rx: Receiver<(usize, Result<Vec<ogc::FeatureInfo>, String>)>,
+}
+
+impl WebInfo {
+    /// Every map has answered.
+    pub fn done(&self) -> bool {
+        self.answers.iter().all(|a| a.1.is_some())
+    }
 }
 
 impl WebUi {
@@ -246,6 +267,9 @@ pub struct WebMapEntry {
     pub max_zoom: i32,
     pub title: String,
     pub attribution: String,
+    /// GetFeatureInfo's format ("" not queried) and URL
+    pub info_format: String,
+    pub info_url: String,
     pub times: Vec<String>,
     pub time_mode: TimeMode,
     pub fixed_time: String,
@@ -546,6 +570,12 @@ impl State {
             } else {
                 l.attribution.clone()
             },
+            info_format: if caps.service == Service::Wms && l.queryable {
+                ogc::pick_info_format(&caps.info_formats)
+            } else {
+                String::new()
+            },
+            info_url: caps.info_url.clone(),
         };
         let (mode, fixed, op) = (u.time_mode, u.fixed_time.clone(), u.opacity);
         Ok(self.add_web_map(spec, l.times.clone(), mode, fixed, op))
@@ -559,8 +589,110 @@ impl State {
         }
     }
 
+    /// A click on the map at the active layer's source pixel (x, y): the visible WMS maps that answer GetFeatureInfo
+    /// asked what is there, each in a thread (the Map info window); false when no map is asked.
+    pub(crate) fn web_info_at(&mut self, x: f64, y: f64, ctx: &egui::Context) -> bool {
+        let maps: Vec<(String, MapLayerSpec)> = self
+            .web
+            .maps
+            .iter()
+            .filter(|m| m.visible && m.spec.service == Service::Wms && !m.spec.info_format.is_empty())
+            .map(|m| (m.name.clone(), m.spec.clone()))
+            .collect();
+        if maps.is_empty() {
+            return false;
+        }
+        let (Some(info), Some(g)) = (self.session.as_ref().map(|s| s.info.clone()), self.grid()) else { return false };
+        let scale = self.map.scale;
+        let mut lon_lat = |px: f64, py: f64| {
+            let geo = info.pixel_to_geo(px, py)?;
+            self.status_lon_lat(geo)
+        };
+        let Some(at) = lon_lat(x, y) else { return false };
+        // the Web Mercator metres of a screen pixel there (the server's tolerance is in pixels of its image)
+        let m0 = ogc::mercator(at.0, at.1);
+        let dist = |p: Option<(f64, f64)>| {
+            let m = p.map(|(lo, la)| ogc::mercator(lo, la))?;
+            Some(((m.0 - m0.0).powi(2) + (m.1 - m0.1).powi(2)).sqrt())
+        };
+        let per_px = match (dist(lon_lat(x + 1.0, y)), dist(lon_lat(x, y + 1.0))) {
+            (Some(a), Some(b)) => (a + b) / 2.0,
+            (Some(a), None) | (None, Some(a)) => a,
+            _ => return false,
+        };
+        let metres = per_px * g.fx / scale.max(1e-12);
+        let (tx, rx) = channel();
+        for (k, (_, spec)) in maps.iter().enumerate() {
+            let (tx, spec, c) = (tx.clone(), spec.clone(), ctx.clone());
+            std::thread::Builder::new()
+                .name("ogc-info".into())
+                .spawn(move || {
+                    let _ = tx.send((k, ogc::feature_info(&spec, at.0, at.1, metres)));
+                    c.request_repaint();
+                })
+                .ok();
+        }
+        self.web.info = Some(WebInfo { at, answers: maps.into_iter().map(|(n, _)| (n, None)).collect(), rx });
+        true
+    }
+
+    /// The Map info window: what the WMS maps answered at the last click.
+    fn web_info_window(&mut self, ctx: &egui::Context) {
+        let Some(inf) = &self.web.info else { return };
+        let mut open = true;
+        egui::Window::new("Map info").open(&mut open).resizable(true).default_width(320.0).show(ctx, |ui| {
+            ui.label(RichText::new(format!("{:.5}, {:.5}", inf.at.1, inf.at.0)).weak())
+                .on_hover_text("The latitude and longitude clicked: what the web maps (WMS) say is there");
+            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                for (k, (name, a)) in inf.answers.iter().enumerate() {
+                    ui.strong(name);
+                    match a {
+                        None => {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label("asking the server...");
+                            });
+                        }
+                        Some(Err(e)) => {
+                            ui.colored_label(ui.visuals().error_fg_color, e);
+                        }
+                        Some(Ok(v)) if v.is_empty() => {
+                            ui.label(RichText::new("nothing here").weak());
+                        }
+                        Some(Ok(v)) => {
+                            for (i, f) in v.iter().enumerate() {
+                                if !f.id.is_empty() {
+                                    ui.label(RichText::new(&f.id).weak());
+                                }
+                                egui::Grid::new(("web info", k, i)).num_columns(2).striped(true).show(ui, |ui| {
+                                    for (key, val) in &f.fields {
+                                        ui.label(key);
+                                        ui.add(egui::Label::new(val).wrap());
+                                        ui.end_row();
+                                    }
+                                });
+                            }
+                        }
+                    }
+                    ui.add_space(6.0);
+                }
+            });
+        });
+        if !open {
+            self.web.info = None;
+        }
+    }
+
     /// Once per frame: the dialog's capabilities, the fetches done (their vector layers), each map's tiles.
     pub(crate) fn pump_web(&mut self, ctx: &egui::Context) {
+        // GetFeatureInfo's answers
+        if let Some(inf) = &mut self.web.info {
+            while let Ok((k, r)) = inf.rx.try_recv() {
+                if let Some(a) = inf.answers.get_mut(k) {
+                    a.1 = Some(r);
+                }
+            }
+        }
         // the capabilities read
         let u = &mut self.web.ui;
         if let Some(rx) = &u.loading {
@@ -739,6 +871,7 @@ impl State {
     /// File > Add web layer...'s window.
     pub(crate) fn web_window(&mut self, ctx: &egui::Context) {
         self.pump_web(ctx);
+        self.web_info_window(ctx);
         if !self.web.ui.show {
             return;
         }
@@ -1197,6 +1330,8 @@ impl State {
                 max_zoom: m.spec.max_zoom,
                 title: m.spec.title.clone(),
                 attribution: m.spec.attribution.clone(),
+                info_format: m.spec.info_format.clone(),
+                info_url: m.spec.info_url.clone(),
                 times: m.times.clone(),
                 time_mode: m.time_mode,
                 fixed_time: m.fixed_time.clone(),
@@ -1225,6 +1360,8 @@ impl State {
                 max_zoom: e.max_zoom,
                 title: e.title.clone(),
                 attribution: e.attribution.clone(),
+                info_format: e.info_format.clone(),
+                info_url: e.info_url.clone(),
             };
             let id = self.add_web_map(spec, e.times.clone(), e.time_mode, e.fixed_time.clone(), e.opacity);
             let k = self.web.maps.len() - 1;

@@ -3,8 +3,10 @@
 //! (service found: WFS); 281 fetches the layer of squares over the active layer; 282 checks the vector layer it
 //! opens (every square, its name, a square as the ROI where it lies); 283-285 OGC API - Features with a date
 //! filter and a cap (5 of 11, the layer named and a notice); 285-286 a server's error said plainly; 286-288 a WMS
-//! map with a fixed time added on top (its tiles GetMaps of their boxes with TIME, drawn, its credit); 289 the
-//! project's entries, then everything removed.
+//! map with a fixed time added on top (its tiles GetMaps of their boxes with TIME, drawn, its credit; a click asks
+//! it GetFeatureInfo: the square there, at its time); 289 the
+//! project's entries, saved and opened again (the WFS layer read from its GeoPackage, the OGC API's, deleted,
+//! fetched again, the map's tiles at its time), then everything removed.
 
 use std::time::Instant;
 
@@ -267,6 +269,52 @@ impl State {
                 next(st, "the map's tiles read");
                 None
             }
+            288 if self.web.info.is_some() => {
+                // GetFeatureInfo's answer: the square under the click (or nothing between the squares)
+                let inf = self.web.info.as_ref()?;
+                if !inf.done() {
+                    return if waited > 30.0 { fail("the WMS map should answer GetFeatureInfo") } else { None };
+                }
+                let [x, y] = *st.pts.first()?;
+                let (gx, gy) = self.session.as_ref()?.info.pixel_to_geo(x, y)?;
+                let want = st.server().data.features().into_iter().find(|f| {
+                    let q = f.square;
+                    gx >= q[0] && gx <= q[2] && gy >= q[1] && gy <= q[3]
+                });
+                let (name, answer) = (&inf.answers[0].0, &inf.answers[0].1);
+                let got = match answer {
+                    Some(Ok(v)) => v.clone(),
+                    a => return fail(&format!("{name} should answer: {a:?}")),
+                };
+                let field = |k: &str| got.first().and_then(|f| f.fields.iter().find(|x| x.0 == k)).map(|x| x.1.clone());
+                let ok = match &want {
+                    Some(f) => got.len() == 1 && field("name") == Some(f.name.clone()),
+                    None => false,
+                };
+                if !ok || (want.is_some() && field("time").as_deref() != Some("2020-01-01")) {
+                    return fail(&format!(
+                        "the square under the click ({:?}) at the map's time: {got:?}",
+                        want.map(|f| f.name)
+                    ));
+                }
+                let log = st.server().requests();
+                let asked = log.iter().filter(|r| r.contains("GetFeatureInfo")).count();
+                if asked != 1
+                    || !log.iter().any(|r| {
+                        r.contains("INFO_FORMAT=application%2Fjson") || r.contains("INFO_FORMAT=application/json")
+                    })
+                {
+                    return fail(&format!("one GetFeatureInfo in GeoJSON: {log:?}"));
+                }
+                println!("    a click on a square: {name} says {}", want.map_or("nothing".to_string(), |f| f.name));
+                self.web.info = None;
+                st.pts.clear();
+                next(
+                    st,
+                    "the WMS map drawn at its time, its credit on the map and the exports; a click asks it what is there",
+                );
+                None
+            }
             288 => {
                 let px = self.test_render()?;
                 let (cx, cy) = (super::SIZE[0] as usize / 2, super::SIZE[1] as usize / 2);
@@ -289,7 +337,100 @@ impl State {
                     return fail(&format!("the map's credit should show: {}", self.basemap_attribution()));
                 }
                 println!("    {} GetMaps; the centre {p:?}; credit {}", maps.len(), self.basemap_attribution());
-                next(st, "the WMS map drawn over the layers at its time, its credit on the map and the exports");
+                // a click in the middle of the first square: GetFeatureInfo asked of the map
+                let q = st.server().data.features().first()?.square;
+                let (x, y) = self.session.as_ref()?.info.geo_to_pixel((q[0] + q[2]) / 2.0, (q[1] + q[3]) / 2.0)?;
+                st.server().clear_log();
+                if !self.web_info_at(x, y, ctx) {
+                    return fail("a click should ask the queryable WMS map what is there");
+                }
+                st.pts = vec![[x, y]];
+                println!("[{:5.1} s] the WMS map drawn at its time, its credit shown", t0.elapsed().as_secs_f64());
+                st.since = Some(Instant::now());
+                None
+            }
+            289 if st.reveal.is_some() => {
+                // the project opening again: its series, the WFS layer from its GeoPackage, the OGC API's fetched
+                // again, the map
+                if self.project.restoring()
+                    || self.opening.is_some()
+                    || self.zeit.loads_pending()
+                    || self.web.fetching()
+                    || !self.vector_loads.is_empty()
+                {
+                    return if waited > 120.0 { fail("the project with web layers should open") } else { None };
+                }
+                let gone = st.texts.first()?.clone();
+                let series = st.texts.get(1)?.clone();
+                if self.layers.len().to_string() != series {
+                    return fail(&format!("its {series} series should open again, not {}", self.layers.len()));
+                }
+                let web: Vec<usize> = (0..self.vectors.len())
+                    .filter(|&j| self.web.source_of(&self.vectors[j].data.path).is_some())
+                    .collect();
+                let d = &st.server().data;
+                let n = d.nx * d.ny;
+                let wfs = web.iter().find(|&&j| self.vectors[j].data.features.len() == n);
+                let oapi = web.iter().find(|&&j| self.vectors[j].data.path == gone);
+                let (Some(&wfs), Some(&oapi)) = (wfs, oapi) else {
+                    let got: Vec<(String, usize)> = web
+                        .iter()
+                        .map(|&j| (self.vectors[j].name.clone(), self.vectors[j].data.features.len()))
+                        .collect();
+                    return fail(&format!("both fetched layers should open again: {got:?}"));
+                };
+                let (wv, ov) = (&self.vectors[wfs], &self.vectors[oapi]);
+                if wv.name != "Test plots" || ov.data.features.len() != 5 || !ov.name.contains("first 5") {
+                    return fail(&format!(
+                        "the layers as saved: {} / {} ({})",
+                        wv.name,
+                        ov.name,
+                        ov.data.features.len()
+                    ));
+                }
+                let (wname, oname) = (wv.name.clone(), ov.name.clone());
+                let log = st.server().requests();
+                if !log.iter().any(|r| r.contains("/items") && r.contains("datetime=")) {
+                    return fail(&format!("the GeoPackage gone should be fetched again: {log:?}"));
+                }
+                if log.iter().any(|r| r.contains("GetFeature")) {
+                    return fail(&format!("the WFS layer should be read from its GeoPackage: {log:?}"));
+                }
+                let Some(m) = self.web.maps.first() else { return fail("the map should be added again") };
+                if self.web.maps.len() != 1
+                    || m.spec.layer != "test:alerts"
+                    || m.fixed_time != "2020-01-01"
+                    || m.time_mode != crate::web_layers::TimeMode::Fixed
+                {
+                    return fail(&format!("the map as saved: {} {:?} {}", m.spec.layer, m.time_mode, m.fixed_time));
+                }
+                // its tiles read again, at its time
+                self.test_render();
+                let m = self.web.maps.first()?;
+                if !m.b.as_ref().is_some_and(|b| b.has_map() && b.loads() > 0 && b.inflight() == 0) {
+                    return if waited > 120.0 {
+                        fail(&format!("the map's tiles should be read: {}", m.why))
+                    } else {
+                        None
+                    };
+                }
+                let maps: Vec<String> = st.server().requests().into_iter().filter(|r| r.contains("GetMap")).collect();
+                if maps.is_empty() || !maps.iter().all(|r| r.to_ascii_uppercase().contains("TIME=2020-01-01")) {
+                    return fail(&format!("GetMap at the map's time: {maps:?}"));
+                }
+                println!(
+                    "    opened again: {} series, {} ({} squares, read), {} (fetched again), {} GetMaps",
+                    self.layers.len(),
+                    wname,
+                    n,
+                    oname,
+                    maps.len()
+                );
+                st.reveal = None;
+                st.texts.clear();
+                self.web_cleanup(st);
+                next(st, "the project opened again: the map, the WFS layer read, the GeoPackage gone fetched again");
+                st.stage = 290;
                 None
             }
             289 => {
@@ -306,25 +447,50 @@ impl State {
                 if p.web_maps[0].layer != "test:alerts" || p.web_maps[0].fixed_time != "2020-01-01" {
                     return fail(&format!("the map's entry: {:?}", p.web_maps[0]));
                 }
-                // everything removed, the server stopped
-                while !self.web.maps.is_empty() {
-                    self.remove_web_map(0);
+                // saved and opened again: the OGC API's GeoPackage gone (fetched again), the WFS one kept
+                let file = st.dir.join("web-project").join("web.janus");
+                let _ = std::fs::create_dir_all(file.parent()?);
+                self.save_project_to(&file);
+                let Some(gone) =
+                    self.web.sources.iter().find(|s| s.req.service == Service::Oapif).map(|s| s.path.clone())
+                else {
+                    return fail("the OGC API's layer should be a web source");
+                };
+                if !fetched.contains(&gone) || std::fs::remove_file(&gone).is_err() {
+                    return fail(&format!("its GeoPackage should be there: {gone}"));
                 }
-                for path in &fetched {
-                    while let Some(j) = self.vectors.iter().position(|v| &v.data.path == path) {
-                        self.remove_vector(j);
-                    }
-                    let _ = std::fs::remove_file(path);
-                }
-                self.web = Default::default();
+                st.server().clear_log();
                 self.clear_notices();
-                st.web = None;
-                next(st, "the project keeps the map and the fetched layers (their requests); all removed");
-                st.stage = 290;
+                let series = self.layers.len();
+                self.open_project(&file, ctx);
+                if !self.project.restoring() {
+                    return fail("the project should open again");
+                }
+                st.texts = vec![gone, series.to_string()];
+                st.reveal = Some(file);
+                next(st, "the project keeps the map and the fetched layers (their requests); saved, opened again");
+                st.stage = 289;
                 None
             }
             _ => None,
         }
+    }
+
+    /// Everything of the web stages removed (the maps, the fetched layers and their files), the server stopped.
+    fn web_cleanup(&mut self, st: &mut UiTest) {
+        let fetched: Vec<String> = self.web.sources.iter().map(|s| s.path.clone()).collect();
+        while !self.web.maps.is_empty() {
+            self.remove_web_map(0);
+        }
+        for path in &fetched {
+            while let Some(j) = self.vectors.iter().position(|v| &v.data.path == path) {
+                self.remove_vector(j);
+            }
+            let _ = std::fs::remove_file(path);
+        }
+        self.web = Default::default();
+        self.clear_notices();
+        st.web = None;
     }
 
     /// The vector layer the last fetch opened, placed on the active layer (None while it comes).

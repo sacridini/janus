@@ -1,5 +1,6 @@
 //! A small OGC server on 127.0.0.1 for the tests and the UI self-test (no network): WMS 1.3.0 (GetCapabilities,
-//! GetMap of PNGs whose colour says the box and the time asked for), WFS 2.0 (GetCapabilities,
+//! GetMap of PNGs whose colour says the box and the time asked for, GetFeatureInfo of the square under a point in
+//! GeoJSON or plain text), WFS 2.0 (GetCapabilities,
 //! DescribeFeatureType, GetFeature in GML 3.2 with a BBOX filter, hits and paging) and OGC API - Features (landing
 //! page, conformance, collections, items in GeoJSON with bbox, limit and next links). Its features are squares
 //! on a grid in a UTM zone, the same in both. Every request is logged.
@@ -270,6 +271,7 @@ fn route(c: &Ctx, path: &str, p: &[(String, String)]) -> Answer {
         return match (service.as_str(), request.as_str()) {
             ("WMS", "getcapabilities") => xml(wms_capabilities(c)),
             ("WMS", "getmap") | ("", "getmap") => get_map(p),
+            ("WMS", "getfeatureinfo") => get_feature_info(c, p),
             ("WFS", "getcapabilities") => xml(wfs_capabilities(c)),
             (_, "describefeaturetype") => xml(DESCRIBE.to_string()),
             (_, "getfeature") => xml(get_feature(c, p)),
@@ -307,6 +309,7 @@ fn wms_capabilities(c: &Ctx) -> String {
 <Capability><Request>
 <GetCapabilities><Format>text/xml</Format><DCPType><HTTP><Get><OnlineResource xlink:href="{url}"/></Get></HTTP></DCPType></GetCapabilities>
 <GetMap><Format>image/png</Format><Format>image/jpeg</Format><DCPType><HTTP><Get><OnlineResource xlink:href="{url}"/></Get></HTTP></DCPType></GetMap>
+<GetFeatureInfo><Format>text/plain</Format><Format>application/vnd.ogc.gml</Format><Format>application/json</Format><DCPType><HTTP><Get><OnlineResource xlink:href="{url}"/></Get></HTTP></DCPType></GetFeatureInfo>
 </Request><Exception><Format>XML</Format></Exception>
 <Layer><Title>Janus mock</Title><CRS>EPSG:4326</CRS><CRS>EPSG:3857</CRS>
 <Layer queryable="1" opaque="0"><Name>test:alerts</Name><Title>Test alerts</Title><Abstract>Colours by box and time</Abstract>
@@ -354,6 +357,69 @@ fn get_map(p: &[(String, String)]) -> Answer {
         Some(png) => ("200 OK", "image/png", png),
         None => ("500 Internal Server Error", "text/plain", b"no PNG".to_vec()),
     }
+}
+
+/// GetFeatureInfo: the square under the point asked about (pixel I, J, or X, Y, of the WIDTH x HEIGHT image of
+/// BBOX in Web Mercator), its name, day and class and the TIME asked for, in GeoJSON or GeoServer's plain text.
+fn get_feature_info(c: &Ctx, p: &[(String, String)]) -> Answer {
+    let b = numbers(param(p, "BBOX"));
+    let num = |a: &str, b: &str| {
+        let v = if param(p, a).is_empty() { param(p, b) } else { param(p, a) };
+        v.parse::<f64>().ok()
+    };
+    let (Some(w), Some(h), Some(i), Some(j)) =
+        (num("WIDTH", "WIDTH"), num("HEIGHT", "HEIGHT"), num("I", "X"), num("J", "Y"))
+    else {
+        return xml("<ServiceExceptionReport version=\"1.3.0\"><ServiceException code=\"InvalidPoint\">\
+             no point asked about</ServiceException></ServiceExceptionReport>"
+            .into());
+    };
+    if b.len() != 4 || param(p, "QUERY_LAYERS") != "test:alerts" {
+        return xml("<ServiceExceptionReport version=\"1.3.0\"><ServiceException code=\"LayerNotQueryable\">\
+             unknown layer or box</ServiceException></ServiceExceptionReport>"
+            .into());
+    }
+    let (mut x, mut y) = ([b[0] + (i + 0.5) / w * (b[2] - b[0])], [b[3] - (j + 0.5) / h * (b[3] - b[1])]);
+    let to_grid = || {
+        let mut a = SpatialRef::from_epsg(3857).ok()?;
+        let mut g = SpatialRef::from_epsg(c.data.epsg).ok()?;
+        a.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
+        g.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
+        CoordTransform::new(&a, &g).ok()
+    };
+    if let Some(ct) = to_grid() {
+        let _ = ct.transform_coords(&mut x, &mut y, &mut []);
+    }
+    let (x, y) = (x[0], y[0]);
+    let hit: Vec<&MockFeature> = c
+        .features
+        .iter()
+        .filter(|f| x >= f.square[0] && x <= f.square[2] && y >= f.square[1] && y <= f.square[3])
+        .collect();
+    let time = param(p, "TIME");
+    if param(p, "INFO_FORMAT").contains("json") {
+        let feats: Vec<serde_json::Value> = hit
+            .iter()
+            .map(|f| {
+                serde_json::json!({"type": "Feature", "id": format!("alerts.{}", f.id), "geometry": null,
+                    "properties": {"name": f.name, "day": f.day, "classname": f.class, "time": time}})
+            })
+            .collect();
+        return json(serde_json::json!({"type": "FeatureCollection", "features": feats}));
+    }
+    let mut t = String::new();
+    if !hit.is_empty() {
+        t += "Results for FeatureType 'http://janus:alerts':\n";
+        for f in &hit {
+            t += &format!(
+                "--------------------------------------------\nthe_geom = [GEOMETRY (Polygon) with 5 points]\n\
+                 name = {}\nday = {}\nclassname = {}\ntime = {time}\n",
+                f.name, f.day, f.class
+            );
+        }
+        t += "--------------------------------------------\n";
+    }
+    ("200 OK", "text/plain; charset=UTF-8", t.into_bytes())
 }
 
 fn wfs_capabilities(c: &Ctx) -> String {

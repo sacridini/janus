@@ -434,6 +434,8 @@ pub struct OgcLayer {
     pub tiles: Option<(String, i32)>,
     /// the layer's credit, if it gives one
     pub attribution: String,
+    /// WMS: GetFeatureInfo answers for it (queryable="1")
+    pub queryable: bool,
 }
 
 impl OgcLayer {
@@ -471,6 +473,9 @@ pub struct Capabilities {
     pub layers: Vec<OgcLayer>,
     /// WMS GetMap image formats
     pub formats: Vec<String>,
+    /// WMS GetFeatureInfo: its formats and base URL (none: not offered)
+    pub info_formats: Vec<String>,
+    pub info_url: String,
     /// WFS: paging supported (ImplementsResultPaging)
     pub paging: bool,
     /// the time the request and the parsing took
@@ -586,6 +591,11 @@ pub fn parse_wms(x: &Xml) -> Option<Capabilities> {
             c.url = base_url(h);
         }
     }
+    if let Some(fi) = cap.at("Request/GetFeatureInfo") {
+        c.info_formats = fi.all("Format").map(|f| f.text.trim().to_string()).collect();
+        c.info_url =
+            fi.at("DCPType/HTTP/Get/OnlineResource").and_then(|o| o.attr("href")).map(base_url).unwrap_or_default();
+    }
     #[derive(Clone, Default)]
     struct Inherit {
         crs: Vec<String>,
@@ -594,6 +604,7 @@ pub fn parse_wms(x: &Xml) -> Option<Capabilities> {
         time_default: String,
         styles: Vec<String>,
         attribution: String,
+        queryable: bool,
     }
     fn walk(l: &Xml, inh: &Inherit, out: &mut Vec<OgcLayer>) {
         let mut h = inh.clone();
@@ -635,6 +646,9 @@ pub fn parse_wms(x: &Xml) -> Option<Capabilities> {
         if !a.is_empty() {
             h.attribution = a;
         }
+        if let Some(q) = l.attr("queryable") {
+            h.queryable = q == "1" || q.eq_ignore_ascii_case("true");
+        }
         let name = l.text_at("Name");
         if !name.is_empty() {
             out.push(OgcLayer {
@@ -647,6 +661,7 @@ pub fn parse_wms(x: &Xml) -> Option<Capabilities> {
                 time_default: h.time_default.clone(),
                 styles: h.styles.clone(),
                 attribution: h.attribution.clone(),
+                queryable: h.queryable,
                 ..Default::default()
             });
         }
@@ -898,6 +913,10 @@ pub struct MapLayerSpec {
     pub max_zoom: i32,
     pub title: String,
     pub attribution: String,
+    /// WMS GetFeatureInfo: the format asked for ("" not queried: the layer not queryable, no format read) and the
+    /// base URL ("" GetMap's)
+    pub info_format: String,
+    pub info_url: String,
 }
 
 /// The tiles of a map layer for the basemap's machinery.
@@ -945,6 +964,184 @@ pub fn map_source(m: &MapLayerSpec) -> BasemapSource {
         }
     }
     s
+}
+
+/// The GetFeatureInfo format to ask for among a server's: GeoJSON, else plain text, else HTML ("" none of them:
+/// GML alone is not read).
+pub fn pick_info_format(formats: &[String]) -> String {
+    let kind = |f: &str| {
+        let f = f.to_ascii_lowercase();
+        if f.contains("json") {
+            Some(0)
+        } else if f.starts_with("text/plain") {
+            Some(1)
+        } else if f.starts_with("text/html") {
+            Some(2)
+        } else {
+            None
+        }
+    };
+    formats.iter().filter_map(|f| Some((kind(f)?, f))).min_by_key(|k| k.0).map(|k| k.1.clone()).unwrap_or_default()
+}
+
+/// What a WMS says is at a point: a feature (its id, if any) and its fields, or the server's text.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FeatureInfo {
+    pub id: String,
+    pub fields: Vec<(String, String)>,
+}
+
+/// The side, in pixels, of the image a GetFeatureInfo asks about (the point at its centre).
+const INFO_SIZE: i32 = 101;
+
+/// Longitude and latitude in Web Mercator metres.
+pub fn mercator(lon: f64, lat: f64) -> (f64, f64) {
+    const R: f64 = 6378137.0;
+    let lat = lat.clamp(-85.06, 85.06).to_radians();
+    (R * lon.to_radians(), R * (std::f64::consts::FRAC_PI_4 + lat / 2.0).tan().ln())
+}
+
+/// The GetFeatureInfo request of a WMS map layer at a point (longitude, latitude): an image of INFO_SIZE pixels
+/// of `metres_per_px` Web Mercator metres around it (the map's scale, so the server's tolerance is in pixels as
+/// drawn); None when the layer is not queried.
+pub fn feature_info_url(m: &MapLayerSpec, lon: f64, lat: f64, metres_per_px: f64) -> Option<String> {
+    if m.service != Service::Wms || m.info_format.is_empty() || !metres_per_px.is_finite() || metres_per_px <= 0.0 {
+        return None;
+    }
+    let (x, y) = mercator(lon, lat);
+    let half = metres_per_px * f64::from(INFO_SIZE) / 2.0;
+    let bbox = format!("{},{},{},{}", x - half, y - half, x + half, y + half);
+    let version = if m.version.is_empty() { "1.1.1" } else { &m.version };
+    let new = version.starts_with("1.3");
+    let srs = if m.srs.is_empty() { "EPSG:3857" } else { &m.srs };
+    let (size, mid) = (INFO_SIZE.to_string(), (INFO_SIZE / 2).to_string());
+    let format = if m.format.is_empty() { "image/png" } else { &m.format };
+    let mut q: Vec<(&str, &str)> = vec![
+        ("SERVICE", "WMS"),
+        ("REQUEST", "GetFeatureInfo"),
+        ("VERSION", version),
+        ("LAYERS", &m.layer),
+        ("QUERY_LAYERS", &m.layer),
+        ("STYLES", &m.style),
+        ("FORMAT", format),
+        (if new { "CRS" } else { "SRS" }, srs),
+        ("BBOX", &bbox),
+        ("WIDTH", &size),
+        ("HEIGHT", &size),
+        (if new { "I" } else { "X" }, &mid),
+        (if new { "J" } else { "Y" }, &mid),
+        ("INFO_FORMAT", &m.info_format),
+        ("FEATURE_COUNT", "10"),
+    ];
+    if !m.time.is_empty() {
+        q.push(("TIME", &m.time));
+    }
+    let base = if m.info_url.is_empty() { &m.url } else { &m.info_url };
+    Some(with_query(base, &q))
+}
+
+/// The features a WMS answers at a point (feature_info_url; nothing there: empty).
+pub fn feature_info(m: &MapLayerSpec, lon: f64, lat: f64, metres_per_px: f64) -> Result<Vec<FeatureInfo>, String> {
+    let url = feature_info_url(m, lon, lat, metres_per_px).ok_or("this map is not queried")?;
+    let body = get(&url, m.info_format.contains("json"))?;
+    parse_feature_info(&body, &m.info_format)
+}
+
+/// A GetFeatureInfo answer: GeoJSON's features (id, properties), plain text's "name = value" lines (GeoServer,
+/// MapServer: a feature after each line of dashes or "Feature" heading) or HTML's text; a service exception as
+/// the error.
+pub fn parse_feature_info(body: &[u8], format: &str) -> Result<Vec<FeatureInfo>, String> {
+    let text = String::from_utf8_lossy(body);
+    let t = text.trim();
+    if t.starts_with('<')
+        && (t.contains("ServiceException") || t.contains("ExceptionReport"))
+        && let Ok(x) = Xml::parse(t)
+        && let Some(e) = exception_text(&x)
+    {
+        return Err(e);
+    }
+    let f = format.to_ascii_lowercase();
+    if f.contains("json") {
+        let v: serde_json::Value = serde_json::from_str(t).map_err(|e| format!("not GeoJSON ({e})"))?;
+        let value = |v: &serde_json::Value| match v {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Null => String::new(),
+            v => v.to_string(),
+        };
+        let feats = v.get("features").and_then(|f| f.as_array()).cloned().unwrap_or_default();
+        return Ok(feats
+            .iter()
+            .map(|ft| FeatureInfo {
+                id: ft.get("id").map(value).unwrap_or_default(),
+                fields: ft
+                    .get("properties")
+                    .and_then(|p| p.as_object())
+                    .map(|o| o.iter().map(|(k, v)| (k.clone(), value(v))).collect())
+                    .unwrap_or_default(),
+            })
+            .collect());
+    }
+    if f.starts_with("text/plain") {
+        let mut out: Vec<FeatureInfo> = Vec::new();
+        let mut cur = FeatureInfo::default();
+        let mut heading = String::new();
+        let flush = |cur: &mut FeatureInfo, out: &mut Vec<FeatureInfo>| {
+            if !cur.fields.is_empty() {
+                out.push(std::mem::take(cur));
+            }
+        };
+        for line in t.lines() {
+            let l = line.trim();
+            if l.starts_with("---") || l.starts_with("Feature ") {
+                flush(&mut cur, &mut out);
+                if let Some(id) = l.strip_prefix("Feature ") {
+                    cur.id = id.trim().trim_end_matches(':').trim().to_string();
+                }
+                continue;
+            }
+            if let Some(rest) = l.strip_prefix("Results for FeatureType") {
+                flush(&mut cur, &mut out);
+                heading = rest.trim().trim_end_matches(':').trim_matches('\'').to_string();
+                continue;
+            }
+            if let Some((k, v)) = l.split_once(" = ").or_else(|| l.split_once('=')) {
+                let v = v.trim().trim_matches('\'');
+                if v.starts_with("[GEOMETRY") {
+                    continue;
+                }
+                if cur.fields.is_empty() && cur.id.is_empty() {
+                    cur.id = heading.rsplit(':').next().unwrap_or("").to_string();
+                }
+                cur.fields.push((k.trim().to_string(), v.to_string()));
+            }
+        }
+        flush(&mut cur, &mut out);
+        if out.is_empty() && !t.is_empty() && !t.to_ascii_lowercase().contains("no features") {
+            out.push(FeatureInfo { id: String::new(), fields: vec![("text".into(), t.chars().take(2000).collect())] });
+        }
+        return Ok(out);
+    }
+    // HTML: its text, the tags out
+    let mut plain = String::new();
+    let mut in_tag = false;
+    let start = t.find("<body").unwrap_or(0);
+    for ch in t[start..].chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => {
+                in_tag = false;
+                plain.push(' ');
+            }
+            c if !in_tag => plain.push(c),
+            _ => {}
+        }
+    }
+    let plain = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+    Ok(if plain.is_empty() {
+        vec![]
+    } else {
+        vec![FeatureInfo { id: String::new(), fields: vec![("text".into(), plain.chars().take(2000).collect())] }]
+    })
 }
 
 /// The value of a time dimension to ask for at `date` (YYYY-MM-DD): the last listed value not after it (a listed
@@ -1553,6 +1750,63 @@ mod tests {
         assert_eq!(c.layers[0].bbox, Some([-74.0, -34.0, -28.0, 5.0]));
         let e = Xml::parse("<ServiceExceptionReport><ServiceException code=\"x\">Bad layer</ServiceException></ServiceExceptionReport>").unwrap();
         assert_eq!(exception_text(&e).as_deref(), Some("Bad layer"));
+        // queryable inherited, a layer saying not; GetFeatureInfo's formats and URL
+        let wms = wms
+            .replace(
+                "</GetMap></Request>",
+                "</GetMap><GetFeatureInfo><Format>text/html</Format><Format>text/plain</Format><DCPType><HTTP><Get>\
+                 <OnlineResource xlink:href=\"http://h/fi?\"/></Get></HTTP></DCPType></GetFeatureInfo></Request>",
+            )
+            .replace(
+                "<Style><Name>red</Name></Style></Layer>",
+                "<Layer queryable=\"0\"><Name>ws:no</Name></Layer></Layer>",
+            );
+        let c = parse_wms(&Xml::parse(&wms).unwrap()).unwrap();
+        assert_eq!((c.info_formats.len(), c.info_url.as_str()), (2, "http://h/fi"));
+        assert_eq!(pick_info_format(&c.info_formats), "text/plain");
+        assert!(c.layers[0].queryable && !c.layers[1].queryable);
+    }
+
+    #[test]
+    fn feature_info_answers() {
+        // GeoJSON: the id, every property as text
+        let j = br#"{"type":"FeatureCollection","features":[{"type":"Feature","id":"a.1","properties":{"n":"x","v":2.5,"z":null}}]}"#;
+        let f = parse_feature_info(j, "application/json").unwrap();
+        assert_eq!(f[0].id, "a.1");
+        assert_eq!(f[0].fields, [("n".into(), "x".into()), ("v".into(), "2.5".into()), ("z".into(), String::new())]);
+        // MapServer's plain text
+        let t = b"GetFeatureInfo results:\n\nLayer 'roads'\n  Feature 12: \n    NAME = 'BR-163'\n    LANES = '2'\n  Feature 13: \n    NAME = 'BR-230'\n";
+        let f = parse_feature_info(t, "text/plain").unwrap();
+        assert_eq!(f.len(), 2, "{f:?}");
+        assert_eq!(
+            (f[0].id.as_str(), f[0].fields[0].1.as_str(), f[1].fields[0].1.as_str()),
+            ("12", "BR-163", "BR-230")
+        );
+        // GeoServer's "no features"
+        assert!(parse_feature_info(b"no features were found\n", "text/plain").unwrap().is_empty());
+        // HTML: its text
+        let h = b"<html><head><title>x</title></head><body><table><tr><th>name</th></tr><tr><td>plot 1</td></tr></table></body></html>";
+        assert_eq!(parse_feature_info(h, "text/html").unwrap()[0].fields[0].1, "name plot 1");
+        assert!(parse_feature_info(b"<html><body>\n</body></html>", "text/html").unwrap().is_empty());
+        // an exception
+        let e = b"<ServiceExceptionReport><ServiceException code=\"x\">Layer not queryable</ServiceException></ServiceExceptionReport>";
+        assert_eq!(parse_feature_info(e, "application/json").unwrap_err(), "Layer not queryable");
+        // the request: 1.1.1's SRS and X/Y, the time
+        let m = MapLayerSpec {
+            service: Service::Wms,
+            url: "http://h/ows".into(),
+            version: "1.1.1".into(),
+            layer: "a".into(),
+            time: "2020-01-01".into(),
+            info_format: "text/plain".into(),
+            ..Default::default()
+        };
+        let u = feature_info_url(&m, 0.0, 0.0, 10.0).unwrap();
+        for k in
+            ["REQUEST=GetFeatureInfo", "SRS=EPSG:3857", "X=50", "Y=50", "WIDTH=101", "TIME=2020-01-01", "BBOX=-505"]
+        {
+            assert!(u.contains(k), "{k} in {u}");
+        }
     }
 
     #[test]

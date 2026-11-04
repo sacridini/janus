@@ -1821,8 +1821,8 @@ reutilizável pela fase de alertas (DETER/GLAD/RADD). Self-test 280-289 num
 servidor OGC local.
 
 Faltou: ~~as capabilities passadas do diálogo ao driver WFS~~ (feito
-2026-11-04: 3,7 s → 1,4 s no IBGE), ~~um WMTS ao vivo~~ (feito: GIBS da NASA), reabrir um projeto com camadas web (só as entradas são
-checadas), GetFeatureInfo, zoom para a extensão de um mapa, a auditoria de
+2026-11-04: 3,7 s → 1,4 s no IBGE), ~~um WMTS ao vivo~~ (feito: GIBS da NASA), ~~reabrir um projeto com camadas web~~
+(feito), ~~GetFeatureInfo~~ (feito), zoom para a extensão de um mapa, a auditoria de
 layout do diálogo novo.
 
 **Vetores: ROI salva, vértices e perfis de todas as linhas (feito).** A ROI não
@@ -2064,6 +2064,22 @@ preencher, os formatos listados são só imagens (sem imagem, sem tiles) e o
 GetTile por KVP leva as dimensões (`&Time=...`): 1209 camadas desenháveis, 0
 modelos por preencher. Teste unitário com os três casos.
 
+**Projeto com camadas web reaberto; GetFeatureInfo (feito).** O autoteste só
+checava as entradas do projeto; agora o estágio 289 salva o projeto, apaga o
+GeoPackage da OGC API e o abre de novo: a mesma série, a camada WFS lida do
+arquivo (nenhum GetFeature), a da OGC API baixada de novo (5, *first 5*), o
+mapa WMS com o tempo fixo e seus tiles pedidos com TIME=2020-01-01.
+GetFeatureInfo: um clique no mapa pergunta aos mapas WMS visíveis cuja camada é
+`queryable` o que há ali (`ogc::feature_info`: imagem de 101 px em Web Mercator
+na escala do mapa, o ponto no meio, I/J ou X/Y conforme a versão, o TIME do
+mapa; GeoJSON, senão texto (GeoServer e MapServer), senão HTML; GML não). A
+janela *Map info* lista cada mapa com as feições e os campos; o formato e a URL
+ficam no projeto. O servidor local responde GetFeatureInfo (o quadrado sob o
+ponto); autoteste 288: um clique sobre o primeiro quadrado traz "plot 1" no
+tempo do mapa. Ao vivo no DETER (TerraBrasilis): um alerta de 2023 em Novo
+Progresso, com classe, dia, satélite, município e área, em 2,1 s (GeoJSON) e
+1,7 s (texto).
+
 **O que ficou para trás:**
 - Alertas: o tour de validação precisa do MapBiomas, que respondeu 403 em
   2026-11-04 (o make_tutorial_data.py segue sem ele).
@@ -2077,8 +2093,7 @@ modelos por preencher. Teste unitário com os três casos.
   GDALAllRegister ao mesmo tempo corrompiam o heap; derrubou a CI da 1.12.0
   (Linux e Windows), que nunca foi publicada. Agora só `vectors::register()`.
 - OGC: o tempo de um WMTS (hoje o Default do servidor; a data da série como no
-  WMS), testar a reabertura de um projeto com camadas web,
-  GetFeatureInfo, zoom para a extensão de um mapa, a auditoria de layout do
+  WMS), zoom para a extensão de um mapa, a auditoria de layout do
   diálogo novo.
 - ROI e perfis: o tempo no build release sobre os dados do guia.
 - Publicado como 1.12.1 (a tag v1.12.0 falhou na CI e ficou sem release); os
