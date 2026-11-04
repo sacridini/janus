@@ -165,8 +165,10 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # published with whatever was built: macOS' runners sometimes never come (the job cancelled after waiting), and
+  # Windows and Linux are not held back by it; re-running the failed job later runs this again and adds its .dmg
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') }}
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -176,6 +178,10 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Windows and Linux built
+        run: |
+          ls -l dist
+          ls dist/*-setup.exe dist/*-linux-x86_64.tar.xz
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
