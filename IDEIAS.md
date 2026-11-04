@@ -2121,7 +2121,14 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
 - ROI e perfis: o tempo no build release sobre os dados do guia.
 - Publicado como 1.12.1 (a tag v1.12.0 falhou na CI e ficou sem release); os
   alertas oficiais, as linhas sem brilhos, o zoom (vetores e 1024), a dica da
-  calculadora, as barras de título finas e o histórico em Python saem na 1.13.0.
+  calculadora, as barras de título finas e o histórico em Python saem na 1.13.0
+  (publicada só para Windows e Linux: o runner de macOS não veio).
+- 1.14.0: o histórico em Python com scripts reais para polygonize, zonal,
+  regularize, calculadora e build da série; alertas contra mapas de datas do
+  disco; ROI e perfis em shapefile; busca de feições pelo rótulo; menos memória
+  nas camadas grandes; WFS com as capabilities do diálogo, WMTS ao vivo,
+  GetFeatureInfo e o projeto com camadas web reaberto; o cache de resolução
+  total por blocos nos stacks pixel-interleaved; release sem esperar o macOS.
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
