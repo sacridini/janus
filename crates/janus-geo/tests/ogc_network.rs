@@ -1,6 +1,6 @@
 //! OGC web layers from the real servers (network; `cargo test -p janus-geo --test ogc_network -- --ignored
 //! --nocapture`): INPE's TerraBrasilis (DETER as WFS and WMS), IBGE's geoservices (municipalities as WFS) and an
-//! OGC API - Features server (pygeoapi's demo). Each fetch is small (a box of a few km, a cap) and timed.
+//! OGC API - Features server (pygeoapi's demo), NASA's GIBS (a WMTS). Each fetch is small (a box of a few km, a cap) and timed.
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -171,4 +171,91 @@ fn terrabrasilis_deter_wms_tiles() {
     );
     assert!(bm.error().is_empty());
     assert!(opaque > 0, "DETER's polygons drawn somewhere in the box");
+}
+
+#[test]
+#[ignore]
+fn nasa_gibs_wmts_tiles() {
+    setup();
+    let url = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/wmts.cgi";
+    let t = Instant::now();
+    let caps = ogc::capabilities(url, Some(Service::Wmts)).unwrap();
+    let tiled = caps.layers.iter().filter(|l| l.tiles.is_some()).count();
+    println!(
+        "GIBS: {} layers ({tiled} in Web Mercator tiles) in {:.1} s ({} KB)",
+        caps.layers.len(),
+        t.elapsed().as_secs_f64(),
+        caps.bytes / 1024
+    );
+    assert!(tiled > 0);
+    // the layers with a time ({Time}: its default filled in) leave only the tiles' and the style's names
+    let left: Vec<&str> = caps
+        .layers
+        .iter()
+        .filter_map(|l| l.tiles.as_ref())
+        .map(|t| t.0.as_str())
+        .filter(|t| {
+            let rest = ["{z}", "{y}", "{x}", "{Style}", "{Format}"].iter().fold(t.to_string(), |s, k| s.replace(k, ""));
+            rest.contains('{')
+        })
+        .collect();
+    assert!(left.is_empty(), "{} templates left unfilled, e.g. {:?}", left.len(), left.first());
+    let l = caps
+        .layers
+        .iter()
+        .find(|l| l.name == "BlueMarble_ShadedRelief_Bathymetry" && l.tiles.is_some())
+        .or_else(|| caps.layers.iter().find(|l| l.tiles.is_some()))
+        .unwrap();
+    let (tiles, max_zoom) = l.tiles.clone().unwrap();
+    let format = l.formats.iter().find(|f| f.contains("png")).or(l.formats.first()).cloned().unwrap_or_default();
+    println!("{}: {tiles} (z 0-{max_zoom}, {format})", l.name);
+    let spec = MapLayerSpec {
+        service: Service::Wmts,
+        url: caps.url.clone(),
+        version: caps.version.clone(),
+        layer: l.name.clone(),
+        style: l.styles.first().cloned().unwrap_or_default(),
+        format,
+        tiles,
+        max_zoom,
+        title: l.title.clone(),
+        ..Default::default()
+    };
+    // the same UTM 21S layer as the WMS's
+    let info = CubeInfo {
+        id: 4,
+        width: 1500,
+        height: 1500,
+        geo_transform: Some([700000.0, 30.0, 0.0, 9230000.0, 0.0, -30.0]),
+        crs_wkt: SpatialRef::from_epsg(32721).unwrap().to_wkt().unwrap(),
+        crs_authority: "EPSG:32721".into(),
+        ..Default::default()
+    };
+    let dir = tmp("wmts");
+    let mut bm: Basemap<Vec<u8>> = Basemap::new(&ogc::map_source(&spec), &dir, Arc::new(|| {}));
+    bm.set_map(&info, None, |_, _, _| Vec::new()).unwrap();
+    let start = Instant::now();
+    let mut opaque = 0usize;
+    loop {
+        bm.tick();
+        bm.update(&[0.0, 0.0, 1500.0, 1500.0], 0.5);
+        bm.upload_ready(64, |rgba, _| {
+            opaque += rgba.chunks(4).filter(|p| p[3] > 0).count();
+            rgba.to_vec()
+        });
+        if bm.loads() > 0 && bm.inflight() == 0 {
+            break;
+        }
+        assert!(start.elapsed() < Duration::from_secs(120), "tiles not read: {}", bm.error());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    println!(
+        "{} tiles in {:.1} s ({:.0} ms each), {opaque} drawn pixels; error {:?}",
+        bm.loads(),
+        start.elapsed().as_secs_f64(),
+        bm.avg_load_ms(),
+        bm.error()
+    );
+    assert!(bm.error().is_empty());
+    assert!(opaque > 0, "the relief drawn over the box");
 }

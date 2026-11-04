@@ -766,16 +766,21 @@ pub fn parse_wmts(x: &Xml) -> Option<Capabilities> {
             .map(|s| (s.attr("isDefault").is_some_and(|d| d == "true"), s.text_at("Identifier")))
             .collect();
         styles.sort_by_key(|s| !s.0);
-        let formats: Vec<String> = l.all("Format").map(|f| f.text.trim().to_string()).collect();
+        // only images are drawn (not vector tiles)
+        let formats: Vec<String> =
+            l.all("Format").map(|f| f.text.trim().to_string()).filter(|f| f.starts_with("image/")).collect();
         let dims: Vec<(String, String)> =
             l.all("Dimension").map(|d| (d.text_at("Identifier"), d.text_at("Default"))).collect();
         let linked: Vec<String> = l.all("TileMatrixSetLink").map(|k| k.text_at("TileMatrixSet")).collect();
         let tiles = linked.iter().find_map(|id| {
             let (prefix, zmax) = sets.iter().find(|s| &s.0 == id)?.1.clone()?;
+            // the first tile template of an image format (not vector tiles) with nothing left to fill: a server may
+            // list one with a dimension it does not declare ({Time}) before one with its value written (GIBS)
             let rest = l
                 .all("ResourceURL")
-                .find(|r| r.attr("resourceType") == Some("tile"))
-                .and_then(|r| r.attr("template"))
+                .filter(|r| r.attr("resourceType") == Some("tile"))
+                .filter(|r| r.attr("format").is_none_or(|f| f.starts_with("image/")))
+                .filter_map(|r| r.attr("template"))
                 .map(|t| {
                     let mut t = t
                         .replace("{TileMatrixSet}", id)
@@ -787,7 +792,14 @@ pub fn parse_wmts(x: &Xml) -> Option<Capabilities> {
                     }
                     t
                 })
+                .find(|t| {
+                    let left = ["{z}", "{y}", "{x}", "{Style}", "{Format}"].iter().fold(t.clone(), |s, k| s.replace(k, ""));
+                    !left.contains('{')
+                })
                 .or_else(|| {
+                    if formats.is_empty() {
+                        return None;
+                    }
                     let mut t = with_query(
                         get_tile.as_deref()?,
                         &[("SERVICE", "WMTS"), ("REQUEST", "GetTile"), ("VERSION", "1.0.0"), ("LAYER", &name)],
@@ -797,6 +809,9 @@ pub fn parse_wmts(x: &Xml) -> Option<Capabilities> {
                         encode(id),
                         encode(&prefix)
                     );
+                    for (d, v) in &dims {
+                        t += &format!("&{}={}", encode(d), encode(v));
+                    }
                     Some(t)
                 })?;
             Some((rest, zmax))
@@ -1560,12 +1575,38 @@ mod tests {
             <Style isDefault="true"><ows:Identifier>default</ows:Identifier></Style><Format>image/png</Format>
             <TileMatrixSetLink><TileMatrixSet>EPSG:900913</TileMatrixSet></TileMatrixSetLink>
             <ResourceURL format="image/png" resourceType="tile" template="http://h/wmts/roads/{{Style}}/{{TileMatrixSet}}/{{TileMatrix}}/{{TileRow}}/{{TileCol}}.png"/>
+            </Layer>
+            <Layer><ows:Title>Flux</ows:Title><ows:Identifier>flux</ows:Identifier><Format>image/png</Format>
+            <TileMatrixSetLink><TileMatrixSet>EPSG:900913</TileMatrixSet></TileMatrixSetLink>
+            <ResourceURL format="image/png" resourceType="tile" template="http://h/flux/{{Time}}/{{TileMatrixSet}}/{{TileMatrix}}/{{TileRow}}/{{TileCol}}.png"/>
+            <ResourceURL format="image/png" resourceType="tile" template="http://h/flux/default/{{TileMatrixSet}}/{{TileMatrix}}/{{TileRow}}/{{TileCol}}.png"/>
+            </Layer>
+            <Layer><ows:Title>Ozone</ows:Title><ows:Identifier>ozone</ows:Identifier>
+            <Format>application/vnd.mapbox-vector-tile</Format>
+            <TileMatrixSetLink><TileMatrixSet>EPSG:900913</TileMatrixSet></TileMatrixSetLink>
+            <ResourceURL format="application/vnd.mapbox-vector-tile" resourceType="tile" template="http://h/ozone/{{TileMatrixSet}}/{{TileMatrix}}/{{TileRow}}/{{TileCol}}.mvt"/>
+            </Layer>
+            <Layer><ows:Title>Sst</ows:Title><ows:Identifier>sst</ows:Identifier><Format>image/png</Format>
+            <Dimension><ows:Identifier>Time</ows:Identifier><Default>2020-01-01</Default></Dimension>
+            <TileMatrixSetLink><TileMatrixSet>EPSG:900913</TileMatrixSet></TileMatrixSetLink>
+            <ResourceURL format="image/png" resourceType="tile" template="http://h/sst/{{Time}}/{{TileMatrixSet}}/{{TileMatrix}}/{{TileRow}}/{{TileCol}}.png"/>
             </Layer><TileMatrixSet><ows:Identifier>EPSG:900913</ows:Identifier><ows:SupportedCRS>urn:ogc:def:crs:EPSG::900913</ows:SupportedCRS>{matrices}</TileMatrixSet></Contents></Capabilities>"#
         );
         let c = parse_wmts(&Xml::parse(&x).unwrap()).unwrap();
         let (t, z) = c.layers[0].tiles.clone().unwrap();
         assert_eq!(z, 3);
         assert_eq!(t, "http://h/wmts/roads/{Style}/EPSG:900913/EPSG:900913:{z}/{y}/{x}.png");
+        // GIBS: a {Time} not declared skipped for the template with its value; vector tiles not drawn; a declared
+        // dimension filled with its default
+        assert_eq!(
+            c.layers[1].tiles.as_ref().unwrap().0,
+            "http://h/flux/default/EPSG:900913/EPSG:900913:{z}/{y}/{x}.png"
+        );
+        assert!(c.layers[2].tiles.is_none() && c.layers[2].formats.is_empty());
+        assert_eq!(
+            c.layers[3].tiles.as_ref().unwrap().0,
+            "http://h/sst/2020-01-01/EPSG:900913/EPSG:900913:{z}/{y}/{x}.png"
+        );
         let s = map_source(&MapLayerSpec {
             service: Service::Wmts,
             tiles: t,

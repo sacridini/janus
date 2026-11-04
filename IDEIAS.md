@@ -1821,7 +1821,7 @@ reutilizável pela fase de alertas (DETER/GLAD/RADD). Self-test 280-289 num
 servidor OGC local.
 
 Faltou: ~~as capabilities passadas do diálogo ao driver WFS~~ (feito
-2026-11-04: 3,7 s → 1,4 s no IBGE), um WMTS ao vivo, reabrir um projeto com camadas web (só as entradas são
+2026-11-04: 3,7 s → 1,4 s no IBGE), ~~um WMTS ao vivo~~ (feito: GIBS da NASA), reabrir um projeto com camadas web (só as entradas são
 checadas), GetFeatureInfo, zoom para a extensão de um mapa, a auditoria de
 layout do diálogo novo.
 
@@ -2054,6 +2054,16 @@ pasta temporária) sem pedi-lo: 3,7 s → 1,4 s os 2 municípios do IBGE
 (`ogc_network`), os campos idem; fora da chave do cache. Teste no servidor
 local: os mesmos campos e as 1500 feições sem nenhum GetCapabilities.
 
+**WMTS ao vivo (feito).** Teste de rede contra o GIBS da NASA (Web Mercator,
+1332 camadas, 5,7 MB em 8,8 s): o relevo BlueMarble sobre a caixa UTM, 5 tiles
+em 0,5 s. Achou dois defeitos: 123 camadas de vector tiles (`.mvt`) recebiam
+um modelo de tile que nunca desenharia, e 23 ficavam com `{Time}` na URL (o
+GIBS lista primeiro um modelo com um `{Time}` que a camada não declara e depois
+um com o valor escrito). Agora vale o primeiro modelo de imagem sem nada por
+preencher, os formatos listados são só imagens (sem imagem, sem tiles) e o
+GetTile por KVP leva as dimensões (`&Time=...`): 1209 camadas desenháveis, 0
+modelos por preencher. Teste unitário com os três casos.
+
 **O que ficou para trás:**
 - Alertas: o tour de validação precisa do MapBiomas, que respondeu 403 em
   2026-11-04 (o make_tutorial_data.py segue sem ele).
@@ -2066,7 +2076,8 @@ local: os mesmos campos e as 1500 feições sem nenhum GetCapabilities.
   quatro lugares registravam os drivers do GDAL cada um por si, e dois
   GDALAllRegister ao mesmo tempo corrompiam o heap; derrubou a CI da 1.12.0
   (Linux e Windows), que nunca foi publicada. Agora só `vectors::register()`.
-- OGC: testar um WMTS ao vivo e a reabertura de um projeto com camadas web,
+- OGC: o tempo de um WMTS (hoje o Default do servidor; a data da série como no
+  WMS), testar a reabertura de um projeto com camadas web,
   GetFeatureInfo, zoom para a extensão de um mapa, a auditoria de layout do
   diálogo novo.
 - ROI e perfis: o tempo no build release sobre os dados do guia.
