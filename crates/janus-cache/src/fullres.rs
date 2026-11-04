@@ -17,8 +17,10 @@ use std::time::Instant;
 use janus_cube::{CubeInfo, CubeReader};
 use janus_gdal::Codec;
 
+use crate::blocks::{BlockSampling, readers_for, usable_ram};
 use crate::disk;
 use crate::overview::cube_cache_key;
+use crate::pool::JobPool;
 
 pub const BLOCK: usize = 64;
 const MAGIC: [u8; 8] = *b"JANUSFR1";
@@ -304,6 +306,21 @@ struct Setup {
     /// the overview pass reads full dates (HDD, source without overviews)
     integrate: bool,
     reader: File,
+}
+
+/// A group of dates of a file whose blocks hold all its bands, built together (FullResCache::submit_by_blocks).
+struct BlockBuild {
+    dates: Vec<usize>,
+    /// the whole image at full resolution, by source blocks (in rows)
+    sampling: Arc<BlockSampling>,
+    next: AtomicUsize,
+    left: AtomicUsize,
+    failed: AtomicBool,
+    write_failed: AtomicBool,
+    /// each band of BLOCK rows while it is filled: every date's pixels, date after date (W × its height each)
+    bands: Vec<Mutex<Vec<f32>>>,
+    /// the pixels of each band not yet in
+    band_left: Vec<AtomicUsize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -921,28 +938,40 @@ impl FullResCache {
         }
         // a date abandoned part way is not read either (its overview not saved)
         let read_ok = !read_failed.load(Ordering::Relaxed) && !self.abandoned.load(Ordering::Relaxed);
-        let mut ok = read_ok && !self.stop.load(Ordering::Relaxed) && !write_failed.load(Ordering::Relaxed);
-        if ok {
-            let mut w = self.writer.lock().unwrap();
-            let nb = self.nb;
-            let mut table = Vec::with_capacity(nb * 12);
-            for b in 0..nb {
-                table.extend_from_slice(&self.off[t * nb + b].load(Ordering::Relaxed).to_le_bytes());
-            }
-            for b in 0..nb {
-                table.extend_from_slice(&self.size[t * nb + b].load(Ordering::Relaxed).to_le_bytes());
-            }
-            // the blocks are with the system already (written without a buffer), then the table, then the flag: a
-            // build cut short never leaves a flag before its data (the C++'s fflush, not an fsync, which made
-            // the build ~6x slower holding the writer's lock while the disk caught up)
-            ok = w.as_ref().is_some_and(|f| {
-                write_at(f, &table, setup.table_offset + (t * nb * 12) as u64).is_ok()
-                    && write_at(f, &[1], HEADER_BYTES + t as u64).is_ok()
-            });
-            if !ok {
-                *w = None;
-            }
+        let ok = read_ok
+            && !self.stop.load(Ordering::Relaxed)
+            && !write_failed.load(Ordering::Relaxed)
+            && self.commit(setup, t);
+        self.settle(t, ok, read_ok);
+        read_ok
+    }
+
+    /// Writes date t's table, then its flag, its blocks stored. False if it could not (no more writes then).
+    fn commit(&self, setup: &Setup, t: usize) -> bool {
+        let mut w = self.writer.lock().unwrap();
+        let nb = self.nb;
+        let mut table = Vec::with_capacity(nb * 12);
+        for b in 0..nb {
+            table.extend_from_slice(&self.off[t * nb + b].load(Ordering::Relaxed).to_le_bytes());
         }
+        for b in 0..nb {
+            table.extend_from_slice(&self.size[t * nb + b].load(Ordering::Relaxed).to_le_bytes());
+        }
+        // the blocks are with the system already (written without a buffer), then the table, then the flag: a
+        // build cut short never leaves a flag before its data (the C++'s fflush, not an fsync, which made
+        // the build ~6x slower holding the writer's lock while the disk caught up)
+        let ok = w.as_ref().is_some_and(|f| {
+            write_at(f, &table, setup.table_offset + (t * nb * 12) as u64).is_ok()
+                && write_at(f, &[1], HEADER_BYTES + t as u64).is_ok()
+        });
+        if !ok {
+            *w = None;
+        }
+        ok
+    }
+
+    /// Date t built or not (`read_ok`: its source read), the reason kept when it failed.
+    fn settle(&self, t: usize, ok: bool, read_ok: bool) {
         if !ok && !self.stop.load(Ordering::Relaxed) {
             let mut st = self.state.lock().unwrap();
             if st.1.is_empty() {
@@ -954,7 +983,124 @@ impl FullResCache {
             }
         }
         self.release(t, ok);
-        read_ok
+    }
+
+    /// A file whose blocks hold all its bands (janus_cube::interleaved_blocks): the missing dates built together,
+    /// block by block, by `pool` at `priority` (each block decompressed once a group of dates rather than once a
+    /// date: a date built by itself decompresses every block of every band). Groups of dates as the memory holds,
+    /// one after another. False if the file is not read so (build_next then).
+    pub fn submit_by_blocks(self: &Arc<Self>, pool: &JobPool, priority: i32) -> bool {
+        let Some((block, block_bytes)) = janus_cube::interleaved_blocks(&self.info) else { return false };
+        if !self.started() || self.read_only() || self.writer.lock().unwrap().is_none() {
+            return true;
+        }
+        let dates: Vec<usize> = {
+            let mut st = self.state.lock().unwrap();
+            let d: Vec<usize> = (0..self.t).filter(|&t| st.0[t] == DateState::Missing).collect();
+            for &t in &d {
+                st.0[t] = DateState::Building;
+            }
+            d
+        };
+        if dates.is_empty() {
+            return true;
+        }
+        let sampling = Arc::new(BlockSampling::new(&self.info, (0, 0, self.w, self.h), (self.w, self.h), block));
+        let workers = readers_for(block_bytes, pool.threads()).min(sampling.windows.len());
+        // the rows of a date being filled: the source block rows the workers are in, and a band of BLOCK rows on
+        // each side
+        let blocks_x = self.w.div_ceil(block.0).max(1);
+        let rows = (workers.div_ceil(blocks_x) + 1) * block.1 + 2 * BLOCK;
+        let date_bytes = (self.w * rows.min(self.h) * 4) as u64;
+        let group = ((usable_ram() / 8).clamp(256 << 20, 2 << 30) / date_bytes).clamp(1, dates.len() as u64);
+        for (g, dates) in dates.chunks(group as usize).enumerate() {
+            let pass = Arc::new(BlockBuild {
+                dates: dates.to_vec(),
+                sampling: sampling.clone(),
+                next: AtomicUsize::new(0),
+                left: AtomicUsize::new(sampling.windows.len()),
+                failed: AtomicBool::new(false),
+                write_failed: AtomicBool::new(false),
+                bands: (0..self.nby).map(|_| Mutex::new(Vec::new())).collect(),
+                band_left: (0..self.nby).map(|by| AtomicUsize::new(self.w * self.block_h(by))).collect(),
+            });
+            for _ in 0..workers {
+                let (c, pass) = (self.clone(), pass.clone());
+                pool.submit(priority + g as i32, move || c.help_blocks(&pass));
+            }
+        }
+        true
+    }
+
+    /// Takes source blocks while some are left, every date's pixels of each into its bands of BLOCK rows; a band
+    /// whose pixels are all in is stored, date by date. Whoever does the last block settles the dates.
+    fn help_blocks(&self, p: &BlockBuild) {
+        let Some(setup) = self.setup.get() else {
+            p.failed.store(true, Ordering::Relaxed);
+            if p.left.swap(0, Ordering::AcqRel) > 0 {
+                p.dates.iter().for_each(|&t| self.release(t, false));
+            }
+            return;
+        };
+        let w = self.w;
+        let mut reader = CubeReader::new(self.info.clone());
+        let mut values = Vec::new();
+        loop {
+            let k = p.next.fetch_add(1, Ordering::Relaxed);
+            if k >= p.sampling.windows.len() {
+                break;
+            }
+            let ok = !p.failed.load(Ordering::Relaxed)
+                && p.sampling.read(&mut reader, k, &p.dates, &mut values, &self.stop, |j, sc| {
+                    let rows = sc.rows();
+                    let cols = sc.cols();
+                    let mut y = rows.start;
+                    while y < rows.end {
+                        let by = y / BLOCK;
+                        let (y0, bh) = (by * BLOCK, self.block_h(by));
+                        let mut band = p.bands[by].lock().unwrap();
+                        if band.is_empty() {
+                            band.resize(p.dates.len() * w * bh, f32::NAN);
+                        }
+                        let date = &mut band[j * w * bh..(j + 1) * w * bh];
+                        for y in y..rows.end.min(y0 + bh) {
+                            date[(y - y0) * w + cols.start..(y - y0) * w + cols.end].copy_from_slice(sc.row(y));
+                        }
+                        y = y0 + bh;
+                    }
+                });
+            if ok {
+                // the bands this block completes, stored
+                let (_, y0, bw, bh) = p.sampling.windows[k];
+                for by in y0 / BLOCK..(y0 + bh).div_ceil(BLOCK) {
+                    let n = bw * ((y0 + bh).min(by * BLOCK + self.block_h(by)) - y0.max(by * BLOCK));
+                    if p.band_left[by].fetch_sub(n, Ordering::AcqRel) != n {
+                        continue;
+                    }
+                    let band = std::mem::take(&mut *p.bands[by].lock().unwrap());
+                    let size = w * self.block_h(by);
+                    for (j, &t) in p.dates.iter().enumerate() {
+                        if self.stop.load(Ordering::Relaxed) || p.write_failed.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        if !self.store_band(setup, t, by, &band[j * size..(j + 1) * size]) {
+                            p.write_failed.store(true, Ordering::Relaxed);
+                        }
+                    }
+                }
+            } else {
+                p.failed.store(true, Ordering::Relaxed);
+            }
+            if p.left.fetch_sub(1, Ordering::AcqRel) == 1 {
+                p.bands.iter().for_each(|b| drop(std::mem::take(&mut *b.lock().unwrap())));
+                let read_ok = !p.failed.load(Ordering::Relaxed);
+                let ok = read_ok && !p.write_failed.load(Ordering::Relaxed);
+                for &t in &p.dates {
+                    let ok = ok && !self.stop.load(Ordering::Relaxed) && self.commit(setup, t);
+                    self.settle(t, ok, read_ok);
+                }
+            }
+        }
     }
 
     /// Compresses the blocks of band `by` (W × block height floats) and appends them.

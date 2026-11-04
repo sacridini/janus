@@ -34,6 +34,8 @@ pub struct Tour {
     frames: u32,
     step: usize,
     step_frame: u32,
+    /// when the step began (each step of the pan and each date at full resolution timed)
+    step_at: Option<Instant>,
     roi: Option<Arc<RoiData>>,
     /// printed lines, also written to --tour-json if asked
     pub lines: Vec<(String, f64, u32)>,
@@ -196,6 +198,13 @@ impl State {
             7 => {
                 // 12 steps of 300 screen pixels to the east, each once its tiles are on the GPU
                 if p.step == 0 || tiles_settled(self, p) {
+                    if p.step > 0
+                        && let Some(at) = p.step_at
+                    {
+                        let ms = at.elapsed().as_secs_f64() * 1000.0;
+                        println!("    step {:>2}: {ms:7.0} ms  {:3} frames", p.step, p.frames - p.step_frame);
+                    }
+                    p.step_at = Some(Instant::now());
                     if p.step == 12 {
                         p.next();
                         return None;
@@ -216,10 +225,21 @@ impl State {
                 {
                     eprintln!("{}: {e}", path.display());
                 }
-                // 10 dates at full resolution, each once its tiles are on the GPU
+                // 10 dates at full resolution, each once its tiles are on the GPU (each one's time printed)
                 let t = self.session.as_ref()?.info.t();
                 let n = t.min(10);
                 if p.step == 0 || tiles_settled(self, p) {
+                    if p.step > 0
+                        && let Some(at) = p.step_at
+                    {
+                        let ms = at.elapsed().as_secs_f64() * 1000.0;
+                        println!(
+                            "    date {:>4}: {ms:7.0} ms  {:3} frames",
+                            (p.step - 1) * t / n,
+                            p.frames - p.step_frame
+                        );
+                    }
+                    p.step_at = Some(Instant::now());
                     if p.step == n {
                         self.set_date(0);
                         p.next();

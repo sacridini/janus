@@ -2080,6 +2080,29 @@ tempo do mapa. Ao vivo no DETER (TerraBrasilis): um alerta de 2023 em Novo
 Progresso, com classe, dia, satélite, município e área, em 2,1 s (GeoJSON) e
 1,7 s (texto).
 
+**Cache de resolução total por blocos nos stacks pixel-interleaved (2026-11-04,
+sem versão).** Medido primeiro: paginar datas com zoom já não era lento desde
+eb70f9d (as páginas por lugar; no tour, cada data a ~20 ms, 3 quadros, o piso
+do tour). O caminho patológico que restava era o cache de resolução total
+(*every series*, série num HDD ou *Build now*): construído data a data, cada
+data descomprimia o arquivo inteiro (no CCDC, 125 datas × 7 bandas Float64, 4
+threads: a primeira data só depois de 253 s, ~2,2 h no total, 4 núcleos
+ocupados o tempo todo). Agora `FullResCache::submit_by_blocks`: todas as datas
+que faltam de uma vez, bloco a bloco (`BlockSampling` em resolução total, cada
+bloco descomprimido uma vez), os pixels de cada data nas faixas de 64 linhas do
+cache e cada faixa completa gravada data a data; grupos de datas no que cabe em
+um oitavo da memória. No CCDC: 125 datas em 6,7–7,2 s, 313 MB, os tiles de cada
+data lidos do cache em 2,5 ms; idênticos ao GDAL bit a bit (3 datas, 300 × 300).
+Tour com `--full-res all` (opção nova, só nesta execução): zoom 2,8 → 0,43 s,
+cada passo do pan em lugar novo 0,7 s → 20 ms, ROI 512² 1,9 → 0,28 s, total
+22,6 → 11,5 s, pico 6,1 → 5,5 GB. O tour imprime o tempo de cada passo do pan e
+de cada data; `--measure-cache` respeita `--threads`;
+`examples/fullres_build_bench.rs`. Teste: `tests/interleaved.rs` compara o cache
+(construído por blocos e relido do arquivo) com o GDAL bit a bit, em tiles
+Float64, em faixas Int16 de 7 linhas e com NDI + QA. No modo padrão (HDD) num
+SSD o cache continua não sendo construído; construí-lo também para esses
+arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
+
 **O que ficou para trás:**
 - Alertas: o tour de validação precisa do MapBiomas, que respondeu 403 em
   2026-11-04 (o make_tutorial_data.py segue sem ele).
