@@ -6,8 +6,9 @@
 Janus's side is crates/janus-validation/examples/vs_python_alerts.rs (build it first: cargo build --release -p
 janus-validation --example vs_python_alerts). Python does what janus_validation::alerts does, with the tools one
 would use: rasterio.features.rasterize for the polygons (pixel centres, the latest alert burned first so the
-earliest holds a pixel), rasterio.warp.reproject (nearest) for the rasters, numpy for the decoding and the counts,
-scipy.ndimage.label for the patches (8-connected), numpy.percentile (linear) for the lags.
+earliest holds a pixel), rasterio.vrt.WarpedVRT (nearest, the exact transformer: tolerance=1e-9) for the rasters,
+numpy for the decoding and the counts, scipy.ndimage.label for the patches (8-connected), numpy.percentile (linear)
+for the lags.
 
 Cases:
 - synthetic (made here, seeded): a map of change dates of 3000 x 3000 pixels of 30 m, 20000 dated polygons of
@@ -40,6 +41,7 @@ import rasterio
 import rasterio.features
 import rasterio.warp
 import rasterio.windows
+from rasterio.vrt import WarpedVRT
 import requests
 from PIL import Image
 from rasterio.crs import CRS
@@ -166,11 +168,14 @@ def decode(product, conf, date, year):
 
 
 def warp(path, transform, crs, shape):
-    out = np.full(shape, np.nan, dtype=np.float32)
-    with rasterio.open(path) as src:
-        rasterio.warp.reproject(rasterio.band(src, 1), out, dst_transform=transform, dst_crs=crs,
-                                dst_nodata=np.nan, resampling=rasterio.warp.Resampling.nearest)
-    return out
+    # the exact transformer (gdalwarp -et 0, as Janus; rasterio refuses tolerance=0, 1e-9 is every pixel): the
+    # default approximate one (0.125 pixel) is interpolated over the warp's chunks, so its nearest neighbour at a source pixel's edge depends on how it is read
+    # (outside the source or on its nodata: the alpha band's 0, NaN here)
+    with rasterio.open(path) as src, WarpedVRT(src, crs=crs, transform=transform, width=shape[1], height=shape[0],
+                                                resampling=rasterio.warp.Resampling.nearest, tolerance=1e-9,
+                                                add_alpha=True) as vrt:
+        v = vrt.read(1).astype(np.float32)
+        return np.where(vrt.read(vrt.count) > 0, v, np.float32(np.nan))
 
 
 def alerts_from_rasters(product, files, transform, crs, shape):

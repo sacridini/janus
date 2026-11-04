@@ -186,13 +186,15 @@ pub fn pair_files(product: Product, paths: &[String]) -> Vec<RasterFile> {
 }
 
 impl State {
-    /// The maps of change dates: run's maps in years (path, name).
+    /// The maps of change dates: run's maps of dates in decimal years (path, name). Unit "year" is a date (a year of
+    /// detection, a break date); "years" a length of time (LandTrendr's duration, years to recovery, the spread of
+    /// the agreement's years), left out.
     pub(crate) fn alert_maps(&self) -> Vec<(String, String)> {
         let ours = self.results_dir().join("alerts");
         self.zeit
             .results
             .iter()
-            .filter(|r| (r.unit == "year" || r.unit == "years") && !r.preview && !r.path.is_empty())
+            .filter(|r| r.unit == "year" && !r.preview && !r.path.is_empty())
             .filter(|r| !std::path::Path::new(&r.path).starts_with(&ours))
             .map(|r| (r.path.clone(), r.name.clone()))
             .collect()
@@ -539,6 +541,11 @@ impl State {
             }
         }
         if get("tab").is_none_or(|v| v != "0") {
+            // the comparison in front: the run's tool window (--zeit) and Tasks closed
+            for t in self.zeit.tools.values_mut() {
+                t.open = false;
+            }
+            self.zeit.show_tasks = false;
             self.open_alerts();
         }
         self.alerts_compare(ctx)
@@ -730,9 +737,18 @@ impl State {
                 let name = |p: &str| {
                     std::path::Path::new(p).file_name().map_or(p.to_string(), |f| f.to_string_lossy().into_owned())
                 };
-                let mut t = name(&f.conf);
+                // GLAD-S2's two files share their name (alert/T.tif, alertDate/T.tif): their folders too
+                let with_dir = |p: &str| {
+                    let p = std::path::Path::new(p);
+                    match p.parent().and_then(|d| d.file_name()) {
+                        Some(d) => format!("{}/{}", d.to_string_lossy(), name(&p.to_string_lossy())),
+                        None => name(&p.to_string_lossy()),
+                    }
+                };
+                let same = !f.date.is_empty() && name(&f.conf) == name(&f.date);
+                let mut t = if same { with_dir(&f.conf) } else { name(&f.conf) };
                 if !f.date.is_empty() {
-                    t += &format!(" + {}", name(&f.date));
+                    t += &format!(" + {}", if same { with_dir(&f.date) } else { name(&f.date) });
                 }
                 if f.year > 0 && a.product == Product::GladL {
                     t += &format!(" ({})", f.year);
@@ -816,16 +832,20 @@ impl State {
         ui.label(RichText::new("Agreement").strong());
         egui::Grid::new("alerts_rates").num_columns(2).spacing([14.0, 3.0]).show(ui, |ui| {
             ui.label("Alerts the map detects").on_hover_text(
-                "An alert is detected when the map changed at one of its pixels at least (in the window)",
+                "Pixel by pixel: the share of the alerts' area the map changed. By alert: an alert is detected \
+                 when the map changed at one of its pixels at least (in the window)",
             );
             ui.label(format!(
-                "{} of their area; {} of {} alerts ({}), {} of their area",
+                "{} of their area; {} of {} alerts ({})",
                 pct(c.alerts_detected_share()),
                 c.alerts_detected,
                 c.alerts,
-                pct(c.alerts_detected_count_share()),
-                pct(c.alerts_detected_area_share())
+                pct(c.alerts_detected_count_share())
             ));
+            ui.end_row();
+            ui.label("The detected alerts' area")
+                .on_hover_text("The area of the alerts detected (all their pixels), over all the alerts' area");
+            ui.label(format!("{} of the alerts' area", pct(c.alerts_detected_area_share())));
             ui.end_row();
             ui.label("Map change the alerts confirm").on_hover_text(
                 "A patch of the map's change (8-connected) is confirmed when one of its pixels is an alert's",
@@ -903,7 +923,8 @@ impl State {
                     ui.label(RichText::new(h).strong());
                 }
                 ui.end_row();
-                for k in &c.classes {
+                // (the classes without an alert in the window are in the CSV only)
+                for k in c.classes.iter().filter(|k| k.alerts > 0) {
                     ui.label(&k.name);
                     ui.label(k.alerts.to_string());
                     ui.label(format!("{} ({})", k.detected, pct(k.detected as f64 / k.alerts as f64)));

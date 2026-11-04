@@ -485,6 +485,38 @@ impl State {
         State::shadowed(painter, bar.right_top() + vec2(0.0, 12.0), Align2::RIGHT_TOP, &hi);
     }
 
+    /// Classes in their colours at the bottom left of `rect` (where a colour bar goes), a square and its name each,
+    /// in rows as wide as the canvas allows; returns the top of the rows.
+    pub(crate) fn class_swatches(painter: &egui::Painter, rect: Rect, items: &[(Color32, &str)]) -> f32 {
+        let font = body_font(painter);
+        let line = painter.layout_no_wrap("Ag".into(), font.clone(), Color32::WHITE).size().y.max(12.0);
+        let (x0, right) = (rect.min.x + 10.0, rect.max.x - 10.0);
+        // place each first (wrapping rows), then draw them from the bottom up
+        let mut rows: Vec<Vec<(Color32, &str, f32, f32)>> = vec![vec![]];
+        let mut x = x0;
+        for &(c, name) in items {
+            let w = line + 6.0 + painter.layout_no_wrap(name.to_string(), font.clone(), Color32::WHITE).size().x;
+            if x > x0 && x + w > right {
+                rows.push(vec![]);
+                x = x0;
+            }
+            rows.last_mut().unwrap().push((c, name, x, w));
+            x += w + 14.0;
+        }
+        let bottom = rect.max.y - 14.0;
+        let step = line + 6.0;
+        for (k, row) in rows.iter().enumerate() {
+            let y = bottom - step * (rows.len() - k) as f32;
+            for &(c, name, x, _) in row {
+                let sq = Rect::from_min_size(Pos2::new(x, y + 1.0), vec2(line - 2.0, line - 2.0));
+                painter.rect_filled(sq, 2.0, c);
+                painter.rect_stroke(sq, 2.0, Stroke::new(1.0, Color32::BLACK), egui::StrokeKind::Outside);
+                State::shadowed(painter, Pos2::new(x + line + 4.0, y), Align2::LEFT_TOP, name);
+            }
+        }
+        bottom - step * rows.len() as f32
+    }
+
     /// A label over the map, light over a shadow: readable over any image.
     pub(crate) fn shadowed(painter: &egui::Painter, at: Pos2, align: Align2, text: &str) {
         let font = body_font(painter);
@@ -694,9 +726,25 @@ impl State {
         if let Some(r) = self.zeit.results.iter().rfind(|r| r.visible && r.place.aligned) {
             let up = vec2(0.0, -44.0 * bars as f32);
             let at = Rect::from_min_max(rect.min, rect.max + up);
-            let (lo, hi) = (format_g(f64::from(r.lo), 4), format_g(f64::from(r.hi), 4));
-            State::colour_bar(&painter, at, r.cmap, lo, hi);
-            State::shadowed(&painter, at.left_bottom() + vec2(10.0, -50.0), Align2::LEFT_TOP, &r.name);
+            if r.classes.is_empty() {
+                let (lo, hi) = (format_g(f64::from(r.lo), 4), format_g(f64::from(r.hi), 4));
+                State::colour_bar(&painter, at, r.cmap, lo, hi);
+                State::shadowed(&painter, at.left_bottom() + vec2(10.0, -50.0), Align2::LEFT_TOP, &r.name);
+            } else {
+                // a map of classes (an agreement, a classification): its classes in their colours, as exported
+                let keys: Vec<[u8; 4]> = janus_gpu::colormaps::all()[r.cmap].keys().collect();
+                let items: Vec<(Color32, &str)> = r
+                    .classes
+                    .iter()
+                    .enumerate()
+                    .map(|(k, c)| {
+                        let v = keys.get(k % keys.len().max(1)).copied().unwrap_or([128, 128, 128, 255]);
+                        (Color32::from_rgb(v[0], v[1], v[2]), c.as_str())
+                    })
+                    .collect();
+                let top = State::class_swatches(&painter, at, &items);
+                State::shadowed(&painter, Pos2::new(at.min.x + 10.0, top - 22.0), Align2::LEFT_TOP, &r.name);
+            }
         }
 
         // the status bar: the zoom, its detail, the pixel, its coordinates and what the map shows there

@@ -36,6 +36,15 @@ the interface changes.
 The data of the tool guides are the author's own stacks, not downloaded.
 
     janus --shots validation data out     # the report goes to out/work/report
+    janus --shots alerts data out         # section 14, Against official alerts (network: DETER, GLAD-S2)
+
+The alerts' tour runs LandTrendr on the composites' NBR and compares its year
+of detection with DETER (TerraBrasilis' WFS) and GLAD-S2 (UMD's bucket) of
+2019-2023: `17-alerts-deter.jpg` with `17-alerts-deter-panel.png`,
+`17-alerts-deter-classes.png` (saved as `17-alerts-classes.png`),
+`18-alerts-glad.jpg` with `18-alerts-glad-panel.png`; the page's numbers are
+its output (2026-11-04). MapBiomas' bucket answered 403 that day:
+`make_tutorial_data.py` then leaves its map out (section 11 needs it).
 
 The whole-window shots are converted to JPEG (`gdal_translate -of JPEG -co
 QUALITY=90`); the panels are copied as PNG. For validation,

@@ -3,6 +3,7 @@
 Usage: python tools/make_tutorial_data.py <out>   (GDAL's Python bindings, numpy, pystac-client;
        a few minutes and ~60 MB, read in place from public cloud buckets)
 Then:  janus --shots validation <out> <site/assets/img/validation>
+       janus --shots alerts <out> <shots>   (Against official alerts; DETER and GLAD-S2 fetched)
 
 An area of 16 x 13 km south-west of Novo Progresso (Pará, Brazil), on the BR-163
 deforestation front:
@@ -174,7 +175,11 @@ def main():
     out = sys.argv[1]
     os.makedirs(out, exist_ok=True)
     loss_map(out)
-    mapbiomas_loss(out)
+    try:
+        mapbiomas_loss(out)
+    except RuntimeError as e:
+        # (seen 2026-11-04: the bucket answered 403) the second map of section 11 left out, the rest goes on
+        print(f"MapBiomas not read ({e}): mapbiomas_loss_2018_2023.tif left out")
     catalog = Client.open("https://earth-search.aws.element84.com/v1")
     bounds = utm_bounds()
     for y in YEARS:

@@ -67,6 +67,24 @@ pub(crate) struct MapReader {
 
 impl MapReader {
     pub fn open(path: &str, band: i32, target: Option<&Grid>, threads: usize) -> Result<MapReader, String> {
+        Self::open_with(path, band, target, threads, false)
+    }
+
+    /// As `open`, warped with the exact transformer (gdalwarp -et 0): each target pixel's centre projected, not
+    /// interpolated within 0.125 pixel. The approximate one is interpolated over the chunks the warp is read in, so
+    /// read row by row it can take, at a source pixel's edge, the neighbour a whole-image warp would not (6 pixels
+    /// in 16 000 of GLAD-S2's 10 m alerts on a 20 m UTM grid); the exact one does not depend on how it is read.
+    pub fn open_exact(path: &str, band: i32, target: Option<&Grid>, threads: usize) -> Result<MapReader, String> {
+        Self::open_with(path, band, target, threads, true)
+    }
+
+    fn open_with(
+        path: &str,
+        band: i32,
+        target: Option<&Grid>,
+        threads: usize,
+        exact: bool,
+    ) -> Result<MapReader, String> {
         let ds = open_raster(path, threads)?;
         if band < 1 || band as usize > ds.raster_count() {
             return Err(format!("{path}: no band {band}"));
@@ -97,6 +115,9 @@ impl MapReader {
                 };
                 let mut a: Vec<String> =
                     ["-of", "VRT", "-r", "near", "-ot", "Float32", "-dstnodata", "nan"].map(String::from).to_vec();
+                if exact {
+                    a.extend(["-et".to_string(), "0".to_string()]);
+                }
                 if !t.wkt.is_empty() && !own.wkt.is_empty() {
                     a.extend(["-t_srs".to_string(), t.wkt.clone()]);
                 }

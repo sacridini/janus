@@ -1463,8 +1463,10 @@ by the same estimator, from the project's files.
 ## Official alerts against a map of change
 
 **Validation & uncertainty → Official alerts...** (the Validation panel's
-*Alerts* tab) compares a run's map of change dates (a Zeit result in years:
-LandTrendr, CCDC, BFAST, CODED...) with the alerts the agencies publish. It is
+*Alerts* tab) compares a run's map of change dates (a Zeit result of this
+session that is a date: LandTrendr's year of detection, CCDC's, BFAST's or
+SCCD's break dates, CODED's change dates...; lengths of time, such as
+LandTrendr's duration, are left out) with the alerts the agencies publish. It is
 not an accuracy assessment (the alerts are another map, with errors of their
 own; see the sampling design above for that); it tells where and when the two
 maps agree, and how late or early one is against the other.
@@ -1476,7 +1478,7 @@ maps agree, and how late or early one is against the other.
 | **DETER** (INPE) | Polygons of deforestation and degradation seen in daily WFI/AWiFS images, dated (`view_date`) and classed (`classname`: DESMATAMENTO_CR, DEGRADACAO, CICATRIZ_DE_QUEIMADA, MINERACAO...) | TerraBrasilis' WFS (`https://terrabrasilis.dpi.inpe.br/geoserver/ows`): `deter-amz:deter_amz` (Amazon) or `deter-cerrado-nb:deter_cerrado` (Cerrado), the map's box and window fetched in a task (Tools → Tasks) into a GeoPackage of the cache and opened as a vector layer (as *Add web layer...* does) |
 | Any vector layer | Dated polygons (a date field, a class field optional) | An open vector layer or a file |
 | **GLAD-L** (UMD; Hansen et al. 2016) | Landsat, 30 m (0.00025°), a pair of files per year and 10° tile: `alertYY` (2 probable, 3 confirmed) and `alertDateYY` (the day of the year, 1 = 1 January) | UMD's public bucket, no key: `storage.googleapis.com/earthenginepartners-hansen/GLADalert/C2/current/` (2021 to now), read over the network (`/vsicurl/`) for the map's box only; or files |
-| **GLAD-S2** (UMD; Pickens et al. 2020) | Sentinel-2, 10 m (0.0001°), Amazon basin: `alert` (1 loss in the most recent observation only, 2 low, 3 medium, 4 high confidence) and `alertDate` (days since 2018-12-31) | The same bucket's `S2alert/alert/` and `S2alert/alertDate/`, no key; or files |
+| **GLAD-S2** (UMD's GLAD laboratory) | Sentinel-2, 10 m (0.0001°), Amazon basin: `alert` (1 loss in the most recent observation only, 2 low, 3 medium, 4 high confidence) and `alertDate` (days since 2018-12-31) | The same bucket's `S2alert/alert/` and `S2alert/alertDate/`, no key; or files |
 | **RADD** (Wageningen; Reiche et al. 2021) | Sentinel-1, 10 m, the tropics: as GFW encodes it, one band `confidence * 10000 + days since 2014-12-31` (2 low, 3 high) | GFW's GeoTIFFs need a GFW API key: open them from disk. *Of the map's area* reads GFW's public map tiles instead (`tiles.globalforestwatch.org/wur_radd_alerts/latest/default/14/x/y.png`, zoom 14, about 10 m at the equator; at most 400 tiles) and decodes their colours: the day is `R * 255 + G`, the confidence `B / 100 - 1` (gfw-data-api's `date_conf_rgb_calc`). The export of Google Earth Engine (Alert 2/3, Date `yyDOY`) is not read |
 | **Integrated alerts** (GFW) | GLAD-L, GLAD-S2 and RADD in one band: `confidence * 10000 + days since 2014-12-31` (2 low, 3 high, 4 highest: two or more systems) | As RADD (`gfw_integrated_alerts`; the confidence of a tile's pixel in its alpha, `A >> 2`: 1 low, 2 high, 4 highest) |
 
@@ -1489,8 +1491,11 @@ earliest alert. The hover text of each product says where its files are.
 - The grid is the map's. A polygon covers the pixels whose centres it holds
   (GDAL's rasterization, as `rasterio.features.rasterize`); where polygons
   overlap, the earliest alert holds the pixel. A raster of alerts is warped
-  onto the grid by the nearest pixel. Pixels outside the alerts' cover (a
-  raster's tiles) are left out of everything.
+  onto the grid by the nearest pixel, each pixel's centre projected exactly
+  (`gdalwarp -et 0`: GDAL's default interpolation within 0.125 pixel depends
+  on how the warp is read, and took the other neighbour at a few edges).
+  Pixels outside the alerts' cover (a raster's tiles) are left out of
+  everything.
 - A map pixel changed when its date (decimal years; Janus's: the year plus
   the days since 1 January over the year's length, to the nearest day) is in
   the window; an alert pixel when its alert's date is. The window is *From*
@@ -1521,8 +1526,8 @@ lag, a polygon's own area), `NAME_lags.csv` (the
 histogram) and `NAME_agreement.tif`.
 
 **Command line**: `--alerts SOURCE[,KEY=VALUE...]` compares once a map of
-change dates is there (with `--zeit NAME --zeit-run`, or `--layer` of a
-result): SOURCE is `deter-amz`, `deter-cerrado`, `wfs`/`oapif`
+change dates is there (a run of this session: `--zeit NAME --zeit-run`; a
+result opened with `--layer` is a layer, not a run's map): SOURCE is `deter-amz`, `deter-cerrado`, `wfs`/`oapif`
 (`url=`, `layer=`, `date=`, `class=`, `name=`), `glad-l`, `glad-s2`, `radd` or
 `integrated` (`files=CONF;DATE;...` or `download=1` for the map's area); keys
 `map=` (part of the map's name), `from=`, `to=` (YYYY-MM-DD), `tab=0` (the
@@ -1532,7 +1537,25 @@ Compared with geopandas, rasterio, numpy and scipy (the same rules written
 with them): `tools/bench_alerts_vs_python.py` (`conda run -n geo`), results in
 `bench/alerts-vs-python.json`:
 
-*(Not run yet: the table comes from its first run.)*
+| Case | Grid | Alerts (detected) | Both / only map / only alerts (ha) | Median lag | Janus | Python | Same numbers |
+|---|---|---|---|---|---|---|---|
+| Synthetic polygons (20 000, two classes) | 3000 × 3000, 30 m | 18 093 (8 300) | 99 458 / 76 475 / 348 575 | 200 d | 0.54 s | 1.84 s | yes |
+| Synthetic GLAD-S2 (10 m over a third) | 3000 × 3000, 30 m | 2 242 (661) | 3 978 / 14 620 / 15 106 | 23 d | 0.30 s | 1.27 s | yes |
+| DETER (Amazon), WFS | 831 × 667, 20 m | 91 (85) | 783 / 908 / 7 212 | 272 d | 0.03 s | 0.11 s | yes |
+| GLAD-S2, UMD's files | 831 × 667, 20 m | 3 024 (284) | 654 / 1 038 / 4 870 | 145 d | 0.21 s | 0.28 s | yes |
+| GLAD-L 2021-2023, UMD's files | 831 × 667, 20 m | 518 (143) | 333 / 1 359 / 1 053 | 116 d | 0.57 s | 0.66 s | yes |
+| RADD, GFW's tiles | 831 × 667, 20 m | 2 049 (312) | 431 / 1 261 / 1 916 | −202 d | 0.14 s | 0.20 s | yes |
+
+The real cases are the validation guide's place (16 × 13 km south-west of Novo
+Progresso, Pará; `tools/make_tutorial_data.py`): LandTrendr's year of
+detection on the NBR of the eight dry-season Sentinel-2 composites
+(2017-2024) against the alerts of 2019-2023. Times are the comparison alone,
+the median of 3 (the alerts already fetched: DETER's 98 features took 5.6 s,
+RADD's 48 tiles 41 s); the rasters' times are mostly GDAL's warp, the same on
+both sides. GFW's RADD tiles decoded by Janus and by Python from the same PNGs
+give the same values. The lags count from 1 January of LandTrendr's whole
+years, so their sign says little here; with a dated map (CCDC, BFAST) they
+are the delay in days.
 
 ## Animation (GIF, MP4, WebM)
 

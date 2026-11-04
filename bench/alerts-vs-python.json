@@ -1,0 +1,538 @@
+{
+  "runs": 3,
+  "janus": "vs_python_alerts.exe",
+  "python": "3.13.1",
+  "numpy": "2.2.1",
+  "rasterio": "1.4.4",
+  "geopandas": "1.0.1",
+  "gdal_python": "3.11.5",
+  "cases": {
+    "synthetic_polygons": {
+      "window": [
+        "2019-01-01",
+        "2024-12-31"
+      ],
+      "grid": [
+        3000,
+        3000
+      ],
+      "janus_seconds": 0.5425712,
+      "janus_runs": [
+        0.5400363,
+        0.5425712,
+        0.578104
+      ],
+      "python_seconds": 1.8390811999997823,
+      "python_runs": [
+        1.8909346999998888,
+        1.8389883999998347,
+        1.8390811999997823
+      ],
+      "summary": {
+        "alerts": 18093.0,
+        "alerts_detected": 8300.0,
+        "alerts_detected_share_by_area": 0.5878902562001163,
+        "alerts_detected_share_by_count": 0.45874094953849553,
+        "alerts_detected_share_by_pixels": 0.2219875294666721,
+        "alerts_ha": 448032.60001320456,
+        "alerts_too_small": 1907.0,
+        "both_ha": 99457.64999746096,
+        "both_pixels": 1105085.0,
+        "covered_ha": 809999.999962267,
+        "covered_pixels": 9000000.0,
+        "dice": 0.3187924206385675,
+        "lag_max_days": 1663.0,
+        "lag_mean_days": 196.20051941705842,
+        "lag_median_days": 200.0,
+        "lag_min_days": -1451.0,
+        "lag_n": 1105085.0,
+        "lag_q10_days": -674.0,
+        "lag_q25_days": -254.0,
+        "lag_q75_days": 676.0,
+        "lag_q90_days": 1063.0,
+        "lag_within_30_days": 0.037736463710936266,
+        "lag_within_365_days": 0.3984453684558201,
+        "lag_within_90_days": 0.10678454598515047,
+        "map_confirmed_share_by_count": 0.9081505999172528,
+        "map_confirmed_share_by_pixels": 0.5653175459013198,
+        "map_ha": 175932.35999581378,
+        "map_patches": 2417.0,
+        "map_patches_confirmed": 2195.0,
+        "only_alerts_ha": 348574.9500157436,
+        "only_alerts_pixels": 3873055.0,
+        "only_map_ha": 76474.70999835282,
+        "only_map_pixels": 849719.0
+      },
+      "classes": [
+        {
+          "alerts": 5451,
+          "class": "DEGRADACAO",
+          "detected": 2455,
+          "detected_ha": 29459.34000000016,
+          "ha": 133497.6300000016,
+          "lag_median": 206.0
+        },
+        {
+          "alerts": 12642,
+          "class": "DESMATAMENTO_CR",
+          "detected": 5845,
+          "detected_ha": 69998.3100000005,
+          "ha": 314534.9700000004,
+          "lag_median": 198.0
+        }
+      ],
+      "summary_differs": {},
+      "classes_differ": [],
+      "histogram_same": true,
+      "same": true
+    },
+    "synthetic_glad_s2": {
+      "window": [
+        "2019-01-01",
+        "2024-12-31"
+      ],
+      "grid": [
+        3000,
+        3000
+      ],
+      "janus_seconds": 0.3000366,
+      "janus_runs": [
+        0.2811096,
+        0.3000366,
+        0.3157571
+      ],
+      "python_seconds": 1.269335100000717,
+      "python_runs": [
+        1.2792389999995066,
+        1.2635796999993545,
+        1.269335100000717
+      ],
+      "summary": {
+        "alerts": 2242.0,
+        "alerts_detected": 661.0,
+        "alerts_detected_share_by_area": 0.5912263492482666,
+        "alerts_detected_share_by_count": 0.29482604817127567,
+        "alerts_detected_share_by_pixels": 0.20843787138505823,
+        "alerts_ha": 19083.960000022606,
+        "alerts_too_small": 0.0,
+        "both_ha": 3977.8200000023076,
+        "both_pixels": 44198.0,
+        "covered_ha": 89909.99999783146,
+        "covered_pixels": 999000.0,
+        "dice": 0.21112971450805523,
+        "lag_max_days": 1494.0,
+        "lag_mean_days": 18.261482420019007,
+        "lag_median_days": 23.0,
+        "lag_min_days": -1458.0,
+        "lag_n": 44198.0,
+        "lag_q10_days": -802.0,
+        "lag_q25_days": -379.0,
+        "lag_q75_days": 407.0,
+        "lag_q90_days": 809.0,
+        "lag_within_30_days": 0.051970677406217476,
+        "lag_within_365_days": 0.47022489705416537,
+        "lag_within_90_days": 0.14346803022761212,
+        "map_confirmed_share_by_count": 0.7867132867132867,
+        "map_confirmed_share_by_pixels": 0.2138919941732303,
+        "map_ha": 18597.33000002182,
+        "map_patches": 286.0,
+        "map_patches_confirmed": 225.0,
+        "only_alerts_ha": 15106.1400000203,
+        "only_alerts_pixels": 167846.0,
+        "only_map_ha": 14619.510000019513,
+        "only_map_pixels": 162439.0
+      },
+      "classes": [
+        {
+          "alerts": 342,
+          "class": "most recent observation only",
+          "detected": 72,
+          "detected_ha": 6.479999999999994,
+          "ha": 31.139999999999958,
+          "lag_median": 159.0
+        },
+        {
+          "alerts": 351,
+          "class": "low",
+          "detected": 66,
+          "detected_ha": 5.939999999999995,
+          "ha": 32.03999999999996,
+          "lag_median": 263.5
+        },
+        {
+          "alerts": 391,
+          "class": "medium",
+          "detected": 93,
+          "detected_ha": 9.17999999999999,
+          "ha": 43.11000000000031,
+          "lag_median": 168.5
+        },
+        {
+          "alerts": 1158,
+          "class": "high",
+          "detected": 430,
+          "detected_ha": 3956.220000000008,
+          "ha": 18977.67000000027,
+          "lag_median": 22.0
+        }
+      ],
+      "summary_differs": {},
+      "classes_differ": [],
+      "histogram_same": true,
+      "same": true
+    },
+    "deter_amazon": {
+      "window": [
+        "2019-01-01",
+        "2023-12-31"
+      ],
+      "grid": [
+        831,
+        667
+      ],
+      "janus_seconds": 0.02713,
+      "janus_runs": [
+        0.0260198,
+        0.02713,
+        0.0715076
+      ],
+      "python_seconds": 0.10586289999992005,
+      "python_runs": [
+        0.1082535999994434,
+        0.10586289999992005,
+        0.09256879999975354
+      ],
+      "summary": {
+        "alerts": 91.0,
+        "alerts_detected": 85.0,
+        "alerts_detected_share_by_area": 0.9940617636611938,
+        "alerts_detected_share_by_count": 0.9340659340659341,
+        "alerts_detected_share_by_pixels": 0.09797839822709205,
+        "alerts_ha": 7995.6399999938885,
+        "alerts_too_small": 7.0,
+        "both_ha": 783.3999999998674,
+        "both_pixels": 19585.0,
+        "covered_ha": 22171.08000029826,
+        "covered_pixels": 554277.0,
+        "dice": 0.16173987009616694,
+        "lag_max_days": 1232.0,
+        "lag_mean_days": 324.631912177687,
+        "lag_median_days": 272.0,
+        "lag_min_days": -1364.0,
+        "lag_n": 19585.0,
+        "lag_q10_days": -459.0,
+        "lag_q25_days": -93.0,
+        "lag_q75_days": 637.0,
+        "lag_q90_days": 844.0,
+        "lag_within_30_days": 0.0,
+        "lag_within_365_days": 0.31258616287975494,
+        "lag_within_90_days": 0.003114628542251723,
+        "map_confirmed_share_by_count": 0.24472201479872377,
+        "map_confirmed_share_by_pixels": 0.46313374952707786,
+        "map_ha": 1691.5199999996214,
+        "map_patches": 14731.0,
+        "map_patches_confirmed": 3605.0,
+        "only_alerts_ha": 7212.239999994021,
+        "only_alerts_pixels": 180306.0,
+        "only_map_ha": 908.119999999754,
+        "only_map_pixels": 22703.0
+      },
+      "classes": [
+        {
+          "alerts": 33,
+          "class": "CICATRIZ_DE_QUEIMADA",
+          "detected": 31,
+          "detected_ha": 209.2000000000049,
+          "ha": 4419.359999998628,
+          "lag_median": 844.0
+        },
+        {
+          "alerts": 14,
+          "class": "DEGRADACAO",
+          "detected": 13,
+          "detected_ha": 22.719999999999857,
+          "ha": 247.15999999999661,
+          "lag_median": -159.5
+        },
+        {
+          "alerts": 44,
+          "class": "DESMATAMENTO_CR",
+          "detected": 41,
+          "detected_ha": 551.4800000000383,
+          "ha": 3329.1199999990035,
+          "lag_median": 272.0
+        }
+      ],
+      "summary_differs": {},
+      "classes_differ": [],
+      "histogram_same": true,
+      "same": true
+    },
+    "glad_s2": {
+      "window": [
+        "2019-01-01",
+        "2023-12-31"
+      ],
+      "grid": [
+        831,
+        667
+      ],
+      "janus_seconds": 0.2128379,
+      "janus_runs": [
+        0.2088768,
+        0.2128379,
+        0.2459527
+      ],
+      "python_seconds": 0.27576500000031956,
+      "python_runs": [
+        0.27690530000018043,
+        0.27224759999990056,
+        0.27576500000031956
+      ],
+      "summary": {
+        "alerts": 3024.0,
+        "alerts_detected": 284.0,
+        "alerts_detected_share_by_area": 0.8923908084268108,
+        "alerts_detected_share_by_count": 0.09391534391534391,
+        "alerts_detected_share_by_pixels": 0.11835635089048661,
+        "alerts_ha": 5523.319999996137,
+        "alerts_too_small": 0.0,
+        "both_ha": 653.7199999999854,
+        "both_pixels": 16343.0,
+        "covered_ha": 22171.08000029826,
+        "covered_pixels": 554277.0,
+        "dice": 0.18121538384783853,
+        "lag_max_days": 1390.0,
+        "lag_mean_days": 54.58618368720553,
+        "lag_median_days": 145.0,
+        "lag_min_days": -1366.0,
+        "lag_n": 16343.0,
+        "lag_q10_days": -586.0,
+        "lag_q25_days": -451.0,
+        "lag_q75_days": 500.0,
+        "lag_q90_days": 605.0,
+        "lag_within_30_days": 0.00024475310530502355,
+        "lag_within_365_days": 0.4429419323257664,
+        "lag_within_90_days": 0.0024475310530502354,
+        "map_confirmed_share_by_count": 0.14954857104066255,
+        "map_confirmed_share_by_pixels": 0.3864689746500967,
+        "map_ha": 1691.5199999996216,
+        "map_patches": 14731.0,
+        "map_patches_confirmed": 2203.0,
+        "only_alerts_ha": 4869.599999996151,
+        "only_alerts_pixels": 121740.0,
+        "only_map_ha": 1037.7999999996362,
+        "only_map_pixels": 25945.0
+      },
+      "classes": [
+        {
+          "alerts": 0,
+          "class": "most recent observation only",
+          "detected": 0,
+          "detected_ha": -0.0,
+          "ha": -0.0,
+          "lag_median": null
+        },
+        {
+          "alerts": 1212,
+          "class": "low",
+          "detected": 57,
+          "detected_ha": 2.4800000000000013,
+          "ha": 67.79999999999939,
+          "lag_median": -250.0
+        },
+        {
+          "alerts": 842,
+          "class": "medium",
+          "detected": 60,
+          "detected_ha": 3.2400000000000015,
+          "ha": 108.92000000000054,
+          "lag_median": 245.0
+        },
+        {
+          "alerts": 970,
+          "class": "high",
+          "detected": 167,
+          "detected_ha": 648.0000000000981,
+          "ha": 5346.599999998287,
+          "lag_median": 145.0
+        }
+      ],
+      "summary_differs": {},
+      "classes_differ": [],
+      "histogram_same": true,
+      "same": true
+    },
+    "glad_l": {
+      "window": [
+        "2019-01-01",
+        "2023-12-31"
+      ],
+      "grid": [
+        831,
+        667
+      ],
+      "janus_seconds": 0.5701802,
+      "janus_runs": [
+        0.567995,
+        0.5701802,
+        0.5995005
+      ],
+      "python_seconds": 0.654851399999643,
+      "python_runs": [
+        0.6459268000007796,
+        0.654851399999643,
+        0.6734433000001445
+      ],
+      "summary": {
+        "alerts": 518.0,
+        "alerts_detected": 143.0,
+        "alerts_detected_share_by_area": 0.925414922788282,
+        "alerts_detected_share_by_count": 0.27606177606177607,
+        "alerts_detected_share_by_pixels": 0.24009236542077347,
+        "alerts_ha": 1385.7999999996448,
+        "alerts_too_small": 0.0,
+        "both_ha": 332.7200000000226,
+        "both_pixels": 8318.0,
+        "covered_ha": 22171.08000029826,
+        "covered_pixels": 554277.0,
+        "dice": 0.21624010502653573,
+        "lag_max_days": 609.0,
+        "lag_mean_days": 11.754508295263284,
+        "lag_median_days": 116.0,
+        "lag_min_days": -1319.0,
+        "lag_n": 8318.0,
+        "lag_q10_days": -615.0,
+        "lag_q25_days": -599.0,
+        "lag_q75_days": 481.0,
+        "lag_q90_days": 489.0,
+        "lag_within_30_days": 0.0003606636210627555,
+        "lag_within_365_days": 0.3999759557585958,
+        "lag_within_90_days": 0.005289733108920414,
+        "map_confirmed_share_by_count": 0.053899938904351366,
+        "map_confirmed_share_by_pixels": 0.19669882709051453,
+        "map_ha": 1691.5199999993667,
+        "map_patches": 14731.0,
+        "map_patches_confirmed": 794.0,
+        "only_alerts_ha": 1053.0799999996223,
+        "only_alerts_pixels": 26327.0,
+        "only_map_ha": 1358.7999999993442,
+        "only_map_pixels": 33970.0
+      },
+      "classes": [
+        {
+          "alerts": 0,
+          "class": "probable",
+          "detected": 0,
+          "detected_ha": -0.0,
+          "ha": -0.0,
+          "lag_median": null
+        },
+        {
+          "alerts": 518,
+          "class": "confirmed",
+          "detected": 143,
+          "detected_ha": 332.7200000000059,
+          "ha": 1385.7999999999954,
+          "lag_median": 116.0
+        }
+      ],
+      "summary_differs": {},
+      "classes_differ": [],
+      "histogram_same": true,
+      "same": true
+    },
+    "radd": {
+      "window": [
+        "2019-01-01",
+        "2023-12-31"
+      ],
+      "grid": [
+        831,
+        667
+      ],
+      "janus_seconds": 0.1421698,
+      "janus_runs": [
+        0.1379798,
+        0.1421698,
+        0.1569358
+      ],
+      "python_seconds": 0.19727839999995922,
+      "python_runs": [
+        0.19716330000028393,
+        0.19727839999995922,
+        0.2009104999997362
+      ],
+      "summary": {
+        "alerts": 2049.0,
+        "alerts_detected": 312.0,
+        "alerts_detected_share_by_area": 0.8438698460856735,
+        "alerts_detected_share_by_count": 0.15226939970717424,
+        "alerts_detected_share_by_pixels": 0.18355519950922666,
+        "alerts_ha": 2346.75999999891,
+        "alerts_too_small": 0.0,
+        "both_ha": 430.76000000007275,
+        "both_pixels": 10769.0,
+        "covered_ha": 22171.08000029826,
+        "covered_pixels": 554277.0,
+        "dice": 0.2133383519717512,
+        "lag_max_days": 925.0,
+        "lag_mean_days": -215.1837682236048,
+        "lag_median_days": -202.0,
+        "lag_min_days": -1682.0,
+        "lag_n": 10769.0,
+        "lag_q10_days": -945.0,
+        "lag_q25_days": -591.0,
+        "lag_q75_days": 163.0,
+        "lag_q90_days": 511.0,
+        "lag_within_30_days": 0.029900640728015602,
+        "lag_within_365_days": 0.42733772866561426,
+        "lag_within_90_days": 0.040950877518803976,
+        "map_confirmed_share_by_count": 0.07664109700631322,
+        "map_confirmed_share_by_pixels": 0.2546585319713622,
+        "map_ha": 1691.5199999995061,
+        "map_patches": 14731.0,
+        "map_patches_confirmed": 1129.0,
+        "only_alerts_ha": 1915.9999999988374,
+        "only_alerts_pixels": 47900.0,
+        "only_map_ha": 1260.7599999994334,
+        "only_map_pixels": 31519.0
+      },
+      "classes": [
+        {
+          "alerts": 1,
+          "class": "low",
+          "detected": 0,
+          "detected_ha": 0.0,
+          "ha": 0.04,
+          "lag_median": null
+        },
+        {
+          "alerts": 2048,
+          "class": "high",
+          "detected": 312,
+          "detected_ha": 430.76000000000784,
+          "ha": 2346.7199999997115,
+          "lag_median": -202.0
+        }
+      ],
+      "summary_differs": {},
+      "classes_differ": [],
+      "histogram_same": true,
+      "same": true
+    }
+  },
+  "deter_fetch": {
+    "features": 98,
+    "layer": "deter_amz",
+    "seconds": 5.5857966999999995
+  },
+  "radd_tiles": {
+    "janus": {
+      "seconds": 40.5717957,
+      "spec": "gfw-tiles:wur_radd_alerts:14:5654:8522:5661:8527"
+    },
+    "same_values": true,
+    "alert_pixels": 961368
+  }
+}

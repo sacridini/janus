@@ -69,6 +69,7 @@
       <li><a href="#maps">Other maps</a></li>
       <li><a href="#interpreters">Several interpreters</a></li>
       <li><a href="#report">The report</a></li>
+      <li><a href="#alerts">Official alerts</a></li>
       <li><a href="#practice">Good practice</a></li>
       <li><a href="#refs">References</a></li>
     </ol>
@@ -340,8 +341,46 @@
     </section>
 
     <!-- ===================================================== -->
+    <section id="alerts">
+      <h2><span class="n">14</span>Against official alerts</h2>
+      <p>A sample tells how right a map is. A quicker question, before any sample, is how a map of change compares with the alerts the agencies publish: INPE's <strong>DETER</strong> in Brazil, UMD's <strong>GLAD</strong> (Landsat and Sentinel-2) and Wageningen's <strong>RADD</strong> (Sentinel-1) across the tropics. <span class="ui">Validation &amp; uncertainty → Official alerts...</span> (the <span class="ui">Alerts</span> tab) puts the alerts on the grid of a map of change dates from a run (LandTrendr's year of detection, CCDC's or BFAST's break dates...) and says where and when the two agree. The alerts are another map, with errors of their own, so this is not an accuracy assessment: it shows where to look, and how early or late one map is against the other.</p>
+      <p>Here the map is LandTrendr's year of detection on the NBR of the eight composites (<span class="ui">Tools → Change detection → LandTrendr</span>, its defaults, the whole image), compared with the alerts of 2019 to 2023.</p>
+      <figure class="fig">
+        <a href="assets/img/validation/17-alerts-deter.jpg"><img src="assets/img/validation/17-alerts-deter.jpg" alt="The Janus window: the 2024 composite in false colour with the agreement map over it (purple where LandTrendr and DETER both saw change, blue only LandTrendr, orange only DETER), DETER's polygons outlined, and the Alerts tab on the right with the areas, the agreement, the lags' histogram and the classes." width="1680" height="1050" loading="lazy"></a>
+        <figcaption><b>LandTrendr against DETER.</b> Purple: change in both; blue: only in the map; orange: only in DETER's polygons, outlined. Both the agreement map and DETER's polygons are layers like any other.</figcaption>
+      </figure>
+      <p>Choose the map, the source and the window of dates, then <span class="ui">Compare</span>. DETER comes from TerraBrasilis' public WFS, for the map's area only, and opens as a vector layer; GLAD's files are read straight from UMD's public bucket and RADD's from Global Forest Watch's map tiles, again for the map's area only (or from files you downloaded). Nothing needs a key.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/validation/17-alerts-deter-panel.png"><img src="assets/img/validation/17-alerts-deter-panel.png" alt="The Alerts tab: LandTrendr's year of detection against DETER (Amazon), 2019-01-01 to 2023-12-31; areas of change in the map, in the alerts, in both and in one only; the agreement; the lags and their histogram." loading="lazy"></a>
+        <figcaption><b>The numbers.</b> Of 22,171 ha, LandTrendr marks 1,686 ha of change in 2019–2023 and DETER 7,996 ha; 783 ha are in both.</figcaption>
+      </figure>
+      <h3>Reading it</h3>
+      <ul>
+        <li><strong>Areas</strong>: change in both, only in the map, only in the alerts, pixel by pixel over the area both cover.</li>
+        <li><strong>Alerts the map detects</strong>: an alert counts as detected when the map changed at one of its pixels at least. LandTrendr touches 85 of DETER's 91 alerts (93.4%), yet only 9.8% of their area: the polygons are much larger than the change LandTrendr finds inside them.</li>
+        <li><strong>Map change the alerts confirm</strong>: the share of the map's change inside an alert, by area (46.5% here) and by patch. <strong>Dice</strong> sums both sides up in one number (0.162).</li>
+        <li><strong>Lag</strong>: the map's date minus the alert's, in days, at each pixel in both. LandTrendr gives whole years, taken as 1 January, so its lags are within a year at best (the tab says so); a map of dates from a dense series (CCDC, BFAST) gives the real delay.</li>
+        <li><strong>By class</strong>: DETER's classes, or GLAD's and RADD's confidence.</li>
+      </ul>
+      <figure class="fig narrow">
+        <a href="assets/img/validation/17-alerts-classes.png"><img src="assets/img/validation/17-alerts-classes.png" alt="The end of the Alerts tab: DETER's classes, burn scars (33 alerts, 4,419 ha, 209 ha detected), degradation (14 alerts, 247 ha) and clear-cut deforestation (44 alerts, 3,329 ha, 551 ha detected), and the Export CSV button." loading="lazy"></a>
+        <figcaption><b>By class.</b> Burn scars are most of DETER's area here (4,419 ha), and a map of loss of the NBR catches little of them (209 ha); of the clear-cut deforestation's 3,329 ha it catches 551 ha.</figcaption>
+      </figure>
+      <p>GLAD-S2 against the same map: 285 of its 3,024 alerts are detected (9.4%), but these hold 89.2% of the alerts' area: LandTrendr finds the large clearings and misses the many small alerts of a few pixels. 38.8% of the map's change is inside a GLAD-S2 alert.</p>
+      <figure class="fig narrow">
+        <a href="assets/img/validation/18-alerts-glad-panel.png"><img src="assets/img/validation/18-alerts-glad-panel.png" alt="The Alerts tab with GLAD-S2 (Sentinel-2, UMD) as alert rasters, its alert and alertDate files of the map's area, and the comparison with LandTrendr's year of detection." loading="lazy"></a>
+        <figcaption><b>GLAD-S2.</b> The files of the map's area (<span class="ui">Of the map's area</span>) read from UMD's bucket.</figcaption>
+      </figure>
+      <p><span class="ui">Export CSV...</span> writes the summary, the classes, every alert (its date, class, area and whether it was detected), the lags' histogram and the agreement map as a GeoTIFF. The rules, and a check of every number against geopandas, rasterio, numpy and scipy, are in <a href="https://github.com/sacridini/janus/blob/main/docs/usage.md#official-alerts-against-a-map-of-change">the manual</a>.</p>
+      <div class="note">
+        <p class="h">Reproduce it</p>
+        <p>With the guide's data, <code>janus --shots alerts data out</code> runs LandTrendr, fetches DETER and GLAD-S2 and saves these screenshots (it needs the network).</p>
+      </div>
+    </section>
+
+    <!-- ===================================================== -->
     <section id="practice">
-      <h2><span class="n">14</span>Good practice</h2>
+      <h2><span class="n">15</span>Good practice</h2>
       <ul>
         <li><strong>Decide the design before looking at the results.</strong> Strata, sample size and seed are part of the method; drawing again until the numbers look good is not a random sample any more. To be more precise, add points in a stratum.</li>
         <li><strong>Give rare classes enough points.</strong> 50 to 100 per stratum of change, whatever a proportional allocation would give them.</li>
@@ -355,7 +394,7 @@
 
     <!-- ===================================================== -->
     <section id="refs">
-      <h2><span class="n">15</span>References</h2>
+      <h2><span class="n">16</span>References</h2>
       <ul class="refs">
         <li>Olofsson, P., Foody, G. M., Herold, M., Stehman, S. V., Woodcock, C. E., Wulder, M. A. (2014). Good practices for estimating area and assessing accuracy of land change. <em>Remote Sensing of Environment</em>, 148, 42–57.</li>
         <li>Olofsson, P., Arévalo, P., Espejo, A. B., Green, C., Lindquist, E., McRoberts, R. E., Sanz, M. J. (2020). Mitigating the effects of omission errors on area and area change estimates. <em>Remote Sensing of Environment</em>, 236, 111492.</li>
@@ -365,6 +404,10 @@
         <li>Hansen, M. C. et al. (2013). High-resolution global maps of 21st-century forest cover change. <em>Science</em>, 342, 850–853. Data: Global Forest Change 2000–2023 v1.11.</li>
         <li>Souza, C. M. et al. (2020). Reconstructing three decades of land use and land cover changes in Brazilian biomes with Landsat archive and Earth Engine. <em>Remote Sensing</em>, 12(17), 2735. Data: MapBiomas Collection 9.</li>
         <li>Sentinel-2 L2A: Copernicus Sentinel data, processed by ESA; cloud-optimized GeoTIFFs from Earth Search (Element 84).</li>
+        <li>Kennedy, R. E., Yang, Z., Cohen, W. B. (2010). Detecting trends in forest disturbance and recovery using yearly Landsat time series: 1. LandTrendr — Temporal segmentation algorithms. <em>Remote Sensing of Environment</em>, 114(12), 2897–2910.</li>
+        <li>Diniz, C. G. et al. (2015). DETER-B: The new Amazon near real-time deforestation detection system. <em>IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing</em>, 8(7), 3619–3628. Data: INPE, TerraBrasilis.</li>
+        <li>Hansen, M. C. et al. (2016). Humid tropical forest disturbance alerts using Landsat data. <em>Environmental Research Letters</em>, 11, 034008. Data: GLAD-L and GLAD-S2 alerts, GLAD laboratory, University of Maryland.</li>
+        <li>Reiche, J. et al. (2021). Forest disturbance alerts for the Congo Basin using Sentinel-1. <em>Environmental Research Letters</em>, 16, 024005. Data: RADD alerts, Wageningen University, via Global Forest Watch.</li>
       </ul>
     </section>
 

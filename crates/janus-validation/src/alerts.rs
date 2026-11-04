@@ -10,7 +10,7 @@
 //! - the grid is the map's; a polygon covers the pixels whose centres it holds (GDALRasterizeGeometries, as
 //!   rasterio.features.rasterize), burned from the latest alert to the earliest so that where alerts overlap the
 //!   earliest one holds the pixel; a raster of alerts is warped onto the grid by its nearest pixel (gdalwarp -r
-//!   near, as rasterio.warp.reproject);
+//!   near -et 0: the exact transformer, as rasterio's WarpedVRT with tolerance=1e-9);
 //! - a map pixel changed when its value is a date (finite, > 0) in the window; an alert pixel when its alert's date
 //!   is in the window; pixels outside the alerts' cover (a raster's tiles) are left out of everything;
 //! - an alert (polygon, or a raster's patch: 8-connected alert pixels of the window) is detected when at least one
@@ -418,7 +418,7 @@ pub fn product_help(p: Product) -> &'static str {
              Keyless: the bucket earthenginepartners-hansen (GLADalert/C2/current, 2021 on)"
         }
         Product::GladS2 => {
-            "UMD's GLAD Sentinel-2 alerts (Pickens et al. 2020), 0.0001 degree, the Amazon basin's humid forest since\n\
+            "UMD's GLAD Sentinel-2 alerts, 0.0001 degree, the Amazon basin's humid forest since\n\
              2019: alert 1 loss in the most recent observation only, 2 low, 3 medium, 4 high confidence; alertDate\n\
              the days since 2018-12-31. Keyless: the bucket earthenginepartners-hansen (S2alert)"
         }
@@ -670,12 +670,12 @@ pub fn alerts_from_rasters(
     let _ = gdal::config::set_thread_local_config_option("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR");
     for (k, f) in files.iter().enumerate() {
         progress(k);
-        let c = MapReader::open(&resolve(&f.conf)?, 1, Some(grid), threads)?;
+        let c = MapReader::open_exact(&resolve(&f.conf)?, 1, Some(grid), threads)?;
         let d = if product.two_files() {
             if f.date.is_empty() {
                 return Err(format!("{}: {} needs its file of dates", f.conf, product.name()));
             }
-            Some(MapReader::open(&f.date, 1, Some(grid), threads)?)
+            Some(MapReader::open_exact(&f.date, 1, Some(grid), threads)?)
         } else {
             None
         };
