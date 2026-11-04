@@ -1,4 +1,4 @@
-//! The ROI as a shape to keep and to adjust. Save ROI as vector... writes it as a GeoPackage or GeoJSON (by
+//! The ROI as a shape to keep and to adjust. Save ROI as vector... writes it as a GeoPackage, GeoJSON or shapefile (by
 //! extension) in the active layer's CRS (janus_geo::polygon_file), opened as a vector layer if asked: Alt + click on
 //! it makes the same ROI again, the same pixels inside. Edit ROI vertices (Shift+R) adjusts its polygon on the map:
 //! drag a vertex; drag the handle in the middle of an edge for a new vertex there; right click or Delete on a vertex
@@ -371,7 +371,7 @@ impl State {
         if s < 1.0 { (inside as f64 * (w * h) as f64 / (bw * bh) as f64).round() as usize } else { inside }
     }
 
-    /// The ROI written to `path` (.gpkg or .geojson) in the active layer's CRS, a feature with its name, the layer's
+    /// The ROI written to `path` (.gpkg, .geojson or .shp) in the active layer's CRS, a feature with its name, the layer's
     /// and its pixels; opened as a vector layer if `open`. Its pixels.
     pub fn save_roi_vector(&mut self, path: &str, open: bool, ctx: &egui::Context) -> Result<usize, String> {
         let shape = self.roi_shape().ok_or("there is no ROI")?;
@@ -448,8 +448,10 @@ impl State {
                 );
                 if ui.button("Browse...").clicked() {
                     let p = std::path::PathBuf::from(&s.path);
-                    let mut d =
-                        rfd::FileDialog::new().add_filter("GeoPackage", &["gpkg"]).add_filter("GeoJSON", &["geojson"]);
+                    let mut d = rfd::FileDialog::new()
+                        .add_filter("GeoPackage", &["gpkg"])
+                        .add_filter("GeoJSON", &["geojson"])
+                        .add_filter("Shapefile", &["shp"]);
                     if let Some(n) = p.file_name() {
                         d = d.set_file_name(n.to_string_lossy());
                     }
@@ -470,11 +472,11 @@ impl State {
                 .map(|e| e.to_string_lossy().to_lowercase())
                 .unwrap_or_default();
             let folder_ok = !target.is_empty() && std::path::Path::new(&target).parent().is_some_and(|p| p.is_dir());
-            let ext_ok = matches!(ext.as_str(), "gpkg" | "geojson" | "json");
+            let ext_ok = matches!(ext.as_str(), "gpkg" | "geojson" | "json" | "shp");
             if !folder_ok {
                 ui.colored_label(theme::warning(), "Type a file name in an existing folder, or Browse...");
             } else if !ext_ok {
-                ui.colored_label(theme::warning(), "A GeoPackage (.gpkg) or GeoJSON (.geojson)");
+                ui.colored_label(theme::warning(), "A GeoPackage (.gpkg), GeoJSON (.geojson) or shapefile (.shp)");
             } else if std::path::Path::new(&target).exists() {
                 ui.colored_label(theme::warning(), "The file exists and will be replaced.");
             }

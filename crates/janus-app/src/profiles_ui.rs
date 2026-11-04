@@ -3,7 +3,8 @@
 //! (janus_geo::profiles: read by windows around the samples, a date per thread). A task of Tools > Tasks writing a
 //! long CSV (a row per sample and date: the line's FID and the fields chosen, the part, the sample, its distance
 //! along the line, its place in the series' CRS and pixel, the date and the value) and, if asked, a wide one (a row
-//! per sample, a column per date).
+//! per sample, a column per date) and, if asked, the samples as points (a GeoPackage or a shapefile: the wide
+//! table's rows).
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -28,6 +29,8 @@ pub struct ProfilesUi {
     pub fields: Vec<usize>,
     /// a wide table too
     pub wide: bool,
+    /// the samples as points too: 0 no, 1 a GeoPackage, 2 a shapefile
+    pub points: usize,
     pub name: String,
     pub status: String,
     /// the threads its runs use (None: the Settings')
@@ -122,6 +125,16 @@ impl State {
                 ui.checkbox(&mut p.wide, "and a row per sample, a column per date (wide)");
             });
             ui.end_row();
+            ui.label("Points");
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut p.points, 0, "no");
+                ui.radio_value(&mut p.points, 1, "GeoPackage");
+                ui.radio_value(&mut p.points, 2, "shapefile")
+                    .on_hover_text("Names cut to 10 characters, at most 255 columns (fields and dates)");
+            })
+            .response
+            .on_hover_text("The samples as points in the series' CRS: the wide table's rows, a column per date");
+            ui.end_row();
             ui.label("Name");
             ui.add(
                 egui::TextEdit::singleline(&mut p.name)
@@ -191,6 +204,12 @@ impl State {
         let opts =
             ProfileOptions { dates, fields: p.fields.clone(), threads: p.threads.unwrap_or(self.processing_threads()) };
         let wide = p.wide;
+        let points = match p.points {
+            1 => Some("profiles_points.gpkg"),
+            2 => Some("profiles_points.shp"),
+            _ => None,
+        };
+        let crs = info.crs_wkt.clone();
         let name = if p.name.trim().is_empty() { format!("{vname} profiles") } else { p.name.trim().into() };
         let stem = janus_cube::stac_vrt::sanitize(&name);
         let folder = self.results_dir().join("profiles").join(format!("{stem}_{}", crate::zeit::timestamp()));
@@ -219,6 +238,7 @@ impl State {
                 ("dates", serde_json::json!(opts.dates)),
                 ("fields", serde_json::json!(opts.fields.iter().map(|&k| &data.fields[k]).collect::<Vec<_>>())),
                 ("wide", serde_json::json!(wide)),
+                ("points", serde_json::json!(points)),
             ] {
                 pr.params.insert(k.into(), v);
             }
@@ -257,6 +277,10 @@ impl State {
                     w("profiles.csv", p.long_csv())?;
                     if wide {
                         w("profiles_wide.csv", p.wide_csv())?;
+                    }
+                    if let Some(f) = points {
+                        st.lock().unwrap().message = "writing the points".into();
+                        p.write_points(&dir.join(f).to_string_lossy(), &crs)?;
                     }
                     Ok(p)
                 });

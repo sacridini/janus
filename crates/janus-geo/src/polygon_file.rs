@@ -70,6 +70,29 @@ pub fn to_wkt(rings: &[Ring]) -> Option<String> {
 /// `rings` (even-odd, in the coordinates of `crs_wkt`; empty: none) written to `path` as one feature of layer
 /// `layer` with `fields`: a GeoPackage (.gpkg) or GeoJSON (.geojson, .json), replaced if it exists. A GeoJSON whose
 /// CRS has no EPSG code is written in WGS 84 longitudes and latitudes (RFC 7946: the format cannot name another).
+/// The OGR driver of a vector file written by its extension (.gpkg, .shp, .geojson), its layer's creation options,
+/// and the file (and a shapefile's sidecars, a GeoPackage's journal) removed before it is written.
+pub fn vector_driver(path: &str) -> Result<(&'static str, &'static [&'static str]), String> {
+    let p = std::path::Path::new(path);
+    let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let (driver, options): (&str, &[&str]) = match ext.as_str() {
+        "gpkg" => ("GPKG", &[]),
+        "shp" => ("ESRI Shapefile", &["ENCODING=UTF-8"]),
+        "geojson" | "json" => ("GeoJSON", &[]),
+        _ => return Err(format!("{path}: a GeoPackage (.gpkg), shapefile (.shp) or GeoJSON (.geojson)")),
+    };
+    if driver == "ESRI Shapefile" {
+        for side in ["shp", "shx", "dbf", "prj", "cpg", "qix", "sbn", "sbx"] {
+            let _ = std::fs::remove_file(p.with_extension(side));
+        }
+    } else {
+        for side in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{path}{side}"));
+        }
+    }
+    Ok((driver, options))
+}
+
 pub fn write_polygon(
     path: &str,
     layer: &str,
@@ -77,19 +100,11 @@ pub fn write_polygon(
     rings: &[Ring],
     fields: &[(&str, FieldValue)],
 ) -> Result<(), String> {
-    let ext = std::path::Path::new(path).extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
-    let driver = match ext.as_str() {
-        "gpkg" => "GPKG",
-        "geojson" | "json" => "GeoJSON",
-        _ => return Err(format!("{path}: a GeoPackage (.gpkg) or GeoJSON (.geojson)")),
-    };
     let wkt = to_wkt(rings).ok_or("no ring of three vertices")?;
     let geom = Geometry::from_wkt(&wkt).map_err(|e| e.to_string())?;
+    let (driver, layer_options) = vector_driver(path)?;
     crate::vectors::register();
     let drv = gdal::DriverManager::get_driver_by_name(driver).map_err(|e| e.to_string())?;
-    for side in ["", "-wal", "-shm"] {
-        let _ = std::fs::remove_file(format!("{path}{side}"));
-    }
     let srs = (!crs_wkt.is_empty()).then(|| crate::reproject::srs(crs_wkt)).flatten();
     let epsg = srs.as_ref().is_some_and(|s| {
         let mut s = s.clone();
@@ -98,7 +113,7 @@ pub fn write_polygon(
     });
     let rfc7946 = driver == "GeoJSON" && srs.is_some() && !epsg;
     let mut ds = drv.create_vector_only(path).map_err(|e| format!("cannot create {path}: {e}"))?;
-    let options: &[&str] = if rfc7946 { &["RFC7946=YES"] } else { &[] };
+    let options: &[&str] = if rfc7946 { &["RFC7946=YES"] } else { layer_options };
     let ty =
         if wkt.starts_with("MULTI") { OGRwkbGeometryType::wkbMultiPolygon } else { OGRwkbGeometryType::wkbPolygon };
     {
@@ -162,7 +177,7 @@ mod tests {
             vec![501000.0, 7599000.0, 502000.0, 7599000.0, 501500.0, 7598000.0],
         ];
         let gt = [499000.0, 30.0, 0.0, 7601000.0, 0.0, -30.0];
-        for name in ["roi.gpkg", "roi.geojson"] {
+        for name in ["roi.gpkg", "roi.geojson", "roi.shp"] {
             let p = d.join(name).to_string_lossy().into_owned();
             let fields = [("name", FieldValue::Text("ROI".into())), ("pixels", FieldValue::Integer(1234))];
             write_polygon(&p, "roi", &utm, &rings, &fields).unwrap();
@@ -174,9 +189,11 @@ mod tests {
             assert_eq!(f.kind, Kind::Area);
             assert_eq!(f.values, ["ROI", "1234"]);
             assert_eq!(f.parts.len(), 2);
+            // a shapefile's rings turned (its shells clockwise): the same pixels below
+            let shp = name.ends_with(".shp");
             for (a, b) in f.parts.iter().zip(&rings) {
                 assert_eq!(a.len(), b.len(), "{name}: the closing vertex dropped");
-                for (x, y) in a.iter().zip(b) {
+                for (x, y) in a.iter().zip(b).filter(|_| !shp) {
                     assert!((x - y).abs() < 1e-6, "{name}: {x} vs {y}");
                 }
             }
@@ -191,7 +208,7 @@ mod tests {
             assert!(a.iter().filter(|&&m| m).count() > 1000);
             assert_eq!(a, b, "{name}");
         }
-        assert!(write_polygon(&d.join("x.shp").to_string_lossy(), "roi", &utm, &rings, &[]).is_err());
+        assert!(write_polygon(&d.join("x.kml").to_string_lossy(), "roi", &utm, &rings, &[]).is_err());
         let _ = std::fs::remove_dir_all(&d);
     }
 }

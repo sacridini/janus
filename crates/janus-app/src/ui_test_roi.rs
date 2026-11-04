@@ -183,6 +183,21 @@ impl State {
                 if worst > 1e-6 || mask_of(&back, rect) != mask || v.features[0].values[2] != pixels.to_string() {
                     return fail("the GeoJSON should read back as the ROI, the same pixels");
                 }
+                // a shapefile too (its rings turned clockwise): the same pixels
+                let shp = dir.join("roi.shp");
+                if let Err(e) = self.save_roi_vector(&shp.to_string_lossy(), false, ctx) {
+                    return fail(&format!("the ROI saved as a shapefile: {e}"));
+                }
+                let v = match load_vector_file(&shp.to_string_lossy(), 1_000_000) {
+                    Ok(v) => v.into_iter().next()?,
+                    Err(e) => return fail(&format!("the shapefile read back: {e}")),
+                };
+                let p = Placer::new(&v, &info.crs_wkt, info.geo_transform).ok()?;
+                let back = p.placed(&v.features.first()?.parts);
+                if mask_of(&back, rect) != mask || v.features[0].values[2] != pixels.to_string() {
+                    return fail("the shapefile should read back as the ROI, the same pixels");
+                }
+                println!("    and as a shapefile: the same {pixels} pixels, its fields {:?}", v.features[0].values);
                 t(|x| *x = RoiTest { dir, rect, mask, pixels, pins: self.series.pins.len(), ..Default::default() });
                 next(st, "the ROI saved as a vector (GeoPackage opened as a layer, GeoJSON read back)");
             }
@@ -462,6 +477,7 @@ impl State {
                 });
                 self.open_profiles(id);
                 (self.profiles.fields, self.profiles.wide, self.profiles.all_dates) = (vec![0], true, true);
+                self.profiles.points = 2;
                 self.profiles.threads = Some(2);
                 let Some(folder) = self.profiles_run(ctx) else {
                     return fail(&format!("Profiles of every line should start: {}", self.profiles.status));
@@ -518,6 +534,30 @@ impl State {
                 );
                 if differ > 0 || checked == 0 || lines.len() != 3 || wide_rows != samples {
                     return fail("every profile value should be its pixel's, three lines, a wide row per sample");
+                }
+                // the samples as points (a shapefile): a point per wide row, at its x and y, its values
+                let pts = match load_vector_file(&folder.join("profiles_points.shp").to_string_lossy(), 10_000_000) {
+                    Ok(v) => v.into_iter().next()?,
+                    Err(e) => return fail(&format!("the profiles' points: {e}")),
+                };
+                let mut bad = 0;
+                for (f, row) in pts.features.iter().zip(wide.lines().skip(1)) {
+                    let c: Vec<&str> = row.split(',').collect();
+                    let (x, y): (f64, f64) = (c[5].parse().unwrap_or(f64::NAN), c[6].parse().unwrap_or(f64::NAN));
+                    let near = |a: f64, b: f64| (a - b).abs() <= 1e-6 * b.abs().max(1.0);
+                    let at = f.parts.first().is_some_and(|q| near(q[0], x) && near(q[1], y));
+                    let values = c[9..].iter().zip(&f.values[f.values.len() + 9 - c.len()..]).all(|(a, b)| {
+                        a.is_empty() && b.is_empty()
+                            || a.parse::<f64>().ok().zip(b.parse::<f64>().ok()).is_some_and(|(p, q)| near(q, p))
+                    });
+                    bad += usize::from(!at || !values);
+                }
+                println!(
+                    "    the samples as points (a shapefile): {} points, {bad} unlike the wide rows",
+                    pts.features.len()
+                );
+                if pts.features.len() != wide_rows || bad > 0 {
+                    return fail("a point per sample, at its place, with its values");
                 }
                 // the first line's samples: the transect's along it
                 let li = self.vector_index(t(|x| x.line_layer)?)?;

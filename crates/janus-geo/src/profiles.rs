@@ -436,6 +436,97 @@ impl Profiles {
         out
     }
 
+    /// The samples on the grid as points in the series' CRS (`crs_wkt`), a GeoPackage, shapefile or GeoJSON by
+    /// `path`'s extension: the line's FID and fields, its part, the sample, its distance, its pixel and a column per
+    /// date (the wide table's rows). A shapefile's names cut to 10 characters by GDAL, at most 255 columns. The
+    /// points written.
+    pub fn write_points(&self, path: &str, crs_wkt: &str) -> Result<usize, String> {
+        use gdal::vector::{FieldDefn, Geometry, LayerAccess, LayerOptions, OGRFieldType, OGRwkbGeometryType};
+        let (driver, layer_options) = crate::polygon_file::vector_driver(path)?;
+        let columns = 7 + self.field_names.len() + self.labels.len();
+        if driver == "ESRI Shapefile" && columns > 255 {
+            return Err(format!("{columns} columns: past a shapefile's 255 (a GeoPackage has no such limit)"));
+        }
+        crate::vectors::register();
+        let drv = gdal::DriverManager::get_driver_by_name(driver).map_err(|e| e.to_string())?;
+        let srs = (!crs_wkt.is_empty()).then(|| crate::reproject::srs(crs_wkt)).flatten();
+        let name =
+            std::path::Path::new(path).file_stem().map_or("profiles".into(), |s| s.to_string_lossy().into_owned());
+        let mut ds = drv.create_vector_only(path).map_err(|e| format!("cannot create {path}: {e}"))?;
+        let fill = |ds: &mut gdal::Dataset| -> Result<usize, String> {
+            let l = ds
+                .create_layer(LayerOptions {
+                    name: &name,
+                    srs: srs.as_ref(),
+                    ty: OGRwkbGeometryType::wkbPoint,
+                    options: Some(layer_options),
+                })
+                .map_err(|e| format!("cannot write {path}: {e}"))?;
+            let mut defs: Vec<(String, OGRFieldType::Type)> = vec![("fid_line".into(), OGRFieldType::OFTInteger64)];
+            defs.extend(self.field_names.iter().map(|f| (f.clone(), OGRFieldType::OFTString)));
+            for (n, t) in [
+                ("part", OGRFieldType::OFTInteger),
+                ("sample", OGRFieldType::OFTInteger),
+                (self.distance_name().as_str(), OGRFieldType::OFTReal),
+                ("col", OGRFieldType::OFTInteger64),
+                ("row", OGRFieldType::OFTInteger64),
+            ] {
+                defs.push((n.to_string(), t));
+            }
+            defs.extend(self.labels.iter().map(|d| (d.clone(), OGRFieldType::OFTReal)));
+            for (n, t) in &defs {
+                FieldDefn::new(n, *t).and_then(|d| d.add_to_layer(&l)).map_err(|e| format!("{n}: {e}"))?;
+            }
+            let nf = self.field_names.len();
+            let mut written = 0;
+            for (li, line) in self.lines.iter().enumerate() {
+                let n = line.s.n;
+                for i in (0..n).filter(|&i| line.s.px[i] >= 0) {
+                    let [cx, cy] = line.s.at[i];
+                    let (x, y) = match self.gt {
+                        Some(g) => (g[0] + cx * g[1] + cy * g[2], g[3] + cx * g[4] + cy * g[5]),
+                        None => (cx, cy),
+                    };
+                    let mut g = Geometry::empty(OGRwkbGeometryType::wkbPoint).map_err(|e| e.to_string())?;
+                    g.add_point_2d((x, y));
+                    let mut f = gdal::vector::Feature::new(l.defn()).map_err(|e| e.to_string())?;
+                    f.set_geometry(g).map_err(|e| e.to_string())?;
+                    let e = |r: gdal::errors::Result<()>| r.map_err(|e| e.to_string());
+                    e(f.set_field_integer64(0, line.fid))?;
+                    if let Some(a) = self.attrs.get(line.feature) {
+                        for (k, v) in a.iter().enumerate().take(nf) {
+                            e(f.set_field_string(1 + k, v))?;
+                        }
+                    }
+                    e(f.set_field_integer(1 + nf, line.part as i32))?;
+                    e(f.set_field_integer(2 + nf, i as i32))?;
+                    e(f.set_field_double(3 + nf, line.s.distance(i)))?;
+                    e(f.set_field_integer64(4 + nf, line.s.px[i]))?;
+                    e(f.set_field_integer64(5 + nf, line.s.py[i]))?;
+                    for k in 0..self.labels.len() {
+                        let v = self.values[li][k * n + i];
+                        if v.is_finite() {
+                            e(f.set_field_double(6 + nf + k, f64::from(v)))?;
+                        }
+                    }
+                    f.create(&l).map_err(|e| format!("cannot write {path}: {e}"))?;
+                    written += 1;
+                }
+            }
+            Ok(written)
+        };
+        let written = if driver == "GPKG" {
+            let mut tx = ds.start_transaction().map_err(|e| e.to_string())?;
+            let n = fill(&mut tx)?;
+            tx.commit().map_err(|e| format!("cannot write {path}: {e}"))?;
+            n
+        } else {
+            fill(&mut ds)?
+        };
+        ds.close().map_err(|e| format!("cannot write {path}: {e}"))?;
+        Ok(written)
+    }
+
     /// Samples on the grid, over every line.
     pub fn samples(&self) -> usize {
         self.lines.iter().map(|l| l.s.inside).sum()
@@ -541,6 +632,24 @@ mod tests {
         let wide = p.wide_csv();
         assert_eq!(wide.lines().next().unwrap(), "fid,name,part,sample,distance_m,x,y,col,row,2001,2003");
         assert_eq!(wide.lines().count(), 1 + p.samples());
+        // the samples as points: a GeoPackage and a shapefile, the wide table's rows
+        for name in ["points.gpkg", "points.shp"] {
+            let path = d.join(name).to_string_lossy().into_owned();
+            assert_eq!(p.write_points(&path, &info.crs_wkt).unwrap(), p.samples(), "{name}");
+            let pts = &load_vector_file(&path, 1_000_000).unwrap()[0];
+            assert_eq!(pts.features.len(), p.samples(), "{name}");
+            assert_eq!(pts.crs_name, "EPSG:32723", "{name}");
+            let f = &pts.features[0];
+            assert_eq!(f.kind, Kind::Point);
+            assert_eq!((f.parts[0][0], f.parts[0][1]), (500309.0, 7599919.0), "{name}");
+            let n = pts.fields.len();
+            assert_eq!(&f.values[..3], ["0", "a", "0"], "{name}: {:?}", pts.fields);
+            let first: Vec<&str> = wide.lines().nth(1).unwrap().split(',').collect();
+            for (k, v) in f.values[n - 2..].iter().enumerate() {
+                let want: f64 = first[first.len() - 2 + k].parse().unwrap();
+                assert_eq!(v.parse::<f64>().unwrap(), want, "{name}");
+            }
+        }
         // cancelled
         let c = AtomicBool::new(true);
         assert_eq!(profiles(v, &info, None, &opts, &|_| {}, &c).unwrap_err(), "cancelled");

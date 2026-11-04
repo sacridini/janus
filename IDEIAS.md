@@ -1998,6 +1998,17 @@ validação a trata como intervalos, Pixel values mostra "2.5 years", Zonal a
 trata como valores. Pixel values mostra um ano decimal como a data
 (2019-07-02), não arredondado ao ano.
 
+**ROI e perfis em shapefile (2026-11-04, sem versão).** *Save ROI as vector...*
+grava também `.shp` (texto em UTF-8; `polygon_file::vector_driver` escolhe o
+driver pela extensão e apaga os arquivos irmãos antes). *Profiles of every
+line...* ganhou "Points": as amostras como pontos no CRS da série, em
+GeoPackage (numa transação) ou shapefile (nomes cortados a 10 letras pelo GDAL,
+no máximo 255 colunas), as linhas da tabela larga: `fid_line`, campos, `part`,
+`sample`, distância, `col`, `row` e uma coluna por data
+(`Profiles::write_points`). Testes: o polígono relido do shapefile dá os
+mesmos pixels (os anéis voltam girados); no autoteste a ROI em shapefile dá os
+mesmos 3609 pixels e os 502 pontos dos perfis batem com a tabela larga.
+
 **O que ficou para trás:**
 - Alertas: o tour de validação precisa do MapBiomas, que respondeu 403 em
   2026-11-04 (o make_tutorial_data.py segue sem ele).
@@ -2017,8 +2028,7 @@ trata como valores. Pixel values mostra um ano decimal como a data
   testar um WMTS ao vivo e a reabertura de um projeto com camadas web,
   GetFeatureInfo, zoom para a extensão de um mapa, a auditoria de layout do
   diálogo novo.
-- ROI e perfis: saída em shapefile; o tempo no build release sobre os dados do
-  guia.
+- ROI e perfis: o tempo no build release sobre os dados do guia.
 - Publicado como 1.12.1 (a tag v1.12.0 falhou na CI e ficou sem release); os
   alertas oficiais, as linhas sem brilhos, o zoom (vetores e 1024), a dica da
   calculadora, as barras de título finas e o histórico em Python saem na 1.13.0.
