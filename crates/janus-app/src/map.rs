@@ -12,14 +12,15 @@ use crate::display::range_label;
 use crate::theme;
 use janus_cube::multidim::format_g;
 
-/// The closest zoom: screen points per source pixel (the C++'s 64; four times that, to look at a pixel's
-/// neighbours closely).
-pub(crate) const MAX_ZOOM: f64 = 256.0;
+/// The closest zoom: screen points per source pixel (the C++'s 64; 256 was still a pixel too small on screen to
+/// look at it and what lies over it, as in a GIS).
+pub(crate) const MAX_ZOOM: f64 = 1024.0;
 
 /// Vector layers alone go this many times closer: their canvas' pixels are a 2048th of their extent (4.5 km over
-/// Europe: 18 m a screen point at MAX_ZOOM), not data. 32 times keeps a feature as wide as the whole layer within
-/// half a screen point (its points are float32 relative to its piece's centre: vector_gpu.rs).
-pub(crate) const VECTORS_ALONE_ZOOM: f64 = 32.0;
+/// Europe: 4.5 m a screen point at MAX_ZOOM), not data. 8 times (8192 points a canvas pixel) keeps a feature as wide
+/// as the whole layer within half a screen point (its points are float32 relative to its piece's centre:
+/// vector_gpu.rs).
+pub(crate) const VECTORS_ALONE_ZOOM: f64 = 8.0;
 
 impl State {
     /// How much closer than MAX_ZOOM the map goes (vector layers alone: VECTORS_ALONE_ZOOM).
