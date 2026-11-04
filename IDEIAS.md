@@ -1985,8 +1985,8 @@ run...". No autoteste e nas capturas o histórico vai para um arquivo temporári
   zonal, regularize, a calculadora nos casos simples, build da série); hoje elas
   entram "como dados".
 - Publicado como 1.12.1 (a tag v1.12.0 falhou na CI e ficou sem release); os
-  alertas, as linhas e o zoom de vetores (2b3bf59) estão na main do GitHub; o
-  zoom 1024 (45c5833) e o histórico em Python, só na main local.
+  alertas oficiais, as linhas sem brilhos, o zoom (vetores e 1024), a dica da
+  calculadora, as barras de título finas e o histórico em Python saem na 1.13.0.
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).
