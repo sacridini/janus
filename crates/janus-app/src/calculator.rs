@@ -290,9 +290,8 @@ impl CalcUi {
         if let Ok(s) = std::fs::read_to_string(saved_path())
             && let Ok(v) = serde_json::from_str::<Saved>(&s)
         {
-            if self.text.is_empty() {
-                self.text = v.text.clone();
-            }
+            // the editor opens empty, its example a hint that goes as one types (not the last expression as text,
+            // which is in the history)
             self.saved = v;
         }
     }
@@ -577,7 +576,7 @@ impl State {
         self.calc.load();
         let mut open = true;
         let max_h = (ctx.content_rect().height() - 60.0).max(300.0);
-        egui::Window::new("Raster calculator")
+        crate::panels::window("Raster calculator", ctx)
             .id(egui::Id::new("calculator window"))
             .open(&mut open)
             .resizable(true)
@@ -842,9 +841,14 @@ impl State {
                     .desired_width(f32::INFINITY)
                     .min_size(vec2(0.0, height - 4.0))
                     .margin(egui::Margin { left: gutter as i8, right: 6, top: 6, bottom: 6 })
+                    // a hint, not text: dim and in italics, gone at the first key
                     .hint_text(
-                        "An expression over the layers, e.g.\n  (s2.nir - s2.red) / (s2.nir + s2.red)\n  \
-                         ndvi = nd(N, R)\n  max(ndvi)\nCtrl+Space completes, Ctrl+Enter runs.",
+                        egui::RichText::new(
+                            "An expression over the layers, e.g.\n  (s2.nir - s2.red) / (s2.nir + s2.red)\n  \
+                             ndvi = nd(N, R)\n  max(ndvi)\nCtrl+Space completes, Ctrl+Enter runs.",
+                        )
+                        .italics()
+                        .color(theme::weak_text().gamma_multiply(0.8)),
                     )
                     .layouter(&mut layouter)
                     .show(ui)

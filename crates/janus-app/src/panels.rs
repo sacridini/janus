@@ -12,6 +12,16 @@ use crate::display::{MODE_ORDER, mode_name_of, range_label};
 use crate::theme;
 
 /// A section's title with a line after it (ImGui's SeparatorText).
+/// A window of Janus: its title bar thin (egui's has the window's margin above and below the title: 12 points
+/// each in the modern interface, a bar about twice the text's height).
+pub(crate) fn window<'a>(title: impl Into<egui::WidgetText>, ctx: &egui::Context) -> egui::Window<'a> {
+    let style = ctx.global_style();
+    let m = style.spacing.window_margin;
+    let bar =
+        egui::Frame::window(&style).inner_margin(egui::Margin { left: m.left, right: m.right, top: 3, bottom: 3 });
+    egui::Window::new(title).title_frame(bar)
+}
+
 /// A window whose height follows its content (what a search or a choice adds below grows it, and it shrinks back),
 /// up to the screen's; past that its content scrolls. The width stays the user's to change. Its content goes in
 /// `fitted_body`.
@@ -21,7 +31,7 @@ pub(crate) fn fitted_window<'a>(
     width: f32,
 ) -> egui::Window<'a> {
     let max_h = fitted_height(ctx);
-    egui::Window::new(title).resizable([true, false]).default_width(width).default_height(max_h).max_height(max_h)
+    window(title, ctx).resizable([true, false]).default_width(width).default_height(max_h).max_height(max_h)
 }
 
 /// The tallest a fitted window can be: the screen less the menu bar and a gap at the bottom (the window's own

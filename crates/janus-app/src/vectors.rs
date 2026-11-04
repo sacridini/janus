@@ -697,15 +697,16 @@ impl State {
         if a[0].is_nan() {
             return;
         }
+        let k = self.zoom_factor();
         let m = &mut self.map;
         let c = if m.canvas[0] > 0.0 { m.canvas } else { [800.0, 600.0] };
         // screen points per active pixel
-        let mut s = (m.scale / g.fx).max(min_scale.min(crate::map::MAX_ZOOM * g.ow / g.w / g.fx));
+        let mut s = (m.scale / g.fx).max(min_scale.min(crate::map::MAX_ZOOM * k * g.ow / g.w / g.fx));
         let b = v.boxes[i];
         let mid = if v.data.features[i].kind != Kind::Point && b[0] <= b[2] {
             let fit = 0.8
-                * (f64::from(c[0]) / f64::from((b[2] - b[0]).max(1.0)))
-                    .min(f64::from(c[1]) / f64::from((b[3] - b[1]).max(1.0)));
+                * (f64::from(c[0]) / f64::from(b[2] - b[0]).max(1.0 / k))
+                    .min(f64::from(c[1]) / f64::from(b[3] - b[1]).max(1.0 / k));
             s = s.min(fit).max(0.01);
             [f64::from(b[0] + b[2]) * 0.5, f64::from(b[1] + b[3]) * 0.5]
         } else {
@@ -723,13 +724,15 @@ impl State {
         for x in v.boxes.iter().filter(|x| x[0] <= x[2]) {
             b = [b[0].min(x[0].into()), b[1].min(x[1].into()), b[2].max(x[2].into()), b[3].max(x[3].into())];
         }
+        let k = self.zoom_factor();
         let m = &mut self.map;
         if b[0] > b[2] || m.canvas[0] <= 0.0 {
             return;
         }
         let s = (0.9
-            * (f64::from(m.canvas[0]) / (b[2] - b[0]).max(1.0)).min(f64::from(m.canvas[1]) / (b[3] - b[1]).max(1.0)))
-        .clamp(0.01, crate::map::MAX_ZOOM);
+            * (f64::from(m.canvas[0]) / (b[2] - b[0]).max(1.0 / k))
+                .min(f64::from(m.canvas[1]) / (b[3] - b[1]).max(1.0 / k)))
+        .clamp(0.01, crate::map::MAX_ZOOM * k);
         m.set_view([(b[0] + b[2]) * 0.5 / g.fx, (b[1] + b[3]) * 0.5 / g.fy], s * g.fx);
         m.touched = true;
     }

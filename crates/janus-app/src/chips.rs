@@ -196,7 +196,10 @@ impl State {
             return;
         }
         let mut open = true;
-        egui::Window::new("Chips").open(&mut open).default_size([560.0, 460.0]).show(ctx, |ui| self.chips_ui(ui));
+        crate::panels::window("Chips", ctx)
+            .open(&mut open)
+            .default_size([560.0, 460.0])
+            .show(ctx, |ui| self.chips_ui(ui));
         if !open {
             self.val.show_chips = false;
         }

@@ -317,12 +317,15 @@ impl State {
         let Some(g) = self.grid() else { return };
         let Some(b) = self.vectors.get(li).and_then(|v| v.boxes.get(i)).filter(|b| b[0] <= b[2]) else { return };
         let b = b.map(f64::from);
+        // vector layers alone: their canvas' pixels are coarse (map.rs: VECTORS_ALONE_ZOOM)
+        let k = self.zoom_factor();
         let m = &mut self.map;
         if m.canvas[0] <= 0.0 {
             return;
         }
-        let (w, h) = ((b[2] - b[0]).max(40.0), (b[3] - b[1]).max(40.0));
-        let s = (0.8 * (f64::from(m.canvas[0]) / w).min(f64::from(m.canvas[1]) / h)).clamp(0.01, crate::map::MAX_ZOOM);
+        let (w, h) = ((b[2] - b[0]).max(40.0 / k), (b[3] - b[1]).max(40.0 / k));
+        let s =
+            (0.8 * (f64::from(m.canvas[0]) / w).min(f64::from(m.canvas[1]) / h)).clamp(0.01, crate::map::MAX_ZOOM * k);
         m.set_view([(b[0] + b[2]) * 0.5 / g.fx, (b[1] + b[3]) * 0.5 / g.fy], s * g.fx);
         m.touched = true;
         m.dirty = true;

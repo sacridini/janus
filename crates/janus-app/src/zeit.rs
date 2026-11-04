@@ -2394,7 +2394,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
         let mut open = true;
-        egui::Window::new("Log").open(&mut open).default_size([720.0, 400.0]).show(ctx, |ui| {
+        crate::panels::window("Log", ctx).open(&mut open).default_size([720.0, 400.0]).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 let preview = sources.iter().find(|s| s.1 == v.path).map_or("", |s| s.0.as_str());
                 egui::ComboBox::from_id_salt("log-source")

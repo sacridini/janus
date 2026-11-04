@@ -348,7 +348,7 @@ impl State {
         let mut open = true;
         let mut go = false;
         let preview = self.goto_preview();
-        egui::Window::new("Go to")
+        crate::panels::window("Go to", ctx)
             .open(&mut open)
             .collapsible(false)
             .resizable(false)

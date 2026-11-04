@@ -16,6 +16,18 @@ use janus_cube::multidim::format_g;
 /// neighbours closely).
 pub(crate) const MAX_ZOOM: f64 = 256.0;
 
+/// Vector layers alone go this many times closer: their canvas' pixels are a 2048th of their extent (4.5 km over
+/// Europe: 18 m a screen point at MAX_ZOOM), not data. 32 times keeps a feature as wide as the whole layer within
+/// half a screen point (its points are float32 relative to its piece's centre: vector_gpu.rs).
+pub(crate) const VECTORS_ALONE_ZOOM: f64 = 32.0;
+
+impl State {
+    /// How much closer than MAX_ZOOM the map goes (vector layers alone: VECTORS_ALONE_ZOOM).
+    pub(crate) fn zoom_factor(&self) -> f64 {
+        if self.vectors_only() { VECTORS_ALONE_ZOOM } else { 1.0 }
+    }
+}
+
 /// The C++'s wheel zoom: an exponential approach with this time constant (s).
 const ZOOM_TAU: f64 = 0.06;
 
@@ -194,7 +206,7 @@ impl State {
         // the map goes as far as the CRS's area of use and every layer, not only the image
         let ext = self.map_extent(&g);
         // and as close as the finest visible layer's pixels allow (a coarser active layer held the zoom back)
-        let finest = self.finest_layer(self.map.center[0] * fx, self.map.center[1] * fy);
+        let finest = self.finest_layer(self.map.center[0] * fx, self.map.center[1] * fy) * self.zoom_factor();
         // the lens: Alt + wheel sizes it, Ctrl + wheel steps its date (views.rs: swipe_input), not the map's zoom
         let lens = main && self.swipe.as_ref().is_some_and(|s| s.lens);
         let m = &mut self.map;

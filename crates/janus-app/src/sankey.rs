@@ -234,7 +234,7 @@ impl State {
         }
         let mut open = true;
         let screen = ctx.content_rect();
-        egui::Window::new("Class flows")
+        crate::panels::window("Class flows", ctx)
             .id(egui::Id::new("class flows window"))
             .open(&mut open)
             .resizable(true)

@@ -242,7 +242,7 @@ impl State {
             return;
         }
         let mut open = true;
-        egui::Window::new("Janus updates")
+        crate::panels::window("Janus updates", ctx)
             .open(&mut open)
             .collapsible(false)
             .resizable(false)

@@ -367,7 +367,7 @@ impl State {
         let mut open = true;
         let (mut again, mut copy) = (false, false);
         let copied = self.prov.copied.is_some_and(|t| t.elapsed().as_secs_f64() < 2.0);
-        egui::Window::new("Provenance").open(&mut open).default_width(560.0).show(ctx, |ui| {
+        crate::panels::window("Provenance", ctx).open(&mut open).default_width(560.0).show(ctx, |ui| {
             let title = if p.tool_name.is_empty() { &p.tool } else { &p.tool_name };
             ui.heading(title);
             let state = match p.state.as_str() {
