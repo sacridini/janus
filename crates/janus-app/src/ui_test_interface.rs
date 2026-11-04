@@ -23,67 +23,6 @@ use crate::app::State;
 use crate::contents::Sel;
 use crate::zeit::{Job, JobState, JobStatus};
 
-/// A run of Janus' own tool (`dir`, its files `outputs`): in the Python history with its script, and that script
-/// (rerun.py, when a Python with GDAL's bindings is there: JANUS_GDAL_PYTHON names one, else JANUS_PYTHON) writing
-/// the same files in the run's `python` folder, pixel for pixel. Err: what differs.
-fn check_run_script(state: &State, dir: &std::path::Path, outputs: &[String]) -> Result<String, String> {
-    let e = state
-        .history
-        .entries
-        .iter()
-        .rev()
-        .find(|e| std::path::Path::new(&e.dir) == dir)
-        .ok_or("the run should be in the Python history")?;
-    if !e.script || !e.code.contains("gdal.UseExceptions()") {
-        return Err("the run's history entry should hold its script".into());
-    }
-    let python = std::env::var("JANUS_GDAL_PYTHON")
-        .or_else(|_| std::env::var("JANUS_PYTHON"))
-        .unwrap_or_else(|_| "python".into());
-    let has = std::process::Command::new(&python)
-        .args(["-c", "from osgeo import gdal, ogr, osr"])
-        .output()
-        .is_ok_and(|o| o.status.success());
-    if !has {
-        return Ok("rerun.py not run (no Python with GDAL's bindings; JANUS_GDAL_PYTHON names one)".into());
-    }
-    let out = std::process::Command::new(&python)
-        .arg(dir.join(crate::provenance::SCRIPT))
-        .env("GDAL_NUM_THREADS", "2")
-        .output()
-        .map_err(|e| format!("{python}: {e}"))?;
-    if !out.status.success() {
-        return Err(format!("rerun.py failed:\n{}", String::from_utf8_lossy(&out.stderr)));
-    }
-    let read = |path: &std::path::Path| -> Result<(usize, usize, Vec<f64>, [f64; 6]), String> {
-        let d = gdal::Dataset::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let (w, h) = d.raster_size();
-        let mut v = vec![];
-        for b in 1..=d.raster_count() {
-            let band = d.rasterband(b).map_err(|e| e.to_string())?;
-            v.extend(
-                band.read_as::<f64>((0, 0), (w, h), (w, h), None).map_err(|e| e.to_string())?.data().iter().copied(),
-            );
-        }
-        Ok((w, h, v, d.geo_transform().unwrap_or_default()))
-    };
-    let mut pixels = 0;
-    for o in outputs {
-        let ours = std::path::Path::new(o);
-        let theirs = dir.join("python").join(ours.file_name().ok_or("an output without a name")?);
-        let (a, b) = (read(ours)?, read(&theirs)?);
-        if (a.0, a.1, a.3) != (b.0, b.1, b.3) {
-            return Err(format!("{}: another grid from rerun.py", theirs.display()));
-        }
-        let differ = a.2.iter().zip(&b.2).filter(|(x, y)| x != y && !(x.is_nan() && y.is_nan())).count();
-        if differ > 0 {
-            return Err(format!("{}: {differ} pixels differ from Janus'", theirs.display()));
-        }
-        pixels += a.2.len();
-    }
-    Ok(format!("rerun.py run: its {} file(s) equal Janus', {pixels} values", outputs.len()))
-}
-
 /// A task of the Tasks window for the notices' test: running, `seconds` long once ended.
 fn fake_job(title: &str) -> Job {
     Job {
@@ -1130,6 +1069,13 @@ impl State {
                 if self.layers[self.active].name == "Two years" {
                     return fail("the series studied should stay active");
                 }
+                // its Python: the same medians from the files
+                let files: Vec<String> = reg.layers.iter().map(|l| l.path.clone()).collect();
+                let dir = std::path::Path::new(files.first()?).parent()?.to_path_buf();
+                match super::scripts_check::check_run_script(self, &dir, &files, 0.0) {
+                    Ok(m) => println!("    {m}"),
+                    Err(e) => return fail(&e),
+                }
                 self.remove_layer(k, ctx);
                 next(st, "regularized: a date per period, each the median of its dates");
                 None
@@ -1210,6 +1156,12 @@ impl State {
                     "    {}: {n} polygons ({named} with a class name), {pixels} px, {area:.2} ha, the smallest {least} px",
                     self.vectors[k].name
                 );
+                // its Python: the same polygons, measures and columns
+                let dir = std::path::Path::new(&gpkg).parent()?.to_path_buf();
+                match super::scripts_check::check_run_script(self, &dir, std::slice::from_ref(&gpkg), 0.0) {
+                    Ok(m) => println!("    {m}"),
+                    Err(e) => return fail(&e),
+                }
                 if st.stage == 205 {
                     if n != patches || pixels != all {
                         return fail(&format!("{patches} patches of {all} px expected"));
@@ -1354,7 +1306,7 @@ impl State {
                     let dir = std::path::Path::new(&files[0]).parent()?.to_path_buf();
                     let mut unique = files.clone();
                     unique.dedup();
-                    match check_run_script(self, &dir, &unique) {
+                    match super::scripts_check::check_run_script(self, &dir, &unique, 0.0) {
                         Ok(m) => println!("    {m}"),
                         Err(e) => return fail(&e),
                     }
@@ -1432,7 +1384,7 @@ impl State {
                     }
                     let tif = out.layers[0].path.clone();
                     let dir = std::path::Path::new(&tif).parent()?.to_path_buf();
-                    match check_run_script(self, &dir, &[tif]) {
+                    match super::scripts_check::check_run_script(self, &dir, &[tif], 0.0) {
                         Ok(m) => println!("    {m}"),
                         Err(e) => return fail(&e),
                     }
@@ -1456,7 +1408,7 @@ impl State {
                     }
                     let tif = out.layers[0].path.clone();
                     let dir = std::path::Path::new(&tif).parent()?.to_path_buf();
-                    match check_run_script(self, &dir, &[tif]) {
+                    match super::scripts_check::check_run_script(self, &dir, &[tif], 0.0) {
                         Ok(m) => println!("    classes: {m}"),
                         Err(e) => return fail(&e),
                     }
@@ -1534,6 +1486,18 @@ impl State {
                     return fail(
                         "each patch one class at its date, every pixel in the transitions, a column a class and date",
                     );
+                }
+                // its Python: the same tables
+                let dir = out.to_path_buf();
+                let csvs: Vec<String> = ["zonal_long.csv", "zonal_wide.csv", "transitions.csv"]
+                    .iter()
+                    .map(|f| dir.join(f))
+                    .filter(|p| p.exists())
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect();
+                match super::scripts_check::check_run_script(self, &dir, &csvs, 0.0) {
+                    Ok(m) => println!("    {m}"),
+                    Err(e) => return fail(&e),
                 }
                 let out_layer = opened.map(|v| v.id);
                 for path in [
@@ -1623,6 +1587,14 @@ impl State {
                     self.build_plan_start(files);
                     next(st, "the NetCDF opened back: the land cover's dates and values");
                 } else {
+                    // its Python: the same VRTs through gdal.BuildVRT
+                    let mut files: Vec<String> = b.layers.iter().map(|l| l.path.clone()).collect();
+                    files.dedup();
+                    let dir = std::path::Path::new(files.first()?).parent()?.to_path_buf();
+                    match super::scripts_check::check_run_script(self, &dir, &files, 0.0) {
+                        Ok(m) => println!("    {m}"),
+                        Err(e) => return fail(&e),
+                    }
                     self.build.show = false;
                     self.save.show = false;
                     if let Some(dir) = st.texts.get(1) {
@@ -2476,7 +2448,41 @@ impl State {
                     return fail("Janus's reader should give GDAL's values, bit for bit");
                 }
                 self.remove_layer(k, ctx);
+                // a simple expression (no reduction over time): its Python in the history computes it in numpy
+                let (ls, at) = self.calc_layers();
+                let a = at
+                    .iter()
+                    .position(|&i| i == self.active)
+                    .filter(|&k| ls[k].info.t() > 1)
+                    .or_else(|| (0..ls.len()).find(|&k| ls[k].info.t() > 1))
+                    .map(|k| ls[k].alias.clone())?;
+                self.calc.text = format!("({a} - 0.5) * 2 + where({a} > 0.2, 1, 0)");
+                self.calc.out_name = "Simple calc".into();
+                self.calc.cog = false;
+                self.calc_run(ctx);
                 next(st, "the calculator's result read by Janus: GDAL's values, bit for bit");
+                None
+            }
+            252 => {
+                let Some(k) = self.layers.iter().position(|l| l.name == "Simple calc") else {
+                    if self.emb_downloads.iter().any(|d| d.status.lock().unwrap().state == JobState::Failed) {
+                        return fail("the calculator failed (Tools > Tasks > Log)");
+                    }
+                    return None;
+                };
+                if self.opening.is_some() || !super::loaded(self.layer_session(k)) {
+                    return None;
+                }
+                let info = self.layer_session(k)?.info.clone();
+                let mut files: Vec<String> = info.layers.iter().map(|l| l.path.clone()).collect();
+                files.dedup();
+                let dir = std::path::Path::new(files.first()?).parent()?.to_path_buf();
+                match super::scripts_check::check_run_script(self, &dir, &files, 1e-5) {
+                    Ok(m) => println!("    {m}"),
+                    Err(e) => return fail(&e),
+                }
+                self.remove_layer(k, ctx);
+                next(st, "a simple expression's Python: its dates as Janus' VRTs, in numpy");
                 st.stage = 260;
                 None
             }

@@ -297,6 +297,8 @@ impl State {
                 p.params.insert(k.into(), v);
             }
             p.python_note = "zeit.regularize_time_series(cube, freq, method) for the median and the medoid".into();
+            let code = crate::scripts::regularize(&info, &opts, &folder);
+            crate::scripts::attach(&folder, &mut p, code);
             self.begin_provenance(&folder, p);
         }
         let status = Arc::new(Mutex::new(JobStatus {

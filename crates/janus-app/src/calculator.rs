@@ -1433,6 +1433,11 @@ impl State {
             }
             prov.scope = if n_dates > 1 { format!("{n_dates} dates") } else { "an image".into() };
             prov.python_note = "the calculator's VRTs hold its expression (their pixel function): no Python".into();
+            // its Python in the simple cases (no reduction over time, every layer on the result's grid)
+            if let Some(code) = crate::scripts::calculator(&text, &p, &layers, &opts, &folder) {
+                prov.python_note = String::new();
+                crate::scripts::attach(&folder, &mut prov, code);
+            }
             self.begin_provenance(&folder, prov);
         }
         let status = Arc::new(Mutex::new(JobStatus {

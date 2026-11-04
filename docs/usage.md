@@ -695,8 +695,10 @@ Each tool window has:
   Python history's editor: a Zeit tool's `rerun.py` reads the series over the
   run's window from its files, makes the same Zeit calls with the same
   parameters and writes every map they return as a GeoTIFF, numpy, rasterio,
-  xarray and zeit-cdts; Reproject, resample, clip and Rasterize have a
-  `rerun.py` of GDAL's Python too) and **Open folder**.
+  xarray and zeit-cdts; Reproject, resample, clip, Rasterize, Polygonize,
+  Zonal statistics, Regularize, Build series and the calculator's simple
+  expressions have a `rerun.py` too, see [Python history](#python-history))
+  and **Open folder**.
 
 ### Python history
 
@@ -715,9 +717,22 @@ series and scope, the run's folder and files). Then it has one of two kinds of c
   reads the series over the run's window and makes the same Zeit calls with
   the same parameters. Reproject, resample, clip calls `gdal.Warp` with the
   same gdalwarp options, file by file. Rasterize burns the same features with
-  the same values on the same grid through `gdal.RasterizeLayer`. Each script
+  the same values on the same grid through `gdal.RasterizeLayer`. Polygonize
+  traces the same polygons with `rasterio.features.shapes` (the same
+  simplification, the minimum area through Zeit's sieve) and measures their
+  geodesic areas and perimeters with pyproj, into a GeoPackage of the same
+  columns. Zonal statistics burns each feature alone and writes the same long
+  and wide tables (and the transitions), pixel areas as Janus measures them.
+  Regularize reads the series as Janus does and makes the same composites
+  (median, medoid; clearest date approximately) and fills (linear, Whittaker)
+  in numpy. Build series calls `gdal.BuildVRT` (and `gdal.Translate` for COGs)
+  with the same grid. The calculator's expressions without reductions over
+  time or stages, on layers of the same grid, read the inputs as Janus' VRTs
+  read them and compute the expression in numpy, date by date. Each script
   writes its files in a `python` folder of the run, and the UI self-test checks
-  that they equal Janus' own, pixel for pixel.
+  that they equal Janus' own (rasters value for value, GeoPackages feature for
+  feature, tables cell for cell; the calculator within 1e-5, as Janus computes
+  in float32).
 - **The run as data** (*as data* in the list), for the tools that have no
   script yet: the parameters, inputs, window and outputs as Python values,
   with the equivalent command when there is one.

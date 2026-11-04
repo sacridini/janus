@@ -121,7 +121,7 @@ fn band_names(keys: &[String]) -> Vec<String> {
 }
 
 /// A Sentinel-2 band's central wavelength (nm, Sentinel-2A's) by its name, for the indices of a series built.
-fn sentinel2_nm(name: &str) -> Option<f64> {
+pub fn sentinel2_nm(name: &str) -> Option<f64> {
     let nm = match name.to_ascii_uppercase().as_str() {
         "B01" | "B1" => 442.7,
         "B02" | "B2" => 492.4,

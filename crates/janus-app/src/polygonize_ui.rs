@@ -257,6 +257,8 @@ impl State {
                 p.params.insert(k.into(), v);
             }
             p.python_note = "gdal_polygonize / rasterio.features.shapes, then the areas with pyproj's Geod".into();
+            let code = crate::scripts::polygonize(&src.path, &opts, &format!("{stem}.gpkg"), &folder);
+            crate::scripts::attach(&folder, &mut p, code);
             self.begin_provenance(&folder, p);
         }
         let status = Arc::new(Mutex::new(JobStatus {

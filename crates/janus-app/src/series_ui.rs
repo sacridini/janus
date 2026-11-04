@@ -247,6 +247,8 @@ impl State {
                 pr.params.insert(k.into(), v);
             }
             pr.python_note = "gdalbuildvrt -separate -te -tr per date (gdal.BuildVRT)".into();
+            let code = crate::scripts::build_series(&p, &stem, format, &folder);
+            crate::scripts::attach(&folder, &mut pr, code);
             self.begin_provenance(&folder, pr);
         }
         let status = running();

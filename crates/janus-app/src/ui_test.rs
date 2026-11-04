@@ -24,6 +24,8 @@ mod interface;
 mod misc;
 #[path = "ui_test_roi.rs"]
 mod roi;
+#[path = "ui_test_scripts.rs"]
+mod scripts_check;
 #[path = "ui_test_validation.rs"]
 mod validation;
 #[path = "ui_test_vector_draw.rs"]

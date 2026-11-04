@@ -1958,6 +1958,30 @@ cursor saiu, ele muda ao mover o mouse), o da validação (zeit.accuracy, aba
 Report) e o das transições; "Copy Python of the run" virou "Python of the
 run...". No autoteste e nas capturas o histórico vai para um arquivo temporário.
 
+**Mais scripts no histórico em Python (2026-11-04, sem versão).** Scripts de
+verdade (scripts.rs) também para Polygonize (`rasterio.features.shapes` sobre os
+códigos inteiros, simplificação do shapely com topologia, o sieve do Zeit só com
+área mínima, área e perímetro geodésicos do pyproj, pixels e médias por
+bincount; GeoPackage com as mesmas colunas), Zonal statistics (cada feição
+queimada sozinha por `gdal.RasterizeLayer` na sua extensão, estatísticas em
+float32 com somas sequenciais e o percentil linear do Janus, a área dos pixels
+como a PixelAreas: nós a cada ≤129 × 129 com a área geodésica do OGR,
+interpolada; os mesmos CSVs longo, largo e de transições), Regularize (lê a
+série pelo `series_code`, mediana por nanmedian, medoide com a mesma soma banda
+a banda e o primeiro argmin, a data mais limpa por uma classificação em tamanho
+reduzido que pode diferir; preenchimento linear e um porte numpy do
+`whittaker::smooth_into` com as mesmas operações na mesma ordem; os períodos
+calculados no Rust), a calculadora quando não há estágios nem reduções no tempo
+e todas as camadas estão na mesma grade (a tabela de entradas por data feita no
+Rust com `match_date`, a expressão por `calc::python::numpy`) e Build series
+(`gdal.BuildVRT` com a mesma grade, descrições e comprimentos de onda; COG por
+`gdal.Translate`). O autoteste (ui_test_scripts.rs) escolhe o Python pelos
+imports do script (JANUS_GDAL_PYTHON, JANUS_PYTHON, `python`) e compara rasters,
+GeoPackages (feições pela posição, campos como texto ou número) e CSVs (célula a
+célula, tolerando a última casa escrita): regularize 4 arquivos iguais,
+polygonize 5 feições (4 com o sieve), zonal 3 CSVs (369, 210 e 54 células),
+build 8 VRTs, calculadora 16 datas × 60 000 valores com diferença máxima 0.
+
 **O que ficou para trás:**
 - Alertas: mapas de datas abertos do disco (não de uma rodada do Zeit) não
   entram na aba Alerts; areas_ui ainda trata a unidade "years" como por ano; o
@@ -1981,9 +2005,6 @@ run...". No autoteste e nas capturas o histórico vai para um arquivo temporári
   diálogo novo.
 - ROI e perfis: saída em shapefile; o tempo no build release sobre os dados do
   guia.
-- Histórico em Python: scripts de verdade para mais ferramentas (polygonize,
-  zonal, regularize, a calculadora nos casos simples, build da série); hoje elas
-  entram "como dados".
 - Publicado como 1.12.1 (a tag v1.12.0 falhou na CI e ficou sem release); os
   alertas oficiais, as linhas sem brilhos, o zoom (vetores e 1024), a dica da
   calculadora, as barras de título finas e o histórico em Python saem na 1.13.0.

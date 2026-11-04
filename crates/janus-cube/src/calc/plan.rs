@@ -980,7 +980,7 @@ pub fn date_vars(info: &CubeInfo, t: usize) -> DateVars {
 }
 
 /// The text of a date as a file's name, as open_cube reads it back.
-fn date_stem(info: &CubeInfo, t: usize) -> String {
+pub fn date_stem(info: &CubeInfo, t: usize) -> String {
     if info.time_is_date {
         let g = info.granularity.max(crate::TimeGranularity::Year);
         crate::dates::format_date(info.layers[t].time, g).replace([' ', ':'], "_")
