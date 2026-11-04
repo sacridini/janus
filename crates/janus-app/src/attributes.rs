@@ -312,6 +312,19 @@ impl State {
         (t.show, t.layer, t.focus) = (true, id, true);
     }
 
+    /// Feature i of the vector layer `id` in view, picked in the attribute table (shown, highlighted on the map):
+    /// the palette's Go to feature.
+    pub(crate) fn go_to_feature(&mut self, id: u32, i: usize) {
+        let Some(li) = self.vector_index(id) else { return };
+        if i >= self.vectors[li].data.features.len() {
+            return;
+        }
+        self.zoom_to_feature(li, i);
+        let t = &mut self.attr_table;
+        (t.show, t.layer, t.picked, t.scroll_to) = (true, id, Some(i), true);
+        t.filter.clear();
+    }
+
     /// Feature i of vector layer li in view: its box with a margin (a point: 40 pixels of the active layer around).
     fn zoom_to_feature(&mut self, li: usize, i: usize) {
         let Some(g) = self.grid() else { return };

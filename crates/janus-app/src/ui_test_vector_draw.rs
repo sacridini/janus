@@ -259,9 +259,32 @@ impl State {
                 }
                 self.vectors[li].labels.set_style(Default::default());
                 self.vectors[li].visible = true;
+                // the palette finds a feature by its label (any case, a word of it) and goes to it
+                let found: Vec<String> = self
+                    .palette_matches("riv")
+                    .into_iter()
+                    .filter(|c| matches!(c.cmd, crate::palette::Cmd::Feature(..)))
+                    .map(|c| c.label)
+                    .collect();
+                let field = self.palette_matches("FIELD");
+                let go = field.iter().find(|c| matches!(c.cmd, crate::palette::Cmd::Feature(..)));
+                println!("    the palette: \"riv\" finds {found:?}; \"FIELD\" {:?}", go.map(|c| &c.label));
+                let Some(go) = go else { return fail("the palette should find \"Big field\" by \"FIELD\"") };
+                if found != ["Go to feature: River"] || go.label != "Go to feature: Big field" {
+                    return fail("the palette should find River by \"riv\" and Big field by \"FIELD\"");
+                }
+                let before = (self.map.center, self.map.scale);
+                self.run_command(go, ctx);
+                let t = &self.attr_table;
+                if (t.layer, t.picked, t.show) != (self.vectors[fi].id, Some(0), true)
+                    || (self.map.center, self.map.scale) == before
+                {
+                    return fail("Go to feature: the map moved to it, picked in the attribute table");
+                }
+                self.attr_table.show = false;
                 next(
                     st,
-                    "labels: larger first, none over another, none too small, at a line's middle, in an export, copied",
+                    "labels: larger first, none over another, none too small, at a line's middle, in an export, copied; found from the palette",
                 );
                 None
             }

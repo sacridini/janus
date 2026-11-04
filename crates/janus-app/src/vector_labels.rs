@@ -350,6 +350,11 @@ impl Labels {
     }
 
     /// The column's values and the label points, when both are there for the layer's placement `key`.
+    /// The labels' texts, a feature each, once their column is read (None: no labels, or not yet).
+    pub fn texts(&self) -> Option<&Arc<Vec<String>>> {
+        self.values.as_ref().filter(|v| self.style.on() && v.0 == self.style.field).map(|v| &v.1)
+    }
+
     pub fn ready(&self, key: u64) -> Option<(&Prepared, &[String])> {
         let p = self.prepared.as_deref().filter(|p| p.key == key)?;
         let v = self.values.as_ref().filter(|v| v.0 == self.style.field)?;

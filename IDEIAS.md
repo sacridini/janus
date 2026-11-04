@@ -2022,12 +2022,21 @@ guia). `--view` disparava (com e sem aspas no PowerShell 5.1); `--view` e
 como arquivos. Uma captura que espera mais de 30 s diz o que falta
 (`--screenshot: 30 s waiting for the ROI's series`), a cada 30 s.
 
+**Busca de feição pelo rótulo (2026-11-04, sem versão).** A paleta de comandos
+lista, entre os comandos, as feições das camadas vetoriais com rótulos cujo
+rótulo contém o texto digitado (sem caixa; o rótulo inteiro primeiro, depois o
+começo, depois uma palavra; até 50): *Go to feature: ...* leva o mapa a ela e a
+marca na tabela de atributos (aberta, sem filtro). A busca é feita uma vez por
+texto (a paleta redesenha a cada quadro e uma camada pode ter um milhão de
+rótulos), e as feições não entram nos comandos recentes. Autoteste 272: "riv"
+acha River, "FIELD" acha Big field, e ir até ela move o mapa e a marca.
+
 **O que ficou para trás:**
 - Alertas: o tour de validação precisa do MapBiomas, que respondeu 403 em
   2026-11-04 (o make_tutorial_data.py segue sem ele).
 - Rótulos e camadas grandes: o build release e o autoteste depois do rebase (o
   do agente, antes do rebase, deu OK); menos memória nas camadas grandes (subir
-  em partes, liberar as coordenadas `px`); busca de feição pelo texto do rótulo;
+  em partes, liberar as coordenadas `px`);
   a figura dos rótulos com zoom.
 - ~~Um crash raro nos testes de janus-geo~~ **Resolvido (f44f4d0, 1.12.1):**
   quatro lugares registravam os drivers do GDAL cada um por si, e dois

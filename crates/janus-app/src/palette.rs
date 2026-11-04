@@ -90,7 +90,16 @@ pub(crate) enum Cmd {
     GroupSelected,
     CopyStyle,
     PasteStyle,
+    /// a vector layer's feature found by its label's text (the layer's id, the feature)
+    Feature(u32, usize),
 }
+
+/// Features found by their labels, at most.
+const MAX_FEATURES: usize = 50;
+
+/// The features last found by their labels: for what (the query, each layer's id and texts), and them (the layer's
+/// id, the feature, its label, the score).
+type Found = (String, Vec<(u32, usize)>, Vec<(u32, usize, String, i32)>);
 
 /// The Validation menu's name (and its commands' category).
 pub(crate) const VALIDATION: &str = "Validation & uncertainty";
@@ -129,6 +138,8 @@ pub struct PaletteUi {
     focus: bool,
     /// a command chosen (tests): run at the next frame as if picked
     pub(crate) run_next: Option<String>,
+    /// the features found by their labels for the query (searched once a query, not every frame)
+    found: std::sync::Mutex<Option<Found>>,
 }
 
 impl PaletteUi {
@@ -384,7 +395,51 @@ impl State {
         out
     }
 
+    /// The features of the vector layers with labels whose label holds `query` (two letters at least, any case):
+    /// the whole label first, then those starting with it, then a word of it; at most MAX_FEATURES.
+    fn features_by_label(&self, query: &str) -> Vec<(u32, usize, String, i32)> {
+        let q = query.trim().to_lowercase();
+        if q.chars().count() < 2 {
+            return Vec::new();
+        }
+        let layers: Vec<(u32, usize)> = self
+            .vectors
+            .iter()
+            .filter_map(|v| v.labels.texts().map(|t| (v.id, std::sync::Arc::as_ptr(t) as usize)))
+            .collect();
+        let mut found = self.palette.found.lock().unwrap();
+        if let Some((fq, fl, f)) = found.as_ref()
+            && *fq == q
+            && *fl == layers
+        {
+            return f.clone();
+        }
+        let mut out = Vec::new();
+        for v in self.vectors.iter() {
+            let Some(texts) = v.labels.texts() else { continue };
+            for (i, t) in texts.iter().enumerate() {
+                let l = t.to_lowercase();
+                let Some(at) = l.find(&q) else { continue };
+                let s = if l.len() == q.len() {
+                    150
+                } else if at == 0 {
+                    100
+                } else if !l.as_bytes()[at - 1].is_ascii_alphanumeric() {
+                    80
+                } else {
+                    50
+                };
+                out.push((v.id, i, t.clone(), s * 1000 - t.len() as i32));
+            }
+        }
+        out.sort_by(|a, b| b.3.cmp(&a.3).then(a.0.cmp(&b.0)).then(a.1.cmp(&b.1)));
+        out.truncate(MAX_FEATURES);
+        *found = Some((q, layers, out.clone()));
+        out
+    }
+
     /// The commands matching the query, best first; without a query, the recent ones first, then all of them.
+    /// Features of the layers with labels whose label holds the query among them (Go to feature).
     pub(crate) fn palette_matches(&self, query: &str) -> Vec<Command> {
         let recent = &self.settings.s.palette_recent;
         let rank = |c: &Command| recent.iter().position(|k| *k == c.key()).unwrap_or(usize::MAX);
@@ -403,6 +458,23 @@ impl State {
             if matches!(x.3.cmd, Cmd::Exit | Cmd::CloseAll) {
                 x.0 -= 5000;
             }
+        }
+        let n = all.len();
+        for (k, (id, i, label, s)) in self.features_by_label(query).into_iter().enumerate() {
+            let layer = self.vectors.iter().find(|v| v.id == id).map_or(String::new(), |v| v.name.clone());
+            all.push((
+                s,
+                usize::MAX,
+                n + k,
+                Command {
+                    cmd: Cmd::Feature(id, i),
+                    label: format!("Go to feature: {label}"),
+                    category: layer,
+                    keys: "",
+                    detail: "a feature found by its label's text".into(),
+                    disabled: None,
+                },
+            ));
         }
         all.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
         all.into_iter().map(|x| x.3).collect()
@@ -571,13 +643,17 @@ impl State {
 
     /// A command run; kept first in the recent list.
     pub(crate) fn run_command(&mut self, c: &Command, ctx: &egui::Context) -> LayoutAsk {
-        let key = c.key();
-        let r = &mut self.settings.s.palette_recent;
-        r.retain(|k| *k != key);
-        r.insert(0, key);
-        r.truncate(RECENT);
+        // a feature found is not a command to remember
+        if !matches!(c.cmd, Cmd::Feature(..)) {
+            let key = c.key();
+            let r = &mut self.settings.s.palette_recent;
+            r.retain(|k| *k != key);
+            r.insert(0, key);
+            r.truncate(RECENT);
+        }
         let mut ask = LayoutAsk::default();
         match c.cmd.clone() {
+            Cmd::Feature(id, i) => self.go_to_feature(id, i),
             Cmd::OpenFiles => self.open_files_dialog(true, ctx),
             Cmd::OpenFolder => self.open_folder_dialog(true, ctx),
             Cmd::OpenUrl => self.open_url_dialog(true),
