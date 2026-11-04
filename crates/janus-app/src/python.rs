@@ -10,7 +10,7 @@ use janus_cube::QaRule;
 use crate::app::State;
 
 /// A Python string literal (paths with backslashes, names with quotes).
-fn py_str(s: &str) -> String {
+pub(crate) fn py_str(s: &str) -> String {
     let mut out = String::from("\"");
     for c in s.chars() {
         if c == '\\' || c == '"' {
@@ -157,10 +157,9 @@ pub(crate) fn series_code(info: &janus_cube::CubeInfo) -> String {
     o
 }
 
-/// Which series: the cursor's, a pin's, the ROI's.
+/// Which series: a pin's, the ROI's.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Which {
-    Cursor,
     Pin(u32),
     Roi,
 }
@@ -171,7 +170,6 @@ impl State {
         let info = self.session.as_ref()?.info.clone();
         let t_n = info.t();
         let view = match which {
-            Which::Cursor => self.series.hover.clone(),
             Which::Pin(id) => self.series.pins.iter().find(|p| p.id == id).cloned(),
             Which::Roi => None,
         };
@@ -183,12 +181,10 @@ impl State {
         let what = match which {
             Which::Roi if self.series.roi_poly.is_empty() => "the ROI (a rectangle)".to_string(),
             Which::Roi => "the ROI (a polygon)".to_string(),
-            Which::Cursor => "the cursor's pixel".to_string(),
             Which::Pin(id) => format!("pin {id}"),
         };
         // the tool on the chart: its calls
         let fit_key = match which {
-            Which::Cursor => crate::zeit::Which::Hover,
             Which::Pin(id) => crate::zeit::Which::Pin(id),
             Which::Roi => crate::zeit::Which::Roi,
         };
@@ -394,25 +390,23 @@ if y.size >= 2:
         Some(o)
     }
 
-    /// The chart's "Copy Python" menu.
+    /// The chart's "Python..." menu: the code of a pin's or the ROI's series in the Python history's editor.
     pub(crate) fn copy_python_ui(&mut self, ui: &mut egui::Ui) {
-        let any = self.series.hover.is_some() || !self.series.pins.is_empty() || self.series.roi.complete();
+        let any = !self.series.pins.is_empty() || self.series.roi.complete();
         let mut chosen = None;
-        const HELP: &str = "Python (numpy, rasterio; xarray and zeit for a tool) that reads the same series\nfrom the \
-                            files, computes its statistics and, with a Zeit tool on the chart,\nmakes the same Zeit \
-                            calls with the same parameters";
+        const HELP: &str = "Python that reproduces outside Janus the series on the chart: it reads it from the\n\
+                            files as Janus does (band or index, quality mask, nodata, scale), computes its\n\
+                            statistics and, with a Zeit tool on the chart, makes the same Zeit calls.\n\
+                            Shown in an editor: read it, copy it, save it as a .py or a notebook.\n\
+                            Needs numpy and rasterio (xarray and zeit for a tool).";
         // the button itself in the toolbar's row (in a child Ui of its own, it could neither move to the next row
         // nor fit the end of this one)
         if !any {
-            ui.add_enabled(false, egui::Button::new("Copy Python")).on_disabled_hover_text(HELP);
+            ui.add_enabled(false, egui::Button::new("Python..."))
+                .on_disabled_hover_text(format!("{HELP}\n\nDrop a pin (a click on the map) or draw an ROI first"));
             return;
         }
-        ui.menu_button("Copy Python", |ui| {
-            if let Some(h) = &self.series.hover
-                && ui.button(format!("Cursor ({}, {})", h.x, h.y)).clicked()
-            {
-                chosen = Some(Which::Cursor);
-            }
+        ui.menu_button("Python...", |ui| {
             for p in &self.series.pins {
                 if ui.button(format!("Pin {} ({}, {})", p.id, p.x, p.y)).clicked() {
                     chosen = Some(Which::Pin(p.id));
@@ -431,7 +425,12 @@ if y.size >= 2:
         if let Some(w) = chosen
             && let Some(code) = self.python_snippet(w)
         {
-            ui.ctx().copy_text(code);
+            let layer = self.layers.get(self.active).map_or(String::new(), |l| format!(" of {}", l.name));
+            let what = match w {
+                Which::Pin(id) => format!("Pin {id}'s series"),
+                Which::Roi => "The ROI's series".to_string(),
+            };
+            self.history.show_snippet(&format!("{what}{layer}"), code);
         }
     }
 }

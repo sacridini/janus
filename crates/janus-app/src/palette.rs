@@ -16,6 +16,7 @@ const RECENT: usize = 12;
 /// What a command does.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Cmd {
+    History,
     OpenFiles,
     OpenFolder,
     OpenUrl,
@@ -299,6 +300,7 @@ impl State {
             None,
         );
         add(Cmd::Tasks, "Tools", "Tasks", "", None);
+        add(Cmd::History, "Tools", "Python history...", "", None);
         add(Cmd::Log, "Tools", "Log", "", need(!self.zeit.jobs.is_empty(), "no task has run yet"));
         // Validation
         let project = self.validation_project_open();
@@ -651,6 +653,7 @@ impl State {
             Cmd::SaveSeries => self.save.show = true,
             Cmd::DeepLearning => self.ml.open = true,
             Cmd::Tasks => self.zeit.show_tasks = true,
+            Cmd::History => self.history.show = true,
             Cmd::Log => self.zeit.log.show = true,
             Cmd::NewDesign => {
                 self.val.show = true;

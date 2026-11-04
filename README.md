@@ -100,8 +100,9 @@ which ships with Janus: there is nothing else to install. Its command line is `j
   and the model's area of applicability: where the image is unlike its samples, as CAST's `aoa`),
   and Presto's pretrained embeddings, without Python; **field delineation**: Sentinel-2 fields as
   parcels by WRI's Trazo and Fields of The World's networks (their published accuracy), fine-tuned
-  on fields you draw. **Copy Python** gives the code that
-  reproduces a series and the tool's Zeit calls. Zeit's methods are part of
+  on fields you draw. The **Python history** keeps every finished run as Python (a script
+  that reproduces it, to read, copy or save as a .py or a notebook), and the chart gives the code
+  that reproduces a series and the tool's Zeit calls. Zeit's methods are part of
   Janus: no Python to install, and a fit takes under a millisecond.
 - **Spectra** (hyperspectral, e.g. EnMAP): a file whose bands have
   wavelengths opens with the chart in nanometres, the spectrum of the cursor,

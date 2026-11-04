@@ -102,8 +102,9 @@
   or a name alone for the last export folder, or pick one with **Browse...**;
   it warns before replacing a file). Files are written in the background
   (File → Exports shows progress);
-  **Copy CSV** of the cursor, pins and ROI series; **Copy Python**: code that
-  reproduces a series, its statistics and the Zeit tool on the chart.
+  **Copy CSV** of the cursor, pins and ROI series; **Python...**: code that
+  reproduces a pin's or the ROI's series, its statistics and the Zeit tool on
+  the chart, shown in the [Python history](#python-history)'s editor.
 - **Layers**: open several series at once (e.g. NDVI and NBR of the same area,
   or neighboring scenes). Layers are placed by their georeferencing, can be
   shown/hidden (including the first one), reordered and faded; the chart shows
@@ -428,7 +429,8 @@ Claude Desktop (`claude_desktop_config.json`):
 | Zonal statistics over time | **Zonal statistics over time...** in a vector layer's menu: each feature is a zone (its pixels those whose centre is inside, or every pixel touched; a pixel in several features counts in each), through every date of the active series or a run's map, on every feature or within the ROI: for **values** each date's count, mean, standard deviation, least, percentiles 10, 25, 50, 75, 90 and largest; for **classes** each class's pixels and area (each pixel's true area, as in Areas) at every date and the **transitions** between two dates; for a **map of change dates** the area by year. The zones named by an attribute or their FID. A task writing `zonal_long.csv` (a row per feature and date, and class), `zonal_wide.csv` (a row per feature, a column per date: the statistic chosen, or each class's ha), `transitions.csv`, and a GeoPackage of the features with those columns added, opened as a layer; Analysis → Zonal draws a feature's series; its provenance kept |
 | Reproject, resample, clip | **Tools → Data preparation → Reproject, resample, clip...**: the active series' files (or a run's map) through gdalwarp's own code (the same result as the `gdalwarp` command, whose arguments the window and the task's log show): to **a CRS** (EPSG:4326, ESRI:102033, a PROJ string, a WKT), **the CRS of a layer** or **the grid of a layer** (its CRS, origin, pixel size and extent: the maps aligned pixel to pixel), a pixel size (optionally aligned, `-tap`), resampling near, bilinear, cubic, average, **mode** (the default for classes), min, max or med; the whole layer, the visible area, the ROI or **the polygons of a vector layer** (the pixels outside them without a value, cropped to them); no data, data type; **COG**, GeoTIFF or **virtual** (warped VRTs: nothing written, ready at once). File by file on the processing threads, into a folder that opens as a new series (a task; its provenance kept) |
 | RGB of three bands | **Display** panel → RGB composite (one file per date with several bands): *Three bands of each date as RGB*, a preset (true colour, colour infrared, SWIR, agriculture, land/water: bands found by their names or wavelengths) or any three bands, the map's date or a fixed one, the stretch of each channel (2–98% of the first image, kept for every date; *Stretch to this image*). The chart, the cursor and the tools keep the series' band or index; zoomed in, the visible area is read again at full resolution; map panels, the swipe, PNGs and animations show it too |
-| Python of a series | Time series panel → **Copy Python** → the cursor, a pin or the ROI: code (numpy, rasterio) that reads the same series from the files (band, normalized difference, quality mask; the ROI's pixels inside it), prints its statistics and, with a Zeit tool on the chart, makes the same Zeit calls with the same parameters (as the tool made them: recorded, not rewritten) |
+| Python of a series | Time series panel → **Python...** → a pin or the ROI: code (numpy, rasterio) that reads the same series from the files (band, normalized difference, quality mask; the ROI's pixels inside it), prints its statistics and, with a Zeit tool on the chart, makes the same Zeit calls with the same parameters (as the tool made them: recorded, not rewritten); shown in the Python history's editor, to read, change, copy or save |
+| Python history | **Tools → Python history...** (or the palette): every finished run as Python, kept between sessions (`history.jsonl` in Janus' settings folder, the last 5000). See [Python history](#python-history) |
 | Reset layout | **View → Reset layout** (`Ctrl+Shift+R`, Mac: `Command+Shift+R`): every panel docked where it was at the first start, the floating windows (Exports, Tasks, Log, Settings) back to their first size and place, map panels to the right of the main map; the panels open stay open |
 | Performance panel | **View → Performance** (hidden by default, and not kept open from one session to the next): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**), disk cache (what the caches take, their budget, the disk's free space) |
 | Settings | **File → Settings...** (`Ctrl+,`, Mac: `Command+,`): the interface (Modern or Classic) and its theme, font size, whether the Files panel follows what is opened, processing threads, overview memory, the disk cache budget (automatic or set by hand), full-resolution cache (when it is built) and clearing the caches; kept between sessions (see [Settings](#settings)) |
@@ -645,7 +647,7 @@ Each tool window has:
   the tool (e.g. LandTrendr on a monthly series) the checkbox is off and
   disabled, with the reason; it fits again on a series that does. With *All
   visible layers* on the chart, single-band tools are also fitted to the other
-  layers' cursor and pin series. **Copy Python** writes the calls of every tool
+  layers' cursor and pin series. **Python...** gives the calls of every tool
   fitted on the series.
 - **Estimated run time** for the chosen scope, measured by Zeit on samples of
   the series (a fixed cost per block plus a cost per pixel, and the fit of
@@ -689,11 +691,45 @@ Each tool window has:
   the changed parameters in the accent colour), **Run again with these
   parameters...** (the tool's window with them and the same scope; on the same
   series, the scope *The run's window* is the very window it ran on, even if
-  the ROI has moved since), **Copy Python of the run** (a Zeit tool's run:
-  `rerun.py` beside it reads the series over the run's window from its files,
-  makes the same Zeit calls with the same parameters and writes every map they
-  return as a GeoTIFF; numpy, rasterio, xarray and zeit-cdts) and **Open
-  folder**.
+  the ROI has moved since), **Python of the run...** (the run's code in the
+  Python history's editor: a Zeit tool's `rerun.py` reads the series over the
+  run's window from its files, makes the same Zeit calls with the same
+  parameters and writes every map they return as a GeoTIFF, numpy, rasterio,
+  xarray and zeit-cdts; Reproject, resample, clip and Rasterize have a
+  `rerun.py` of GDAL's Python too) and **Open folder**.
+
+### Python history
+
+**Tools → Python history...** lists every processing run that finished, newest
+first, as Python: a Zeit tool's run, the calculator's results, Reproject,
+resample, clip, Rasterize, Polygonize, Zonal statistics, Regularize and the
+other tools that keep a provenance. Opening, viewing and closing layers do not
+count, nor runs cancelled or failed. The history is kept between sessions
+(`history.jsonl` in Janus' settings folder, the last 5000 runs), and an entry
+stays when its run's folder is deleted.
+
+Each entry's code starts with what ran (Janus' version, the tool, when, the
+series and scope, the run's folder and files). Then it has one of two kinds of code:
+
+- **A script** (`rerun.py`, also written beside the run): a Zeit tool's run
+  reads the series over the run's window and makes the same Zeit calls with
+  the same parameters. Reproject, resample, clip calls `gdal.Warp` with the
+  same gdalwarp options, file by file. Rasterize burns the same features with
+  the same values on the same grid through `gdal.RasterizeLayer`. Each script
+  writes its files in a `python` folder of the run, and the UI self-test checks
+  that they equal Janus' own, pixel for pixel.
+- **The run as data** (*as data* in the list), for the tools that have no
+  script yet: the parameters, inputs, window and outputs as Python values,
+  with the equivalent command when there is one.
+
+The editor beside the list colours the code and can be edited: **Copy**,
+**Save .py...**, **Save notebook...** (a Jupyter notebook), **Revert** (back to
+the run's code), **Open folder**, **Provenance** and **Remove** (the entry
+only). **All as .py...** and **All as notebook...** write the entries shown
+(the filter on top searches tools, folders and code) as one script with a
+`# %%` cell per run, or one notebook; **Clear history...** empties it. The
+chart's and the validation's **Python...** buttons show their code in the
+same editor, without adding it to the history.
 
 How it works: Zeit's methods are compiled into Janus: zeit-core (the Rust core
 of [Zeit](https://github.com/sacridini/zeit-cdts)) with what Zeit's Python adds
@@ -1426,7 +1462,7 @@ labelled.
   (another map assessed with the sample, transitions, a buffer stratum) the
   model-assisted ones give narrower intervals where the map is good. The
   accuracies do not change with the estimator. The choice is kept in the
-  project and used by the report and Copy Python.
+  project and used by the report and its Python.
 - **Transitions between two dates**: two of the project's maps of classes
   (e.g. two dates of a categorical series): each pair of classes (*Forest ->
   Pasture*) is a class, its mapped area counted pixel by pixel inside the
@@ -1435,7 +1471,7 @@ labelled.
   on or before it with one of the maps' classes (the dates are guessed from
   the maps' names, and can be typed). The table gives each transition's
   mapped and adjusted area ± its interval, user's and producer's accuracy
-  (*only changes* hides the persistences); *Copy Python* gives the
+  (*only changes* hides the persistences); *Python...* gives the
   `zeit.transitions` code. The strata need not be the transitions: the
   points are weighed by the project's strata (Stehman 2014).
 
@@ -1456,7 +1492,7 @@ settles each (the others' labels shown).
 **Report**: *Export the report...* writes `report.html` (design, maps,
 matrices, accuracies, areas with figures, interpreters, a methods paragraph
 and the references; the transitions between two dates, when chosen, with
-`transitions.csv`) and a CSV of every table. *Copy Python* gives the
+`transitions.csv`) and a CSV of every table. *Python...* gives the
 `zeit.accuracy` (and `zeit.transitions`) code that computes the same estimates,
 by the same estimator, from the project's files.
 

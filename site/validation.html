@@ -132,7 +132,7 @@
         <li><span class="ui">New sampling design...</span> opens the <strong>Validation</strong> panel on its <span class="ui">Design</span> tab: the strata, the sample size, the draw.</li>
         <li><span class="ui">Open project...</span> reopens a project saved before (the GeoPackage), with its labels; work resumes where it stopped. <span class="ui">Close project</span> saves what is pending.</li>
         <li><span class="ui">Validation panel</span>, <span class="ui">Interpret the sample</span> and <span class="ui">Chips</span> show the three panels you work in.</li>
-        <li><span class="ui">Accuracy and areas</span> goes to the results; <span class="ui">Export report...</span> writes them to a folder; <span class="ui">Copy Python</span> copies the <code>zeit.accuracy</code> code that computes the same numbers from the project's files.</li>
+        <li><span class="ui">Accuracy and areas</span> goes to the results; <span class="ui">Export report...</span> writes them to a folder; <span class="ui">Python (zeit.accuracy)...</span> shows the <code>zeit.accuracy</code> code that computes the same numbers from the project's files, in an editor to copy or save it.</li>
       </ul>
       <p>The Validation panel has five tabs, in the order of the work: <span class="ui">Design</span>, <span class="ui">Accuracy</span>, <span class="ui">Maps</span>, <span class="ui">Interpreters</span> and <span class="ui">Report</span>.</p>
     </section>
@@ -288,7 +288,7 @@
       </figure>
       <h3>Transitions between two dates</h3>
       <p>With two maps of classes in the project (two dates of a categorical series, such as MapBiomas in 2000 and in 2020), <span class="ui">Transitions between two dates</span> in the Accuracy tab estimates the area of each transition, <em>Forest -&gt; Pasture</em>, <em>Forest -&gt; Forest</em>..., with its interval. The mapped areas are counted pixel by pixel inside the strata, in the background. The reference of each point at each date comes from its label and its dated events: the label holds until the first event with one of the maps' classes, which holds from its date on. A forest labelled <em>Forest</em> with an event <em>Pasture</em> in 2012 is <em>Forest -&gt; Pasture</em> between 2005 and 2020, and <em>Forest -&gt; Forest</em> between 2005 and 2010. The dates are guessed from the maps' names; type them if they are not right.</p>
-      <p>The table gives each transition's mapped and adjusted area ± its interval and its user's and producer's accuracy; <span class="ui">only changes</span> hides the classes that stayed. The sample need not have been stratified by the transitions: the points are weighed by the project's strata. Rare transitions are where the difference estimator helps most. <span class="ui">Copy Python</span> gives the <code>zeit.transitions</code> code that computes the same numbers.</p>
+      <p>The table gives each transition's mapped and adjusted area ± its interval and its user's and producer's accuracy; <span class="ui">only changes</span> hides the classes that stayed. The sample need not have been stratified by the transitions: the points are weighed by the project's strata. Rare transitions are where the difference estimator helps most. <span class="ui">Python...</span> gives the <code>zeit.transitions</code> code that computes the same numbers.</p>
       <h3>Right and wrong on the map</h3>
       <p>Once the interpretation is done, untick <span class="ui">Blind</span>: the map and the strata come back, and in the Interpretation panel the points can be coloured <span class="ui">by stratum</span> or <span class="ui">right / wrong</span> for the selected map. The errors often cluster (along roads, at the edges of clearings), which tells you where the map struggles.</p>
       <figure class="fig">
@@ -337,7 +337,7 @@
         <a href="assets/img/validation/16-report-html.png"><img src="assets/img/validation/16-report-html.png" alt="The exported report.html open in a browser: the methods paragraph, the sampling design table and the comparison of the maps." loading="lazy"></a>
         <figcaption><b>report.html</b>, as exported.</figcaption>
       </figure>
-      <p><span class="ui">Copy Python</span> copies the <code>zeit.accuracy</code> (and <code>zeit.transitions</code>) call that computes the same estimates, by the same estimator, from the project's GeoPackage and rasters: a check that does not depend on Janus, and a start for scripts of your own.</p>
+      <p><span class="ui">Python...</span> shows the <code>zeit.accuracy</code> (and <code>zeit.transitions</code>) call that computes the same estimates, by the same estimator, from the project's GeoPackage and rasters: a check that does not depend on Janus, and a start for scripts of your own.</p>
     </section>
 
     <!-- ===================================================== -->

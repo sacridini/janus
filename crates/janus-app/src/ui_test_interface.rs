@@ -23,6 +23,67 @@ use crate::app::State;
 use crate::contents::Sel;
 use crate::zeit::{Job, JobState, JobStatus};
 
+/// A run of Janus' own tool (`dir`, its files `outputs`): in the Python history with its script, and that script
+/// (rerun.py, when a Python with GDAL's bindings is there: JANUS_GDAL_PYTHON names one, else JANUS_PYTHON) writing
+/// the same files in the run's `python` folder, pixel for pixel. Err: what differs.
+fn check_run_script(state: &State, dir: &std::path::Path, outputs: &[String]) -> Result<String, String> {
+    let e = state
+        .history
+        .entries
+        .iter()
+        .rev()
+        .find(|e| std::path::Path::new(&e.dir) == dir)
+        .ok_or("the run should be in the Python history")?;
+    if !e.script || !e.code.contains("gdal.UseExceptions()") {
+        return Err("the run's history entry should hold its script".into());
+    }
+    let python = std::env::var("JANUS_GDAL_PYTHON")
+        .or_else(|_| std::env::var("JANUS_PYTHON"))
+        .unwrap_or_else(|_| "python".into());
+    let has = std::process::Command::new(&python)
+        .args(["-c", "from osgeo import gdal, ogr, osr"])
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !has {
+        return Ok("rerun.py not run (no Python with GDAL's bindings; JANUS_GDAL_PYTHON names one)".into());
+    }
+    let out = std::process::Command::new(&python)
+        .arg(dir.join(crate::provenance::SCRIPT))
+        .env("GDAL_NUM_THREADS", "2")
+        .output()
+        .map_err(|e| format!("{python}: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("rerun.py failed:\n{}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let read = |path: &std::path::Path| -> Result<(usize, usize, Vec<f64>, [f64; 6]), String> {
+        let d = gdal::Dataset::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let (w, h) = d.raster_size();
+        let mut v = vec![];
+        for b in 1..=d.raster_count() {
+            let band = d.rasterband(b).map_err(|e| e.to_string())?;
+            v.extend(
+                band.read_as::<f64>((0, 0), (w, h), (w, h), None).map_err(|e| e.to_string())?.data().iter().copied(),
+            );
+        }
+        Ok((w, h, v, d.geo_transform().unwrap_or_default()))
+    };
+    let mut pixels = 0;
+    for o in outputs {
+        let ours = std::path::Path::new(o);
+        let theirs = dir.join("python").join(ours.file_name().ok_or("an output without a name")?);
+        let (a, b) = (read(ours)?, read(&theirs)?);
+        if (a.0, a.1, a.3) != (b.0, b.1, b.3) {
+            return Err(format!("{}: another grid from rerun.py", theirs.display()));
+        }
+        let differ = a.2.iter().zip(&b.2).filter(|(x, y)| x != y && !(x.is_nan() && y.is_nan())).count();
+        if differ > 0 {
+            return Err(format!("{}: {differ} pixels differ from Janus'", theirs.display()));
+        }
+        pixels += a.2.len();
+    }
+    Ok(format!("rerun.py run: its {} file(s) equal Janus', {pixels} values", outputs.len()))
+}
+
 /// A task of the Tasks window for the notices' test: running, `seconds` long once ended.
 fn fake_job(title: &str) -> Job {
     Job {
@@ -529,14 +590,20 @@ impl State {
                 if crate::provenance::find(&r.path).as_deref() != Some(run.as_path()) {
                     return fail("a run's map should find its provenance");
                 }
-                // Copy Python of the run: the same call with alpha 0.1
-                let code = match self.copy_run_python(ctx, &out_dir) {
+                // Python of the run: the same call with alpha 0.1, the history's entry of the run in its editor
+                let code = match self.open_run_python(&out_dir) {
                     Ok(c) => c,
                     Err(e) => return fail(&format!("the run should have its Python: {e}")),
                 };
                 if !code.contains("zeit.mann_kendall(series") || !code.contains("alpha=0.1") {
                     return fail("the run's Python should call Mann-Kendall with alpha 0.1");
                 }
+                let entry = self.history.entries.iter().rev().find(|e| std::path::Path::new(&e.dir) == run.as_path());
+                if !entry.is_some_and(|e| e.script && e.code == code) || !self.history.show {
+                    return fail("the run should be in the Python history, its script shown in the editor");
+                }
+                self.history.show = false;
+                println!("    the run in the Python history: its script ({} lines)", code.lines().count());
                 // Run again: the parameters and the very window back, the ROI gone meanwhile
                 let tool = janus_zeit::manifest().tool("mann_kendall")?;
                 self.zeit.params(tool).insert("alpha".into(), 0.05.into());
@@ -1282,6 +1349,15 @@ impl State {
                             return fail("the same grid should keep every value");
                         }
                     }
+                    // its Python: in the history, and gdal.Warp writing the same files
+                    let files: Vec<String> = out.layers.iter().map(|l| l.path.clone()).collect();
+                    let dir = std::path::Path::new(&files[0]).parent()?.to_path_buf();
+                    let mut unique = files.clone();
+                    unique.dedup();
+                    match check_run_script(self, &dir, &unique) {
+                        Ok(m) => println!("    {m}"),
+                        Err(e) => return fail(&e),
+                    }
                     self.remove_layer(k, ctx);
                     let w = &mut self.warp;
                     (w.target, w.format) = (1, 2);
@@ -1354,6 +1430,12 @@ impl State {
                     if (out.width, out.height) != (src.width, src.height) || differ > 0 {
                         return fail("the polygons rasterized back should be the map they came from");
                     }
+                    let tif = out.layers[0].path.clone();
+                    let dir = std::path::Path::new(&tif).parent()?.to_path_buf();
+                    match check_run_script(self, &dir, &[tif]) {
+                        Ok(m) => println!("    {m}"),
+                        Err(e) => return fail(&e),
+                    }
                     self.remove_layer(k, ctx);
                     let r = &mut self.raster;
                     (r.field, r.name) = ("class".into(), "Patches classes".into());
@@ -1371,6 +1453,12 @@ impl State {
                     );
                     if out.class_names.len() != named.len() || !masks.iter().any(|m| m.0 == out.id) {
                         return fail("a class per name, and the layer offered as a tool's mask");
+                    }
+                    let tif = out.layers[0].path.clone();
+                    let dir = std::path::Path::new(&tif).parent()?.to_path_buf();
+                    match check_run_script(self, &dir, &[tif]) {
+                        Ok(m) => println!("    classes: {m}"),
+                        Err(e) => return fail(&e),
                     }
                     self.remove_layer(k, ctx);
                     self.raster.show = false;

@@ -678,6 +678,17 @@ impl State {
             self.zeit.show_tasks = !self.zeit.show_tasks;
             ui.close();
         }
+        if ui
+            .add(egui::Button::selectable(self.history.show, "Python history..."))
+            .on_hover_text(
+                "Every run that ended well, as Python: read it in an editor, copy it,
+                 save it as a .py or a notebook, the whole history as one",
+            )
+            .clicked()
+        {
+            self.history.show = !self.history.show;
+            ui.close();
+        }
         ui.weak(format!("Zeit {} (native, zeit-core)", janus_zeit::ZEIT_VERSION));
     }
 

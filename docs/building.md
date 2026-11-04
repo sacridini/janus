@@ -66,8 +66,10 @@ janus --selftest-embeddings                     # the embedding kernels and PCA
 cd td && janus --selftest-ui A B C D E F G      # the interface, frame by frame (a window)
 ```
 
-The UI self-test's *Copy Python* stages run the code they copy with a Python that has Zeit and
-rasterio (`JANUS_PYTHON`, else `python`); without one they are skipped.
+The UI self-test's Python stages run the code Janus gives with a Python that has Zeit and
+rasterio (`JANUS_PYTHON`, else `python`), and the warp and rasterize runs' `rerun.py` with a
+Python that has GDAL's bindings (`JANUS_GDAL_PYTHON`, else `JANUS_PYTHON`); without one they are
+skipped.
 
 `janus --profile-tour <series>` times a fixed tour of a series (the overview, cursor series, every
 date, the display modes, zoom and pan at full resolution, an ROI) stage by stage;

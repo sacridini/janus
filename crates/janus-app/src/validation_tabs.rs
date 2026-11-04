@@ -1401,8 +1401,8 @@ impl State {
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut v.trans_changes, "only changes");
                     python = ui
-                        .small_button("Copy Python")
-                        .on_hover_text("zeit.transitions on the project's files: the same numbers")
+                        .small_button("Python...")
+                        .on_hover_text("zeit.transitions on the project's files, the same numbers, in an editor")
                         .clicked();
                 });
                 egui::ScrollArea::horizontal().id_salt("trscroll").show(ui, |ui| {
@@ -1439,8 +1439,8 @@ impl State {
             });
         if python && let Some(spec) = v.trans.spec.clone() {
             let conf = f64::from(v.confidence);
-            ui.ctx().copy_text(val::transitions_snippet(p, &spec, &v.trans.t, conf));
-            v.message = "Python copied: zeit.transitions on the project's files gives the same numbers.".into();
+            let code = val::transitions_snippet(p, &spec, &v.trans.t, conf);
+            self.history.show_snippet("Transitions (zeit.transitions)", code);
         }
     }
 
@@ -1739,10 +1739,10 @@ impl State {
                 )
                 .clicked();
             python = ui
-                .button("Copy Python")
+                .button("Python...")
                 .on_hover_text(
                     "zeit.accuracy on the project's GeoPackage and rasters, for the map selected in Accuracy (and \
-                     zeit.transitions for the transitions between two dates)",
+                     zeit.transitions for the transitions between two dates), in the Python history's editor",
                 )
                 .clicked();
         });
@@ -1761,11 +1761,8 @@ impl State {
                 code += "\n\n";
                 code += &val::transitions_snippet(p, spec, &self.val.trans.t, conf);
             }
-            ui.ctx().copy_text(code);
-            self.val.message = format!(
-                "Python for {} copied: zeit.accuracy on the project's files gives the same numbers.",
-                p.maps[k].rule.name
-            );
+            let title = format!("Accuracy of {} (zeit.accuracy)", p.maps[k].rule.name);
+            self.history.show_snippet(&title, code);
         }
         if export && let Some(dir) = rfd::FileDialog::new().pick_folder() {
             self.export_validation_report(&dir.to_string_lossy(), ui.ctx());

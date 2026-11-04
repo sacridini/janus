@@ -1360,10 +1360,15 @@ impl State {
             }
         }
         let has_maps = self.val.project.as_ref().is_some_and(|p| !p.maps.is_empty());
-        if ui.add_enabled(open && has_maps, egui::Button::new("Copy Python (zeit.accuracy)")).clicked() {
+        if ui
+            .add_enabled(open && has_maps, egui::Button::new("Python (zeit.accuracy)..."))
+            .on_hover_text("The same accuracy and areas with zeit.accuracy, in the Python history's editor")
+            .clicked()
+        {
             let p = self.val.project.as_ref().unwrap();
             let k = self.val.selected.min(p.maps.len() - 1);
-            ui.ctx().copy_text(val::python_snippet(p, &p.maps[k], f64::from(self.val.confidence)));
+            let code = val::python_snippet(p, &p.maps[k], f64::from(self.val.confidence));
+            self.history.show_snippet(&format!("Accuracy of {} (zeit.accuracy)", p.maps[k].rule.name), code);
             ui.close();
         }
         if ui

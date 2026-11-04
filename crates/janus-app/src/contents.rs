@@ -624,7 +624,7 @@ impl State {
                     }
                 }
                 Act::CopyRunPython(p) => {
-                    if let Err(e) = self.copy_run_python(&ctx, &p) {
+                    if let Err(e) = self.open_run_python(&p) {
                         self.error_popup = Some(e);
                     }
                 }
@@ -1504,8 +1504,8 @@ fn provenance_items(ui: &mut Ui, run: &str, acts: &mut Vec<Act>) {
         Act::RunAgain(run.to_string()),
     );
     item(
-        "Copy Python of the run",
-        "A script that redoes the run with Zeit outside Janus and writes its maps",
+        "Python of the run...",
+        "The run's Python in the history's editor: read it, copy it, save it as a .py or a notebook",
         Act::CopyRunPython(run.to_string()),
     );
     if ui.button("Open folder").on_hover_text(run).clicked() {

@@ -215,8 +215,6 @@ pub struct ProvenanceUi {
     pub shown: Option<(PathBuf, Provenance)>,
     /// runs under way: their folder and provenance so far
     pending: Vec<(String, Provenance)>,
-    /// the run's Python was copied (the window says so for a moment)
-    copied: Option<std::time::Instant>,
 }
 
 impl State {
@@ -267,6 +265,7 @@ impl State {
             };
             drop(s);
             p.write(&dir);
+            self.record_history(&dir, &p);
         }
     }
 
@@ -282,16 +281,16 @@ impl State {
         }
     }
 
-    /// The run's Python (a Zeit tool's), copied to the clipboard; its text, or why there is none.
-    pub(crate) fn copy_run_python(&mut self, ctx: &egui::Context, path: &str) -> Result<String, String> {
+    /// The run's Python in the history's editor (its entry there, or the code made now for a run the history does
+    /// not hold: one before it, or one that did not end well): its text.
+    pub(crate) fn open_run_python(&mut self, path: &str) -> Result<String, String> {
         let dir = find(path).ok_or("no provenance")?;
         let p = Provenance::read(&dir)?;
-        if p.python.is_empty() {
-            return Err(if p.python_note.is_empty() { "this run has no Python".into() } else { p.python_note });
+        let (code, _) = crate::history::code_of(&dir, &p);
+        if !self.history.show_run(&dir) {
+            let name = if p.tool_name.is_empty() { &p.tool } else { &p.tool_name };
+            self.history.show_snippet(&format!("{name} ({})", p.started), code.clone());
         }
-        let code = std::fs::read_to_string(dir.join(&p.python)).map_err(|e| e.to_string())?;
-        ctx.copy_text(code.clone());
-        self.prov.copied = Some(std::time::Instant::now());
         Ok(code)
     }
 
@@ -366,7 +365,6 @@ impl State {
         let Some((dir, p)) = self.prov.shown.clone() else { return };
         let mut open = true;
         let (mut again, mut copy) = (false, false);
-        let copied = self.prov.copied.is_some_and(|t| t.elapsed().as_secs_f64() < 2.0);
         crate::panels::window("Provenance", ctx).open(&mut open).default_width(560.0).show(ctx, |ui| {
             let title = if p.tool_name.is_empty() { &p.tool } else { &p.tool_name };
             ui.heading(title);
@@ -479,28 +477,28 @@ impl State {
                 {
                     again = true;
                 }
-                let py = ui.add_enabled(!p.python.is_empty(), egui::Button::new("Copy Python"));
+                let py = ui.button("Python...");
                 let py = if p.python.is_empty() {
-                    py.on_disabled_hover_text(&p.python_note)
+                    py.on_hover_text(format!(
+                        "The run as data in the Python history's editor: its parameters, series and outputs\n({})",
+                        p.python_note
+                    ))
                 } else {
                     py.on_hover_text(
-                        "A script that reads the series over the run's window from its files, makes the same Zeit \
-                         calls and writes their maps as GeoTIFFs",
+                        "The run's script in the Python history's editor: it reads the series over the run's window \
+                         from its files,\nmakes the same calls and writes their maps as GeoTIFFs",
                     )
                 };
                 copy = py.clicked();
                 if ui.button("Open folder").clicked() {
                     crate::platform::open_in_explorer(&dir.to_string_lossy());
                 }
-                if copied {
-                    ui.weak("copied");
-                }
             });
         });
         if again {
             self.run_again(&p);
         }
-        if copy && let Err(e) = self.copy_run_python(ctx, &dir.to_string_lossy()) {
+        if copy && let Err(e) = self.open_run_python(&dir.to_string_lossy()) {
             self.error_popup = Some(e);
         }
         if !open {

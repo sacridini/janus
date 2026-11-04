@@ -409,6 +409,11 @@ impl State {
             p.params.insert("gdalwarp".into(), serde_json::json!(args));
             p.params.insert("files".into(), serde_json::json!(files));
             p.python_note = format!("gdalwarp {args} <file> <output>, file by file");
+            // its Python: gdal.Warp with the same options, file by file
+            let code = crate::scripts::warp(&files, &opts.args().unwrap_or_default(), opts.format.extension(), &folder);
+            if std::fs::write(folder.join(crate::provenance::SCRIPT), code).is_ok() {
+                p.python = crate::provenance::SCRIPT.into();
+            }
             self.begin_provenance(&folder, p);
         }
         let status = Arc::new(Mutex::new(JobStatus {

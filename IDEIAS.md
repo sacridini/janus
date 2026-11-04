@@ -1925,6 +1925,39 @@ fração de pixel. Custo, WDPA (41 158 polígonos, 34,6 milhões de vértices) s
 uma série 2000 × 2000: o quadro inteiro de ~3,8 ms para ~6 ms; mais perto,
 igual dentro do ruído.
 
+**Zoom, calculadora, barras de título (2b3bf59, 45c5833; 2026-11-04).** Só com
+vetores o mapa chega 8 vezes mais perto (VECTORS_ALONE_ZOOM: a precisão float32
+dos pontos); o zoom máximo passou de 256 para 1024 pontos de tela por pixel da
+camada mais fina (na série 214_067, 7318 × 7329 a 30 m, o usuário via o pixel
+delimitado, mas pequeno). A calculadora abre com o editor vazio e o exemplo como
+dica em itálico, que some na primeira tecla. As barras de título das janelas têm
+3 pontos de margem em cima e embaixo (panels::window): ~26 pixels em vez de 43.
+
+**Histórico em Python (2026-11-04, sem versão).** O "Copy Python" copiava
+direto para a área de transferência, sem mostrar nada, e só as rodadas do Zeit
+tinham script. Agora Tools → Python history... (e a paleta) lista toda rodada
+terminada (estado "done" da proveniência; abrir, ver e fechar camadas não
+entram, nem rodadas canceladas ou que falharam), a mais nova em cima, guardada
+entre sessões (`history.jsonl` na pasta de dados do Janus, as últimas 5000;
+history.rs). Cada entrada tem um cabeçalho (versão, ferramenta, hora, série,
+escopo, pasta, arquivos) e o código: o `rerun.py` da rodada quando há um, ou a
+rodada "como dados" (parâmetros, entradas, janela, saídas em valores Python, com
+o comando equivalente quando existe). Scripts de verdade: as ferramentas do
+Zeit (o rerun.py que já existia), Reproject, resample, clip (`gdal.Warp` com as
+mesmas opções do gdalwarp, arquivo por arquivo) e Rasterize (as mesmas feições,
+valores e grade por `gdal.RasterizeLayer`; texto vira classes numeradas pela
+ordem dos nomes), em scripts.rs; escrevem na pasta `python` da rodada, e o
+autoteste os roda (JANUS_GDAL_PYTHON, senão JANUS_PYTHON) e compara com os
+arquivos do Janus: warp 8 arquivos iguais (192 000 valores), rasterize por
+atributo e por classes iguais (24 000 cada). O editor ao lado colore a sintaxe e
+é editável: Copy, Save .py..., Save notebook... (ipynb), Revert, Open folder,
+Provenance, Remove; filtro; All as .py... (uma célula `# %%` por rodada), All as
+notebook..., Clear history.... Os botões "Copy Python" viraram "Python..." e
+abrem o mesmo editor sem entrar no histórico: o do gráfico (pino ou ROI; o
+cursor saiu, ele muda ao mover o mouse), o da validação (zeit.accuracy, aba
+Report) e o das transições; "Copy Python of the run" virou "Python of the
+run...". No autoteste e nas capturas o histórico vai para um arquivo temporário.
+
 **O que ficou para trás:**
 - Alertas: mapas de datas abertos do disco (não de uma rodada do Zeit) não
   entram na aba Alerts; areas_ui ainda trata a unidade "years" como por ano; o
@@ -1948,8 +1981,12 @@ igual dentro do ruído.
   diálogo novo.
 - ROI e perfis: saída em shapefile; o tempo no build release sobre os dados do
   guia.
+- Histórico em Python: scripts de verdade para mais ferramentas (polygonize,
+  zonal, regularize, a calculadora nos casos simples, build da série); hoje elas
+  entram "como dados".
 - Publicado como 1.12.1 (a tag v1.12.0 falhou na CI e ficou sem release); os
-  alertas e a correção das linhas estão só na main local.
+  alertas, as linhas e o zoom de vetores (2b3bf59) estão na main do GitHub; o
+  zoom 1024 (45c5833) e o histórico em Python, só na main local.
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).

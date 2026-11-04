@@ -601,6 +601,8 @@ pub struct State {
     pub values: crate::values::ValuesUi,
     /// the Provenance window, the runs whose provenance is written when they end
     pub prov: crate::provenance::ProvenanceUi,
+    /// the processing history in Python and its window (history.rs)
+    pub history: crate::history::HistoryUi,
     /// the project's file, whether it changed, the one being opened
     pub project: crate::project::ProjectUi,
     /// Ctrl+Z: the steps to undo and redo (undo.rs)
@@ -1008,6 +1010,7 @@ impl JanusApp {
                 chart: Default::default(),
                 values: Default::default(),
                 prov: Default::default(),
+                history: Default::default(),
                 project: crate::project::ProjectUi::starting(startup_project),
                 undo: Default::default(),
                 band_sel: None,
@@ -1076,6 +1079,12 @@ impl JanusApp {
             && let Err(e) = app.state.stac.apply_composite_option(&spec)
         {
             eprintln!("--stac-composite: {e}");
+        }
+        // a test, a tour or a screenshot: a history of its own, not the user's
+        if app.state.opts.scripted() || app.state.opts.screenshot.is_some() {
+            let f = std::env::temp_dir().join(format!("janus-history-{}.jsonl", std::process::id()));
+            let _ = std::fs::remove_file(&f);
+            app.state.history.path = Some(f);
         }
         if let Some(text) = app.state.opts.palette.clone() {
             app.state.toggle_palette();
@@ -2768,6 +2777,7 @@ impl eframe::App for JanusApp {
         self.state.class_flows_window(&ctx);
         self.state.tasks_window(&ctx);
         self.state.provenance_window(&ctx);
+        self.state.history_window(&ctx);
         self.state.project_confirm_window(&ctx);
         self.state.exports_window(&ctx);
         self.state.extract_window(&ctx);
