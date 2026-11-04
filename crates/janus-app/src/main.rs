@@ -464,7 +464,7 @@ fn main() -> eframe::Result<()> {
     gdal::DriverManager::register_all();
     // --budget: this run only (0: the Settings value)
     let mut opts = app::Options::default();
-    let mut args = std::env::args().skip(1);
+    let mut args = std::env::args().skip(1).peekable();
     // `janus mcp [--threads N]`: the MCP server on the standard input and output (mcp.rs)
     if std::env::args().nth(1).as_deref() == Some("mcp") {
         let all: Vec<String> = std::env::args().skip(2).collect();
@@ -532,8 +532,7 @@ fn main() -> eframe::Result<()> {
             "--palette" => opts.palette = args.next(),
             "--window" => opts.windows.extend(args.next().unwrap_or_default().split(',').map(|w| w.trim().to_string())),
             "--view" => {
-                let v: Vec<f64> =
-                    args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
+                let v = numbers(&mut args, 3);
                 if let [x, y, s] = v[..] {
                     opts.view = Some([x, y, s]);
                 }
@@ -553,8 +552,7 @@ fn main() -> eframe::Result<()> {
                 }
             }
             "--roi" => {
-                let v: Vec<f64> =
-                    args.next().unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
+                let v = numbers(&mut args, 4);
                 if let [a, b, c, d] = v[..] {
                     opts.roi = Some([a as i64, b as i64, c as i64, d as i64]);
                 } else if v.len() >= 6 && v.len().is_multiple_of(2) {
@@ -757,4 +755,17 @@ fn main() -> eframe::Result<()> {
         std::process::exit(rc);
     }
     Ok(())
+}
+
+/// The numbers of an option, "A,B,C" (or "A, B, C"); also as separate arguments, as PowerShell passes an unquoted
+/// A,B,C (an array): the next arguments taken while they are numbers, up to `n`.
+fn numbers(args: &mut std::iter::Peekable<impl Iterator<Item = String>>, n: usize) -> Vec<f64> {
+    let first = args.next().unwrap_or_default();
+    let mut v: Vec<f64> = first.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    if !first.contains(',') {
+        while v.len() < n && args.peek().is_some_and(|a| a.trim().trim_end_matches(',').parse::<f64>().is_ok()) {
+            v.extend(args.next().and_then(|a| a.trim().trim_end_matches(',').parse::<f64>().ok()));
+        }
+    }
+    v
 }

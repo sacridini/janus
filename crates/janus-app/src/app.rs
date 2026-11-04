@@ -637,6 +637,10 @@ pub struct State {
     pub(crate) frame: u64,
     last_play: Option<Instant>,
     screenshot_asked: bool,
+    /// --screenshot: when it started waiting, and the last time it said what for (after 30 s, every 30 s)
+    screenshot_wait: Option<(Instant, f64)>,
+    /// --roi set again once the --layer layers are open (one made active clears the ROI of the previous grid)
+    cli_roi_again: bool,
     /// screenshots asked and not yet saved
     shots_pending: usize,
     pub(crate) tour: crate::tour::Tour,
@@ -1033,6 +1037,8 @@ impl JanusApp {
                 frame: 0,
                 last_play: None,
                 screenshot_asked: false,
+                screenshot_wait: None,
+                cli_roi_again: false,
                 shots_pending: 0,
                 tour: Default::default(),
                 golden: Default::default(),
@@ -2289,6 +2295,23 @@ impl State {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
+        // --roi: set when the first layer opened; a layer of --layer made active after it cleared it (the ROI is
+        // the previous grid's): set again, on the active layer's grid, once they are all open
+        if !self.cli_roi_again
+            && (self.opts.roi.is_some() || !self.opts.roi_polygon.is_empty())
+            && self.opts.extra_layers.is_empty()
+            && self.opening.is_none()
+            && self.session.as_ref().is_some_and(|s| s.ready_ms.is_some())
+        {
+            self.cli_roi_again = true;
+            if self.series.roi_rect.is_none() {
+                if let Some(r) = self.opts.roi {
+                    self.set_roi_rect(r);
+                } else {
+                    self.set_roi_polygon(vec![self.opts.roi_polygon.clone()]);
+                }
+            }
+        }
         if let Some(path) = self.opts.screenshot.clone().filter(|_| !self.opts.profile_tour) {
             // the series ready, and the basemap's tiles if asked for (none loading, the map placed)
             let web_ready = self.opts.web_layers.is_empty()
@@ -2319,30 +2342,46 @@ impl State {
             let layers_ready = self.opts.extra_layers.is_empty()
                 && self.opening.is_none()
                 && self.layers.iter().all(|l| l.session.as_ref().is_none_or(|s| s.s.overview.complete()));
-            let ready = self.session.as_ref().is_some_and(|s| s.ready_ms.is_some())
-                && layers_ready
-                && self.opts.embedding_view.is_none()
-                && basemap_ready
-                && web_ready
-                && self.alerts_settled()
-                && zeit_ready
-                && emb_ready
-                && roi_ready
-                && pins_ready
-                && tiles_ready
-                && self.trend_test_settled()
-                && self.vectors_settled()
-                && self.bands_settled()
-                && self.atlas_settled()
-                && (self.opts.stac.is_none()
-                    || self.stac.settled()
-                        && !self.stac.open_after
-                        && !self.stac.composite_after
-                        && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()))
-                && (!self.opts.calc_run
-                    || !self.calc.run_pending && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some()))
-                && self.windows_settled()
-                && (!self.ml.open || self.ml.check.settled() && self.ml.method_settled());
+            let stac_ready = self.opts.stac.is_none()
+                || self.stac.settled()
+                    && !self.stac.open_after
+                    && !self.stac.composite_after
+                    && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some());
+            let calc_ready = !self.opts.calc_run
+                || !self.calc.run_pending && self.emb_downloads.iter().all(|d| d.opened || d.ended.is_some());
+            let ml_ready = !self.ml.open || self.ml.check.settled() && self.ml.method_settled();
+            let waits = [
+                ("the series", self.session.as_ref().is_some_and(|s| s.ready_ms.is_some())),
+                ("the layers", layers_ready),
+                ("--embedding-view", self.opts.embedding_view.is_none()),
+                ("the basemap", basemap_ready),
+                ("the web layers", web_ready),
+                ("--alerts", self.alerts_settled()),
+                ("the Zeit run", zeit_ready),
+                ("the embeddings", emb_ready),
+                ("the ROI's series", roi_ready),
+                ("the pins' series", pins_ready),
+                ("the view's tiles", tiles_ready),
+                ("the trend test", self.trend_test_settled()),
+                ("the vector layers", self.vectors_settled()),
+                ("the bands", self.bands_settled()),
+                ("the atlas", self.atlas_settled()),
+                ("--stac", stac_ready),
+                ("--calc-run", calc_ready),
+                ("--window", self.windows_settled()),
+                ("the classifier", ml_ready),
+            ];
+            let ready = waits.iter().all(|w| w.1);
+            // a screenshot that never comes says what it waits for
+            if !ready && !self.screenshot_asked {
+                let (since, said) = *self.screenshot_wait.get_or_insert((Instant::now(), 0.0));
+                let waited = since.elapsed().as_secs_f64();
+                if waited - said >= 30.0 {
+                    let what: Vec<&str> = waits.iter().filter(|w| !w.1).map(|w| w.0).collect();
+                    eprintln!("--screenshot: {waited:.0} s waiting for {}", what.join(", "));
+                    self.screenshot_wait = Some((since, waited));
+                }
+            }
             if ready && !self.screenshot_asked && self.frame > 30 {
                 self.screenshot_asked = true;
                 self.shots_pending += 1;

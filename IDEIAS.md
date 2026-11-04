@@ -1848,7 +1848,8 @@ um VRT; vale para o transecto). Autoteste 260–267; guia maps-to-numbers seçã
 
 Faltou: saída em shapefile; o tempo no build release sobre os dados do guia.
 Visto e não investigado: a captura com `--roi` e o mapbiomas_grid (um mapa de
-classes por baixo) nunca dispara.
+classes por baixo) nunca dispara (resolvido depois: a ROI limpa ao trocar a
+camada ativa).
 
 Verificação: o OGC entrou na main sem rebase (17b6859); a ROI rebaseada sem
 conflito (9969276), com fmt, clippy, os testes de janus-app e janus-geo e o
@@ -2009,6 +2010,18 @@ no máximo 255 colunas), as linhas da tabela larga: `fid_line`, campos, `part`,
 mesmos pixels (os anéis voltam girados); no autoteste a ROI em shapefile dá os
 mesmos 3609 pixels e os 502 pontos dos perfis batem com a tabela larga.
 
+**Capturas com `--roi` e `--layer` (2026-11-04, sem versão).** A captura com
+`--roi` e duas camadas (mapbiomas_grid com `--layer landsat`) nunca disparava: a
+ROI era posta quando a primeira camada abria, a de `--layer` virava ativa e
+`set_active` limpava a ROI (ela é da grade anterior), e a captura esperava para
+sempre a série da ROI. Agora a ROI da linha de comando é posta de novo, na grade
+da camada ativa, quando as camadas de `--layer` terminam de abrir (5 s no
+guia). `--view` disparava (com e sem aspas no PowerShell 5.1); `--view` e
+`--roi` agora aceitam também os números como argumentos separados (`--view 30 20
+4`, como um PowerShell que passe o array partido), em vez de abrir "20" e "4"
+como arquivos. Uma captura que espera mais de 30 s diz o que falta
+(`--screenshot: 30 s waiting for the ROI's series`), a cada 30 s.
+
 **O que ficou para trás:**
 - Alertas: o tour de validação precisa do MapBiomas, que respondeu 403 em
   2026-11-04 (o make_tutorial_data.py segue sem ele).
@@ -2020,10 +2033,6 @@ mesmos 3609 pixels e os 502 pontos dos perfis batem com a tabela larga.
   quatro lugares registravam os drivers do GDAL cada um por si, e dois
   GDALAllRegister ao mesmo tempo corrompiam o heap; derrubou a CI da 1.12.0
   (Linux e Windows), que nunca foi publicada. Agora só `vectors::register()`.
-- Capturas com `--view`: dois agentes acharam que nunca disparam; um deles
-  atribuiu ao PowerShell partir o valor sem aspas num array (com aspas
-  funciona). Confirmar na main. A captura com `--roi` e um mapa de classes por
-  baixo (mapbiomas_grid) também não dispara: não investigado.
 - OGC: passar as capabilities do diálogo ao driver WFS (~3 s a menos no IBGE),
   testar um WMTS ao vivo e a reabertura de um projeto com camadas web,
   GetFeatureInfo, zoom para a extensão de um mapa, a auditoria de layout do
