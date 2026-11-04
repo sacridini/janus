@@ -324,6 +324,8 @@ pub struct Target {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub size: [u32; 2],
+    /// its depth and stencil (the vector lines blended once: vector.wgsl)
+    depth: wgpu::TextureView,
 }
 
 /// One draw of a map frame.
@@ -379,6 +381,20 @@ pub struct Gpu {
 
 /// The targets' format: the sRGB bytes as they are, blended as they are (GL's blending of the C++).
 const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+/// The targets' depth and stencil, used by the vector lines only (vector.wgsl).
+const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24PlusStencil8;
+
+/// The depth and stencil of the draws that neither test nor write them (all but the vector lines).
+fn no_depth() -> Option<wgpu::DepthStencilState> {
+    Some(wgpu::DepthStencilState {
+        format: DEPTH_FORMAT,
+        depth_write_enabled: Some(false),
+        depth_compare: Some(wgpu::CompareFunction::Always),
+        stencil: Default::default(),
+        bias: Default::default(),
+    })
+}
 
 fn tex_entry(
     binding: u32,
@@ -502,7 +518,7 @@ impl Gpu {
                         topology: wgpu::PrimitiveTopology::TriangleStrip,
                         ..Default::default()
                     },
-                    depth_stencil: None,
+                    depth_stencil: no_depth(),
                     multisample: Default::default(),
                     fragment: Some(wgpu::FragmentState {
                         module: &module,
@@ -867,7 +883,18 @@ impl Gpu {
             view_formats: &[],
         });
         let view = texture.create_view(&Default::default());
-        self.targets.insert(slot, Target { texture, view, size });
+        let depth = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("map target depth"),
+            size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let depth = depth.create_view(&Default::default());
+        self.targets.insert(slot, Target { texture, view, size, depth });
         true
     }
 
@@ -1105,7 +1132,11 @@ impl Gpu {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &target.depth,
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
+                    stencil_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0), store: wgpu::StoreOp::Discard }),
+                }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,

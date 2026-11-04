@@ -8,7 +8,7 @@ use std::ops::Range;
 
 use wgpu::util::DeviceExt;
 
-use crate::{Gpu, MapFrame, TARGET_FORMAT};
+use crate::{DEPTH_FORMAT, Gpu, MapFrame, TARGET_FORMAT, no_depth};
 
 /// A point of a level: x, y relative to its piece's origin (source pixels; a NaN x breaks a line) and its
 /// feature's index (its colour and piece).
@@ -86,7 +86,9 @@ struct VectorUniform {
     feather: f32,
     alpha: f32,
     round: u32,
-    _pad: u32,
+    depth: f32,
+    band: f32,
+    _pad: [u32; 3],
 }
 
 /// A double as two floats (high and low parts).
@@ -107,9 +109,10 @@ pub(crate) struct VectorDraw {
     pub(crate) after: usize,
 }
 
-/// The vector pipelines (lines, fills, points) and their layout.
+/// The vector pipelines (lines: their distances, then their colours; fills, points) and their layout.
 pub(crate) struct VectorPipelines {
     layout: wgpu::BindGroupLayout,
+    lines_depth: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     fill: wgpu::RenderPipeline,
     points: wgpu::RenderPipeline,
@@ -140,7 +143,7 @@ impl VectorPipelines {
             bind_group_layouts: &[Some(uniform_layout), Some(&layout)],
             immediate_size: 0,
         });
-        let pipeline = |vs: &str, fs: &str| {
+        let pipeline = |vs: &str, fs: &str, depth_stencil: Option<wgpu::DepthStencilState>, colour: bool| {
             d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("vector"),
                 layout: Some(&pl),
@@ -154,7 +157,7 @@ impl VectorPipelines {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     ..Default::default()
                 },
-                depth_stencil: None,
+                depth_stencil,
                 multisample: Default::default(),
                 fragment: Some(wgpu::FragmentState {
                     module: &module,
@@ -163,17 +166,36 @@ impl VectorPipelines {
                     targets: &[Some(wgpu::ColorTargetState {
                         format: TARGET_FORMAT,
                         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
+                        write_mask: if colour { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() },
                     })],
                 }),
                 multiview_mask: None,
                 cache: None,
             })
         };
+        // the lines' first pass keeps each pixel's least distance; the second blends the colour of the segment at
+        // that distance (depth equal) once (where the stencil is not yet the draw's number, which it then becomes)
+        let depth = |write: bool, compare, stencil| wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(write),
+            depth_compare: Some(compare),
+            stencil,
+            bias: Default::default(),
+        };
+        let once = wgpu::StencilFaceState {
+            compare: wgpu::CompareFunction::NotEqual,
+            fail_op: wgpu::StencilOperation::Keep,
+            depth_fail_op: wgpu::StencilOperation::Keep,
+            pass_op: wgpu::StencilOperation::Replace,
+        };
+        let once = wgpu::StencilState { front: once, back: once, read_mask: 0xff, write_mask: 0xff };
+        let less = depth(true, wgpu::CompareFunction::Less, Default::default());
+        let equal = depth(false, wgpu::CompareFunction::Equal, once);
         VectorPipelines {
-            lines: pipeline("vs_line", "fs_line"),
-            fill: pipeline("vs_fill", "fs_fill"),
-            points: pipeline("vs_point", "fs_point"),
+            lines_depth: pipeline("vs_line", "fs_line", Some(less), false),
+            lines: pipeline("vs_line", "fs_line", Some(equal), true),
+            fill: pipeline("vs_fill", "fs_fill", no_depth(), true),
+            points: pipeline("vs_point", "fs_point", no_depth(), true),
             layout,
         }
     }
@@ -305,7 +327,9 @@ impl Gpu {
             feather: 0.6,
             alpha: style.alpha,
             round: u32::from(matches!(kind, VectorKind::Points { round: true })),
-            _pad: 0,
+            depth: 0.0,
+            band: 0.0,
+            _pad: [0; 3],
         };
         let after = f.draws.len();
         f.vdraws.push(VectorDraw { uniform, group: g.group.clone(), kind, ranges, index, clip: f.clip, after });
@@ -326,7 +350,10 @@ impl Gpu {
         let mut bytes = vec![0u8; (stride * n) as usize];
         for (i, d) in f.vdraws.iter().enumerate() {
             let at = i * stride as usize;
-            bytes[at..at + size_of::<VectorUniform>()].copy_from_slice(bytemuck::bytes_of(&d.uniform));
+            // each draw's band of depths below the earlier draws' (the depth cleared to 1)
+            let band = 1.0 / n as f32;
+            let u = VectorUniform { depth: (n - 1 - i as u64) as f32 * band, band, ..d.uniform };
+            bytes[at..at + size_of::<VectorUniform>()].copy_from_slice(bytemuck::bytes_of(&u));
         }
         let buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("vector draws"),
@@ -370,7 +397,15 @@ impl Gpu {
         pass.set_bind_group(0, group, &[(i as u64 * stride) as u32]);
         pass.set_bind_group(1, &d.group, &[]);
         match d.kind {
-            VectorKind::Lines => pass.set_pipeline(&self.vector.lines),
+            VectorKind::Lines => {
+                // their distances first, then their colours where the distance is the least
+                pass.set_pipeline(&self.vector.lines_depth);
+                for r in &d.ranges {
+                    pass.draw(0..6, r.clone());
+                }
+                pass.set_stencil_reference(i as u32 % 255 + 1);
+                pass.set_pipeline(&self.vector.lines);
+            }
             VectorKind::Points { .. } => pass.set_pipeline(&self.vector.points),
             VectorKind::Fill => {
                 pass.set_pipeline(&self.vector.fill);

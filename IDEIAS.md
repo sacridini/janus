@@ -1883,7 +1883,7 @@ autoteste; os dois lados mantidos), fmt e clippy limpos, os testes de janus-app
 build do agente. O build release e o autoteste depois do rebase ficaram por
 rodar: o trabalho foi encerrado a pedido do usuário.
 
-**Alertas oficiais (em andamento, branch `vec-alerts`, 87aee90, fora da main).**
+**Alertas oficiais (9542da1, na main, sobre a 1.12.1; sem versão).**
 Validation → Official alerts... (aba Alerts) compara o mapa de datas de mudança
 de uma rodada com o DETER (WFS do TerraBrasilis, Amazônia ou Cerrado, baixado
 numa tarefa e aberto como camada), qualquer camada de polígonos datados, ou os
@@ -1896,25 +1896,48 @@ o atraso (mediana, quantis, dentro de 30/90/365 dias, histograma); por classe ou
 confiança; o mapa de concordância e as datas dos alertas como camadas; CSV;
 `--alerts FONTE[,CHAVE=VALOR...]`. Testes no WFS de mentira e em rasters
 GLAD/RADD sintéticos (números exatos), as fontes reais sobre Rondônia em
-#[ignore]; autoteste 290-296 (ui_test_alerts.rs). O trabalho foi parado a pedido
-do usuário e o commit ficou como WIP, sem a verificação: o worktree
-`../janus-vec-alerts` (com o target) ficou para retomar.
+#[ignore]; autoteste 290-296 (ui_test_alerts.rs). Os rasters de alerta são
+reprojetados com o transformador exato (gdalwarp -et 0: o aproximado é
+interpolado por pedaço lido e, lido linha a linha, pegava o outro vizinho em 6
+de 16 000 pixels do GLAD-S2 numa grade de 20 m). Contra geopandas, rasterio,
+numpy e scipy (`tools/bench_alerts_vs_python.py`, bench/alerts-vs-python.json):
+os mesmos números nos seis casos; polígonos sintéticos 0,54 s contra 1,84 s,
+GLAD-S2 sintético 0,30 s contra 1,27 s; perto de Novo Progresso (o ano de
+detecção do LandTrendr no NBR dos compostos 2017-2024, janela 2019-2023) DETER
+0,03 s contra 0,11 s, GLAD-S2 0,21 s contra 0,28 s, GLAD-L 0,57 s contra 0,66 s,
+RADD 0,14 s contra 0,20 s. Capturas `--shots alerts` (shots_alerts.rs) na seção
+14 do guia de validação.
+
+**Linhas de vetores com "brilhos" (2026-11-04, sem versão).** Nas camadas do
+usuário (EU_Vector: contornos do GADM e do WDPA) apareciam pontos claros e
+escuros onde a linha volta sobre si, onde vértices quase se tocam e ao longo de
+segmentos menores que um pixel, mudando ao arrastar o mapa. Causa: cada
+segmento era um quadrilátero próprio (pontas estendidas, borda suavizada, aro
+escuro), misturado por cima dos vizinhos; o aro de um apagava o miolo do outro.
+Agora as linhas de uma camada são a união das cápsulas dos segmentos: uma
+primeira passada grava a distância de cada pixel ao segmento mais próximo como
+profundidade, a segunda mistura a cor só onde ela é a menor, uma vez (stencil
+com o número do desenho); cada desenho tem a sua faixa de profundidade, e o
+posterior fica por cima. Teste `janus-gpu/tests/vector.rs` contra a mesma
+união desenhada na CPU: antes 800-1560 pixels errados por quadro, agora nenhum
+(no máximo 2 de 255) em larguras 1, 1,5 e 2 px e quatro deslocamentos de
+fração de pixel. Custo, WDPA (41 158 polígonos, 34,6 milhões de vértices) sobre
+uma série 2000 × 2000: o quadro inteiro de ~3,8 ms para ~6 ms; mais perto,
+igual dentro do ruído.
 
 **O que ficou para trás:**
-- Alertas: rebasear `vec-alerts` sobre a main (conflitos esperados em
-  ui_test_interface.rs, app.rs, main.rs, usage.md), fmt/clippy/testes, o
-  autoteste completo (o fim em 299); rodar o benchmark contra o Python
-  (`tools/bench_alerts_vs_python.py` e o exemplo `vs_python_alerts` estão
-  escritos, não rodados; falta `bench/alerts-vs-python.json`); as capturas sobre
-  o s2ro e a seção em validation.html; o trecho do IDEIAS com os números.
+- Alertas: mapas de datas abertos do disco (não de uma rodada do Zeit) não
+  entram na aba Alerts; areas_ui ainda trata a unidade "years" como por ano; o
+  tour de validação precisa do MapBiomas, que respondeu 403 em 2026-11-04 (o
+  make_tutorial_data.py segue sem ele).
 - Rótulos e camadas grandes: o build release e o autoteste depois do rebase (o
   do agente, antes do rebase, deu OK); menos memória nas camadas grandes (subir
   em partes, liberar as coordenadas `px`); busca de feição pelo texto do rótulo;
   a figura dos rótulos com zoom.
-- Um crash raro nos testes de janus-geo (STATUS_HEAP_CORRUPTION, 1 em 81
-  rodadas, com os testes de vectors, polygon_file, profiles e ogc em paralelo):
-  não reproduzido em 80 rodadas seguidas; suspeita de GDAL usado por várias
-  threads de teste ao mesmo tempo.
+- ~~Um crash raro nos testes de janus-geo~~ **Resolvido (f44f4d0, 1.12.1):**
+  quatro lugares registravam os drivers do GDAL cada um por si, e dois
+  GDALAllRegister ao mesmo tempo corrompiam o heap; derrubou a CI da 1.12.0
+  (Linux e Windows), que nunca foi publicada. Agora só `vectors::register()`.
 - Capturas com `--view`: dois agentes acharam que nunca disparam; um deles
   atribuiu ao PowerShell partir o valor sem aspas num array (com aspas
   funciona). Confirmar na main. A captura com `--roi` e um mapa de classes por
@@ -1925,8 +1948,8 @@ do usuário e o commit ficou como WIP, sem a verificação: o worktree
   diálogo novo.
 - ROI e perfis: saída em shapefile; o tempo no build release sobre os dados do
   guia.
-- Nada disso foi para o GitHub: a main local está à frente do origin (8502e0f em
-  diante), sem tag.
+- Publicado como 1.12.1 (a tag v1.12.0 falhou na CI e ficou sem release); os
+  alertas e a correção das linhas estão só na main local.
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).

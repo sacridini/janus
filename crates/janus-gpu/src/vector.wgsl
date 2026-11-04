@@ -1,7 +1,13 @@
-// Vector layers on the map: lines (each segment a quad of a width in target pixels, its ends extended to close the
-// joints, its edges feathered, a dark rim around its core), polygons' fills (triangles) and points (squares or
-// discs). A level of a layer's points is one storage buffer (x, y relative to the origin of the feature's piece, in
-// the map's source pixels; the feature's index); a NaN x breaks a line. The pieces' origins are split in two floats
+// Vector layers on the map: lines (each segment a capsule: the target pixels within a distance of it, a core and a
+// dark rim around it, feathered at its edge), polygons' fills (triangles) and points (squares or discs). A layer's
+// lines are the union of their capsules, each pixel shaded once by the segment nearest to it: a first pass writes
+// that distance as the depth (the least kept), the second blends the colour where it is the least (depth equal),
+// once (the stencil marks the pixel with the draw's number). Quads blended one over the other made specks where a
+// line turned back on itself, where vertices almost touched and along segments shorter than a pixel. Each draw has
+// a band of depths of its own, the later nearer, so a layer's lines are drawn over the earlier ones.
+//
+// A level of a layer's points is one storage buffer (x, y relative to the origin of the feature's piece, in the
+// map's source pixels; the feature's index); a NaN x breaks a line. The pieces' origins are split in two floats
 // (high and low parts) as is the view's centre, so float32 keeps a double's precision where it matters: near the
 // view. Each feature's colour and piece come from the layer's buffers.
 
@@ -21,7 +27,12 @@ struct U {
     feather: f32,
     alpha: f32,
     round: u32,
-    _pad: u32,
+    // the draw's band of depths: from depth (on its lines) to depth + band (at their rims' outer edge)
+    depth: f32,
+    band: f32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 struct Pt {
@@ -40,8 +51,11 @@ struct Pt {
 struct Out {
     @builtin(position) pos: vec4<f32>,
     @location(0) col: vec4<f32>,
-    // across the line (target pixels from its middle), or a point's place in its square
+    // along the segment (target pixels from its first point) and across it (from its middle), or a point's place
+    // in its square
     @location(1) d: vec2<f32>,
+    // the segment's length (target pixels)
+    @location(2) @interpolate(flat) len: f32,
 }
 
 fn clip(p: vec2<f32>) -> vec4<f32> {
@@ -60,6 +74,7 @@ fn hidden() -> Out {
     o.pos = vec4<f32>(2.0, 2.0, 2.0, 1.0);
     o.col = vec4<f32>(0.0);
     o.d = vec2<f32>(0.0);
+    o.len = 0.0;
     return o;
 }
 
@@ -98,18 +113,35 @@ fn vs_line(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
         vec2<f32>(0.0, 1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0),
     );
     let c = corner[vi];
-    // the ends reach the core's half width beyond the points: the joints closed
-    let along = mix(a, b, c.x) + dir * (c.x * 2.0 - 1.0) * (u.width * 0.5);
+    // the ends reach as far beyond the points as the sides: the capsule's round caps (the joints) inside
+    let ext = (c.x * 2.0 - 1.0) * hw;
     var o: Out;
-    o.pos = clip(along + n * c.y * hw);
+    o.pos = clip(mix(a, b, c.x) + dir * ext + n * c.y * hw);
     o.col = unpack4x8unorm(colors[p0.f]);
-    o.d = vec2<f32>(c.y * hw, 0.0);
+    o.d = vec2<f32>(c.x * len + ext, c.y * hw);
+    o.len = len;
     return o;
 }
 
+struct LineOut {
+    @location(0) col: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+}
+
+// both passes: the pixel's distance from the segment as its depth, its colour (the first pass writes no colour)
 @fragment
-fn fs_line(i: Out) -> @location(0) vec4<f32> {
-    return shade(i.col, abs(i.d.x));
+fn fs_line(i: Out) -> LineOut {
+    let along = max(max(-i.d.x, i.d.x - i.len), 0.0);
+    let e = length(vec2<f32>(along, i.d.y));
+    let hw = u.width * 0.5 + u.halo + u.feather;
+    if e >= hw {
+        discard;
+    }
+    var o: LineOut;
+    o.col = shade(i.col, e);
+    // below the band's top: the earlier draw's lines, whose band starts there, are not covered by a tie
+    o.depth = u.depth + u.band * 0.999 * (e / hw);
+    return o;
 }
 
 @vertex
@@ -119,6 +151,7 @@ fn vs_fill(@builtin(vertex_index) vi: u32) -> Out {
     o.pos = clip(place(p));
     o.col = unpack4x8unorm(colors[p.f]);
     o.d = vec2<f32>(0.0);
+    o.len = 0.0;
     return o;
 }
 
@@ -143,6 +176,7 @@ fn vs_point(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     o.pos = clip(place(p) + c * r);
     o.col = unpack4x8unorm(colors[p.f]);
     o.d = c * r;
+    o.len = 0.0;
     return o;
 }
 
