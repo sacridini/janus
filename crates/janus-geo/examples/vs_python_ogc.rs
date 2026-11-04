@@ -35,6 +35,7 @@ fn main() {
                 to: opt(&a[7]),
                 filter: String::new(),
                 max_features: a[8].parse().expect("a count"),
+                capabilities: None,
             };
             let out = std::path::PathBuf::from(&a[9]);
             let _ = std::fs::remove_file(&out);

@@ -92,6 +92,11 @@ fn ibge_municipalities_wfs() {
     let r = ogc::fetch_features(&req, &dir.join("mun.gpkg"), &|_, _| {}, &AtomicBool::new(false)).unwrap();
     println!("{}: {} features in {:.1} s", l.name, r.features, r.seconds);
     assert!(r.features > 0);
+    // with the capabilities already read (the dialog's): GDAL's driver asks for them no more
+    let with = FeatureRequest { capabilities: caps.raw_caps(), ..req.clone() };
+    let r2 = ogc::fetch_features(&with, &dir.join("mun_caps.gpkg"), &|_, _| {}, &AtomicBool::new(false)).unwrap();
+    println!("with the capabilities: {} features in {:.1} s", r2.features, r2.seconds);
+    assert_eq!(r2.features, r.features);
 }
 
 #[test]

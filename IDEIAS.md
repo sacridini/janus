@@ -1820,8 +1820,8 @@ igual pixel a pixel a um GetMap direto. API `janus_geo::ogc::fetch_features`
 reutilizável pela fase de alertas (DETER/GLAD/RADD). Self-test 280-289 num
 servidor OGC local.
 
-Faltou: as capabilities passadas do diálogo ao driver WFS (~3 s a menos no
-IBGE), um WMTS ao vivo, reabrir um projeto com camadas web (só as entradas são
+Faltou: ~~as capabilities passadas do diálogo ao driver WFS~~ (feito
+2026-11-04: 3,7 s → 1,4 s no IBGE), um WMTS ao vivo, reabrir um projeto com camadas web (só as entradas são
 checadas), GetFeatureInfo, zoom para a extensão de um mapa, a auditoria de
 layout do diálogo novo.
 
@@ -2045,6 +2045,15 @@ build para a GPU e do upload: +2765 MB desenhada (−43%), pico 5882 MB em vez d
 6633; quadros e pick iguais (7–11 ms com tudo à vista, 2 ms 8× mais perto, 0,6
 ms de perto). Restam os dados (f64) e as coordenadas colocadas (`px`).
 
+**WFS: as capabilities do diálogo dadas ao driver (feito).** O driver WFS do
+GDAL pedia de novo o GetCapabilities que o diálogo acabara de ler (11,5 MB e
+10 186 camadas no IBGE) para listar os campos e para baixar. Agora
+`Capabilities::raw` guarda o documento, `FeatureRequest::capabilities` o leva e
+o driver abre um arquivo `<OGRWFSDataSource>` (a URL e o WFS_Capabilities, na
+pasta temporária) sem pedi-lo: 3,7 s → 1,4 s os 2 municípios do IBGE
+(`ogc_network`), os campos idem; fora da chave do cache. Teste no servidor
+local: os mesmos campos e as 1500 feições sem nenhum GetCapabilities.
+
 **O que ficou para trás:**
 - Alertas: o tour de validação precisa do MapBiomas, que respondeu 403 em
   2026-11-04 (o make_tutorial_data.py segue sem ele).
@@ -2057,8 +2066,7 @@ ms de perto). Restam os dados (f64) e as coordenadas colocadas (`px`).
   quatro lugares registravam os drivers do GDAL cada um por si, e dois
   GDALAllRegister ao mesmo tempo corrompiam o heap; derrubou a CI da 1.12.0
   (Linux e Windows), que nunca foi publicada. Agora só `vectors::register()`.
-- OGC: passar as capabilities do diálogo ao driver WFS (~3 s a menos no IBGE),
-  testar um WMTS ao vivo e a reabertura de um projeto com camadas web,
+- OGC: testar um WMTS ao vivo e a reabertura de um projeto com camadas web,
   GetFeatureInfo, zoom para a extensão de um mapa, a auditoria de layout do
   diálogo novo.
 - ROI e perfis: o tempo no build release sobre os dados do guia.

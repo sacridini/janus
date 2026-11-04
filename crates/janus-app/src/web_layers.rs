@@ -295,6 +295,7 @@ impl WebFeatureEntry {
             to: self.to.clone(),
             filter: self.filter.clone(),
             max_features: self.max_features,
+            capabilities: None,
         }
     }
 }
@@ -391,6 +392,7 @@ impl State {
             to: u.to.trim().to_string(),
             filter: u.where_sql.trim().to_string(),
             max_features: u.max_features,
+            capabilities: caps.raw_caps(),
         };
         Ok((req, l.label().to_string()))
     }
@@ -866,10 +868,11 @@ impl State {
                 if !service.is_map() {
                     let (tx, rx) = channel();
                     let (url, name, c) = (caps.url.clone(), caps.layers[k].name.clone(), ctx.clone());
+                    let raw = caps.raw_caps();
                     std::thread::Builder::new()
                         .name("ogc-fields".into())
                         .spawn(move || {
-                            let _ = tx.send(ogc::layer_fields(service, &url, &name));
+                            let _ = tx.send(ogc::layer_fields_with(service, &url, &name, raw));
                             c.request_repaint();
                         })
                         .ok();
@@ -1277,7 +1280,8 @@ impl State {
         u.filter = get("filter").unwrap_or_default();
         u.status.clear();
         if !caps.service.is_map() {
-            u.field_list = ogc::layer_fields(caps.service, &caps.url, &caps.layers[k].name).unwrap_or_default();
+            u.field_list = ogc::layer_fields_with(caps.service, &caps.url, &caps.layers[k].name, caps.raw_caps())
+                .unwrap_or_default();
         }
         if caps.service.is_map() {
             self.web_add_picked_map().map(|_| ())

@@ -79,6 +79,19 @@ fn wfs_features_of_a_box_paged_capped_cached() {
         .filter(|q| q.contains("GetFeature") && q.to_ascii_uppercase().contains("STARTINDEX="))
         .count();
     assert!(pages >= 2, "paged requests: {:?}", srv.requests());
+    let asked = |srv: &MockServer| srv.requests().iter().filter(|q| q.contains("GetCapabilities")).count();
+    assert!(asked(&srv) >= 1, "GDAL's driver asks for the capabilities: {:?}", srv.requests());
+
+    // the capabilities the dialog read given to the driver: not asked again, the same features
+    srv.clear_log();
+    let with = FeatureRequest { capabilities: caps.raw_caps(), ..req.clone() };
+    assert!(with.capabilities.is_some());
+    let fields2 = ogc::layer_fields_with(Service::Wfs, &url, "test:plots", caps.raw_caps()).unwrap();
+    assert_eq!(fields2, fields);
+    let r2 = ogc::fetch_features(&with, &dir.join("all_caps.gpkg"), &|_, _| {}, &none).unwrap();
+    assert_eq!((r2.features, r2.matched), (1500, Some(1500)));
+    assert_eq!(asked(&srv), 0, "no GetCapabilities with them: {:?}", srv.requests());
+    assert_eq!(with.key(), req.key());
 
     // the GeoPackage: the attributes, the squares, the CRS, the request kept
     {

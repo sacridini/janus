@@ -476,6 +476,15 @@ pub struct Capabilities {
     /// the time the request and the parsing took
     pub ms: f64,
     pub bytes: usize,
+    /// WFS: the capabilities document as the server sent it (given to GDAL's driver: FeatureRequest::capabilities)
+    pub raw: std::sync::Arc<String>,
+}
+
+impl Capabilities {
+    /// The capabilities document for GDAL's WFS driver (None: not a WFS, or not kept).
+    pub fn raw_caps(&self) -> Option<std::sync::Arc<String>> {
+        (self.service == Service::Wfs && !self.raw.is_empty()).then(|| self.raw.clone())
+    }
 }
 
 /// A server's capabilities: of the service asked for, or found (the URL's, else OGC API, WFS and WMS tried in
@@ -526,6 +535,9 @@ fn capabilities_of(url: &str, s: Service) -> Result<Capabilities, String> {
             .ok_or_else(|| not_capabilities(s, &text))?;
             if c.url.is_empty() || s != Service::Wms {
                 c.url = base;
+            }
+            if s == Service::Wfs {
+                c.raw = std::sync::Arc::new(text.into_owned());
             }
             (body, c)
         }
@@ -959,6 +971,9 @@ pub struct FeatureRequest {
     pub filter: String,
     /// 0: DEFAULT_MAX_FEATURES
     pub max_features: usize,
+    /// WFS: the server's capabilities already read (Capabilities::raw): GDAL's driver opens with them instead of
+    /// asking for them again (seconds on a server of thousands of layers); not part of the request's key
+    pub capabilities: Option<std::sync::Arc<String>>,
 }
 
 /// FNV-1a: a name that stays the same from run to run.
@@ -1092,16 +1107,36 @@ fn c(s: &str) -> CString {
     CString::new(s.replace('\0', "")).unwrap_or_default()
 }
 
+/// The WFS driver's connection: "WFS:URL", or, with the capabilities already read, a service file holding them
+/// (`<OGRWFSDataSource>`: the URL and the WFS_Capabilities document; the driver then sends no GetCapabilities), in
+/// the temporary folder.
+fn wfs_connection(req: &FeatureRequest) -> String {
+    let url = with_query(&base_url(&req.url), &[("TYPENAME", &req.layer)]);
+    let plain = format!("WFS:{url}");
+    let Some(caps) = req.capabilities.as_deref() else { return plain };
+    // the document without its XML declaration, from its root (wfs:WFS_Capabilities or WFS_Capabilities)
+    let Some(root) = caps.find("WFS_Capabilities").and_then(|k| caps[..k].rfind('<')) else { return plain };
+    let esc = url.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let text = format!("<OGRWFSDataSource>\n  <URL>{esc}</URL>\n{}\n</OGRWFSDataSource>\n", &caps[root..]);
+    let path = std::env::temp_dir().join(format!(
+        "janus-wfs-{}-{:016x}.xml",
+        std::process::id(),
+        fnv(&format!("{url}\n{caps}"))
+    ));
+    match std::fs::write(&path, text) {
+        Ok(()) => path.to_string_lossy().into_owned(),
+        Err(_) => plain,
+    }
+}
+
 /// The server's layer opened through GDAL's WFS or OAPIF driver.
 fn open_layer(req: &FeatureRequest) -> Result<(Ds, gdal_sys::OGRLayerH), String> {
     http_config();
     let _ = gdal::config::set_thread_local_config_option("OGR_WFS_LOAD_MULTIPLE_LAYER_DEFN", "NO");
     let (conn, driver, opts) = match req.service {
-        Service::Wfs => (
-            format!("WFS:{}", with_query(&base_url(&req.url), &[("TYPENAME", &req.layer)])),
-            "WFS",
-            vec!["PAGING_ALLOWED=ON".to_string(), format!("PAGE_SIZE={PAGE_SIZE}")],
-        ),
+        Service::Wfs => {
+            (wfs_connection(req), "WFS", vec!["PAGING_ALLOWED=ON".to_string(), format!("PAGE_SIZE={PAGE_SIZE}")])
+        }
         Service::Oapif => (format!("OAPIF:{}", oapif_base(&req.url)), "OAPIF", vec![format!("PAGE_SIZE={PAGE_SIZE}")]),
         s => return Err(format!("{} serves maps, not features", s.name())),
     };
@@ -1157,7 +1192,17 @@ fn open_layer(req: &FeatureRequest) -> Result<(Ds, gdal_sys::OGRLayerH), String>
 /// A layer's fields (name, type) as the server describes them (WFS DescribeFeatureType, OGC API's schema or
 /// first page).
 pub fn layer_fields(service: Service, url: &str, layer: &str) -> Result<Vec<(String, String)>, String> {
-    let req = FeatureRequest { service, url: url.into(), layer: layer.into(), ..Default::default() };
+    layer_fields_with(service, url, layer, None)
+}
+
+/// As `layer_fields`, a WFS opened with its capabilities already read (FeatureRequest::capabilities).
+pub fn layer_fields_with(
+    service: Service,
+    url: &str,
+    layer: &str,
+    capabilities: Option<std::sync::Arc<String>>,
+) -> Result<Vec<(String, String)>, String> {
+    let req = FeatureRequest { service, url: url.into(), layer: layer.into(), capabilities, ..Default::default() };
     let (_ds, l) = open_layer(&req)?;
     let mut out = Vec::new();
     // SAFETY: a layer of the open dataset; its definition read only.

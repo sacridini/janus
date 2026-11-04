@@ -263,6 +263,7 @@ impl State {
                     to: if window.1 < i32::MAX { ymd(window.1) } else { String::new() },
                     filter: String::new(),
                     max_features: 0,
+                    capabilities: None,
                 };
                 let path = req.cache_path(&crate::web_layers::cache_dir()).to_string_lossy().into_owned();
                 let what = Alerts::Vector {
