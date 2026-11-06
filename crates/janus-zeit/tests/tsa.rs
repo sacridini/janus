@@ -1,6 +1,8 @@
 //! Interpolate (a tool after the bridge, FORCE's TSA interpolation): a raster run gives zeit.interpolate's series on
 //! the new grid (tests/data/tsa, written by tools/tsa_fixtures.py: a small series of irregular dates with gaps),
-//! one band, and one date as its description, per date of the grid; a pixel run draws the same line.
+//! one band, and one date as its description, per date of the grid; a pixel run draws the same line. Temporal
+//! metrics, Fold and Standardize (tsa_stats.json, from zeit.temporal_metrics and zeit.standardize on the same
+//! series) are tested the same way further down.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -171,4 +173,288 @@ fn a_series_without_dates_is_refused() {
     };
     let e = run_pixel("interpolate", &params, &short).unwrap_err();
     assert!(e.contains("no date in the grid"), "{e}");
+}
+
+// ---- temporal metrics, fold and standardize ---------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct MetricsCase {
+    params: BTreeMap<String, Value>,
+    values: Vec<Vec<Option<f64>>>,
+}
+
+#[derive(Deserialize)]
+struct FoldCase {
+    params: BTreeMap<String, Value>,
+    periods: Vec<String>,
+    /// [metric][period][pixel]
+    values: Vec<Vec<Vec<Option<f64>>>>,
+}
+
+#[derive(Deserialize)]
+struct StdCase {
+    params: BTreeMap<String, Value>,
+    /// [date][pixel]
+    values: Vec<Vec<Option<f64>>>,
+}
+
+#[derive(Deserialize)]
+struct Stats {
+    temporal_metrics: Vec<MetricsCase>,
+    fold: Vec<FoldCase>,
+    standardize: Vec<StdCase>,
+}
+
+fn stats() -> Stats {
+    serde_json::from_str(&std::fs::read_to_string(data().join("tsa_stats.json")).unwrap()).unwrap()
+}
+
+fn options(params: &BTreeMap<String, Value>) -> Vec<String> {
+    params["metrics"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect()
+}
+
+/// A run of `tool` with `params` on the fixtures' series, into a folder of its own.
+fn run(tool: &str, params: &BTreeMap<String, Value>, name: &str) -> janus_zeit::job::JobResult {
+    let mut spec = spec();
+    spec.tool = tool.into();
+    spec.params = params.clone();
+    let out = std::env::temp_dir().join(format!("janus-zeit-tsa-test-{name}"));
+    let _ = std::fs::remove_dir_all(&out);
+    spec.output_dir = out.to_string_lossy().to_string();
+    run_job(&spec, &|_, _| {}, &AtomicBool::new(false)).unwrap()
+}
+
+fn output_path(result: &janus_zeit::job::JobResult, id: &str) -> String {
+    let o = result.outputs.iter().find(|o| o["id"] == id).unwrap_or_else(|| panic!("no output {id}"));
+    o["path"].as_str().unwrap().to_string()
+}
+
+/// A band of an output is zeit's, written as float32.
+fn assert_band(got: &[f64], want: &[Option<f64>], what: &str) {
+    assert_eq!(got.len(), want.len());
+    for (i, (g, w)) in got.iter().zip(want).enumerate() {
+        assert!(close(*g, w.map(|w| f64::from(w as f32)), 1e-5), "{what} pixel {i}: {g} vs {w:?}");
+    }
+}
+
+/// The pixels the pixel runs are tried on: with gaps, the long gap, the single observation, none at all.
+const PIXELS: [(usize, usize); 6] = [(1, 1), (3, 2), (5, 5), (11, 7), (0, 0), (8, 4)];
+
+#[test]
+fn temporal_metrics_raster_run_is_zeits() {
+    for (k, c) in stats().temporal_metrics.iter().enumerate() {
+        let result = run("temporal_metrics", &c.params, &format!("stm-{k}"));
+        let opts = options(&c.params);
+        // one map per chosen metric, named after it
+        assert_eq!(result.outputs.len(), opts.len());
+        for (m, o) in opts.iter().enumerate() {
+            let (bands, _) = read(Path::new(&output_path(&result, &format!("m_{o}"))));
+            assert_eq!(bands.len(), 1);
+            assert_band(&bands[0], &c.values[m], &format!("case {k} metric {o}"));
+        }
+    }
+    // the outputs' names are the metrics' labels
+    let c = &stats().temporal_metrics[2];
+    let result = run("temporal_metrics", &c.params, "stm-names");
+    let names: Vec<&str> = result.outputs.iter().map(|o| o["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Standard deviation", "5th percentile", "Number of observations"]);
+}
+
+#[test]
+fn temporal_metrics_pixel_run_is_zeits() {
+    let s = stats();
+    for (x, y) in PIXELS {
+        let p = y * W + x;
+        let input = pixel_input(p);
+        for (k, c) in s.temporal_metrics.iter().enumerate() {
+            let params = Params::with_defaults("temporal_metrics", &c.params).unwrap();
+            let r = run_pixel("temporal_metrics", &params, &input).unwrap();
+            let opts = options(&c.params);
+            // "Valid observations", then a row per metric
+            assert_eq!(r.rows.len(), opts.len() + 1);
+            for (m, o) in opts.iter().enumerate() {
+                let got: f64 = r.rows[m + 1][1].parse().unwrap();
+                assert!(
+                    close(got, c.values[m][p], 1e-5),
+                    "case {k} {o} pixel ({x}, {y}): {got} vs {:?}",
+                    c.values[m][p]
+                );
+            }
+        }
+    }
+}
+
+/// zeit's period coordinate as the tool's band label.
+fn label(by: &str, period: &str) -> String {
+    let k: usize = period.parse().unwrap();
+    match by {
+        "year" => period.to_string(),
+        "quarter" => format!("Q{k}"),
+        "month" => ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][k - 1].into(),
+        "week" => format!("week {k:02}"),
+        _ => format!("doy {k:03}"),
+    }
+}
+
+#[test]
+fn fold_raster_run_is_zeits() {
+    for (k, c) in stats().fold.iter().enumerate() {
+        let by = c.params["by"].as_str().unwrap();
+        let result = run("fold", &c.params, &format!("fold-{k}"));
+        let opts = options(&c.params);
+        assert_eq!(result.outputs.len(), opts.len());
+        let labels: Vec<String> = c.periods.iter().map(|p| label(by, p)).collect();
+        for (m, o) in opts.iter().enumerate() {
+            let out = result.outputs.iter().find(|x| x["id"] == format!("f_{o}").as_str()).unwrap();
+            assert_eq!(out["series"], json!(true));
+            assert_eq!(out["bands"], json!(true));
+            let (bands, descriptions) = read(Path::new(out["path"].as_str().unwrap()));
+            // one band per period, named after it (all of them, the empty ones too)
+            assert_eq!(descriptions, labels, "case {k} {by}");
+            assert_eq!(bands.len(), c.values[m].len());
+            for (b, (got, want)) in bands.iter().zip(&c.values[m]).enumerate() {
+                assert_band(got, want, &format!("case {k} {by} metric {o} period {}", labels[b]));
+            }
+        }
+    }
+    // the series covers at least three calendar years
+    let year = stats().fold.into_iter().find(|c| c.params["by"] == "year").unwrap();
+    assert!(year.periods.len() >= 3, "{:?}", year.periods);
+}
+
+#[test]
+fn fold_pixel_run_is_zeits() {
+    let s = stats();
+    for (x, y) in PIXELS {
+        let p = y * W + x;
+        let input = pixel_input(p);
+        for (k, c) in s.fold.iter().enumerate() {
+            let by = c.params["by"].as_str().unwrap();
+            let params = Params::with_defaults("fold", &c.params).unwrap();
+            let r = run_pixel("fold", &params, &input).unwrap();
+            let opts = options(&c.params);
+            if by == "year" {
+                // a line per metric at the middle of each year
+                assert_eq!(r.overlays.len(), opts.len());
+                for (m, line) in r.overlays.iter().enumerate() {
+                    assert_eq!(line.kind, "line");
+                    assert_eq!(line.y.len(), c.periods.len());
+                    for (i, v) in line.y.iter().enumerate() {
+                        let year: f64 = c.periods[i].parse().unwrap();
+                        assert!((line.x[i] - (year + 0.5)).abs() < 1e-9);
+                        assert!(
+                            close(v.unwrap_or(f64::NAN), c.values[m][i][p], 1e-5),
+                            "case {k} metric {} year {year} pixel ({x}, {y}): {v:?} vs {:?}",
+                            opts[m],
+                            c.values[m][i][p]
+                        );
+                    }
+                }
+            } else {
+                assert!(r.overlays.is_empty());
+            }
+            // the table lists the periods with a value (twelve at most per metric), in order
+            if by == "month" || by == "quarter" {
+                let wanted: Vec<f64> = c.values.iter().flat_map(|m| m.iter().filter_map(|per| per[p])).collect();
+                let got: Vec<f64> = r.rows[1..]
+                    .iter()
+                    .filter(|[_, v]| !v.contains("no value"))
+                    .map(|[_, v]| v.parse().unwrap())
+                    .collect();
+                assert_eq!(got.len(), wanted.len(), "case {k} {by} pixel ({x}, {y}): {:?}", r.rows);
+                for (g, w) in got.iter().zip(&wanted) {
+                    assert!(close(*g, Some(*w), 1e-5), "case {k} {by} pixel ({x}, {y}): {g} vs {w}");
+                }
+            }
+        }
+    }
+}
+
+/// A fold by year opens as a dated yearly series; by month, as a stack of 12 named bands, not dates.
+#[test]
+fn folds_open_as_a_yearly_series_and_as_named_bands() {
+    let s = stats();
+    let year = s.fold.iter().find(|c| c.params["by"] == "year" && options(&c.params).len() == 1).unwrap();
+    let result = run("fold", &year.params, "fold-open-year");
+    let path = output_path(&result, "f_mean");
+    let info = janus_cube::open_cube(&[path], &janus_cube::BandSelection::default()).unwrap();
+    assert!(info.time_is_date);
+    assert_eq!(info.t(), year.periods.len());
+    let labels: Vec<&str> = info.layers.iter().map(|l| l.label.as_str()).collect();
+    assert_eq!(labels, year.periods.iter().map(String::as_str).collect::<Vec<_>>());
+
+    for (by, n) in [("month", 12), ("quarter", 4), ("week", 52), ("doy", 365)] {
+        let c = s.fold.iter().find(|c| c.params["by"] == by).unwrap();
+        let result = run("fold", &c.params, &format!("fold-open-{by}"));
+        let path = output_path(&result, &format!("f_{}", options(&c.params)[0]));
+        let info = janus_cube::open_cube(&[path], &janus_cube::BandSelection::default()).unwrap();
+        assert!(!info.time_is_date, "{by} opened as dates");
+        assert_eq!(info.t(), n, "{by}");
+        let labels: Vec<&str> = info.layers.iter().map(|l| l.label.as_str()).collect();
+        assert_eq!(labels[0], label(by, "1"), "{by}");
+        assert_eq!(labels[n - 1], label(by, &n.to_string()), "{by}");
+    }
+}
+
+#[test]
+fn fold_needs_dates_and_valid_parameters() {
+    let mut input = pixel_input(0);
+    input.days = None;
+    let params = Params::with_defaults("fold", &BTreeMap::new()).unwrap();
+    let e = run_pixel("fold", &params, &input).unwrap_err();
+    assert!(e.contains("dated series"), "{e}");
+    let bad = Params::with_defaults("fold", &BTreeMap::from([("by".to_string(), json!("decade"))])).unwrap();
+    let e = run_pixel("fold", &bad, &pixel_input(0)).unwrap_err();
+    assert!(e.starts_with("ValueError: by must be"), "{e}");
+    // no metric chosen
+    let none = Params::with_defaults("fold", &BTreeMap::from([("metrics".to_string(), json!([]))])).unwrap();
+    let e = run_pixel("fold", &none, &pixel_input(0)).unwrap_err();
+    assert!(e.contains("at least one metric"), "{e}");
+    // temporal metrics need no dates
+    let params = Params::with_defaults("temporal_metrics", &BTreeMap::new()).unwrap();
+    run_pixel("temporal_metrics", &params, &input).unwrap();
+}
+
+#[test]
+fn standardize_raster_run_is_zeits() {
+    for (k, c) in stats().standardize.iter().enumerate() {
+        let result = run("standardize", &c.params, &format!("std-{k}"));
+        let o = result.outputs.iter().find(|o| o["id"] == "series").unwrap();
+        assert_eq!(o["series"], json!(true));
+        assert!(o.get("bands").is_none_or(|b| b != &json!(true)));
+        let (bands, descriptions) = read(Path::new(o["path"].as_str().unwrap()));
+        // on the run's dates
+        assert_eq!(bands.len(), c.values.len());
+        assert_eq!(descriptions.len(), spec().years.len());
+        for (b, (got, want)) in bands.iter().zip(&c.values).enumerate() {
+            assert_band(got, want, &format!("case {k} {:?} date {b}", c.params));
+        }
+    }
+}
+
+#[test]
+fn standardize_pixel_run_is_zeits() {
+    let s = stats();
+    for (x, y) in PIXELS {
+        let p = y * W + x;
+        let input = pixel_input(p);
+        for (k, c) in s.standardize.iter().enumerate() {
+            let params = Params::with_defaults("standardize", &c.params).unwrap();
+            let r = run_pixel("standardize", &params, &input).unwrap();
+            let line = &r.overlays[0];
+            assert_eq!(line.kind, "line");
+            assert_eq!(line.x, input.years);
+            assert_eq!(line.y.len(), c.values.len());
+            for (b, v) in line.y.iter().enumerate() {
+                assert!(
+                    close(v.unwrap_or(f64::NAN), c.values[b][p], 1e-5),
+                    "case {k} pixel ({x}, {y}) date {b}: {v:?} vs {:?}",
+                    c.values[b][p]
+                );
+            }
+        }
+    }
+    let bad = Params::with_defaults("standardize", &BTreeMap::from([("method".to_string(), json!("rank"))])).unwrap();
+    let e = run_pixel("standardize", &bad, &pixel_input(0)).unwrap_err();
+    assert!(e.starts_with("ValueError: method must be"), "{e}");
 }

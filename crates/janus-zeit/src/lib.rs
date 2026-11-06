@@ -42,6 +42,8 @@ mod smooth;
 pub mod snic;
 mod som;
 pub mod speckle;
+mod standardize;
+mod temporal_metrics;
 pub mod texture;
 mod tmask;
 pub mod trend_test;

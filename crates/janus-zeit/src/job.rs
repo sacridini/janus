@@ -465,6 +465,7 @@ pub fn active_outputs(tool: &Tool, p: &Params) -> Vec<Output> {
 pub(crate) fn output_bands(tool: &str, o: &Output, p: &Params, input: &PixelInput) -> Result<Vec<String>, String> {
     match tool {
         "interpolate" => crate::interpolate::bands(o, p, input),
+        "fold" => crate::temporal_metrics::fold_bands(o, p, input),
         _ => Err(format!("{tool}: the output '{}' has no bands", o.id)),
     }
 }
@@ -691,6 +692,9 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "landtrendr" => crate::landtrendr::chunk(p, chunk, ctx),
         "mann_kendall" => crate::mann_kendall::chunk(p, chunk, ctx),
         "interpolate" => crate::interpolate::chunk(p, chunk, ctx),
+        "temporal_metrics" => crate::temporal_metrics::chunk(p, chunk, ctx),
+        "fold" => crate::temporal_metrics::fold_chunk(p, chunk, ctx),
+        "standardize" => crate::standardize::chunk(p, chunk, ctx),
         "ar_trend" => crate::ar_trend::chunk(p, chunk, ctx),
         "recovery" => crate::recovery::chunk(p, chunk, ctx),
         "ewmacd" => crate::ewmacd::chunk(p, chunk, ctx),

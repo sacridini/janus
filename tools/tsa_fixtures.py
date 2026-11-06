@@ -1,6 +1,8 @@
-"""The references of janus-zeit's Interpolate tool (tests/tsa.rs): zeit.interpolate on a small series made here
-(tests/data/tsa: 12 x 8 pixels, 120 irregular dates over about 2.5 years, gaps of every size, a pixel without a
-valid observation and one with a single one), for each method, with the tool's parameters.
+"""The references of janus-zeit's Interpolate, Temporal metrics, Fold and Standardize tools (tests/tsa.rs):
+zeit.interpolate on a small series made here (tests/data/tsa: 12 x 8 pixels, 120 irregular dates over about 2.5
+years, gaps of every size, a pixel without a valid observation and one with a single one), for each method, with
+the tool's parameters (tsa.json); and zeit.temporal_metrics (whole series and by period) and zeit.standardize on
+the same series (tsa_stats.json).
 
     python tools/tsa_fixtures.py
 
@@ -42,6 +44,38 @@ def decimal_year(day):
     start = np.datetime64(f"{y}-01-01")
     n = 366 if (y % 4 == 0 and y % 100 != 0) or y % 400 == 0 else 365
     return y + int((d - start) / np.timedelta64(1, "D")) / n
+
+
+ALL_METRICS = ["min", "p05", "p10", "p25", "median", "p75", "p90", "p95", "max", "range", "iqr", "mean", "std",
+               "skew", "kurtosis", "count"]
+
+
+def clean(a):
+    return [None if not np.isfinite(x) else float(f"{x:.9g}") for x in np.asarray(a, dtype=np.float64).reshape(-1)]
+
+
+def stats(cube):
+    """tsa_stats.json: for each case, the tool's parameters and zeit's values: temporal_metrics [metric][pixel],
+    fold [metric][period][pixel] with the period labels, standardize [date][pixel]."""
+    out = {"temporal_metrics": [], "fold": [], "standardize": []}
+    default = ["min", "p25", "median", "p75", "max", "mean", "std"]
+    for metrics in (default, ALL_METRICS, ["std", "p05", "count"]):
+        r = zeit.temporal_metrics(cube, metrics, nodata=None, n_jobs=1)
+        out["temporal_metrics"].append({"params": {"metrics": metrics}, "values": [clean(r.sel(metric=m)) for m in
+                                        zeit.indices.parse_metrics(metrics)]})
+    for by, metrics in (("year", ["mean"]), ("year", ALL_METRICS), ("quarter", ["mean", "count", "p05"]),
+                        ("month", ["mean", "median", "count", "std"]), ("week", ["mean", "count"]),
+                        ("doy", ["max", "count"]), ("month", ["iqr", "range", "skew", "kurtosis"])):
+        r = zeit.temporal_metrics(cube, metrics, by=by, nodata=None, n_jobs=1)
+        out["fold"].append({"params": {"metrics": metrics, "by": by}, "periods": [str(x) for x in r[by].values],
+                            "values": [[clean(r.sel(metric=m).isel({by: k})) for k in range(r.sizes[by])]
+                                       for m in zeit.indices.parse_metrics(metrics)]})
+    for method in ("normalize", "center"):
+        r = zeit.standardize(cube, method, nodata=None, n_jobs=1)
+        out["standardize"].append({"params": {"method": method},
+                                   "values": [clean(r.isel(time=k)) for k in range(r.sizes["time"])]})
+        print("standardize", method, int(np.isnan(r.values).sum()), "values missing")
+    (HERE / "tsa_stats.json").write_text(json.dumps(out))
 
 
 def main():
@@ -91,6 +125,7 @@ def main():
             "values": [[None if not np.isfinite(x) else float(f'{x:.9g}') for x in row] for row in vals]})
         print(params, len(grid), "dates;", int(np.isnan(vals).sum()), "values missing")
     (HERE / "tsa.json").write_text(json.dumps(out))
+    stats(cube)
 
 
 if __name__ == "__main__":

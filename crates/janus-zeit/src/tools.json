@@ -3474,6 +3474,212 @@
     }
    ],
    "chunk_cells": 50000
+  },
+  {
+   "id": "temporal_metrics",
+   "name": "Temporal metrics (FORCE STM)",
+   "category": "Temporal dynamics",
+   "description": "Statistics of each pixel's series over all of it: FORCE's spatio-temporal metrics (STM, Frantz 2019), as zeit.temporal_metrics. Choose the metrics (minimum, percentiles, median, maximum, range, interquartile range, mean, standard deviation, skewness, kurtosis, number of observations); a raster run writes one map per metric, a pixel run lists their values. Missing observations (clouds, the quality band, NoData) are ignored; a pixel without a valid observation is empty (0 for the count).",
+   "requires": {
+    "time": "any",
+    "min_dates": 2
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "metrics",
+     "label": "Metrics",
+     "type": "multi",
+     "default": [
+      "min",
+      "p25",
+      "median",
+      "p75",
+      "max",
+      "mean",
+      "std"
+     ],
+     "options": [
+      "min",
+      "p05",
+      "p10",
+      "p25",
+      "median",
+      "p75",
+      "p90",
+      "p95",
+      "max",
+      "range",
+      "iqr",
+      "mean",
+      "std",
+      "skew",
+      "kurtosis",
+      "count"
+     ],
+     "labels": [
+      "Minimum",
+      "5th percentile",
+      "10th percentile",
+      "25th percentile (lower quartile)",
+      "Median",
+      "75th percentile (upper quartile)",
+      "90th percentile",
+      "95th percentile",
+      "Maximum",
+      "Range (maximum minus minimum)",
+      "Interquartile range",
+      "Mean",
+      "Standard deviation",
+      "Skewness",
+      "Kurtosis (excess)",
+      "Number of observations"
+     ],
+     "help": "The statistics of the valid observations of each pixel: percentiles as numpy's (linear interpolation), the standard deviation of the sample (n - 1, as FORCE), skewness and excess kurtosis from the population moments (undefined, NaN, for a series with fewer than 2 distinct values), and the number of observations (0 where there is none). One map per metric."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "m",
+     "name": "{}",
+     "each": "metrics"
+    }
+   ],
+   "chunk_cells": 50000
+  },
+  {
+   "id": "fold",
+   "name": "Fold by period (FORCE)",
+   "category": "Temporal dynamics",
+   "description": "The same statistics by period of the year instead of over the whole series: FORCE's fold (Frantz 2019), as zeit.temporal_metrics with a period. By year (each year from the first date's to the last's, so a year without data is an empty band), quarter, month, week or day of the year (the quarters, months, weeks and days of every year together; the calendar has 365 days, 29 February sharing day 60 with 1 March, and the week is the day's number over 7, rounded up, at most 52). A raster run writes, for each metric, one band per period named after it (a yearly series opens as dated; the others as named bands); a pixel run draws the yearly values and lists the others. The series needs real dates. Missing observations (clouds, the quality band, NoData) are ignored; a pixel without a valid observation is empty (0 for the count).",
+   "requires": {
+    "time": "any",
+    "min_dates": 2
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "metrics",
+     "label": "Metrics",
+     "type": "multi",
+     "default": [
+      "mean"
+     ],
+     "options": [
+      "min",
+      "p05",
+      "p10",
+      "p25",
+      "median",
+      "p75",
+      "p90",
+      "p95",
+      "max",
+      "range",
+      "iqr",
+      "mean",
+      "std",
+      "skew",
+      "kurtosis",
+      "count"
+     ],
+     "labels": [
+      "Minimum",
+      "5th percentile",
+      "10th percentile",
+      "25th percentile (lower quartile)",
+      "Median",
+      "75th percentile (upper quartile)",
+      "90th percentile",
+      "95th percentile",
+      "Maximum",
+      "Range (maximum minus minimum)",
+      "Interquartile range",
+      "Mean",
+      "Standard deviation",
+      "Skewness",
+      "Kurtosis (excess)",
+      "Number of observations"
+     ],
+     "help": "The statistics of the valid observations of each pixel: percentiles as numpy's (linear interpolation), the standard deviation of the sample (n - 1, as FORCE), skewness and excess kurtosis from the population moments (undefined, NaN, for a series with fewer than 2 distinct values), and the number of observations (0 where there is none). One map per metric."
+    },
+    {
+     "id": "by",
+     "label": "Period",
+     "type": "enum",
+     "default": "year",
+     "options": [
+      "year",
+      "quarter",
+      "month",
+      "week",
+      "doy"
+     ],
+     "labels": [
+      "Year",
+      "Quarter (of every year)",
+      "Month (of every year)",
+      "Week (of every year)",
+      "Day of the year (of every year)"
+     ],
+     "help": "The periods the statistics are taken over: every year, or the same quarter, month, week or day of the year across all the years."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "f",
+     "name": "{} by period",
+     "each": "metrics",
+     "series": true,
+     "bands": true
+    }
+   ],
+   "chunk_cells": 50000
+  },
+  {
+   "id": "standardize",
+   "name": "Standardize (FORCE)",
+   "category": "Data preparation",
+   "description": "Standardizes each pixel's series along time: FORCE's STANDARDIZE, as zeit.standardize. The mean (and, for the z-score, the sample standard deviation) are those of the valid observations; missing observations stay empty, a series with fewer than 2 valid observations is left as it is, and a constant series gives empty values when normalized. A raster run writes the standardized series on the run's dates.",
+   "requires": {
+    "time": "any",
+    "min_dates": 2
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "method",
+     "label": "Method",
+     "type": "enum",
+     "default": "normalize",
+     "options": [
+      "normalize",
+      "center"
+     ],
+     "labels": [
+      "z-score (minus the mean, over the standard deviation)",
+      "Centre (minus the mean)"
+     ],
+     "help": "The z-score puts every series on the same scale (mean 0, standard deviation 1); centring only removes the mean."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "series",
+     "name": "Standardized",
+     "series": true
+    }
+   ],
+   "chunk_cells": 50000
   }
  ],
  "errors": []
