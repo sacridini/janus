@@ -77,6 +77,13 @@ pub fn selftest_zeit(inputs: &[String], threads: usize) -> i32 {
         if tool.id == "postproc" && !info.file_categorical {
             why = Some("not a categorical series (no colour table, category names or attribute table)".into());
         }
+        if tool.id == "polar_metrics" {
+            // the polar metrics need a constant step of whole days (the output of Interpolate)
+            let gaps: Vec<i64> = (1..n).map(|t| info.unix_day(t) - info.unix_day(t - 1)).collect();
+            if !info.time_is_date || gaps.iter().any(|&g| g <= 0 || g != gaps[0]) {
+                why = Some("not a regular series (a constant step of whole days)".into());
+            }
+        }
         let missing: Vec<&String> =
             tool.requires.bands.iter().flatten().filter(|r| !roles.contains_key(r.as_str())).collect();
         if why.is_none() && !missing.is_empty() {
@@ -255,9 +262,13 @@ pub fn selftest_zeit(inputs: &[String], threads: usize) -> i32 {
                         Ok(s) => s,
                         Err(e) => return fail(format!("{}: series output: {e}", tool.id)),
                     };
-                    if s.t() != n
-                        || s.time_is_date != info.time_is_date
-                        || (info.time_is_date && s.layers[0].label != info.layers[0].label)
+                    // an output with its own bands (an interpolation's grid, periods) has its own dates
+                    let own = o["bands"].as_bool() == Some(true);
+                    if s.t() == 0
+                        || (!own
+                            && (s.t() != n
+                                || s.time_is_date != info.time_is_date
+                                || (info.time_is_date && s.layers[0].label != info.layers[0].label)))
                     {
                         return fail(format!("{}: series output {} has other dates", tool.id, o["id"]));
                     }

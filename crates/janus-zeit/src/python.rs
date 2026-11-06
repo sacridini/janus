@@ -5,6 +5,7 @@
 use std::fmt::Write as _;
 
 use crate::pixel::{Params, PixelInput};
+use crate::temporal_metrics::unique_options;
 
 /// A float as Python's repr.
 pub fn py_float(v: f64) -> String {
@@ -26,6 +27,15 @@ pub fn py_float(v: f64) -> String {
 
 fn py_str(s: &str) -> String {
     format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"))
+}
+
+fn py_bool(b: bool) -> &'static str {
+    if b { "True" } else { "False" }
+}
+
+/// A list of strings as a Python list.
+fn py_list(items: &[String]) -> String {
+    format!("[{}]", items.iter().map(|x| py_str(x)).collect::<Vec<_>>().join(", "))
 }
 
 /// The calls (code) and the inputs the code needs ("series", "bands_cube", "fmask").
@@ -93,7 +103,6 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
                 "ols" => (false, false),
                 _ => (true, true),
             };
-            let py_bool = |b: bool| if b { "True" } else { "False" };
             let b = e.bands;
             let mut code = String::from("endmembers = pd.DataFrame({\n");
             for (j, name) in e.names.iter().enumerate() {
@@ -397,6 +406,84 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
                 f("max_angle")
             ),
             vec!["bands_cube", "fmask"],
+        ),
+        "interpolate" => {
+            let extra = match p.str("method") {
+                "rbf" => {
+                    let sigma: Vec<String> =
+                        p.str("sigma").split(',').filter_map(|x| x.trim().parse::<f64>().ok()).map(py_float).collect();
+                    format!(", sigma=[{}], cutoff={}", sigma.join(", "), f("cutoff"))
+                }
+                "moving" => format!(", window={}", f("window")),
+                "harmonic" => format!(", modes={}, trend={}", i("modes"), py_bool(p.bool("trend"))),
+                _ => String::new(),
+            };
+            (
+                format!(
+                    "result1 = zeit.interpolate(series, {}, step={}{extra}, nodata=None, n_jobs=1)",
+                    s("method"),
+                    i("step")
+                ),
+                series,
+            )
+        }
+        "temporal_metrics" => (
+            format!(
+                "result1 = zeit.temporal_metrics(series, {}, nodata=None, n_jobs=1)",
+                py_list(&unique_options(p, "metrics"))
+            ),
+            series,
+        ),
+        "fold" => (
+            format!(
+                "result1 = zeit.temporal_metrics(series, {}, by={}, nodata=None, n_jobs=1)",
+                py_list(&unique_options(p, "metrics")),
+                s("by")
+            ),
+            series,
+        ),
+        "standardize" => {
+            (format!("result1 = zeit.standardize(series, {}, nodata=None, n_jobs=1)", s("method")), series)
+        }
+        "linear_trend" | "cat" => {
+            let by = s("by");
+            let fold =
+                format!("result1 = zeit.temporal_metrics(series, [{}], by={by}, nodata=None, n_jobs=1)\n", s("metric"));
+            let stats = py_list(&unique_options(p, "statistics"));
+            let call = if tool == "cat" {
+                format!(
+                    "result2 = zeit.cat(result1, penalty={}, dim={by}, conf={}, tail={}, nodata=None, n_jobs=1)",
+                    py_bool(p.bool("penalty")),
+                    f("conf"),
+                    s("tail")
+                )
+            } else {
+                format!(
+                    "result2 = zeit.linear_trend(result1, dim={by}, conf={}, tail={}, nodata=None, n_jobs=1)",
+                    f("conf"),
+                    s("tail")
+                )
+            };
+            (format!("{fold}{call}\n# the statistics the tool writes: {stats}"), series)
+        }
+        "clear_observations" => (
+            format!(
+                "result1 = zeit.clear_observations(series, months={}, metrics={}, nodata=None, n_jobs=1)",
+                i("months"),
+                py_list(&unique_options(p, "statistics"))
+            ),
+            series,
+        ),
+        "polar_metrics" => (
+            format!(
+                "result1 = zeit.polar_metrics(series, {}, start={}, mid={}, end={}, adaptive={}, nodata=None, n_jobs=1)",
+                py_list(&unique_options(p, "metrics")),
+                f("start"),
+                f("mid"),
+                f("end"),
+                py_bool(p.bool("adaptive"))
+            ),
+            series,
         ),
         _ => return None,
     })
