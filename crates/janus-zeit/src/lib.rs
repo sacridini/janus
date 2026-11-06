@@ -17,6 +17,7 @@ pub mod cluster;
 mod coded;
 pub mod composite;
 pub mod ewmacd;
+mod fold_trend;
 pub mod harmonize;
 pub mod hotspots;
 mod interpolate;

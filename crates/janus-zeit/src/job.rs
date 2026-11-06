@@ -694,6 +694,8 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "interpolate" => crate::interpolate::chunk(p, chunk, ctx),
         "temporal_metrics" => crate::temporal_metrics::chunk(p, chunk, ctx),
         "fold" => crate::temporal_metrics::fold_chunk(p, chunk, ctx),
+        "linear_trend" => crate::fold_trend::chunk_trend(p, chunk, ctx),
+        "cat" => crate::fold_trend::chunk_cat(p, chunk, ctx),
         "standardize" => crate::standardize::chunk(p, chunk, ctx),
         "ar_trend" => crate::ar_trend::chunk(p, chunk, ctx),
         "recovery" => crate::recovery::chunk(p, chunk, ctx),

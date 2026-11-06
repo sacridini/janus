@@ -1,8 +1,12 @@
-"""The references of janus-zeit's Interpolate, Temporal metrics, Fold and Standardize tools (tests/tsa.rs):
+"""The references of janus-zeit's Interpolate, Temporal metrics, Fold, Standardize, Linear trend and CAT tools
+(tests/tsa.rs):
 zeit.interpolate on a small series made here (tests/data/tsa: 12 x 8 pixels, 120 irregular dates over about 2.5
 years, gaps of every size, a pixel without a valid observation and one with a single one), for each method, with
 the tool's parameters (tsa.json); and zeit.temporal_metrics (whole series and by period) and zeit.standardize on
-the same series (tsa_stats.json).
+the same series (tsa_stats.json); and zeit.linear_trend and zeit.cat of zeit.temporal_metrics by period on a longer
+series (trend_input.tif and trend_spec.json: 260 irregular dates over about 9 years, with a clear drop, a dip that
+recovers, a flat pixel, a year without data, a pixel without a valid observation and one with a single one), with
+the tools' parameters (tsa_trend.json).
 
     python tools/tsa_fixtures.py
 
@@ -78,6 +82,75 @@ def stats(cube):
     (HERE / "tsa_stats.json").write_text(json.dumps(out))
 
 
+TREND_NAMES = ["mean", "offset", "slope", "pct_gain", "abs_gain", "rsq", "sig", "rmse", "mae", "maxe", "num", "len"]
+CAT_NAMES = ["change", "loss", "change_time"] + [f"{p}_{n}" for p in ("total", "before", "after") for n in TREND_NAMES]
+TREND_CASES = [
+    {"metric": "mean", "by": "year", "conf": 0.95, "tail": "two"},
+    {"metric": "median", "by": "year", "conf": 0.9, "tail": "left"},
+    {"metric": "p90", "by": "year", "conf": 0.99, "tail": "right"},
+    {"metric": "count", "by": "year", "conf": 0.95, "tail": "two"},
+    {"metric": "mean", "by": "month", "conf": 0.95, "tail": "two"},
+    {"metric": "max", "by": "quarter", "conf": 0.8, "tail": "two"},
+    {"metric": "mean", "by": "week", "conf": 0.95, "tail": "left"},
+    {"metric": "std", "by": "doy", "conf": 0.95, "tail": "two"},
+]
+CAT_CASES = [
+    {"metric": "mean", "by": "year", "penalty": False, "conf": 0.95, "tail": "two"},
+    {"metric": "mean", "by": "year", "penalty": True, "conf": 0.95, "tail": "two"},
+    {"metric": "p10", "by": "year", "penalty": True, "conf": 0.9, "tail": "left"},
+    {"metric": "median", "by": "year", "penalty": False, "conf": 0.99, "tail": "right"},
+    {"metric": "mean", "by": "month", "penalty": False, "conf": 0.95, "tail": "two"},
+    {"metric": "mean", "by": "month", "penalty": True, "conf": 0.95, "tail": "two"},
+    {"metric": "max", "by": "quarter", "penalty": False, "conf": 0.8, "tail": "right"},
+    {"metric": "mean", "by": "doy", "penalty": False, "conf": 0.95, "tail": "two"},
+]
+
+
+def trend():
+    """trend_input.tif, trend_spec.json and tsa_trend.json: zeit.linear_trend and zeit.cat of the fold, [statistic]
+    [pixel], on a series of about 9 years."""
+    rng = np.random.default_rng(20261107)
+    n = 260
+    steps = rng.integers(1, 26, n)
+    days = 15414 + np.cumsum(steps) - steps[0]              # from 2012-03-15
+    t = (days - days[0]) / 365.25
+    base = 0.5 + 0.12 * np.sin(2 * np.pi * (t - 0.2))[:, None, None]
+    slope = 0.012 * rng.standard_normal((1, H, W))
+    stack = base + slope * t[:, None, None] + 0.04 * rng.standard_normal((n, H, W))
+    stack[t > 5.5, 2, 3] -= 0.35                            # a clear drop
+    stack[(t > 4.0) & (t < 5.0), 6, 1] -= 0.4               # a dip the series recovers from
+    stack[:, 5, 5] = 0.5 + 0.12 * np.sin(2 * np.pi * (t - 0.2)) + 0.01 * rng.standard_normal(n)   # flat
+    stack[rng.random((n, H, W)) < 0.3] = np.nan
+    stack[(t > 2.3) & (t < 3.4), 4, 8] = np.nan             # a year without data
+    stack[:, 0, 0] = np.nan                                 # no valid observation
+    stack[:, 7, 11] = np.nan
+    stack[100, 7, 11] = 0.5                                 # a single one
+    stack = stack.astype(np.float32)
+    with rasterio.open(HERE / "trend_input.tif", "w", driver="GTiff", width=W, height=H, count=n, dtype="float32",
+                       nodata=np.nan, crs="EPSG:32722", transform=from_origin(500000.0, 8900000.0, 30.0, 30.0),
+                       compress="deflate") as dst:
+        dst.write(stack)
+    spec = {"tool": "linear_trend", "params": {}, "input": "trend_input.tif", "nodata": None,
+            "years": [decimal_year(d) for d in days], "days": [int(d) for d in days],
+            "window": [0, 0, W, H], "threads": 1}
+    (HERE / "trend_spec.json").write_text(json.dumps(spec))
+
+    index = pd.DatetimeIndex(np.datetime64("1970-01-01") + days.astype("timedelta64[D]"))
+    cube = xr.DataArray(stack.astype(np.float64), dims=("time", "y", "x"), coords={"time": index})
+    out = {"linear_trend": [], "cat": []}
+    for c in TREND_CASES:
+        fold = zeit.temporal_metrics(cube, [c["metric"]], by=c["by"], nodata=None, n_jobs=1)
+        r = zeit.linear_trend(fold, dim=c["by"], conf=c["conf"], tail=c["tail"], nodata=None, n_jobs=1)
+        out["linear_trend"].append({"params": c, "values": [clean(r[v]) for v in TREND_NAMES]})
+        print("linear_trend", c, int(np.isnan(r["slope"].values).sum()), "pixels without a slope")
+    for c in CAT_CASES:
+        fold = zeit.temporal_metrics(cube, [c["metric"]], by=c["by"], nodata=None, n_jobs=1)
+        r = zeit.cat(fold, penalty=c["penalty"], dim=c["by"], conf=c["conf"], tail=c["tail"], nodata=None, n_jobs=1)
+        out["cat"].append({"params": c, "values": [clean(r[v]) for v in CAT_NAMES]})
+        print("cat", c, int(np.isnan(r["change"].values).sum()), "pixels without a change")
+    (HERE / "tsa_trend.json").write_text(json.dumps(out))
+
+
 def main():
     rng = np.random.default_rng(20261106)
     # irregular dates: 1 to 15 days apart, from 2020-03-30
@@ -126,6 +199,7 @@ def main():
         print(params, len(grid), "dates;", int(np.isnan(vals).sum()), "values missing")
     (HERE / "tsa.json").write_text(json.dumps(out))
     stats(cube)
+    trend()
 
 
 if __name__ == "__main__":

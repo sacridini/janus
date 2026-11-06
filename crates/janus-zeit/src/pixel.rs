@@ -161,6 +161,8 @@ pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResu
         "interpolate" => crate::interpolate::pixel(p, input),
         "temporal_metrics" => crate::temporal_metrics::pixel(p, input),
         "fold" => crate::temporal_metrics::fold_pixel(p, input),
+        "linear_trend" => crate::fold_trend::pixel_trend(p, input),
+        "cat" => crate::fold_trend::pixel_cat(p, input),
         "standardize" => crate::standardize::pixel(p, input),
         "ar_trend" => crate::ar_trend::pixel(p, input),
         "recovery" => crate::recovery::pixel(p, input),

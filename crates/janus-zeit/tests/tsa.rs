@@ -458,3 +458,197 @@ fn standardize_pixel_run_is_zeits() {
     let e = run_pixel("standardize", &bad, &pixel_input(0)).unwrap_err();
     assert!(e.starts_with("ValueError: method must be"), "{e}");
 }
+
+// ---- linear trend and CAT of a fold ------------------------------------------------------------------------------
+// tsa_trend.json: zeit.linear_trend and zeit.cat of zeit.temporal_metrics by period, on trend_input.tif (about nine
+// years, a clear drop at (3, 2), a dip that recovers at (1, 6), a flat pixel at (5, 5), a year without data at
+// (8, 4), a pixel without a valid observation at (0, 0) and one with a single one at (11, 7)).
+
+#[derive(Deserialize)]
+struct TrendCase {
+    params: BTreeMap<String, Value>,
+    /// [statistic][pixel], in the order of zeit's TREND_NAMES or CAT_NAMES
+    values: Vec<Vec<Option<f64>>>,
+}
+
+#[derive(Deserialize)]
+struct Trends {
+    linear_trend: Vec<TrendCase>,
+    cat: Vec<TrendCase>,
+}
+
+const TREND_NAMES: [&str; 12] =
+    ["mean", "offset", "slope", "pct_gain", "abs_gain", "rsq", "sig", "rmse", "mae", "maxe", "num", "len"];
+
+fn trend_names() -> Vec<String> {
+    TREND_NAMES.iter().map(|s| s.to_string()).collect()
+}
+
+fn cat_names() -> Vec<String> {
+    let mut v: Vec<String> = ["change", "loss", "change_time"].iter().map(|s| s.to_string()).collect();
+    for part in ["total", "before", "after"] {
+        v.extend(TREND_NAMES.iter().map(|n| format!("{part}_{n}")));
+    }
+    v
+}
+
+fn trends() -> Trends {
+    serde_json::from_str(&std::fs::read_to_string(data().join("tsa_trend.json")).unwrap()).unwrap()
+}
+
+fn trend_spec() -> JobSpec {
+    let mut spec: JobSpec =
+        serde_json::from_str(&std::fs::read_to_string(data().join("trend_spec.json")).unwrap()).unwrap();
+    spec.input = data().join(&spec.input).to_string_lossy().to_string();
+    spec
+}
+
+fn trend_pixel_input(p: usize) -> PixelInput {
+    let s = trend_spec();
+    let (bands, _) = read(Path::new(&s.input));
+    PixelInput { years: s.years, days: s.days, values: bands.iter().map(|b| b[p]).collect(), ..Default::default() }
+}
+
+/// The case's parameters with every statistic chosen.
+fn with_all(tool: &str, c: &TrendCase) -> BTreeMap<String, Value> {
+    let names = if tool == "cat" { cat_names() } else { trend_names() };
+    let mut p = c.params.clone();
+    p.insert("statistics".into(), json!(names));
+    p
+}
+
+/// A run of `tool` on the trend series with `params`, into a folder of its own.
+fn run_trend(tool: &str, params: BTreeMap<String, Value>, name: &str) -> janus_zeit::job::JobResult {
+    let mut spec = trend_spec();
+    spec.tool = tool.into();
+    spec.params = params;
+    let out = std::env::temp_dir().join(format!("janus-zeit-tsa-test-{name}"));
+    let _ = std::fs::remove_dir_all(&out);
+    spec.output_dir = out.to_string_lossy().to_string();
+    run_job(&spec, &|_, _| {}, &AtomicBool::new(false)).unwrap()
+}
+
+#[test]
+fn linear_trend_and_cat_raster_runs_are_zeits() {
+    let t = trends();
+    for (tool, cases, names, prefix) in
+        [("linear_trend", &t.linear_trend, trend_names(), "t"), ("cat", &t.cat, cat_names(), "c")]
+    {
+        for (k, c) in cases.iter().enumerate() {
+            let result = run_trend(tool, with_all(tool, c), &format!("{tool}-{k}"));
+            assert_eq!(result.outputs.len(), names.len());
+            for (m, name) in names.iter().enumerate() {
+                let (bands, _) = read(Path::new(&output_path(&result, &format!("{prefix}_{name}"))));
+                assert_eq!(bands.len(), 1);
+                assert_band(&bands[0], &c.values[m], &format!("{tool} case {k} {:?} {name}", c.params));
+            }
+        }
+    }
+    // the pixels with something to find: the drop's change, nothing without observations
+    let drop = 2 * W + 3;
+    let cat = &t.cat[0];
+    assert!(cat.values[0][drop].unwrap() > 0.15, "the drop's change: {:?}", cat.values[0][drop]);
+    assert!(cat.values[1][0].is_none() && cat.values[1][11 + 7 * W].is_none());
+    // the penalty makes a difference somewhere (the dip that recovers)
+    assert_ne!(t.cat[0].values[2], t.cat[1].values[2]);
+}
+
+#[test]
+fn linear_trend_and_cat_defaults_and_names() {
+    let result = run_trend("cat", BTreeMap::new(), "cat-defaults");
+    let ids: Vec<&str> = result.outputs.iter().map(|o| o["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["c_change", "c_loss", "c_change_time", "c_before_slope", "c_after_slope"]);
+    let names: Vec<&str> = result.outputs.iter().map(|o| o["name"].as_str().unwrap()).collect();
+    assert_eq!(names[0], "Change (the greatest loss)");
+    assert_eq!(names[3], "Slope (per period), before the change");
+    let result = run_trend("linear_trend", BTreeMap::new(), "trend-defaults");
+    let ids: Vec<&str> = result.outputs.iter().map(|o| o["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["t_slope", "t_offset", "t_rsq", "t_sig"]);
+    assert_eq!(result.outputs[0]["name"], "Slope (per period)");
+}
+
+#[test]
+fn linear_trend_and_cat_pixel_runs_are_zeits() {
+    let t = trends();
+    for (x, y) in PIXELS {
+        let p = y * W + x;
+        let input = trend_pixel_input(p);
+        for (tool, cases, names) in [("linear_trend", &t.linear_trend, trend_names()), ("cat", &t.cat, cat_names())] {
+            for (k, c) in cases.iter().enumerate() {
+                let by = c.params["by"].as_str().unwrap();
+                let params = Params::with_defaults(tool, &with_all(tool, c)).unwrap();
+                let r = run_pixel(tool, &params, &input).unwrap();
+                // "Valid observations", then a row per statistic
+                assert_eq!(r.rows.len(), names.len() + 1);
+                for (m, name) in names.iter().enumerate() {
+                    let got: f64 = r.rows[m + 1][1].parse().unwrap();
+                    assert!(
+                        close(got, c.values[m][p], 1e-5),
+                        "{tool} case {k} {name} pixel ({x}, {y}): {got} vs {:?}",
+                        c.values[m][p]
+                    );
+                }
+                if by != "year" {
+                    assert!(r.overlays.is_empty());
+                    continue;
+                }
+                // the fold's values as markers at the middle of each year
+                let markers = &r.overlays[0];
+                assert_eq!(markers.kind, "markers");
+                assert!(markers.x.iter().all(|x| (x.fract() - 0.5).abs() < 1e-9), "{:?}", markers.x);
+                let at = |name: &str| c.values[names.iter().position(|n| n == name).unwrap()][p];
+                if tool == "linear_trend" {
+                    // the line is the fit: offset + slope * (period - first)
+                    match (at("offset"), at("slope")) {
+                        (Some(o), Some(s)) => {
+                            let line = &r.overlays[1];
+                            assert_eq!(line.kind, "line");
+                            for (i, v) in line.y.iter().enumerate() {
+                                assert!((v.unwrap() - (o + s * i as f64)).abs() < 1e-6 * (1.0 + o.abs()));
+                            }
+                        }
+                        _ => assert_eq!(r.overlays.len(), 1),
+                    }
+                } else if let Some(year) = at("change_time") {
+                    let v = r.overlays.iter().find(|o| o.kind == "vlines").expect("the change");
+                    assert_eq!(v.x, [year + 0.5], "case {k} pixel ({x}, {y})");
+                } else {
+                    assert_eq!(r.overlays.len(), 1);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_change_time_is_the_year_or_the_period_number() {
+    let t = trends();
+    let time = cat_names().iter().position(|n| n == "change_time").unwrap();
+    let drop = 2 * W + 3;
+    // by year: the calendar year of the drop (the series starts in 2012 and the drop is after its fifth year)
+    let year = t.cat[0].values[time][drop].unwrap();
+    assert!((2016.0..=2019.0).contains(&year), "{year}");
+    // by month: 1-12
+    assert!(t.cat[4].values[time].iter().flatten().all(|m| (1.0..=12.0).contains(m)));
+}
+
+#[test]
+fn linear_trend_and_cat_refuse_bad_parameters() {
+    let input = trend_pixel_input(1);
+    for tool in ["linear_trend", "cat"] {
+        let run = |k: &str, v: Value| {
+            let params = Params::with_defaults(tool, &BTreeMap::from([(k.to_string(), v)])).unwrap();
+            run_pixel(tool, &params, &input).unwrap_err()
+        };
+        assert!(run("conf", json!(1.5)).starts_with("ValueError: conf must be between 0 and 1"));
+        assert!(run("tail", json!("both")).starts_with("ValueError: tail must be one of"));
+        assert!(run("by", json!("decade")).starts_with("ValueError: by must be"));
+        assert!(run("statistics", json!([])).contains("at least one statistic"));
+        let e = run("metric", json!("mode"));
+        assert!(e.starts_with("ValueError"), "{e}");
+        let mut undated = input.clone();
+        undated.days = None;
+        let params = Params::with_defaults(tool, &BTreeMap::new()).unwrap();
+        assert!(run_pixel(tool, &params, &undated).unwrap_err().contains("dated series"));
+    }
+}

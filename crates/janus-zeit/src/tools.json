@@ -3680,6 +3680,376 @@
     }
    ],
    "chunk_cells": 50000
+  },
+  {
+   "id": "linear_trend",
+   "name": "Linear trend of a fold (FORCE)",
+   "category": "Temporal dynamics",
+   "description": "FORCE's trend analysis (TSA trend: TRY, TRQ, TRM, TRW, TRD), as zeit.linear_trend over zeit.temporal_metrics with a period: a statistic of each pixel's series is taken by period (each year, or each quarter, month, week or day of the year across the years; see Fold by period), then a least-squares line is fit to it, x being the position of the period (0, 1, 2...: the slope is per period, per year when folded by year; periods without a value count as steps but are skipped by the fit), with a t-test of the slope. A pixel with fewer than 3 periods with a value is empty. A raster run writes one map per chosen statistic of the fit; a pixel run draws the folded values and the line (by year) and lists the statistics. The series needs real dates.",
+   "requires": {
+    "time": "any",
+    "min_dates": 2
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "metric",
+     "label": "Statistic of each period",
+     "type": "enum",
+     "default": "mean",
+     "options": [
+      "min",
+      "p05",
+      "p10",
+      "p25",
+      "median",
+      "p75",
+      "p90",
+      "p95",
+      "max",
+      "range",
+      "iqr",
+      "mean",
+      "std",
+      "skew",
+      "kurtosis",
+      "count"
+     ],
+     "labels": [
+      "Minimum",
+      "5th percentile",
+      "10th percentile",
+      "25th percentile (lower quartile)",
+      "Median",
+      "75th percentile (upper quartile)",
+      "90th percentile",
+      "95th percentile",
+      "Maximum",
+      "Range (maximum minus minimum)",
+      "Interquartile range",
+      "Mean",
+      "Standard deviation",
+      "Skewness",
+      "Kurtosis (excess)",
+      "Number of observations"
+     ],
+     "help": "The statistic taken over the observations of each period (the fold the trend is fit to); the mean is FORCE's usual choice."
+    },
+    {
+     "id": "by",
+     "label": "Period",
+     "type": "enum",
+     "default": "year",
+     "options": [
+      "year",
+      "quarter",
+      "month",
+      "week",
+      "doy"
+     ],
+     "labels": [
+      "Year",
+      "Quarter (of every year)",
+      "Month (of every year)",
+      "Week (of every year)",
+      "Day of the year (of every year)"
+     ],
+     "help": "The periods the statistic is folded into, and so the steps of the trend: every year (the slope is per year), or the same quarter, month, week or day of the year across all the years (the slope is per quarter, month...). Periods without a value are skipped by the fit but still count as steps."
+    },
+    {
+     "id": "conf",
+     "label": "Confidence level",
+     "type": "float",
+     "default": 0.95,
+     "min": 0.5,
+     "max": 0.9999,
+     "help": "Confidence level of the t-test of the slope (0.95: significance level 0.05)."
+    },
+    {
+     "id": "tail",
+     "label": "Test",
+     "type": "enum",
+     "default": "two",
+     "options": [
+      "two",
+      "left",
+      "right"
+     ],
+     "labels": [
+      "Two-sided (a slope up or down)",
+      "Decrease only (is the slope significantly negative?)",
+      "Increase only (is the slope significantly positive?)"
+     ],
+     "help": "The tail of the test of the slope: with one tail only a slope on that side can be significant (the significance is -1 for a decrease, 1 for an increase, 0 otherwise)."
+    },
+    {
+     "id": "statistics",
+     "label": "Statistics",
+     "type": "multi",
+     "default": [
+      "slope",
+      "offset",
+      "rsq",
+      "sig"
+     ],
+     "options": [
+      "mean",
+      "offset",
+      "slope",
+      "pct_gain",
+      "abs_gain",
+      "rsq",
+      "sig",
+      "rmse",
+      "mae",
+      "maxe",
+      "num",
+      "len"
+     ],
+     "labels": [
+      "Mean",
+      "Offset (fit at the first period)",
+      "Slope (per period)",
+      "Gain (% of the offset)",
+      "Gain (absolute)",
+      "R²",
+      "Significance (-1, 0, 1)",
+      "RMSE",
+      "MAE",
+      "Largest error",
+      "Periods with a value",
+      "Periods"
+     ],
+     "help": "The statistics of the fit to write, a map each. The offset is the fit at the first period, the gain the slope times the number of periods (as a percentage of the offset, 0 unless the offset is positive), R² is 0-1, the significance -1, 0 or 1, the errors those of the fit's residuals."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "t",
+     "name": "{}",
+     "each": "statistics"
+    }
+   ],
+   "chunk_cells": 50000
+  },
+  {
+   "id": "cat",
+   "name": "Change, aftereffect, trend (FORCE CAT)",
+   "category": "Change detection",
+   "description": "FORCE's CAT (change, aftereffect, trend), as zeit.cat over zeit.temporal_metrics with a period: a statistic of each pixel's series is taken by period (see Fold by period), the greatest loss between a period with a value and the one with a value before it is the change, and the linear trend (as Linear trend of a fold) is fit to the whole fold, to the periods before the change (up to two before it, as FORCE defines it) and from the change on. A raster run writes one map per chosen statistic; a pixel run draws the folded values, the lines before and after the change and the change (by year), and lists the statistics. A pixel with fewer than 2 periods with a value is empty. The series needs real dates.",
+   "requires": {
+    "time": "any",
+    "min_dates": 2
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "metric",
+     "label": "Statistic of each period",
+     "type": "enum",
+     "default": "mean",
+     "options": [
+      "min",
+      "p05",
+      "p10",
+      "p25",
+      "median",
+      "p75",
+      "p90",
+      "p95",
+      "max",
+      "range",
+      "iqr",
+      "mean",
+      "std",
+      "skew",
+      "kurtosis",
+      "count"
+     ],
+     "labels": [
+      "Minimum",
+      "5th percentile",
+      "10th percentile",
+      "25th percentile (lower quartile)",
+      "Median",
+      "75th percentile (upper quartile)",
+      "90th percentile",
+      "95th percentile",
+      "Maximum",
+      "Range (maximum minus minimum)",
+      "Interquartile range",
+      "Mean",
+      "Standard deviation",
+      "Skewness",
+      "Kurtosis (excess)",
+      "Number of observations"
+     ],
+     "help": "The statistic taken over the observations of each period (the fold the trend is fit to); the mean is FORCE's usual choice."
+    },
+    {
+     "id": "by",
+     "label": "Period",
+     "type": "enum",
+     "default": "year",
+     "options": [
+      "year",
+      "quarter",
+      "month",
+      "week",
+      "doy"
+     ],
+     "labels": [
+      "Year",
+      "Quarter (of every year)",
+      "Month (of every year)",
+      "Week (of every year)",
+      "Day of the year (of every year)"
+     ],
+     "help": "The periods the statistic is folded into, and so the steps of the trend: every year (the slope is per year), or the same quarter, month, week or day of the year across all the years (the slope is per quarter, month...). Periods without a value are skipped by the fit but still count as steps."
+    },
+    {
+     "id": "conf",
+     "label": "Confidence level",
+     "type": "float",
+     "default": 0.95,
+     "min": 0.5,
+     "max": 0.9999,
+     "help": "Confidence level of the t-test of the slope (0.95: significance level 0.05)."
+    },
+    {
+     "id": "tail",
+     "label": "Test",
+     "type": "enum",
+     "default": "two",
+     "options": [
+      "two",
+      "left",
+      "right"
+     ],
+     "labels": [
+      "Two-sided (a slope up or down)",
+      "Decrease only (is the slope significantly negative?)",
+      "Increase only (is the slope significantly positive?)"
+     ],
+     "help": "The tail of the test of the slope: with one tail only a slope on that side can be significant (the significance is -1 for a decrease, 1 for an increase, 0 otherwise)."
+    },
+    {
+     "id": "penalty",
+     "label": "Weigh a drop by its recovery (FORCE's CHANGE_PENALTY)",
+     "type": "bool",
+     "default": false,
+     "help": "Weight each loss by what the series has lost by the next period with a value (the loss times the value before it less the next value, over 10000), which discounts a dip the series recovers from. A loss with no period with a value after it is not considered. The change written is the unweighted one of the loss chosen."
+    },
+    {
+     "id": "statistics",
+     "label": "Statistics",
+     "type": "multi",
+     "default": [
+      "change",
+      "loss",
+      "change_time",
+      "before_slope",
+      "after_slope"
+     ],
+     "options": [
+      "change",
+      "loss",
+      "change_time",
+      "total_mean",
+      "total_offset",
+      "total_slope",
+      "total_pct_gain",
+      "total_abs_gain",
+      "total_rsq",
+      "total_sig",
+      "total_rmse",
+      "total_mae",
+      "total_maxe",
+      "total_num",
+      "total_len",
+      "before_mean",
+      "before_offset",
+      "before_slope",
+      "before_pct_gain",
+      "before_abs_gain",
+      "before_rsq",
+      "before_sig",
+      "before_rmse",
+      "before_mae",
+      "before_maxe",
+      "before_num",
+      "before_len",
+      "after_mean",
+      "after_offset",
+      "after_slope",
+      "after_pct_gain",
+      "after_abs_gain",
+      "after_rsq",
+      "after_sig",
+      "after_rmse",
+      "after_mae",
+      "after_maxe",
+      "after_num",
+      "after_len"
+     ],
+     "labels": [
+      "Change (the greatest loss)",
+      "Loss (% of the offset)",
+      "Time of the change (the year, or the period's number)",
+      "Mean, whole series",
+      "Offset (fit at the first period), whole series",
+      "Slope (per period), whole series",
+      "Gain (% of the offset), whole series",
+      "Gain (absolute), whole series",
+      "R², whole series",
+      "Significance (-1, 0, 1), whole series",
+      "RMSE, whole series",
+      "MAE, whole series",
+      "Largest error, whole series",
+      "Periods with a value, whole series",
+      "Periods, whole series",
+      "Mean, before the change",
+      "Offset (fit at the first period), before the change",
+      "Slope (per period), before the change",
+      "Gain (% of the offset), before the change",
+      "Gain (absolute), before the change",
+      "R², before the change",
+      "Significance (-1, 0, 1), before the change",
+      "RMSE, before the change",
+      "MAE, before the change",
+      "Largest error, before the change",
+      "Periods with a value, before the change",
+      "Periods, before the change",
+      "Mean, after the change",
+      "Offset (fit at the first period), after the change",
+      "Slope (per period), after the change",
+      "Gain (% of the offset), after the change",
+      "Gain (absolute), after the change",
+      "R², after the change",
+      "Significance (-1, 0, 1), after the change",
+      "RMSE, after the change",
+      "MAE, after the change",
+      "Largest error, after the change",
+      "Periods with a value, after the change",
+      "Periods, after the change"
+     ],
+     "help": "The statistics to write, a map each: the change (the previous value less the one at the change: positive for a loss), the loss (as a percentage of the whole fold's offset), the time of the change (the year when folded by year, else the number of the quarter, month, week or day), and the twelve statistics of the linear trend for the whole fold, the part before the change and the part from it on (a part with fewer than 3 periods with a value has only its mean and counts)."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "c",
+     "name": "{}",
+     "each": "statistics"
+    }
+   ],
+   "chunk_cells": 50000
   }
  ],
  "errors": []

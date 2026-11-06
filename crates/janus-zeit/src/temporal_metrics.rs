@@ -20,9 +20,10 @@ struct Chosen {
     metrics: Vec<Metric>,
 }
 
-fn chosen(p: &Params) -> Result<Chosen, String> {
+/// The options of a multi parameter, each once, in the order given.
+pub(crate) fn unique_options(p: &Params, id: &str) -> Vec<String> {
     let mut options: Vec<String> = vec![];
-    if let Some(a) = p.0.get("metrics").and_then(|v| v.as_array()) {
+    if let Some(a) = p.0.get(id).and_then(|v| v.as_array()) {
         for v in a {
             if let Some(s) = v.as_str()
                 && !options.iter().any(|o| o == s)
@@ -31,6 +32,11 @@ fn chosen(p: &Params) -> Result<Chosen, String> {
             }
         }
     }
+    options
+}
+
+fn chosen(p: &Params) -> Result<Chosen, String> {
+    let options = unique_options(p, "metrics");
     if options.is_empty() {
         return Err("ValueError: Provide at least one metric, e.g. ['median', 'p10', 'p90'].".into());
     }
@@ -40,10 +46,10 @@ fn chosen(p: &Params) -> Result<Chosen, String> {
 }
 
 /// The label of a metric option in the tool's descriptor.
-fn metric_label(tool: &str, option: &str) -> String {
+pub(crate) fn metric_label(tool: &str, option: &str) -> String {
     manifest()
         .tool(tool)
-        .and_then(|t| t.params.iter().find(|q| q.id == "metrics"))
+        .and_then(|t| t.params.iter().find(|q| q.id == "metrics" || q.id == "metric"))
         .and_then(|q| Some((q.options.as_ref()?, q.labels.as_ref()?)))
         .and_then(|(options, labels)| labels.get(options.iter().position(|x| x == option)?).cloned())
         .unwrap_or_else(|| option.to_string())
@@ -51,15 +57,17 @@ fn metric_label(tool: &str, option: &str) -> String {
 
 /// The periods of a fold: the group of each date (an index into the labels), the labels, and, by year, the x of
 /// each year on the chart (decimal years: its middle).
-struct Periods {
-    group: Vec<i32>,
-    labels: Vec<String>,
-    years: Vec<f64>,
+pub(crate) struct Periods {
+    pub group: Vec<i32>,
+    pub labels: Vec<String>,
+    pub years: Vec<f64>,
+    /// zeit's coordinate of each period: the year, or 1-4, 1-12, 1-52, 1-365
+    pub coord: Vec<f64>,
 }
 
 /// zeit/_tsa.py `_periods` (31-48): by year, the years from the first date's to the last's; else 1-4, 1-12, 1-52
 /// (`min(ceil(doy / 7), 52)`) or 1-365, doy counting 365 days.
-fn periods(by: &str, input: &PixelInput) -> Result<Periods, String> {
+pub(crate) fn periods(by: &str, input: &PixelInput) -> Result<Periods, String> {
     if !["year", "quarter", "month", "week", "doy"].contains(&by) {
         return Err(format!(
             "ValueError: by must be None or one of ('year', 'quarter', 'month', 'week', 'doy'), got {by:?}"
@@ -77,6 +85,7 @@ fn periods(by: &str, input: &PixelInput) -> Result<Periods, String> {
             group: ymd.iter().map(|c| (c.0 - lo) as i32).collect(),
             labels: (lo..=hi).map(|y| y.to_string()).collect(),
             years: (lo..=hi).map(|y| y as f64 + 0.5).collect(),
+            coord: (lo..=hi).map(|y| y as f64).collect(),
         });
     }
     let n = match by {
@@ -102,7 +111,12 @@ fn periods(by: &str, input: &PixelInput) -> Result<Periods, String> {
             _ => format!("doy {k:03}"),
         })
         .collect();
-    Ok(Periods { group: ymd.iter().map(|c| (number(c) - 1) as i32).collect(), labels, years: vec![] })
+    Ok(Periods {
+        group: ymd.iter().map(|c| (number(c) - 1) as i32).collect(),
+        labels,
+        years: vec![],
+        coord: (1..=n).map(|k| k as f64).collect(),
+    })
 }
 
 /// The labels of `fold`'s bands: the periods.
