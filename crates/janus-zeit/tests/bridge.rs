@@ -43,7 +43,7 @@ fn data(name: &str) -> String {
 
 /// Tools Janus has and the bridge never had (their references are Zeit's own: tests/snic.rs, zeit-core's
 /// remotePARTS tests for ar_trend).
-const AFTER_THE_BRIDGE: [&str; 12] = [
+const AFTER_THE_BRIDGE: [&str; 13] = [
     "snic",
     "ar_trend",
     "recovery",
@@ -56,6 +56,7 @@ const AFTER_THE_BRIDGE: [&str; 12] = [
     "beast",
     "texture",
     "kmeans",
+    "interpolate",
 ];
 
 #[test]

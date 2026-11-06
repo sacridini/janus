@@ -19,6 +19,7 @@ pub mod composite;
 pub mod ewmacd;
 pub mod harmonize;
 pub mod hotspots;
+mod interpolate;
 pub mod job;
 mod kmeans;
 mod landtrendr;

@@ -955,6 +955,10 @@ impl State {
                                 }
                             });
                     }
+                    "multi" => {
+                        help(ui.label(&p.label));
+                        changed |= multi_param_ui(ui, p, v);
+                    }
                     "layers" => {
                         ui.end_row();
                         changed |= layers_param_ui(ui, p, v, &results);
@@ -976,6 +980,54 @@ impl State {
         }
         changed
     }
+}
+
+/// The closed text of a "multi" parameter: the chosen labels joined by ", " (shortened), "k of n" when they do not
+/// fit, "none" without a choice.
+fn multi_text(chosen: &[&str], options: &[String], labels: &[String]) -> String {
+    fn label<'a>(o: &'a str, options: &'a [String], labels: &'a [String]) -> &'a str {
+        options.iter().position(|x| x == o).and_then(|i| labels.get(i)).map_or(o, String::as_str)
+    }
+    if chosen.is_empty() {
+        return "none".into();
+    }
+    let text = chosen.iter().map(|o| label(o, options, labels)).collect::<Vec<_>>().join(", ");
+    if text.chars().count() <= 28 { text } else { format!("{} of {}", chosen.len(), options.len()) }
+}
+
+/// The value of a "multi" parameter after `option` is switched: the options chosen, in the order of `options`.
+fn multi_toggled(options: &[String], chosen: &[&str], option: &str, on: bool) -> Value {
+    json!(
+        options
+            .iter()
+            .filter(|o| if o.as_str() == option { on } else { chosen.contains(&o.as_str()) })
+            .collect::<Vec<_>>()
+    )
+}
+
+/// A "multi" parameter (an enum of which several are chosen): a menu whose entries are checkboxes. Value: the
+/// chosen options as an array, in the order of the options. Returns whether it changed.
+fn multi_param_ui(ui: &mut Ui, p: &janus_zeit::Param, v: &mut Value) -> bool {
+    let options = p.options.clone().unwrap_or_default();
+    let labels = p.labels.clone().unwrap_or_default();
+    let list: Vec<String> =
+        v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+    let chosen: Vec<&str> = options.iter().filter(|o| list.contains(o)).map(String::as_str).collect();
+    let mut changed = false;
+    ComboBox::from_id_salt(("multi", &p.id))
+        .width(crate::fit::scaled(ui, 220.0))
+        .selected_text(multi_text(&chosen, &options, &labels))
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show_ui(ui, |ui| {
+            for (i, option) in options.iter().enumerate() {
+                let mut on = chosen.contains(&option.as_str());
+                if ui.checkbox(&mut on, labels.get(i).unwrap_or(option)).changed() {
+                    *v = multi_toggled(&options, &chosen, option, on);
+                    changed = true;
+                }
+            }
+        });
+    changed
 }
 
 /// A "patterns" parameter (TWDTW's classes): reference series from the pins or the ROI mean, each named.
@@ -2804,5 +2856,34 @@ impl ResultLayer {
             upgrading: false,
             preview: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod multi_tests {
+    use super::*;
+
+    fn opts(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_multi_value_keeps_the_order_of_the_options() {
+        let options = opts(&["a", "b", "c"]);
+        // c was chosen first, then a: the value is still a, c
+        assert_eq!(multi_toggled(&options, &["c"], "a", true), json!(["a", "c"]));
+        assert_eq!(multi_toggled(&options, &["a", "c"], "a", false), json!(["c"]));
+        assert_eq!(multi_toggled(&options, &["c"], "c", false), json!([]));
+    }
+
+    #[test]
+    fn a_multi_text_is_the_labels_or_a_count() {
+        let options = opts(&["a", "b", "c"]);
+        let labels = opts(&["Alpha", "Beta", "Gamma"]);
+        assert_eq!(multi_text(&[], &options, &labels), "none");
+        assert_eq!(multi_text(&["a", "c"], &options, &labels), "Alpha, Gamma");
+        assert_eq!(multi_text(&["b"], &options, &[]), "b");
+        let long = opts(&["a_very_long_label_indeed", "another_long_label_yes"]);
+        assert_eq!(multi_text(&["a_very_long_label_indeed", "another_long_label_yes"], &long, &[]), "2 of 2");
     }
 }

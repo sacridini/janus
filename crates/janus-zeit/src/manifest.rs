@@ -56,7 +56,8 @@ pub struct Requires {
 pub struct Param {
     pub id: String,
     pub label: String,
-    /// int, float, bool, enum, patterns, layers
+    /// int, float, bool, enum, multi (an enum of which several can be chosen: the value is an array of options),
+    /// patterns, layers
     #[serde(rename = "type")]
     pub kind: String,
     pub default: Value,
@@ -103,9 +104,14 @@ pub struct Output {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub classes_param: Option<String>,
     /// one output per entry of this list parameter (an endmember's fraction): the id `{id}_{k}` (from 1), the
-    /// name with `{}` as the entry's name
+    /// name with `{}` as the entry's name; for a "multi" parameter, the id `{id}_{option}` and the name with `{}`
+    /// as the option's label
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub each: Option<String>,
+    /// the tool decides the output's bands once per job, with their labels (the band descriptions): not the
+    /// run's dates (an interpolation's new grid, years, months); the chunk's [band][pixels] has that many bands
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bands: Option<bool>,
 }
 
 /// The Tools menu's categories, by the question asked and in the order of a workflow: the data prepared, its
@@ -132,5 +138,34 @@ pub fn manifest() -> &'static Manifest {
 impl Manifest {
     pub fn tool(&self, id: &str) -> Option<&Tool> {
         self.tools.iter().find(|t| t.id == id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_multi_parameter_and_an_output_with_bands_round_trip() {
+        let tool: Tool = serde_json::from_value(serde_json::json!({
+            "id": "t", "name": "T", "category": "c", "description": "", "requires": { "time": "any", "min_dates": 1 },
+            "modes": ["raster"],
+            "params": [{ "id": "m", "label": "M", "type": "multi", "default": ["a", "b"], "options": ["a", "b", "c"],
+                         "labels": ["A", "B", "C"], "help": "" }],
+            "outputs": [{ "id": "s", "name": "S", "series": true, "bands": true }],
+        }))
+        .unwrap();
+        assert_eq!(tool.params[0].kind, "multi");
+        assert_eq!(tool.params[0].default, serde_json::json!(["a", "b"]));
+        assert_eq!(tool.outputs[0].bands, Some(true));
+        let again: Tool = serde_json::from_str(&serde_json::to_string(&tool).unwrap()).unwrap();
+        assert_eq!(again, tool);
+    }
+
+    #[test]
+    fn the_interpolation_descriptor_has_its_own_bands() {
+        let t = manifest().tool("interpolate").unwrap();
+        assert_eq!(t.outputs.len(), 1);
+        assert_eq!((t.outputs[0].series, t.outputs[0].bands), (Some(true), Some(true)));
     }
 }

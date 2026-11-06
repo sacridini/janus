@@ -1,7 +1,8 @@
 //! A tool over a window of the series (the bridge's `job` mode: run_raster, Inputs, Outputs): the shown series
 //! (with its normalized difference and quality band applied) and the mapped bands read in full-width row bands,
 //! the next band read while the tool computes this one, and the maps written as GeoTIFFs as the bridge wrote
-//! them (float32 with NaN, or int16 with a scale; series outputs one band per date). The spec is the bridge's.
+//! them (float32 with NaN, or int16 with a scale; series outputs one band per date, an output with its own bands
+//! one per label the tool gave). The spec is the bridge's.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -429,7 +430,7 @@ impl Inputs {
 // ---------------------------------------------------------------------------------------------------------------
 
 /// The outputs a run writes (one with "when" only if that bool parameter is on; one with "each" once per entry
-/// of its list).
+/// of its list: an object's name, or a "multi" parameter's chosen option).
 pub fn active_outputs(tool: &Tool, p: &Params) -> Vec<Output> {
     let mut out = vec![];
     for o in tool.outputs.iter().filter(|o| o.when.as_deref().is_none_or(|w| p.bool(w))) {
@@ -438,17 +439,34 @@ pub fn active_outputs(tool: &Tool, p: &Params) -> Vec<Output> {
             continue;
         };
         let entries = p.0.get(list).and_then(Value::as_array).cloned().unwrap_or_default();
+        let param = tool.params.iter().find(|q| &q.id == list);
+        let named = |name: &str| {
+            if o.name.contains("{}") { o.name.replace("{}", name) } else { format!("{name} {}", o.name) }
+        };
         for (k, e) in entries.iter().enumerate() {
+            if let Some(option) = e.as_str() {
+                // a "multi" parameter: the option's own id, the option's label as its name
+                let label = param
+                    .and_then(|q| Some((q.options.as_ref()?, q.labels.as_ref()?)))
+                    .and_then(|(options, labels)| labels.get(options.iter().position(|x| x == option)?))
+                    .map_or(option, String::as_str);
+                out.push(Output { id: format!("{}_{option}", o.id), name: named(label), each: None, ..o.clone() });
+                continue;
+            }
             let name = e.get("name").and_then(Value::as_str).map_or_else(|| format!("{}", k + 1), str::to_string);
-            out.push(Output {
-                id: format!("{}_{}", o.id, k + 1),
-                name: if o.name.contains("{}") { o.name.replace("{}", &name) } else { format!("{name} {}", o.name) },
-                each: None,
-                ..o.clone()
-            });
+            out.push(Output { id: format!("{}_{}", o.id, k + 1), name: named(&name), each: None, ..o.clone() });
         }
     }
     out
+}
+
+/// The band labels of an output the tool gives its own bands (`bands: true`), decided once per job from the
+/// parameters and the run's dates.
+pub(crate) fn output_bands(tool: &str, o: &Output, p: &Params, input: &PixelInput) -> Result<Vec<String>, String> {
+    match tool {
+        "interpolate" => crate::interpolate::bands(o, p, input),
+        _ => Err(format!("{tool}: the output '{}' has no bands", o.id)),
+    }
 }
 
 /// One label per date for a series output's band descriptions: Janus's, else ISO dates, else decimal years.
@@ -489,12 +507,20 @@ impl Outputs {
             Some(n) if n > 0 => n.to_string(),
             _ => "ALL_CPUS".into(),
         };
-        let labels = date_labels(spec);
+        let date_labels = date_labels(spec);
+        let params = Params::with_defaults(&tool.id, &spec.params).unwrap_or_default();
+        let context = spec.context();
         let driver = DriverManager::get_driver_by_name("GTiff").map_err(|e| e.to_string())?;
         let mut outs = vec![];
         for o in outputs {
             let path = dir.join(format!("{}_{}.tif", tool.id, o.id));
-            let count = if o.series == Some(true) { labels.len() } else { 1 };
+            // the tool's own bands (once per job), else the run's dates for a series, else one band
+            let labels =
+                if o.bands == Some(true) { output_bands(&tool.id, o, &params, &context)? } else { date_labels.clone() };
+            let count = if o.bands == Some(true) || o.series == Some(true) { labels.len() } else { 1 };
+            if count == 0 {
+                return Err(format!("{}: the output '{}' has no bands", tool.id, o.id));
+            }
             let int16 = o.dtype.as_deref() == Some("int16");
             let int32 = o.dtype.as_deref() == Some("int32");
             let uint16 = o.dtype.as_deref() == Some("uint16");
@@ -543,7 +569,7 @@ impl Outputs {
                     f64::NAN
                 };
                 band.set_no_data_value(Some(nodata)).map_err(|e| e.to_string())?;
-                if o.series == Some(true) {
+                if o.bands == Some(true) || o.series == Some(true) {
                     band.set_description(&labels[b - 1]).map_err(|e| e.to_string())?;
                 }
                 if int16 {
@@ -564,6 +590,14 @@ impl Outputs {
         for (o, path, ds) in &mut self.outs {
             let a = res.get(&o.id).ok_or_else(|| format!("KeyError: '{}'", o.id))?;
             let count = ds.raster_count();
+            if a.len() != count * w * h {
+                return Err(format!(
+                    "the output '{}' has {} values for {count} band(s) of {w} x {h} pixels ({} expected)",
+                    o.id,
+                    a.len(),
+                    count * w * h
+                ));
+            }
             for b in 0..count {
                 let part = &a[b * w * h..(b + 1) * w * h];
                 let mut band = ds.rasterband(b + 1).map_err(|e| e.to_string())?;
@@ -656,6 +690,7 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
     match tool {
         "landtrendr" => crate::landtrendr::chunk(p, chunk, ctx),
         "mann_kendall" => crate::mann_kendall::chunk(p, chunk, ctx),
+        "interpolate" => crate::interpolate::chunk(p, chunk, ctx),
         "ar_trend" => crate::ar_trend::chunk(p, chunk, ctx),
         "recovery" => crate::recovery::chunk(p, chunk, ctx),
         "ewmacd" => crate::ewmacd::chunk(p, chunk, ctx),
@@ -1073,4 +1108,128 @@ fn run_layers(
     let outputs = outs.describe(p, None);
     drop(outs);
     Ok(JobResult { outputs, window: spec.window.unwrap_or([0, 0, w, h]) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::manifest::Param;
+
+    fn multi_tool() -> Tool {
+        Tool {
+            id: "t".into(),
+            params: vec![
+                Param {
+                    id: "metrics".into(),
+                    kind: "multi".into(),
+                    default: json!(["a"]),
+                    options: Some(vec!["a".into(), "b".into(), "c".into()]),
+                    labels: Some(vec!["Alpha".into(), "Beta".into(), "Gamma".into()]),
+                    ..Default::default()
+                },
+                Param {
+                    id: "bare".into(),
+                    kind: "multi".into(),
+                    default: json!([]),
+                    options: Some(vec!["x".into()]),
+                    ..Default::default()
+                },
+            ],
+            outputs: vec![
+                Output {
+                    id: "m".into(),
+                    name: "{} of the series".into(),
+                    each: Some("metrics".into()),
+                    ..Default::default()
+                },
+                Output { id: "x".into(), name: "map".into(), each: Some("bare".into()), ..Default::default() },
+                Output { id: "z".into(), name: "fixed".into(), ..Default::default() },
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn params(v: Value) -> Params {
+        Params(serde_json::from_value(v).unwrap())
+    }
+
+    #[test]
+    fn each_over_a_multi_parameter_gives_the_chosen_options() {
+        let tool = multi_tool();
+        let out = active_outputs(&tool, &params(json!({ "metrics": ["a", "c"], "bare": ["x"] })));
+        let ids: Vec<&str> = out.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, ["m_a", "m_c", "x_x", "z"]);
+        // the label replaces `{}`; without labels, the option; without `{}`, the name follows it
+        let names: Vec<&str> = out.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(names, ["Alpha of the series", "Gamma of the series", "x map", "fixed"]);
+        assert!(out.iter().all(|o| o.each.is_none()));
+        // nothing chosen: those outputs are not written
+        let none = active_outputs(&tool, &params(json!({ "metrics": [] })));
+        assert_eq!(none.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), ["z"]);
+    }
+
+    #[test]
+    fn each_over_objects_is_as_before() {
+        let tool = Tool {
+            id: "t".into(),
+            outputs: vec![Output {
+                id: "f".into(),
+                name: "{} fraction".into(),
+                each: Some("em".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let out = active_outputs(&tool, &params(json!({ "em": [{ "name": "GV" }, {}] })));
+        assert_eq!(
+            out.iter().map(|o| (o.id.as_str(), o.name.as_str())).collect::<Vec<_>>(),
+            [("f_1", "GV fraction"), ("f_2", "2 fraction")]
+        );
+    }
+
+    #[test]
+    fn a_short_chunk_is_an_error_naming_the_output() {
+        let dir = std::env::temp_dir().join("janus-zeit-job-short-chunk");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src =
+            DriverManager::get_driver_by_name("MEM").unwrap().create_with_band_type::<f32, _>("", 4, 3, 1).unwrap();
+        let tool = Tool {
+            id: "t".into(),
+            outputs: vec![Output { id: "s".into(), name: "series".into(), series: Some(true), ..Default::default() }],
+            ..Default::default()
+        };
+        let spec =
+            JobSpec { years: vec![2020.0, 2021.0], labels: Some(vec!["a".into(), "b".into()]), ..Default::default() };
+        let mut outs = Outputs::new(&tool, &tool.outputs, &dir, &src, [0, 0, 4, 3], &spec).unwrap();
+        // two bands of 4 x 3 expected: one band's worth given
+        let short: ChunkOut = BTreeMap::from([("s".to_string(), vec![0.0; 12])]);
+        let e = outs.write(&short, 0, 3).unwrap_err();
+        assert!(e.contains("'s'") && e.contains("12") && e.contains("24"), "{e}");
+        let whole: ChunkOut = BTreeMap::from([("s".to_string(), vec![0.0; 24])]);
+        outs.write(&whole, 0, 3).unwrap();
+    }
+
+    #[test]
+    fn an_output_with_its_own_bands_asks_its_tool() {
+        let dir = std::env::temp_dir().join("janus-zeit-job-own-bands");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src =
+            DriverManager::get_driver_by_name("MEM").unwrap().create_with_band_type::<f32, _>("", 2, 2, 1).unwrap();
+        // no tool decides the bands of this one
+        let tool = Tool {
+            id: "t".into(),
+            outputs: vec![Output {
+                id: "s".into(),
+                name: "s".into(),
+                series: Some(true),
+                bands: Some(true),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let e = Outputs::new(&tool, &tool.outputs, &dir, &src, [0, 0, 2, 2], &JobSpec::default()).err().unwrap();
+        assert!(e.contains("no bands"), "{e}");
+    }
 }

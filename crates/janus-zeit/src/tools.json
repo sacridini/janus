@@ -3366,6 +3366,114 @@
      "unit": "dates"
     }
    ]
+  },
+  {
+   "id": "interpolate",
+   "name": "Interpolate (regular grid)",
+   "category": "Data preparation",
+   "description": "Interpolates each pixel's series to a regular grid of dates: FORCE's TSA interpolation (Frantz 2019), as zeit.interpolate. The grid starts at the first date of the series and has a date every step days (16 by default, FORCE's) up to the last one. The methods: radial basis functions (an ensemble of Gaussian kernels of several widths, each weighted by the data it finds around each date), linear interpolation between the valid observations on either side, the moving average of the valid observations within a window of days, and a harmonic model (a robust fit of an offset, a trend and up to three harmonics, predicted at every date). Missing observations (clouds, the quality band, NoData) are ignored; a date with no data within reach is empty. A raster run writes one band per date of the new grid, with its date as the band description, and opens it as a series of its own. The series needs real dates.",
+   "requires": {
+    "time": "any",
+    "min_dates": 2
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "method",
+     "label": "Method",
+     "type": "enum",
+     "default": "rbf",
+     "options": [
+      "rbf",
+      "linear",
+      "moving",
+      "harmonic"
+     ],
+     "labels": [
+      "Radial basis functions (ensemble)",
+      "Linear",
+      "Moving average",
+      "Harmonic (robust fit)"
+     ],
+     "help": "Radial basis functions (FORCE's default) smooth the gaps and the noise with several kernel widths at once; linear keeps every valid observation; the moving average and the harmonic model smooth more."
+    },
+    {
+     "id": "step",
+     "label": "Step",
+     "type": "int",
+     "default": 16,
+     "min": 1,
+     "max": 366,
+     "unit": "days",
+     "help": "Days between the dates of the new grid (FORCE's default is 16). It starts at the first date of the series; the last date is the last one that fits before the end of the series."
+    },
+    {
+     "id": "sigma",
+     "label": "Kernel widths",
+     "type": "enum",
+     "default": "8,16,32",
+     "options": [
+      "8,16,32",
+      "4,8,16",
+      "16,32,64",
+      "16"
+     ],
+     "labels": [
+      "8, 16, 32 days",
+      "4, 8, 16 days",
+      "16, 32, 64 days",
+      "16 days"
+     ],
+     "help": "Radial basis functions only: the standard deviations of the Gaussian kernels, in days. Narrow kernels follow the data closely; wide ones reach across long gaps."
+    },
+    {
+     "id": "cutoff",
+     "label": "Kernel mass kept",
+     "type": "float",
+     "default": 0.95,
+     "min": 0.5,
+     "max": 0.999,
+     "help": "Radial basis functions only: each kernel is cut where the share of its mass kept reaches this value."
+    },
+    {
+     "id": "window",
+     "label": "Window",
+     "type": "int",
+     "default": 16,
+     "min": 1,
+     "max": 366,
+     "unit": "days",
+     "help": "Moving average only: the half-width, in days. The mean of the valid observations within this many days of each date of the grid (closed: |t - date| <= window)."
+    },
+    {
+     "id": "modes",
+     "label": "Harmonics",
+     "type": "int",
+     "default": 3,
+     "min": 1,
+     "max": 3,
+     "help": "Harmonic model only: the number of harmonics of the year (1 to 3)."
+    },
+    {
+     "id": "trend",
+     "label": "Trend",
+     "type": "bool",
+     "default": true,
+     "help": "Harmonic model only: add a linear trend to the offset."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "series",
+     "name": "Interpolated",
+     "series": true,
+     "bands": true
+    }
+   ],
+   "chunk_cells": 50000
   }
  ],
  "errors": []
