@@ -11,8 +11,9 @@ use janus_geo::ogc_mock::{MockData, MockServer};
 use janus_validation::Grid;
 use janus_validation::alerts::{self, CompareOptions, Product, RasterFile, days_from_civil, decimal_year};
 
-fn dir() -> std::path::PathBuf {
-    let d = std::env::temp_dir().join(format!("janus_alerts_test_{}", std::process::id()));
+/// A folder of its own for each test: the tests run in parallel and each removes its folder at the end.
+fn dir(test: &str) -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("janus_alerts_test_{}_{test}", std::process::id()));
     std::fs::create_dir_all(&d).unwrap();
     d
 }
@@ -39,7 +40,7 @@ fn change_map(g: &Grid) -> Vec<f32> {
 fn deter_polygons_from_wfs() {
     gdal::DriverManager::register_all();
     let server = MockServer::start(MockData::default()).unwrap();
-    let d = dir();
+    let d = dir("deter");
     let out = d.join("deter.gpkg");
     let req = FeatureRequest {
         service: Service::Wfs,
@@ -93,7 +94,7 @@ fn deter_polygons_from_wfs() {
 
 #[test]
 fn glad_and_radd_rasters() {
-    let d = dir().join("rasters");
+    let d = dir("rasters");
     std::fs::create_dir_all(&d).unwrap();
     // a tile of 10 m pixels over the grid's top-left 3 x 3 km: an alert in its top-left quarter, on 2020-02-04
     let tile = grid(10.0, 300, 300);
@@ -174,7 +175,7 @@ fn live_sources_over_rondonia() {
         date_field: "view_date".into(),
         ..Default::default()
     };
-    let out = dir().join("deter_live.gpkg");
+    let out = dir("live").join("deter_live.gpkg");
     let f = ogc::fetch_features(&req, &out, &|_, _| {}, &AtomicBool::new(false)).unwrap();
     let a = alerts::alerts_from_vector(&out.to_string_lossy(), &f.layer, "view_date", "classname", &g).unwrap();
     println!("DETER: {} polygons, classes {:?}", a.units.len(), a.classes);
