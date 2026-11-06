@@ -72,7 +72,7 @@ Windows sem Python nem conda, e chamável pela linha de comando
   - usa o Zeit como ele é (C++ + Python), sem copiar lógica;
   - um erro no Zeit não derruba a interface;
   - dois GDAL (o do Janus e o do rasterio) convivem sem conflito de DLL;
-  - o Zeit é GPL-2.0: rodando como processo separado, o Janus continua independente.
+  - (nota de 2026-11-06: este desenho foi trocado; o `zeit-core` é hoje uma crate ligada no executável (`janus-zeit`), e o Janus e o Zeit estão sob GPL-3.0-or-later.)
 - **Runtime Python privado e invisível** dentro da instalação (`runtime\`), com
   o Zeit da wheel do PyPI e só as dependências necessárias (numpy, scipy,
   rasterio, dask, xarray). Sem PyTorch/Earth Engine (somariam GBs).
@@ -1447,7 +1447,7 @@ O que falta, e onde:
    lugar de "um lugar por fold"; e a distância de Mahalanobis.
 
 Como nas outras fases: implementar pelos artigos (o núcleo do Zeit é
-GPL-2.0-only; não traduzir o código do CAST) e medir valores e tempo contra o
+GPL-3.0-or-later; não traduzir o código do CAST) e medir valores e tempo contra o
 `CAST::aoa` / `errorProfiles` / `knndm` no R.
 
 #### Validação cruzada espacial, como o blockCV (2026-10-29)
@@ -2129,6 +2129,152 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   nas camadas grandes; WFS com as capabilities do diálogo, WMTS ao vivo,
   GetFeatureInfo e o projeto com camadas web reaberto; o cache de resolução
   total por blocos nos stacks pixel-interleaved; release sem esperar o macOS.
+- 1.15.0: Janus e Zeit (3.0.0) sob GPL-3.0-or-later. O que vinha de código
+  GPL-2-only foi reescrito em sala limpa: o lasso do CCDC (GLMnet), a
+  fenologia (phenofit), a suavização bayesiana (sits), os pesos de QA, e o
+  TempCNN e o L-TAE do janus-ml (do sits; agora dos autores, Pelletier 2019 e
+  Garnot & Landrieu 2020). Modelos TempCNN/L-TAE de versões anteriores pedem
+  novo treino. Falta resolver: LandTrendr (sem licença publicada) e as
+  licenças de CODED, EWMACD, twdtw e snic.c.
+
+### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
+
+Comparação com o ENVI: nas séries o Janus já faz mais do que ele, e o que
+falta está no processamento de imagem antes da série. Ficaram estas sete
+ideias, na ordem em que eu faria (as que mudam o resultado das análises que o
+Janus já faz vêm primeiro). Também ficaram de fora, por encaixe menor ou por
+puxarem para outro programa: filtros espaciais (convolução, morfologia, FFT),
+classificadores clássicos (máxima verossimilhança, SVM, ISODATA), cadeia de
+objetos (atributos de segmentos e regras), o hiperespectral avançado
+(endmembers por PPI e N-FINDR, bibliotecas espectrais, detecção de alvos e
+de anomalias por RX), SAR polarimétrico e interferométrico, termal, LiDAR,
+layout de mapa e um construtor gráfico de fluxos.
+
+**Regras de sempre:** implementar pelos artigos, nunca traduzir código
+sem licença ou de licença incompatível (o núcleo do Zeit e o Janus são GPL-3.0-or-later); comparar com a implementação original em
+resultado **e em tempo**; testes em dados gerados no próprio teste (um
+deslocamento, uma nuvem ou uma mudança conhecidos); um guia no site; o
+`--selftest-ui` cobrindo a janela nova; no máximo 8 threads.
+
+1. **Co-registro entre datas** (Tools → Data preparation).
+   - **Por quê:** um deslocamento de meio pixel entre datas (Landsat contra
+     Sentinel-2, órbitas diferentes, cenas antigas) vira "mudança" nas bordas
+     de talhões, estradas e rios, e LandTrendr, CCDC e BFAST o detectam como
+     quebra. A Harmonize junta Landsat e Sentinel-2, mas não as alinha.
+   - **O quê:** escolher uma data ou composição de referência; o deslocamento
+     de cada data (global e local), mostrado numa tabela e como setas no
+     mapa; a série corrigida (COGs ou VRTs) e o relatório dos
+     deslocamentos.
+   - **Como:** correlação de fase (espectro cruzado pela FFT) em janelas
+     sobre uma grade de pontos, como o AROSICS (Scheffler et al. 2017),
+     subpixel; pontos ruins tirados por RANSAC; o `GDALWarp` com os GCPs
+     (afim ou polinomial). A banda de referência é o NIR ou o vermelho, nas
+     áreas sem nuvem pela banda de qualidade.
+   - **Teste/comparação:** deslocamentos conhecidos em imagens sintéticas
+     (inteiros e subpixel); contra o AROSICS (resultado e tempo) num par
+     Sentinel-2 × Landsat real.
+
+2. **Normalização BRDF (NBAR) e correção topográfica** (Data preparation).
+   - **Por quê:** o ângulo de visada (Sentinel-2 de ±10°, Landsat 7 e 8 em
+     faixas vizinhas) e o do sol ao longo do ano mudam a reflectância sem
+     mudar a superfície; em relevo, a vertente sombreada no inverno parece
+     outra classe. Isso aparece como sazonalidade falsa e como degraus na
+     série. A Harmonize faz só o ajuste de banda do HLS.
+   - **O quê:** NBAR pelo fator c, com os coeficientes fixos do MODIS (Roy
+     et al. 2016 e 2017, como faz o HLS), para um ângulo solar padrão;
+     correção topográfica pelo C (Teillet et al. 1982) ou SCS+C (Soenen et
+     al. 2005), com o MDE baixado pelo STAC (Copernicus DEM) ou aberto do
+     disco.
+   - **Como:** os ângulos de cada cena (as bandas SZA/SAA/VZA/VAA do Landsat
+     Collection 2, a grade de 5 km do `MTD_TL.xml` do Sentinel-2, o item do
+     STAC); o c da correção C estimado por banda e por classe de cobertura
+     (ou numa máscara de vegetação); declividade e aspecto calculados na
+     grade da série, só para a correção, sem expor ferramentas de terreno.
+   - **Teste/comparação:** contra os produtos HLS (que já trazem o fator c)
+     nas mesmas cenas; a correção topográfica contra o FORCE (no WSL) ou o
+     `topocorr` do pacote `landsat` do R; a dispersão das vertentes norte e sul antes e depois.
+
+3. **Tasseled Cap e MNF** (Spectral analysis; o Tasseled Cap também no
+   Display e na calculadora).
+   - **Por quê:** o TC (brilho, verdor, umidade e o ângulo) é a entrada usual
+     do LandTrendr (TCW, TCA) e de muitas classificações; o MNF separa o
+     ruído do sinal num espectro e numa data de muitas bandas, melhor que o
+     PCA que existe hoje.
+   - **O quê:** o TC pelos papéis das bandas, com os coeficientes de cada
+     sensor e nível (Crist 1985 para reflectância de superfície do TM; Huang
+     et al. 2002 para ETM+; Baig et al. 2014 para OLI; Sentinel-2 por um
+     conjunto publicado), dizendo para qual nível cada conjunto vale; MNF
+     (Green et al. 1988) com o ruído estimado pela diferença entre vizinhos,
+     os componentes como camada e o MNF inverso (para limpar ruído).
+   - **Teste/comparação:** o TC contra o `tasseledCap` do RStoolbox (R) e os
+     coeficientes publicados; o MNF contra o pacote `spectral` (SPy) do
+     Python.
+
+4. **EOF temporal e mapas de correlação com defasagem** (Temporal dynamics;
+   a correlação também na calculadora).
+   - **Por quê:** a pergunta do clima e da vegetação ("onde o NDVI responde à
+     chuva, e com quanto atraso?") e a variabilidade dominante de uma série
+     (o primeiro modo de um cubo de NDVI costuma ser o El Niño). O painel
+     Scatter compara regiões, não faz o mapa.
+   - **O quê:** EOF pelas anomalias (sazonalidade tirada ou não): os modos
+     espaciais como mapas, as séries de amplitude no gráfico, a variância
+     explicada, a regra de North et al. (1982) para os modos separáveis, o
+     varimax opcional. Correlação de Pearson ou Spearman pixel a pixel entre
+     duas séries casadas por data (como a calculadora casa), defasagens de 0
+     a k meses: mapas do r, da melhor defasagem e do p, com o tamanho de
+     amostra efetivo pela autocorrelação (Bretherton et al. 1999) e o FDR
+     dos testes em conjunto (Wilks 2016). Na calculadora:
+     `corr(ndvi, chuva, lag=1m)`.
+   - **Como:** SVD aleatorizado sobre datas × pixels (os pixels ponderados
+     pela área), em blocos; a correlação em blocos de linhas, todas as datas
+     do bloco na memória.
+   - **Teste/comparação:** contra o `xeofs` ou o `eofs` e o `xarray.corr`
+     (resultado e tempo) num cubo de NDVI com uma série de chuva do ERA5.
+
+5. **CVA, iMAD e o teste omnibus de Wishart para radar** (Change detection).
+   - **Por quê:** a mudança entre duas datas com todas as bandas, não com um
+     índice; e a detecção de mudança própria do Sentinel-1, que o filtro de
+     speckle prepara mas não faz.
+   - **O quê:** CVA (Malila 1980), magnitude e direção da mudança (a direção
+     diz o tipo: perda de vegetação, água, solo); iMAD (Nielsen 2007), a
+     probabilidade de não mudança pelo qui-quadrado e, de quebra, os pixels
+     invariantes para a normalização radiométrica relativa entre datas
+     (Canty & Nielsen 2008); o teste omnibus de Wishart (Conradsen et al.
+     2016) numa série de Sentinel-1 em duas polarizações (só a diagonal, como
+     no Earth Engine de Canty et al. 2020): a data, a frequência e o sentido
+     das mudanças, com o número de looks equivalente (4,4 no IW GRDH, como no
+     filtro de Lee).
+   - **Teste/comparação:** mudanças conhecidas em imagens sintéticas; o iMAD
+     e o omnibus contra o código Python de Canty (a licença conferida antes
+     de lê-lo), em resultado e tempo; o guia do Sentinel-1 em Rondônia.
+
+6. **Fusão espaço-temporal (STARFM, ESTARFM)** (Data preparation).
+   - **Por quê:** a série densa de uma imagem grossa (MODIS, VIIRS: diária)
+     com a resolução de uma fina (Landsat, Sentinel-2: a cada 5 a 16 dias, e
+     menos com nuvem); a fenologia e a detecção de mudança rápida pedem as
+     duas coisas.
+   - **O quê:** STARFM (Gao et al. 2006) e ESTARFM (Zhu et al. 2010) com
+     pares de datas fina × grossa da mesma área; a imagem grossa baixada pelo
+     STAC (MOD09GA e VIIRS no Planetary Computer) e reprojetada na grade da
+     fina; o resultado como série que abre como camada, as datas previstas
+     marcadas.
+   - **Teste/comparação:** prever uma data fina que existe e medir o erro;
+     contra uma implementação de referência (a escolher, a licença
+     conferida) em resultado e tempo.
+
+7. **Detecção de nuvem sem banda de qualidade** (Data preparation, junto ao
+   Tmask).
+   - **Por quê:** o Janus mascara nuvem pela banda QA (Fmask, `QA_PIXEL`,
+     SCL) e o Tmask acha o que ela perdeu, mas uma imagem sem QA (CBERS,
+     cenas antigas, produtos TOA, um recorte exportado sem ela) fica sem
+     máscara.
+   - **O quê:** nuvem, sombra (projetada pelos ângulos do sol e uma altura
+     de nuvem) e neve pelas bandas: as regras do Fmask (Qiu et al. 2019) e,
+     para o Sentinel-2, uma rede (s2cloudless ou uma U-Net treinada no
+     CloudSEN12, se a licença dos pesos permitir), na GPU como as outras
+     redes; a máscara vira a banda de qualidade da série.
+   - **Teste/comparação:** contra o Fmask, o s2cloudless e a SCL nas cenas
+     que têm QA (acurácia e tempo).
 
 ### Produto
 - "Atualizar Zeit" dentro do app (baixa a wheel nova para o runtime privado).

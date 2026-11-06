@@ -1,4 +1,4 @@
-//! Phenology (zeit_bridge/tool_phenology.py): zeit.phenology per season (zeit-core's port of phenofit) on the
+//! Phenology (zeit_bridge/tool_phenology.py): zeit.phenology per season (zeit-core's phenology, written from the papers) on the
 //! gap-filled series; the seasons' start, peak and end drawn and listed in Zeit's day numbers (days since January
 //! 1st of the first year, 1-indexed), as the bridge converted them.
 

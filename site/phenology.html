@@ -71,7 +71,7 @@
 
     <section id="idea">
       <h2><span class="n">01</span>The idea</h2>
-      <p>The tool is Zeit's port of <strong>phenofit</strong> (Kong et al. 2022). It smooths the series to find its <strong>seasons</strong>, from one trough to the next; fits a curve to the observations of each season (a double logistic, by default Elmore's); and reads from the curve:</p>
+      <p>The tool is Zeit's phenology, written from the papers listed below (Whittaker: Eilers 2003; HANTS: Roerink et al. 2000; the curves of Beck 2006, Elmore 2012, Gu 2009, Klosterman 2014, Zhang 2003, the asymmetric Gaussian of Jönsson &amp; Eklundh and the double logistic of Fisher et al. 2006), not from the code of <strong>phenofit</strong> (Kong et al. 2022), which stays a useful reference to compare outputs with. It smooths the series to find its <strong>seasons</strong>, from one trough to the next; fits a curve to the observations of each season (a double logistic, by default Elmore's); and reads from the curve:</p>
       <dl class="terms">
         <dt>SOS</dt><dd>Start of season: the day the curve rises past the threshold (by default, half of the season's amplitude).</dd>
         <dt>POS</dt><dd>Peak of season: the day of the curve's maximum.</dd>
@@ -112,7 +112,7 @@
         <table class="tbl">
           <thead><tr><th>Parameter</th><th>Default</th><th>What it does</th></tr></thead>
           <tbody>
-            <tr><td>Curve</td><td class="num">elmore</td><td>The function fitted to each season: Beck, Elmore, Gu, Zhang (double logistics), asymmetric Gaussian, Klos, or the double logistic of phenofit.</td></tr>
+            <tr><td>Curve</td><td class="num">elmore</td><td>The function fitted to each season: Beck, Elmore, Gu, Zhang (double logistics), asymmetric Gaussian, Klos, or the double logistic of Fisher et al. (2006).</td></tr>
             <tr><td>Season start/end</td><td class="num">trs5</td><td>How SOS and EOS are read: a threshold of the amplitude (50%, 20%, 60%), the derivative, or Zhang's or Gu's methods.</td></tr>
             <tr><td>Smoothing</td><td class="num">whittaker</td><td>Used to find the seasons (the curves are fitted to the observations): Whittaker, HANTS or none.</td></tr>
             <tr><td>Whittaker lambda</td><td class="num">10</td><td>Larger is smoother: fewer, broader seasons.</td></tr>
@@ -179,6 +179,10 @@
     <section id="refs">
       <h2><span class="n">08</span>References</h2>
       <ul class="refs">
+        <li>Eilers, P. H. C. (2003). A perfect smoother. <em>Analytical Chemistry</em>, 75, 3631–3636.</li>
+        <li>Roerink, G. J., Menenti, M., Verhoef, W. (2000). Reconstructing cloudfree NDVI composites using Fourier analysis of time series. <em>International Journal of Remote Sensing</em>, 21, 1911–1917.</li>
+        <li>Jönsson, P., Eklundh, L. (2002). Seasonality extraction by function fitting to time-series of satellite sensor data. <em>IEEE Transactions on Geoscience and Remote Sensing</em>, 40, 1824–1832.</li>
+        <li>Fisher, J. I., Mustard, J. F., Vadeboncoeur, M. A. (2006). Green leaf phenology at Landsat resolution: scaling from the field to the satellite. <em>Remote Sensing of Environment</em>, 100, 265–279.</li>
         <li>Kong, D., McVicar, T. R., Xiao, M., Zhang, Y., Peña-Arancibia, J. L., Filippa, G., Xie, Y., Gu, X. (2022). phenofit: an R package for extracting vegetation phenology from time series remote sensing. <em>Methods in Ecology and Evolution</em>, 13, 1508–1527.</li>
         <li>Elmore, A. J., Guinn, S. M., Minsley, B. J., Richardson, A. D. (2012). Landscape controls on the timing of spring, autumn, and growing season length in mid-Atlantic forests. <em>Global Change Biology</em>, 18, 656–674.</li>
         <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a>: the library behind the tools of Janus.</li>

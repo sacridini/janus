@@ -119,7 +119,7 @@ def standard_text(name, expr, authors, crates_):
         who = ", ".join(re.sub(r"\s*<[^>]*>", "", a) for a in authors) or f"the {name} authors"
         return f"Copyright (c) {who}\n\n{MIT}", None
     if any(i.startswith("GPL-") for i in ids):
-        return "Under the GNU General Public License, version 2 or later: its text is Janus's LICENSE.", None
+        return "Under the GNU General Public License, version 3 or later: its text is Janus's LICENSE.", None
     # a crate under that license alone that carries a single file: the license's text
     want = ids[0] if ids else ""
     for c in crates_:
@@ -185,7 +185,7 @@ def write(path, version, shipped, conda_prefix):
         texts.setdefault(key, [text, []])[1].append(work)
 
     lines = [f"Janus {version}: third-party notices", "",
-             "Janus is free software under the GNU General Public License, version 2 or later (see LICENSE). It",
+             "Janus is free software under the GNU General Public License, version 3 or later (see LICENSE). It",
              "contains, or is distributed with, the works below, each under its own license; the license texts",
              "follow the lists, each once with the works under it.", ""]
     warn = []

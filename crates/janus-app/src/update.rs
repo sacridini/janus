@@ -384,7 +384,7 @@ impl State {
             ui.label("Raster time series analysis: change detection and validation");
             ui.add_space(6.0);
             ui.weak(format!("GDAL {}", janus_cube::gdal_version()));
-            ui.weak("GNU General Public License, version 2");
+            ui.weak("GNU General Public License, version 3 or later");
             ui.hyperlink_to("github.com/sacridini/janus", "https://github.com/sacridini/janus");
             ui.add_space(8.0);
             ui.horizontal(|ui| {

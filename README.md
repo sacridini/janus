@@ -96,7 +96,7 @@ which ships with Janus: there is nothing else to install. Its command line is `j
   fitted live on the chart (BFAST and CCDC models drawn over the series) or
   run on the image (also CCDC's cloud-free synthetic image of a date), plus
   the agreement of several change maps; **deep learning** (TempCNN, L-TAE, Presto, U-TAE)
-  trained on your samples and applied on the GPU (optionally with sits' Bayesian smoothing of the probabilities,
+  trained on your samples and applied on the GPU (optionally with Bayesian smoothing of the probabilities (Camara et al. 2024),
   and the model's area of applicability: where the image is unlike its samples, as CAST's `aoa`),
   and Presto's pretrained embeddings, without Python; **field delineation**: Sentinel-2 fields as
   parcels by WRI's Trazo and Fields of The World's networks (their published accuracy), fine-tuned
@@ -185,8 +185,8 @@ platform, the tests and the packages.
 
 ## License
 
-Janus is free software under the GNU General Public License, version 2 or
-later ([LICENSE](LICENSE)), as is [Zeit](https://github.com/sacridini/zeit-cdts).
+Janus is free software under the GNU General Public License, version 3 or
+later ([LICENSE](LICENSE)), as is [Zeit](https://github.com/sacridini/zeit-cdts). The parts of Zeit that used to derive from GPL-2.0-only code (the CCDC lasso, the phenology, the Bayesian smoothing of probabilities and the QA weights) were rewritten from the papers, so the whole is GPL-3.0-or-later.
 
 ---
 

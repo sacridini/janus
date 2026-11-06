@@ -1,8 +1,12 @@
 //! Janus's TempCNN and L-TAE against sits' (tests/data/sits_*.json, written by tools/ml_sits_reference.R): sits'
-//! own samples, the same training and test samples, sits' defaults; the test accuracy over the same seeds is
-//! sits_tempcnn's and sits_lighttae's within a few points (not bit for bit: other frameworks, other random numbers).
+//! own samples, the same training and test samples; Janus's networks are the authors' (not sits'), trained with
+//! `TrainConfig::for_arch`. The test accuracy over the same seeds is no more than a few points under
+//! sits_tempcnn's and sits_lighttae's (not bit for bit: other networks, other frameworks, other random numbers).
 //!
 //!     cargo test -p janus-ml --release --test sits -- --ignored --nocapture      (JANUS_ML_GPU=1: on the GPU)
+//!
+//! JANUS_ML_CONFIG=authors trains with the authors' own settings instead (TempCNN: 20 epochs, patience 0, 5 % held
+//! out; L-TAE: 100 epochs), to compare.
 
 use std::sync::atomic::AtomicBool;
 
@@ -73,6 +77,15 @@ fn accuracy(net: &Net, x: &Series, y: &[u32], dev: &burn::prelude::Device) -> f6
     pred.iter().zip(y).filter(|(p, t)| **p == **t as i64).count() as f64 / y.len() as f64
 }
 
+/// The training settings of the networks' authors (JANUS_ML_CONFIG=authors), to set against `TrainConfig::for_arch`.
+fn authors(arch: &Arch) -> TrainConfig {
+    let base = TrainConfig { min_delta: 0.0, ..TrainConfig::tempcnn() };
+    match arch {
+        Arch::TempCnn(_) => TrainConfig { epochs: 20, batch_size: 32, validation_split: 0.05, patience: 0, ..base },
+        _ => TrainConfig { epochs: 100, batch_size: 128, validation_split: 0.2, patience: 100, ..base },
+    }
+}
+
 fn compare(name: &str) {
     let (set, v) = load(name);
     let (dev, dev_name) = device(std::env::var_os("JANUS_ML_GPU").is_some());
@@ -89,7 +102,11 @@ fn compare(name: &str) {
         let sits: Vec<f64> = v["accuracy"][key].as_array().unwrap().iter().map(|a| a.as_f64().unwrap()).collect();
         let mut ours = vec![];
         for &seed in &seeds {
-            let cfg = TrainConfig { seed, ..TrainConfig::for_arch(&arch) };
+            let base = match std::env::var("JANUS_ML_CONFIG").as_deref() {
+                Ok("authors") => authors(&arch),
+                _ => TrainConfig::for_arch(&arch),
+            };
+            let cfg = TrainConfig { seed, ..base };
             let t0 = std::time::Instant::now();
             let tr = train(
                 &xtr,
@@ -124,12 +141,12 @@ fn compare(name: &str) {
 
 #[test]
 #[ignore = "trains 12 models: run with --ignored, in release"]
-fn modis_ndvi_as_sits() {
+fn modis_ndvi_against_sits() {
     compare("samples_modis_ndvi");
 }
 
 #[test]
 #[ignore = "trains 12 models: run with --ignored, in release"]
-fn rondonia_as_sits() {
+fn rondonia_against_sits() {
     compare("samples_l8_rondonia_2bands");
 }

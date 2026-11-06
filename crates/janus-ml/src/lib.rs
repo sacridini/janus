@@ -1,7 +1,8 @@
 //! Deep learning on the series in Janus's process (IDEIAS.md, "IA", phases 34-38), on Burn: no Python, the GPU
-//! through the same wgpu as the map (or the CPU). Samples read from the cube at full resolution and scaled as sits
-//! scales them (`data`), sits' networks (`tempcnn`, `ltae`), their training (`train`), a model in a file with what
-//! applying it needs (`model`), and its application to a window of a series, as a Zeit run (`apply`).
+//! through the same wgpu as the map (or the CPU). Samples read from the cube at full resolution and scaled by their
+//! quantiles (`data`), the networks (`tempcnn`, `ltae`: the authors' architectures), their training (`train`), a
+//! model in a file with what applying it needs (`model`), and its application to a window of a series, as a Zeit
+//! run (`apply`).
 
 pub mod aoa;
 pub mod apply;

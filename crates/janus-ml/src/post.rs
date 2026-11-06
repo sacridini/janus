@@ -1,5 +1,5 @@
-//! The class map's post-processing after a model is applied, as Zeit's: sits' Bayesian smoothing of the
-//! probabilities (zeit.smooth_probs, sits_smooth), then a minimum mapping unit that merges the small patches into the
+//! The class map's post-processing after a model is applied, as Zeit's: the Bayesian smoothing of the
+//! probabilities (zeit.smooth_probs; sits has it as sits_smooth), then a minimum mapping unit that merges the small patches into the
 //! neighbouring class of the longest border (zeit.mmu_sieve).
 
 use zeit_core::postproc;
@@ -7,7 +7,7 @@ use zeit_core::postproc;
 /// What is done to the class map after the model (nothing by default).
 #[derive(Clone, Debug, PartialEq)]
 pub struct PostProcess {
-    /// sits' Bayesian smoothing of the probabilities: its window (odd), smoothness and fraction of the neighbours
+    /// Bayesian smoothing of the probabilities (sits' `sits_smooth`): its window (odd), smoothness and fraction of the neighbours
     pub smooth: bool,
     pub window: usize,
     pub smoothness: f64,

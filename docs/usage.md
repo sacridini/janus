@@ -765,8 +765,8 @@ already have in Janus and classifies every pixel by its whole series, without
 Python: a **Random Forest** (Breiman 2001; the first in the list: quick, on the
 CPU, good with few samples), **TempCNN** (Pelletier et al. 2019: convolutions
 over time) or **L-TAE** (Garnot & Landrieu 2020: attention over the dates), the
-networks as sits builds them (`sits_tempcnn`, `sits_lighttae`) and with sits'
-defaults, trained and applied on the GPU (the same wgpu as the map; the CPU
+networks as the authors built them (written from their papers and reference
+code, with their training settings), trained and applied on the GPU (the same wgpu as the map; the CPU
 without one).
 
 - **Samples** from the *interpretation's labels*, a *validation project's*
@@ -855,9 +855,11 @@ without one).
   are left out. Each value is scaled by its 2-98 % quantiles of the samples
   (sits' normalization).
 - **Training** (a task in Tools > Tasks, cancellable): a validation share split
-  off each class (seeded), AdamW, the learning rate decayed by steps, the
-  classes optionally weighed, early stopping on the validation loss
-  (*Patience*); the model of the best validation loss is kept. With few samples
+  off each class or, for TempCNN, by place (seeded; 20 %), Adam at 1e-3 (TempCNN:
+  batches of 32, up to 150 epochs, patience 20, no decay of the rate; L-TAE:
+  batches of 128, 100 epochs), the classes optionally weighed, early stopping
+  on the validation loss (*Patience*); the model of the best validation loss is
+  kept. With few samples
   the batch is made smaller, so that an epoch has at least 8 batches (with
   fewer, the batch normalizations' statistics are too rough and the model
   classifies everything alike). The window draws the loss and accuracy curves
@@ -988,9 +990,10 @@ without one).
   probabilities: 0 sure, 1 undecided) open as result layers, ready for the
   validation (the uncertainty as a stratum, too). Before applying, the class
   map can be **post-processed** as Zeit does it: *Smooth the probabilities*
-  (sits' Bayesian smoothing, `sits_smooth`: each class's probability pulled
+  (Bayesian smoothing, Camara et al. 2024, written from the paper; it agrees with
+  bayesEO to about 2e-3: each class's probability pulled
   towards its neighbours', the more where they agree; window, smoothness and
-  neighbours as sits') and a *Minimum mapping unit* (patches of fewer pixels
+  neighbours as in the paper) and a *Minimum mapping unit* (patches of fewer pixels
   merged into the neighbouring class of the longest border); the uncertainty
   stays the model's. For a map you already have, Tools > Classification & pattern recognition >
   Post-processing (classes).
@@ -1072,10 +1075,25 @@ U-TAE gives the scores of their code (zeit.ai.utae, a port of it layer for
 layer) to float32's precision (`tools/utae_reference.py`,
 `crates/janus-ml/tests/utae.rs`).
 
-On sits' own samples (`samples_modis_ndvi`, `samples_l8_rondonia_2bands`), the
-same training and test samples give Janus the test accuracy of sits (within a
-point or two, over three seeds; `tools/ml_sits_reference.R` and
-`crates/janus-ml/tests/sits.rs`).
+TempCNN (Pelletier et al. 2019) and L-TAE (Garnot & Landrieu 2020) are written
+from their authors' papers and code, not from sits, and trained with the
+authors' settings. On sits' own samples (`samples_modis_ndvi`,
+`samples_l8_rondonia_2bands`), against sits with its defaults, the mean test
+accuracy over three seeds is:
+
+| samples | model | sits | Janus |
+|---|---|---|---|
+| MODIS NDVI | TempCNN | 0.870 | 0.877 |
+| Rondonia Landsat 8 | TempCNN | 0.698 | 0.823 |
+| MODIS NDVI | L-TAE | 0.873 | 0.888 |
+| Rondonia Landsat 8 | L-TAE | 0.229 | 0.833 |
+
+sits' L-TAE reaches 0.229 on the Rondonia samples, which suggests that sits'
+own training failed there (a reading to take with caution: we ran it as a black
+box). `tools/ml_sits_reference.R` runs sits; the comparison is
+`crates/janus-ml/tests/sits.rs`. TempCNN and L-TAE models saved by earlier
+versions of Janus no longer open ("model from an earlier version of Janus:
+train it again"); Random Forest, U-TAE and Presto models open as before.
 
 ## Field delineation (parcels)
 

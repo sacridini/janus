@@ -236,7 +236,15 @@ fn split<'a>(bytes: &'a [u8], path: &str) -> Result<(Header, &'a [u8]), String> 
     let len = u64::from_le_bytes(bytes[MAGIC.len()..MAGIC.len() + 8].try_into().map_err(|_| bad())?) as usize;
     let start = MAGIC.len() + 8;
     let json = bytes.get(start..start + len).ok_or_else(bad)?;
-    let header: Header = serde_json::from_slice(json).map_err(|e| format!("{path}: {e}"))?;
+    // TempCNN and L-TAE were rewritten (tempcnn::VERSION): those of the networks before cannot be told apart by
+    // their weights, so they are refused by the version their architecture carries (none in the older files)
+    let raw: Value = serde_json::from_slice(json).map_err(|e| format!("{path}: {e}"))?;
+    if matches!(raw["arch"]["arch"].as_str(), Some("tempcnn" | "ltae"))
+        && raw["arch"]["version"].as_u64().unwrap_or(0) < crate::tempcnn::VERSION as u64
+    {
+        return Err(format!("{path}: model from an earlier version of Janus: train it again"));
+    }
+    let header: Header = serde_json::from_value(raw).map_err(|e| format!("{path}: {e}"))?;
     Ok((header, &bytes[start + len..]))
 }
 
@@ -264,5 +272,36 @@ pub fn shared_device(gpu: bool) -> Arc<(Device, String)> {
         GPU.get_or_init(|| Arc::new(device(true))).clone()
     } else {
         CPU.get_or_init(|| Arc::new(device(false))).clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(arch: Value) -> String {
+        let json = serde_json::json!({ "format": 1, "janus": "1.14.0", "arch": arch, "inputs": [] });
+        let json = serde_json::to_vec(&json).unwrap();
+        let mut bytes = MAGIC.to_vec();
+        bytes.extend_from_slice(&(json.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&json);
+        let path = std::env::temp_dir().join(format!("janus-old-{}.janusmodel", std::process::id()));
+        std::fs::write(&path, bytes).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn models_of_the_earlier_pixel_networks_are_refused() {
+        for arch in ["tempcnn", "ltae"] {
+            // the older files had other fields and no version
+            let path = file(serde_json::json!({ "arch": arch, "kernel": 3, "dropout": 0.2 }));
+            let e = Model::read_header(&path).unwrap_err();
+            assert!(e.contains("earlier version of Janus: train it again"), "{e}");
+            let path = file(serde_json::json!({ "arch": arch, "version": 1 }));
+            assert!(Model::read_header(&path).unwrap_err().contains("train it again"));
+        }
+        // other architectures are read as before (here: it fails later, for lack of the rest of the header)
+        let path = file(serde_json::json!({ "arch": "utae" }));
+        assert!(!Model::read_header(&path).unwrap_err().contains("train it again"));
     }
 }

@@ -4,10 +4,10 @@ members = ["crates/*"]
 resolver = "3"
 
 [workspace.package]
-version = "1.14.0"
+version = "1.15.0"
 edition = "2024"
 rust-version = "1.90"
-license = "GPL-2.0-or-later"
+license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
 gdal = "0.19"

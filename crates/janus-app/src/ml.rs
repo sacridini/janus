@@ -884,7 +884,7 @@ impl State {
         ui.checkbox(&mut self.ml.cfg.class_weights, "Weigh the classes (rare classes count more)");
         let gpu_name = if self.ml.gpu { "the GPU (wgpu), else the CPU" } else { "the CPU" };
         ui.checkbox(&mut self.ml.gpu, "Use the GPU").on_hover_text(format!("Trains and classifies on {gpu_name}"));
-        if ui.small_button("sits' defaults").clicked() {
+        if ui.small_button("Defaults").clicked() {
             // the training's; the validation (Validation, below) kept
             let (folds, cross_validate) = (std::mem::take(&mut self.ml.cfg.folds), self.ml.cfg.cross_validate);
             self.ml.cfg = TrainConfig { folds, cross_validate, ..TrainConfig::for_arch(&self.ml.arch()) };
@@ -1596,7 +1596,7 @@ impl State {
     fn ml_post_ui(&mut self, ui: &mut Ui) {
         let post = &mut self.ml.post;
         ui.checkbox(&mut post.smooth, "Smooth the probabilities (Bayesian)").on_hover_text(
-            "sits' Bayesian smoothing (sits_smooth, Zeit's smooth_probs): each class's probability is pulled towards \
+            "Bayesian smoothing (Camara et al. 2024, written from the paper; Zeit's smooth_probs): each class's probability is pulled towards \
              its neighbours', the more where they agree; a confident pixel keeps its class, the noise among uncertain \
              ones goes. The class is then the most probable after smoothing.",
         );
@@ -1616,10 +1616,10 @@ impl State {
                 }
                 ui.label("Smoothness");
                 ui.add(egui::DragValue::new(&mut post.smoothness).range(1.0..=1000.0).speed(0.5))
-                    .on_hover_text("The prior's variance: higher smooths more (sits' default 20).");
+                    .on_hover_text("The prior's variance: higher smooths more (default 20).");
                 ui.label("Neighbours");
                 ui.add(egui::DragValue::new(&mut post.neigh_fraction).range(0.05..=1.0).speed(0.01)).on_hover_text(
-                    "The fraction of the most probable neighbours whose mean is the prior (sits' default 0.5).",
+                    "The fraction of the most probable neighbours whose mean is the prior (default 0.5).",
                 );
             });
         }

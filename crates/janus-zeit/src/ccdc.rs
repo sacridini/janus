@@ -1,4 +1,4 @@
-//! CCDC (zeit_bridge/tool_ccdc.py): zeit-core's port of the original MATLAB CCDC on the mapped surface reflectance
+//! CCDC (zeit_bridge/tool_ccdc.py): zeit-core's CCDC, following the original MATLAB on the mapped surface reflectance
 //! (x 10000, brightness temperature in deg C x 100) with the quality band's Fmask codes; the segments' models
 //! drawn in the shown series' units, the breaks' magnitudes over the detection bands; and the synthetic image of a
 //! date (ccdc_synthetic). zeit.ccdc's glue (zeit/_ccdc_api.py: the dates, the result's layout) is here.

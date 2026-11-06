@@ -1,6 +1,6 @@
 //! What a model reads: each date's bands of a pixel (the shown band or index, source bands), read from the cube at
 //! full resolution, its gaps filled in time, and each band scaled by its 2-98 % quantiles of the training samples
-//! (sits' `.samples_stats` and `C_normalize_data`, clamped to 0.0001-1).
+//! (clamped to 0.0001-1).
 
 use std::sync::Arc;
 
@@ -80,7 +80,7 @@ impl Calendar {
         self.years.is_empty()
     }
 
-    /// Days since the first date (sits' timeline for the positional encoding); a year of 365.25 days without
+    /// Days since the first date (the positional encoding's); a year of 365.25 days without
     /// real dates.
     pub fn day_offsets(&self) -> Vec<f64> {
         match &self.days {
@@ -90,7 +90,7 @@ impl Calendar {
     }
 }
 
-/// Series of n pixels: `values[(i * t + d) * b + k]` (pixel i, date d, value k; sits' n x times x bands), NaN
+/// Series of n pixels: `values[(i * t + d) * b + k]` (pixel i, date d, value k; n x times x bands), NaN
 /// without a value.
 #[derive(Clone, Debug, Default)]
 pub struct Series {
@@ -305,7 +305,7 @@ impl Norm {
         Norm { q02, q98 }
     }
 
-    /// (x - q02) / (q98 - q02), clamped to 0.0001-1 (sits' C_normalize_data); NaN stays NaN.
+    /// (x - q02) / (q98 - q02), clamped to 0.0001-1; NaN stays NaN.
     pub fn apply(&self, s: &mut Series) {
         let b = s.b;
         s.values.par_chunks_mut(b).for_each(|v| {

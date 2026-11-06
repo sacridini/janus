@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Deep learning · Janus">
-<meta property="og:description" content="1250 MapBiomas samples, six years of Landsat, a TempCNN trained in 9 seconds: a land cover map of Rondônia with its uncertainty.">
+<meta property="og:description" content="1250 MapBiomas samples, six years of Landsat, a TempCNN trained on the GPU: a land cover map of Rondônia with its uncertainty.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/ml/06-class.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -81,7 +81,7 @@
         <dt>U-TAE</dt><dd>Garnot &amp; Landrieu (2021): a U-Net over each date whose levels are collapsed through time by L-TAE's attention (computed at the coarsest level, applied at every one). It reads patches of the image, so a pixel is classified with its neighbours: fields come out whole.</dd>
         <dt>Presto</dt><dd>A foundation model pretrained on Sentinel-1 and -2 series worldwide; a classifier learns on its encodings. It has <a href="presto.html">a guide of its own</a>.</dd>
       </dl>
-      <p>TempCNN and L-TAE are built as in R's <strong>sits</strong> (the same layers, sizes and defaults), and checked against <code>sits_tempcnn</code> and <code>sits_lighttae</code> on sits' own samples. They run on <strong>Burn</strong>, a Rust deep learning framework, on the GPU through wgpu (Direct3D 12, Vulkan or Metal), or on the CPU.</p>
+      <p>TempCNN and L-TAE are built as their authors built them (Pelletier et al. 2019; Garnot &amp; Landrieu 2020), with the authors' training settings, and compared with R's <strong>sits</strong> on sits' own samples (mean test accuracy over three seeds, sits with its defaults; the Rondônia samples are Landsat 8): TempCNN 0.877 against sits' 0.870 on MODIS NDVI and 0.823 against 0.698 on Rondônia; L-TAE 0.888 against 0.873 and 0.833 against 0.229. sits' L-TAE result on Rondônia suggests that sits' own training failed there, though that is a reading to take with caution. They run on <strong>Burn</strong>, a Rust deep learning framework, on the GPU through wgpu (Direct3D 12, Vulkan or Metal), or on the CPU.</p>
     </section>
 
     <section id="data">
@@ -105,20 +105,20 @@
       <h2><span class="n">03</span>The window</h2>
       <p><span class="ui">Tools → Classification &amp; pattern recognition → Deep learning</span>. The samples can come from a <strong>vector layer</strong> (points, or polygons: their centre, their pixels or their mean), an <strong>interpretation</strong> going on, a <strong>validation project</strong>, <strong>pins</strong> given a class, or a <strong>class map</strong> (for U-TAE). The window counts them by class as you choose.</p>
       <figure class="fig narrow">
-        <a href="assets/img/ml/02-window.png"><img src="assets/img/ml/02-window.png" alt="The Deep learning window: samples from the vector layer samples.gpkg and its class column, 1250 samples in 5 classes; the NDVI and the six reflectance bands read on each of the 125 dates; TempCNN with sits' defaults." loading="lazy"></a>
-        <figcaption><b>TempCNN on the samples</b>: the NDVI and the six reflectances of each date, sits' defaults.</figcaption>
+        <a href="assets/img/ml/02-window.png"><img src="assets/img/ml/02-window.png" alt="The Deep learning window: samples from the vector layer samples.gpkg and its class column, 1250 samples in 5 classes; the NDVI and the six reflectance bands read on each of the 125 dates; TempCNN with its default settings." loading="lazy"></a>
+        <figcaption><b>TempCNN on the samples</b>: the NDVI and the six reflectances of each date, the default settings.</figcaption>
       </figure>
       <div class="tbl-wrap">
         <table class="tbl">
           <thead><tr><th>Setting</th><th>TempCNN</th><th>L-TAE</th><th>What it does</th></tr></thead>
           <tbody>
             <tr><td>Values read on each date</td><td colspan="2">the series shown</td><td>The band or index on the map, and any bands of each date: here NDVI, blue, green, red, NIR, SWIR1, SWIR2 (7 values × 125 dates).</td></tr>
-            <tr><td>Epochs at most</td><td class="num">150</td><td class="num">150</td><td>Passes over the training samples.</td></tr>
-            <tr><td>Batch size</td><td class="num">64</td><td class="num">128</td><td>Samples a step (lowered so that an epoch has at least 8 steps).</td></tr>
-            <tr><td>Learning rate</td><td class="num">0.0005</td><td class="num">0.0005</td><td>AdamW's step (TempCNN's decays by 5% each epoch, as in sits).</td></tr>
-            <tr><td>Weight decay</td><td class="num">1e-6</td><td class="num">7e-4</td><td>AdamW's regularization.</td></tr>
-            <tr><td>Validation share</td><td class="num">0.2</td><td class="num">0.2</td><td>Samples kept out of the training, by class, to choose the best epoch and report the accuracy.</td></tr>
-            <tr><td>Patience</td><td class="num">20</td><td class="num">20</td><td>Stops when the validation loss has not improved for this many epochs; the best epoch is kept.</td></tr>
+            <tr><td>Epochs at most</td><td class="num">150</td><td class="num">100</td><td>Passes over the training samples.</td></tr>
+            <tr><td>Batch size</td><td class="num">32</td><td class="num">128</td><td>Samples a step (lowered so that an epoch has at least 8 steps).</td></tr>
+            <tr><td>Learning rate</td><td class="num">0.001</td><td class="num">0.001</td><td>Adam's step, the authors' value; it does not decay.</td></tr>
+            <tr><td>Weight decay</td><td class="num">0</td><td class="num">0</td><td>No regularization besides dropout (0.5 in TempCNN, 0.2 in L-TAE).</td></tr>
+            <tr><td>Validation share</td><td class="num">0.2</td><td class="num">0.2</td><td>Samples kept out of the training, by place, to choose the best epoch and report the accuracy.</td></tr>
+            <tr><td>Patience</td><td class="num">20</td><td class="num">100</td><td>Stops when the validation loss has not improved for this many epochs; the best epoch is kept. L-TAE's patience is its epochs: it trains them all and keeps the best.</td></tr>
             <tr><td>Min dates with a value (%)</td><td colspan="2" class="num">50</td><td>Samples (and pixels) with values on fewer dates are left out; the gaps of the others are filled linearly in time.</td></tr>
             <tr><td>Weigh the classes</td><td colspan="2" class="num">off</td><td>Rare classes count more in the loss.</td></tr>
           </tbody>
@@ -132,22 +132,22 @@
       <p><span class="ui">Train</span>. The window draws the loss and the accuracy of every epoch, on the training samples and on the validation samples, as they come.</p>
       <div class="fig-pair">
         <figure class="fig">
-          <a href="assets/img/ml/03-training.png"><img src="assets/img/ml/03-training.png" alt="The training's curves after 25 epochs: the losses fall in the first three epochs, the accuracies reach about 98%." loading="lazy"></a>
+          <a href="assets/img/ml/03-training.png"><img src="assets/img/ml/03-training.png" alt="The training's curves under way: the losses fall in the first epochs and the accuracies climb." loading="lazy"></a>
           <figcaption>The curves, under way.</figcaption>
         </figure>
         <figure class="fig">
-          <a href="assets/img/ml/04-validation.png"><img src="assets/img/ml/04-validation.png" alt="The validation after training: overall accuracy 98.4% on 250 samples, the model of epoch 18; the confusion matrix with producer's and user's accuracies." loading="lazy"></a>
+          <a href="assets/img/ml/04-validation.png"><img src="assets/img/ml/04-validation.png" alt="The validation after training: the overall accuracy on the validation samples and the model of the best epoch; the confusion matrix with producer's and user's accuracies." loading="lazy"></a>
           <figcaption>Done: the confusion matrix of the validation samples.</figcaption>
         </figure>
       </div>
-      <p>TempCNN trained in <strong>9 seconds</strong> on an RTX 3060: 1000 training samples, 26 epochs, stopped early, the model of epoch 18 kept. On the 250 validation samples its <strong>overall accuracy is 98.4%</strong>. Two urban samples were taken for pasture and one for water, one forest sample for pasture.</p>
+      <p>The network trains on the GPU in seconds to a few minutes, depending on the samples and the card; it stops when the validation loss has not improved for 20 epochs and keeps the model of the best epoch. The window then gives the <strong>overall accuracy</strong> on the validation samples and the samples each class was mistaken for. The epochs, the time and the accuracy vary from one training to the next (the split and the initial weights are drawn anew), so the figures in the screenshots are one run's.</p>
     </section>
 
     <section id="apply">
       <h2><span class="n">05</span>The class map</h2>
       <p>The trained model is the one to apply: <span class="ui">Apply</span> on the whole image classifies 1.2 million pixels in rows, in the background, in 78 seconds.</p>
       <figure class="fig narrow">
-        <img src="assets/img/ml/05-task.png" alt="The Tasks panel: TempCNN training done in 9 seconds and the classification of the whole image under way." loading="lazy">
+        <img src="assets/img/ml/05-task.png" alt="The Tasks panel: TempCNN training done and the classification of the whole image under way." loading="lazy">
         <figcaption><b>Tasks</b>: the training and the classification.</figcaption>
       </figure>
       <figure class="fig">
@@ -170,9 +170,9 @@
 
     <section id="ltae">
       <h2><span class="n">06</span>L-TAE</h2>
-      <p>Choose <span class="ui">L-TAE</span> in <span class="ui">Model</span>: the settings change to sits' defaults for it, and <span class="ui">Train</span> again on the same samples. It trained in 21 seconds, 28 epochs (the model of epoch 25), to an <strong>overall accuracy of 98.8%</strong>: urban 96% and pasture 98% (producer's), the other classes 100%.</p>
+      <p>Choose <span class="ui">L-TAE</span> in <span class="ui">Model</span>: the settings change to its defaults (the authors'), and <span class="ui">Train</span> again on the same samples. It trains all its epochs and keeps the best one; the time, the epoch kept and the overall accuracy vary from one training to the next, and the window reports them for the run.</p>
       <figure class="fig narrow">
-        <a href="assets/img/ml/09-ltae.png"><img src="assets/img/ml/09-ltae.png" alt="L-TAE in the window: sits' defaults for it, the curves of 28 epochs and the validation's overall accuracy." loading="lazy"></a>
+        <a href="assets/img/ml/09-ltae.png"><img src="assets/img/ml/09-ltae.png" alt="L-TAE in the window: its default settings, the curves of the epochs and the validation's overall accuracy." loading="lazy"></a>
         <figcaption><b>L-TAE</b>: slower to start (the attention learns which dates matter), as accurate.</figcaption>
       </figure>
     </section>
@@ -203,9 +203,9 @@
 
     <section id="post">
       <h2><span class="n">09</span>Post-processing</h2>
-      <p>A class map made pixel by pixel has a speckle: single pixels of pasture in the forest, a pixel of water on a road. Above <span class="ui">Apply</span>, two options clean the map as it is written, the way Zeit (and R's sits) do it:</p>
+      <p>A class map made pixel by pixel has a speckle: single pixels of pasture in the forest, a pixel of water on a road. Above <span class="ui">Apply</span>, two options clean the map as it is written, the way Zeit does it:</p>
       <dl class="terms">
-        <dt>Smooth the probabilities (Bayesian)</dt><dd>sits' Bayesian smoothing (<code>sits_smooth</code>, Zeit's <code>smooth_probs</code>): each class's probability is pulled towards those of its neighbours, the more where they agree. A pixel the network is sure of keeps its class; among uncertain pixels, the noise goes. The class is then the most probable one after smoothing.</dd>
+        <dt>Smooth the probabilities (Bayesian)</dt><dd>Bayesian smoothing (Camara et al. 2024), written from the paper (Zeit's <code>smooth_probs</code>); it agrees with bayesEO to about 2e-3: each class's probability is pulled towards those of its neighbours, the more where they agree. A pixel the network is sure of keeps its class; among uncertain pixels, the noise goes. The class is then the most probable one after smoothing.</dd>
         <dt>Minimum mapping unit</dt><dd>Patches of fewer pixels than this (8-connected) are merged into the neighbouring class with which they share the longest border (Zeit's <code>mmu_sieve</code>). 0 is off; 11 Landsat pixels are about 1 ha.</dd>
       </dl>
       <div class="tbl-wrap">
@@ -219,7 +219,7 @@
           </tbody>
         </table>
       </div>
-      <p>The defaults are sits'. With smoothing on, the probability layer is the smoothed one (<em>Probability of the class (smoothed)</em>); the uncertainty stays the network's own. The class map's name and the run's log say what was done. The smoothing is computed in bands of rows that overlap by half a window, which gives what the whole map at once would, without holding it in memory.</p>
+      <p>The defaults are those of the paper. With smoothing on, the probability layer is the smoothed one (<em>Probability of the class (smoothed)</em>); the uncertainty stays the network's own. The class map's name and the run's log say what was done. The smoothing is computed in bands of rows that overlap by half a window, which gives what the whole map at once would, without holding it in memory.</p>
       <h3>A map you already have</h3>
       <p><span class="ui">Tools → Classification &amp; pattern recognition → Post-processing (classes)</span> cleans any categorical layer, one map or a map per date (a land cover series, a class map from another program), in three steps, each of which can be turned off:</p>
       <div class="tbl-wrap">
@@ -236,8 +236,8 @@
       </div>
       <p>A raster run writes the cleaned classes as a new layer with the original's class names and colours, and a map of how many dates of each pixel changed. On the chart, the tool shows the pixel's classes after the temporal step (the spatial steps need the neighbours, so only raster runs do them).</p>
       <div class="note">
-        <p class="h">Against sits</p>
-        <p>Zeit's smoothing gives sits' probabilities to 1e-15. On 1000 × 1000 pixels of 4 classes, sits' smoothing takes 10.7 s and Zeit's 1.13 s on one thread.</p>
+        <p class="h">Against bayesEO</p>
+        <p>Zeit's smoothing is written from the paper (Camara et al. 2024, <em>Remote Sensing</em> 16(23):4572). It agrees with bayesEO's <code>bayes_smooth</code> to about 2e-3, with the same class everywhere in the tests.</p>
       </div>
     </section>
 
