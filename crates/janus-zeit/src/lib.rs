@@ -54,7 +54,7 @@ pub mod zonal;
 pub const ZEIT_VERSION: &str = "3.0.0";
 
 /// zeit-core's git revision (Cargo.toml's `rev`), as a run's provenance records it.
-pub const ZEIT_CORE_REV: &str = "93e906098869aeab10671290bc704e2195a68cde";
+pub const ZEIT_CORE_REV: &str = "7c019786e755f5027c50051cd7b43ee8c2446edb";
 
 pub use manifest::{CATEGORIES, CLASSIFICATION, DATA_PREPARATION, Manifest, Output, Param, Tool, manifest};
 pub use pixel::{Overlay, Params, PixelInput, PixelResult, run_pixel};
