@@ -466,6 +466,8 @@ pub(crate) fn output_bands(tool: &str, o: &Output, p: &Params, input: &PixelInpu
     match tool {
         "interpolate" => crate::interpolate::bands(o, p, input),
         "fold" => crate::temporal_metrics::fold_bands(o, p, input),
+        "clear_observations" => crate::clear_observations::bands(o, p, input),
+        "polar_metrics" => crate::polar_metrics::bands(o, p, input),
         _ => Err(format!("{tool}: the output '{}' has no bands", o.id)),
     }
 }
@@ -696,6 +698,8 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "fold" => crate::temporal_metrics::fold_chunk(p, chunk, ctx),
         "linear_trend" => crate::fold_trend::chunk_trend(p, chunk, ctx),
         "cat" => crate::fold_trend::chunk_cat(p, chunk, ctx),
+        "clear_observations" => crate::clear_observations::chunk(p, chunk, ctx),
+        "polar_metrics" => crate::polar_metrics::chunk(p, chunk, ctx),
         "standardize" => crate::standardize::chunk(p, chunk, ctx),
         "ar_trend" => crate::ar_trend::chunk(p, chunk, ctx),
         "recovery" => crate::recovery::chunk(p, chunk, ctx),

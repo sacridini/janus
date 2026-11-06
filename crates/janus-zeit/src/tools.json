@@ -4050,6 +4050,245 @@
     }
    ],
    "chunk_cells": 50000
+  },
+  {
+   "id": "clear_observations",
+   "name": "Clear-sky observations (FORCE CSO)",
+   "category": "Data preparation",
+   "description": "FORCE's clear-sky observations (TSA CSO, Frantz 2019), as zeit.clear_observations: how many valid observations each pixel has in windows of months, and the gaps between them. The windows begin on the first day of the month of the first date and go on, `months` months each, until the one that holds the last date, which is kept whole (FORCE leaves out a last window that starts in the month of its range's end; here every window is made). An observation is valid where its value is not missing (clouds, the quality band and NoData are missing). In each window the gaps, in days, are: from the start of the window to the first valid observation, between consecutive valid observations, and from the last one to the end of the window; observations on the same day make no gap; a window without a valid observation has one gap, as long as the window, and a count of 0. A raster run writes, for each chosen statistic, one band per window, labelled with its first month (YYYY-MM); a pixel run lists the windows. The series needs real dates in order.",
+   "requires": {
+    "time": "any",
+    "min_dates": 1
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "months",
+     "label": "Window",
+     "type": "int",
+     "default": 1,
+     "min": 1,
+     "max": 12,
+     "unit": "months",
+     "help": "The length of each window, in months (1 to 12). The windows are calendar months, from the first day of the first date's month."
+    },
+    {
+     "id": "statistics",
+     "label": "Statistics",
+     "type": "multi",
+     "default": [
+      "count",
+      "mean",
+      "max"
+     ],
+     "options": [
+      "count",
+      "min",
+      "p05",
+      "p10",
+      "p25",
+      "median",
+      "p75",
+      "p90",
+      "p95",
+      "max",
+      "range",
+      "iqr",
+      "mean",
+      "std",
+      "skew",
+      "kurtosis"
+     ],
+     "labels": [
+      "Clear observations",
+      "Shortest gap (days)",
+      "5th percentile of the gaps (days)",
+      "10th percentile of the gaps (days)",
+      "25th percentile of the gaps (days)",
+      "Median gap (days)",
+      "75th percentile of the gaps (days)",
+      "90th percentile of the gaps (days)",
+      "95th percentile of the gaps (days)",
+      "Longest gap (days)",
+      "Range of the gaps (days)",
+      "Interquartile range of the gaps (days)",
+      "Mean gap (days)",
+      "Standard deviation of the gaps (days)",
+      "Skewness of the gaps",
+      "Kurtosis of the gaps (excess)"
+     ],
+     "help": "Clear observations is the number of valid observations in the window; the others are statistics of the gaps in days between them (the longest gap is the maximum, the mean revisit time the mean). Unlike FORCE, which divides some of them by the number of observations instead of the number of gaps, every statistic but the count is that of the same gaps."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "o",
+     "name": "{}",
+     "each": "statistics",
+     "series": true,
+     "bands": true
+    }
+   ],
+   "chunk_cells": 50000
+  },
+  {
+   "id": "polar_metrics",
+   "name": "Polar phenology (FORCE)",
+   "category": "Temporal dynamics",
+   "description": "FORCE's polar land surface phenology (TSA POL, Frantz's polar-hl.c after Brooks et al. 2020), as zeit.polar_metrics. The series is put on a circle (the day of the year the angle, the value the radius, negative values counted as 0); the mean of all its points is the long-term mean vector, its opposite, the time of least activity, starts the phenological year. Each year's season runs from that start to the next; the values are accumulated along it and divided by its total, and the dates where the fraction reaches the start, middle and end thresholds are the start, middle and end of the season. Then the early and late minima, the peak, the mean vectors, amplitudes, integrals and rates of rise and fall. The series must be regular, a constant step of whole days over at least 2 calendar years, a non-negative index: run Interpolate (regular grid) first and run Polar phenology on its result. A missing step is filled by linear interpolation in time. A raster run writes, for each chosen metric, one band per calendar year, labelled with it; a season belongs to the year it ends in, so the first or the last year may be empty. The date metrics (D*) are days since 1 January of the band's year, in a calendar of 365 days (29 February shares day 60 with 1 March); the other metrics are in the unit of the data (integrals: times a year or a month; rates: per month). A pixel run lists the metrics by year and marks the date metrics on the chart.",
+   "requires": {
+    "time": "any",
+    "min_dates": 3
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "metrics",
+     "label": "Metrics",
+     "type": "multi",
+     "default": [
+      "VSS",
+      "VPS",
+      "VES",
+      "VSA",
+      "RMR",
+      "IGS"
+     ],
+     "options": [
+      "DEM",
+      "DLM",
+      "DPS",
+      "DSS",
+      "DMS",
+      "DES",
+      "DEV",
+      "DAV",
+      "DLV",
+      "LTS",
+      "LGS",
+      "LGV",
+      "VEM",
+      "VLM",
+      "VPS",
+      "VSS",
+      "VMS",
+      "VES",
+      "VEV",
+      "VAV",
+      "VLV",
+      "VBL",
+      "VGA",
+      "VSA",
+      "VPA",
+      "VGM",
+      "VGV",
+      "DPY",
+      "DPV",
+      "IST",
+      "IBL",
+      "IBT",
+      "IGS",
+      "IRR",
+      "IFR",
+      "RAR",
+      "RAF",
+      "RMR",
+      "RMF"
+     ],
+     "labels": [
+      "DEM: date of the early minimum (days)",
+      "DLM: date of the late minimum (days)",
+      "DPS: date of the peak (days)",
+      "DSS: date of the start of the season (days)",
+      "DMS: date of the middle of the season (days)",
+      "DES: date of the end of the season (days)",
+      "DEV: date of the mean vector of the early growing season (days)",
+      "DAV: date of the mean vector of the growing season (days)",
+      "DLV: date of the mean vector of the late growing season (days)",
+      "LTS: length of the total season (days)",
+      "LGS: length of the growing season (days)",
+      "LGV: length between the early and late mean vectors (days)",
+      "VEM: value at the early minimum",
+      "VLM: value at the late minimum",
+      "VPS: value at the peak",
+      "VSS: value at the start of the season",
+      "VMS: value at the middle of the season",
+      "VES: value at the end of the season",
+      "VEV: length of the early mean vector",
+      "VAV: length of the growing season's mean vector",
+      "VLV: length of the late mean vector",
+      "VBL: base level",
+      "VGA: green amplitude",
+      "VSA: seasonal amplitude",
+      "VPA: peak amplitude",
+      "VGM: mean value of the growing season",
+      "VGV: standard deviation of the growing season",
+      "DPY: start of the phenological year (days)",
+      "DPV: shift of the season's start from DPY (days)",
+      "IST: seasonal integral",
+      "IBL: base integral",
+      "IBT: total integral",
+      "IGS: green integral",
+      "IRR: rising integral",
+      "IFR: falling integral",
+      "RAR: average rate of rise",
+      "RAF: average rate of fall",
+      "RMR: maximum rate of rise",
+      "RMF: maximum rate of fall"
+     ],
+     "help": "The polar metrics to write, one map series each; only what they need is computed. D*: dates in days since 1 January of the band's year; L*: lengths in days; V*: values in the unit of the data; I*: integrals; R*: rates."
+    },
+    {
+     "id": "start",
+     "label": "Start of the season",
+     "type": "float",
+     "default": 0.2,
+     "min": 0.01,
+     "max": 0.99,
+     "help": "The fraction of the season's accumulated value that marks its start (FORCE's POL_START_THRESHOLD, 0.2)."
+    },
+    {
+     "id": "mid",
+     "label": "Middle of the season",
+     "type": "float",
+     "default": 0.5,
+     "min": 0.01,
+     "max": 0.99,
+     "help": "The fraction that marks the middle of the season (POL_MID_THRESHOLD, 0.5)."
+    },
+    {
+     "id": "end",
+     "label": "End of the season",
+     "type": "float",
+     "default": 0.8,
+     "min": 0.01,
+     "max": 0.99,
+     "help": "The fraction that marks the end of the season (POL_END_THRESHOLD, 0.8)."
+    },
+    {
+     "id": "adaptive",
+     "label": "Each season's own mean vector moves its start",
+     "type": "bool",
+     "default": true,
+     "help": "Fine-tune the start of each year's season from its own mean vector (FORCE's POL_ADAPTIVE). Without it the shift (DPV) is 0."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "p",
+     "name": "{}",
+     "each": "metrics",
+     "series": true,
+     "bands": true
+    }
+   ],
+   "chunk_cells": 50000
   }
  ],
  "errors": []

@@ -652,3 +652,312 @@ fn linear_trend_and_cat_refuse_bad_parameters() {
         assert!(run_pixel(tool, &params, &undated).unwrap_err().contains("dated series"));
     }
 }
+
+// ---- clear-sky observations and polar phenology --------------------------------------------------------------------
+// tsa_cso.json: zeit.clear_observations on the first series (irregular dates, gaps, a pixel without a valid
+// observation at (0, 0), a single one at (11, 7)); tsa_polar.json: zeit.polar_metrics on polar_input.tif, 125 steps of
+// 16 days over 5.5 years (2016-2021) with a seasonal cycle, gaps, a pixel without a valid step at (0, 0), a single one
+// at (11, 7) and a flat one at (5, 5).
+
+#[derive(Deserialize)]
+struct CsoCase {
+    params: BTreeMap<String, Value>,
+    windows: Vec<String>,
+    /// [statistic][window][pixel]
+    values: Vec<Vec<Vec<Option<f64>>>>,
+}
+
+#[derive(Deserialize)]
+struct PolarCase {
+    params: BTreeMap<String, Value>,
+    years: Vec<i64>,
+    /// [metric][year][pixel]
+    values: Vec<Vec<Vec<Option<f64>>>>,
+}
+
+#[derive(Deserialize)]
+struct Cases<C> {
+    cases: Vec<C>,
+}
+
+fn cso_cases() -> Vec<CsoCase> {
+    let s = std::fs::read_to_string(data().join("tsa_cso.json")).unwrap();
+    serde_json::from_str::<Cases<CsoCase>>(&s).unwrap().cases
+}
+
+fn polar_cases() -> Vec<PolarCase> {
+    let s = std::fs::read_to_string(data().join("tsa_polar.json")).unwrap();
+    serde_json::from_str::<Cases<PolarCase>>(&s).unwrap().cases
+}
+
+fn polar_spec() -> JobSpec {
+    let mut spec: JobSpec =
+        serde_json::from_str(&std::fs::read_to_string(data().join("polar_spec.json")).unwrap()).unwrap();
+    spec.input = data().join(&spec.input).to_string_lossy().to_string();
+    spec
+}
+
+fn polar_pixel_input(p: usize) -> PixelInput {
+    let s = polar_spec();
+    let (bands, _) = read(Path::new(&s.input));
+    PixelInput { years: s.years, days: s.days, values: bands.iter().map(|b| b[p]).collect(), ..Default::default() }
+}
+
+fn run_polar(params: &BTreeMap<String, Value>, name: &str) -> janus_zeit::job::JobResult {
+    let mut spec = polar_spec();
+    spec.params = params.clone();
+    let out = std::env::temp_dir().join(format!("janus-zeit-tsa-test-{name}"));
+    let _ = std::fs::remove_dir_all(&out);
+    spec.output_dir = out.to_string_lossy().to_string();
+    run_job(&spec, &|_, _| {}, &AtomicBool::new(false)).unwrap()
+}
+
+fn strings(v: &Value) -> Vec<String> {
+    v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect()
+}
+
+#[test]
+fn clear_observations_raster_run_is_zeits() {
+    for (k, c) in cso_cases().iter().enumerate() {
+        let opts = strings(&c.params["statistics"]);
+        let result = run("clear_observations", &c.params, &format!("cso-{k}"));
+        assert_eq!(result.outputs.len(), opts.len());
+        for (m, o) in opts.iter().enumerate() {
+            let out = result.outputs.iter().find(|x| x["id"] == format!("o_{o}").as_str()).unwrap();
+            assert_eq!(out["series"], json!(true));
+            assert_eq!(out["bands"], json!(true));
+            let (bands, descriptions) = read(Path::new(out["path"].as_str().unwrap()));
+            // one band per window, labelled with its first month
+            assert_eq!(descriptions, c.windows, "case {k}");
+            assert_eq!(bands.len(), c.values[m].len());
+            for (b, (got, want)) in bands.iter().zip(&c.values[m]).enumerate() {
+                assert_band(got, want, &format!("case {k} {:?} {o} window {}", c.params, c.windows[b]));
+            }
+        }
+    }
+    // the monthly case has a window per month from 2020-03 on; a pixel without a valid observation counts 0
+    let monthly = &cso_cases()[0];
+    assert_eq!(monthly.windows[0], "2020-03");
+    assert!(monthly.windows.len() >= 30);
+    let counts = &monthly.values[strings(&monthly.params["statistics"]).iter().position(|o| o == "count").unwrap()];
+    assert!(counts[0][W + 1].unwrap() > 0.0);
+    assert_eq!(counts[0][0], Some(0.0), "no valid observation: a count of 0");
+}
+
+#[test]
+fn clear_observations_defaults_and_names() {
+    let result = run("clear_observations", &BTreeMap::new(), "cso-defaults");
+    let ids: Vec<&str> = result.outputs.iter().map(|o| o["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["o_count", "o_mean", "o_max"]);
+    let names: Vec<&str> = result.outputs.iter().map(|o| o["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Clear observations", "Mean gap (days)", "Longest gap (days)"]);
+}
+
+#[test]
+fn clear_observations_pixel_run_is_zeits() {
+    for (x, y) in PIXELS {
+        let p = y * W + x;
+        let input = pixel_input(p);
+        for (k, c) in cso_cases().iter().enumerate() {
+            let params = Params::with_defaults("clear_observations", &c.params).unwrap();
+            let r = run_pixel("clear_observations", &params, &input).unwrap();
+            let opts = strings(&c.params["statistics"]);
+            let nw = c.windows.len();
+            assert_eq!(r.rows[1][1], nw.to_string());
+            assert!(r.overlays.is_empty());
+            // the table: the first twelve windows of each statistic, then a line for the rest
+            let block = nw.min(12) + usize::from(nw > 12);
+            for (m, o) in opts.iter().enumerate() {
+                for w in 0..nw.min(12) {
+                    let [label, text] = &r.rows[4 + m * block + w];
+                    assert!(label.ends_with(&c.windows[w]), "{label}");
+                    let got: f64 = text.parse().unwrap_or(f64::NAN);
+                    assert!(
+                        close(got, c.values[m][w][p], 1e-5),
+                        "case {k} {o} window {w} pixel ({x}, {y}): {text} vs {:?}",
+                        c.values[m][w][p]
+                    );
+                }
+            }
+            // the summary, from the cases with the count and the longest gap
+            if let (Some(n), Some(mx)) = (opts.iter().position(|o| o == "count"), opts.iter().position(|o| o == "max"))
+            {
+                let counts: Vec<f64> = c.values[n].iter().map(|w| w[p].unwrap()).collect();
+                let mean = counts.iter().sum::<f64>() / nw as f64;
+                let got: f64 = r.rows[2][1].parse().unwrap();
+                assert!(close(got, Some(mean), 1e-5), "case {k} pixel ({x}, {y}): {got} vs {mean}");
+                let longest = c.values[mx].iter().filter_map(|w| w[p]).fold(f64::NAN, f64::max);
+                let got: f64 = r.rows[3][1].parse().unwrap();
+                assert!(close(got, Some(longest), 1e-5), "case {k} pixel ({x}, {y}): {got} vs {longest}");
+            }
+        }
+    }
+}
+
+/// The windows' labels ("YYYY-MM") open as monthly dates, so the output is a dated series of its own.
+#[test]
+fn clear_observations_open_as_a_monthly_series() {
+    for k in [0, 1, 3] {
+        let c = &cso_cases()[k];
+        let first = strings(&c.params["statistics"])[0].clone();
+        let result = run("clear_observations", &c.params, &format!("cso-open-{k}"));
+        let path = output_path(&result, &format!("o_{first}"));
+        let info = janus_cube::open_cube(&[path], &janus_cube::BandSelection::default()).unwrap();
+        assert!(info.time_is_date, "case {k}");
+        assert_eq!(info.t(), c.windows.len());
+        let labels: Vec<&str> = info.layers.iter().map(|l| l.label.as_str()).collect();
+        assert_eq!(labels, c.windows.iter().map(String::as_str).collect::<Vec<_>>());
+    }
+}
+
+#[test]
+fn clear_observations_refuse_bad_parameters() {
+    let input = pixel_input(1);
+    let run = |k: &str, v: Value| {
+        let params = Params::with_defaults("clear_observations", &BTreeMap::from([(k.to_string(), v)])).unwrap();
+        run_pixel("clear_observations", &params, &input).unwrap_err()
+    };
+    assert!(run("months", json!(13)).starts_with("ValueError: months must be an integer from 1 to 12"));
+    assert!(run("months", json!(0)).starts_with("ValueError: months must be"));
+    assert!(run("statistics", json!([])).contains("at least one statistic"));
+    assert!(run("statistics", json!(["mode"])).starts_with("ValueError"));
+    let params = Params::with_defaults("clear_observations", &BTreeMap::new()).unwrap();
+    let mut undated = input.clone();
+    undated.days = None;
+    assert!(run_pixel("clear_observations", &params, &undated).unwrap_err().contains("dated series"));
+    let mut backwards = input.clone();
+    backwards.days.as_mut().unwrap().swap(3, 4);
+    assert!(run_pixel("clear_observations", &params, &backwards).unwrap_err().contains("do not decrease"));
+}
+
+#[test]
+fn polar_metrics_raster_run_is_zeits() {
+    for (k, c) in polar_cases().iter().enumerate() {
+        let opts = strings(&c.params["metrics"]);
+        let result = run_polar(&c.params, &format!("polar-{k}"));
+        assert_eq!(result.outputs.len(), opts.len());
+        let years: Vec<String> = c.years.iter().map(|y| y.to_string()).collect();
+        for (m, o) in opts.iter().enumerate() {
+            let out = result.outputs.iter().find(|x| x["id"] == format!("p_{o}").as_str()).unwrap();
+            assert_eq!(out["series"], json!(true));
+            assert_eq!(out["bands"], json!(true));
+            let (bands, descriptions) = read(Path::new(out["path"].as_str().unwrap()));
+            assert_eq!(descriptions, years, "case {k}");
+            assert_eq!(bands.len(), c.values[m].len());
+            for (b, (got, want)) in bands.iter().zip(&c.values[m]).enumerate() {
+                assert_band(got, want, &format!("polar case {k} {:?} {o} year {}", c.params, years[b]));
+            }
+        }
+    }
+    // something to compare: seasons found in many pixels, none where there is no valid step, the last year empty
+    let c = &polar_cases()[0];
+    assert_eq!(c.years, [2016, 2017, 2018, 2019, 2020, 2021]);
+    let vss = &c.values[0];
+    assert!(vss[2].iter().flatten().count() > 40);
+    assert!(vss.iter().all(|y| y[0].is_none()));
+    // the adaptive start makes a difference somewhere
+    let all = polar_cases();
+    assert_ne!(all[0].values[0], all[1].values[0]);
+}
+
+#[test]
+fn polar_metrics_defaults_and_names() {
+    let result = run_polar(&BTreeMap::new(), "polar-defaults");
+    let ids: Vec<&str> = result.outputs.iter().map(|o| o["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["p_VSS", "p_VPS", "p_VES", "p_VSA", "p_RMR", "p_IGS"]);
+    assert_eq!(result.outputs[0]["name"], "VSS: value at the start of the season");
+}
+
+#[test]
+fn polar_metrics_pixel_run_is_zeits() {
+    for (x, y) in PIXELS {
+        let p = y * W + x;
+        let input = polar_pixel_input(p);
+        for (k, c) in polar_cases().iter().enumerate() {
+            let opts = strings(&c.params["metrics"]);
+            let params = Params::with_defaults("polar_metrics", &c.params).unwrap();
+            let r = run_pixel("polar_metrics", &params, &input).unwrap();
+            // the table lists the years with a value, in order
+            let mut want: Vec<(String, f64)> = vec![];
+            let mut lines = 0;
+            for (m, o) in opts.iter().enumerate() {
+                let mut dates = vec![];
+                for (i, year) in c.years.iter().enumerate() {
+                    if let Some(v) = c.values[m][i][p] {
+                        want.push((format!("{o}, {year}"), v));
+                        dates.push(*year as f64 + v / 365.25);
+                    }
+                }
+                // a vertical line at each year's date, for the date metrics of the season's events
+                let event = ["DEM", "DLM", "DPS", "DSS", "DMS", "DES", "DEV", "DAV", "DLV"].contains(&o.as_str());
+                if event && !dates.is_empty() {
+                    let line = &r.overlays[lines];
+                    lines += 1;
+                    assert_eq!(line.kind, "vlines");
+                    assert_eq!(line.x.len(), dates.len());
+                    for (a, b) in line.x.iter().zip(&dates) {
+                        assert!((a - b).abs() < 1e-5, "case {k} {o} pixel ({x}, {y}): {a} vs {b}");
+                    }
+                }
+            }
+            assert_eq!(r.overlays.len(), lines);
+            let got: Vec<(&str, f64)> =
+                r.rows[2..].iter().filter_map(|[l, v]| v.parse::<f64>().ok().map(|v| (l.as_str(), v))).collect();
+            assert_eq!(got.len(), want.len(), "case {k} pixel ({x}, {y}): {:?}", r.rows);
+            for ((gl, gv), (wl, wv)) in got.iter().zip(&want) {
+                assert_eq!(*gl, wl.as_str());
+                assert!(close(*gv, Some(*wv), 1e-5), "case {k} {wl} pixel ({x}, {y}): {gv} vs {wv}");
+            }
+        }
+    }
+}
+
+/// The years' labels open as a dated yearly series.
+#[test]
+fn polar_metrics_open_as_a_yearly_series() {
+    let result = run_polar(&BTreeMap::new(), "polar-open");
+    let info = janus_cube::open_cube(&[output_path(&result, "p_VSS")], &janus_cube::BandSelection::default()).unwrap();
+    assert!(info.time_is_date);
+    assert_eq!(info.t(), 6);
+    let labels: Vec<&str> = info.layers.iter().map(|l| l.label.as_str()).collect();
+    assert_eq!(labels, ["2016", "2017", "2018", "2019", "2020", "2021"]);
+}
+
+#[test]
+fn polar_metrics_need_a_regular_series_and_valid_parameters() {
+    // an irregular series: the error points to Interpolate
+    let params = Params::with_defaults("polar_metrics", &BTreeMap::new()).unwrap();
+    let e = run_pixel("polar_metrics", &params, &pixel_input(1)).unwrap_err();
+    assert!(e.starts_with("ValueError: polar_metrics needs a regular series"), "{e}");
+    assert!(e.contains("Interpolate (regular grid)"), "{e}");
+    // as a raster run, the job refuses it too
+    let mut spec = spec();
+    spec.tool = "polar_metrics".into();
+    let out = std::env::temp_dir().join("janus-zeit-tsa-test-polar-irregular");
+    let _ = std::fs::remove_dir_all(&out);
+    spec.output_dir = out.to_string_lossy().to_string();
+    let Err(e) = run_job(&spec, &|_, _| {}, &AtomicBool::new(false)) else {
+        panic!("an irregular series was accepted")
+    };
+    assert!(e.contains("Interpolate (regular grid)"), "{e}");
+
+    let input = polar_pixel_input(1);
+    let run = |k: &str, v: Value| {
+        let params = Params::with_defaults("polar_metrics", &BTreeMap::from([(k.to_string(), v)])).unwrap();
+        run_pixel("polar_metrics", &params, &input).unwrap_err()
+    };
+    assert!(run("start", json!(0.0)).starts_with("ValueError: start must be between 0 and 1"));
+    assert!(run("mid", json!(1.0)).starts_with("ValueError: mid must be between 0 and 1"));
+    assert!(run("end", json!(1.5)).starts_with("ValueError: end must be between 0 and 1"));
+    assert!(run("metrics", json!([])).contains("at least one metric"));
+    assert!(run("metrics", json!(["XYZ"])).starts_with("ValueError: unknown polar metrics"));
+    // under two calendar years
+    let mut short = input.clone();
+    short.days = Some((0..10).map(|i| 18262 + 16 * i).collect());
+    short.values.truncate(10);
+    let e = run_pixel("polar_metrics", &params, &short).unwrap_err();
+    assert!(e.contains("at least 2 calendar years"), "{e}");
+    let mut undated = input.clone();
+    undated.days = None;
+    assert!(run_pixel("polar_metrics", &params, &undated).unwrap_err().contains("dated series"));
+}

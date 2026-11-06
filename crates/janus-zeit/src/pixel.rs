@@ -163,6 +163,8 @@ pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResu
         "fold" => crate::temporal_metrics::fold_pixel(p, input),
         "linear_trend" => crate::fold_trend::pixel_trend(p, input),
         "cat" => crate::fold_trend::pixel_cat(p, input),
+        "clear_observations" => crate::clear_observations::pixel(p, input),
+        "polar_metrics" => crate::polar_metrics::pixel(p, input),
         "standardize" => crate::standardize::pixel(p, input),
         "ar_trend" => crate::ar_trend::pixel(p, input),
         "recovery" => crate::recovery::pixel(p, input),

@@ -1,4 +1,5 @@
-"""The references of janus-zeit's Interpolate, Temporal metrics, Fold, Standardize, Linear trend and CAT tools
+"""The references of janus-zeit's Interpolate, Temporal metrics, Fold, Standardize, Linear trend, CAT, Clear-sky
+observations and Polar phenology tools
 (tests/tsa.rs):
 zeit.interpolate on a small series made here (tests/data/tsa: 12 x 8 pixels, 120 irregular dates over about 2.5
 years, gaps of every size, a pixel without a valid observation and one with a single one), for each method, with
@@ -6,7 +7,10 @@ the tool's parameters (tsa.json); and zeit.temporal_metrics (whole series and by
 the same series (tsa_stats.json); and zeit.linear_trend and zeit.cat of zeit.temporal_metrics by period on a longer
 series (trend_input.tif and trend_spec.json: 260 irregular dates over about 9 years, with a clear drop, a dip that
 recovers, a flat pixel, a year without data, a pixel without a valid observation and one with a single one), with
-the tools' parameters (tsa_trend.json).
+the tools' parameters (tsa_trend.json); zeit.clear_observations on the first series (tsa_cso.json); and
+zeit.polar_metrics on a regular series of 16 days over 5.5 years (polar_input.tif and polar_spec.json: a
+seasonal cycle, gaps, a pixel without a valid step, one with a single one, a flat one), with the tool's
+parameters (tsa_polar.json).
 
     python tools/tsa_fixtures.py
 
@@ -151,6 +155,80 @@ def trend():
     (HERE / "tsa_trend.json").write_text(json.dumps(out))
 
 
+CSO_CASES = [
+    {"months": 1, "statistics": ALL_METRICS},
+    {"months": 3, "statistics": ["count", "mean", "max"]},
+    {"months": 5, "statistics": ["count", "max", "std", "median"]},
+    {"months": 12, "statistics": ["count", "mean", "iqr"]},
+    {"months": 2, "statistics": ["skew", "kurtosis", "range", "min"]},
+]
+
+
+def cso(cube):
+    """tsa_cso.json: zeit.clear_observations, [statistic][window][pixel], with the windows' first months."""
+    out = []
+    for c in CSO_CASES:
+        r = zeit.clear_observations(cube, months=c["months"], metrics=c["statistics"], nodata=None, n_jobs=1)
+        names = list(r["metric"].values)
+        out.append({"params": c, "windows": [str(pd.Timestamp(w).date())[:7] for w in r["window"].values],
+                    "values": [[clean(r.sel(metric=m).isel(window=k)) for k in range(r.sizes["window"])]
+                               for m in names]})
+        print("clear_observations", c["months"], len(out[-1]["windows"]), "windows")
+    (HERE / "tsa_cso.json").write_text(json.dumps({"cases": out}))
+
+
+POLAR_NAMES = ("DEM DLM DPS DSS DMS DES DEV DAV DLV LTS LGS LGV VEM VLM VPS VSS VMS VES VEV VAV VLV VBL VGA VSA VPA "
+               "VGM VGV DPY DPV IST IBL IBT IGS IRR IFR RAR RAF RMR RMF").split()
+POLAR_CASES = [
+    {},
+    {"adaptive": False},
+    {"metrics": POLAR_NAMES},
+    {"metrics": POLAR_NAMES, "adaptive": False, "start": 0.1, "mid": 0.4, "end": 0.9},
+    {"metrics": ["DSS", "DES", "LGS", "VPS", "IBT", "RMF"], "start": 0.3, "mid": 0.6, "end": 0.7},
+]
+
+
+def polar():
+    """polar_input.tif, polar_spec.json and tsa_polar.json: zeit.polar_metrics, [metric][year][pixel]."""
+    rng = np.random.default_rng(20261108)
+    n = 125                                                 # 16 days apart from 2016-02-10: 5.5 years
+    days = 16841 + 16 * np.arange(n)
+    t = (days - days[0]) / 365.25
+    phase = rng.uniform(-0.1, 0.1, (1, H, W))
+    amp = rng.uniform(0.2, 0.35, (1, H, W))
+    stack = 0.4 + amp * np.sin(2 * np.pi * (t[:, None, None] - 0.25 + phase)) + 0.03 * rng.standard_normal((n, H, W))
+    stack += 0.01 * t[:, None, None]
+    stack = np.clip(stack, 0, None)
+    stack[rng.random((n, H, W)) < 0.15] = np.nan
+    stack[40:52, 2, 3] = np.nan                             # a long gap
+    stack[:, 0, 0] = np.nan                                 # no valid step
+    stack[:, 7, 11] = np.nan
+    stack[57, 7, 11] = 0.5                                  # a single one
+    stack[:, 5, 5] = 0.4                                    # flat
+    stack = stack.astype(np.float32)
+    with rasterio.open(HERE / "polar_input.tif", "w", driver="GTiff", width=W, height=H, count=n, dtype="float32",
+                       nodata=np.nan, crs="EPSG:32722", transform=from_origin(500000.0, 8900000.0, 30.0, 30.0),
+                       compress="deflate") as dst:
+        dst.write(stack)
+    spec = {"tool": "polar_metrics", "params": {}, "input": "polar_input.tif", "nodata": None,
+            "years": [decimal_year(d) for d in days], "days": [int(d) for d in days],
+            "window": [0, 0, W, H], "threads": 1}
+    (HERE / "polar_spec.json").write_text(json.dumps(spec))
+
+    index = pd.DatetimeIndex(np.datetime64("1970-01-01") + days.astype("timedelta64[D]"))
+    cube = xr.DataArray(stack.astype(np.float64), dims=("time", "y", "x"), coords={"time": index})
+    out = []
+    for c in POLAR_CASES:
+        kw = dict(c)
+        metrics = kw.pop("metrics", ["VSS", "VPS", "VES", "VSA", "RMR", "IGS"])
+        r = zeit.polar_metrics(cube, metrics, nodata=None, n_jobs=1, **kw)
+        out.append({"params": dict(c, metrics=metrics), "years": [int(y) for y in r["year"].values],
+                    "values": [[clean(r.sel(metric=m).isel(year=k)) for k in range(r.sizes["year"])]
+                               for m in metrics]})
+        print("polar_metrics", c.keys(), int(np.isnan(r.values).sum()), "values missing")
+    (HERE / "tsa_polar.json").write_text(json.dumps({"cases": out}))
+
+
 def main():
     rng = np.random.default_rng(20261106)
     # irregular dates: 1 to 15 days apart, from 2020-03-30
@@ -200,6 +278,8 @@ def main():
     (HERE / "tsa.json").write_text(json.dumps(out))
     stats(cube)
     trend()
+    cso(cube)
+    polar()
 
 
 if __name__ == "__main__":
