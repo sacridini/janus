@@ -86,7 +86,7 @@
 
     <section id="data">
       <h2><span class="n">02</span>The example</h2>
-      <p>The Landsat 8/9 series of the <a href="ccdc.html">CCDC guide</a>: 125 dates, 2020 to 2026, 30 m, 1117 × 1079 pixels of Rondônia. The samples come from <strong>MapBiomas</strong> 2022 (collection 8): 250 points in each of five classes (water, urban, pasture, forest, agriculture), each at a pixel whose 5 × 5 neighbourhood is all of its class, in a GeoPackage with a <code>class</code> column.</p>
+      <p>The Landsat 8/9 series of the <a href="ccdc.html">CCDC guide</a>: 125 dates, 2020 to 2026, 30 m, 1690 × 1675 pixels of Rondônia. The samples come from <strong>MapBiomas</strong> 2022 (collection 8): 250 points in each of five classes (water, urban, pasture, forest, agriculture), each at a pixel whose 5 × 5 neighbourhood is all of its class, in a GeoPackage with a <code>class</code> column.</p>
       <figure class="fig">
         <a href="assets/img/ml/01-samples.jpg"><img src="assets/img/ml/01-samples.jpg" alt="The Landsat image of Rondônia in SWIR1, NIR and red with 1250 sample points coloured by class: water along the rivers, urban in a town, pasture and forest everywhere, agriculture in the northeast." width="1680" height="1050" loading="lazy"></a>
         <figcaption><b>1250 samples</b> over the series, in their classes' colours: water (light blue), urban (blue), pasture (light green), forest (green), agriculture (pink).</figcaption>
@@ -185,10 +185,10 @@
         <figcaption><b>The areas</b> and U-TAE's settings: patches of 32 px, the labels inside the ROI.</figcaption>
       </figure>
       <figure class="fig narrow">
-        <a href="assets/img/ml/10-utae.png"><img src="assets/img/ml/10-utae.png" alt="U-TAE in the window: 20 epochs at most, batches of 8 patches; the losses still falling at epoch 20; validation: 76.3% of the labelled pixels of 115 patches." loading="lazy"></a>
-        <figcaption><b>U-TAE after 20 epochs</b>: the losses still falling.</figcaption>
+        <a href="assets/img/ml/10-utae.png"><img src="assets/img/ml/10-utae.png" alt="U-TAE in the window: 20 epochs at most, batches of 8 patches; the losses still falling slowly at epoch 20; validation: 95.7% of the labelled pixels of 115 patches, water's user's accuracy 36%." loading="lazy"></a>
+        <figcaption><b>U-TAE after 20 epochs</b>: the losses still falling, slowly.</figcaption>
       </figure>
-      <p>Its 576 patches (461 to train, 115 to validate) took 135 seconds an epoch, 45 minutes in all, and after 20 epochs U-TAE is right on <strong>76.3% of the labelled pixels</strong>: about what calling everything pasture would give. The curves tell why: the losses are still falling at the last epoch. Its authors train it for 100 epochs; the window's default is 80, with a patience of 10. Stopped this early, a U-Net's decoder still draws a fine pattern of one class every other pixel (here, water over pasture), the mark of transposed convolutions that have not learnt yet; it goes as the training goes on.</p>
+      <p>Its 576 patches (461 to train, 115 to validate) took about 50 minutes for 20 epochs, and U-TAE is right on <strong>95.7% of the labelled pixels</strong> of the validation patches, against about 75% for calling everything pasture. The confusion matrix shows where it is not done yet: water's user's accuracy is 36%, pasture pixels drawn as water, and the losses are still falling at the last epoch. Its authors train it for 100 epochs; the window's default is 80, with a patience of 10. Stopped early, a U-Net's decoder may still draw a fine pattern of one class every other pixel (here, water over pasture), the mark of transposed convolutions that have not learnt yet; it goes as the training goes on. The figures are one run's: they vary with the split and the initial weights.</p>
       <p>Where U-TAE shines is a series of few dates and many labelled fields, the case it was made for (crops in France, a date a week or two for a season): there, its maps have whole fields with clean edges, where a pixel classifier leaves a speckle.</p>
       <div class="note warn">
         <p class="h">Memory</p>

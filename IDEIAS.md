@@ -2137,6 +2137,9 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   novo treino. Falta resolver: LandTrendr (sem licença publicada) e as
   licenças de CODED, EWMACD, twdtw e snic.c. Publicado como 1.15.1: a tag
   v1.15.0 falhou na CI (cargo fmt e clippy dos arquivos novos do janus-ml).
+- 1.15.2: as capturas do guia de deep learning refeitas com as redes novas
+  (`--shots ml`, a pilha Landsat de Rondônia 1690 x 1675 e o MapBiomas 2022 em
+  E:\janus-guide); o texto do U-TAE com a rodada nova (95,7%, 50 min).
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
