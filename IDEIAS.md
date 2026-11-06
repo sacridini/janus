@@ -2135,7 +2135,8 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   TempCNN e o L-TAE do janus-ml (do sits; agora dos autores, Pelletier 2019 e
   Garnot & Landrieu 2020). Modelos TempCNN/L-TAE de versões anteriores pedem
   novo treino. Falta resolver: LandTrendr (sem licença publicada) e as
-  licenças de CODED, EWMACD, twdtw e snic.c.
+  licenças de CODED, EWMACD, twdtw e snic.c. Publicado como 1.15.1: a tag
+  v1.15.0 falhou na CI (cargo fmt e clippy dos arquivos novos do janus-ml).
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 

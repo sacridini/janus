@@ -15,7 +15,9 @@
 
 use burn::module::Param;
 use burn::nn::conv::{Conv1d, Conv1dConfig};
-use burn::nn::{BatchNorm, BatchNormConfig, Dropout, DropoutConfig, Initializer, Linear, LinearConfig, PaddingConfig1d};
+use burn::nn::{
+    BatchNorm, BatchNormConfig, Dropout, DropoutConfig, Initializer, Linear, LinearConfig, PaddingConfig1d,
+};
 use burn::prelude::*;
 use burn::tensor::activation::relu;
 use serde::{Deserialize, Serialize};
@@ -82,9 +84,8 @@ impl TempCnn {
         }
         let mut dense = LinearConfig::new(h.filters * times, h.dense).with_initializer(he).init(device);
         dense.bias = zero_bias(h.dense, device);
-        let mut out = LinearConfig::new(h.dense, classes)
-            .with_initializer(Initializer::XavierUniform { gain: 1.0 })
-            .init(device);
+        let mut out =
+            LinearConfig::new(h.dense, classes).with_initializer(Initializer::XavierUniform { gain: 1.0 }).init(device);
         out.bias = zero_bias(classes, device);
         TempCnn {
             convs,

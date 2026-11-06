@@ -154,7 +154,12 @@ pub struct LTae {
 impl LTae {
     /// `days`: each date's day since the first (`Calendar::day_offsets`).
     pub fn new(h: &LTaeHyper, bands: usize, days: &[f64], classes: usize, device: &Device) -> LTae {
-        assert!(h.d_model % h.n_head == 0, "the width {} is not a multiple of the {} heads", h.d_model, h.n_head);
+        assert!(
+            h.d_model.is_multiple_of(h.n_head),
+            "the width {} is not a multiple of the {} heads",
+            h.d_model,
+            h.n_head
+        );
         assert!(!h.encoder.is_empty(), "the encoder of each date needs a layer");
         let (e, times) = (h.d_model, days.len());
         let (mut enc_linear, mut enc_norm) = (vec![], vec![]);
@@ -297,8 +302,8 @@ mod tests {
         let t = positional_table(&[0.0, 1.0, 30.0], 16, 1000.0, 3);
         assert_eq!(t.len(), 3 * 48);
         // the first date: sin 0 and cos 0, alternating
-        for j in 0..48 {
-            assert_eq!(t[j], (j % 2) as f32);
+        for (j, v) in t.iter().take(48).enumerate() {
+            assert_eq!(*v, (j % 2) as f32);
         }
         // day 1: column 2 is sin(1 / 1000^(2/16)), column 3 its cosine, column 5 cos(1 / 1000^(2/16))
         let a = 1.0f64 / 1000f64.powf(2.0 / 16.0);
@@ -334,7 +339,8 @@ mod tests {
     #[test]
     fn a_head_averages_its_group_of_channels() {
         let m = net(2, 5);
-        let z = m.seq_norm.forward(m.inconv.forward(m.in_norm.forward(m.encode_dates(input(3, 2))))) + m.positions.clone().unsqueeze_dim::<3>(0);
+        let z = m.seq_norm.forward(m.inconv.forward(m.in_norm.forward(m.encode_dates(input(3, 2)))))
+            + m.positions.clone().unsqueeze_dim::<3>(0);
         let (o, w) = m.attend(z.clone());
         let (z, o, w) = (
             z.into_data().try_to_vec::<f32>().unwrap(),

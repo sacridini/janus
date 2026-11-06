@@ -405,7 +405,9 @@ pub(crate) fn describe(kind: Kind, arch: usize) -> &'static str {
             "Many decision trees, each grown on a bootstrap sample of the samples, vote on each date's values: \
              quick on the CPU, good with few samples, and it tells which dates matter."
         }
-        (Kind::Learned, 0) => "Convolutions over the series read as a sequence of fixed length, as the authors built it (Pelletier et al. 2019).",
+        (Kind::Learned, 0) => {
+            "Convolutions over the series read as a sequence of fixed length, as the authors built it (Pelletier et al. 2019)."
+        }
         (Kind::Learned, 1) => "The dates weighed by attention, as the authors built it (Garnot & Landrieu 2020).",
         (Kind::Learned, 2) => {
             "Pretrained on Sentinel-1 and -2 series worldwide, it encodes a year of a pixel; a classifier learns \
