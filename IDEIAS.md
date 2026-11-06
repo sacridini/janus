@@ -2140,6 +2140,12 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
 - 1.15.2: as capturas do guia de deep learning refeitas com as redes novas
   (`--shots ml`, a pilha Landsat de Rondônia 1690 x 1675 e o MapBiomas 2022 em
   E:\janus-guide); o texto do U-TAE com a rodada nova (95,7%, 50 min).
+- 1.16.0: as ferramentas do TSA do FORCE, pelo zeit-core (3cb0f1b, no Zeit 3.1.0):
+  Interpolar (grade regular), Métricas temporais, Fold por período, Padronizar,
+  Tendência linear de um fold, CAT, Observações de céu claro e Fenologia polar,
+  iguais às do Zeit a 1e-5. Saídas cujas bandas a ferramenta decide e o parâmetro
+  de múltipla escolha. O teste dos alertas que falhava no Ubuntu (duas funções
+  apagavam a mesma pasta) corrigido.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
