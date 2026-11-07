@@ -1,7 +1,9 @@
-//! "Copy Python" (src/app_python.cpp): code that reproduces outside Janus the series on the chart (the cursor's,
-//! a pin's or the ROI's) as Janus reads it (band or normalized difference, quality mask, nodata, scale/offset), its
-//! statistics and the Zeit tool fitted on the chart, with the same parameters. Needs numpy and rasterio (xarray
-//! and zeit-cdts for the tool).
+//! "Copy Python" (src/app_python.cpp): code that reproduces outside Janus the series on the chart (a pin's or the
+//! ROI's) as Janus reads it and the Zeit tools fitted on it, with the same parameters: `State::python_snippet`
+//! asks `janus_zeit::python::pixel_script` (Zeit's own `load_raster` reads the series; the website's guides call
+//! the same function). A raster run's rerun.py (`run_code`, and the chain's in tsa.rs) is the same function with
+//! the run's window as the target: Zeit reads the window, makes the call and `save_raster` writes the maps.
+//! `series_code` (the series read with rasterio, for the scripts of the other tools) is still here.
 
 use std::fmt::Write as _;
 
@@ -165,10 +167,10 @@ pub enum Which {
 }
 
 impl State {
-    /// The code for a series of the chart (None if it is not there).
+    /// The code for a series of the chart (None if it is not there): Zeit reads the series as Janus shows it and
+    /// makes the tools' calls (`janus_zeit::python::pixel_script`, which the website's guides use too).
     pub(crate) fn python_snippet(&mut self, which: Which) -> Option<String> {
         let info = self.session.as_ref()?.info.clone();
-        let t_n = info.t();
         let view = match which {
             Which::Pin(id) => self.series.pins.iter().find(|p| p.id == id).cloned(),
             Which::Roi => None,
@@ -178,12 +180,6 @@ impl State {
             return None;
         }
         let name = self.layers.get(self.active).map_or("the series".to_string(), |l| l.name.clone());
-        let what = match which {
-            Which::Roi if self.series.roi_poly.is_empty() => "the ROI (a rectangle)".to_string(),
-            Which::Roi => "the ROI (a polygon)".to_string(),
-            Which::Pin(id) => format!("pin {id}"),
-        };
-        // the tool on the chart: its calls
         let fit_key = match which {
             Which::Pin(id) => crate::zeit::Which::Pin(id),
             Which::Roi => crate::zeit::Which::Roi,
@@ -198,245 +194,53 @@ impl State {
         .filter(|f| f.result.is_some_and(|r| r.is_ok()))
         .map(|f| f.tool.id.clone())
         .collect();
-        let tool_calls: Vec<(String, String, Vec<&str>)> = fitted
+        let tools: Vec<(String, janus_zeit::Params)> = fitted
             .into_iter()
             .filter_map(|id| {
                 let tool = janus_zeit::manifest().tool(&id)?;
-                let params = janus_zeit::Params::with_defaults(&id, self.zeit.params(tool)).unwrap_or_default();
-                let values = view.as_ref().map_or_else(|| self.series.roi.mean.clone(), |v| v.values.clone());
-                let roles: std::collections::BTreeMap<String, Vec<f64>> =
-                    self.zeit.roles.keys().map(|r| (r.clone(), vec![])).collect();
-                let input = janus_zeit::PixelInput {
-                    years: (0..t_n).map(|t| info.decimal_year(t)).collect(),
-                    days: info.time_is_date.then(|| (0..t_n).map(|t| info.unix_day(t)).collect()),
-                    values: values.iter().map(|&v| f64::from(v)).collect(),
-                    bands: roles,
-                    sensors: crate::zeit::sensors_for(&id, &info),
-                    granules: crate::zeit::granules_of(&id, &params, &info),
-                    ..Default::default()
-                };
-                let (code, inputs) = janus_zeit::python::calls(&id, &params, &input)?;
-                Some((tool.name.clone(), code, inputs))
+                let params = janus_zeit::Params::with_defaults(&id, self.zeit.params(tool))?;
+                Some((id, params))
             })
             .collect();
-
-        let mut o = String::new();
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
-        let (y, m, d) = janus_zeit::numeric::civil(now.div_euclid(86400));
-        let _ = write!(
-            o,
-            "\"\"\"Janus {} ({y:04}-{m:02}-{d:02}): {what} of {name},\nreproduced outside Janus. Needs: pip install numpy rasterio",
-            env!("CARGO_PKG_VERSION")
-        );
-        if !tool_calls.is_empty() {
-            o += " xarray zeit-cdts";
-        }
-        o += "\n\"\"\"\nimport numpy as np\nimport rasterio\nfrom rasterio.windows import Window\n";
-        if roi.is_some() && !self.series.roi_poly.is_empty() {
-            o += "from rasterio.features import rasterize\n";
-        }
-        o += "from rasterio.enums import Resampling\n";
-
-        let sel = info.sel;
-        let qa_on = sel.qa_band > 0 && sel.qa_rule != QaRule::None;
-        o += &series_code(&info);
-        if let Some(r) = &roi {
-            let (w, h) = (r.x1 - r.x0, r.y1 - r.y0);
-            let _ =
-                write!(o, "\n# The ROI: the window x {}..{}, y {}..{} of the files' pixels", r.x0, r.x1, r.y0, r.y1);
-            if r.sampled {
-                let _ = write!(
-                    o,
-                    ",\n# read at {} x {} (Janus subsamples ROIs above 4 Mpx, nearest neighbour)",
-                    r.bw, r.bh
-                );
-            }
-            let _ = writeln!(o, ".\nwindow = Window({}, {}, {w}, {h})\nshape = ({}, {})", r.x0, r.y0, r.bh, r.bw);
-            if self.series.roi_poly.is_empty() {
-                o += "inside = np.ones(shape, dtype=bool)\n";
-            } else {
-                // the polygon in the window's cells: pixels whose centres are inside count
-                let (kx, ky) = (r.bw as f64 / w as f64, r.bh as f64 / h as f64);
-                o += "# Its polygon (rings in the window's cells, even-odd: holes are rings inside others);\n\
-                      # a cell counts when its centre is inside.\nrings = [\n";
-                for ring in &self.series.roi_poly {
-                    let pts: Vec<String> = ring
-                        .as_chunks::<2>()
-                        .0
-                        .iter()
-                        .map(|v| format!("({}, {})", num((v[0] - r.x0 as f64) * kx), num((v[1] - r.y0 as f64) * ky)))
-                        .collect();
-                    let _ = writeln!(o, "    [{}],", pts.join(", "));
-                }
-                o += "]\ninside = np.zeros(shape, dtype=bool)\n\
-                      for ring in rings:  # each ring flips what it covers (even-odd)\n    \
-                      inside ^= rasterize([{\"type\": \"Polygon\", \"coordinates\": [ring + ring[:1]]}], out_shape=shape,\n                        \
-                      fill=0, default_value=1, dtype=\"uint8\").astype(bool)\n";
-            }
-            o += r#"
-mean, p10, p90 = (np.full(len(layers), np.nan) for _ in range(3))
-for t, layer in enumerate(layers):
-    v = shown(layer, window, shape)[inside]
-    v = v[np.isfinite(v)]
-    if v.size:
-        mean[t] = v.mean()
-        p10[t], p90[t] = np.percentile(v, [10, 90])  # numpy's percentiles: Janus' may differ slightly
-values = mean
-"#;
-        } else if let Some(v) = &view {
-            o += "\n# The pixel (column, row of the files)";
-            if let Some((gx, gy)) = info.pixel_to_geo(v.x as f64 + 0.5, v.y as f64 + 0.5) {
-                let crs = if info.crs_authority.is_empty() { &info.crs_name } else { &info.crs_authority };
-                let _ = write!(o, ", its centre at x {}, y {} ({crs})", num(gx), num(gy));
-            }
-            let _ = writeln!(
-                o,
-                ".\ncol, row = {}, {}\nvalues = np.array([shown(layer, Window(col, row, 1, 1))[0, 0] for layer in layers])",
-                v.x, v.y
-            );
-        }
-        o += r#"
-ok = np.isfinite(values)
-y, t = values[ok], years[ok]
-print("n", ok.sum(), "mean", y.mean(), "std", y.std(ddof=1) if y.size > 1 else np.nan)
-if y.size >= 2:
-    slope, intercept = np.polyfit(t, y, 1)                  # OLS, per year
-    i, j = np.triu_indices(y.size, 1)
-    keep = t[j] != t[i]
-    sen = np.median((y[j] - y[i])[keep] / (t[j] - t[i])[keep])  # Sen's slope, per year
-    print("OLS slope", slope, "Sen's slope", sen)
-"#;
-        if !tool_calls.is_empty() {
-            let names: Vec<&str> = tool_calls.iter().map(|c| c.0.as_str()).collect();
-            let inputs: Vec<&str> = tool_calls.iter().flat_map(|c| c.2.iter().copied()).collect();
-            let _ = writeln!(
-                o,
-                "\n# {}, fitted on the chart with these parameters: the same Zeit calls Janus makes\n\
-                 # (its model is drawn from their results).\n{}import xarray as xr\nimport zeit\n",
-                names.join(", "),
-                if inputs.contains(&"bands_all") || inputs.contains(&"spectrum") {
-                    "import pandas as pd\n"
-                } else {
-                    ""
-                }
-            );
-            let time = if info.time_is_date { "dates.astype(\"datetime64[ns]\")" } else { "np.arange(len(values))" };
-            if inputs.contains(&"series") {
-                let _ = writeln!(
-                    o,
-                    "series = xr.DataArray(values[:, None, None], dims=(\"time\", \"y\", \"x\"), coords={{\"time\": {time}}})"
-                );
-            }
-            if inputs.contains(&"bands_cube") {
-                let roles: Vec<String> = self.zeit.roles.iter().map(|(r, b)| format!("{}: {b}", py_str(r))).collect();
-                let _ = writeln!(
-                    o,
-                    "# The bands by role (bands of each date's file), as reflectance x 10000 (Zeit's convention:\n\
-                     # 0-1 reflectance x 10000; Landsat C2 L2 numbers x 0.0000275 - 0.2, x 10000; set `units`).\n\
-                     roles = {{{}}}",
-                    roles.join(", ")
-                );
-                o += "order = [r for r in (\"blue\", \"green\", \"red\", \"nir\", \"swir1\", \"swir2\", \"thermal\") if r in roles]\n";
-                o += "raw = {r: np.array([read(layer[0], roles[r], Window(col, row, 1, 1))[0, 0] for layer in layers])\n       for r in order}\n";
-                o += "optical = np.concatenate([raw[r] for r in order if r != \"thermal\"])\nmed = np.nanmedian(optical)\n\
-                      units = \"unit\" if med <= 2 else \"landsat_c2\" if med >= 6500 else \"x10000\"\n\
-                      to_x10000 = {\"unit\": lambda v: v * 10000, \"landsat_c2\": lambda v: (v * 2.75e-5 - 0.2) * 10000,\n             \"x10000\": lambda v: v}[units]\n\
-                      cube = np.stack([to_x10000(raw[r]) for r in order])  # (band, time); the thermal band: deg C x 100 in Zeit\n";
-                let _ = writeln!(
-                    o,
-                    "bands_cube = xr.DataArray(cube.T[:, :, None, None], dims=(\"time\", \"band\", \"y\", \"x\"),\n                          coords={{\"time\": {time}, \"band\": order}})"
-                );
-                o += "# Fmask codes (0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 no observation) from the quality band.\ncomplete = np.all(np.isfinite(cube), axis=0)\n";
-                if qa_on {
-                    o += "q = np.array([read(path, qa, Window(col, row, 1, 1), raw=True)[0, 0] for path, _, _, qa in layers])\n\
-                          c = np.where(np.isfinite(q) & (q >= 0), q, 255).astype(np.int64)\n\
-                          if qa_rule == \"fmask\":\n    f = c.astype(np.int32)\n\
-                          elif qa_rule == \"landsat_c2\":\n    f = np.zeros(c.shape, np.int32)\n    \
-                          f[(c & 128) != 0] = 1; f[(c & 32) != 0] = 3; f[(c & 16) != 0] = 2; f[(c & 10) != 0] = 4; f[(c & 1) != 0] = 255\n\
-                          elif qa_rule == \"hls_fmask\":\n    f = np.zeros(c.shape, np.int32)\n    \
-                          f[(c & 32) != 0] = 1; f[(c & 16) != 0] = 3; f[(c & 8) != 0] = 2; f[(c & 6) != 0] = 4; f[c == 255] = 255\n\
-                          else:\n    f = np.where(c != 0, 0, 4).astype(np.int32)\nfmask_codes = np.where(complete, f, 255)\n";
-                } else {
-                    o += "fmask_codes = np.where(complete, 0, 255)  # no quality band: every complete observation is clear\n";
-                }
-                o += "fmask = fmask_codes.astype(np.int32)[:, None, None]\n";
-            }
-            if inputs.contains(&"nbar_cube")
-                && tool_calls.iter().any(|c| c.1.contains(SENTINEL2_ANGLES))
-                && view.is_some()
-            {
-                // the angles from Sentinel-2's metadata: no angle bands, the cube placed on the files' grid
-                let roles: Vec<String> = self.zeit.roles.iter().map(|(r, b)| format!("{}: {b}", py_str(r))).collect();
-                let _ = writeln!(
-                    o,
-                    "# The bands to normalize by role (bands of each date's file); the angles come from the metadata.\n\
-                     roles = {{{}}}\n\
-                     bands = [r for r in {NBAR_ROLES} if r in roles]\n\
-                     raw = {{r: np.array([read(layer[0], roles[r], Window(col, row, 1, 1))[0, 0] for layer in layers])\n       \
-                     for r in bands}}\n{}\
-                     nbar_cube = xr.DataArray(np.stack([raw[r] for r in bands], axis=1)[:, :, None, None],\n                          \
-                     dims=(\"time\", \"band\", \"y\", \"x\"),\n                          \
-                     coords={{\"time\": {time}, \"band\": bands, \"y\": y, \"x\": x}}).rio.write_crs(crs)",
-                    roles.join(", "),
-                    grid_lines(&info, "np.array([col])", "np.array([row])")
-                );
-            } else if inputs.contains(&"nbar_cube") {
-                let roles: Vec<String> = self.zeit.roles.iter().map(|(r, b)| format!("{}: {b}", py_str(r))).collect();
-                let _ = writeln!(
-                    o,
-                    "# The bands to normalize and the four angle bands by role (bands of each date's file), as the files\n\
-                     # hold them: the tool's call scales the angles.\n\
-                     roles = {{{}}}\n\
-                     bands = [r for r in {NBAR_ROLES} if r in roles]\n\
-                     raw = {{r: np.array([read(layer[0], roles[r], Window(col, row, 1, 1))[0, 0] for layer in layers])\n       \
-                     for r in (*bands, \"sza\", \"saa\", \"vza\", \"vaa\")}}\n\
-                     nbar_cube = xr.DataArray(np.stack([raw[r] for r in bands], axis=1)[:, :, None, None],\n                          \
-                     dims=(\"time\", \"band\", \"y\", \"x\"), coords={{\"time\": {time}, \"band\": bands}})\n\
-                     angles_raw = xr.Dataset({{a.upper(): ((\"time\", \"y\", \"x\"), raw[a][:, None, None])\n                          \
-                     for a in (\"sza\", \"saa\", \"vza\", \"vaa\")}}, coords={{\"time\": {time}}})",
-                    roles.join(", ")
-                );
-            }
-            if inputs.contains(&"bands_all") {
-                let bases: Vec<String> = info.layers.iter().map(|l| l.band_base.to_string()).collect();
-                let _ = writeln!(
-                    o,
-                    "# Every band of each date (b001, b002...: the bands of its file), left out where the shown series is.\n\
-                     n_bands = {}\nbases = [{}]  # each date's first band in its file, less 1\n\
-                     cube = np.array([[read(layer[0], base + b, Window(col, row, 1, 1))[0, 0] for b in range(1, n_bands + 1)]\n                 \
-                     for layer, base in zip(layers, bases)])\n\
-                     cube[~np.isfinite(values)] = np.nan\n\
-                     bands_all = xr.DataArray(cube[:, :, None, None], dims=(\"time\", \"band\", \"y\", \"x\"),\n                         \
-                     coords={{\"time\": {time}, \"band\": [f\"b{{b:03d}}\" for b in range(1, n_bands + 1)]}})",
-                    info.bands_per_date,
-                    bases.join(", ")
-                );
-            }
-            if inputs.contains(&"spectrum") {
-                o += "# The spectrum: one value per wavelength (b001 the first).\n\
-                      spectrum = xr.DataArray(values[:, None, None], dims=(\"band\", \"y\", \"x\"),\n                        \
-                      coords={\"band\": [f\"b{i + 1:03d}\" for i in range(len(values))]})\n";
-            }
-            for (name, code, _) in &tool_calls {
-                if tool_calls.len() > 1 {
-                    let _ = writeln!(o, "\n# {name}");
-                }
-                o += code;
-                o += "\nprint(result1)\n";
-            }
-        }
-        Some(o)
+        let target = match (&view, &roi) {
+            (Some(v), _) => janus_zeit::python::Target::Pin { id: v.id, col: v.x as i64, row: v.y as i64 },
+            (None, Some(r)) => janus_zeit::python::Target::Roi(janus_zeit::python::Roi {
+                x0: r.x0,
+                y0: r.y0,
+                x1: r.x1,
+                y1: r.y1,
+                sampled: r.sampled.then_some((r.bw, r.bh)),
+                rings: self.series.roi_poly.clone(),
+            }),
+            _ => return None,
+        };
+        let path = |p: &str| crate::provenance::absolute(p);
+        let spec = janus_zeit::python::Spec {
+            info: &info,
+            version: env!("CARGO_PKG_VERSION"),
+            name: &name,
+            target,
+            roles: &self.zeit.roles,
+            tools: &tools,
+            path: &path,
+            other: None,
+            chain: &[],
+        };
+        Some(match janus_zeit::python::pixel_script(&spec) {
+            Ok(code) => code,
+            Err(e) => format!("# Copy Python cannot write this series: {e}\n"),
+        })
     }
 
     /// The chart's "Python..." menu: the code of a pin's or the ROI's series in the Python history's editor.
     pub(crate) fn copy_python_ui(&mut self, ui: &mut egui::Ui) {
         let any = !self.series.pins.is_empty() || self.series.roi.complete();
         let mut chosen = None;
-        const HELP: &str = "Python that reproduces outside Janus the series on the chart: it reads it from the\n\
-                            files as Janus does (band or index, quality mask, nodata, scale), computes its\n\
-                            statistics and, with a Zeit tool on the chart, makes the same Zeit calls.\n\
+        const HELP: &str = "Python that reproduces outside Janus the series on the chart: Zeit's load_raster reads\n\
+                            it from the files as Janus does (band or index, quality mask, scale) and, with a Zeit\n\
+                            tool on the chart, the script makes the same Zeit calls with the same parameters.\n\
                             Shown in an editor: read it, copy it, save it as a .py or a notebook.\n\
-                            Needs numpy and rasterio (xarray and zeit for a tool).";
+                            Needs zeit-cdts (pip install zeit-cdts).";
         // the button itself in the toolbar's row (in a child Ui of its own, it could neither move to the next row
         // nor fit the end of this one)
         if !any {
@@ -473,243 +277,9 @@ if y.size >= 2:
     }
 }
 
-/// What marks the Copy Python of NBAR with the angles from Sentinel-2's metadata.
-const SENTINEL2_ANGLES: &str = "zeit.sentinel2_angles";
-
-/// The lines that give a cube its place (`zeit.sentinel2_angles` puts the angles on the cube's CRS and pixel centres):
-/// the files' geotransform, the centres of the columns and rows given (numpy expressions) and the CRS.
-fn grid_lines(info: &janus_cube::CubeInfo, cols: &str, rows: &str) -> String {
-    let gt = info.geo_transform.unwrap_or([0.0, 1.0, 0.0, 0.0, 0.0, -1.0]);
-    let gt: Vec<String> = gt.iter().map(|&v| num(v)).collect();
-    format!(
-        "import rioxarray  # noqa: F401 (the .rio accessor)\n\
-         # The cube's place: the files' CRS and the pixel centres of the cells read.\n\
-         crs = {}\ngt = ({})\nx = gt[0] + ({cols} + 0.5) * gt[1]\ny = gt[3] + ({rows} + 0.5) * gt[5]\n",
-        py_str(&info.crs_wkt),
-        gt.join(", ")
-    )
-}
-
-/// The cubes of ImproPhe's call: the run's series as the fine one (every band of each date but the quality band over the
-/// run's window, the dates the quality band refuses missing) and the other series as the coarse one (every band of each
-/// date but its quality band, over its whole grid), each on its own grid, in the CRS its files say. The layer's
-/// dimension of the coarse cube is `time` with its dates, or, without dates, `year` (a field with a layer a year) or
-/// `time` (scenes), as `by` says.
-fn improphe_cubes(info: &janus_cube::CubeInfo, other: &janus_cube::CubeInfo, by: &str) -> Result<String, String> {
-    if !info.time_is_date {
-        return Err("ImproPhe needs a series with real dates (the seasonal windows are days of the year)".into());
-    }
-    let sel = info.sel;
-    let qa = sel.qa_band > 0 && sel.qa_rule != QaRule::None;
-    let bands: Vec<i32> = (1..=info.bands_per_date.max(1) as i32).filter(|&b| !(qa && b == sel.qa_band)).collect();
-    let names = |i: &janus_cube::CubeInfo, bands: &[i32]| -> String {
-        let n: Vec<String> = bands
-            .iter()
-            .map(|&b| py_str(i.band_names.get(b as usize - 1).map_or(format!("band {b}").as_str(), String::as_str)))
-            .collect();
-        format!("[{}]", n.join(", "))
-    };
-    let list = |v: Vec<String>| v.join(", ");
-    let mut o = String::new();
-    let _ = writeln!(
-        o,
-        "import rioxarray  # noqa: F401 (the .rio accessor)\n\n\
-         # ImproPhe's fine series: every band of each date{} over the run's window.\n\
-         fine_bands = [{}]  # the bands of each date's file, less the date's first band\n\
-         fine_bases = [{}]\n\
-         fine_raw = np.stack([np.stack([read(layer[0], base + b, window) for b in fine_bands])\n                     \
-         for layer, base in zip(layers, fine_bases)])  # (time, band, y, x)",
-        if qa { " but the quality band" } else { "" },
-        list(bands.iter().map(i32::to_string).collect()),
-        list(info.layers.iter().map(|l| l.band_base.to_string()).collect())
-    );
-    if qa {
-        // an expression's layer is (file, bands, quality band, date), else (file, band, band B, quality band)
-        let q = if info.expr.is_some() { "layer[2]" } else { "layer[3]" };
-        let _ = writeln!(
-            o,
-            "q = np.stack([read(layer[0], {q}, window, raw=True) for layer in layers])\n\
-             fine_raw = np.where(usable(q, qa_rule)[:, None], fine_raw, np.nan)  # the dates the quality band refuses"
-        );
-    }
-    let _ = writeln!(
-        o,
-        "with rasterio.open(layers[0][0]) as src:\n    fine_crs, fine_tf = src.crs, src.window_transform(window)\n\
-         fine_cube = xr.DataArray(fine_raw, dims=(\"time\", \"band\", \"y\", \"x\"),\n                         \
-         coords={{\"time\": dates.astype(\"datetime64[ns]\"), \"band\": {},\n                                 \
-         \"y\": fine_tf.f + (np.arange(window.height) + 0.5) * fine_tf.e,\n                                 \
-         \"x\": fine_tf.c + (np.arange(window.width) + 0.5) * fine_tf.a}}).rio.write_crs(fine_crs)",
-        names(info, &bands)
-    );
-    // the coarse series
-    let cbands = crate::zeit::other_bands(other);
-    let nf = cbands.len();
-    let layer_dim = if other.time_is_date {
-        let dates: Vec<String> =
-            other.layers.iter().map(|l| format!("\"{}\"", &l.label[..l.label.len().min(10)])).collect();
-        format!("np.array([{}], dtype=\"datetime64[D]\").astype(\"datetime64[ns]\")", dates.join(", "))
-    } else if by == "scenes" {
-        format!("np.arange({})", other.t())
-    } else {
-        let years: Vec<String> = (0..other.t()).map(|t| (other.decimal_year(t).floor() as i64).to_string()).collect();
-        format!("np.array([{}])", years.join(", "))
-    };
-    let dim = if other.time_is_date || by == "scenes" { "time" } else { "year" };
-    let files: Vec<String> = other
-        .layers
-        .iter()
-        .map(|l| format!("({}, {})", py_str(&crate::provenance::absolute(&l.path)), l.band_base))
-        .collect();
-    let (dims, band_coord, take) = if nf == 1 {
-        (format!("(\"{dim}\", \"y\", \"x\")"), String::new(), "[:, 0]")
-    } else {
-        (format!("(\"{dim}\", \"band\", \"y\", \"x\")"), format!(", \"band\": {}", names(other, &cbands)), "")
-    };
-    let _ = writeln!(
-        o,
-        "\n# The coarse series: every band of each date{} over its whole grid (Zeit puts it on the fine grid).\n\
-         coarse_files = [{}]  # each date: its file and its first band less 1\n\
-         coarse_bands = [{}]\n\
-         with rasterio.open(coarse_files[0][0]) as src:\n    \
-         coarse_crs, coarse_tf, coarse_win = src.crs, src.transform, Window(0, 0, src.width, src.height)\n\
-         coarse_raw = np.stack([np.stack([read(path, base + b, coarse_win) for b in coarse_bands])\n                       \
-         for path, base in coarse_files])  # (time, band, y, x)\n\
-         coarse_cube = xr.DataArray(coarse_raw{take}, dims={dims},\n                           \
-         coords={{\"{dim}\": {layer_dim}{band_coord},\n                                   \
-         \"y\": coarse_tf.f + (np.arange(coarse_win.height) + 0.5) * coarse_tf.e,\n                                   \
-         \"x\": coarse_tf.c + (np.arange(coarse_win.width) + 0.5) * coarse_tf.a}}).rio.write_crs(coarse_crs)",
-        if other.sel.qa_band > 0 { " but its quality band" } else { "" },
-        files.join(", "),
-        list(cbands.iter().map(i32::to_string).collect()),
-    );
-    Ok(o)
-}
-
-/// The roles NBAR normalizes (zeit-core's), as a Python tuple.
-const NBAR_ROLES: &str = "(\"coastal\", \"blue\", \"green\", \"red\", \"rededge1\", \"rededge2\", \"rededge3\", \"nir\", \"nir08\", \
-                          \"swir1\", \"swir2\")";
-
-/// Code that writes every map of the results (`result1`, `result2`...) as a GeoTIFF on the window's grid.
-const SAVE_RESULTS: &str = r#"
-os.makedirs(out_dir, exist_ok=True)
-with rasterio.open(layers[0][0]) as src:
-    crs, transform = src.crs, src.window_transform(window)
-
-
-def save(name, a):
-    """A map (y, x), or a stack of them (each a band), as float32 with NaN where it has no value."""
-    a = np.asarray(a)
-    if a.dtype.kind not in "biuf":
-        print("left out:", name, a.dtype)
-        return
-    a = a.astype("float32").reshape(-1, a.shape[-2], a.shape[-1])
-    path = os.path.join(out_dir, name + ".tif")
-    with rasterio.open(path, "w", driver="GTiff", width=a.shape[2], height=a.shape[1], count=a.shape[0],
-                       dtype="float32", crs=crs, transform=transform, nodata=float("nan"), compress="deflate") as dst:
-        dst.write(a)
-    print(path)
-
-
-results = [(k, v) for k, v in sorted(globals().items()) if k.startswith("result") and k[6:].isdigit()]
-for key, r in results:
-    ds = r.to_dataset(name=key) if isinstance(r, xr.DataArray) else r
-    for var, a in getattr(ds, "data_vars", {}).items():
-        if a.ndim >= 2 and a.dims[-2:] == ("y", "x"):
-            save(var if len(results) == 1 else f"{key}_{var}", a.values)
-"#;
-
-/// The Zeit calls of `tool` with the run's parameters (`calls`, its `n_jobs` the run's threads) and the inputs they
-/// need, over the series `info` (the bands by `roles`).
-pub(crate) fn tool_calls(
-    info: &janus_cube::CubeInfo,
-    tool: &janus_zeit::Tool,
-    params: &std::collections::BTreeMap<String, serde_json::Value>,
-    roles: &std::collections::BTreeMap<String, i32>,
-    threads: Option<i64>,
-) -> Result<(String, Vec<&'static str>), String> {
-    let t_n = info.t();
-    let p = janus_zeit::Params::with_defaults(&tool.id, params).ok_or("its parameters are not the tool's")?;
-    let input = janus_zeit::PixelInput {
-        years: (0..t_n).map(|t| info.decimal_year(t)).collect(),
-        days: info.time_is_date.then(|| (0..t_n).map(|t| info.unix_day(t)).collect()),
-        values: vec![0.0; t_n],
-        bands: roles.keys().map(|r| (r.clone(), vec![])).collect(),
-        sensors: crate::zeit::sensors_for(&tool.id, info),
-        granules: crate::zeit::granules_of(&tool.id, &p, info),
-        ..Default::default()
-    };
-    let (code, inputs) = janus_zeit::python::calls(&tool.id, &p, &input)
-        .ok_or_else(|| format!("{} has no Python of its raster run", tool.name))?;
-    Ok((code.replace("n_jobs=1", &format!("n_jobs={}", threads.filter(|&n| n > 0).unwrap_or(-1))), inputs))
-}
-
-/// The start of a raster run's script: its docstring (`what` it reproduces), the imports, the series read from its
-/// files and the run's window.
-pub(crate) fn script_head(info: &janus_cube::CubeInfo, what: &str, tables: bool, window: [usize; 4]) -> String {
-    let [x0, y0, x1, y1] = window;
-    let (w, h) = (x1 - x0, y1 - y0);
-    let mut o = String::new();
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
-    let (y, m, d) = janus_zeit::numeric::civil(now.div_euclid(86400));
-    let _ = write!(
-        o,
-        "\"\"\"Janus {} ({y:04}-{m:02}-{d:02}): {what} reproduced outside Janus: the series read from its files\n\
-         over the run's window, the same Zeit calls with the run's parameters, and every map they return written as a\n\
-         GeoTIFF (Janus wrote the maps of its outputs from the same calls). The whole window is read into memory.\n\
-         Needs: pip install numpy rasterio xarray zeit-cdts{}\n\"\"\"\n\
-         import os\nimport numpy as np\nimport rasterio\nimport xarray as xr\nimport zeit\n\
-         from rasterio.windows import Window\nfrom rasterio.enums import Resampling\n{}",
-        env!("CARGO_PKG_VERSION"),
-        if tables { " pandas" } else { "" },
-        if tables { "import pandas as pd\n" } else { "" }
-    );
-    o += &series_code(info);
-    let _ = writeln!(
-        o,
-        "\n# The run's window: columns {x0}..{x1}, rows {y0}..{y1} of the files' pixels ({w} x {h}).\n\
-         window = Window({x0}, {y0}, {w}, {h})\n\
-         values = np.stack([shown(layer, window) for layer in layers])  # (time, y, x)"
-    );
-    o
-}
-
-/// The coordinate of the series' time dimension in the script: its dates, or its years, or its positions.
-fn time_coord(info: &janus_cube::CubeInfo) -> String {
-    let t_n = info.t();
-    let whole_years = (0..t_n).all(|t| info.decimal_year(t).fract() == 0.0);
-    if info.time_is_date {
-        "dates.astype(\"datetime64[ns]\")".to_string()
-    } else if whole_years {
-        let v: Vec<String> = (0..t_n).map(|t| format!("{}", info.decimal_year(t) as i64)).collect();
-        format!("np.array([{}])", v.join(", "))
-    } else {
-        "np.arange(len(layers))".to_string()
-    }
-}
-
-/// The line that makes the DataArray `series` (time, y, x) out of `values`.
-pub(crate) fn series_line(info: &janus_cube::CubeInfo) -> String {
-    format!("series = xr.DataArray(values, dims=(\"time\", \"y\", \"x\"), coords={{\"time\": {}}})\n", time_coord(info))
-}
-
-/// The end of a raster run's script: every map of the results written as a GeoTIFF in `out_dir`. `names` (a chain's
-/// steps: the result's variable and the name its files take) put another name than `result3` before each file's.
-pub(crate) fn save_code(out_dir: &str, names: &[(String, String)]) -> String {
-    let mut o = format!("\nout_dir = {}\n", py_str(out_dir));
-    let mut save = SAVE_RESULTS.to_string();
-    if !names.is_empty() {
-        let list: Vec<String> = names.iter().map(|(k, n)| format!("{}: {}", py_str(k), py_str(n))).collect();
-        let _ = writeln!(o, "names = {{{}}}  # the step each result is of, in the files' names", list.join(", "));
-        save = save.replace("f\"{key}_{var}\"", "f\"{names.get(key, key)}_{var}\"");
-    }
-    o += &save;
-    o
-}
-
-/// "Copy Python" of a raster run (its provenance's rerun.py): the series read from its files over the run's window,
-/// the same Zeit calls with the run's parameters, and every map they return written as a GeoTIFF in `out_dir`.
-/// `other` is the second series a tool reads (ImproPhe's coarse one).
-#[allow(clippy::too_many_arguments)]
+/// "Copy Python" of a raster run (its provenance's rerun.py): Zeit reads the series over the run's window
+/// (`janus_zeit::python::pixel_script`, as for a pin), the tool's call has the run's parameters, and `save_raster`
+/// writes every map it returns under `out_dir`. `other` is the second series a tool reads (ImproPhe's coarse one).
 pub(crate) fn run_code(
     info: &janus_cube::CubeInfo,
     tool: &janus_zeit::Tool,
@@ -717,110 +287,27 @@ pub(crate) fn run_code(
     roles: &std::collections::BTreeMap<String, i32>,
     other: Option<&janus_cube::CubeInfo>,
     window: [usize; 4],
-    threads: Option<i64>,
     out_dir: &str,
 ) -> Result<String, String> {
-    let (code, inputs) = tool_calls(info, tool, params, roles, threads)?;
-    let tables = inputs.contains(&"bands_all") || inputs.contains(&"spectrum");
-    let mut o = script_head(info, &format!("the run of {}", tool.name), tables, window);
-    let time = time_coord(info);
-    if inputs.contains(&"series") {
-        o += &series_line(info);
-    }
-    if inputs.contains(&"bands_cube") {
-        let sel = info.sel;
-        let qa_on = sel.qa_band > 0 && sel.qa_rule != QaRule::None;
-        let rs: Vec<String> = roles.iter().map(|(r, b)| format!("{}: {b}", py_str(r))).collect();
-        let _ = writeln!(
-            o,
-            "# The bands by role (bands of each date's file), as reflectance x 10000 (Zeit's convention).\n\
-             roles = {{{}}}\n\
-             order = [r for r in (\"blue\", \"green\", \"red\", \"nir\", \"swir1\", \"swir2\", \"thermal\") if r in roles]\n\
-             raw = {{r: np.stack([read(layer[0], roles[r], window) for layer in layers]) for r in order}}\n\
-             med = np.nanmedian(np.concatenate([raw[r].ravel() for r in order if r != \"thermal\"]))\n\
-             units = \"unit\" if med <= 2 else \"landsat_c2\" if med >= 6500 else \"x10000\"\n\
-             to_x10000 = {{\"unit\": lambda v: v * 10000, \"landsat_c2\": lambda v: (v * 2.75e-5 - 0.2) * 10000,\n             \
-             \"x10000\": lambda v: v}}[units]\n\
-             cube = np.stack([to_x10000(raw[r]) for r in order])  # (band, time, y, x)\n\
-             bands_cube = xr.DataArray(cube.transpose(1, 0, 2, 3), dims=(\"time\", \"band\", \"y\", \"x\"),\n                          \
-             coords={{\"time\": {time}, \"band\": order}})\n\
-             complete = np.all(np.isfinite(cube), axis=0)",
-            rs.join(", ")
-        );
-        if qa_on {
-            o += "q = np.stack([read(layer[0], layer[3], window, raw=True) for layer in layers])\n\
-                  c = np.where(np.isfinite(q) & (q >= 0), q, 255).astype(np.int64)\n\
-                  if qa_rule == \"fmask\":\n    f = c.astype(np.int32)\n\
-                  elif qa_rule == \"landsat_c2\":\n    f = np.zeros(c.shape, np.int32)\n    \
-                  f[(c & 128) != 0] = 1; f[(c & 32) != 0] = 3; f[(c & 16) != 0] = 2; f[(c & 10) != 0] = 4; f[(c & 1) != 0] = 255\n\
-                  elif qa_rule == \"hls_fmask\":\n    f = np.zeros(c.shape, np.int32)\n    \
-                  f[(c & 32) != 0] = 1; f[(c & 16) != 0] = 3; f[(c & 8) != 0] = 2; f[(c & 6) != 0] = 4; f[c == 255] = 255\n\
-                  else:\n    f = np.where(c != 0, 0, 4).astype(np.int32)\n\
-                  fmask = np.where(complete, f, 255).astype(np.int32)\n";
-        } else {
-            o += "fmask = np.where(complete, 0, 255).astype(np.int32)  # no quality band: every complete observation clear\n";
-        }
-    }
-    if inputs.contains(&"nbar_cube") && code.contains(SENTINEL2_ANGLES) {
-        // the angles from Sentinel-2's metadata: no angle bands, the cube placed on the files' grid
-        let rs: Vec<String> = roles.iter().map(|(r, b)| format!("{}: {b}", py_str(r))).collect();
-        let [x0, y0, x1, y1] = window;
-        let _ = writeln!(
-            o,
-            "# The bands to normalize by role (bands of each date's file); the angles come from the metadata.\n\
-             roles = {{{}}}\n\
-             bands = [r for r in {NBAR_ROLES} if r in roles]\n\
-             raw = {{r: np.stack([read(layer[0], roles[r], window) for layer in layers]) for r in bands}}\n{}\
-             nbar_cube = xr.DataArray(np.stack([raw[r] for r in bands], axis=1), dims=(\"time\", \"band\", \"y\", \"x\"),\n                          \
-             coords={{\"time\": {time}, \"band\": bands, \"y\": y, \"x\": x}}).rio.write_crs(crs)",
-            rs.join(", "),
-            grid_lines(info, &format!("np.arange({x0}, {x1})"), &format!("np.arange({y0}, {y1})"))
-        );
-    } else if inputs.contains(&"nbar_cube") {
-        let rs: Vec<String> = roles.iter().map(|(r, b)| format!("{}: {b}", py_str(r))).collect();
-        let _ = writeln!(
-            o,
-            "# The bands to normalize and the four angle bands by role (bands of each date's file), as the files hold\n\
-             # them: the tool's call scales the angles.\n\
-             roles = {{{}}}\n\
-             bands = [r for r in {NBAR_ROLES} if r in roles]\n\
-             raw = {{r: np.stack([read(layer[0], roles[r], window) for layer in layers])\n       \
-             for r in (*bands, \"sza\", \"saa\", \"vza\", \"vaa\")}}\n\
-             nbar_cube = xr.DataArray(np.stack([raw[r] for r in bands], axis=1), dims=(\"time\", \"band\", \"y\", \"x\"),\n                          \
-             coords={{\"time\": {time}, \"band\": bands}})\n\
-             angles_raw = xr.Dataset({{a.upper(): ((\"time\", \"y\", \"x\"), raw[a]) for a in (\"sza\", \"saa\", \"vza\", \"vaa\")}},\n                         \
-             coords={{\"time\": {time}}})",
-            rs.join(", ")
-        );
-    }
-    if inputs.contains(&"bands_all") {
-        let bases: Vec<String> = info.layers.iter().map(|l| l.band_base.to_string()).collect();
-        let _ = writeln!(
-            o,
-            "# Every band of each date (b001, b002...), left out where the shown series is.\n\
-             n_bands = {}\nbases = [{}]  # each date's first band in its file, less 1\n\
-             cube = np.stack([np.stack([read(layer[0], base + b, window) for b in range(1, n_bands + 1)])\n                 \
-             for layer, base in zip(layers, bases)])  # (time, band, y, x)\n\
-             cube[np.broadcast_to(~np.isfinite(values)[:, None], cube.shape)] = np.nan\n\
-             bands_all = xr.DataArray(cube, dims=(\"time\", \"band\", \"y\", \"x\"),\n                         \
-             coords={{\"time\": {time}, \"band\": [f\"b{{b:03d}}\" for b in range(1, n_bands + 1)]}})",
-            info.bands_per_date,
-            bases.join(", ")
-        );
-    }
-    if inputs.contains(&"spectrum") {
-        o += "spectrum = xr.DataArray(values, dims=(\"band\", \"y\", \"x\"),\n                        \
-              coords={\"band\": [f\"b{i + 1:03d}\" for i in range(len(layers))]})\n";
-    }
-    if inputs.contains(&"improphe_cubes") {
-        let other = other.ok_or("choose the series to sharpen first: ImproPhe's script reads it")?;
-        let by =
-            janus_zeit::Params::with_defaults(&tool.id, params).map(|p| p.str("by").to_string()).unwrap_or_default();
-        o += &improphe_cubes(info, other, &by)?;
-    }
-    let _ = writeln!(o, "\n# {}, with the run's parameters\n{code}", tool.name);
-    o += &save_code(out_dir, &[]);
-    Ok(o)
+    let p = janus_zeit::Params::with_defaults(&tool.id, params).ok_or("its parameters are not the tool's")?;
+    let tools = [(tool.id.clone(), p)];
+    let path = |p: &str| crate::provenance::absolute(p);
+    let spec = janus_zeit::python::Spec {
+        info,
+        version: env!("CARGO_PKG_VERSION"),
+        name: &info.description,
+        target: janus_zeit::python::Target::Run {
+            window,
+            out_dir: out_dir.to_string(),
+            what: format!("the run of {}", tool.name),
+        },
+        roles,
+        tools: &tools,
+        path: &path,
+        other,
+        chain: &[],
+    };
+    janus_zeit::python::pixel_script(&spec)
 }
 
 #[cfg(test)]
@@ -860,6 +347,7 @@ mod tests {
             let path = dir.join(format!("n_{y:04}-{m:02}-{d:02}.tif"));
             let mut ds = drv.create_with_band_type::<f32, _>(&path, W, H, BANDS.len()).unwrap();
             ds.set_geo_transform(&[500000.0, 30.0, 0.0, 7500000.0, 0.0, -30.0]).unwrap();
+            ds.set_spatial_ref(&gdal::spatial_ref::SpatialRef::from_epsg(32723).unwrap()).unwrap();
             for (b, name) in BANDS.iter().enumerate() {
                 let data: Vec<f32> = (0..W * H)
                     .map(|p| {
@@ -924,16 +412,16 @@ mod tests {
         assert_eq!(ids, ["nbar_blue", "nbar_nir", "nbar_swir1", "cfactor_blue", "cfactor_nir", "cfactor_swir1"]);
 
         let out = base.join("python");
-        let code =
-            super::run_code(&info, tool, &params, &roles, None, window, Some(2), &out.to_string_lossy()).unwrap();
-        assert!(code.contains("zeit.nbar(nbar_cube, angles, sza='scene'"), "{code}");
+        let code = super::run_code(&info, tool, &params, &roles, None, window, &out.to_string_lossy()).unwrap();
+        assert!(code.contains("zeit.nbar(") && code.contains("return_cfactor=True"), "{code}");
+        assert!(!code.contains("n_jobs") && !code.contains("rasterio"), "{code}");
         let script = base.join("nbar.py");
         std::fs::write(&script, code).unwrap();
         run_python(&python, &script);
         // the script's stacks are (date, band) in the core's order; the run's files a band per date
         let (mut values, mut worst) = (0, 0f32);
-        for (r, prefix) in [("result1", "nbar"), ("result2", "cfactor")] {
-            let got = read(&out.join(format!("{r}_{r}.tif")).to_string_lossy());
+        for (r, prefix) in [("nbar", "nbar"), ("cfactor", "cfactor")] {
+            let got = read(&out.join(format!("{r}.tif")).to_string_lossy());
             assert_eq!(got.len(), T * 3);
             for (b, role) in ["blue", "nir", "swir1"].iter().enumerate() {
                 let id = format!("{prefix}_{role}");
@@ -1053,19 +541,15 @@ mod tests {
         assert_eq!(ids, ["nbar_blue", "nbar_nir", "nbar_swir1", "cfactor_blue", "cfactor_nir", "cfactor_swir1"]);
 
         let out = base.join("python");
-        let code =
-            super::run_code(&info, tool, &params, &roles, None, window, Some(2), &out.to_string_lossy()).unwrap();
-        assert!(code.contains("angles = zeit.sentinel2_angles(sources, like=nbar_cube, view_band='B06')"), "{code}");
-        assert!(
-            code.contains("MTD_TL.xml") && code.contains(".rio.write_crs(crs)") && !code.contains("angles_raw"),
-            "{code}"
-        );
+        let code = super::run_code(&info, tool, &params, &roles, None, window, &out.to_string_lossy()).unwrap();
+        assert!(code.contains("angles = zeit.sentinel2_angles(sources, like=nbar_cube)"), "{code}");
+        assert!(code.contains("MTD_TL.xml") && !code.contains("nbar_angles") && !code.contains("rasterio"), "{code}");
         let script = base.join("nbar.py");
         std::fs::write(&script, code).unwrap();
         run_python(&python, &script);
         let (mut values, mut worst) = (0, 0f32);
-        for (r, prefix) in [("result1", "nbar"), ("result2", "cfactor")] {
-            let got = read(&out.join(format!("{r}_{r}.tif")).to_string_lossy());
+        for (r, prefix) in [("nbar", "nbar"), ("cfactor", "cfactor")] {
+            let got = read(&out.join(format!("{r}.tif")).to_string_lossy());
             assert_eq!(got.len(), S2_T * 3);
             for (b, role) in ["blue", "nir", "swir1"].iter().enumerate() {
                 let id = format!("{prefix}_{role}");
@@ -1184,17 +668,15 @@ mod tests {
         assert_eq!(want.len(), 6);
 
         let out = base.join("python");
-        let code = super::run_code(&info, tool, &params, &roles, Some(&other), window, Some(2), &out.to_string_lossy())
-            .unwrap();
-        assert!(
-            code.contains("zeit.improphe(coarse_cube, fine_cube, by=None, seasons=(1, 91, 181, 271, 365)"),
-            "{code}"
-        );
-        assert!(code.contains("fine_bands = [1, 2, 3]") && code.contains("usable(q, qa_rule)"), "{code}");
+        let code = super::run_code(&info, tool, &params, &roles, Some(&other), window, &out.to_string_lossy()).unwrap();
+        // long calls are broken over lines
+        let flat = code.replace("(\n    ", "(");
+        assert!(flat.contains("zeit.improphe(coarse_cube, fine_cube, by=None, kernel_size=60.0"), "{code}");
+        assert!(code.contains("for n in [1, 2, 3]") && code.contains("fine_cube.where(qa > 0)"), "{code}");
         let script = base.join("improphe.py");
         std::fs::write(&script, code).unwrap();
         run_python(&python, &script);
-        let got = read(&out.join("result1.tif").to_string_lossy());
+        let got = read(&out.join("result.tif").to_string_lossy());
         assert_eq!(got.len(), want.len());
         let (mut values, mut worst) = (0, 0f32);
         for (k, (g, w)) in got.iter().zip(&want).enumerate() {
