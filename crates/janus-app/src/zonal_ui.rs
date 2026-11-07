@@ -433,7 +433,7 @@ impl State {
             }
             p.python_note = "rasterstats.zonal_stats(vector, map, stats=..., categorical=...) per date".into();
             let names: Vec<(i64, String)> = meta.names.iter().map(|(k, n)| (*k, n.clone())).collect();
-            let code = crate::scripts::zonal(&path, &grid, &sources, &opts, stat, &names, &folder);
+            let code = crate::scripts::zonal(&path, &sources, &opts, stat, &names, &folder);
             crate::scripts::attach(&folder, &mut p, code);
             self.begin_provenance(&folder, p);
         }

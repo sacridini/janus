@@ -808,32 +808,40 @@ series and scope, the run's folder and files). Then it has one of two kinds of c
 
 - **A script** (`rerun.py`, also written beside the run): a Zeit tool's run
   reads the series over the run's window and makes the same Zeit calls with
-  the same parameters. The other tools' scripts are short because they are
-  written with Zeit (`zeit.load_raster` and `zeit.save_raster` read, warp and
-  write the files), and carry only the branches their run took. Reproject,
-  resample, clip is `load_raster(file, crs=, res=, resampling=)` and
-  `save_raster` for each file (outside the footprint Zeit writes no data where
-  gdalwarp writes 0); only what Zeit cannot do (pixels aligned to the size, a
-  no data value or type of the output, a cutline, an extent together with
-  another CRS) stays `gdal.Warp` with gdalwarp's options. Rasterize burns the
-  same features with the same values on the same grid through rasterio's
-  `rasterize` and `save_raster`. Polygonize traces the same polygons with
-  `rasterio.features.shapes` (the same simplification, the minimum area through
-  Zeit's `mmu_sieve`) and measures their geodesic areas and perimeters with
-  pyproj, into a GeoPackage of the same columns. Zonal statistics burns each
-  feature alone and writes the same long and wide tables (and the
-  transitions), pixel areas as Janus measures them. Regularize is Zeit's
-  `regularize_time_series` over the series read by `load_raster` (median or
-  medoid; the clearest date by a few lines of xarray), its gaps filled (linear,
-  Whittaker through `zeit.smooth`). Build series calls `gdal.BuildVRT` (and
-  `gdal.Translate` for COGs) with the same grid, as Zeit writes no VRT. The
-  calculator's expressions without reductions over time or stages, on layers of
-  the same grid, read the inputs with `load_raster` as Janus' VRTs read them
-  and compute the expression in numpy, date by date, written by `save_raster`. Each script
-  writes its files in a `python` folder of the run, and the UI self-test checks
-  that they equal Janus' own (rasters value for value, GeoPackages feature for
-  feature, tables cell for cell; the calculator within 1e-5, as Janus computes
-  in float32).
+  the same parameters. The other tools' scripts are as short as Zeit lets
+  them be, because it does the work (`zeit.load_raster` reads, warps, scales
+  and masks, `zeit.save_raster` writes), and carry only the branches their run
+  took and the arguments that are not Zeit's defaults. They ask for
+  `pip install "zeit-cdts>=3.2"` in their first lines. Reproject, resample, clip
+  is `load_raster(file, crs=, res=, tap=, extent=, cutline=, nodata=, dtype=,
+  resampling=)` and `save_raster` for each file (`nodata="source"` leaves the
+  cells outside the footprint as gdalwarp leaves them: 0, or the file's no
+  data); only an extent together with a cutline, an extent in another CRS than
+  the result's, a new CRS with an extent or a cutline and no pixel size, or a
+  resampling or type Zeit does not have stay `gdal.Warp` with gdalwarp's
+  options (that script needs GDAL's Python bindings). Rasterize is
+  `zeit.rasterize` on the series' first file's grid and `save_raster`, a text
+  attribute with its class names and the Tableau 20 colours as Janus writes
+  them. Polygonize is `zeit.polygonize` (the same polygons and simplification,
+  the minimum area through `mmu_sieve`, geodesic areas and perimeters, the
+  mean of another map) into a GeoPackage of the same columns. Zonal statistics
+  is `zeit.zonal_stats` or `zeit.zonal_areas` (each feature burned alone, the
+  transitions) and `to_csv`: the same tables, pixel areas as Janus measures
+  them. Regularize is `zeit.regularize_time_series` (median, medoid or
+  clearest; gaps filled linearly or by a Whittaker curve, up to a largest gap)
+  over the series read by `load_raster` of its files on their dates (bands by
+  role, `scale=True` for each band's own scale and offset, the quality band
+  with `qa=` and `qa_rule=`, `zeit.normalized_difference`); an expression
+  stays numpy, date by date. Build series is `zeit.build_vrt` (tiles mosaicked,
+  bands stacked and named, the Sentinel-2 wavelengths), with no GDAL bindings.
+  The calculator's expressions without reductions over time or stages, on
+  layers of the same grid, read the inputs with `load_raster` as Janus' VRTs
+  read them (each band's scale and offset applied with `scale=True`) and
+  compute the expression in numpy, date by date, written by `save_raster`. Each
+  script writes its files in a `python` folder of the run, and the UI self-test
+  checks that they equal Janus' own (rasters value for value, GeoPackages
+  feature for feature, tables cell for cell; the calculator within 1e-5, as
+  Janus computes in float32).
 - **The run as data** (*as data* in the list), for the tools that have no
   script yet: the parameters, inputs, window and outputs as Python values,
   with the equivalent command when there is one.
