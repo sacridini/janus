@@ -1089,6 +1089,80 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
   guarda a entrada da camada antes de fechá-la. O desfazer de vértices
   enquanto se desenha a ROI ou o transecto continua local.
 
+### FORCE: a janela Time series analysis (fase 56, pedida em 2026-11-07)
+
+O valor do FORCE está na cadeia, não em cada peça: ninguém quer o *Fold by period* sozinho, e
+sim ir da série a um cubo de features ou a um mapa. As 8 ferramentas do TSA (1.16.0) estão
+espalhadas por *Data preparation*, *Temporal dynamics* e *Change detection*, e quem não conhece o
+FORCE não sabe a ordem. A proposta completa está no `IDEAS.md` do Zeit (Fase 23, "O FORCE no
+Janus: duas janelas"); a de Level 2 (correção atmosférica, coregistro, topografia, NBAR, ajuste
+espectral, merge, ImproPhe) vem depois desta.
+
+**A janela é só orquestração.** As ferramentas comuns ficam como estão. Cada etapa chama a
+ferramenta que já existe (`janus_zeit::job::run_job`), com os mesmos parâmetros (o
+`self.zeit.params(tool)` que a janela da ferramenta edita: mudar um lado muda o outro). Nada de
+cálculo novo. A proveniência registra cada etapa e o *Copy Python* dá a cadeia inteira.
+
+**A cadeia** (a do FORCE TSA):
+
+```
+série (+ banda de qualidade)
+ ├─ Clear-sky observations (na série bruta, com a máscara)
+ └─ Interpolate (opcional) → Standardize (opcional) = a série de análise
+     ├─ Temporal metrics (STM)          → mapas
+     ├─ Fold by period (métricas, por)  → séries
+     ├─ Linear trend of a fold           → mapas
+     ├─ CAT                              → mapas
+     └─ Polar phenology (só série regular: pede o Interpolate) → séries
+```
+
+O Linear trend e o CAT dobram a série eles mesmos (`metric`, `by`), então não leem a saída do
+Fold. A série interpolada já usou a máscara: as etapas depois dela não têm banda de qualidade.
+
+**Como roda:** uma tarefa só (um `Job` em `self.zeit.jobs`, com o progresso somado e o cancelar
+de sempre), numa pasta `results/{série}_tsa_{hora}/` com uma subpasta por etapa
+(`01_interpolate/` ...), cada uma com o seu `job.json`, `job.log`, `provenance.json` e
+`rerun.py`. A série de análise passa de uma etapa à outra por arquivo: o GeoTIFF da etapa é aberto
+com `janus_cube::open_cube` e vira VRTs (`base_spec` + `series_inputs`) para a próxima. As saídas
+de todas as etapas voltam como camadas pelo `pump_zeit_jobs`.
+
+**A janela** (o padrão da Classification, `ml.rs`): `panels::fitted_window`, três abas por
+`selectable_value`, o estado num `TsaUi` no `App`, Tools → *Time series analysis (FORCE)...*, a
+paleta e `--window tsa`.
+
+```
+Time series analysis
+[ Input ]  [ Steps ]  [ Output ]
+ Série: S2 2018-2024 · banda: NDVI · máscara de qualidade ✓
+ ☑ Clear-sky observations      ☑ Interpolate: RBF, 16 dias
+ ☐ Standardize
+ ☑ Temporal metrics: mediana, p10, p90, desvio
+ ☑ Fold: por ano → média   ☐ Linear trend  ☐ CAT  ☐ Polar phenology
+ Gráfico no cursor: obs. brutas · limpas · interpolada · fold
+ To look at: 2019 tem 6 obs. · a última temporada é cortada · série irregular
+ Output: escopo (inteira, visível, ROI) · [Run] · [Use in Classification]
+```
+
+- *Steps*: cada etapa com o seu formulário (o `params_form` da ferramenta), recolhido quando
+  desligada.
+- *To look at* (o bloco da Classification, `Warning { level, text }`), tirado das datas e dos
+  parâmetros: anos com poucas datas, a série irregular com a Fenologia polar ligada sem o
+  Interpolate, o passo do Interpolate menor que o intervalo típico entre datas, a última
+  temporada cortada, a série sem banda de qualidade com o CSO ligado.
+- O gráfico do pixel sob o cursor com a série bruta, as datas limpas e as sobreposições de cada
+  etapa ligada (`run_pixel`).
+- *Use in Classification*: abre a série escolhida das saídas (a interpolada ou um Fold) como a
+  série ativa e abre a Classification nela.
+
+**Etapas:**
+
+| Etapa | Conteúdo |
+|---|---|
+| 56a | O `TsaUi`, a janela com as três abas, os formulários das etapas e a cadeia numa tarefa (por arquivo, uma subpasta e uma proveniência por etapa); um teste da cadeia contra as ferramentas rodadas uma a uma (os mesmos valores) |
+| 56b | O *To look at* e o gráfico do pixel sob o cursor |
+| 56c | O *Copy Python* da cadeia (as chamadas de `janus_zeit::python::calls` em sequência, os nomes das variáveis encadeados, conferido no Zeit) e o *Use in Classification* |
+| 56d | O `--selftest-ui`, as capturas (`--shots tsa`), a página no site e a documentação |
+
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
@@ -1177,6 +1251,7 @@ proveniência). Cada fase com `--selftest-ui` cobrindo o que é novo.
 | 53 | — | **Prévia** de uma ferramenta na ROI ou num recorte, antes da cena inteira | concluída (sem versão) |
 | 54 | — | **Projeto** (`.janus`): salvar, abrir, recentes, reabrir a última sessão | concluída (sem versão) |
 | 55 | — | **Desfazer global** (`Ctrl+Z`: fechar camadas, estilo, ordem, pinos, ROI) | concluída (sem versão) |
+| 56 | — | **Janela Time series analysis (FORCE TSA)**: a cadeia das 8 ferramentas do TSA numa janela (Input, Steps, Output), *To look at*, gráfico do pixel, *Copy Python* da cadeia, *Use in Classification* | em andamento |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a

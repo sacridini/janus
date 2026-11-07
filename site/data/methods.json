@@ -1,0 +1,146 @@
+[
+  {
+    "name": "LandTrendr",
+    "summary": "Year of detection, magnitude, duration and rate of the chosen loss or gain event.",
+    "requires": "annual series",
+    "guide": "landtrendr"
+  },
+  {
+    "name": "Recovery",
+    "summary": "After LandTrendr's loss: years to recovery (Y2R), R80P, RRI and the absolute and year-on-year recovery.",
+    "requires": "annual series",
+    "guide": "landtrendr"
+  },
+  {
+    "name": "EWMACD",
+    "summary": "Every observation against its training years through EWMA control charts: when it was disturbed, how far, when it recovered or gained, its state now.",
+    "requires": "any dates, ≥ 2 per year",
+    "guide": "ewmacd"
+  },
+  {
+    "name": "Emerging hot spots",
+    "summary": "Where values cluster high or low and how that changed: the Getis-Ord Gi* of every date and its trend, as ESRI's patterns (new, intensifying, persistent, sporadic... hot and cold spots).",
+    "requires": "≥ 3 dates",
+    "guide": "hotspots"
+  },
+  {
+    "name": "Mann-Kendall",
+    "summary": "Significant Sen's slope, p-value and trend class, with Hamed-Rao, Yue-Wang and seasonal variants.",
+    "requires": "any series",
+    "guide": "trend-test"
+  },
+  {
+    "name": "AR(1) trend",
+    "summary": "The trend's t-test with autocorrelated errors (remotePARTS), and the regional Trend test by PARTS.",
+    "requires": "any series",
+    "guide": "trend-test"
+  },
+  {
+    "name": "BFAST",
+    "summary": "Trend and season break counts, date and magnitude of the largest break.",
+    "requires": "≥ 2 dates per year",
+    "guide": "bfast"
+  },
+  {
+    "name": "BFAST Lite",
+    "summary": "Break count, date and magnitude of the largest break, first break date.",
+    "requires": "≥ 2 dates per year",
+    "guide": "bfast"
+  },
+  {
+    "name": "BFAST Monitor",
+    "summary": "First break in the monitoring period, its magnitude, break yes or no.",
+    "requires": "≥ 2 dates per year",
+    "guide": "bfast"
+  },
+  {
+    "name": "BEAST",
+    "summary": "Trend and season averaged over thousands of models: the probability of a changepoint at each date, the most probable one with its jump, the mean number of changepoints.",
+    "requires": "any series, ≥ 12 dates",
+    "guide": "beast"
+  },
+  {
+    "name": "Phenology",
+    "summary": "Start, peak and end of season, length, amplitude, for a typical year or a chosen one.",
+    "requires": "≥ 6 dates per year",
+    "guide": "phenology"
+  },
+  {
+    "name": "CCDC",
+    "summary": "Break count, largest break, NDVI change and segments from every reflectance band.",
+    "requires": "one file per date, multiband",
+    "guide": "ccdc"
+  },
+  {
+    "name": "S-CCD",
+    "summary": "CCDC's models carried forward by a Kalman filter: the breaks, and the state of every pixel at the last date (stable, change in progress and since when, waiting for a model).",
+    "requires": "one file per date, multiband",
+    "guide": "sccd"
+  },
+  {
+    "name": "CODED",
+    "summary": "Forest degradation and deforestation from the NDFI of every observation, as strata and change dates.",
+    "requires": "one file per date, multiband",
+    "guide": "coded"
+  },
+  {
+    "name": "NDFI",
+    "summary": "Spectral unmixing of every date into a new layer of the NDFI, ready for the other tools.",
+    "requires": "one file per date, multiband",
+    "guide": "coded"
+  },
+  {
+    "name": "Spectral unmixing",
+    "summary": "The fraction of each cover (vegetation, soil, water...) whose spectrum you take from pins, at every date or in a hyperspectral scene.",
+    "requires": "multiband or spectrum",
+    "guide": "unmixing"
+  },
+  {
+    "name": "Tmask",
+    "summary": "The clouds and shadows the quality band missed, and the series without them as a new layer.",
+    "requires": "green and SWIR1",
+    "guide": null
+  },
+  {
+    "name": "TWDTW",
+    "summary": "A class map from patterns you take from pins on places you know.",
+    "requires": "classification",
+    "guide": null
+  },
+  {
+    "name": "Post-processing",
+    "summary": "A classification cleaned: one-year flickers removed, a majority filter and a minimum mapping unit; models' probabilities smoothed by Bayesian smoothing (Camara et al. 2024).",
+    "requires": "classes",
+    "guide": null
+  },
+  {
+    "name": "SOM",
+    "summary": "Clusters of alike trajectories, with the typical series of the one under the cursor.",
+    "requires": "clustering",
+    "guide": null
+  },
+  {
+    "name": "k-means",
+    "summary": "Compact clusters of the whole series, named by the classes of your samples in them.",
+    "requires": "clustering",
+    "guide": null
+  },
+  {
+    "name": "Agreement",
+    "summary": "Where and when several change maps agree: the consensus year and how many back it.",
+    "requires": "on result maps",
+    "guide": null
+  },
+  {
+    "name": "Smoothing",
+    "summary": "Whittaker and Savitzky-Golay, drawn over the series on the chart.",
+    "requires": "chart only",
+    "guide": null
+  },
+  {
+    "name": "SNIC",
+    "summary": "Segments of alike series, their mean series as a layer and their polygons as a vector layer.",
+    "requires": "segmentation",
+    "guide": "snic"
+  }
+]

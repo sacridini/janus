@@ -8,6 +8,8 @@ on:
     paths:
       - "site/**"
       - ".github/workflows/pages.yml"
+      - "tools/build_site.py"
+      - "tools/site_partials/**"
   workflow_dispatch:
 
 permissions:
@@ -27,6 +29,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Build the generated parts of the site
+        run: python3 tools/build_site.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

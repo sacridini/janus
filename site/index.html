@@ -23,6 +23,7 @@
 
 <a class="skip" href="#main">Skip to content</a>
 
+<!-- build:header -->
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="#top" aria-label="Janus, back to top"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
@@ -39,6 +40,7 @@
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
   </div>
 </header>
+<!-- /build:header -->
 
 <main id="main">
 
@@ -296,6 +298,7 @@
       <p>The <a href="https://github.com/sacridini/zeit-cdts">Zeit</a> algorithms are fitted live on the cursor, pins and region, or run on the whole image, the visible area or a region, with the results added as map layers. Zeit's methods are part of Janus, so there is nothing else to install, and a fit on the chart takes under a millisecond.</p>
     </div>
     <ul class="tool-list">
+      <!-- build:method-list -->
       <li><h3>LandTrendr</h3><p>Year of detection, magnitude, duration and rate of the chosen loss or gain event.</p><span>annual series</span></li>
       <li><h3>Recovery</h3><p>After LandTrendr's loss: years to recovery (Y2R), R80P, RRI and the absolute and year-on-year recovery.</p><span>annual series</span></li>
       <li><h3>EWMACD</h3><p>Every observation against its training years through EWMA control charts: when it was disturbed, how far, when it recovered or gained, its state now.</p><span>any dates, ≥ 2 per year</span></li>
@@ -320,6 +323,7 @@
       <li><h3>Agreement</h3><p>Where and when several change maps agree: the consensus year and how many back it.</p><span>on result maps</span></li>
       <li><h3>Smoothing</h3><p>Whittaker and Savitzky-Golay, drawn over the series on the chart.</p><span>chart only</span></li>
       <li><h3>SNIC</h3><p>Segments of alike series, their mean series as a layer and their polygons as a vector layer.</p><span>segmentation</span></li>
+      <!-- /build:method-list -->
     </ul>
   </div>
 </section>
@@ -333,6 +337,7 @@
       <p>Each guide follows one dataset from the first look at its series to the maps a tool makes of it, with screenshots of every step taken by Janus itself.</p>
     </div>
     <ul class="guide-list">
+      <!-- build:guide-cards -->
       <li><a href="landtrendr.html"><span>Annual series</span><h3>LandTrendr</h3><p>Forty years of a Rondônia forest frontier as straight segments: the year, magnitude and duration of every clearing, and how long the forest took to recover.</p></a></li>
       <li><a href="ccdc.html"><span>Landsat, every date</span><h3>CCDC</h3><p>Harmonic models of every band, breaks when the land changes, and a cloud-free image of any date.</p></a></li>
       <li><a href="sccd.html"><span>Landsat, every date</span><h3>S-CCD</h3><p>CCDC's models carried forward by a Kalman filter: a forest cleared in 2023, and one being cleared now, shown as a change in progress before it is confirmed.</p></a></li>
@@ -356,6 +361,7 @@
       <li><a href="embeddings.html"><span>AlphaEarth, TESSERA</span><h3>Embeddings</h3><p>Forest, pasture and water from nine pins in milliseconds, what changed into what since 2017, and the direction of every change.</p></a></li>
       <li><a href="visualize.html"><span>Any series</span><h3>Seeing a series</h3><p>Every pixel compared with a forest and with a pasture, the forest's yearly cycle by wavelet, its six bands over time and 41 years of Landsat as three behaviours in a UMAP plane.</p></a></li>
       <li><a href="workspace.html"><span>Interface</span><h3>The workspace</h3><p>The status bar and notices, Ctrl+K for any command, Ctrl+G for any coordinate, blend modes, groups and styles, a lens on another date, the provenance and Python of every result, previews, projects and undo.</p></a></li>
+      <!-- /build:guide-cards -->
     </ul>
   </div>
 </section>
@@ -462,6 +468,7 @@ jn "S2_*_NDVI.tif" --band 1
 
 </main>
 
+<!-- build:footer -->
 <footer class="foot">
   <div class="wrap foot-grid">
     <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
@@ -477,6 +484,7 @@ jn "S2_*_NDVI.tif" --band 1
     </ul>
   </div>
 </footer>
+<!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>
 </body>
