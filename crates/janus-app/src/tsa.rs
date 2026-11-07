@@ -137,6 +137,210 @@ pub(crate) fn problem(tool: &Tool, info: &CubeInfo, regular: bool) -> Option<Str
     None
 }
 
+/// One thing to look at before running the chain: `level` 0 is information, 1 something to look at, 2 something that
+/// stops a step (or the chain).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Advice {
+    pub level: u8,
+    pub text: String,
+}
+
+/// A calendar year with fewer dates than this, inside the series, reads little (or fewer than half the median per
+/// year, whichever is more).
+const FEW_DATES_PER_YEAR: usize = 6;
+/// The first or last year of the series covered by fewer days than this is a partial year.
+const FULL_YEAR_DAYS: i64 = 300;
+/// An Interpolate grid with a step over this many times the median gap between the dates smooths the data away.
+const COARSE_GRID: f64 = 4.0;
+/// A linear trend or CAT over fewer periods than this is not worth much.
+const FEW_PERIODS: usize = 5;
+const MONTHS: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+
+fn param_f64(p: &BTreeMap<String, Value>, id: &str) -> Option<f64> {
+    p.get(id).and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+}
+
+/// The median of days (the mean of the two middle ones for an even count).
+fn median(v: &mut [i64]) -> f64 {
+    v.sort_unstable();
+    match v.len() {
+        0 => 0.0,
+        n if n % 2 == 1 => v[n / 2] as f64,
+        n => (v[n / 2 - 1] + v[n / 2]) as f64 / 2.0,
+    }
+}
+
+fn month_range(from: u32, to: u32) -> String {
+    let (a, b) = (MONTHS[from as usize - 1], MONTHS[to as usize - 1]);
+    if from == to { a.to_string() } else { format!("{a} to {b}") }
+}
+
+/// What to look at in the series and the steps that are on, from the dates alone (no pixel is read): years with few
+/// dates, a first or last year only partly covered, an Interpolate grid that does not fit the dates, a missing
+/// quality band, a trend over few years, the steps the series cannot take and a chain with nothing on. `params`
+/// gives the parameters of a step by its tool's id (`step` of Interpolate, `by` of the folded steps). A partial year
+/// is looked for when a step reads years (Fold, Linear trend or CAT by year, Polar phenology); a fold by quarter,
+/// month, week or day of the year is not cut by it.
+pub(crate) fn advice(info: &CubeInfo, on: &[bool; 8], params: &dyn Fn(&str) -> BTreeMap<String, Value>) -> Vec<Advice> {
+    let mut out = vec![];
+    if !on.iter().any(|&o| o) {
+        out.push(Advice { level: 2, text: "No step is on.".into() });
+        return out;
+    }
+    let mut add = |level: u8, text: String| out.push(Advice { level, text });
+    let index = |id: &str| STEPS.iter().position(|s| s.0 == id).unwrap_or(0);
+    let is_on = |id: &str| on[index(id)];
+    // a step the series cannot take; the polar phenology goes with the regular grid Interpolate gives it
+    let regular =
+        is_on("interpolate") && manifest().tool("interpolate").is_some_and(|t| problem(t, info, false).is_none());
+    for (i, (id, label, _)) in STEPS.into_iter().enumerate() {
+        if let Some(why) = manifest().tool(id).filter(|_| on[i]).and_then(|t| problem(t, info, regular)) {
+            add(2, format!("{label}: {why}."));
+        }
+    }
+    if !info.time_is_date || info.t() == 0 {
+        // the rest reads the dates
+        if is_on("clear_observations") && info.sel.qa_band == 0 {
+            add(1, "Clear-sky observations counts every date as clear: the series has no quality band.".into());
+        }
+        return out;
+    }
+    let days: Vec<i64> = (0..info.t()).map(|t| info.unix_day(t)).collect();
+    let (first, last) = (days[0], days[days.len() - 1]);
+    let year_of = |d: i64| janus_zeit::numeric::civil(d).0;
+    let (y0, y1) = (year_of(first), year_of(last));
+    let reads_statistics =
+        ["temporal_metrics", "fold", "linear_trend", "cat", "polar_metrics"].iter().any(|s| is_on(s));
+    // 1: years inside the series with few dates
+    if reads_statistics && y1 - y0 >= 2 {
+        let count = |y: i64| days.iter().filter(|&&d| year_of(d) == y).count();
+        let mut per: Vec<i64> = ((y0 + 1)..y1).map(|y| count(y) as i64).collect();
+        let med = median(&mut per);
+        let limit = (FEW_DATES_PER_YEAR as f64).max(med / 2.0);
+        let few: Vec<(i64, usize)> =
+            ((y0 + 1)..y1).map(|y| (y, count(y))).filter(|&(_, n)| (n as f64) < limit).collect();
+        let others: Vec<usize> = ((y0 + 1)..y1).map(count).filter(|&n| n as f64 >= limit).collect();
+        for (y, n) in few {
+            let rest = match (others.iter().min(), others.iter().max()) {
+                (Some(a), Some(b)) if a == b => format!(" (the others {a})"),
+                (Some(a), Some(b)) => format!(" (the others {a} to {b})"),
+                _ => String::new(),
+            };
+            let s = if n == 1 { "" } else { "s" };
+            add(1, format!("{y} has {n} date{s}{rest}: its fold and statistics read little."));
+        }
+    }
+    // 2: a first or last year only partly covered, for the steps that read years
+    let by_year = |id: &str| is_on(id) && params(id).get("by").and_then(|v| v.as_str()).unwrap_or("year") == "year";
+    if by_year("fold") || by_year("linear_trend") || by_year("cat") || is_on("polar_metrics") {
+        let civil = |d: i64| janus_zeit::numeric::civil(d);
+        let jan1 = |y: i64| janus_cube::dates::days_from_civil(y as i32, 1, 1);
+        let mut partial = |y: i64, from: i64, to: i64, covered: i64| {
+            if covered >= FULL_YEAR_DAYS {
+                return;
+            }
+            let (m_from, m_to) = (civil(from).1, civil(to).1);
+            let months = (covered as f64 / 30.44).round() as i64;
+            add(
+                1,
+                format!(
+                    "{y} covers only {}: its yearly values read {months} month{} of it.",
+                    month_range(m_from, m_to),
+                    if months == 1 { "" } else { "s" }
+                ),
+            );
+        };
+        if y0 == y1 {
+            partial(y0, first, last, last - first + 1);
+        } else {
+            partial(y0, first, jan1(y0 + 1) - 1, jan1(y0 + 1) - first);
+            partial(y1, jan1(y1), last, last - jan1(y1) + 1);
+        }
+    }
+    // 4: the Interpolate grid against the dates
+    let mut gaps: Vec<i64> = days.windows(2).map(|w| w[1] - w[0]).filter(|&g| g > 0).collect();
+    let gap = median(&mut gaps);
+    if is_on("interpolate")
+        && gap > 0.0
+        && let Some(step) = param_f64(&params("interpolate"), "step").filter(|&s| s >= 1.0)
+    {
+        if step < gap / 2.0 {
+            add(
+                1,
+                format!(
+                    "Interpolate's grid (every {step:.0} days) is denser than the dates (a median gap of {gap:.0} \
+                     days): most of its values are interpolated."
+                ),
+            );
+        } else if step > COARSE_GRID * gap {
+            add(
+                1,
+                format!(
+                    "Interpolate's grid (every {step:.0} days) is much coarser than the dates (a median gap of \
+                     {gap:.0} days): it smooths the data away."
+                ),
+            );
+        }
+    }
+    // 5: the quality band
+    if info.sel.qa_band == 0 {
+        if is_on("clear_observations") {
+            add(1, "Clear-sky observations counts every date as clear: the series has no quality band.".into());
+        }
+        if is_on("interpolate") {
+            add(0, "Interpolate without a quality band: clouds stay in the series.".into());
+        }
+    }
+    // 6: a trend over few years
+    if is_on("linear_trend") || is_on("cat") {
+        let mut years: Vec<i64> = days.iter().map(|&d| year_of(d)).collect();
+        years.dedup();
+        if years.len() < FEW_PERIODS {
+            let which = match (is_on("linear_trend"), is_on("cat")) {
+                (true, true) => "Linear trend and CAT fit",
+                (true, false) => "Linear trend fits",
+                _ => "CAT fits",
+            };
+            add(
+                1,
+                format!(
+                    "{which} {} yearly values ({y0} to {y1}): fewer than {FEW_PERIODS} periods, a trend of that \
+                     reads little.",
+                    years.len()
+                ),
+            );
+        }
+    }
+    out
+}
+
+/// The advice as the Classification window shows its warnings: a coloured dot and the text.
+fn advice_ui(ui: &mut Ui, items: &[Advice]) {
+    if items.is_empty() {
+        ui.weak("Nothing to look at.");
+    }
+    for a in items {
+        ui.horizontal(|ui| {
+            let (dot, _) = ui.allocate_exact_size(egui::vec2(10.0, 14.0), egui::Sense::hover());
+            ui.painter().circle_filled(dot.center(), 4.0, crate::sample_check::level_color(a.level));
+            ui.add(egui::Label::new(&a.text).wrap());
+        });
+    }
+}
+
 /// The chain on the series: each step's tool through `run_job` into a subfolder of `root` (01_interpolate...), the
 /// analysis series of Interpolate and Standardize read by the steps after them from their GeoTIFF. A step the
 /// series cannot take (`problem`) is left out and reported. Outputs on the window of the input, all of them: the
@@ -324,16 +528,34 @@ impl State {
             ui.colored_label(crate::theme::error(), "Open a series first.");
             return;
         };
+        // what to look at, once a frame: from the dates and the parameters of the steps that are on
+        let mut held: BTreeMap<String, BTreeMap<String, Value>> = BTreeMap::new();
+        for (i, (id, _, _)) in STEPS.into_iter().enumerate() {
+            if let Some(tool) = manifest().tool(id).filter(|_| self.tsa.on[i]) {
+                held.insert(id.to_string(), self.zeit.params(tool).clone());
+            }
+        }
+        let to_look = advice(&info, &self.tsa.on, &|id| held.get(id).cloned().unwrap_or_default());
+        let n_look = to_look.iter().filter(|a| a.level > 0).count();
         ui.horizontal(|ui| {
             for (i, name) in ["Input", "Steps", "Output"].into_iter().enumerate() {
-                ui.selectable_value(&mut self.tsa.tab, i, RichText::new(name).strong());
+                let text = if i == 1 && n_look > 0 { format!("{name} ({n_look})") } else { name.to_string() };
+                ui.selectable_value(&mut self.tsa.tab, i, RichText::new(text).strong());
             }
         });
         ui.separator();
         match self.tsa.tab {
             0 => self.tsa_input_tab(ui, &info),
-            1 => self.tsa_steps_tab(ui, &info),
-            _ => self.tsa_output_tab(ui, &info),
+            1 => {
+                self.tsa_steps_tab(ui, &info);
+                crate::panels::section(ui, "To look at");
+                advice_ui(ui, &to_look);
+            }
+            _ => {
+                crate::panels::section(ui, "To look at");
+                advice_ui(ui, &to_look);
+                self.tsa_output_tab(ui, &info);
+            }
         }
     }
 
@@ -818,6 +1040,135 @@ mod tests {
             let cut: Vec<f32> = (1..5).flat_map(|r| (2..7).map(move |c| (r, c))).map(|(r, c)| y[r * W + c]).collect();
             assert!(same(x, &cut));
         }
+    }
+
+    /// A series in memory (no file): a date every `step` days from `from` to `to` (both y, m, d).
+    fn dates(from: (i32, u32, u32), to: (i32, u32, u32), step: usize) -> CubeInfo {
+        use janus_cube::dates::days_from_civil;
+        let (a, b) = (days_from_civil(from.0, from.1, from.2), days_from_civil(to.0, to.1, to.2));
+        let layers = (a..=b)
+            .step_by(step)
+            .map(|d| janus_cube::Layer { time: d as f64 * 86400.0, band: 1, ..Default::default() })
+            .collect();
+        CubeInfo { layers, width: 4, height: 4, time_is_date: true, bands_per_date: 1, ..Default::default() }
+    }
+
+    fn only(ids: &[&str]) -> [bool; 8] {
+        let mut on = [false; 8];
+        for id in ids {
+            on[STEPS.iter().position(|s| s.0 == *id).unwrap()] = true;
+        }
+        on
+    }
+
+    /// The advice with the parameters given by (tool, id, value).
+    fn look(info: &CubeInfo, on: &[bool; 8], set: &[(&str, &str, Value)]) -> Vec<Advice> {
+        advice(info, on, &|tool| set.iter().filter(|s| s.0 == tool).map(|s| (s.1.to_string(), s.2.clone())).collect())
+    }
+
+    fn has(a: &[Advice], level: u8, part: &str) -> bool {
+        a.iter().any(|x| x.level == level && x.text.contains(part))
+    }
+
+    #[test]
+    fn a_year_with_few_dates_is_found() {
+        // every 16 days from 2018 to 2022, then the dates of 2020 thinned out to three
+        let mut info = dates((2018, 1, 1), (2022, 12, 31), 16);
+        let year = |l: &janus_cube::Layer| janus_zeit::numeric::civil((l.time / 86400.0) as i64).0;
+        let mut seen = 0;
+        info.layers.retain(|l| {
+            year(l) != 2020 || {
+                seen += 1;
+                seen % 6 == 0
+            }
+        });
+        let on = only(&["fold"]);
+        let a = look(&info, &on, &[]);
+        assert!(has(&a, 1, "2020 has 3 dates (the others 23)"), "{a:?}");
+        assert_eq!(a.iter().filter(|x| x.text.contains("has")).count(), 1, "{a:?}");
+        // the edge years are not judged by their count, and a step that reads no statistic does not care
+        assert!(!has(&a, 1, "2018 has") && !has(&a, 1, "2022 has"));
+        assert!(!has(&look(&info, &only(&["interpolate"]), &[]), 1, "2020 has"));
+    }
+
+    #[test]
+    fn a_cut_last_year_is_found_with_fold_by_year_on() {
+        // 2019 to June 2024, a date every 16 days
+        let info = dates((2019, 1, 1), (2024, 6, 20), 16);
+        let a = look(&info, &only(&["fold"]), &[]);
+        assert!(has(&a, 1, "2024 covers only January to June: its yearly values read 5 months"), "{a:?}");
+        assert!(!has(&a, 1, "2019 covers"), "{a:?}");
+        // off, or by quarter (of every year), it is not looked at
+        assert!(!has(&look(&info, &only(&["temporal_metrics"]), &[]), 1, "covers only"));
+        let q = look(&info, &only(&["fold"]), &[("fold", "by", json!("quarter"))]);
+        assert!(!has(&q, 1, "covers only"), "{q:?}");
+        // a first year starting in July
+        let from = dates((2019, 7, 3), (2023, 12, 31), 16);
+        let a = look(&from, &only(&["linear_trend"]), &[]);
+        assert!(has(&a, 1, "2019 covers only July to December"), "{a:?}");
+    }
+
+    #[test]
+    fn the_polar_phenology_on_irregular_dates_blocks_unless_interpolate_comes_first() {
+        let mut info = dates((2018, 1, 1), (2022, 12, 31), 16);
+        info.layers.remove(5);
+        let a = look(&info, &only(&["polar_metrics"]), &[]);
+        assert!(has(&a, 2, "Polar phenology: the dates are not evenly spaced"), "{a:?}");
+        let a = look(&info, &only(&["interpolate", "polar_metrics"]), &[]);
+        assert!(!a.iter().any(|x| x.level == 2), "{a:?}");
+    }
+
+    #[test]
+    fn an_interpolate_grid_denser_or_coarser_than_the_dates_is_found() {
+        let info = dates((2018, 1, 1), (2022, 12, 31), 16);
+        let on = only(&["interpolate"]);
+        let dense = look(&info, &on, &[("interpolate", "step", json!(5))]);
+        assert!(has(&dense, 1, "every 5 days) is denser than the dates (a median gap of 16 days)"), "{dense:?}");
+        let coarse = look(&info, &on, &[("interpolate", "step", json!(100))]);
+        assert!(has(&coarse, 1, "every 100 days) is much coarser"), "{coarse:?}");
+        let fine = look(&info, &on, &[("interpolate", "step", json!(16))]);
+        assert!(!has(&fine, 1, "Interpolate's grid"), "{fine:?}");
+        // and the default of the tool is 16 days
+        assert!(!has(&look(&info, &on, &[]), 1, "Interpolate's grid"));
+    }
+
+    #[test]
+    fn clear_sky_observations_without_a_quality_band_is_noted() {
+        let mut info = dates((2018, 1, 1), (2022, 12, 31), 16);
+        let a = look(&info, &only(&["clear_observations", "interpolate"]), &[]);
+        assert!(has(&a, 1, "Clear-sky observations counts every date as clear"), "{a:?}");
+        assert!(has(&a, 0, "clouds stay in the series"), "{a:?}");
+        info.sel.qa_band = 2;
+        let a = look(&info, &only(&["clear_observations", "interpolate"]), &[]);
+        assert!(!has(&a, 1, "Clear-sky") && !has(&a, 0, "clouds"), "{a:?}");
+    }
+
+    #[test]
+    fn a_trend_over_too_few_years_is_found() {
+        let info = dates((2020, 1, 1), (2022, 12, 31), 16);
+        let a = look(&info, &only(&["linear_trend", "cat"]), &[]);
+        assert!(has(&a, 1, "Linear trend and CAT fit 3 yearly values (2020 to 2022)"), "{a:?}");
+        let long = dates((2015, 1, 1), (2022, 12, 31), 16);
+        assert!(!has(&look(&long, &only(&["linear_trend"]), &[]), 1, "yearly values (20"));
+    }
+
+    #[test]
+    fn nothing_on_blocks_and_a_series_without_dates_stops_the_polar_phenology() {
+        let info = dates((2018, 1, 1), (2022, 12, 31), 16);
+        let a = look(&info, &[false; 8], &[]);
+        assert_eq!(a, vec![Advice { level: 2, text: "No step is on.".into() }]);
+        let mut nodates = info.clone();
+        nodates.time_is_date = false;
+        let a = look(&nodates, &only(&["polar_metrics"]), &[]);
+        assert!(has(&a, 2, "needs dates"), "{a:?}");
+    }
+
+    #[test]
+    fn a_well_covered_series_has_nothing_at_level_one_or_two() {
+        let mut info = dates((2018, 1, 1), (2022, 12, 31), 16);
+        info.sel.qa_band = 2;
+        let a = look(&info, &only(&["interpolate", "temporal_metrics", "fold", "linear_trend"]), &[]);
+        assert!(!a.iter().any(|x| x.level > 0), "{a:?}");
     }
 
     #[test]

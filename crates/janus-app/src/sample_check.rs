@@ -627,7 +627,7 @@ pub fn warnings(r: &Report) -> Vec<Warning> {
     w
 }
 
-fn level_color(level: u8) -> Color32 {
+pub(crate) fn level_color(level: u8) -> Color32 {
     match level {
         2 => crate::theme::error(),
         1 => Color32::from_rgb(230, 160, 40),
