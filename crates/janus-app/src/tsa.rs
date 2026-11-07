@@ -13,14 +13,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use egui::{ComboBox, RichText, Ui};
-use janus_cube::{BandSelection, CubeInfo};
+use janus_cube::{BandSelection, CubeInfo, CubeReader, QaRule};
 use janus_zeit::job::{JobResult, run_job};
 use janus_zeit::manifest::{Tool, manifest};
+use janus_zeit::pixel::{Params, PixelInput, PixelResult, run_pixel};
 use serde_json::{Value, json};
 
 use crate::app::State;
 use crate::provenance::{OutputRecord, Provenance, SCRIPT, SeriesRecord};
-use crate::zeit::{Job, JobLog, JobState, JobStatus, applicability, base_spec, series_inputs};
+use crate::zeit::{Job, JobLog, JobState, JobStatus, applicability, base_spec, read_pixel_input, series_inputs};
 
 /// The id of the chain's task in Tools > Tasks (not a tool of the manifest).
 pub(crate) const JOB_TOOL: &str = "tsa";
@@ -71,12 +72,20 @@ pub struct TsaUi {
     pub on: [bool; 8],
     /// 0 whole image, 1 visible area, 2 ROI
     pub scope: usize,
+    /// the chart of the pixel under the cursor (Steps)
+    pub pixel: PixelChart,
 }
 
 impl Default for TsaUi {
     fn default() -> TsaUi {
         // Interpolate, Temporal metrics and Fold
-        TsaUi { open: false, tab: 0, on: [false, true, false, true, true, false, false, false], scope: 0 }
+        TsaUi {
+            open: false,
+            tab: 0,
+            on: [false, true, false, true, true, false, false, false],
+            scope: 0,
+            pixel: PixelChart::default(),
+        }
     }
 }
 
@@ -488,7 +497,420 @@ pub(crate) fn run_chain(
     Ok(Chain { result: JobResult { outputs, window: input.window }, skipped })
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// The chain on one pixel
+// ---------------------------------------------------------------------------------------------------------------
+
+/// The analysis series of one pixel, as the raster run writes it for the steps after Interpolate or Standardize: the
+/// dates of its grid, and its values as float32 (what the GeoTIFF holds, which the next step reads back).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PixelAnalysis {
+    /// days since 1970-01-01 of each date (None: the series has no dates)
+    pub days: Option<Vec<i64>>,
+    /// decimal year of each date
+    pub years: Vec<f64>,
+    /// NaN = no value
+    pub values: Vec<f64>,
+    /// Standardize is among the steps that made it: another scale than the observations'
+    pub standardized: bool,
+    /// what made it, for the legend
+    pub label: String,
+}
+
+/// What the chain does to one pixel: each step's pixel run (a step the series cannot take, or that failed, with why)
+/// and the analysis series the steps after Interpolate and Standardize read.
+pub(crate) struct PixelChain {
+    pub steps: Vec<(String, Result<PixelResult, String>)>,
+    pub analysis: Option<PixelAnalysis>,
+}
+
+/// The values a raster step writes, as the step after it reads them: float32, no value as NaN.
+fn as_written(y: &[Option<f64>]) -> Vec<f64> {
+    y.iter().map(|v| v.map_or(f64::NAN, |v| f64::from(v as f32))).collect()
+}
+
+/// The analysis series after an Interpolate or Standardize step `id` that ran on `cur` and gave `r`: Interpolate's
+/// values on its grid (the dates `janus_zeit::interpolate_days` gives, those the raster run labels its bands with),
+/// Standardize's on the dates it read. `before` is what the series was (the step reads the analysis series).
+fn analysis_after(
+    id: &str,
+    params: &Params,
+    cur: &PixelInput,
+    r: &PixelResult,
+    before: Option<&PixelAnalysis>,
+) -> Result<PixelAnalysis, String> {
+    let overlay = r.overlays.first().ok_or("no series was made")?;
+    let values = as_written(&overlay.y);
+    let (days, years) = if id == "interpolate" {
+        let days = janus_zeit::interpolate_days(params, cur)?;
+        let years = days.iter().map(|&d| janus_zeit::numeric::decimal_year(d)).collect();
+        (Some(days), years)
+    } else {
+        (cur.days.clone(), cur.years.clone())
+    };
+    if values.len() != years.len() {
+        return Err(format!("{} values on {} dates", values.len(), years.len()));
+    }
+    Ok(PixelAnalysis {
+        days,
+        years,
+        values,
+        standardized: id == "standardize" || before.is_some_and(|b| b.standardized),
+        label: match before {
+            Some(b) => format!("{}, {}", b.label, overlay.label),
+            None => overlay.label.clone(),
+        },
+    })
+}
+
+/// The chain on one pixel: each step's pixel run (`janus_zeit::run_pixel`, with the parameters the step holds over the
+/// tool's defaults), the steps after Interpolate and Standardize reading the analysis series they leave (the raster
+/// run's: its dates and its float32 values) and the others the raw series, as `run_chain` does. `skip` says why a
+/// step cannot run (`problem`; its second argument is whether the step reads the analysis series); such a step is
+/// left out as in the chain. A failed Interpolate or Standardize leaves the steps that read its series with that error.
+pub(crate) fn pixel_chain(
+    steps: &[ChainStep],
+    input: &PixelInput,
+    skip: &dyn Fn(&Tool, bool) -> Option<String>,
+) -> PixelChain {
+    let mut analysis: Option<PixelAnalysis> = None;
+    let mut failed: Option<String> = None;
+    let mut out = vec![];
+    for step in steps {
+        let tool = step.tool;
+        let id = tool.id.as_str();
+        let from_raw = RAW_STEPS.contains(&id) || (analysis.is_none() && failed.is_none());
+        let result = (|| {
+            if let Some(why) = skip(tool, !from_raw) {
+                return Err(why);
+            }
+            if !from_raw && analysis.is_none() {
+                return Err(format!("needs the analysis series: {}", failed.clone().unwrap_or_default()));
+            }
+            let params = Params::with_defaults(id, &step.params).ok_or_else(|| format!("{id}: unknown tool"))?;
+            let cur = match (&analysis, from_raw) {
+                (Some(a), false) => PixelInput {
+                    years: a.years.clone(),
+                    days: a.days.clone(),
+                    values: a.values.clone(),
+                    map_year: a.years.last().copied(),
+                    ..Default::default()
+                },
+                _ => input.clone(),
+            };
+            let r = run_pixel(id, &params, &cur)?;
+            let next = if ANALYSIS_STEPS.contains(&id) {
+                let before = analysis.as_ref().filter(|_| !from_raw);
+                Some(analysis_after(id, &params, &cur, &r, before)?)
+            } else {
+                None
+            };
+            Ok((r, next))
+        })();
+        match result {
+            Ok((r, next)) => {
+                if next.is_some() {
+                    analysis = next;
+                    failed = None;
+                }
+                out.push((tool.id.clone(), Ok(r)));
+            }
+            Err(e) => {
+                // a step that cannot run is left out; one that failed takes the series with it
+                if ANALYSIS_STEPS.contains(&id) && skip(tool, !from_raw).is_none() {
+                    analysis = None;
+                    failed = Some(format!("{} failed", tool.name));
+                }
+                out.push((tool.id.clone(), Err(e)));
+            }
+        }
+    }
+    PixelChain { steps: out, analysis }
+}
+
+/// One pixel of the series and what the chain does to it.
+pub(crate) struct PixelView {
+    pub info: Arc<CubeInfo>,
+    /// the series' values at every date, quality band or not (NaN: no value)
+    pub raw: Vec<f64>,
+    /// whether each date has a value the quality band keeps
+    pub clear: Vec<bool>,
+    /// what the steps on the raw series read: the clear observations (the tests compare against it)
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub input: PixelInput,
+    pub chain: PixelChain,
+}
+
+/// The pixel (x, y) of the series, read as the chain reads it, and the chain on it. `map_t` is the date the map tools
+/// take their year from.
+pub(crate) fn pixel_view(
+    info: &Arc<CubeInfo>,
+    steps: &[ChainStep],
+    x: usize,
+    y: usize,
+    map_t: usize,
+) -> Result<PixelView, String> {
+    let first = steps.first().ok_or("no step is on")?;
+    if x >= info.width || y >= info.height {
+        return Err(format!("the pixel ({x}, {y}) is outside the series"));
+    }
+    // the values as the map shows them but for the quality mask, which is applied below from the band's codes
+    let mut unmasked = (**info).clone();
+    unmasked.sel.qa_band = 0;
+    let mut reader = CubeReader::new(Arc::new(unmasked));
+    let n = info.t();
+    let raw: Vec<f32> = (0..n).map(|t| reader.read_pixel(t, x, y).unwrap_or(f32::NAN)).collect();
+    let rule = info.sel.qa_rule;
+    let masked = info.sel.qa_band > 0 && rule != QaRule::None;
+    let clear: Vec<bool> = (0..n)
+        .map(|t| {
+            raw[t].is_finite()
+                && (!masked
+                    || reader
+                        .read_band_pixel(t, info.sel.qa_band, x, y, true)
+                        .is_some_and(|q| !q.is_nan() && q >= 0.0 && rule.usable(q as u32)))
+        })
+        .collect();
+    let kept: Vec<f32> = raw.iter().zip(&clear).map(|(&v, &c)| if c { v } else { f32::NAN }).collect();
+    let input = read_pixel_input(info, first.tool, &BTreeMap::new(), &kept, x, y, map_t);
+    let chain = pixel_chain(steps, &input, &|tool, analysis| problem(tool, info, analysis));
+    Ok(PixelView { info: info.clone(), raw: raw.iter().map(|&v| f64::from(v)).collect(), clear, input, chain })
+}
+
+/// What a pixel chart is computed for: the pixel, the series' bands and quality rule, and the steps with their
+/// parameters (and the version of the bands, which changes the fits).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PixelKey {
+    cube: u64,
+    x: usize,
+    y: usize,
+    series: String,
+    steps: Vec<(String, String)>,
+    version: u64,
+}
+
+type PixelPending = Arc<Mutex<Option<Result<PixelView, String>>>>;
+
+/// The pixel chart's state: the last pixel the cursor rested on, what was computed (for the key it was asked for)
+/// and the computation under way, off the UI thread.
+#[derive(Default)]
+pub struct PixelChart {
+    /// the last pixel hovered on the map: (cube, x, y); it stays when the cursor goes to the window
+    at: Option<(u64, usize, usize)>,
+    shown: Option<(PixelKey, Result<PixelView, String>)>,
+    job: Option<(PixelKey, PixelPending)>,
+}
+
+impl PixelChart {
+    /// Takes in a finished computation and, if what is shown is not for `key` and none is under way, starts `work`.
+    fn update(
+        &mut self,
+        key: &PixelKey,
+        ctx: &egui::Context,
+        work: impl FnOnce() -> Result<PixelView, String> + Send + 'static,
+    ) {
+        let done = self.job.as_ref().and_then(|(k, pending)| {
+            let r = pending.lock().unwrap().take();
+            r.map(|r| (k.clone(), r))
+        });
+        if done.is_some() {
+            self.shown = done;
+            self.job = None;
+        }
+        if self.job.is_some() || self.shown.as_ref().is_some_and(|(k, _)| k == key) {
+            return;
+        }
+        let pending: PixelPending = Arc::new(Mutex::new(None));
+        let (out, ctx2) = (pending.clone(), ctx.clone());
+        let spawned = std::thread::Builder::new().name("tsa-pixel".into()).spawn(move || {
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+                .unwrap_or_else(|_| Err("the pixel could not be computed".into()));
+            *out.lock().unwrap() = Some(r);
+            ctx2.request_repaint();
+        });
+        match spawned {
+            Ok(_) => self.job = Some((key.clone(), pending)),
+            Err(e) => self.shown = Some((key.clone(), Err(format!("could not start the computation: {e}")))),
+        }
+    }
+}
+
+/// The pixel's series and what the chain does to it, as a chart: the observations (grey, and in the series' colour
+/// where the quality band keeps them), the analysis series as a line and the overlays of each product step under its
+/// name. Under it, the steps that gave no series or failed.
+fn pixel_plot(ui: &mut Ui, v: &PixelView, x: usize, y: usize) {
+    let info = &v.info;
+    let dated = info.time_is_date;
+    let at = |t: usize| if dated { info.layers[t].time } else { t as f64 };
+    let weak = ui.visuals().weak_text_color();
+    let series = crate::theme::on_plot(crate::theme::cursor_series());
+    let grey = crate::theme::on_plot(egui::Color32::from_gray(140));
+    let analysis = v.chain.analysis.as_ref();
+    let standardized = analysis.is_some_and(|a| a.standardized);
+    let has_qa = info.sel.qa_band > 0 && info.sel.qa_rule != QaRule::None;
+    let products: Vec<(usize, &PixelResult)> = v
+        .chain
+        .steps
+        .iter()
+        .filter(|(id, _)| !ANALYSIS_STEPS.contains(&id.as_str()))
+        .filter_map(|(id, r)| Some((STEPS.iter().position(|s| s.0 == id)?, r.as_ref().ok()?)))
+        .collect();
+    let entries = 2 + usize::from(analysis.is_some()) + products.len();
+    let mut plot = egui_plot::Plot::new(("tsa pixel", info.id))
+        .height(180.0)
+        .allow_drag(false)
+        .allow_scroll(false)
+        .allow_zoom(false)
+        .allow_boxed_zoom(false)
+        .show_background(false)
+        .show_x(false)
+        .show_y(false)
+        .grid_color(weak.gamma_multiply(0.55))
+        .grid_fade(0.9)
+        .custom_y_axes(vec![egui_plot::AxisHints::new_y().tick_label_color(weak)]);
+    if crate::fit::legend_fits(ui, 180.0, entries) {
+        plot = plot.legend(
+            egui_plot::Legend::default()
+                .position(egui_plot::Corner::LeftTop)
+                .background_alpha(0.75)
+                .color_conflict_handling(egui_plot::ColorConflictHandling::PickFirst),
+        );
+    }
+    plot = if dated { crate::chart::time_axis(plot, Some(weak)) } else { plot };
+    plot.show(ui, |p| {
+        // the observations are on the scale the series came in: not drawn against a standardized series
+        if !standardized {
+            let points = |keep: &dyn Fn(usize) -> bool| -> Vec<[f64; 2]> {
+                (0..v.raw.len()).filter(|&t| v.raw[t].is_finite() && keep(t)).map(|t| [at(t), v.raw[t]]).collect()
+            };
+            if has_qa {
+                let all = egui_plot::PlotPoints::from(points(&|_| true));
+                p.points(egui_plot::Points::new("Raw observations", all).color(grey).radius(2.0));
+            }
+            let name = if has_qa { "Clear observations" } else { "Observations" };
+            let clear = egui_plot::PlotPoints::from(points(&|t| v.clear[t]));
+            p.points(egui_plot::Points::new(name, clear).color(series).radius(2.5));
+        }
+        if let Some(a) = analysis {
+            let name = if standardized {
+                format!("Analysis series: {}", a.label)
+            } else {
+                format!("Analysis series: {}", a.label.to_lowercase())
+            };
+            let xs = |i: usize| match &a.days {
+                Some(d) => d[i] as f64 * 86400.0,
+                None => a.years[i],
+            };
+            let pts: Vec<[f64; 2]> = (0..a.values.len()).map(|i| [xs(i), a.values[i]]).collect();
+            for piece in pts.split(|q| !q[1].is_finite()).filter(|q| !q.is_empty()) {
+                p.line(
+                    egui_plot::Line::new(name.as_str(), egui_plot::PlotPoints::from(piece.to_vec()))
+                        .color(series)
+                        .width(1.5),
+                );
+            }
+        }
+        for &(slot, r) in &products {
+            let style = crate::zeit::FitStyle::of(slot);
+            let name = STEPS[slot].1;
+            for o in &r.overlays {
+                if o.kind == "vlines" {
+                    for &xv in &o.x {
+                        p.vline(
+                            egui_plot::VLine::new(name, info.x_from_decimal_year(xv)).color(style.color).width(1.5),
+                        );
+                    }
+                    continue;
+                }
+                let pts: Vec<[f64; 2]> =
+                    o.x.iter()
+                        .zip(&o.y)
+                        .map(|(&xv, yv)| [info.x_from_decimal_year(xv), yv.unwrap_or(f64::NAN)])
+                        .collect();
+                if o.kind == "markers" {
+                    let valid: Vec<[f64; 2]> = pts.into_iter().filter(|q| q[1].is_finite()).collect();
+                    p.points(
+                        egui_plot::Points::new(name, egui_plot::PlotPoints::from(valid))
+                            .color(style.color)
+                            .radius(3.0)
+                            .shape(egui_plot::MarkerShape::Square),
+                    );
+                } else {
+                    for piece in pts.split(|q| !q[1].is_finite()).filter(|q| !q.is_empty()) {
+                        p.line(
+                            egui_plot::Line::new(name, egui_plot::PlotPoints::from(piece.to_vec()))
+                                .color(style.color)
+                                .width(o.weight.unwrap_or(2.0) as f32)
+                                .style(style.line),
+                        );
+                    }
+                }
+            }
+        }
+    });
+    let (n_clear, n) = (v.clear.iter().filter(|&&c| c).count(), v.clear.len());
+    ui.weak(if has_qa {
+        format!("Pixel ({x}, {y}): {n_clear} of {n} dates are clear (a value the quality band keeps).")
+    } else {
+        format!("Pixel ({x}, {y}): {n_clear} of {n} dates have a value.")
+    });
+    if standardized {
+        ui.weak("Standardize is on: the series is drawn standardized, the observations (another scale) are not.");
+    }
+    for (id, r) in &v.chain.steps {
+        if let Err(e) = r {
+            let label = STEPS.iter().find(|s| s.0 == id).map_or(id.as_str(), |s| s.1);
+            ui.weak(format!("{label}: {e}"));
+        }
+    }
+}
+
 impl State {
+    /// The chart of the pixel last hovered on the map: what the chain does to it, step by step.
+    fn tsa_pixel_chart(&mut self, ui: &mut Ui, info: &Arc<CubeInfo>) {
+        crate::panels::section(ui, "Pixel");
+        if let Some(h) = &self.series.hover {
+            self.tsa.pixel.at = Some((info.id, h.x, h.y));
+        }
+        let Some((_, x, y)) = self.tsa.pixel.at.filter(|a| a.0 == info.id) else {
+            ui.weak("Hover the map to see a pixel.");
+            return;
+        };
+        let steps = self.tsa_steps();
+        if steps.is_empty() {
+            ui.weak("Turn a step on to see what it does to the pixel.");
+            return;
+        }
+        let key = PixelKey {
+            cube: info.id,
+            x,
+            y,
+            series: format!("{} qa {} {}", info.selection_text(), info.sel.qa_band, info.sel.qa_rule.id()),
+            steps: steps
+                .iter()
+                .map(|s| (s.tool.id.clone(), serde_json::to_string(&s.params).unwrap_or_default()))
+                .collect(),
+            version: self.zeit.version
+                + steps.iter().map(|s| self.zeit.tools.get(&s.tool.id).map_or(0, |t| t.version)).sum::<u64>(),
+        };
+        let map_t = self.display.t.min(info.t().saturating_sub(1));
+        let ctx = ui.ctx().clone();
+        let work_info = info.clone();
+        self.tsa.pixel.update(&key, &ctx, move || pixel_view(&work_info, &steps, x, y, map_t));
+        match &self.tsa.pixel.shown {
+            Some((_, Ok(v))) => pixel_plot(ui, v, x, y),
+            Some((_, Err(e))) => {
+                ui.colored_label(crate::theme::error(), e);
+            }
+            None => {
+                ui.weak("Computing...");
+            }
+        }
+        if self.tsa.pixel.shown.as_ref().is_some_and(|(k, _)| *k != key) {
+            ui.weak("Updating...");
+        }
+    }
+
     pub(crate) fn tsa_menu(&mut self, ui: &mut Ui) {
         if ui
             .add(egui::Button::selectable(self.tsa.open, "Time series analysis (FORCE)..."))
@@ -548,6 +970,7 @@ impl State {
             0 => self.tsa_input_tab(ui, &info),
             1 => {
                 self.tsa_steps_tab(ui, &info);
+                self.tsa_pixel_chart(ui, &info);
                 crate::panels::section(ui, "To look at");
                 advice_ui(ui, &to_look);
             }
@@ -974,6 +1397,150 @@ mod tests {
         let read_file = &p.series.unwrap().inputs[0];
         assert!(read_file.replace('\\', "/").ends_with("01_interpolate/interpolate_series.tif"), "{read_file}");
         assert!(Provenance::read(&base.join("chain").join("01_interpolate")).unwrap().series.unwrap().dates == 40);
+    }
+
+    /// The outputs of a chain written by the step in `folder` (such as "/01_interpolate/").
+    fn outputs_of(chain: &Chain, folder: &str) -> Vec<String> {
+        let paths = chain.result.outputs.iter().map(|o| o["path"].as_str().unwrap().replace('\\', "/"));
+        paths.filter(|p| p.contains(folder)).collect()
+    }
+
+    /// The analysis series of a pixel against the raster series (a GeoTIFF, [dates][pixels]) at that pixel: the dates
+    /// by their labels, the values bit for bit (the raster holds float32).
+    fn assert_analysis_is_raster(a: &PixelAnalysis, path: &str, at: (usize, usize)) {
+        let (bands, labels) = read(path);
+        assert_eq!(a.values.len(), bands.len(), "{path}: dates");
+        let days = a.days.as_ref().expect("dates");
+        assert_eq!(a.years, days.iter().map(|&d| janus_zeit::numeric::decimal_year(d)).collect::<Vec<_>>());
+        for (k, band) in bands.iter().enumerate() {
+            let (y, m, d) = janus_zeit::numeric::civil(days[k]);
+            assert_eq!(labels[k], format!("{y:04}-{m:02}-{d:02}"), "{path}: date {k}");
+            let want = band[at.1 * W + at.0];
+            let got = a.values[k] as f32;
+            assert!(
+                got.to_bits() == want.to_bits() || got.is_nan() && want.is_nan(),
+                "{path} {at:?} date {k}: {got} {want}"
+            );
+        }
+    }
+
+    /// The rows' value of a metric (a number to 6 significant digits) against the raster's float32 at a pixel.
+    fn assert_row_is_raster(row: &[String; 2], path: &str, at: (usize, usize)) {
+        let (bands, _) = read(path);
+        assert_eq!(bands.len(), 1, "{path}");
+        let want = f64::from(bands[0][at.1 * W + at.0]);
+        let got: f64 = row[1].parse().unwrap();
+        assert!(
+            got.is_nan() && want.is_nan() || (got - want).abs() <= 6e-6 * want.abs().max(1e-12),
+            "{path} {at:?} {}: {got} {want}",
+            row[0]
+        );
+    }
+
+    #[test]
+    fn the_pixel_chain_is_the_raster_chains_at_that_pixel() {
+        let base = std::env::temp_dir().join("janus-tsa-test-pixel");
+        let info = series(&base.join("series"));
+        let steps = [step("interpolate"), step("temporal_metrics"), step("fold")];
+        let chain =
+            run_chain(&steps, &input(&info, [0, 0, W, H]), &base.join("chain"), &|_, _| {}, &AtomicBool::new(false))
+                .unwrap();
+        let interpolated = outputs_of(&chain, "/01_interpolate/");
+        let metrics = outputs_of(&chain, "/02_temporal_metrics/");
+        let folds = outputs_of(&chain, "/03_fold/");
+        assert_eq!(interpolated.len(), 1);
+        assert!(!metrics.is_empty() && !folds.is_empty());
+        let mut compared = 0;
+        // the pixel missing at every date, and others of different curves
+        for at in [(0, 0), (3, 2), (7, 5), (1, 4), (5, 0)] {
+            let v = pixel_view(&info, &steps, at.0, at.1, info.t() - 1).unwrap();
+            let ids: Vec<&str> = v.chain.steps.iter().map(|s| s.0.as_str()).collect();
+            assert_eq!(ids, ["interpolate", "temporal_metrics", "fold"]);
+            // the grid's dates and values: those of the raster's series
+            let a = v.chain.analysis.as_ref().expect("an analysis series");
+            assert!(!a.standardized);
+            assert_analysis_is_raster(a, &interpolated[0], at);
+            // the temporal metrics: one row a metric after the count of valid observations
+            let tm = v.chain.steps[1].1.as_ref().unwrap();
+            assert_eq!(tm.rows.len(), metrics.len() + 1);
+            for (row, path) in tm.rows[1..].iter().zip(&metrics) {
+                assert_row_is_raster(row, path, at);
+                compared += 1;
+            }
+            // the fold by year: a line a metric, a value a year (the raster's band)
+            let fold = v.chain.steps[2].1.as_ref().unwrap();
+            assert_eq!(fold.overlays.len(), folds.len());
+            for (o, path) in fold.overlays.iter().zip(&folds) {
+                let (bands, _) = read(path);
+                assert_eq!(o.y.len(), bands.len(), "{path}");
+                for (yv, band) in o.y.iter().zip(&bands) {
+                    let got = yv.map_or(f32::NAN, |v| v as f32);
+                    let want = band[at.1 * W + at.0];
+                    assert!(got.to_bits() == want.to_bits() || got.is_nan() && want.is_nan(), "{path} {at:?}");
+                    compared += 1;
+                }
+            }
+        }
+        assert!(compared > 40, "{compared} values compared");
+    }
+
+    #[test]
+    fn the_pixel_chain_reads_the_standardized_series_after_standardize() {
+        let base = std::env::temp_dir().join("janus-tsa-test-pixel-std");
+        let info = series(&base.join("series"));
+        let steps = [step("interpolate"), step("standardize"), step("temporal_metrics")];
+        let chain =
+            run_chain(&steps, &input(&info, [0, 0, W, H]), &base.join("chain"), &|_, _| {}, &AtomicBool::new(false))
+                .unwrap();
+        let standardized = outputs_of(&chain, "/02_standardize/");
+        let metrics = outputs_of(&chain, "/03_temporal_metrics/");
+        assert_eq!(standardized.len(), 1);
+        for at in [(3, 2), (6, 1), (2, 5)] {
+            let v = pixel_view(&info, &steps, at.0, at.1, info.t() - 1).unwrap();
+            let a = v.chain.analysis.as_ref().expect("an analysis series");
+            assert!(
+                a.standardized && a.label.contains("Interpolated") && a.label.contains("Standardized"),
+                "{}",
+                a.label
+            );
+            assert_analysis_is_raster(a, &standardized[0], at);
+            let tm = v.chain.steps[2].1.as_ref().unwrap();
+            for (row, path) in tm.rows[1..].iter().zip(&metrics) {
+                assert_row_is_raster(row, path, at);
+            }
+        }
+    }
+
+    #[test]
+    fn without_interpolate_the_pixel_chain_reads_the_raw_series() {
+        let base = std::env::temp_dir().join("janus-tsa-test-pixel-raw");
+        let info = series(&base.join("series"));
+        let steps = [step("fold"), step("temporal_metrics")];
+        let v = pixel_view(&info, &steps, 3, 2, info.t() - 1).unwrap();
+        assert!(v.chain.analysis.is_none());
+        // no quality band: every date with a value is clear, and the input is the series itself
+        assert_eq!(v.clear, v.raw.iter().map(|x| x.is_finite()).collect::<Vec<_>>());
+        assert!(v.clear.iter().any(|&c| !c) && v.clear.iter().any(|&c| c), "some dates are missing");
+        let bits = |a: &[f64]| a.iter().map(|x| if x.is_finite() { x.to_bits() } else { 0 }).collect::<Vec<_>>();
+        assert_eq!(bits(&v.input.values), bits(&v.raw));
+        assert_eq!(v.input.days.as_ref().unwrap().len(), info.t());
+        for (id, r) in &v.chain.steps {
+            let want = run_pixel(id, &Params::with_defaults(id, &BTreeMap::new()).unwrap(), &v.input).unwrap();
+            assert_eq!(r.as_ref().unwrap(), &want, "{id}");
+        }
+        // a step the series cannot take is left out with why, the others run
+        let steps = [step("polar_metrics"), step("temporal_metrics")];
+        let v = pixel_view(&info, &steps, 3, 2, info.t() - 1).unwrap();
+        assert!(v.chain.steps[0].1.as_ref().err().unwrap().contains("not evenly spaced"));
+        assert!(v.chain.steps[1].1.is_ok());
+    }
+
+    #[test]
+    fn a_pixel_outside_the_series_or_without_steps_is_an_error() {
+        let base = std::env::temp_dir().join("janus-tsa-test-pixel-out");
+        let info = series(&base.join("series"));
+        assert!(pixel_view(&info, &[step("fold")], W, 0, 0).is_err());
+        assert!(pixel_view(&info, &[], 0, 0, 0).is_err());
     }
 
     #[test]

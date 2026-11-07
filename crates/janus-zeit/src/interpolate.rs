@@ -43,6 +43,14 @@ fn grid(p: &Params, input: &PixelInput) -> Result<Grid, String> {
     })
 }
 
+/// The dates of the grid (days since 1970-01-01) a run with these parameters writes on a series with these dates: the
+/// raster run's bands, and the pixel run's x. Whoever follows the analysis series of one pixel takes its dates from
+/// here.
+pub fn grid_days(p: &Params, input: &PixelInput) -> Result<Vec<i64>, String> {
+    method(p)?;
+    Ok(grid(p, input)?.days)
+}
+
 /// The method with its parameters, checked as zeit.interpolate checks them.
 fn method(p: &Params) -> Result<Method, String> {
     Ok(match p.str("method") {
