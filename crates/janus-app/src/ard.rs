@@ -26,10 +26,13 @@ use serde_json::{Value, json};
 use crate::app::State;
 use crate::chain::{Chain, ChainInput, ChainStep, JobStart, StepRun, cancelled, run_step, spawn_job};
 use crate::provenance::{OutputRecord, Provenance, SeriesRecord};
-use crate::zeit::{JobState, applicability};
+use crate::tsa::Advice;
+use crate::zeit::{JobState, Preview, applicability};
 
 /// The id of the chain's task in Tools > Tasks (not a tool of the manifest).
 pub(crate) const JOB_TOOL: &str = "ard";
+/// The id of the preview's task (the chain on the ROI, its folder removed with the preview).
+pub(crate) const PREVIEW_JOB: &str = "ard-preview";
 
 /// The steps in the order of the chain: the tool, the window's name for it and what it does.
 pub(crate) const STEPS: [(&str, &str, &str); 4] = [
@@ -99,12 +102,34 @@ pub struct ArdUi {
     pub scope: usize,
     /// the series the last chain wrote (name, file), filled when it ends
     pub series_out: Arc<Mutex<Vec<(String, String)>>>,
+    /// the chain's preview on the ROI, while there is one
+    pub preview: Option<ArdPreview>,
 }
+
+/// The chain run on the ROI into a folder of its own, and whether the curtain of before and after is on it yet.
+pub struct ArdPreview {
+    /// the preview's folder (the zeit preview's `dir` too)
+    pub dir: String,
+    /// the series the chain wrote (name, file), filled when it ends
+    pub written: Arc<Mutex<Vec<(String, String)>>>,
+    /// the curtain was put on the harmonized series
+    pub curtain: bool,
+}
+
+/// The name of the series the chain leaves, as its output is called.
+const HARMONIZED_NAME: &str = "Harmonized series";
 
 impl Default for ArdUi {
     fn default() -> ArdUi {
         // NBAR and the spectral adjustment: the harmonized series
-        ArdUi { open: false, tab: 0, on: [true, true, false, false], scope: 0, series_out: Arc::default() }
+        ArdUi {
+            open: false,
+            tab: 0,
+            on: [true, true, false, false],
+            scope: 0,
+            series_out: Arc::default(),
+            preview: None,
+        }
     }
 }
 
@@ -237,6 +262,237 @@ pub(crate) fn left_out(
         } else if let Some(descs) = written_bands(&s.tool.id, &current.1) {
             current = virtual_series(info, &descs);
         }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// What to look at
+// ---------------------------------------------------------------------------------------------------------------
+
+/// How many dates are named in a line of advice before "and N more".
+const NAMED_DATES: usize = 5;
+/// Reflectance as 0-1 reaches this at most (clouds and bright sand a little over 1); a band shown beyond it is
+/// digital numbers or another scale.
+const UNIT_REFLECTANCE_MAX: f32 = 2.0;
+/// Reflectance x 10000 reaches this at most.
+const SCALED_REFLECTANCE_MAX: f32 = 10000.0;
+
+/// What the advice reads of each date's file (opened to find it, so read once per series: `date_facts`). A list that
+/// is empty was not read (no step on needs it).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct DateFacts {
+    /// each date's sensor in FORCE's names, "" where none is known
+    pub sensors: Vec<String>,
+    /// whether each date has Sentinel-2 granule metadata
+    pub granules: Vec<bool>,
+    /// whether each date is of HLS (named HLS.L30 / HLS.S30, or of a STAC collection hls*)
+    pub hls: Vec<bool>,
+}
+
+/// What `advice` looks at besides the steps.
+pub(crate) struct Look<'a> {
+    pub info: &'a CubeInfo,
+    pub roles: &'a BTreeMap<String, i32>,
+    /// the coarse series ImproPhe's form picks
+    pub coarse: Option<&'a CubeInfo>,
+    pub facts: &'a DateFacts,
+    /// the upper end of the stretch of the band shown, when it is a reflectance band shown as it is (the 98th
+    /// percentile of the values the session has sampled)
+    pub shown_hi: Option<f32>,
+}
+
+fn str_param<'a>(steps: &'a [ChainStep], tool: &str, key: &str) -> Option<&'a str> {
+    steps.iter().find(|s| s.tool.id == tool).and_then(|s| s.params.get(key)).and_then(Value::as_str)
+}
+
+fn is_on(steps: &[ChainStep], tool: &str) -> bool {
+    steps.iter().any(|s| s.tool.id == tool)
+}
+
+/// The steps that read each date's sensor with the parameters they have: the spectral adjustment with its sensor
+/// "auto", Tasseled Cap with the coefficients of each sensor.
+fn sensor_readers(steps: &[ChainStep]) -> Vec<&'static str> {
+    let mut v = vec![];
+    if is_on(steps, "spectral_adjust") && str_param(steps, "spectral_adjust", "sensor").unwrap_or("auto") == "auto" {
+        v.push("spectral_adjust");
+    }
+    if is_on(steps, "tasseled_cap") && str_param(steps, "tasseled_cap", "coefficients") == Some("sensor") {
+        v.push("tasseled_cap");
+    }
+    v
+}
+
+/// Whether NBAR reads the angles from Sentinel-2's granule metadata.
+fn nbar_from_granules(steps: &[ChainStep]) -> bool {
+    is_on(steps, "nbar") && str_param(steps, "nbar", "angles") == Some("sentinel2")
+}
+
+/// Which dates of a series are of HLS, by their files' names and STAC collection (`harmonize::date_sensor`), read
+/// once per series.
+fn hls_dates(info: &CubeInfo) -> Vec<bool> {
+    use std::collections::HashMap;
+    use std::sync::LazyLock;
+    static CACHE: LazyLock<Mutex<HashMap<u64, Vec<bool>>>> = LazyLock::new(Default::default);
+    if let Some(h) = CACHE.lock().ok().and_then(|c| c.get(&info.id).filter(|h| h.len() == info.t()).cloned()) {
+        return h;
+    }
+    let found: Vec<bool> = (0..info.t())
+        .map(|t| janus_zeit::harmonize::date_sensor(info, t) == janus_zeit::harmonize::Found::Hls)
+        .collect();
+    if let Ok(mut c) = CACHE.lock() {
+        c.insert(info.id, found.clone());
+    }
+    found
+}
+
+/// What the steps that are on need of each date's file, read (once per series, then from the caches).
+pub(crate) fn date_facts(steps: &[ChainStep], info: &CubeInfo) -> DateFacts {
+    let mut facts = DateFacts::default();
+    if !sensor_readers(steps).is_empty() {
+        facts.sensors = crate::zeit::sensors_for("tasseled_cap", info);
+    }
+    if nbar_from_granules(steps) {
+        facts.granules = crate::zeit::granules_for(info).iter().map(|g| !g.is_empty()).collect();
+    }
+    if is_on(steps, "nbar") {
+        facts.hls = hls_dates(info);
+    }
+    facts
+}
+
+/// A date as a line of advice names it: its day, else its number.
+fn date_text(info: &CubeInfo, t: usize) -> String {
+    if info.time_is_date && t < info.t() {
+        let (y, m, d) = janus_zeit::numeric::civil(info.unix_day(t));
+        format!("{y:04}-{m:02}-{d:02}")
+    } else {
+        format!("date {}", t + 1)
+    }
+}
+
+/// Up to NAMED_DATES dates, and how many more.
+fn name_dates(info: &CubeInfo, dates: &[usize]) -> String {
+    let named: Vec<String> = dates.iter().take(NAMED_DATES).map(|&t| date_text(info, t)).collect();
+    match dates.len().saturating_sub(NAMED_DATES) {
+        0 => named.join(", "),
+        more => format!("{} and {more} more", named.join(", ")),
+    }
+}
+
+fn step_label(id: &str) -> &str {
+    STEPS.iter().find(|s| s.0 == id).map_or(id, |s| s.1)
+}
+
+/// What to look at in the series and the steps that are on, from the dates' metadata and the steps' parameters (no
+/// pixel is read; the stretch of the band shown, which the session has, tells of digital numbers). `level` 0 is
+/// information, 1 something to look at, 2 something that stops a step: a step the series cannot take (`left_out`: the
+/// bands unmapped, ImproPhe without a coarse series or in another CRS), dates without a sensor where a step reads it,
+/// Sentinel-2 dates in the adjustment (the tool stops at the first), NBAR from granule metadata that dates do not
+/// have, or no step on. At 1: HLS dates under NBAR (HLS v2 is already normalised) and a band shown whose values do
+/// not fit the units a step is told (reflectance 0-1 beyond 2, x 10000 beyond 10000).
+pub(crate) fn advice(steps: &[ChainStep], look: &Look) -> Vec<Advice> {
+    let mut out = vec![];
+    if steps.is_empty() {
+        out.push(Advice { level: 2, text: "No step is on.".into() });
+        return out;
+    }
+    let info = look.info;
+    let n = info.t();
+    let mut add = |level: u8, text: String| out.push(Advice { level, text });
+    for (id, why) in left_out(steps, info, look.roles, look.coarse) {
+        add(2, format!("{}: {why}.", step_label(&id)));
+    }
+    // each date's sensor, where a step reads it
+    let readers = sensor_readers(steps);
+    let sensors = &look.facts.sensors;
+    if !readers.is_empty() && sensors.len() == n {
+        let who: Vec<String> = readers
+            .iter()
+            .map(|id| match *id {
+                "tasseled_cap" => format!("{} (coefficients by sensor)", step_label(id)),
+                _ => format!("{} (sensor: auto)", step_label(id)),
+            })
+            .collect();
+        let none: Vec<usize> = (0..n).filter(|&t| sensors[t].is_empty()).collect();
+        if !none.is_empty() {
+            add(
+                2,
+                format!(
+                    "{} of {n} dates have no sensor ({}): {} {} it, read from the file name or the STAC platform. \
+                     Name the sensor in the step's form, or the files for it.",
+                    none.len(),
+                    name_dates(info, &none),
+                    who.join(" and "),
+                    if who.len() == 1 { "needs" } else { "need" }
+                ),
+            );
+        }
+        // the adjustment is to Sentinel-2A: its tool stops at a Sentinel-2 date when it reads each date's sensor
+        let s2: Vec<usize> = (0..n).filter(|&t| sensors[t] == "SEN2").collect();
+        if readers.contains(&"spectral_adjust") && !s2.is_empty() {
+            add(
+                2,
+                format!(
+                    "{} of {n} dates are Sentinel-2 ({}): the spectral adjustment takes Landsat or MODIS to \
+                     Sentinel-2A and stops at a Sentinel-2 date. Turn it off for a Sentinel-2 series.",
+                    s2.len(),
+                    name_dates(info, &s2)
+                ),
+            );
+        }
+    }
+    // NBAR's angles from Sentinel-2's granule metadata
+    if nbar_from_granules(steps) && look.facts.granules.len() == n {
+        let without: Vec<usize> = (0..n).filter(|&t| !look.facts.granules[t]).collect();
+        if !without.is_empty() {
+            add(
+                2,
+                format!(
+                    "NBAR reads the angles from Sentinel-2 granule metadata, which {} of {n} dates lack ({}): the run \
+                     stops at the first. Take the angles from bands instead, or use a series made from a Sentinel-2 \
+                     search or product.",
+                    without.len(),
+                    name_dates(info, &without)
+                ),
+            );
+        }
+    }
+    // HLS is BRDF-normalised already
+    let hls: Vec<usize> = look.facts.hls.iter().enumerate().filter(|(_, h)| **h).map(|(t, _)| t).collect();
+    if is_on(steps, "nbar") && !hls.is_empty() {
+        add(
+            1,
+            format!(
+                "{} of {n} dates are HLS ({}), already normalised to nadir view (HLS v2): NBAR would correct them \
+                 again.",
+                hls.len(),
+                name_dates(info, &hls)
+            ),
+        );
+    }
+    // digital numbers where a step is told reflectance
+    if let Some(hi) = look.shown_hi {
+        for id in ["spectral_adjust", "tasseled_cap"] {
+            let (limit, what) = match str_param(steps, id, "units") {
+                Some("unit") => (UNIT_REFLECTANCE_MAX, "reflectance 0-1"),
+                Some("x10000") => (SCALED_REFLECTANCE_MAX, "reflectance x 10000"),
+                _ => continue,
+            };
+            if hi > limit {
+                add(
+                    1,
+                    format!(
+                        "The band shown reaches {hi:.0}, beyond {what}, which the units of {} say: digital numbers? \
+                         Set its units (Landsat Collection 2 digital numbers, or auto).",
+                        step_label(id)
+                    ),
+                );
+            }
+        }
+    }
+    if info.sel.qa_band == 0 {
+        add(0, "The series has no quality band: the steps do not screen clouds.".into());
     }
     out
 }
@@ -509,14 +765,14 @@ pub(crate) fn run_chain(
             // the step's provenance lists the series it made too
             let folder = dir.parent().unwrap_or(root);
             if let Ok(mut p) = Provenance::read(folder) {
-                p.outputs.push(OutputRecord { name: "Harmonized series".into(), path: dir.to_string_lossy().into() });
+                p.outputs.push(OutputRecord { name: HARMONIZED_NAME.into(), path: dir.to_string_lossy().into() });
                 p.write(folder);
             }
             if let Some(prev) = harmonized {
                 outputs[prev]["no_layer"] = json!(true);
             }
             harmonized = Some(outputs.len());
-            outputs.push(json!({"id": "harmonized", "name": "Harmonized series", "path": dir.to_string_lossy(),
+            outputs.push(json!({"id": "harmonized", "name": HARMONIZED_NAME, "path": dir.to_string_lossy(),
                                 "series": true, "unit": "as the input"}));
             current = Some(assembled);
         }
@@ -526,6 +782,11 @@ pub(crate) fn run_chain(
         return Err(format!("no step could run: {}", why.join("; ")));
     }
     Ok(Chain { result: JobResult { outputs, window: base.window }, skipped })
+}
+
+/// The folder of a preview in the work folder `base`.
+fn preview_dir(base: &Path, stamp: &str) -> PathBuf {
+    base.join(format!("ard_{stamp}"))
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -548,6 +809,7 @@ impl State {
     }
 
     pub(crate) fn ard_window(&mut self, ctx: &egui::Context) {
+        self.ard_pump_preview(ctx);
         if !self.ard.open {
             return;
         }
@@ -558,7 +820,7 @@ impl State {
             .open(&mut open)
             .show(ctx, |ui| crate::panels::fitted_body(ui, |ui| self.ard_ui(ui)));
         self.ard.open = open;
-        if self.ard_running() {
+        if self.ard_running() || self.ard_previewing() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
     }
@@ -567,21 +829,55 @@ impl State {
         self.zeit.jobs.iter().any(|j| j.tool == JOB_TOOL && j.status.lock().unwrap().state == JobState::Running)
     }
 
+    /// The preview's chain is running.
+    fn ard_previewing(&self) -> bool {
+        self.ard.preview.as_ref().is_some_and(|p| {
+            self.zeit.jobs.iter().any(|j| j.output_dir == p.dir && j.status.lock().unwrap().state == JobState::Running)
+        })
+    }
+
+    /// What to look at now: the steps that are on and the series' metadata (read once per series).
+    fn ard_advice(&mut self, info: &Arc<CubeInfo>) -> Vec<Advice> {
+        let steps = self.ard_steps();
+        let roles = self.active_roles();
+        let coarse = self.ard_coarse();
+        let facts = date_facts(&steps, info);
+        // the band shown, when it is a reflectance band as it is: its stretch's upper end
+        let reflectance = SIX.iter().chain(NBAR_ROLES.iter()).any(|r| roles.get(*r) == Some(&info.sel.band));
+        let range = &self.display.ranges[janus_gpu::Mode::Value as usize];
+        let shown_hi =
+            (self.display.mode == janus_gpu::Mode::Value && reflectance && range.is_set()).then_some(range.hi);
+        let look = Look { info, roles: &roles, coarse: coarse.as_ref().map(|c| &*c.1), facts: &facts, shown_hi };
+        advice(&steps, &look)
+    }
+
     pub(crate) fn ard_ui(&mut self, ui: &mut Ui) {
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else {
             ui.colored_label(crate::theme::error(), "Open a series first.");
             return;
         };
+        // what to look at, once a frame
+        let to_look = self.ard_advice(&info);
+        let n_look = to_look.iter().filter(|a| a.level > 0).count();
         ui.horizontal(|ui| {
             for (i, name) in ["Input", "Steps", "Output"].into_iter().enumerate() {
-                ui.selectable_value(&mut self.ard.tab, i, RichText::new(name).strong());
+                let text = if i == 1 && n_look > 0 { format!("{name} ({n_look})") } else { name.to_string() };
+                ui.selectable_value(&mut self.ard.tab, i, RichText::new(text).strong());
             }
         });
         ui.separator();
         match self.ard.tab {
             0 => self.ard_input_tab(ui, &info),
-            1 => self.ard_steps_tab(ui, &info),
-            _ => self.ard_output_tab(ui, &info),
+            1 => {
+                self.ard_steps_tab(ui, &info);
+                crate::panels::section(ui, "To look at");
+                crate::tsa::advice_ui(ui, &to_look);
+            }
+            _ => {
+                crate::panels::section(ui, "To look at");
+                crate::tsa::advice_ui(ui, &to_look);
+                self.ard_output_tab(ui, &info);
+            }
         }
     }
 
@@ -719,8 +1015,18 @@ impl State {
         {
             ui.colored_label(crate::theme::error(), format!("Not yet: {why}."));
         }
+        self.ard_preview_ui(ui, blocked.as_deref(), roi);
         // the last chain: its progress and Cancel, or how it ended and its folder
         let mut open_folder = None;
+        let mut use_series = None;
+        let harmonized = self
+            .ard
+            .series_out
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(name, _)| name == HARMONIZED_NAME)
+            .map(|(_, path)| path.clone());
         if let Some(j) = self.zeit.jobs.iter().rev().find(|j| j.tool == JOB_TOOL) {
             let s = j.status.lock().unwrap();
             ui.separator();
@@ -746,11 +1052,212 @@ impl State {
                     if ui.button("Folder").on_hover_text(&j.output_dir).clicked() {
                         open_folder = Some(j.output_dir.clone());
                     }
+                    if state == JobState::Done
+                        && let Some(path) = &harmonized
+                        && ui
+                            .add(
+                                egui::Button::new("Use in Time series analysis")
+                                    .min_size(egui::vec2(ui.available_width(), 0.0)),
+                            )
+                            .on_hover_text(
+                                "Makes the harmonized series the active layer (opening it first if it is not) and \
+                                 opens the Time series analysis window on it",
+                            )
+                            .clicked()
+                    {
+                        use_series = Some(path.clone());
+                    }
                 }
             }
         }
         if let Some(d) = open_folder {
             crate::platform::open_in_explorer(&d);
+        }
+        if let Some(path) = use_series {
+            self.use_series(&path, &ui.ctx().clone());
+            (self.tsa.open, self.tsa.tab) = (true, 0);
+        }
+    }
+
+    /// Preview on the ROI: the chain on the ROI into a folder of its own, then the curtain; or its progress, and
+    /// the button that turns it off.
+    fn ard_preview_ui(&mut self, ui: &mut Ui, blocked: Option<&str>, roi: bool) {
+        ui.add_space(4.0);
+        let Some(p) = &self.ard.preview else {
+            let running = self.ard_running();
+            let why = if !roi {
+                Some("draw an ROI on the map first")
+            } else if running {
+                Some("a chain is running")
+            } else {
+                blocked
+            };
+            if ui
+                .add_enabled(
+                    why.is_none(),
+                    egui::Button::new("Preview on the ROI").min_size(egui::vec2(ui.available_width(), 0.0)),
+                )
+                .on_hover_text(
+                    "The chain on the ROI alone, into a folder that is removed with the preview, then the harmonized \
+                     series against the series on the map: the swipe, the series at the left and the harmonized one \
+                     at the right, on the date shown",
+                )
+                .clicked()
+            {
+                self.ard_preview(&ui.ctx().clone());
+            }
+            if let Some(why) = why.filter(|_| roi) {
+                ui.weak(format!("Preview: {why}."));
+            }
+            return;
+        };
+        let dir = p.dir.clone();
+        if let Some(j) = self.zeit.jobs.iter().find(|j| j.output_dir == dir) {
+            let s = j.status.lock().unwrap();
+            match s.state {
+                JobState::Running => {
+                    ui.add(egui::ProgressBar::new(s.progress as f32).text(format!(
+                        "Preview {:.0}%  {}",
+                        s.progress * 100.0,
+                        s.message
+                    )));
+                }
+                JobState::Done => {
+                    ui.weak(
+                        "Preview: the series at the left of the divider on the map, the harmonized one at the right \
+                         (its dashed window is the ROI).",
+                    );
+                }
+                JobState::Failed => {
+                    ui.colored_label(crate::theme::error(), format!("Preview failed: {}", s.error));
+                }
+                _ => {
+                    ui.weak("Preview cancelled.");
+                }
+            }
+        }
+        if ui
+            .add(egui::Button::new("Turn the preview off").min_size(egui::vec2(ui.available_width(), 0.0)))
+            .on_hover_text("Removes the preview's layers, the swipe and its folder")
+            .clicked()
+        {
+            self.ard_preview_stop(&ui.ctx().clone());
+        }
+    }
+
+    /// The chain on the ROI (its bounding box) into a folder of the preview's own in the work folder; replaces the
+    /// last preview of any tool (its maps, layers and folder gone). The curtain follows when it ends
+    /// (`ard_pump_preview`).
+    pub(crate) fn ard_preview(&mut self, ctx: &egui::Context) {
+        let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return };
+        if self.series.roi_rect.is_none() {
+            self.error_popup = Some("draw an ROI on the map first".into());
+            return;
+        }
+        let steps = self.ard_steps();
+        if steps.is_empty() {
+            self.error_popup = Some("no step of the Analysis-ready data is on".into());
+            return;
+        }
+        self.ard_preview_stop(ctx);
+        self.drop_preview();
+        let (mut input, _) = self.ard_chain_input(&info, 2);
+        input.chain.scope = "preview".into();
+        let window = input.chain.window;
+        let base = crate::settings::app_data_dir().join("work").join("preview");
+        let dir = preview_dir(&base, &format!("{}_{}", crate::zeit::timestamp(), self.frame));
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            self.error_popup = Some(format!("could not create {}: {e}", dir.display()));
+            return;
+        }
+        let title =
+            format!("Analysis-ready data preview - ROI ({} x {} px)", window[2] - window[0], window[3] - window[1]);
+        let log_head = format!(
+            "steps: {}\nwindow: {window:?}\nthreads: {}\n",
+            steps.iter().map(|s| s.tool.id.as_str()).collect::<Vec<_>>().join(", "),
+            input.chain.threads
+        );
+        let written = Arc::new(Mutex::new(vec![]));
+        let start = JobStart {
+            title,
+            tool: PREVIEW_JOB,
+            thread: "zeit-ard-preview",
+            cube: info.id,
+            root: dir.clone(),
+            log_head,
+        };
+        let root = dir.clone();
+        spawn_job(&mut self.zeit.jobs, start, written.clone(), ctx, move |progress, cancel| {
+            let mut chain = run_chain(&steps, &input, &root, progress, cancel)?;
+            // the series it wrote join the layers hidden: the map keeps the series, the curtain shows them
+            for o in chain.result.outputs.iter_mut().filter(|o| o["series"].as_bool() == Some(true)) {
+                o["hidden"] = json!(true);
+            }
+            Ok(chain)
+        });
+        let dir = dir.to_string_lossy().into_owned();
+        self.zeit.preview =
+            Some(Preview { tool: JOB_TOOL.into(), dir: dir.clone(), cube: info.id, window, version: 0 });
+        self.ard.preview = Some(ArdPreview { dir, written, curtain: false });
+    }
+
+    /// Each frame: the preview still the zeit's (another tool's preview replaces it), and once its chain ended and
+    /// its harmonized series is a layer, the swipe on it at the date shown.
+    pub(crate) fn ard_pump_preview(&mut self, ctx: &egui::Context) {
+        let Some(p) = &self.ard.preview else { return };
+        if self.zeit.preview.as_ref().is_none_or(|z| z.dir != p.dir) {
+            // replaced by another preview (which removed the folder): its layers and the swipe go
+            self.ard_preview_stop(ctx);
+            return;
+        }
+        if p.curtain
+            || self.opening.is_some()
+            || !self.zeit.series_to_open.is_empty()
+            || self.zeit.keep_active.is_some()
+        {
+            return;
+        }
+        let Some(path) = p.written.lock().unwrap().iter().find(|(n, _)| n == HARMONIZED_NAME).map(|(_, f)| f.clone())
+        else {
+            return;
+        };
+        let Some(i) = self.series_layer(&path) else { return };
+        let Some((cube, n)) = self.layer_session(i).map(|s| (s.info.id, s.info.t())) else { return };
+        if self.swipe.is_none() {
+            self.toggle_swipe();
+        }
+        let t = self.display.t;
+        if let Some(sw) = self.swipe.as_mut() {
+            // the swipe's right side: the harmonized series, on the date the map shows
+            sw.view.cube = cube;
+            (sw.view.own_date, sw.view.t, sw.view.own_mode, sw.view.basemap_only) = (true, t.min(n - 1), false, false);
+            sw.view.dirty = true;
+            sw.x = 0.5;
+        }
+        if let Some(p) = self.ard.preview.as_mut() {
+            p.curtain = true;
+        }
+    }
+
+    /// The preview gone: the swipe if it shows its series, its layers, its task and its folder.
+    pub(crate) fn ard_preview_stop(&mut self, ctx: &egui::Context) {
+        let Some(p) = self.ard.preview.take() else { return };
+        let dir = std::path::PathBuf::from(&p.dir);
+        // not opened yet
+        self.zeit.series_to_open.retain(|(q, _)| !std::path::Path::new(q).starts_with(&dir));
+        while let Some(i) =
+            self.layers.iter().position(|l| l.inputs.len() == 1 && std::path::Path::new(&l.inputs[0]).starts_with(&dir))
+        {
+            let cube = self.layer_session(i).map(|s| s.info.id);
+            if self.swipe.as_ref().is_some_and(|sw| Some(sw.view.cube) == cube) {
+                self.toggle_swipe();
+            }
+            self.remove_layer(i, ctx);
+        }
+        if self.zeit.preview.as_ref().is_some_and(|z| z.dir == p.dir) {
+            self.drop_preview();
+        } else {
+            crate::zeit::remove_dir_soon(p.dir);
         }
     }
 
@@ -789,11 +1296,11 @@ impl State {
 
     /// What the chain starts from now: the active layer's series, the scope and the roles of its bands. And the
     /// series' name for the folders.
-    fn ard_chain_input(&mut self, info: &Arc<CubeInfo>) -> (ArdInput, String) {
+    fn ard_chain_input(&mut self, info: &Arc<CubeInfo>, scope_index: usize) -> (ArdInput, String) {
         let layer = self.layers.get(self.active).map(|l| (l.name.clone(), l.inputs.clone()));
         let inputs = layer.as_ref().map(|l| l.1.clone()).unwrap_or_default();
         let name = crate::zeit::series_name(info, &inputs);
-        let (window, scope) = self.run_window(self.ard.scope);
+        let (window, scope) = self.run_window(scope_index);
         let chain = ChainInput {
             info: info.clone(),
             name: layer.map_or(name.clone(), |l| l.0),
@@ -801,7 +1308,7 @@ impl State {
             roles: self.active_roles(),
             window,
             scope: scope.to_string(),
-            scope_index: self.ard.scope,
+            scope_index,
             map_t: self.display.t.min(info.t().saturating_sub(1)),
             threads: self.processing_threads(),
         };
@@ -819,7 +1326,8 @@ impl State {
             self.error_popup = Some("no step of the Analysis-ready data is on".into());
             return;
         }
-        let (input, name) = self.ard_chain_input(&info);
+        self.ard_preview_stop(ctx);
+        let (input, name) = self.ard_chain_input(&info, self.ard.scope);
         let (window, scope) = (input.chain.window, input.chain.scope.clone());
         let root = self.results_dir().join(format!("{name}_ard_{}", crate::zeit::timestamp()));
         if let Err(e) = std::fs::create_dir_all(&root) {
@@ -1203,5 +1711,261 @@ mod tests {
         .expect("an error");
         assert_eq!(e, "cancelled");
         assert!(!base.join("during").join("02_spectral_adjust").exists());
+    }
+
+    // ---- what to look at ----
+
+    /// A series in memory (no file): `n` dates every 16 days from 2020-01-05, 11 bands a date and a quality band.
+    fn mem(n: usize) -> CubeInfo {
+        let day0 = janus_cube::dates::days_from_civil(2020, 1, 5);
+        let layers = (0..n)
+            .map(|k| janus_cube::Layer { time: (day0 + 16 * k as i64) as f64 * 86400.0, band: 1, ..Default::default() })
+            .collect();
+        CubeInfo {
+            layers,
+            width: 4,
+            height: 4,
+            time_is_date: true,
+            bands_per_date: 11,
+            band_names: NAMES.iter().map(|s| s.to_string()).collect(),
+            sel: BandSelection { band: 3, qa_band: 11, qa_rule: QaRule::LandsatC2, chosen: true, ..Default::default() },
+            ..Default::default()
+        }
+    }
+
+    fn with(id: &str, params: &[(&str, Value)]) -> ChainStep {
+        ChainStep {
+            tool: manifest().tool(id).unwrap(),
+            params: params.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+        }
+    }
+
+    fn six_and_angles() -> BTreeMap<String, i32> {
+        roles(&mem(1))
+    }
+
+    fn has(a: &[Advice], level: u8, part: &str) -> bool {
+        a.iter().any(|x| x.level == level && x.text.contains(part))
+    }
+
+    fn look<'a>(info: &'a CubeInfo, roles: &'a BTreeMap<String, i32>, facts: &'a DateFacts) -> Look<'a> {
+        Look { info, roles, coarse: None, facts, shown_hi: None }
+    }
+
+    #[test]
+    fn nothing_on_is_level_two_and_a_clean_chain_has_nothing_to_look_at() {
+        let info = mem(8);
+        let r = six_and_angles();
+        let none = DateFacts::default();
+        assert_eq!(advice(&[], &look(&info, &r, &none)), vec![Advice { level: 2, text: "No step is on.".into() }]);
+        let facts = DateFacts { sensors: vec!["LND08".into(); 8], hls: vec![false; 8], ..Default::default() };
+        let a = advice(&[step("nbar"), step("spectral_adjust")], &look(&info, &r, &facts));
+        assert!(a.iter().all(|x| x.level == 0), "{a:?}");
+    }
+
+    #[test]
+    fn dates_without_a_sensor_stop_the_steps_that_read_it_and_up_to_five_are_named() {
+        let info = mem(8);
+        let r = six_and_angles();
+        let mut sensors = vec!["LND08".to_string(); 8];
+        sensors[1].clear();
+        sensors[3].clear();
+        let facts = DateFacts { sensors: sensors.clone(), ..Default::default() };
+        let adjust = [step("spectral_adjust")];
+        let a = advice(&adjust, &look(&info, &r, &facts));
+        assert!(has(&a, 2, "2 of 8 dates have no sensor (2020-01-21, 2020-02-22)"), "{a:?}");
+        assert!(has(&a, 2, "Spectral adjustment to Sentinel-2A (sensor: auto)"), "{a:?}");
+        // the sensor named in the form: nothing to read
+        let named = [with("spectral_adjust", &[("sensor", json!("LND08"))])];
+        assert!(advice(&named, &look(&info, &r, &facts)).iter().all(|x| x.level == 0));
+        // Tasseled Cap with the coefficients of each sensor reads them too; with Crist's it does not
+        let tc = [with("tasseled_cap", &[("coefficients", json!("sensor"))])];
+        assert!(has(&advice(&tc, &look(&info, &r, &facts)), 2, "Tasseled Cap (coefficients by sensor)"));
+        let crist = [with("tasseled_cap", &[("coefficients", json!("crist1985"))])];
+        assert!(advice(&crist, &look(&info, &r, &facts)).iter().all(|x| x.level == 0));
+        // seven dates without: five named and the count of the rest
+        let facts = DateFacts { sensors: vec![String::new(); 8], ..Default::default() };
+        let a = advice(&adjust, &look(&info, &r, &facts));
+        assert!(
+            has(
+                &a,
+                2,
+                "8 of 8 dates have no sensor (2020-01-05, 2020-01-21, 2020-02-06, 2020-02-22, 2020-03-09 and 3 more)"
+            ),
+            "{a:?}"
+        );
+    }
+
+    #[test]
+    fn sentinel_2_dates_stop_the_adjustment_unless_its_sensor_is_named() {
+        let info = mem(4);
+        let r = six_and_angles();
+        let facts =
+            DateFacts { sensors: ["LND08", "SEN2", "LND09", "SEN2"].map(String::from).to_vec(), ..Default::default() };
+        let a = advice(&[step("spectral_adjust")], &look(&info, &r, &facts));
+        assert!(has(&a, 2, "2 of 4 dates are Sentinel-2 (2020-01-21, 2020-02-22)"), "{a:?}");
+        assert!(has(&a, 2, "Turn it off for a Sentinel-2 series"), "{a:?}");
+        let named = [with("spectral_adjust", &[("sensor", json!("LND08"))])];
+        assert!(advice(&named, &look(&info, &r, &facts)).iter().all(|x| x.level == 0));
+        // Tasseled Cap on Sentinel-2 dates is not refused
+        assert!(advice(&[step("tasseled_cap")], &look(&info, &r, &facts)).iter().all(|x| x.level == 0));
+    }
+
+    #[test]
+    fn nbar_needs_its_angles_from_bands_or_from_granule_metadata() {
+        let info = mem(4);
+        let r = six_and_angles();
+        // from Sentinel-2's metadata: the dates that have none
+        let facts = DateFacts { granules: vec![true, false, true, false], ..Default::default() };
+        let s2 = [with("nbar", &[("angles", json!("sentinel2"))])];
+        let a = advice(&s2, &look(&info, &r, &facts));
+        assert!(has(&a, 2, "which 2 of 4 dates lack (2020-01-21, 2020-02-22)"), "{a:?}");
+        let facts = DateFacts { granules: vec![true; 4], ..Default::default() };
+        assert!(advice(&s2, &look(&info, &r, &facts)).iter().all(|x| x.level == 0));
+        // from the bands: the four roles mapped, or the step is left out
+        let mut no_angles = r.clone();
+        for a in ANGLES {
+            no_angles.remove(a);
+        }
+        let a = advice(&[step("nbar")], &look(&info, &no_angles, &DateFacts::default()));
+        assert!(has(&a, 2, "NBAR (c-factor): map the angle bands first: sza, saa, vza, vaa"), "{a:?}");
+        // the metadata stands for the bands: no angle band is needed
+        assert!(!advice(&s2, &look(&info, &no_angles, &facts)).iter().any(|x| x.text.contains("angle bands")));
+    }
+
+    #[test]
+    fn hls_dates_under_nbar_are_level_one() {
+        let info = mem(4);
+        let r = six_and_angles();
+        let facts = DateFacts { hls: vec![true, true, false, true], ..Default::default() };
+        let a = advice(&[step("nbar")], &look(&info, &r, &facts));
+        assert!(has(&a, 1, "3 of 4 dates are HLS (2020-01-05, 2020-01-21, 2020-02-22), already normalised"), "{a:?}");
+        // the facts are only read under NBAR
+        let a = advice(&[step("tasseled_cap")], &look(&info, &r, &facts));
+        assert!(!a.iter().any(|x| x.text.contains("HLS")), "{a:?}");
+    }
+
+    #[test]
+    fn a_band_shown_beyond_the_units_a_step_is_told_looks_unscaled() {
+        let info = mem(4);
+        let r = six_and_angles();
+        let facts = DateFacts { sensors: vec!["LND08".into(); 4], ..Default::default() };
+        let at = |hi: f32| Look { shown_hi: Some(hi), ..look(&info, &r, &facts) };
+        let unit = [with("spectral_adjust", &[("units", json!("unit"))])];
+        assert!(has(&advice(&unit, &at(8000.0)), 1, "reaches 8000, beyond reflectance 0-1"));
+        assert!(!has(&advice(&unit, &at(1.2)), 1, "reaches"));
+        let scaled = [with("tasseled_cap", &[("units", json!("x10000"))])];
+        assert!(has(&advice(&scaled, &at(30000.0)), 1, "beyond reflectance x 10000, which the units of Tasseled Cap"));
+        assert!(!has(&advice(&scaled, &at(8000.0)), 1, "reaches"));
+        // auto tells digital numbers by itself; no stretch to look at: nothing to say
+        assert!(!has(&advice(&[step("spectral_adjust")], &at(30000.0)), 1, "reaches"));
+        assert!(!has(&advice(&unit, &look(&info, &r, &facts)), 1, "reaches"));
+    }
+
+    #[test]
+    fn improphe_needs_a_coarse_series_in_the_same_crs_and_a_series_without_a_quality_band_is_noted() {
+        let mut info = mem(4);
+        info.crs_authority = "EPSG:32722".into();
+        let r = six_and_angles();
+        let facts = DateFacts::default();
+        let a = advice(&[step("improphe")], &look(&info, &r, &facts));
+        assert!(has(&a, 2, "ImproPhe: choose the coarse series"), "{a:?}");
+        let mut other = mem(4);
+        other.crs_authority = "EPSG:4326".into();
+        let l = Look { coarse: Some(&other), ..look(&info, &r, &facts) };
+        assert!(has(&advice(&[step("improphe")], &l), 2, "another CRS"));
+        let same = info.clone();
+        let l = Look { coarse: Some(&same), ..look(&info, &r, &facts) };
+        assert!(advice(&[step("improphe")], &l).iter().all(|x| x.level == 0));
+        info.sel.qa_band = 0;
+        assert!(has(
+            &advice(&[step("improphe")], &Look { coarse: Some(&same), ..look(&info, &r, &facts) }),
+            0,
+            "no quality band"
+        ));
+    }
+
+    /// A series of `names.len()` dates, one band each, with the file names and STAC collection of each.
+    fn named_series(dir: &Path, files: &[(&str, &str)]) -> CubeInfo {
+        let _ = std::fs::remove_dir_all(dir);
+        std::fs::create_dir_all(dir).unwrap();
+        let drv = gdal::DriverManager::get_driver_by_name("GTiff").unwrap();
+        for (name, collection) in files {
+            let mut ds = drv.create_with_band_type::<f32, _>(dir.join(name), 4, 4, 1).unwrap();
+            ds.set_geo_transform(&GT).unwrap();
+            if !collection.is_empty() {
+                ds.set_metadata_item("STAC_COLLECTION", collection, "").unwrap();
+            }
+        }
+        open_cube(&[dir.to_string_lossy().into_owned()], &BandSelection::default()).unwrap()
+    }
+
+    #[test]
+    fn the_dates_facts_are_read_from_the_files() {
+        let base = std::env::temp_dir().join("janus-ard-test-facts");
+        let raw = series(&base.join("series"));
+        let steps = [step("nbar"), step("spectral_adjust")];
+        let facts = date_facts(&steps, &raw);
+        assert_eq!(facts.sensors.len(), 8);
+        // the fourth date is named for no sensor but its STAC platform says Landsat 7
+        assert_eq!(facts.sensors[3], "LND07");
+        assert_eq!(facts.sensors[0], "LND08");
+        assert!(facts.granules.is_empty(), "NBAR reads the angle bands: no granule is looked for");
+        assert_eq!(facts.hls, vec![false; 8]);
+        // from Sentinel-2's metadata: a MTD_TL.xml beside the files stands for every date
+        let s2 = [with("nbar", &[("angles", json!("sentinel2"))])];
+        assert_eq!(date_facts(&s2, &raw).granules, vec![true; 8]);
+        // nothing that reads them on: nothing read
+        let none = date_facts(&[step("tasseled_cap")], &raw);
+        assert!(none.sensors.is_empty() && none.granules.is_empty() && none.hls.is_empty());
+        // HLS by the file name or by the STAC collection
+        let hls = named_series(
+            &base.join("hls"),
+            &[("HLS.L30.T22KDV.2020005.v2.0.tif", ""), ("scene_20200121.tif", "hls2-l30"), ("scene_20200206.tif", "")],
+        );
+        assert_eq!(hls.t(), 3);
+        let facts = date_facts(&steps, &hls);
+        assert_eq!(facts.hls.iter().filter(|h| **h).count(), 2, "{:?}", facts.hls);
+        assert!(!facts.hls[2]);
+    }
+
+    // ---- the preview ----
+
+    #[test]
+    fn the_preview_runs_the_chain_on_the_roi_alone_into_its_folder_and_ending_it_removes_the_folder() {
+        let base = std::env::temp_dir().join("janus-ard-test-preview");
+        let raw = series(&base.join("series"));
+        let roles = roles(&raw);
+        let roi = [2, 1, 6, 5];
+        let dir = preview_dir(&base.join("work").join("preview"), "t0_1");
+        assert!(dir.ends_with("ard_t0_1"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let steps = [step("nbar"), step("spectral_adjust")];
+        let chain = run_chain(&steps, &input(&raw, roles, roi), &dir, &|_, _| {}, &AtomicBool::new(false)).unwrap();
+        assert_eq!(chain.result.window, roi);
+        assert!(chain.skipped.is_empty(), "{:?}", chain.skipped);
+        // everything it wrote is in the preview's folder and the size of the ROI, the harmonized series included
+        let tifs = tifs(&chain.result.outputs);
+        assert_eq!(tifs.len(), 6 + 10);
+        for o in &tifs {
+            let path = o["path"].as_str().unwrap();
+            assert!(Path::new(path).starts_with(&dir), "{path}");
+            assert_eq!(gdal::Dataset::open(path).unwrap().raster_size(), (4, 4), "{}", o["id"]);
+        }
+        let harmonized = chain.result.outputs.iter().find(|o| o["id"] == "harmonized").unwrap();
+        let series_dir = Path::new(harmonized["path"].as_str().unwrap());
+        assert!(series_dir.starts_with(&dir));
+        let first = std::fs::read_dir(series_dir).unwrap().next().unwrap().unwrap().path();
+        let ds = gdal::Dataset::open(&first).unwrap();
+        assert_eq!(ds.raster_size(), (4, 4));
+        let gt = ds.geo_transform().unwrap();
+        assert_eq!([gt[0], gt[3]], [GT[0] + 2.0 * 30.0, GT[3] - 30.0]);
+        drop(ds);
+        // the input series is untouched and outside the folder
+        assert!(base.join("series").is_dir() && !Path::new(&raw.first_path).starts_with(&dir));
+        // ending the preview removes its folder
+        crate::zeit::remove_dir_soon(dir.to_string_lossy().into_owned()).join().unwrap();
+        assert!(!dir.exists());
+        assert!(base.join("series").is_dir());
     }
 }

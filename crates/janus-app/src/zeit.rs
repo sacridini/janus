@@ -87,6 +87,19 @@ pub struct Preview {
     pub version: u64,
 }
 
+/// A preview's folder removed on a thread: a run being cancelled may still write for a moment, so it is tried again
+/// for ten seconds.
+pub(crate) fn remove_dir_soon(dir: String) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        for _ in 0..50 {
+            if std::fs::remove_dir_all(&dir).is_ok() || !std::path::Path::new(&dir).exists() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    })
+}
+
 /// The bands a multiband fit reads for its pixel (in the worker).
 struct BandRead {
     info: Arc<CubeInfo>,
@@ -2305,15 +2318,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         self.zeit.jobs.retain(|j| j.output_dir != p.dir);
         self.zeit.results.retain(|r| r.run != p.dir);
         self.map.dirty = true;
-        // a run being cancelled may still write for a moment
-        std::thread::spawn(move || {
-            for _ in 0..50 {
-                if std::fs::remove_dir_all(&p.dir).is_ok() || !std::path::Path::new(&p.dir).exists() {
-                    return;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(200));
-            }
-        });
+        remove_dir_soon(p.dir);
     }
 
     /// The preview's window on the map, dashed (with "Preview..." while it runs), over the series it was made on.
@@ -2356,7 +2361,11 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             // the outputs of a chain (Time series analysis, Analysis-ready data) are named by their own step already
             let tool_name = manifest().tool(&j.tool).map_or(format!("{}: ", j.tool), |t| format!("{}: ", t.name));
             let tool_name =
-                if j.tool == crate::tsa::JOB_TOOL || j.tool == crate::ard::JOB_TOOL { String::new() } else { tool_name };
+                if [crate::tsa::JOB_TOOL, crate::ard::JOB_TOOL, crate::ard::PREVIEW_JOB].contains(&j.tool.as_str()) {
+                    String::new()
+                } else {
+                    tool_name
+                };
             let [x0, y0, x1, y1] = res.window;
             // the series' grid: its maps placed by it even once it is closed
             let (session, active) = (&self.session, self.active);

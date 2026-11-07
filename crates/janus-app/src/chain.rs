@@ -291,3 +291,56 @@ pub(crate) fn spawn_job(
 pub(crate) fn cancelled(cancel: &AtomicBool) -> bool {
     cancel.load(Ordering::Relaxed)
 }
+
+/// The index of the layer that opened exactly `path` (a series a chain wrote), among the layers' inputs.
+pub(crate) fn opened_from(layers: &[&[String]], path: &str) -> Option<usize> {
+    let key = crate::provenance::absolute(path);
+    layers.iter().position(|inputs| inputs.len() == 1 && crate::provenance::absolute(&inputs[0]) == key)
+}
+
+impl crate::app::State {
+    /// The layer that opened the series `path`, if one is open.
+    pub(crate) fn series_layer(&self, path: &str) -> Option<usize> {
+        let inputs: Vec<&[String]> = self.layers.iter().map(|l| l.inputs.as_slice()).collect();
+        opened_from(&inputs, path)
+    }
+
+    /// Makes the layer that opened `path` the active one, if there is one.
+    pub(crate) fn activate_series(&mut self, path: &str, ctx: &egui::Context) -> bool {
+        let found = self.series_layer(path);
+        if let Some(i) = found
+            && i != self.active
+        {
+            self.set_active(i, ctx);
+        }
+        found.is_some()
+    }
+
+    /// The series `path` a chain wrote, active: its layer if it is open, else opened as the chains' other series are
+    /// (it becomes active when it arrives: `pending_use`, taken by the Time series analysis window's frame).
+    pub(crate) fn use_series(&mut self, path: &str, ctx: &egui::Context) {
+        if !self.activate_series(path, ctx) {
+            if !self.zeit.series_to_open.iter().any(|(q, _)| q == path) {
+                self.zeit.series_to_open.push((path.to_string(), false));
+            }
+            self.tsa.pending_use = Some(path.to_string());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_series_is_found_among_the_layers_by_the_one_file_it_opened() {
+        let a = vec!["C:/data/a.tif".to_string()];
+        let b = vec!["C:/data/out/series".to_string()];
+        let two = vec!["C:/data/out/series".to_string(), "C:/data/b.tif".to_string()];
+        let layers: Vec<&[String]> = vec![&a, &two, &b];
+        assert_eq!(opened_from(&layers, "C:/data/out/series"), Some(2));
+        assert_eq!(opened_from(&layers, "C:/data/a.tif"), Some(0));
+        assert_eq!(opened_from(&layers, "C:/data/c.tif"), None);
+        assert_eq!(opened_from(&[], "C:/data/a.tif"), None);
+    }
+}

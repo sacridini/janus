@@ -329,7 +329,7 @@ pub(crate) fn advice(info: &CubeInfo, on: &[bool; 8], params: &dyn Fn(&str) -> B
 }
 
 /// The advice as the Classification window shows its warnings: a coloured dot and the text.
-fn advice_ui(ui: &mut Ui, items: &[Advice]) {
+pub(crate) fn advice_ui(ui: &mut Ui, items: &[Advice]) {
     if items.is_empty() {
         ui.weak("Nothing to look at.");
     }
@@ -940,7 +940,7 @@ impl State {
             && !self.zeit.series_to_open.iter().any(|(q, _)| *q == p)
         {
             self.tsa.pending_use = None;
-            self.tsa_activate(&p, ctx);
+            self.activate_series(&p, ctx);
         }
         if !self.tsa.open {
             return;
@@ -1184,28 +1184,10 @@ impl State {
         chain_code(&steps, &left_out(&steps, info), &input, &out.to_string_lossy())
     }
 
-    /// Makes the layer that opened `path` the active one, if there is one.
-    fn tsa_activate(&mut self, path: &str, ctx: &egui::Context) -> bool {
-        let key = crate::provenance::absolute(path);
-        let found =
-            self.layers.iter().position(|l| l.inputs.len() == 1 && crate::provenance::absolute(&l.inputs[0]) == key);
-        if let Some(i) = found
-            && i != self.active
-        {
-            self.set_active(i, ctx);
-        }
-        found.is_some()
-    }
-
     /// The series `path` the chain wrote, active and the Classification open on its samples' tab: the series' layer
     /// if it is open, else opened as the chain's other series are (it becomes active when it arrives).
     pub(crate) fn tsa_use_series(&mut self, path: &str, ctx: &egui::Context) {
-        if !self.tsa_activate(path, ctx) {
-            if !self.zeit.series_to_open.iter().any(|(q, _)| q == path) {
-                self.zeit.series_to_open.push((path.to_string(), false));
-            }
-            self.tsa.pending_use = Some(path.to_string());
-        }
+        self.use_series(path, ctx);
         (self.ml.open, self.ml.tab) = (true, 0);
     }
 
