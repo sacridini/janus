@@ -808,20 +808,28 @@ series and scope, the run's folder and files). Then it has one of two kinds of c
 
 - **A script** (`rerun.py`, also written beside the run): a Zeit tool's run
   reads the series over the run's window and makes the same Zeit calls with
-  the same parameters. Reproject, resample, clip calls `gdal.Warp` with the
-  same gdalwarp options, file by file. Rasterize burns the same features with
-  the same values on the same grid through `gdal.RasterizeLayer`. Polygonize
-  traces the same polygons with `rasterio.features.shapes` (the same
-  simplification, the minimum area through Zeit's sieve) and measures their
-  geodesic areas and perimeters with pyproj, into a GeoPackage of the same
-  columns. Zonal statistics burns each feature alone and writes the same long
-  and wide tables (and the transitions), pixel areas as Janus measures them.
-  Regularize reads the series as Janus does and makes the same composites
-  (median, medoid; clearest date approximately) and fills (linear, Whittaker)
-  in numpy. Build series calls `gdal.BuildVRT` (and `gdal.Translate` for COGs)
-  with the same grid. The calculator's expressions without reductions over
-  time or stages, on layers of the same grid, read the inputs as Janus' VRTs
-  read them and compute the expression in numpy, date by date. Each script
+  the same parameters. The other tools' scripts are short because they are
+  written with Zeit (`zeit.load_raster` and `zeit.save_raster` read, warp and
+  write the files), and carry only the branches their run took. Reproject,
+  resample, clip is `load_raster(file, crs=, res=, resampling=)` and
+  `save_raster` for each file (outside the footprint Zeit writes no data where
+  gdalwarp writes 0); only what Zeit cannot do (pixels aligned to the size, a
+  no data value or type of the output, a cutline, an extent together with
+  another CRS) stays `gdal.Warp` with gdalwarp's options. Rasterize burns the
+  same features with the same values on the same grid through rasterio's
+  `rasterize` and `save_raster`. Polygonize traces the same polygons with
+  `rasterio.features.shapes` (the same simplification, the minimum area through
+  Zeit's `mmu_sieve`) and measures their geodesic areas and perimeters with
+  pyproj, into a GeoPackage of the same columns. Zonal statistics burns each
+  feature alone and writes the same long and wide tables (and the
+  transitions), pixel areas as Janus measures them. Regularize is Zeit's
+  `regularize_time_series` over the series read by `load_raster` (median or
+  medoid; the clearest date by a few lines of xarray), its gaps filled (linear,
+  Whittaker through `zeit.smooth`). Build series calls `gdal.BuildVRT` (and
+  `gdal.Translate` for COGs) with the same grid, as Zeit writes no VRT. The
+  calculator's expressions without reductions over time or stages, on layers of
+  the same grid, read the inputs with `load_raster` as Janus' VRTs read them
+  and compute the expression in numpy, date by date, written by `save_raster`. Each script
   writes its files in a `python` folder of the run, and the UI self-test checks
   that they equal Janus' own (rasters value for value, GeoPackages feature for
   feature, tables cell for cell; the calculator within 1e-5, as Janus computes
