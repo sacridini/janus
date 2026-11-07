@@ -50,14 +50,24 @@
     <p class="crumbs"><a href="./">Janus</a> / News</p>
     <p class="eyebrow">News</p>
     <h1>What&rsquo;s new.</h1>
-    <p class="lede">What each version of Janus added, newest first, in the words of the commit that made the release. The latest is 1.16.0; the installers are on each release&rsquo;s page on GitHub.</p>
+    <p class="lede">What each version of Janus added, newest first, in the words of the commit that made the release. The latest is 1.17.0; the installers are on each release&rsquo;s page on GitHub.</p>
   </div>
 </section>
 
 <div class="wrap news-wrap">
   <div class="article news">
+    <section id="v1.17.0">
+      <h2><a href="#v1.17.0">1.17.0</a><time datetime="2026-11-07">2026-11-07</time> <span class="rel-new">Latest</span></h2>
+      <ul>
+        <li>the Time series analysis window (FORCE, phase 56), Tasseled Cap and the spectral adjustment, NBAR (the bands' angles and Sentinel-2's granule metadata) and ImproPhe from zeit-core</li>
+        <li>the new website (the home as a story, Explore, Detect, Prove; a demo in the browser; the methods catalogue and chooser; guide tracks; search; short clips; docs and News pages)</li>
+        <li>the Python history scripts and the validation's Copy Python with Zeit's load_raster and save_raster (warp 50 -&gt; 18 lines, zonal 320 -&gt; 100, regularize 238 -&gt; 32, accuracy 69 -&gt; 27)</li>
+        <li>cargo fmt of the bridge test</li>
+      </ul>
+      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.17.0">Release page on GitHub</a></p>
+    </section>
     <section id="v1.16.0">
-      <h2><a href="#v1.16.0">1.16.0</a><time datetime="2026-11-06">2026-11-06</time> <span class="rel-new">Latest</span></h2>
+      <h2><a href="#v1.16.0">1.16.0</a><time datetime="2026-11-06">2026-11-06</time></h2>
       <ul>
         <li>FORCE's time series analysis from zeit-core: Interpolate (RBF ensemble, linear, moving average, robust harmonic, onto a regular grid), Temporal metrics, Fold by period, Standardize, Linear trend of a fold, CAT, Clear-sky observations and Polar phenology, each equal to Zeit's to 1e-5, with Copy Python</li>
         <li>outputs whose bands the tool decides (dated series or named bands) and a multi-choice parameter</li>
@@ -197,18 +207,19 @@
       </ul>
       <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.7.0">Release page on GitHub</a></p>
     </section>
-    <section id="v1.6.7">
-      <h2><a href="#v1.6.7">1.6.7</a><time datetime="2026-10-31">2026-10-31</time></h2>
-      <ul>
-        <li>Similarity to a series, a map of how alike every pixel's series is to the cursor's, a pin's or the ROI's mean, by values or by shape, on the GPU as the cursor moves (--mode similarity[,shape][,pin|roi])</li>
-        <li>Analysis &gt; Atlas, every pixel's behaviour in a UMAP plane linked to the map both ways, groups drawn or found and their share of the region</li>
-        <li>the Analysis panel open by default next to Time series, and moved rather than copied to a window of its own</li>
-        <li>the guide Seeing a series</li>
-      </ul>
-      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.6.7">Release page on GitHub</a></p>
-    </section>
     <section id="older">
       <h2>Older releases</h2>
+      <details class="rel-old" id="v1.6.7"><summary><span class="rv">1.6.7</span><time datetime="2026-10-31">2026-10-31</time><span class="rs">Similarity to a series, a map of how alike every pixel's series is to the cursor's, a pin's or the ROI's…</span></summary>
+        <div class="rel-body">
+          <ul>
+            <li>Similarity to a series, a map of how alike every pixel's series is to the cursor's, a pin's or the ROI's mean, by values or by shape, on the GPU as the cursor moves (--mode similarity[,shape][,pin|roi])</li>
+            <li>Analysis &gt; Atlas, every pixel's behaviour in a UMAP plane linked to the map both ways, groups drawn or found and their share of the region</li>
+            <li>the Analysis panel open by default next to Time series, and moved rather than copied to a window of its own</li>
+            <li>the guide Seeing a series</li>
+          </ul>
+          <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.6.7">Release page on GitHub</a></p>
+        </div>
+      </details>
       <details class="rel-old" id="v1.6.6"><summary><span class="rv">1.6.6</span><time datetime="2026-10-30">2026-10-30</time><span class="rs">Analysis &gt; Cycles, a series' wavelet scalogram (its cycles over time: a yearly one, a second crop from when…</span></summary>
         <div class="rel-body">
           <p>Analysis &gt; Cycles, a series' wavelet scalogram (its cycles over time: a yearly one, a second crop from when it starts, a clearing breaking them), above red noise at 95 % outlined, the cone of influence darkened, the global spectrum at the right, checked against Torrence &amp; Compo's code in numpy; Analysis &gt; Bands, every band of a date over time as a heatmap (each band's range, one range or z-scores) at the cursor, a pin or the ROI</p>

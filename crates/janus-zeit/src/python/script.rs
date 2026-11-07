@@ -993,6 +993,12 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
         } else if banded.iter().any(|c| !c.inputs.contains(&"fmask")) {
             body.line("# NDFI, CODED and Tmask use only the clear observations: bands_cube.where(fmask <= 1)");
         }
+        // CODED takes a (time, band, y, x) cube; a pin has no y and x
+        if banded.iter().any(|c| c.tool == "coded") {
+            body.line(
+                "bands_cube = bands_cube.expand_dims(y=1, x=1).transpose(\"time\", \"band\", \"y\", \"x\")  # CODED wants y and x",
+            );
+        }
     }
 
     // ---- the tools
