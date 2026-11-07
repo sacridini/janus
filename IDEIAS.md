@@ -1278,7 +1278,6 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 15 | 0.23.0 | **Mapa de fundo (basemap)**: imagem de satélite/mapa da web por baixo das séries (Esri World Imagery, Sentinel-2 cloudless, OSM, URL XYZ própria), pelo driver WMS/TMS do GDAL, reprojetado pela grade de warp | concluída |
 | 16 | 0.24.0 | **Configurações**: janela própria (File → Settings); **limite de núcleos** para o processamento do Janus e do Zeit (padrão: todos menos 2), **tema da interface** (escuro, claro, clássico, Janus) e as opções que estavam no painel Performance | concluída |
 | 14 | 0.27.0 | Mais visualizações (painel **Analysis**): anos sobrepostos por dia do ano e mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas/datas na ROI; box plot da ROI por data | concluída |
-| 57 | — | **Janela Analysis-ready data (FORCE Level 2)**: NBAR, ajuste espectral, Tasseled Cap e ImproPhe numa cadeia, a série multibanda entre as etapas, prévia na ROI com a cortina de antes e depois | em andamento |
 | 17 | 0.29.0 | **Embeddings** (TESSERA, AlphaEarth): PCA → RGB em C++ (SIMD, iteração de subespaço), **PCA local da ROI**, **similaridade a um pino** (mapa e gráfico ano a ano), **mudança entre anos**, perfil latente; **baixar embeddings da área visível** pelo Zeit (como o basemap, sobre qualquer série), com barra de progresso no mapa | concluída |
 | — | 0.30.0 | **Exportação conferida e com atalhos**: o popup de opções passa a abrir (nunca era desenhado), embeddings como GeoTIFF em resolução total, todas as saídas de uma rodada do Zeit numa pasta, reset do layout (`Ctrl+Shift+R`); faixa Int8 dos embeddings de todos os anos | concluída |
 | 18 | 0.31.0 | Mais do Zeit: **CODED** (degradação florestal) e **NDFI** (desmistura espectral, a série vira camada), **Tmask** (nuvens que a banda de qualidade perdeu), **SOM** (agrupamento de trajetórias, série típica no gráfico) e **concordância** entre mapas de mudança | concluída |
@@ -1322,7 +1321,8 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 53 | — | **Prévia** de uma ferramenta na ROI ou num recorte, antes da cena inteira | concluída (sem versão) |
 | 54 | — | **Projeto** (`.janus`): salvar, abrir, recentes, reabrir a última sessão | concluída (sem versão) |
 | 55 | — | **Desfazer global** (`Ctrl+Z`: fechar camadas, estilo, ordem, pinos, ROI) | concluída (sem versão) |
-| 56 | — | **Janela Time series analysis (FORCE TSA)**: a cadeia das 8 ferramentas do TSA numa janela (Input, Steps, Output), *To look at*, gráfico do pixel, *Copy Python* da cadeia, *Use in Classification* | em andamento |
+| 56 | — | **Janela Time series analysis (FORCE TSA)**: a cadeia das 8 ferramentas do TSA numa janela (Input, Steps, Output), *To look at*, gráfico do pixel, *Copy Python* da cadeia, *Use in Classification* | concluída (sem versão; capturas e página do site pendentes) |
+| 57 | — | **Janela Analysis-ready data (FORCE Level 2)**: NBAR, ajuste espectral, Tasseled Cap e ImproPhe numa cadeia, a série multibanda entre as etapas, prévia na ROI com a cortina de antes e depois | em andamento |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
