@@ -145,7 +145,7 @@
       <p>The table reads: 6 vertices and 5 segments, of which 1 is a loss; the event a map would show is the greatest loss, <strong>4465.4</strong> from 2002 to 2009, from 8251.5 to 3786.1. The other segments are the noise around the pasture and its slow gain, smaller than the loss.</p>
 <!-- build:python-tabs -->
 <div class="pytabs" data-tabs>
-  <div class="term-tabs pytabs-bar" role="tablist" aria-label="LandTrendr: in Janus or in Python" hidden>
+  <div class="term-tabs pytabs-bar" role="tablist" aria-label="landtrendr: in Janus or in Python" hidden>
     <button type="button" role="tab" id="pt-landtrendr-janus" aria-controls="pp-landtrendr-janus" aria-selected="true" data-tab="janus">In Janus</button>
     <button type="button" role="tab" id="pt-landtrendr-python" aria-controls="pp-landtrendr-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>
   </div>
@@ -161,96 +161,20 @@
     </div>
     <div role="tabpanel" id="pp-landtrendr-python" aria-labelledby="pt-landtrendr-python" class="pytabs-panel">
       <p class="pytabs-h">In Python</p>
-      <div class="pycode"><pre class="code py long" tabindex="0"><code><span class="s">"""Janus 1.16.0 (2026-11-07): pin 1 of LT_Stack_NDVI_Rondonia.tif,
-reproduced outside Janus. Needs: pip install numpy rasterio xarray zeit-cdts
+      <div class="pycode"><pre class="code py" tabindex="0"><code><span class="s">"""Janus 1.17.0 (2026-11-07): pin 1 of LT_Stack_NDVI_Rondonia.tif, reproduced outside Janus with Zeit.
+Needs: pip install "zeit-cdts&gt;=3.2"
 """</span>
-<span class="k">import</span> numpy <span class="k">as</span> np
-<span class="k">import</span> rasterio
-<span class="k">from</span> rasterio.windows <span class="k">import</span> Window
-<span class="k">from</span> rasterio.enums <span class="k">import</span> Resampling
-
-<span class="c"># 1 file, 40 bands (1 band = 1 date), every band in each block (pixel-interleaved): read block by block</span>
-<span class="c"># Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).</span>
-layers = [
-    (<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, <span class="n">1</span>, <span class="k">None</span>, <span class="k">None</span>),
-    (<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, <span class="n">2</span>, <span class="k">None</span>, <span class="k">None</span>),
-    (<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, <span class="n">3</span>, <span class="k">None</span>, <span class="k">None</span>),
-    <span class="c"># … 36 more, in the full script</span>
-    (<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, <span class="n">40</span>, <span class="k">None</span>, <span class="k">None</span>),
-]
-dates = np.array([
-    <span class="s">"1985"</span>, <span class="s">"1986"</span>, <span class="s">"1987"</span>,
-    <span class="c"># … 36 more, in the full script</span>
-    <span class="s">"2024"</span>], dtype=<span class="s">"datetime64[D]"</span>)
-<span class="c"># Time in years since the first date, as Janus fits trends (365.2425-day years).</span>
-years = np.array([
-    <span class="n">0</span>, <span class="n">0.9993360576</span>, <span class="n">1.998672115</span>,
-    <span class="c"># … 36 more, in the full script</span>
-    <span class="n">38.99874741</span>])
-qa_rule = <span class="s">"none"</span>
-
-<span class="k">def</span> usable(q, rule):
-    <span class="s">"""Observations Janus keeps, from the quality band's codes (nodata: none)."""</span>
-    ok = np.isfinite(q) &amp; (q &gt;= <span class="n">0</span>)
-    c = np.where(ok, q, <span class="n">0</span>).astype(np.int64)
-    <span class="k">if</span> rule == <span class="s">"fmask"</span>:          <span class="c"># 0 clear land, 1 water</span>
-        <span class="k">return</span> ok &amp; ((c == <span class="n">0</span>) | (c == <span class="n">1</span>))
-    <span class="k">if</span> rule == <span class="s">"landsat_c2"</span>:     <span class="c"># QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow, 5 snow</span>
-        <span class="k">return</span> ok &amp; ((c &amp; 0x3B) == <span class="n">0</span>)
-    <span class="k">if</span> rule == <span class="s">"scl"</span>:            <span class="c"># Sentinel-2 SCL: 4 vegetation, 5 bare soil, 6 water</span>
-        <span class="k">return</span> ok &amp; (c &gt;= <span class="n">4</span>) &amp; (c &lt;= <span class="n">6</span>)
-    <span class="k">if</span> rule == <span class="s">"hls_fmask"</span>:      <span class="c"># HLS Fmask bits 1 cloud, 2 adjacent, 3 shadow, 4 snow; 255 fill</span>
-        <span class="k">return</span> ok &amp; (c != <span class="n">255</span>) &amp; ((c &amp; 0x1E) == <span class="n">0</span>)
-    <span class="k">return</span> ok &amp; (c != <span class="n">0</span>)         <span class="c"># a 0/1 mask</span>
-
-
-<span class="k">def</span> read(path, band, window, out_shape=<span class="k">None</span>, raw=<span class="k">False</span>):
-    <span class="s">"""A band over a window: nodata -&gt; NaN, the band's scale and offset applied."""</span>
-    <span class="k">with</span> rasterio.open(path) <span class="k">as</span> src:
-        kw = {<span class="s">"out_shape"</span>: out_shape, <span class="s">"resampling"</span>: Resampling.nearest} <span class="k">if</span> out_shape <span class="k">else</span> {}
-        a = src.read(band, window=window, masked=<span class="k">True</span>, **kw).astype(<span class="s">"float64"</span>)
-        <span class="k">if</span> <span class="k">not</span> raw:
-            a = a * src.scales[band - <span class="n">1</span>] + src.offsets[band - <span class="n">1</span>]
-        <span class="k">return</span> np.ma.filled(a, np.nan)
-
-
-<span class="k">def</span> shown(layer, window, out_shape=<span class="k">None</span>):
-    <span class="s">"""What the series shows at a date: the band, or the normalized difference, masked by the quality band."""</span>
-    path, band, nd_band, qa_band = layer
-    v = read(path, band, window, out_shape)
-    <span class="k">if</span> nd_band:
-        b = read(path, nd_band, window, out_shape)
-        <span class="k">with</span> np.errstate(invalid=<span class="s">"ignore"</span>, divide=<span class="s">"ignore"</span>):
-            v = np.where(v + b != <span class="n">0</span>, (v - b) / (v + b), np.nan)
-    <span class="k">if</span> qa_band:
-        v = np.where(usable(read(path, qa_band, window, out_shape, raw=<span class="k">True</span>), qa_rule), v, np.nan)
-    <span class="k">return</span> v
-
-<span class="c"># The pixel (column, row of the files), its centre at x -63.08396625, y -10.35600317 (EPSG:4326).</span>
-col, row = <span class="n">1272</span>, <span class="n">1414</span>
-values = np.array([shown(layer, Window(col, row, <span class="n">1</span>, <span class="n">1</span>))[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> layer <span class="k">in</span> layers])
-
-ok = np.isfinite(values)
-y, t = values[ok], years[ok]
-print(<span class="s">"n"</span>, ok.sum(), <span class="s">"mean"</span>, y.mean(), <span class="s">"std"</span>, y.std(ddof=<span class="n">1</span>) <span class="k">if</span> y.size &gt; <span class="n">1</span> <span class="k">else</span> np.nan)
-<span class="k">if</span> y.size &gt;= <span class="n">2</span>:
-    slope, intercept = np.polyfit(t, y, <span class="n">1</span>)                  <span class="c"># OLS, per year</span>
-    i, j = np.triu_indices(y.size, <span class="n">1</span>)
-    keep = t[j] != t[i]
-    sen = np.median((y[j] - y[i])[keep] / (t[j] - t[i])[keep])  <span class="c"># Sen's slope, per year</span>
-    print(<span class="s">"OLS slope"</span>, slope, <span class="s">"Sen's slope"</span>, sen)
-
-<span class="c"># LandTrendr, fitted on the chart with these parameters: the same Zeit calls Janus makes</span>
-<span class="c"># (its model is drawn from their results).</span>
-<span class="k">import</span> xarray <span class="k">as</span> xr
 <span class="k">import</span> zeit
 
-series = xr.DataArray(values[:, <span class="k">None</span>, <span class="k">None</span>], dims=(<span class="s">"time"</span>, <span class="s">"y"</span>, <span class="s">"x"</span>), coords={<span class="s">"time"</span>: dates.astype(<span class="s">"datetime64[ns]"</span>)})
-result1 = zeit.landtrendr(series, nodata=<span class="k">None</span>, n_jobs=<span class="n">1</span>, direction=<span class="s">'loss'</span>, max_segments=<span class="n">6</span>, pval_threshold=<span class="n">0.05</span>, recovery_threshold=<span class="n">0.25</span>, spike_threshold=<span class="n">0.9</span>, best_model_proportion=<span class="n">0.75</span>, vertex_count_overshoot=<span class="n">3</span>, min_observations_needed=<span class="n">6</span>)
-result2 = zeit.extract_events(result1, event_type=<span class="s">'loss'</span>, sort_by=<span class="s">'greatest'</span>, min_magnitude=<span class="n">0.0</span>, min_duration=<span class="n">1</span>, pre_val_threshold=<span class="n">0.0</span>)
-print(result1)
+<span class="c"># Pin 1: column 1272, row 1414 of the files, its centre at x -63.0839662485, y -10.3560031742 (EPSG:4326)</span>
+series = zeit.load_raster(<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, masked=<span class="k">True</span>, pixel=(<span class="n">1272</span>, <span class="n">1414</span>))
+fit = zeit.landtrendr(series)
+events = zeit.extract_events(fit, event_type=<span class="s">'loss'</span>)
+
+print(fit)
+print(events)
 </code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/landtrendr.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/landtrendr.py" download="landtrendr.py">Download .py</a></div></div>
-      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit (<code>pip install zeit-cdts</code>). The shown code shortens the long lists of files and dates; Copy and Download give the whole script.</p>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit: the header of the script says which Zeit it needs (<code>pip install zeit-cdts</code>, version 3.2 or later; 3.2.1 for CCDC, CODED and S-CCD). Copy and Download give the same script, with the file&rsquo;s name as it is here (put the script beside your data).</p>
     </div>
   </div>
 </div>

@@ -102,9 +102,10 @@
   or a name alone for the last export folder, or pick one with **Browse...**;
   it warns before replacing a file). Files are written in the background
   (File → Exports shows progress);
-  **Copy CSV** of the cursor, pins and ROI series; **Python...**: code that
-  reproduces a pin's or the ROI's series, its statistics and the Zeit tool on
-  the chart, shown in the [Python history](#python-history)'s editor.
+  **Copy CSV** of the cursor, pins and ROI series; **Python...**: a short
+  script that reads a pin's or the ROI's series with Zeit's `load_raster` and
+  makes the calls of the Zeit tools on the chart, shown in the
+  [Python history](#python-history)'s editor.
 - **Layers**: open several series at once (e.g. NDVI and NBR of the same area,
   or neighboring scenes). Layers are placed by their georeferencing, can be
   shown/hidden (including the first one), reordered and faded; the chart shows
@@ -432,7 +433,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Zonal statistics over time | **Zonal statistics over time...** in a vector layer's menu: each feature is a zone (its pixels those whose centre is inside, or every pixel touched; a pixel in several features counts in each), through every date of the active series or a run's map, on every feature or within the ROI: for **values** each date's count, mean, standard deviation, least, percentiles 10, 25, 50, 75, 90 and largest; for **classes** each class's pixels and area (each pixel's true area, as in Areas) at every date and the **transitions** between two dates; for a **map of change dates** the area by year. The zones named by an attribute or their FID. A task writing `zonal_long.csv` (a row per feature and date, and class), `zonal_wide.csv` (a row per feature, a column per date: the statistic chosen, or each class's ha), `transitions.csv`, and a GeoPackage of the features with those columns added, opened as a layer; Analysis → Zonal draws a feature's series; its provenance kept |
 | Reproject, resample, clip | **Tools → Data preparation → Reproject, resample, clip...**: the active series' files (or a run's map) through gdalwarp's own code (the same result as the `gdalwarp` command, whose arguments the window and the task's log show): to **a CRS** (EPSG:4326, ESRI:102033, a PROJ string, a WKT), **the CRS of a layer** or **the grid of a layer** (its CRS, origin, pixel size and extent: the maps aligned pixel to pixel), a pixel size (optionally aligned, `-tap`), resampling near, bilinear, cubic, average, **mode** (the default for classes), min, max or med; the whole layer, the visible area, the ROI or **the polygons of a vector layer** (the pixels outside them without a value, cropped to them); no data, data type; **COG**, GeoTIFF or **virtual** (warped VRTs: nothing written, ready at once). File by file on the processing threads, into a folder that opens as a new series (a task; its provenance kept) |
 | RGB of three bands | **Display** panel → RGB composite (one file per date with several bands): *Three bands of each date as RGB*, a preset (true colour, colour infrared, SWIR, agriculture, land/water: bands found by their names or wavelengths) or any three bands, the map's date or a fixed one, the stretch of each channel (2–98% of the first image, kept for every date; *Stretch to this image*). The chart, the cursor and the tools keep the series' band or index; zoomed in, the visible area is read again at full resolution; map panels, the swipe, PNGs and animations show it too |
-| Python of a series | Time series panel → **Python...** → a pin or the ROI: code (numpy, rasterio) that reads the same series from the files (band, normalized difference, quality mask; the ROI's pixels inside it), prints its statistics and, with a Zeit tool on the chart, makes the same Zeit calls with the same parameters (as the tool made them: recorded, not rewritten); shown in the Python history's editor, to read, change, copy or save |
+| Python of a series | Time series panel → **Python...** → a pin or the ROI: a short script (only `pip install zeit-cdts`) that reads the same series with Zeit's `zeit.load_raster` (the dates, the bands and a window around the pin or the ROI, read lazily: a few lines of xarray for the normalized difference, the quality band's rule and the scale and offset) and, with a Zeit tool on the chart, makes the same Zeit calls with the same parameters (the pin's or the ROI's mean series; CCDC, S-CCD, NDFI, CODED and Tmask get the bands by role and the Fmask codes); shown in the Python history's editor, to read, change, copy or save |
 | Python history | **Tools → Python history...** (or the palette): every finished run as Python, kept between sessions (`history.jsonl` in Janus' settings folder, the last 5000). See [Python history](#python-history) |
 | Reset layout | **View → Reset layout** (`Ctrl+Shift+R`, Mac: `Command+Shift+R`): every panel docked where it was at the first start, the floating windows (Exports, Tasks, Log, Settings) back to their first size and place, map panels to the right of the main map; the panels open stay open |
 | Performance panel | **View → Performance** (hidden by default, and not kept open from one session to the next): timings, threads in use, Zeit status, overview memory, full-resolution cache (progress, size, read times, **Build it now**), disk cache (what the caches take, their budget, the disk's free space) |
@@ -785,10 +786,11 @@ Each tool window has:
   parameters...** (the tool's window with them and the same scope; on the same
   series, the scope *The run's window* is the very window it ran on, even if
   the ROI has moved since), **Python of the run...** (the run's code in the
-  Python history's editor: a Zeit tool's `rerun.py` reads the series over the
-  run's window from its files, makes the same Zeit calls with the same
-  parameters and writes every map they return as a GeoTIFF, numpy, rasterio,
-  xarray and zeit-cdts; Reproject, resample, clip, Rasterize, Polygonize,
+  Python history's editor: a Zeit tool's `rerun.py` is a few lines of zeit-cdts:
+  `zeit.load_raster` reads the series over the run's window from its files, the
+  tool's call has the parameters that are not Zeit's defaults, and
+  `zeit.save_raster` writes every map it returns (a folder of GeoTIFFs for a
+  result of several maps); Reproject, resample, clip, Rasterize, Polygonize,
   Zonal statistics, Regularize, Build series and the calculator's simple
   expressions have a `rerun.py` too, see [Python history](#python-history))
   and **Open folder**.
@@ -926,9 +928,10 @@ layers, all named by their step (`Temporal metrics: Mean`); the active layer doe
 not change.
 
 **Copy Python** copies one script that does in Zeit what the chain does on this
-series and scope, even before it runs: the series read once from its files, each
-step's call (those of the tools' own scripts; the steps after Interpolate and
-Standardize read the variable `analysis`) and every result written as a GeoTIFF.
+series and scope, even before it runs: the series read once with `zeit.load_raster`,
+each step's call (those of the tools' own scripts; the steps after Interpolate and
+Standardize read the variable `analysis`) and every result written with
+`zeit.save_raster`, named by its step.
 It is the same script the run keeps as the folder's `rerun.py`.
 
 **Use in Classification** (a menu of the series the chain wrote: the interpolated,

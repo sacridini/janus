@@ -534,7 +534,10 @@ impl State {
                     Ok(c) => c,
                     Err(e) => return fail(&format!("the run should have its Python: {e}")),
                 };
-                if !code.contains("zeit.mann_kendall(series") || !code.contains("alpha=0.1") {
+                if !code.contains("zeit.mann_kendall(series")
+                    || !code.contains("alpha=0.1")
+                    || !code.contains("save_raster")
+                {
                     return fail("the run's Python should call Mann-Kendall with alpha 0.1");
                 }
                 let entry = self.history.entries.iter().rev().find(|e| std::path::Path::new(&e.dir) == run.as_path());
@@ -579,7 +582,8 @@ impl State {
                         let (w, h) = ds.raster_size();
                         Some(ds.rasterband(1).ok()?.read_as::<f32>((0, 0), (w, h), (w, h), None).ok()?.data().to_vec())
                     };
-                    let (a, b) = (read(&ours)?, read(&run.join("python").join("p.tif").to_string_lossy())?);
+                    let (a, b) =
+                        (read(&ours)?, read(&run.join("python").join("result").join("p.tif").to_string_lossy())?);
                     let mut worst = 0f32;
                     let mut n = 0;
                     for (x, y) in a.iter().zip(&b) {

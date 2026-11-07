@@ -1,5 +1,20 @@
 [
   {
+    "tag": "v1.17.0",
+    "version": "1.17.0",
+    "date": "2026-11-07",
+    "blocks": [
+      {
+        "ul": [
+          "the Time series analysis window (FORCE, phase 56), Tasseled Cap and the spectral adjustment, NBAR (the bands' angles and Sentinel-2's granule metadata) and ImproPhe from zeit-core",
+          "the new website (the home as a story, Explore, Detect, Prove; a demo in the browser; the methods catalogue and chooser; guide tracks; search; short clips; docs and News pages)",
+          "the Python history scripts and the validation's Copy Python with Zeit's load_raster and save_raster (warp 50 -> 18 lines, zonal 320 -> 100, regularize 238 -> 32, accuracy 69 -> 27)",
+          "cargo fmt of the bridge test"
+        ]
+      }
+    ]
+  },
+  {
     "tag": "v1.16.0",
     "version": "1.16.0",
     "date": "2026-11-06",

@@ -24,7 +24,7 @@ In every site/*.html, the text between `<!-- build:NAME -->` and
                    a second block on the page, the key of site/data/python.json being
                    "<slug>-NAME"): the "In Janus" / "In Python" tabs, the steps and the
                    code from site/data/python.json (written by `cargo run -p janus-zeit
-                   --example python_snippets`; this script never needs cargo). Put its
+                   --example site_python`; this script never needs cargo). Put its
                    markers at column 0: the code must not be indented
 
 Three kinds of page are generated whole (no hand-written text in them; their header and footer are
@@ -1002,45 +1002,6 @@ def highlight_python(code):
     return "".join(out)
 
 
-ELIDE_OVER = 6  # a list of more items than this is shown as its first 3 and its last 1
-
-
-def elide_lists(code):
-    """The code as shown: every list or tuple literal of more than ELIDE_OVER items (one item a line, or many on a
-    line) keeps its first 3 items and its last 1, with a comment line between them; nothing else changes. The full
-    script is what Copy and Download give."""
-    lines = code.split("\n")
-    out, i = [], 0
-    while i < len(lines):
-        line = lines[i]
-        if line.rstrip().endswith("[") and not line.lstrip().startswith("#"):
-            j = i + 1
-            while j < len(lines) and lines[j].strip() and not lines[j].lstrip().startswith("]"):
-                j += 1
-            items = lines[i + 1 : j]
-            if len(items) > ELIDE_OVER and j < len(lines):
-                indent = re.match(r"\s*", items[0]).group(0)
-                out += [line] + items[:3] + [f"{indent}# … {len(items) - 4} more, in the full script", items[-1]]
-                i = j
-                continue
-        m = None if line.lstrip().startswith("#") else re.search(r"\[([^\[\]()]*)\]", line)
-        if m and " for " not in m.group(1):
-            parts = [p.strip() for p in m.group(1).split(", ")]
-            if len(parts) > ELIDE_OVER:
-                indent = re.match(r"\s*", line).group(0) + "    "
-                out += [
-                    line[: m.start() + 1],
-                    indent + ", ".join(parts[:3]) + ",",
-                    f"{indent}# … {len(parts) - 4} more, in the full script",
-                    indent + parts[-1] + line[m.end() - 1 :],
-                ]
-                i += 1
-                continue
-        out.append(line)
-        i += 1
-    return "\n".join(out)
-
-
 def python_files(write):
     """site/assets/python/<key>.py: each full script of python.json, as it is. The names of those that are not as
     they should be (written if `write`)."""
@@ -1067,7 +1028,7 @@ def python_tabs(page, name):
         raise SystemExit(f"{page}: no entry {key!r} in site/data/python.json")
     case = data[key]
     steps = "\n".join(f"        <li>{step}</li>" for step in case["steps"])
-    code = elide_lists(case["code"].replace("\r\n", "\n").rstrip("\n")) + "\n"
+    code = case["code"].replace("\r\n", "\n").rstrip("\n") + "\n"
     long = " long" if code.count("\n") > 60 else ""
     tool = escape(case["tool"], quote=False)
     return "\n".join([
@@ -1089,7 +1050,7 @@ def python_tabs(page, name):
         f'<div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/{key}.py" aria-label="Copy the whole Python script">Copy</button>'
         f'<a class="copy" href="assets/python/{key}.py" download="{key}.py">Download .py</a></div></div>',
         '      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; '
-        'it runs with Zeit (<code>pip install zeit-cdts</code>). The shown code shortens the long lists of files and dates; Copy and Download give the whole script.</p>',
+        'it runs with Zeit: the header of the script says which Zeit it needs (<code>pip install zeit-cdts</code>, version 3.2 or later; 3.2.1 for CCDC, CODED and S-CCD). Copy and Download give the same script, with the file&rsquo;s name as it is here (put the script beside your data).</p>',
         '    </div>',
         '  </div>',
         '</div>',

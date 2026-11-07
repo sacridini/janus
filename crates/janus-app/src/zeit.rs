@@ -2119,7 +2119,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                         .insert("coarse".into(), json!({ "name": other_name, "inputs": inputs, "dates": other.t() }));
                 }
                 let other = coarse.as_ref().map(|c| &*c.1);
-                match crate::python::run_code(&info, tool, &params, &roles, other, window, spec.threads, &to) {
+                match crate::python::run_code(&info, tool, &params, &roles, other, window, &to) {
                     Ok(code) if std::fs::write(out.join(SCRIPT), &code).is_ok() => p.python = SCRIPT.into(),
                     Ok(_) => p.python_note = format!("{SCRIPT} could not be written"),
                     Err(e) => p.python_note = e,
