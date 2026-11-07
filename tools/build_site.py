@@ -20,13 +20,31 @@ In every site/*.html, the text between `<!-- build:NAME -->` and
                    "group"; assets/methods.js only hides and shows its cards
   guide-tracks     guides.html: the guides by "track" of site/data/guides.json,
                    with facts computed from the guide pages
+  python-tabs      a guide page, where its tool is fitted on the chart (also python-tabs-NAME:
+                   a second block on the page, the key of site/data/python.json being
+                   "<slug>-NAME"): the "In Janus" / "In Python" tabs, the steps and the
+                   code from site/data/python.json (written by `cargo run -p janus-zeit
+                   --example python_snippets`; this script never needs cargo). Put its
+                   markers at column 0: the code must not be indented
+
+Three kinds of page are generated whole (no hand-written text in them; their header and footer are
+the same blocks): docs.html (the index) and docs-<name>.html, one per file of docs/ (install, usage,
+architecture, building), converted by tools/md.py; and news.html, the releases of the repository's
+tags vX.Y.Z (the message of the commit that carries "X.Y.Z: ...", the date of the tagged commit),
+read with git into site/data/news.json. Without git or tags the existing news.json is kept, and
+entries git does not have stay, so `--check` works in a shallow clone too.
+
+Every <img> of a JPEG in site/assets/img/ that has a .webp next to it (tools/make_webp.py) is wrapped
+in <picture><source type="image/webp" srcset="..."><img ...></picture> on every page.
 
 It also writes site/data/search.json, the index of the Ctrl+K search (assets/search.js):
-one entry per method, guide, guide section and subsection, and section of the other pages.
+one entry per method, guide, guide section and subsection, docs page and section, release, and
+section of the other pages.
 
 Numbers inside a sentence are inline blocks, `<!-- n:NAME -->12<!-- /n:NAME -->`,
 rewritten the same way: method-count, method-more (the methods beyond the three
-named in the lede), guide-count and track-count.
+named in the lede), guide-count, track-count, mcp-tools and news-link (the home page's
+"What's new in X.Y.Z" link).
 
 The guides' facts are computed from the pages and written back to
 site/data/guides.json on every run: "minutes" (words of the page's <article>
@@ -46,11 +64,16 @@ their own line endings (LF or CRLF).
 
 import argparse
 import json
+import posixpath
 import re
 import struct
+import subprocess
 import sys
-from html import unescape
+from html import escape, unescape
 from pathlib import Path
+from textwrap import indent
+
+import md  # tools/md.py, next to this script
 
 ROOT = Path(__file__).resolve().parent.parent
 SITE = ROOT / "site"
@@ -82,6 +105,7 @@ def load(name):
 def page_values(page):
     """Placeholders of the header. The page marked as current in the menu:
     methods.html is Methods; guides.html and every guide page are Guides; demo.html is Demo;
+    docs.html and the docs-*.html pages are Docs; news.html is News;
     index.html links to its own sections and has none."""
     slugs = {g["slug"] for g in load("guides.json")}
     current = ""
@@ -91,11 +115,17 @@ def page_values(page):
         current = "guides"
     elif page == "demo.html":
         current = "demo"
+    elif page == "docs.html" or page in DOC_PAGES:
+        current = "docs"
+    elif page == "news.html":
+        current = "news"
     mark = ' aria-current="page"'
     values = {
         "current_methods": mark if current == "methods" else "",
         "current_guides": mark if current == "guides" else "",
         "current_demo": mark if current == "demo" else "",
+        "current_docs": mark if current == "docs" else "",
+        "current_news": mark if current == "news" else "",
     }
     if page == "index.html":
         values.update(base="", brand_href="#top", brand_label="Janus, back to top")
@@ -131,6 +161,7 @@ def guide_facts(slug):
         raise SystemExit(f"{slug}.html: no <article>")
     # The collapsed "How these screenshots were made" block is reference, not reading time.
     reading = re.sub(r'<details class="howmade">.*?</details>', " ", article.group(0), flags=re.S)
+    reading = PYTABS.sub(" ", reading)  # the steps and the code of the tabs are not reading time either
     words = len(re.findall(r"\S+", plain(reading)))
     figures = len(re.findall(r"<figure\b", article.group(0)))
     toc = re.search(r'<nav class="toc".*?</nav>', text, re.S)
@@ -487,8 +518,18 @@ def search_index(texts):
         out += page_sections(texts[page], page, name, False)
     for g in guides:
         html = texts[f"{g['slug']}.html"]
-        article = re.search(r"<article\b.*?</article>", html, re.S)
+        article = re.search(r"<article\b.*?</article>", PYTABS.sub("", html), re.S)
         out += page_sections(article.group(0) if article else html, f"{g['slug']}.html", g["title"], True)
+    out.append({"k": "s", "t": "Docs", "u": "docs.html", "c": "Page", "x": page_lede(texts["docs.html"])})
+    for name, label, description in DOCS:
+        page = f"docs-{name}.html"
+        article = re.search(r"<article\b.*?</article>", texts[page], re.S)
+        title = re.search(r"<h1>(.*?)</h1>", texts[page], re.S).group(1)
+        out.append({"k": "s", "t": unescape(title), "u": page, "c": "Docs", "x": snippet(description)})
+        out += page_sections(article.group(0), page, f"Docs · {label}", True)
+    out.append({"k": "s", "t": "News", "u": "news.html", "c": "Page", "x": page_lede(texts["news.html"])})
+    for r in news():
+        out.append({"k": "s", "t": f"Janus {r['version']}", "u": f"news.html#{r['tag']}", "c": f"News · {r['date']}", "x": snippet(re.sub(r"`", "", notes_text(r)))})
     return out
 
 
@@ -503,6 +544,556 @@ def search_json_update(texts, write):
         with open(path, "w", encoding="utf-8", newline="") as f:
             f.write(new)
     return True
+
+
+# ---- pages generated whole: docs.html, docs-<name>.html (from docs/*.md) and news.html (from git)
+
+REPO = "https://github.com/sacridini/janus"
+SITE_URL = "https://sacridini.github.io/janus/"
+
+# The files of docs/ that become pages: (file name without .md, menu label, one-line description).
+DOCS = [
+    ("install", "Install", "The installers and packages for Windows, Linux and macOS: what each one puts on your computer, and how to open Janus from a terminal."),
+    ("usage", "Usage", "Everything the program does, from opening a series to validating a map: the window, the Zeit tools, classification, vector layers, the command line and the MCP server."),
+    ("architecture", "Architecture", "How the pieces fit: from the files to the GPU cube, the series and Zeit's methods, and what each crate and module of the program does."),
+    ("building", "Building", "Build Janus from source, run its tests and self-tests, make the packages, and where its data lives."),
+]
+DOC_NAMES = {name for name, _, _ in DOCS}
+DOC_PAGES = {f"docs-{name}.html" for name in DOC_NAMES}
+GENERATED = {"docs.html", "news.html"} | DOC_PAGES
+
+# The row of links at the top of every file in docs/, which the generated pages replace with their own.
+DOC_NAV_LINE = re.compile(r"^\[README\]\(\.\./README\.md\)(?: · \[[^\]]+\]\([^)]+\))+[ \t]*\n?", re.M)
+
+HEAD = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{title} · Janus</title>
+<meta name="description" content="{description}">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="{kind}">
+<meta property="og:title" content="{title} · Janus">
+<meta property="og:description" content="{description}">
+<meta property="og:image" content="{site_url}assets/img/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- build:header -->
+<!-- /build:header -->
+
+<main id="main">
+{body}
+</main>
+
+<!-- build:footer -->
+<!-- /build:footer -->
+
+<script src="assets/main.js" defer></script>
+</body>
+</html>
+"""
+
+
+def generated_page(page, title, description, body, kind="website"):
+    """The text of a generated page (LF line endings), with its header and footer filled."""
+    text = HEAD.format(
+        title=escape(title), description=escape(description, quote=True), kind=kind, site_url=SITE_URL, body=body.strip("\n")
+    )
+    text = rebuild(page, text).replace("<!doctype html>\n", "<!doctype html>\n<!-- Generated by tools/build_site.py: do not edit by hand. -->\n", 1)
+    return text
+
+
+def hero(crumbs, eyebrow, title, lede):
+    return (
+        '<section class="guide-hero">\n  <div class="wrap">\n'
+        f'    <p class="crumbs">{crumbs}</p>\n    <p class="eyebrow">{eyebrow}</p>\n    <h1>{title}</h1>\n'
+        f'    <p class="lede">{lede}</p>\n  </div>\n</section>'
+    )
+
+
+# -- docs
+
+def doc_resolver(name):
+    """Where a link of docs/<name>.md goes on the site: other docs to their pages, pages of the site by their
+    relative name, other files of the repository to GitHub, anything else as it is."""
+    def resolve(href):
+        if href.startswith("#"):
+            return href
+        m = re.fullmatch(re.escape(SITE_URL) + r"([\w-]+\.html)(#.*)?", href)
+        if m and ((SITE / m.group(1)).exists() or m.group(1) in GENERATED):
+            return m.group(1) + (m.group(2) or "")
+        if re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*:", href):
+            return href
+        path, _, frag = href.partition("#")
+        target = posixpath.normpath(posixpath.join("docs", path)) if path else f"docs/{name}.md"
+        if target.startswith("docs/") and target.endswith(".md") and target[len("docs/") : -len(".md")] in DOC_NAMES:
+            return f"docs-{target[len('docs/') : -len('.md')]}.html" + (f"#{frag}" if frag else "")
+        kind = "tree" if (ROOT / target).is_dir() else "blob"
+        return f"{REPO}/{kind}/main/{target}" + (f"#{frag}" if frag else "")
+
+    return resolve
+
+
+def doc_heading(level, hid, html):
+    return f'<h{level} id="{hid}">{html}<a class="anchor" href="#{hid}" aria-label="Link to this section"></a></h{level}>'
+
+
+def doc_toc(headings):
+    out = ['<nav class="toc" aria-label="On this page">', "  <p>On this page</p>", "  <ol>"]
+    inner = False
+    items = [(level, hid, text) for level, hid, text in headings if level in (2, 3)]
+    for k, (level, hid, text) in enumerate(items):
+        link = f'<a href="#{hid}">{escape(text, quote=False)}</a>'
+        nxt = items[k + 1][0] if k + 1 < len(items) else 2
+        if level == 2:
+            out.append(f"    <li>{link}" + ("" if nxt == 3 else "</li>"))
+        else:
+            if not inner:
+                out.append("      <ol>")
+                inner = True
+            out.append(f"        <li>{link}</li>")
+            if nxt == 2:
+                out += ["      </ol>", "    </li>"]
+                inner = False
+    out += ["  </ol>", "</nav>"]
+    return "\n".join(out)
+
+
+def doc_html(html):
+    """The classes of the guide pages on what md.py writes: tables in a scrolling box, code in a framed block."""
+    html = html.replace("<table>", '<div class="tbl-wrap"><table class="tbl">').replace("</table>", "</table></div>")
+
+    def code(m):
+        lang = m.group(1)
+        bar = f'<div class="code-bar">{lang}</div>' if lang else ""
+        return f'<div class="code-wrap doc-code">{bar}<pre class="code"><code{m.group(2)}>{m.group(3)}</code></pre></div>'
+
+    return re.sub(r'<pre data-lang="([^"]*)"><code([^>]*)>(.*?)</code></pre>', code, html, flags=re.S)
+
+
+def doc_source(name):
+    text = (ROOT / "docs" / f"{name}.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+    title = re.search(r"^# (.+)$", text, re.M).group(1).strip()
+    body = re.sub(r"^# .+\n", "", DOC_NAV_LINE.sub("", text, count=1), count=1, flags=re.M)
+    html, headings = md.convert(body, resolve=doc_resolver(name), heading_hook=doc_heading)
+    return title, html, headings
+
+
+def article_minutes(html):
+    return -(-len(re.findall(r"\S+", plain(html))) // 200)
+
+
+def render_doc(page):
+    name = page[len("docs-") : -len(".html")]
+    label, description = next((lab, desc) for n, lab, desc in DOCS if n == name)
+    title, html, headings = doc_source(name)
+    parts = [p for p in re.split(r"(?=<h2 id=)", doc_html(html)) if p.strip()]
+    nav = " ".join(
+        f'<a href="docs-{n}.html"' + (' aria-current="page"' if n == name else "") + f">{lab}</a>" for n, lab, _ in DOCS
+    ) + f' <a href="{REPO}/blob/main/README.md">README</a>'
+    source = (
+        f'<p class="doc-src">This page is made from <a href="{REPO}/blob/main/docs/{name}.md"><code>docs/{name}.md</code></a>'
+        "; to change it, change that file.</p>"
+    )
+    parts[-1] = parts[-1].rstrip() + "\n" + source
+    # not indented: the text of a <pre> must stay as it is
+    sections = "\n\n".join(f"    <section>\n{p.strip()}\n    </section>" for p in parts)
+    body = (
+        hero(f'<a href="./">Janus</a> / <a href="docs.html">Docs</a> / {label}', "Docs", escape(title, quote=False), escape(description, quote=False))
+        + '\n\n<div class="wrap guide">\n\n'
+        + indent(doc_toc(headings), "  ")
+        + '\n\n  <article class="article doc">\n    <nav class="doc-nav" aria-label="The docs">'
+        + nav
+        + "</nav>\n\n"
+        + sections
+        + "\n  </article>\n\n</div>"
+    )
+    return generated_page(page, title, description, body, kind="article")
+
+
+def render_docs_index():
+    cards = []
+    for name, label, description in DOCS:
+        title, html, headings = doc_source(name)
+        sections = sum(1 for level, _, _ in headings if level == 2)
+        cards.append(
+            f'      <li><a href="docs-{name}.html"><span>{label}</span><h3>{escape(title, quote=False)}</h3>'
+            f'<p>{escape(description, quote=False)}</p>'
+            f'<small class="g-facts">{article_minutes(html)} min read · {sections} sections</small></a></li>'
+        )
+    n_guides, n_methods = len(load("guides.json")), len(load("methods.json"))
+    more = [
+        ("guides.html", "Guides", "Step by step", f"{n_guides} guides, one tool each, with the screenshots made by the program.", None),
+        ("methods.html", "Methods", "Find the right one", f"The {n_methods} methods built in, with a chooser by your data and the question you ask.", None),
+        ("news.html", "News", "Release by release", "What each version of Janus added, in the words of the release commit.", None),
+    ]
+    cards2 = [
+        f'      <li><a href="{href}"><span>{label}</span><h3>{h3}</h3><p>{text}</p></a></li>' for href, label, h3, text, _ in more
+    ]
+    body = (
+        hero('<a href="./">Janus</a> / Docs', "Docs", "Documentation.",
+             "What Janus does and how to use it, how it is built, and how to build it yourself. The guides teach one tool at a time; these pages are the reference.")
+        + '\n\n<div class="docs-index">\n  <div class="wrap">\n    <ul class="guide-list d-two">\n'
+        + "\n".join(cards)
+        + '\n    </ul>\n  </div>\n</div>\n\n<div class="pixrow" aria-hidden="true"></div>\n\n'
+        + '<section class="docs-more">\n  <div class="wrap">\n    <div class="sec-head">\n      <p class="eyebrow">Also on this site</p>\n'
+        + "      <h2>Learn it by doing, or look a method up.</h2>\n    </div>\n    <ul class=\"guide-list\">\n"
+        + "\n".join(cards2)
+        + "\n    </ul>\n  </div>\n</section>"
+    )
+    return generated_page(
+        "docs.html", "Docs", "The documentation of Janus: installing it, using it, how it is built and how to build it, with the guides and the methods one click away.", body
+    )
+
+
+# -- news
+
+def git_text(*args):
+    """The output of a git command in the repository, or None if git (or the repository) is not there."""
+    try:
+        done = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return done.stdout if done.returncode == 0 else None
+
+
+def version_key(version):
+    return tuple(int(x) for x in re.findall(r"\d+", version))
+
+
+TRAILER = re.compile(r"^(Co-Authored-By|Signed-off-by):", re.I)
+
+
+def top_level_split(text):
+    """The text cut at every "; " that is not inside brackets or double quotes."""
+    parts, depth, quote, start = [], 0, False, 0
+    for i, c in enumerate(text):
+        if c == '"':
+            quote = not quote
+        elif quote:
+            continue
+        elif c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth = max(0, depth - 1)
+        elif c == ";" and depth == 0 and text[i + 1 : i + 2] == " ":
+            parts.append(text[start:i].strip())
+            start = i + 2
+    parts.append(text[start:].strip())
+    return [p for p in parts if p]
+
+
+def parse_notes(version, body):
+    """The release commit's message as blocks: {"p": text} or {"ul": [items]}. The "X.Y.Z: " that opens it goes;
+    the first paragraph is cut into a list at its top-level "; " when that gives three items or more; a "- " list of
+    the message is a list; nothing else of the text changes (git trailers apart)."""
+    lines = [l.rstrip() for l in body.strip().splitlines() if not TRAILER.match(l)]
+    paragraphs, cur = [], []
+    for line in lines:
+        if line.strip():
+            cur.append(line)
+        elif cur:
+            paragraphs.append(cur)
+            cur = []
+    if cur:
+        paragraphs.append(cur)
+    blocks = []
+    for k, para in enumerate(paragraphs):
+        text = re.sub(r"\s+", " ", " ".join(l.strip() for l in para))
+        if k == 0:
+            text = re.sub("^" + re.escape(version) + r": ", "", text)
+            items = top_level_split(text)
+            blocks.append({"ul": items} if len(items) >= 3 else {"p": text})
+            continue
+        plain_lines, items = [], []
+        for line in para:
+            if line.startswith("- "):
+                items.append(line[2:].strip())
+            elif items and line.startswith(" "):
+                items[-1] += " " + line.strip()
+            else:
+                plain_lines.append(line.strip())
+        if plain_lines:
+            blocks.append({"p": " ".join(plain_lines)})
+        if items:
+            blocks.append({"ul": items})
+    return blocks
+
+
+def read_releases():
+    """The releases of the repository's tags vX.Y.Z, from git, or None without git or tags. The notes are the message of
+    the commit that carries "X.Y.Z: ..." (the tagged commit, else the nearest before it); the date is the tagged commit's."""
+    out = git_text("tag", "--list", "v*")
+    tags = [t for t in (out or "").split() if re.fullmatch(r"v\d+\.\d+\.\d+", t)]
+    if not tags:
+        return None
+    releases = []
+    for tag in tags:
+        version = tag[1:]
+        raw = git_text("log", "-1", "--format=%ad%x1f%B", "--date=short", tag)
+        if raw is None:
+            return None
+        date, _, body = raw.partition("\x1f")
+        if not body.lstrip().startswith(version + ":"):
+            found = git_text("log", tag, "-E", f"--grep=^{re.escape(version)}: ", "--format=%x1e%B") or ""
+            for message in found.split("\x1e"):
+                if message.lstrip().startswith(version + ":"):
+                    body = message
+                    break
+        releases.append({"tag": tag, "version": version, "date": date.strip(), "blocks": parse_notes(version, body)})
+    return releases
+
+
+_NEWS = None
+
+
+def news():
+    """The releases, newest first: data/news.json updated from git's tags (the entries git does not have stay)."""
+    global _NEWS
+    if _NEWS is None:
+        path = SITE / "data" / "news.json"
+        old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        merged = {r["tag"]: r for r in old}
+        merged.update({r["tag"]: r for r in (read_releases() or [])})
+        _NEWS = sorted(merged.values(), key=lambda r: version_key(r["version"]), reverse=True)
+    return _NEWS
+
+
+def news_json_update(write):
+    """True if data/news.json differs from news(); rewrites it if `write`."""
+    path = SITE / "data" / "news.json"
+    new = json.dumps(news(), indent=2, ensure_ascii=False) + "\n"
+    old = path.read_text(encoding="utf-8") if path.exists() else None
+    if old is not None and old.replace("\r\n", "\n") == new:
+        return False
+    if write:
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(new.replace("\n", "\r\n") if old and "\r\n" in old else new)
+    return True
+
+
+def rich(text):
+    """A message's text as HTML: escaped, with `code` spans."""
+    return re.sub(r"`([^`]+)`", lambda m: f"<code>{m.group(1)}</code>", escape(text, quote=False))
+
+
+def notes_text(release):
+    return " ".join(b["p"] if "p" in b else " ".join(b["ul"]) for b in release["blocks"])
+
+
+def notes_html(release, indent_by):
+    out = []
+    for b in release["blocks"]:
+        if "p" in b:
+            out.append(f"<p>{rich(b['p'])}</p>")
+        else:
+            out.append("<ul>\n" + "\n".join(f"  <li>{rich(i)}</li>" for i in b["ul"]) + "\n</ul>")
+    out.append(f'<p class="rel-link"><a href="{REPO}/releases/tag/{release["tag"]}">Release page on GitHub</a></p>')
+    return indent("\n".join(out), indent_by)
+
+
+NEWS_FULL = 15  # the latest releases shown in full; the older ones are collapsed
+
+
+def render_news():
+    releases = news()
+    full, older = releases[:NEWS_FULL], releases[NEWS_FULL:]
+    sections = []
+    for k, r in enumerate(full):
+        latest = ' <span class="rel-new">Latest</span>' if k == 0 else ""
+        sections.append(
+            f'    <section id="{r["tag"]}">\n      <h2><a href="#{r["tag"]}">{r["version"]}</a>'
+            f'<time datetime="{r["date"]}">{r["date"]}</time>{latest}</h2>\n'
+            + notes_html(r, "      ") + "\n    </section>"
+        )
+    if older:
+        rows = []
+        for r in older:
+            first = r["blocks"][0]["p"] if r["blocks"] and "p" in r["blocks"][0] else (r["blocks"][0]["ul"][0] if r["blocks"] else "")
+            rows.append(
+                f'      <details class="rel-old" id="{r["tag"]}"><summary><span class="rv">{r["version"]}</span>'
+                f'<time datetime="{r["date"]}">{r["date"]}</time><span class="rs">{escape(snippet(first, 110), quote=False)}</span></summary>\n'
+                f'        <div class="rel-body">\n{notes_html(r, "          ")}\n        </div>\n      </details>'
+            )
+        sections.append(
+            '    <section id="older">\n      <h2>Older releases</h2>\n' + "\n".join(rows) + "\n    </section>"
+        )
+    latest = releases[0]["version"] if releases else ""
+    body = (
+        hero('<a href="./">Janus</a> / News', "News", "What&rsquo;s new.",
+             f"What each version of Janus added, newest first, in the words of the commit that made the release. "
+             f"The latest is {latest}; the installers are on each release&rsquo;s page on GitHub.")
+        + '\n\n<div class="wrap news-wrap">\n  <div class="article news">\n'
+        + "\n".join(sections)
+        + "\n  </div>\n</div>"
+    )
+    return generated_page("news.html", "What's new", "What each version of Janus added, release by release, from the first to the latest.", body)
+
+
+def news_link():
+    """The home page's one-line link to the latest release's notes."""
+    rel = news()
+    return f'<a href="news.html">What&rsquo;s new in {rel[0]["version"]}</a>' if rel else '<a href="news.html">What&rsquo;s new</a>'
+
+
+# -- WebP twins of the screenshots (tools/make_webp.py)
+
+IMG_TAG = re.compile(r"<picture>.*?</picture>|<img\b[^>]*>", re.S)
+
+
+def picturize(text):
+    """Every <img> of a JPEG in assets/img/ that has a .webp next to it goes in <picture><source type="image/webp"
+    srcset="...webp"><img ...></picture>; one without a twin (any more) is left a bare <img>. Safe to run again."""
+
+    def wrap(img):
+        src = re.search(r'\ssrc="(assets/img/[^"?#]+\.jpg)"', img)
+        if not src:
+            return img
+        webp = src.group(1)[: -len(".jpg")] + ".webp"
+        if not (SITE / webp).exists():
+            return img
+        return f'<picture><source type="image/webp" srcset="{webp}">{img}</picture>'
+
+    def one(m):
+        s = m.group(0)
+        if s.startswith("<picture>"):
+            img = re.search(r"<img\b[^>]*>", s)
+            return wrap(img.group(0)) if img else s
+        return wrap(s)
+
+    return IMG_TAG.sub(one, text)
+
+
+# ---- python-tabs: "In Janus" / "In Python" (the code is what Janus's Copy Python gives, site/data/python.json)
+
+PYTABS = re.compile(r"<!-- build:python-tabs[\w-]* -->.*?<!-- /build:python-tabs[\w-]* -->", re.S)
+
+PY_KEYWORDS = (
+    "and|as|assert|class|def|elif|else|except|for|from|if|import|in|is|lambda|not|or|return|try|while|with"
+    "|None|True|False"
+)
+PY_TOKEN = re.compile(
+    r"(?P<c>#[^\n]*)"
+    r'|(?P<s>"""(?:.|\n)*?"""|"(?:\\.|[^"\\\n])*"|' + r"'(?:\\.|[^'\\\n])*')"
+    r"|(?P<k>\b(?:" + PY_KEYWORDS + r")\b)"
+    r"|(?P<n>\b\d+(?:\.\d*)?(?:[eE][+-]?\d+)?\b)"
+)
+
+
+def highlight_python(code):
+    """The code as HTML with keywords (k), strings (s), comments (c) and numbers (n) in <span>s."""
+    out, pos = [], 0
+    for m in PY_TOKEN.finditer(code):
+        out.append(escape(code[pos : m.start()], quote=False))
+        out.append(f'<span class="{m.lastgroup}">{escape(m.group(0), quote=False)}</span>')
+        pos = m.end()
+    out.append(escape(code[pos:], quote=False))
+    return "".join(out)
+
+
+ELIDE_OVER = 6  # a list of more items than this is shown as its first 3 and its last 1
+
+
+def elide_lists(code):
+    """The code as shown: every list or tuple literal of more than ELIDE_OVER items (one item a line, or many on a
+    line) keeps its first 3 items and its last 1, with a comment line between them; nothing else changes. The full
+    script is what Copy and Download give."""
+    lines = code.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        if line.rstrip().endswith("[") and not line.lstrip().startswith("#"):
+            j = i + 1
+            while j < len(lines) and lines[j].strip() and not lines[j].lstrip().startswith("]"):
+                j += 1
+            items = lines[i + 1 : j]
+            if len(items) > ELIDE_OVER and j < len(lines):
+                indent = re.match(r"\s*", items[0]).group(0)
+                out += [line] + items[:3] + [f"{indent}# … {len(items) - 4} more, in the full script", items[-1]]
+                i = j
+                continue
+        m = None if line.lstrip().startswith("#") else re.search(r"\[([^\[\]()]*)\]", line)
+        if m and " for " not in m.group(1):
+            parts = [p.strip() for p in m.group(1).split(", ")]
+            if len(parts) > ELIDE_OVER:
+                indent = re.match(r"\s*", line).group(0) + "    "
+                out += [
+                    line[: m.start() + 1],
+                    indent + ", ".join(parts[:3]) + ",",
+                    f"{indent}# … {len(parts) - 4} more, in the full script",
+                    indent + parts[-1] + line[m.end() - 1 :],
+                ]
+                i += 1
+                continue
+        out.append(line)
+        i += 1
+    return "\n".join(out)
+
+
+def python_files(write):
+    """site/assets/python/<key>.py: each full script of python.json, as it is. The names of those that are not as
+    they should be (written if `write`)."""
+    folder = SITE / "assets" / "python"
+    changed = []
+    for key, case in load("python.json").items():
+        path = folder / f"{key}.py"
+        data = case["code"].encode("utf-8")
+        if not path.exists() or path.read_bytes() != data:
+            changed.append(f"assets/python/{key}.py")
+            if write:
+                folder.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+    return changed
+
+
+def python_tabs(page, name):
+    """The tabs of a guide: the steps in Janus and the code of Copy Python. Both panels are shown
+    without JavaScript (the tab list is hidden until assets/main.js shows it)."""
+    slug = page[: -len(".html")]
+    key = slug if name == "python-tabs" else f"{slug}-{name[len('python-tabs-'):]}"
+    data = load("python.json")
+    if key not in data:
+        raise SystemExit(f"{page}: no entry {key!r} in site/data/python.json")
+    case = data[key]
+    steps = "\n".join(f"        <li>{step}</li>" for step in case["steps"])
+    code = elide_lists(case["code"].replace("\r\n", "\n").rstrip("\n")) + "\n"
+    long = " long" if code.count("\n") > 60 else ""
+    tool = escape(case["tool"], quote=False)
+    return "\n".join([
+        '<div class="pytabs" data-tabs>',
+        f'  <div class="term-tabs pytabs-bar" role="tablist" aria-label="{tool}: in Janus or in Python" hidden>',
+        f'    <button type="button" role="tab" id="pt-{key}-janus" aria-controls="pp-{key}-janus" aria-selected="true" data-tab="janus">In Janus</button>',
+        f'    <button type="button" role="tab" id="pt-{key}-python" aria-controls="pp-{key}-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>',
+        '  </div>',
+        '  <div class="pytabs-body">',
+        f'    <div role="tabpanel" id="pp-{key}-janus" aria-labelledby="pt-{key}-janus" class="pytabs-panel">',
+        '      <p class="pytabs-h">In Janus</p>',
+        '      <ol>',
+        steps,
+        '      </ol>',
+        '    </div>',
+        f'    <div role="tabpanel" id="pp-{key}-python" aria-labelledby="pt-{key}-python" class="pytabs-panel">',
+        '      <p class="pytabs-h">In Python</p>',
+        f'      <div class="pycode"><pre class="code py{long}" tabindex="0"><code>{highlight_python(code)}</code></pre>'
+        f'<div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/{key}.py" aria-label="Copy the whole Python script">Copy</button>'
+        f'<a class="copy" href="assets/python/{key}.py" download="{key}.py">Download .py</a></div></div>',
+        '      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; '
+        'it runs with Zeit (<code>pip install zeit-cdts</code>). The shown code shortens the long lists of files and dates; Copy and Download give the whole script.</p>',
+        '    </div>',
+        '  </div>',
+        '</div>',
+    ])
 
 
 RENDERERS = {
@@ -521,6 +1112,7 @@ INLINE_VALUES = {
     "guide-count": lambda: str(len(load("guides.json"))),
     "track-count": lambda: str(len(TRACKS)),
     # the tools jn mcp lists: the calls of the catalogue in crates/janus-app/src/mcp.rs
+    "news-link": news_link,
     "mcp-tools": lambda: str(
         len(set(re.findall(r'\btool\(\s*"(\w+)",', (ROOT / "crates/janus-app/src/mcp.rs").read_text(encoding="utf-8"))))
     ),
@@ -532,10 +1124,13 @@ def rebuild(page, text):
 
     def one(m):
         name = m.group("name")
-        if name not in RENDERERS:
-            raise SystemExit(f"{page}: unknown block build:{name}")
         ind = m.group("ind")
-        body = RENDERERS[name](page).split("\n")
+        if name == "python-tabs" or name.startswith("python-tabs-"):
+            body = python_tabs(page, name).split("\n")
+        elif name not in RENDERERS:
+            raise SystemExit(f"{page}: unknown block build:{name}")
+        else:
+            body = RENDERERS[name](page).split("\n")
         lines = [f"{ind}<!-- build:{name} -->"]
         lines += [ind + line if line else line for line in body]
         lines.append(f"{ind}<!-- /build:{name} -->")
@@ -559,11 +1154,34 @@ def main():
     # The guides' facts first: the guide-tracks block reads the pages, not the file.
     if guides_json_update(write=not args.check):
         changed.append("data/guides.json")
+    if news_json_update(write=not args.check):
+        changed.append("data/news.json")
     texts = {}
+    # The pages generated whole, in the line endings of their file (those of index.html when new).
+    with open(SITE / "index.html", encoding="utf-8", newline="") as f:
+        default_eol = "\r\n" if "\r\n" in f.read() else "\n"
+    generated = {"docs.html": render_docs_index, "news.html": render_news}
+    generated.update({page: (lambda page=page: render_doc(page)) for page in DOC_PAGES})
+    for name, render in sorted(generated.items()):
+        path = SITE / name
+        old = None
+        if path.exists():
+            with open(path, encoding="utf-8", newline="") as f:
+                old = f.read()
+        eol = "\r\n" if old and "\r\n" in old else default_eol
+        text = picturize(render())
+        texts[name] = text
+        if old is None or old.replace("\r\n", "\n") != text:
+            changed.append(name)
+            if not args.check:
+                with open(path, "w", encoding="utf-8", newline="") as f:
+                    f.write(text.replace("\n", eol))
     for path in sorted(SITE.glob("*.html")):
+        if path.name in generated:
+            continue
         with open(path, encoding="utf-8", newline="") as f:
             old = f.read()
-        new = rebuild(path.name, old)
+        new = picturize(rebuild(path.name, old))
         texts[path.name] = new.replace("\r\n", "\n")
         if new != old:
             changed.append(path.name)
@@ -573,6 +1191,7 @@ def main():
 
     if search_json_update(texts, write=not args.check):
         changed.append("data/search.json")
+    changed += python_files(write=not args.check)
 
     if args.check:
         if changed:

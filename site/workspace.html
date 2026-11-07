@@ -14,9 +14,8 @@
 <meta property="og:description" content="Ctrl+K for any command, Ctrl+G for any coordinate, a lens for another date, blend modes over the imagery, a record of every result with its Python, projects that reopen as you left them, and Ctrl+Z.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/workspace/07-lens.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -33,7 +32,8 @@
         <li><a href="./guides.html" aria-current="page">Guides</a></li>
         <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
     <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
@@ -128,7 +128,7 @@
       <h2><span class="n">03</span>Tasks and notices</h2>
       <p>A tool run on the raster works in the background. When a task ends, a notice comes up at the bottom right, above the status bar: <span class="ui">Done</span>, the task's name and how long it took, with <span class="ui">Show in Tasks</span> and <span class="ui">Open folder</span>. A task that failed says <span class="ui">Failed</span>, gives the error and a <span class="ui">Log</span> button; an export gives <span class="ui">Exports</span>. With Janus in the background, the system is also asked for your attention: the taskbar's icon flashes (on a Mac, the Dock's icon bounces).</p>
       <figure class="fig annotated">
-        <a href="assets/img/workspace/01-run.jpg"><img src="assets/img/workspace/01-run.jpg" alt="Janus after a run of the AR(1) trend (remotePARTS) on an ROI of 700 x 700 pixels of the 215_067 series. Left, the tool's window: its description, the parameters (Trend per Year, Harmonics 0, Missing dates Exact, Significance level 0.05, Min valid observations 4), Run on the raster: ROI, the output folder, Run, and under it Preview and Auto-preview. Top, the Tasks window: the run done, 100%, 13 s, with Log, Folder and Remove. In the middle the map, the ROI outlined in yellow with the significant slopes in white and orange; below, the ROI's mean index from 1985 to 2025 with the fitted trend in magenta; right, the Statistics table, and over it the notice: Done, AR(1) trend (remotePARTS) - ROI (700 x 700 px), Done in 13 s, Show in Tasks, Open folder. The status bar: zoom 60.0% (detail 1:1), 1:190 000, 49.3 m/px, EPSG:4326." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/workspace/01-run.jpg"><picture><source type="image/webp" srcset="assets/img/workspace/01-run.webp"><img src="assets/img/workspace/01-run.jpg" alt="Janus after a run of the AR(1) trend (remotePARTS) on an ROI of 700 x 700 pixels of the 215_067 series. Left, the tool's window: its description, the parameters (Trend per Year, Harmonics 0, Missing dates Exact, Significance level 0.05, Min valid observations 4), Run on the raster: ROI, the output folder, Run, and under it Preview and Auto-preview. Top, the Tasks window: the run done, 100%, 13 s, with Log, Folder and Remove. In the middle the map, the ROI outlined in yellow with the significant slopes in white and orange; below, the ROI's mean index from 1985 to 2025 with the fitted trend in magenta; right, the Statistics table, and over it the notice: Done, AR(1) trend (remotePARTS) - ROI (700 x 700 px), Done in 13 s, Show in Tasks, Open folder. The status bar: zoom 60.0% (detail 1:1), 1:190 000, 49.3 m/px, EPSG:4326." width="1600" height="950" loading="lazy"></picture></a>
         <ol class="hotspots" aria-label="Parts of the window, numbered on the image">
           <li data-x="15.0" data-y="3.9"><b>A tool's window.</b> It floats and can be moved: here the AR(1) trend, with Run on the raster.</li>
           <li data-x="46.9" data-y="4.2"><b>Tasks.</b> The run, done in 13 s, with Log, Folder and Remove.</li>
@@ -180,7 +180,7 @@
       </dl>
       <p>The blending is done by the graphics card's own blending stage, a pipeline per mode, so a mode costs nothing more to draw than Normal.</p>
       <figure class="fig">
-        <a href="assets/img/workspace/05-multiply.jpg"><img src="assets/img/workspace/05-multiply.jpg" alt="The 215_067 series at 2025 drawn with the blend mode Multiply over the Esri World Imagery basemap, at 100% around the lower São Francisco river: the river winding from the left to the bottom in dark purple, sand banks and islands in it, the fields and their boundaries of the imagery visible under the viridis colours of the index, light patches of high values on the upper left. The Layers panel shows Multiply beside the opacity at 100%, the series 215_067 (41 dates, 1985 .. 2025) and the basemap, Esri World Imagery, both visible." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/workspace/05-multiply.jpg"><picture><source type="image/webp" srcset="assets/img/workspace/05-multiply.webp"><img src="assets/img/workspace/05-multiply.jpg" alt="The 215_067 series at 2025 drawn with the blend mode Multiply over the Esri World Imagery basemap, at 100% around the lower São Francisco river: the river winding from the left to the bottom in dark purple, sand banks and islands in it, the fields and their boundaries of the imagery visible under the viridis colours of the index, light patches of high values on the upper left. The Layers panel shows Multiply beside the opacity at 100%, the series 215_067 (41 dates, 1985 .. 2025) and the basemap, Esri World Imagery, both visible." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>Multiply</b>: the index of 2025 over the Esri imagery around Penedo, the fields' outlines of the imagery showing through its colours.</figcaption>
       </figure>
       <h3>Groups</h3>
@@ -214,7 +214,7 @@
       </div>
       <p>The decimal, comma, UTM and EPSG lines of the table are the same place, and each took the map to it. As you type, the window says where it lands (<code>lat -10.283333, lon -36.583333 -&gt; pixel (6804, 4251)</code>, or that it is off the layer). <kbd>Enter</kbd> or <span class="ui">Go</span> centres the map there, zoomed in to a pixel per screen point at least, with a mark that fades in 8 s and what you typed beside it; <span class="ui">Drop a pin there</span> also adds a pin. From the command line: <code>--goto "10°17'S 36°35'W"</code>. Place names are not looked up: a coordinate is needed.</p>
       <figure class="fig">
-        <a href="assets/img/workspace/06-goto.jpg"><img src="assets/img/workspace/06-goto.jpg" alt="The map at 100% after Go to 10°17'S 36°35'W: the 2025 index in viridis, the São Francisco river winding from the upper left to the bottom in dark purple, and at the centre, on the river's bank, a ring with a cross and the label 10°17'S 36°35'W. In the bottom right corner the minimap: the whole scene, the coast and the sea at its bottom right, a small rectangle on its right edge where the view is. The status bar: zoom 100.0% (detail 1:1), 1:110 000, 29.5 m/px, EPSG:4326." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/workspace/06-goto.jpg"><picture><source type="image/webp" srcset="assets/img/workspace/06-goto.webp"><img src="assets/img/workspace/06-goto.jpg" alt="The map at 100% after Go to 10°17'S 36°35'W: the 2025 index in viridis, the São Francisco river winding from the upper left to the bottom in dark purple, and at the centre, on the river's bank, a ring with a cross and the label 10°17'S 36°35'W. In the bottom right corner the minimap: the whole scene, the coast and the sea at its bottom right, a small rectangle on its right edge where the view is. The status bar: zoom 100.0% (detail 1:1), 1:110 000, 29.5 m/px, EPSG:4326." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>Go to</b> 10°17'S 36°35'W, Penedo on the São Francisco: the mark at the centre, the view's rectangle on the minimap.</figcaption>
       </figure>
       <h3>Saved views</h3>
@@ -229,7 +229,7 @@
       </dl>
       <p>The comparison is set on the swipe's bar, as for the swipe: another open layer, or the same one at another date (<span class="ui">Own date</span>) or in another display mode (<span class="ui">Own mode</span>). With a single series open it starts at the date before the one shown.</p>
       <figure class="fig">
-        <a href="assets/img/workspace/07-lens.jpg"><img src="assets/img/workspace/07-lens.jpg" alt="The lens over the 215_067 series at 2012 around the São Francisco: outside the circle the 2012 composite crossed by diagonal stripes; inside the circle, labelled 215_067 | 2011 | Value at date, the 2011 composite without them. Above the map the swipe's bar: Swipe off, Lens (on), the layer 215_067, Own date ticked with its slider at 2011, Own mode." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/workspace/07-lens.jpg"><picture><source type="image/webp" srcset="assets/img/workspace/07-lens.webp"><img src="assets/img/workspace/07-lens.jpg" alt="The lens over the 215_067 series at 2012 around the São Francisco: outside the circle the 2012 composite crossed by diagonal stripes; inside the circle, labelled 215_067 | 2011 | Value at date, the 2011 composite without them. Above the map the swipe's bar: Swipe off, Lens (on), the layer 215_067, Own date ticked with its slider at 2011, Own mode." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The lens</b>: 2011 inside, 2012 around it. In 2012 only Landsat 7 was imaging, and its composite carries the stripes of its scan-line gaps.</figcaption>
       </figure>
       <p>The lens suits questions about one place: is this patch new, was the stripe there the year before? The swipe suits comparing two halves of the view. <kbd>L</kbd> goes back from the lens to the divider, <kbd>C</kbd> turns either off.</p>
@@ -340,7 +340,7 @@
       <h3>Features: WFS and OGC API</h3>
       <p>Features are fetched for the visible area, the ROI, the active layer or the whole layer (the box sent to the server), between two dates of a date field and with an attribute filter (sent to the server when it takes it), paged, up to a cap: when the server has more there, the layer is named <em>(first N)</em> and a notice says so. The fetch is a task of <span class="ui">Tools → Tasks</span>, with its progress and <span class="ui">Cancel</span>; its GeoPackage, in Janus' cache, opens as a vector layer: its colour, attribute table, an alert as the ROI (<kbd>Alt</kbd>+click), the series of every alert, zonal statistics, rasterize, <span class="ui">Export as...</span> to keep it. The same request within twelve hours is read from the cache. A project keeps the map layers and the fetched layers' requests: opened again, a GeoPackage no longer there is fetched again.</p>
       <figure class="fig">
-        <a href="assets/img/workspace/08-web-layers.jpg"><img src="assets/img/workspace/08-web-layers.jpg" alt="The Sentinel-2 series of Rondônia, NDVI on 2020-08-18 in viridis, over the Esri World Imagery basemap. Over it, translucent in tan, PRODES' yearly deforestation since 2008 up to the series' date (a WMS layer of TerraBrasilis), patches around the series and along its edges; on top, outlined in dark red, four DETER alerts of 2016 to 2024 of the visible area (WFS), two at the bottom left of the series and a long one at its top right. The Layers panel lists DETER Daily - Anonymous (4 polygons), Yearly deforestation since 2008 (WMS terrabrasilis.dpi.inpe.br), s2ro (107 dates, 2019-06-05 .. 2024-09-11) and the basemap, Esri World Imagery. Bottom right of the map the credits: INPE / TerraBrasilis (PRODES, DETER) | Powered by Esri | Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/workspace/08-web-layers.jpg"><picture><source type="image/webp" srcset="assets/img/workspace/08-web-layers.webp"><img src="assets/img/workspace/08-web-layers.jpg" alt="The Sentinel-2 series of Rondônia, NDVI on 2020-08-18 in viridis, over the Esri World Imagery basemap. Over it, translucent in tan, PRODES' yearly deforestation since 2008 up to the series' date (a WMS layer of TerraBrasilis), patches around the series and along its edges; on top, outlined in dark red, four DETER alerts of 2016 to 2024 of the visible area (WFS), two at the bottom left of the series and a long one at its top right. The Layers panel lists DETER Daily - Anonymous (4 polygons), Yearly deforestation since 2008 (WMS terrabrasilis.dpi.inpe.br), s2ro (107 dates, 2019-06-05 .. 2024-09-11) and the basemap, Esri World Imagery. Bottom right of the map the credits: INPE / TerraBrasilis (PRODES, DETER) | Powered by Esri | Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>PRODES and DETER over a series</b>: <code>jn s2ro --expr NDVI --date 30 --basemap esri --web-layer https://terrabrasilis.dpi.inpe.br/geoserver/prodes-legal-amz/ows,yearly_deforestation,wms,time=upto,opacity=0.75 --web-layer https://terrabrasilis.dpi.inpe.br/geoserver/deter-amz/ows,deter_amz,wfs,field=view_date,from=2016-08-01,to=2024-12-31</code></figcaption>
       </figure>
       <h3>Against Python</h3>
@@ -414,6 +414,8 @@
     <ul>
       <li><a href="./methods.html">Methods</a></li>
       <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
       <li><a href="./#cite">Cite</a></li>
       <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>

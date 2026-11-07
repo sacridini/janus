@@ -14,9 +14,8 @@
 <meta property="og:description" content="A desktop app for satellite image time series: hover any pixel to see its history, find where, when and how much the land changed, and measure how accurate your maps are.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 <link rel="stylesheet" href="assets/demo.css">
 </head>
@@ -34,7 +33,8 @@
         <li><a href="guides.html">Guides</a></li>
         <li><a href="demo.html">Demo</a></li>
         <li><a href="#install">Install</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="docs.html">Docs</a></li>
+        <li><a href="news.html">News</a></li>
       </ul>
     </nav>
     <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
@@ -53,7 +53,7 @@
       <img class="hero-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="240" height="240">
       <img class="hero-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="478" height="240">
     </h1>
-    <p class="eyebrow">Raster time series analysis · <span data-version>Windows · macOS · Linux</span></p>
+    <p class="eyebrow">Raster time series analysis · <span data-version>Windows · macOS · Linux</span> · <!-- n:news-link --><a href="news.html">What&rsquo;s new in 1.16.0</a><!-- /n:news-link --></p>
     <p class="hero-tag">See the past of every pixel.</p>
     <p class="lede">Janus is a desktop app for satellite image time series: hover any pixel to see its history, find where, when and how much the land changed with LandTrendr, CCDC, BFAST and <!-- n:method-more -->31<!-- /n:method-more --> more methods, and measure how accurate your maps are. No code and no cloud account: it runs on your computer, on your files.</p>
     <p class="audience">For people who map land change with Landsat, Sentinel, MODIS or any stack of rasters.</p>
@@ -81,7 +81,7 @@
 <section class="shot">
   <div class="wrap">
     <figure class="annotated">
-      <a href="landtrendr.html#chart"><img src="assets/img/landtrendr/03-fit.jpg" alt="The Janus window: a map of annual NDVI in the centre with a pin on a cleared pixel; below it the pixel's NDVI from 1985 to 2024 with the straight segments LandTrendr fitted to it in magenta, falling from 2002 to 2009 and rising slowly after; on the right LandTrendr's parameters, on the left the layers and display panels." width="1680" height="1050" loading="lazy"></a>
+      <a href="landtrendr.html#chart"><picture><source type="image/webp" srcset="assets/img/landtrendr/03-fit.webp"><img src="assets/img/landtrendr/03-fit.jpg" alt="The Janus window: a map of annual NDVI in the centre with a pin on a cleared pixel; below it the pixel's NDVI from 1985 to 2024 with the straight segments LandTrendr fitted to it in magenta, falling from 2002 to 2009 and rising slowly after; on the right LandTrendr's parameters, on the left the layers and display panels." width="1680" height="1050" loading="lazy"></picture></a>
       <ol class="hotspots" aria-label="Parts of the window, numbered on the image">
         <li data-x="8.0" data-y="10.5"><b>Layers and Display.</b> The series that is open, its colours and its value range.</li>
         <li data-x="41.7" data-y="5.1"><b>The date slider.</b> Drag it, or press Play, to move through the forty years.</li>
@@ -112,8 +112,11 @@
         <p class="story-links"><a href="visualize.html">Seeing a series</a> <a href="workspace.html">The workspace</a></p>
       </div>
       <figure class="story-fig" data-step="explore">
-        <a href="visualize.html"><img src="assets/img/visualize/01-similarity.jpg" alt="Janus with a Sentinel-2 series of 107 dates shown as the similarity to pin 1: the forest of pin 1 and the other forests in yellow, the pastures and clearings in dark purple; below, the NDVI of pin 1 (a forest, high and steady) and of pin 2 (a pasture, low and seasonal)." width="1600" height="950" loading="lazy"></a>
-        <figcaption>Two pins, a forest and a pasture, and where else the forest of pin 1 is: every pixel's NDVI from 2019 to 2024 compared with its.</figcaption>
+        <video muted loop playsinline controls preload="none" poster="assets/clips/explore.jpg" width="1280" height="900" aria-label="A looping clip of the Janus window, the map, the chart and the statistics: the pointer moves over forest and then over a clearing, and the chart follows it; two pins are dropped; the years play from 1985 to 2024.">
+          <source src="assets/clips/explore.webm" type="video/webm">
+          <source src="assets/clips/explore.mp4" type="video/mp4">
+        </video>
+        <figcaption>The pointer over forest, then over a clearing, and the chart following it; two pins; then the years playing, 1985 to 2024.</figcaption>
       </figure>
     </div>
 
@@ -125,8 +128,11 @@
         <p class="story-links"><a href="methods.html">The methods</a> <a href="guides.html#change">The change track</a> <a href="landtrendr.html">LandTrendr guide</a></p>
       </div>
       <figure class="story-fig" data-step="detect">
-        <a href="landtrendr.html#maps"><img src="assets/img/landtrendr/07-yod.jpg" alt="Janus after a LandTrendr run on the whole image: the map coloured by the year of detection of the greatest loss, from 1985 in purple to 2023 in yellow, over the NDVI of 2024; the Tasks panel shows the run done; the chart still shows the pin's series and its fit." width="1680" height="1050" loading="lazy"></a>
-        <figcaption>LandTrendr's year of detection over the whole image, 1686 × 1671 pixels, from the fit on the chart.</figcaption>
+        <video muted loop playsinline controls preload="none" poster="assets/clips/detect.jpg" width="1280" height="900" aria-label="A looping clip of the Janus window with LandTrendr: the fit for a pinned pixel as the maximum number of segments goes from 6 to 2 and back to 6, then the run on the whole image and the map of the year of detection.">
+          <source src="assets/clips/detect.webm" type="video/webm">
+          <source src="assets/clips/detect.mp4" type="video/mp4">
+        </video>
+        <figcaption>LandTrendr&rsquo;s fit for a pin as the maximum number of segments goes 6, 2, 6; then the run on the whole image and the map of the year of detection.</figcaption>
       </figure>
     </div>
 
@@ -138,8 +144,11 @@
         <p class="story-links"><a href="validation.html">Validation guide</a> <a href="validation.html#accuracy">Accuracy and areas</a></p>
       </div>
       <figure class="story-fig" data-step="prove">
-        <a href="validation.html#draw"><img src="assets/img/validation/05-sample.jpg" alt="The sample drawn: 346 yellow points scattered over a Sentinel-2 image of forest and clearings, the map and the strata hidden; the Validation panel lists the sample by stratum." width="1680" height="1050" loading="lazy"></a>
-        <figcaption>The sample, 346 points. The map and the strata are hidden: the interpretation is blind.</figcaption>
+        <video muted loop playsinline controls preload="none" poster="assets/clips/prove.jpg" width="1280" height="800" aria-label="A looping clip of the Janus window with the validation sample: 346 points over the map, one point interpreted as Deforestation with high confidence from its chips and series, then the accuracy, 0.780 plus or minus 0.040, and the areas with their confidence intervals.">
+          <source src="assets/clips/prove.webm" type="video/webm">
+          <source src="assets/clips/prove.mp4" type="video/mp4">
+        </video>
+        <figcaption>The 346-point sample over the map; one point interpreted (Deforestation, high confidence) with its chips and series; then the accuracy, 0.780 &plusmn; 0.040, and the areas with their confidence intervals.</figcaption>
       </figure>
     </div>
   </div>
@@ -362,9 +371,9 @@
       </ul>
     </nav>
     <ul class="guide-list g-feat">
-      <li><a href="landtrendr.html"><img class="g-thumb" src="assets/img/thumbs/landtrendr.jpg" alt="LandTrendr" width="640" height="400" loading="lazy"><span>Annual series</span><h3>LandTrendr</h3><p>Forty years of a Rondônia forest frontier as straight segments: the year, magnitude and duration of every clearing, and how long the forest took to recover.</p><small class="g-facts">12 min read · 15 figures</small></a></li>
-      <li><a href="validation.html"><img class="g-thumb" src="assets/img/thumbs/validation.jpg" alt="Validation" width="640" height="400" loading="lazy"><span>Any map</span><h3>Validation</h3><p>Strata, a sample, blind interpretation, accuracy and error-adjusted areas with confidence intervals.</p><small class="g-facts">25 min read · 23 figures</small></a></li>
-      <li><a href="stac.html"><img class="g-thumb" src="assets/img/thumbs/stac.jpg" alt="STAC catalogs" width="640" height="380" loading="lazy"><span>Sentinel-2, Landsat, Sentinel-1</span><h3>STAC catalogs</h3><p>An area, two dates, a cloud cover: 375 Sentinel-2 scenes of five dry seasons as a series of 107 dates, read in place from Planetary Computer with the clouds masked; then a year of Sentinel-1 radar over the same square, in dB, a clearing seen through the clouds.</p><small class="g-facts">17 min read · 6 figures</small></a></li>
+      <li><a href="landtrendr.html"><picture><source type="image/webp" srcset="assets/img/thumbs/landtrendr.webp"><img class="g-thumb" src="assets/img/thumbs/landtrendr.jpg" alt="LandTrendr" width="640" height="400" loading="lazy"></picture><span>Annual series</span><h3>LandTrendr</h3><p>Forty years of a Rondônia forest frontier as straight segments: the year, magnitude and duration of every clearing, and how long the forest took to recover.</p><small class="g-facts">12 min read · 15 figures</small></a></li>
+      <li><a href="validation.html"><picture><source type="image/webp" srcset="assets/img/thumbs/validation.webp"><img class="g-thumb" src="assets/img/thumbs/validation.jpg" alt="Validation" width="640" height="400" loading="lazy"></picture><span>Any map</span><h3>Validation</h3><p>Strata, a sample, blind interpretation, accuracy and error-adjusted areas with confidence intervals.</p><small class="g-facts">25 min read · 23 figures</small></a></li>
+      <li><a href="stac.html"><picture><source type="image/webp" srcset="assets/img/thumbs/stac.webp"><img class="g-thumb" src="assets/img/thumbs/stac.jpg" alt="STAC catalogs" width="640" height="380" loading="lazy"></picture><span>Sentinel-2, Landsat, Sentinel-1</span><h3>STAC catalogs</h3><p>An area, two dates, a cloud cover: 375 Sentinel-2 scenes of five dry seasons as a series of 107 dates, read in place from Planetary Computer with the clouds masked; then a year of Sentinel-1 radar over the same square, in dB, a clearing seen through the clouds.</p><small class="g-facts">17 min read · 6 figures</small></a></li>
     </ul>
     <p class="mt-all"><a class="btn btn-ghost" href="guides.html">See all 23 guides</a></p>
     <!-- /build:home-guides -->
@@ -558,6 +567,8 @@ jn ndvi\ --zeit landtrendr --pin 1272,1414 --screenshot fit.png</code></pre>
     <ul>
       <li><a href="methods.html">Methods</a></li>
       <li><a href="guides.html">Guides</a></li>
+      <li><a href="docs.html">Docs</a></li>
+      <li><a href="news.html">News</a></li>
       <li><a href="#cite">Cite</a></li>
       <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>

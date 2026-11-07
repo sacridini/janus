@@ -14,9 +14,8 @@
 <meta property="og:description" content="Thinning and harvests in pine stands of Mississippi, found by EWMA control charts on every Landsat date: on the chart, then over the image.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/ewmacd/03-fit.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -33,7 +32,8 @@
         <li><a href="./guides.html" aria-current="page">Guides</a></li>
         <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
     <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
@@ -93,7 +93,7 @@
       <h2><span class="n">02</span>The example</h2>
       <p>The sample data that comes with Brooks' EWMACD script (v1.3.0): 51 Landsat dates from February 2005 to October 2011, irregular and with gaps (no date between February 2007 and January 2008), of 65 × 64 pixels (about 2 × 2 km) on the Mississippi–Alabama border (path/row 21/37). The index is the <strong>tasseled cap angle</strong> × 1000, the paper's index, in which denser vegetation gives higher values. The area is mostly loblolly pine stands, where the paper looked for thinning and harvests from 2009 to 2011.</p>
       <figure class="fig">
-        <a href="assets/img/ewmacd/01-series.jpg"><img src="assets/img/ewmacd/01-series.jpg" alt="The Janus window with the angle index of February 2005 over the 65 by 64 pixel area, two pins, and their series on the chart: a strong yearly cycle from about 300 in winter to 600 in summer, and lower summers for pin 2 after 2009." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/ewmacd/01-series.jpg"><picture><source type="image/webp" srcset="assets/img/ewmacd/01-series.webp"><img src="assets/img/ewmacd/01-series.jpg" alt="The Janus window with the angle index of February 2005 over the 65 by 64 pixel area, two pins, and their series on the chart: a strong yearly cycle from about 300 in winter to 600 in summer, and lower summers for pin 2 after 2009." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The series</b>, a GeoTIFF per date (<code>angle_2005-02-04.tif</code>…). Janus reads each date from its file name. Pin 1 and pin 2 are the two pixels this guide follows.</figcaption>
       </figure>
       <p>Opening the folder is enough: <span class="ui">File → Open folder...</span>, or <code>janus ewmacd_series</code> on the command line.</p>
@@ -112,7 +112,7 @@
       <h2><span class="n">04</span>On the chart</h2>
       <p>With <span class="ui">Fit the cursor, pins and ROI series</span> ticked, EWMACD runs on every series the chart shows and draws over each one: the <strong>harmonic model</strong> as a thin line, the <strong>EWMA</strong> as a thick line (drawn on top of the model), and the two <strong>control limits</strong> as dashed lines. Vertical lines mark the monitoring start, the disturbance and the recovery (or the gain), and dots mark the dates the X-bar screen left out. The numbers go to the <strong>Statistics</strong> table.</p>
       <figure class="fig">
-        <a href="assets/img/ewmacd/03-fit.jpg"><img src="assets/img/ewmacd/03-fit.jpg" alt="EWMACD's window over the map; on the chart the series of pin 1 with the harmonic model, the EWMA, the dashed control limits and vertical lines in 2008, March 2009 and November 2010." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/ewmacd/03-fit.jpg"><picture><source type="image/webp" srcset="assets/img/ewmacd/03-fit.webp"><img src="assets/img/ewmacd/03-fit.jpg" alt="EWMACD's window over the map; on the chart the series of pin 1 with the harmonic model, the EWMA, the dashed control limits and vertical lines in 2008, March 2009 and November 2010." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>Pin 1, a disturbance and a recovery.</b> The defaults: training on 2005–2007, monitoring from 2008.</figcaption>
       </figure>
       <div class="fig-pair">
@@ -175,7 +175,7 @@
     <section id="maps">
       <h2><span class="n">07</span>The maps</h2>
       <figure class="fig">
-        <a href="assets/img/ewmacd/06-disturbance.jpg"><img src="assets/img/ewmacd/06-disturbance.jpg" alt="The disturbance date over the area, on a satellite basemap: dark purple for 2008, blue-green for 2009 and yellow for late 2010, with the undisturbed pixels showing the basemap through the dimmed series." width="990" height="448" loading="lazy"></a>
+        <a href="assets/img/ewmacd/06-disturbance.jpg"><picture><source type="image/webp" srcset="assets/img/ewmacd/06-disturbance.webp"><img src="assets/img/ewmacd/06-disturbance.jpg" alt="The disturbance date over the area, on a satellite basemap: dark purple for 2008, blue-green for 2009 and yellow for late 2010, with the undisturbed pixels showing the basemap through the dimmed series." width="990" height="448" loading="lazy"></picture></a>
         <figcaption><b>Disturbance date</b>, early 2008 (purple) to late 2010 (yellow), over the Esri imagery with the series dimmed (opacity 0.25). Undisturbed pixels are left without colour.</figcaption>
       </figure>
       <div class="tbl-wrap">
@@ -200,7 +200,7 @@
       <h2><span class="n">08</span>How strict</h2>
       <p><span class="ui">Persistence</span> is the main trade-off between early detection and false alarms. With <strong>persistence 1</strong>, the flags are those of Brooks' EWMACD v1.3.0 script, the paper's own code. Zeit checks them date by date against the script, on synthetic series and on 400 pixels of this sample data. At that setting, a single date out of control is enough to start a disturbance:</p>
       <figure class="fig">
-        <a href="assets/img/ewmacd/07-persistence-1.jpg"><img src="assets/img/ewmacd/07-persistence-1.jpg" alt="The disturbance date with persistence 1: more of the area is coloured, mostly dark purple for 2008." width="990" height="448" loading="lazy"></a>
+        <a href="assets/img/ewmacd/07-persistence-1.jpg"><picture><source type="image/webp" srcset="assets/img/ewmacd/07-persistence-1.webp"><img src="assets/img/ewmacd/07-persistence-1.jpg" alt="The disturbance date with persistence 1: more of the area is coloured, mostly dark purple for 2008." width="990" height="448" loading="lazy"></picture></a>
         <figcaption><b>Persistence 1</b> (Brooks' script): 2929 pixels disturbed instead of 2192, 995 of them in 2008.</figcaption>
       </figure>
       <p>Pin 1 shows what that means. With persistence 1 it signals in September 2008 on a single low date, and is back within the limits on the next one. With 3, the default, it waits until March 2009, when the pixel stays out of control. Wider control limits lower the count too: 1624 pixels at 4 sigmas. There is no right setting in general: check it against stands whose history you know.</p>
@@ -242,6 +242,8 @@
     <ul>
       <li><a href="./methods.html">Methods</a></li>
       <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
       <li><a href="./#cite">Cite</a></li>
       <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>

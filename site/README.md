@@ -6,7 +6,7 @@ and `assets/main.js` directly, except the generated parts (below).
 
 - The download buttons point to the latest release page and, when the GitHub API
   answers, to the exact installer of the latest release (`assets/main.js`).
-- Logos, colours and fonts come from `../branding/`.
+- Logos and colours come from `../branding/`. The fonts are IBM Plex, served from `assets/fonts/` (see Fonts).
 - To preview locally: `python -m http.server -d site` and open http://localhost:8000.
 
 ## Generated parts
@@ -19,9 +19,10 @@ upload). In each `site/*.html`, the text between `<!-- build:NAME -->` and
 - `header` and `footer`: the partials `tools/site_partials/header.html` and
   `footer.html`; the placeholders (`{{base}}`, `{{brand_href}}`,
   `{{brand_label}}`, `{{current_methods}}`, `{{current_guides}}`,
-  `{{current_demo}}`) are filled per page: `index.html` links to its own
-  sections and has no current item, `methods.html` marks Methods, `guides.html`
-  and every guide page mark Guides, `demo.html` marks Demo. The header holds the
+  `{{current_demo}}`, `{{current_docs}}`, `{{current_news}}`) are filled per page: `index.html` links
+  to its own sections and has no current item, `methods.html` marks Methods, `guides.html`
+  and every guide page mark Guides, `demo.html` marks Demo, `docs.html` and the
+  `docs-*.html` pages mark Docs, `news.html` marks News. The header holds the
   search button, and the footer partial loads `assets/search.js`, so every page
   gets both.
 - `home-methods` in `index.html`: four shortcut cards into the chooser of
@@ -37,8 +38,9 @@ upload). In each `site/*.html`, the text between `<!-- build:NAME -->` and
   at each release (the build warns if its version differs from `Cargo.toml`).
 - Inline numbers, `<!-- n:NAME -->12<!-- /n:NAME -->`, rewritten the same way:
   `method-count`, `method-more` (the methods beyond the three the lede names),
-  `guide-count`, `track-count` and `mcp-tools` (the tools of `jn mcp`, counted in
-  `crates/janus-app/src/mcp.rs`).
+  `guide-count`, `track-count`, `mcp-tools` (the tools of `jn mcp`, counted in
+  `crates/janus-app/src/mcp.rs`) and `news-link` (the home hero's "What's new in
+  X.Y.Z" link, the latest release of `data/news.json`).
   The files in `site/data/` are published too, for the scripts of later pages.
 - `method-catalog` in `methods.html`: the chooser (chips "My data" and "I want
   to find", search, count) and every method of `methods.json` as a card,
@@ -58,14 +60,30 @@ upload). In each `site/*.html`, the text between `<!-- build:NAME -->` and
   contents that are not generic, such as "What next"); `--check` reports
   `data/guides.json` as out of date if they changed.
 
+- `python-tabs` in the guides (also `python-tabs-lite` and so on: a second block
+  on a page, read from the key `<slug>-lite`): the "In Janus" / "In Python" tabs
+  where the guide fits its tool on the chart. The steps of "In Janus" and the code
+  of "In Python" come from `data/python.json`; the code is what the Copy Python
+  button of Janus gives for the guide's pixel and parameters, never written by
+  hand (see Python snippets below). Put the markers at column 0 of the page: the
+  generated code lines must not be indented. The tokenizer in `build_site.py`
+  (`highlight_python`) colours keywords, strings, comments and numbers with
+  `<span class="k|s|c|n">`, the colours being in `style.css`; the Copy button has
+  an empty `data-copy` and copies the text of the `<code>` beside it. The tab
+  list starts `hidden` and `assets/main.js` shows it (the `[data-tabs]` logic of
+  the home's OS tabs), so without JavaScript both panels show one under the other;
+  `?tab=python` opens the Python tab. The steps and the code are not counted in a
+  guide's `minutes` or in the search index.
+
 - `data/search.json`, also written by `build_site.py` (and checked by `--check`):
   the index of the search dialog. One entry per method (`methods.html#<id>`,
   every card of the catalog has `id="<method id>"`), per guide, per h2 and h3 of
   a guide (the anchor is the heading's id, else its section's) and per section of
   `index.html`, `methods.html`, `guides.html` and `demo.html`, with a text of at
-  most 160 characters, the first paragraph after the heading. Keys: `k` (m, g, s),
-  `t` title, `u` link, `c` context, `x` text. It is about 65 KB (20 KB
-  compressed) and is fetched on the first open only.
+  most 160 characters, the first paragraph after the heading; also the docs pages (their
+  h2 and h3) and one entry per release of the news page. Keys: `k` (m, g, s),
+  `t` title, `u` link, `c` context, `x` text. It is about 90 KB and is fetched on the
+  first open only.
 - `assets/search.js`: Ctrl+K, Cmd+K or "/" or the header button open the dialog
   (arrows, Enter, Esc; words in any order, no case or accents; at most 12
   results in Methods, Guides, Sections). `?q=words` on any page opens it with
@@ -75,6 +93,122 @@ upload). In each `site/*.html`, the text between `<!-- build:NAME -->` and
 After editing a partial or a data file, run `python tools/build_site.py`;
 `python tools/build_site.py --check` writes nothing and exits 1 listing the
 pages that are out of date. Each file keeps its own line endings.
+
+## Python snippets (`data/python.json`)
+
+The code of the "In Python" tabs is made by Janus's own functions, not written by
+hand. `tools/python_snippets.json` lists one case per guide (`guide`, the Zeit
+`tool`, the `params` the guide changes, the `steps` of "In Janus" and the `input`:
+the files to open, `show` (the folder as the script writes it), the Display panel's
+`band` and `nd_band`, the pin as `pixel` or `lonlat`). The example
+`crates/janus-zeit/examples/python_snippets.rs` opens each series with
+`janus_cube::open_cube` (as Janus does), takes the parameters from the tool
+registry, and writes the script that Copy Python gives for the pin
+(`janus_zeit::python::calls` for the Zeit calls; the header, the reading of the
+series and the bands is copied from `crates/janus-app/src/python.rs`, which the crate
+cannot depend on: keep them equal when that file changes). Regenerate it, from the
+repository root, with the guides' data on the machine (`{LANDSAT}`, `{LANDSAT_FULL}`
+and `{SERIES}` in the cases file are environment variables with the folders of the
+Landsat dates of the CCDC guide's area, of the whole scene, and of the 41 yearly VRTs
+of the trend guide; `PROJ_DATA` for the coordinate names, and `PATH` with Janus's own
+`gdal.dll` first, never a system GDAL):
+
+    CARGO_TARGET_DIR=... cargo run -j 8 -p janus-zeit --example python_snippets -- tools/python_snippets.json site/data/python.json
+
+(a second argument is the output file, UTF-8; without it the JSON goes to the standard
+output). The script's docstring carries the date of the run. The site build only
+reads `data/python.json`: `python tools/build_site.py` needs no cargo, no GDAL and no
+data. A guide's code names its files as `show` plus the file's name, not the absolute
+path Janus writes.
+
+## Docs (`docs.html`, `docs-<name>.html`)
+
+Generated whole by `tools/build_site.py` (no `build:` markers to keep: the file is
+rewritten from scratch, its header and footer filled the usual way) from `docs/install.md`,
+`usage.md`, `architecture.md` and `building.md`, converted by `tools/md.py`, a small
+Markdown converter in the standard library (headings with GitHub's ids, nested lists, fenced
+code, tables, links, emphasis, block quotes, HTML blocks; `python tools/md.py docs/x.md`
+prints the HTML). The row of links at the top of each file is replaced by the page's own
+(the Docs menu), the `# title` becomes the page's `h1`, each `##` section is a section of
+the article with a "On this page" contents (h2 and h3) and a `#` link on hover. Links between
+the md files become links between the pages; `https://sacridini.github.io/janus/x.html` becomes
+`x.html`; any other repository path becomes a GitHub link (`blob/main/...`, `tree/main/...` for a
+folder). The short descriptions on `docs.html` are `DOCS` in `tools/build_site.py`; a new file of
+`docs/` is added there. The docs pages are in the search index (their h2 and h3). The Pages
+workflow also runs when `docs/**` changes.
+
+## News (`news.html`)
+
+The GitHub releases have no notes, so the page is made from the repository's tags `vX.Y.Z`:
+for each one the message of the commit whose subject starts with `X.Y.Z: ` (the tagged commit,
+else the nearest one before it that does; a few early tags have another kind of message and
+show it as it is) and the date of the tagged commit, with a link to the release page. The
+text is never rewritten: a long first line is cut into a list at its top-level `; ` (outside
+brackets and quotes) when that gives three items or more, a message's own `- ` lists stay
+lists, trailers (`Co-Authored-By`) are dropped. The latest 15 are shown in full, the older ones
+collapsed (`details`; a link to `news.html#v1.9.0` opens it). `build_site.py` reads git
+(`git tag`, `git log`) and writes `data/news.json`; without git or tags it keeps that file
+(entries git does not have stay in it), so `--check` works in a shallow clone. The Pages
+workflow checks out with `fetch-depth: 0` so the tags exist; it runs on pushes to `main`, so
+after tagging a release, run it again (Actions > Website > Run workflow) if the push of the
+release commit came before the tag. The home hero's "What's new in X.Y.Z" link reads the same file.
+
+## Fonts
+
+IBM Plex Sans (400, 400 italic, 500), Plex Sans Condensed (300, 400, 500) and Plex Mono (400,
+500), as the official woff2 subsets of the npm packages `@ibm/plex-sans` 1.1.0,
+`@ibm/plex-sans-condensed` 2.0.0 and `@ibm/plex-mono` 2.5.0 (jsDelivr), in
+`assets/fonts/` with the SIL Open Font License (`OFL.txt`). Three subsets of each: Latin
+(`Latin1`: ASCII, Latin-1, the usual punctuation), Latin Extended (`Latin2`) and `Pi` (the
+arrows, comparison signs and super/subscripts the site uses); Greek, Cyrillic and Vietnamese are
+left out (the Greek letters of a few formulas use the system's). The `@font-face` rules are at the
+top of `style.css` with `unicode-range`, so a page loads only the subsets it shows (about 20 KB
+a weight for text); `font-display: swap`; every page head preloads Sans Regular and Mono
+Regular (`Latin1`). Nothing is fetched from Google. All 24 files are 355 KB.
+
+## Images in WebP
+
+`python tools/make_webp.py` writes `<name>.webp` next to every `assets/img/**/<name>.jpg` (ffmpeg
+with libwebp, quality 85, 4 threads; skips up-to-date ones). `build_site.py` then wraps every
+`<img>` of such a JPEG, on every page, in `<picture><source type="image/webp" srcset="...webp"><img
+...></picture>` (idempotent; an image without a twin stays as it is; `picture` is `display:
+contents`, and `main.js` moves the wrapper with the image in swipes and annotated figures). The
+JPEG stays the fallback, the link of the lightbox (which shows the WebP when the page
+already loaded it) and the Open Graph image. 141 screenshots: 39.9 MB of JPEG, 27.5 MB of
+WebP (31% less), the text of the interface as sharp. Run `make_webp.py` and then `build_site.py`
+after a screenshot changes.
+
+## Clips
+
+`assets/clips/{explore,detect,prove}.{mp4,webm,jpg}` are the three looping videos of the
+home page's "Three steps" (`figure.story-fig[data-step]`): about 9 s each, 1280 px wide (explore and
+detect 1280 x 900, prove 1280 x 800), no audio, with a poster. They come from the program
+itself, with `tools/make_clips.py`, after `cargo build --release -p janus-app --bin janus`:
+
+    python tools/make_clips.py --stack C:/Users/eduar/Downloads/LT_Stack_NDVI_Rondonia.tif --validation target/tutorial-validation --work target/clips --out site/assets/clips
+
+The script runs the tours `clip-explore`, `clip-detect` and `clip-prove` of `janus --shots`
+(`crates/janus-app/src/shots_clips.rs`, `shots_validation.rs`; 4 threads, one at a time), which
+save every frame of chosen stretches as `OUT/<clip>/frame_NNNNN.png` at 30 per second of the
+clip's own time, whatever each frame takes to draw (the pointer is the tour's own, drawn by the
+app). The data: the annual NDVI stack of Rondônia (explore, detect) and the validation
+tutorial's (`python tools/make_tutorial_data.py data`, prove). Then ffmpeg (4 threads) makes the
+H.264 (yuv420p, faststart, CRF 28, `veryslow`) and VP9 (CRF 38; 48 for explore) files, cropped
+for explore and detect to the map, chart and tool (the left column is left out, so the text is
+larger), the whole window for prove, with the last 12 frames cross-faded into the first 12 so the
+loop does not jump; the poster is one frame. Lengths (explore 9.6 s, detect 10.9 s with the run's
+wait cut, prove 9 s) are in `shots_clips.rs`. `--only explore` makes one clip; `--no-record` makes the
+videos again from frames already in `--work`. Sizes now: explore 1.5 MB (mp4) and 1.4 MB
+(webm), detect 0.5 and 0.9, prove 0.6 and 1.1; the posters 0.17 to 0.29 MB.
+
+In the page each is `<video muted loop playsinline controls preload="none" poster=...>`
+with a WebM and an MP4 source (width and height set), and the caption says what the clip
+shows. Without JavaScript: the poster with the browser's controls. `main.js` removes the
+controls and, for each clip: loads it when it is within 500 px of the screen, plays it only
+while at least half of it is visible and the tab is shown, pauses it otherwise; a button
+(also a click on the picture) plays and pauses it, always visible while paused, on hover or
+focus while playing. With "reduce motion" (or the browser's data saver) it never starts by itself:
+the poster with a play button; once the reader plays it, it follows the visibility rule.
 
 ## Thumbnails of the guide cards
 

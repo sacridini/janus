@@ -14,9 +14,8 @@
 <meta property="og:description" content="Forty years of a Rondônia forest frontier, segmented by LandTrendr: on the chart, then over the whole image.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/landtrendr/03-fit.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -33,7 +32,8 @@
         <li><a href="./guides.html" aria-current="page">Guides</a></li>
         <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
     <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
@@ -91,7 +91,7 @@
       <h2><span class="n">02</span>The example</h2>
       <p>Forty years of NDVI (× 10000), one composite a year from 1985 to 2024, over a circle of about 50 km in central Rondônia, Brazil: a forest frontier opened along the roads, cleared mostly between 2000 and 2005, with some of it grown back since.</p>
       <figure class="fig">
-        <a href="assets/img/landtrendr/01-series.jpg"><img src="assets/img/landtrendr/01-series.jpg" alt="The Janus window with the 2024 NDVI of a circular area of Rondônia, forest in dark green and pasture in light colours, three pins on the map and their forty-year series on the chart." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/landtrendr/01-series.jpg"><picture><source type="image/webp" srcset="assets/img/landtrendr/01-series.webp"><img src="assets/img/landtrendr/01-series.jpg" alt="The Janus window with the 2024 NDVI of a circular area of Rondônia, forest in dark green and pasture in light colours, three pins on the map and their forty-year series on the chart." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>The series in 2024</b>, forest in dark green, and three pins: a forest cleared in the early 2000s, one cleared in 1999 that grew back, and a forest that stood throughout.</figcaption>
       </figure>
       <p>The stack is one GeoTIFF with a band per year, named <code>yr1985</code> to <code>yr2024</code>: Janus reads the years from the band names. Outside the circle the file holds 0, so it is opened through a VRT that declares 0 as no data; otherwise the edges would be read as an NDVI of 0.</p>
@@ -121,7 +121,7 @@
       <h2><span class="n">04</span>On the chart</h2>
       <p>With <span class="ui">Fit the cursor, pins and ROI series</span> ticked, LandTrendr runs on every exact series the chart shows, as you move the mouse or drop pins, and draws its segments and vertices over them. Its numbers go to the <strong>Statistics</strong> table.</p>
       <figure class="fig annotated">
-        <a href="assets/img/landtrendr/03-fit.jpg"><img src="assets/img/landtrendr/03-fit.jpg" alt="LandTrendr's window with its parameters on the right; on the chart the NDVI of the cleared pixel with the fitted segments in magenta; the Statistics table with the vertices, segments and the mapped event." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/landtrendr/03-fit.jpg"><picture><source type="image/webp" srcset="assets/img/landtrendr/03-fit.webp"><img src="assets/img/landtrendr/03-fit.jpg" alt="LandTrendr's window with its parameters on the right; on the chart the NDVI of the cleared pixel with the fitted segments in magenta; the Statistics table with the vertices, segments and the mapped event." width="1680" height="1050" loading="lazy"></picture></a>
         <ol class="hotspots" aria-label="Parts of the window, numbered on the image">
           <li data-x="45.8" data-y="49.5"><b>The pin.</b> The pixel whose series the chart and the table show.</li>
           <li data-x="35.7" data-y="89.5"><b>The fit.</b> The yearly NDVI in green; LandTrendr's vertices and segments in magenta.</li>
@@ -143,6 +143,118 @@
         </figure>
       </div>
       <p>The table reads: 6 vertices and 5 segments, of which 1 is a loss; the event a map would show is the greatest loss, <strong>4465.4</strong> from 2002 to 2009, from 8251.5 to 3786.1. The other segments are the noise around the pasture and its slow gain, smaller than the loss.</p>
+<!-- build:python-tabs -->
+<div class="pytabs" data-tabs>
+  <div class="term-tabs pytabs-bar" role="tablist" aria-label="LandTrendr: in Janus or in Python" hidden>
+    <button type="button" role="tab" id="pt-landtrendr-janus" aria-controls="pp-landtrendr-janus" aria-selected="true" data-tab="janus">In Janus</button>
+    <button type="button" role="tab" id="pt-landtrendr-python" aria-controls="pp-landtrendr-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>
+  </div>
+  <div class="pytabs-body">
+    <div role="tabpanel" id="pp-landtrendr-janus" aria-labelledby="pt-landtrendr-janus" class="pytabs-panel">
+      <p class="pytabs-h">In Janus</p>
+      <ol>
+        <li>Open the annual stack with <span class="ui">File → Open</span>: <code>LT_Stack_NDVI_Rondonia.tif</code>, a band per year, <code>yr1985</code> to <code>yr2024</code>.</li>
+        <li>Click the map on the cleared forest to drop a pin: the pixel the chart and the table follow.</li>
+        <li>Open <span class="ui">Tools → Change detection → LandTrendr</span> and tick <span class="ui">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.</li>
+        <li>Read the vertices and segments on the chart and the mapped event in the <strong>Statistics</strong> table.</li>
+      </ol>
+    </div>
+    <div role="tabpanel" id="pp-landtrendr-python" aria-labelledby="pt-landtrendr-python" class="pytabs-panel">
+      <p class="pytabs-h">In Python</p>
+      <div class="pycode"><pre class="code py long" tabindex="0"><code><span class="s">"""Janus 1.16.0 (2026-11-07): pin 1 of LT_Stack_NDVI_Rondonia.tif,
+reproduced outside Janus. Needs: pip install numpy rasterio xarray zeit-cdts
+"""</span>
+<span class="k">import</span> numpy <span class="k">as</span> np
+<span class="k">import</span> rasterio
+<span class="k">from</span> rasterio.windows <span class="k">import</span> Window
+<span class="k">from</span> rasterio.enums <span class="k">import</span> Resampling
+
+<span class="c"># 1 file, 40 bands (1 band = 1 date), every band in each block (pixel-interleaved): read block by block</span>
+<span class="c"># Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).</span>
+layers = [
+    (<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, <span class="n">1</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, <span class="n">2</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, <span class="n">3</span>, <span class="k">None</span>, <span class="k">None</span>),
+    <span class="c"># … 36 more, in the full script</span>
+    (<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, <span class="n">40</span>, <span class="k">None</span>, <span class="k">None</span>),
+]
+dates = np.array([
+    <span class="s">"1985"</span>, <span class="s">"1986"</span>, <span class="s">"1987"</span>,
+    <span class="c"># … 36 more, in the full script</span>
+    <span class="s">"2024"</span>], dtype=<span class="s">"datetime64[D]"</span>)
+<span class="c"># Time in years since the first date, as Janus fits trends (365.2425-day years).</span>
+years = np.array([
+    <span class="n">0</span>, <span class="n">0.9993360576</span>, <span class="n">1.998672115</span>,
+    <span class="c"># … 36 more, in the full script</span>
+    <span class="n">38.99874741</span>])
+qa_rule = <span class="s">"none"</span>
+
+<span class="k">def</span> usable(q, rule):
+    <span class="s">"""Observations Janus keeps, from the quality band's codes (nodata: none)."""</span>
+    ok = np.isfinite(q) &amp; (q &gt;= <span class="n">0</span>)
+    c = np.where(ok, q, <span class="n">0</span>).astype(np.int64)
+    <span class="k">if</span> rule == <span class="s">"fmask"</span>:          <span class="c"># 0 clear land, 1 water</span>
+        <span class="k">return</span> ok &amp; ((c == <span class="n">0</span>) | (c == <span class="n">1</span>))
+    <span class="k">if</span> rule == <span class="s">"landsat_c2"</span>:     <span class="c"># QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow, 5 snow</span>
+        <span class="k">return</span> ok &amp; ((c &amp; 0x3B) == <span class="n">0</span>)
+    <span class="k">if</span> rule == <span class="s">"scl"</span>:            <span class="c"># Sentinel-2 SCL: 4 vegetation, 5 bare soil, 6 water</span>
+        <span class="k">return</span> ok &amp; (c &gt;= <span class="n">4</span>) &amp; (c &lt;= <span class="n">6</span>)
+    <span class="k">if</span> rule == <span class="s">"hls_fmask"</span>:      <span class="c"># HLS Fmask bits 1 cloud, 2 adjacent, 3 shadow, 4 snow; 255 fill</span>
+        <span class="k">return</span> ok &amp; (c != <span class="n">255</span>) &amp; ((c &amp; 0x1E) == <span class="n">0</span>)
+    <span class="k">return</span> ok &amp; (c != <span class="n">0</span>)         <span class="c"># a 0/1 mask</span>
+
+
+<span class="k">def</span> read(path, band, window, out_shape=<span class="k">None</span>, raw=<span class="k">False</span>):
+    <span class="s">"""A band over a window: nodata -&gt; NaN, the band's scale and offset applied."""</span>
+    <span class="k">with</span> rasterio.open(path) <span class="k">as</span> src:
+        kw = {<span class="s">"out_shape"</span>: out_shape, <span class="s">"resampling"</span>: Resampling.nearest} <span class="k">if</span> out_shape <span class="k">else</span> {}
+        a = src.read(band, window=window, masked=<span class="k">True</span>, **kw).astype(<span class="s">"float64"</span>)
+        <span class="k">if</span> <span class="k">not</span> raw:
+            a = a * src.scales[band - <span class="n">1</span>] + src.offsets[band - <span class="n">1</span>]
+        <span class="k">return</span> np.ma.filled(a, np.nan)
+
+
+<span class="k">def</span> shown(layer, window, out_shape=<span class="k">None</span>):
+    <span class="s">"""What the series shows at a date: the band, or the normalized difference, masked by the quality band."""</span>
+    path, band, nd_band, qa_band = layer
+    v = read(path, band, window, out_shape)
+    <span class="k">if</span> nd_band:
+        b = read(path, nd_band, window, out_shape)
+        <span class="k">with</span> np.errstate(invalid=<span class="s">"ignore"</span>, divide=<span class="s">"ignore"</span>):
+            v = np.where(v + b != <span class="n">0</span>, (v - b) / (v + b), np.nan)
+    <span class="k">if</span> qa_band:
+        v = np.where(usable(read(path, qa_band, window, out_shape, raw=<span class="k">True</span>), qa_rule), v, np.nan)
+    <span class="k">return</span> v
+
+<span class="c"># The pixel (column, row of the files), its centre at x -63.08396625, y -10.35600317 (EPSG:4326).</span>
+col, row = <span class="n">1272</span>, <span class="n">1414</span>
+values = np.array([shown(layer, Window(col, row, <span class="n">1</span>, <span class="n">1</span>))[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> layer <span class="k">in</span> layers])
+
+ok = np.isfinite(values)
+y, t = values[ok], years[ok]
+print(<span class="s">"n"</span>, ok.sum(), <span class="s">"mean"</span>, y.mean(), <span class="s">"std"</span>, y.std(ddof=<span class="n">1</span>) <span class="k">if</span> y.size &gt; <span class="n">1</span> <span class="k">else</span> np.nan)
+<span class="k">if</span> y.size &gt;= <span class="n">2</span>:
+    slope, intercept = np.polyfit(t, y, <span class="n">1</span>)                  <span class="c"># OLS, per year</span>
+    i, j = np.triu_indices(y.size, <span class="n">1</span>)
+    keep = t[j] != t[i]
+    sen = np.median((y[j] - y[i])[keep] / (t[j] - t[i])[keep])  <span class="c"># Sen's slope, per year</span>
+    print(<span class="s">"OLS slope"</span>, slope, <span class="s">"Sen's slope"</span>, sen)
+
+<span class="c"># LandTrendr, fitted on the chart with these parameters: the same Zeit calls Janus makes</span>
+<span class="c"># (its model is drawn from their results).</span>
+<span class="k">import</span> xarray <span class="k">as</span> xr
+<span class="k">import</span> zeit
+
+series = xr.DataArray(values[:, <span class="k">None</span>, <span class="k">None</span>], dims=(<span class="s">"time"</span>, <span class="s">"y"</span>, <span class="s">"x"</span>), coords={<span class="s">"time"</span>: dates.astype(<span class="s">"datetime64[ns]"</span>)})
+result1 = zeit.landtrendr(series, nodata=<span class="k">None</span>, n_jobs=<span class="n">1</span>, direction=<span class="s">'loss'</span>, max_segments=<span class="n">6</span>, pval_threshold=<span class="n">0.05</span>, recovery_threshold=<span class="n">0.25</span>, spike_threshold=<span class="n">0.9</span>, best_model_proportion=<span class="n">0.75</span>, vertex_count_overshoot=<span class="n">3</span>, min_observations_needed=<span class="n">6</span>)
+result2 = zeit.extract_events(result1, event_type=<span class="s">'loss'</span>, sort_by=<span class="s">'greatest'</span>, min_magnitude=<span class="n">0.0</span>, min_duration=<span class="n">1</span>, pre_val_threshold=<span class="n">0.0</span>)
+print(result1)
+</code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/landtrendr.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/landtrendr.py" download="landtrendr.py">Download .py</a></div></div>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit (<code>pip install zeit-cdts</code>). The shown code shortens the long lists of files and dates; Copy and Download give the whole script.</p>
+    </div>
+  </div>
+</div>
+<!-- /build:python-tabs -->
       <div class="note">
         <p class="h">Fit first, run later</p>
         <p>The chart is where parameters are chosen: drop pins on the cases you know (a clearing, a regrowth, a forest that should stay untouched, a field) and change the parameters until each reads as it should. The run on the image uses exactly what the window shows.</p>
@@ -206,8 +318,8 @@
     <section id="maps">
       <h2><span class="n">07</span>The maps</h2>
       <figure class="fig swipe">
-        <img class="before" data-label="Year of detection" src="assets/img/landtrendr/07-yod.jpg" alt="The year of detection over the circle: purple for losses of the 1980s and 1990s, green and yellow for recent ones, with the forest left without colour; the Layers panel lists the seven outputs." width="1680" height="1050" loading="lazy">
-        <img class="after" data-label="Magnitude" src="assets/img/landtrendr/08-magnitude.jpg" alt="The magnitude of the mapped loss, from 2521 to 5210, over the same area." width="1680" height="1050" loading="lazy">
+        <picture><source type="image/webp" srcset="assets/img/landtrendr/07-yod.webp"><img class="before" data-label="Year of detection" src="assets/img/landtrendr/07-yod.jpg" alt="The year of detection over the circle: purple for losses of the 1980s and 1990s, green and yellow for recent ones, with the forest left without colour; the Layers panel lists the seven outputs." width="1680" height="1050" loading="lazy"></picture>
+        <picture><source type="image/webp" srcset="assets/img/landtrendr/08-magnitude.webp"><img class="after" data-label="Magnitude" src="assets/img/landtrendr/08-magnitude.jpg" alt="The magnitude of the mapped loss, from 2521 to 5210, over the same area." width="1680" height="1050" loading="lazy"></picture>
         <figcaption><b>Drag the divider to compare</b> the year of detection (first image, left, 1985 purple to 2023 yellow) with the magnitude of the same events (second image, right, the deepest clearings in yellow). The forest that stood shows through in dark green.</figcaption>
       </figure>
       <p>Hover the map with a result on top: the chart still shows the pixel's series and its fit, so every colour can be checked against the trajectory behind it.</p>
@@ -266,7 +378,7 @@
       <h3>The maps</h3>
       <p>Run on the whole image (about 10 seconds for its 2.8 million pixels), the tool writes eight maps: years to recovery, R80P, RRI, ARI, YrYr, and the disturbance's magnitude, pre-disturbance value and year. Of the image's 2.8 million pixels, 22.7% have a disturbance and 7.6% a years to recovery: the others had not got back to the level by 2024.</p>
       <figure class="fig">
-        <a href="assets/img/landtrendr/11-y2r.jpg"><img src="assets/img/landtrendr/11-y2r.jpg" alt="The years to recovery over the 2024 NDVI, zoomed in around the regrowth pixel: a patch of about 12 years in teal at the pin, scattered pixels of 1 to 5 years in purple over the pastures, and the forest and most pastures without a value." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/landtrendr/11-y2r.jpg"><picture><source type="image/webp" srcset="assets/img/landtrendr/11-y2r.webp"><img src="assets/img/landtrendr/11-y2r.jpg" alt="The years to recovery over the 2024 NDVI, zoomed in around the regrowth pixel: a patch of about 12 years in teal at the pin, scattered pixels of 1 to 5 years in purple over the pastures, and the forest and most pastures without a value." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>Years to recovery</b>, 1 (purple) to 38 (yellow), over the 2024 NDVI. The patch at the pin took about 12 years.</figcaption>
       </figure>
       <p>The scattered pixels of 1 to 5 years in the pastures are cases to check on the chart before believing: a loss barely past the thresholds whose fit gets back to 80% within the year-to-year noise. A higher <span class="ui">Min magnitude</span>, or the <span class="ui">Pick event by</span> and <span class="ui">Min duration</span> filters, leave them out.</p>
@@ -314,6 +426,8 @@
     <ul>
       <li><a href="./methods.html">Methods</a></li>
       <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
       <li><a href="./#cite">Cite</a></li>
       <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>

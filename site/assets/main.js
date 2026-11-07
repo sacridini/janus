@@ -1,4 +1,4 @@
-// Janus site: OS tabs, copy buttons, latest-release links, chart draw-in, guide lightbox, before/after swipes, annotated screenshots, guide contents, menu button.
+// Janus site: OS tabs, guide In Janus / In Python tabs, copy buttons, latest-release links, chart draw-in, guide lightbox, before/after swipes, annotated screenshots, looping clips, guide contents, menu button.
 (function () {
   "use strict";
   var REPO = "sacridini/janus";
@@ -36,20 +36,40 @@
     });
     var mine = os && box.querySelector('[data-os="' + os + '"]');
     if (mine) select(mine);
+    // A tab list that starts hidden (the guides' In Janus / In Python): without this script both panels show. ?tab=NAME
+    // opens the tab whose data-tab is NAME.
+    var list = box.querySelector('[role="tablist"][hidden]');
+    if (list) {
+      list.hidden = false;
+      var want = new URLSearchParams(location.search).get("tab");
+      var first = tabs.filter(function (t) { return t.getAttribute("data-tab") === want; })[0];
+      select(first || tabs.filter(function (t) { return t.getAttribute("aria-selected") === "true"; })[0] || tabs[0]);
+    }
   });
 
-  // ---- copy buttons
+  // ---- copy buttons (data-src: the whole script is fetched; if that fails, the text shown is copied)
   document.querySelectorAll("[data-copy]").forEach(function (b) {
     b.addEventListener("click", function () {
-      var text = b.getAttribute("data-copy");
-      var done = function () { b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy"; }, 1600); };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(done, function () { selectCode(b); });
-      } else { selectCode(b); }
+      var label = b.textContent;
+      var done = function (msg) { b.textContent = msg || "Copied"; setTimeout(function () { b.textContent = label; }, msg ? 2600 : 1600); };
+      var put = function (text, msg) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () { done(msg); }, function () { selectCode(b); });
+        } else { selectCode(b); }
+      };
+      var shown = function () { return codeOf(b).textContent; }; // data-copy="": the code beside it
+      var src = b.getAttribute("data-src");
+      if (src && window.fetch) {
+        fetch(src).then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+          .then(function (t) { put(t); }, function () { put(shown(), "Copied what is shown"); });
+        return;
+      }
+      put(b.getAttribute("data-copy") || shown());
     });
   });
+  function codeOf(b) { return (b.closest(".pycode") || b.parentNode).querySelector("code"); }
   function selectCode(b) {
-    var code = b.parentNode.querySelector("code");
+    var code = codeOf(b);
     var r = document.createRange(); r.selectNodeContents(code);
     var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
   }
@@ -124,7 +144,10 @@
     }
     function open(img, link) {
       opener = link || img;
-      big.src = (link && link.getAttribute("href")) || img.currentSrc || img.src;
+      // The link's image (the full JPEG), or its WebP twin when that is what the page already loaded.
+      var href = link && link.getAttribute("href");
+      var shown = img.currentSrc || img.src;
+      big.src = href ? (new URL(href, location.href).href.replace(/\.jpg$/i, ".webp") === shown ? shown : href) : shown;
       big.alt = img.alt;
       var fc = img.closest("figure") && img.closest("figure").querySelector("figcaption");
       cap.textContent = fc ? fc.textContent : "";
@@ -158,18 +181,22 @@
 
   var query = new URLSearchParams(location.search);
 
+  // The element to move with an image: its <picture> wrapper (the build writes one around the JPEGs that have a WebP twin).
+  function unit(img) { return img.parentNode && img.parentNode.nodeName === "PICTURE" ? img.parentNode : img; }
+
   // ---- before / after swipe: <figure class="fig swipe"> with img.before and img.after of the same size
   // (data-label on each is its side's label). ?swipe=30 puts every divider at 30 %, for the screenshots.
   document.querySelectorAll(".fig.swipe").forEach(function (fig) {
     var before = fig.querySelector("img.before"), after = fig.querySelector("img.after");
     if (!before || !after) return;
+    var beforeUnit = unit(before), afterUnit = unit(after); // the <picture> around an image, if it has one
     var start = parseFloat(query.get("swipe"));
     var pos = isNaN(start) ? 50 : Math.max(0, Math.min(100, start));
     var stage = document.createElement("div");
     stage.className = "sw-stage";
-    fig.insertBefore(stage, before);
-    stage.appendChild(after);
-    stage.appendChild(before);
+    fig.insertBefore(stage, beforeUnit);
+    stage.appendChild(afterUnit);
+    stage.appendChild(beforeUnit);
     var lb = before.getAttribute("data-label") || "Before", la = after.getAttribute("data-label") || "After";
     var left = document.createElement("span"), right = document.createElement("span");
     left.className = "sw-label l"; left.textContent = lb;
@@ -227,7 +254,7 @@
     var items = Array.prototype.slice.call(fig.querySelectorAll("ol.hotspots > li"));
     var img = fig.querySelector("img");
     if (!items.length || !img) return;
-    var anchor = img.closest("a") && fig.contains(img.closest("a")) ? img.closest("a") : img;
+    var anchor = img.closest("a") && fig.contains(img.closest("a")) ? img.closest("a") : unit(img);
     var stage = document.createElement("div");
     stage.className = "an-stage";
     anchor.parentNode.insertBefore(stage, anchor);
@@ -272,6 +299,75 @@
   if (query.get("open") === "howmade") {
     document.querySelectorAll("details.howmade").forEach(function (d) { d.open = true; });
   }
+
+  // ---- looping clips: <video muted loop playsinline preload="none" controls poster="..."> in a .story-fig.
+  // Without this script the poster shows with the browser's own controls. With it the controls go, the clip loads
+  // when it is near the screen and plays only while at least half of it is visible (pausing when it is not, or the
+  // tab is hidden); a button plays and pauses it (always visible while paused, on hover or focus while playing; a
+  // click on the picture does the same). With "reduce motion" (or the data saver on) it never starts by itself:
+  // the poster shows, with a play button.
+  var clips = document.querySelectorAll(".story-fig video");
+  if (clips.length) {
+    var calm = (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) ||
+      !!(navigator.connection && navigator.connection.saveData);
+    var PLAY = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>';
+    var PAUSE = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z" fill="currentColor"/></svg>';
+    clips.forEach(function (v) {
+      v.removeAttribute("controls");
+      var wrap = document.createElement("div");
+      wrap.className = "clip";
+      v.parentNode.insertBefore(wrap, v);
+      wrap.appendChild(v);
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "clip-btn";
+      wrap.appendChild(btn);
+      var wants = !calm;   // does the reader want it playing? A press of the button decides from then on.
+      var visible = false;
+      function paint() {
+        var playing = !v.paused;
+        wrap.classList.toggle("is-playing", playing);
+        btn.innerHTML = playing ? PAUSE : PLAY;
+        btn.setAttribute("aria-label", playing ? "Pause the clip" : "Play the clip");
+      }
+      function play() {
+        var p = v.play();
+        if (p && p.catch) p.catch(function () { paint(); });
+      }
+      function sync() {
+        if (wants && visible && !document.hidden) play();
+        else if (!v.paused) v.pause();
+      }
+      btn.addEventListener("click", function () { wants = v.paused; if (wants) { visible = true; play(); } else v.pause(); });
+      v.addEventListener("click", function () { btn.click(); });
+      ["play", "pause"].forEach(function (n) { v.addEventListener(n, paint); });
+      document.addEventListener("visibilitychange", sync);
+      paint();
+      if (!("IntersectionObserver" in window)) return;
+      // near the screen: let it load (and load it, since the page said preload="none")
+      var near = new IntersectionObserver(function (es) {
+        if (!es[0].isIntersecting) return;
+        near.disconnect();
+        if (!calm) { v.preload = "auto"; v.load(); }
+      }, { rootMargin: "500px 0px" });
+      near.observe(v);
+      var seen = new IntersectionObserver(function (es) {
+        visible = es[0].isIntersecting;
+        sync();
+      }, { threshold: 0.5 });
+      seen.observe(v);
+    });
+  }
+
+  // ---- a link to something inside a closed <details> (a release of the news page) opens it
+  function openTarget() {
+    var id = location.hash && decodeURIComponent(location.hash.slice(1));
+    var t = id && document.getElementById(id);
+    var d = t && t.closest("details");
+    if (d && !d.open) { d.open = true; t.scrollIntoView(); }
+  }
+  openTarget();
+  window.addEventListener("hashchange", openTarget);
 
   // ---- guide pages: the contents entry of the section being read
   var toc = document.querySelectorAll(".toc a[href^='#']");

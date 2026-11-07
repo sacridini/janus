@@ -14,9 +14,8 @@
 <meta property="og:description" content="Twenty-five years of 16-day EVI in western France: where the trend and the seasons broke, and when.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/bfast/02-bfast.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -33,7 +32,8 @@
         <li><a href="./guides.html" aria-current="page">Guides</a></li>
         <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
     <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
@@ -98,7 +98,7 @@
       <h2><span class="n">02</span>The example</h2>
       <p>MODIS EVI every 16 days, January 2001 to December 2025 (575 dates), at 250 m, over 170 × 170 km of western France: fields of cereals and sunflowers, grassland, woods. One GeoTIFF with a band per date, named <code>EVI_2001_01_01</code> and so on: Janus reads the dates from the names. Dates without a clear value are no data, so the series stays regular.</p>
       <figure class="fig">
-        <a href="assets/img/bfast/01-series.jpg"><img src="assets/img/bfast/01-series.jpg" alt="The EVI of July 2025 over the area, fields in light colours and woods in green, a pin, and its 25-year series on the chart with a yearly cycle." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/bfast/01-series.jpg"><picture><source type="image/webp" srcset="assets/img/bfast/01-series.webp"><img src="assets/img/bfast/01-series.jpg" alt="The EVI of July 2025 over the area, fields in light colours and woods in green, a pin, and its 25-year series on the chart with a yearly cycle." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>The series</b> in July 2025 and a pin on a pixel whose level fell in the early 2010s.</figcaption>
       </figure>
       <details class="howmade">
@@ -116,7 +116,7 @@
       <h2><span class="n">03</span>BFAST</h2>
       <p><span class="ui">Tools → Change detection → BFAST</span>. On the chart, the fitted model (trend plus season) and, lighter, the trend alone, with a vertical line at each break.</p>
       <figure class="fig">
-        <a href="assets/img/bfast/02-bfast.jpg"><img src="assets/img/bfast/02-bfast.jpg" alt="BFAST's window with its parameters, an estimated 14 minutes for the whole image; on the chart the EVI series, the model and the trend in three parts; the Statistics table with two trend breaks." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/bfast/02-bfast.jpg"><picture><source type="image/webp" srcset="assets/img/bfast/02-bfast.webp"><img src="assets/img/bfast/02-bfast.jpg" alt="BFAST's window with its parameters, an estimated 14 minutes for the whole image; on the chart the EVI series, the model and the trend in three parts; the Statistics table with two trend breaks." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>BFAST on the pin</b>: two trend breaks, in September 2006 (+0.10) and April 2013 (−0.11), no season break.</figcaption>
       </figure>
       <figure class="fig narrow">
@@ -137,6 +137,117 @@
         </table>
       </div>
       <p>BFAST is thorough and slow: its window estimates <strong>14 minutes</strong> for this image of 0.46 million pixels on every core. Use it on the chart, on an ROI or on the visible area.</p>
+<!-- build:python-tabs -->
+<div class="pytabs" data-tabs>
+  <div class="term-tabs pytabs-bar" role="tablist" aria-label="BFAST: in Janus or in Python" hidden>
+    <button type="button" role="tab" id="pt-bfast-janus" aria-controls="pp-bfast-janus" aria-selected="true" data-tab="janus">In Janus</button>
+    <button type="button" role="tab" id="pt-bfast-python" aria-controls="pp-bfast-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>
+  </div>
+  <div class="pytabs-body">
+    <div role="tabpanel" id="pp-bfast-janus" aria-labelledby="pt-bfast-janus" class="pytabs-panel">
+      <p class="pytabs-h">In Janus</p>
+      <ol>
+        <li>Open the MODIS EVI stack with <span class="ui">File → Open</span>: one GeoTIFF with a band per date, named <code>EVI_2001_01_01</code> and so on.</li>
+        <li>Drop a pin on pixel 435, 153, a field with EVI of about 0.42 a year until 2012 and about 0.3 since.</li>
+        <li>Open <span class="ui">Tools → Change detection → BFAST</span> and tick <span class="ui">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.</li>
+        <li>The chart draws the trend and the season with their breaks; the Statistics table lists them.</li>
+      </ol>
+    </div>
+    <div role="tabpanel" id="pp-bfast-python" aria-labelledby="pt-bfast-python" class="pytabs-panel">
+      <p class="pytabs-h">In Python</p>
+      <div class="pycode"><pre class="code py long" tabindex="0"><code><span class="s">"""Janus 1.16.0 (2026-11-07): pin 1 of EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif,
+reproduced outside Janus. Needs: pip install numpy rasterio xarray zeit-cdts
+"""</span>
+<span class="k">import</span> numpy <span class="k">as</span> np
+<span class="k">import</span> rasterio
+<span class="k">from</span> rasterio.windows <span class="k">import</span> Window
+<span class="k">from</span> rasterio.enums <span class="k">import</span> Resampling
+
+<span class="c"># 1 file, 575 bands (1 band = 1 date)</span>
+<span class="c"># Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).</span>
+layers = [
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">1</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">2</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">3</span>, <span class="k">None</span>, <span class="k">None</span>),
+    <span class="c"># … 571 more, in the full script</span>
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">575</span>, <span class="k">None</span>, <span class="k">None</span>),
+]
+dates = np.array([
+    <span class="s">"2001-01-01"</span>, <span class="s">"2001-01-17"</span>, <span class="s">"2001-02-02"</span>,
+    <span class="c"># … 571 more, in the full script</span>
+    <span class="s">"2025-12-19"</span>], dtype=<span class="s">"datetime64[D]"</span>)
+<span class="c"># Time in years since the first date, as Janus fits trends (365.2425-day years).</span>
+years = np.array([
+    <span class="n">0</span>, <span class="n">0.04380651211</span>, <span class="n">0.08761302422</span>,
+    <span class="c"># … 571 more, in the full script</span>
+    <span class="n">24.96423609</span>])
+qa_rule = <span class="s">"none"</span>
+
+<span class="k">def</span> usable(q, rule):
+    <span class="s">"""Observations Janus keeps, from the quality band's codes (nodata: none)."""</span>
+    ok = np.isfinite(q) &amp; (q &gt;= <span class="n">0</span>)
+    c = np.where(ok, q, <span class="n">0</span>).astype(np.int64)
+    <span class="k">if</span> rule == <span class="s">"fmask"</span>:          <span class="c"># 0 clear land, 1 water</span>
+        <span class="k">return</span> ok &amp; ((c == <span class="n">0</span>) | (c == <span class="n">1</span>))
+    <span class="k">if</span> rule == <span class="s">"landsat_c2"</span>:     <span class="c"># QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow, 5 snow</span>
+        <span class="k">return</span> ok &amp; ((c &amp; 0x3B) == <span class="n">0</span>)
+    <span class="k">if</span> rule == <span class="s">"scl"</span>:            <span class="c"># Sentinel-2 SCL: 4 vegetation, 5 bare soil, 6 water</span>
+        <span class="k">return</span> ok &amp; (c &gt;= <span class="n">4</span>) &amp; (c &lt;= <span class="n">6</span>)
+    <span class="k">if</span> rule == <span class="s">"hls_fmask"</span>:      <span class="c"># HLS Fmask bits 1 cloud, 2 adjacent, 3 shadow, 4 snow; 255 fill</span>
+        <span class="k">return</span> ok &amp; (c != <span class="n">255</span>) &amp; ((c &amp; 0x1E) == <span class="n">0</span>)
+    <span class="k">return</span> ok &amp; (c != <span class="n">0</span>)         <span class="c"># a 0/1 mask</span>
+
+
+<span class="k">def</span> read(path, band, window, out_shape=<span class="k">None</span>, raw=<span class="k">False</span>):
+    <span class="s">"""A band over a window: nodata -&gt; NaN, the band's scale and offset applied."""</span>
+    <span class="k">with</span> rasterio.open(path) <span class="k">as</span> src:
+        kw = {<span class="s">"out_shape"</span>: out_shape, <span class="s">"resampling"</span>: Resampling.nearest} <span class="k">if</span> out_shape <span class="k">else</span> {}
+        a = src.read(band, window=window, masked=<span class="k">True</span>, **kw).astype(<span class="s">"float64"</span>)
+        <span class="k">if</span> <span class="k">not</span> raw:
+            a = a * src.scales[band - <span class="n">1</span>] + src.offsets[band - <span class="n">1</span>]
+        <span class="k">return</span> np.ma.filled(a, np.nan)
+
+
+<span class="k">def</span> shown(layer, window, out_shape=<span class="k">None</span>):
+    <span class="s">"""What the series shows at a date: the band, or the normalized difference, masked by the quality band."""</span>
+    path, band, nd_band, qa_band = layer
+    v = read(path, band, window, out_shape)
+    <span class="k">if</span> nd_band:
+        b = read(path, nd_band, window, out_shape)
+        <span class="k">with</span> np.errstate(invalid=<span class="s">"ignore"</span>, divide=<span class="s">"ignore"</span>):
+            v = np.where(v + b != <span class="n">0</span>, (v - b) / (v + b), np.nan)
+    <span class="k">if</span> qa_band:
+        v = np.where(usable(read(path, qa_band, window, out_shape, raw=<span class="k">True</span>), qa_rule), v, np.nan)
+    <span class="k">return</span> v
+
+<span class="c"># The pixel (column, row of the files), its centre at x 3572625, y 2648625 (EPSG:3035).</span>
+col, row = <span class="n">435</span>, <span class="n">153</span>
+values = np.array([shown(layer, Window(col, row, <span class="n">1</span>, <span class="n">1</span>))[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> layer <span class="k">in</span> layers])
+
+ok = np.isfinite(values)
+y, t = values[ok], years[ok]
+print(<span class="s">"n"</span>, ok.sum(), <span class="s">"mean"</span>, y.mean(), <span class="s">"std"</span>, y.std(ddof=<span class="n">1</span>) <span class="k">if</span> y.size &gt; <span class="n">1</span> <span class="k">else</span> np.nan)
+<span class="k">if</span> y.size &gt;= <span class="n">2</span>:
+    slope, intercept = np.polyfit(t, y, <span class="n">1</span>)                  <span class="c"># OLS, per year</span>
+    i, j = np.triu_indices(y.size, <span class="n">1</span>)
+    keep = t[j] != t[i]
+    sen = np.median((y[j] - y[i])[keep] / (t[j] - t[i])[keep])  <span class="c"># Sen's slope, per year</span>
+    print(<span class="s">"OLS slope"</span>, slope, <span class="s">"Sen's slope"</span>, sen)
+
+<span class="c"># BFAST, fitted on the chart with these parameters: the same Zeit calls Janus makes</span>
+<span class="c"># (its model is drawn from their results).</span>
+<span class="k">import</span> xarray <span class="k">as</span> xr
+<span class="k">import</span> zeit
+
+series = xr.DataArray(values[:, <span class="k">None</span>, <span class="k">None</span>], dims=(<span class="s">"time"</span>, <span class="s">"y"</span>, <span class="s">"x"</span>), coords={<span class="s">"time"</span>: dates.astype(<span class="s">"datetime64[ns]"</span>)})
+result1 = zeit.bfast(series, order=<span class="n">3</span>, h=<span class="n">0.15</span>, max_breaks_trend=<span class="n">5</span>, max_breaks_season=<span class="n">5</span>, max_iter=<span class="n">10</span>, level=<span class="n">0.05</span>, min_valid=<span class="n">20</span>, nodata=<span class="k">None</span>, n_jobs=<span class="n">1</span>)
+print(result1)
+</code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/bfast.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/bfast.py" download="bfast.py">Download .py</a></div></div>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit (<code>pip install zeit-cdts</code>). The shown code shortens the long lists of files and dates; Copy and Download give the whole script.</p>
+    </div>
+  </div>
+</div>
+<!-- /build:python-tabs -->
     </section>
 
     <section id="lite">
@@ -157,13 +268,123 @@
         <a href="assets/img/bfast/05-dropped-chart.png"><img src="assets/img/bfast/05-dropped-chart.png" alt="The chart of a second pin: a slow decline of the EVI fitted with one trend and its seasons, without a break." loading="lazy"></a>
         <figcaption><b>No break</b>: a slow decline is a trend.</figcaption>
       </figure>
+<!-- build:python-tabs-lite -->
+<div class="pytabs" data-tabs>
+  <div class="term-tabs pytabs-bar" role="tablist" aria-label="BFAST Lite: in Janus or in Python" hidden>
+    <button type="button" role="tab" id="pt-bfast-lite-janus" aria-controls="pp-bfast-lite-janus" aria-selected="true" data-tab="janus">In Janus</button>
+    <button type="button" role="tab" id="pt-bfast-lite-python" aria-controls="pp-bfast-lite-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>
+  </div>
+  <div class="pytabs-body">
+    <div role="tabpanel" id="pp-bfast-lite-janus" aria-labelledby="pt-bfast-lite-janus" class="pytabs-panel">
+      <p class="pytabs-h">In Janus</p>
+      <ol>
+        <li>With the EVI stack open and the pin on pixel 435, 153, open <span class="ui">Tools → Change detection → BFAST Lite</span>.</li>
+        <li>Tick <span class="ui">Fit the cursor, pins and ROI series</span>; the parameters are the defaults.</li>
+        <li>The chart draws the trend and the breaks of the single model BFAST Lite fits.</li>
+      </ol>
+    </div>
+    <div role="tabpanel" id="pp-bfast-lite-python" aria-labelledby="pt-bfast-lite-python" class="pytabs-panel">
+      <p class="pytabs-h">In Python</p>
+      <div class="pycode"><pre class="code py long" tabindex="0"><code><span class="s">"""Janus 1.16.0 (2026-11-07): pin 1 of EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif,
+reproduced outside Janus. Needs: pip install numpy rasterio xarray zeit-cdts
+"""</span>
+<span class="k">import</span> numpy <span class="k">as</span> np
+<span class="k">import</span> rasterio
+<span class="k">from</span> rasterio.windows <span class="k">import</span> Window
+<span class="k">from</span> rasterio.enums <span class="k">import</span> Resampling
+
+<span class="c"># 1 file, 575 bands (1 band = 1 date)</span>
+<span class="c"># Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).</span>
+layers = [
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">1</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">2</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">3</span>, <span class="k">None</span>, <span class="k">None</span>),
+    <span class="c"># … 571 more, in the full script</span>
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">575</span>, <span class="k">None</span>, <span class="k">None</span>),
+]
+dates = np.array([
+    <span class="s">"2001-01-01"</span>, <span class="s">"2001-01-17"</span>, <span class="s">"2001-02-02"</span>,
+    <span class="c"># … 571 more, in the full script</span>
+    <span class="s">"2025-12-19"</span>], dtype=<span class="s">"datetime64[D]"</span>)
+<span class="c"># Time in years since the first date, as Janus fits trends (365.2425-day years).</span>
+years = np.array([
+    <span class="n">0</span>, <span class="n">0.04380651211</span>, <span class="n">0.08761302422</span>,
+    <span class="c"># … 571 more, in the full script</span>
+    <span class="n">24.96423609</span>])
+qa_rule = <span class="s">"none"</span>
+
+<span class="k">def</span> usable(q, rule):
+    <span class="s">"""Observations Janus keeps, from the quality band's codes (nodata: none)."""</span>
+    ok = np.isfinite(q) &amp; (q &gt;= <span class="n">0</span>)
+    c = np.where(ok, q, <span class="n">0</span>).astype(np.int64)
+    <span class="k">if</span> rule == <span class="s">"fmask"</span>:          <span class="c"># 0 clear land, 1 water</span>
+        <span class="k">return</span> ok &amp; ((c == <span class="n">0</span>) | (c == <span class="n">1</span>))
+    <span class="k">if</span> rule == <span class="s">"landsat_c2"</span>:     <span class="c"># QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow, 5 snow</span>
+        <span class="k">return</span> ok &amp; ((c &amp; 0x3B) == <span class="n">0</span>)
+    <span class="k">if</span> rule == <span class="s">"scl"</span>:            <span class="c"># Sentinel-2 SCL: 4 vegetation, 5 bare soil, 6 water</span>
+        <span class="k">return</span> ok &amp; (c &gt;= <span class="n">4</span>) &amp; (c &lt;= <span class="n">6</span>)
+    <span class="k">if</span> rule == <span class="s">"hls_fmask"</span>:      <span class="c"># HLS Fmask bits 1 cloud, 2 adjacent, 3 shadow, 4 snow; 255 fill</span>
+        <span class="k">return</span> ok &amp; (c != <span class="n">255</span>) &amp; ((c &amp; 0x1E) == <span class="n">0</span>)
+    <span class="k">return</span> ok &amp; (c != <span class="n">0</span>)         <span class="c"># a 0/1 mask</span>
+
+
+<span class="k">def</span> read(path, band, window, out_shape=<span class="k">None</span>, raw=<span class="k">False</span>):
+    <span class="s">"""A band over a window: nodata -&gt; NaN, the band's scale and offset applied."""</span>
+    <span class="k">with</span> rasterio.open(path) <span class="k">as</span> src:
+        kw = {<span class="s">"out_shape"</span>: out_shape, <span class="s">"resampling"</span>: Resampling.nearest} <span class="k">if</span> out_shape <span class="k">else</span> {}
+        a = src.read(band, window=window, masked=<span class="k">True</span>, **kw).astype(<span class="s">"float64"</span>)
+        <span class="k">if</span> <span class="k">not</span> raw:
+            a = a * src.scales[band - <span class="n">1</span>] + src.offsets[band - <span class="n">1</span>]
+        <span class="k">return</span> np.ma.filled(a, np.nan)
+
+
+<span class="k">def</span> shown(layer, window, out_shape=<span class="k">None</span>):
+    <span class="s">"""What the series shows at a date: the band, or the normalized difference, masked by the quality band."""</span>
+    path, band, nd_band, qa_band = layer
+    v = read(path, band, window, out_shape)
+    <span class="k">if</span> nd_band:
+        b = read(path, nd_band, window, out_shape)
+        <span class="k">with</span> np.errstate(invalid=<span class="s">"ignore"</span>, divide=<span class="s">"ignore"</span>):
+            v = np.where(v + b != <span class="n">0</span>, (v - b) / (v + b), np.nan)
+    <span class="k">if</span> qa_band:
+        v = np.where(usable(read(path, qa_band, window, out_shape, raw=<span class="k">True</span>), qa_rule), v, np.nan)
+    <span class="k">return</span> v
+
+<span class="c"># The pixel (column, row of the files), its centre at x 3572625, y 2648625 (EPSG:3035).</span>
+col, row = <span class="n">435</span>, <span class="n">153</span>
+values = np.array([shown(layer, Window(col, row, <span class="n">1</span>, <span class="n">1</span>))[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> layer <span class="k">in</span> layers])
+
+ok = np.isfinite(values)
+y, t = values[ok], years[ok]
+print(<span class="s">"n"</span>, ok.sum(), <span class="s">"mean"</span>, y.mean(), <span class="s">"std"</span>, y.std(ddof=<span class="n">1</span>) <span class="k">if</span> y.size &gt; <span class="n">1</span> <span class="k">else</span> np.nan)
+<span class="k">if</span> y.size &gt;= <span class="n">2</span>:
+    slope, intercept = np.polyfit(t, y, <span class="n">1</span>)                  <span class="c"># OLS, per year</span>
+    i, j = np.triu_indices(y.size, <span class="n">1</span>)
+    keep = t[j] != t[i]
+    sen = np.median((y[j] - y[i])[keep] / (t[j] - t[i])[keep])  <span class="c"># Sen's slope, per year</span>
+    print(<span class="s">"OLS slope"</span>, slope, <span class="s">"Sen's slope"</span>, sen)
+
+<span class="c"># BFAST Lite, fitted on the chart with these parameters: the same Zeit calls Janus makes</span>
+<span class="c"># (its model is drawn from their results).</span>
+<span class="k">import</span> xarray <span class="k">as</span> xr
+<span class="k">import</span> zeit
+
+series = xr.DataArray(values[:, <span class="k">None</span>, <span class="k">None</span>], dims=(<span class="s">"time"</span>, <span class="s">"y"</span>, <span class="s">"x"</span>), coords={<span class="s">"time"</span>: dates.astype(<span class="s">"datetime64[ns]"</span>)})
+result1 = zeit.bfast_lite(series, order=<span class="n">3</span>, h=<span class="n">0.15</span>, max_breaks=<span class="n">5</span>, min_valid=<span class="n">20</span>, nodata=<span class="k">None</span>, n_jobs=<span class="n">1</span>)
+print(result1)
+</code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/bfast-lite.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/bfast-lite.py" download="bfast-lite.py">Download .py</a></div></div>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit (<code>pip install zeit-cdts</code>). The shown code shortens the long lists of files and dates; Copy and Download give the whole script.</p>
+    </div>
+  </div>
+</div>
+<!-- /build:python-tabs-lite -->
     </section>
 
     <section id="monitor">
       <h2><span class="n">05</span>BFAST Monitor</h2>
       <p>BFAST Monitor asks another question: from a date on, does the land still behave as it did? It fits a stable model of trend and season on the <strong>history</strong>, everything before <span class="ui">Monitoring start</span>, and flags the first date in the <strong>monitoring period</strong> where the moving sum of the residuals leaves its boundary.</p>
       <figure class="fig">
-        <a href="assets/img/bfast/04-monitor.jpg"><img src="assets/img/bfast/04-monitor.jpg" alt="BFAST Monitor's window with monitoring from 2010; on the chart the history model and, lighter, its projection over the monitoring period; the Statistics table with a break in May 2013." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/bfast/04-monitor.jpg"><picture><source type="image/webp" srcset="assets/img/bfast/04-monitor.webp"><img src="assets/img/bfast/04-monitor.jpg" alt="BFAST Monitor's window with monitoring from 2010; on the chart the history model and, lighter, its projection over the monitoring period; the Statistics table with a break in May 2013." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>Monitoring from 2010</b>: the history's model, projected over the monitoring period, and the break flagged in May 2013.</figcaption>
       </figure>
       <div class="tbl-wrap">
@@ -180,6 +401,116 @@
         </table>
       </div>
       <p>The history has to be stable: a break inside it spoils the model every later date is compared with. Pick the start after the changes you are not interested in.</p>
+<!-- build:python-tabs-monitor -->
+<div class="pytabs" data-tabs>
+  <div class="term-tabs pytabs-bar" role="tablist" aria-label="BFAST Monitor: in Janus or in Python" hidden>
+    <button type="button" role="tab" id="pt-bfast-monitor-janus" aria-controls="pp-bfast-monitor-janus" aria-selected="true" data-tab="janus">In Janus</button>
+    <button type="button" role="tab" id="pt-bfast-monitor-python" aria-controls="pp-bfast-monitor-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>
+  </div>
+  <div class="pytabs-body">
+    <div role="tabpanel" id="pp-bfast-monitor-janus" aria-labelledby="pt-bfast-monitor-janus" class="pytabs-panel">
+      <p class="pytabs-h">In Janus</p>
+      <ol>
+        <li>With the EVI stack open and the pin on pixel 435, 153, open <span class="ui">Tools → Change detection → BFAST Monitor</span>.</li>
+        <li>Set <span class="ui">Monitoring starts</span> to 2010 and tick <span class="ui">Fit the cursor, pins and ROI series</span>.</li>
+        <li>The chart draws the stable history before 2010 and the monitoring period after it, with the break BFAST Monitor finds.</li>
+      </ol>
+    </div>
+    <div role="tabpanel" id="pp-bfast-monitor-python" aria-labelledby="pt-bfast-monitor-python" class="pytabs-panel">
+      <p class="pytabs-h">In Python</p>
+      <div class="pycode"><pre class="code py long" tabindex="0"><code><span class="s">"""Janus 1.16.0 (2026-11-07): pin 1 of EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif,
+reproduced outside Janus. Needs: pip install numpy rasterio xarray zeit-cdts
+"""</span>
+<span class="k">import</span> numpy <span class="k">as</span> np
+<span class="k">import</span> rasterio
+<span class="k">from</span> rasterio.windows <span class="k">import</span> Window
+<span class="k">from</span> rasterio.enums <span class="k">import</span> Resampling
+
+<span class="c"># 1 file, 575 bands (1 band = 1 date)</span>
+<span class="c"># Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).</span>
+layers = [
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">1</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">2</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">3</span>, <span class="k">None</span>, <span class="k">None</span>),
+    <span class="c"># … 571 more, in the full script</span>
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">575</span>, <span class="k">None</span>, <span class="k">None</span>),
+]
+dates = np.array([
+    <span class="s">"2001-01-01"</span>, <span class="s">"2001-01-17"</span>, <span class="s">"2001-02-02"</span>,
+    <span class="c"># … 571 more, in the full script</span>
+    <span class="s">"2025-12-19"</span>], dtype=<span class="s">"datetime64[D]"</span>)
+<span class="c"># Time in years since the first date, as Janus fits trends (365.2425-day years).</span>
+years = np.array([
+    <span class="n">0</span>, <span class="n">0.04380651211</span>, <span class="n">0.08761302422</span>,
+    <span class="c"># … 571 more, in the full script</span>
+    <span class="n">24.96423609</span>])
+qa_rule = <span class="s">"none"</span>
+
+<span class="k">def</span> usable(q, rule):
+    <span class="s">"""Observations Janus keeps, from the quality band's codes (nodata: none)."""</span>
+    ok = np.isfinite(q) &amp; (q &gt;= <span class="n">0</span>)
+    c = np.where(ok, q, <span class="n">0</span>).astype(np.int64)
+    <span class="k">if</span> rule == <span class="s">"fmask"</span>:          <span class="c"># 0 clear land, 1 water</span>
+        <span class="k">return</span> ok &amp; ((c == <span class="n">0</span>) | (c == <span class="n">1</span>))
+    <span class="k">if</span> rule == <span class="s">"landsat_c2"</span>:     <span class="c"># QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow, 5 snow</span>
+        <span class="k">return</span> ok &amp; ((c &amp; 0x3B) == <span class="n">0</span>)
+    <span class="k">if</span> rule == <span class="s">"scl"</span>:            <span class="c"># Sentinel-2 SCL: 4 vegetation, 5 bare soil, 6 water</span>
+        <span class="k">return</span> ok &amp; (c &gt;= <span class="n">4</span>) &amp; (c &lt;= <span class="n">6</span>)
+    <span class="k">if</span> rule == <span class="s">"hls_fmask"</span>:      <span class="c"># HLS Fmask bits 1 cloud, 2 adjacent, 3 shadow, 4 snow; 255 fill</span>
+        <span class="k">return</span> ok &amp; (c != <span class="n">255</span>) &amp; ((c &amp; 0x1E) == <span class="n">0</span>)
+    <span class="k">return</span> ok &amp; (c != <span class="n">0</span>)         <span class="c"># a 0/1 mask</span>
+
+
+<span class="k">def</span> read(path, band, window, out_shape=<span class="k">None</span>, raw=<span class="k">False</span>):
+    <span class="s">"""A band over a window: nodata -&gt; NaN, the band's scale and offset applied."""</span>
+    <span class="k">with</span> rasterio.open(path) <span class="k">as</span> src:
+        kw = {<span class="s">"out_shape"</span>: out_shape, <span class="s">"resampling"</span>: Resampling.nearest} <span class="k">if</span> out_shape <span class="k">else</span> {}
+        a = src.read(band, window=window, masked=<span class="k">True</span>, **kw).astype(<span class="s">"float64"</span>)
+        <span class="k">if</span> <span class="k">not</span> raw:
+            a = a * src.scales[band - <span class="n">1</span>] + src.offsets[band - <span class="n">1</span>]
+        <span class="k">return</span> np.ma.filled(a, np.nan)
+
+
+<span class="k">def</span> shown(layer, window, out_shape=<span class="k">None</span>):
+    <span class="s">"""What the series shows at a date: the band, or the normalized difference, masked by the quality band."""</span>
+    path, band, nd_band, qa_band = layer
+    v = read(path, band, window, out_shape)
+    <span class="k">if</span> nd_band:
+        b = read(path, nd_band, window, out_shape)
+        <span class="k">with</span> np.errstate(invalid=<span class="s">"ignore"</span>, divide=<span class="s">"ignore"</span>):
+            v = np.where(v + b != <span class="n">0</span>, (v - b) / (v + b), np.nan)
+    <span class="k">if</span> qa_band:
+        v = np.where(usable(read(path, qa_band, window, out_shape, raw=<span class="k">True</span>), qa_rule), v, np.nan)
+    <span class="k">return</span> v
+
+<span class="c"># The pixel (column, row of the files), its centre at x 3572625, y 2648625 (EPSG:3035).</span>
+col, row = <span class="n">435</span>, <span class="n">153</span>
+values = np.array([shown(layer, Window(col, row, <span class="n">1</span>, <span class="n">1</span>))[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> layer <span class="k">in</span> layers])
+
+ok = np.isfinite(values)
+y, t = values[ok], years[ok]
+print(<span class="s">"n"</span>, ok.sum(), <span class="s">"mean"</span>, y.mean(), <span class="s">"std"</span>, y.std(ddof=<span class="n">1</span>) <span class="k">if</span> y.size &gt; <span class="n">1</span> <span class="k">else</span> np.nan)
+<span class="k">if</span> y.size &gt;= <span class="n">2</span>:
+    slope, intercept = np.polyfit(t, y, <span class="n">1</span>)                  <span class="c"># OLS, per year</span>
+    i, j = np.triu_indices(y.size, <span class="n">1</span>)
+    keep = t[j] != t[i]
+    sen = np.median((y[j] - y[i])[keep] / (t[j] - t[i])[keep])  <span class="c"># Sen's slope, per year</span>
+    print(<span class="s">"OLS slope"</span>, slope, <span class="s">"Sen's slope"</span>, sen)
+
+<span class="c"># BFAST Monitor, fitted on the chart with these parameters: the same Zeit calls Janus makes</span>
+<span class="c"># (its model is drawn from their results).</span>
+<span class="k">import</span> xarray <span class="k">as</span> xr
+<span class="k">import</span> zeit
+
+series = xr.DataArray(values[:, <span class="k">None</span>, <span class="k">None</span>], dims=(<span class="s">"time"</span>, <span class="s">"y"</span>, <span class="s">"x"</span>), coords={<span class="s">"time"</span>: dates.astype(<span class="s">"datetime64[ns]"</span>)})
+result1 = zeit.bfast_monitor(series, <span class="n">2009.9782608695652</span>, start_time=<span class="n">2001.0</span>, frequency=<span class="n">23</span>, order=<span class="n">3</span>, h=<span class="n">0.25</span>, period=<span class="n">10</span>, alpha=<span class="n">0.05</span>, min_valid=<span class="n">10</span>, nodata=<span class="k">None</span>, n_jobs=<span class="n">1</span>)
+print(result1)
+</code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/bfast-monitor.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/bfast-monitor.py" download="bfast-monitor.py">Download .py</a></div></div>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit (<code>pip install zeit-cdts</code>). The shown code shortens the long lists of files and dates; Copy and Download give the whole script.</p>
+    </div>
+  </div>
+</div>
+<!-- /build:python-tabs-monitor -->
     </section>
 
     <section id="run">
@@ -194,8 +525,8 @@
     <section id="maps">
       <h2><span class="n">07</span>The maps</h2>
       <figure class="fig swipe">
-        <img class="before" data-label="Break date" src="assets/img/bfast/07-break-date.jpg" alt="The date of the break BFAST Monitor flagged after 2010 over the whole area, coloured from 2010 to 2025; pixels without a break show the EVI." width="1680" height="1050" loading="lazy">
-        <img class="after" data-label="Magnitude" src="assets/img/bfast/08-magnitude.jpg" alt="The magnitude of the breaks, the median residual after the break, in red where the EVI fell below the history and in blue where it rose." width="1680" height="1050" loading="lazy">
+        <picture><source type="image/webp" srcset="assets/img/bfast/07-break-date.webp"><img class="before" data-label="Break date" src="assets/img/bfast/07-break-date.jpg" alt="The date of the break BFAST Monitor flagged after 2010 over the whole area, coloured from 2010 to 2025; pixels without a break show the EVI." width="1680" height="1050" loading="lazy"></picture>
+        <picture><source type="image/webp" srcset="assets/img/bfast/08-magnitude.webp"><img class="after" data-label="Magnitude" src="assets/img/bfast/08-magnitude.jpg" alt="The magnitude of the breaks, the median residual after the break, in red where the EVI fell below the history and in blue where it rose." width="1680" height="1050" loading="lazy"></picture>
         <figcaption><b>Drag the divider to compare</b> when each pixel first left its 2001–2009 behaviour (first image, left) with the median residual after the break (second image, right): red where the EVI fell below what the history predicts, blue where it rose.</figcaption>
       </figure>
       <div class="tbl-wrap">
@@ -247,6 +578,8 @@
     <ul>
       <li><a href="./methods.html">Methods</a></li>
       <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
       <li><a href="./#cite">Cite</a></li>
       <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>

@@ -14,9 +14,8 @@
 <meta property="og:description" content="Twenty-five years of growing seasons in western France: when they start, peak and end, field by field.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/phenology/03-sos.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -33,7 +32,8 @@
         <li><a href="./guides.html" aria-current="page">Guides</a></li>
         <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
     <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
@@ -102,7 +102,7 @@
       <h2><span class="n">03</span>On the chart</h2>
       <p><span class="ui">Tools → Temporal dynamics → Phenology</span>. With the chart fit on, the seasons' curves are drawn over the series, with vertical lines at each start, peak and end, and the Statistics table lists the seasons.</p>
       <figure class="fig">
-        <a href="assets/img/phenology/01-fit.jpg"><img src="assets/img/phenology/01-fit.jpg" alt="The Phenology window with its parameters; the EVI map of June 2024 with a pin; on the chart 25 years of the pin's EVI with a curve fitted to each season and lines at their starts, peaks and ends; the Statistics table with 22 seasons." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/phenology/01-fit.jpg"><picture><source type="image/webp" srcset="assets/img/phenology/01-fit.webp"><img src="assets/img/phenology/01-fit.jpg" alt="The Phenology window with its parameters; the EVI map of June 2024 with a pin; on the chart 25 years of the pin's EVI with a curve fitted to each season and lines at their starts, peaks and ends; the Statistics table with 22 seasons." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>Twenty-five years of one field</b>: 22 seasons found, each with its curve.</figcaption>
       </figure>
       <div class="fig-pair">
@@ -116,6 +116,123 @@
         </figure>
       </div>
       <p>The peaks move: 5 May in 2012, 5 June in 2014, 1 July in 2015. That is the crop rotation: a winter cereal peaks in spring, sunflower or maize in summer. Hover the map to fit any other pixel.</p>
+<!-- build:python-tabs -->
+<div class="pytabs" data-tabs>
+  <div class="term-tabs pytabs-bar" role="tablist" aria-label="Phenology: in Janus or in Python" hidden>
+    <button type="button" role="tab" id="pt-phenology-janus" aria-controls="pp-phenology-janus" aria-selected="true" data-tab="janus">In Janus</button>
+    <button type="button" role="tab" id="pt-phenology-python" aria-controls="pp-phenology-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>
+  </div>
+  <div class="pytabs-body">
+    <div role="tabpanel" id="pp-phenology-janus" aria-labelledby="pt-phenology-janus" class="pytabs-panel">
+      <p class="pytabs-h">In Janus</p>
+      <ol>
+        <li>Open the MODIS EVI stack of the BFAST guide with <span class="ui">File → Open</span>.</li>
+        <li>Drop a pin on pixel 71, 319, a field with a strong season every year.</li>
+        <li>Open <span class="ui">Tools → Temporal dynamics → Phenology</span> and tick <span class="ui">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.</li>
+        <li>The chart draws the smoothed curve and the seasons; the Statistics table gives their start, peak and end.</li>
+      </ol>
+    </div>
+    <div role="tabpanel" id="pp-phenology-python" aria-labelledby="pt-phenology-python" class="pytabs-panel">
+      <p class="pytabs-h">In Python</p>
+      <div class="pycode"><pre class="code py long" tabindex="0"><code><span class="s">"""Janus 1.16.0 (2026-11-07): pin 1 of EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif,
+reproduced outside Janus. Needs: pip install numpy rasterio xarray zeit-cdts
+"""</span>
+<span class="k">import</span> numpy <span class="k">as</span> np
+<span class="k">import</span> rasterio
+<span class="k">from</span> rasterio.windows <span class="k">import</span> Window
+<span class="k">from</span> rasterio.enums <span class="k">import</span> Resampling
+
+<span class="c"># 1 file, 575 bands (1 band = 1 date)</span>
+<span class="c"># Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).</span>
+layers = [
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">1</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">2</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">3</span>, <span class="k">None</span>, <span class="k">None</span>),
+    <span class="c"># … 571 more, in the full script</span>
+    (<span class="s">"EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"</span>, <span class="n">575</span>, <span class="k">None</span>, <span class="k">None</span>),
+]
+dates = np.array([
+    <span class="s">"2001-01-01"</span>, <span class="s">"2001-01-17"</span>, <span class="s">"2001-02-02"</span>,
+    <span class="c"># … 571 more, in the full script</span>
+    <span class="s">"2025-12-19"</span>], dtype=<span class="s">"datetime64[D]"</span>)
+<span class="c"># Time in years since the first date, as Janus fits trends (365.2425-day years).</span>
+years = np.array([
+    <span class="n">0</span>, <span class="n">0.04380651211</span>, <span class="n">0.08761302422</span>,
+    <span class="c"># … 571 more, in the full script</span>
+    <span class="n">24.96423609</span>])
+qa_rule = <span class="s">"none"</span>
+
+<span class="k">def</span> usable(q, rule):
+    <span class="s">"""Observations Janus keeps, from the quality band's codes (nodata: none)."""</span>
+    ok = np.isfinite(q) &amp; (q &gt;= <span class="n">0</span>)
+    c = np.where(ok, q, <span class="n">0</span>).astype(np.int64)
+    <span class="k">if</span> rule == <span class="s">"fmask"</span>:          <span class="c"># 0 clear land, 1 water</span>
+        <span class="k">return</span> ok &amp; ((c == <span class="n">0</span>) | (c == <span class="n">1</span>))
+    <span class="k">if</span> rule == <span class="s">"landsat_c2"</span>:     <span class="c"># QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow, 5 snow</span>
+        <span class="k">return</span> ok &amp; ((c &amp; 0x3B) == <span class="n">0</span>)
+    <span class="k">if</span> rule == <span class="s">"scl"</span>:            <span class="c"># Sentinel-2 SCL: 4 vegetation, 5 bare soil, 6 water</span>
+        <span class="k">return</span> ok &amp; (c &gt;= <span class="n">4</span>) &amp; (c &lt;= <span class="n">6</span>)
+    <span class="k">if</span> rule == <span class="s">"hls_fmask"</span>:      <span class="c"># HLS Fmask bits 1 cloud, 2 adjacent, 3 shadow, 4 snow; 255 fill</span>
+        <span class="k">return</span> ok &amp; (c != <span class="n">255</span>) &amp; ((c &amp; 0x1E) == <span class="n">0</span>)
+    <span class="k">return</span> ok &amp; (c != <span class="n">0</span>)         <span class="c"># a 0/1 mask</span>
+
+
+<span class="k">def</span> read(path, band, window, out_shape=<span class="k">None</span>, raw=<span class="k">False</span>):
+    <span class="s">"""A band over a window: nodata -&gt; NaN, the band's scale and offset applied."""</span>
+    <span class="k">with</span> rasterio.open(path) <span class="k">as</span> src:
+        kw = {<span class="s">"out_shape"</span>: out_shape, <span class="s">"resampling"</span>: Resampling.nearest} <span class="k">if</span> out_shape <span class="k">else</span> {}
+        a = src.read(band, window=window, masked=<span class="k">True</span>, **kw).astype(<span class="s">"float64"</span>)
+        <span class="k">if</span> <span class="k">not</span> raw:
+            a = a * src.scales[band - <span class="n">1</span>] + src.offsets[band - <span class="n">1</span>]
+        <span class="k">return</span> np.ma.filled(a, np.nan)
+
+
+<span class="k">def</span> shown(layer, window, out_shape=<span class="k">None</span>):
+    <span class="s">"""What the series shows at a date: the band, or the normalized difference, masked by the quality band."""</span>
+    path, band, nd_band, qa_band = layer
+    v = read(path, band, window, out_shape)
+    <span class="k">if</span> nd_band:
+        b = read(path, nd_band, window, out_shape)
+        <span class="k">with</span> np.errstate(invalid=<span class="s">"ignore"</span>, divide=<span class="s">"ignore"</span>):
+            v = np.where(v + b != <span class="n">0</span>, (v - b) / (v + b), np.nan)
+    <span class="k">if</span> qa_band:
+        v = np.where(usable(read(path, qa_band, window, out_shape, raw=<span class="k">True</span>), qa_rule), v, np.nan)
+    <span class="k">return</span> v
+
+<span class="c"># The pixel (column, row of the files), its centre at x 3481625, y 2607125 (EPSG:3035).</span>
+col, row = <span class="n">71</span>, <span class="n">319</span>
+values = np.array([shown(layer, Window(col, row, <span class="n">1</span>, <span class="n">1</span>))[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> layer <span class="k">in</span> layers])
+
+ok = np.isfinite(values)
+y, t = values[ok], years[ok]
+print(<span class="s">"n"</span>, ok.sum(), <span class="s">"mean"</span>, y.mean(), <span class="s">"std"</span>, y.std(ddof=<span class="n">1</span>) <span class="k">if</span> y.size &gt; <span class="n">1</span> <span class="k">else</span> np.nan)
+<span class="k">if</span> y.size &gt;= <span class="n">2</span>:
+    slope, intercept = np.polyfit(t, y, <span class="n">1</span>)                  <span class="c"># OLS, per year</span>
+    i, j = np.triu_indices(y.size, <span class="n">1</span>)
+    keep = t[j] != t[i]
+    sen = np.median((y[j] - y[i])[keep] / (t[j] - t[i])[keep])  <span class="c"># Sen's slope, per year</span>
+    print(<span class="s">"OLS slope"</span>, slope, <span class="s">"Sen's slope"</span>, sen)
+
+<span class="c"># Phenology, fitted on the chart with these parameters: the same Zeit calls Janus makes</span>
+<span class="c"># (its model is drawn from their results).</span>
+<span class="k">import</span> xarray <span class="k">as</span> xr
+<span class="k">import</span> zeit
+
+series = xr.DataArray(values[:, <span class="k">None</span>, <span class="k">None</span>], dims=(<span class="s">"time"</span>, <span class="s">"y"</span>, <span class="s">"x"</span>), coords={<span class="s">"time"</span>: dates.astype(<span class="s">"datetime64[ns]"</span>)})
+<span class="c"># the gaps filled linearly (by date index), with weight 0: they pull neither the smoothing nor the curves</span>
+ok = np.isfinite(values)
+idx = np.arange(len(values))
+filled = np.interp(idx, idx[ok], values[ok])
+series = series.copy(data=filled[:, <span class="k">None</span>, <span class="k">None</span>])
+weights = ok.astype(float)[:, <span class="k">None</span>, <span class="k">None</span>]
+result1 = zeit.phenology(series, curve=<span class="s">'elmore'</span>, weights=weights, annual=<span class="k">False</span>, max_seasons=<span class="n">52</span>, whittaker_lambda=<span class="n">10.0</span>, apply_whittaker=<span class="k">True</span>, apply_hants=<span class="k">False</span>, hants_frequencies=<span class="n">3</span>, min_season_length=<span class="n">0</span>, min_amplitude=<span class="n">0.0</span>, min_pixel_amplitude=<span class="n">0.1</span>, nodata=<span class="k">None</span>, n_jobs=<span class="n">1</span>)
+print(result1)
+</code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/phenology.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/phenology.py" download="phenology.py">Download .py</a></div></div>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit (<code>pip install zeit-cdts</code>). The shown code shortens the long lists of files and dates; Copy and Download give the whole script.</p>
+    </div>
+  </div>
+</div>
+<!-- /build:python-tabs -->
     </section>
 
     <section id="params">
@@ -152,15 +269,15 @@
       <h2><span class="n">06</span>The maps</h2>
       <p>With <span class="ui">Season mapped</span> on the median, each map is the typical year of each pixel:</p>
       <figure class="fig">
-        <a href="assets/img/phenology/03-sos.jpg"><img src="assets/img/phenology/03-sos.jpg" alt="The start of season over the area, from day 37 in dark blue to day 149 in yellow; the Layers panel lists the eight outputs." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/phenology/03-sos.jpg"><picture><source type="image/webp" srcset="assets/img/phenology/03-sos.webp"><img src="assets/img/phenology/03-sos.jpg" alt="The start of season over the area, from day 37 in dark blue to day 149 in yellow; the Layers panel lists the eight outputs." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>Start of season</b>, day 37 (early February, dark) to day 149 (late May, yellow).</figcaption>
       </figure>
       <figure class="fig">
-        <a href="assets/img/phenology/04-pos.jpg"><img src="assets/img/phenology/04-pos.jpg" alt="The peak of season over the area, from day 105 to day 203." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/phenology/04-pos.jpg"><picture><source type="image/webp" srcset="assets/img/phenology/04-pos.webp"><img src="assets/img/phenology/04-pos.jpg" alt="The peak of season over the area, from day 105 to day 203." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>Peak of season</b>, day 105 (mid April) to day 203 (late July): spring crops and grassland against summer crops.</figcaption>
       </figure>
       <figure class="fig">
-        <a href="assets/img/phenology/05-los.jpg"><img src="assets/img/phenology/05-los.jpg" alt="The length of the season, from 83 to 200 days; long seasons in yellow along the valleys and woods." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/phenology/05-los.jpg"><picture><source type="image/webp" srcset="assets/img/phenology/05-los.webp"><img src="assets/img/phenology/05-los.jpg" alt="The length of the season, from 83 to 200 days; long seasons in yellow along the valleys and woods." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>Length of season</b>, 83 to 200 days: short in the fields, long in the woods and meadows of the valleys.</figcaption>
       </figure>
       <div class="tbl-wrap">
@@ -217,6 +334,8 @@
     <ul>
       <li><a href="./methods.html">Methods</a></li>
       <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
       <li><a href="./#cite">Cite</a></li>
       <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>

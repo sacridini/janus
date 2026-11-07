@@ -14,9 +14,8 @@
 <meta property="og:description" content="Nine pins, three classes, a map of every year in milliseconds: forest, pasture and water from AlphaEarth's embeddings, and where the forest went.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/embeddings/02-classes.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -33,7 +32,8 @@
         <li><a href="./guides.html" aria-current="page">Guides</a></li>
         <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
     <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
@@ -103,7 +103,7 @@
         <dt>Classes from pins</dt><dd>A class map from a few samples (section 04).</dd>
       </dl>
       <figure class="fig">
-        <a href="assets/img/embeddings/01-pca.jpg"><img src="assets/img/embeddings/01-pca.jpg" alt="The Janus window with the Embeddings panel: the 2024 embeddings drawn as their first three principal components, forest in red, pastures in dark blue and purple, the river in cyan and the lake in green; the panel gives PC1 57.7%, PC2 11.5%, PC3 5.1% of the variance, from 65536 vectors in 4.5 ms." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/embeddings/01-pca.jpg"><picture><source type="image/webp" srcset="assets/img/embeddings/01-pca.webp"><img src="assets/img/embeddings/01-pca.jpg" alt="The Janus window with the Embeddings panel: the 2024 embeddings drawn as their first three principal components, forest in red, pastures in dark blue and purple, the river in cyan and the lake in green; the panel gives PC1 57.7%, PC2 11.5%, PC3 5.1% of the variance, from 65536 vectors in 4.5 ms." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>Principal components, 2024.</b> Forest in red, pasture in dark blue, the river in cyan, the lake in green: PC1 alone holds 57.7% of the variance.</figcaption>
       </figure>
       <p>The PCA takes up to 65,536 vectors of every year and here took 4.5 ms (AVX2 and FMA). The view is a quick way to see what the embeddings separate before classifying anything: if two covers you care about have the same colour in every combination of components, no classifier will part them.</p>
@@ -113,7 +113,7 @@
       <h2><span class="n">04</span>Classes from pins</h2>
       <p>Choose <span class="ui">Classes from pins</span>, go to a year (2024 here) and drop pins on places you know: three in the forest, three in pastures, three on the water. <span class="ui">New class from...</span> makes a class of a pin's vector in the year shown; each class's <span class="ui">+</span> adds another pin, or up to 200 pixels of the ROI, to it. Name the classes and pick their colours in the list.</p>
       <figure class="fig">
-        <a href="assets/img/embeddings/02-classes.jpg"><img src="assets/img/embeddings/02-classes.jpg" alt="The 2024 class map of the square: forest in red, pasture in light blue, water in purple, with nine pins, three of each class; the panel lists the classes and their shares, and the chart shows one dimension of the pins' vectors over the years." width="1680" height="1340" loading="lazy"></a>
+        <a href="assets/img/embeddings/02-classes.jpg"><picture><source type="image/webp" srcset="assets/img/embeddings/02-classes.webp"><img src="assets/img/embeddings/02-classes.jpg" alt="The 2024 class map of the square: forest in red, pasture in light blue, water in purple, with nine pins, three of each class; the panel lists the classes and their shares, and the chart shows one dimension of the pins' vectors over the years." width="1680" height="1340" loading="lazy"></picture></a>
         <figcaption><b>Three classes from nine pins</b>, 2024: forest (red), pasture (blue), water (purple).</figcaption>
       </figure>
       <figure class="fig narrow">
@@ -136,8 +136,8 @@
       <h2><span class="n">05</span>What changed into what</h2>
       <p>The classifier fitted on the 2024 samples classifies every year: move to another year, or play the series, and the map follows. <span class="ui">Changes since</span> a year adds a table of the share of pixels going from each class then (rows) to each class in the year shown (columns).</p>
       <figure class="fig swipe">
-        <img class="before" data-label="2017" src="assets/img/embeddings/04-classes-2017.jpg" alt="The class map in 2017: forest in red over more of the square than in 2024, with large blocks in the centre and the east." loading="lazy">
-        <img class="after" data-label="2024" src="assets/img/embeddings/05-classes-2024.jpg" alt="The class map in 2024: several of the forest blocks of 2017 are now pasture, notably in the south and the east." loading="lazy">
+        <picture><source type="image/webp" srcset="assets/img/embeddings/04-classes-2017.webp"><img class="before" data-label="2017" src="assets/img/embeddings/04-classes-2017.jpg" alt="The class map in 2017: forest in red over more of the square than in 2024, with large blocks in the centre and the east." loading="lazy"></picture>
+        <picture><source type="image/webp" srcset="assets/img/embeddings/05-classes-2024.webp"><img class="after" data-label="2024" src="assets/img/embeddings/05-classes-2024.jpg" alt="The class map in 2024: several of the forest blocks of 2017 are now pasture, notably in the south and the east." loading="lazy"></picture>
         <figcaption><b>Drag the divider to compare</b> 2017 (first image, left) with 2024 (second image, right), the same classifier on the same square: where red turns blue, forest became pasture.</figcaption>
       </figure>
       <div class="tbl-wrap">
@@ -157,7 +157,7 @@
       <h2><span class="n">06</span>Direction of change</h2>
       <p>The change view says how much a pixel changed; <span class="ui">Direction of change</span> says what kind of change. It takes the <strong>difference vectors</strong> of the pixels that changed, every pair of years compared, and draws their first three principal components as RGB: the same colour for the same kind of change, whatever the year.</p>
       <figure class="fig">
-        <a href="assets/img/embeddings/06-direction.jpg"><img src="assets/img/embeddings/06-direction.jpg" alt="The direction of change from 2017 to 2024: unchanged pixels in grey, the changed patches in colour, the clearings in green, cyan and blue, a few patches in red and orange; the panel gives an automatic threshold of 0.092 and 14698 changed pixels of 7 pairs of years, PC1-3 41.1%, 10.3% and 8.7% of their variance, in 35.9 ms." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/embeddings/06-direction.jpg"><picture><source type="image/webp" srcset="assets/img/embeddings/06-direction.webp"><img src="assets/img/embeddings/06-direction.jpg" alt="The direction of change from 2017 to 2024: unchanged pixels in grey, the changed patches in colour, the clearings in green, cyan and blue, a few patches in red and orange; the panel gives an automatic threshold of 0.092 and 14698 changed pixels of 7 pairs of years, PC1-3 41.1%, 10.3% and 8.7% of their variance, in 35.9 ms." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>2024 compared with 2017</b>: grey where nothing changed beyond the threshold; the clearings of forest in green to blue, regrowth in red and orange.</figcaption>
       </figure>
       <dl class="terms">
@@ -172,7 +172,7 @@
       <h2><span class="n">07</span>Like a pin's change</h2>
       <p>To find every change of one kind, drop a pin on an example and choose <span class="ui">Like a pin's change</span>: each changed pixel gets the cosine of its difference vector to the pin's, 1 for the same kind of change, −1 for the opposite. Pixels that did not change stay empty.</p>
       <figure class="fig">
-        <a href="assets/img/embeddings/07-direction-like.jpg"><img src="assets/img/embeddings/07-direction-like.jpg" alt="Change like pin 1, 2024 compared with 2017, cosine distance of the pin 0.563: the clearings in blue (like the pin), a few patches in red (the opposite), the rest empty; the colour scale goes from -0.724 to 0.976." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/embeddings/07-direction-like.jpg"><picture><source type="image/webp" srcset="assets/img/embeddings/07-direction-like.webp"><img src="assets/img/embeddings/07-direction-like.jpg" alt="Change like pin 1, 2024 compared with 2017, cosine distance of the pin 0.563: the clearings in blue (like the pin), a few patches in red (the opposite), the rest empty; the colour scale goes from -0.724 to 0.976." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>Changes like pin 1's</b>, a forest cleared between 2017 and 2024: the other clearings in blue, the opposite change in red.</figcaption>
       </figure>
       <p>The pin sits in a forest cleared between 2017 and 2024; its own change has a cosine distance of 0.563, far above the threshold. Of the pixels the class maps call forest in 2017 and pasture in 2024, the ones that changed beyond the threshold are almost all blue, and the pasture that grew back is red. <span class="ui">Keep the pin's change of 2024</span> fixes the reference, so that playing the years looks for that same change in each of them: when else was forest cleared?</p>
@@ -248,6 +248,8 @@
     <ul>
       <li><a href="./methods.html">Methods</a></li>
       <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
       <li><a href="./#cite">Cite</a></li>
       <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>

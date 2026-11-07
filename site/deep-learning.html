@@ -14,9 +14,8 @@
 <meta property="og:description" content="1250 MapBiomas samples, six years of Landsat, a TempCNN trained on the GPU: a land cover map of Rondônia with its uncertainty.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/ml/06-class.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -33,7 +32,8 @@
         <li><a href="./guides.html" aria-current="page">Guides</a></li>
         <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
     <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
@@ -91,7 +91,7 @@
       <h2><span class="n">02</span>The example</h2>
       <p>The Landsat 8/9 series of the <a href="ccdc.html">CCDC guide</a>: 125 dates, 2020 to 2026, 30 m, 1690 × 1675 pixels of Rondônia. The samples come from <strong>MapBiomas</strong> 2022 (collection 8): 250 points in each of five classes (water, urban, pasture, forest, agriculture), each at a pixel whose 5 × 5 neighbourhood is all of its class, in a GeoPackage with a <code>class</code> column.</p>
       <figure class="fig">
-        <a href="assets/img/ml/01-samples.jpg"><img src="assets/img/ml/01-samples.jpg" alt="The Landsat image of Rondônia in SWIR1, NIR and red with 1250 sample points coloured by class: water along the rivers, urban in a town, pasture and forest everywhere, agriculture in the northeast." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/ml/01-samples.jpg"><picture><source type="image/webp" srcset="assets/img/ml/01-samples.webp"><img src="assets/img/ml/01-samples.jpg" alt="The Landsat image of Rondônia in SWIR1, NIR and red with 1250 sample points coloured by class: water along the rivers, urban in a town, pasture and forest everywhere, agriculture in the northeast." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>1250 samples</b> over the series, in their classes' colours: water (light blue), urban (blue), pasture (light green), forest (green), agriculture (pink).</figcaption>
       </figure>
       <div class="note">
@@ -167,17 +167,17 @@
         <figcaption><b>Tasks</b>: the training and the classification.</figcaption>
       </figure>
       <figure class="fig">
-        <a href="assets/img/ml/06-class.jpg"><img src="assets/img/ml/06-class.jpg" alt="The class map of the whole image: forest in dark green, pasture in light green, the rivers and a lake in light blue, a town in blue and agriculture in pink in the northeast." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/ml/06-class.jpg"><picture><source type="image/webp" srcset="assets/img/ml/06-class.webp"><img src="assets/img/ml/06-class.jpg" alt="The class map of the whole image: forest in dark green, pasture in light green, the rivers and a lake in light blue, a town in blue and agriculture in pink in the northeast." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>The class map</b>: forest, pasture, water, the town and the soybean fields of the northeast.</figcaption>
       </figure>
       <p>Each run makes three maps, opened as layers: the <strong>class</strong>, the <strong>probability</strong> the network gives it, and the <strong>uncertainty</strong>, the entropy of the probabilities of every class (0 when the network is sure).</p>
       <div class="fig-pair">
         <figure class="fig">
-          <a href="assets/img/ml/07-probability.jpg"><img src="assets/img/ml/07-probability.jpg" alt="The probability of the class over the image: close to 1 almost everywhere, lower along the edges between classes." loading="lazy"></a>
+          <a href="assets/img/ml/07-probability.jpg"><picture><source type="image/webp" srcset="assets/img/ml/07-probability.webp"><img src="assets/img/ml/07-probability.jpg" alt="The probability of the class over the image: close to 1 almost everywhere, lower along the edges between classes." loading="lazy"></picture></a>
           <figcaption>The probability of the class.</figcaption>
         </figure>
         <figure class="fig">
-          <a href="assets/img/ml/08-uncertainty.jpg"><img src="assets/img/ml/08-uncertainty.jpg" alt="The uncertainty (entropy) over the image: dark almost everywhere, bright along roads, field edges and recent clearings." loading="lazy"></a>
+          <a href="assets/img/ml/08-uncertainty.jpg"><picture><source type="image/webp" srcset="assets/img/ml/08-uncertainty.webp"><img src="assets/img/ml/08-uncertainty.jpg" alt="The uncertainty (entropy) over the image: dark almost everywhere, bright along roads, field edges and recent clearings." loading="lazy"></picture></a>
           <figcaption>The uncertainty: roads, edges, clearings.</figcaption>
         </figure>
       </div>
@@ -197,7 +197,7 @@
       <h2><span class="n">07</span>U-TAE</h2>
       <p>U-TAE learns from <strong>patches</strong> where every pixel can be a label. Here the labels are MapBiomas' patches of the western half of the image as polygons (<code>areas.gpkg</code>, 433 polygons): every pixel of a polygon is a label, the others none, and the network learns to map the eastern half. To keep the guide's run short, only the labels inside an ROI (yellow) are used, in patches of 32 pixels.</p>
       <figure class="fig">
-        <a href="assets/img/ml/11-areas.jpg"><img src="assets/img/ml/11-areas.jpg" alt="MapBiomas' polygons over the western half of the image, an ROI in yellow, and the Deep learning window set for U-TAE: 594716 labelled pixels in 5 classes, patches of 32 px, only the labels inside the ROI." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/ml/11-areas.jpg"><picture><source type="image/webp" srcset="assets/img/ml/11-areas.webp"><img src="assets/img/ml/11-areas.jpg" alt="MapBiomas' polygons over the western half of the image, an ROI in yellow, and the Deep learning window set for U-TAE: 594716 labelled pixels in 5 classes, patches of 32 px, only the labels inside the ROI." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>The areas</b> and U-TAE's settings: patches of 32 px, the labels inside the ROI.</figcaption>
       </figure>
       <figure class="fig narrow">
@@ -320,6 +320,8 @@
     <ul>
       <li><a href="./methods.html">Methods</a></li>
       <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
       <li><a href="./#cite">Cite</a></li>
       <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>

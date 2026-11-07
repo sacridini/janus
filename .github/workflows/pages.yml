@@ -9,7 +9,10 @@ on:
       - "site/**"
       - ".github/workflows/pages.yml"
       - "tools/build_site.py"
+      - "tools/md.py"
       - "tools/site_partials/**"
+      - "docs/**"
+      - "CITATION.cff"
   workflow_dispatch:
 
 permissions:
@@ -29,6 +32,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the tags: news.html is made from the release commits
       - name: Build the generated parts of the site
         run: python3 tools/build_site.py
       - uses: actions/configure-pages@v5

@@ -14,9 +14,8 @@
 <meta property="og:description" content="EVI, MNDWI, NBR or any expression on a series in place; the open layers combined by short names, a series reduced over time to an image, classes by rules: on 107 dates of Sentinel-2.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/calculator/02-calculator.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -33,7 +32,8 @@
         <li><a href="./guides.html" aria-current="page">Guides</a></li>
         <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
     <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
@@ -114,7 +114,7 @@
       <h2><span class="n">03</span>An index on the series</h2>
       <p>The <span class="ui">Display</span> panel has, under the bands, <span class="ui">Index or expression</span>. Its list holds the indices of the <a href="https://github.com/awesome-spectral-indices/awesome-spectral-indices">Awesome Spectral Indices</a> (Montero et al. 2023) the series can compute, searched by name or domain (vegetation, water, burn, urban, soil, snow). Each index names its bands by role: <code>N</code> the NIR, <code>R</code> the red, <code>S1</code> the first SWIR, <code>RE1</code> the first red edge. Janus finds the series' band for each role by its wavelength or its name (<code>B08</code>, <code>NIR</code>, <code>nir08</code>, <code>SR_B5</code>), so an index of Sentinel-2 works on Landsat too. Its constants take the catalogue's defaults (<code>L = 0.5</code> for SAVI), its wavelengths (<code>lambdaN</code>) those of the series' bands.</p>
       <figure class="fig annotated">
-        <a href="assets/img/calculator/01-index.jpg"><img src="assets/img/calculator/01-index.jpg" alt="Janus with the Sentinel-2 series of Rondônia shown as EVI: the Display panel's Index or expression list on EVI, its formula 2.5 * (N - R) / (N + 6 * R - 7.5 * B + 1) below and the bands it reads (band 4 NIR as N, band 3 red as R, band 1 blue as B); the map of EVI at the first date between 0.13 and 0.68, fields in blue and green, forest in yellow; the chart of the two pins' EVI from 2019 to 2024, the forest's around 0.5, the pasture's between 0.25 and 0.7 every year; the title bar says EVI with QA SCL of each file." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/calculator/01-index.jpg"><picture><source type="image/webp" srcset="assets/img/calculator/01-index.webp"><img src="assets/img/calculator/01-index.jpg" alt="Janus with the Sentinel-2 series of Rondônia shown as EVI: the Display panel's Index or expression list on EVI, its formula 2.5 * (N - R) / (N + 6 * R - 7.5 * B + 1) below and the bands it reads (band 4 NIR as N, band 3 red as R, band 1 blue as B); the map of EVI at the first date between 0.13 and 0.68, fields in blue and green, forest in yellow; the chart of the two pins' EVI from 2019 to 2024, the forest's around 0.5, the pasture's between 0.25 and 0.7 every year; the title bar says EVI with QA SCL of each file." width="1600" height="950" loading="lazy"></picture></a>
         <ol class="hotspots" aria-label="Parts of the window, numbered on the image">
           <li data-x="10.6" data-y="20.0"><b>Layers.</b> The Sentinel-2 series of 107 dates.</li>
           <li data-x="10.6" data-y="88.4"><b>Index or expression.</b> EVI picked from the list, its formula under it.</li>
@@ -136,7 +136,7 @@
       <h2><span class="n">04</span>The calculator</h2>
       <p><span class="ui">Tools → Raster calculator...</span> (or <span class="ui">Open in calculator</span> from the Display panel) opens a window with an editor on the left and, on the right, four lists: the open <span class="ui">Layers</span> with their short names and bands, the <span class="ui">Functions</span>, the <span class="ui">Indices</span> and the <span class="ui">History</span>.</p>
       <figure class="fig">
-        <a href="assets/img/calculator/02-calculator.jpg"><img src="assets/img/calculator/02-calculator.jpg" alt="The Raster calculator window over Janus: a toolbar with Run (Ctrl+Enter), the output's name count_ndvi, Virtual layer, a star, Examples and Clear; the editor with three numbered lines, a comment, ndvi = (N - R) / (N + R) and count(ndvi &lt; 0.4), coloured by kind; under it One image, 877 x 886 cells of 10 m (the grid of s2ro), Reads s2ro, Over time: count, and the options; on the right the Layers list, s2ro with its seven bands and their roles (B, G, R, N, S1, S2, band7 for SCL) and the new count_ndvi; the status says count_ndvi was added as a layer. Behind the window, the map of the result." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/calculator/02-calculator.jpg"><picture><source type="image/webp" srcset="assets/img/calculator/02-calculator.webp"><img src="assets/img/calculator/02-calculator.jpg" alt="The Raster calculator window over Janus: a toolbar with Run (Ctrl+Enter), the output's name count_ndvi, Virtual layer, a star, Examples and Clear; the editor with three numbered lines, a comment, ndvi = (N - R) / (N + R) and count(ndvi &lt; 0.4), coloured by kind; under it One image, 877 x 886 cells of 10 m (the grid of s2ro), Reads s2ro, Over time: count, and the options; on the right the Layers list, s2ro with its seven bands and their roles (B, G, R, N, S1, S2, band7 for SCL) and the new count_ndvi; the status says count_ndvi was added as a layer. Behind the window, the map of the result." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The calculator</b>: the text, what it will make (one image of 877 × 886 cells), the layers by their short names with each band's role; run, its result joins as a layer (behind the window).</figcaption>
       </figure>
       <dl class="terms">
@@ -186,7 +186,7 @@ ndvi = (N - R) / (N + R)
 count(ndvi &lt; 0.4)</code></pre>
       </div>
       <figure class="fig">
-        <a href="assets/img/calculator/04-count.jpg"><img src="assets/img/calculator/04-count.jpg" alt="The result opened over the series: an image of 877 x 886 cells, the number of dates with an NDVI under 0.4, from 1 (dark purple) to 71 (yellow); the forests in purple, the pastures and fields in green and yellow, roads and field edges bright; pin 1 in the forest at 1, pin 2 in the pasture at 8 (the Statistics panel)." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/calculator/04-count.jpg"><picture><source type="image/webp" srcset="assets/img/calculator/04-count.webp"><img src="assets/img/calculator/04-count.jpg" alt="The result opened over the series: an image of 877 x 886 cells, the number of dates with an NDVI under 0.4, from 1 (dark purple) to 71 (yellow); the forests in purple, the pastures and fields in green and yellow, roads and field edges bright; pin 1 in the forest at 1, pin 2 in the pasture at 8 (the Statistics panel)." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>How often it was bare</b>: <code>count(ndvi &lt; 0.4)</code> over the 107 dates; the forest of pin 1 once (the end of the 2024 dry season, its NDVI at 0.28), the pasture of pin 2 eight times, the most worked fields up to 71.</figcaption>
       </figure>
       <p>With more than one argument the same functions work pixel by pixel at each date: <code>max(B04, B03, B02)</code> is the brightest visible band of each date. A series and its reduction mix: <code>ndvi - mean(ndvi)</code> is each date's departure from the pixel's mean, a series again; <code>(ndvi - mean(ndvi)) / std(ndvi)</code> its z-score.</p>
@@ -216,7 +216,7 @@ m &gt;= 0.45 &amp;&amp; m &lt; 0.7 = 2
 m &gt;= 0.7 = 3</code></pre>
       </div>
       <figure class="fig">
-        <a href="assets/img/calculator/05-rules.jpg"><img src="assets/img/calculator/05-rules.jpg" alt="The three classes of the rules as a layer: Janus shows it as categorical, class 1 in blue (40.8% of the pixels), class 2 in orange (17.2%), class 3 in green (42.0%); the forests of the north-east and the centre in green, the pastures in blue with orange edges; pin 1 in class 3, pin 2 in class 2." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/calculator/05-rules.jpg"><picture><source type="image/webp" srcset="assets/img/calculator/05-rules.webp"><img src="assets/img/calculator/05-rules.jpg" alt="The three classes of the rules as a layer: Janus shows it as categorical, class 1 in blue (40.8% of the pixels), class 2 in orange (17.2%), class 3 in green (42.0%); the forests of the north-east and the centre in green, the pastures in blue with orange edges; pin 1 in class 3, pin 2 in class 2." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>Three classes by rules</b>: the median NDVI under 0.45 (1, 40.8% of the square), up to 0.7 (2, 17.2%), above (3, the forests, 42.0%). A result of a few whole values opens as classes.</figcaption>
       </figure>
       <p>Rules are short for <code>where</code>: <code>img &gt; 0 = 1</code> is <code>where(img &gt; 0, 1, img)</code>. So <code>img == nan = 0</code> fills the gaps with 0, <code>result == 0 = nan</code> makes 0 no data, and <code>img.band1 &gt; 1 &amp;&amp; img.band2 &gt;= 5 = 0</code> zeroes a stack's pixels where two of its bands agree.</p>
@@ -312,6 +312,8 @@ m &gt;= 0.7 = 3</code></pre>
     <ul>
       <li><a href="./methods.html">Methods</a></li>
       <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
       <li><a href="./#cite">Cite</a></li>
       <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>

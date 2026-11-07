@@ -14,9 +14,8 @@
 <meta property="og:description" content="41 years of Landsat in north-eastern Brazil: a quarter of the pixels are significantly greening, and the region is not. Why, and how to test a region's trend.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/trend-test/04-test.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -33,7 +32,8 @@
         <li><a href="./guides.html" aria-current="page">Guides</a></li>
         <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
     <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
@@ -144,7 +144,7 @@
       <h2><span class="n">03</span>One pixel: the AR(1) trend</h2>
       <p><span class="ui">Tools → Temporal dynamics → AR(1) trend</span> fits each series on the chart (the cursor, the pins and the ROI mean) with a straight line whose errors follow an AR(1) process, by REML, as remotePARTS's <code>fitAR</code>. The line is drawn on the chart and its test goes into the <span class="ui">Statistics</span> table.</p>
       <figure class="fig">
-        <a href="assets/img/trend-test/02-ar-pixel.jpg"><img src="assets/img/trend-test/02-ar-pixel.jpg" alt="The AR(1) trend window open, a pin on a pixel near the river, its 41-year series falling from about 0.1 to 0 on the chart, and the Statistics table." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/trend-test/02-ar-pixel.jpg"><picture><source type="image/webp" srcset="assets/img/trend-test/02-ar-pixel.webp"><img src="assets/img/trend-test/02-ar-pixel.jpg" alt="The AR(1) trend window open, a pin on a pixel near the river, its 41-year series falling from about 0.1 to 0 on the chart, and the Statistics table." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>A pin near the river.</b> The index was high in the late 1980s, then low for decades.</figcaption>
       </figure>
       <div class="fig-pair">
@@ -170,13 +170,124 @@
           </tbody>
         </table>
       </div>
+<!-- build:python-tabs -->
+<div class="pytabs" data-tabs>
+  <div class="term-tabs pytabs-bar" role="tablist" aria-label="AR(1) trend (remotePARTS): in Janus or in Python" hidden>
+    <button type="button" role="tab" id="pt-trend-test-janus" aria-controls="pp-trend-test-janus" aria-selected="true" data-tab="janus">In Janus</button>
+    <button type="button" role="tab" id="pt-trend-test-python" aria-controls="pp-trend-test-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>
+  </div>
+  <div class="pytabs-body">
+    <div role="tabpanel" id="pp-trend-test-janus" aria-labelledby="pt-trend-test-janus" class="pytabs-panel">
+      <p class="pytabs-h">In Janus</p>
+      <ol>
+        <li>Open the 41 annual composites with <span class="ui">File → Open folder...</span> (<code>landsat_medoid_1985</code> to <code>landsat_medoid_2025</code>, with 0 declared as no data).</li>
+        <li>Drop a pin near the river, on pixel 1426, 1199.</li>
+        <li>Open <span class="ui">Tools → Temporal dynamics → AR(1) trend</span> and tick <span class="ui">Fit the cursor, pins and ROI series</span>. The window stays at its defaults.</li>
+        <li>The chart draws the AR(1) line next to the OLS one, and the Statistics table gives the slope, its standard error and ρ.</li>
+      </ol>
+    </div>
+    <div role="tabpanel" id="pp-trend-test-python" aria-labelledby="pt-trend-test-python" class="pytabs-panel">
+      <p class="pytabs-h">In Python</p>
+      <div class="pycode"><pre class="code py long" tabindex="0"><code><span class="s">"""Janus 1.16.0 (2026-11-07): pin 1 of series,
+reproduced outside Janus. Needs: pip install numpy rasterio xarray zeit-cdts
+"""</span>
+<span class="k">import</span> numpy <span class="k">as</span> np
+<span class="k">import</span> rasterio
+<span class="k">from</span> rasterio.windows <span class="k">import</span> Window
+<span class="k">from</span> rasterio.enums <span class="k">import</span> Resampling
+
+<span class="c"># 41 files (band 1 of each)</span>
+<span class="c"># Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).</span>
+layers = [
+    (<span class="s">"series/landsat_medoid_1985.vrt"</span>, <span class="n">1</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"series/landsat_medoid_1986.vrt"</span>, <span class="n">1</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"series/landsat_medoid_1987.vrt"</span>, <span class="n">1</span>, <span class="k">None</span>, <span class="k">None</span>),
+    <span class="c"># … 37 more, in the full script</span>
+    (<span class="s">"series/landsat_medoid_2025.vrt"</span>, <span class="n">1</span>, <span class="k">None</span>, <span class="k">None</span>),
+]
+dates = np.array([
+    <span class="s">"1985"</span>, <span class="s">"1986"</span>, <span class="s">"1987"</span>,
+    <span class="c"># … 37 more, in the full script</span>
+    <span class="s">"2025"</span>], dtype=<span class="s">"datetime64[D]"</span>)
+<span class="c"># Time in years since the first date, as Janus fits trends (365.2425-day years).</span>
+years = np.array([
+    <span class="n">0</span>, <span class="n">0.9993360576</span>, <span class="n">1.998672115</span>,
+    <span class="c"># … 37 more, in the full script</span>
+    <span class="n">40.00082137</span>])
+qa_rule = <span class="s">"none"</span>
+
+<span class="k">def</span> usable(q, rule):
+    <span class="s">"""Observations Janus keeps, from the quality band's codes (nodata: none)."""</span>
+    ok = np.isfinite(q) &amp; (q &gt;= <span class="n">0</span>)
+    c = np.where(ok, q, <span class="n">0</span>).astype(np.int64)
+    <span class="k">if</span> rule == <span class="s">"fmask"</span>:          <span class="c"># 0 clear land, 1 water</span>
+        <span class="k">return</span> ok &amp; ((c == <span class="n">0</span>) | (c == <span class="n">1</span>))
+    <span class="k">if</span> rule == <span class="s">"landsat_c2"</span>:     <span class="c"># QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow, 5 snow</span>
+        <span class="k">return</span> ok &amp; ((c &amp; 0x3B) == <span class="n">0</span>)
+    <span class="k">if</span> rule == <span class="s">"scl"</span>:            <span class="c"># Sentinel-2 SCL: 4 vegetation, 5 bare soil, 6 water</span>
+        <span class="k">return</span> ok &amp; (c &gt;= <span class="n">4</span>) &amp; (c &lt;= <span class="n">6</span>)
+    <span class="k">if</span> rule == <span class="s">"hls_fmask"</span>:      <span class="c"># HLS Fmask bits 1 cloud, 2 adjacent, 3 shadow, 4 snow; 255 fill</span>
+        <span class="k">return</span> ok &amp; (c != <span class="n">255</span>) &amp; ((c &amp; 0x1E) == <span class="n">0</span>)
+    <span class="k">return</span> ok &amp; (c != <span class="n">0</span>)         <span class="c"># a 0/1 mask</span>
+
+
+<span class="k">def</span> read(path, band, window, out_shape=<span class="k">None</span>, raw=<span class="k">False</span>):
+    <span class="s">"""A band over a window: nodata -&gt; NaN, the band's scale and offset applied."""</span>
+    <span class="k">with</span> rasterio.open(path) <span class="k">as</span> src:
+        kw = {<span class="s">"out_shape"</span>: out_shape, <span class="s">"resampling"</span>: Resampling.nearest} <span class="k">if</span> out_shape <span class="k">else</span> {}
+        a = src.read(band, window=window, masked=<span class="k">True</span>, **kw).astype(<span class="s">"float64"</span>)
+        <span class="k">if</span> <span class="k">not</span> raw:
+            a = a * src.scales[band - <span class="n">1</span>] + src.offsets[band - <span class="n">1</span>]
+        <span class="k">return</span> np.ma.filled(a, np.nan)
+
+
+<span class="k">def</span> shown(layer, window, out_shape=<span class="k">None</span>):
+    <span class="s">"""What the series shows at a date: the band, or the normalized difference, masked by the quality band."""</span>
+    path, band, nd_band, qa_band = layer
+    v = read(path, band, window, out_shape)
+    <span class="k">if</span> nd_band:
+        b = read(path, nd_band, window, out_shape)
+        <span class="k">with</span> np.errstate(invalid=<span class="s">"ignore"</span>, divide=<span class="s">"ignore"</span>):
+            v = np.where(v + b != <span class="n">0</span>, (v - b) / (v + b), np.nan)
+    <span class="k">if</span> qa_band:
+        v = np.where(usable(read(path, qa_band, window, out_shape, raw=<span class="k">True</span>), qa_rule), v, np.nan)
+    <span class="k">return</span> v
+
+<span class="c"># The pixel (column, row of the files), its centre at x -38.03255809, y -9.460742162 (EPSG:4326).</span>
+col, row = <span class="n">1426</span>, <span class="n">1199</span>
+values = np.array([shown(layer, Window(col, row, <span class="n">1</span>, <span class="n">1</span>))[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> layer <span class="k">in</span> layers])
+
+ok = np.isfinite(values)
+y, t = values[ok], years[ok]
+print(<span class="s">"n"</span>, ok.sum(), <span class="s">"mean"</span>, y.mean(), <span class="s">"std"</span>, y.std(ddof=<span class="n">1</span>) <span class="k">if</span> y.size &gt; <span class="n">1</span> <span class="k">else</span> np.nan)
+<span class="k">if</span> y.size &gt;= <span class="n">2</span>:
+    slope, intercept = np.polyfit(t, y, <span class="n">1</span>)                  <span class="c"># OLS, per year</span>
+    i, j = np.triu_indices(y.size, <span class="n">1</span>)
+    keep = t[j] != t[i]
+    sen = np.median((y[j] - y[i])[keep] / (t[j] - t[i])[keep])  <span class="c"># Sen's slope, per year</span>
+    print(<span class="s">"OLS slope"</span>, slope, <span class="s">"Sen's slope"</span>, sen)
+
+<span class="c"># AR(1) trend (remotePARTS), fitted on the chart with these parameters: the same Zeit calls Janus makes</span>
+<span class="c"># (its model is drawn from their results).</span>
+<span class="k">import</span> xarray <span class="k">as</span> xr
+<span class="k">import</span> zeit
+
+series = xr.DataArray(values[:, <span class="k">None</span>, <span class="k">None</span>], dims=(<span class="s">"time"</span>, <span class="s">"y"</span>, <span class="s">"x"</span>), coords={<span class="s">"time"</span>: dates.astype(<span class="s">"datetime64[ns]"</span>)})
+result1 = zeit.ar_trend(series, time=<span class="s">'year'</span>, harmonics=<span class="n">0</span>, gaps=<span class="s">'exact'</span>, min_valid=<span class="n">4</span>, nodata=<span class="k">None</span>, n_jobs=<span class="n">1</span>)
+print(result1)
+</code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/trend-test.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/trend-test.py" download="trend-test.py">Download .py</a></div></div>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit (<code>pip install zeit-cdts</code>). The shown code shortens the long lists of files and dates; Copy and Download give the whole script.</p>
+    </div>
+  </div>
+</div>
+<!-- /build:python-tabs -->
     </section>
 
     <section id="map">
       <h2><span class="n">04</span>The map of trends</h2>
       <p>The same window runs on the image (<span class="ui">Run on the raster</span>): whole image, visible area or ROI. Over an ROI of 700 × 700 pixels (21 km across), the run took 2 seconds. The first map shows the slope where it is significant. The others are the slope, the p-value, t, the standard error, ρ, the intercept and the residual SD.</p>
       <figure class="fig">
-        <a href="assets/img/trend-test/03-ar-map.jpg"><img src="assets/img/trend-test/03-ar-map.jpg" alt="The significant slope over a 700 by 700 pixel ROI: many patches of significant greening, a few of browning; the Tasks window with the run done in 2 seconds; the ROI mean series on the chart rising slowly with large year-to-year swings." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/trend-test/03-ar-map.jpg"><picture><source type="image/webp" srcset="assets/img/trend-test/03-ar-map.webp"><img src="assets/img/trend-test/03-ar-map.jpg" alt="The significant slope over a 700 by 700 pixel ROI: many patches of significant greening, a few of browning; the Tasks window with the run done in 2 seconds; the ROI mean series on the chart rising slowly with large year-to-year swings." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The significant slope in the ROI.</b> Patches of significant greening cover about a quarter of the ROI. Below, the ROI mean series swings from year to year far more than it rises.</figcaption>
       </figure>
       <p>A quarter of the ROI is significantly greening, and the usual next sentence would be "the area is greening". The ROI mean series on the chart suggests caution: it rises by 0.0013 per year (<span class="ui">OLS trend</span>), but its year-to-year swings are much larger. Its own AR(1) test, in the Statistics table, does not support a trend:</p>
@@ -191,7 +302,7 @@
       <h2><span class="n">05</span>The Trend test</h2>
       <p><span class="ui">View → Analysis</span>, tab <span class="ui">Trend test</span>. Choose the <span class="ui">Region</span> (the ROI, the visible area or the whole image), leave <span class="ui">Classes</span> at <em>None (the region's mean)</em>, and press <span class="ui">Run the test</span>. The test runs on a thread, with its progress and a Cancel button. Here it took 13 to 17 seconds on a 20-thread CPU.</p>
       <figure class="fig">
-        <a href="assets/img/trend-test/04-test.jpg"><img src="assets/img/trend-test/04-test.jpg" alt="The ROI over the image and, in the Analysis panel's Trend test tab, the region's result: 490000 pixels, trend 0.001538 per year, SE 0.001536, t 1.002, p 0.3165, 26% of pixels significantly up." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/trend-test/04-test.jpg"><picture><source type="image/webp" srcset="assets/img/trend-test/04-test.webp"><img src="assets/img/trend-test/04-test.jpg" alt="The ROI over the image and, in the Analysis panel's Trend test tab, the region's result: 490000 pixels, trend 0.001538 per year, SE 0.001536, t 1.002, p 0.3165, 26% of pixels significantly up." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The Trend test on the ROI</b>, next to the ROI mean's statistics.</figcaption>
       </figure>
       <figure class="fig">
@@ -258,7 +369,7 @@
       <p>With a categorical layer open on the same grid (a land-cover map, zones), choose it under <span class="ui">Classes</span>. Each class gets its own mean trend, tested against 0, and a last line says whether the classes' trends differ. The layer's class names and colours come from its legend (<span class="ui">Display → Categorical (classes)</span>). Pixels outside every class are left out.</p>
       <p>Here, the zones are the distance to the sea, made by <code>tools/make_parts_guide.py data</code>: coastal (under 40 km), transition (40 to 100 km) and interior (beyond 100 km), with water as no class. The region is the whole image.</p>
       <figure class="fig">
-        <a href="assets/img/trend-test/08-classes.jpg"><img src="assets/img/trend-test/08-classes.jpg" alt="The zones layer over the whole image, three bands of distance to the sea in shades of teal, and the Trend test with Classes set to zones." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/trend-test/08-classes.jpg"><picture><source type="image/webp" srcset="assets/img/trend-test/08-classes.webp"><img src="assets/img/trend-test/08-classes.jpg" alt="The zones layer over the whole image, three bands of distance to the sea in shades of teal, and the Trend test with Classes set to zones." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>Zones by distance to the sea</b>, and the Trend test by class over the whole image.</figcaption>
       </figure>
       <figure class="fig">
@@ -374,6 +485,8 @@
     <ul>
       <li><a href="./methods.html">Methods</a></li>
       <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
       <li><a href="./#cite">Cite</a></li>
       <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>

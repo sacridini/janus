@@ -14,9 +14,8 @@
 <meta property="og:description" content="A year of Sentinel-2 over Sorriso cut into 430 field parcels in three seconds on the GPU.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/fields/03-parcels.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -33,7 +32,8 @@
         <li><a href="./guides.html" aria-current="page">Guides</a></li>
         <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
     <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
@@ -89,7 +89,7 @@
       <h2><span class="n">03</span>The parameters</h2>
       <p><span class="ui">Tools → Classification &amp; pattern recognition → Field delineation (parcels)...</span>, with a Sentinel-2 series active.</p>
       <figure class="fig">
-        <a href="assets/img/fields/01-tool.jpg"><img src="assets/img/fields/01-tool.jpg" alt="The Field delineation window over the series: Trazo3 chosen as the model, the whole image as the area, the season found in the series, watershed parcels seeded at 50 %." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/fields/01-tool.jpg"><picture><source type="image/webp" srcset="assets/img/fields/01-tool.webp"><img src="assets/img/fields/01-tool.jpg" alt="The Field delineation window over the series: Trazo3 chosen as the model, the whole image as the area, the season found in the series, watershed parcels seeded at 50 %." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The tool's window</b>: the model and what it was trained on, the area, the season, how the parcels are made.</figcaption>
       </figure>
       <div class="tbl-wrap">
@@ -119,7 +119,7 @@
     <section id="classes">
       <h2><span class="n">05</span>The class map</h2>
       <figure class="fig">
-        <a href="assets/img/fields/02-classes.jpg"><img src="assets/img/fields/02-classes.jpg" alt="The class map of the whole image: field interiors green, boundaries brown, background white, the parcels drawn over it; the histogram: 74.7 % interior, 13.9 % boundary, 11.4 % background." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/fields/02-classes.jpg"><picture><source type="image/webp" srcset="assets/img/fields/02-classes.webp"><img src="assets/img/fields/02-classes.jpg" alt="The class map of the whole image: field interiors green, boundaries brown, background white, the parcels drawn over it; the histogram: 74.7 % interior, 13.9 % boundary, 11.4 % background." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The class map</b>: 74.7 % interior, 13.9 % boundary, 11.4 % background (the streams' forests, roads, the town).</figcaption>
       </figure>
       <p>The boundaries are thin and continuous between fields of different crops or dates; between two fields of the same crop sown on the same day they are faint or broken, the network's main source of merged parcels. The boundary's probability (a hidden layer) shows where it hesitated.</p>
@@ -128,7 +128,7 @@
     <section id="parcels">
       <h2><span class="n">06</span>The parcels</h2>
       <figure class="fig">
-        <a href="assets/img/fields/03-parcels.jpg"><img src="assets/img/fields/03-parcels.jpg" alt="Zoomed on the fields east of a stream: the parcels' outlines over the NDVI of three dates follow each field; the chart shows the NDVI of a pin in a field through the season." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/fields/03-parcels.jpg"><picture><source type="image/webp" srcset="assets/img/fields/03-parcels.webp"><img src="assets/img/fields/03-parcels.jpg" alt="Zoomed on the fields east of a stream: the parcels' outlines over the NDVI of three dates follow each field; the chart shows the NDVI of a pin in a field through the season." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The parcels</b> over the NDVI of three dates: an outline a field.</figcaption>
       </figure>
       <p>430 parcels cover 10 752 ha here: 25 ha on average, the largest 483 ha. Each polygon has its <code>area_ha</code>, <code>perimeter_m</code>, <code>pixels</code> and <code>mean_interior</code> (the network's mean certainty in it), so the GeoPackage opens in QGIS as it is. In Janus, <kbd>Alt</kbd> + hover shows a parcel's attributes, <kbd>Alt</kbd> + click makes it the ROI, and the chart then gives its mean series.</p>
@@ -158,7 +158,7 @@
       <p>Where the networks' fields are not yours (pastures, smallholdings, another country's way of farming) teach them. Draw, or open, the fields of a small area as polygons, <kbd>Shift</kbd> + drag an ROI around that area, and in <span class="ui">Train on your fields</span> choose the vector layer, the epochs and a name.</p>
       <p>The ROI says where you know every field: inside it, pixels in no polygon are background and the polygons' edges are boundary; outside it nothing is assumed. Janus cuts the ROI into chips with the series' windows, fine-tunes the chosen model on them (its batch normalisation frozen, so a few chips do not upset it) and saves a <code>.janusfields</code> file in Janus's <code>field_models</code> folder, chosen as the model at once.</p>
       <figure class="fig">
-        <a href="assets/img/fields/04-train.jpg"><img src="assets/img/fields/04-train.jpg" alt="The Field delineation window with my_fields (trained) chosen as the model, Trazo3 fine-tuned on 213 fields; the ROI drawn over the fields in the north-west of the image; the Tasks window above it." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/fields/04-train.jpg"><picture><source type="image/webp" srcset="assets/img/fields/04-train.webp"><img src="assets/img/fields/04-train.jpg" alt="The Field delineation window with my_fields (trained) chosen as the model, Trazo3 fine-tuned on 213 fields; the ROI drawn over the fields in the north-west of the image; the Tasks window above it." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>A model of your own</b>: Trazo3 fine-tuned on the 213 parcels of the ROI (yellow).</figcaption>
       </figure>
       <p>Here 213 fields gave 9 chips and two epochs took 19 seconds on the GPU; the model file is 50 MB. Train the more epochs the more fields you have, and check the result on an area you did not train on. On the Trazo dataset, Trazo3 fine-tuned on 250 chips of Mato Grosso lost some of its pixel IoU there (79.1 → 75.8) but found more whole fields (object recall 24.8 → 30.2, watershed 36 → 44 %): it learnt to draw more boundaries. A few dozen fields of your region teach the same.</p>
@@ -201,6 +201,8 @@
     <ul>
       <li><a href="./methods.html">Methods</a></li>
       <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
       <li><a href="./#cite">Cite</a></li>
       <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>

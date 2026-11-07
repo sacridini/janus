@@ -14,9 +14,8 @@
 <meta property="og:description" content="A Rondônia forest cleared in July 2023, and one being cleared in June 2026 that S-CCD shows as a change in progress before it is confirmed: on the chart, then over the image.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/sccd/06-state.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -33,7 +32,8 @@
         <li><a href="./guides.html" aria-current="page">Guides</a></li>
         <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
     <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
@@ -93,7 +93,7 @@
       <h2><span class="n">02</span>The example</h2>
       <p>The series of the <a href="ccdc.html">CCDC guide</a>: 125 Landsat 8 and 9 dates of central Rondônia, February 2020 to August 2026, 1690 × 1675 pixels. Two Landsat paths are interleaved, so each pixel is seen on about 60 of the dates. Clear images come almost only from May to October, about nine a year. Here each date is a GeoTIFF of the six reflectance bands, with the pixels that <code>QA_PIXEL</code> marks as cloud or shadow already set to no data. With the <code>QA_PIXEL</code> band in the files instead, choose it as the <span class="ui">Quality band</span> in the Display panel.</p>
       <figure class="fig">
-        <a href="assets/img/sccd/02-fit.jpg"><img src="assets/img/sccd/02-fit.jpg" alt="The Janus window: the NDVI of 23 August 2026 over the Rondônia scene, forest in yellow and pasture in blue and green, one pin, its NDVI series on the chart with S-CCD's model in magenta, and S-CCD's numbers in the Statistics table." width="1599" height="1238" loading="lazy"></a>
+        <a href="assets/img/sccd/02-fit.jpg"><picture><source type="image/webp" srcset="assets/img/sccd/02-fit.webp"><img src="assets/img/sccd/02-fit.jpg" alt="The Janus window: the NDVI of 23 August 2026 over the Rondônia scene, forest in yellow and pasture in blue and green, one pin, its NDVI series on the chart with S-CCD's model in magenta, and S-CCD's numbers in the Statistics table." width="1599" height="1238" loading="lazy"></picture></a>
         <figcaption><b>The series</b> in NDVI (NIR as the band, red for the normalized difference), on its last date, 23 August 2026. Pin 1 is the first pixel of this guide; S-CCD is drawn over its series.</figcaption>
       </figure>
     </section>
@@ -144,6 +144,146 @@
         <p class="h">Check a few pins first</p>
         <p>Drop pins on places you know, such as a clearing, a forest left alone and a pasture. Read their charts before running the image. Look for outliers that are clouds the quality band missed: in this stack, the image of 12 February 2023 has clouds left in it. Where a real change follows such an outlier, the break can be dated on the cloud.</p>
       </div>
+<!-- build:python-tabs -->
+<div class="pytabs" data-tabs>
+  <div class="term-tabs pytabs-bar" role="tablist" aria-label="S-CCD (stochastic CCDC): in Janus or in Python" hidden>
+    <button type="button" role="tab" id="pt-sccd-janus" aria-controls="pp-sccd-janus" aria-selected="true" data-tab="janus">In Janus</button>
+    <button type="button" role="tab" id="pt-sccd-python" aria-controls="pp-sccd-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>
+  </div>
+  <div class="pytabs-body">
+    <div role="tabpanel" id="pp-sccd-janus" aria-labelledby="pt-sccd-janus" class="pytabs-panel">
+      <p class="pytabs-h">In Janus</p>
+      <ol>
+        <li>Open the folder of the 125 Landsat dates with <span class="ui">File → Open folder...</span>: NIR as the band and red for the normalized difference. With the QA_PIXEL band in the files, choose it as the <span class="ui">Quality band</span> (Janus finds it by its name).</li>
+        <li>Drop a pin on pixel 378, 778, the second pixel of the guide: about 11 km north-west of pin 1.</li>
+        <li>Open <span class="ui">Tools → Change detection → S-CCD (stochastic CCDC)</span> and tick <span class="ui">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.</li>
+        <li>The chart draws the model that S-CCD updates with each image, and the Statistics table the state of the pixel at the last date.</li>
+      </ol>
+    </div>
+    <div role="tabpanel" id="pp-sccd-python" aria-labelledby="pt-sccd-python" class="pytabs-panel">
+      <p class="pytabs-h">In Python</p>
+      <div class="pycode"><pre class="code py long" tabindex="0"><code><span class="s">"""Janus 1.16.0 (2026-11-07): pin 1 of landsat,
+reproduced outside Janus. Needs: pip install numpy rasterio xarray zeit-cdts
+"""</span>
+<span class="k">import</span> numpy <span class="k">as</span> np
+<span class="k">import</span> rasterio
+<span class="k">from</span> rasterio.windows <span class="k">import</span> Window
+<span class="k">from</span> rasterio.enums <span class="k">import</span> Resampling
+
+<span class="c"># 125 files (ND(NIR, Red), QA QA_PIXEL of each): ND(NIR, Red), QA QA_PIXEL</span>
+<span class="c"># Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).</span>
+layers = [
+    (<span class="s">"landsat/ls_2020-02-04.tif"</span>, <span class="n">4</span>, <span class="n">3</span>, <span class="n">7</span>),
+    (<span class="s">"landsat/ls_2020-05-26.tif"</span>, <span class="n">4</span>, <span class="n">3</span>, <span class="n">7</span>),
+    (<span class="s">"landsat/ls_2020-06-20.tif"</span>, <span class="n">4</span>, <span class="n">3</span>, <span class="n">7</span>),
+    <span class="c"># … 121 more, in the full script</span>
+    (<span class="s">"landsat/ls_2026-08-23.tif"</span>, <span class="n">4</span>, <span class="n">3</span>, <span class="n">7</span>),
+]
+dates = np.array([
+    <span class="s">"2020-02-04"</span>, <span class="s">"2020-05-26"</span>, <span class="s">"2020-06-20"</span>,
+    <span class="c"># … 121 more, in the full script</span>
+    <span class="s">"2026-08-23"</span>], dtype=<span class="s">"datetime64[D]"</span>)
+<span class="c"># Time in years since the first date, as Janus fits trends (365.2425-day years).</span>
+years = np.array([
+    <span class="n">0</span>, <span class="n">0.3066455848</span>, <span class="n">0.37509326</span>,
+    <span class="c"># … 121 more, in the full script</span>
+    <span class="n">6.549073561</span>])
+qa_rule = <span class="s">"landsat_c2"</span>
+
+<span class="k">def</span> usable(q, rule):
+    <span class="s">"""Observations Janus keeps, from the quality band's codes (nodata: none)."""</span>
+    ok = np.isfinite(q) &amp; (q &gt;= <span class="n">0</span>)
+    c = np.where(ok, q, <span class="n">0</span>).astype(np.int64)
+    <span class="k">if</span> rule == <span class="s">"fmask"</span>:          <span class="c"># 0 clear land, 1 water</span>
+        <span class="k">return</span> ok &amp; ((c == <span class="n">0</span>) | (c == <span class="n">1</span>))
+    <span class="k">if</span> rule == <span class="s">"landsat_c2"</span>:     <span class="c"># QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow, 5 snow</span>
+        <span class="k">return</span> ok &amp; ((c &amp; 0x3B) == <span class="n">0</span>)
+    <span class="k">if</span> rule == <span class="s">"scl"</span>:            <span class="c"># Sentinel-2 SCL: 4 vegetation, 5 bare soil, 6 water</span>
+        <span class="k">return</span> ok &amp; (c &gt;= <span class="n">4</span>) &amp; (c &lt;= <span class="n">6</span>)
+    <span class="k">if</span> rule == <span class="s">"hls_fmask"</span>:      <span class="c"># HLS Fmask bits 1 cloud, 2 adjacent, 3 shadow, 4 snow; 255 fill</span>
+        <span class="k">return</span> ok &amp; (c != <span class="n">255</span>) &amp; ((c &amp; 0x1E) == <span class="n">0</span>)
+    <span class="k">return</span> ok &amp; (c != <span class="n">0</span>)         <span class="c"># a 0/1 mask</span>
+
+
+<span class="k">def</span> read(path, band, window, out_shape=<span class="k">None</span>, raw=<span class="k">False</span>):
+    <span class="s">"""A band over a window: nodata -&gt; NaN, the band's scale and offset applied."""</span>
+    <span class="k">with</span> rasterio.open(path) <span class="k">as</span> src:
+        kw = {<span class="s">"out_shape"</span>: out_shape, <span class="s">"resampling"</span>: Resampling.nearest} <span class="k">if</span> out_shape <span class="k">else</span> {}
+        a = src.read(band, window=window, masked=<span class="k">True</span>, **kw).astype(<span class="s">"float64"</span>)
+        <span class="k">if</span> <span class="k">not</span> raw:
+            a = a * src.scales[band - <span class="n">1</span>] + src.offsets[band - <span class="n">1</span>]
+        <span class="k">return</span> np.ma.filled(a, np.nan)
+
+
+<span class="k">def</span> shown(layer, window, out_shape=<span class="k">None</span>):
+    <span class="s">"""What the series shows at a date: the band, or the normalized difference, masked by the quality band."""</span>
+    path, band, nd_band, qa_band = layer
+    v = read(path, band, window, out_shape)
+    <span class="k">if</span> nd_band:
+        b = read(path, nd_band, window, out_shape)
+        <span class="k">with</span> np.errstate(invalid=<span class="s">"ignore"</span>, divide=<span class="s">"ignore"</span>):
+            v = np.where(v + b != <span class="n">0</span>, (v - b) / (v + b), np.nan)
+    <span class="k">if</span> qa_band:
+        v = np.where(usable(read(path, qa_band, window, out_shape, raw=<span class="k">True</span>), qa_rule), v, np.nan)
+    <span class="k">return</span> v
+
+<span class="c"># The pixel (column, row of the files), its centre at x -63.3251555, y -10.1842055 (EPSG:4326).</span>
+col, row = <span class="n">378</span>, <span class="n">778</span>
+values = np.array([shown(layer, Window(col, row, <span class="n">1</span>, <span class="n">1</span>))[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> layer <span class="k">in</span> layers])
+
+ok = np.isfinite(values)
+y, t = values[ok], years[ok]
+print(<span class="s">"n"</span>, ok.sum(), <span class="s">"mean"</span>, y.mean(), <span class="s">"std"</span>, y.std(ddof=<span class="n">1</span>) <span class="k">if</span> y.size &gt; <span class="n">1</span> <span class="k">else</span> np.nan)
+<span class="k">if</span> y.size &gt;= <span class="n">2</span>:
+    slope, intercept = np.polyfit(t, y, <span class="n">1</span>)                  <span class="c"># OLS, per year</span>
+    i, j = np.triu_indices(y.size, <span class="n">1</span>)
+    keep = t[j] != t[i]
+    sen = np.median((y[j] - y[i])[keep] / (t[j] - t[i])[keep])  <span class="c"># Sen's slope, per year</span>
+    print(<span class="s">"OLS slope"</span>, slope, <span class="s">"Sen's slope"</span>, sen)
+
+<span class="c"># S-CCD (stochastic CCDC), fitted on the chart with these parameters: the same Zeit calls Janus makes</span>
+<span class="c"># (its model is drawn from their results).</span>
+<span class="k">import</span> xarray <span class="k">as</span> xr
+<span class="k">import</span> zeit
+
+<span class="c"># The bands by role (bands of each date's file), as reflectance x 10000 (Zeit's convention:</span>
+<span class="c"># 0-1 reflectance x 10000; Landsat C2 L2 numbers x 0.0000275 - 0.2, x 10000; set `units`).</span>
+roles = {<span class="s">"blue"</span>: <span class="n">1</span>, <span class="s">"green"</span>: <span class="n">2</span>, <span class="s">"nir"</span>: <span class="n">4</span>, <span class="s">"red"</span>: <span class="n">3</span>, <span class="s">"swir1"</span>: <span class="n">5</span>, <span class="s">"swir2"</span>: <span class="n">6</span>}
+order = [r <span class="k">for</span> r <span class="k">in</span> (<span class="s">"blue"</span>, <span class="s">"green"</span>, <span class="s">"red"</span>, <span class="s">"nir"</span>, <span class="s">"swir1"</span>, <span class="s">"swir2"</span>, <span class="s">"thermal"</span>) <span class="k">if</span> r <span class="k">in</span> roles]
+raw = {r: np.array([read(layer[<span class="n">0</span>], roles[r], Window(col, row, <span class="n">1</span>, <span class="n">1</span>))[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> layer <span class="k">in</span> layers])
+       <span class="k">for</span> r <span class="k">in</span> order}
+optical = np.concatenate([raw[r] <span class="k">for</span> r <span class="k">in</span> order <span class="k">if</span> r != <span class="s">"thermal"</span>])
+med = np.nanmedian(optical)
+units = <span class="s">"unit"</span> <span class="k">if</span> med &lt;= <span class="n">2</span> <span class="k">else</span> <span class="s">"landsat_c2"</span> <span class="k">if</span> med &gt;= <span class="n">6500</span> <span class="k">else</span> <span class="s">"x10000"</span>
+to_x10000 = {<span class="s">"unit"</span>: <span class="k">lambda</span> v: v * <span class="n">10000</span>, <span class="s">"landsat_c2"</span>: <span class="k">lambda</span> v: (v * <span class="n">2.75e-5</span> - <span class="n">0.2</span>) * <span class="n">10000</span>,
+             <span class="s">"x10000"</span>: <span class="k">lambda</span> v: v}[units]
+cube = np.stack([to_x10000(raw[r]) <span class="k">for</span> r <span class="k">in</span> order])  <span class="c"># (band, time); the thermal band: deg C x 100 in Zeit</span>
+bands_cube = xr.DataArray(cube.T[:, :, <span class="k">None</span>, <span class="k">None</span>], dims=(<span class="s">"time"</span>, <span class="s">"band"</span>, <span class="s">"y"</span>, <span class="s">"x"</span>),
+                          coords={<span class="s">"time"</span>: dates.astype(<span class="s">"datetime64[ns]"</span>), <span class="s">"band"</span>: order})
+<span class="c"># Fmask codes (0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 no observation) from the quality band.</span>
+complete = np.all(np.isfinite(cube), axis=<span class="n">0</span>)
+q = np.array([read(path, qa, Window(col, row, <span class="n">1</span>, <span class="n">1</span>), raw=<span class="k">True</span>)[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> path, _, _, qa <span class="k">in</span> layers])
+c = np.where(np.isfinite(q) &amp; (q &gt;= <span class="n">0</span>), q, <span class="n">255</span>).astype(np.int64)
+<span class="k">if</span> qa_rule == <span class="s">"fmask"</span>:
+    f = c.astype(np.int32)
+<span class="k">elif</span> qa_rule == <span class="s">"landsat_c2"</span>:
+    f = np.zeros(c.shape, np.int32)
+    f[(c &amp; <span class="n">128</span>) != <span class="n">0</span>] = <span class="n">1</span>; f[(c &amp; <span class="n">32</span>) != <span class="n">0</span>] = <span class="n">3</span>; f[(c &amp; <span class="n">16</span>) != <span class="n">0</span>] = <span class="n">2</span>; f[(c &amp; <span class="n">10</span>) != <span class="n">0</span>] = <span class="n">4</span>; f[(c &amp; <span class="n">1</span>) != <span class="n">0</span>] = <span class="n">255</span>
+<span class="k">elif</span> qa_rule == <span class="s">"hls_fmask"</span>:
+    f = np.zeros(c.shape, np.int32)
+    f[(c &amp; <span class="n">32</span>) != <span class="n">0</span>] = <span class="n">1</span>; f[(c &amp; <span class="n">16</span>) != <span class="n">0</span>] = <span class="n">3</span>; f[(c &amp; <span class="n">8</span>) != <span class="n">0</span>] = <span class="n">2</span>; f[(c &amp; <span class="n">6</span>) != <span class="n">0</span>] = <span class="n">4</span>; f[c == <span class="n">255</span>] = <span class="n">255</span>
+<span class="k">else</span>:
+    f = np.where(c != <span class="n">0</span>, <span class="n">0</span>, <span class="n">4</span>).astype(np.int32)
+fmask_codes = np.where(complete, f, <span class="n">255</span>)
+fmask = fmask_codes.astype(np.int32)[:, <span class="k">None</span>, <span class="k">None</span>]
+result1 = zeit.sccd(bands_cube.sel(band=[b <span class="k">for</span> b <span class="k">in</span> order <span class="k">if</span> b != <span class="s">'thermal'</span>]), qa=fmask, max_segments=<span class="n">6</span>, conse=<span class="n">6</span>, prob_threshold=<span class="n">0.99</span>, outlier_prob=<span class="n">0.99999</span>, max_angle=<span class="n">30.0</span>, nodata=<span class="k">None</span>, n_jobs=<span class="n">1</span>)
+print(result1)
+</code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/sccd.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/sccd.py" download="sccd.py">Download .py</a></div></div>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit (<code>pip install zeit-cdts</code>). The shown code shortens the long lists of files and dates; Copy and Download give the whole script.</p>
+    </div>
+  </div>
+</div>
+<!-- /build:python-tabs -->
     </section>
 
     <section id="params">
@@ -190,17 +330,17 @@
       </div>
       <div class="fig-pair">
         <figure class="fig">
-          <a href="assets/img/sccd/05-breaks.jpg"><img src="assets/img/sccd/05-breaks.jpg" alt="The number of breaks over the ROI: most of it purple for none, large teal patches for one break, scattered yellow for two." width="1020" height="720" loading="lazy"></a>
+          <a href="assets/img/sccd/05-breaks.jpg"><picture><source type="image/webp" srcset="assets/img/sccd/05-breaks.webp"><img src="assets/img/sccd/05-breaks.jpg" alt="The number of breaks over the ROI: most of it purple for none, large teal patches for one break, scattered yellow for two." width="1020" height="720" loading="lazy"></picture></a>
           <figcaption><b>Breaks</b>: none (purple), one (teal) or two (yellow).</figcaption>
         </figure>
         <figure class="fig">
-          <a href="assets/img/sccd/09-largest.jpg"><img src="assets/img/sccd/09-largest.jpg" alt="The date of the largest break, from 2022 in purple to 2026 in yellow, with fields of one colour each and no colour where there was no break." width="1020" height="720" loading="lazy"></a>
+          <a href="assets/img/sccd/09-largest.jpg"><picture><source type="image/webp" srcset="assets/img/sccd/09-largest.webp"><img src="assets/img/sccd/09-largest.jpg" alt="The date of the largest break, from 2022 in purple to 2026 in yellow, with fields of one colour each and no colour where there was no break." width="1020" height="720" loading="lazy"></picture></a>
           <figcaption><b>Largest break date</b>, 2022 (purple) to 2026 (yellow).</figcaption>
         </figure>
       </div>
       <p>41% of the pixels have at least one break: 36.5% one and 4.5% two. Most of the largest breaks are in 2023 (50,347 pixels) and 2024 (50,055). The breaks follow field edges, but many fall on a few dates: 23 August and 8 September 2023 each hold a few percent of the pixels. That looks like the drought and fires of 2023 on the pastures more than like new clearings. S-CCD reports any lasting departure from a pixel's own seasons, not only a change of land cover. The magnitude map and the charts tell them apart.</p>
       <figure class="fig">
-        <a href="assets/img/sccd/06-state.jpg"><img src="assets/img/sccd/06-state.jpg" alt="The monitoring state on 23 August 2026: grey for stable over most of the ROI, red patches for a change in progress, mostly in the north, orange fields waiting for a model after a change, and a few near-white pixels with no model; the two pins." width="1020" height="720" loading="lazy"></a>
+        <a href="assets/img/sccd/06-state.jpg"><picture><source type="image/webp" srcset="assets/img/sccd/06-state.webp"><img src="assets/img/sccd/06-state.jpg" alt="The monitoring state on 23 August 2026: grey for stable over most of the ROI, red patches for a change in progress, mostly in the north, orange fields waiting for a model after a change, and a few near-white pixels with no model; the two pins." width="1020" height="720" loading="lazy"></picture></a>
         <figcaption><b>Monitoring state</b> on 23 August 2026, with the <span class="ui">Alerts</span> colormap: stable (grey), change in progress (red), waiting for a model after a change (orange), no model (near-white).</figcaption>
       </figure>
       <p>On the last date, 58.1% of the ROI is stable, 13.4% has a change in progress, 27.3% is waiting for a model after a change, and 1.2% has no model.</p>
@@ -210,11 +350,11 @@
       </ul>
       <div class="fig-pair">
         <figure class="fig">
-          <a href="assets/img/sccd/07-anomalies.jpg"><img src="assets/img/sccd/07-anomalies.jpg" alt="The latest anomalies, 0 in dark blue over most of the ROI, up to 5 in yellow, in patches mostly in the north and along field edges." width="1020" height="720" loading="lazy"></a>
+          <a href="assets/img/sccd/07-anomalies.jpg"><picture><source type="image/webp" srcset="assets/img/sccd/07-anomalies.webp"><img src="assets/img/sccd/07-anomalies.jpg" alt="The latest anomalies, 0 in dark blue over most of the ROI, up to 5 in yellow, in patches mostly in the north and along field edges." width="1020" height="720" loading="lazy"></picture></a>
           <figcaption><b>Latest anomalies</b>, 0 (blue) to 5 (yellow).</figcaption>
         </figure>
         <figure class="fig">
-          <a href="assets/img/sccd/08-since.jpg"><img src="assets/img/sccd/08-since.jpg" alt="The date of the first of the latest anomalies, over the Esri imagery: blue and green for June and July 2026, yellow for August 2026, scattered across the ROI." width="1020" height="720" loading="lazy"></a>
+          <a href="assets/img/sccd/08-since.jpg"><picture><source type="image/webp" srcset="assets/img/sccd/08-since.webp"><img src="assets/img/sccd/08-since.jpg" alt="The date of the first of the latest anomalies, over the Esri imagery: blue and green for June and July 2026, yellow for August 2026, scattered across the ROI." width="1020" height="720" loading="lazy"></picture></a>
           <figcaption><b>Anomalies since</b>, June (blue) to August 2026 (yellow); the range set by hand, 2026.42 to 2026.65.</figcaption>
         </figure>
       </div>
@@ -270,6 +410,8 @@
     <ul>
       <li><a href="./methods.html">Methods</a></li>
       <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
       <li><a href="./#cite">Cite</a></li>
       <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
