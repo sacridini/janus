@@ -792,8 +792,8 @@ type PixelPending = Arc<Mutex<Option<Result<PixelView, String>>>>;
 #[derive(Default)]
 pub struct PixelChart {
     /// the last pixel hovered on the map: (cube, x, y); it stays when the cursor goes to the window
-    at: Option<(u64, usize, usize)>,
-    shown: Option<(PixelKey, Result<PixelView, String>)>,
+    pub(crate) at: Option<(u64, usize, usize)>,
+    pub(crate) shown: Option<(PixelKey, Result<PixelView, String>)>,
     job: Option<(PixelKey, PixelPending)>,
 }
 
@@ -1267,7 +1267,7 @@ impl State {
     }
 
     /// The chain's script for the steps on and the scope now, even before it runs.
-    fn tsa_python(&mut self, info: &Arc<CubeInfo>) -> Result<String, String> {
+    pub(crate) fn tsa_python(&mut self, info: &Arc<CubeInfo>) -> Result<String, String> {
         let steps = self.tsa_steps();
         let (input, name) = self.tsa_chain_input(info);
         let out = self.results_dir().join(format!("{name}_tsa_python"));
@@ -1289,7 +1289,7 @@ impl State {
 
     /// The series `path` the chain wrote, active and the Classification open on its samples' tab: the series' layer
     /// if it is open, else opened as the chain's other series are (it becomes active when it arrives).
-    fn tsa_use_series(&mut self, path: &str, ctx: &egui::Context) {
+    pub(crate) fn tsa_use_series(&mut self, path: &str, ctx: &egui::Context) {
         if !self.tsa_activate(path, ctx) {
             if !self.zeit.series_to_open.iter().any(|(q, _)| q == path) {
                 self.zeit.series_to_open.push((path.to_string(), false));
@@ -1326,7 +1326,7 @@ impl State {
     }
 
     /// Why the chain cannot run on the series, if no step of it can.
-    fn tsa_blocked(&self, info: &CubeInfo) -> Option<String> {
+    pub(crate) fn tsa_blocked(&self, info: &CubeInfo) -> Option<String> {
         let regular = self.tsa.on[1];
         let mut reasons = vec![];
         for (i, (id, label, _)) in STEPS.into_iter().enumerate() {
@@ -1339,7 +1339,7 @@ impl State {
     }
 
     /// The chain's steps that are on, with the parameters their windows hold.
-    fn tsa_steps(&mut self) -> Vec<ChainStep> {
+    pub(crate) fn tsa_steps(&mut self) -> Vec<ChainStep> {
         let mut steps = vec![];
         for (i, (id, _, _)) in STEPS.into_iter().enumerate() {
             if let Some(tool) = manifest().tool(id).filter(|_| self.tsa.on[i]) {

@@ -386,7 +386,7 @@ impl State {
                 self.clear_notices();
                 st.web = None;
                 next(st, "the comparisons' layers removed");
-                st.stage = 299;
+                st.stage = 300; // the Time series analysis window (300-309, ui_test_tsa.rs), then 299
                 None
             }
             _ => None,

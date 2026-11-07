@@ -26,6 +26,8 @@ mod misc;
 mod roi;
 #[path = "ui_test_scripts.rs"]
 mod scripts_check;
+#[path = "ui_test_tsa.rs"]
+mod tsa;
 #[path = "ui_test_validation.rs"]
 mod validation;
 #[path = "ui_test_vector_draw.rs"]
@@ -89,6 +91,8 @@ pub struct UiTest {
     widths: std::collections::HashMap<egui::Id, (f32, usize)>,
     /// stages 280-289: the OGC test server (ui_test_web.rs; 290-298 too, ui_test_alerts.rs)
     web: Option<janus_geo::ogc_mock::MockServer>,
+    /// stages 300-309: the Time series analysis window (ui_test_tsa.rs)
+    tsa: tsa::TsaTest,
 }
 
 /// Frames in a row a window may widen (its content changed) before it is a window growing by itself.
@@ -119,6 +123,7 @@ fn growing_window(
                 .map(|t| (egui::Id::new(*t), *t))
                 .chain([(egui::Id::new("ml window"), "Classification")])
                 .chain([(egui::Id::new("calculator window"), "Raster calculator")])
+                .chain([(egui::Id::new("tsa window"), "Time series analysis")])
                 .chain(tools)
                 .find(|(i, _)| *i == id)
                 .map_or_else(|| format!("{id:?}"), |(_, t)| t.to_string());
@@ -1017,6 +1022,7 @@ impl State {
             130..=137 | 79 | 80 => return self.test_animation(st, &input, t0, ctx),
             170..=179 => return self.test_validation(st, &input, t0, ctx),
             180..=299 => return self.test_interface(st, &input, t0, ctx),
+            300..=309 => return self.test_tsa(st, &input, t0, ctx),
             _ => {}
         }
         None

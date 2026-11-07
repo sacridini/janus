@@ -2155,7 +2155,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             let Some(res) = st.result.take() else { continue };
             drop(st);
             // the Time series analysis' outputs are named by their own step already (tsa.rs)
-            let tool_name = manifest().tool(&j.tool).map_or(j.tool.clone(), |t| format!("{}: ", t.name));
+            let tool_name = manifest().tool(&j.tool).map_or(format!("{}: ", j.tool), |t| format!("{}: ", t.name));
             let tool_name = if j.tool == crate::tsa::JOB_TOOL { String::new() } else { tool_name };
             let [x0, y0, x1, y1] = res.window;
             // the series' grid: its maps placed by it even once it is closed

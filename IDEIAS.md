@@ -1161,7 +1161,33 @@ Time series analysis
 | 56a | O `TsaUi`, a janela com as três abas, os formulários das etapas e a cadeia numa tarefa (por arquivo, uma subpasta e uma proveniência por etapa); um teste da cadeia contra as ferramentas rodadas uma a uma (os mesmos valores) |
 | 56b | O *To look at* e o gráfico do pixel sob o cursor |
 | 56c | O *Copy Python* da cadeia (as chamadas de `janus_zeit::python::calls` em sequência, os nomes das variáveis encadeados, conferido no Zeit) e o *Use in Classification* |
-| 56d | O `--selftest-ui`, as capturas (`--shots tsa`), a página no site e a documentação |
+| 56d | O `--selftest-ui`, as capturas (`--shots tsa`), a página no site e a documentação: o autoteste e a documentação feitos; capturas e página do site pendentes |
+
+- **Feito (2026-11-07):** `crates/janus-app/src/tsa.rs`, tudo numa janela só (338b683, b3a2040,
+  931a443, d06b8e8). 56a: o `TsaUi`, as três abas, os formulários das etapas (os mesmos
+  parâmetros das janelas das ferramentas) e a cadeia numa tarefa, uma subpasta por etapa e a
+  série de análise passada por arquivo; um teste compara a cadeia com as ferramentas rodadas uma
+  a uma. 56b: o *To look at* (`advice()`, só das datas e dos parâmetros: anos com poucas datas,
+  primeiro ou último ano cortado, grade do Interpolate fora de escala, banda de qualidade
+  ausente, tendência sobre menos de 5 anos) e o gráfico do pixel. 56c: o *Copy Python* da cadeia
+  e o *Use in Classification*, com a proveniência da cadeia na pasta raiz (`provenance.json`,
+  `rerun.py`; o *Run again* liga as mesmas etapas na janela). Onde saiu do plano: (1) o gráfico
+  do pixel não usa a série interpolada do raster: encadeia o `run_pixel` de cada etapa e as que
+  vêm depois do Interpolate leem os valores dele na grade de `janus_zeit::interpolate_days` (as
+  datas que a execução em raster grava como bandas), arredondados a f32 como o GeoTIFF; o teste
+  o compara com a cadeia em raster em cinco pixels (a série interpolada, a padronizada e o Fold
+  bit a bit, o Temporal metrics até os 6 dígitos das suas linhas); (2) *Temporal metrics* e
+  *Clear-sky observations* não têm sobreposição no gráfico: só linhas (rows), e o gráfico mostra
+  as que têm; (3) o script da cadeia não é um script novo: é composto dos geradores das próprias
+  ferramentas (`janus_zeit::python::calls`, o `run_code` do `python.rs` refeito das mesmas peças,
+  com a saída igual), as chamadas numeradas (`result1`...) e a série de análise numa variável
+  (`analysis`), e foi conferido no Zeit com `JANUS_PYTHON` (16 saídas, 3792 valores, no máximo
+  6,9e-7 da cadeia). 56d, o autoteste: `ui_test_tsa.rs`, estágios 300-309 (a janela e as três
+  abas, o *To look at* contra o `advice()`, a Fenologia polar recusada nas datas irregulares e
+  liberada com o Interpolate ligado, o gráfico do pixel com a série de análise do tamanho da grade
+  do Interpolate, a cadeia padrão numa tarefa com a pasta raiz, as subpastas, os mapas e as
+  séries, o *Copy Python* e o *Use in Classification*), e a seção "Time series analysis (FORCE)"
+  do `docs/usage.md`. Falta: as capturas (`--shots tsa`) e a página do site.
 
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional

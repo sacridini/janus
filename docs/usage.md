@@ -766,6 +766,82 @@ the cursor; a raster run reads the series in bands of rows (from the
 full-resolution cache when it has the dates) and computes them on every
 processing thread. Nothing starts at startup and no Python runs.
 
+## Time series analysis (FORCE)
+
+**Tools → Time series analysis (FORCE)...** is FORCE's TSA as a chain rather than
+a list of tools. It runs the eight tools of the Tools menu that make it, with the
+parameters their own windows hold (change a parameter in either place, the other
+sees it), in this order:
+
+1. **Clear-sky observations**, on the raw series (its quality band is read here);
+2. **Interpolate**, on the raw series: the analysis series, on a regular grid of dates;
+3. **Standardize**, on the analysis series;
+4. **Temporal metrics**, **Fold by period**, **Linear trend of a fold**, **Change,
+   aftereffect, trend** and **Polar phenology**, each on the analysis series.
+
+The default is Interpolate, Temporal metrics and Fold; a step is a checkbox. The
+steps after Interpolate or Standardize read the series they write (their GeoTIFF,
+opened again as a series), so the chain gives what FORCE's TSA gives, and the
+numbers are those of the tools run one after the other. A step the series cannot
+take (Polar phenology needs a regular series) is left out and said so.
+
+The window has three tabs:
+
+- **Input**: the series the chain runs on (the active layer): how many dates, from
+  and to, whether they are regular or irregular (Interpolate puts irregular dates
+  on a regular grid), the band shown and the quality band, or that there is none.
+- **Steps**: the eight steps with their parameters (the same fields as the tool's
+  window), the reason when the series cannot take one, the **pixel chart** and
+  **To look at**.
+- **Output**: the scope (the whole image, the visible area or the ROI), the output
+  folder, **Run**, **Copy Python**, the task's progress and, once it is done,
+  **Use in Classification**.
+
+**To look at** reads the dates and the parameters of the steps that are on, before
+anything runs: a year inside the series with few dates, a first or last year only
+partly covered (for the steps that read years), an Interpolate grid denser or much
+coarser than the dates, a missing quality band (Clear-sky observations counts
+every date as clear), a trend over fewer than five years, a step the series cannot
+take and a chain with nothing on. Each is a coloured dot (information, something to
+look at, something that stops a step); the Steps tab shows how many need a look.
+
+The **pixel chart** (Steps tab) follows the pixel last hovered on the map and runs
+the chain on it: the observations (grey, and in the series' colour where the
+quality band keeps them), the analysis series as a line on Interpolate's grid, and
+the overlays of the steps that have them (the trend's line, the fold's values, the
+polar phenology's dates), each in its own colour under the step's name; the steps
+that gave no chart or failed are listed under it. Temporal metrics and Clear-sky
+observations give rows only, no overlay. It is computed off the interface's
+thread, and again when a parameter changes.
+
+**Run** is **one task** (Tools → Tasks), in a folder of its own,
+`<series>_tsa_<time>`, with a subfolder per step (`01_interpolate`,
+`02_temporal_metrics`, `03_fold`...): each has its `job.json`, `job.log`,
+`provenance.json` and `rerun.py` and its outputs, as the tool's own run has. The
+folder itself has the chain's `provenance.json` (the steps with their parameters
+and folders, the series, the scope, the versions, how it ended; its result layers
+open it with **Provenance...**, and **Run again with these parameters...** turns
+the same steps and scope on in this window), `rerun.py` and `job.log`. The maps
+(Temporal metrics, Linear trend, CAT) arrive as result layers and the series
+(Interpolate, Standardize, Fold, Polar phenology, Clear-sky observations) as
+layers, all named by their step (`Temporal metrics: Mean`); the active layer does
+not change.
+
+**Copy Python** copies one script that does in Zeit what the chain does on this
+series and scope, even before it runs: the series read once from its files, each
+step's call (those of the tools' own scripts; the steps after Interpolate and
+Standardize read the variable `analysis`) and every result written as a GeoTIFF.
+It is the same script the run keeps as the folder's `rerun.py`.
+
+**Use in Classification** (a menu of the series the chain wrote: the interpolated,
+the standardized, the metrics by period, the phenology by year) makes the one
+chosen the active layer and opens the [Classification](#classification-random-forest-twdtw-embeddings-som-k-means-networks)
+window: it reads the dates of the active series as its features, so the samples
+are classified on the chain's series instead of the observations.
+
+`--window tsa` opens the window on the Steps tab (the defaults on the whole
+image); `--window tsa-run` also runs the chain.
+
 ## Classification (Random Forest, TWDTW, embeddings, SOM, k-means, networks)
 
 **Tools > Classification & pattern recognition > Classification** trains a model on samples you

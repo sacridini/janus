@@ -56,11 +56,13 @@ runs on thread pools; a GDAL dataset is never shared between threads (each threa
 | `series.rs`, `chart.rs`, `roi.rs`, `season.rs` | The series on the chart (cursor, pins, ROI, other layers'), the chart, the ROI's shape, the season and temporal composites |
 | `classes.rs`, `composite.rs`, `analysis.rs`, `transect.rs` | Categorical series, RGB composites of three bands, the Analysis panel, the space-time transect |
 | `vectors.rs`, `vector_gpu.rs`, `vector_pick.rs`, `vector_labels.rs`, `labels.rs` | Vector layers (placing, drawing, picking, extracting series), their levels of detail on the GPU, the grid of their boxes for picking, their labels; interpretation (TimeSync style) |
+| `tsa.rs` | Tools → Time series analysis (FORCE): the eight steps as one chain and one task (a folder a step, the root's provenance and `rerun.py`), the pixel chart (`pixel_chain`), *To look at* (`advice`), the chain's *Copy Python* (`chain_code`), Use in Classification |
 | `zeit.rs`, `python.rs` | The Tools menu, a panel per tool made from its descriptor, fits on the chart, Tasks, Log, result layers; *Copy Python* |
 | `embeddings.rs`, `emb_download.rs` | Embeddings in the interface and their download for the visible area |
 | `validation.rs`, `validation_tabs.rs`, `chips.rs` | The Validation menu and panel, the project's sample as a vector layer, blind interpretation, Chips |
 | `export_map.rs`, `canvas.rs`, `exports.rs`, `animation.rs`, `gif.rs` | Exports (PNG figures drawn on a CPU canvas, GeoTIFFs, results), the Exports window, animations (GIF without a library, MP4/WebM through ffmpeg) |
 | `basemap.rs`, `open.rs`, `platform.rs` | The basemap in the interface, Open URL and multidimensional files, what depends on the system |
+| `ui_test_tsa.rs` | `--selftest-ui` stages 300-309: the Time series analysis window (tabs, To look at, the pixel chart, a run's folders and layers, Copy Python, Use in Classification) |
 | `ui_test*.rs`, `selftest_zeit.rs`, `embeddings_test.rs`, `measure*.rs`, `tour.rs`, `golden.rs` | `--selftest-ui`, `--selftest-zeit`, `--selftest-embeddings-ui`, `--measure-cache`, `--measure-vectors`, `--profile-tour`, `--dump-golden` |
 | `shots.rs`, `shots_validation.rs` | `--shots`: the website guides' screenshots |
 | `bin/jn.rs` | `jn`: prints `--help` and `--version` to the terminal, else opens the interface and returns |
