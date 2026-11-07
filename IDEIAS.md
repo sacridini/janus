@@ -1189,6 +1189,50 @@ Time series analysis
   séries, o *Copy Python* e o *Use in Classification*), e a seção "Time series analysis (FORCE)"
   do `docs/usage.md`. Falta: as capturas (`--shots tsa`) e a página do site.
 
+### FORCE: a janela Analysis-ready data (fase 57, 2026-11-07)
+
+A segunda janela da proposta (`IDEAS.md` do Zeit, Fase 23): da série de reflectância até um cubo
+harmonizado, no padrão da janela de Time series analysis (`tsa.rs`): só orquestração, cada etapa
+a ferramenta que existe com os parâmetros da janela dela, uma tarefa com uma subpasta por etapa,
+a proveniência e o *Copy Python* da cadeia. As ferramentas já estão no Janus: NBAR (26971a8,
+bee30a0), Spectral adjustment to Sentinel-2A e Tasseled Cap (271b45c), ImproPhe (c1681e9). As
+etapas 23e-23g do Zeit (topografia, coregistro, correção atmosférica) entram na lista quando
+existirem.
+
+**A cadeia:**
+
+```
+série de reflectância (bandas por papel; ângulos das bandas ou dos MTD_TL.xml do Sentinel-2)
+ → NBAR (opcional)
+ → Spectral adjustment to Sentinel-2A (opcional; datas do Sentinel-2 passam como estão)
+ = a série harmonizada
+ → Tasseled Cap (opcional, um produto)
+ → ImproPhe (opcional: a série harmonizada é a fina, a grossa outra série aberta)
+```
+
+**O que esta janela tem e a de TSA não:** o NBAR e o ajuste espectral escrevem **uma série por
+banda**, e a etapa seguinte lê **uma série com várias bandas por data**, os papéis mapeados. Entre
+as etapas, as séries por banda viram uma série multibanda (um VRT por data, uma banda de cada
+arquivo, a descrição de cada banda o seu papel, para o `guess_band_roles` mapear sozinho), que é
+também a saída "série harmonizada" que o usuário abre e usa nas outras ferramentas e na janela de
+TSA.
+
+**A janela:** Input (a série, as bandas por papel, de onde vêm os sensores e os ângulos de cada
+data: o que `janus_zeit::sensors` e `janus_zeit::granules` acham, com as datas sem eles),
+Steps (cada etapa com o seu formulário; *To look at*: datas sem sensor ou sem metadados de
+ângulo, bandas não mapeadas, datas do Sentinel-2 no ajuste, a série já NBAR do HLS), Output
+(escopo, Run, a prévia na ROI e a cortina de antes e depois entre a série de entrada e a
+harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-ready data
+(FORCE)...*, a paleta e `--window ard`.
+
+**Etapas:**
+
+| Etapa | Conteúdo |
+|---|---|
+| 57a | A janela (três abas, os formulários), a cadeia numa tarefa com a série multibanda entre as etapas; o teste da cadeia contra as ferramentas rodadas uma a uma |
+| 57b | O *To look at*, a prévia na ROI com a cortina de antes e depois, *Use in Time series analysis* |
+| 57c | O *Copy Python* da cadeia (conferido no Zeit), a proveniência da raiz, o autoteste (`--selftest-ui`), a documentação |
+
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
@@ -1234,6 +1278,7 @@ Time series analysis
 | 15 | 0.23.0 | **Mapa de fundo (basemap)**: imagem de satélite/mapa da web por baixo das séries (Esri World Imagery, Sentinel-2 cloudless, OSM, URL XYZ própria), pelo driver WMS/TMS do GDAL, reprojetado pela grade de warp | concluída |
 | 16 | 0.24.0 | **Configurações**: janela própria (File → Settings); **limite de núcleos** para o processamento do Janus e do Zeit (padrão: todos menos 2), **tema da interface** (escuro, claro, clássico, Janus) e as opções que estavam no painel Performance | concluída |
 | 14 | 0.27.0 | Mais visualizações (painel **Analysis**): anos sobrepostos por dia do ano e mapa de calor ano × dia do ano, área por classe ao longo do tempo e matriz de transição (categóricos), dispersão entre camadas/datas na ROI; box plot da ROI por data | concluída |
+| 57 | — | **Janela Analysis-ready data (FORCE Level 2)**: NBAR, ajuste espectral, Tasseled Cap e ImproPhe numa cadeia, a série multibanda entre as etapas, prévia na ROI com a cortina de antes e depois | em andamento |
 | 17 | 0.29.0 | **Embeddings** (TESSERA, AlphaEarth): PCA → RGB em C++ (SIMD, iteração de subespaço), **PCA local da ROI**, **similaridade a um pino** (mapa e gráfico ano a ano), **mudança entre anos**, perfil latente; **baixar embeddings da área visível** pelo Zeit (como o basemap, sobre qualquer série), com barra de progresso no mapa | concluída |
 | — | 0.30.0 | **Exportação conferida e com atalhos**: o popup de opções passa a abrir (nunca era desenhado), embeddings como GeoTIFF em resolução total, todas as saídas de uma rodada do Zeit numa pasta, reset do layout (`Ctrl+Shift+R`); faixa Int8 dos embeddings de todos os anos | concluída |
 | 18 | 0.31.0 | Mais do Zeit: **CODED** (degradação florestal) e **NDFI** (desmistura espectral, a série vira camada), **Tmask** (nuvens que a banda de qualidade perdeu), **SOM** (agrupamento de trajetórias, série típica no gráfico) e **concordância** entre mapas de mudança | concluída |
