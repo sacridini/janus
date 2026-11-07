@@ -3,12 +3,13 @@
 //! difference, a quality band's rule, the units of the reflectance) and makes the same Zeit calls with the same
 //! parameters. The app's chart and the website's guides both call `pixel_script`.
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use janus_cube::{CubeInfo, QaRule};
 
-use super::{ToolCall, py_float, tool_call, wrap_call};
+use super::{ToolCall, tool_call, wrap_call};
 use crate::pixel::{Params, PixelInput};
 
 /// How the script's reads are cut into blocks: a block of a few hundred cells a side holds all the bands of a
@@ -155,45 +156,14 @@ fn date_band_label(label: &str) -> bool {
     false
 }
 
-/// `v * scale + offset` as a statement's right side, if it changes anything.
-fn scaled(var: &str, (scale, offset): (f64, f64)) -> Option<String> {
-    if scale == 1.0 && offset == 0.0 {
-        return None;
-    }
-    let mut e = var.to_string();
-    if scale != 1.0 {
-        e = format!("{e} * {}", py_float(scale));
-    }
-    if offset != 0.0 {
-        e = format!("{e} {} {}", if offset < 0.0 { '-' } else { '+' }, py_float(offset.abs()));
-    }
-    Some(e)
-}
-
-/// `var` with each band's scale and offset (`band` the dimension), if any changes something.
-fn scaled_bands(var: &str, so: &[(f64, f64)]) -> Option<String> {
-    if so.iter().all(|s| *s == so[0]) {
-        return scaled(var, so[0]).map(|e| format!("{var} = {e}  # the files' scale and offset"));
-    }
-    let list = |f: &dyn Fn(&(f64, f64)) -> f64| {
-        format!("[{}]", so.iter().map(|s| py_float(f(s))).collect::<Vec<_>>().join(", "))
-    };
-    Some(format!(
-        "{var} = {var} * xr.DataArray({}, dims=\"band\") + xr.DataArray({}, dims=\"band\")  # each band's scale and offset in its file",
-        list(&|s| s.0),
-        list(&|s| s.1)
-    ))
-}
-
-/// Which observations a quality band keeps, as xarray over `qa` (NaN: no value, not kept).
-fn usable(rule: QaRule) -> &'static str {
+/// A quality rule as `load_raster(qa_rule=)` and `zeit.qa_mask` name it.
+fn rule_arg(rule: QaRule) -> &'static str {
     match rule {
-        QaRule::Fmask => "qa.isin([0, 1])",
-        QaRule::LandsatC2 => "(qa.fillna(1).astype(\"int64\") & 0x3B) == 0",
-        QaRule::Scl => "qa.isin([4, 5, 6])",
-        QaRule::HlsFmask => "(qa.fillna(255).astype(\"int64\") & 0x1E) == 0",
-        QaRule::NonZero => "qa > 0",
-        QaRule::None => "qa.notnull()",
+        QaRule::Fmask | QaRule::None => "fmask",
+        QaRule::LandsatC2 => "landsat_c2",
+        QaRule::Scl => "scl",
+        QaRule::HlsFmask => "hls_fmask",
+        QaRule::NonZero => "nonzero",
     }
 }
 
@@ -312,6 +282,10 @@ struct Window {
     polygon: Option<String>,
     /// a comment on what the window is
     note: String,
+    /// the pin's `pixel=(col, row)`: Zeit reads that pixel only
+    pixel: Option<(i64, i64)>,
+    /// `window=(col0, row0, col1, row1)`, the end exclusive, of a rectangle that is not the whole raster
+    cells: Option<[usize; 4]>,
 }
 
 fn window(spec: &Spec) -> Result<Window, String> {
@@ -327,6 +301,9 @@ fn window(spec: &Spec) -> Result<Window, String> {
         format!("({}, {}, {}, {})", num(ax.min(bx)), num(ay.min(by)), num(ax.max(bx)), num(ay.max(by)))
     };
     let crs = if info.crs_authority.is_empty() { info.crs_name.as_str() } else { info.crs_authority.as_str() };
+    // Zeit reads the raster's own pixels (`pixel=`, `window=`), with no CRS needed, but a NetCDF / Zarr variable's
+    // rows may run either way: its windows are cut by coordinates
+    let by_pixels = !info.multidim;
     Ok(match &spec.target {
         Target::Run { window: [x0, y0, x1, y1], .. } => {
             let (w, h) = (x1 - x0, y1 - y0);
@@ -336,9 +313,10 @@ fn window(spec: &Spec) -> Result<Window, String> {
             } else {
                 format!("The run's window: x {x0}..{x1}, y {y0}..{y1} of the files' pixels ({w} x {h})")
             };
+            let cells = (by_pixels && !whole).then_some([*x0, *y0, *x1, *y1]);
             let (x0, y0, x1, y1) = (*x0 as f64, *y0 as f64, *x1 as f64, *y1 as f64);
-            let clip = (!whole).then(|| bounds(x0 + 0.4, y0 + 0.4, x1 - 0.4, y1 - 0.4));
-            Window { clip, polygon: None, note }
+            let clip = (!by_pixels && !whole).then(|| bounds(x0 + 0.4, y0 + 0.4, x1 - 0.4, y1 - 0.4));
+            Window { clip, polygon: None, note, pixel: None, cells }
         }
         Target::Pin { id, col, row } => {
             let (cx, cy) = at(*col as f64 + 0.5, *row as f64 + 0.5);
@@ -349,7 +327,7 @@ fn window(spec: &Spec) -> Result<Window, String> {
                     let _ = write!(note, " ({crs})");
                 }
             }
-            Window { clip: None, polygon: None, note }
+            Window { clip: None, polygon: None, note, pixel: by_pixels.then_some((*col, *row)), cells: None }
         }
         Target::Roi(roi) => {
             let (w, h) = (roi.x1 - roi.x0, roi.y1 - roi.y0);
@@ -362,8 +340,11 @@ fn window(spec: &Spec) -> Result<Window, String> {
                 );
             }
             if roi.rings.is_empty() {
+                let whole = (roi.x0, roi.y0, roi.x1, roi.y1) == (0, 0, info.width, info.height);
+                let cells = (by_pixels && !whole).then_some([roi.x0, roi.y0, roi.x1, roi.y1]);
                 let (x0, y0, x1, y1) = (roi.x0 as f64, roi.y0 as f64, roi.x1 as f64, roi.y1 as f64);
-                Window { clip: Some(bounds(x0 + 0.4, y0 + 0.4, x1 - 0.4, y1 - 0.4)), polygon: None, note }
+                let clip = (!by_pixels).then(|| bounds(x0 + 0.4, y0 + 0.4, x1 - 0.4, y1 - 0.4));
+                Window { clip, polygon: None, note, pixel: None, cells }
             } else {
                 // the rings in the files' coordinates, even-odd like Janus' (a hole is a ring inside another)
                 let rings: Vec<String> = roi
@@ -386,6 +367,8 @@ fn window(spec: &Spec) -> Result<Window, String> {
                         rings.join(",\n    ")
                     )),
                     note,
+                    pixel: None,
+                    cells: None,
                 }
             }
         }
@@ -395,10 +378,6 @@ fn window(spec: &Spec) -> Result<Window, String> {
 /// A Python list of ints.
 fn ints(v: &[i32]) -> String {
     format!("[{}]", v.iter().map(i32::to_string).collect::<Vec<_>>().join(", "))
-}
-
-fn strs(v: &[&str]) -> String {
-    format!("[{}]", v.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(", "))
 }
 
 /// The Python of a pin's or an ROI's series (and the tools fitted on it).
@@ -493,381 +472,461 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
         return Err("a series without dates is not in Copy Python: it needs the dates Zeit reads".into());
     }
 
-    // ---- what the reads are named, and how many there are
-    // a read of band `n` of a date (1-based in the date's bands)
-    let n_reads = {
-        let mut n = 0;
-        if want_series {
-            n += 1 + usize::from(sel.nd_band > 0 && rd.bpd > 1);
-        }
-        if qa_on && (want_series || want_bands || want_improphe) {
-            n += 1;
-        }
-        if want_bands {
-            n += 1;
-        }
-        n
-    };
     let stack_cube = rd.stack && rd.bpd > 1;
-    // a run reads its window whole, the chart's series by blocks
-    let chunks = if run { String::new() } else { format!(", chunks={CHUNKS}") };
-    let region_opts =
-        format!("masked=True{chunks}{}", win.clip.as_ref().map_or(String::new(), |c| format!(", clip={c}")));
-    // one read is written whole where it is used; several share `src` and `region`
-    let single_read = n_reads <= 1
-        && !stack_cube
-        && !want_bands
-        && !want_all
-        && !want_nbar
-        && !want_improphe
-        && info.expr.is_none()
-        && !rd.src.starts_with('[');
+    // Zeit's NBAR wants the cube's y and x, and the post-processing works on maps: the pixel is a window of one
+    // cell then, not a series
+    let want_grid = want_nbar || calls.iter().any(|(_, _, c)| c.tool == "postproc");
+    let pixel_mode = win.pixel.is_some() && !want_grid;
+    // what every read is told about the region: a pixel or a window of the files' pixels is all Zeit reads; a polygon
+    // (or a NetCDF window) is read by blocks, then cut
+    let mut region: Vec<String> = vec![];
+    if let Some((col, row)) = win.pixel {
+        region.push(if pixel_mode {
+            format!("pixel=({col}, {row})")
+        } else {
+            format!("window=({col}, {row}, {}, {})", col + 1, row + 1)
+        });
+    } else if let Some([x0, y0, x1, y1]) = win.cells {
+        region.push(format!("window=({x0}, {y0}, {x1}, {y1})"));
+    } else {
+        if !run {
+            region.push(format!("chunks={CHUNKS}"));
+        }
+        region.extend(win.clip.as_ref().map(|c| format!("clip={c}")));
+    }
+    let lazy = region.iter().any(|r| r.starts_with("chunks="));
+    // whether the script needs a Zeit that has what `load_raster` gained (scale=, qa=, bands=, window=, pixel=)
+    let new_zeit = Cell::new(win.pixel.is_some() || win.cells.is_some());
+    let loads = Cell::new(0usize);
 
-    let mut c = Code::default();
-    let mut body = Code::default();
-    // the arguments of a read of band `band` of the dates' files (None: the file as it is)
-    let read_args = |band: Option<i32>| -> Vec<String> {
-        let mut a = vec![if single_read { rd.src.clone() } else { "src".to_string() }];
-        a.extend(rd.extra.clone());
-        if let Some(b) = band.filter(|_| rd.bpd > 1) {
-            a.push(format!("band={b}"));
+    // whether a band of the files has a scale or an offset (`load_raster(scale=True)` applies them)
+    let needs_scale = |nums: &[i32]| -> bool {
+        if rd.bpd == 1 {
+            return (first.meta.scale, first.meta.offset) != (1.0, 0.0);
         }
-        if single_read {
-            a.push("masked=True".into());
-            if !run {
-                a.push(format!("chunks={CHUNKS}"));
-            }
-            a.extend(win.clip.as_ref().map(|c| format!("clip={c}")));
-        } else {
-            a.push("**region".into());
-        }
-        a
+        nums.iter().any(|&b| scale_offset(&first.path, b + first.band_base) != (1.0, 0.0))
     };
-    // `var = <what reads the band>`: a read, or a band of the stack's cube
-    let read_stmt = |var: &str, band: Option<i32>, comment: &str| -> String {
-        let text = if stack_cube && band.is_some() {
-            format!("{var} = cube.isel(band={})", band.unwrap_or(1) - 1)
-        } else if let (Some(crs), Some(clip)) = (&rd.assumed_crs, &win.clip) {
-            // the file has no CRS: say it, then cut the window
-            let cut = if win.polygon.is_some() {
-                "clip([polygon], drop=True)".to_string()
-            } else {
-                format!("clip_box({})", clip.trim_start_matches('(').trim_end_matches(')'))
-            };
-            let extra = rd.extra.as_ref().map_or(String::new(), |e| format!(", {e}"));
-            format!(
-                "{var} = zeit.load_raster({}{extra}, masked=True)\n{var} = {var}.rio.write_crs(\"{crs}\").rio.{cut}",
-                rd.src
-            )
-        } else if single_read {
-            wrap_call(var, "zeit.load_raster", &read_args(band))
-        } else {
-            format!("{var} = zeit.load_raster({})", read_args(band).join(", "))
-        };
-        if comment.is_empty() { text } else { format!("{text}  # {comment}") }
-    };
-    body.line(format!("# {}", win.note));
-    if let Some(p) = &win.polygon {
-        body.line(p);
-    }
-    if !single_read {
-        body.line(format!("src = {}", rd.src));
-        body.line(format!("region = dict({region_opts})"));
-    }
-    if stack_cube {
-        let extra = rd.extra.as_ref().map_or(String::new(), |e| format!(", {e}"));
-        body.line(format!(
-            "cube = zeit.load_raster(src{extra}, **region)  # (time, band, y, x): the bands of each date"
-        ));
-    }
     let name_of =
         |n: i32| -> String { info.band_names.get(n as usize - 1).cloned().unwrap_or_else(|| format!("band {n}")) };
-
-    // ---- the series Janus shows
-    if want_series {
-        if rd.stack && rd.bpd == 1 {
-            body.line(read_stmt("series", None, ""));
-            if rd.extra.is_none() && dates_with_a_band_name(&first.path) {
-                body.line("series = series.squeeze(\"band\", drop=True)  # the bands are dates of one named band");
-            }
-            if let Some(e) = scaled("series", (first.meta.scale, first.meta.offset)) {
-                body.line(format!("series = {e}  # the file's scale and offset"));
-            }
-        } else if let Some(e) = &info.expr {
-            body.line("bands = [");
-            for &b in &e.bands {
-                let read = if stack_cube {
-                    format!("cube.isel(band={})", b - 1)
-                } else {
-                    format!("zeit.load_raster(src, band={b}, **region)")
-                };
-                let read = scaled(&read, scale_offset(&first.path, b + first.band_base)).unwrap_or(read);
-                body.line(format!("    {read},  # band {b}: {}", name_of(b)));
-            }
-            body.line("]");
-            let (stmts, r) = janus_cube::calc::python::numpy(&e.program, &|k| format!("b[{k}]"), "    ");
-            let dates = ["year", "month", "day", "doy", "decyear", "t"]
-                .iter()
-                .any(|v| format!("{stmts} {r}").split(|c: char| !c.is_alphanumeric() && c != '_').any(|w| w == *v));
-            body.line(janus_cube::calc::python::NUMPY_PRELUDE.trim_end());
-            body.line(String::new());
-            body.line(String::new());
-            body.line(format!(
-                "def expression(b, year, month, day, doy, decyear, t):\n    \"\"\"{}: the bands read to the value shown.\"\"\"\n\
-                 {stmts}    return _out({r})",
-                e.text.replace('\n', "; ").replace('"', "'")
-            ));
-            body.line(String::new());
-            body.line(String::new());
-            if dates {
-                body.line("when = bands[0].indexes[\"time\"]  # the date variables of the expression");
-                body.line("doy = when.dayofyear");
-                body.line(
-                    "dates = [when.year, when.month, when.day, doy, when.year + (doy - 1) / np.where(when.is_leap_year, 366, 365), np.arange(len(when))]",
-                );
-                body.line("dates = [np.asarray(d, dtype=\"float64\")[:, None, None] for d in dates]");
-            }
-            body.line(format!(
-                "series = bands[0].copy(data=expression([v.values for v in bands], {}))  # the expression: {}",
-                if dates { "*dates" } else { "*[0] * 6" },
-                e.text.replace('\n', "; ")
-            ));
-        } else if sel.nd_band > 0 {
-            body.line(read_stmt("a", Some(sel.band), &name_of(sel.band)));
-            body.line(read_stmt("b", Some(sel.nd_band), &name_of(sel.nd_band)));
-            if let Some(e) = scaled("a", (first.meta.scale, first.meta.offset)) {
-                body.line(format!("a = {e}  # the files' scale and offset"));
-            }
-            if let Some(e) = scaled("b", (first.nd_meta.scale, first.nd_meta.offset)) {
-                body.line(format!("b = {e}"));
-            }
-            body.line("series = ((a - b) / (a + b)).where(a + b != 0)  # the normalized difference (a - b) / (a + b)");
-        } else {
-            body.line(read_stmt("series", Some(sel.band), &name_of(sel.band)));
-            if let Some(e) = scaled("series", (first.meta.scale, first.meta.offset)) {
-                body.line(format!("series = {e}  # the files' scale and offset"));
-            }
-        }
-        if info.spectral {
-            if has("series") {
-                body.line("series = series.rename(band=\"time\")  # the spectrum, one value a wavelength");
-            }
-        } else if !info.time_is_date {
-            body.line("series = series.rename(band=\"time\")  # no dates in the files: the bands in order");
-        }
-    }
-
-    // ---- the quality band
-    if qa_on && (want_series || want_bands || want_improphe) {
-        body.line(read_stmt("qa", Some(sel.qa_band), &name_of(sel.qa_band)));
-        if want_series {
-            body.line(format!(
-                "series = series.where({})  # the observations the quality band keeps",
-                usable(sel.qa_rule)
-            ));
-        }
-    }
-
-    // the cube of some of a date's bands, `list` (a Python list) their names: the stack's cube cut, or a read of each
-    let role_cube = |body: &mut Code, var: &str, list: &str, nums: &[i32]| -> Result<(), String> {
-        if stack_cube {
-            let pos: Vec<i32> = nums.iter().map(|b| b - 1).collect();
-            body.line(format!("{var} = cube.isel(band={}).assign_coords(band={list})", ints(&pos)));
-        } else if rd.stack {
-            return Err("the bands of a date need a file of several bands a date".into());
-        } else {
-            body.line(format!(
-                "{var} = xr.concat([zeit.load_raster(src, band=n, **region) for n in {}], dim=\"band\")",
-                ints(nums)
-            ));
-            body.line(format!("{var} = {var}.assign_coords(band={list}).transpose(\"time\", \"band\", \"y\", \"x\")"));
-        }
-        // the files' scale and offset
-        let so: Vec<(f64, f64)> = nums.iter().map(|&b| scale_offset(&first.path, b + first.band_base)).collect();
-        if let Some(l) = scaled_bands(var, &so) {
-            body.line(l);
-        }
-        Ok(())
-    };
     let names_list = |names: &[String]| format!("[{}]", names.iter().map(|n| dq(n)).collect::<Vec<_>>().join(", "));
+    // the names of a date's bands as the cube's `band` coordinate: each one once
+    let unique = |names: Vec<String>| -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        names
+            .into_iter()
+            .enumerate()
+            .map(|(k, n)| if seen.insert(n.clone()) { n } else { format!("{n}_{}", k + 1) })
+            .collect()
+    };
 
     // ---- the bands by role (CCDC and the tools of surface reflectance)
     let order: Vec<(&str, i32)> = ["blue", "green", "red", "nir", "swir1", "swir2", "thermal"]
         .into_iter()
         .filter_map(|r| spec.roles.get(r).map(|&b| (r, b)))
         .collect();
-    if want_bands {
-        let missing: Vec<&str> = ["blue", "green", "red", "nir", "swir1", "swir2"]
-            .into_iter()
-            .filter(|r| !spec.roles.contains_key(*r))
-            .collect();
-        if !missing.is_empty() && order.iter().all(|(r, _)| *r != "thermal") || order.is_empty() {
-            return Err(format!("map the bands by role first: {} missing", missing.join(", ")));
-        }
-        let names: Vec<&str> = order.iter().map(|(r, _)| *r).collect();
-        let nums: Vec<i32> = order.iter().map(|(_, b)| *b).collect();
-        body.line(format!("order = {}", strs(&names)));
-        role_cube(&mut body, "bands_cube", "order", &nums)?;
-    }
-    // NBAR: the bands to normalize, and the angle bands unless the angles come from Sentinel-2's metadata
-    let mut nbar_names: Vec<&str> = vec![];
-    if want_nbar {
-        let roles: Vec<(&str, i32)> =
-            zeit_core::brdf::ROLES.iter().filter_map(|r| spec.roles.get(*r).map(|&b| (*r, b))).collect();
-        if roles.is_empty() {
-            return Err("map the bands to normalize by role first".into());
-        }
-        let nums: Vec<i32> = roles.iter().map(|(_, b)| *b).collect();
-        let list = strs(&roles.iter().map(|(r, _)| *r).collect::<Vec<_>>());
-        role_cube(&mut body, "nbar_cube", &list, &nums)?;
-        nbar_names.push("nbar_cube");
-        if calls.iter().any(|(_, _, c)| c.full().contains("nbar_angles")) {
-            let angles: Vec<(&str, i32)> =
-                ["sza", "saa", "vza", "vaa"].into_iter().filter_map(|r| spec.roles.get(r).map(|&b| (r, b))).collect();
-            if angles.len() != 4 {
-                return Err("map the four angle bands (sza, saa, vza, vaa) by role first".into());
+    // the bands' names as a variable, when the tools' code refers to it
+    let order_used = order.iter().any(|(r, _)| *r == "thermal")
+        || calls.iter().any(|(_, _, c)| c.inputs.contains(&"bands_cube") && c.full().contains("order"));
+
+    // the reads of the series and of the bands; the first pass counts them, the second names the files once if
+    // there are several
+    let read_part = |use_var: bool, shared: bool| -> Result<Code, String> {
+        loads.set(0);
+        let mut body = Code::default();
+        // the arguments of a read: `sel_args` the bands, `scale` the files' scale and offset, `qa` the quality band
+        // that masks what is read
+        let args = |sel_args: Vec<String>, scale: bool, qa: Option<(i32, QaRule)>| -> Vec<String> {
+            loads.set(loads.get() + 1);
+            let mut a = vec![if use_var { "src".to_string() } else { rd.src.clone() }];
+            a.extend(rd.extra.clone());
+            a.extend(sel_args);
+            if scale {
+                new_zeit.set(true);
+                a.push("scale=True".into());
             }
-            let nums: Vec<i32> = angles.iter().map(|(_, b)| *b).collect();
-            role_cube(&mut body, "nbar_angles", &strs(&["sza", "saa", "vza", "vaa"]), &nums)?;
-            nbar_names.push("nbar_angles");
-        }
-    }
-    // ImproPhe: the fine series (every band of each date but the quality band, the dates it refuses missing) and the
-    // coarse one over its whole grid
-    if want_improphe {
-        let other = spec.other.ok_or("choose the series to sharpen first: ImproPhe's script reads it")?;
-        if !info.time_is_date {
-            return Err("ImproPhe needs a series with real dates (the seasonal windows are days of the year)".into());
-        }
-        let band_name = |i: &CubeInfo, b: i32| i.band_names.get(b as usize - 1).cloned().unwrap_or(format!("band {b}"));
-        let bands: Vec<i32> = (1..=rd.bpd as i32).filter(|&b| !(qa_on && b == sel.qa_band)).collect();
-        let fine_names: Vec<String> = bands.iter().map(|&b| band_name(info, b)).collect();
-        body.line("# ImproPhe's fine series: every band of each date but the quality band");
-        role_cube(&mut body, "fine_cube", &names_list(&fine_names), &bands)?;
-        if qa_on {
-            body.line(format!(
-                "fine_cube = fine_cube.where({})  # the dates the quality band refuses",
-                usable(sel.qa_rule)
-            ));
-        }
-        // the coarse series
-        let crd = reads(other, spec.path)?;
-        if other.multidim || other.layers.is_empty() {
-            return Err("the coarse series is a NetCDF / Zarr variable or has no dates: not in Copy Python yet".into());
-        }
-        let ofirst = &other.layers[0];
-        let cbands: Vec<i32> =
-            (1..=crd.bpd as i32).filter(|&b| !(other.sel.qa_band > 0 && b == other.sel.qa_band)).collect();
-        let by = calls
-            .iter()
-            .find(|(_, _, c)| c.inputs.contains(&"improphe_cubes"))
-            .map_or(String::new(), |(_, p, _)| p.str("by").to_string());
-        let years: Vec<String> = (0..other.t()).map(|t| (other.decimal_year(t).floor() as i64).to_string()).collect();
-        let dates = if other.time_is_date { String::new() } else { format!(", dates=[{}]", years.join(", ")) };
-        body.line("# the coarse series: every band of each date but its quality band, over its whole grid");
-        body.line(format!("coarse_src = {}", crd.src));
-        let load = |band: String| format!("zeit.load_raster(coarse_src{band}, masked=True{dates})");
-        let cnames: Vec<String> = cbands.iter().map(|&b| band_name(other, b)).collect();
-        if crd.stack && crd.bpd > 1 {
-            let pos: Vec<i32> = cbands.iter().map(|b| b - 1).collect();
-            let cut = if cbands.len() == 1 {
-                format!(".isel(band={})", pos[0])
-            } else {
-                format!(".isel(band={}).assign_coords(band={})", ints(&pos), names_list(&cnames))
-            };
-            body.line(format!("coarse_cube = {}{cut}", load(String::new())));
-        } else if cbands.len() == 1 {
-            let band = if crd.bpd > 1 { format!(", band={}", cbands[0]) } else { String::new() };
-            body.line(format!("coarse_cube = {}", load(band)));
-        } else {
-            let read = load(if crd.bpd > 1 { ", band=n".into() } else { String::new() });
-            body.line(format!("coarse_cube = xr.concat([{read} for n in {}], dim=\"band\")", ints(&cbands)));
-            body.line(format!(
-                "coarse_cube = coarse_cube.assign_coords(band={}).transpose(\"time\", \"band\", \"y\", \"x\")",
-                names_list(&cnames)
-            ));
-        }
-        let so: Vec<(f64, f64)> = cbands.iter().map(|&b| scale_offset(&ofirst.path, b + ofirst.band_base)).collect();
-        if let Some(l) = scaled_bands("coarse_cube", &so) {
-            body.line(l);
-        }
-        if !other.time_is_date {
-            if by == "scenes" {
-                body.line(format!(
-                    "coarse_cube = coarse_cube.assign_coords(time=np.arange({}))  # scenes, not years",
-                    other.t()
-                ));
-            } else {
-                body.line(format!(
-                    "coarse_cube = coarse_cube.rename(time=\"year\").assign_coords(year=[{}])",
-                    years.join(", ")
-                ));
+            if let Some((band, rule)) = qa {
+                new_zeit.set(true);
+                a.push(format!("qa={band}"));
+                a.push(format!("qa_rule=\"{}\"", rule_arg(rule)));
             }
-        }
-    }
-    if want_all {
-        let nb = rd.bpd;
-        let names = format!("[f\"b{{b:03d}}\" for b in range(1, {nb} + 1)]");
-        if stack_cube {
-            body.line(format!(
-                "bands_all = cube.assign_coords(band={names})  # b001, b002...: every band of each date"
-            ));
-        } else {
-            body.line(format!(
-                "bands_all = xr.concat([zeit.load_raster(src, band=b, **region) for b in range(1, {nb} + 1)], dim=\"band\")"
-            ));
-            body.line(format!(
-                "bands_all = bands_all.assign_coords(band={names}).transpose(\"time\", \"band\", \"y\", \"x\")"
-            ));
-        }
-        let so: Vec<(f64, f64)> = (1..=nb as i32).map(|b| scale_offset(&first.path, b + first.band_base)).collect();
-        if let Some(l) = scaled_bands("bands_all", &so) {
-            body.line(l);
-        }
-    }
-    // ---- the pin or the ROI out of the window
-    let mut names: Vec<&str> = vec![];
-    if want_series {
-        names.push("series");
-    }
-    if want_bands {
-        names.push("bands_cube");
-        if qa_on {
-            names.push("qa");
-        }
-    }
-    names.extend(&nbar_names);
-    if want_all {
-        names.push("bands_all");
-    }
-    if let Target::Pin { col, row, .. } = spec.target {
-        let (cx, cy) = {
-            let g = info.geo_transform.unwrap_or([0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
-            (g[0] + (col as f64 + 0.5) * g[1], g[3] + (row as f64 + 0.5) * g[5])
+            if shared {
+                a.push("**region".into());
+            } else {
+                a.push("masked=True".into());
+                a.extend(region.iter().cloned());
+            }
+            a
         };
-        if names.len() > 1 {
-            body.line(format!("pixel = dict(x=[{}], y=[{}], method=\"nearest\")", num(cx), num(cy)));
-            for n in &names {
-                body.line(format!("{n} = {n}.sel(**pixel).compute()"));
+        let stmt = |var: &str, a: Vec<String>, comment: &str| -> String {
+            let text = wrap_call(var, "zeit.load_raster", &a);
+            if comment.is_empty() { text } else { format!("{text}  # {comment}") }
+        };
+        // `band=n` in a file of several bands a date
+        let band_arg = |n: i32| -> Vec<String> { if rd.bpd > 1 { vec![format!("band={n}")] } else { vec![] } };
+        let qa_of = || qa_on.then_some((sel.qa_band, sel.qa_rule));
+        let role_cube = |body: &mut Code,
+                         var: &str,
+                         names: &[String],
+                         nums: &[i32],
+                         list: &str|
+         -> Result<(), String> {
+            if stack_cube {
+                let pos: Vec<i32> = nums.iter().map(|b| b - 1).collect();
+                body.line(format!("{var} = cube.isel(band={}).assign_coords(band={list})", ints(&pos)));
+            } else if rd.stack {
+                return Err("the bands of a date need a file of several bands a date".into());
+            } else {
+                new_zeit.set(true);
+                let dict: Vec<String> = names.iter().zip(nums).map(|(n, b)| format!("{}: {b}", dq(n))).collect();
+                body.line(stmt(var, args(vec![format!("bands={{{}}}", dict.join(", "))], needs_scale(nums), None), ""));
             }
-        } else {
+            Ok(())
+        };
+
+        body.line(format!("# {}", win.note));
+        if let Some(p) = &win.polygon {
+            body.line(p);
+        }
+        if use_var {
+            body.line(format!("src = {}", rd.src));
+        }
+        if shared {
+            body.line(format!("region = dict(masked=True, {})", region.join(", ")));
+        }
+        if stack_cube {
+            let all: Vec<i32> = (1..=rd.bpd as i32).collect();
+            let what = if pixel_mode {
+                "(time, band): the bands of each date"
+            } else {
+                "(time, band, y, x): the bands of each date"
+            };
+            body.line(stmt("cube", args(vec![], needs_scale(&all), None), what));
+        }
+
+        // ---- the series Janus shows
+        let mut qa_folded = false;
+        if want_series {
+            if rd.stack && rd.bpd == 1 {
+                if let (Some(crs), Some(clip)) = (&rd.assumed_crs, &win.clip) {
+                    // the file has no CRS: say it, then cut the window
+                    loads.set(loads.get() + 1);
+                    let cut = if win.polygon.is_some() {
+                        "clip([polygon], drop=True)".to_string()
+                    } else {
+                        format!("clip_box({})", clip.trim_start_matches('(').trim_end_matches(')'))
+                    };
+                    let extra = rd.extra.as_ref().map_or(String::new(), |e| format!(", {e}"));
+                    body.line(format!(
+                        "series = zeit.load_raster({}{extra}, masked=True)\nseries = series.rio.write_crs(\"{crs}\").rio.{cut}",
+                        if use_var { "src" } else { rd.src.as_str() }
+                    ));
+                } else {
+                    body.line(stmt("series", args(vec![], needs_scale(&[1]), None), ""));
+                }
+                if rd.extra.is_none() && dates_with_a_band_name(&first.path) {
+                    body.line("series = series.squeeze(\"band\", drop=True)  # the bands are dates of one named band");
+                }
+            } else if let Some(e) = &info.expr {
+                body.line("bands = [");
+                for &b in &e.bands {
+                    let read = if stack_cube {
+                        format!("cube.isel(band={})", b - 1)
+                    } else {
+                        let scale = needs_scale(&[b]);
+                        format!("zeit.load_raster({})", args(band_arg(b), scale, None).join(", "))
+                    };
+                    body.line(format!("    {read},  # band {b}: {}", name_of(b)));
+                }
+                body.line("]");
+                let (stmts, r) = janus_cube::calc::python::numpy(&e.program, &|k| format!("b[{k}]"), "    ");
+                let dates = ["year", "month", "day", "doy", "decyear", "t"]
+                    .iter()
+                    .any(|v| format!("{stmts} {r}").split(|c: char| !c.is_alphanumeric() && c != '_').any(|w| w == *v));
+                body.line(janus_cube::calc::python::NUMPY_PRELUDE.trim_end());
+                body.line(String::new());
+                body.line(String::new());
+                body.line(format!(
+                    "def expression(b, year, month, day, doy, decyear, t):\n    \"\"\"{}: the bands read to the value shown.\"\"\"\n\
+                     {stmts}    return _out({r})",
+                    e.text.replace('\n', "; ").replace('"', "'")
+                ));
+                body.line(String::new());
+                body.line(String::new());
+                if dates {
+                    // one value a date for a pixel, a (time, y, x) cube otherwise
+                    let pad = if pixel_mode { "" } else { "[:, None, None]" };
+                    body.line("when = bands[0].indexes[\"time\"]  # the date variables of the expression");
+                    body.line("doy = when.dayofyear");
+                    body.line(
+                        "dates = [when.year, when.month, when.day, doy, when.year + (doy - 1) / np.where(when.is_leap_year, 366, 365), np.arange(len(when))]",
+                    );
+                    body.line(format!("dates = [np.asarray(d, dtype=\"float64\"){pad} for d in dates]"));
+                }
+                body.line(format!(
+                    "series = bands[0].copy(data=expression([v.values for v in bands], {}))  # the expression: {}",
+                    if dates { "*dates" } else { "*[0] * 6" },
+                    e.text.replace('\n', "; ")
+                ));
+            } else if sel.nd_band > 0 {
+                if stack_cube {
+                    new_zeit.set(true);
+                    body.line(format!(
+                        "series = zeit.nd(cube.isel(band={}), cube.isel(band={}))  # {} and {}: (a - b) / (a + b)",
+                        sel.band - 1,
+                        sel.nd_band - 1,
+                        name_of(sel.band),
+                        name_of(sel.nd_band)
+                    ));
+                } else {
+                    new_zeit.set(true);
+                    let label = |n: i32, fallback: &str| -> String {
+                        spec.roles.iter().find(|(_, b)| **b == n).map_or(fallback.to_string(), |(r, _)| r.clone())
+                    };
+                    let (a, b) = (label(sel.band, "a"), label(sel.nd_band, "b"));
+                    let dict = format!("bands={{{}: {}, {}: {}}}", dq(&a), sel.band, dq(&b), sel.nd_band);
+                    body.line(stmt(
+                        "cube",
+                        args(vec![dict], needs_scale(&[sel.band, sel.nd_band]), qa_of()),
+                        &format!("{} and {}", name_of(sel.band), name_of(sel.nd_band)),
+                    ));
+                    body.line(format!("series = zeit.normalized_difference(cube, {}, {})", dq(&a), dq(&b)));
+                    qa_folded = qa_on;
+                }
+            } else if stack_cube {
+                body.line(format!("series = cube.isel(band={})  # {}", sel.band - 1, name_of(sel.band)));
+            } else {
+                qa_folded = qa_on;
+                body.line(stmt(
+                    "series",
+                    args(band_arg(sel.band), needs_scale(&[sel.band]), qa_of()),
+                    &if rd.bpd > 1 { name_of(sel.band) } else { String::new() },
+                ));
+            }
+            if info.spectral {
+                if has("series") {
+                    body.line("series = series.rename(band=\"time\")  # the spectrum, one value a wavelength");
+                }
+            } else if !info.time_is_date {
+                body.line("series = series.rename(band=\"time\")  # no dates in the files: the bands in order");
+            }
+        }
+
+        // ---- the quality band: the series masked by it, or its codes for the tools of bands
+        if qa_on && (want_series || want_bands || want_improphe) {
+            let codes = want_bands || want_improphe;
+            let masks = want_series && !qa_folded;
+            if codes || masks {
+                let q = sel.qa_band;
+                let qa_expr =
+                    if stack_cube && !codes { format!("cube.isel(band={})", q - 1) } else { "qa".to_string() };
+                if codes && stack_cube {
+                    body.line(format!("qa = cube.isel(band={})  # {}", q - 1, name_of(q)));
+                } else if !stack_cube {
+                    body.line(stmt("qa", args(band_arg(q), false, None), &name_of(q)));
+                }
+                if masks {
+                    new_zeit.set(true);
+                    body.line(format!(
+                        "series = series.where(zeit.qa_mask({qa_expr}, \"{}\"))  # the observations the quality band keeps",
+                        rule_arg(sel.qa_rule)
+                    ));
+                }
+            }
+        }
+
+        let mut names: Vec<&str> = vec![];
+        if want_series {
+            names.push("series");
+        }
+        if want_bands {
+            let missing: Vec<&str> = ["blue", "green", "red", "nir", "swir1", "swir2"]
+                .into_iter()
+                .filter(|r| !spec.roles.contains_key(*r))
+                .collect();
+            if !missing.is_empty() && order.iter().all(|(r, _)| *r != "thermal") || order.is_empty() {
+                return Err(format!("map the bands by role first: {} missing", missing.join(", ")));
+            }
+            let names_v: Vec<String> = order.iter().map(|(r, _)| r.to_string()).collect();
+            let nums: Vec<i32> = order.iter().map(|(_, b)| *b).collect();
+            let list = if order_used {
+                body.line(format!("order = {}", names_list(&names_v)));
+                "order".to_string()
+            } else {
+                names_list(&names_v)
+            };
+            role_cube(&mut body, "bands_cube", &names_v, &nums, &list)?;
+            names.push("bands_cube");
+            if qa_on {
+                names.push("qa");
+            }
+        }
+        // NBAR: the bands to normalize, and the angle bands unless the angles come from Sentinel-2's metadata
+        if want_nbar {
+            let roles: Vec<(&str, i32)> =
+                zeit_core::brdf::ROLES.iter().filter_map(|r| spec.roles.get(*r).map(|&b| (*r, b))).collect();
+            if roles.is_empty() {
+                return Err("map the bands to normalize by role first".into());
+            }
+            let names_v: Vec<String> = roles.iter().map(|(r, _)| r.to_string()).collect();
+            let nums: Vec<i32> = roles.iter().map(|(_, b)| *b).collect();
+            role_cube(&mut body, "nbar_cube", &names_v, &nums, &names_list(&names_v))?;
+            names.push("nbar_cube");
+            if calls.iter().any(|(_, _, c)| c.full().contains("nbar_angles")) {
+                let angles: Vec<(&str, i32)> = ["sza", "saa", "vza", "vaa"]
+                    .into_iter()
+                    .filter_map(|r| spec.roles.get(r).map(|&b| (r, b)))
+                    .collect();
+                if angles.len() != 4 {
+                    return Err("map the four angle bands (sza, saa, vza, vaa) by role first".into());
+                }
+                let names_v: Vec<String> = angles.iter().map(|(r, _)| r.to_string()).collect();
+                let nums: Vec<i32> = angles.iter().map(|(_, b)| *b).collect();
+                role_cube(&mut body, "nbar_angles", &names_v, &nums, &names_list(&names_v))?;
+                names.push("nbar_angles");
+            }
+        }
+        // ImproPhe: the fine series (every band of each date but the quality band, the dates it refuses missing) and the
+        // coarse one over its whole grid
+        if want_improphe {
+            let other = spec.other.ok_or("choose the series to sharpen first: ImproPhe's script reads it")?;
+            if !info.time_is_date {
+                return Err(
+                    "ImproPhe needs a series with real dates (the seasonal windows are days of the year)".into()
+                );
+            }
+            let band_name =
+                |i: &CubeInfo, b: i32| i.band_names.get(b as usize - 1).cloned().unwrap_or(format!("band {b}"));
+            let bands: Vec<i32> = (1..=rd.bpd as i32).filter(|&b| !(qa_on && b == sel.qa_band)).collect();
+            let fine_names = unique(bands.iter().map(|&b| band_name(info, b)).collect());
+            body.line("# ImproPhe's fine series: every band of each date but the quality band");
+            role_cube(&mut body, "fine_cube", &fine_names, &bands, &names_list(&fine_names))?;
+            if qa_on {
+                new_zeit.set(true);
+                body.line(format!(
+                    "fine_cube = fine_cube.where(zeit.qa_mask(qa, \"{}\"))  # the dates the quality band refuses",
+                    rule_arg(sel.qa_rule)
+                ));
+            }
+            // the coarse series
+            let crd = reads(other, spec.path)?;
+            if other.multidim || other.layers.is_empty() {
+                return Err(
+                    "the coarse series is a NetCDF / Zarr variable or has no dates: not in Copy Python yet".into()
+                );
+            }
+            let ofirst = &other.layers[0];
+            let cbands: Vec<i32> =
+                (1..=crd.bpd as i32).filter(|&b| !(other.sel.qa_band > 0 && b == other.sel.qa_band)).collect();
+            let by = calls
+                .iter()
+                .find(|(_, _, c)| c.inputs.contains(&"improphe_cubes"))
+                .map_or(String::new(), |(_, p, _)| p.str("by").to_string());
+            let years: Vec<String> =
+                (0..other.t()).map(|t| (other.decimal_year(t).floor() as i64).to_string()).collect();
+            let dates = if other.time_is_date { String::new() } else { format!(", dates=[{}]", years.join(", ")) };
+            let scale = if crd.bpd == 1 {
+                (ofirst.meta.scale, ofirst.meta.offset) != (1.0, 0.0)
+            } else {
+                cbands.iter().any(|&b| scale_offset(&ofirst.path, b + ofirst.band_base) != (1.0, 0.0))
+            };
+            let scale_arg = if scale { ", scale=True" } else { "" };
+            new_zeit.set(new_zeit.get() || scale);
+            body.line("# the coarse series: every band of each date but its quality band, over its whole grid");
+            body.line(format!("coarse_src = {}", crd.src));
+            let load = |extra: String| format!("zeit.load_raster(coarse_src{extra}{scale_arg}, masked=True{dates})");
+            let cnames = unique(cbands.iter().map(|&b| band_name(other, b)).collect());
+            if crd.stack && crd.bpd > 1 {
+                let pos: Vec<i32> = cbands.iter().map(|b| b - 1).collect();
+                let cut = if cbands.len() == 1 {
+                    format!(".isel(band={})", pos[0])
+                } else {
+                    format!(".isel(band={}).assign_coords(band={})", ints(&pos), names_list(&cnames))
+                };
+                body.line(format!("coarse_cube = {}{cut}", load(String::new())));
+            } else if cbands.len() == 1 {
+                let band = if crd.bpd > 1 { format!(", band={}", cbands[0]) } else { String::new() };
+                body.line(format!("coarse_cube = {}", load(band)));
+            } else {
+                new_zeit.set(true);
+                let dict: Vec<String> = cnames.iter().zip(&cbands).map(|(n, b)| format!("{}: {b}", dq(n))).collect();
+                body.line(format!("coarse_cube = {}", load(format!(", bands={{{}}}", dict.join(", ")))));
+            }
+            if !other.time_is_date {
+                if by == "scenes" {
+                    body.line(format!(
+                        "coarse_cube = coarse_cube.assign_coords(time=np.arange({}))  # scenes, not years",
+                        other.t()
+                    ));
+                } else {
+                    body.line(format!(
+                        "coarse_cube = coarse_cube.rename(time=\"year\").assign_coords(year=[{}])",
+                        years.join(", ")
+                    ));
+                }
+            }
+        }
+        if want_all {
+            new_zeit.set(true);
+            let nb = rd.bpd;
+            if stack_cube {
+                let labels = format!("[f\"b{{b:03d}}\" for b in range(1, {nb} + 1)]");
+                body.line(format!(
+                    "bands_all = cube.assign_coords(band={labels})  # b001, b002...: every band of each date"
+                ));
+            } else {
+                let all: Vec<i32> = (1..=nb as i32).collect();
+                let dict = format!("bands={{f\"b{{b:03d}}\": b for b in range(1, {nb} + 1)}}");
+                body.line(stmt(
+                    "bands_all",
+                    args(vec![dict], needs_scale(&all), None),
+                    "b001, b002...: every band of each date",
+                ));
+            }
+            names.push("bands_all");
+        }
+        // ---- the pin or the ROI out of the window
+        if let Target::Pin { col, row, .. } = spec.target
+            && win.pixel.is_none()
+        {
+            let (cx, cy) = {
+                let g = info.geo_transform.unwrap_or([0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+                (g[0] + (col as f64 + 0.5) * g[1], g[3] + (row as f64 + 0.5) * g[5])
+            };
+            if names.len() > 1 {
+                body.line(format!("pixel = dict(x=[{}], y=[{}], method=\"nearest\")", num(cx), num(cy)));
+                for n in &names {
+                    body.line(format!("{n} = {n}.sel(**pixel).compute()"));
+                }
+            } else {
+                body.line(format!(
+                    "{0} = {0}.sel(x=[{1}], y=[{2}], method=\"nearest\").compute()",
+                    names[0],
+                    num(cx),
+                    num(cy)
+                ));
+            }
+        } else if roi {
             body.line(format!(
-                "{0} = {0}.sel(x=[{1}], y=[{2}], method=\"nearest\").compute()",
-                names[0],
-                num(cx),
-                num(cy)
+                "series = series.mean([\"y\", \"x\"]){}  # the mean of the cells inside, at each date",
+                if lazy { ".compute()" } else { "" }
             ));
         }
-    } else if roi {
-        body.line("series = series.mean([\"y\", \"x\"], keepdims=True).compute()  # the mean of the cells inside, at each date");
+        if want_all {
+            body.line("bands_all = bands_all.where(series.notnull())  # left out where the shown series is");
+        }
+        if want_spectrum {
+            let names = "[f\"b{i + 1:03d}\" for i in range(series.sizes[\"band\"])]";
+            body.line(format!(
+                "spectrum = series.assign_coords(band={names})  # b001, b002...: one value a wavelength"
+            ));
+        }
+        Ok(body)
+    };
+    let mut body = read_part(false, false)?;
+    if loads.get() > 1 || rd.src.starts_with('[') {
+        body = read_part(true, loads.get() > 1 && win.polygon.is_some())?;
     }
-    if want_all {
-        body.line("bands_all = bands_all.where(series.notnull())  # left out where the shown series is");
-    }
-    if want_spectrum {
-        let names = "[f\"b{i + 1:03d}\" for i in range(series.sizes[\"band\"])]";
-        body.line(format!("spectrum = series.assign_coords(band={names})  # b001, b002...: one value a wavelength"));
-    }
+    let mut c = Code::default();
 
     // ---- the reflectance for the tools of bands
     if want_bands {
@@ -1036,10 +1095,12 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
     // a tool's own `import pandas as pd` is the header's
     let text = body.text().replace("import pandas as pd\n", "");
     c.line(format!(
-        "\"\"\"Janus {} ({y:04}-{m:02}-{d:02}): {what} {} {}, reproduced outside Janus with Zeit.\nNeeds: pip install zeit-cdts\n\"\"\"",
+        "\"\"\"Janus {} ({y:04}-{m:02}-{d:02}): {what} {} {}, reproduced outside Janus with Zeit.\nNeeds: pip install {}\n\"\"\"",
         spec.version,
         if run { "on" } else { "of" },
-        spec.name
+        spec.name,
+        // what `load_raster` and the indices gained in Zeit 3.2: scale=, qa=, bands=, window=, pixel=, nd
+        if new_zeit.get() { "\"zeit-cdts>=3.2\"" } else { "zeit-cdts" }
     ));
     if text.contains("np.") {
         c.line("import numpy as np");

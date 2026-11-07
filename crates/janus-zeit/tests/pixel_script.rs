@@ -144,6 +144,8 @@ fn an_annual_stack_is_read_by_zeit_and_the_tool_is_called() {
     println!("{code}");
     assert!(code.contains("series = zeit.load_raster("), "{code}");
     assert!(code.contains("masked=True") && !code.contains("clip="), "a pin needs no window:\n{code}");
+    assert!(code.contains("pixel=(2, 3)") && !code.contains(".sel(") && !code.contains("chunks="), "{code}");
+    assert!(!code.contains("scale=True"), "a file without scale needs none:\n{code}");
     assert!(code.contains("fit = zeit.landtrendr("), "{code}");
     // Zeit's defaults are left out
     assert!(!code.contains("max_segments=6") && !code.contains("pval_threshold"), "{code}");
@@ -169,9 +171,15 @@ fn a_folder_of_landsat_dates_gives_the_normalized_difference_under_the_quality_b
     assert_eq!(info.sel.qa_band, 7, "the quality band is found by its name");
     let code = script(&info, pin(2, 1), &[tool("mann_kendall")]);
     println!("{code}");
-    assert!(code.contains("src = ") && !code.contains("ls_2020"), "the folder, not each file:\n{code}");
-    assert!(code.contains("band=4") && code.contains("band=3") && code.contains("band=7"), "{code}");
-    assert!(code.contains("2.75e-05") && code.contains("0x3B"), "{code}");
+    assert!(!code.contains("ls_2020"), "the folder, not each file:\n{code}");
+    // one read: the two bands, scaled and masked by the quality band (band 7), the pixel only
+    assert_eq!(code.matches("zeit.load_raster(").count(), 1, "{code}");
+    assert!(code.contains("bands={\"nir\": 4, \"red\": 3}") && code.contains("qa=7"), "{code}");
+    assert!(code.contains("scale=True") && code.contains("qa_rule=\"landsat_c2\""), "{code}");
+    assert!(code.contains("pixel=(2, 1)"), "{code}");
+    assert!(code.contains("zeit.normalized_difference(cube, \"nir\", \"red\")"), "{code}");
+    assert!(code.contains("\"zeit-cdts>=3.2\""), "{code}");
+    assert!(code.lines().count() <= 14, "{code}");
     assert!(code.contains("result = zeit.mann_kendall("), "{code}");
     if let Some(v) = run(&code, "nd") {
         let want: Vec<f64> = (0..3)
@@ -208,12 +216,15 @@ fn a_band_of_a_date_that_is_not_the_first_is_read_for_every_date_in_a_stack() {
     assert!(code.contains("cube.isel(band=[0, 1, 2, 3, 4, 5])"), "the bands are those of each date:\n{code}");
     assert!(code.contains("result = zeit.ccdc(") && code.contains("qa=fmask"), "{code}");
     assert!(code.contains("fillna(0)"), "{code}");
+    run_script(&code, "stack-ccdc"); // three dates: no segment, but the shapes of the pixel's cube are Zeit's
     // the folder of the same dates gives the same bands, read file by file
     let f = landsat_folder("stack-folder");
     let info = open(&[f], &BandSelection { band: 4, nd_band: 3, ..Default::default() });
     let code = script(&info, pin(1, 1), &[tool("ccdc")]);
-    assert!(code.contains("xr.concat([zeit.load_raster(src, band=n, **region) for n in [1, 2, 3, 4, 5, 6]]"), "{code}");
-    assert!(code.contains("0x3B") || code.contains("c & 1"), "{code}");
+    let roles = "bands={\"blue\": 1, \"green\": 2, \"red\": 3, \"nir\": 4, \"swir1\": 5, \"swir2\": 6}";
+    assert!(code.contains(roles), "{code}");
+    assert!(code.contains("qa = zeit.load_raster(src, band=7") && code.contains("c & 1"), "{code}");
+    run_script(&code, "folder-ccdc");
 }
 
 #[test]
@@ -223,8 +234,8 @@ fn an_roi_is_the_mean_of_the_cells_inside() {
     let rect = Roi { x0: 1, y0: 1, x1: 5, y1: 4, ..Default::default() };
     let code = script(&info, Target::Roi(rect), &[tool("mann_kendall")]);
     println!("{code}");
-    assert!(code.contains(".mean([\"y\", \"x\"], keepdims=True)"), "{code}");
-    assert!(code.contains("clip=("), "{code}");
+    assert!(code.contains(".mean([\"y\", \"x\"])") && !code.contains("compute()"), "{code}");
+    assert!(code.contains("window=(1, 1, 5, 4)") && !code.contains("clip="), "{code}");
     if let Some(v) = run(&code, "roi") {
         let want: Vec<f64> = (0..3)
             .map(|t| {
@@ -312,6 +323,16 @@ fn every_tool_that_had_a_pin_script_still_has_one() {
         let code = script(&info, pin(1, 1), &[tool(id)]);
         assert!(code.contains("zeit.load_raster(") && code.contains("zeit."), "{id}:\n{code}");
         assert!(!code.contains("nodata=None") && !code.contains("n_jobs=1"), "{id}:\n{code}");
+        // the series is the one pixel Zeit reads: every tool takes it, but those that want annual or evenly
+        // spaced dates, which this series (three dates a month, every ten days) is not
+        if let Ok(python) = std::env::var("JANUS_PYTHON") {
+            let file = dir(&format!("script-tool-{id}")).join("rerun.py");
+            std::fs::write(&file, &code).unwrap();
+            let out = std::process::Command::new(python).arg("-I").arg(&file).output().unwrap();
+            let err = String::from_utf8_lossy(&out.stderr);
+            let dates = ["landtrendr", "recovery", "polar_metrics"].contains(&id);
+            assert!(out.status.success() || dates, "{id}:\n{code}\n{err}");
+        }
     }
 }
 
@@ -389,7 +410,7 @@ fn a_run_reads_its_window_with_zeit_and_writes_the_maps_with_zeit() {
     // a window: the cells whose centres are in it
     let code = script(&info, run_target([1, 1, 5, 4], &out), &[tool("mann_kendall")]);
     println!("{code}");
-    assert!(code.contains("clip=(") && !code.contains("chunks="), "{code}");
+    assert!(code.contains("window=(1, 1, 5, 4)") && !code.contains("chunks="), "{code}");
     assert!(
         code.contains("result = zeit.mann_kendall(series)") || code.contains("result = zeit.mann_kendall("),
         "{code}"

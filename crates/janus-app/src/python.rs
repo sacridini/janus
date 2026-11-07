@@ -240,7 +240,7 @@ impl State {
                             it from the files as Janus does (band or index, quality mask, scale) and, with a Zeit\n\
                             tool on the chart, the script makes the same Zeit calls with the same parameters.\n\
                             Shown in an editor: read it, copy it, save it as a .py or a notebook.\n\
-                            Needs zeit-cdts (pip install zeit-cdts).";
+                            Needs zeit-cdts 3.2 or newer (pip install -U zeit-cdts).";
         // the button itself in the toolbar's row (in a child Ui of its own, it could neither move to the next row
         // nor fit the end of this one)
         if !any {
@@ -672,7 +672,8 @@ mod tests {
         // long calls are broken over lines
         let flat = code.replace("(\n    ", "(");
         assert!(flat.contains("zeit.improphe(coarse_cube, fine_cube, by=None, kernel_size=60.0"), "{code}");
-        assert!(code.contains("for n in [1, 2, 3]") && code.contains("fine_cube.where(qa > 0)"), "{code}");
+        assert!(code.contains("bands={\"Band 1\": 1, \"Band 2\": 2, \"Band 3\": 3}"), "{code}");
+        assert!(code.contains("fine_cube.where(zeit.qa_mask(qa, \"nonzero\"))"), "{code}");
         let script = base.join("improphe.py");
         std::fs::write(&script, code).unwrap();
         run_python(&python, &script);

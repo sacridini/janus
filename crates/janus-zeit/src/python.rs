@@ -517,8 +517,8 @@ pub fn tool_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall>
                     Piece::Raw(
                         "# the gaps filled linearly (by date index), with weight 0: they pull neither the smoothing \
                          nor the curves\nok = np.isfinite(values)\nidx = np.arange(len(values))\nfilled = \
-                         np.interp(idx, idx[ok], values[ok])\nseries = series.copy(data=filled[:, None, None])\n\
-                         weights = ok.astype(float)[:, None, None]"
+                         np.interp(idx, idx[ok], values[ok])\nseries = series.copy(data=filled.reshape(series.shape))\n\
+                         weights = ok.astype(float).reshape(series.shape)"
                             .into(),
                     ),
                     call(

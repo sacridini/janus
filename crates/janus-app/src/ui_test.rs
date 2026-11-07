@@ -921,7 +921,7 @@ impl State {
                 // the code has the bands, not the series on the chart: the first band at each date is what it reads
                 let check = format!(
                     "{code}\nassert int(result[\"n_segments\"].values.ravel()[0]) >= 1\n\
-                     series = bands_cube.isel(band=0, y=0, x=0)\n"
+                     series = bands_cube.isel(band=0)\n"
                 );
                 let v = match run_python(&check) {
                     Ok(v) => v,
