@@ -5,9 +5,17 @@
     "label": "Annual series",
     "summary": "Forty years of a Rondônia forest frontier as straight segments: the year, magnitude and duration of every clearing, and how long the forest took to recover.",
     "track": "change",
-    "minutes": null,
+    "minutes": 12,
     "data": null,
-    "learn": []
+    "learn": [
+      "On the chart",
+      "The parameters",
+      "Running it on the image",
+      "The maps"
+    ],
+    "figures": 15,
+    "featured": true,
+    "thumb": "assets/img/landtrendr/01-series.jpg"
   },
   {
     "slug": "ccdc",
@@ -15,9 +23,16 @@
     "label": "Landsat, every date",
     "summary": "Harmonic models of every band, breaks when the land changes, and a cloud-free image of any date.",
     "track": "change",
-    "minutes": null,
+    "minutes": 8,
     "data": null,
-    "learn": []
+    "learn": [
+      "Clouds and the quality band",
+      "The tool's window",
+      "On the chart",
+      "Running it"
+    ],
+    "figures": 7,
+    "thumb": "assets/img/ccdc/01-series.jpg"
   },
   {
     "slug": "sccd",
@@ -25,9 +40,16 @@
     "label": "Landsat, every date",
     "summary": "CCDC's models carried forward by a Kalman filter: a forest cleared in 2023, and one being cleared now, shown as a change in progress before it is confirmed.",
     "track": "change",
-    "minutes": null,
+    "minutes": 12,
     "data": null,
-    "learn": []
+    "learn": [
+      "A confirmed change",
+      "A change in progress",
+      "The parameters",
+      "Running it on the image"
+    ],
+    "figures": 12,
+    "thumb": "assets/img/sccd/02-fit.jpg"
   },
   {
     "slug": "coded",
@@ -35,9 +57,16 @@
     "label": "Landsat, every date",
     "summary": "Forest degradation apart from deforestation, from the NDFI of every observation.",
     "track": "change",
-    "minutes": null,
+    "minutes": 6,
     "data": null,
-    "learn": []
+    "learn": [
+      "The NDFI",
+      "CODED on the chart",
+      "The parameters",
+      "The maps"
+    ],
+    "figures": 10,
+    "thumb": "assets/img/coded/02-ndfi.jpg"
   },
   {
     "slug": "ewmacd",
@@ -45,9 +74,16 @@
     "label": "Landsat, every date",
     "summary": "Thinning and harvests in pine stands found by EWMA control charts on every date, cloudy ones included: when, how strong, and when they recovered.",
     "track": "change",
-    "minutes": null,
+    "minutes": 10,
     "data": null,
-    "learn": []
+    "learn": [
+      "On the chart",
+      "The parameters",
+      "Running it on the image",
+      "The maps"
+    ],
+    "figures": 10,
+    "thumb": "assets/img/ewmacd/01-series.jpg"
   },
   {
     "slug": "bfast",
@@ -55,9 +91,16 @@
     "label": "Regular series",
     "summary": "Breaks in trend and season of a 16-day EVI series: BFAST, BFAST Lite and BFAST Monitor.",
     "track": "change",
-    "minutes": null,
+    "minutes": 6,
     "data": null,
-    "learn": []
+    "learn": [
+      "BFAST",
+      "BFAST Lite",
+      "BFAST Monitor",
+      "Running it on the image"
+    ],
+    "figures": 9,
+    "thumb": "assets/img/bfast/01-series.jpg"
   },
   {
     "slug": "beast",
@@ -65,9 +108,16 @@
     "label": "Annual or regular series",
     "summary": "Changepoints with their probability: a clearing BEAST is sure of, a rise it gives 61%, a forest where it claims no change, and maps of how sure it is.",
     "track": "change",
-    "minutes": null,
+    "minutes": 13,
     "data": null,
-    "learn": []
+    "learn": [
+      "A clearing, and a maybe",
+      "No change",
+      "A series with seasons",
+      "The parameters"
+    ],
+    "figures": 14,
+    "thumb": "assets/img/beast/02-pixel.jpg"
   },
   {
     "slug": "phenology",
@@ -75,9 +125,16 @@
     "label": "Sub-annual index",
     "summary": "The start, peak, end and length of the growing season of every pixel.",
     "track": "change",
-    "minutes": null,
+    "minutes": 5,
     "data": null,
-    "learn": []
+    "learn": [
+      "On the chart",
+      "The parameters",
+      "Running it",
+      "The maps"
+    ],
+    "figures": 7,
+    "thumb": "assets/img/phenology/01-fit.jpg"
   },
   {
     "slug": "trend-test",
@@ -85,9 +142,16 @@
     "label": "Annual series",
     "summary": "Whether a region, or each land-cover class, is really trending, when a quarter of its pixels say so.",
     "track": "change",
-    "minutes": null,
+    "minutes": 18,
     "data": null,
-    "learn": []
+    "learn": [
+      "One pixel: the AR(1) trend",
+      "The map of trends",
+      "The Trend test",
+      "How it works"
+    ],
+    "figures": 13,
+    "thumb": "assets/img/trend-test/02-ar-pixel.jpg"
   },
   {
     "slug": "hotspots",
@@ -95,9 +159,16 @@
     "label": "Annual series",
     "summary": "Where forest and cleared land cluster in forty years of Rondônia, and how that changed: new, intensifying, oscillating or historical hot and cold spots.",
     "track": "change",
-    "minutes": null,
+    "minutes": 10,
     "data": null,
-    "learn": []
+    "learn": [
+      "The parameters",
+      "Running it",
+      "The patterns",
+      "Reading a pixel"
+    ],
+    "figures": 9,
+    "thumb": "assets/img/hotspots/03-pattern.jpg"
   },
   {
     "slug": "unmixing",
@@ -105,9 +176,16 @@
     "label": "Multiband or hyperspectral",
     "summary": "How much forest, soil and water is in each pixel: every date of a Landsat series and every pixel of an EnMAP scene, from endmembers picked with pins.",
     "track": "explore",
-    "minutes": null,
+    "minutes": 10,
     "data": null,
-    "learn": []
+    "learn": [
+      "Endmembers from pins",
+      "On the chart",
+      "Running it on the series",
+      "The constraints"
+    ],
+    "figures": 11,
+    "thumb": "assets/img/unmixing/04-forest-2026.jpg"
   },
   {
     "slug": "validation",
@@ -115,9 +193,17 @@
     "label": "Any map",
     "summary": "Strata, a sample, blind interpretation, accuracy and error-adjusted areas with confidence intervals.",
     "track": "validate",
-    "minutes": null,
+    "minutes": 25,
     "data": null,
-    "learn": []
+    "learn": [
+      "The Validation menu",
+      "Maps to stratify",
+      "The strata",
+      "Sample size"
+    ],
+    "figures": 23,
+    "featured": true,
+    "thumb": "assets/img/validation/01-series-and-map.jpg"
   },
   {
     "slug": "snic",
@@ -125,9 +211,16 @@
     "label": "Landsat, every date",
     "summary": "Segments of pixels with the same history, their mean series as a layer and their polygons.",
     "track": "classify",
-    "minutes": null,
+    "minutes": 5,
     "data": null,
-    "learn": []
+    "learn": [
+      "The parameters",
+      "Running it",
+      "The segments",
+      "Their mean series"
+    ],
+    "figures": 6,
+    "thumb": "assets/img/snic/01-tool.jpg"
   },
   {
     "slug": "fields",
@@ -135,9 +228,16 @@
     "label": "Sentinel-2, a season",
     "summary": "A year of Sorriso as 430 field parcels in three seconds, Trazo's published accuracy matched, and the network fine-tuned on fields you draw.",
     "track": "classify",
-    "minutes": null,
+    "minutes": 8,
     "data": null,
-    "learn": []
+    "learn": [
+      "The parameters",
+      "Running it",
+      "The class map",
+      "The parcels"
+    ],
+    "figures": 4,
+    "thumb": "assets/img/fields/01-tool.jpg"
   },
   {
     "slug": "deep-learning",
@@ -145,9 +245,16 @@
     "label": "Landsat, every date",
     "summary": "TempCNN, L-TAE and U-TAE trained on MapBiomas samples: a land cover map with its probability and uncertainty, smoothed, and where the model can be trusted.",
     "track": "classify",
-    "minutes": null,
+    "minutes": 14,
     "data": null,
-    "learn": []
+    "learn": [
+      "The networks",
+      "The window",
+      "Training",
+      "The class map"
+    ],
+    "figures": 11,
+    "thumb": "assets/img/ml/01-samples.jpg"
   },
   {
     "slug": "presto",
@@ -155,9 +262,16 @@
     "label": "Landsat, a year",
     "summary": "A pretrained foundation model's encodings of every pixel: embeddings to explore, and a classifier on them.",
     "track": "classify",
-    "minutes": null,
+    "minutes": 5,
     "data": null,
-    "learn": []
+    "learn": [
+      "Presto's inputs",
+      "The classifier",
+      "The embeddings",
+      "The class map"
+    ],
+    "figures": 5,
+    "thumb": "assets/img/presto/04-embeddings.jpg"
   },
   {
     "slug": "calculator",
@@ -165,9 +279,16 @@
     "label": "Any series of bands",
     "summary": "EVI and the 275 Awesome Spectral Indices on a Sentinel-2 series, the open layers combined by short names, 107 dates reduced to an image, classes by rules.",
     "track": "explore",
-    "minutes": null,
+    "minutes": 16,
     "data": null,
-    "learn": []
+    "learn": [
+      "An index on the series",
+      "The calculator",
+      "The language",
+      "Over time"
+    ],
+    "figures": 5,
+    "thumb": "assets/img/calculator/01-index.jpg"
   },
   {
     "slug": "stac",
@@ -175,9 +296,17 @@
     "label": "Sentinel-2, Landsat, Sentinel-1",
     "summary": "An area, two dates, a cloud cover: 375 Sentinel-2 scenes of five dry seasons as a series of 107 dates, read in place from Planetary Computer with the clouds masked; then a year of Sentinel-1 radar over the same square, in dB, a clearing seen through the clouds.",
     "track": "data",
-    "minutes": null,
+    "minutes": 17,
     "data": null,
-    "learn": []
+    "learn": [
+      "The catalogs",
+      "Searching",
+      "Bands and cells",
+      "Open as a layer"
+    ],
+    "figures": 6,
+    "featured": true,
+    "thumb": "assets/img/stac/01-search.jpg"
   },
   {
     "slug": "series",
@@ -185,9 +314,16 @@
     "label": "Any series",
     "summary": "36 loose files built into a series, 107 irregular Sentinel-2 dates put every 16 days with their gaps filled, saved as a NetCDF and a Zarr that xarray reads, and a year of Sentinel-1 through a speckle filter.",
     "track": "data",
-    "minutes": null,
+    "minutes": 17,
     "data": null,
-    "learn": []
+    "learn": [
+      "Build a series from loose files",
+      "Regularize: one date every 16 days",
+      "Save as COG, NetCDF or Zarr",
+      "Open it in xarray"
+    ],
+    "figures": 7,
+    "thumb": "assets/img/series/01-build.jpg"
   },
   {
     "slug": "maps-to-numbers",
@@ -195,9 +331,16 @@
     "label": "Any class map",
     "summary": "34 years of MapBiomas on a Landsat series' grid: the hectares of each class every year, the forest patches of 1985 as polygons, and what became of each one, year by year.",
     "track": "validate",
-    "minutes": null,
+    "minutes": 23,
     "data": null,
-    "learn": []
+    "learn": [
+      "Onto one grid",
+      "Areas by class and date",
+      "Polygons",
+      "Back to the grid"
+    ],
+    "figures": 12,
+    "thumb": "assets/img/maps-to-numbers/02-on-grid.jpg"
   },
   {
     "slug": "embeddings",
@@ -205,9 +348,16 @@
     "label": "AlphaEarth, TESSERA",
     "summary": "Forest, pasture and water from nine pins in milliseconds, what changed into what since 2017, and the direction of every change.",
     "track": "explore",
-    "minutes": null,
+    "minutes": 10,
     "data": null,
-    "learn": []
+    "learn": [
+      "The views",
+      "Classes from pins",
+      "What changed into what",
+      "Direction of change"
+    ],
+    "figures": 6,
+    "thumb": "assets/img/embeddings/01-pca.jpg"
   },
   {
     "slug": "visualize",
@@ -215,9 +365,16 @@
     "label": "Any series",
     "summary": "Every pixel compared with a forest and with a pasture, the forest's yearly cycle by wavelet, its six bands over time and 41 years of Landsat as three behaviours in a UMAP plane.",
     "track": "explore",
-    "minutes": null,
+    "minutes": 9,
     "data": null,
-    "learn": []
+    "learn": [
+      "The similarity map",
+      "Cycles",
+      "Bands",
+      "Atlas"
+    ],
+    "figures": 5,
+    "thumb": "assets/img/visualize/01-similarity.jpg"
   },
   {
     "slug": "workspace",
@@ -225,8 +382,15 @@
     "label": "Interface",
     "summary": "The status bar and notices, Ctrl+K for any command, Ctrl+G for any coordinate, blend modes, groups and styles, a lens on another date, the provenance and Python of every result, previews, projects and undo.",
     "track": "explore",
-    "minutes": null,
+    "minutes": 23,
     "data": null,
-    "learn": []
+    "learn": [
+      "The status bar",
+      "Tasks and notices",
+      "The command palette",
+      "Blend modes, groups, styles"
+    ],
+    "figures": 9,
+    "thumb": "assets/img/workspace/01-run.jpg"
   }
 ]

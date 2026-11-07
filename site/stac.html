@@ -14,9 +14,8 @@
 <meta property="og:description" content="An area, two dates, a cloud cover: 375 Sentinel-2 scenes of five dry seasons as a series of 107 dates, read in place from Planetary Computer, the clouds masked by the scene classification.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/stac/01-search.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -27,17 +26,19 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / STAC catalogs</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / STAC catalogs</p>
     <p class="eyebrow">Data · Sentinel-2, Landsat, Sentinel-1, Brazil Data Cube</p>
     <h1>A series from a STAC catalog, step by step.</h1>
     <p class="lede">The scenes of Sentinel-2 and Landsat sit in the cloud as files anyone can read, listed by catalogs that answer one question: which scenes cover this area between these dates? This guide asks Planetary Computer for five dry seasons of a square of Rondônia, opens the answer as a series read in place, with the clouds masked, and downloads it.</p>
@@ -113,7 +114,7 @@
       </dl>
       <p><span class="ui">Search</span> found <strong>375 scenes on 107 dates</strong>. The square sits where four Sentinel-2 tiles meet, so a date has up to four scenes. Each date is listed with its scenes and their mean cloud cover, all ticked: untick the ones you do not want, or <span class="ui">Clearest (&lt; 10%)</span> keeps the dates under 10%.</p>
       <figure class="fig">
-        <a href="assets/img/stac/01-search.jpg"><img src="assets/img/stac/01-search.jpg" alt="The Search STAC catalog window over the Janus window: Planetary Computer, Sentinel-2 L2A, a box from 63.00 W 10.00 S to 62.92 W 9.92 S (8.8 x 8.8 km), from 2019-06-01 to 2024-09-30, 5% clouds at most; 375 scenes on 107 dates, the first ones 2019-06-05 with 4 scenes and 1% clouds, 2019-06-10 with 3 scenes and 0%. Behind it the series opened as NDVI over the Esri imagery: fields and pastures in blue and green, forest in yellow on the east, and the chart of the pixel under the cursor from 2019 to 2024." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/stac/01-search.jpg"><picture><source type="image/webp" srcset="assets/img/stac/01-search.webp"><img src="assets/img/stac/01-search.jpg" alt="The Search STAC catalog window over the Janus window: Planetary Computer, Sentinel-2 L2A, a box from 63.00 W 10.00 S to 62.92 W 9.92 S (8.8 x 8.8 km), from 2019-06-01 to 2024-09-30, 5% clouds at most; 375 scenes on 107 dates, the first ones 2019-06-05 with 4 scenes and 1% clouds, 2019-06-10 with 3 scenes and 0%. Behind it the series opened as NDVI over the Esri imagery: fields and pastures in blue and green, forest in yellow on the east, and the chart of the pixel under the cursor from 2019 to 2024." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The search</b>: 375 scenes of Sentinel-2 on 107 dates, and the series behind the window, as NDVI.</figcaption>
       </figure>
     </section>
@@ -135,7 +136,7 @@
       <h2><span class="n">05</span>Open as a layer</h2>
       <p><span class="ui">Open as a layer</span> runs as a task (<span class="ui">Tools → Tasks</span>): it writes one VRT per date under <code>%LOCALAPPDATA%\Janus\results\stac</code>, each a mosaic of that day's scenes pointing at the catalog's files, and opens the folder as a layer. With red and NIR among the bands the layer opens on the NDVI, with the quality band masking clouds, like any Landsat or Sentinel series on disk.</p>
       <figure class="fig">
-        <a href="assets/img/stac/02-series.jpg"><img src="assets/img/stac/02-series.jpg" alt="The series opened as a layer over the Esri imagery: 107 dates from 2019-06-05 to 2024-09-11, 877 x 886 cells of 10 m in UTM zone 20 S, NDVI of NIR (B08) and red (B04) with SCL as the quality band. Two pins in the south-west of the square: pin 1 in a forest, its NDVI around 0.8 all through, falling to 0.25 at the end of the 2024 dry season; pin 2 in a pasture, between 0.25 and 0.75, down every dry season; the cursor's series in white." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/stac/02-series.jpg"><picture><source type="image/webp" srcset="assets/img/stac/02-series.webp"><img src="assets/img/stac/02-series.jpg" alt="The series opened as a layer over the Esri imagery: 107 dates from 2019-06-05 to 2024-09-11, 877 x 886 cells of 10 m in UTM zone 20 S, NDVI of NIR (B08) and red (B04) with SCL as the quality band. Two pins in the south-west of the square: pin 1 in a forest, its NDVI around 0.8 all through, falling to 0.25 at the end of the 2024 dry season; pin 2 in a pasture, between 0.25 and 0.75, down every dry season; the cursor's series in white." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>107 dates, read in place</b>: a forest (pin 1, red) and a pasture (pin 2, blue), each date's clouds masked by the scene classification.</figcaption>
       </figure>
       <p>Pin 1 sits in a forest: its NDVI stays around 0.8 (mean 0.80 over 101 dates) and only falls, to 0.25, at the end of the 2024 dry season, its largest drop. Pin 2 is a pasture: green in the wet months, down to 0.25 every dry season. Six of pin 1's 107 dates are missing: the scene classification called that pixel cloud, shadow or cirrus on them, and the mask left them out, though the scenes had 5% of clouds at most.</p>
@@ -175,7 +176,7 @@
       </dl>
       <p>The composite opens as a layer of its six bands, their wavelengths kept, so in true colour; the Display panel's indices and composites work on it as on any spectrum.</p>
       <figure class="fig">
-        <a href="assets/img/stac/05-composite.jpg"><img src="assets/img/stac/05-composite.jpg" alt="The best available pixel composite of June and July 2024 over Esri's imagery: a square of 11 km in true colour (665, 560 and 490 nm), without a cloud: the town of Ariquemes in the middle, forest and pastures around it, the imagery's own colours around the square. The Layers panel lists composite_20240603, 6 bands from 490 to 2190 nm; the Display panel says 1098 x 1107 px, Float32, UTM zone 20 S; the chart shows the spectrum of a pin in the town, from 0.08 at 490 nm to 0.29 at 1610 nm." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/stac/05-composite.jpg"><picture><source type="image/webp" srcset="assets/img/stac/05-composite.webp"><img src="assets/img/stac/05-composite.jpg" alt="The best available pixel composite of June and July 2024 over Esri's imagery: a square of 11 km in true colour (665, 560 and 490 nm), without a cloud: the town of Ariquemes in the middle, forest and pastures around it, the imagery's own colours around the square. The Layers panel lists composite_20240603, 6 bands from 490 to 2190 nm; the Display panel says 1098 x 1107 px, Float32, UTM zone 20 S; the chart shows the spectrum of a pin in the town, from 0.08 at 490 nm to 0.29 at 1610 nm." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>A composite of June and July 2024</b>: the best available pixel of 12 dates, downloaded and written in 3 min 32 s, without a cloud.</figcaption>
       </figure>
       <p>The best available pixel needs only the quality band to choose: Janus reads it for every date first, block by block (1024 pixels with the cloud distance around them, so the clouds of the neighbouring blocks count), chooses each pixel's date, then reads the bands of the dates that won in the block, over the box of their winners. Where a winner has no value in a band (the edge of a scene) the pixel takes its next best date. The rest of the series is never downloaded. The greenest reads the red, NIR and quality bands of every date; the medoid and the median, every band of every date: what downloading the series would.</p>
@@ -197,7 +198,7 @@
       <h2><span class="n">09</span>Footprints</h2>
       <p><span class="ui">Footprints as a vector layer</span> adds the scenes found as polygons, with their id, date, cloud cover and tile in the attribute table: where each tile lies, and which dates cover only part of the area.</p>
       <figure class="fig">
-        <a href="assets/img/stac/03-footprints.jpg"><img src="assets/img/stac/03-footprints.jpg" alt="The map zoomed out to about 60 km over the Esri imagery: the footprints of the 375 scenes as outlines, the Sentinel-2 tiles' edges as vertical and horizontal strips where neighbouring tiles overlap, a diagonal line where an orbit's swath ends, and the series' square of NDVI at the corner where four tiles meet." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/stac/03-footprints.jpg"><picture><source type="image/webp" srcset="assets/img/stac/03-footprints.webp"><img src="assets/img/stac/03-footprints.jpg" alt="The map zoomed out to about 60 km over the Esri imagery: the footprints of the 375 scenes as outlines, the Sentinel-2 tiles' edges as vertical and horizontal strips where neighbouring tiles overlap, a diagonal line where an orbit's swath ends, and the series' square of NDVI at the corner where four tiles meet." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>The 375 footprints</b>: the square lies where four Sentinel-2 tiles overlap; the diagonal is the edge of an orbit's swath.</figcaption>
       </figure>
       <p>The strips are the tiles' overlaps (Sentinel-2's 110 km tiles overlap by 10 km): the square sits inside four of them, which is why a date has up to four scenes, the same pixels in several. Where an orbit's swath ends, a scene covers part of its tile only (the diagonal): on such dates the mosaic takes the rest from the other scenes of the day, or leaves it empty.</p>
@@ -214,7 +215,7 @@
       </dl>
       <p>Read whole as VV in dB, the 24 dates of 877 × 886 cells took 3.9 s, every value equal to <code>stackstac</code> with <code>numpy</code>'s <code>10 * log10</code> on the same items and grid, and to <code>rasterio</code> on a scene alone.</p>
       <figure class="fig">
-        <a href="assets/img/stac/04-radar-db.jpg"><img src="assets/img/stac/04-radar-db.jpg" alt="The Sentinel-1 series of 2024 opened as VVdB (10.0 * log10(VV)): 24 dates from 2024-01-16 to 2024-12-29, 877 x 886 px, the map at 2024-09-12 (15 of 24) from -15.2 to -3.2 dB, forest in green and yellow, dry pastures in purple, everything grainy with speckle; pins 1 and 2 of section 05 in the south-west; the chart of their 24 dates: pin 1 (red, the forest) around -5 dB, mean -5.16; pin 2 (blue, the pasture) around -10 dB, mean -9.68, lowest at -13.5 dB on 2024-09-12." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/stac/04-radar-db.jpg"><picture><source type="image/webp" srcset="assets/img/stac/04-radar-db.webp"><img src="assets/img/stac/04-radar-db.jpg" alt="The Sentinel-1 series of 2024 opened as VVdB (10.0 * log10(VV)): 24 dates from 2024-01-16 to 2024-12-29, 877 x 886 px, the map at 2024-09-12 (15 of 24) from -15.2 to -3.2 dB, forest in green and yellow, dry pastures in purple, everything grainy with speckle; pins 1 and 2 of section 05 in the south-west; the chart of their 24 dates: pin 1 (red, the forest) around -5 dB, mean -5.16; pin 2 (blue, the pasture) around -10 dB, mean -9.68, lowest at -13.5 dB on 2024-09-12." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>A year of radar in dB</b>: VV on 2024-09-12; the forest of pin 1 (red) around −5 dB, the pasture of pin 2 (blue) lowest at the end of the dry season.</figcaption>
       </figure>
       <h3>Speckle</h3>
@@ -225,7 +226,7 @@
       </dl>
       <p>Both work on the linear values, whatever the layer shows, and the filtered series opens in dB like the one filtered. Over the square, a 7 × 7 window of Quegan's filter took 1.7 s for the 24 dates of both bands, written as COGs: the same values as the formulas through <code>scipy.ndimage</code> (to 1.3e-7), which took 2.1 s for the arithmetic alone.</p>
       <figure class="fig">
-        <a href="assets/img/stac/04-speckle.jpg"><img src="assets/img/stac/04-speckle.jpg" alt="The swipe at 2024-09-12, zoomed to 160% on the south-west of the square: left of the divider the series filtered by Quegan's 7 x 7 filter, right of it the unfiltered series (the layer linear, same date), both as VH in dB from -19.9 to -10.2; on the left the fields, dark pastures and forest edges are smooth, on the right the same shapes are grainy. Below, the filtered series' chart and Statistics: pin 1 (red) between -9.2 and -13 dB, standard deviation 1.03; pin 2 (blue) down to -19.8 dB on 2024-08-07, standard deviation 1.92." width="1600" height="950" loading="lazy"></a>
+        <a href="assets/img/stac/04-speckle.jpg"><picture><source type="image/webp" srcset="assets/img/stac/04-speckle.webp"><img src="assets/img/stac/04-speckle.jpg" alt="The swipe at 2024-09-12, zoomed to 160% on the south-west of the square: left of the divider the series filtered by Quegan's 7 x 7 filter, right of it the unfiltered series (the layer linear, same date), both as VH in dB from -19.9 to -10.2; on the left the fields, dark pastures and forest edges are smooth, on the right the same shapes are grainy. Below, the filtered series' chart and Statistics: pin 1 (red) between -9.2 and -13 dB, standard deviation 1.03; pin 2 (blue) down to -19.8 dB on 2024-08-07, standard deviation 1.92." width="1600" height="950" loading="lazy"></picture></a>
         <figcaption><b>Quegan's filter</b>: VH on 2024-09-12, filtered on the left and as read on the right; over the year the forest's pin varies by 1.0 dB instead of 2.4.</figcaption>
       </figure>
       <h3>The dry season</h3>
@@ -234,6 +235,17 @@
         <p class="h">One pass, one series</p>
         <p>CUSUM, BEAST and the trend tools work on the dB series as they are. The tools that want a fixed step (BFAST, BFAST Monitor) want <span class="ui">Tools → Data preparation → Regularize series...</span> first: the 12 days of one pass become 12 or 16 days exactly.</p>
       </div>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is public: Sentinel-2 L2A from Planetary Computer, downloaded as GeoTIFFs (<code>s2ro</code>), and a Sentinel-1 series made by <code>tools/bench_s1_vs_stackstac.py</code>. These commands remake the screenshots after the interface changes.</p>
+        <p>The two radar screenshots are taken with <code>--screenshot</code> on 1600 × 950, with <code>--threads 2</code> (the other screenshots of this guide are not made by these commands).</p>
+        <p class="what"><code>radar_vvdb.png</code> (04-radar-db):</p>
+        <div class="cmd"><code>janus bench-s1/linear --interface modern --expr VVdB --pin 195,837 --pin 179,761 --date 15 --screenshot radar_vvdb.png</code><button class="copy" type="button" data-copy="janus bench-s1/linear --interface modern --expr VVdB --pin 195,837 --pin 179,761 --date 15 --screenshot radar_vvdb.png">Copy</button></div>
+        <p class="what">The speckle run with the swipe (04-speckle):</p>
+        <div class="cmd"><code>janus bench-s1/linear --interface modern --expr VHdB --pin 195,837 --pin 179,761 --date 15 --window speckle-run --swipe --view 330,700,1.6</code><button class="copy" type="button" data-copy="janus bench-s1/linear --interface modern --expr VHdB --pin 195,837 --pin 179,761 --date 15 --window speckle-run --swipe --view 330,700,1.6">Copy</button></div>
+        </div>
+      </details>
     </section>
 
     <section id="next">
@@ -277,6 +289,12 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -284,6 +302,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

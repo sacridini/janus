@@ -6,7 +6,7 @@ and `assets/main.js` directly, except the generated parts (below).
 
 - The download buttons point to the latest release page and, when the GitHub API
   answers, to the exact installer of the latest release (`assets/main.js`).
-- Logos, colours and fonts come from `../branding/`.
+- Logos and colours come from `../branding/`. The fonts are IBM Plex, served from `assets/fonts/` (see Fonts).
 - To preview locally: `python -m http.server -d site` and open http://localhost:8000.
 
 ## Generated parts
@@ -18,16 +18,226 @@ upload). In each `site/*.html`, the text between `<!-- build:NAME -->` and
 
 - `header` and `footer`: the partials `tools/site_partials/header.html` and
   `footer.html`; the placeholders (`{{base}}`, `{{brand_href}}`,
-  `{{brand_label}}`, `{{current_guides}}`) are filled per page, one way for
-  `index.html` and another for the guides.
-- `guide-cards` (the Guides section) and `method-list` (the Change detection
-  section) in `index.html`: built from `site/data/guides.json` and
-  `site/data/methods.json`, whose text is inner HTML, stored as it is written
-  in the page. The files are published too, for the scripts of later pages.
+  `{{brand_label}}`, `{{current_methods}}`, `{{current_guides}}`,
+  `{{current_demo}}`, `{{current_docs}}`, `{{current_news}}`) are filled per page: `index.html` links
+  to its own sections and has no current item, `methods.html` marks Methods, `guides.html`
+  and every guide page mark Guides, `demo.html` marks Demo, `docs.html` and the
+  `docs-*.html` pages mark Docs, `news.html` marks News. The header holds the
+  search button, and the footer partial loads `assets/search.js`, so every page
+  gets both.
+- `home-methods` in `index.html`: four shortcut cards into the chooser of
+  `methods.html` (`#data=...&find=...`), each with the count and the first three
+  names of the methods that match, by the rule of `methods.js` (a data chip
+  matches a `cadence` that has it or `any`), and the link to all of them. The
+  questions are `HOME_QUESTIONS` in `tools/build_site.py`.
+- `home-guides` in `index.html`: the five tracks with their guide counts
+  (linking to `guides.html#track`) and the guides marked `"featured": true` in
+  `site/data/guides.json`, as cards with a thumbnail.
+- `cite-bibtex` in `index.html`: the BibTeX entry and its copy button, with the
+  version and the year of `CITATION.cff` at the repository root. Update that file
+  at each release (the build warns if its version differs from `Cargo.toml`).
+- Inline numbers, `<!-- n:NAME -->12<!-- /n:NAME -->`, rewritten the same way:
+  `method-count`, `method-more` (the methods beyond the three the lede names),
+  `guide-count`, `track-count`, `mcp-tools` (the tools of `jn mcp`, counted in
+  `crates/janus-app/src/mcp.rs`) and `news-link` (the home hero's "What's new in
+  X.Y.Z" link, the latest release of `data/news.json`).
+  The files in `site/data/` are published too, for the scripts of later pages.
+- `method-catalog` in `methods.html`: the chooser (chips "My data" and "I want
+  to find", search, count) and every method of `methods.json` as a card,
+  grouped by `group`. Fields of a method: `id`, `name`, `summary`, `requires`,
+  `group` (change, trend, seasons, cover, classify, spatial, prepare),
+  `cadence` (a list of annual, subannual, everydate, classes, any; only the chooser
+  uses it: the cards show `requires`), `questions`
+  (abrupt, degradation, trend, recovery, seasons, classes, clusters, spatial,
+  prepare), `guide` (a slug or null). The cards are in the HTML, so
+  the page reads without JavaScript; `assets/methods.js` hides and shows them
+  and keeps the choice in the URL hash (`methods.html#data=annual&find=abrupt`).
+  A method matches a data chip if its `cadence` has that value or `any`.
+- `guide-tracks` in `guides.html`: the guides by their `track` (data, explore,
+  change, classify, validate). Each run reads the guide pages and writes back
+  to `guides.json` `minutes` (words of the `<article>` over 200, rounded up),
+  `figures` (its `<figure>` count) and `learn` (the first four entries of its
+  contents that are not generic, such as "What next"); `--check` reports
+  `data/guides.json` as out of date if they changed.
+
+- `python-tabs` in the guides (also `python-tabs-lite` and so on: a second block
+  on a page, read from the key `<slug>-lite`): the "In Janus" / "In Python" tabs
+  where the guide fits its tool on the chart. The steps of "In Janus" and the code
+  of "In Python" come from `data/python.json`; the code is what the Copy Python
+  button of Janus gives for the guide's pixel and parameters, never written by
+  hand (see Python snippets below). Put the markers at column 0 of the page: the
+  generated code lines must not be indented. The tokenizer in `build_site.py`
+  (`highlight_python`) colours keywords, strings, comments and numbers with
+  `<span class="k|s|c|n">`, the colours being in `style.css`; the Copy button has
+  an empty `data-copy` and copies the text of the `<code>` beside it. The tab
+  list starts `hidden` and `assets/main.js` shows it (the `[data-tabs]` logic of
+  the home's OS tabs), so without JavaScript both panels show one under the other;
+  `?tab=python` opens the Python tab. The steps and the code are not counted in a
+  guide's `minutes` or in the search index.
+
+- `data/search.json`, also written by `build_site.py` (and checked by `--check`):
+  the index of the search dialog. One entry per method (`methods.html#<id>`,
+  every card of the catalog has `id="<method id>"`), per guide, per h2 and h3 of
+  a guide (the anchor is the heading's id, else its section's) and per section of
+  `index.html`, `methods.html`, `guides.html` and `demo.html`, with a text of at
+  most 160 characters, the first paragraph after the heading; also the docs pages (their
+  h2 and h3) and one entry per release of the news page. Keys: `k` (m, g, s),
+  `t` title, `u` link, `c` context, `x` text. It is about 90 KB and is fetched on the
+  first open only.
+- `assets/search.js`: Ctrl+K, Cmd+K or "/" or the header button open the dialog
+  (arrows, Enter, Esc; words in any order, no case or accents; at most 12
+  results in Methods, Guides, Sections). `?q=words` on any page opens it with
+  those words, which is how the screenshots are made. Opened from a file the
+  browser refuses `fetch`, and the dialog says so and links to the published site.
 
 After editing a partial or a data file, run `python tools/build_site.py`;
 `python tools/build_site.py --check` writes nothing and exits 1 listing the
 pages that are out of date. Each file keeps its own line endings.
+
+## Python snippets (`data/python.json`)
+
+The code of the "In Python" tabs is made by Janus's own functions, not written by
+hand. `tools/python_snippets.json` lists one case per guide (`guide`, the Zeit
+`tool`, the `params` the guide changes, the `steps` of "In Janus" and the `input`:
+the files to open, `show` (the folder as the script writes it), the Display panel's
+`band` and `nd_band`, the pin as `pixel` or `lonlat`). The example
+`crates/janus-zeit/examples/python_snippets.rs` opens each series with
+`janus_cube::open_cube` (as Janus does), takes the parameters from the tool
+registry, and writes the script that Copy Python gives for the pin
+(`janus_zeit::python::calls` for the Zeit calls; the header, the reading of the
+series and the bands is copied from `crates/janus-app/src/python.rs`, which the crate
+cannot depend on: keep them equal when that file changes). Regenerate it, from the
+repository root, with the guides' data on the machine (`{LANDSAT}`, `{LANDSAT_FULL}`
+and `{SERIES}` in the cases file are environment variables with the folders of the
+Landsat dates of the CCDC guide's area, of the whole scene, and of the 41 yearly VRTs
+of the trend guide; `PROJ_DATA` for the coordinate names, and `PATH` with Janus's own
+`gdal.dll` first, never a system GDAL):
+
+    CARGO_TARGET_DIR=... cargo run -j 8 -p janus-zeit --example python_snippets -- tools/python_snippets.json site/data/python.json
+
+(a second argument is the output file, UTF-8; without it the JSON goes to the standard
+output). The script's docstring carries the date of the run. The site build only
+reads `data/python.json`: `python tools/build_site.py` needs no cargo, no GDAL and no
+data. A guide's code names its files as `show` plus the file's name, not the absolute
+path Janus writes.
+
+## Docs (`docs.html`, `docs-<name>.html`)
+
+Generated whole by `tools/build_site.py` (no `build:` markers to keep: the file is
+rewritten from scratch, its header and footer filled the usual way) from `docs/install.md`,
+`usage.md`, `architecture.md` and `building.md`, converted by `tools/md.py`, a small
+Markdown converter in the standard library (headings with GitHub's ids, nested lists, fenced
+code, tables, links, emphasis, block quotes, HTML blocks; `python tools/md.py docs/x.md`
+prints the HTML). The row of links at the top of each file is replaced by the page's own
+(the Docs menu), the `# title` becomes the page's `h1`, each `##` section is a section of
+the article with a "On this page" contents (h2 and h3) and a `#` link on hover. Links between
+the md files become links between the pages; `https://sacridini.github.io/janus/x.html` becomes
+`x.html`; any other repository path becomes a GitHub link (`blob/main/...`, `tree/main/...` for a
+folder). The short descriptions on `docs.html` are `DOCS` in `tools/build_site.py`; a new file of
+`docs/` is added there. The docs pages are in the search index (their h2 and h3). The Pages
+workflow also runs when `docs/**` changes.
+
+## News (`news.html`)
+
+The GitHub releases have no notes, so the page is made from the repository's tags `vX.Y.Z`:
+for each one the message of the commit whose subject starts with `X.Y.Z: ` (the tagged commit,
+else the nearest one before it that does; a few early tags have another kind of message and
+show it as it is) and the date of the tagged commit, with a link to the release page. The
+text is never rewritten: a long first line is cut into a list at its top-level `; ` (outside
+brackets and quotes) when that gives three items or more, a message's own `- ` lists stay
+lists, trailers (`Co-Authored-By`) are dropped. The latest 15 are shown in full, the older ones
+collapsed (`details`; a link to `news.html#v1.9.0` opens it). `build_site.py` reads git
+(`git tag`, `git log`) and writes `data/news.json`; without git or tags it keeps that file
+(entries git does not have stay in it), so `--check` works in a shallow clone. The Pages
+workflow checks out with `fetch-depth: 0` so the tags exist; it runs on pushes to `main`, so
+after tagging a release, run it again (Actions > Website > Run workflow) if the push of the
+release commit came before the tag. The home hero's "What's new in X.Y.Z" link reads the same file.
+
+## Fonts
+
+IBM Plex Sans (400, 400 italic, 500), Plex Sans Condensed (300, 400, 500) and Plex Mono (400,
+500), as the official woff2 subsets of the npm packages `@ibm/plex-sans` 1.1.0,
+`@ibm/plex-sans-condensed` 2.0.0 and `@ibm/plex-mono` 2.5.0 (jsDelivr), in
+`assets/fonts/` with the SIL Open Font License (`OFL.txt`). Three subsets of each: Latin
+(`Latin1`: ASCII, Latin-1, the usual punctuation), Latin Extended (`Latin2`) and `Pi` (the
+arrows, comparison signs and super/subscripts the site uses); Greek, Cyrillic and Vietnamese are
+left out (the Greek letters of a few formulas use the system's). The `@font-face` rules are at the
+top of `style.css` with `unicode-range`, so a page loads only the subsets it shows (about 20 KB
+a weight for text); `font-display: swap`; every page head preloads Sans Regular and Mono
+Regular (`Latin1`). Nothing is fetched from Google. All 24 files are 355 KB.
+
+## Images in WebP
+
+`python tools/make_webp.py` writes `<name>.webp` next to every `assets/img/**/<name>.jpg` (ffmpeg
+with libwebp, quality 85, 4 threads; skips up-to-date ones). `build_site.py` then wraps every
+`<img>` of such a JPEG, on every page, in `<picture><source type="image/webp" srcset="...webp"><img
+...></picture>` (idempotent; an image without a twin stays as it is; `picture` is `display:
+contents`, and `main.js` moves the wrapper with the image in swipes and annotated figures). The
+JPEG stays the fallback, the link of the lightbox (which shows the WebP when the page
+already loaded it) and the Open Graph image. 141 screenshots: 39.9 MB of JPEG, 27.5 MB of
+WebP (31% less), the text of the interface as sharp. Run `make_webp.py` and then `build_site.py`
+after a screenshot changes.
+
+## Clips
+
+`assets/clips/{explore,detect,prove}.{mp4,webm,jpg}` are the three looping videos of the
+home page's "Three steps" (`figure.story-fig[data-step]`): about 9 s each, 1280 px wide (explore and
+detect 1280 x 900, prove 1280 x 800), no audio, with a poster. They come from the program
+itself, with `tools/make_clips.py`, after `cargo build --release -p janus-app --bin janus`:
+
+    python tools/make_clips.py --stack C:/Users/eduar/Downloads/LT_Stack_NDVI_Rondonia.tif --validation target/tutorial-validation --work target/clips --out site/assets/clips
+
+The script runs the tours `clip-explore`, `clip-detect` and `clip-prove` of `janus --shots`
+(`crates/janus-app/src/shots_clips.rs`, `shots_validation.rs`; 4 threads, one at a time), which
+save every frame of chosen stretches as `OUT/<clip>/frame_NNNNN.png` at 30 per second of the
+clip's own time, whatever each frame takes to draw (the pointer is the tour's own, drawn by the
+app). The data: the annual NDVI stack of Rondônia (explore, detect) and the validation
+tutorial's (`python tools/make_tutorial_data.py data`, prove). Then ffmpeg (4 threads) makes the
+H.264 (yuv420p, faststart, CRF 28, `veryslow`) and VP9 (CRF 38; 48 for explore) files, cropped
+for explore and detect to the map, chart and tool (the left column is left out, so the text is
+larger), the whole window for prove, with the last 12 frames cross-faded into the first 12 so the
+loop does not jump; the poster is one frame. Lengths (explore 9.6 s, detect 10.9 s with the run's
+wait cut, prove 9 s) are in `shots_clips.rs`. `--only explore` makes one clip; `--no-record` makes the
+videos again from frames already in `--work`. Sizes now: explore 1.5 MB (mp4) and 1.4 MB
+(webm), detect 0.5 and 0.9, prove 0.6 and 1.1; the posters 0.17 to 0.29 MB.
+
+In the page each is `<video muted loop playsinline controls preload="none" poster=...>`
+with a WebM and an MP4 source (width and height set), and the caption says what the clip
+shows. Without JavaScript: the poster with the browser's controls. `main.js` removes the
+controls and, for each clip: loads it when it is within 500 px of the screen, plays it only
+while at least half of it is visible and the tab is shown, pauses it otherwise; a button
+(also a click on the picture) plays and pauses it, always visible while paused, on hover or
+focus while playing. With "reduce motion" (or the browser's data saver) it never starts by itself:
+the poster with a play button; once the reader plays it, it follows the visibility rule.
+
+## Thumbnails of the guide cards
+
+The cards (guides.html and the featured ones of the home page) show
+`assets/img/thumbs/<slug>.jpg`, a copy 640 px wide of the guide's `thumb` (the
+screenshots are 300-500 KB each). `python tools/make_thumbs.py` makes them with
+ffmpeg (on PATH, else the WinGet install it names; `--force` redoes all) and
+skips the up-to-date ones; `build_site.py` uses the file, with its real size, when
+it exists and the full image when it does not. Run both after a guide's first
+figure changes. The 23 sources are 7.4 MB, the thumbnails 1.3 MB.
+
+## The demo
+
+`demo.html`, and the section `#demo` of the home page, run the LandTrendr demo
+(`assets/demo.js`, `assets/demo.css`): 256 x 256 pixels of Rondônia, one NDVI
+value a year, 1985-2024, with the fits Zeit computed; nothing is recomputed in the
+browser. The data in `assets/demo/` (about 2.5 MB: `ndvi.png`, `yod.png`,
+`mag.png`, `lt.bin`, `grid.json`, `meta.json`) is made by
+`tools/make_site_demo.py` in the zeit conda env, from the annual NDVI stack of the
+LandTrendr guide (the 40-band Int16 stack `LT_Stack_NDVI_Rondonia.tif`; the script
+crops 256 x 256 pixels around the guide's clearing pin, runs `zeit.landtrendr` at
+Zeit's defaults and writes the files; its docstring has the formats and `--window`):
+
+    python -I tools/make_site_demo.py C:\...\LT_Stack_NDVI_Rondonia.tif site/assets/demo
+
+On the home page the widget has `data-lazy` (the data is fetched only when the
+section is within 600 px of the viewport) and `data-hash="off"` (it does not read
+or write the URL hash, which the page uses for its own anchors); `demo.html` loads
+at once and keeps its state in the hash (`#px=168,168&year=2024&mode=ndvi`).
 
 ## The guides
 
@@ -54,6 +264,57 @@ the interface changes.
 | trend-test | 41 annual Landsat medoid composites of Sergipe and Alagoas, 1985–2025 (`landsat_medoid_YYYY.tif`, EPSG:4326, 0 over the sea with no nodata declared) | `python tools/make_parts_guide.py data SERIES out` (VRTs with 0 as no data in `out/series`, the zones by distance to the sea in `out/zones.tif`) |
 
 The data of the tool guides are the author's own stacks, not downloaded.
+
+### Figure variants (`assets/main.js`, `assets/style.css`)
+
+Besides the plain `<figure class="fig">` (a click opens it in the lightbox), three
+variants make a guide interactive. Each one degrades without JavaScript.
+
+- **Before/after swipe**, `<figure class="fig swipe">`: two images of the same size and
+  view, no links, then the caption. `data-label` of each image is the label of its side.
+
+      <figure class="fig swipe">
+        <img class="before" data-label="2017" src="..." alt="..." width="733" height="738" loading="lazy">
+        <img class="after" data-label="2024" src="..." alt="..." width="733" height="738" loading="lazy">
+        <figcaption><b>Drag the divider to compare</b> 2017 (first image, left) with 2024 (second image, right) ...</figcaption>
+      </figure>
+
+  The script puts both in a stage with a draggable divider (pointer, touch and keyboard:
+  it is a `role="slider"`, `aria-valuenow` 0-100, arrows move 5%, Home and End the
+  ends). Without it the two images stack, so the caption names the first and the second
+  as well as left and right. The lightbox leaves swipe figures alone. `?swipe=30` puts
+  every divider at 30% (for screenshots). Used for ccdc (break date / magnitude,
+  observed / synthetic), landtrendr (year / magnitude), bfast (break date / magnitude),
+  embeddings (2017 / 2024), unmixing (forest / soil) and coded (3 / 5 RMSEs); the
+  series' `07-speckle-swipe.jpg` is a screenshot of the program's own swipe.
+- **Annotated screenshot**, `<figure class="fig annotated">` (the home page uses
+  `<figure class="annotated">`): the image (in its link, if it has one), an
+  `<ol class="hotspots">` and the caption. Each `<li>` has `data-x` and `data-y`, the
+  place of the marker in % of the image width and height (pixel / size x 100 of
+  the screenshot), and a bold name then a short sentence.
+
+      <ol class="hotspots">
+        <li data-x="39.3" data-y="34.3"><b>The map.</b> The NDVI of the date on the slider.</li>
+      </ol>
+
+  The list is the legend under the image (and all there is without JavaScript); the
+  script adds the numbered blue markers over the image. Hovering or focusing a marker
+  (or hovering its line) highlights both and shows the text beside the marker; a click
+  pins it. Four to seven markers, placed where they do not hide what they point at.
+  Markers near an edge put their text inwards. `?hs=3` pins marker 3 (for screenshots).
+  Used on the home page (`landtrendr/03-fit.jpg`), landtrendr, validation, calculator and
+  workspace.
+- **How the screenshots were made**, `<details class="howmade">` at the end of the guide's
+  data section (the STAC guide: its last section): a summary, a
+  `<div class="howmade-body">` with `<p>`s for the data, and for each command a
+  `<p class="what">` and `<div class="cmd"><code>COMMAND</code><button class="copy"
+  type="button" data-copy="COMMAND">Copy</button></div>` (the attribute holds the same
+  text, quotes escaped; `main.js` handles every `data-copy`). Only commands this README
+  or `shots.rs` document go in; beast, ewmacd, sccd, hotspots, fields, embeddings and
+  unmixing have none yet. `?open=howmade` opens every block (for screenshots). The
+  block is left out of the reading time that `build_site.py` writes to `guides.json`.
+
+A figure whose image changes needs its markers (and a swipe its pair) checked.
 
     janus --shots validation data out     # the report goes to out/work/report
     janus --shots alerts data out         # section 14, Against official alerts (network: DETER, GLAD-S2)

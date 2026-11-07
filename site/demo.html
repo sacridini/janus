@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Demo · Janus</title>
+<meta name="description" content="Hover a pixel of 256 × 256 Landsat pixels in Rondônia and see its NDVI from 1985 to 2024, with the segments LandTrendr fits, computed by Zeit.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Demo · Janus">
+<meta property="og:description" content="Hover a pixel of 256 × 256 Landsat pixels in Rondônia and see its NDVI from 1985 to 2024, with the segments LandTrendr fits, computed by Zeit.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/demo.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- build:header -->
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main" id="site-nav">
+      <ul>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html">Guides</a></li>
+        <li><a href="./demo.html" aria-current="page">Demo</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
+      </ul>
+    </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+  </div>
+</header>
+<!-- /build:header -->
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / Demo</p>
+    <p class="eyebrow">Demo</p>
+    <h1>Try it: forty years of one forest frontier.</h1>
+    <p class="lede">This is a window of 256 &times; 256 Landsat pixels in Rondônia, Brazil, with one NDVI value per pixel for each year from 1985 to 2024. Move the pointer over the map to see the past of the pixel under it. The straight segments on the chart are LandTrendr's fit.</p>
+  </div>
+</section>
+
+<section class="demo-sec">
+  <div class="wrap">
+    <div class="lt-demo" data-src="assets/demo/"><noscript><p class="ltd-error">The demo needs JavaScript.</p></noscript><p class="ltd-loading">Loading&hellip;</p></div>
+  </div>
+</section>
+
+<section class="demo-text">
+  <div class="wrap">
+    <h2>In Janus</h2>
+    <p>The same gesture works on whole scenes of any size: you hover a pixel on the map and its series appears on the chart. You tune the fit on the chart, on one pixel at a time, and then run it on the whole image.</p>
+    <p>The <a href="landtrendr.html">LandTrendr guide</a> goes through that on a full image, and <a href="methods.html">Methods</a> lists the others.</p>
+    <div class="demo-links">
+      <a class="btn btn-primary" href="./#install">Download Janus</a>
+      <a class="btn btn-ghost" href="landtrendr.html">LandTrendr guide</a>
+      <a class="btn btn-ghost" href="methods.html">All methods</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- build:footer -->
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+<script src="assets/search.js" defer></script>
+<!-- /build:footer -->
+
+<script src="assets/main.js" defer></script>
+<script src="assets/demo.js" defer></script>
+</body>
+</html>

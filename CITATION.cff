@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use Janus in your work, please cite it as below."
+type: software
+title: "Janus"
+abstract: "Janus is a desktop application for satellite image time series: it shows the series of any pixel, finds where, when and how much the land changed with methods such as LandTrendr, CCDC and BFAST, and measures the accuracy of the resulting maps."
+authors:
+  - family-names: "Lacerda"
+    given-names: "Eduardo"
+version: "1.16.0"
+date-released: "2026-11-06"
+license: "GPL-3.0-or-later"
+repository-code: "https://github.com/sacridini/janus"
+url: "https://sacridini.github.io/janus/"
+keywords:
+  - remote sensing
+  - time series
+  - change detection
+  - raster

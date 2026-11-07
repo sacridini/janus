@@ -14,9 +14,8 @@
 <meta property="og:description" content="Degradation apart from deforestation, from the NDFI of every Landsat observation of a Rondônia landscape.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/coded/05-strata.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -27,17 +26,19 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / CODED</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / CODED</p>
     <p class="eyebrow">Change detection · forest degradation</p>
     <h1>CODED and the NDFI, step by step.</h1>
     <p class="lede">Logging and understory fire leave a forest standing, and most indices barely see them. The NDFI does: it splits every pixel into green vegetation, dead wood, soil and shade. CODED models it over a training period and calls a change when it falls well below, then tells degradation (still forest after) from deforestation.</p>
@@ -84,6 +85,17 @@
     <section id="data">
       <h2><span class="n">02</span>The example</h2>
       <p>The same Landsat 8 and 9 series as the <a href="ccdc.html">CCDC guide</a>: 125 dates, February 2020 to August 2026, of central Rondônia, with its QA_PIXEL band. The map is zoomed in on a forest cleared in May–June 2022, 261 × 196 pixels around it.</p>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is the author's own stack, not downloaded: Landsat 8/9 Collection 2 Level-2 of Rondônia, 2020–2026, a GeoTIFF per date, made from a Google Earth Engine stack and its CSV of dates (the same as the CCDC guide's). These commands remake the screenshots after the interface changes.</p>
+        <p class="what">A folder of the Landsat dates, cut to the area (west, south, east, north):</p>
+        <div class="cmd"><code>python tools/make_guide_data.py landsat STACK DATES folder -63.36 -10.37 -63.06 -10.08</code><button class="copy" type="button" data-copy="python tools/make_guide_data.py landsat STACK DATES folder -63.36 -10.37 -63.06 -10.08">Copy</button></div>
+        <p class="what">The screenshots, saved as PNGs in the folder <code>shots</code>:</p>
+        <div class="cmd"><code>janus --shots coded folder shots</code><button class="copy" type="button" data-copy="janus --shots coded folder shots">Copy</button></div>
+        <p>The tour drives the guide's steps in a window of 1680 × 1050 and saves the window and its panels as PNGs in <code>shots</code>; the full-window ones are then converted to JPEG.</p>
+        </div>
+      </details>
     </section>
 
     <section id="ndfi">
@@ -94,7 +106,7 @@
         <figcaption><b>The NDFI tool.</b> <span class="ui">Also write the fractions</span> adds the GV, NPV, soil and shade series.</figcaption>
       </figure>
       <figure class="fig">
-        <a href="assets/img/coded/02-ndfi.jpg"><img src="assets/img/coded/02-ndfi.jpg" alt="The NDFI of July 2022 as a layer: forest in green near 1, the fields and the clearing in brown below 0; the chart shows the cleared pixel's NDFI falling from 1 to below 0 in 2022." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/coded/02-ndfi.jpg"><picture><source type="image/webp" srcset="assets/img/coded/02-ndfi.webp"><img src="assets/img/coded/02-ndfi.jpg" alt="The NDFI of July 2022 as a layer: forest in green near 1, the fields and the clearing in brown below 0; the chart shows the cleared pixel's NDFI falling from 1 to below 0 in 2022." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>The NDFI layer</b>, July 2022, over the area of the run (the series shows around it): the clearing is already brown, below 0. On the chart, the cleared pixel's NDFI after mid 2022.</figcaption>
       </figure>
       <p><span class="ui">Max cloud fraction</span> (0.05) leaves out the observations whose unmixed cloud fraction is larger: thin clouds and haze the quality band missed.</p>
@@ -104,7 +116,7 @@
       <h2><span class="n">04</span>CODED on the chart</h2>
       <p><span class="ui">Tools → Change detection → CODED (degradation)</span>. Its bands are found as for CCDC. On the chart, with the layer showing a normalized difference, CODED adds the NDFI of each observation, the training mean, and a vertical line at each change.</p>
       <figure class="fig">
-        <a href="assets/img/coded/03-fit.jpg"><img src="assets/img/coded/03-fit.jpg" alt="CODED's window with monitoring from 2022 and two years of training; on the chart the NDVI of the cleared pixel, the NDFI of each observation and a change line in 2022; the Statistics table with the training, the stratum and the change." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/coded/03-fit.jpg"><picture><source type="image/webp" srcset="assets/img/coded/03-fit.webp"><img src="assets/img/coded/03-fit.jpg" alt="CODED's window with monitoring from 2022 and two years of training; on the chart the NDVI of the cleared pixel, the NDFI of each observation and a change line in 2022; the Statistics table with the training, the stratum and the change." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>The clearing</b>: trained as forest (mean NDFI 1.0 over 9 clear observations of 2020–2021), then a deforestation in May 2022: the NDFI fell by 1.19, to 0.14.</figcaption>
       </figure>
       <div class="fig-pair">
@@ -128,6 +140,146 @@
           <figcaption>Trained as barely forest (mean NDFI 0.50, the canopy already open), a change in July 2023, read as deforestation.</figcaption>
         </figure>
       </div>
+<!-- build:python-tabs -->
+<div class="pytabs" data-tabs>
+  <div class="term-tabs pytabs-bar" role="tablist" aria-label="CODED (degradation): in Janus or in Python" hidden>
+    <button type="button" role="tab" id="pt-coded-janus" aria-controls="pp-coded-janus" aria-selected="true" data-tab="janus">In Janus</button>
+    <button type="button" role="tab" id="pt-coded-python" aria-controls="pp-coded-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>
+  </div>
+  <div class="pytabs-body">
+    <div role="tabpanel" id="pp-coded-janus" aria-labelledby="pt-coded-janus" class="pytabs-panel">
+      <p class="pytabs-h">In Janus</p>
+      <ol>
+        <li>Open the same folder of Landsat dates (<span class="ui">File → Open folder...</span>), NIR as the band and red for the normalized difference.</li>
+        <li>Drop a pin on the forest cleared in May–June 2022.</li>
+        <li>Open <span class="ui">Tools → Change detection → CODED (degradation)</span>, set <span class="ui">Monitoring starts</span> to 2022 and <span class="ui">Training years</span> to 2, and tick <span class="ui">Fit the cursor, pins and ROI series</span>.</li>
+        <li>The chart draws the NDFI and the changes CODED finds on it.</li>
+      </ol>
+    </div>
+    <div role="tabpanel" id="pp-coded-python" aria-labelledby="pt-coded-python" class="pytabs-panel">
+      <p class="pytabs-h">In Python</p>
+      <div class="pycode"><pre class="code py long" tabindex="0"><code><span class="s">"""Janus 1.16.0 (2026-11-07): pin 1 of landsat,
+reproduced outside Janus. Needs: pip install numpy rasterio xarray zeit-cdts
+"""</span>
+<span class="k">import</span> numpy <span class="k">as</span> np
+<span class="k">import</span> rasterio
+<span class="k">from</span> rasterio.windows <span class="k">import</span> Window
+<span class="k">from</span> rasterio.enums <span class="k">import</span> Resampling
+
+<span class="c"># 125 files (ND(NIR, Red), QA QA_PIXEL of each): ND(NIR, Red), QA QA_PIXEL</span>
+<span class="c"># Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).</span>
+layers = [
+    (<span class="s">"landsat/ls_2020-02-04.tif"</span>, <span class="n">4</span>, <span class="n">3</span>, <span class="n">7</span>),
+    (<span class="s">"landsat/ls_2020-05-26.tif"</span>, <span class="n">4</span>, <span class="n">3</span>, <span class="n">7</span>),
+    (<span class="s">"landsat/ls_2020-06-20.tif"</span>, <span class="n">4</span>, <span class="n">3</span>, <span class="n">7</span>),
+    <span class="c"># … 121 more, in the full script</span>
+    (<span class="s">"landsat/ls_2026-08-23.tif"</span>, <span class="n">4</span>, <span class="n">3</span>, <span class="n">7</span>),
+]
+dates = np.array([
+    <span class="s">"2020-02-04"</span>, <span class="s">"2020-05-26"</span>, <span class="s">"2020-06-20"</span>,
+    <span class="c"># … 121 more, in the full script</span>
+    <span class="s">"2026-08-23"</span>], dtype=<span class="s">"datetime64[D]"</span>)
+<span class="c"># Time in years since the first date, as Janus fits trends (365.2425-day years).</span>
+years = np.array([
+    <span class="n">0</span>, <span class="n">0.3066455848</span>, <span class="n">0.37509326</span>,
+    <span class="c"># … 121 more, in the full script</span>
+    <span class="n">6.549073561</span>])
+qa_rule = <span class="s">"landsat_c2"</span>
+
+<span class="k">def</span> usable(q, rule):
+    <span class="s">"""Observations Janus keeps, from the quality band's codes (nodata: none)."""</span>
+    ok = np.isfinite(q) &amp; (q &gt;= <span class="n">0</span>)
+    c = np.where(ok, q, <span class="n">0</span>).astype(np.int64)
+    <span class="k">if</span> rule == <span class="s">"fmask"</span>:          <span class="c"># 0 clear land, 1 water</span>
+        <span class="k">return</span> ok &amp; ((c == <span class="n">0</span>) | (c == <span class="n">1</span>))
+    <span class="k">if</span> rule == <span class="s">"landsat_c2"</span>:     <span class="c"># QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow, 5 snow</span>
+        <span class="k">return</span> ok &amp; ((c &amp; 0x3B) == <span class="n">0</span>)
+    <span class="k">if</span> rule == <span class="s">"scl"</span>:            <span class="c"># Sentinel-2 SCL: 4 vegetation, 5 bare soil, 6 water</span>
+        <span class="k">return</span> ok &amp; (c &gt;= <span class="n">4</span>) &amp; (c &lt;= <span class="n">6</span>)
+    <span class="k">if</span> rule == <span class="s">"hls_fmask"</span>:      <span class="c"># HLS Fmask bits 1 cloud, 2 adjacent, 3 shadow, 4 snow; 255 fill</span>
+        <span class="k">return</span> ok &amp; (c != <span class="n">255</span>) &amp; ((c &amp; 0x1E) == <span class="n">0</span>)
+    <span class="k">return</span> ok &amp; (c != <span class="n">0</span>)         <span class="c"># a 0/1 mask</span>
+
+
+<span class="k">def</span> read(path, band, window, out_shape=<span class="k">None</span>, raw=<span class="k">False</span>):
+    <span class="s">"""A band over a window: nodata -&gt; NaN, the band's scale and offset applied."""</span>
+    <span class="k">with</span> rasterio.open(path) <span class="k">as</span> src:
+        kw = {<span class="s">"out_shape"</span>: out_shape, <span class="s">"resampling"</span>: Resampling.nearest} <span class="k">if</span> out_shape <span class="k">else</span> {}
+        a = src.read(band, window=window, masked=<span class="k">True</span>, **kw).astype(<span class="s">"float64"</span>)
+        <span class="k">if</span> <span class="k">not</span> raw:
+            a = a * src.scales[band - <span class="n">1</span>] + src.offsets[band - <span class="n">1</span>]
+        <span class="k">return</span> np.ma.filled(a, np.nan)
+
+
+<span class="k">def</span> shown(layer, window, out_shape=<span class="k">None</span>):
+    <span class="s">"""What the series shows at a date: the band, or the normalized difference, masked by the quality band."""</span>
+    path, band, nd_band, qa_band = layer
+    v = read(path, band, window, out_shape)
+    <span class="k">if</span> nd_band:
+        b = read(path, nd_band, window, out_shape)
+        <span class="k">with</span> np.errstate(invalid=<span class="s">"ignore"</span>, divide=<span class="s">"ignore"</span>):
+            v = np.where(v + b != <span class="n">0</span>, (v - b) / (v + b), np.nan)
+    <span class="k">if</span> qa_band:
+        v = np.where(usable(read(path, qa_band, window, out_shape, raw=<span class="k">True</span>), qa_rule), v, np.nan)
+    <span class="k">return</span> v
+
+<span class="c"># The pixel (column, row of the files), its centre at x -63.1191015, y -10.1301365 (EPSG:4326).</span>
+col, row = <span class="n">896</span>, <span class="n">186</span>
+values = np.array([shown(layer, Window(col, row, <span class="n">1</span>, <span class="n">1</span>))[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> layer <span class="k">in</span> layers])
+
+ok = np.isfinite(values)
+y, t = values[ok], years[ok]
+print(<span class="s">"n"</span>, ok.sum(), <span class="s">"mean"</span>, y.mean(), <span class="s">"std"</span>, y.std(ddof=<span class="n">1</span>) <span class="k">if</span> y.size &gt; <span class="n">1</span> <span class="k">else</span> np.nan)
+<span class="k">if</span> y.size &gt;= <span class="n">2</span>:
+    slope, intercept = np.polyfit(t, y, <span class="n">1</span>)                  <span class="c"># OLS, per year</span>
+    i, j = np.triu_indices(y.size, <span class="n">1</span>)
+    keep = t[j] != t[i]
+    sen = np.median((y[j] - y[i])[keep] / (t[j] - t[i])[keep])  <span class="c"># Sen's slope, per year</span>
+    print(<span class="s">"OLS slope"</span>, slope, <span class="s">"Sen's slope"</span>, sen)
+
+<span class="c"># CODED (degradation), fitted on the chart with these parameters: the same Zeit calls Janus makes</span>
+<span class="c"># (its model is drawn from their results).</span>
+<span class="k">import</span> xarray <span class="k">as</span> xr
+<span class="k">import</span> zeit
+
+<span class="c"># The bands by role (bands of each date's file), as reflectance x 10000 (Zeit's convention:</span>
+<span class="c"># 0-1 reflectance x 10000; Landsat C2 L2 numbers x 0.0000275 - 0.2, x 10000; set `units`).</span>
+roles = {<span class="s">"blue"</span>: <span class="n">1</span>, <span class="s">"green"</span>: <span class="n">2</span>, <span class="s">"nir"</span>: <span class="n">4</span>, <span class="s">"red"</span>: <span class="n">3</span>, <span class="s">"swir1"</span>: <span class="n">5</span>, <span class="s">"swir2"</span>: <span class="n">6</span>}
+order = [r <span class="k">for</span> r <span class="k">in</span> (<span class="s">"blue"</span>, <span class="s">"green"</span>, <span class="s">"red"</span>, <span class="s">"nir"</span>, <span class="s">"swir1"</span>, <span class="s">"swir2"</span>, <span class="s">"thermal"</span>) <span class="k">if</span> r <span class="k">in</span> roles]
+raw = {r: np.array([read(layer[<span class="n">0</span>], roles[r], Window(col, row, <span class="n">1</span>, <span class="n">1</span>))[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> layer <span class="k">in</span> layers])
+       <span class="k">for</span> r <span class="k">in</span> order}
+optical = np.concatenate([raw[r] <span class="k">for</span> r <span class="k">in</span> order <span class="k">if</span> r != <span class="s">"thermal"</span>])
+med = np.nanmedian(optical)
+units = <span class="s">"unit"</span> <span class="k">if</span> med &lt;= <span class="n">2</span> <span class="k">else</span> <span class="s">"landsat_c2"</span> <span class="k">if</span> med &gt;= <span class="n">6500</span> <span class="k">else</span> <span class="s">"x10000"</span>
+to_x10000 = {<span class="s">"unit"</span>: <span class="k">lambda</span> v: v * <span class="n">10000</span>, <span class="s">"landsat_c2"</span>: <span class="k">lambda</span> v: (v * <span class="n">2.75e-5</span> - <span class="n">0.2</span>) * <span class="n">10000</span>,
+             <span class="s">"x10000"</span>: <span class="k">lambda</span> v: v}[units]
+cube = np.stack([to_x10000(raw[r]) <span class="k">for</span> r <span class="k">in</span> order])  <span class="c"># (band, time); the thermal band: deg C x 100 in Zeit</span>
+bands_cube = xr.DataArray(cube.T[:, :, <span class="k">None</span>, <span class="k">None</span>], dims=(<span class="s">"time"</span>, <span class="s">"band"</span>, <span class="s">"y"</span>, <span class="s">"x"</span>),
+                          coords={<span class="s">"time"</span>: dates.astype(<span class="s">"datetime64[ns]"</span>), <span class="s">"band"</span>: order})
+<span class="c"># Fmask codes (0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 no observation) from the quality band.</span>
+complete = np.all(np.isfinite(cube), axis=<span class="n">0</span>)
+q = np.array([read(path, qa, Window(col, row, <span class="n">1</span>, <span class="n">1</span>), raw=<span class="k">True</span>)[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> path, _, _, qa <span class="k">in</span> layers])
+c = np.where(np.isfinite(q) &amp; (q &gt;= <span class="n">0</span>), q, <span class="n">255</span>).astype(np.int64)
+<span class="k">if</span> qa_rule == <span class="s">"fmask"</span>:
+    f = c.astype(np.int32)
+<span class="k">elif</span> qa_rule == <span class="s">"landsat_c2"</span>:
+    f = np.zeros(c.shape, np.int32)
+    f[(c &amp; <span class="n">128</span>) != <span class="n">0</span>] = <span class="n">1</span>; f[(c &amp; <span class="n">32</span>) != <span class="n">0</span>] = <span class="n">3</span>; f[(c &amp; <span class="n">16</span>) != <span class="n">0</span>] = <span class="n">2</span>; f[(c &amp; <span class="n">10</span>) != <span class="n">0</span>] = <span class="n">4</span>; f[(c &amp; <span class="n">1</span>) != <span class="n">0</span>] = <span class="n">255</span>
+<span class="k">elif</span> qa_rule == <span class="s">"hls_fmask"</span>:
+    f = np.zeros(c.shape, np.int32)
+    f[(c &amp; <span class="n">32</span>) != <span class="n">0</span>] = <span class="n">1</span>; f[(c &amp; <span class="n">16</span>) != <span class="n">0</span>] = <span class="n">3</span>; f[(c &amp; <span class="n">8</span>) != <span class="n">0</span>] = <span class="n">2</span>; f[(c &amp; <span class="n">6</span>) != <span class="n">0</span>] = <span class="n">4</span>; f[c == <span class="n">255</span>] = <span class="n">255</span>
+<span class="k">else</span>:
+    f = np.where(c != <span class="n">0</span>, <span class="n">0</span>, <span class="n">4</span>).astype(np.int32)
+fmask_codes = np.where(complete, f, <span class="n">255</span>)
+fmask = fmask_codes.astype(np.int32)[:, <span class="k">None</span>, <span class="k">None</span>]
+result1 = zeit.coded(bands_cube, start=<span class="n">2022.0</span>, train_years=<span class="n">2.0</span>, consec=<span class="n">3</span>, thresh=<span class="n">3.0</span>, min_years=<span class="n">3.0</span>, min_obs=<span class="n">6</span>, direction=<span class="s">'loss'</span>, max_events=<span class="n">3</span>, forest_ndfi=<span class="n">0.5</span>, scale=<span class="n">10000.0</span>, cloud_threshold=<span class="n">0.05</span>, nodata=<span class="k">None</span>, n_jobs=<span class="n">1</span>)
+print(result1)
+</code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/coded.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/coded.py" download="coded.py">Download .py</a></div></div>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit (<code>pip install zeit-cdts</code>). The shown code shortens the long lists of files and dates; Copy and Download give the whole script.</p>
+    </div>
+  </div>
+</div>
+<!-- /build:python-tabs -->
     </section>
 
     <section id="params">
@@ -156,7 +308,7 @@
       <h2><span class="n">06</span>The maps</h2>
       <p>Run over the visible area (14 s here; about 80 s for the whole 1.2 million pixels), CODED maps:</p>
       <figure class="fig">
-        <a href="assets/img/coded/05-strata.jpg"><img src="assets/img/coded/05-strata.jpg" alt="CODED's strata over the area: forest, non-forest, degradation, deforestation and disturbance, with the legend in the Layers panel." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/coded/05-strata.jpg"><picture><source type="image/webp" srcset="assets/img/coded/05-strata.webp"><img src="assets/img/coded/05-strata.jpg" alt="CODED's strata over the area: forest, non-forest, degradation, deforestation and disturbance, with the legend in the Layers panel." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>Strata</b>: forest (green), non-forest (beige), degradation (orange), deforestation (red), disturbance (purple).</figcaption>
       </figure>
       <div class="tbl-wrap">
@@ -172,7 +324,7 @@
         </table>
       </div>
       <figure class="fig">
-        <a href="assets/img/coded/06-first-change.jpg"><img src="assets/img/coded/06-first-change.jpg" alt="The date of the first change over the area." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/coded/06-first-change.jpg"><picture><source type="image/webp" srcset="assets/img/coded/06-first-change.webp"><img src="assets/img/coded/06-first-change.jpg" alt="The date of the first change over the area." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>First change date.</b></figcaption>
       </figure>
     </section>
@@ -180,9 +332,10 @@
     <section id="threshold">
       <h2><span class="n">07</span>How strict</h2>
       <p>With only two years of training, about nine clear observations, the model of a forest pixel is tight, and ordinary variation from one dry season to the next crosses 3 RMSEs: above, much of the standing forest reads as degraded. At 5 RMSEs only the strong drops are left: the clearings, in red, and far less orange. There is no right threshold in general. Check it on pins over forest you know untouched and over logging you know of, and give CODED a longer training period when the series allows.</p>
-      <figure class="fig">
-        <a href="assets/img/coded/07-strata-5.jpg"><img src="assets/img/coded/07-strata-5.jpg" alt="CODED's strata with a threshold of 5 RMSEs." width="1680" height="1050" loading="lazy"></a>
-        <figcaption><b>Threshold 5 RMSEs.</b></figcaption>
+      <figure class="fig swipe">
+        <picture><source type="image/webp" srcset="assets/img/coded/05-strata.webp"><img class="before" data-label="3 RMSEs" src="assets/img/coded/05-strata.jpg" alt="CODED's strata over the area: forest, non-forest, degradation, deforestation and disturbance, with the legend in the Layers panel." width="1680" height="1050" loading="lazy"></picture>
+        <picture><source type="image/webp" srcset="assets/img/coded/07-strata-5.webp"><img class="after" data-label="5 RMSEs" src="assets/img/coded/07-strata-5.jpg" alt="CODED's strata with a threshold of 5 RMSEs." width="1680" height="1050" loading="lazy"></picture>
+        <figcaption><b>Drag the divider to compare</b> the strata at a threshold of 3 RMSEs (first image, left; the first map of the guide) and of 5 (second image, right): the orange of degradation shrinks, and the red clearings stay.</figcaption>
       </figure>
     </section>
 
@@ -219,6 +372,12 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -226,6 +385,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>
