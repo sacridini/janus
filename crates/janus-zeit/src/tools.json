@@ -4289,6 +4289,241 @@
     }
    ],
    "chunk_cells": 50000
+  },
+  {
+   "id": "tasseled_cap",
+   "name": "Tasseled Cap (FORCE)",
+   "category": "Spectral analysis",
+   "description": "Tasseled Cap brightness, greenness and wetness (Zeit's zeit.tasseled_cap, FORCE's TC-BRIGHT, TC-GREEN, TC-WET and TC-DI): each component is a fixed weighted sum of the six reflective bands (blue, green, red, NIR, SWIR1, SWIR2) of a date, in float32 with FORCE's order of operations, so that its values truncated to integers are FORCE's. Brightness is soil and built-up, greenness green vegetation, wetness moisture and shade; the disturbance is brightness - greenness - wetness of the same matrix (FORCE's TC-DI, not the standardized index of Healey et al. 2005). Needs Landsat-style surface reflectance (map the six bands) with real dates; Sentinel-2's NIR for FORCE is B8A, so map B8A to NIR. A raster run writes one series per component and opens each as a new layer, ready for LandTrendr, BFAST and the other tools.",
+   "requires": {
+    "time": "any",
+    "min_dates": 1,
+    "bands": [
+     "blue",
+     "green",
+     "red",
+     "nir",
+     "swir1",
+     "swir2"
+    ]
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "components",
+     "label": "Components",
+     "type": "multi",
+     "default": [
+      "brightness",
+      "greenness",
+      "wetness"
+     ],
+     "options": [
+      "brightness",
+      "greenness",
+      "wetness",
+      "disturbance"
+     ],
+     "labels": [
+      "Brightness",
+      "Greenness",
+      "Wetness",
+      "Disturbance (B - G - W, FORCE's TC-DI)"
+     ],
+     "help": "What to compute, one series each. The disturbance is brightness - greenness - wetness of the matrix used, as it comes."
+    },
+    {
+     "id": "coefficients",
+     "label": "Coefficients",
+     "type": "enum",
+     "default": "crist1985",
+     "options": [
+      "crist1985",
+      "sensor",
+      "huang2002",
+      "baig2014"
+     ],
+     "labels": [
+      "Crist 1985 (FORCE, every sensor)",
+      "Each date's sensor (TM Crist, ETM+ Huang 2002, OLI Baig 2014, MSI Crist)",
+      "Huang et al. 2002 (ETM+)",
+      "Baig et al. 2014 (OLI)"
+     ],
+     "help": "Crist (1985, RSE 17:301-306), derived for Landsat 4-5 TM reflectance factors, is the matrix FORCE applies to every sensor. Each date's sensor: the matrix published for it (Landsat 4-5 Crist 1985, Landsat 7 ETM+ Huang et al. 2002, Landsat 8-9 OLI Baig et al. 2014, Sentinel-2 Crist 1985 as FORCE), with the sensor read from the scene each date came from (its STAC platform, else its file name: LC08_..., LE07_..., S2B_...); a date of another sensor is an error. Huang et al. (2002, IJRS 23:1741-1748) and Baig et al. (2014, Remote Sensing Letters 5:423-431) were derived for at-satellite (top-of-atmosphere) reflectance: applying them to surface reflectance is common practice but approximate, and only Crist's matrix was derived for surface reflectance factors."
+    },
+    {
+     "id": "units",
+     "label": "Reflectance units",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "x10000",
+      "unit",
+      "landsat_c2"
+     ],
+     "labels": [
+      "Automatic (from the values)",
+      "Reflectance x 10000",
+      "Reflectance 0-1",
+      "Landsat C2 L2 digital numbers"
+     ],
+     "help": "The bands are taken as reflectance x 10000 (the scale of FORCE's integers, and of Zeit's Landsat tools in Janus), and the result is in it. Automatic: median <= 2 -> reflectance 0-1; median >= 6500 -> Landsat Collection 2 Level-2 digital numbers (x 0.0000275 - 0.2); otherwise already x 10000. Janus applies the files' scale/offset metadata first, when present."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "tc",
+     "name": "{}",
+     "unit": "reflectance x 10000",
+     "each": "components",
+     "series": true
+    }
+   ],
+   "chunk_cells": 50000
+  },
+  {
+   "id": "spectral_adjust",
+   "name": "Spectral adjustment to Sentinel-2A (FORCE)",
+   "category": "Data preparation",
+   "description": "Landsat or MODIS surface reflectance on the spectral response of Sentinel-2A, with the red edge bands and the broad NIR those sensors do not have predicted (Zeit's zeit.spectral_adjust: FORCE's spectral adjustment, Scheffler, Frantz and Segl 2020, RSE 241:111723). Each sensor (Landsat 4, 5, 7, 8, 9, MODIS Terra, MODIS Aqua) has 50 clusters of spectra and a global one, each with a regression of the ten Sentinel-2A bands on its six (blue, green, red, NIR, SWIR1, SWIR2); each pixel's prediction is the average of the regressions of the closest clusters by spectral angle. All ten bands are rewritten, not only the new ones. Needs Landsat-style surface reflectance (map the six bands) with real dates. The ten bands are written as series, one layer each (reflectance x 10000). Dates of Sentinel-2 are refused (Zeit passes them through with their ten bands, which Janus does not map).",
+   "requires": {
+    "time": "any",
+    "min_dates": 1,
+    "bands": [
+     "blue",
+     "green",
+     "red",
+     "nir",
+     "swir1",
+     "swir2"
+    ]
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "sensor",
+     "label": "Sensor",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "LND04",
+      "LND05",
+      "LND07",
+      "LND08",
+      "LND09",
+      "MOD01",
+      "MOD02"
+     ],
+     "labels": [
+      "Each date's own (from its scene)",
+      "Landsat 4 (TM)",
+      "Landsat 5 (TM)",
+      "Landsat 7 (ETM+)",
+      "Landsat 8 (OLI)",
+      "Landsat 9 (OLI-2)",
+      "MODIS Terra",
+      "MODIS Aqua"
+     ],
+     "help": "The sensor of every date. Each date's own: read from the scene the date came from (its STAC platform, else its file name: LC08_..., LT05_..., MOD09...); a date whose sensor is not found is an error, and so is a Sentinel-2 one. For MODIS, map SWIR1 to band 6 and SWIR2 to band 7."
+    },
+    {
+     "id": "units",
+     "label": "Reflectance units",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "x10000",
+      "unit",
+      "landsat_c2"
+     ],
+     "labels": [
+      "Automatic (from the values)",
+      "Reflectance x 10000",
+      "Reflectance 0-1",
+      "Landsat C2 L2 digital numbers"
+     ],
+     "help": "The bands are taken as reflectance x 10000 (the scale of FORCE's integers, and of Zeit's Landsat tools in Janus), and the result is in it. Automatic: median <= 2 -> reflectance 0-1; median >= 6500 -> Landsat Collection 2 Level-2 digital numbers (x 0.0000275 - 0.2); otherwise already x 10000. Janus applies the files' scale/offset metadata first, when present."
+    },
+    {
+     "id": "force_search",
+     "label": "FORCE's first cluster search (skips cluster 9)",
+     "type": "bool",
+     "default": false,
+     "help": "FORCE's first search for the closest cluster skips cluster 9 (it tests s != 9 where it means to leave out the global cluster, as its other searches do) and lets the global cluster be the first pick. On: the search as FORCE has it, so that the values truncated to integers are FORCE's in every pixel. Off: the search as the paper means it (cluster 9 competes, the global cluster is never the first pick), which differs from FORCE's integers by more than 1 in 1.6-2.3% of the observations of synthetic mixtures."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "blue",
+     "name": "Blue (Sentinel-2A)",
+     "unit": "reflectance x 10000",
+     "series": true
+    },
+    {
+     "id": "green",
+     "name": "Green (Sentinel-2A)",
+     "unit": "reflectance x 10000",
+     "series": true
+    },
+    {
+     "id": "red",
+     "name": "Red (Sentinel-2A)",
+     "unit": "reflectance x 10000",
+     "series": true
+    },
+    {
+     "id": "rededge1",
+     "name": "Red edge 1, B5 (Sentinel-2A)",
+     "unit": "reflectance x 10000",
+     "series": true
+    },
+    {
+     "id": "rededge2",
+     "name": "Red edge 2, B6 (Sentinel-2A)",
+     "unit": "reflectance x 10000",
+     "series": true
+    },
+    {
+     "id": "rededge3",
+     "name": "Red edge 3, B7 (Sentinel-2A)",
+     "unit": "reflectance x 10000",
+     "series": true
+    },
+    {
+     "id": "nir",
+     "name": "Broad NIR, B8 (Sentinel-2A)",
+     "unit": "reflectance x 10000",
+     "series": true
+    },
+    {
+     "id": "nir08",
+     "name": "NIR, B8A (Sentinel-2A)",
+     "unit": "reflectance x 10000",
+     "series": true
+    },
+    {
+     "id": "swir16",
+     "name": "SWIR1, B11 (Sentinel-2A)",
+     "unit": "reflectance x 10000",
+     "series": true
+    },
+    {
+     "id": "swir22",
+     "name": "SWIR2, B12 (Sentinel-2A)",
+     "unit": "reflectance x 10000",
+     "series": true
+    }
+   ],
+   "chunk_cells": 20000
   }
  ],
  "errors": []

@@ -1726,22 +1726,15 @@ mod tests {
         let code = chain_code(&steps, &[], &input, &out.to_string_lossy()).unwrap();
         let script = base.join("chain.py");
         std::fs::write(&script, code).unwrap();
-        // the PATH as an activated conda environment has it, without the GDAL builds that shadow rasterio's
+        // the PATH as an activated conda environment has it and Windows' own: the other DLLs on the test's PATH (the
+        // GDAL builds, another environment's libraries) shadow the environment's (pyexpat fails to load)
         let root = Path::new(&python).parent().unwrap().to_path_buf();
+        let system = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
         let mut path: Vec<String> = ["", "Library\\mingw-w64\\bin", "Library\\usr\\bin", "Library\\bin", "Scripts"]
             .iter()
             .map(|d| root.join(d).to_string_lossy().into_owned())
             .collect();
-        path.extend(
-            std::env::var("PATH")
-                .unwrap_or_default()
-                .split(';')
-                .filter(|p| {
-                    let p = p.to_lowercase();
-                    !["program files\\gdal", "strawberry", "git", "\\target\\"].iter().any(|x| p.contains(x))
-                })
-                .map(str::to_string),
-        );
+        path.extend([format!("{system}\\system32"), system.clone()]);
         let run = std::process::Command::new(python)
             .arg(&script)
             .env_clear()

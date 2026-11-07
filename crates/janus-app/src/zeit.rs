@@ -305,8 +305,26 @@ fn shown_of(info: &CubeInfo, roles: &BTreeMap<String, i32>) -> Option<Shown> {
     })
 }
 
+/// Each date's sensor of a series for the tools that read it (Tasseled Cap, the spectral adjustment; none for the
+/// others), read once per series: its dates' files are opened to find their STAC platform.
+pub(crate) fn sensors_for(tool: &str, info: &CubeInfo) -> Vec<String> {
+    use std::sync::{LazyLock, Mutex};
+    static CACHE: LazyLock<Mutex<HashMap<u64, Vec<String>>>> = LazyLock::new(Default::default);
+    if !janus_zeit::sensors::needs(tool) {
+        return vec![];
+    }
+    if let Some(s) = CACHE.lock().ok().and_then(|c| c.get(&info.id).filter(|s| s.len() == info.t()).cloned()) {
+        return s;
+    }
+    let found = janus_zeit::sensors::of_series(info);
+    if let Ok(mut c) = CACHE.lock() {
+        c.insert(info.id, found.clone());
+    }
+    found
+}
+
 /// A series of a layer as a pixel run gets it.
-fn pixel_input(info: &CubeInfo, values: &[f32], t: usize, roles: &BTreeMap<String, i32>) -> PixelInput {
+fn pixel_input(info: &CubeInfo, tool: &str, values: &[f32], t: usize, roles: &BTreeMap<String, i32>) -> PixelInput {
     // a spectrum's axis: the wavelengths (nm), as the chart draws it
     let x = |i: usize| if info.spectral { info.layers[i].time } else { info.decimal_year(i) };
     PixelInput {
@@ -316,6 +334,7 @@ fn pixel_input(info: &CubeInfo, values: &[f32], t: usize, roles: &BTreeMap<Strin
         shown: shown_of(info, roles),
         map_year: Some(x(t.min(info.t().saturating_sub(1)))),
         qa_rule: (info.sel.qa_band > 0).then(|| info.sel.qa_rule.id().to_string()),
+        sensors: sensors_for(tool, info),
         ..Default::default()
     }
 }
@@ -551,7 +570,7 @@ impl State {
                     version,
                     tool: id.clone(),
                     params: params.clone(),
-                    input: pixel_input(cube, &view.values, t, &roles),
+                    input: pixel_input(cube, &id, &view.values, t, &roles),
                     bands: b,
                 });
             }
@@ -590,7 +609,7 @@ impl State {
                     version,
                     tool: id.clone(),
                     params: params.clone(),
-                    input: pixel_input(&info, &roi.mean, t, &roles),
+                    input: pixel_input(&info, &id, &roi.mean, t, &roles),
                     bands: None,
                 });
             }
@@ -2783,6 +2802,7 @@ pub(crate) fn series_inputs(
                 .insert(role, info.band_names.get(b as usize - 1).cloned().unwrap_or_else(|| format!("band {b}")));
         }
     }
+    spec.sensors = sensors_for(&tool.id, info);
     if tool.id == "snic" && spec.params.get("features").and_then(Value::as_str) == Some("bands") {
         // SNIC on every band of every date
         for b in 1..=info.bands_per_date.max(1) {
@@ -2809,7 +2829,7 @@ pub(crate) fn read_pixel_input(
     y: usize,
     t: usize,
 ) -> PixelInput {
-    let mut input = pixel_input(info, values, t, roles);
+    let mut input = pixel_input(info, &tool.id, values, t, roles);
     if reads_bands(tool) {
         let mut reader = CubeReader::new(info.clone());
         let n = info.t();

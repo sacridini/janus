@@ -43,7 +43,7 @@ fn data(name: &str) -> String {
 
 /// Tools Janus has and the bridge never had (their references are Zeit's own: tests/snic.rs, zeit-core's
 /// remotePARTS tests for ar_trend).
-const AFTER_THE_BRIDGE: [&str; 20] = [
+const AFTER_THE_BRIDGE: [&str; 22] = [
     "snic",
     "ar_trend",
     "recovery",
@@ -64,6 +64,8 @@ const AFTER_THE_BRIDGE: [&str; 20] = [
     "cat",
     "clear_observations",
     "polar_metrics",
+    "tasseled_cap",
+    "spectral_adjust",
 ];
 
 #[test]
@@ -179,6 +181,7 @@ fn compare_within(tool: &str, tol: impl Fn(&Case) -> Tol) {
             qa_rule: c.qa_rule.clone(),
             shown: c.shown.clone(),
             map_year: c.map_year,
+            sensors: vec![],
         };
         let got = run_pixel(tool, &p, &input);
         let ok = match (&got, c.result.get("error")) {

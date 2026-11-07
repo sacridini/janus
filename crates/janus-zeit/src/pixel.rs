@@ -61,6 +61,9 @@ pub struct PixelInput {
     pub shown: Option<Shown>,
     /// the decimal year of the date shown on the map (CCDC's synthetic image)
     pub map_year: Option<f64>,
+    /// each date's sensor in FORCE's names (LND04..LND09, MOD01, MOD02, SEN2; "" where none is known), for the tools
+    /// that depend on it (Tasseled Cap, spectral adjustment); empty when the caller did not read them
+    pub sensors: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -165,6 +168,8 @@ pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResu
         "cat" => crate::fold_trend::pixel_cat(p, input),
         "clear_observations" => crate::clear_observations::pixel(p, input),
         "polar_metrics" => crate::polar_metrics::pixel(p, input),
+        "tasseled_cap" => crate::tasseled::pixel(p, input),
+        "spectral_adjust" => crate::spectral_adjust::pixel(p, input),
         "standardize" => crate::standardize::pixel(p, input),
         "ar_trend" => crate::ar_trend::pixel(p, input),
         "recovery" => crate::recovery::pixel(p, input),

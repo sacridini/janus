@@ -485,6 +485,51 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
             ),
             series,
         ),
+        "tasseled_cap" => {
+            let sensor = if p.str("coefficients") == "sensor" && !input.sensors.is_empty() {
+                format!(", sensor={}", py_list(&zeit_sensors(&input.sensors)))
+            } else {
+                String::new()
+            };
+            (
+                format!(
+                    "{CLEAR_ONLY}result1 = zeit.tasseled_cap(clear_cube, {}, coefficients={}{sensor}, \
+                     bands={ROLE_BANDS}, nodata=None, n_jobs=1)",
+                    py_list(&unique_options(p, "components")),
+                    s("coefficients")
+                ),
+                vec!["bands_cube", "fmask"],
+            )
+        }
+        "spectral_adjust" => {
+            let sensor = match p.str("sensor") {
+                "auto" if input.sensors.is_empty() => String::new(),
+                "auto" => format!("sensor={}, ", py_list(&zeit_sensors(&input.sensors))),
+                name => format!("sensor={}, ", py_str(name)),
+            };
+            (
+                format!(
+                    "{CLEAR_ONLY}result1 = zeit.spectral_adjust(clear_cube, {sensor}bands={ROLE_BANDS}, scale=10000.0, \
+                     nodata=None, n_jobs=1, force_search={})",
+                    py_bool(p.bool("force_search"))
+                ),
+                vec!["bands_cube", "fmask"],
+            )
+        }
         _ => return None,
     })
+}
+
+/// The cube of the observations the quality band keeps (the others missing, as Janus leaves them out): `fmask` is
+/// (time, y, x) in a raster run's code and (time, 1, 1) in a pixel's.
+const CLEAR_ONLY: &str = "# the observations the quality band keeps (Janus leaves the others out)\n\
+                          clear_cube = bands_cube.copy(data=np.where((fmask <= 1)[:, None], bands_cube.values, np.nan))\n";
+
+/// The cube's band of each role: Zeit looks for `swir16` and `swir22` where Janus names them `swir1` and `swir2`.
+const ROLE_BANDS: &str =
+    "{'blue': 'blue', 'green': 'green', 'red': 'red', 'nir': 'nir', 'swir1': 'swir1', 'swir2': 'swir2'}";
+
+/// Each date's sensor as Zeit's `sensor=` takes it: FORCE's names, and "sentinel-2" for any Sentinel-2 unit.
+fn zeit_sensors(sensors: &[String]) -> Vec<String> {
+    sensors.iter().map(|s| if s == "SEN2" { "sentinel-2".into() } else { s.clone() }).collect()
 }

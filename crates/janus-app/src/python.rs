@@ -211,6 +211,7 @@ impl State {
                     days: info.time_is_date.then(|| (0..t_n).map(|t| info.unix_day(t)).collect()),
                     values: values.iter().map(|&v| f64::from(v)).collect(),
                     bands: roles,
+                    sensors: crate::zeit::sensors_for(&id, &info),
                     ..Default::default()
                 };
                 let (code, inputs) = janus_zeit::python::calls(&id, &params, &input)?;
@@ -480,6 +481,7 @@ pub(crate) fn tool_calls(
         days: info.time_is_date.then(|| (0..t_n).map(|t| info.unix_day(t)).collect()),
         values: vec![0.0; t_n],
         bands: roles.keys().map(|r| (r.clone(), vec![])).collect(),
+        sensors: crate::zeit::sensors_for(&tool.id, info),
         ..Default::default()
     };
     let (code, inputs) = janus_zeit::python::calls(&tool.id, &p, &input)

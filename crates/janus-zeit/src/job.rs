@@ -60,6 +60,10 @@ pub struct JobSpec {
     /// CPU threads (Settings); none or <= 0: not limited
     #[serde(default)]
     pub threads: Option<i64>,
+    /// each date's sensor in FORCE's names ("" where none is known), for the tools that depend on it (Tasseled Cap,
+    /// spectral adjustment)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sensors: Vec<String>,
     /// a categorical layer's classes: the names and colours of its class series outputs ("uint16")
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub classes: Vec<ClassDef>,
@@ -155,6 +159,7 @@ impl JobSpec {
             shown: self.shown.clone(),
             map_year: self.map_year,
             qa_rule: self.qa_rule.clone(),
+            sensors: self.sensors.clone(),
             ..Default::default()
         }
     }
@@ -700,6 +705,8 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "cat" => crate::fold_trend::chunk_cat(p, chunk, ctx),
         "clear_observations" => crate::clear_observations::chunk(p, chunk, ctx),
         "polar_metrics" => crate::polar_metrics::chunk(p, chunk, ctx),
+        "tasseled_cap" => crate::tasseled::chunk(p, chunk, ctx),
+        "spectral_adjust" => crate::spectral_adjust::chunk(p, chunk, ctx),
         "standardize" => crate::standardize::chunk(p, chunk, ctx),
         "ar_trend" => crate::ar_trend::chunk(p, chunk, ctx),
         "recovery" => crate::recovery::chunk(p, chunk, ctx),

@@ -100,6 +100,7 @@ fn pixel_input(px: usize) -> PixelInput {
         qa_rule: Some("fmask".into()),
         shown: Some(Shown { band: None, nd: Some(vec!["nir".into(), "red".into()]) }),
         map_year: None,
+        sensors: vec![],
     }
 }
 

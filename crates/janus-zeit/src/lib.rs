@@ -41,12 +41,15 @@ pub mod recovery;
 pub mod regularize;
 pub mod rng;
 mod sccd;
+pub mod sensors;
 pub mod series_io;
 mod smooth;
 pub mod snic;
 mod som;
 pub mod speckle;
+mod spectral_adjust;
 mod standardize;
+mod tasseled;
 mod temporal_metrics;
 pub mod texture;
 mod tmask;
@@ -61,7 +64,7 @@ pub mod zonal;
 pub const ZEIT_VERSION: &str = "3.0.0";
 
 /// zeit-core's git revision (Cargo.toml's `rev`), as a run's provenance records it.
-pub const ZEIT_CORE_REV: &str = "3cb0f1b799cc9dd94cd9f19c0e61bb290e60d491";
+pub const ZEIT_CORE_REV: &str = "f20ff435fef366913b287163c3daa738ed166254";
 
 pub use manifest::{CATEGORIES, CLASSIFICATION, DATA_PREPARATION, Manifest, Output, Param, Tool, manifest};
 pub use pixel::{Overlay, Params, PixelInput, PixelResult, run_pixel};
