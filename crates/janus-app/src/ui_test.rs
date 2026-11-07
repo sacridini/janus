@@ -26,6 +26,8 @@ mod misc;
 mod roi;
 #[path = "ui_test_scripts.rs"]
 mod scripts_check;
+#[path = "ui_test_ard.rs"]
+mod ard;
 #[path = "ui_test_tsa.rs"]
 mod tsa;
 #[path = "ui_test_validation.rs"]
@@ -93,6 +95,8 @@ pub struct UiTest {
     web: Option<janus_geo::ogc_mock::MockServer>,
     /// stages 300-309: the Time series analysis window (ui_test_tsa.rs)
     tsa: tsa::TsaTest,
+    /// stages 310-319: the Analysis-ready data window (ui_test_ard.rs)
+    ard: ard::ArdTest,
 }
 
 /// Frames in a row a window may widen (its content changed) before it is a window growing by itself.
@@ -124,6 +128,7 @@ fn growing_window(
                 .chain([(egui::Id::new("ml window"), "Classification")])
                 .chain([(egui::Id::new("calculator window"), "Raster calculator")])
                 .chain([(egui::Id::new("tsa window"), "Time series analysis")])
+                .chain([(egui::Id::new("ard window"), "Analysis-ready data")])
                 .chain(tools)
                 .find(|(i, _)| *i == id)
                 .map_or_else(|| format!("{id:?}"), |(_, t)| t.to_string());
@@ -1023,6 +1028,7 @@ impl State {
             170..=179 => return self.test_validation(st, &input, t0, ctx),
             180..=299 => return self.test_interface(st, &input, t0, ctx),
             300..=309 => return self.test_tsa(st, &input, t0, ctx),
+            310..=319 => return self.test_ard(st, &input, t0, ctx),
             _ => {}
         }
         None

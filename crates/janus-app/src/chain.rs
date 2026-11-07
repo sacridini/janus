@@ -164,6 +164,32 @@ pub(crate) fn run_step(
     Ok(res)
 }
 
+/// A step's call (its `result1`, `result2`... as the tools' generators write them) with its results numbered after the
+/// `first` ones before it in the chain's script, and how many it has. `step_name` is what the files of its results are
+/// called; a step with several adds `_r1`, `_r2`... to it. The pairs (variable, file name) go to `names` (`save_code`).
+pub(crate) fn number_results(
+    code: &str,
+    first: usize,
+    step_name: &str,
+    names: &mut Vec<(String, String)>,
+) -> (String, usize) {
+    // its results after those before it (highest first: result2 before result1)
+    let n = (1..=9).rev().find(|m| code.contains(&format!("result{m}"))).unwrap_or(0);
+    let mut code = code.to_string();
+    // through a placeholder first: the new names may have two digits, and "result1" is a prefix of "result12"
+    for m in (1..=n).rev() {
+        code = code.replace(&format!("result{m}"), &format!("\u{1}{m}\u{1}"));
+    }
+    for m in (1..=n).rev() {
+        code = code.replace(&format!("\u{1}{m}\u{1}"), &format!("result{}", first + m));
+        names
+            .push((format!("result{}", first + m), if n > 1 { format!("{step_name}_r{m}") } else { step_name.into() }));
+    }
+    let k0 = names.len() - n;
+    names[k0..].reverse();
+    (code, n)
+}
+
 /// The series a chain wrote (its name and file): what the Classification can read the dates of. The outputs a chain
 /// keeps from the layers (`no_layer`) are not among them.
 pub(crate) fn series_outputs(result: &JobResult) -> Vec<(String, String)> {

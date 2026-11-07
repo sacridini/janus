@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use egui::{ComboBox, RichText, Ui};
 use gdal::Metadata;
@@ -25,7 +26,7 @@ use serde_json::{Value, json};
 
 use crate::app::State;
 use crate::chain::{Chain, ChainInput, ChainStep, JobStart, StepRun, cancelled, run_step, spawn_job};
-use crate::provenance::{OutputRecord, Provenance, SeriesRecord};
+use crate::provenance::{OutputRecord, Provenance, SCRIPT, SeriesRecord};
 use crate::tsa::Advice;
 use crate::zeit::{JobState, Preview, applicability};
 
@@ -104,6 +105,11 @@ pub struct ArdUi {
     pub series_out: Arc<Mutex<Vec<(String, String)>>>,
     /// the chain's preview on the ROI, while there is one
     pub preview: Option<ArdPreview>,
+    /// when Copy Python last copied (for its "Copied")
+    pub copied: Option<Instant>,
+    /// the folders of previews turned off while their harmonized series was still being opened: the layer is removed
+    /// when it arrives (`ard_pump_preview`)
+    pub orphans: Vec<String>,
 }
 
 /// The chain run on the ROI into a folder of its own, and whether the curtain of before and after is on it yet.
@@ -117,7 +123,7 @@ pub struct ArdPreview {
 }
 
 /// The name of the series the chain leaves, as its output is called.
-const HARMONIZED_NAME: &str = "Harmonized series";
+pub(crate) const HARMONIZED_NAME: &str = "Harmonized series";
 
 impl Default for ArdUi {
     fn default() -> ArdUi {
@@ -129,6 +135,8 @@ impl Default for ArdUi {
             scope: 0,
             series_out: Arc::default(),
             preview: None,
+            copied: None,
+            orphans: vec![],
         }
     }
 }
@@ -784,6 +792,84 @@ pub(crate) fn run_chain(
     Ok(Chain { result: JobResult { outputs, window: base.window }, skipped })
 }
 
+/// The script's variable that holds the harmonized series once a step has made it: a DataArray (time, band, y, x) whose
+/// bands are named by role, which is what `assemble` writes as VRTs in the chain.
+const HARMONIZED_VAR: &str = "harmonized";
+
+/// The line that makes `harmonized` out of the result `var` of a step that writes a series for each band (what
+/// `assemble` does with the files): NBAR's bands are named by role already; the adjustment's ten are renamed as
+/// `HARMONIZED` has them.
+fn harmonized_line(id: &str, var: &str) -> Option<String> {
+    match id {
+        "nbar" => Some(format!("{HARMONIZED_VAR} = {var}  # the harmonized series: NBAR's bands, named by role")),
+        "spectral_adjust" => {
+            let list = |v: Vec<&str>| v.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(", ");
+            Some(format!(
+                "{HARMONIZED_VAR} = {var}.sel(band=[{}]).assign_coords(band=[{}])  # the harmonized series: Zeit's \
+                 bands named by role",
+                list(HARMONIZED.iter().map(|h| h.0).collect()),
+                list(HARMONIZED.iter().map(|h| h.1).collect())
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// The chain as one Python script, what `run_chain` does in Zeit: the series read once from its files over the window,
+/// each step's call (`janus_zeit::python::calls`, those of each tool's own rerun.py, with the inputs that
+/// `python::input_lines` makes) with its results numbered along (`result1`, `result2`...), and every result written as
+/// a GeoTIFF in `out_dir` under its step's name. What `assemble` does between the steps (the per-band series made one
+/// series of several bands a date) is in Python a DataArray `harmonized` of NBAR's result, or of the adjustment's with
+/// its bands renamed by role; the steps after read the bands from it and the quality band and dates from the raw
+/// series, as the chain's VRTs carry them. `skipped` are the steps the series cannot take (`left_out`).
+pub(crate) fn chain_code(
+    steps: &[ChainStep],
+    skipped: &[(String, String)],
+    input: &ArdInput,
+    out_dir: &str,
+) -> Result<String, String> {
+    use std::fmt::Write as _;
+    let base = &input.chain;
+    let info = &base.info;
+    let mut o = crate::python::script_head(info, "the Analysis-ready data chain", false, base.window);
+    let (mut results, mut harmonized, mut names) = (0usize, false, vec![]);
+    for (k, step) in steps.iter().enumerate() {
+        let tool = step.tool;
+        if let Some((_, why)) = skipped.iter().find(|(t, _)| *t == tool.id) {
+            let _ = writeln!(o, "\n# {}: left out ({why})", tool.name);
+            continue;
+        }
+        let threads = Some(base.threads as i64);
+        let (code, inputs) = crate::python::tool_calls(info, tool, &step.params, &base.roles, threads)?;
+        let other = input.coarse.as_ref().filter(|_| tool.id == "improphe").map(|c| &*c.1);
+        let from = harmonized.then_some(HARMONIZED_VAR);
+        let lines = crate::python::input_lines(
+            info,
+            tool,
+            &step.params,
+            &base.roles,
+            other,
+            base.window,
+            &code,
+            &inputs,
+            from,
+        )?;
+        let (code, n) = crate::chain::number_results(&code, results, &format!("{:02}_{}", k + 1, tool.id), &mut names);
+        let reads = if harmonized { "the harmonized series" } else { "the series" };
+        let _ = writeln!(o, "\n# {}. {}, on {reads}\n{lines}{code}", k + 1, tool.name);
+        if let Some(line) = harmonized_line(&tool.id, &format!("result{}", results + 1)) {
+            let _ = writeln!(o, "{line}");
+            harmonized = true;
+        }
+        results += n;
+    }
+    if results == 0 {
+        return Err("no step can run".into());
+    }
+    o += &crate::python::save_code(out_dir, &names);
+    Ok(o)
+}
+
 /// The folder of a preview in the work folder `base`.
 fn preview_dir(base: &Path, stamp: &str) -> PathBuf {
     base.join(format!("ard_{stamp}"))
@@ -837,7 +923,7 @@ impl State {
     }
 
     /// What to look at now: the steps that are on and the series' metadata (read once per series).
-    fn ard_advice(&mut self, info: &Arc<CubeInfo>) -> Vec<Advice> {
+    pub(crate) fn ard_advice(&mut self, info: &Arc<CubeInfo>) -> Vec<Advice> {
         let steps = self.ard_steps();
         let roles = self.active_roles();
         let coarse = self.ard_coarse();
@@ -1015,6 +1101,30 @@ impl State {
         {
             ui.colored_label(crate::theme::error(), format!("Not yet: {why}."));
         }
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(!on.is_empty(), egui::Button::new("Copy Python"))
+                .on_hover_text(
+                    "One script that does in Zeit what the chain does on this series and scope: the series read once \
+                     from its files, each step's call (the steps after NBAR and the adjustment reading the \
+                     harmonized series, which in the script is a DataArray of their result with its bands named by \
+                     role), every result written as a GeoTIFF. Copied to the clipboard.",
+                )
+                .clicked()
+            {
+                match self.ard_python(info) {
+                    Ok(code) => {
+                        ui.ctx().copy_text(code);
+                        self.ard.copied = Some(Instant::now());
+                    }
+                    Err(e) => self.error_popup = Some(e),
+                }
+            }
+            if self.ard.copied.is_some_and(|t| t.elapsed().as_secs_f32() < 3.0) {
+                ui.weak("Copied.");
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+            }
+        });
         self.ard_preview_ui(ui, blocked.as_deref(), roi);
         // the last chain: its progress and Cancel, or how it ended and its folder
         let mut open_folder = None;
@@ -1204,6 +1314,7 @@ impl State {
     /// Each frame: the preview still the zeit's (another tool's preview replaces it), and once its chain ended and
     /// its harmonized series is a layer, the swipe on it at the date shown.
     pub(crate) fn ard_pump_preview(&mut self, ctx: &egui::Context) {
+        self.ard_drop_orphans(ctx);
         let Some(p) = &self.ard.preview else { return };
         if self.zeit.preview.as_ref().is_none_or(|z| z.dir != p.dir) {
             // replaced by another preview (which removed the folder): its layers and the swipe go
@@ -1245,8 +1356,57 @@ impl State {
         let dir = std::path::PathBuf::from(&p.dir);
         // not opened yet
         self.zeit.series_to_open.retain(|(q, _)| !std::path::Path::new(q).starts_with(&dir));
+        self.ard_remove_layers_under(&dir, ctx);
+        // being opened now: its layer is removed when it arrives
+        if self.ard_opening_under(&dir) {
+            self.ard.orphans.push(p.dir.clone());
+        }
+        if self.zeit.preview.as_ref().is_some_and(|z| z.dir == p.dir) {
+            self.drop_preview();
+        } else {
+            crate::zeit::remove_dir_soon(p.dir);
+        }
+    }
+
+    /// The chain's script for the steps on and the scope now, even before it runs.
+    pub(crate) fn ard_python(&mut self, info: &Arc<CubeInfo>) -> Result<String, String> {
+        let steps = self.ard_steps();
+        let (input, name) = self.ard_chain_input(info, self.ard.scope);
+        let out = self.results_dir().join(format!("{name}_ard_python"));
+        let out_of = left_out(&steps, info, &input.chain.roles, input.coarse.as_ref().map(|c| &*c.1));
+        chain_code(&steps, &out_of, &input, &out.to_string_lossy())
+    }
+
+    /// Run again from a chain's provenance: its steps on with their parameters and its scope, in the window's Output
+    /// tab (on the active series).
+    pub(crate) fn ard_again(&mut self, p: &Provenance) {
+        let ids: Vec<&str> = p
+            .extra
+            .get("steps")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|s| s.as_str()).map(|s| s.split_once('_').map_or(s, |x| x.1)).collect())
+            .unwrap_or_default();
+        if ids.is_empty() {
+            self.error_popup = Some("the chain's steps are not in its provenance".into());
+            return;
+        }
+        for (i, (id, _, _)) in STEPS.into_iter().enumerate() {
+            self.ard.on[i] = ids.contains(&id);
+        }
+        for (id, v) in &p.params {
+            if let (Some(tool), Some(m)) = (manifest().tool(id), v.as_object()) {
+                *self.zeit.params(tool) = m.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                self.zeit.tools.entry(id.clone()).or_default().version += 1;
+            }
+        }
+        self.ard.scope = if p.scope_index == 2 && self.series.roi_rect.is_none() { 0 } else { p.scope_index.min(2) };
+        (self.ard.open, self.ard.tab) = (true, 2);
+    }
+
+    /// The layers that opened a file under `dir` (a preview's series) removed, and the swipe if it shows one.
+    pub(crate) fn ard_remove_layers_under(&mut self, dir: &Path, ctx: &egui::Context) {
         while let Some(i) =
-            self.layers.iter().position(|l| l.inputs.len() == 1 && std::path::Path::new(&l.inputs[0]).starts_with(&dir))
+            self.layers.iter().position(|l| l.inputs.len() == 1 && Path::new(&l.inputs[0]).starts_with(dir))
         {
             let cube = self.layer_session(i).map(|s| s.info.id);
             if self.swipe.as_ref().is_some_and(|sw| Some(sw.view.cube) == cube) {
@@ -1254,10 +1414,21 @@ impl State {
             }
             self.remove_layer(i, ctx);
         }
-        if self.zeit.preview.as_ref().is_some_and(|z| z.dir == p.dir) {
-            self.drop_preview();
-        } else {
-            crate::zeit::remove_dir_soon(p.dir);
+    }
+
+    /// A series under `dir` is being opened (its layer is not there yet).
+    fn ard_opening_under(&self, dir: &Path) -> bool {
+        self.opening.as_ref().is_some_and(|o| o.inputs.iter().any(|q| Path::new(q).starts_with(dir)))
+    }
+
+    /// The layers of previews turned off while their series was being opened, removed once they are there.
+    fn ard_drop_orphans(&mut self, ctx: &egui::Context) {
+        for dir in std::mem::take(&mut self.ard.orphans) {
+            let path = PathBuf::from(&dir);
+            self.ard_remove_layers_under(&path, ctx);
+            if self.ard_opening_under(&path) {
+                self.ard.orphans.push(dir);
+            }
         }
     }
 
@@ -1347,6 +1518,19 @@ impl State {
             "steps".into(),
             json!(steps.iter().enumerate().map(|(k, s)| format!("{:02}_{}", k + 1, s.tool.id)).collect::<Vec<_>>()),
         );
+        // the steps the series cannot take are left out of the run (their folders are not made)
+        let out_of = left_out(&steps, &info, &input.chain.roles, input.coarse.as_ref().map(|c| &*c.1));
+        prov.extra.insert(
+            "left_out".into(),
+            json!(out_of.iter().map(|(id, why)| json!({"step": id, "why": why})).collect::<Vec<_>>()),
+        );
+        // its Python: the script Copy Python gives, writing the results beside the chain's
+        let python = root.join("python").to_string_lossy().into_owned();
+        match chain_code(&steps, &out_of, &input, &python) {
+            Ok(code) if std::fs::write(root.join(SCRIPT), &code).is_ok() => prov.python = SCRIPT.into(),
+            Ok(_) => prov.python_note = format!("{SCRIPT} could not be written"),
+            Err(e) => prov.python_note = e,
+        }
         self.begin_provenance(&root, prov);
         let title = format!("Analysis-ready data - {scope} ({} x {} px)", window[2] - window[0], window[3] - window[1]);
         let log_head = format!(
@@ -1569,6 +1753,202 @@ mod tests {
         // the adjustment's provenance lists the series it made
         let p = Provenance::read(&base.join("chain").join("02_spectral_adjust")).unwrap();
         assert!(p.outputs.iter().any(|o| o.name == "Harmonized series"));
+    }
+
+    /// A coarse series for ImproPhe: three scenes of 4 x 3 pixels of 60 m over the raw series' extent, in two bands.
+    fn coarse_series(dir: &Path) -> Arc<CubeInfo> {
+        let _ = std::fs::remove_dir_all(dir);
+        std::fs::create_dir_all(dir).unwrap();
+        let drv = gdal::DriverManager::get_driver_by_name("GTiff").unwrap();
+        let srs = gdal::spatial_ref::SpatialRef::from_epsg(32722).unwrap();
+        let day0 = janus_cube::dates::days_from_civil(2020, 1, 5);
+        for (k, day) in [day0 + 10, day0 + 50, day0 + 90].into_iter().enumerate() {
+            let (y, m, d) = janus_zeit::numeric::civil(day);
+            let name = format!("coarse_{y:04}-{m:02}-{d:02}.tif");
+            let mut ds = drv.create_with_band_type::<f32, _>(dir.join(name), 4, 3, 2).unwrap();
+            ds.set_geo_transform(&[GT[0], 60.0, 0.0, GT[3], 0.0, -60.0]).unwrap();
+            ds.set_spatial_ref(&srs).unwrap();
+            for b in 0..2 {
+                let data: Vec<f32> = (0..12).map(|p| 0.1 + 0.05 * ((p + 3 * k + b) as f32 * 0.9).sin().abs()).collect();
+                let mut band = ds.rasterband(b + 1).unwrap();
+                band.write((0, 0), (4, 3), &mut gdal::raster::Buffer::new((4, 3), data)).unwrap();
+            }
+        }
+        Arc::new(open_cube(&[dir.to_string_lossy().into_owned()], &BandSelection::default()).unwrap())
+    }
+
+    /// The Python of the chain has each tool's call once, NBAR's on the series' files and the others' on the harmonized
+    /// series (a DataArray of NBAR's result, then of the adjustment's with its bands named by role), the results
+    /// numbered along and written under their step's name; a step left out is a comment.
+    #[test]
+    fn the_chain_script_has_each_call_once_on_the_series_the_step_reads() {
+        let base = std::env::temp_dir().join("janus-ard-test-code");
+        let raw = series(&base.join("series"));
+        let coarse = coarse_series(&base.join("coarse"));
+        let window = [1, 1, W - 1, H - 1];
+        let mut inp = input(&raw, roles(&raw), window);
+        let steps = [step("nbar"), step("spectral_adjust"), step("tasseled_cap")];
+        let code = chain_code(&steps, &[], &inp, "OUT").unwrap();
+        for call in
+            ["zeit.nbar(nbar_cube, angles,", "zeit.spectral_adjust(clear_cube,", "zeit.tasseled_cap(clear_cube,"]
+        {
+            assert_eq!(code.matches(call).count(), 1, "{call}\n{code}");
+        }
+        let at = |s: &str| code.find(s).unwrap_or_else(|| panic!("{s}\n{code}"));
+        let order = [
+            at("result1 = zeit.nbar(nbar_cube"),
+            at("harmonized = result1  #"),
+            at("result2 = zeit.spectral_adjust(clear_cube"),
+            at("harmonized = result2.sel(band=[\"blue\", \"green\", \"red\", \"rededge1\""),
+            at("result3 = zeit.tasseled_cap(clear_cube"),
+            at("os.makedirs(out_dir"),
+        ];
+        assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
+        // the two steps after NBAR read the bands from the harmonized series, NBAR's own from the files
+        assert_eq!(code.matches("raw = {r: harmonized.sel(band=r).values for r in order}").count(), 2, "{code}");
+        assert!(!code.contains("roles[r], window) for layer in layers]) for r in order}"), "{code}");
+        assert!(code.contains("\"nir\", \"nir broad\", \"swir1\", \"swir2\"])"), "{code}");
+        for name in ["01_nbar", "02_spectral_adjust", "03_tasseled_cap"] {
+            assert!(code.contains(name), "{name}");
+        }
+        // a step left out: a comment, and the one after reads what the ones before left
+        let part = chain_code(&steps, &[("spectral_adjust".into(), "why".into())], &inp, "OUT").unwrap();
+        assert!(
+            part.contains("# Spectral adjustment to Sentinel-2A: left out (why)") || part.contains("left out (why)")
+        );
+        assert!(!part.contains("zeit.spectral_adjust(") && part.contains("result2 = zeit.tasseled_cap(clear_cube"));
+        assert!(part.contains("harmonized.sel(band=r)"), "{part}");
+        // Tasseled Cap on the files when no step has harmonized the series
+        let tc = chain_code(&[step("tasseled_cap")], &[], &inp, "OUT").unwrap();
+        assert!(tc.contains("read(layer[0], roles[r], window)") && !tc.contains("harmonized"), "{tc}");
+        let all: Vec<(String, String)> = steps.iter().map(|s| (s.tool.id.clone(), "why".into())).collect();
+        assert!(chain_code(&steps, &all, &inp, "OUT").is_err());
+        // ImproPhe: the harmonized series is its fine one, the coarse one is read from its files
+        inp.coarse = Some(("coarse".into(), coarse));
+        let steps = [step("nbar"), step("spectral_adjust"), step("improphe")];
+        let code = chain_code(&steps, &[], &inp, "OUT").unwrap();
+        assert!(code.contains("fine_raw = np.asarray(harmonized.values)"), "{code}");
+        assert!(code.contains("[str(b) for b in harmonized.band.values]"), "{code}");
+        assert!(code.contains("usable(q, qa_rule)") && code.contains("coarse_files = [("), "{code}");
+        assert_eq!(code.matches("zeit.improphe(coarse_cube, fine_cube").count(), 1);
+        assert!(code.contains("result3 = zeit.improphe("), "{code}");
+        // without a coarse series ImproPhe cannot be in the script (the chain leaves it out)
+        inp.coarse = None;
+        assert!(chain_code(&steps, &[], &inp, "OUT").is_err());
+    }
+
+    /// The chain's script run in Zeit (the Python of JANUS_PYTHON, with zeit, rasterio, rioxarray and xarray; the test
+    /// is left out without it) gives the values `run_chain` writes: NBAR, the adjustment, Tasseled Cap and ImproPhe,
+    /// the bands of the steps after NBAR read from its result.
+    #[test]
+    fn the_chain_script_runs_in_zeit_and_gives_the_chains_values() {
+        let Ok(python) = std::env::var("JANUS_PYTHON") else {
+            println!("skipped: JANUS_PYTHON names no Python with zeit, rasterio, rioxarray and xarray");
+            return;
+        };
+        let base = std::env::temp_dir().join("janus-ard-test-zeit");
+        let raw = series(&base.join("series"));
+        let coarse = coarse_series(&base.join("coarse"));
+        let window = [1, 1, W - 1, H - 1];
+        let mut inp = input(&raw, roles(&raw), window);
+        inp.coarse = Some(("coarse".into(), coarse));
+        let mut improphe = step("improphe");
+        improphe.params = serde_json::from_value(
+            json!({ "by": "scenes", "kernel_size": 90.0, "texture_size": 30.0, "pca": "principal" }),
+        )
+        .unwrap();
+        let steps = [step("nbar"), step("spectral_adjust"), step("tasseled_cap"), improphe];
+        let chain = run_chain(&steps, &inp, &base.join("chain"), &|_, _| {}, &AtomicBool::new(false)).unwrap();
+        assert!(chain.skipped.is_empty(), "{:?}", chain.skipped);
+        let out = base.join("python");
+        let _ = std::fs::remove_dir_all(&out);
+        let code = chain_code(&steps, &[], &inp, &out.to_string_lossy()).unwrap();
+        let script = base.join("chain.py");
+        std::fs::write(&script, code).unwrap();
+        // the PATH as an activated conda environment has it and Windows' own: the other DLLs on the test's PATH (the
+        // GDAL builds, another environment's libraries) shadow the environment's (pyexpat fails to load)
+        let root = Path::new(&python).parent().unwrap().to_path_buf();
+        let system = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
+        let mut path: Vec<String> = ["", "Library\\mingw-w64\\bin", "Library\\usr\\bin", "Library\\bin", "Scripts"]
+            .iter()
+            .map(|d| root.join(d).to_string_lossy().into_owned())
+            .collect();
+        path.extend([format!("{system}\\system32"), system.clone()]);
+        let run = std::process::Command::new(python)
+            .arg(&script)
+            .env_clear()
+            .envs(["SystemRoot", "TEMP", "TMP"].iter().filter_map(|k| Some((*k, std::env::var(k).ok()?))))
+            .env("PATH", path.join(";"))
+            .env("PYTHONNOUSERSITE", "1")
+            .env("OMP_NUM_THREADS", "2")
+            .output()
+            .unwrap();
+        assert!(
+            run.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr)
+        );
+        // the script's bands by step (its files start with the step's folder name)
+        let files: Vec<(String, Vec<Vec<f32>>)> = std::fs::read_dir(&out)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|e| e == "tif"))
+            .map(|p| (p.file_name().unwrap().to_string_lossy().into_owned(), read(&p.to_string_lossy())))
+            .collect();
+        // the values are reflectance x 10000 (or sums of it): float32 steps of 1e-3 at the largest, so the difference is
+        // judged against the value or 1000, whichever is larger
+        let close = |a: f32, b: f32| (a.is_nan() && b.is_nan()) || (a - b).abs() <= 1e-6 * b.abs().max(1000.0);
+        let (mut bands, mut values, mut worst) = (0, 0, 0f32);
+        let mut per_step: BTreeMap<String, usize> = BTreeMap::new();
+        for o in tifs(&chain.result.outputs) {
+            let path = o["path"].as_str().unwrap();
+            let step = Path::new(path).parent().unwrap().file_name().unwrap().to_string_lossy().into_owned();
+            for w in &read(path) {
+                // a band of the script's files of the step with the chain's values
+                let hit = files
+                    .iter()
+                    .filter(|f| f.0.starts_with(&format!("{step}_")))
+                    .flat_map(|f| &f.1)
+                    .find(|g| g.len() == w.len() && g.iter().zip(w).all(|(&a, &b)| close(a, b)));
+                let Some(g) = hit else {
+                    // the closest band of the step in the script, to see how far it is
+                    let gap = |g: &Vec<f32>| {
+                        g.iter()
+                            .zip(w)
+                            .filter(|(a, b)| a.is_finite() && b.is_finite())
+                            .fold(0f32, |m, (a, b)| m.max((a - b).abs()))
+                    };
+                    let nearest = files
+                        .iter()
+                        .filter(|f| f.0.starts_with(&format!("{step}_")))
+                        .flat_map(|f| &f.1)
+                        .filter(|g| g.len() == w.len())
+                        .map(|g| (gap(g), g.iter().filter(|v| v.is_finite()).count()))
+                        .fold((f32::MAX, 0), |m, x| if x.0 < m.0 { x } else { m });
+                    panic!(
+                        "no band of {step} in the script has the values of {} ({path}); the nearest differs by {} over {} values (the band has {})",
+                        o["name"],
+                        nearest.0,
+                        nearest.1,
+                        w.iter().filter(|v| v.is_finite()).count()
+                    )
+                };
+                worst = g
+                    .iter()
+                    .zip(w)
+                    .filter(|(a, b)| a.is_finite() && b.is_finite())
+                    .fold(worst, |m, (a, b)| m.max((a - b).abs() / b.abs().max(1000.0)));
+                values += w.iter().filter(|v| v.is_finite()).count();
+                bands += 1;
+                *per_step.entry(step.clone()).or_default() += 1;
+            }
+        }
+        println!(
+            "{bands} bands, {values} finite values compared ({per_step:?}), the largest relative difference {worst:e}"
+        );
+        assert_eq!(per_step.len(), 4, "{per_step:?}");
+        assert!(bands >= 19 * 8 && values > 3000);
     }
 
     #[test]

@@ -471,23 +471,11 @@ pub(crate) fn chain_code(
             crate::python::tool_calls(info, tool, &step.params, &input.roles, Some(input.threads as i64))?;
         // the steps' calls all read the series (a DataArray); the ones on the analysis series read `analysis`
         let from = if RAW_STEPS.contains(&tool.id.as_str()) || !analysis { "series" } else { "analysis" };
-        let mut code = code.replace("(series,", &format!("({from},"));
+        let code = code.replace("(series,", &format!("({from},"));
         if inputs != ["series"] || !code.contains(&format!("({from},")) {
             return Err(format!("{}: its Python does not read the series alone", tool.name));
         }
-        // its results after those before it (highest first: result2 before result1)
-        let n = (1..=9).rev().find(|m| code.contains(&format!("result{m}"))).unwrap_or(0);
-        // through a placeholder first: the new names may have two digits, and "result1" is a prefix of "result12"
-        for m in (1..=n).rev() {
-            code = code.replace(&format!("result{m}"), &format!("\u{1}{m}\u{1}"));
-        }
-        for m in (1..=n).rev() {
-            code = code.replace(&format!("\u{1}{m}\u{1}"), &format!("result{}", results + m));
-            let step_name = format!("{:02}_{}", k + 1, tool.id);
-            names.push((format!("result{}", results + m), if n > 1 { format!("{step_name}_r{m}") } else { step_name }));
-        }
-        let k0 = names.len() - n;
-        names[k0..].reverse();
+        let (code, n) = crate::chain::number_results(&code, results, &format!("{:02}_{}", k + 1, tool.id), &mut names);
         let reads = if from == "series" { "the series" } else { "the analysis series" };
         let _ = writeln!(o, "\n# {}. {}, on {reads}\n{code}", k + 1, tool.name);
         if ANALYSIS_STEPS.contains(&tool.id.as_str()) {

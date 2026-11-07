@@ -494,8 +494,14 @@ fn grid_lines(info: &janus_cube::CubeInfo, cols: &str, rows: &str) -> String {
 /// run's window, the dates the quality band refuses missing) and the other series as the coarse one (every band of each
 /// date but its quality band, over its whole grid), each on its own grid, in the CRS its files say. The layer's
 /// dimension of the coarse cube is `time` with its dates, or, without dates, `year` (a field with a layer a year) or
-/// `time` (scenes), as `by` says.
-fn improphe_cubes(info: &janus_cube::CubeInfo, other: &janus_cube::CubeInfo, by: &str) -> Result<String, String> {
+/// `time` (scenes), as `by` says. `fine` names a DataArray of the script (time, band, y, x) that is the fine series
+/// instead of the files' bands (a chain's harmonized series, on the window); the quality band is still the series'.
+fn improphe_cubes(
+    info: &janus_cube::CubeInfo,
+    other: &janus_cube::CubeInfo,
+    by: &str,
+    fine: Option<&str>,
+) -> Result<String, String> {
     if !info.time_is_date {
         return Err("ImproPhe needs a series with real dates (the seasonal windows are days of the year)".into());
     }
@@ -511,18 +517,27 @@ fn improphe_cubes(info: &janus_cube::CubeInfo, other: &janus_cube::CubeInfo, by:
     };
     let list = |v: Vec<String>| v.join(", ");
     let mut o = String::new();
-    let _ = writeln!(
-        o,
-        "import rioxarray  # noqa: F401 (the .rio accessor)\n\n\
-         # ImproPhe's fine series: every band of each date{} over the run's window.\n\
-         fine_bands = [{}]  # the bands of each date's file, less the date's first band\n\
-         fine_bases = [{}]\n\
-         fine_raw = np.stack([np.stack([read(layer[0], base + b, window) for b in fine_bands])\n                     \
-         for layer, base in zip(layers, fine_bases)])  # (time, band, y, x)",
-        if qa { " but the quality band" } else { "" },
-        list(bands.iter().map(i32::to_string).collect()),
-        list(info.layers.iter().map(|l| l.band_base.to_string()).collect())
-    );
+    if let Some(v) = fine {
+        let _ = writeln!(
+            o,
+            "import rioxarray  # noqa: F401 (the .rio accessor)\n\n\
+             # ImproPhe's fine series: the harmonized series ({v}) over the run's window.\n\
+             fine_raw = np.asarray({v}.values)  # (time, band, y, x)"
+        );
+    } else {
+        let _ = writeln!(
+            o,
+            "import rioxarray  # noqa: F401 (the .rio accessor)\n\n\
+             # ImproPhe's fine series: every band of each date{} over the run's window.\n\
+             fine_bands = [{}]  # the bands of each date's file, less the date's first band\n\
+             fine_bases = [{}]\n\
+             fine_raw = np.stack([np.stack([read(layer[0], base + b, window) for b in fine_bands])\n                     \
+             for layer, base in zip(layers, fine_bases)])  # (time, band, y, x)",
+            if qa { " but the quality band" } else { "" },
+            list(bands.iter().map(i32::to_string).collect()),
+            list(info.layers.iter().map(|l| l.band_base.to_string()).collect())
+        );
+    }
     if qa {
         // an expression's layer is (file, bands, quality band, date), else (file, band, band B, quality band)
         let q = if info.expr.is_some() { "layer[2]" } else { "layer[3]" };
@@ -539,7 +554,10 @@ fn improphe_cubes(info: &janus_cube::CubeInfo, other: &janus_cube::CubeInfo, by:
          coords={{\"time\": dates.astype(\"datetime64[ns]\"), \"band\": {},\n                                 \
          \"y\": fine_tf.f + (np.arange(window.height) + 0.5) * fine_tf.e,\n                                 \
          \"x\": fine_tf.c + (np.arange(window.width) + 0.5) * fine_tf.a}}).rio.write_crs(fine_crs)",
-        names(info, &bands)
+        match fine {
+            Some(v) => format!("[str(b) for b in {v}.band.values]"),
+            None => names(info, &bands),
+        }
     );
     // the coarse series
     let cbands = crate::zeit::other_bands(other);
@@ -723,6 +741,29 @@ pub(crate) fn run_code(
     let (code, inputs) = tool_calls(info, tool, params, roles, threads)?;
     let tables = inputs.contains(&"bands_all") || inputs.contains(&"spectrum");
     let mut o = script_head(info, &format!("the run of {}", tool.name), tables, window);
+    o += &input_lines(info, tool, params, roles, other, window, &code, &inputs, None)?;
+    let _ = writeln!(o, "\n# {}, with the run's parameters\n{code}", tool.name);
+    o += &save_code(out_dir, &[]);
+    Ok(o)
+}
+
+/// The lines that make the inputs a tool's call needs (`inputs`, as `tool_calls` gives them with its `code`) out of the
+/// series `info`, its bands by `roles` and the run's `window`. `from` names a DataArray of the script (time, band, y, x;
+/// its bands named by role) that the bands come from instead of the series' files: what a chain's step reads after the
+/// ones before it have harmonized the series (the quality band and the dates are the series' own).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn input_lines(
+    info: &janus_cube::CubeInfo,
+    tool: &janus_zeit::Tool,
+    params: &std::collections::BTreeMap<String, serde_json::Value>,
+    roles: &std::collections::BTreeMap<String, i32>,
+    other: Option<&janus_cube::CubeInfo>,
+    window: [usize; 4],
+    code: &str,
+    inputs: &[&str],
+    from: Option<&str>,
+) -> Result<String, String> {
+    let mut o = String::new();
     let time = time_coord(info);
     if inputs.contains(&"series") {
         o += &series_line(info);
@@ -731,12 +772,26 @@ pub(crate) fn run_code(
         let sel = info.sel;
         let qa_on = sel.qa_band > 0 && sel.qa_rule != QaRule::None;
         let rs: Vec<String> = roles.iter().map(|(r, b)| format!("{}: {b}", py_str(r))).collect();
+        // the bands from the files by role, or from the harmonized series' DataArray
+        let (comment, roles_line, raw_line) = match from {
+            None => (
+                "the bands by role (bands of each date's file)".to_string(),
+                format!("roles = {{{}}}", rs.join(", ")),
+                "raw = {r: np.stack([read(layer[0], roles[r], window) for layer in layers]) for r in order}"
+                    .to_string(),
+            ),
+            Some(v) => (
+                format!("the bands of the harmonized series ({v}), named by role"),
+                format!("roles = {{str(r): str(r) for r in {v}.band.values}}"),
+                format!("raw = {{r: {v}.sel(band=r).values for r in order}}"),
+            ),
+        };
         let _ = writeln!(
             o,
-            "# The bands by role (bands of each date's file), as reflectance x 10000 (Zeit's convention).\n\
-             roles = {{{}}}\n\
+            "# The {comment}, as reflectance x 10000 (Zeit's convention).\n\
+             {roles_line}\n\
              order = [r for r in (\"blue\", \"green\", \"red\", \"nir\", \"swir1\", \"swir2\", \"thermal\") if r in roles]\n\
-             raw = {{r: np.stack([read(layer[0], roles[r], window) for layer in layers]) for r in order}}\n\
+             {raw_line}\n\
              med = np.nanmedian(np.concatenate([raw[r].ravel() for r in order if r != \"thermal\"]))\n\
              units = \"unit\" if med <= 2 else \"landsat_c2\" if med >= 6500 else \"x10000\"\n\
              to_x10000 = {{\"unit\": lambda v: v * 10000, \"landsat_c2\": lambda v: (v * 2.75e-5 - 0.2) * 10000,\n             \
@@ -744,8 +799,7 @@ pub(crate) fn run_code(
              cube = np.stack([to_x10000(raw[r]) for r in order])  # (band, time, y, x)\n\
              bands_cube = xr.DataArray(cube.transpose(1, 0, 2, 3), dims=(\"time\", \"band\", \"y\", \"x\"),\n                          \
              coords={{\"time\": {time}, \"band\": order}})\n\
-             complete = np.all(np.isfinite(cube), axis=0)",
-            rs.join(", ")
+             complete = np.all(np.isfinite(cube), axis=0)"
         );
         if qa_on {
             o += "q = np.stack([read(layer[0], layer[3], window, raw=True) for layer in layers])\n\
@@ -816,10 +870,8 @@ pub(crate) fn run_code(
         let other = other.ok_or("choose the series to sharpen first: ImproPhe's script reads it")?;
         let by =
             janus_zeit::Params::with_defaults(&tool.id, params).map(|p| p.str("by").to_string()).unwrap_or_default();
-        o += &improphe_cubes(info, other, &by)?;
+        o += &improphe_cubes(info, other, &by, from)?;
     }
-    let _ = writeln!(o, "\n# {}, with the run's parameters\n{code}", tool.name);
-    o += &save_code(out_dir, &[]);
     Ok(o)
 }
 

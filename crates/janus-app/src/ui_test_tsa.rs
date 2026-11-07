@@ -5,7 +5,7 @@
 //! grid); 305-306 run the default chain (Interpolate, Temporal metrics, Fold) over the whole image as one task and
 //! check the root folder (provenance.json, rerun.py), a folder per step with its files, the maps (result layers
 //! named by their step) and the series (opened as layers); 307 Copy Python's script; 308 Use in Classification;
-//! 309 everything closed and restored.
+//! 309 everything closed and restored (then the Analysis-ready data stages, ui_test_ard.rs).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -120,7 +120,7 @@ impl State {
                         println!("    no series C: the Time series analysis stages are left out");
                         let _ = std::fs::remove_dir_all(&st.tsa.dir);
                         st.tsa = Default::default();
-                        st.stage = 299;
+                        st.stage = 310;
                         return None;
                     };
                     st.tsa.opened = true;
@@ -559,7 +559,7 @@ impl State {
                 let _ = std::fs::remove_dir_all(&st.tsa.dir);
                 st.tsa = Default::default();
                 next(st, "Time series analysis: the window closed, the layers and results removed");
-                st.stage = 299;
+                st.stage = 310; // the Analysis-ready data window (310-319, ui_test_ard.rs), then 299
                 None
             }
             _ => None,

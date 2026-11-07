@@ -1233,6 +1233,40 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 57b | O *To look at*, a prévia na ROI com a cortina de antes e depois, *Use in Time series analysis* |
 | 57c | O *Copy Python* da cadeia (conferido no Zeit), a proveniência da raiz, o autoteste (`--selftest-ui`), a documentação |
 
+- **Feito (2026-11-07):** `crates/janus-app/src/ard.rs` e `chain.rs`, tudo numa janela só
+  (8ee4c2b, add44e3 e o commit da 57c). 57a: o `ArdUi`, as três abas, os formulários das
+  etapas (os mesmos parâmetros das janelas das ferramentas) e a cadeia numa tarefa, uma subpasta
+  por etapa; entre as etapas, as séries por banda do NBAR e do ajuste viram uma série multibanda
+  (um VRT por data, uma banda de cada arquivo, a descrição de cada banda o seu papel, a banda de
+  qualidade e a regra da série crua, os metadados STAC e o nome de arquivo de cada data, para que
+  o sensor e os ângulos de cada data sejam achados como na crua), que é também a saída *Harmonized
+  series*; o corredor das duas cadeias (`run_step`, `spawn_job`) foi para o `chain.rs` sem mudar o
+  comportamento da janela de TSA; um teste compara a cadeia com as ferramentas rodadas uma a uma
+  (os mesmos bits). 57b: o *To look at* (`advice()`), a prévia na ROI com a cortina de antes e
+  depois (as peças da prévia das ferramentas: contorno tracejado, pasta removida com a prévia) e o
+  *Use in Time series analysis*. 57c: o *Copy Python* da cadeia (`chain_code` do `ard.rs`: as
+  chamadas dos geradores das próprias ferramentas, as entradas de `python::input_lines`, que o
+  `run_code` passou a usar também com a saída igual, os resultados numerados por
+  `chain::number_results`, que o `chain_code` do TSA também usa) e a proveniência da raiz
+  (`kind: "ard"`, as etapas com parâmetros e subpastas, as deixadas de fora e por quê, o
+  `rerun.py` igual ao *Copy Python*; o *Run again* liga as mesmas etapas na janela). O autoteste
+  `ui_test_ard.rs`, estágios 310-319, na série Landsat do `make_selftest_data.py` (a pasta
+  `landsat`, seis bandas e Fmask, sem bandas de ângulo: o NBAR é deixado de fora e a cadeia
+  segue com o ajuste e o Tasseled Cap), e as seções do `docs/usage.md` e do `docs/architecture.md`.
+  Onde saiu do plano: (1) entre as etapas o script não faz uma série multibanda por arquivo: a
+  etapa que escreve bandas deixa um `DataArray` `harmonized` (o resultado do NBAR, ou o do ajuste
+  com as dez bandas renomeadas pelos papéis, como o `assemble` as descreve) e as etapas seguintes
+  leem as bandas dele; a banda de qualidade e as datas continuam as da série crua (o VRT carrega
+  as mesmas), e o ImproPhe toma o `harmonized` como a série fina (as datas recusadas pela banda de
+  qualidade ficam ausentes, como em `improphe_cubes`) e a grossa dos arquivos dela; (2) conferido
+  no Zeit com `JANUS_PYTHON` na série de 8 datas do teste da cadeia (NBAR, ajuste, Tasseled Cap e
+  ImproPhe, 158 bandas, 3428 valores finitos, no máximo 8,4e-7 da cadeia em valor relativo a
+  max(|v|, 1000): os valores são refletância x 10000 em float32); (3) a prévia desligada com a
+  série colhida ainda sendo aberta (`self.opening`) deixava uma camada órfã: o `ard_preview_stop`
+  agora guarda a pasta e `ard_drop_orphans` a remove quando a camada chega; (4) uma ROI some
+  quando as séries da cadeia abrem (o ROI pertence à grade da camada ativa, que elas tomam por um
+  instante), então o autoteste a desenha de novo antes de cada prévia e do *Run again*.
+
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
@@ -1322,7 +1356,7 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 54 | — | **Projeto** (`.janus`): salvar, abrir, recentes, reabrir a última sessão | concluída (sem versão) |
 | 55 | — | **Desfazer global** (`Ctrl+Z`: fechar camadas, estilo, ordem, pinos, ROI) | concluída (sem versão) |
 | 56 | — | **Janela Time series analysis (FORCE TSA)**: a cadeia das 8 ferramentas do TSA numa janela (Input, Steps, Output), *To look at*, gráfico do pixel, *Copy Python* da cadeia, *Use in Classification* | concluída (sem versão; capturas e página do site pendentes) |
-| 57 | — | **Janela Analysis-ready data (FORCE Level 2)**: NBAR, ajuste espectral, Tasseled Cap e ImproPhe numa cadeia, a série multibanda entre as etapas, prévia na ROI com a cortina de antes e depois | em andamento |
+| 57 | — | **Janela Analysis-ready data (FORCE Level 2)**: NBAR, ajuste espectral, Tasseled Cap e ImproPhe numa cadeia, a série multibanda entre as etapas, prévia na ROI com a cortina de antes e depois | concluída (sem versão) |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a

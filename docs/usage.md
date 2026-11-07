@@ -924,6 +924,102 @@ are classified on the chain's series instead of the observations.
 `--window tsa` opens the window on the Steps tab (the defaults on the whole
 image); `--window tsa-run` also runs the chain.
 
+## Analysis-ready data (FORCE)
+
+**Tools → Analysis-ready data (FORCE)...** is FORCE's Level 2 as a chain: the
+reflectance of each date brought to nadir view, the sensors put on one spectral
+response, and from that harmonized series a product or a sharper series. It runs
+the four tools of the Tools menu that make it, with the parameters their own
+windows hold, in this order:
+
+1. **NBAR (c-factor)**, on the series' bands by role and the four angle bands (or
+   the angles of Sentinel-2's granule metadata): the series of every band;
+2. **Spectral adjustment to Sentinel-2A**, on NBAR's bands (or the series' own when
+   NBAR is off): ten bands, Sentinel-2A's;
+3. **Tasseled Cap**, on the harmonized series' six reflective bands: a series per
+   component;
+4. **ImproPhe**, with the harmonized series as the fine one and another open series
+   (picked in its form) as the coarse one.
+
+NBAR and the adjustment together are the **harmonized series**. The default is those
+two; a step is a checkbox, and a step the series cannot take (NBAR without angle
+bands or granule metadata, the adjustment or Tasseled Cap without the six
+reflective bands mapped, ImproPhe without a coarse series or in another CRS) is left
+out and said so: the rest of the chain still runs on what is left.
+
+**The series between the steps.** NBAR and the adjustment write **one series per
+band**, and the step after them reads **one series with several bands a date**.
+Between the steps the per-band series are assembled into a multiband series (one VRT
+a date, a band from each file), which is also the chain's output called *Harmonized
+series* that you open and use in the other tools. What it carries from the series
+the chain started from: each band's role as its description (`blue`, `nir`... so
+the roles map by themselves; the adjustment's broad NIR is `nir broad`), the quality
+band and its rule as the raw series has them (the raw values, cut to the run's
+window), each date's file name and its STAC metadata (platform, items, collection,
+granule metadata, the signature of Planetary Computer's containers), so that each
+date's sensor and angles are found as in the raw series. The angle bands, which NBAR
+consumed, are not carried.
+
+The window has three tabs:
+
+- **Input**: the series (the active layer), its dates, the bands by role (the six
+  reflective and the four angles; they are mapped in each tool's own window), the
+  quality band, each date's sensor and how many dates have Sentinel-2 granule
+  metadata.
+- **Steps**: the four steps with their parameters (the same fields as the tool's
+  window), the reason when the series cannot take one, and **To look at**.
+- **Output**: the scope (the whole image, the visible area or the ROI), the output
+  folder, **Run**, **Copy Python**, the preview, the task's progress and, once it is
+  done, **Use in Time series analysis**.
+
+**To look at** reads the dates' files and the parameters of the steps that are on,
+before anything runs: dates with no sensor where a step reads it (the file name or
+the STAC platform say none), Sentinel-2 dates in the spectral adjustment (it takes
+Landsat and MODIS to Sentinel-2A and stops at one), NBAR from granule metadata that
+some dates lack, HLS dates under NBAR (HLS v2 is already normalised), a band shown
+whose values do not fit the units a step is told (digital numbers?), the steps the
+series cannot take, a missing quality band and a chain with nothing on. Each is a
+coloured dot (information, something to look at, something that stops a step); the
+Steps tab shows how many need a look.
+
+**Run** is **one task** (Tools → Tasks), in a folder of its own,
+`<series>_ard_<time>`, with a subfolder per step that ran (`01_nbar`,
+`02_spectral_adjust`, `03_tasseled_cap`...): each has its `job.json`, `job.log`,
+`provenance.json` and `rerun.py` and its outputs, and the harmonized series is the
+`series` folder of the step that made it (the last of NBAR and the adjustment). The
+folder itself has the chain's `provenance.json` (the steps with their parameters and
+folders, the steps left out and why, the series, the scope, the window, how it ended
+and its outputs; its result layers open it with **Provenance...**, and **Run again
+with these parameters...** turns the same steps and scope on in this window),
+`rerun.py` and `job.log`. The series of each band are files only; the harmonized
+series and the series of Tasseled Cap and ImproPhe open as layers, named by their
+step; the active layer does not change.
+
+**Preview on the ROI** runs the chain on the ROI alone, into a folder of its own that
+is removed with the preview, and shows the series at the left of the map's swipe and
+the harmonized series at its right, on the date shown (the preview's window is the
+dashed outline). A preview writes no provenance, as the tools' previews do. **Turn
+the preview off** removes its layers, the swipe and its folder, and so does running
+the chain, another tool's preview or closing the series.
+
+**Copy Python** copies one script that does in Zeit what the chain does on this
+series and scope, even before it runs: the series read once from its files, NBAR's
+call, then the adjustment's, Tasseled Cap's and ImproPhe's, each from the tools' own
+scripts, and every result written as a GeoTIFF under its step's name. Where the chain
+assembles the per-band series, the script has a DataArray `harmonized` (NBAR's
+result, or the adjustment's with its ten bands renamed by role): the steps after
+read their bands from it and the quality band and the dates from the raw series, as
+the chain's files carry them. ImproPhe reads the coarse series from its files. A step
+the series cannot take is a comment. It is the same script the run keeps as the
+folder's `rerun.py`.
+
+**Use in Time series analysis** makes the harmonized series the active layer
+(opening it first if it is not) and opens the [Time series analysis](#time-series-analysis-force)
+window on it.
+
+`--window ard` opens the window on the Steps tab (the defaults on the whole image);
+`--window ard-run` also runs the chain.
+
 ## Classification (Random Forest, TWDTW, embeddings, SOM, k-means, networks)
 
 **Tools > Classification & pattern recognition > Classification** trains a model on samples you
