@@ -179,7 +179,7 @@ fn set_map_options(d: &mut Display, o: MapOptions) {
     (d.season, d.reducer, d.window, d.days, d.playing) = o;
 }
 
-fn same_crs(a: &CubeInfo, b: &CubeInfo) -> bool {
+pub(crate) fn same_crs(a: &CubeInfo, b: &CubeInfo) -> bool {
     if !a.crs_authority.is_empty() || !b.crs_authority.is_empty() {
         return a.crs_authority == b.crs_authority;
     }

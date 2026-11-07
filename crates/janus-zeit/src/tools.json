@@ -4658,6 +4658,116 @@
     }
    ],
    "chunk_cells": 20000
+  },
+  {
+   "id": "improphe",
+   "name": "ImproPhe (FORCE)",
+   "category": "Data preparation",
+   "description": "Sharpens a coarse series to the pixels of this finer one, as zeit.improphe (FORCE's CF- and L2-ImproPhe; Frantz et al. 2016, IEEE TGRS 54:4153-4164): each pixel's value is the weighted mean of the coarse values at the pixels of its neighbourhood that look like it in the fine data (the fine scenes averaged in seasonal windows of the year, reduced to principal components and standardized), weighted by the spectral difference, the fine texture and the coarse texture. Two uses. A continuous field of the coarse series with one layer a year (a 500 m phenology metric of each year, say) is sharpened with the fine scenes of that year (CF-ImproPhe); the scenes of a coarser sensor (Landsat at 30 m) are sharpened with all the fine scenes of the series (Sentinel-2 at 10 m; L2-ImproPhe). The coarse series is another open series, in the same CRS, picked below; this series (all its bands of each date, its quality band applied) is the fine one, and the output is on its grid and window, a band for each layer of the coarse series (each band of it) with the coarse series' dates. The whole window is held in memory and the cost grows with the area of the neighbourhood circle: choose the ROI, or the visible area, and a kernel size that fits.",
+   "requires": {
+    "time": "any",
+    "min_dates": 1,
+    "all_bands": true
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "coarse",
+     "label": "Coarse series",
+     "type": "series",
+     "default": null,
+     "help": "The series to sharpen: another open series (File > Open) in the same CRS as this one, on any grid (nearest neighbour onto this one's, as FORCE's read does). One band a date is a single field; several bands a date are several fields (the phenology metrics of one year, the bands of a Landsat scene), each sharpened. Dates with no value, and its NoData, are missing: those pixels come out empty and are not neighbours."
+    },
+    {
+     "id": "by",
+     "label": "The coarse series is",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "year",
+      "scenes"
+     ],
+     "labels": [
+      "Detected (several dates a year: scenes)",
+      "A field with a layer a year (CF-ImproPhe)",
+      "Scenes of a sensor (L2-ImproPhe)"
+     ],
+     "help": "A field with a layer for each year (the dates' years must be different) is sharpened year by year with the fine scenes of that year. Scenes of a coarser sensor are each sharpened with the seasonal means of all the fine dates. Detected: scenes if some year has several dates; a series with one date a year is asked about (it could be either)."
+    },
+    {
+     "id": "seasons",
+     "label": "Seasonal windows",
+     "type": "text",
+     "default": "1,91,181,271,365",
+     "help": "The limits of the seasonal windows in days of the year (FORCE's SEASONAL_WINDOW), n + 1 integers for n windows, in FORCE's 365-day calendar (29 February is day 60, with 1 March). A limit larger than the next one makes a window that crosses the new year (330,60,330). A window without a scene at a pixel takes the mean of all the scenes."
+    },
+    {
+     "id": "kernel_size",
+     "label": "Kernel radius",
+     "type": "float",
+     "default": 2500.0,
+     "min": 1.0,
+     "max": 1000000.0,
+     "unit": "map units",
+     "help": "The radius of the circle whose pixels are the neighbours, in the series' map units (FORCE's KERNEL_SIZE), turned into fine pixels by truncation: it should be a multiple of the pixel size. 2500 is 250 pixels of 10 m, minutes for a 1000 x 1000 window: the cost grows with the circle's area, so try a smaller radius (300-500) on a preview first. Pixels within the radius of the window's edge see fewer neighbours."
+    },
+    {
+     "id": "texture_size",
+     "label": "Texture radius",
+     "type": "float",
+     "default": 330.0,
+     "min": 0.0,
+     "max": 1000000.0,
+     "unit": "map units",
+     "help": "The radius of the window of the texture (the largest standard deviation of the components, and the coarse values' own), in map units (FORCE's KERNEL_TEXT), truncated to fine pixels."
+    },
+    {
+     "id": "pc_variance",
+     "label": "Variance kept by the components",
+     "type": "float",
+     "default": 0.975,
+     "min": 0.01,
+     "max": 1.0,
+     "help": "The fraction of the variance of the seasonal means the principal components keep (FORCE: 0.975)."
+    },
+    {
+     "id": "force",
+     "label": "FORCE's arithmetic",
+     "type": "bool",
+     "default": false,
+     "help": "Off: the method as the paper describes it (float seasonal means, the last window including day 365, the principal components). On: FORCE's to the letter, to reproduce its output: the means cut to integers (right only for reflectance times 10000), the upper limit of every window excluded (day 365 is in none of the default seasons), and FORCE's components."
+    },
+    {
+     "id": "pca",
+     "label": "Components",
+     "type": "enum",
+     "default": "default",
+     "options": [
+      "default",
+      "principal",
+      "force"
+     ],
+     "labels": [
+      "As FORCE's arithmetic says",
+      "Principal components",
+      "FORCE's projection (rows of GSL's eigenvectors)"
+     ],
+     "help": "The components whose distances choose the neighbours. FORCE's projects the data on the rows of the eigenvector matrix, a rotation that is not the principal axes; neither is better throughout on the synthetic data Zeit compared."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "improphe",
+     "name": "ImproPhe",
+     "unit": "as the coarse series",
+     "series": true,
+     "bands": true
+    }
+   ],
+   "chunk_cells": 20000
   }
  ],
  "errors": []

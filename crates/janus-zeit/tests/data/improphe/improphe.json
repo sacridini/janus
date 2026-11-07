@@ -1,0 +1,214 @@
+{
+ "cases": [
+  {
+   "name": "cf_default",
+   "coarse": "cf",
+   "params": {
+    "by": "year",
+    "seasons": "1,91,181,271,365",
+    "force": false,
+    "pca": "default",
+    "kernel_size": 100.0,
+    "texture_size": 30.0,
+    "pc_variance": 0.975
+   },
+   "window": [
+    0,
+    0,
+    60,
+    60
+   ],
+   "expected": "expected_cf_default.tif",
+   "attrs": "CF-ImproPhe; radius 10 px, texture radius 3 px, min_neighbors 1; components (0.975 of the variance) 2020: 2, 2021: 2, 2022: 0; seasons 1 91 181 271 365; pca=principal, force=False"
+  },
+  {
+   "name": "cf_force",
+   "coarse": "cf",
+   "params": {
+    "by": "year",
+    "seasons": "1,91,181,271,365",
+    "force": true,
+    "pca": "default",
+    "kernel_size": 100.0,
+    "texture_size": 30.0,
+    "pc_variance": 0.975
+   },
+   "window": [
+    0,
+    0,
+    60,
+    60
+   ],
+   "expected": "expected_cf_force.tif",
+   "attrs": "CF-ImproPhe; radius 10 px, texture radius 3 px, min_neighbors 1; components (0.975 of the variance) 2020: 2, 2021: 2, 2022: 0; seasons 1 91 181 271 365; pca=force, force=True"
+  },
+  {
+   "name": "cf_force_pca_principal",
+   "coarse": "cf",
+   "params": {
+    "by": "year",
+    "seasons": "1,91,181,271,365",
+    "force": true,
+    "pca": "principal",
+    "kernel_size": 100.0,
+    "texture_size": 30.0,
+    "pc_variance": 0.975
+   },
+   "window": [
+    0,
+    0,
+    60,
+    60
+   ],
+   "expected": "expected_cf_force_pca_principal.tif",
+   "attrs": "CF-ImproPhe; radius 10 px, texture radius 3 px, min_neighbors 1; components (0.975 of the variance) 2020: 2, 2021: 2, 2022: 0; seasons 1 91 181 271 365; pca=principal, force=True"
+  },
+  {
+   "name": "cf_principal_force_pca",
+   "coarse": "cf",
+   "params": {
+    "by": "year",
+    "seasons": "1,91,181,271,365",
+    "force": false,
+    "pca": "force",
+    "kernel_size": 100.0,
+    "texture_size": 30.0,
+    "pc_variance": 0.975
+   },
+   "window": [
+    0,
+    0,
+    60,
+    60
+   ],
+   "expected": "expected_cf_principal_force_pca.tif",
+   "attrs": "CF-ImproPhe; radius 10 px, texture radius 3 px, min_neighbors 1; components (0.975 of the variance) 2020: 2, 2021: 2, 2022: 0; seasons 1 91 181 271 365; pca=force, force=False"
+  },
+  {
+   "name": "cf_crossing",
+   "coarse": "cf",
+   "params": {
+    "by": "year",
+    "seasons": "330,60,330",
+    "force": false,
+    "pca": "default",
+    "kernel_size": 60.0,
+    "texture_size": 20.0,
+    "pc_variance": 0.9
+   },
+   "window": [
+    0,
+    0,
+    60,
+    60
+   ],
+   "expected": "expected_cf_crossing.tif",
+   "attrs": "CF-ImproPhe; radius 6 px, texture radius 2 px, min_neighbors 0; components (0.9 of the variance) 2020: 2, 2021: 2, 2022: 2; seasons 330 60 330; pca=principal, force=False"
+  },
+  {
+   "name": "cf_roi",
+   "coarse": "cf",
+   "params": {
+    "by": "year",
+    "seasons": "1,91,181,271,365",
+    "force": false,
+    "pca": "default",
+    "kernel_size": 100.0,
+    "texture_size": 30.0,
+    "pc_variance": 0.975
+   },
+   "window": [
+    8,
+    5,
+    47,
+    52
+   ],
+   "expected": "expected_cf_roi.tif",
+   "attrs": "CF-ImproPhe; radius 10 px, texture radius 3 px, min_neighbors 1; components (0.975 of the variance) 2020: 2, 2021: 2, 2022: 0; seasons 1 91 181 271 365; pca=principal, force=False"
+  },
+  {
+   "name": "l2_default",
+   "coarse": "l2",
+   "params": {
+    "by": "scenes",
+    "seasons": "1,91,181,271,365",
+    "force": false,
+    "pca": "default",
+    "kernel_size": 100.0,
+    "texture_size": 30.0,
+    "pc_variance": 0.975
+   },
+   "window": [
+    0,
+    0,
+    60,
+    60
+   ],
+   "expected": "expected_l2_default.tif",
+   "attrs": "L2-ImproPhe; radius 10 px, texture radius 3 px, min_neighbors 1; components (0.975 of the variance) 2; seasons 1 91 181 271 365; pca=principal, force=False"
+  },
+  {
+   "name": "l2_auto",
+   "coarse": "l2",
+   "params": {
+    "by": "auto",
+    "seasons": "1,91,181,271,365",
+    "force": true,
+    "pca": "default",
+    "kernel_size": 100.0,
+    "texture_size": 30.0,
+    "pc_variance": 0.975
+   },
+   "window": [
+    0,
+    0,
+    60,
+    60
+   ],
+   "expected": "expected_l2_auto.tif",
+   "attrs": "L2-ImproPhe; radius 10 px, texture radius 3 px, min_neighbors 1; components (0.975 of the variance) 2; seasons 1 91 181 271 365; pca=force, force=True"
+  },
+  {
+   "name": "l2_pca_principal_force",
+   "coarse": "l2",
+   "params": {
+    "by": "scenes",
+    "seasons": "1,91,181,271,365",
+    "force": true,
+    "pca": "principal",
+    "kernel_size": 100.0,
+    "texture_size": 30.0,
+    "pc_variance": 0.975
+   },
+   "window": [
+    0,
+    0,
+    60,
+    60
+   ],
+   "expected": "expected_l2_pca_principal_force.tif",
+   "attrs": "L2-ImproPhe; radius 10 px, texture radius 3 px, min_neighbors 1; components (0.975 of the variance) 2; seasons 1 91 181 271 365; pca=principal, force=True"
+  },
+  {
+   "name": "l2_roi",
+   "coarse": "l2",
+   "params": {
+    "by": "scenes",
+    "seasons": "1,91,181,271,365",
+    "force": false,
+    "pca": "default",
+    "kernel_size": 100.0,
+    "texture_size": 30.0,
+    "pc_variance": 0.975
+   },
+   "window": [
+    14,
+    9,
+    55,
+    44
+   ],
+   "expected": "expected_l2_roi.tif",
+   "attrs": "L2-ImproPhe; radius 10 px, texture radius 3 px, min_neighbors 1; components (0.975 of the variance) 2; seasons 1 91 181 271 365; pca=principal, force=False"
+  }
+ ]
+}

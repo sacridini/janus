@@ -490,6 +490,101 @@ fn grid_lines(info: &janus_cube::CubeInfo, cols: &str, rows: &str) -> String {
     )
 }
 
+/// The cubes of ImproPhe's call: the run's series as the fine one (every band of each date but the quality band over the
+/// run's window, the dates the quality band refuses missing) and the other series as the coarse one (every band of each
+/// date but its quality band, over its whole grid), each on its own grid, in the CRS its files say. The layer's
+/// dimension of the coarse cube is `time` with its dates, or, without dates, `year` (a field with a layer a year) or
+/// `time` (scenes), as `by` says.
+fn improphe_cubes(info: &janus_cube::CubeInfo, other: &janus_cube::CubeInfo, by: &str) -> Result<String, String> {
+    if !info.time_is_date {
+        return Err("ImproPhe needs a series with real dates (the seasonal windows are days of the year)".into());
+    }
+    let sel = info.sel;
+    let qa = sel.qa_band > 0 && sel.qa_rule != QaRule::None;
+    let bands: Vec<i32> = (1..=info.bands_per_date.max(1) as i32).filter(|&b| !(qa && b == sel.qa_band)).collect();
+    let names = |i: &janus_cube::CubeInfo, bands: &[i32]| -> String {
+        let n: Vec<String> = bands
+            .iter()
+            .map(|&b| py_str(i.band_names.get(b as usize - 1).map_or(format!("band {b}").as_str(), String::as_str)))
+            .collect();
+        format!("[{}]", n.join(", "))
+    };
+    let list = |v: Vec<String>| v.join(", ");
+    let mut o = String::new();
+    let _ = writeln!(
+        o,
+        "import rioxarray  # noqa: F401 (the .rio accessor)\n\n\
+         # ImproPhe's fine series: every band of each date{} over the run's window.\n\
+         fine_bands = [{}]  # the bands of each date's file, less the date's first band\n\
+         fine_bases = [{}]\n\
+         fine_raw = np.stack([np.stack([read(layer[0], base + b, window) for b in fine_bands])\n                     \
+         for layer, base in zip(layers, fine_bases)])  # (time, band, y, x)",
+        if qa { " but the quality band" } else { "" },
+        list(bands.iter().map(i32::to_string).collect()),
+        list(info.layers.iter().map(|l| l.band_base.to_string()).collect())
+    );
+    if qa {
+        // an expression's layer is (file, bands, quality band, date), else (file, band, band B, quality band)
+        let q = if info.expr.is_some() { "layer[2]" } else { "layer[3]" };
+        let _ = writeln!(
+            o,
+            "q = np.stack([read(layer[0], {q}, window, raw=True) for layer in layers])\n\
+             fine_raw = np.where(usable(q, qa_rule)[:, None], fine_raw, np.nan)  # the dates the quality band refuses"
+        );
+    }
+    let _ = writeln!(
+        o,
+        "with rasterio.open(layers[0][0]) as src:\n    fine_crs, fine_tf = src.crs, src.window_transform(window)\n\
+         fine_cube = xr.DataArray(fine_raw, dims=(\"time\", \"band\", \"y\", \"x\"),\n                         \
+         coords={{\"time\": dates.astype(\"datetime64[ns]\"), \"band\": {},\n                                 \
+         \"y\": fine_tf.f + (np.arange(window.height) + 0.5) * fine_tf.e,\n                                 \
+         \"x\": fine_tf.c + (np.arange(window.width) + 0.5) * fine_tf.a}}).rio.write_crs(fine_crs)",
+        names(info, &bands)
+    );
+    // the coarse series
+    let cbands = crate::zeit::other_bands(other);
+    let nf = cbands.len();
+    let layer_dim = if other.time_is_date {
+        let dates: Vec<String> =
+            other.layers.iter().map(|l| format!("\"{}\"", &l.label[..l.label.len().min(10)])).collect();
+        format!("np.array([{}], dtype=\"datetime64[D]\").astype(\"datetime64[ns]\")", dates.join(", "))
+    } else if by == "scenes" {
+        format!("np.arange({})", other.t())
+    } else {
+        let years: Vec<String> = (0..other.t()).map(|t| (other.decimal_year(t).floor() as i64).to_string()).collect();
+        format!("np.array([{}])", years.join(", "))
+    };
+    let dim = if other.time_is_date || by == "scenes" { "time" } else { "year" };
+    let files: Vec<String> = other
+        .layers
+        .iter()
+        .map(|l| format!("({}, {})", py_str(&crate::provenance::absolute(&l.path)), l.band_base))
+        .collect();
+    let (dims, band_coord, take) = if nf == 1 {
+        (format!("(\"{dim}\", \"y\", \"x\")"), String::new(), "[:, 0]")
+    } else {
+        (format!("(\"{dim}\", \"band\", \"y\", \"x\")"), format!(", \"band\": {}", names(other, &cbands)), "")
+    };
+    let _ = writeln!(
+        o,
+        "\n# The coarse series: every band of each date{} over its whole grid (Zeit puts it on the fine grid).\n\
+         coarse_files = [{}]  # each date: its file and its first band less 1\n\
+         coarse_bands = [{}]\n\
+         with rasterio.open(coarse_files[0][0]) as src:\n    \
+         coarse_crs, coarse_tf, coarse_win = src.crs, src.transform, Window(0, 0, src.width, src.height)\n\
+         coarse_raw = np.stack([np.stack([read(path, base + b, coarse_win) for b in coarse_bands])\n                       \
+         for path, base in coarse_files])  # (time, band, y, x)\n\
+         coarse_cube = xr.DataArray(coarse_raw{take}, dims={dims},\n                           \
+         coords={{\"{dim}\": {layer_dim}{band_coord},\n                                   \
+         \"y\": coarse_tf.f + (np.arange(coarse_win.height) + 0.5) * coarse_tf.e,\n                                   \
+         \"x\": coarse_tf.c + (np.arange(coarse_win.width) + 0.5) * coarse_tf.a}}).rio.write_crs(coarse_crs)",
+        if other.sel.qa_band > 0 { " but its quality band" } else { "" },
+        files.join(", "),
+        list(cbands.iter().map(i32::to_string).collect()),
+    );
+    Ok(o)
+}
+
 /// The roles NBAR normalizes (zeit-core's), as a Python tuple.
 const NBAR_ROLES: &str = "(\"coastal\", \"blue\", \"green\", \"red\", \"rededge1\", \"rededge2\", \"rededge3\", \"nir\", \"nir08\", \
                           \"swir1\", \"swir2\")";
@@ -613,11 +708,14 @@ pub(crate) fn save_code(out_dir: &str, names: &[(String, String)]) -> String {
 
 /// "Copy Python" of a raster run (its provenance's rerun.py): the series read from its files over the run's window,
 /// the same Zeit calls with the run's parameters, and every map they return written as a GeoTIFF in `out_dir`.
+/// `other` is the second series a tool reads (ImproPhe's coarse one).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_code(
     info: &janus_cube::CubeInfo,
     tool: &janus_zeit::Tool,
     params: &std::collections::BTreeMap<String, serde_json::Value>,
     roles: &std::collections::BTreeMap<String, i32>,
+    other: Option<&janus_cube::CubeInfo>,
     window: [usize; 4],
     threads: Option<i64>,
     out_dir: &str,
@@ -713,6 +811,12 @@ pub(crate) fn run_code(
     if inputs.contains(&"spectrum") {
         o += "spectrum = xr.DataArray(values, dims=(\"band\", \"y\", \"x\"),\n                        \
               coords={\"band\": [f\"b{i + 1:03d}\" for i in range(len(layers))]})\n";
+    }
+    if inputs.contains(&"improphe_cubes") {
+        let other = other.ok_or("choose the series to sharpen first: ImproPhe's script reads it")?;
+        let by =
+            janus_zeit::Params::with_defaults(&tool.id, params).map(|p| p.str("by").to_string()).unwrap_or_default();
+        o += &improphe_cubes(info, other, &by)?;
     }
     let _ = writeln!(o, "\n# {}, with the run's parameters\n{code}", tool.name);
     o += &save_code(out_dir, &[]);
@@ -820,7 +924,8 @@ mod tests {
         assert_eq!(ids, ["nbar_blue", "nbar_nir", "nbar_swir1", "cfactor_blue", "cfactor_nir", "cfactor_swir1"]);
 
         let out = base.join("python");
-        let code = super::run_code(&info, tool, &params, &roles, window, Some(2), &out.to_string_lossy()).unwrap();
+        let code =
+            super::run_code(&info, tool, &params, &roles, None, window, Some(2), &out.to_string_lossy()).unwrap();
         assert!(code.contains("zeit.nbar(nbar_cube, angles, sza='scene'"), "{code}");
         let script = base.join("nbar.py");
         std::fs::write(&script, code).unwrap();
@@ -948,7 +1053,8 @@ mod tests {
         assert_eq!(ids, ["nbar_blue", "nbar_nir", "nbar_swir1", "cfactor_blue", "cfactor_nir", "cfactor_swir1"]);
 
         let out = base.join("python");
-        let code = super::run_code(&info, tool, &params, &roles, window, Some(2), &out.to_string_lossy()).unwrap();
+        let code =
+            super::run_code(&info, tool, &params, &roles, None, window, Some(2), &out.to_string_lossy()).unwrap();
         assert!(code.contains("angles = zeit.sentinel2_angles(sources, like=nbar_cube, view_band='B06')"), "{code}");
         assert!(
             code.contains("MTD_TL.xml") && code.contains(".rio.write_crs(crs)") && !code.contains("angles_raw"),
@@ -984,5 +1090,125 @@ mod tests {
             "{values} values of the Sentinel-2 script compared with the run's, the largest relative difference {worst:e}"
         );
         assert!(values > 300);
+    }
+
+    /// ImproPhe's fine and coarse series as two folders: the fine of 24 x 24 pixels of 10 m, eight dates in three
+    /// bands and a quality band (the rule "0 is masked") that refuses one date over a block, with gaps; the coarse
+    /// of 8 x 8 pixels of 30 m on the same extent, three scenes in two bands (UTM 22S).
+    fn improphe_series(dir: &Path) -> (janus_cube::CubeInfo, janus_cube::CubeInfo) {
+        let _ = std::fs::remove_dir_all(dir);
+        let (fine, coarse) = (dir.join("fine"), dir.join("coarse"));
+        std::fs::create_dir_all(&fine).unwrap();
+        std::fs::create_dir_all(&coarse).unwrap();
+        let drv = gdal::DriverManager::get_driver_by_name("GTiff").unwrap();
+        let srs = gdal::spatial_ref::SpatialRef::from_epsg(32722).unwrap();
+        let mut rng = 777u64;
+        let mut next = move || {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (rng >> 33) as f32 / (1u64 << 31) as f32
+        };
+        let mut write = |dir: &Path, day: i64, prefix: &str, w: usize, res: f64, bands: usize, qa: bool| {
+            let (y, m, d) = janus_zeit::numeric::civil(day);
+            let path = dir.join(format!("{prefix}_{y:04}-{m:02}-{d:02}.tif"));
+            let mut ds = drv.create_with_band_type::<f32, _>(&path, w, w, bands + usize::from(qa)).unwrap();
+            ds.set_geo_transform(&[500000.0, res, 0.0, 8900000.0, 0.0, -res]).unwrap();
+            ds.set_spatial_ref(&srs).unwrap();
+            for b in 0..bands + usize::from(qa) {
+                let data: Vec<f32> = (0..w * w)
+                    .map(|p| {
+                        let (x, row) = ((p % w) as f32, (p / w) as f32);
+                        if qa && b == bands {
+                            // the date of the 5th file is refused over a block
+                            return if day == 18300 + 4 * 40 && x < 12.0 && row < 12.0 { 0.0 } else { 1.0 };
+                        }
+                        if next() < 0.06 {
+                            return -9999.0;
+                        }
+                        let cover = ((x / (w as f32 / 3.0)).floor() + 2.0 * (row / (w as f32 / 2.0)).floor()) % 4.0;
+                        let season = 1.0 + 0.3 * ((day as f32 / 58.0) + cover).sin();
+                        (0.1 + 0.15 * cover) * season * (b as f32 + 1.0) / 2.0 + 0.01 * next()
+                    })
+                    .collect();
+                let mut band = ds.rasterband(b + 1).unwrap();
+                band.set_no_data_value(Some(-9999.0)).unwrap();
+                band.write((0, 0), (w, w), &mut gdal::raster::Buffer::new((w, w), data)).unwrap();
+            }
+        };
+        for k in 0..8 {
+            write(&fine, 18300 + 40 * k, "fine", 24, 10.0, 3, true);
+        }
+        for day in [18300 + 30, 18300 + 190, 18300 + 400] {
+            write(&coarse, day, "coarse", 8, 30.0, 2, false);
+        }
+        let sel = BandSelection {
+            band: 1,
+            qa_band: 4,
+            qa_rule: janus_cube::QaRule::NonZero,
+            chosen: true,
+            ..Default::default()
+        };
+        (
+            open_cube(&[fine.to_string_lossy().into_owned()], &sel).unwrap(),
+            open_cube(&[coarse.to_string_lossy().into_owned()], &BandSelection::default()).unwrap(),
+        )
+    }
+
+    /// ImproPhe's Copy Python (the rerun script) run in Zeit gives the maps `run_job` wrote: the fine series is the
+    /// run's (every band but the quality band, the dates it refuses missing), the coarse one the other series.
+    #[test]
+    fn the_improphe_script_runs_in_zeit_and_gives_the_runs_values() {
+        let Ok(python) = std::env::var("JANUS_PYTHON") else {
+            println!("skipped: JANUS_PYTHON names no Python with zeit, rasterio, rioxarray and xarray");
+            return;
+        };
+        let base = std::env::temp_dir().join("janus-improphe-test-script");
+        let (info, other) = improphe_series(&base.join("series"));
+        assert_eq!((info.t(), other.t(), info.bands_per_date, other.bands_per_date), (8, 3, 4, 2));
+        let tool = manifest().tool("improphe").unwrap();
+        let params: BTreeMap<String, Value> = serde_json::from_value(
+            json!({ "by": "scenes", "kernel_size": 60.0, "texture_size": 20.0, "force": true, "pca": "principal" }),
+        )
+        .unwrap();
+        let roles = BTreeMap::new();
+        let window = [1, 1, 23, 22];
+        let mut spec = base_spec(&info, tool, &params, 7, 2);
+        series_inputs(&info, tool, &roles, &base.join("in"), &mut spec).unwrap();
+        // every band but the quality band
+        assert_eq!(spec.bands.keys().map(String::as_str).collect::<Vec<_>>(), ["b001", "b002", "b003"]);
+        crate::zeit::other_series(&other, "coarse", &base.join("other"), &mut spec).unwrap();
+        assert_eq!(spec.other.as_ref().unwrap().inputs.len(), 2);
+        spec.window = Some(window);
+        spec.output_dir = base.join("out").to_string_lossy().into_owned();
+        let result = run_job(&spec, &|_, _| {}, &AtomicBool::new(false)).unwrap();
+        let want = read(result.outputs[0]["path"].as_str().unwrap());
+        assert_eq!(want.len(), 6);
+
+        let out = base.join("python");
+        let code = super::run_code(&info, tool, &params, &roles, Some(&other), window, Some(2), &out.to_string_lossy())
+            .unwrap();
+        assert!(
+            code.contains("zeit.improphe(coarse_cube, fine_cube, by=None, seasons=(1, 91, 181, 271, 365)"),
+            "{code}"
+        );
+        assert!(code.contains("fine_bands = [1, 2, 3]") && code.contains("usable(q, qa_rule)"), "{code}");
+        let script = base.join("improphe.py");
+        std::fs::write(&script, code).unwrap();
+        run_python(&python, &script);
+        let got = read(&out.join("result1.tif").to_string_lossy());
+        assert_eq!(got.len(), want.len());
+        let (mut values, mut worst) = (0, 0f32);
+        for (k, (g, w)) in got.iter().zip(&want).enumerate() {
+            for (g, w) in g.iter().zip(w) {
+                assert!((g.is_nan() && w.is_nan()) || (g - w).abs() <= 1e-5 * w.abs(), "band {k}: {g} vs {w}");
+                if g.is_finite() {
+                    worst = worst.max((g - w).abs() / w.abs().max(1e-12));
+                    values += 1;
+                }
+            }
+        }
+        println!(
+            "{values} values of the ImproPhe script compared with the run's, the largest relative difference {worst:e}"
+        );
+        assert!(values > 1000);
     }
 }

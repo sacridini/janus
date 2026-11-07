@@ -283,7 +283,9 @@ fn reads_bands(tool: &Tool) -> bool {
 /// them, else its roles' mapped bands.
 fn tool_bands(tool: &Tool, info: &CubeInfo, roles: &BTreeMap<String, i32>) -> Vec<(String, i32)> {
     if tool.requires.all_bands == Some(true) {
-        return (1..=info.bands_per_date as i32).map(|b| (format!("b{b:03}"), b)).collect();
+        // ImproPhe's fine series: the quality band is applied to the others, not one of them
+        let qa = (tool.id == "improphe" && info.sel.qa_band > 0).then_some(info.sel.qa_band);
+        return (1..=info.bands_per_date as i32).filter(|&b| Some(b) != qa).map(|b| (format!("b{b:03}"), b)).collect();
     }
     let (needed, optional) = tool_roles(tool);
     needed.iter().chain(&optional).filter_map(|r| roles.get(r).map(|&b| (r.clone(), b))).collect()
@@ -957,6 +959,7 @@ impl State {
         let roi = self.series.roi.complete().then(|| self.series.roi.mean.clone()).filter(|m| !m.is_empty());
         let info = self.session.as_ref().map(|s| s.info.clone());
         let results: Vec<(String, String, String)> = self.zeit_result_maps();
+        let others = if tool.params.iter().any(|p| p.kind == "series") { self.other_series_choices() } else { vec![] };
         let shown_t = self.display.t;
         let values = self.zeit.params(tool);
         egui::Grid::new(("params", &tool.id)).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
@@ -1014,6 +1017,19 @@ impl State {
                                     }
                                 }
                             });
+                    }
+                    "text" => {
+                        help(ui.label(&p.label));
+                        let mut x = v.as_str().unwrap_or("").to_string();
+                        let edit = egui::TextEdit::singleline(&mut x).desired_width(crate::fit::scaled(ui, 220.0));
+                        if help(ui.add(edit)).changed() {
+                            *v = json!(x);
+                            changed = true;
+                        }
+                    }
+                    "series" => {
+                        help(ui.label(&p.label));
+                        changed |= series_param_ui(ui, p, v, &others);
                     }
                     "multi" => {
                         help(ui.label(&p.label));
@@ -1087,6 +1103,63 @@ fn multi_param_ui(ui: &mut Ui, p: &janus_zeit::Param, v: &mut Value) -> bool {
                 }
             }
         });
+    changed
+}
+
+/// A series another open layer holds that a "series" parameter can pick: its name, its files, the text that describes
+/// it and whether it is in the active series' CRS.
+pub(crate) struct SeriesChoice {
+    pub name: String,
+    pub inputs: Vec<String>,
+    pub about: String,
+    pub same_crs: bool,
+}
+
+/// A "series" parameter (ImproPhe's coarse series): another open series, in a menu. Value: {"name", "inputs"} (the
+/// layer's name and files), null for none. A series in another CRS is listed but cannot be picked. Returns whether it
+/// changed.
+fn series_param_ui(ui: &mut Ui, p: &janus_zeit::Param, v: &mut Value, others: &[SeriesChoice]) -> bool {
+    let chosen: Option<Vec<String>> = v
+        .get("inputs")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect());
+    let shown = match (&chosen, v.get("name").and_then(Value::as_str)) {
+        (Some(_), Some(name)) => name.to_string(),
+        _ => "none".to_string(),
+    };
+    let mut changed = false;
+    ui.vertical(|ui| {
+        ComboBox::from_id_salt(("series", &p.id)).width(crate::fit::scaled(ui, 260.0)).selected_text(shown).show_ui(
+            ui,
+            |ui| {
+                if ui.selectable_label(chosen.is_none(), "none").clicked() && chosen.is_some() {
+                    *v = Value::Null;
+                    changed = true;
+                }
+                for o in others {
+                    let on = chosen.as_ref() == Some(&o.inputs);
+                    let label = format!("{} ({})", o.name, o.about);
+                    ui.add_enabled_ui(o.same_crs, |ui| {
+                        if ui
+                            .selectable_label(on, label)
+                            .on_disabled_hover_text(
+                                "It is in another CRS than the active series: reproject it first (Tools > Data preparation >\n\
+                                 Reproject, resample, clip, to a layer's grid)",
+                            )
+                            .clicked()
+                            && !on
+                        {
+                            *v = json!({ "name": o.name, "inputs": o.inputs });
+                            changed = true;
+                        }
+                    });
+                }
+            },
+        );
+        if others.is_empty() {
+            ui.weak("Open the coarse series as another layer first.");
+        }
+    });
     changed
 }
 
@@ -1888,6 +1961,54 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         self.zeit.results_dir.clone().unwrap_or_else(|| crate::settings::app_data_dir().join("results"))
     }
 
+    /// The other open series a "series" parameter can pick, in the layers' order.
+    pub(crate) fn other_series_choices(&self) -> Vec<SeriesChoice> {
+        let Some(active) = self.session.as_ref().map(|s| s.info.clone()) else { return vec![] };
+        (0..self.layers.len())
+            .filter(|&i| i != self.active && !self.layers[i].canvas)
+            .filter_map(|i| {
+                let info = self.layer_session(i)?.info.clone();
+                let bands = info.bands_per_date.max(1);
+                let about = format!(
+                    "{} dates, {} band{}{}",
+                    info.t(),
+                    bands,
+                    if bands == 1 { "" } else { "s" },
+                    if info.time_is_date { "" } else { ", no dates" }
+                );
+                Some(SeriesChoice {
+                    name: self.layers[i].name.clone(),
+                    inputs: self.layers[i].inputs.clone(),
+                    about,
+                    same_crs: crate::layers::same_crs(&active, &info),
+                })
+            })
+            .collect()
+    }
+
+    /// The series the tool's "series" parameter holds (ImproPhe's coarse one): its layer's name and info; None
+    /// when none is picked, an error when the layer is not open any more.
+    pub(crate) fn picked_series(
+        &self,
+        tool: &Tool,
+        params: &BTreeMap<String, Value>,
+    ) -> Result<Option<(String, Arc<CubeInfo>)>, String> {
+        let Some(p) = tool.params.iter().find(|p| p.kind == "series") else { return Ok(None) };
+        let Some(v) = params.get(&p.id).filter(|v| v.is_object()) else { return Ok(None) };
+        let name = v.get("name").and_then(Value::as_str).unwrap_or_default();
+        let inputs: Vec<&str> =
+            v.get("inputs").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
+        let open = |i: &usize| *i != self.active && !self.layers[*i].canvas;
+        let found = (0..self.layers.len())
+            .filter(open)
+            .find(|&i| self.layers[i].inputs.iter().map(String::as_str).eq(inputs.iter().copied()))
+            .or_else(|| (0..self.layers.len()).filter(open).find(|&i| self.layers[i].name == name));
+        let i = found.ok_or_else(|| format!("The series \"{name}\" is not open any more: choose another one."))?;
+        let info =
+            self.layer_session(i).ok_or_else(|| format!("The series \"{name}\" is still opening."))?.info.clone();
+        Ok(Some((self.layers[i].name.clone(), info)))
+    }
+
     /// A run's spec on the active series (or, for a tool on maps, on its first map's grid): the spec without its
     /// output folder, the series its results go under, what it runs on, and the series' name.
     fn job_spec(&mut self, tool: &'static Tool) -> Result<(janus_zeit::job::JobSpec, u64, String, String), String> {
@@ -1933,6 +2054,13 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         } else {
             let roles = self.active_roles();
             series_inputs(&info, tool, &roles, &work.join(format!("{name}_{}", info.id)), &mut spec)?;
+            if tool.params.iter().any(|p| p.kind == "series") {
+                let Some((other_name, other)) = self.picked_series(tool, &params)? else {
+                    return Err("Choose the series to sharpen (another open layer) in the tool's form first.".into());
+                };
+                let stem = work.join(format!("{name}_{}_other{}", info.id, other.id));
+                other_series(&other, &other_name, &stem, &mut spec)?;
+            }
         }
         spec.window = Some(window);
         if crate::methods::Kind::of_tool(&tool.id).is_some_and(|k| k.clusters()) {
@@ -1979,7 +2107,19 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                 }
                 let window = spec.window.unwrap_or([0, 0, info.width, info.height]);
                 let to = out.join("python").to_string_lossy().into_owned();
-                match crate::python::run_code(&info, tool, &params, &roles, window, spec.threads, &to) {
+                let coarse = self.picked_series(tool, &params).ok().flatten();
+                if let Some((other_name, other)) = &coarse {
+                    let inputs = tool
+                        .params
+                        .iter()
+                        .find(|q| q.kind == "series")
+                        .and_then(|q| params.get(&q.id)?.get("inputs").cloned())
+                        .unwrap_or_default();
+                    p.extra
+                        .insert("coarse".into(), json!({ "name": other_name, "inputs": inputs, "dates": other.t() }));
+                }
+                let other = coarse.as_ref().map(|c| &*c.1);
+                match crate::python::run_code(&info, tool, &params, &roles, other, window, spec.threads, &to) {
                     Ok(code) if std::fs::write(out.join(SCRIPT), &code).is_ok() => p.python = SCRIPT.into(),
                     Ok(_) => p.python_note = format!("{SCRIPT} could not be written"),
                     Err(e) => p.python_note = e,
@@ -2852,6 +2992,41 @@ pub(crate) fn series_inputs(
         }
     }
     Ok(())
+}
+
+/// A second series (ImproPhe's coarse one) as VRTs at `stem`* into the spec's `other`: a VRT of the dates for each band
+/// of a date but its quality band (the files' bands as they are: an expression is not applied), and its dates.
+pub(crate) fn other_series(
+    info: &CubeInfo,
+    name: &str,
+    stem: &std::path::Path,
+    spec: &mut janus_zeit::job::JobSpec,
+) -> Result<(), String> {
+    let bands = other_bands(info);
+    let mut inputs = vec![];
+    for &b in &bands {
+        let path = format!("{}_b{b}.vrt", stem.display());
+        janus_cube::vrt::write_cube_vrt(info, &path, b, false)?;
+        inputs.push(path);
+    }
+    spec.other = Some(janus_zeit::job::OtherSeries {
+        name: name.to_string(),
+        inputs,
+        band_names: bands
+            .iter()
+            .map(|&b| info.band_names.get(b as usize - 1).cloned().unwrap_or_else(|| format!("band {b}")))
+            .collect(),
+        years: (0..info.t()).map(|t| info.decimal_year(t)).collect(),
+        days: info.time_is_date.then(|| (0..info.t()).map(|t| info.unix_day(t)).collect()),
+        labels: Some(info.layers.iter().map(|l| l.label.clone()).collect()),
+    });
+    Ok(())
+}
+
+/// The bands of each date a second series gives (1-based): every one but its quality band.
+pub(crate) fn other_bands(info: &CubeInfo) -> Vec<i32> {
+    let qa = (info.sel.qa_band > 0).then_some(info.sel.qa_band);
+    (1..=info.bands_per_date.max(1) as i32).filter(|&b| Some(b) != qa).collect()
 }
 
 /// The roles of a series' bands (guessed from their names).

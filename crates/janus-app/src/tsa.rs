@@ -427,7 +427,7 @@ pub(crate) fn run_chain(
                    "reads": source.as_deref().unwrap_or("the series")}),
         );
         let to = dir.join("python").to_string_lossy().into_owned();
-        match crate::python::run_code(&info, tool, &step.params, &roles, win, spec.threads, &to) {
+        match crate::python::run_code(&info, tool, &step.params, &roles, None, win, spec.threads, &to) {
             Ok(code) if std::fs::write(dir.join(SCRIPT), &code).is_ok() => prov.python = SCRIPT.into(),
             Ok(_) => prov.python_note = format!("{SCRIPT} could not be written"),
             Err(e) => prov.python_note = e,

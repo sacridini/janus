@@ -22,6 +22,7 @@ mod fold_trend;
 pub mod granules;
 pub mod harmonize;
 pub mod hotspots;
+mod improphe;
 mod interpolate;
 pub use interpolate::grid_days as interpolate_days;
 pub mod job;

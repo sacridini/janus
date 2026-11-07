@@ -2277,6 +2277,22 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   em tempo de execução). Os ângulos são calculados por faixa (duas vezes, com SZA "scene": uma na
   primeira passada). Falta: ler o Earth Search de verdade (o href do `granule_metadata` não foi
   conferido na rede) e o `view_band="each"`.
+- Ainda sem versão (J4, branch j4): ImproPhe (FORCE) (`improphe`, Data preparation, só raster), pelo
+  `zeit.improphe` (zeit-core f20ff43): a série ativa é a fina (todas as bandas de cada data menos a de
+  qualidade, que mascara as datas) e a grossa é **outra série aberta**, escolhida num parâmetro novo do
+  manifesto, `"type": "series"` (valor `{name, inputs}`, o app resolve para o `CubeInfo` da camada e
+  escreve um VRT por banda em `JobSpec.other: OtherSeries`, que não passa por `bands` porque o `Inputs`
+  exige o T e o tamanho da série ativa; no MCP é o argumento `coarse` do `run_tool`). A grossa vai à grade
+  da fina por vizinho mais próximo (o pixel em que o centro cai, o que o GDAL e o `reproject_match` fazem;
+  mesmo CRS obrigatório, senão recusa) só na janela, e o `run_job` segura a janela inteira (a PCA é global e
+  o círculo passa de qualquer faixa): `prepare_fine` por ano (CF) ou uma vez (L2), `predict` por camada, com
+  teto de 6 GB e mensagem. A saída tem uma banda por camada e banda da grossa, com as datas dela (`bands:
+  true`). Igual ao Zeit (203.882 valores, 10 casos: CF com 3 anos e 2 campos, L2 com 4 cenas, force e pca nas
+  quatro combinações, estação que cruza o ano, janelas) em todos os bits, e o Copy Python rodado no Zeit
+  igual ao do `run_job` (2.462 valores). O estimador é analítico (pixels x área do círculo x camadas, medido
+  com 300 x 300 px e três raios, dentro de 25%). Falta: um tile a tempo (a janela inteira em memória limita
+  a uns 1 500 x 1 500 px com 100 datas de 6 bandas), o `resmerge` do Sentinel-2 de 20 m para 10 m e a série grossa ser lida só
+  na janela no Copy Python.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 

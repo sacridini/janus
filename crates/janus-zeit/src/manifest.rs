@@ -56,8 +56,8 @@ pub struct Requires {
 pub struct Param {
     pub id: String,
     pub label: String,
-    /// int, float, bool, enum, multi (an enum of which several can be chosen: the value is an array of options),
-    /// patterns, layers
+    /// int, float, bool, enum, text (a line of text), multi (an enum of which several can be chosen: the value is an
+    /// array of options), patterns, layers, series (another open series: the value is {"name", "inputs"}, or null)
     #[serde(rename = "type")]
     pub kind: String,
     pub default: Value,

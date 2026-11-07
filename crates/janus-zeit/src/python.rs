@@ -559,6 +559,36 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
                 vec!["nbar_cube"],
             )
         }
+        "improphe" => {
+            let by = match p.str("by") {
+                "year" => "'year'",
+                "scenes" => "None",
+                _ => "'auto'",
+            };
+            let seasons: Vec<String> = p
+                .str("seasons")
+                .split(|c: char| c == ',' || c == ';' || c.is_whitespace())
+                .filter_map(|x| x.parse::<i32>().ok())
+                .map(|x| x.to_string())
+                .collect();
+            let pca = match p.str("pca") {
+                "principal" => "'principal'",
+                "force" => "'force'",
+                _ => "None",
+            };
+            (
+                format!(
+                    "result1 = zeit.improphe(coarse_cube, fine_cube, by={by}, seasons=({}), kernel_size={}, \
+                     texture_size={}, pc_variance={}, force={}, pca={pca}, nodata=None, n_jobs=1)",
+                    seasons.join(", "),
+                    f("kernel_size"),
+                    f("texture_size"),
+                    f("pc_variance"),
+                    py_bool(p.bool("force"))
+                ),
+                vec!["improphe_cubes"],
+            )
+        }
         _ => return None,
     })
 }

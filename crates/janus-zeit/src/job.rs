@@ -79,6 +79,31 @@ pub struct JobSpec {
     /// clusters by the samples in them
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub samples: Vec<SamplePixel>,
+    /// a second series a tool reads besides the active one (ImproPhe's coarse series), on its own grid and dates
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other: Option<OtherSeries>,
+}
+
+/// A series besides the run's own (ImproPhe's coarse one): every band of each date as a VRT of its dates, and its
+/// dates. It keeps its own grid (same CRS as the run's series) and axis: the tool puts it on the run's grid.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct OtherSeries {
+    /// the series' name (its layer's)
+    #[serde(default)]
+    pub name: String,
+    /// one VRT of the dates for each band of a date, in the band order
+    pub inputs: Vec<String>,
+    /// the name of each band of a date ("" where none is known), one per input
+    #[serde(default)]
+    pub band_names: Vec<String>,
+    /// decimal year of each date
+    pub years: Vec<f64>,
+    /// days since 1970-01-01 of each date, when the series has real dates
+    #[serde(default)]
+    pub days: Option<Vec<i64>>,
+    /// Janus's label of each date: the band descriptions of the output
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 /// A pixel of a sample: its column and row in the input, its class and its place (the pixels of a place count as
@@ -317,7 +342,7 @@ impl Source {
 }
 
 /// The bands `bands` (1-based) of a window as float64, [band][pixels] (see `Source::read`).
-fn read(
+pub(crate) fn read(
     ds: &Dataset,
     bands: std::ops::RangeInclusive<usize>,
     x0: usize,
@@ -596,8 +621,13 @@ impl Outputs {
         for o in outputs {
             let path = dir.join(format!("{}_{}.tif", tool.id, o.id));
             // the tool's own bands (once per job), else the run's dates for a series, else one band
-            let labels =
-                if o.bands == Some(true) { output_bands(&tool.id, o, &params, &context)? } else { date_labels.clone() };
+            let labels = if o.bands == Some(true) && tool.id == "improphe" {
+                crate::improphe::bands(spec, &params)?
+            } else if o.bands == Some(true) {
+                output_bands(&tool.id, o, &params, &context)?
+            } else {
+                date_labels.clone()
+            };
             let count = if o.bands == Some(true) || o.series == Some(true) { labels.len() } else { 1 };
             if count == 0 {
                 return Err(format!("{}: the output '{}' has no bands", tool.id, o.id));
@@ -926,6 +956,9 @@ pub fn run_job(
     if spec.tool == "texture" {
         return crate::texture::run(spec, tool, &p, progress, cancel);
     }
+    if spec.tool == "improphe" {
+        return crate::improphe::run(spec, tool, &p, progress, cancel);
+    }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();
     let window = spec.window.unwrap_or([0, 0, iw, ih]);
@@ -1075,6 +1108,9 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
             chunk_cells: cells,
             sec_fixed: 0.0,
         });
+    }
+    if spec.tool == "improphe" {
+        return crate::improphe::estimate(spec, &p, cells);
     }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();

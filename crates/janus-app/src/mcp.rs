@@ -1,4 +1,4 @@
-﻿//! `janus mcp`: Janus as a server of the Model Context Protocol (MCP), on the standard input and output. An
+//! `janus mcp`: Janus as a server of the Model Context Protocol (MCP), on the standard input and output. An
 //! assistant (Claude Desktop, Claude Code, any client of MCP) opens series, reads their values at points and over
 //! areas, writes and runs the raster calculator's expressions, runs Zeit's tools (on a series or on maps) and the
 //! series' and maps' tools (regularize, speckle, sensor harmonization, reproject, zonal statistics, areas, polygonize, rasterize), trains
@@ -386,7 +386,7 @@ fn catalogue() -> Vec<Value> {
         tool(
             "run_tool",
             "Run a Zeit tool on a series",
-            "Runs one of Zeit's tools on the series (or an area of it): its maps as GeoTIFFs. TWDTW takes `samples` (places with a class) instead of patterns: each class's mean series becomes its pattern. SOM and k-means (clusters without samples) name each cluster by the class of most of the `samples` (or a vector's) in it, when given.",
+            "Runs one of Zeit's tools on the series (or an area of it): its maps as GeoTIFFs. ImproPhe takes the series to sharpen as `coarse` (another series in the same CRS; `series` is the fine one, every band of each date). TWDTW takes `samples` (places with a class) instead of patterns: each class's mean series becomes its pattern. SOM and k-means (clusters without samples) name each cluster by the class of most of the `samples` (or a vector's) in it, when given.",
             with(
                 json!({
                     "tool": { "type": "string" },
@@ -397,6 +397,7 @@ fn catalogue() -> Vec<Value> {
                     "vector": { "type": "string", "description": "instead of samples: a vector file of samples (points or polygons)" },
                     "field": { "type": "string", "description": "its class field" },
                     "maps": { "type": "array", "items": { "type": "string" }, "description": "tools on maps (agreement...): two or more rasters, the first's grid" },
+                    "coarse": series_schema(),
                     "output_dir": out_dir
                 }),
                 area_props(),
@@ -1266,6 +1267,17 @@ impl Server {
         let dir = out_dir(a, id)?;
         let mut spec = crate::zeit::base_spec(&info, tool, &params, info.t().saturating_sub(1), self.threads);
         crate::zeit::series_inputs(&info, tool, &roles, &dir.join("series"), &mut spec)?;
+        if tool.params.iter().any(|p| p.kind == "series") {
+            // ImproPhe: the series to sharpen, another series (a path or an object as `series`)
+            let coarse = a.get("coarse").filter(|v| !v.is_null()).ok_or_else(|| {
+                format!(
+                    "{} needs `coarse`: the series to sharpen (a path, or {{paths, band...}} as `series`)",
+                    tool.name
+                )
+            })?;
+            let other = self.series(coarse)?;
+            crate::zeit::other_series(&other, "coarse", &dir.join("coarse"), &mut spec)?;
+        }
         spec.window = Some(window_of(&info, a)?);
         spec.output_dir = dir.to_string_lossy().into_owned();
         if crate::methods::Kind::of_tool(id).is_some_and(|k| k.clusters())
@@ -2165,6 +2177,53 @@ mod tests {
         let cluster = r["outputs"].as_array().unwrap().iter().find(|o| o["unit"] == "class").unwrap();
         assert_eq!(cluster["classes"], json!(["low (cluster 1, 50%)", "high (cluster 2, 50%)"]));
         assert_eq!(cluster["class_samples"][0], json!({ "low": 2 }));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ImproPhe over MCP: the series is the fine one (a file of three bands a date), `coarse` the series to sharpen.
+    #[test]
+    fn improphe_takes_the_coarse_series() {
+        setup();
+        let dir = temp("improphe");
+        let drv = gdal::DriverManager::get_driver_by_name("GTiff").unwrap();
+        let mut srs = SpatialRef::from_epsg(32720).unwrap();
+        srs.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
+        let make = |sub: &str, days: &[&str], w: usize, res: f64, bands: usize| {
+            let d = dir.join(sub);
+            std::fs::create_dir_all(&d).unwrap();
+            for (k, day) in days.iter().enumerate() {
+                let mut ds = drv.create_with_band_type::<f32, _>(d.join(format!("{day}.tif")), w, w, bands).unwrap();
+                ds.set_geo_transform(&[500000.0, res, 0.0, 9000000.0, 0.0, -res]).unwrap();
+                ds.set_spatial_ref(&srs).unwrap();
+                for b in 0..bands {
+                    let v: Vec<f32> = (0..w * w)
+                        .map(|i| 100.0 + 10.0 * ((i % w) / (w / 2)) as f32 + 3.0 * (b + k) as f32 + (i % 7) as f32)
+                        .collect();
+                    ds.rasterband(b + 1)
+                        .unwrap()
+                        .write((0, 0), (w, w), &mut gdal::raster::Buffer::new((w, w), v))
+                        .unwrap();
+                }
+            }
+            d.to_string_lossy().into_owned()
+        };
+        let fine = make("fine", &["2020-01-15", "2020-04-15", "2020-07-15", "2020-10-15"], 24, 10.0, 3);
+        let coarse = make("coarse", &["2020-03-01", "2020-09-01"], 8, 30.0, 1);
+        let s = Server { threads: 2, ..Default::default() };
+        let args = |coarse: Value| {
+            json!({
+                "tool": "improphe", "series": fine, "coarse": coarse,
+                "params": { "kernel_size": 40.0, "texture_size": 20.0 }, "output_dir": dir.join("out"),
+            })
+        };
+        let e = s.run_tool(&args(Value::Null), &quiet()).unwrap_err();
+        assert!(e.contains("needs `coarse`"), "{e}");
+        let r = s.run_tool(&args(json!(coarse)), &quiet()).unwrap();
+        let o = &r["outputs"][0];
+        let ds = gdal::Dataset::open(o["path"].as_str().unwrap()).unwrap();
+        // on the fine grid, a band for each of the coarse series' dates
+        assert_eq!((ds.raster_size(), ds.raster_count()), ((24, 24), 2));
+        assert_eq!(gdal::Metadata::description(&ds.rasterband(2).unwrap()).unwrap(), "2020-09-01");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

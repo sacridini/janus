@@ -462,7 +462,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Export progress | File → Exports (`Ctrl+J`; opens by itself with each export): progress, cancel, open the folder |
 | Shortcuts on a Mac | `Command` instead of `Ctrl` (e.g. `Command+E`, `Command+Shift+S`) |
 | Series as text | **Copy CSV** in the Time series and Transect panels |
-| Zeit tools | **Tools** menu, grouped by the question asked in the order of a workflow (*Data preparation*: Tmask, Smoothing, Interpolate, Standardize, clear-sky observations, Regularize, Speckle filter, Harmonize sensors, Reproject; *Spectral analysis*: NDFI, spectral unmixing; *Temporal dynamics*: phenology, Mann-Kendall, AR(1) trend, temporal metrics, fold by period, linear trend of a fold, polar phenology; *Change detection*: CAT (change, aftereffect, trend) and the others; *Spatial pattern analysis*: emerging hot spots, SNIC, texture; *Classification & pattern recognition*: TWDTW, SOM, k-means, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
+| Zeit tools | **Tools** menu, grouped by the question asked in the order of a workflow (*Data preparation*: Tmask, Smoothing, Interpolate, Standardize, clear-sky observations, ImproPhe, Regularize, Speckle filter, Harmonize sensors, Reproject; *Spectral analysis*: NDFI, spectral unmixing; *Temporal dynamics*: phenology, Mann-Kendall, AR(1) trend, temporal metrics, fold by period, linear trend of a fold, polar phenology; *Change detection*: CAT (change, aftereffect, trend) and the others; *Spatial pattern analysis*: emerging hot spots, SNIC, texture; *Classification & pattern recognition*: TWDTW, SOM, k-means, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in **Tools → Tasks** |
 | Zeit logs | **Tools → Log** (or **Log** next to a task): the log of each raster run, followed live (what ran, its progress, outputs, the end or the error); Copy, open the file or its folder |
 | Tool results | layers of their own in the **Layers** panel (over the rasters): show/hide, order, groups, colormap, range, opacity, a class map's class names (edited in its legend); their values at the cursor and pins, histogram and statistics in **Pixel values** (in the chart's place while a map is shown over its series) |
 | Embeddings | **View → Embeddings**: principal components as RGB (of every year, or *local* to the ROI), similarity to the cursor, a pin or the ROI, change between years; see [Embeddings](#embeddings) |
@@ -518,6 +518,7 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 | Tasseled Cap (FORCE) | any (real dates; bands blue, green, red, nir, swir1, swir2) | FORCE's Tasseled Cap, as `zeit.tasseled_cap`: brightness, greenness, wetness and FORCE's disturbance (brightness - greenness - wetness of the same matrix, not Healey's index) of each date, in reflectance x 10000; a raster run writes **one series per component** and opens each as a new layer. *Coefficients*: Crist 1985 for every sensor (FORCE's, the default), each date's sensor (TM Crist, ETM+ Huang 2002, OLI Baig 2014, MSI Crist; see below) or Huang 2002 or Baig 2014 for all dates; *Reflectance units* automatic by default |
 | Spectral adjustment to Sentinel-2A (FORCE) | any (real dates; bands blue, green, red, nir, swir1, swir2) | Landsat 4-9 or MODIS reflectance on the spectral response of Sentinel-2A (Scheffler et al. 2020, as `zeit.spectral_adjust`): all ten bands, red edge 1-3, broad NIR (B8) and NIR (B8A) included, **one series per band** opened as new layers. *Sensor*: each date's own (default; see below) or one fixed for all dates (LND04..LND09, MOD01 Terra, MOD02 Aqua); *FORCE's first cluster search* reproduces FORCE's integers exactly. Sentinel-2 dates are refused |
 | NBAR (c-factor) | any (real dates; at least one of coastal, blue, green, red, rededge1-3, nir, nir08, swir1, swir2, and bands sza, saa, vza, vaa unless the angles come from Sentinel-2's metadata) | nadir BRDF-adjusted reflectance (Roy et al. 2016, 2017, as `zeit.nbar`): each mapped band times the c-factor of the MODIS Ross-Thick / Li-Sparse-Reciprocal model, taking the date's sun and view angles to nadir view and a normalized solar zenith; **one series per band** (and per c-factor with *Also write the c-factors*) opened as new layers, in the input's units. *Normalized solar zenith*: each date's scene mean (default) or a fixed angle; *Sun and view angles from*: four bands of each date or Sentinel-2 granule metadata; *Angle bands' unit*: degrees or hundredths of a degree (see below) |
+| ImproPhe (FORCE) | any (real dates; **every band** of each date, the quality band applied) and **another open series** in the same CRS to sharpen | sharpens a coarse series to the pixels of this finer one, as `zeit.improphe` (FORCE's CF- and L2-ImproPhe; Frantz et al. 2016): each pixel takes the weighted mean of the coarse values of the pixels of its neighbourhood that look like it in the fine data. Raster runs only; **a band for each layer (and band) of the coarse series**, on the grid and window of this series, opened as a new layer with the coarse series' dates. *Coarse series*, *The coarse series is* (a field with a layer a year, or scenes), *Seasonal windows*, *Kernel radius* and *Texture radius* (in map units), *Variance kept*, *FORCE's arithmetic*, *Components*; see below |
 | Smoothing | any | chart only: the smoothed series (Whittaker or Savitzky-Golay) |
 
 **Mapping the bands of Tasseled Cap and the spectral adjustment.** Both need the six
@@ -572,6 +573,31 @@ that no detector sees, are missing. **Copy Python** then gives
 `zeit.sentinel2_angles(sources, like=nbar_cube, view_band=...)` (the hrefs or paths, one per date;
 Zeit signs Planetary Computer's if `planetary_computer` is installed) on the cube placed on the
 files' grid, before `zeit.nbar`.
+
+**ImproPhe: picking the coarse series, and its two modes.** The series in the window (the active
+layer) is the **fine** one, whose pixels the output takes; the series to sharpen is **another open
+layer**, picked in *Coarse series* (a menu of the other open series with their dates and bands; one in
+another CRS is listed but cannot be picked: reproject it first, Tools > Data preparation > Reproject).
+The coarse series may be on any grid of the same CRS: each fine pixel takes the coarse pixel its centre
+falls in (nearest neighbour, as FORCE's read does), and where the coarse series has no pixel or no value the
+output is empty. Each band of a coarse date is a field of its own (the phenology metrics of a year, the
+bands of a Landsat scene) and is sharpened with the same neighbours; a quality band of the coarse series is
+not one of them, and a coarse series shown through an expression gives its files' bands. The fine series
+gives **every band of each date** but its quality band, which masks the dates it refuses (NaN) before the
+fine scenes are averaged in the seasonal windows. *The coarse series is*: **a field with a layer a year**
+(CF-ImproPhe: a 500 m phenology metric of each year; the years of its dates must differ) is sharpened year by
+year with the fine scenes of that year (a year with no fine scene keeps its coarse values), and **the scenes
+of a sensor** (L2-ImproPhe: Landsat at 30 m for Sentinel-2 at 10 m) are each sharpened with the seasonal means of
+all the fine dates. *Detected* takes several dates in a year for scenes, and asks about a series with one date
+a year. The output has a band for each layer (and band) of the coarse series, named by its dates. The radii are in
+the map's units and become pixels of this series by truncation (2500 m and 330 m are 250 and 33 pixels of 10 m,
+FORCE's defaults): the cost of a pixel grows with the area of the circle, so try 300 to 500 on the preview
+or a small ROI first. The window is held whole in memory (the components are of the whole window): a window
+needing more than 6 GB is refused with the memory it needs, and *the whole layer* is too large for most
+series: choose the ROI or the visible area. The estimate in the window is analytic (pixels, dates, bands, layers
+and the circle's area, fitted on runs of three radii). Over the MCP the fine series is `series` and the coarse one
+`coarse` of `run_tool`. **Copy Python** reads both series (the fine one over the window, the coarse one whole) into
+cubes and calls `zeit.improphe(coarse_cube, fine_cube, by=..., ...)`, checked to give the run's values.
 
 **TWDTW classes** come from the series itself: drop pins on places you know
 (forest, crop, pasture...) and give them a class in **Tools > Classification & pattern recognition**

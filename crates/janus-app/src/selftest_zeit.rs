@@ -77,6 +77,9 @@ pub fn selftest_zeit(inputs: &[String], threads: usize) -> i32 {
         if tool.id == "postproc" && !info.file_categorical {
             why = Some("not a categorical series (no colour table, category names or attribute table)".into());
         }
+        if tool.params.iter().any(|p| p.kind == "series") {
+            why = Some("needs a second series (ImproPhe's coarse one, another open layer)".into());
+        }
         if tool.id == "polar_metrics" {
             // the polar metrics need a constant step of whole days (the output of Interpolate)
             let gaps: Vec<i64> = (1..n).map(|t| info.unix_day(t) - info.unix_day(t - 1)).collect();
