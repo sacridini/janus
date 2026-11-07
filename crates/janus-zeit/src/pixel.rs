@@ -168,6 +168,7 @@ pub fn run_pixel(tool: &str, p: &Params, input: &PixelInput) -> Result<PixelResu
         "cat" => crate::fold_trend::pixel_cat(p, input),
         "clear_observations" => crate::clear_observations::pixel(p, input),
         "polar_metrics" => crate::polar_metrics::pixel(p, input),
+        "nbar" => crate::nbar::pixel(p, input),
         "tasseled_cap" => crate::tasseled::pixel(p, input),
         "spectral_adjust" => crate::spectral_adjust::pixel(p, input),
         "standardize" => crate::standardize::pixel(p, input),

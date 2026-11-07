@@ -516,6 +516,29 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
                 vec!["bands_cube", "fmask"],
             )
         }
+        "nbar" => {
+            let roles: Vec<String> = zeit_core::brdf::ROLES
+                .iter()
+                .filter(|r| input.bands.contains_key(**r))
+                .map(|r| format!("{}: {}", py_str(r), py_str(r)))
+                .collect();
+            let scaled = if p.str("angle_scale") == "hundredths" {
+                "angles = angles_raw * 0.01  # the angle bands are hundredths of a degree\n"
+            } else {
+                "angles = angles_raw  # the angle bands are in degrees\n"
+            };
+            let sza = if p.str("sza") == "fixed" { f("sza_fixed") } else { "'scene'".into() };
+            let (targets, cfactor) =
+                if p.bool("cfactor") { ("result1, result2", "True") } else { ("result1", "False") };
+            (
+                format!(
+                    "{scaled}{targets} = zeit.nbar(nbar_cube, angles, sza={sza}, bands={{{}}}, nodata=None, n_jobs=1, \
+                     return_cfactor={cfactor})",
+                    roles.join(", ")
+                ),
+                vec!["nbar_cube"],
+            )
+        }
         _ => return None,
     })
 }

@@ -28,6 +28,7 @@ mod kmeans;
 mod landtrendr;
 pub mod manifest;
 mod mann_kendall;
+mod nbar;
 mod ndfi;
 pub mod numeric;
 mod phenology;

@@ -517,6 +517,7 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 | Standardize (FORCE) | any | the series minus its mean, or also over its standard deviation (z-score), as a **new layer** on the run's dates (`zeit.standardize`) |
 | Tasseled Cap (FORCE) | any (real dates; bands blue, green, red, nir, swir1, swir2) | FORCE's Tasseled Cap, as `zeit.tasseled_cap`: brightness, greenness, wetness and FORCE's disturbance (brightness - greenness - wetness of the same matrix, not Healey's index) of each date, in reflectance x 10000; a raster run writes **one series per component** and opens each as a new layer. *Coefficients*: Crist 1985 for every sensor (FORCE's, the default), each date's sensor (TM Crist, ETM+ Huang 2002, OLI Baig 2014, MSI Crist; see below) or Huang 2002 or Baig 2014 for all dates; *Reflectance units* automatic by default |
 | Spectral adjustment to Sentinel-2A (FORCE) | any (real dates; bands blue, green, red, nir, swir1, swir2) | Landsat 4-9 or MODIS reflectance on the spectral response of Sentinel-2A (Scheffler et al. 2020, as `zeit.spectral_adjust`): all ten bands, red edge 1-3, broad NIR (B8) and NIR (B8A) included, **one series per band** opened as new layers. *Sensor*: each date's own (default; see below) or one fixed for all dates (LND04..LND09, MOD01 Terra, MOD02 Aqua); *FORCE's first cluster search* reproduces FORCE's integers exactly. Sentinel-2 dates are refused |
+| NBAR (c-factor) | any (real dates; bands sza, saa, vza, vaa and at least one of coastal, blue, green, red, rededge1-3, nir, nir08, swir1, swir2) | nadir BRDF-adjusted reflectance (Roy et al. 2016, 2017, as `zeit.nbar`): each mapped band times the c-factor of the MODIS Ross-Thick / Li-Sparse-Reciprocal model, taking the date's sun and view angles to nadir view and a normalized solar zenith; **one series per band** (and per c-factor with *Also write the c-factors*) opened as new layers, in the input's units. *Normalized solar zenith*: each date's scene mean (default) or a fixed angle; *Angle bands' unit*: degrees or hundredths of a degree (see below) |
 | Smoothing | any | chart only: the smoothed series (Whittaker or Savitzky-Golay) |
 
 **Mapping the bands of Tasseled Cap and the spectral adjustment.** Both need the six
@@ -533,6 +534,25 @@ Baig 2014 in Tasseled Cap) or a fixed *Sensor* (spectral adjustment), which do n
 **Copy Python** gives the Zeit call with `bands=` mapping the six roles to the layer's
 bands (Zeit looks for `swir16` and `swir22` where Janus calls them `swir1` and `swir2`) and
 `sensor=` with the sensors found; only the observations the quality band keeps are passed.
+
+**Mapping the bands of NBAR.** The tool reads the **four angle bands of each date**, mapped
+to the roles `sza`, `saa`, `vza` and `vaa` (solar zenith and azimuth, view zenith and
+azimuth), which are bands of the same series as the reflectance: Landsat Collection 2's
+SZA, SAA, VZA and VAA bands (the Level-1 angle bands) or angle rasters stacked with the
+bands of each date. Map also **every band to normalize** (any of coastal, blue, green, red,
+rededge1, rededge2, rededge3, nir (Sentinel-2's B08), nir08 (B8A, OLI's band 5), swir1,
+swir2; at least one, or the run stops saying so). Set *Angle bands' unit* to **hundredths
+of a degree** for Landsat Collection 2 and HLS (they store `3025` for 30.25 degrees); angles
+from Sentinel-2's tile metadata are in degrees. Hundredths read as degrees give a map of
+missing values, but degrees read as hundredths give a wrong result without a warning. Each
+date's **scene mean** of the solar zenith is taken over the pixels of the run's window whose
+four angles are valid (the angles are read once over the whole window before the maps are
+computed), so it changes with the window; on the chart there is no scene, and each date is
+brought to nadir at the pixel's own sun. A pixel with a zenith outside 0-90 degrees or an
+angle without a value is missing. The bands must be reflectance (the factor is a ratio, so
+any scale will do, but not Landsat Collection 2 digital numbers with their offset); the
+quality band is not applied. HLS is already NBAR. **Copy Python** gives `zeit.nbar` with the
+angles as a Dataset (scaled by the unit) and `bands=` mapping the roles.
 
 **TWDTW classes** come from the series itself: drop pins on places you know
 (forest, crop, pasture...) and give them a class in **Tools > Classification & pattern recognition**

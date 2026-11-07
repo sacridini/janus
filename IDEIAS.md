@@ -2255,6 +2255,16 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   WIP, o Copy Python chamar as bandas SWIR de swir1/swir2 onde o Zeit procura swir16/swir22,
   está corrigido (passa `bands=`). São as primeiras peças da futura janela *Analysis-ready data
   (Level 2)*, a fase depois da 56 (ver o primeiro parágrafo da seção da fase 56).
+- Ainda sem versão (NBAR-a, branch j4): NBAR (c-factor) (`nbar`, Data preparation), pelo `zeit.nbar`
+  (Roy et al. 2016, 2017): as bandas por papel (qualquer subconjunto dos 11 do Zeit) e as quatro
+  bandas de ângulo da série (`sza`, `saa`, `vza`, `vaa`, em graus ou em centésimos de grau), uma série
+  por banda e, se pedido, uma por c-factor. O SZA normalizado "scene" (a média do SZA observado de cada
+  data nos pixels válidos da janela) é feito por uma primeira passada de `run_job` sobre os ângulos,
+  faixa a faixa, antes das faixas de cálculo (`nbar::scene_means`); no gráfico vale o SZA do próprio
+  pixel. Iguais ao Zeit a 1e-6 (`tests/nbar.rs`, `tools/nbar_fixtures.py`); o script do raster rodado
+  no Zeit dá os mesmos valores da execução (`janus-app`, `python::tests`). Os papéis opcionais do
+  manifesto (`optional_bands`) servem para "qualquer subconjunto"; "ao menos uma" é erro em tempo de
+  execução. Fora do `--selftest-zeit` (a série de teste não tem bandas de ângulo).
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 

@@ -414,19 +414,54 @@ impl Inputs {
             .iter_mut()
             .map(|(r, d)| d.read(x0, y0, w, h, false).map(|a| (r.clone(), a)))
             .collect::<Result<_, _>>()?;
-        // the mask's pixels 0 or without a value: missing at every date
+        let mut masked: Vec<&mut Vec<f64>> = std::iter::once(&mut stack).chain(bands.values_mut()).collect();
+        self.mask_out(x0, y0, w, h, &mut masked)?;
+        Ok(Chunk { t: self.spec.years.len(), h, w, stack, bands, qa })
+    }
+
+    /// The number of dates.
+    pub(crate) fn dates(&self) -> usize {
+        self.spec.years.len()
+    }
+
+    /// The mask's pixels 0 or without a value: missing at every date of each array ([T][pixels]).
+    fn mask_out(&self, x0: usize, y0: usize, w: usize, h: usize, arrays: &mut [&mut Vec<f64>]) -> Result<(), String> {
         if let Some(m) = &self.mask {
             let keep = read(m, 1..=1, x0, y0, w, h, false)?;
             let n = w * h;
             for (p, k) in keep.iter().enumerate() {
                 if k.is_nan() || *k == 0.0 {
-                    for a in std::iter::once(&mut stack).chain(bands.values_mut()) {
+                    for a in arrays.iter_mut() {
                         a.iter_mut().skip(p).step_by(n).for_each(|v| *v = f64::NAN);
                     }
                 }
             }
         }
-        Ok(Chunk { t: self.spec.years.len(), h, w, stack, bands, qa })
+        Ok(())
+    }
+
+    /// The mapped bands of some roles only, over a window, as `read` gives them (a tool's first pass over the
+    /// window, such as NBAR's scene means, does not need the others).
+    pub(crate) fn read_roles(
+        &mut self,
+        roles: &[&str],
+        x0: usize,
+        y0: usize,
+        w: usize,
+        h: usize,
+    ) -> Result<BTreeMap<String, Vec<f64>>, String> {
+        let mut bands: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+        for role in roles {
+            let (_, d) = self
+                .bands
+                .iter_mut()
+                .find(|(r, _)| r == role)
+                .ok_or_else(|| format!("ValueError: the band of '{role}' is not mapped"))?;
+            bands.insert((*role).to_string(), d.read(x0, y0, w, h, false)?);
+        }
+        let mut masked: Vec<&mut Vec<f64>> = bands.values_mut().collect();
+        self.mask_out(x0, y0, w, h, &mut masked)?;
+        Ok(bands)
     }
 }
 
@@ -705,6 +740,7 @@ pub fn run_chunk(tool: &str, p: &Params, chunk: &Chunk, ctx: &JobCtx) -> Result<
         "cat" => crate::fold_trend::chunk_cat(p, chunk, ctx),
         "clear_observations" => crate::clear_observations::chunk(p, chunk, ctx),
         "polar_metrics" => crate::polar_metrics::chunk(p, chunk, ctx),
+        "nbar" => crate::nbar::chunk(p, chunk, ctx),
         "tasseled_cap" => crate::tasseled::chunk(p, chunk, ctx),
         "spectral_adjust" => crate::spectral_adjust::chunk(p, chunk, ctx),
         "standardize" => crate::standardize::chunk(p, chunk, ctx),
@@ -836,7 +872,7 @@ pub fn run_job(
     cancel: &AtomicBool,
 ) -> Result<JobResult, String> {
     let tool = manifest().tool(&spec.tool).ok_or_else(|| format!("KeyError: '{}'", spec.tool))?;
-    let p = Params::with_defaults(&spec.tool, &spec.params).unwrap_or_default();
+    let mut p = Params::with_defaults(&spec.tool, &spec.params).unwrap_or_default();
     if tool.input.as_deref() == Some("layers") {
         return run_layers(spec, tool, &p, progress, cancel);
     }
@@ -878,9 +914,23 @@ pub fn run_job(
     } else {
         0.0
     };
-    let mut outs = Outputs::new(tool, &active_outputs(tool, &p), &dir, inputs.input.ds(), window, spec)?;
     let rows = rows_per_chunk(tool, w);
     let bands: Vec<(usize, usize)> = (0..h).step_by(rows).map(|r| (r, rows.min(h - r))).collect();
+    let mut base = base;
+    if spec.tool == "nbar" {
+        // the bands it normalizes are the mapped ones (its outputs follow them); a scene's solar zenith is the mean
+        // of the whole window, so the angles are read once ahead of the strips
+        let roles = crate::nbar::prepare(&p, spec)?;
+        p.0.insert("bands".into(), json!(roles));
+        if p.str("sza") == "scene" {
+            progress(0.0, "reading the solar zenith of each date");
+            let read = |f: f64| progress(0.1 * f, "reading the solar zenith of each date");
+            let means = crate::nbar::scene_means(&mut inputs, &p, window, rows, &read)?;
+            ctx.model = Some(json!({ "nbar_sza": means }));
+            base = 0.1;
+        }
+    }
+    let mut outs = Outputs::new(tool, &active_outputs(tool, &p), &dir, inputs.input.ds(), window, spec)?;
     let t0 = std::time::Instant::now();
     // the next band read on a thread while this one is computed (the disk and the CPU at once)
     std::thread::scope(|s| -> Result<(), String> {

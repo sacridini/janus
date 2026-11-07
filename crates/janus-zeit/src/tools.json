@@ -4524,6 +4524,105 @@
     }
    ],
    "chunk_cells": 20000
+  },
+  {
+   "id": "nbar",
+   "name": "NBAR (c-factor)",
+   "category": "Data preparation",
+   "description": "Nadir BRDF-adjusted reflectance (Zeit's zeit.nbar: the c-factor method of Roy et al. 2016 and 2017, as in FORCE and HLS): each band is multiplied by the ratio of the Ross-Thick / Li-Sparse-Reciprocal model of MODIS (three fixed parameters per band) at nadir view and a normalized solar zenith to the model at the pixel's own sun and view angles, so that dates seen under different sun and view geometries become comparable. Map the bands to normalize (any of coastal, blue, green, red, red edge 1-3, NIR (Sentinel-2's B08), NIR narrow (B8A, OLI's band 5), SWIR1, SWIR2; at least one) and the four angle bands of each date (sza, saa, vza, vaa: solar and view zenith and azimuth, e.g. Landsat Collection 2's SZA, SAA, VZA and VAA bands, or angle rasters stacked with the bands). Reflectance, not digital numbers with an offset; the result is in the units of the input. A pixel with a zenith outside 0-90 degrees or an angle without a value is missing. Not for snow (the parameters are MODIS's snow-free ones), and not for HLS, which is already NBAR. A raster run writes one series per band (and per c-factor, if asked) and opens each as a new layer.",
+   "requires": {
+    "time": "any",
+    "min_dates": 1,
+    "bands": [
+     "sza",
+     "saa",
+     "vza",
+     "vaa"
+    ],
+    "optional_bands": [
+     "coastal",
+     "blue",
+     "green",
+     "red",
+     "rededge1",
+     "rededge2",
+     "rededge3",
+     "nir",
+     "nir08",
+     "swir1",
+     "swir2"
+    ]
+   },
+   "modes": [
+    "pixel",
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "sza",
+     "label": "Normalized solar zenith",
+     "type": "enum",
+     "default": "scene",
+     "options": [
+      "scene",
+      "fixed"
+     ],
+     "labels": [
+      "Each date's scene mean (Roy et al. 2016, 2017)",
+      "A fixed angle"
+     ],
+     "help": "The solar zenith the reflectance is brought to (the view is always nadir). Scene mean: the mean of the observed solar zenith of each date over the pixels of the run's window whose four angles are valid, as Zeit does (the window, not the whole image: change it and the means change). On the chart there is no scene, so a pixel's own solar zenith is used and its dates are only brought to nadir. Roy et al. (2016) advise against a normalized zenith far from the observed ones."
+    },
+    {
+     "id": "sza_fixed",
+     "label": "Fixed solar zenith (degrees)",
+     "type": "float",
+     "default": 30.0,
+     "min": 0.0,
+     "max": 89.9,
+     "help": "The solar zenith every date is brought to when the normalized zenith is a fixed angle (0 to 90 degrees)."
+    },
+    {
+     "id": "angle_scale",
+     "label": "Angle bands' unit",
+     "type": "enum",
+     "default": "degrees",
+     "options": [
+      "degrees",
+      "hundredths"
+     ],
+     "labels": [
+      "Degrees",
+      "Hundredths of a degree (Landsat Collection 2, HLS)"
+     ],
+     "help": "The unit of the four angle bands. Landsat Collection 2's SZA, SAA, VZA and VAA bands and HLS's store hundredths of a degree (integers; 3025 is 30.25 degrees); angles from Sentinel-2's tile metadata are in degrees. With hundredths read as degrees every pixel is missing (zeniths of thousands of degrees); with degrees read as hundredths the angles are nearly zero and the result is wrong without a warning."
+    },
+    {
+     "id": "cfactor",
+     "label": "Also write the c-factors",
+     "type": "bool",
+     "default": false,
+     "help": "A series of the c-factor (NBAR over observed reflectance; not clipped, within 0.95-1.05 in a Landsat's field of view) of each band, to inspect the correction."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "nbar",
+     "name": "NBAR {}",
+     "unit": "as the input",
+     "each": "bands",
+     "series": true
+    },
+    {
+     "id": "cfactor",
+     "name": "c-factor {}",
+     "unit": "ratio",
+     "each": "bands",
+     "when": "cfactor",
+     "series": true
+    }
+   ],
+   "chunk_cells": 20000
   }
  ],
  "errors": []
