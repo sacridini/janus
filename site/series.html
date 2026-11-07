@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Series in and out</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Series in and out</p>
     <p class="eyebrow">Data · build, regularize, save, radar speckle</p>
     <h1>A series in, a series out, step by step.</h1>
     <p class="lede">A series rarely arrives ready. A download is a folder of loose files, a band and a tile each. A cloud-masked optical series has its dates where the sky was clear, not every 16 days. A colleague wants it in Python. Radar comes grainy. This guide takes the Sentinel-2 and Sentinel-1 series of Rondônia through the four tools Janus 1.6 has for that: Build series, Regularize series, Save series as and the speckle filter.</p>
@@ -90,6 +91,29 @@
       <p>The series of the <a href="stac.html">STAC guide</a>: Planetary Computer's Sentinel-2 L2A over a square of central Rondônia, Brazil, 8.8 km a side, the 107 dates from June 2019 to September 2024 whose scenes had 5% of clouds at most, downloaded as GeoTIFFs (blue, green, red, NIR, the two SWIR and the scene classification, SCL), 877 × 886 cells of 10 m. It opens on the NDVI with the clouds masked by SCL.</p>
       <p>Two pins follow the guide, those of the STAC guide: pin 1 (195, 837) in a forest in the south-west, its NDVI 0.80 on average over its 101 clear dates and lowest, 0.25, on the last date, 2024-09-11; pin 2 (179, 761) in a pasture, 0.40 on average and down every dry season, 0.13 at its lowest on the same date.</p>
       <p>For section 03, 36 loose files were cut from six dates of that series, as a download would give them (section 03 says how). For section 07, the STAC guide's Sentinel-1 year: 24 dates of 2024 over the same square, VV and VH as linear gamma0, kept as one GeoTIFF a date.</p>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data comes from the STAC guide, as GeoTIFFs: its Sentinel-2 series (<code>s2ro</code>), a folder <code>loose/</code> of 36 files cut from six of its 2024 dates (two tiles and three bands named as in an L2A product), and a Sentinel-1 series made by <code>tools/bench_s1_vs_stackstac.py</code> (<code>bench-s1/linear</code>). These commands remake the screenshots after the interface changes.</p>
+        <p>These screenshots are not from a tour: they are taken with <code>--screenshot</code>, in a window of 1600 × 950 with <code>--threads 2</code>, and, where a file dialog or a list had to be set, from a run driven through Windows UI Automation. <code>RESULTS</code> is <code>%LOCALAPPDATA%\Janus\results</code>.</p>
+        <p class="what">The Build window, picking the folder <code>loose</code> (01-build):</p>
+        <div class="cmd"><code>janus s2ro --interface modern --pin 195,837 --pin 179,761 --view 438,443,0.549 --window build</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --pin 195,837 --pin 179,761 --view 438,443,0.549 --window build">Copy</button></div>
+        <p class="what"><code>built.png</code>, the series built:</p>
+        <div class="cmd"><code>janus RESULTS/series/loose_* --interface modern --pin 195,837 --pin 179,761 --date 6 --screenshot built.png</code><button class="copy" type="button" data-copy="janus RESULTS/series/loose_* --interface modern --pin 195,837 --pin 179,761 --date 6 --screenshot built.png">Copy</button></div>
+        <p class="what">The Regularize window, Whittaker, then Run (03-regularize):</p>
+        <div class="cmd"><code>janus s2ro --interface modern --pin 195,837 --pin 179,761 --view 438,443,0.549 --window regularize</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --pin 195,837 --pin 179,761 --view 438,443,0.549 --window regularize">Copy</button></div>
+        <p class="what"><code>regular.png</code>, the regular series:</p>
+        <div class="cmd"><code>janus s2ro --layer RESULTS/regularize/s2ro_regular_* --interface modern --pin 195,837 --pin 179,761 --chart layers=1 --screenshot regular.png</code><button class="copy" type="button" data-copy="janus s2ro --layer RESULTS/regularize/s2ro_regular_* --interface modern --pin 195,837 --pin 179,761 --chart layers=1 --screenshot regular.png">Copy</button></div>
+        <p class="what">The Save window: NetCDF, every band, with an ROI (05-save):</p>
+        <div class="cmd"><code>janus s2ro --interface modern --pin 195,837 --pin 179,761 --roi 100,650,450,886 --view 438,443,0.549 --window save</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --pin 195,837 --pin 179,761 --roi 100,650,450,886 --view 438,443,0.549 --window save">Copy</button></div>
+        <p class="what"><code>speckle.png</code>, the speckle window:</p>
+        <div class="cmd"><code>janus bench-s1/linear --interface modern --expr VHdB --pin 195,837 --pin 179,761 --date 15 --window speckle --screenshot speckle.png</code><button class="copy" type="button" data-copy="janus bench-s1/linear --interface modern --expr VHdB --pin 195,837 --pin 179,761 --date 15 --window speckle --screenshot speckle.png">Copy</button></div>
+        <p class="what">The speckle run with the swipe (07-speckle-swipe, also stac/04-speckle):</p>
+        <div class="cmd"><code>janus bench-s1/linear --interface modern --expr VHdB --pin 195,837 --pin 179,761 --date 15 --window speckle-run --swipe --view 330,700,1.6</code><button class="copy" type="button" data-copy="janus bench-s1/linear --interface modern --expr VHdB --pin 195,837 --pin 179,761 --date 15 --window speckle-run --swipe --view 330,700,1.6">Copy</button></div>
+        <p class="what"><code>radar_vvdb.png</code> (stac/04-radar-db):</p>
+        <div class="cmd"><code>janus bench-s1/linear --interface modern --expr VVdB --pin 195,837 --pin 179,761 --date 15 --screenshot radar_vvdb.png</code><button class="copy" type="button" data-copy="janus bench-s1/linear --interface modern --expr VVdB --pin 195,837 --pin 179,761 --date 15 --screenshot radar_vvdb.png">Copy</button></div>
+        </div>
+      </details>
     </section>
 
     <section id="build">
@@ -317,6 +341,10 @@ Name: value, dtype: float32</code></pre>
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -324,6 +352,7 @@ Name: value, dtype: float32</code></pre>
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

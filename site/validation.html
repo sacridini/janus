@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Validation</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Validation</p>
     <p class="eyebrow">Validation · accuracy and area</p>
     <h1>Validating a map, step by step.</h1>
     <p class="lede">A map of change is an estimate, and so is the area you measure on it. The <span class="ui">Validation &amp; uncertainty</span> menu turns any map into a stratified random sample, lets you interpret it point by point against the images, and gives the map's accuracy and the <em>error-adjusted</em> area of each class, with confidence intervals, following the good practices of Olofsson et al. (2014).</p>
@@ -108,8 +109,17 @@
     <section id="data">
       <h2><span class="n">02</span>The example</h2>
       <p>The screenshots follow one validation from start to end. The map is the <strong>forest loss of 2018–2023</strong> in Global Forest Change v1.11 (Hansen et al. 2013): for each pixel, the year it lost its forest, or nothing. The place is 16 × 13 km south-west of Novo Progresso, Pará, on the BR-163 deforestation front. The reference comes from <strong>Sentinel-2</strong>: one cloud-free composite per dry season, 2017 to 2024, with six bands (blue to SWIR2), opened as a series in Janus.</p>
-      <figure class="fig">
+      <figure class="fig annotated">
         <a href="assets/img/validation/01-series-and-map.jpg"><img src="assets/img/validation/01-series-and-map.jpg" alt="The Janus window: the Sentinel-2 composite of 2024 in false colour, with the Global Forest Change loss years drawn over it in colour; the Layers and Display panels on the left, the time series chart below the map." width="1680" height="1050" loading="lazy"></a>
+        <ol class="hotspots" aria-label="Parts of the window, numbered on the image">
+          <li data-x="10.2" data-y="1.2"><b>The Validation menu.</b> Where the design, the sample and the accuracy open.</li>
+          <li data-x="7.7" data-y="19.0"><b>Layers.</b> The Sentinel-2 series, and over it the map to validate.</li>
+          <li data-x="52.4" data-y="23.8"><b>The map.</b> The images in SWIR1 / NIR / red, with each year of loss drawn in colour.</li>
+          <li data-x="60.5" data-y="31.0"><b>A pin.</b> The chart and the table follow it.</li>
+          <li data-x="7.7" data-y="83.8"><b>Display.</b> The band or index the chart shows, and the RGB composite of the map.</li>
+          <li data-x="41.7" data-y="94.3"><b>The chart.</b> The pin's series over the years of the images.</li>
+          <li data-x="68.5" data-y="80.0"><b>The Statistics table.</b> The numbers of the pin's series.</li>
+        </ol>
         <figcaption><b>The starting point.</b> The Sentinel-2 composites in SWIR1 / NIR / red (forest is green, cleared land pink), the chart in NBR, and the map to validate added as a layer on top: each colour a year of loss.</figcaption>
       </figure>
       <p>Open both as you would for any other work: the images with <span class="ui">File → Open folder...</span> (or <code>jn</code> on the command line), the map with <span class="ui">File → Add layer: file(s)...</span>. Show the images in a composite that makes the change easy to see (the <span class="ui">RGB composite</span> of the Display panel), and the chart in an index that separates forest from what replaces it (here the NBR, the normalized difference of NIR and SWIR2). The map does not even need to be open: the design can read it from a file.</p>
@@ -121,6 +131,19 @@
         <p class="h">About the numbers</p>
         <p>To keep the guide reproducible, the points in these screenshots were labelled by a simple rule on each point's NBR series (a drop from forest, and whether it grew back), not by a person looking at the images. The numbers show how to read the tool; they are not an assessment of Global Forest Change.</p>
       </div>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is public: Sentinel-2 composites, Global Forest Change and MapBiomas near Novo Progresso, about 60 MB, downloaded by <code>tools/make_tutorial_data.py</code>. These commands remake the screenshots after the interface changes.</p>
+        <p class="what">Download and prepare the data into the folder <code>data</code>:</p>
+        <div class="cmd"><code>python tools/make_tutorial_data.py data</code><button class="copy" type="button" data-copy="python tools/make_tutorial_data.py data">Copy</button></div>
+        <p class="what">The window and the panels of every section; the report goes to <code>out/work/report</code>:</p>
+        <div class="cmd"><code>janus --shots validation data out</code><button class="copy" type="button" data-copy="janus --shots validation data out">Copy</button></div>
+        <p class="what">Section 14, Against official alerts; this tour needs the network (DETER and GLAD-S2 are fetched):</p>
+        <div class="cmd"><code>janus --shots alerts data out</code><button class="copy" type="button" data-copy="janus --shots alerts data out">Copy</button></div>
+        <p>The whole-window shots are converted to JPEG (quality 90) and the panels kept as PNG; <code>16-report-html.png</code> is <code>out/work/report/report.html</code> in a browser, 1000 px wide.</p>
+        </div>
+      </details>
     </section>
 
     <!-- ===================================================== -->
@@ -427,6 +450,10 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -434,6 +461,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

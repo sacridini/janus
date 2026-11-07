@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Spectral unmixing</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Spectral unmixing</p>
     <p class="eyebrow">Multiband series · hyperspectral scenes</p>
     <h1>Spectral unmixing, step by step.</h1>
     <p class="lede">A 30 m pixel is rarely one thing: part canopy, part soil, part shadow. Spectral unmixing finds how much of each pure material, or <em>endmember</em>, makes up the pixel's spectrum. Janus does it for every date of a multiband series and for every pixel of a hyperspectral scene, with endmembers taken from pins on the map.</p>
@@ -159,16 +160,11 @@
           </table>
         </div>
       </div>
-      <div class="fig-pair">
-        <figure class="fig">
-          <a href="assets/img/unmixing/04-forest-2026.jpg"><img src="assets/img/unmixing/04-forest-2026.jpg" alt="The forest fraction on 23 August 2026 over the whole image, 0 in dark purple to 1 in yellow: forest blocks and strips along the streams in yellow, pastures in blue and green, the rivers dark." loading="lazy"></a>
-          <figcaption><b>Forest fraction</b>, 23 August 2026.</figcaption>
-        </figure>
-        <figure class="fig">
-          <a href="assets/img/unmixing/05-soil-2026.jpg"><img src="assets/img/unmixing/05-soil-2026.jpg" alt="The soil fraction on the same date: dark over the forest, green and yellow over the pastures, bright yellow over a block of bare fields near the top." loading="lazy"></a>
-          <figcaption><b>Soil fraction</b>, the same date: the cleared fields stand out.</figcaption>
-        </figure>
-      </div>
+      <figure class="fig swipe">
+        <img class="before" data-label="Forest fraction" src="assets/img/unmixing/04-forest-2026.jpg" alt="The forest fraction on 23 August 2026 over the whole image, 0 in dark purple to 1 in yellow: forest blocks and strips along the streams in yellow, pastures in blue and green, the rivers dark." loading="lazy">
+        <img class="after" data-label="Soil fraction" src="assets/img/unmixing/05-soil-2026.jpg" alt="The soil fraction on the same date: dark over the forest, green and yellow over the pastures, bright yellow over a block of bare fields near the top." loading="lazy">
+        <figcaption><b>Drag the divider to compare</b> the forest fraction (first image, left) and the soil fraction (second image, right) of 23 August 2026, the same view: the cleared fields stand out in the soil fraction.</figcaption>
+      </figure>
       <figure class="fig">
         <a href="assets/img/unmixing/06-rmse.jpg"><img src="assets/img/unmixing/06-rmse.jpg" alt="The mean RMSE from 0.007 to 0.042 reflectance: low over the forest and the water, high over many pastures." width="939" height="564" loading="lazy"></a>
         <figcaption><b>Mean RMSE</b>, 0.007 to 0.042: low on the forest and the water, high on the pastures the three endmembers describe worst.</figcaption>
@@ -276,6 +272,10 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -283,6 +283,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

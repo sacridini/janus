@@ -4,20 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Janus · Raster time series analysis</title>
-<meta name="description" content="Janus is a desktop app to explore, analyse and validate raster time series and data cubes: the series of any pixel as you hover, change detection with LandTrendr, CCDC, BFAST and CODED, deep learning classification (TempCNN, L-TAE, U-TAE, Presto), and map validation with error-adjusted areas. Windows, macOS and Linux.">
+<meta name="description" content="Janus is a desktop app for satellite image time series: hover any pixel to see its history, find where, when and how much the land changed with LandTrendr, CCDC, BFAST and other methods, and measure how accurate your maps are. No code and no cloud account: it runs on your computer, on your files.">
 <meta name="theme-color" content="#0F0F0F">
 <link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
 <link rel="icon" href="favicon.ico?v=4" sizes="any">
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Janus · Raster time series analysis">
-<meta property="og:description" content="Explore, analyse and validate raster time series: the series of any pixel, change detection with LandTrendr, CCDC, BFAST and CODED, and the accuracy and area of the maps they make.">
+<meta property="og:title" content="Janus · See the past of every pixel">
+<meta property="og:description" content="A desktop app for satellite image time series: hover any pixel to see its history, find where, when and how much the land changed, and measure how accurate your maps are.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
 <link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/demo.css">
 </head>
 <body>
 
@@ -27,17 +28,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="#top" aria-label="Janus, back to top"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="#features">Features</a></li>
-        <li><a href="#tools">Change detection</a></li>
-        <li><a href="#guides">Guides</a></li>
+        <li><a href="methods.html">Methods</a></li>
+        <li><a href="guides.html">Guides</a></li>
+        <li><a href="demo.html">Demo</a></li>
         <li><a href="#install">Install</a></li>
-        <li><a href="#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -52,42 +54,116 @@
       <img class="hero-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="478" height="240">
     </h1>
     <p class="eyebrow">Raster time series analysis · <span data-version>Windows · macOS · Linux</span></p>
-      <p class="lede">Explore satellite imagery pixel by pixel, find where, when and by how much the land changed, and measure how accurate your maps are.</p>
-      <div class="cta">
-        <a class="btn btn-primary" data-dl="auto" href="https://github.com/sacridini/janus/releases/latest">Download</a>
-        <a class="btn btn-ghost" href="https://github.com/sacridini/janus">View on GitHub</a>
-      </div>
+    <p class="hero-tag">See the past of every pixel.</p>
+    <p class="lede">Janus is a desktop app for satellite image time series: hover any pixel to see its history, find where, when and how much the land changed with LandTrendr, CCDC, BFAST and <!-- n:method-more -->31<!-- /n:method-more --> more methods, and measure how accurate your maps are. No code and no cloud account: it runs on your computer, on your files.</p>
+    <p class="audience">For people who map land change with Landsat, Sentinel, MODIS or any stack of rasters.</p>
+    <div class="cta">
+      <a class="btn btn-primary" data-dl="auto" href="https://github.com/sacridini/janus/releases/latest">Download</a>
+      <a class="btn btn-ghost" href="#demo">Try it in your browser</a>
+      <a class="btn btn-ghost" href="methods.html">Browse the methods</a>
+    </div>
+  </div>
+</section>
 
-      <div class="term" data-tabs>
-        <div class="term-tabs" role="tablist" aria-label="Operating system">
-          <button role="tab" id="t-win" aria-controls="p-win" aria-selected="true" data-os="win">Windows</button>
-          <button role="tab" id="t-mac" aria-controls="p-mac" aria-selected="false" data-os="mac" tabindex="-1">macOS</button>
-          <button role="tab" id="t-lin" aria-controls="p-lin" aria-selected="false" data-os="linux" tabindex="-1">Linux</button>
-        </div>
-        <div class="term-body">
-          <div role="tabpanel" id="p-win" aria-labelledby="t-win"><code>jn D:\data\ndvi_annual\</code><button class="copy" data-copy="jn D:\data\ndvi_annual\" aria-label="Copy command">Copy</button></div>
-          <div role="tabpanel" id="p-mac" aria-labelledby="t-mac" hidden><code>jn ~/data/landsat_stack.tif</code><button class="copy" data-copy="jn ~/data/landsat_stack.tif" aria-label="Copy command">Copy</button></div>
-          <div role="tabpanel" id="p-lin" aria-labelledby="t-lin" hidden><code>jn "S2_*_NDVI.tif" --band 1</code><button class="copy" data-copy='jn "S2_*_NDVI.tif" --band 1' aria-label="Copy command">Copy</button></div>
-        </div>
-        <p class="term-note">After installing, <code>jn</code> opens the window and gives the prompt back right away.</p>
+<!-- ============ PROOF ============ -->
+<section class="proof" aria-label="Janus at a glance">
+  <div class="wrap">
+    <ul>
+      <li><a href="methods.html"><b><!-- n:method-count -->34<!-- /n:method-count --></b> methods built in</a></li>
+      <li><a href="#inside"><b>0.3 s</b> from launch to the first frame</a></li>
+      <li><a href="#trust"><b>Checked</b> against the original implementations</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE"><b>GPL-3.0-or-later</b>free and open source</a></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ SCREENSHOT ============ -->
+<section class="shot">
+  <div class="wrap">
+    <figure class="annotated">
+      <a href="landtrendr.html#chart"><img src="assets/img/landtrendr/03-fit.jpg" alt="The Janus window: a map of annual NDVI in the centre with a pin on a cleared pixel; below it the pixel's NDVI from 1985 to 2024 with the straight segments LandTrendr fitted to it in magenta, falling from 2002 to 2009 and rising slowly after; on the right LandTrendr's parameters, on the left the layers and display panels." width="1680" height="1050" loading="lazy"></a>
+      <ol class="hotspots" aria-label="Parts of the window, numbered on the image">
+        <li data-x="8.0" data-y="10.5"><b>Layers and Display.</b> The series that is open, its colours and its value range.</li>
+        <li data-x="41.7" data-y="5.1"><b>The date slider.</b> Drag it, or press Play, to move through the forty years.</li>
+        <li data-x="38.7" data-y="28.6"><b>The map.</b> The NDVI of the date on the slider; the pin is a cleared pixel.</li>
+        <li data-x="35.7" data-y="89.5"><b>The pixel's series.</b> The yearly NDVI in green, and in magenta the straight segments LandTrendr fitted to it.</li>
+        <li data-x="57.7" data-y="90.8"><b>The Statistics table.</b> Numbers for the pin, and what LandTrendr found: 5 segments, one loss.</li>
+        <li data-x="97.6" data-y="18.1"><b>The tool's window.</b> LandTrendr's parameters, with its defaults.</li>
+        <li data-x="66.1" data-y="55.0"><b>Run.</b> The same fit on every pixel, in a separate process; the results come back as layers.</li>
+      </ol>
+      <figcaption><span>40 annual NDVI composites of a Rondônia forest frontier, 1985 to 2024. The pin is a cleared forest: stable near 0.82 until 2002, down to 0.38 by 2009, slowly up since, one loss segment.</span><span>Map · time series · statistics · LandTrendr</span></figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============ THREE STEPS ============ -->
+<section class="story" id="how">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Three steps</p>
+      <h2>From a stack of rasters to a map you can defend.</h2>
+    </div>
+
+    <div class="story-row">
+      <div class="story-text">
+        <p class="story-n">01</p>
+        <h3>Explore</h3>
+        <p>Open a folder, a multiband file or a wildcard: every date is a layer. Hover any pixel and its series is on the chart; click to pin it, pin a second one to compare, or draw a region for its mean with a p10&ndash;p90 band.</p>
+        <p class="story-links"><a href="visualize.html">Seeing a series</a> <a href="workspace.html">The workspace</a></p>
       </div>
+      <figure class="story-fig" data-step="explore">
+        <a href="visualize.html"><img src="assets/img/visualize/01-similarity.jpg" alt="Janus with a Sentinel-2 series of 107 dates shown as the similarity to pin 1: the forest of pin 1 and the other forests in yellow, the pastures and clearings in dark purple; below, the NDVI of pin 1 (a forest, high and steady) and of pin 2 (a pasture, low and seasonal)." width="1600" height="950" loading="lazy"></a>
+        <figcaption>Two pins, a forest and a pasture, and where else the forest of pin 1 is: every pixel's NDVI from 2019 to 2024 compared with its.</figcaption>
+      </figure>
+    </div>
+
+    <div class="story-row flip">
+      <div class="story-text">
+        <p class="story-n">02</p>
+        <h3>Detect</h3>
+        <p>Fit a method on the chart for one pixel and change its parameters until the fit reads the landscape. Then run it on the whole image: its year of detection, magnitude and duration come back as layers over the map.</p>
+        <p class="story-links"><a href="methods.html">The methods</a> <a href="guides.html#change">The change track</a> <a href="landtrendr.html">LandTrendr guide</a></p>
+      </div>
+      <figure class="story-fig" data-step="detect">
+        <a href="landtrendr.html#maps"><img src="assets/img/landtrendr/07-yod.jpg" alt="Janus after a LandTrendr run on the whole image: the map coloured by the year of detection of the greatest loss, from 1985 in purple to 2023 in yellow, over the NDVI of 2024; the Tasks panel shows the run done; the chart still shows the pin's series and its fit." width="1680" height="1050" loading="lazy"></a>
+        <figcaption>LandTrendr's year of detection over the whole image, 1686 × 1671 pixels, from the fit on the chart.</figcaption>
+      </figure>
+    </div>
+
+    <div class="story-row">
+      <div class="story-text">
+        <p class="story-n">03</p>
+        <h3>Prove</h3>
+        <p>Stratify the map, draw a sample, interpret it blind with chips of every date, and get the accuracy and the error-adjusted areas with confidence intervals (Olofsson et al. 2014). In the guide's example the map counts 5,674 ha of change; the sample estimates 5,262 &plusmn; 882 ha.</p>
+        <p class="story-links"><a href="validation.html">Validation guide</a> <a href="validation.html#accuracy">Accuracy and areas</a></p>
+      </div>
+      <figure class="story-fig" data-step="prove">
+        <a href="validation.html#draw"><img src="assets/img/validation/05-sample.jpg" alt="The sample drawn: 346 yellow points scattered over a Sentinel-2 image of forest and clearings, the map and the strata hidden; the Validation panel lists the sample by stratum." width="1680" height="1050" loading="lazy"></a>
+        <figcaption>The sample, 346 points. The map and the strata are hidden: the interpretation is blind.</figcaption>
+      </figure>
+    </div>
   </div>
 </section>
 
 <div class="pixrow" aria-hidden="true"></div>
 
-<!-- ============ SCREENSHOT ============ -->
-<section class="shot">
+<!-- ============ DEMO ============ -->
+<section class="demo-home" id="demo">
   <div class="wrap">
-    <figure>
-      <img src="assets/img/screenshot.jpg" alt="The Janus window: a Landsat map in the centre with two pins and a region of interest, the time series chart of the pins and of the ROI's mean below it, and the statistics table on the right." width="1600" height="950" loading="lazy">
-      <figcaption><span>41 annual Landsat composites, 1985 to 2025, of 7478 × 7319 pixels each.</span><span>Map · time series · statistics</span></figcaption>
-    </figure>
+    <div class="sec-head">
+      <p class="eyebrow">Demo</p>
+      <h2>Try it here.</h2>
+      <p>This is a window of 256 &times; 256 Landsat pixels in Rondônia, with one NDVI value a year from 1985 to 2024. Hover a pixel to see its past; the straight segments on the chart are the fit of LandTrendr, computed by Zeit, the code Janus runs.</p>
+    </div>
+    <div class="lt-demo" data-src="assets/demo/" data-lazy data-hash="off"><noscript><p class="ltd-error">The demo needs JavaScript.</p></noscript><p class="ltd-loading">Loading&hellip;</p></div>
+    <p class="mt-all"><a class="btn btn-ghost" href="demo.html">Open it full page</a> <a class="btn btn-ghost" href="landtrendr.html">LandTrendr guide</a></p>
   </div>
 </section>
 
+<div class="pixrow" aria-hidden="true"></div>
+
 <!-- ============ HOW IT WORKS ============ -->
-<section class="how" id="how">
+<section class="how compact" id="inside">
   <div class="wrap">
     <div class="sec-head">
       <p class="eyebrow">How it works</p>
@@ -131,157 +207,78 @@
   </div>
 </section>
 
-<!-- ============ FEATURES ============ -->
-<section class="features" id="features">
+<!-- ============ METHODS ============ -->
+<section class="tools mteaser" id="methods">
   <div class="wrap">
     <div class="sec-head">
-      <p class="eyebrow">Features</p>
-      <h2>Made for looking at time.</h2>
+      <p class="eyebrow">Methods</p>
+      <h2><!-- n:method-count -->34<!-- /n:method-count --> methods, one question away.</h2>
+      <p>The <a href="https://github.com/sacridini/zeit-cdts">Zeit</a> methods are part of Janus, so there is nothing else to install, and a fit on the chart takes under a millisecond. Say what your data is and what you want to find, and the list narrows to what fits.</p>
     </div>
-    <div class="feat-grid">
-      <article>
+    <!-- build:home-methods -->
+    <ul class="mt-cards">
+      <li><a href="methods.html#data=annual&amp;find=abrupt"><h3>Clearings in an annual Landsat series</h3><p class="mt-n"><b>4</b> methods</p><p class="mt-names">LandTrendr, BEAST, Agreement and 1 more</p><span class="mt-go">Open the chooser</span></a></li>
+      <li><a href="methods.html#data=everydate&amp;find=degradation"><h3>Degradation in every Landsat date</h3><p class="mt-n"><b>3</b> methods</p><p class="mt-names">EWMACD, CODED, NDFI</p><span class="mt-go">Open the chooser</span></a></li>
+      <li><a href="methods.html#data=subannual&amp;find=seasons"><h3>Growing seasons from MODIS</h3><p class="mt-n"><b>4</b> methods</p><p class="mt-names">BFAST, Phenology, Fold by period and 1 more</p><span class="mt-go">Open the chooser</span></a></li>
+      <li><a href="methods.html#find=classes"><h3>A land-cover map from the whole series</h3><p class="mt-n"><b>5</b> methods</p><p class="mt-names">Spectral unmixing, TWDTW, Post-processing and 2 more</p><span class="mt-go">Open the chooser</span></a></li>
+    </ul>
+    <p class="mt-all"><a class="btn btn-ghost" href="methods.html">See all 34 methods</a></p>
+    <!-- /build:home-methods -->
+  </div>
+</section>
+
+<!-- ============ TRUST ============ -->
+<section class="trust" id="trust">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Trust</p>
+      <h2>Checked, measured, reproducible.</h2>
+      <p>The numbers below are the guides' own: each one links to the section where the comparison is run, with its data, its machine and its table.</p>
+    </div>
+    <div class="trust-grid">
+      <article class="t-card">
+        <p class="tag">Same results</p>
+        <h3>Compared with the originals</h3>
+        <ul class="t-list">
+          <li><b>6e-8</b><span>Recovery metrics against RecoverMetricsR (R): the relative difference. <a href="landtrendr.html#recovery">LandTrendr guide</a></span></li>
+          <li><b>1e-14</b><span>The Gi* of Emerging hot spots against R's sfdep. <a href="hotspots.html#cube">Hot spots guide</a></span></li>
+          <li><b>4e-4</b><span>Spectral unmixing fractions against RStoolbox's mesma. <a href="unmixing.html#speed">Unmixing guide</a></span></li>
+          <li><b>3e-7</b><span>184 spectral indices against spyndex, over 2048 × 2048 random reflectances. <a href="calculator.html#checked">Calculator guide</a></span></li>
+          <li><b>bit for bit</b><span>BEAST against Rbeast from the same seed, on six series in Zeit's tests. <a href="beast.html#others">BEAST guide</a></span></li>
+          <li><b>bit for bit</b><span>Reproject against gdalwarp, in four cases. <a href="maps-to-numbers.html#checked">Maps to numbers guide</a></span></li>
+        </ul>
+      </article>
+      <article class="t-card">
+        <p class="tag">Speed</p>
+        <h3>Fast enough to stay on the chart</h3>
+        <ul class="t-list">
+          <li><b>0.3 s</b><span>From launch to the first frame; 0.1 s for the temporal statistics of 5.5 Mpx × 41 dates. <a href="#inside">How it works</a></span></li>
+          <li><b>98 ms</b><span>Recovery metrics on 1000 × 1000 pixels of 21 years, on one thread; RecoverMetricsR takes 52.4 s. <a href="landtrendr.html#recovery">LandTrendr guide</a></span></li>
+          <li><b>0.39 s</b><span>The areas of 8 maps of 4096 × 4096 pixels in UTM; R's terra takes 187 s. <a href="maps-to-numbers.html#checked">Maps to numbers guide</a></span></li>
+          <li><b>0.72 s</b><span>A 16-day median of a series of 64 irregular dates; R's sits takes 63.6 s. <a href="series.html#checked">Series guide</a></span></li>
+          <li><b>176 ms</b><span>The 90th percentile of 48 dates of 1024 × 1024 pixels; xarray takes 29.8 s. <a href="calculator.html#checked">Calculator guide</a></span></li>
+        </ul>
+        <p class="t-note">Each guide says on how many threads its times were measured.</p>
+      </article>
+      <article class="t-card">
+        <p class="tag">Reproducible</p>
+        <h3>Every result keeps its recipe</h3>
+        <ul class="t-list">
+          <li><b>provenance.json</b><span>Written beside every run of a tool, a deep learning model or the calculator: the versions of Janus and Zeit, the series files, the window, the parameters and the outputs. <a href="workspace.html#provenance">Workspace guide</a></span></li>
+          <li><b>rerun.py</b><span>The run as Python: it reads the series from its files and makes the same Zeit call. In the guide's run it gave the same maps on all 490,000 pixels, to the last bit.</span></li>
+          <li><b>Copy Python</b><span>On the chart, for a pixel; and Tools &rarr; Python history keeps every finished run, to copy or save as a .py or a notebook.</span></li>
+          <li><b>One GeoPackage</b><span>A validation project holds the design, the sample and every label, and opens in QGIS. <a href="validation.html#draw">Validation guide</a></span></li>
+        </ul>
+      </article>
+      <article class="t-card">
         <p class="tag">Open</p>
-        <h3>Any stack of rasters</h3>
-        <p>A folder (one file per date), a multiband file (one band per date), a list of files or a wildcard. Dates are read from file names or band descriptions.</p>
-        <p class="spec">YYYY-MM-DD · YYYYMMDD · YYYY_MM · YYYY · A2001001</p>
-      </article>
-      <article>
-        <p class="tag">Catalogs</p>
-        <h3>Series from STAC</h3>
-        <p>Search Earth Search, Planetary Computer, the Brazil Data Cube or any STAC API for an area, two dates and a cloud cover, and open the scenes as a series read in place: a mosaic per date on one grid, clouds masked. Or download them as GeoTIFFs, or only a composite of them: the best available pixel, which never downloads most of the series. Sentinel-1's radar too, one pass at a time, in dB. <a href="stac.html">Step-by-step guide</a>.</p>
-        <p class="spec">Sentinel-2 · Landsat · Sentinel-1 RTC · BDC cubes · SCL · QA_PIXEL</p>
-      </article>
-      <article>
-        <p class="tag">Calculator</p>
-        <h3>Band math over time</h3>
-        <p>The 275 Awesome Spectral Indices on any series, or an expression of its bands; Tools → Raster calculator combines the open layers by short names, reduces a series over time, by year or month, over calendar windows and windows in days, with lags, anomalies and events, and reclassifies by rules, computed as the map reads it. <a href="calculator.html">Step-by-step guide</a>.</p>
-        <p class="spec">EVI · max(ndvi) · ndvi[2019-06 .. 2019-09] · mean(ndvi, 90d) · anomaly(...) · first(...)</p>
-      </article>
-      <article>
-        <p class="tag">Map</p>
-        <h3>Statistics on the GPU</h3>
-        <p>Value at date, anomaly, mean, standard deviation, linear trend, minimum, maximum, amplitude, trend R² and a multitemporal RGB. Changing the date, colormap or stretch is instant.</p>
-        <p class="spec">13 map modes · animation player</p>
-      </article>
-      <article>
-        <p class="tag">Series</p>
-        <h3>Hover, pin, compare</h3>
-        <p>An approximate series appears as soon as you hover and the exact one once the mouse rests. Click to drop pins; Shift+drag for a region with its mean and p10–p90 band.</p>
-        <p class="spec">OLS and Sen trend · anomaly · z-score</p>
-      </article>
-      <article>
-        <p class="tag">Classes</p>
-        <h3>Categorical series</h3>
-        <p>Land cover and classification stacks are detected from colour tables or category names. The chart shows the class sequence and the table reports the last change.</p>
-        <p class="spec">e.g. 2006: Forest → Pasture</p>
-      </article>
-      <article>
-        <p class="tag">Bands</p>
-        <h3>Several bands per date</h3>
-        <p>Show any band of a Landsat or Sentinel stack, or a normalized difference of two, and hide cloudy observations with a quality band.</p>
-        <p class="spec">NDVI · NDMI · NBR · Fmask · QA_PIXEL</p>
-      </article>
-      <article>
-        <p class="tag">Layers</p>
-        <h3>Side by side</h3>
-        <p>Open several series as layers placed by their georeferencing, and show them in map panels that pan and zoom together, each at its own date and mode. Drag any panel to a second monitor.</p>
-        <p class="spec">Ctrl+T / Ctrl+W · 2005 next to 2020 · NDVI next to NBR</p>
-      </article>
-      <article>
-        <p class="tag">Detail</p>
-        <h3>Full resolution on zoom</h3>
-        <p>Past the overview resolution, tiles of the visible area are read in the background and cached on the GPU. The overview is cached on disk date by date, so reopening takes a fraction of a second and closing during the first open loses nothing.</p>
-        <p class="spec">COG-friendly · HDD-aware reader</p>
-      </article>
-      <article>
-        <p class="tag">Change</p>
-        <h3>Difference and largest drop</h3>
-        <p>Map the difference from a reference date, or from the previous one, on a diverging scale. Or map when the largest drop happened and how deep it was, computed for every pixel on the GPU.</p>
-        <p class="spec">Δ to a date or t−1 · drop date · drop magnitude</p>
-      </article>
-      <article>
-        <p class="tag">Compare</p>
-        <h3>Swipe</h3>
-        <p>Drag a divider across the map to compare it with another layer, or with the same layer at another date or in another mode.</p>
-        <p class="spec">S to toggle · 1985 | 2025 · NDVI | NBR</p>
-      </article>
-      <article>
-        <p class="tag">Space-time</p>
-        <h3>Transect</h3>
-        <p>Draw a line on the map and see distance against time in one image: deforestation fronts and regrowth appear as shapes. Hover marks the place on the map, a click goes to that date.</p>
-        <p class="spec">Ctrl+drag · values or anomalies · CSV</p>
-      </article>
-      <article>
-        <p class="tag">Visualize</p>
-        <h3>A series seen whole</h3>
-        <p>A map of the places whose series is like this one's, by values or by shape, following the cursor; a place's cycles by wavelet; every band over time; and every pixel's behaviour in a UMAP plane linked to the map. The Analysis panel sits next to the time series and shows only the views the data allow. <a href="visualize.html">Step-by-step guide</a>.</p>
-        <p class="spec">Similarity · Cycles · Bands · Atlas</p>
-      </article>
-      <article>
-        <p class="tag">Export</p>
-        <h3>Out to your tools</h3>
-        <p>Save the map as a PNG for figures, at up to 4× the screen resolution, with legend and date. Save the values or the rendered view as a georeferenced GeoTIFF for QGIS, and the series as CSV.</p>
-        <p class="spec">PNG · GeoTIFF · Zeit results · CSV</p>
-      </article>
-      <article>
-        <p class="tag">Analysis</p>
-        <h3>Change detection built in</h3>
-        <p>Fit LandTrendr, BFAST, CCDC and other <a href="#tools">Zeit tools</a> live on the cursor and pins, or run them on the image, with the results added as map layers.</p>
-        <p class="spec">16 tools · no Python to install</p>
-      </article>
-      <article>
-        <p class="tag">Validation</p>
-        <h3>Accuracy and area</h3>
-        <p>Stratify any map, draw a sample, interpret it blind with chips of every date, and get the accuracy and error-adjusted areas with confidence intervals (Olofsson et al. 2014). <a href="validation.html">Step-by-step guide</a>.</p>
-        <p class="spec">strata · blind labels · kappa · HTML report</p>
-      </article>
-      <article>
-        <p class="tag">Deep learning</p>
-        <h3>Classify by the whole series</h3>
-        <p>Train TempCNN, L-TAE or U-TAE on samples you already have in Janus (a vector layer's class column, pins, an interpretation, a validation project), or classify on Presto's pretrained encodings, on the GPU and without Python. A class map, its probability and its uncertainty come back as layers, and the model's area of applicability: where the image is unlike its samples. <a href="deep-learning.html">Step-by-step guide</a>.</p>
-        <p class="spec">TempCNN · L-TAE · U-TAE · Presto · area of applicability · .janusmodel</p>
-      </article>
-      <article>
-        <p class="tag">Objects</p>
-        <h3>Segments of alike series</h3>
-        <p>SNIC cuts the image into segments whose pixels share a history, with each segment's mean series as a layer and their polygons as a vector layer, to interpret, run the tools on or sample by object. <a href="snic.html">Step-by-step guide</a>.</p>
-        <p class="spec">SNIC · mean series · polygons</p>
-      </article>
-      <article>
-        <p class="tag">Objects</p>
-        <h3>Fields as parcels</h3>
-        <p>WRI's Trazo and Fields of The World's networks draw every field's boundary on two composites of a Sentinel-2 season, on the GPU and without Python, with WRI's published accuracy; a watershed turns them into parcels that touch. Draw a few fields of your own and fine-tune the network on them. <a href="fields.html">Step-by-step guide</a>.</p>
-        <p class="spec">Trazo · FTW · watershed parcels · fine-tuning · .janusfields</p>
-      </article>
-      <article>
-        <p class="tag">Workspace</p>
-        <h3>Everything a keystroke away</h3>
-        <p>Ctrl+K finds any menu, tool, index, layer or panel by name. A status bar gives the pixel, coordinates, value, CRS and scale, and tells you when a task ends. Layers blend and group, and copy their style; Go to a place, save views, a minimap and a lens. <a href="workspace.html">Step-by-step guide</a>.</p>
-        <p class="spec">Ctrl+K · Ctrl+G · blend modes · groups · saved styles · minimap · lens</p>
-      </article>
-      <article>
-        <p class="tag">Projects</p>
-        <h3>Save it, undo it, trace it</h3>
-        <p>A project keeps the layers, styles, dates, views, pins and ROI, and the last session comes back when you open Janus. Ctrl+Z undoes a change to the layers. Every result records how it was made (tool, parameters, inputs, versions), to run again or copy as Python, and a tool's preview on the ROI comes before the whole scene.</p>
-        <p class="spec">Ctrl+S · Ctrl+Z · provenance · Copy Python · preview</p>
-      </article>
-      <article>
-        <p class="tag">Series</p>
-        <h3>Series in and out</h3>
-        <p>Build a series from loose files (dates from their names, bands and tiles told apart), put an irregular one at a fixed step (median, medoid or clearest date, gaps filled), and save any series as a multiband COG, a NetCDF or a Zarr with its time axis, ready for xarray. <a href="series.html">Step-by-step guide</a>.</p>
-        <p class="spec">VRT · COG · NetCDF CF · Zarr · 16 days · monthly · Whittaker</p>
-      </article>
-      <article>
-        <p class="tag">Maps to numbers</p>
-        <h3>Areas, polygons and zones</h3>
-        <p>Reproject, resample or clip with gdalwarp's own code; polygonize a map with each patch's geodesic area; the true area of every class at every date; rasterize polygons on the series' grid; statistics and class areas of every polygon through time. <a href="maps-to-numbers.html">Step-by-step guide</a>.</p>
-        <p class="spec">GeoPackage · ha by class and year · transitions · zonal CSV</p>
-      </article>
-      <article>
-        <p class="tag">Radar</p>
-        <h3>Through the clouds</h3>
-        <p>Sentinel-1 RTC from Planetary Computer, one orbit pass at a time, shown in dB with VH/VV and the radar indices; Quegan's multitemporal or Lee's speckle filter makes a smoother series that keeps each date's changes. <a href="stac.html#radar">Step-by-step guide</a>.</p>
-        <p class="spec">VV · VH · dB · Quegan · Lee</p>
+        <h3>Read it, run it, change it</h3>
+        <ul class="t-list">
+          <li><b>GPL-3.0-or-later</b><span>Janus and Zeit, its methods library, both. <a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></span></li>
+          <li><b>Source</b><span>On <a href="https://github.com/sacridini/janus">GitHub</a>, with the <a href="https://github.com/sacridini/janus/releases">releases</a>, the <a href="https://github.com/sacridini/janus/issues">issues</a> and <a href="https://github.com/sacridini/zeit-cdts">Zeit</a>.</span></li>
+          <li><b>The guides</b><span>Every screenshot is made by the program itself (<code>--shots</code> and <code>--screenshot</code>), so they can be made again after the interface changes.</span></li>
+          <li><b>Cite it</b><span>There is a BibTeX entry and a <code>CITATION.cff</code>. <a href="#cite">Cite Janus</a></span></li>
+        </ul>
       </article>
     </div>
   </div>
@@ -289,42 +286,59 @@
 
 <div class="pixrow" aria-hidden="true"></div>
 
-<!-- ============ ZEIT TOOLS ============ -->
-<section class="tools" id="tools">
+<!-- ============ FEATURES ============ -->
+<section class="features" id="features">
   <div class="wrap">
     <div class="sec-head">
-      <p class="eyebrow">Change detection</p>
-      <h2>Breaks, trends and seasons, built in.</h2>
-      <p>The <a href="https://github.com/sacridini/zeit-cdts">Zeit</a> algorithms are fitted live on the cursor, pins and region, or run on the whole image, the visible area or a region, with the results added as map layers. Zeit's methods are part of Janus, so there is nothing else to install, and a fit on the chart takes under a millisecond.</p>
+      <p class="eyebrow">Features</p>
+      <h2>Made for looking at time.</h2>
     </div>
-    <ul class="tool-list">
-      <!-- build:method-list -->
-      <li><h3>LandTrendr</h3><p>Year of detection, magnitude, duration and rate of the chosen loss or gain event.</p><span>annual series</span></li>
-      <li><h3>Recovery</h3><p>After LandTrendr's loss: years to recovery (Y2R), R80P, RRI and the absolute and year-on-year recovery.</p><span>annual series</span></li>
-      <li><h3>EWMACD</h3><p>Every observation against its training years through EWMA control charts: when it was disturbed, how far, when it recovered or gained, its state now.</p><span>any dates, ≥ 2 per year</span></li>
-      <li><h3>Emerging hot spots</h3><p>Where values cluster high or low and how that changed: the Getis-Ord Gi* of every date and its trend, as ESRI's patterns (new, intensifying, persistent, sporadic... hot and cold spots).</p><span>≥ 3 dates</span></li>
-      <li><h3>Mann-Kendall</h3><p>Significant Sen's slope, p-value and trend class, with Hamed-Rao, Yue-Wang and seasonal variants.</p><span>any series</span></li>
-      <li><h3>AR(1) trend</h3><p>The trend's t-test with autocorrelated errors (remotePARTS), and the regional Trend test by PARTS.</p><span>any series</span></li>
-      <li><h3>BFAST</h3><p>Trend and season break counts, date and magnitude of the largest break.</p><span>≥ 2 dates per year</span></li>
-      <li><h3>BFAST Lite</h3><p>Break count, date and magnitude of the largest break, first break date.</p><span>≥ 2 dates per year</span></li>
-      <li><h3>BFAST Monitor</h3><p>First break in the monitoring period, its magnitude, break yes or no.</p><span>≥ 2 dates per year</span></li>
-      <li><h3>BEAST</h3><p>Trend and season averaged over thousands of models: the probability of a changepoint at each date, the most probable one with its jump, the mean number of changepoints.</p><span>any series, ≥ 12 dates</span></li>
-      <li><h3>Phenology</h3><p>Start, peak and end of season, length, amplitude, for a typical year or a chosen one.</p><span>≥ 6 dates per year</span></li>
-      <li><h3>CCDC</h3><p>Break count, largest break, NDVI change and segments from every reflectance band.</p><span>one file per date, multiband</span></li>
-      <li><h3>S-CCD</h3><p>CCDC's models carried forward by a Kalman filter: the breaks, and the state of every pixel at the last date (stable, change in progress and since when, waiting for a model).</p><span>one file per date, multiband</span></li>
-      <li><h3>CODED</h3><p>Forest degradation and deforestation from the NDFI of every observation, as strata and change dates.</p><span>one file per date, multiband</span></li>
-      <li><h3>NDFI</h3><p>Spectral unmixing of every date into a new layer of the NDFI, ready for the other tools.</p><span>one file per date, multiband</span></li>
-      <li><h3>Spectral unmixing</h3><p>The fraction of each cover (vegetation, soil, water...) whose spectrum you take from pins, at every date or in a hyperspectral scene.</p><span>multiband or spectrum</span></li>
-      <li><h3>Tmask</h3><p>The clouds and shadows the quality band missed, and the series without them as a new layer.</p><span>green and SWIR1</span></li>
-      <li><h3>TWDTW</h3><p>A class map from patterns you take from pins on places you know.</p><span>classification</span></li>
-      <li><h3>Post-processing</h3><p>A classification cleaned: one-year flickers removed, a majority filter and a minimum mapping unit; models' probabilities smoothed by Bayesian smoothing (Camara et al. 2024).</p><span>classes</span></li>
-      <li><h3>SOM</h3><p>Clusters of alike trajectories, with the typical series of the one under the cursor.</p><span>clustering</span></li>
-      <li><h3>k-means</h3><p>Compact clusters of the whole series, named by the classes of your samples in them.</p><span>clustering</span></li>
-      <li><h3>Agreement</h3><p>Where and when several change maps agree: the consensus year and how many back it.</p><span>on result maps</span></li>
-      <li><h3>Smoothing</h3><p>Whittaker and Savitzky-Golay, drawn over the series on the chart.</p><span>chart only</span></li>
-      <li><h3>SNIC</h3><p>Segments of alike series, their mean series as a layer and their polygons as a vector layer.</p><span>segmentation</span></li>
-      <!-- /build:method-list -->
-    </ul>
+    <div class="fgroups">
+      <div class="fgroup">
+        <h3>Open</h3>
+        <ul>
+          <li><b>Any stack of rasters</b> A folder, a multiband file, a list of files or a wildcard; dates from file names or band descriptions.</li>
+          <li><b><a href="stac.html">Series from STAC</a></b> Earth Search, Planetary Computer, the Brazil Data Cube or any STAC API, read in place, downloaded or composited, clouds masked.</li>
+          <li><b>Several bands per date</b> Any band of a Landsat or Sentinel stack, or a normalized difference of two; a quality band hides the clouds.</li>
+          <li><b><a href="stac.html#radar">Radar</a></b> Sentinel-1 RTC in dB, one orbit pass at a time, with Quegan's or Lee's speckle filter.</li>
+          <li><b>Full resolution on zoom</b> Tiles of the visible area are read in the background; the overview is cached on disk, so reopening takes a fraction of a second.</li>
+          <li><b>Categorical series</b> Land cover stacks are detected from colour tables or names; the table reports the last change.</li>
+        </ul>
+      </div>
+      <div class="fgroup">
+        <h3>See</h3>
+        <ul>
+          <li><b>Hover, pin, compare</b> An approximate series as you hover, the exact one when the mouse rests; Shift+drag for a region's mean and p10&ndash;p90 band.</li>
+          <li><b>Statistics on the GPU</b> 13 map modes: mean, trend, amplitude, anomaly and more; changing the date, colormap or stretch is instant.</li>
+          <li><b>Side by side</b> Several series as layers placed by their georeferencing, in map panels that pan and zoom together; drag one to a second monitor.</li>
+          <li><b>Swipe</b> A divider across the map to compare a layer with another, or with itself at another date or mode.</li>
+          <li><b>Transect</b> Distance against time in one image: fronts and regrowth appear as shapes.</li>
+          <li><b><a href="visualize.html">A series seen whole</a></b> Similarity map, cycles by wavelet, every band over time and a UMAP plane linked to the map.</li>
+          <li><b><a href="workspace.html">Everything a keystroke away</a></b> Ctrl+K finds any menu, tool, index or layer; a status bar; blend modes, groups, a minimap and a lens.</li>
+        </ul>
+      </div>
+      <div class="fgroup">
+        <h3>Analyse</h3>
+        <ul>
+          <li><b><a href="calculator.html">Band math over time</a></b> The 275 Awesome Spectral Indices, or an expression of the bands, reduced over time, by year or month, with lags, anomalies and rules.</li>
+          <li><b><a href="methods.html">Change detection built in</a></b> <!-- n:method-count -->34<!-- /n:method-count --> methods fitted live on the cursor and pins, or run on the image, with the results added as map layers.</li>
+          <li><b>Difference and largest drop</b> The change from a reference date or from the previous one, or when the largest drop happened and how deep.</li>
+          <li><b><a href="validation.html">Accuracy and area</a></b> Stratify, sample, interpret blind, and get accuracy and error-adjusted areas with confidence intervals.</li>
+          <li><b><a href="deep-learning.html">Classify by the whole series</a></b> TempCNN, L-TAE, U-TAE or Presto on your samples, on the GPU and without Python; a class map, its probability, its uncertainty and the area of applicability.</li>
+          <li><b><a href="snic.html">Segments of alike series</a></b> SNIC: each segment's mean series as a layer, their polygons as a vector layer.</li>
+          <li><b><a href="fields.html">Fields as parcels</a></b> WRI's Trazo and Fields of The World's networks draw each field's boundary on the GPU; fine-tune them on fields you draw.</li>
+        </ul>
+      </div>
+      <div class="fgroup">
+        <h3>Out &amp; reproduce</h3>
+        <ul>
+          <li><b>Out to your tools</b> PNG at up to 4× the screen resolution, GeoTIFF of the values or the view, CSV of the series.</li>
+          <li><b><a href="series.html">Series in and out</a></b> Build a series from loose files, put an irregular one at a fixed step, save a multiband COG, a NetCDF or a Zarr ready for xarray.</li>
+          <li><b><a href="maps-to-numbers.html">Areas, polygons and zones</a></b> Reproject, polygonize, the hectares of every class at every date, rasterize, zonal statistics through time.</li>
+          <li><b>Projects, undo, provenance</b> A project keeps layers, styles, dates, views, pins and ROI; Ctrl+Z undoes; every result records how it was made, to run again or copy as Python.</li>
+        </ul>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -334,35 +348,26 @@
     <div class="sec-head">
       <p class="eyebrow">Guides</p>
       <h2>Step by step, on real data.</h2>
-      <p>Each guide follows one dataset from the first look at its series to the maps a tool makes of it, with screenshots of every step taken by Janus itself.</p>
+      <p><!-- n:guide-count -->23<!-- /n:guide-count --> guides in <!-- n:track-count -->5<!-- /n:track-count --> tracks. Each follows one dataset from the first look at its series to the maps a tool makes of it, with screenshots of every step taken by Janus itself.</p>
     </div>
-    <ul class="guide-list">
-      <!-- build:guide-cards -->
-      <li><a href="landtrendr.html"><span>Annual series</span><h3>LandTrendr</h3><p>Forty years of a Rondônia forest frontier as straight segments: the year, magnitude and duration of every clearing, and how long the forest took to recover.</p></a></li>
-      <li><a href="ccdc.html"><span>Landsat, every date</span><h3>CCDC</h3><p>Harmonic models of every band, breaks when the land changes, and a cloud-free image of any date.</p></a></li>
-      <li><a href="sccd.html"><span>Landsat, every date</span><h3>S-CCD</h3><p>CCDC's models carried forward by a Kalman filter: a forest cleared in 2023, and one being cleared now, shown as a change in progress before it is confirmed.</p></a></li>
-      <li><a href="coded.html"><span>Landsat, every date</span><h3>CODED and the NDFI</h3><p>Forest degradation apart from deforestation, from the NDFI of every observation.</p></a></li>
-      <li><a href="ewmacd.html"><span>Landsat, every date</span><h3>EWMACD</h3><p>Thinning and harvests in pine stands found by EWMA control charts on every date, cloudy ones included: when, how strong, and when they recovered.</p></a></li>
-      <li><a href="bfast.html"><span>Regular series</span><h3>BFAST</h3><p>Breaks in trend and season of a 16-day EVI series: BFAST, BFAST Lite and BFAST Monitor.</p></a></li>
-      <li><a href="beast.html"><span>Annual or regular series</span><h3>BEAST</h3><p>Changepoints with their probability: a clearing BEAST is sure of, a rise it gives 61%, a forest where it claims no change, and maps of how sure it is.</p></a></li>
-      <li><a href="phenology.html"><span>Sub-annual index</span><h3>Phenology</h3><p>The start, peak, end and length of the growing season of every pixel.</p></a></li>
-      <li><a href="trend-test.html"><span>Annual series</span><h3>Trend test (PARTS)</h3><p>Whether a region, or each land-cover class, is really trending, when a quarter of its pixels say so.</p></a></li>
-      <li><a href="hotspots.html"><span>Annual series</span><h3>Emerging hot spots</h3><p>Where forest and cleared land cluster in forty years of Rondônia, and how that changed: new, intensifying, oscillating or historical hot and cold spots.</p></a></li>
-      <li><a href="unmixing.html"><span>Multiband or hyperspectral</span><h3>Spectral unmixing</h3><p>How much forest, soil and water is in each pixel: every date of a Landsat series and every pixel of an EnMAP scene, from endmembers picked with pins.</p></a></li>
-      <li><a href="validation.html"><span>Any map</span><h3>Validation</h3><p>Strata, a sample, blind interpretation, accuracy and error-adjusted areas with confidence intervals.</p></a></li>
-      <li><a href="snic.html"><span>Landsat, every date</span><h3>SNIC segmentation</h3><p>Segments of pixels with the same history, their mean series as a layer and their polygons.</p></a></li>
-      <li><a href="fields.html"><span>Sentinel-2, a season</span><h3>Field delineation</h3><p>A year of Sorriso as 430 field parcels in three seconds, Trazo's published accuracy matched, and the network fine-tuned on fields you draw.</p></a></li>
-      <li><a href="deep-learning.html"><span>Landsat, every date</span><h3>Deep learning</h3><p>TempCNN, L-TAE and U-TAE trained on MapBiomas samples: a land cover map with its probability and uncertainty, smoothed, and where the model can be trusted.</p></a></li>
-      <li><a href="presto.html"><span>Landsat, a year</span><h3>Presto</h3><p>A pretrained foundation model's encodings of every pixel: embeddings to explore, and a classifier on them.</p></a></li>
-      <li><a href="calculator.html"><span>Any series of bands</span><h3>Raster calculator</h3><p>EVI and the 275 Awesome Spectral Indices on a Sentinel-2 series, the open layers combined by short names, 107 dates reduced to an image, classes by rules.</p></a></li>
-      <li><a href="stac.html"><span>Sentinel-2, Landsat, Sentinel-1</span><h3>STAC catalogs</h3><p>An area, two dates, a cloud cover: 375 Sentinel-2 scenes of five dry seasons as a series of 107 dates, read in place from Planetary Computer with the clouds masked; then a year of Sentinel-1 radar over the same square, in dB, a clearing seen through the clouds.</p></a></li>
-      <li><a href="series.html"><span>Any series</span><h3>Series in and out</h3><p>36 loose files built into a series, 107 irregular Sentinel-2 dates put every 16 days with their gaps filled, saved as a NetCDF and a Zarr that xarray reads, and a year of Sentinel-1 through a speckle filter.</p></a></li>
-      <li><a href="maps-to-numbers.html"><span>Any class map</span><h3>Maps to numbers</h3><p>34 years of MapBiomas on a Landsat series' grid: the hectares of each class every year, the forest patches of 1985 as polygons, and what became of each one, year by year.</p></a></li>
-      <li><a href="embeddings.html"><span>AlphaEarth, TESSERA</span><h3>Embeddings</h3><p>Forest, pasture and water from nine pins in milliseconds, what changed into what since 2017, and the direction of every change.</p></a></li>
-      <li><a href="visualize.html"><span>Any series</span><h3>Seeing a series</h3><p>Every pixel compared with a forest and with a pasture, the forest's yearly cycle by wavelet, its six bands over time and 41 years of Landsat as three behaviours in a UMAP plane.</p></a></li>
-      <li><a href="workspace.html"><span>Interface</span><h3>The workspace</h3><p>The status bar and notices, Ctrl+K for any command, Ctrl+G for any coordinate, blend modes, groups and styles, a lens on another date, the provenance and Python of every result, previews, projects and undo.</p></a></li>
-      <!-- /build:guide-cards -->
+    <!-- build:home-guides -->
+    <nav class="g-tracks" aria-label="Tracks">
+      <p>Tracks</p>
+      <ul>
+        <li><a href="guides.html#data">Get the data<span>2</span></a></li>
+        <li><a href="guides.html#explore">Explore a series<span>5</span></a></li>
+        <li><a href="guides.html#change">Find change and trends<span>10</span></a></li>
+        <li><a href="guides.html#classify">Classify and segment<span>4</span></a></li>
+        <li><a href="guides.html#validate">Validate and report<span>2</span></a></li>
+      </ul>
+    </nav>
+    <ul class="guide-list g-feat">
+      <li><a href="landtrendr.html"><img class="g-thumb" src="assets/img/thumbs/landtrendr.jpg" alt="LandTrendr" width="640" height="400" loading="lazy"><span>Annual series</span><h3>LandTrendr</h3><p>Forty years of a Rondônia forest frontier as straight segments: the year, magnitude and duration of every clearing, and how long the forest took to recover.</p><small class="g-facts">12 min read · 15 figures</small></a></li>
+      <li><a href="validation.html"><img class="g-thumb" src="assets/img/thumbs/validation.jpg" alt="Validation" width="640" height="400" loading="lazy"><span>Any map</span><h3>Validation</h3><p>Strata, a sample, blind interpretation, accuracy and error-adjusted areas with confidence intervals.</p><small class="g-facts">25 min read · 23 figures</small></a></li>
+      <li><a href="stac.html"><img class="g-thumb" src="assets/img/thumbs/stac.jpg" alt="STAC catalogs" width="640" height="380" loading="lazy"><span>Sentinel-2, Landsat, Sentinel-1</span><h3>STAC catalogs</h3><p>An area, two dates, a cloud cover: 375 Sentinel-2 scenes of five dry seasons as a series of 107 dates, read in place from Planetary Computer with the clouds masked; then a year of Sentinel-1 radar over the same square, in dB, a clearing seen through the clouds.</p><small class="g-facts">17 min read · 6 figures</small></a></li>
     </ul>
+    <p class="mt-all"><a class="btn btn-ghost" href="guides.html">See all 23 guides</a></p>
+    <!-- /build:home-guides -->
   </div>
 </section>
 
@@ -383,7 +388,7 @@
         <p>Run the installer. It installs per user, without an administrator prompt, and can add <code>jn</code> to <code>PATH</code>, an <em>Open in Janus</em> entry to the right-click menu of folders and <code>.tif</code> files, and a desktop shortcut.</p>
         <a class="btn btn-primary" data-dl="win" href="https://github.com/sacridini/janus/releases/latest">Download .exe</a>
         <p class="file" data-file="win">janus-&lt;version&gt;-setup.exe</p>
-              </div>
+        </div>
       </article>
       <article class="os" data-os-card="mac">
         <h3>macOS <small>Apple Silicon</small></h3>
@@ -392,7 +397,7 @@
         <pre><code>ln -s /Applications/Janus.app/Contents/MacOS/janus ~/.local/bin/jn</code></pre>
         <a class="btn btn-primary" data-dl="mac" href="https://github.com/sacridini/janus/releases/latest">Download .dmg</a>
         <p class="file" data-file="mac">janus-&lt;version&gt;-macos-arm64.dmg · macOS 15 or later</p>
-              </div>
+        </div>
       </article>
       <article class="os" data-os-card="linux">
         <h3>Linux <small>x86_64</small></h3>
@@ -400,8 +405,24 @@
         <p>Extract the archive anywhere and run <code>jn</code> from that folder. It is portable: only glibc, the graphics drivers and X11 or Wayland come from the system. <code>janus.desktop</code> is included for a menu entry.</p>
         <a class="btn btn-primary" data-dl="linux" href="https://github.com/sacridini/janus/releases/latest">Download .tar.xz</a>
         <p class="file" data-file="linux">janus-&lt;version&gt;-linux-x86_64.tar.xz · tested on Ubuntu 24.04</p>
-              </div>
+        </div>
       </article>
+    </div>
+    <div class="install-term">
+      <p class="eyebrow">Then, from a terminal</p>
+      <div class="term" data-tabs>
+        <div class="term-tabs" role="tablist" aria-label="Operating system">
+          <button role="tab" id="t-win" aria-controls="p-win" aria-selected="true" data-os="win">Windows</button>
+          <button role="tab" id="t-mac" aria-controls="p-mac" aria-selected="false" data-os="mac" tabindex="-1">macOS</button>
+          <button role="tab" id="t-lin" aria-controls="p-lin" aria-selected="false" data-os="linux" tabindex="-1">Linux</button>
+        </div>
+        <div class="term-body">
+          <div role="tabpanel" id="p-win" aria-labelledby="t-win"><code>jn D:\data\ndvi_annual\</code><button class="copy" data-copy="jn D:\data\ndvi_annual\" aria-label="Copy command">Copy</button></div>
+          <div role="tabpanel" id="p-mac" aria-labelledby="t-mac" hidden><code>jn ~/data/landsat_stack.tif</code><button class="copy" data-copy="jn ~/data/landsat_stack.tif" aria-label="Copy command">Copy</button></div>
+          <div role="tabpanel" id="p-lin" aria-labelledby="t-lin" hidden><code>jn "S2_*_NDVI.tif" --band 1</code><button class="copy" data-copy='jn "S2_*_NDVI.tif" --band 1' aria-label="Copy command">Copy</button></div>
+        </div>
+        <p class="term-note">After installing, <code>jn</code> opens the window and gives the prompt back right away.</p>
+      </div>
     </div>
     <p class="src">Prefer to build it yourself? <a href="https://github.com/sacridini/janus/blob/main/docs/building.md">Building from source</a> needs Rust and GDAL.</p>
   </div>
@@ -409,28 +430,78 @@
 
 <!-- ============ CLI ============ -->
 <section class="cli" id="cli">
-  <div class="wrap cli-grid">
-    <div class="sec-head">
-      <p class="eyebrow">Command line</p>
-      <h2>One command, any series.</h2>
-      <p>The command line only opens and shows. Bands, indices, cloud masks and the Zeit tools live in the interface.</p>
-    </div>
-    <div class="code-wrap">
+  <div class="wrap">
+    <div class="cli-grid">
+      <div>
+        <div class="sec-head">
+          <p class="eyebrow">Command line</p>
+          <h2>Open it, set it up, script it.</h2>
+          <p><code>jn</code> opens the window and gives the prompt back at once. Beyond what to open, its options set the window up the way you want it: a tool ready on the chart or already run, pins, the calculator, a screenshot.</p>
+        </div>
+        <dl class="terms cli-opts">
+          <dt>--band N</dt><dd>band used when each file is one date</dd>
+          <dt>--budget MB</dt><dd>memory for the cube overview, this run only (default: Settings, 1024)</dd>
+          <dt>--threads N</dt><dd>processing threads, this run only (default: Settings; HDD = 1)</dd>
+          <dt>--help</dt><dd>every option, in the terminal</dd>
+        </dl>
+      </div>
+      <div class="code-wrap">
 <div class="code-bar">Terminal</div>
-<pre class="code"><code><span class="c"># every raster in the folder, 1 file = 1 date</span>
-jn D:\data\ndvi_annual\
-
-<span class="c"># 1 multiband file, 1 band = 1 date</span>
+<pre class="code"><code><span class="c"># a folder (1 file = 1 date), a multiband file (1 band = 1 date),</span>
+<span class="c"># a wildcard</span>
+jn ndvi\
 jn landsat_stack.tif
-
-<span class="c"># a wildcard pattern, band 1 of each file</span>
 jn "S2_*_NDVI.tif" --band 1
 
-<span class="c"># options</span>
---band N        band used when each file is one date
---budget MB     memory for the cube overview (default 1024)
---threads N     background reader threads (HDD = 1)</code></pre>
+<span class="c"># a Zeit tool fitted on the chart, and a pin at pixel X,Y</span>
+jn ndvi\ --zeit landtrendr --pin 1272,1414
+
+<span class="c"># a parameter of the tool (TOOL.ID=JSON), and the run on the raster;</span>
+<span class="c"># with --roi X0,Y0,X1,Y1 the run is on that window</span>
+jn ndvi\ --zeit landtrendr --zeit-param landtrendr.max_segments=8 --zeit-run
+
+<span class="c"># the raster calculator open with a text (statements apart by ;), and run</span>
+jn s2 --calc "ndvi = (N - R) / (N + R); median(ndvi)" --calc-run
+
+<span class="c"># the window as a PNG once the series is ready, then exit</span>
+jn ndvi\ --zeit landtrendr --pin 1272,1414 --screenshot fit.png</code></pre>
+      </div>
     </div>
+
+    <div class="mcp" id="mcp">
+      <div class="sec-head">
+        <p class="eyebrow">For AI assistants</p>
+        <h3>jn mcp</h3>
+        <p>A server of the Model Context Protocol on the standard input and output. An assistant such as Claude Desktop or Claude Code works with your series through Janus's own engines, with no window and no Python: <code>jn mcp [--threads N]</code>. Every result is a file (GeoTIFFs, VRTs, GeoPackages, CSVs, models) and its path comes back in the answer; <code>open_in_janus</code> shows it in the window you have open.</p>
+      </div>
+      <ul class="mcp-tools">
+        <li><b>Look</b><span>describe a series, read its values at places and over areas, list the spectral indices, read vector files.</span></li>
+        <li><b>Calculate</b><span>check and run raster calculator expressions over named layers.</span></li>
+        <li><b>Detect</b><span>list, describe and run Zeit's tools (BFAST, CCDC, LandTrendr, trends, phenology...) on a series or on maps.</span></li>
+        <li><b>Prepare</b><span>regularize, speckle filter, harmonize sensors, reproject, rasterize, polygonize.</span></li>
+        <li><b>Measure</b><span>zonal statistics and the area of each class or change year.</span></li>
+        <li><b>Classify</b><span>train a Random Forest, TempCNN, L-TAE, Presto or U-TAE on samples, and classify a series with the model.</span></li>
+        <li><b>Find data</b><span>search STAC catalogs and build a series from the scenes found.</span></li>
+      </ul>
+      <p class="mcp-note"><!-- n:mcp-tools -->25<!-- /n:mcp-tools --> tools in all; <a href="https://github.com/sacridini/janus/blob/main/docs/usage.md#mcp-server">the list and the setup for each client</a>. In Claude Code: <code>claude mcp add janus -- jn mcp --threads 8</code></p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CITE ============ -->
+<section class="cite" id="cite">
+  <div class="wrap cite-grid">
+    <div class="sec-head">
+      <p class="eyebrow">Cite</p>
+      <h2>If Janus helps your work, cite it.</h2>
+      <p>There is no DOI yet. The repository has a <a href="https://github.com/sacridini/janus/blob/main/CITATION.cff"><code>CITATION.cff</code></a> with the same data. The methods are their authors' work: each guide ends with the papers to cite for the method it uses.</p>
+    </div>
+    <!-- build:cite-bibtex -->
+    <div class="code-wrap cite-code">
+    <div class="code-bar">BibTeX</div>
+    <div class="cite-body"><pre class="code"><code>@software{lacerda_janus,&#10;  author  = {Lacerda, Eduardo},&#10;  title   = {Janus: raster time series analysis},&#10;  version = {1.16.0},&#10;  year    = {2026},&#10;  url     = {https://sacridini.github.io/janus/},&#10;  note    = {Source code at https://github.com/sacridini/janus}&#10;}</code></pre><button class="copy" data-copy="@software{lacerda_janus,&#10;  author  = {Lacerda, Eduardo},&#10;  title   = {Janus: raster time series analysis},&#10;  version = {1.16.0},&#10;  year    = {2026},&#10;  url     = {https://sacridini.github.io/janus/},&#10;  note    = {Source code at https://github.com/sacridini/janus}&#10;}" aria-label="Copy the BibTeX entry">Copy</button></div>
+    </div>
+    <!-- /build:cite-bibtex -->
   </div>
 </section>
 
@@ -447,12 +518,20 @@ jn "S2_*_NDVI.tif" --band 1
         <p>No. It is made for time: open a series, move through it, inspect any pixel, detect change with the Zeit tools and validate the maps they make. For editing vectors or laying out maps, keep using your GIS: Janus hands it GeoTIFFs, PNGs, CSVs and GeoPackages.</p>
       </details>
       <details>
+        <summary>Is it free?</summary>
+        <p>Yes. Janus is free and open source under the GPL-3.0-or-later, as is Zeit, the library of its methods. The source, the releases and the issues are on <a href="https://github.com/sacridini/janus">GitHub</a>.</p>
+      </details>
+      <details>
         <summary>Which files can it open?</summary>
-        <p>Anything GDAL reads, as a folder of rasters (one date per file), a multiband file (one date per band), a list of files or a wildcard pattern; also cloud-optimized GeoTIFFs by URL, and the scenes of a STAC catalog (File → Search STAC catalog...). Cloud-optimized GeoTIFFs open fastest the first time.</p>
+        <p>Anything GDAL reads, as a folder of rasters (one date per file), a multiband file (one date per band), a list of files or a wildcard pattern; also cloud-optimized GeoTIFFs by URL, NetCDF and Zarr, and the scenes of a STAC catalog (File → Search STAC catalog...). Cloud-optimized GeoTIFFs open fastest the first time.</p>
       </details>
       <details>
         <summary>Do I need Python for the Zeit tools?</summary>
         <p>No. Zeit's methods are compiled into Janus: nothing runs in Python, and nothing starts until you use a tool.</p>
+      </details>
+      <details>
+        <summary>Can an AI assistant drive it?</summary>
+        <p>Yes, through <code>jn mcp</code>, a Model Context Protocol server: an assistant such as Claude Desktop or Claude Code can describe a series, read its values, run the calculator and the Zeit tools, train and apply classifiers and search STAC catalogs, with the results as files. <a href="#mcp">What it exposes</a>.</p>
       </details>
       <details>
         <summary>Will a spinning hard disk be slow?</summary>
@@ -477,6 +556,10 @@ jn "S2_*_NDVI.tif" --band 1
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="methods.html">Methods</a></li>
+      <li><a href="guides.html">Guides</a></li>
+      <li><a href="#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -484,8 +567,10 @@ jn "S2_*_NDVI.tif" --band 1
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>
+<script src="assets/demo.js" defer></script>
 </body>
 </html>

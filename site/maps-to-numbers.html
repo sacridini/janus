@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Maps to numbers</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Maps to numbers</p>
     <p class="eyebrow">Analysis · class maps, polygons, areas, zones</p>
     <h1>From class maps to areas, polygons and tables.</h1>
     <p class="lede">A land cover map answers questions with numbers: how many hectares of forest each year, which patches were cleared, how much of a property or a park changed. This guide takes 34 years of MapBiomas over the coast of Sergipe, puts them on the grid of a Landsat series, counts the area of each class every year, turns the forest of 1985 into polygons with their hectares, and follows each patch through every year that came after.</p>
@@ -95,6 +96,40 @@
         <dt>mapbiomas</dt><dd>MapBiomas collection 4.1, Atlantic Forest biome, one map a year from 1985 to 2018. Each year is a GeoTIFF of the whole biome (77 947 × 94 203 pixels); here a box 200 pixels wider than the window on every side was cut from each (a VRT a year), with 0 as no data and the collection's class names and colours added to the band.</dd>
       </dl>
       <p>MapBiomas codes its classes by number: 3 is Forest Formation, 5 Mangrove, 15 Pasture, 20 Semi-Perennial Crop (sugar cane), 21 Mosaic of Agriculture and Pasture, 24 Urban Infrastructure, 33 River, Lake and Ocean. Janus reads the names and colours from the band and shows them in the <span class="ui">Classes</span> panel; a map without them can be named there by hand.</p>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is the author's own, not downloaded, in <code>target/guide-maps</code>: <code>landsat/</code> is the 41 medoids cut to 2000 × 2000 px, <code>mapbiomas/</code> is MapBiomas collection 4.1 (Atlantic Forest, 1985–2018) cut to a box 200 px wider, <code>mapbiomas_grid/</code> is its years warped onto the Landsat grid, and <code>poly/</code> holds the 1985 forest polygons and three lines. These commands remake the screenshots after the interface changes.</p>
+        <p>These screenshots are not from a tour: they are taken with <code>--screenshot</code>, in a window of 1600 × 950 with <code>--threads 2</code>, from the folder <code>target/guide-maps</code>.</p>
+        <p class="what"><code>warp.png</code>, the Reproject window:</p>
+        <div class="cmd"><code>janus landsat --layer mapbiomas --interface modern --window warp --screenshot warp.png</code><button class="copy" type="button" data-copy="janus landsat --layer mapbiomas --interface modern --window warp --screenshot warp.png">Copy</button></div>
+        <p class="what"><code>grid.png</code>, the classes on the Landsat grid:</p>
+        <div class="cmd"><code>janus landsat --layer mapbiomas_grid --interface modern --date 34 --pin 71,793 --pin 65,1038 --view 260,890,1.5 --screenshot grid.png</code><button class="copy" type="button" data-copy="janus landsat --layer mapbiomas_grid --interface modern --date 34 --pin 71,793 --pin 65,1038 --view 260,890,1.5 --screenshot grid.png">Copy</button></div>
+        <p class="what"><code>areas.png</code>, the areas of the classes:</p>
+        <div class="cmd"><code>janus landsat --layer mapbiomas_grid --interface modern --date 34 --window areas-run --analysis areas --detach-map --screenshot areas.png</code><button class="copy" type="button" data-copy="janus landsat --layer mapbiomas_grid --interface modern --date 34 --window areas-run --analysis areas --detach-map --screenshot areas.png">Copy</button></div>
+        <p class="what"><code>poly.png</code>, the polygons of a class:</p>
+        <div class="cmd"><code>janus landsat --layer mapbiomas_grid --layer poly/mapbiomas_1985_polygons.gpkg --interface modern --date 1 --window polygonize --pin 71,793 --view 160,800,3 --screenshot poly.png</code><button class="copy" type="button" data-copy="janus landsat --layer mapbiomas_grid --layer poly/mapbiomas_1985_polygons.gpkg --interface modern --date 1 --window polygonize --pin 71,793 --view 160,800,3 --screenshot poly.png">Copy</button></div>
+        <p class="what"><code>labels.png</code>, the polygons labelled by class:</p>
+        <div class="cmd"><code>janus landsat --layer mapbiomas_grid --layer poly/mapbiomas_1985_polygons.gpkg --interface modern --date 1 --labels class --screenshot labels.png</code><button class="copy" type="button" data-copy="janus landsat --layer mapbiomas_grid --layer poly/mapbiomas_1985_polygons.gpkg --interface modern --date 1 --labels class --screenshot labels.png">Copy</button></div>
+        <p class="what"><code>rasterize.png</code>, the polygons rasterized onto the Landsat grid:</p>
+        <div class="cmd"><code>janus mapbiomas_grid --layer landsat --layer poly/forest_1985.gpkg --interface modern --window rasterize-run --screenshot rasterize.png</code><button class="copy" type="button" data-copy="janus mapbiomas_grid --layer landsat --layer poly/forest_1985.gpkg --interface modern --window rasterize-run --screenshot rasterize.png">Copy</button></div>
+        <p class="what"><code>only.png</code>, a test only where the mask is:</p>
+        <div class="cmd"><code>janus poly/forest_1985_mask_landsat.tif --layer landsat --interface modern --zeit mann_kendall --screenshot only.png</code><button class="copy" type="button" data-copy="janus poly/forest_1985_mask_landsat.tif --layer landsat --interface modern --zeit mann_kendall --screenshot only.png">Copy</button></div>
+        <p class="what"><code>zonal.png</code>, the statistics per polygon:</p>
+        <div class="cmd"><code>janus landsat --layer mapbiomas_grid --layer poly/forest_1985.gpkg --interface modern --date 34 --window zonal-run --analysis zonal --screenshot zonal.png</code><button class="copy" type="button" data-copy="janus landsat --layer mapbiomas_grid --layer poly/forest_1985.gpkg --interface modern --date 34 --window zonal-run --analysis zonal --screenshot zonal.png">Copy</button></div>
+        <p class="what">The same zonal run, without a screenshot:</p>
+        <div class="cmd"><code>janus mapbiomas_grid --layer landsat --layer poly/forest_1985.gpkg --interface modern --window zonal-run --analysis zonal</code><button class="copy" type="button" data-copy="janus mapbiomas_grid --layer landsat --layer poly/forest_1985.gpkg --interface modern --window zonal-run --analysis zonal">Copy</button></div>
+        <p class="what"><code>index.png</code>, the values of the patches:</p>
+        <div class="cmd"><code>janus mapbiomas_grid --layer landsat --layer poly/forest_1985.gpkg --interface modern --date 34 --pin 71,793 --pin 65,1038 --view 200,880,1.5 --screenshot index.png</code><button class="copy" type="button" data-copy="janus mapbiomas_grid --layer landsat --layer poly/forest_1985.gpkg --interface modern --date 34 --pin 71,793 --pin 65,1038 --view 200,880,1.5 --screenshot index.png">Copy</button></div>
+        <p class="what"><code>profiles.png</code>, the profiles along a transect:</p>
+        <div class="cmd"><code>janus mapbiomas_grid --layer landsat --layer poly/lines.gpkg --interface modern --date 34 --transect 20.5,720.5,71.5,793.5,65.5,1038.5,140.5,1180.5 --view 330,930,1.5 --window profiles-run --screenshot profiles.png</code><button class="copy" type="button" data-copy="janus mapbiomas_grid --layer landsat --layer poly/lines.gpkg --interface modern --date 34 --transect 20.5,720.5,71.5,793.5,65.5,1038.5,140.5,1180.5 --view 330,930,1.5 --window profiles-run --screenshot profiles.png">Copy</button></div>
+        <p class="what"><code>roi-edit.png</code>, the ROI editor:</p>
+        <div class="cmd"><code>janus landsat --layer poly/forest_1985.gpkg --interface modern --date 34 --roi 99,725,93,738,103,735,105,743,94,750,106,748,110,774,102,776,111,778,111,785,91,792,93,781,85,776,79,789,53,764,48,781,36,778,37,805,47,789,58,789,56,779,63,785,56,798,91,794,83,808,95,805,100,818,81,814,78,818,85,820,84,829,83,823,77,825,85,831,89,823,99,832,105,824,91,862,114,875,117,865,124,875,150,869,155,881,143,846,106,833,110,824,127,829,154,775,139,768,131,779,115,778,127,762,114,765,113,736 --view 96,803,2.8 --window roi-edit --screenshot roi-edit.png</code><button class="copy" type="button" data-copy="janus landsat --layer poly/forest_1985.gpkg --interface modern --date 34 --roi 99,725,93,738,103,735,105,743,94,750,106,748,110,774,102,776,111,778,111,785,91,792,93,781,85,776,79,789,53,764,48,781,36,778,37,805,47,789,58,789,56,779,63,785,56,798,91,794,83,808,95,805,100,818,81,814,78,818,85,820,84,829,83,823,77,825,85,831,89,823,99,832,105,824,91,862,114,875,117,865,124,875,150,869,155,881,143,846,106,833,110,824,127,829,154,775,139,768,131,779,115,778,127,762,114,765,113,736 --view 96,803,2.8 --window roi-edit --screenshot roi-edit.png">Copy</button></div>
+        <p class="what"><code>roi-save.png</code>, saving the ROI:</p>
+        <div class="cmd"><code>janus landsat --layer poly/forest_1985.gpkg --interface modern --date 34 --roi 99,725,93,738,103,735,105,743,94,750,106,748,110,774,102,776,111,778,111,785,91,792,93,781,85,776,79,789,53,764,48,781,36,778,37,805,47,789,58,789,56,779,63,785,56,798,91,794,83,808,95,805,100,818,81,814,78,818,85,820,84,829,83,823,77,825,85,831,89,823,99,832,105,824,91,862,114,875,117,865,124,875,150,869,155,881,143,846,106,833,110,824,127,829,154,775,139,768,131,779,115,778,127,762,114,765,113,736 --view 96,803,2.8 --window roi-save --screenshot roi-save.png</code><button class="copy" type="button" data-copy="janus landsat --layer poly/forest_1985.gpkg --interface modern --date 34 --roi 99,725,93,738,103,735,105,743,94,750,106,748,110,774,102,776,111,778,111,785,91,792,93,781,85,776,79,789,53,764,48,781,36,778,37,805,47,789,58,789,56,779,63,785,56,798,91,794,83,808,95,805,100,818,81,814,78,818,85,820,84,829,83,823,77,825,85,831,89,823,99,832,105,824,91,862,114,875,117,865,124,875,150,869,155,881,143,846,106,833,110,824,127,829,154,775,139,768,131,779,115,778,127,762,114,765,113,736 --view 96,803,2.8 --window roi-save --screenshot roi-save.png">Copy</button></div>
+        <p><code>01-warp.png</code>, <code>06-only-where.png</code> and <code>11-roi-save.png</code> are crops of <code>warp.png</code>, <code>only.png</code> and <code>roi-save.png</code>; the others are the PNGs as JPEG.</p>
+        </div>
+      </details>
     </section>
 
     <section id="warp">
@@ -350,6 +385,10 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -357,6 +396,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

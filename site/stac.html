@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / STAC catalogs</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / STAC catalogs</p>
     <p class="eyebrow">Data · Sentinel-2, Landsat, Sentinel-1, Brazil Data Cube</p>
     <h1>A series from a STAC catalog, step by step.</h1>
     <p class="lede">The scenes of Sentinel-2 and Landsat sit in the cloud as files anyone can read, listed by catalogs that answer one question: which scenes cover this area between these dates? This guide asks Planetary Computer for five dry seasons of a square of Rondônia, opens the answer as a series read in place, with the clouds masked, and downloads it.</p>
@@ -234,6 +235,17 @@
         <p class="h">One pass, one series</p>
         <p>CUSUM, BEAST and the trend tools work on the dB series as they are. The tools that want a fixed step (BFAST, BFAST Monitor) want <span class="ui">Tools → Data preparation → Regularize series...</span> first: the 12 days of one pass become 12 or 16 days exactly.</p>
       </div>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is public: Sentinel-2 L2A from Planetary Computer, downloaded as GeoTIFFs (<code>s2ro</code>), and a Sentinel-1 series made by <code>tools/bench_s1_vs_stackstac.py</code>. These commands remake the screenshots after the interface changes.</p>
+        <p>The two radar screenshots are taken with <code>--screenshot</code> on 1600 × 950, with <code>--threads 2</code> (the other screenshots of this guide are not made by these commands).</p>
+        <p class="what"><code>radar_vvdb.png</code> (04-radar-db):</p>
+        <div class="cmd"><code>janus bench-s1/linear --interface modern --expr VVdB --pin 195,837 --pin 179,761 --date 15 --screenshot radar_vvdb.png</code><button class="copy" type="button" data-copy="janus bench-s1/linear --interface modern --expr VVdB --pin 195,837 --pin 179,761 --date 15 --screenshot radar_vvdb.png">Copy</button></div>
+        <p class="what">The speckle run with the swipe (04-speckle):</p>
+        <div class="cmd"><code>janus bench-s1/linear --interface modern --expr VHdB --pin 195,837 --pin 179,761 --date 15 --window speckle-run --swipe --view 330,700,1.6</code><button class="copy" type="button" data-copy="janus bench-s1/linear --interface modern --expr VHdB --pin 195,837 --pin 179,761 --date 15 --window speckle-run --swipe --view 330,700,1.6">Copy</button></div>
+        </div>
+      </details>
     </section>
 
     <section id="next">
@@ -277,6 +289,10 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -284,6 +300,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

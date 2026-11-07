@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Seeing a series</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Seeing a series</p>
     <p class="eyebrow">Analysis · visual</p>
     <h1>Seeing a series</h1>
     <p class="lede">A line chart shows one place's values. Four views show other sides of a series: a map of the places that behaved like this one, the cycles a place goes through, every band at once, and every pixel's behaviour in one plane linked to the map. This guide shows each on Sentinel-2 over Rondônia and on 41 years of Landsat in north-eastern Brazil.</p>
@@ -95,6 +96,26 @@
         <li><strong>Sentinel-2 over Rondônia</strong>: the series of the <a href="stac.html">STAC guide</a>, 107 dates from June 2019 to September 2024 (5% of clouds at most, so mostly dry-season dates), six bands, the NDVI shown. Pin 1 (195, 837) is in a forest, pin 2 (179, 761) in a pasture.</li>
         <li><strong>Landsat over Sergipe and Alagoas</strong>: 41 annual medoid composites of a vegetation index, 1985 to 2025, the 2000 × 2000 pixels around the mouth of the São Francisco river of the <a href="maps-to-numbers.html">Maps to numbers</a> guide, at the date 2018.</li>
       </ul>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is public and the author's own: the Sentinel-2 series of the STAC guide (<code>s2ro</code>, from Planetary Computer) with the NDVI and the series guide's pins, and the Landsat series of the Maps to numbers guide (<code>landsat</code>, the author's own) at 2018. These commands remake the screenshots after the interface changes.</p>
+        <p>These screenshots are not from a tour: they are taken with <code>--screenshot</code>, in a window of 1600 × 950 with <code>--threads 4</code>.</p>
+        <p class="what"><code>similarity.png</code>:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --mode similarity,pin --screenshot similarity.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --mode similarity,pin --screenshot similarity.png">Copy</button></div>
+        <p class="what"><code>sim_values.png</code>:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --threads 4 --expr NDVI --pin 179,761 --mode similarity,pin --screenshot sim_values.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --threads 4 --expr NDVI --pin 179,761 --mode similarity,pin --screenshot sim_values.png">Copy</button></div>
+        <p class="what"><code>sim_shape.png</code>:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --threads 4 --expr NDVI --pin 179,761 --mode similarity,pin,shape --screenshot sim_shape.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --threads 4 --expr NDVI --pin 179,761 --mode similarity,pin,shape --screenshot sim_shape.png">Copy</button></div>
+        <p class="what"><code>cycles.png</code>:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --date 60 --detach-map --analysis cycles --screenshot cycles.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --date 60 --detach-map --analysis cycles --screenshot cycles.png">Copy</button></div>
+        <p class="what"><code>bands.png</code>:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --date 60 --detach-map --analysis bands --screenshot bands.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --threads 4 --expr NDVI --pin 195,837 --pin 179,761 --date 60 --detach-map --analysis bands --screenshot bands.png">Copy</button></div>
+        <p class="what"><code>atlas.png</code>, on the Landsat series:</p>
+        <div class="cmd"><code>janus landsat --interface modern --threads 4 --pin 71,793 --pin 65,1038 --date 34 --analysis atlas,groups --screenshot atlas.png</code><button class="copy" type="button" data-copy="janus landsat --interface modern --threads 4 --pin 71,793 --pin 65,1038 --date 34 --analysis atlas,groups --screenshot atlas.png">Copy</button></div>
+        <p>With <code>--detach-map</code> the Analysis panel takes the main window, and those screenshots are cropped to the panel. All are JPEG at quality 88.</p>
+        </div>
+      </details>
     </section>
 
     <section id="similarity">
@@ -212,6 +233,10 @@ janus SERIES --analysis atlas[,shapes][,groups[=N]][,density|value|mean|amplitud
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -219,6 +244,7 @@ janus SERIES --analysis atlas[,shapes][,groups[=N]][,density|value|mean|amplitud
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

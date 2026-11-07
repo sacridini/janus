@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / CODED</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / CODED</p>
     <p class="eyebrow">Change detection · forest degradation</p>
     <h1>CODED and the NDFI, step by step.</h1>
     <p class="lede">Logging and understory fire leave a forest standing, and most indices barely see them. The NDFI does: it splits every pixel into green vegetation, dead wood, soil and shade. CODED models it over a training period and calls a change when it falls well below, then tells degradation (still forest after) from deforestation.</p>
@@ -84,6 +85,17 @@
     <section id="data">
       <h2><span class="n">02</span>The example</h2>
       <p>The same Landsat 8 and 9 series as the <a href="ccdc.html">CCDC guide</a>: 125 dates, February 2020 to August 2026, of central Rondônia, with its QA_PIXEL band. The map is zoomed in on a forest cleared in May–June 2022, 261 × 196 pixels around it.</p>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is the author's own stack, not downloaded: Landsat 8/9 Collection 2 Level-2 of Rondônia, 2020–2026, a GeoTIFF per date, made from a Google Earth Engine stack and its CSV of dates (the same as the CCDC guide's). These commands remake the screenshots after the interface changes.</p>
+        <p class="what">A folder of the Landsat dates, cut to the area (west, south, east, north):</p>
+        <div class="cmd"><code>python tools/make_guide_data.py landsat STACK DATES folder -63.36 -10.37 -63.06 -10.08</code><button class="copy" type="button" data-copy="python tools/make_guide_data.py landsat STACK DATES folder -63.36 -10.37 -63.06 -10.08">Copy</button></div>
+        <p class="what">The screenshots, saved as PNGs in the folder <code>shots</code>:</p>
+        <div class="cmd"><code>janus --shots coded folder shots</code><button class="copy" type="button" data-copy="janus --shots coded folder shots">Copy</button></div>
+        <p>The tour drives the guide's steps in a window of 1680 × 1050 and saves the window and its panels as PNGs in <code>shots</code>; the full-window ones are then converted to JPEG.</p>
+        </div>
+      </details>
     </section>
 
     <section id="ndfi">
@@ -180,9 +192,10 @@
     <section id="threshold">
       <h2><span class="n">07</span>How strict</h2>
       <p>With only two years of training, about nine clear observations, the model of a forest pixel is tight, and ordinary variation from one dry season to the next crosses 3 RMSEs: above, much of the standing forest reads as degraded. At 5 RMSEs only the strong drops are left: the clearings, in red, and far less orange. There is no right threshold in general. Check it on pins over forest you know untouched and over logging you know of, and give CODED a longer training period when the series allows.</p>
-      <figure class="fig">
-        <a href="assets/img/coded/07-strata-5.jpg"><img src="assets/img/coded/07-strata-5.jpg" alt="CODED's strata with a threshold of 5 RMSEs." width="1680" height="1050" loading="lazy"></a>
-        <figcaption><b>Threshold 5 RMSEs.</b></figcaption>
+      <figure class="fig swipe">
+        <img class="before" data-label="3 RMSEs" src="assets/img/coded/05-strata.jpg" alt="CODED's strata over the area: forest, non-forest, degradation, deforestation and disturbance, with the legend in the Layers panel." width="1680" height="1050" loading="lazy">
+        <img class="after" data-label="5 RMSEs" src="assets/img/coded/07-strata-5.jpg" alt="CODED's strata with a threshold of 5 RMSEs." width="1680" height="1050" loading="lazy">
+        <figcaption><b>Drag the divider to compare</b> the strata at a threshold of 3 RMSEs (first image, left; the first map of the guide) and of 5 (second image, right): the orange of degradation shrinks, and the red clearings stay.</figcaption>
       </figure>
     </section>
 
@@ -219,6 +232,10 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -226,6 +243,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

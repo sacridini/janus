@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Trend test</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Trend test</p>
     <p class="eyebrow">Trends · regions and classes</p>
     <h1>Is the region really trending?</h1>
     <p class="lede">A map of the pixels with a significant trend is not evidence that a region is greening or browning. The AR(1) trend tests one pixel's series. The Trend test, by PARTS (Ives et al. 2021), tests a whole region, or each class of a land-cover map, with p-values that account for neighbouring pixels moving together. This guide explains both from the start, on 41 years of Landsat.</p>
@@ -112,6 +113,31 @@
         <p class="h">Fill values</p>
         <p>Before testing trends, check that water, the sea and the outside of the scene are no data, not 0. A layer's <span class="ui">Display</span> panel shows its nodata value, and GDAL's <code>gdalbuildvrt -srcnodata 0</code> or <code>gdal_edit -a_nodata 0</code> sets one.</p>
       </div>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is the author's own, not downloaded: 41 annual Landsat medoid composites of Sergipe and Alagoas, 1985–2025 (<code>landsat_medoid_YYYY.tif</code>, EPSG:4326, 0 over the sea with no nodata declared). These commands remake the screenshots after the interface changes.</p>
+        <p>These screenshots are not from a tour: they are taken with <code>--screenshot</code> from the folder <code>out</code>, in a window of 1600 × 950. The panels are crops of them (the boxes are listed in the site's README).</p>
+        <p class="what">VRTs with 0 as no data in <code>out/series</code>, and the zones by distance to the sea in <code>out/zones.tif</code>:</p>
+        <div class="cmd"><code>python tools/make_parts_guide.py data SERIES out</code><button class="copy" type="button" data-copy="python tools/make_parts_guide.py data SERIES out">Copy</button></div>
+        <p class="what"><code>ar_pixel.png</code>, the AR(1) trend at a pixel:</p>
+        <div class="cmd"><code>janus out/series --interface modern --zeit ar_trend --pin 1426,1199 --view 1426,1150,1.5 --screenshot ar_pixel.png</code><button class="copy" type="button" data-copy="janus out/series --interface modern --zeit ar_trend --pin 1426,1199 --view 1426,1150,1.5 --screenshot ar_pixel.png">Copy</button></div>
+        <p class="what"><code>ar_pixel_d.png</code>, the same with the map in its own window, for the panels:</p>
+        <div class="cmd"><code>janus out/series --interface modern --zeit ar_trend --pin 1426,1199 --view 1426,1150,1.5 --detach-map --screenshot ar_pixel_d.png</code><button class="copy" type="button" data-copy="janus out/series --interface modern --zeit ar_trend --pin 1426,1199 --view 1426,1150,1.5 --detach-map --screenshot ar_pixel_d.png">Copy</button></div>
+        <p class="what"><code>ar_map.png</code>, the run over the ROI:</p>
+        <div class="cmd"><code>janus out/series --interface modern --zeit ar_trend --zeit-run --roi 1000,500,1700,1200 --view 1350,850,0.6 --screenshot ar_map.png</code><button class="copy" type="button" data-copy="janus out/series --interface modern --zeit ar_trend --zeit-run --roi 1000,500,1700,1200 --view 1350,850,0.6 --screenshot ar_map.png">Copy</button></div>
+        <p class="what"><code>ar_roi_d.png</code>, the ROI's mean, for its panel:</p>
+        <div class="cmd"><code>janus out/series --interface modern --zeit ar_trend --roi 1000,500,1700,1200 --view 1350,850,0.6 --detach-map --screenshot ar_roi_d.png</code><button class="copy" type="button" data-copy="janus out/series --interface modern --zeit ar_trend --roi 1000,500,1700,1200 --view 1350,850,0.6 --detach-map --screenshot ar_roi_d.png">Copy</button></div>
+        <p class="what"><code>roi.png</code>, the trend test on the ROI:</p>
+        <div class="cmd"><code>janus out/series --interface modern --roi 1000,500,1700,1200 --view 1350,850,0.6 --analysis trend,run --screenshot roi.png</code><button class="copy" type="button" data-copy="janus out/series --interface modern --roi 1000,500,1700,1200 --view 1350,850,0.6 --analysis trend,run --screenshot roi.png">Copy</button></div>
+        <p class="what"><code>classes.png</code>, the test by classes:</p>
+        <div class="cmd"><code>janus out/series --layer out/zones.tif --interface modern --analysis trend,run,classes --screenshot classes.png</code><button class="copy" type="button" data-copy="janus out/series --layer out/zones.tif --interface modern --analysis trend,run,classes --screenshot classes.png">Copy</button></div>
+        <p class="what"><code>classes_d.png</code>, the same with the map in its own window, for the table:</p>
+        <div class="cmd"><code>janus out/series --layer out/zones.tif --interface modern --detach-map --analysis trend,run,classes --screenshot classes_d.png</code><button class="copy" type="button" data-copy="janus out/series --layer out/zones.tif --interface modern --detach-map --analysis trend,run,classes --screenshot classes_d.png">Copy</button></div>
+        <p class="what">The figures that explain the method (<code>01-problem.png</code>, <code>05-correlation.png</code>, <code>06-partitions.png</code>, <code>07-calibration.png</code>), made on simulated maps; about 3 minutes:</p>
+        <div class="cmd"><code>python tools/make_parts_guide.py figures site/assets/img/trend-test</code><button class="copy" type="button" data-copy="python tools/make_parts_guide.py figures site/assets/img/trend-test">Copy</button></div>
+        </div>
+      </details>
     </section>
 
     <section id="pixel">
@@ -346,6 +372,10 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -353,6 +383,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

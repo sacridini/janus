@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Raster calculator</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Raster calculator</p>
     <p class="eyebrow">Analysis · spectral indices, expressions, time</p>
     <h1>Band math over time, step by step.</h1>
     <p class="lede">A series of Sentinel-2 or Landsat comes as bands: red, NIR, SWIR... Most questions need a formula of them, and many need time: the greenest date of each pixel, how often it was bare, how far a date fell from the usual. This guide puts the 275 indices of the Awesome Spectral Indices on a series, then writes expressions over the open layers, reduces five years of Sentinel-2 to an image and draws classes by rules.</p>
@@ -87,13 +88,41 @@
       <h2><span class="n">02</span>The data</h2>
       <p>The series of the <a href="stac.html">STAC guide</a>: Planetary Computer's Sentinel-2 L2A over a square of central Rondônia, Brazil, 8.8 km a side, the 107 dates from June 2019 to September 2024 whose scenes had 5% of clouds at most (most of them in the dry seasons), the clouds left masked by the scene classification (SCL). Here it was downloaded as GeoTIFFs: blue, green, red, NIR, the two SWIR and SCL, 877 × 886 cells of 10 m. The calculator works the same on the series read in place from the catalog; only the reading is slower.</p>
       <p>Two pins follow the guide: pin 1 in a forest in the north-east (its NDVI around 0.8 every year), pin 2 in a pasture in the west (green in the wet months, lower every dry season: 0.18 at its lowest, in September 2024).</p>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is public: the Sentinel-2 series of the STAC guide, downloaded from Planetary Computer as GeoTIFFs (Sentinel-2 L2A, 63.00 to 62.92 W, 10.00 to 9.92 S, 2019-06-01 to 2024-09-30, at most 5% of clouds: 107 dates, the folder <code>s2ro</code>). These commands remake the screenshots after the interface changes.</p>
+        <p>These screenshots are not from a tour: they are taken with <code>--screenshot</code>, with the pins <code>776,270</code> and <code>128,548</code>. <code>RESULTS</code> is <code>%LOCALAPPDATA%\Janus\results</code>.</p>
+        <p class="what"><code>index.png</code>, EVI on the series:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --expr EVI --pin 776,270 --pin 128,548 --screenshot index.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --expr EVI --pin 776,270 --pin 128,548 --screenshot index.png">Copy</button></div>
+        <p class="what"><code>calculator.png</code>, a calculation run:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --pin 776,270 --pin 128,548 --calc $'# how many of the 107 dates had little vegetation\nndvi = (N - R) / (N + R)\ncount(ndvi &lt; 0.4)' --calc-run --screenshot calculator.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --pin 776,270 --pin 128,548 --calc $&#x27;# how many of the 107 dates had little vegetation\nndvi = (N - R) / (N + R)\ncount(ndvi &lt; 0.4)&#x27; --calc-run --screenshot calculator.png">Copy</button></div>
+        <p class="what"><code>editor.png</code>, the editor:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --calc $'# the moisture index of the dry seasons\nndmi = (N - swir) / (N + swir)\nmedian(ndmi)' --screenshot editor.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --calc $&#x27;# the moisture index of the dry seasons\nndmi = (N - swir) / (N + swir)\nmedian(ndmi)&#x27; --screenshot editor.png">Copy</button></div>
+        <p class="what"><code>rules_w.png</code>, the rules, run:</p>
+        <div class="cmd"><code>janus s2ro --interface modern --calc $'# the median NDVI of the five years, in three classes\nm = median(nd(N, R))\nresult = m\nm &lt; 0.45 = 1\nm &gt;= 0.45 &amp;&amp; m &lt; 0.7 = 2\nm &gt;= 0.7 = 3' --calc-run --screenshot rules_w.png</code><button class="copy" type="button" data-copy="janus s2ro --interface modern --calc $&#x27;# the median NDVI of the five years, in three classes\nm = median(nd(N, R))\nresult = m\nm &lt; 0.45 = 1\nm &gt;= 0.45 &amp;&amp; m &lt; 0.7 = 2\nm &gt;= 0.7 = 3&#x27; --calc-run --screenshot rules_w.png">Copy</button></div>
+        <p class="what"><code>count.png</code>, the result of the count as a layer:</p>
+        <div class="cmd"><code>janus s2ro --layer RESULTS/calc/count_ndvi_*/result.vrt --interface modern --pin 776,270 --pin 128,548 --screenshot count.png</code><button class="copy" type="button" data-copy="janus s2ro --layer RESULTS/calc/count_ndvi_*/result.vrt --interface modern --pin 776,270 --pin 128,548 --screenshot count.png">Copy</button></div>
+        <p class="what"><code>rules.png</code>, the result of the rules as a layer:</p>
+        <div class="cmd"><code>janus s2ro --layer RESULTS/calc/calc_*/result.vrt --interface modern --pin 776,270 --pin 128,548 --screenshot rules.png</code><button class="copy" type="button" data-copy="janus s2ro --layer RESULTS/calc/calc_*/result.vrt --interface modern --pin 776,270 --pin 128,548 --screenshot rules.png">Copy</button></div>
+        <p><code>01-index.jpg</code>, <code>02-calculator.jpg</code>, <code>04-count.jpg</code> and <code>05-rules.jpg</code> are <code>index.png</code>, <code>calculator.png</code>, <code>count.png</code> and <code>rules.png</code> as JPEG (quality 90); <code>03-editor.png</code> is a crop of the window of <code>editor.png</code>.</p>
+        </div>
+      </details>
     </section>
 
     <section id="indices">
       <h2><span class="n">03</span>An index on the series</h2>
       <p>The <span class="ui">Display</span> panel has, under the bands, <span class="ui">Index or expression</span>. Its list holds the indices of the <a href="https://github.com/awesome-spectral-indices/awesome-spectral-indices">Awesome Spectral Indices</a> (Montero et al. 2023) the series can compute, searched by name or domain (vegetation, water, burn, urban, soil, snow). Each index names its bands by role: <code>N</code> the NIR, <code>R</code> the red, <code>S1</code> the first SWIR, <code>RE1</code> the first red edge. Janus finds the series' band for each role by its wavelength or its name (<code>B08</code>, <code>NIR</code>, <code>nir08</code>, <code>SR_B5</code>), so an index of Sentinel-2 works on Landsat too. Its constants take the catalogue's defaults (<code>L = 0.5</code> for SAVI), its wavelengths (<code>lambdaN</code>) those of the series' bands.</p>
-      <figure class="fig">
+      <figure class="fig annotated">
         <a href="assets/img/calculator/01-index.jpg"><img src="assets/img/calculator/01-index.jpg" alt="Janus with the Sentinel-2 series of Rondônia shown as EVI: the Display panel's Index or expression list on EVI, its formula 2.5 * (N - R) / (N + 6 * R - 7.5 * B + 1) below and the bands it reads (band 4 NIR as N, band 3 red as R, band 1 blue as B); the map of EVI at the first date between 0.13 and 0.68, fields in blue and green, forest in yellow; the chart of the two pins' EVI from 2019 to 2024, the forest's around 0.5, the pasture's between 0.25 and 0.7 every year; the title bar says EVI with QA SCL of each file." width="1600" height="950" loading="lazy"></a>
+        <ol class="hotspots" aria-label="Parts of the window, numbered on the image">
+          <li data-x="10.6" data-y="20.0"><b>Layers.</b> The Sentinel-2 series of 107 dates.</li>
+          <li data-x="10.6" data-y="88.4"><b>Index or expression.</b> EVI picked from the list, its formula under it.</li>
+          <li data-x="60.5" data-y="40.0"><b>The map.</b> The EVI of the date on the slider.</li>
+          <li data-x="73.8" data-y="22.6"><b>Pins.</b> A forest (red) and a pasture (blue); the chart and the table follow them.</li>
+          <li data-x="56.3" data-y="78.4"><b>The chart.</b> The EVI of both pins, 2019 to 2024.</li>
+          <li data-x="85.6" data-y="82.1"><b>The Statistics table.</b> Mean, trend and the largest drop of each pin.</li>
+        </ol>
         <figcaption><b>EVI on the series</b>: picked from the list, its formula over the bands' roles, the clouds still masked by SCL; the forest (pin 1, red) steady around 0.5, the pasture (pin 2, blue) down every dry season.</figcaption>
       </figure>
       <p>The formula can be edited, or typed: <code>2.5 * (N - R) / (N + 6*R - 7.5*B + 1)</code>, <code>nd(nir, swir1)</code>, <code>(B08 - B04) / (B08 + B04)</code>. It is checked as you type, and <span class="ui">Apply</span> shows the series as the expression: the map at every date and in every mode, the chart, the pins, the region, the exports, the Zeit tools and <span class="ui">Copy Python</span>, which writes the same formula in numpy. From the command line: <code>jn SERIES --expr EVI</code>, or <code>--expr "(N - S1) / (N + S1)"</code>.</p>
@@ -281,6 +310,10 @@ m &gt;= 0.7 = 3</code></pre>
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -288,6 +321,7 @@ m &gt;= 0.7 = 3</code></pre>
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

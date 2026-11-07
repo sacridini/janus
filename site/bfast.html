@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / BFAST</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / BFAST</p>
     <p class="eyebrow">Change detection · regular series</p>
     <h1>BFAST, step by step.</h1>
     <p class="lede">The BFAST family splits a regular series into a trend and the seasons, and looks for the dates where either breaks. Janus has three of them: BFAST, which searches trend and season apart; BFAST Lite, one faster pass; and BFAST Monitor, which watches for the first departure from a stable history.</p>
@@ -100,6 +101,15 @@
         <a href="assets/img/bfast/01-series.jpg"><img src="assets/img/bfast/01-series.jpg" alt="The EVI of July 2025 over the area, fields in light colours and woods in green, a pin, and its 25-year series on the chart with a yearly cycle." width="1680" height="1050" loading="lazy"></a>
         <figcaption><b>The series</b> in July 2025 and a pin on a pixel whose level fell in the early 2010s.</figcaption>
       </figure>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is the author's own, not downloaded: MODIS EVI every 16 days, 2001–2025, of western France, one GeoTIFF with a band per date, used as it is. These commands remake the screenshots after the interface changes.</p>
+        <p class="what">The screenshots, saved as PNGs in the folder <code>shots</code> (<code>STACK.tif</code> is the EVI file):</p>
+        <div class="cmd"><code>janus --shots bfast STACK.tif shots</code><button class="copy" type="button" data-copy="janus --shots bfast STACK.tif shots">Copy</button></div>
+        <p>The tour drives the guide's steps in a window of 1680 × 1050 and saves the window and its panels as PNGs in <code>shots</code>; the full-window ones are then converted to JPEG.</p>
+        </div>
+      </details>
     </section>
 
     <section id="bfast">
@@ -183,14 +193,10 @@
 
     <section id="maps">
       <h2><span class="n">07</span>The maps</h2>
-      <figure class="fig">
-        <a href="assets/img/bfast/07-break-date.jpg"><img src="assets/img/bfast/07-break-date.jpg" alt="The date of the break BFAST Monitor flagged after 2010 over the whole area, coloured from 2010 to 2025; pixels without a break show the EVI." width="1680" height="1050" loading="lazy"></a>
-        <figcaption><b>Break date</b>: when each pixel first left its 2001–2009 behaviour.</figcaption>
-      </figure>
-      <p>Nearly every pixel breaks. That is not BFAST Monitor failing: in farmland the rotation changes the crop, and so the season, from one year to the next, and no model of 2001–2009 holds for long. BFAST Monitor is made for land that should stay the same (a forest, a protected area), where a departure is news. The <strong>magnitude</strong> says which way the land went:</p>
-      <figure class="fig">
-        <a href="assets/img/bfast/08-magnitude.jpg"><img src="assets/img/bfast/08-magnitude.jpg" alt="The magnitude of the breaks, the median residual after the break, in red where the EVI fell below the history and in blue where it rose." width="1680" height="1050" loading="lazy"></a>
-        <figcaption><b>Magnitude</b>, the median residual after the break: red where the EVI fell below what the history predicts, blue where it rose.</figcaption>
+      <figure class="fig swipe">
+        <img class="before" data-label="Break date" src="assets/img/bfast/07-break-date.jpg" alt="The date of the break BFAST Monitor flagged after 2010 over the whole area, coloured from 2010 to 2025; pixels without a break show the EVI." width="1680" height="1050" loading="lazy">
+        <img class="after" data-label="Magnitude" src="assets/img/bfast/08-magnitude.jpg" alt="The magnitude of the breaks, the median residual after the break, in red where the EVI fell below the history and in blue where it rose." width="1680" height="1050" loading="lazy">
+        <figcaption><b>Drag the divider to compare</b> when each pixel first left its 2001–2009 behaviour (first image, left) with the median residual after the break (second image, right): red where the EVI fell below what the history predicts, blue where it rose.</figcaption>
       </figure>
       <div class="tbl-wrap">
         <table class="tbl">
@@ -239,6 +245,10 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -246,6 +256,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

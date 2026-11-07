@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / Embeddings</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / Embeddings</p>
     <p class="eyebrow">Embeddings · AlphaEarth, TESSERA</p>
     <h1>Embeddings, step by step.</h1>
     <p class="lede">A foundation model sums up each 10 m pixel and year as a vector of 64 or 128 numbers. The numbers mean nothing on their own; what counts is that similar places get similar vectors. This guide turns them into a map of classes from a few pins, a table of what changed into what, and the direction of each change.</p>
@@ -134,16 +135,11 @@
     <section id="changes">
       <h2><span class="n">05</span>What changed into what</h2>
       <p>The classifier fitted on the 2024 samples classifies every year: move to another year, or play the series, and the map follows. <span class="ui">Changes since</span> a year adds a table of the share of pixels going from each class then (rows) to each class in the year shown (columns).</p>
-      <div class="fig-pair">
-        <figure class="fig">
-          <a href="assets/img/embeddings/04-classes-2017.jpg"><img src="assets/img/embeddings/04-classes-2017.jpg" alt="The class map in 2017: forest in red over more of the square than in 2024, with large blocks in the centre and the east." loading="lazy"></a>
-          <figcaption><b>2017</b>: the same classifier.</figcaption>
-        </figure>
-        <figure class="fig">
-          <a href="assets/img/embeddings/05-classes-2024.jpg"><img src="assets/img/embeddings/05-classes-2024.jpg" alt="The class map in 2024: several of the forest blocks of 2017 are now pasture, notably in the south and the east." loading="lazy"></a>
-          <figcaption><b>2024</b>: forest blocks turned to pasture.</figcaption>
-        </figure>
-      </div>
+      <figure class="fig swipe">
+        <img class="before" data-label="2017" src="assets/img/embeddings/04-classes-2017.jpg" alt="The class map in 2017: forest in red over more of the square than in 2024, with large blocks in the centre and the east." loading="lazy">
+        <img class="after" data-label="2024" src="assets/img/embeddings/05-classes-2024.jpg" alt="The class map in 2024: several of the forest blocks of 2017 are now pasture, notably in the south and the east." loading="lazy">
+        <figcaption><b>Drag the divider to compare</b> 2017 (first image, left) with 2024 (second image, right), the same classifier on the same square: where red turns blue, forest became pasture.</figcaption>
+      </figure>
       <div class="tbl-wrap">
         <table class="tbl">
           <thead><tr><th>2017 \ 2024 (% of the pixels)</th><th>Forest</th><th>Pasture</th><th>Water</th></tr></thead>
@@ -250,6 +246,10 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -257,6 +257,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

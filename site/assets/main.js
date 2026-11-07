@@ -1,4 +1,4 @@
-// Janus site: OS tabs, copy buttons, latest-release links, chart draw-in, guide contents.
+// Janus site: OS tabs, copy buttons, latest-release links, chart draw-in, guide lightbox, before/after swipes, annotated screenshots, guide contents, menu button.
 (function () {
   "use strict";
   var REPO = "sacridini/janus";
@@ -102,7 +102,8 @@
   }
 
   // ---- guide pages: a figure opens larger over the page (click again: actual size; Esc or outside: close)
-  var figs = document.querySelectorAll(".article .fig img");
+  // A swipe figure is left out (a click on it moves the divider); the markers of an annotated one are not images.
+  var figs = document.querySelectorAll(".article .fig:not(.swipe) img");
   if (figs.length) {
     var box = document.createElement("div");
     box.className = "lightbox";
@@ -155,6 +156,123 @@
     });
   }
 
+  var query = new URLSearchParams(location.search);
+
+  // ---- before / after swipe: <figure class="fig swipe"> with img.before and img.after of the same size
+  // (data-label on each is its side's label). ?swipe=30 puts every divider at 30 %, for the screenshots.
+  document.querySelectorAll(".fig.swipe").forEach(function (fig) {
+    var before = fig.querySelector("img.before"), after = fig.querySelector("img.after");
+    if (!before || !after) return;
+    var start = parseFloat(query.get("swipe"));
+    var pos = isNaN(start) ? 50 : Math.max(0, Math.min(100, start));
+    var stage = document.createElement("div");
+    stage.className = "sw-stage";
+    fig.insertBefore(stage, before);
+    stage.appendChild(after);
+    stage.appendChild(before);
+    var lb = before.getAttribute("data-label") || "Before", la = after.getAttribute("data-label") || "After";
+    var left = document.createElement("span"), right = document.createElement("span");
+    left.className = "sw-label l"; left.textContent = lb;
+    right.className = "sw-label r"; right.textContent = la;
+    left.setAttribute("aria-hidden", "true"); right.setAttribute("aria-hidden", "true");
+    var handle = document.createElement("div");
+    handle.className = "sw-handle";
+    handle.tabIndex = 0;
+    handle.setAttribute("role", "slider");
+    handle.setAttribute("aria-label", "Divider: " + lb + " on the left, " + la + " on the right");
+    handle.setAttribute("aria-valuemin", "0");
+    handle.setAttribute("aria-valuemax", "100");
+    handle.setAttribute("aria-orientation", "horizontal");
+    stage.appendChild(left); stage.appendChild(right); stage.appendChild(handle);
+    function set(p) {
+      pos = Math.max(0, Math.min(100, p));
+      stage.style.setProperty("--p", pos + "%");
+      handle.setAttribute("aria-valuenow", String(Math.round(pos)));
+      handle.setAttribute("aria-valuetext", Math.round(pos) + "% " + lb + ", " + Math.round(100 - pos) + "% " + la);
+      left.classList.toggle("gone", pos < 16);
+      right.classList.toggle("gone", pos > 84);
+    }
+    function fromEvent(e) {
+      var r = stage.getBoundingClientRect();
+      set((e.clientX - r.left) / r.width * 100);
+    }
+    var drag = false;
+    stage.addEventListener("pointerdown", function (e) {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      drag = true;
+      try { stage.setPointerCapture(e.pointerId); } catch (x) { /* not capturable */ }
+      // A finger that starts a vertical scroll must not move the divider: it follows on the first move.
+      if (e.pointerType === "mouse" || e.target === handle) fromEvent(e);
+      if (e.target === handle) handle.focus();
+    });
+    stage.addEventListener("pointermove", function (e) { if (drag) fromEvent(e); });
+    ["pointerup", "pointercancel", "lostpointercapture"].forEach(function (n) {
+      stage.addEventListener(n, function (e) { if (drag && n === "pointerup" && e.pointerType !== "mouse") fromEvent(e); drag = false; });
+    });
+    handle.addEventListener("keydown", function (e) {
+      var d = e.key === "ArrowLeft" || e.key === "ArrowDown" ? -5 : e.key === "ArrowRight" || e.key === "ArrowUp" ? 5 : null;
+      if (d !== null) set(pos + d);
+      else if (e.key === "Home") set(0);
+      else if (e.key === "End") set(100);
+      else return;
+      e.preventDefault();
+    });
+    set(pos);
+    fig.classList.add("js-on");
+  });
+
+  // ---- annotated screenshot: <figure class="annotated"> with an <ol class="hotspots"> whose li have data-x and
+  // data-y (% of the image). The list stays as the legend; ?hs=3 pins marker 3, for the screenshots.
+  document.querySelectorAll("figure.annotated").forEach(function (fig) {
+    var items = Array.prototype.slice.call(fig.querySelectorAll("ol.hotspots > li"));
+    var img = fig.querySelector("img");
+    if (!items.length || !img) return;
+    var anchor = img.closest("a") && fig.contains(img.closest("a")) ? img.closest("a") : img;
+    var stage = document.createElement("div");
+    stage.className = "an-stage";
+    anchor.parentNode.insertBefore(stage, anchor);
+    stage.appendChild(anchor);
+    var marks = items.map(function (li, i) {
+      var x = parseFloat(li.getAttribute("data-x")), y = parseFloat(li.getAttribute("data-y"));
+      var text = li.textContent.replace(/\s+/g, " ").trim();
+      var m = document.createElement("button");
+      m.type = "button";
+      m.className = "hs-mark" + (x < 20 ? " tip-l" : x > 80 ? " tip-r" : "") + (y < 18 ? " tip-b" : "");
+      m.style.left = x + "%"; m.style.top = y + "%";
+      m.setAttribute("aria-label", (i + 1) + ": " + text);
+      m.appendChild(document.createTextNode(String(i + 1)));
+      var tip = document.createElement("span");
+      tip.className = "hs-tip"; tip.setAttribute("aria-hidden", "true"); tip.textContent = text;
+      m.appendChild(tip);
+      stage.appendChild(m);
+      return m;
+    });
+    function light(i, on) { marks[i].classList.toggle("on", on); items[i].classList.toggle("on", on); }
+    function pin(i) {
+      var was = marks[i].classList.contains("pin");
+      marks.forEach(function (m, j) { m.classList.remove("pin"); items[j].classList.remove("pin"); });
+      if (!was) { marks[i].classList.add("pin"); items[i].classList.add("pin"); }
+    }
+    items.forEach(function (li, i) {
+      var m = marks[i];
+      [m, li].forEach(function (el) {
+        el.addEventListener("mouseenter", function () { light(i, true); });
+        el.addEventListener("mouseleave", function () { light(i, false); });
+        el.addEventListener("click", function () { pin(i); });
+      });
+      m.addEventListener("focus", function () { light(i, true); });
+      m.addEventListener("blur", function () { light(i, false); });
+    });
+    var want = parseInt(query.get("hs"), 10);
+    if (want >= 1 && want <= marks.length) pin(want - 1);
+    fig.classList.add("js-on");
+  });
+
+  // ---- "How these screenshots were made": ?open=howmade opens every one, for the screenshots
+  if (query.get("open") === "howmade") {
+    document.querySelectorAll("details.howmade").forEach(function (d) { d.open = true; });
+  }
+
   // ---- guide pages: the contents entry of the section being read
   var toc = document.querySelectorAll(".toc a[href^='#']");
   if (toc.length && "IntersectionObserver" in window) {
@@ -171,5 +289,24 @@
       var s = document.getElementById(id);
       if (s) seen.observe(s);
     });
+  }
+
+  // ---- menu button (narrow screens): the main nav as a dropdown panel; Esc, a link or a click outside closes it
+  var navbar = document.querySelector(".nav");
+  var toggle = navbar && navbar.querySelector(".nav-toggle");
+  if (toggle) {
+    var setMenu = function (open) {
+      navbar.classList.toggle("is-open", open);
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+    toggle.addEventListener("click", function () { setMenu(toggle.getAttribute("aria-expanded") !== "true"); });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && toggle.getAttribute("aria-expanded") === "true") { setMenu(false); toggle.focus(); }
+    });
+    document.addEventListener("click", function (e) {
+      if (toggle.getAttribute("aria-expanded") === "true" && !navbar.contains(e.target)) setMenu(false);
+    });
+    navbar.querySelectorAll("nav a").forEach(function (a) { a.addEventListener("click", function () { setMenu(false); }); });
+    window.addEventListener("resize", function () { if (window.innerWidth > 860) setMenu(false); });
   }
 })();

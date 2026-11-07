@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / LandTrendr</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / LandTrendr</p>
     <p class="eyebrow">Change detection · annual series</p>
     <h1>LandTrendr, step by step.</h1>
     <p class="lede">LandTrendr reads a pixel's yearly values as a few straight segments: years of stability, a sudden drop, a slow recovery. In Janus you fit it on the chart, pixel by pixel, until the parameters read the landscape the way you do, and then run it on the image to map when, how much and how fast it changed.</p>
@@ -94,6 +95,17 @@
         <figcaption><b>The series in 2024</b>, forest in dark green, and three pins: a forest cleared in the early 2000s, one cleared in 1999 that grew back, and a forest that stood throughout.</figcaption>
       </figure>
       <p>The stack is one GeoTIFF with a band per year, named <code>yr1985</code> to <code>yr2024</code>: Janus reads the years from the band names. Outside the circle the file holds 0, so it is opened through a VRT that declares 0 as no data; otherwise the edges would be read as an NDVI of 0.</p>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is the author's own stack, not downloaded: an annual NDVI stack of Rondônia, 1985–2024, opened as a VRT with 0 as no data. These commands remake the screenshots after the interface changes.</p>
+        <p class="what">The VRT, from the stack (<code>STACK</code> is the stack's GeoTIFF):</p>
+        <div class="cmd"><code>python tools/make_guide_data.py annual STACK out.vrt</code><button class="copy" type="button" data-copy="python tools/make_guide_data.py annual STACK out.vrt">Copy</button></div>
+        <p class="what">The screenshots, saved as PNGs in the folder <code>shots</code>:</p>
+        <div class="cmd"><code>janus --shots landtrendr out.vrt shots</code><button class="copy" type="button" data-copy="janus --shots landtrendr out.vrt shots">Copy</button></div>
+        <p>The tour drives the guide's steps in a window of 1680 × 1050 and saves the window and its panels as PNGs in <code>shots</code>; the full-window ones are then converted to JPEG.</p>
+        </div>
+      </details>
     </section>
 
     <section id="open">
@@ -108,8 +120,16 @@
     <section id="chart">
       <h2><span class="n">04</span>On the chart</h2>
       <p>With <span class="ui">Fit the cursor, pins and ROI series</span> ticked, LandTrendr runs on every exact series the chart shows, as you move the mouse or drop pins, and draws its segments and vertices over them. Its numbers go to the <strong>Statistics</strong> table.</p>
-      <figure class="fig">
+      <figure class="fig annotated">
         <a href="assets/img/landtrendr/03-fit.jpg"><img src="assets/img/landtrendr/03-fit.jpg" alt="LandTrendr's window with its parameters on the right; on the chart the NDVI of the cleared pixel with the fitted segments in magenta; the Statistics table with the vertices, segments and the mapped event." width="1680" height="1050" loading="lazy"></a>
+        <ol class="hotspots" aria-label="Parts of the window, numbered on the image">
+          <li data-x="45.8" data-y="49.5"><b>The pin.</b> The pixel whose series the chart and the table show.</li>
+          <li data-x="35.7" data-y="89.5"><b>The fit.</b> The yearly NDVI in green; LandTrendr's vertices and segments in magenta.</li>
+          <li data-x="57.7" data-y="90.8"><b>The Statistics table.</b> Vertices, segments and the mapped event.</li>
+          <li data-x="97.6" data-y="18.1"><b>The parameters.</b> Event, maximum segments, thresholds: the defaults.</li>
+          <li data-x="83.3" data-y="42.2"><b>Fit the cursor, pins and ROI series.</b> With it ticked, the fit follows the series the chart shows.</li>
+          <li data-x="66.1" data-y="55.0"><b>Run.</b> Fits every pixel of the layer; see Running it.</li>
+        </ol>
         <figcaption><b>The cleared forest.</b> Stable near 0.82 until 2002, down to 0.38 by 2009, slowly up since: one loss segment.</figcaption>
       </figure>
       <div class="fig-pair">
@@ -185,27 +205,10 @@
 
     <section id="maps">
       <h2><span class="n">07</span>The maps</h2>
-      <figure class="fig">
-        <a href="assets/img/landtrendr/07-yod.jpg"><img src="assets/img/landtrendr/07-yod.jpg" alt="The year of detection over the circle: purple for losses of the 1980s and 1990s, green and yellow for recent ones, with the forest left without colour; the Layers panel lists the seven outputs." width="1680" height="1050" loading="lazy"></a>
-        <figcaption><b>Year of detection</b>, 1985 (purple) to 2023 (yellow). The forest that stood shows through in dark green.</figcaption>
-      </figure>
-      <p>Each output is a layer with its own colour scale and range, which you can hide, reorder, export as GeoTIFF or compare with a swipe:</p>
-      <div class="tbl-wrap">
-        <table class="tbl">
-          <thead><tr><th>Map</th><th>Meaning</th></tr></thead>
-          <tbody>
-            <tr><td>Year of detection</td><td>The year the mapped event starts.</td></tr>
-            <tr><td>Magnitude</td><td>How far the index moved over it.</td></tr>
-            <tr><td>Duration</td><td>Its length in years: a clearing is 1–2, a slow decline many.</td></tr>
-            <tr><td>Pre-event / post-event value</td><td>The index at the start and at the end of the event.</td></tr>
-            <tr><td>Rate</td><td>Magnitude per year.</td></tr>
-            <tr><td>DSNR</td><td>Magnitude over the fit's error: low values are events barely above the noise.</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <figure class="fig">
-        <a href="assets/img/landtrendr/08-magnitude.jpg"><img src="assets/img/landtrendr/08-magnitude.jpg" alt="The magnitude of the mapped loss, from 2521 to 5210, over the same area." width="1680" height="1050" loading="lazy"></a>
-        <figcaption><b>Magnitude</b> of the same events: the deepest clearings in yellow.</figcaption>
+      <figure class="fig swipe">
+        <img class="before" data-label="Year of detection" src="assets/img/landtrendr/07-yod.jpg" alt="The year of detection over the circle: purple for losses of the 1980s and 1990s, green and yellow for recent ones, with the forest left without colour; the Layers panel lists the seven outputs." width="1680" height="1050" loading="lazy">
+        <img class="after" data-label="Magnitude" src="assets/img/landtrendr/08-magnitude.jpg" alt="The magnitude of the mapped loss, from 2521 to 5210, over the same area." width="1680" height="1050" loading="lazy">
+        <figcaption><b>Drag the divider to compare</b> the year of detection (first image, left, 1985 purple to 2023 yellow) with the magnitude of the same events (second image, right, the deepest clearings in yellow). The forest that stood shows through in dark green.</figcaption>
       </figure>
       <p>Hover the map with a result on top: the chart still shows the pixel's series and its fit, so every colour can be checked against the trajectory behind it.</p>
     </section>
@@ -309,6 +312,10 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -316,6 +323,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

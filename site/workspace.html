@@ -27,17 +27,18 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
         <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / The workspace</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / The workspace</p>
     <p class="eyebrow">Interface · Janus 1.5 and 1.6</p>
     <h1>The workspace, piece by piece.</h1>
     <p class="lede">The tools get the attention, but most of a day in Janus goes into the window around them: finding a command, getting to a place, comparing two dates, keeping track of what produced each map, and picking up the next morning where you left off. This guide goes through the parts added in versions 1.5 and 1.6, on 41 years of Landsat over the lower São Francisco.</p>
@@ -81,6 +82,28 @@
       <h2><span class="n">01</span>The example</h2>
       <p>The series of the <a href="trend-test.html">Trend test guide</a>: 41 annual Landsat medoid composites of a vegetation index, 1985 to 2025, over the coast of Sergipe and Alagoas in north-eastern Brazil (path/row 215/067), one GeoTIFF per year, 7478 × 7319 pixels in EPSG:4326 at about 30 m. As there, each year is opened through a VRT that declares 0 as no data, in a folder named <code>215_067</code>, so the layer takes that name. One figure uses the Sentinel-2 series of the <a href="stac.html">STAC guide</a>, for its bands.</p>
       <p>The times quoted were measured with Janus' processing threads limited; with all of a machine's cores they are shorter.</p>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is the author's own stack, not downloaded: the medoid series of the trend test guide, as VRTs with 0 as no data, in a folder named <code>215_067</code>; the palette of burned areas is shown on the STAC guide's public Sentinel-2 series (<code>STAC</code>, read in place from the results folder). These commands remake the screenshots after the interface changes.</p>
+        <p>These screenshots are not from a tour: they are taken with <code>--screenshot</code> in a window of 1600 × 950, with <code>--threads 2</code>.</p>
+        <p class="what">The VRTs, one per year (<code>YYYY</code> each year):</p>
+        <div class="cmd"><code>gdal_translate -of VRT -a_nodata 0 landsat_medoid_YYYY.tif 215_067/landsat_medoid_YYYY.vrt</code><button class="copy" type="button" data-copy="gdal_translate -of VRT -a_nodata 0 landsat_medoid_YYYY.tif 215_067/landsat_medoid_YYYY.vrt">Copy</button></div>
+        <p class="what"><code>run.png</code>, a run ends:</p>
+        <div class="cmd"><code>janus 215_067 --interface modern --zeit ar_trend --zeit-run --roi 1000,500,1700,1200 --view 1350,850,0.6 --screenshot run.png</code><button class="copy" type="button" data-copy="janus 215_067 --interface modern --zeit ar_trend --zeit-run --roi 1000,500,1700,1200 --view 1350,850,0.6 --screenshot run.png">Copy</button></div>
+        <p class="what"><code>palette_go.png</code>, a palette:</p>
+        <div class="cmd"><code>janus 215_067 --interface modern --palette go --screenshot palette_go.png</code><button class="copy" type="button" data-copy="janus 215_067 --interface modern --palette go --screenshot palette_go.png">Copy</button></div>
+        <p class="what"><code>palette_burn.png</code>, the palettes of the indices:</p>
+        <div class="cmd"><code>janus STAC --interface modern --palette burn --screenshot palette_burn.png</code><button class="copy" type="button" data-copy="janus STAC --interface modern --palette burn --screenshot palette_burn.png">Copy</button></div>
+        <p class="what"><code>multiply.png</code>, a basemap under the layer:</p>
+        <div class="cmd"><code>janus 215_067 --interface modern --basemap esri --date 41 --blend multiply --view 6700,4250,1 --screenshot multiply.png</code><button class="copy" type="button" data-copy="janus 215_067 --interface modern --basemap esri --date 41 --blend multiply --view 6700,4250,1 --screenshot multiply.png">Copy</button></div>
+        <p class="what"><code>goto.png</code>, go to a place, with the minimap:</p>
+        <div class="cmd"><code>janus 215_067 --interface modern --date 41 --minimap --view 6804,4252,1 --goto "10°17'S 36°35'W" --screenshot goto.png</code><button class="copy" type="button" data-copy="janus 215_067 --interface modern --date 41 --minimap --view 6804,4252,1 --goto &quot;10°17&#x27;S 36°35&#x27;W&quot; --screenshot goto.png">Copy</button></div>
+        <p class="what"><code>lens.png</code>, the lens:</p>
+        <div class="cmd"><code>janus 215_067 --interface modern --date 28 --lens --view 6600,4250,1 --screenshot lens.png</code><button class="copy" type="button" data-copy="janus 215_067 --interface modern --date 28 --lens --view 6600,4250,1 --screenshot lens.png">Copy</button></div>
+        <p><code>01-run.jpg</code>, <code>05-multiply.jpg</code>, <code>06-goto.jpg</code> and <code>07-lens.jpg</code> are the PNGs as JPEG; <code>02-notice.png</code>, <code>03-palette.png</code> and <code>04-palette-indices.png</code> are crops. The screenshots of the Web section (<code>08</code> and <code>09</code>) are not made by these commands.</p>
+        </div>
+      </details>
     </section>
 
     <section id="status">
@@ -104,8 +127,17 @@
     <section id="notices">
       <h2><span class="n">03</span>Tasks and notices</h2>
       <p>A tool run on the raster works in the background. When a task ends, a notice comes up at the bottom right, above the status bar: <span class="ui">Done</span>, the task's name and how long it took, with <span class="ui">Show in Tasks</span> and <span class="ui">Open folder</span>. A task that failed says <span class="ui">Failed</span>, gives the error and a <span class="ui">Log</span> button; an export gives <span class="ui">Exports</span>. With Janus in the background, the system is also asked for your attention: the taskbar's icon flashes (on a Mac, the Dock's icon bounces).</p>
-      <figure class="fig">
+      <figure class="fig annotated">
         <a href="assets/img/workspace/01-run.jpg"><img src="assets/img/workspace/01-run.jpg" alt="Janus after a run of the AR(1) trend (remotePARTS) on an ROI of 700 x 700 pixels of the 215_067 series. Left, the tool's window: its description, the parameters (Trend per Year, Harmonics 0, Missing dates Exact, Significance level 0.05, Min valid observations 4), Run on the raster: ROI, the output folder, Run, and under it Preview and Auto-preview. Top, the Tasks window: the run done, 100%, 13 s, with Log, Folder and Remove. In the middle the map, the ROI outlined in yellow with the significant slopes in white and orange; below, the ROI's mean index from 1985 to 2025 with the fitted trend in magenta; right, the Statistics table, and over it the notice: Done, AR(1) trend (remotePARTS) - ROI (700 x 700 px), Done in 13 s, Show in Tasks, Open folder. The status bar: zoom 60.0% (detail 1:1), 1:190 000, 49.3 m/px, EPSG:4326." width="1600" height="950" loading="lazy"></a>
+        <ol class="hotspots" aria-label="Parts of the window, numbered on the image">
+          <li data-x="15.0" data-y="3.9"><b>A tool's window.</b> It floats and can be moved: here the AR(1) trend, with Run on the raster.</li>
+          <li data-x="46.9" data-y="4.2"><b>Tasks.</b> The run, done in 13 s, with Log, Folder and Remove.</li>
+          <li data-x="73.6" data-y="58.2"><b>The ROI.</b> Outlined in yellow: the run covers only it.</li>
+          <li data-x="43.8" data-y="92.6"><b>The chart.</b> The ROI's mean index, with the fitted trend in magenta.</li>
+          <li data-x="80.0" data-y="73.7"><b>The Statistics table.</b> The numbers of the ROI's mean.</li>
+          <li data-x="86.3" data-y="87.9"><b>The notice.</b> The run ended; Show in Tasks and Open folder.</li>
+          <li data-x="43.8" data-y="98.6"><b>The status bar.</b> What is under the pointer, the zoom, the scale and the CRS.</li>
+        </ol>
         <figcaption><b>A run ends</b>: the AR(1) trend on 700 × 700 pixels in 13 s; its notice at the bottom right, the Tasks window at the top.</figcaption>
       </figure>
       <figure class="fig narrow">
@@ -380,6 +412,10 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -387,6 +423,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>
