@@ -99,7 +99,8 @@ pub struct OutputRecord {
 #[serde(default)]
 pub struct Provenance {
     pub format: u32,
-    /// "zeit" (a tool of the Tools menu), "model" (a deep learning model applied), "calculator"
+    /// "zeit" (a tool of the Tools menu), "tsa" (the Time series analysis' chain), "model" (a deep learning model
+    /// applied), "calculator"
     pub kind: String,
     pub tool: String,
     pub tool_name: String,
@@ -356,6 +357,7 @@ impl State {
                 c.apply_qa = p.extra.get("apply_qa").and_then(Value::as_bool).unwrap_or(c.apply_qa);
                 c.show = true;
             }
+            "tsa" => self.tsa_again(p),
             k => self.error_popup = Some(format!("a run of kind \"{k}\" cannot be run again")),
         }
     }

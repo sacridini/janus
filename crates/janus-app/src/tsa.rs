@@ -74,6 +74,13 @@ pub struct TsaUi {
     pub scope: usize,
     /// the chart of the pixel under the cursor (Steps)
     pub pixel: PixelChart,
+    /// the series the last chain wrote (name, file), filled when it ends; the one to use in the Classification
+    pub series_out: Arc<Mutex<Vec<(String, String)>>>,
+    pub use_series: usize,
+    /// a series chosen for the Classification that is still opening (its file): made active when it arrives
+    pub pending_use: Option<String>,
+    /// when Copy Python last copied (for its "Copied")
+    pub copied: Option<Instant>,
 }
 
 impl Default for TsaUi {
@@ -85,6 +92,10 @@ impl Default for TsaUi {
             on: [false, true, false, true, true, false, false, false],
             scope: 0,
             pixel: PixelChart::default(),
+            series_out: Arc::default(),
+            use_series: 0,
+            pending_use: None,
+            copied: None,
         }
     }
 }
@@ -494,7 +505,92 @@ pub(crate) fn run_chain(
         let why: Vec<String> = skipped.iter().map(|(t, w)| format!("{t}: {w}")).collect();
         return Err(format!("no step could run: {}", why.join("; ")));
     }
+    // the chain's Python, as the steps that ran made it
+    if !skipped.is_empty()
+        && let Ok(code) = chain_code(steps, &skipped, input, &root.join("python").to_string_lossy())
+    {
+        let _ = std::fs::write(root.join(SCRIPT), code);
+    }
     Ok(Chain { result: JobResult { outputs, window: input.window }, skipped })
+}
+
+/// The series a chain wrote (its name and file): the analysis series and the series products, what the
+/// Classification can read the dates of.
+pub(crate) fn series_outputs(result: &JobResult) -> Vec<(String, String)> {
+    result
+        .outputs
+        .iter()
+        .filter(|o| o["series"].as_bool() == Some(true))
+        .filter_map(|o| {
+            let name = o["name"].as_str().or(o["id"].as_str())?.to_string();
+            Some((name, o["path"].as_str()?.to_string()))
+        })
+        .collect()
+}
+
+/// The steps the series cannot take (`problem`), with why: what `run_chain` leaves out, judged before it runs (the
+/// steps on the analysis series by the raw series' dates, regular once an Interpolate that can run comes first).
+pub(crate) fn left_out(steps: &[ChainStep], info: &CubeInfo) -> Vec<(String, String)> {
+    let regular = steps.iter().any(|s| s.tool.id == "interpolate" && problem(s.tool, info, false).is_none());
+    steps.iter().filter_map(|s| problem(s.tool, info, regular).map(|why| (s.tool.id.clone(), why))).collect()
+}
+
+/// The chain as one Python script, what `run_chain` does in Zeit: the series read once from its files over the
+/// window, the steps' calls (`janus_zeit::python::calls`, those of each tool's own rerun.py) with their results
+/// numbered along (`result1`, `result2`...), the steps on the analysis series reading the variable `analysis` that
+/// Interpolate and Standardize leave, and every result written as a GeoTIFF in `out_dir`. `skipped` are the steps
+/// the series cannot take (`left_out`, or what `run_chain` reported).
+pub(crate) fn chain_code(
+    steps: &[ChainStep],
+    skipped: &[(String, String)],
+    input: &ChainInput,
+    out_dir: &str,
+) -> Result<String, String> {
+    use std::fmt::Write as _;
+    let info = &input.info;
+    let mut o = crate::python::script_head(info, "the Time series analysis chain", false, input.window);
+    o += &crate::python::series_line(info);
+    let (mut results, mut analysis, mut names) = (0usize, false, vec![]);
+    for (k, step) in steps.iter().enumerate() {
+        let tool = step.tool;
+        if let Some((_, why)) = skipped.iter().find(|(t, _)| *t == tool.id) {
+            let _ = writeln!(o, "\n# {}: left out ({why})", tool.name);
+            continue;
+        }
+        let (code, inputs) =
+            crate::python::tool_calls(info, tool, &step.params, &input.roles, Some(input.threads as i64))?;
+        // the steps' calls all read the series (a DataArray); the ones on the analysis series read `analysis`
+        let from = if RAW_STEPS.contains(&tool.id.as_str()) || !analysis { "series" } else { "analysis" };
+        let mut code = code.replace("(series,", &format!("({from},"));
+        if inputs != ["series"] || !code.contains(&format!("({from},")) {
+            return Err(format!("{}: its Python does not read the series alone", tool.name));
+        }
+        // its results after those before it (highest first: result2 before result1)
+        let n = (1..=9).rev().find(|m| code.contains(&format!("result{m}"))).unwrap_or(0);
+        // through a placeholder first: the new names may have two digits, and "result1" is a prefix of "result12"
+        for m in (1..=n).rev() {
+            code = code.replace(&format!("result{m}"), &format!("\u{1}{m}\u{1}"));
+        }
+        for m in (1..=n).rev() {
+            code = code.replace(&format!("\u{1}{m}\u{1}"), &format!("result{}", results + m));
+            let step_name = format!("{:02}_{}", k + 1, tool.id);
+            names.push((format!("result{}", results + m), if n > 1 { format!("{step_name}_r{m}") } else { step_name }));
+        }
+        let k0 = names.len() - n;
+        names[k0..].reverse();
+        let reads = if from == "series" { "the series" } else { "the analysis series" };
+        let _ = writeln!(o, "\n# {}. {}, on {reads}\n{code}", k + 1, tool.name);
+        if ANALYSIS_STEPS.contains(&tool.id.as_str()) {
+            let _ = writeln!(o, "analysis = result{}  # the analysis series: the steps below read it", results + 1);
+            analysis = true;
+        }
+        results += n;
+    }
+    if results == 0 {
+        return Err("no step can run".into());
+    }
+    o += &crate::python::save_code(out_dir, &names);
+    Ok(o)
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -926,6 +1022,16 @@ impl State {
     }
 
     pub(crate) fn tsa_window(&mut self, ctx: &egui::Context) {
+        // a series chosen for the Classification that was not open: active once it has arrived (after the layer that
+        // was active when it opened has been made active again)
+        if let Some(p) = self.tsa.pending_use.clone()
+            && self.opening.is_none()
+            && self.zeit.keep_active.is_none()
+            && !self.zeit.series_to_open.iter().any(|(q, _)| *q == p)
+        {
+            self.tsa.pending_use = None;
+            self.tsa_activate(&p, ctx);
+        }
         if !self.tsa.open {
             return;
         }
@@ -1073,8 +1179,32 @@ impl State {
         {
             ui.colored_label(crate::theme::error(), format!("Not yet: {why}."));
         }
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(!on.is_empty(), egui::Button::new("Copy Python"))
+                .on_hover_text(
+                    "One script that does in Zeit what the chain does on this series and scope: the series read once \
+                     from its files, each step's call (the steps after Interpolate and Standardize reading the \
+                     analysis series), every result written as a GeoTIFF. Copied to the clipboard.",
+                )
+                .clicked()
+            {
+                match self.tsa_python(info) {
+                    Ok(code) => {
+                        ui.ctx().copy_text(code);
+                        self.tsa.copied = Some(Instant::now());
+                    }
+                    Err(e) => self.error_popup = Some(e),
+                }
+            }
+            if self.tsa.copied.is_some_and(|t| t.elapsed().as_secs_f32() < 3.0) {
+                ui.weak("Copied.");
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+            }
+        });
         // the last chain: its progress and Cancel, or how it ended and its folder
         let mut open_folder = None;
+        let mut finished = false;
         if let Some(j) = self.zeit.jobs.iter().rev().find(|j| j.tool == JOB_TOOL) {
             let s = j.status.lock().unwrap();
             ui.separator();
@@ -1092,6 +1222,7 @@ impl State {
                     }
                 }
                 state => {
+                    finished = state == JobState::Done;
                     ui.label(match state {
                         JobState::Done => format!("Done in {:.0} s. {}", s.seconds, s.message),
                         JobState::Cancelled => "Cancelled.".to_string(),
@@ -1106,6 +1237,92 @@ impl State {
         if let Some(d) = open_folder {
             crate::platform::open_in_explorer(&d);
         }
+        // a series of the chain to classify
+        let series = self.tsa.series_out.lock().unwrap().clone();
+        if finished && !series.is_empty() {
+            self.tsa.use_series = self.tsa.use_series.min(series.len() - 1);
+            ui.add_space(4.0);
+            ComboBox::from_id_salt("tsa use series")
+                .width(ui.available_width())
+                .selected_text(&series[self.tsa.use_series].0)
+                .show_ui(ui, |ui| {
+                    for (i, (name, path)) in series.iter().enumerate() {
+                        ui.selectable_value(&mut self.tsa.use_series, i, name).on_hover_text(path);
+                    }
+                });
+            if ui
+                .add(egui::Button::new("Use in Classification").min_size(egui::vec2(ui.available_width(), 0.0)))
+                .on_hover_text(
+                    "Makes this series the active layer and opens the Classification: it reads the dates of the \
+                     active series as its features (the samples' values at each date), so this classifies on the \
+                     chain's series (the interpolated, the standardized, the metrics by period, the phenology by \
+                     year) instead of the observations.",
+                )
+                .clicked()
+            {
+                let path = series[self.tsa.use_series].1.clone();
+                self.tsa_use_series(&path, &ui.ctx().clone());
+            }
+        }
+    }
+
+    /// The chain's script for the steps on and the scope now, even before it runs.
+    fn tsa_python(&mut self, info: &Arc<CubeInfo>) -> Result<String, String> {
+        let steps = self.tsa_steps();
+        let (input, name) = self.tsa_chain_input(info);
+        let out = self.results_dir().join(format!("{name}_tsa_python"));
+        chain_code(&steps, &left_out(&steps, info), &input, &out.to_string_lossy())
+    }
+
+    /// Makes the layer that opened `path` the active one, if there is one.
+    fn tsa_activate(&mut self, path: &str, ctx: &egui::Context) -> bool {
+        let key = crate::provenance::absolute(path);
+        let found =
+            self.layers.iter().position(|l| l.inputs.len() == 1 && crate::provenance::absolute(&l.inputs[0]) == key);
+        if let Some(i) = found
+            && i != self.active
+        {
+            self.set_active(i, ctx);
+        }
+        found.is_some()
+    }
+
+    /// The series `path` the chain wrote, active and the Classification open on its samples' tab: the series' layer
+    /// if it is open, else opened as the chain's other series are (it becomes active when it arrives).
+    fn tsa_use_series(&mut self, path: &str, ctx: &egui::Context) {
+        if !self.tsa_activate(path, ctx) {
+            if !self.zeit.series_to_open.iter().any(|(q, _)| q == path) {
+                self.zeit.series_to_open.push((path.to_string(), false));
+            }
+            self.tsa.pending_use = Some(path.to_string());
+        }
+        (self.ml.open, self.ml.tab) = (true, 0);
+    }
+
+    /// Run again from a chain's provenance: its steps on with their parameters and its scope, in the window's
+    /// Output tab (on the active series).
+    pub(crate) fn tsa_again(&mut self, p: &Provenance) {
+        let ids: Vec<&str> = p
+            .extra
+            .get("steps")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|s| s.as_str()).map(|s| s.split_once('_').map_or(s, |x| x.1)).collect())
+            .unwrap_or_default();
+        if ids.is_empty() {
+            self.error_popup = Some("the chain's steps are not in its provenance".into());
+            return;
+        }
+        for (i, (id, _, _)) in STEPS.into_iter().enumerate() {
+            self.tsa.on[i] = ids.contains(&id);
+        }
+        for (id, v) in &p.params {
+            if let (Some(tool), Some(m)) = (manifest().tool(id), v.as_object()) {
+                *self.zeit.params(tool) = m.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                self.zeit.tools.entry(id.clone()).or_default().version += 1;
+            }
+        }
+        self.tsa.scope = if p.scope_index == 2 && self.series.roi_rect.is_none() { 0 } else { p.scope_index.min(2) };
+        (self.tsa.open, self.tsa.tab) = (true, 2);
     }
 
     /// Why the chain cannot run on the series, if no step of it can.
@@ -1132,6 +1349,27 @@ impl State {
         steps
     }
 
+    /// What the chain starts from now: the active layer's series, the scope and the roles of its bands. And the
+    /// series' name for the folders.
+    fn tsa_chain_input(&mut self, info: &Arc<CubeInfo>) -> (ChainInput, String) {
+        let layer = self.layers.get(self.active).map(|l| (l.name.clone(), l.inputs.clone()));
+        let inputs = layer.as_ref().map(|l| l.1.clone()).unwrap_or_default();
+        let name = crate::zeit::series_name(info, &inputs);
+        let (window, scope) = self.run_window(self.tsa.scope);
+        let input = ChainInput {
+            info: info.clone(),
+            name: layer.map_or(name.clone(), |l| l.0),
+            inputs,
+            roles: self.active_roles(),
+            window,
+            scope: scope.to_string(),
+            scope_index: self.tsa.scope,
+            map_t: self.display.t.min(info.t().saturating_sub(1)),
+            threads: self.processing_threads(),
+        };
+        (input, name)
+    }
+
     /// Starts the chain as one task (Tools > Tasks): the steps on, on the scope, into a folder of its own.
     pub(crate) fn tsa_run(&mut self, ctx: &egui::Context) {
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else {
@@ -1143,27 +1381,33 @@ impl State {
             self.error_popup = Some("no step of the Time series analysis is on".into());
             return;
         }
-        let layer = self.layers.get(self.active).map(|l| (l.name.clone(), l.inputs.clone()));
-        let inputs = layer.as_ref().map(|l| l.1.clone()).unwrap_or_default();
-        let name = crate::zeit::series_name(&info, &inputs);
-        let (window, scope) = self.run_window(self.tsa.scope);
-        let roles = self.active_roles();
-        let input = ChainInput {
-            info: info.clone(),
-            name: layer.map_or(name.clone(), |l| l.0),
-            inputs,
-            roles,
-            window,
-            scope: scope.to_string(),
-            scope_index: self.tsa.scope,
-            map_t: self.display.t.min(info.t().saturating_sub(1)),
-            threads: self.processing_threads(),
-        };
+        let (input, name) = self.tsa_chain_input(&info);
+        let (window, scope) = (input.window, input.scope.clone());
         let root = self.results_dir().join(format!("{name}_tsa_{}", crate::zeit::timestamp()));
         if let Err(e) = std::fs::create_dir_all(&root) {
             self.error_popup = Some(format!("could not create {}: {e}", root.display()));
             return;
         }
+        // the chain's provenance at its folder (where its result layers point): the steps with their parameters and
+        // folders, the series, the scope, and its Python; `pump_provenance` completes it from the task's result
+        let mut prov = Provenance::start("tsa", JOB_TOOL, "Time series analysis");
+        prov.params = steps.iter().map(|s| (s.tool.id.clone(), json!(s.params))).collect();
+        prov.scope = scope.clone();
+        prov.scope_index = input.scope_index;
+        prov.window = Some(window);
+        prov.threads = Some(input.threads as i64);
+        prov.series = Some(SeriesRecord::of(&info, &input.name, &input.inputs));
+        prov.extra.insert(
+            "steps".into(),
+            json!(steps.iter().enumerate().map(|(k, s)| format!("{:02}_{}", k + 1, s.tool.id)).collect::<Vec<_>>()),
+        );
+        let python = root.join("python").to_string_lossy().into_owned();
+        match chain_code(&steps, &left_out(&steps, &info), &input, &python) {
+            Ok(code) if std::fs::write(root.join(SCRIPT), &code).is_ok() => prov.python = SCRIPT.into(),
+            Ok(_) => prov.python_note = format!("{SCRIPT} could not be written"),
+            Err(e) => prov.python_note = e,
+        }
+        self.begin_provenance(&root, prov);
         let title =
             format!("Time series analysis - {scope} ({} x {} px)", window[2] - window[0], window[3] - window[1]);
         let log = JobLog { path: root.join("job.log"), t0: Instant::now() };
@@ -1185,6 +1429,10 @@ impl State {
         }));
         let cancel = Arc::new(AtomicBool::new(false));
         let (st, cn, dir, ctx) = (status.clone(), cancel.clone(), root.clone(), ctx.clone());
+        // the series it writes, for Use in Classification
+        let written = Arc::new(Mutex::new(vec![]));
+        self.tsa.series_out = written.clone();
+        self.tsa.use_series = 0;
         std::thread::Builder::new()
             .name("zeit-tsa".into())
             .spawn(move || {
@@ -1224,6 +1472,7 @@ impl State {
                                 chain.skipped.iter().map(|(t, w)| format!("{t} ({w})")).collect::<Vec<_>>().join("; ")
                             ),
                         };
+                        *written.lock().unwrap() = series_outputs(&chain.result);
                         s.state = JobState::Done;
                         s.progress = 1.0;
                         s.result = Some(chain.result);
@@ -1361,6 +1610,11 @@ mod tests {
             run_chain(&steps, &input(&info, window), &base.join("chain"), &|_, _| {}, &AtomicBool::new(false)).unwrap();
         assert!(chain.skipped.is_empty(), "{:?}", chain.skipped);
         assert_eq!(chain.result.window, window);
+        // the series it wrote (what the Classification can use): the analysis series and the series products
+        let series = series_outputs(&chain.result);
+        assert!(series.iter().any(|s| s.0.ends_with(": Interpolated") && s.1.contains("01_interpolate")), "{series:?}");
+        assert!(series.iter().any(|s| s.1.contains("04_polar_metrics")), "{series:?}");
+        assert!(series.iter().all(|s| Path::new(&s.1).is_file()) && series.len() < chain.result.outputs.len());
         // by hand: Interpolate on the raw series, then each product on the interpolated file
         let by_hand = base.join("by hand");
         let first = alone("interpolate", &info, Some(window), &by_hand.join("interpolate"));
@@ -1397,6 +1651,148 @@ mod tests {
         let read_file = &p.series.unwrap().inputs[0];
         assert!(read_file.replace('\\', "/").ends_with("01_interpolate/interpolate_series.tif"), "{read_file}");
         assert!(Provenance::read(&base.join("chain").join("01_interpolate")).unwrap().series.unwrap().dates == 40);
+    }
+
+    const FIVE: [&str; 5] = ["interpolate", "standardize", "temporal_metrics", "fold", "polar_metrics"];
+
+    #[test]
+    fn the_chain_script_has_each_steps_call_once_on_the_right_series() {
+        let base = std::env::temp_dir().join("janus-tsa-test-script");
+        let info = series(&base.join("series"));
+        let steps: Vec<ChainStep> = FIVE.iter().map(|id| step(id)).collect();
+        let code = chain_code(&steps, &[], &input(&info, [0, 0, W, H]), "OUT").unwrap();
+        let count = |s: &str| code.matches(s).count();
+        // each call once; Interpolate on the series read, the others on the analysis series it leaves
+        assert_eq!(count("zeit.interpolate(series, "), 1, "{code}");
+        assert_eq!(count("zeit.standardize(analysis, "), 1, "{code}");
+        assert_eq!(count("zeit.temporal_metrics(analysis, "), 2, "{code}");
+        assert_eq!(count(", by='year'"), 1, "{code}");
+        assert_eq!(count("zeit.polar_metrics(analysis, "), 1, "{code}");
+        assert_eq!(count("(series,"), 1, "{code}");
+        // the results numbered along, the analysis series chained (Interpolate's, then Standardize's)
+        for (k, call) in
+            ["interpolate", "standardize", "temporal_metrics", "temporal_metrics", "polar_metrics"].iter().enumerate()
+        {
+            assert_eq!(count(&format!("result{} = zeit.{call}(", k + 1)), 1, "result{}: {code}", k + 1);
+        }
+        assert_eq!(count("analysis = result1"), 1, "{code}");
+        assert_eq!(count("analysis = result2"), 1, "{code}");
+        assert_eq!(count("analysis = result"), 2, "{code}");
+        // the series is read once, the files written under the step's name
+        assert_eq!(count("layers = ["), 1, "{code}");
+        assert!(code.contains("\"result5\": \"05_polar_metrics\""), "{code}");
+        assert!(code.contains("names.get(key, key)"), "{code}");
+        // a step with two results (the trend folds first), numbered after the ones before it
+        let steps: Vec<ChainStep> =
+            ["interpolate", "linear_trend", "polar_metrics"].iter().map(|id| step(id)).collect();
+        let code = chain_code(&steps, &[], &input(&info, [0, 0, W, H]), "OUT").unwrap();
+        assert!(code.contains("result2 = zeit.temporal_metrics(analysis, "), "{code}");
+        assert!(code.contains("result3 = zeit.linear_trend(result2, "), "{code}");
+        assert!(code.contains("result4 = zeit.polar_metrics(analysis, "), "{code}");
+        // a step left out is said so; none left is an error
+        let code =
+            chain_code(&steps, &[("polar_metrics".into(), "why".into())], &input(&info, [0, 0, W, H]), "OUT").unwrap();
+        assert!(code.contains("): left out (why)") && !code.contains("zeit.polar_metrics"), "{code}");
+        let all: Vec<(String, String)> = steps.iter().map(|s| (s.tool.id.clone(), String::new())).collect();
+        assert!(chain_code(&steps, &all, &input(&info, [0, 0, W, H]), "OUT").is_err());
+        // every step on: past ten results, each name assigned once and none mangled (result1 is a prefix of
+        // result12)
+        let steps: Vec<ChainStep> = STEPS.iter().map(|s| step(s.0)).collect();
+        let code = chain_code(&steps, &[], &input(&info, [0, 0, W, H]), "OUT").unwrap();
+        let n = (1..100).take_while(|k| code.contains(&format!("result{k} = "))).count();
+        assert!(n >= 10, "{n} results: {code}");
+        for k in 1..=n {
+            assert_eq!(code.matches(&format!("result{k} = ")).count(), 1, "result{k}: {code}");
+        }
+        assert!(!code.contains(&format!("result{} = ", n + 1)) && !code.contains('\u{1}'), "{code}");
+    }
+
+    /// The chain's script run in Zeit (the Python of JANUS_PYTHON, with zeit, rasterio and xarray; the test is left
+    /// out without it) gives the values `run_chain` writes.
+    #[test]
+    fn the_chain_script_runs_in_zeit_and_gives_the_chains_values() {
+        let Ok(python) = std::env::var("JANUS_PYTHON") else {
+            println!("skipped: JANUS_PYTHON names no Python with zeit, rasterio and xarray");
+            return;
+        };
+        let base = std::env::temp_dir().join("janus-tsa-test-zeit");
+        let info = series(&base.join("series"));
+        let steps: Vec<ChainStep> = FIVE.iter().map(|id| step(id)).collect();
+        let window = [1, 1, W - 1, H - 1];
+        let input = input(&info, window);
+        let chain = run_chain(&steps, &input, &base.join("chain"), &|_, _| {}, &AtomicBool::new(false)).unwrap();
+        let out = base.join("python");
+        let _ = std::fs::remove_dir_all(&out);
+        let code = chain_code(&steps, &[], &input, &out.to_string_lossy()).unwrap();
+        let script = base.join("chain.py");
+        std::fs::write(&script, code).unwrap();
+        // the PATH as an activated conda environment has it, without the GDAL builds that shadow rasterio's
+        let root = Path::new(&python).parent().unwrap().to_path_buf();
+        let mut path: Vec<String> = ["", "Library\\mingw-w64\\bin", "Library\\usr\\bin", "Library\\bin", "Scripts"]
+            .iter()
+            .map(|d| root.join(d).to_string_lossy().into_owned())
+            .collect();
+        path.extend(
+            std::env::var("PATH")
+                .unwrap_or_default()
+                .split(';')
+                .filter(|p| {
+                    let p = p.to_lowercase();
+                    !["program files\\gdal", "strawberry", "git", "\\target\\"].iter().any(|x| p.contains(x))
+                })
+                .map(str::to_string),
+        );
+        let run = std::process::Command::new(python)
+            .arg(&script)
+            .env_clear()
+            .envs(["SystemRoot", "TEMP", "TMP"].iter().filter_map(|k| Some((*k, std::env::var(k).ok()?))))
+            .env("PATH", path.join(";"))
+            .env("PYTHONNOUSERSITE", "1")
+            .output()
+            .unwrap();
+        assert!(
+            run.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr)
+        );
+        // the script's bands by step (its files start with the step's folder name)
+        let files: Vec<(String, Vec<Vec<f32>>)> = std::fs::read_dir(&out)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|e| e == "tif"))
+            .map(|p| (p.file_name().unwrap().to_string_lossy().into_owned(), read(&p.to_string_lossy()).0))
+            .collect();
+        let close = |a: f32, b: f32| (a.is_nan() && b.is_nan()) || (a - b).abs() <= 1e-4 * b.abs().max(1.0);
+        let (mut bands, mut values, mut worst) = (0, 0, 0f32);
+        for o in &chain.result.outputs {
+            let path = o["path"].as_str().unwrap();
+            let step = Path::new(path).parent().unwrap().file_name().unwrap().to_string_lossy().into_owned();
+            let (want, _) = read(path);
+            for w in &want {
+                // a band of the script's files of the step with the chain's values
+                let hit = files
+                    .iter()
+                    .filter(|f| f.0.starts_with(&format!("{step}_")))
+                    .flat_map(|f| &f.1)
+                    .find(|g| g.len() == w.len() && g.iter().zip(w).all(|(&a, &b)| close(a, b)));
+                let Some(g) = hit else {
+                    panic!("no band of {step} in the script has the values of {} ({path})", o["name"])
+                };
+                worst = g
+                    .iter()
+                    .zip(w)
+                    .filter(|(a, b)| a.is_finite() && b.is_finite())
+                    .fold(worst, |m, (a, b)| m.max((a - b).abs()));
+                values += w.len();
+                bands += 1;
+            }
+        }
+        println!(
+            "{} outputs, {bands} bands, {values} values compared, the largest difference {worst:e}",
+            chain.result.outputs.len()
+        );
+        assert!(bands >= 10 && values > 500);
     }
 
     /// The outputs of a chain written by the step in `folder` (such as "/01_interpolate/").

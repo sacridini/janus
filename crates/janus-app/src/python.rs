@@ -464,17 +464,15 @@ for key, r in results:
             save(var if len(results) == 1 else f"{key}_{var}", a.values)
 "#;
 
-/// "Copy Python" of a raster run (its provenance's rerun.py): the series read from its files over the run's window,
-/// the same Zeit calls with the run's parameters, and every map they return written as a GeoTIFF in `out_dir`.
-pub(crate) fn run_code(
+/// The Zeit calls of `tool` with the run's parameters (`calls`, its `n_jobs` the run's threads) and the inputs they
+/// need, over the series `info` (the bands by `roles`).
+pub(crate) fn tool_calls(
     info: &janus_cube::CubeInfo,
     tool: &janus_zeit::Tool,
     params: &std::collections::BTreeMap<String, serde_json::Value>,
     roles: &std::collections::BTreeMap<String, i32>,
-    window: [usize; 4],
     threads: Option<i64>,
-    out_dir: &str,
-) -> Result<String, String> {
+) -> Result<(String, Vec<&'static str>), String> {
     let t_n = info.t();
     let p = janus_zeit::Params::with_defaults(&tool.id, params).ok_or("its parameters are not the tool's")?;
     let input = janus_zeit::PixelInput {
@@ -486,23 +484,26 @@ pub(crate) fn run_code(
     };
     let (code, inputs) = janus_zeit::python::calls(&tool.id, &p, &input)
         .ok_or_else(|| format!("{} has no Python of its raster run", tool.name))?;
-    let code = code.replace("n_jobs=1", &format!("n_jobs={}", threads.filter(|&n| n > 0).unwrap_or(-1)));
+    Ok((code.replace("n_jobs=1", &format!("n_jobs={}", threads.filter(|&n| n > 0).unwrap_or(-1))), inputs))
+}
+
+/// The start of a raster run's script: its docstring (`what` it reproduces), the imports, the series read from its
+/// files and the run's window.
+pub(crate) fn script_head(info: &janus_cube::CubeInfo, what: &str, tables: bool, window: [usize; 4]) -> String {
     let [x0, y0, x1, y1] = window;
     let (w, h) = (x1 - x0, y1 - y0);
-    let tables = inputs.contains(&"bands_all") || inputs.contains(&"spectrum");
     let mut o = String::new();
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
     let (y, m, d) = janus_zeit::numeric::civil(now.div_euclid(86400));
     let _ = write!(
         o,
-        "\"\"\"Janus {} ({y:04}-{m:02}-{d:02}): the run of {} reproduced outside Janus: the series read from its files\n\
+        "\"\"\"Janus {} ({y:04}-{m:02}-{d:02}): {what} reproduced outside Janus: the series read from its files\n\
          over the run's window, the same Zeit calls with the run's parameters, and every map they return written as a\n\
          GeoTIFF (Janus wrote the maps of its outputs from the same calls). The whole window is read into memory.\n\
          Needs: pip install numpy rasterio xarray zeit-cdts{}\n\"\"\"\n\
          import os\nimport numpy as np\nimport rasterio\nimport xarray as xr\nimport zeit\n\
          from rasterio.windows import Window\nfrom rasterio.enums import Resampling\n{}",
         env!("CARGO_PKG_VERSION"),
-        tool.name,
         if tables { " pandas" } else { "" },
         if tables { "import pandas as pd\n" } else { "" }
     );
@@ -513,18 +514,59 @@ pub(crate) fn run_code(
          window = Window({x0}, {y0}, {w}, {h})\n\
          values = np.stack([shown(layer, window) for layer in layers])  # (time, y, x)"
     );
+    o
+}
+
+/// The coordinate of the series' time dimension in the script: its dates, or its years, or its positions.
+fn time_coord(info: &janus_cube::CubeInfo) -> String {
+    let t_n = info.t();
     let whole_years = (0..t_n).all(|t| info.decimal_year(t).fract() == 0.0);
-    let time = if info.time_is_date {
+    if info.time_is_date {
         "dates.astype(\"datetime64[ns]\")".to_string()
     } else if whole_years {
         let v: Vec<String> = (0..t_n).map(|t| format!("{}", info.decimal_year(t) as i64)).collect();
         format!("np.array([{}])", v.join(", "))
     } else {
         "np.arange(len(layers))".to_string()
-    };
+    }
+}
+
+/// The line that makes the DataArray `series` (time, y, x) out of `values`.
+pub(crate) fn series_line(info: &janus_cube::CubeInfo) -> String {
+    format!("series = xr.DataArray(values, dims=(\"time\", \"y\", \"x\"), coords={{\"time\": {}}})\n", time_coord(info))
+}
+
+/// The end of a raster run's script: every map of the results written as a GeoTIFF in `out_dir`. `names` (a chain's
+/// steps: the result's variable and the name its files take) put another name than `result3` before each file's.
+pub(crate) fn save_code(out_dir: &str, names: &[(String, String)]) -> String {
+    let mut o = format!("\nout_dir = {}\n", py_str(out_dir));
+    let mut save = SAVE_RESULTS.to_string();
+    if !names.is_empty() {
+        let list: Vec<String> = names.iter().map(|(k, n)| format!("{}: {}", py_str(k), py_str(n))).collect();
+        let _ = writeln!(o, "names = {{{}}}  # the step each result is of, in the files' names", list.join(", "));
+        save = save.replace("f\"{key}_{var}\"", "f\"{names.get(key, key)}_{var}\"");
+    }
+    o += &save;
+    o
+}
+
+/// "Copy Python" of a raster run (its provenance's rerun.py): the series read from its files over the run's window,
+/// the same Zeit calls with the run's parameters, and every map they return written as a GeoTIFF in `out_dir`.
+pub(crate) fn run_code(
+    info: &janus_cube::CubeInfo,
+    tool: &janus_zeit::Tool,
+    params: &std::collections::BTreeMap<String, serde_json::Value>,
+    roles: &std::collections::BTreeMap<String, i32>,
+    window: [usize; 4],
+    threads: Option<i64>,
+    out_dir: &str,
+) -> Result<String, String> {
+    let (code, inputs) = tool_calls(info, tool, params, roles, threads)?;
+    let tables = inputs.contains(&"bands_all") || inputs.contains(&"spectrum");
+    let mut o = script_head(info, &format!("the run of {}", tool.name), tables, window);
+    let time = time_coord(info);
     if inputs.contains(&"series") {
-        let _ =
-            writeln!(o, "series = xr.DataArray(values, dims=(\"time\", \"y\", \"x\"), coords={{\"time\": {time}}})");
+        o += &series_line(info);
     }
     if inputs.contains(&"bands_cube") {
         let sel = info.sel;
@@ -580,7 +622,6 @@ pub(crate) fn run_code(
               coords={\"band\": [f\"b{i + 1:03d}\" for i in range(len(layers))]})\n";
     }
     let _ = writeln!(o, "\n# {}, with the run's parameters\n{code}", tool.name);
-    let _ = writeln!(o, "\nout_dir = {}", py_str(out_dir));
-    o += SAVE_RESULTS;
+    o += &save_code(out_dir, &[]);
     Ok(o)
 }
