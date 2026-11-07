@@ -133,6 +133,35 @@ impl ToolCall {
         ToolCall { pieces, ..self.clone() }
     }
 
+    /// The same calls with the keyword `name` set to `value` (added after `qa` or at the end if the call has none), or
+    /// left out if `value` is None.
+    pub(crate) fn with_arg(&self, name: &'static str, value: Option<&str>) -> ToolCall {
+        let pieces = self
+            .pieces
+            .iter()
+            .map(|p| match p {
+                Piece::Call { var, func, args } => {
+                    let mut args = args.clone();
+                    let at = args.iter().position(|a| a.name == Some(name));
+                    match (at, value) {
+                        (Some(i), Some(v)) => args[i].value = v.to_string(),
+                        (Some(i), None) => {
+                            args.remove(i);
+                        }
+                        (None, Some(v)) => {
+                            let i = args.iter().position(|a| a.name == Some("qa")).map_or(args.len(), |q| q + 1);
+                            args.insert(i, kw(name, v));
+                        }
+                        (None, None) => {}
+                    }
+                    Piece::Call { var, func, args }
+                }
+                raw => raw.clone(),
+            })
+            .collect();
+        ToolCall { pieces, ..self.clone() }
+    }
+
     /// The keyword arguments of the calls, (function, parameter, value as Python writes it), plumbing included.
     pub fn arguments(&self) -> Vec<(String, String, String)> {
         let mut out = vec![];
@@ -759,7 +788,11 @@ pub fn tool_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall>
                 "result1",
                 "zeit.sccd",
                 vec![
-                    pos("bands_cube.sel(band=[b for b in order if b != 'thermal'])"),
+                    pos(if input.bands.contains_key("thermal") {
+                        "bands_cube.sel(band=[b for b in order if b != 'thermal'])"
+                    } else {
+                        "bands_cube"
+                    }),
                     kw("qa", "fmask"),
                     kw("max_segments", i("max_segments")),
                     kw("conse", i("conse")),

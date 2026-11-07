@@ -1050,7 +1050,7 @@ def python_tabs(page, name):
         f'<div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/{key}.py" aria-label="Copy the whole Python script">Copy</button>'
         f'<a class="copy" href="assets/python/{key}.py" download="{key}.py">Download .py</a></div></div>',
         '      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; '
-        'it runs with Zeit: the script asks for <code>pip install "zeit-cdts&gt;=3.2"</code>. Copy and Download give the same script, with the file&rsquo;s name as it is here (put the script beside your data).</p>',
+        'it runs with Zeit: the header of the script says which Zeit it needs (<code>pip install zeit-cdts</code>, version 3.2 or later; 3.2.1 for CCDC, CODED and S-CCD). Copy and Download give the same script, with the file&rsquo;s name as it is here (put the script beside your data).</p>',
         '    </div>',
         '  </div>',
         '</div>',

@@ -167,26 +167,6 @@ fn rule_arg(rule: QaRule) -> &'static str {
     }
 }
 
-/// The Fmask code (0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 no observation) of the quality band's code `c`.
-fn fmask_of(rule: QaRule) -> &'static str {
-    match rule {
-        QaRule::LandsatC2 => {
-            "xr.where((c & 1) > 0, 255, xr.where((c & 10) > 0, 4, xr.where((c & 16) > 0, 2, \
-             xr.where((c & 32) > 0, 3, xr.where((c & 128) > 0, 1, 0)))))"
-        }
-        QaRule::HlsFmask => {
-            "xr.where(c == 255, 255, xr.where((c & 6) > 0, 4, xr.where((c & 8) > 0, 2, \
-             xr.where((c & 16) > 0, 3, xr.where((c & 32) > 0, 1, 0)))))"
-        }
-        QaRule::Scl => {
-            "xr.where(c.isin([4, 5]), 0, xr.where(c == 6, 1, xr.where(c.isin([2, 3]), 2, \
-             xr.where(c == 11, 3, xr.where(c.isin([7, 8, 9, 10]), 4, 255)))))"
-        }
-        QaRule::NonZero => "xr.where(c != 0, 0, 4)",
-        QaRule::Fmask | QaRule::None => "c",
-    }
-}
-
 /// The lines of the script.
 #[derive(Default)]
 struct Code(Vec<String>);
@@ -498,6 +478,8 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
     // whether the script needs a Zeit that has what `load_raster` gained (scale=, qa=, bands=, window=, pixel=)
     let new_zeit = Cell::new(win.pixel.is_some() || win.cells.is_some());
     let loads = Cell::new(0usize);
+    // whether it needs Zeit 3.2.1: `qa_to_fmask`, NaN in CCDC's and S-CCD's bands, a pixel for CODED and Tmask
+    let zeit_321 = Cell::new(false);
 
     // whether a band of the files has a scale or an offset (`load_raster(scale=True)` applies them)
     let needs_scale = |nums: &[i32]| -> bool {
@@ -928,7 +910,10 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
     }
     let mut c = Code::default();
 
-    // ---- the reflectance for the tools of bands
+    // ---- the tools of bands: the reflectance units, the clear observations
+    // what each banded call is changed to (the quality codes, the units), see below
+    let mut qa_arg: Option<Option<String>> = None;
+    let mut scale_arg: Option<String> = None;
     if want_bands {
         let units = calls
             .iter()
@@ -940,12 +925,32 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
         if optical {
             body.line("optical = [b for b in order if b != \"thermal\"]  # the thermal band is left as it is");
         }
+        let banded: Vec<&ToolCall> = calls.iter().map(|c| &c.2).filter(|c| c.inputs.contains(&"bands_cube")).collect();
+        let is_cd = |t: &str| matches!(t, "ccdc" | "ccdc_synthetic" | "sccd");
+        // CCDC and S-CCD read a date missing a band as no observation, and take the quality band's Fmask codes
+        let only_cd = banded.iter().all(|c| is_cd(&c.tool));
+        if banded.iter().any(|c| is_cd(&c.tool)) {
+            zeit_321.set(true);
+        }
+        // Zeit's own units: `scale=` of the tools that have it (not Tmask, Tasseled Cap, nor the thermal band of the
+        // tools that do not leave it as it is)
+        let native = banded
+            .iter()
+            .all(|c| is_cd(&c.tool) || (!optical && matches!(c.tool.as_str(), "ndfi" | "coded" | "spectral_adjust")));
+        // `scale="auto"` tells 0-1 from x10000 but not Landsat Collection 2's digital numbers (>= 6500), which a
+        // series may be unless its files carry the scale and offset or its sensors are known not to be Landsat
+        let optical_nums: Vec<i32> = order.iter().filter(|(r, _)| *r != "thermal").map(|(_, b)| *b).collect();
+        let may_be_dn = units == "auto"
+            && !needs_scale(&optical_nums)
+            && crate::sensors::of_series(info).iter().any(|s| s.is_empty() || s.starts_with("LND"));
         let (conv_unit, conv_c2) = (format!("{target} * 10000"), format!("({target} * 2.75e-05 - 0.2) * 10000"));
         let assign_to = |e: &str| {
             if optical { format!("bands_cube.loc[dict(band=optical)] = {e}") } else { format!("bands_cube = {e}") }
         };
         match units.as_str() {
             "x10000" => {}
+            "unit" if native => scale_arg = Some("1".into()),
+            "auto" if native && !may_be_dn => scale_arg = Some("'auto'".into()),
             "unit" => {
                 body.line("# Zeit takes reflectance x 10000; these are 0-1");
                 body.line(assign_to(&conv_unit));
@@ -963,41 +968,46 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
             }
         }
         // the quality band as Fmask codes
-        let banded: Vec<&ToolCall> = calls.iter().map(|c| &c.2).filter(|c| c.inputs.contains(&"bands_cube")).collect();
-        // CCDC gets a date missing a band as Janus gives it: zeros, out of the valid range, flagged as a cloud
-        let ccdc = banded.iter().any(|c| matches!(c.tool.as_str(), "ccdc" | "ccdc_synthetic"));
-        body.line("complete = bands_cube.notnull().all(\"band\")  # a date missing a band is no observation");
-        if qa_on {
-            body.line("c = qa.fillna(0).astype(\"int64\")");
-            body.line(format!(
-                "fmask = {}  # {} as Fmask codes: 0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 none",
-                fmask_of(sel.qa_rule),
-                sel.qa_rule.label()
-            ));
-            body.line(if ccdc {
-                "fmask = fmask.where(qa >= 0, 255).where(complete, 4)  # no code: 255; a band missing: a cloud"
-            } else {
-                "fmask = fmask.where((qa >= 0) & complete, 255)"
-            });
-        } else if ccdc {
-            body.line("fmask = xr.where(complete, 0, 4)  # no quality band: every complete observation is clear");
+        let fmask_expr = qa_on.then(|| format!("zeit.qa_to_fmask(qa, \"{}\")", rule_arg(sel.qa_rule)));
+        if fmask_expr.is_some() {
+            zeit_321.set(true);
+        }
+        let fmask_users = banded.iter().filter(|c| c.inputs.contains(&"fmask")).count();
+        let fmask_note = "as Fmask codes: 0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 none";
+        if only_cd {
+            // the tools take the codes themselves
+            match fmask_expr {
+                Some(e) if fmask_users > 1 => {
+                    body.line(format!("fmask = {e}  # {} {fmask_note}", sel.qa_rule.label()));
+                    qa_arg = Some(Some("fmask".into()));
+                }
+                Some(e) => qa_arg = Some(Some(e)),
+                None => qa_arg = Some(None),
+            }
+        } else if fmask_users == 0 {
+            // NDFI, CODED and Tmask use only the clear observations
+            if let Some(e) = fmask_expr {
+                body.line(format!(
+                    "bands_cube = bands_cube.where({e} <= 1)  # only the clear observations (Fmask 0 and 1)"
+                ));
+            }
         } else {
-            body.line("fmask = xr.where(complete, 0, 255)  # no quality band: every complete observation is clear");
+            match fmask_expr {
+                Some(e) => {
+                    body.line(format!("fmask = {e}  # {} {fmask_note}", sel.qa_rule.label()));
+                    body.line("fmask = fmask.where(bands_cube.notnull().all(\"band\"), 255)  # a date missing a band is no observation");
+                }
+                None => body.line(
+                    "fmask = xr.where(bands_cube.notnull().all(\"band\"), 0, 255)  # no quality band: every complete observation is clear",
+                ),
+            }
+            if banded.iter().any(|c| !c.inputs.contains(&"fmask")) {
+                body.line("# NDFI, CODED and Tmask use only the clear observations: bands_cube.where(fmask <= 1)");
+            }
         }
-        if ccdc {
-            body.line("bands_cube = bands_cube.fillna(0)  # CCDC reads a missing value as one out of its valid range");
-        }
-        // NDFI, CODED and Tmask work on the clear observations (CCDC and S-CCD take the codes themselves)
-        if banded.iter().all(|c| !c.inputs.contains(&"fmask")) {
-            body.line("bands_cube = bands_cube.where(fmask <= 1)  # only the clear observations (Fmask 0 and 1)");
-        } else if banded.iter().any(|c| !c.inputs.contains(&"fmask")) {
-            body.line("# NDFI, CODED and Tmask use only the clear observations: bands_cube.where(fmask <= 1)");
-        }
-        // CODED takes a (time, band, y, x) cube; a pin has no y and x
-        if banded.iter().any(|c| c.tool == "coded") {
-            body.line(
-                "bands_cube = bands_cube.expand_dims(y=1, x=1).transpose(\"time\", \"band\", \"y\", \"x\")  # CODED wants y and x",
-            );
+        // CODED and Tmask take a pixel's (time, band) cube as it is
+        if pixel_mode && banded.iter().any(|c| matches!(c.tool.as_str(), "coded" | "tmask")) {
+            zeit_321.set(true);
         }
     }
 
@@ -1007,7 +1017,7 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
     // (the result's variable, the file's stem) of every map a run writes
     let mut saves: Vec<(String, String)> = vec![];
     let mut tool_code = Code::default();
-    let mut used: Vec<&str> = vec![];
+    let mut used: Vec<String> = vec![];
     for (k, item) in sequence.iter().enumerate() {
         let i = match item {
             Ok(i) => *i,
@@ -1018,10 +1028,24 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
             }
         };
         let (name, _, call) = &calls[i];
+        let tweaked;
+        let call = if call.inputs.contains(&"bands_cube") {
+            let mut c = call.clone();
+            if let Some(q) = &qa_arg {
+                c = c.with_arg("qa", q.as_deref());
+            }
+            if let Some(v) = &scale_arg {
+                c = c.with_arg("scale", Some(v));
+            }
+            tweaked = c;
+            &tweaked
+        } else {
+            call
+        };
         let step = spec.chain.get(k);
         // the variables of a chain's step are named by its tool, and by its place if the tool comes again
         let repeats = used.iter().filter(|t| **t == call.tool).count();
-        used.push(call.tool.as_str());
+        used.push(call.tool.clone());
         let prefix = match (step, many) {
             (Some(_), _) if repeats > 0 => format!("{}{}_", call.tool, repeats + 1),
             (Some(_), _) | (None, true) => format!("{}_", call.tool),
@@ -1105,8 +1129,15 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
         spec.version,
         if run { "on" } else { "of" },
         spec.name,
-        // what `load_raster` and the indices gained in Zeit 3.2: scale=, qa=, bands=, window=, pixel=, nd
-        if new_zeit.get() { "\"zeit-cdts>=3.2\"" } else { "zeit-cdts" }
+        // what `load_raster` and the indices gained in Zeit 3.2: scale=, qa=, bands=, window=, pixel=, nd; and in 3.2.1
+        // what the pin's code did by hand
+        if zeit_321.get() {
+            "\"zeit-cdts>=3.2.1\""
+        } else if new_zeit.get() {
+            "\"zeit-cdts>=3.2\""
+        } else {
+            "zeit-cdts"
+        }
     ));
     if text.contains("np.") {
         c.line("import numpy as np");

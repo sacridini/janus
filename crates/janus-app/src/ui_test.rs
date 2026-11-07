@@ -930,7 +930,10 @@ impl State {
                 if v.len() != pin.values.len() {
                     return fail("the CCDC code should read the pin's dates");
                 }
-                if !code.contains("zeit.ccdc(") || !code.contains("qa=fmask") || !code.contains("zeit.load_raster(") {
+                if !code.contains("zeit.ccdc(")
+                    || !code.contains("qa=zeit.qa_to_fmask(")
+                    || !code.contains("zeit.load_raster(")
+                {
                     return fail("the code should read the bands with Zeit and call zeit.ccdc with their Fmask codes");
                 }
                 println!("    CCDC: the bands by role in reflectance x 10000 and the Fmask codes; zeit.ccdc ran");

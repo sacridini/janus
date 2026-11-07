@@ -163,31 +163,22 @@
     <div role="tabpanel" id="pp-sccd-python" aria-labelledby="pt-sccd-python" class="pytabs-panel">
       <p class="pytabs-h">In Python</p>
       <div class="pycode"><pre class="code py" tabindex="0"><code><span class="s">"""Janus 1.17.0 (2026-11-07): pin 1 of landsat, reproduced outside Janus with Zeit.
-Needs: pip install "zeit-cdts&gt;=3.2"
+Needs: pip install "zeit-cdts&gt;=3.2.1"
 """</span>
-<span class="k">import</span> xarray <span class="k">as</span> xr
 <span class="k">import</span> zeit
 
 <span class="c"># Pin 1: column 378, row 778 of the files, its centre at x -63.3251555, y -10.1842055 (EPSG:4326)</span>
 src = <span class="s">"landsat"</span>
 qa = zeit.load_raster(src, band=<span class="n">7</span>, masked=<span class="k">True</span>, pixel=(<span class="n">378</span>, <span class="n">778</span>))  <span class="c"># QA_PIXEL</span>
-order = [<span class="s">"blue"</span>, <span class="s">"green"</span>, <span class="s">"red"</span>, <span class="s">"nir"</span>, <span class="s">"swir1"</span>, <span class="s">"swir2"</span>]
 bands_cube = zeit.load_raster(
     src, bands={<span class="s">"blue"</span>: <span class="n">1</span>, <span class="s">"green"</span>: <span class="n">2</span>, <span class="s">"red"</span>: <span class="n">3</span>, <span class="s">"nir"</span>: <span class="n">4</span>, <span class="s">"swir1"</span>: <span class="n">5</span>, <span class="s">"swir2"</span>: <span class="n">6</span>}, scale=<span class="k">True</span>,
     masked=<span class="k">True</span>, pixel=(<span class="n">378</span>, <span class="n">778</span>)
 )
-<span class="c"># Zeit takes reflectance x 10000: Janus tells the units by the median (&lt;= 2: 0-1; &gt;= 6500: Landsat Collection 2 digital numbers)</span>
-median = float(bands_cube.median())
-bands_cube = bands_cube * <span class="n">10000</span> <span class="k">if</span> median &lt;= <span class="n">2</span> <span class="k">else</span> (bands_cube * <span class="n">2.75e-05</span> - <span class="n">0.2</span>) * <span class="n">10000</span> <span class="k">if</span> median &gt;= <span class="n">6500</span> <span class="k">else</span> bands_cube
-complete = bands_cube.notnull().all(<span class="s">"band"</span>)  <span class="c"># a date missing a band is no observation</span>
-c = qa.fillna(<span class="n">0</span>).astype(<span class="s">"int64"</span>)
-fmask = xr.where((c &amp; <span class="n">1</span>) &gt; <span class="n">0</span>, <span class="n">255</span>, xr.where((c &amp; <span class="n">10</span>) &gt; <span class="n">0</span>, <span class="n">4</span>, xr.where((c &amp; <span class="n">16</span>) &gt; <span class="n">0</span>, <span class="n">2</span>, xr.where((c &amp; <span class="n">32</span>) &gt; <span class="n">0</span>, <span class="n">3</span>, xr.where((c &amp; <span class="n">128</span>) &gt; <span class="n">0</span>, <span class="n">1</span>, <span class="n">0</span>)))))  <span class="c"># Landsat C2 QA_PIXEL bits as Fmask codes: 0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 none</span>
-fmask = fmask.where((qa &gt;= <span class="n">0</span>) &amp; complete, <span class="n">255</span>)
-result = zeit.sccd(bands_cube.sel(band=[b <span class="k">for</span> b <span class="k">in</span> order <span class="k">if</span> b != <span class="s">'thermal'</span>]), qa=fmask)
+result = zeit.sccd(bands_cube, qa=zeit.qa_to_fmask(qa, <span class="s">"landsat_c2"</span>), scale=<span class="s">'auto'</span>)
 
 print(result)
 </code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/sccd.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/sccd.py" download="sccd.py">Download .py</a></div></div>
-      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit: the script asks for <code>pip install "zeit-cdts&gt;=3.2"</code>. Copy and Download give the same script, with the file&rsquo;s name as it is here (put the script beside your data).</p>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit: the header of the script says which Zeit it needs (<code>pip install zeit-cdts</code>, version 3.2 or later; 3.2.1 for CCDC, CODED and S-CCD). Copy and Download give the same script, with the file&rsquo;s name as it is here (put the script beside your data).</p>
     </div>
   </div>
 </div>

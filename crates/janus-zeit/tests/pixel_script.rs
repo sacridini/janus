@@ -214,8 +214,10 @@ fn a_band_of_a_date_that_is_not_the_first_is_read_for_every_date_in_a_stack() {
     println!("{code}");
     assert!(code.contains("cube = zeit.load_raster("), "{code}");
     assert!(code.contains("cube.isel(band=[0, 1, 2, 3, 4, 5])"), "the bands are those of each date:\n{code}");
-    assert!(code.contains("result = zeit.ccdc(") && code.contains("qa=fmask"), "{code}");
-    assert!(code.contains("fillna(0)"), "{code}");
+    // Zeit's own codes, units and missing bands: no cascade, no median, no fillna
+    assert!(code.contains("qa=zeit.qa_to_fmask(qa, \"landsat_c2\"), scale='auto'"), "{code}");
+    assert!(!code.contains("fillna") && !code.contains("median") && !code.contains("complete"), "{code}");
+    assert!(code.contains("zeit-cdts>=3.2.1"), "{code}");
     run_script(&code, "stack-ccdc"); // three dates: no segment, but the shapes of the pixel's cube are Zeit's
     // the folder of the same dates gives the same bands, read file by file
     let f = landsat_folder("stack-folder");
@@ -223,8 +225,17 @@ fn a_band_of_a_date_that_is_not_the_first_is_read_for_every_date_in_a_stack() {
     let code = script(&info, pin(1, 1), &[tool("ccdc")]);
     let roles = "bands={\"blue\": 1, \"green\": 2, \"red\": 3, \"nir\": 4, \"swir1\": 5, \"swir2\": 6}";
     assert!(code.contains(roles), "{code}");
-    assert!(code.contains("qa = zeit.load_raster(src, band=7") && code.contains("c & 1"), "{code}");
+    assert!(code.contains("qa = zeit.load_raster(src, band=7") && code.contains("zeit.qa_to_fmask("), "{code}");
     run_script(&code, "folder-ccdc");
+    // digital numbers without a scale in the files may be Landsat's (Zeit's auto does not tell them): the units are
+    // tested in the script, as Janus does
+    let bare = d.join("bare.tif");
+    write(&bare, &bands, &names, 1.0, 0.0);
+    std::fs::write(d.join("bare_dates.csv"), format!("Date\n{}\n", DATES.join("\n"))).unwrap();
+    let info = open(&[bare], &BandSelection { band: 4, nd_band: 3, ..Default::default() });
+    let code = script(&info, pin(1, 1), &[tool("ccdc")]);
+    assert!(code.contains("median = float(") && code.contains("2.75e-05") && !code.contains("scale='auto'"), "{code}");
+    run_script(&code, "bare-ccdc");
 }
 
 #[test]

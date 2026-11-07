@@ -1,7 +1,6 @@
 """Janus 1.17.0 (2026-11-07): pin 1 of landsat, reproduced outside Janus with Zeit.
-Needs: pip install "zeit-cdts>=3.2"
+Needs: pip install "zeit-cdts>=3.2.1"
 """
-import xarray as xr
 import zeit
 
 # Pin 1: column 896, row 186 of the files, its centre at x -63.1191015, y -10.1301365 (EPSG:4326)
@@ -11,14 +10,6 @@ bands_cube = zeit.load_raster(
     src, bands={"blue": 1, "green": 2, "red": 3, "nir": 4, "swir1": 5, "swir2": 6}, scale=True,
     masked=True, pixel=(896, 186)
 )
-# Zeit takes reflectance x 10000: Janus tells the units by the median (<= 2: 0-1; >= 6500: Landsat Collection 2 digital numbers)
-median = float(bands_cube.median())
-bands_cube = bands_cube * 10000 if median <= 2 else (bands_cube * 2.75e-05 - 0.2) * 10000 if median >= 6500 else bands_cube
-complete = bands_cube.notnull().all("band")  # a date missing a band is no observation
-c = qa.fillna(0).astype("int64")
-fmask = xr.where((c & 1) > 0, 255, xr.where((c & 10) > 0, 4, xr.where((c & 16) > 0, 2, xr.where((c & 32) > 0, 3, xr.where((c & 128) > 0, 1, 0)))))  # Landsat C2 QA_PIXEL bits as Fmask codes: 0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 none
-fmask = fmask.where(qa >= 0, 255).where(complete, 4)  # no code: 255; a band missing: a cloud
-bands_cube = bands_cube.fillna(0)  # CCDC reads a missing value as one out of its valid range
-result = zeit.ccdc(bands_cube, qa=fmask, max_segments=8)
+result = zeit.ccdc(bands_cube, qa=zeit.qa_to_fmask(qa, "landsat_c2"), scale='auto', max_segments=8)
 
 print(result)
