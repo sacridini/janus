@@ -10,20 +10,31 @@
 //! angle bands once over the whole window first (`scene_means`, strip by strip, the sums and counts added) and gives
 //! the means to every strip through the context's model. Without them (a pixel run, the estimate's samples) the
 //! mean is that of the chunk itself: a pixel's own solar zenith.
+//!
+//! With `angles = "sentinel2"` the four angles are not bands: they are computed from each date's granule metadata
+//! (`MTD_TL.xml`, `s2angles`, as Zeit's `zeit.sentinel2_angles` gives them, in degrees) over the window of the chunk,
+//! and enter the chunk as the bands `sza`, `saa`, `vza` and `vaa` (`Inputs::read` for a raster run, `pixel` for a
+//! pixel run), so the rest is the same.
 
 use serde_json::Value;
 use zeit_core::brdf::{Geometry, ROLES, RossLi, nbar_bands, role};
 
 use crate::bands::series_overlay;
+use crate::granules::Angles;
 use crate::job::{Chunk, ChunkOut, Inputs, JobCtx, JobSpec};
 use crate::pixel::{Params, PixelInput, PixelResult, g, row};
 
 /// The angle bands' roles, in the order of the core's geometry.
 pub const ANGLES: [&str; 4] = ["sza", "saa", "vza", "vaa"];
 
+/// Whether the angles come from Sentinel-2's granule metadata (in degrees) rather than from bands of the series.
+pub(crate) fn sentinel2(p: &Params) -> bool {
+    p.str("angles") == "sentinel2"
+}
+
 /// The factor that takes the angle bands' values to degrees.
 fn angle_scale(p: &Params) -> f64 {
-    if p.str("angle_scale") == "hundredths" { 0.01 } else { 1.0 }
+    if !sentinel2(p) && p.str("angle_scale") == "hundredths" { 0.01 } else { 1.0 }
 }
 
 /// The roles with parameters among those mapped, in the core's order.
@@ -34,12 +45,17 @@ fn reflectance_roles<'a>(mapped: impl Iterator<Item = &'a String> + Clone) -> Ve
 /// What is mapped and asked for, checked: the bands to normalize (the core's order), or why the tool cannot run.
 fn plan<'a>(p: &Params, mapped: impl Iterator<Item = &'a String> + Clone) -> Result<Vec<&'static str>, String> {
     let missing: Vec<&str> = ANGLES.iter().copied().filter(|a| !mapped.clone().any(|m| m == a)).collect();
-    if !missing.is_empty() {
+    // the angles of Sentinel-2's metadata are not mapped: they are made when the chunk is read
+    if !sentinel2(p) && !missing.is_empty() {
         return Err(format!("map the angle bands first: {}", missing.join(", ")));
     }
     let roles = reflectance_roles(mapped);
     if roles.is_empty() {
         return Err(format!("map at least one band to normalize ({})", ROLES.join(", ")));
+    }
+    match p.str("angles") {
+        "bands" | "sentinel2" | "" => {}
+        a => return Err(format!("angles must be 'bands' or 'sentinel2', got {a:?}")),
     }
     match p.str("sza") {
         "scene" => {}
@@ -172,7 +188,37 @@ fn compute(p: &Params, chunk: &Chunk, ctx: &JobCtx, with_c: bool) -> Result<Comp
     Ok(Computed { roles, nbar, cfactor, sza: sza_norm })
 }
 
+/// A pixel's input with its angles from the granule metadata of its dates as the bands `sza`, `saa`, `vza`, `vaa`.
+fn with_sentinel2_angles(p: &Params, input: &PixelInput) -> Result<PixelInput, String> {
+    let site = input.site.as_ref().ok_or("the pixel's place on the series' grid is not known")?;
+    let t = input.values.len();
+    let angles =
+        Angles::new(&input.granules, input.days.as_deref(), t, p.str("view_band"), &site.crs_wkt, site.geotransform)?;
+    let mut planes = vec![vec![f64::NAN; t]; ANGLES.len()];
+    for k in 0..t {
+        let a = angles.block(k, [site.col, site.row, 1, 1])?;
+        for (plane, a) in planes.iter_mut().zip(&a) {
+            plane[k] = f64::from(a[0]);
+        }
+    }
+    let mut out = input.clone();
+    out.bands.extend(ANGLES.iter().map(|a| a.to_string()).zip(planes));
+    Ok(out)
+}
+
 pub fn pixel(p: &Params, input: &PixelInput) -> Result<PixelResult, String> {
+    let with_angles;
+    let input = if sentinel2(p) {
+        match with_sentinel2_angles(p, input) {
+            Ok(i) => {
+                with_angles = i;
+                &with_angles
+            }
+            Err(why) => return Ok(PixelResult { overlays: vec![], rows: vec![row("NBAR", why)] }),
+        }
+    } else {
+        input
+    };
     if let Err(why) = plan(p, input.bands.keys()) {
         return Ok(PixelResult { overlays: vec![], rows: vec![row("NBAR", why)] });
     }

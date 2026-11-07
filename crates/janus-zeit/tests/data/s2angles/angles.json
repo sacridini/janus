@@ -1,0 +1,157 @@
+{
+ "cases": [
+  {
+   "name": "utm10m",
+   "epsg": 32723,
+   "origin": [
+    245992.0,
+    8269015.0
+   ],
+   "pixel": [
+    10.0,
+    10.0
+   ],
+   "size": [
+    300,
+    200
+   ],
+   "sources": [
+    "s2_23LKC_20230723_MTD_TL.xml"
+   ],
+   "date": "2023-07-23",
+   "file": "utm10m.f32"
+  },
+  {
+   "name": "utm250m",
+   "epsg": 32723,
+   "origin": [
+    205110.0,
+    8295950.0
+   ],
+   "pixel": [
+    250.0,
+    250.0
+   ],
+   "size": [
+    160,
+    120
+   ],
+   "sources": [
+    "s2_23LKC_20230723_MTD_TL.xml"
+   ],
+   "date": "2023-07-23",
+   "file": "utm250m.f32"
+  },
+  {
+   "name": "utm24s",
+   "epsg": 32724,
+   "origin": [
+    -404117.0,
+    8240772.0
+   ],
+   "pixel": [
+    250.0,
+    250.0
+   ],
+   "size": [
+    112,
+    96
+   ],
+   "sources": [
+    "s2_23LKC_20230723_MTD_TL.xml"
+   ],
+   "date": "2023-07-23",
+   "file": "utm24s.f32"
+  },
+  {
+   "name": "wgs84",
+   "epsg": 4326,
+   "origin": [
+    -47.41892205105929,
+    -15.750830778109028
+   ],
+   "pixel": [
+    0.002,
+    0.002
+   ],
+   "size": [
+    130,
+    100
+   ],
+   "sources": [
+    "s2_23LKC_20230723_MTD_TL.xml"
+   ],
+   "date": "2023-07-23",
+   "file": "wgs84.f32"
+  },
+  {
+   "name": "partial",
+   "epsg": 32723,
+   "origin": [
+    200990.0,
+    8298000.0
+   ],
+   "pixel": [
+    250.0,
+    250.0
+   ],
+   "size": [
+    120,
+    100
+   ],
+   "sources": [
+    "s2_23LKC_20230726_partial_MTD_TL.xml"
+   ],
+   "date": "2023-07-26",
+   "file": "partial.f32"
+  },
+  {
+   "name": "two_partial_first",
+   "epsg": 32723,
+   "origin": [
+    202990.0,
+    8295000.0
+   ],
+   "pixel": [
+    250.0,
+    250.0
+   ],
+   "size": [
+    160,
+    120
+   ],
+   "sources": [
+    [
+     "s2_23LKC_20230726_partial_MTD_TL.xml (sensing time moved to 2023-07-23)",
+     "s2_23LKC_20230723_MTD_TL.xml"
+    ]
+   ],
+   "date": "2023-07-23",
+   "file": "two_partial_first.f32"
+  },
+  {
+   "name": "two_full_first",
+   "epsg": 32723,
+   "origin": [
+    202990.0,
+    8295000.0
+   ],
+   "pixel": [
+    250.0,
+    250.0
+   ],
+   "size": [
+    160,
+    120
+   ],
+   "sources": [
+    [
+     "s2_23LKC_20230723_MTD_TL.xml",
+     "s2_23LKC_20230726_partial_MTD_TL.xml (sensing time moved to 2023-07-23)"
+    ]
+   ],
+   "date": "2023-07-23",
+   "file": "two_full_first.f32"
+  }
+ ]
+}

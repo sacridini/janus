@@ -4529,17 +4529,15 @@
    "id": "nbar",
    "name": "NBAR (c-factor)",
    "category": "Data preparation",
-   "description": "Nadir BRDF-adjusted reflectance (Zeit's zeit.nbar: the c-factor method of Roy et al. 2016 and 2017, as in FORCE and HLS): each band is multiplied by the ratio of the Ross-Thick / Li-Sparse-Reciprocal model of MODIS (three fixed parameters per band) at nadir view and a normalized solar zenith to the model at the pixel's own sun and view angles, so that dates seen under different sun and view geometries become comparable. Map the bands to normalize (any of coastal, blue, green, red, red edge 1-3, NIR (Sentinel-2's B08), NIR narrow (B8A, OLI's band 5), SWIR1, SWIR2; at least one) and the four angle bands of each date (sza, saa, vza, vaa: solar and view zenith and azimuth, e.g. Landsat Collection 2's SZA, SAA, VZA and VAA bands, or angle rasters stacked with the bands). Reflectance, not digital numbers with an offset; the result is in the units of the input. A pixel with a zenith outside 0-90 degrees or an angle without a value is missing. Not for snow (the parameters are MODIS's snow-free ones), and not for HLS, which is already NBAR. A raster run writes one series per band (and per c-factor, if asked) and opens each as a new layer.",
+   "description": "Nadir BRDF-adjusted reflectance (Zeit's zeit.nbar: the c-factor method of Roy et al. 2016 and 2017, as in FORCE and HLS): each band is multiplied by the ratio of the Ross-Thick / Li-Sparse-Reciprocal model of MODIS (three fixed parameters per band) at nadir view and a normalized solar zenith to the model at the pixel's own sun and view angles, so that dates seen under different sun and view geometries become comparable. Map the bands to normalize (any of coastal, blue, green, red, red edge 1-3, NIR (Sentinel-2's B08), NIR narrow (B8A, OLI's band 5), SWIR1, SWIR2; at least one) and, unless the angles come from Sentinel-2's metadata, the four angle bands of each date (sza, saa, vza, vaa: solar and view zenith and azimuth, e.g. Landsat Collection 2's SZA, SAA, VZA and VAA bands, or angle rasters stacked with the bands). For Sentinel-2 the angles can instead be read from each date's granule metadata (MTD_TL.xml: the 5 km grids of ESA, interpolated to the pixels as Zeit's zeit.sentinel2_angles does, with the view angles of one band for all, B06 as HLS), found in the STAC items the series was made from or beside the Sentinel-2 product's files. Reflectance, not digital numbers with an offset; the result is in the units of the input. A pixel with a zenith outside 0-90 degrees or an angle without a value is missing. Not for snow (the parameters are MODIS's snow-free ones), and not for HLS, which is already NBAR. A raster run writes one series per band (and per c-factor, if asked) and opens each as a new layer.",
    "requires": {
     "time": "any",
     "min_dates": 1,
-    "bands": [
+    "optional_bands": [
      "sza",
      "saa",
      "vza",
-     "vaa"
-    ],
-    "optional_bands": [
+     "vaa",
      "coastal",
      "blue",
      "green",
@@ -4558,6 +4556,43 @@
     "raster"
    ],
    "params": [
+    {
+     "id": "angles",
+     "label": "Sun and view angles from",
+     "type": "enum",
+     "default": "bands",
+     "options": [
+      "bands",
+      "sentinel2"
+     ],
+     "labels": [
+      "The four angle bands of each date (sza, saa, vza, vaa)",
+      "Sentinel-2 granule metadata (MTD_TL.xml)"
+     ],
+     "help": "Where the angles of each pixel come from. The angle bands: four bands of each date's file, mapped by role (Landsat Collection 2, HLS). Sentinel-2 granule metadata: ESA's 5 km grids of the tile (the sun's zenith and azimuth, the view zenith and azimuth of each band and detector) read from each date's MTD_TL.xml, the detectors of a band fused, interpolated bilinearly to the pixels (Roy et al. 2017) as Zeit's zeit.sentinel2_angles does; the files are found from the STAC items the series was made from (its VRTs record them) or from the Sentinel-2 product a date's file is in (.SAFE/GRANULE/.../MTD_TL.xml, or an MTD_TL.xml beside the file); a date without metadata stops the run. The angle bands are then not needed and the unit parameter is not used (the grids are in degrees)."
+    },
+    {
+     "id": "view_band",
+     "label": "Sentinel-2 view band",
+     "type": "enum",
+     "default": "B06",
+     "options": [
+      "B01",
+      "B02",
+      "B03",
+      "B04",
+      "B05",
+      "B06",
+      "B07",
+      "B08",
+      "B8A",
+      "B09",
+      "B10",
+      "B11",
+      "B12"
+     ],
+     "help": "Only with the angles from Sentinel-2's metadata: the band whose view zenith and azimuth every band takes. B06 (the second red edge band) is HLS's choice (User Guide, Sec. 6.3): one view geometry for all bands, the detectors' offsets between bands being up to a fraction of a degree."
+    },
     {
      "id": "sza",
      "label": "Normalized solar zenith",
@@ -4595,7 +4630,7 @@
       "Degrees",
       "Hundredths of a degree (Landsat Collection 2, HLS)"
      ],
-     "help": "The unit of the four angle bands. Landsat Collection 2's SZA, SAA, VZA and VAA bands and HLS's store hundredths of a degree (integers; 3025 is 30.25 degrees); angles from Sentinel-2's tile metadata are in degrees. With hundredths read as degrees every pixel is missing (zeniths of thousands of degrees); with degrees read as hundredths the angles are nearly zero and the result is wrong without a warning."
+     "help": "Only with the angles from bands. The unit of the four angle bands. Landsat Collection 2's SZA, SAA, VZA and VAA bands and HLS's store hundredths of a degree (integers; 3025 is 30.25 degrees); angles from Sentinel-2's tile metadata are in degrees. With hundredths read as degrees every pixel is missing (zeniths of thousands of degrees); with degrees read as hundredths the angles are nearly zero and the result is wrong without a warning."
     },
     {
      "id": "cfactor",

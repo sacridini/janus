@@ -212,6 +212,7 @@ impl State {
                     values: values.iter().map(|&v| f64::from(v)).collect(),
                     bands: roles,
                     sensors: crate::zeit::sensors_for(&id, &info),
+                    granules: crate::zeit::granules_of(&id, &params, &info),
                     ..Default::default()
                 };
                 let (code, inputs) = janus_zeit::python::calls(&id, &params, &input)?;
@@ -360,7 +361,26 @@ if y.size >= 2:
                 }
                 o += "fmask = fmask_codes.astype(np.int32)[:, None, None]\n";
             }
-            if inputs.contains(&"nbar_cube") {
+            if inputs.contains(&"nbar_cube")
+                && tool_calls.iter().any(|c| c.1.contains(SENTINEL2_ANGLES))
+                && view.is_some()
+            {
+                // the angles from Sentinel-2's metadata: no angle bands, the cube placed on the files' grid
+                let roles: Vec<String> = self.zeit.roles.iter().map(|(r, b)| format!("{}: {b}", py_str(r))).collect();
+                let _ = writeln!(
+                    o,
+                    "# The bands to normalize by role (bands of each date's file); the angles come from the metadata.\n\
+                     roles = {{{}}}\n\
+                     bands = [r for r in {NBAR_ROLES} if r in roles]\n\
+                     raw = {{r: np.array([read(layer[0], roles[r], Window(col, row, 1, 1))[0, 0] for layer in layers])\n       \
+                     for r in bands}}\n{}\
+                     nbar_cube = xr.DataArray(np.stack([raw[r] for r in bands], axis=1)[:, :, None, None],\n                          \
+                     dims=(\"time\", \"band\", \"y\", \"x\"),\n                          \
+                     coords={{\"time\": {time}, \"band\": bands, \"y\": y, \"x\": x}}).rio.write_crs(crs)",
+                    roles.join(", "),
+                    grid_lines(&info, "np.array([col])", "np.array([row])")
+                );
+            } else if inputs.contains(&"nbar_cube") {
                 let roles: Vec<String> = self.zeit.roles.iter().map(|(r, b)| format!("{}: {b}", py_str(r))).collect();
                 let _ = writeln!(
                     o,
@@ -453,6 +473,23 @@ if y.size >= 2:
     }
 }
 
+/// What marks the Copy Python of NBAR with the angles from Sentinel-2's metadata.
+const SENTINEL2_ANGLES: &str = "zeit.sentinel2_angles";
+
+/// The lines that give a cube its place (`zeit.sentinel2_angles` puts the angles on the cube's CRS and pixel centres):
+/// the files' geotransform, the centres of the columns and rows given (numpy expressions) and the CRS.
+fn grid_lines(info: &janus_cube::CubeInfo, cols: &str, rows: &str) -> String {
+    let gt = info.geo_transform.unwrap_or([0.0, 1.0, 0.0, 0.0, 0.0, -1.0]);
+    let gt: Vec<String> = gt.iter().map(|&v| num(v)).collect();
+    format!(
+        "import rioxarray  # noqa: F401 (the .rio accessor)\n\
+         # The cube's place: the files' CRS and the pixel centres of the cells read.\n\
+         crs = {}\ngt = ({})\nx = gt[0] + ({cols} + 0.5) * gt[1]\ny = gt[3] + ({rows} + 0.5) * gt[5]\n",
+        py_str(&info.crs_wkt),
+        gt.join(", ")
+    )
+}
+
 /// The roles NBAR normalizes (zeit-core's), as a Python tuple.
 const NBAR_ROLES: &str = "(\"coastal\", \"blue\", \"green\", \"red\", \"rededge1\", \"rededge2\", \"rededge3\", \"nir\", \"nir08\", \
                           \"swir1\", \"swir2\")";
@@ -503,6 +540,7 @@ pub(crate) fn tool_calls(
         values: vec![0.0; t_n],
         bands: roles.keys().map(|r| (r.clone(), vec![])).collect(),
         sensors: crate::zeit::sensors_for(&tool.id, info),
+        granules: crate::zeit::granules_of(&tool.id, &p, info),
         ..Default::default()
     };
     let (code, inputs) = janus_zeit::python::calls(&tool.id, &p, &input)
@@ -625,7 +663,22 @@ pub(crate) fn run_code(
             o += "fmask = np.where(complete, 0, 255).astype(np.int32)  # no quality band: every complete observation clear\n";
         }
     }
-    if inputs.contains(&"nbar_cube") {
+    if inputs.contains(&"nbar_cube") && code.contains(SENTINEL2_ANGLES) {
+        // the angles from Sentinel-2's metadata: no angle bands, the cube placed on the files' grid
+        let rs: Vec<String> = roles.iter().map(|(r, b)| format!("{}: {b}", py_str(r))).collect();
+        let [x0, y0, x1, y1] = window;
+        let _ = writeln!(
+            o,
+            "# The bands to normalize by role (bands of each date's file); the angles come from the metadata.\n\
+             roles = {{{}}}\n\
+             bands = [r for r in {NBAR_ROLES} if r in roles]\n\
+             raw = {{r: np.stack([read(layer[0], roles[r], window) for layer in layers]) for r in bands}}\n{}\
+             nbar_cube = xr.DataArray(np.stack([raw[r] for r in bands], axis=1), dims=(\"time\", \"band\", \"y\", \"x\"),\n                          \
+             coords={{\"time\": {time}, \"band\": bands, \"y\": y, \"x\": x}}).rio.write_crs(crs)",
+            rs.join(", "),
+            grid_lines(info, &format!("np.arange({x0}, {x1})"), &format!("np.arange({y0}, {y1})"))
+        );
+    } else if inputs.contains(&"nbar_cube") {
         let rs: Vec<String> = roles.iter().map(|(r, b)| format!("{}: {b}", py_str(r))).collect();
         let _ = writeln!(
             o,
@@ -771,29 +824,7 @@ mod tests {
         assert!(code.contains("zeit.nbar(nbar_cube, angles, sza='scene'"), "{code}");
         let script = base.join("nbar.py");
         std::fs::write(&script, code).unwrap();
-        // the PATH as an activated conda environment has it and Windows' own (the other DLLs shadow the environment's)
-        let root = Path::new(&python).parent().unwrap().to_path_buf();
-        let system = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
-        let mut path: Vec<String> = ["", "Library\\mingw-w64\\bin", "Library\\usr\\bin", "Library\\bin", "Scripts"]
-            .iter()
-            .map(|d| root.join(d).to_string_lossy().into_owned())
-            .collect();
-        path.extend([format!("{system}\\system32"), system.clone()]);
-        let run = std::process::Command::new(python)
-            .arg(&script)
-            .env_clear()
-            .envs(["SystemRoot", "TEMP", "TMP"].iter().filter_map(|k| Some((*k, std::env::var(k).ok()?))))
-            .env("PATH", path.join(";"))
-            .env("PYTHONNOUSERSITE", "1")
-            .env("OMP_NUM_THREADS", "2")
-            .output()
-            .unwrap();
-        assert!(
-            run.status.success(),
-            "{}\n{}",
-            String::from_utf8_lossy(&run.stdout),
-            String::from_utf8_lossy(&run.stderr)
-        );
+        run_python(&python, &script);
         // the script's stacks are (date, band) in the core's order; the run's files a band per date
         let (mut values, mut worst) = (0, 0f32);
         for (r, prefix) in [("result1", "nbar"), ("result2", "cfactor")] {
@@ -820,5 +851,138 @@ mod tests {
         }
         println!("{values} values of the script compared with the run's, the largest relative difference {worst:e}");
         assert!(values > 500);
+    }
+
+    /// The dates of the Sentinel-2 series below.
+    const S2_T: usize = 3;
+
+    /// A script run by the Python of JANUS_PYTHON on the PATH as an activated conda environment has it and Windows'
+    /// own (the other DLLs shadow the environment's); it must succeed.
+    fn run_python(python: &str, script: &Path) {
+        let root = Path::new(python).parent().unwrap().to_path_buf();
+        let system = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
+        let mut path: Vec<String> = ["", "Library\\mingw-w64\\bin", "Library\\usr\\bin", "Library\\bin", "Scripts"]
+            .iter()
+            .map(|d| root.join(d).to_string_lossy().into_owned())
+            .collect();
+        path.extend([format!("{system}\\system32"), system.clone()]);
+        let run = std::process::Command::new(python)
+            .arg(script)
+            .env_clear()
+            .envs(["SystemRoot", "TEMP", "TMP"].iter().filter_map(|k| Some((*k, std::env::var(k).ok()?))))
+            .env("PATH", path.join(";"))
+            .env("PYTHONNOUSERSITE", "1")
+            .env("OMP_NUM_THREADS", "2")
+            .output()
+            .unwrap();
+        assert!(
+            run.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&run.stdout),
+            String::from_utf8_lossy(&run.stderr)
+        );
+    }
+
+    /// A series of Sentinel-2 dates in tile 23LKC (UTM 23S, pixels of 1.6 km across the east edge of the partial
+    /// swath of 2023-07-26), `BANDS`-like files of three bands (no angle bands), each carrying its granule's metadata
+    /// as the VRTs of a STAC series do (the fixtures of Zeit's tests).
+    fn s2_series(dir: &Path) -> janus_cube::CubeInfo {
+        let _ = std::fs::remove_dir_all(dir);
+        std::fs::create_dir_all(dir).unwrap();
+        let drv = gdal::DriverManager::get_driver_by_name("GTiff").unwrap();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../janus-zeit/tests/data/s2angles");
+        let srs = gdal::spatial_ref::SpatialRef::from_epsg(32723).unwrap();
+        let mut rng = 99u64;
+        let mut next = move || {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (rng >> 33) as f32 / (1u64 << 31) as f32
+        };
+        for (date, xml) in [
+            ("2023-07-23", "s2_23LKC_20230723_MTD_TL.xml"),
+            ("2023-07-24", "s2_23LKC_20230723_MTD_TL.xml"),
+            ("2023-07-26", "s2_23LKC_20230726_partial_MTD_TL.xml"),
+        ] {
+            let path = dir.join(format!("s2_{date}.tif"));
+            let mut ds = drv.create_with_band_type::<f32, _>(&path, W, H, 3).unwrap();
+            ds.set_geo_transform(&[199980.0 + 12500.0, 1600.0, 0.0, 8300020.0 - 3000.0, 0.0, -1600.0]).unwrap();
+            ds.set_spatial_ref(&srs).unwrap();
+            ds.set_metadata_item("STAC_GRANULE_METADATA", &fixtures.join(xml).to_string_lossy(), "").unwrap();
+            for (b, name) in ["blue", "nir", "swir1"].iter().enumerate() {
+                let data: Vec<f32> = (0..W * H)
+                    .map(|_| if next() < 0.05 { -9999.0 } else { (0.05 + 0.4 * next()) * (b as f32 + 1.0) / 3.0 })
+                    .collect();
+                let mut band = ds.rasterband(b + 1).unwrap();
+                band.set_no_data_value(Some(-9999.0)).unwrap();
+                band.set_description(name).unwrap();
+                band.write((0, 0), (W, H), &mut gdal::raster::Buffer::new((W, H), data)).unwrap();
+            }
+        }
+        open_cube(&[dir.to_string_lossy().into_owned()], &BandSelection::default()).unwrap()
+    }
+
+    /// With the angles from Sentinel-2's metadata the spec carries each date's files (found from the files'
+    /// metadata), the run needs no angle bands, and its Copy Python (`zeit.sentinel2_angles` on the cube placed on the
+    /// files' grid, then `zeit.nbar`) run in Zeit gives the maps `run_job` wrote.
+    #[test]
+    fn the_nbar_sentinel2_script_runs_in_zeit_and_gives_the_runs_values() {
+        let Ok(python) = std::env::var("JANUS_PYTHON") else {
+            println!("skipped: JANUS_PYTHON names no Python with zeit, rasterio, rioxarray and xarray");
+            return;
+        };
+        let base = std::env::temp_dir().join("janus-nbar-s2-test-script");
+        let info = s2_series(&base.join("series"));
+        let tool = manifest().tool("nbar").unwrap();
+        let roles: BTreeMap<String, i32> =
+            ["blue", "nir", "swir1"].iter().enumerate().map(|(k, r)| (r.to_string(), k as i32 + 1)).collect();
+        let params: BTreeMap<String, Value> =
+            serde_json::from_value(json!({ "angles": "sentinel2", "view_band": "B06", "cfactor": true })).unwrap();
+        let window = [1, 1, W - 1, H - 1];
+        let mut spec = base_spec(&info, tool, &params, S2_T - 1, 2);
+        series_inputs(&info, tool, &roles, &base.join("in"), &mut spec).unwrap();
+        assert_eq!(spec.granules.len(), 3);
+        assert!(spec.granules.iter().all(|g| g.len() == 1 && g[0].ends_with("_MTD_TL.xml")), "{:?}", spec.granules);
+        spec.window = Some(window);
+        spec.output_dir = base.join("out").to_string_lossy().into_owned();
+        let result = run_job(&spec, &|_, _| {}, &AtomicBool::new(false)).unwrap();
+        let ids: Vec<&str> = result.outputs.iter().map(|o| o["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["nbar_blue", "nbar_nir", "nbar_swir1", "cfactor_blue", "cfactor_nir", "cfactor_swir1"]);
+
+        let out = base.join("python");
+        let code = super::run_code(&info, tool, &params, &roles, window, Some(2), &out.to_string_lossy()).unwrap();
+        assert!(code.contains("angles = zeit.sentinel2_angles(sources, like=nbar_cube, view_band='B06')"), "{code}");
+        assert!(
+            code.contains("MTD_TL.xml") && code.contains(".rio.write_crs(crs)") && !code.contains("angles_raw"),
+            "{code}"
+        );
+        let script = base.join("nbar.py");
+        std::fs::write(&script, code).unwrap();
+        run_python(&python, &script);
+        let (mut values, mut worst) = (0, 0f32);
+        for (r, prefix) in [("result1", "nbar"), ("result2", "cfactor")] {
+            let got = read(&out.join(format!("{r}_{r}.tif")).to_string_lossy());
+            assert_eq!(got.len(), S2_T * 3);
+            for (b, role) in ["blue", "nir", "swir1"].iter().enumerate() {
+                let id = format!("{prefix}_{role}");
+                let o = result.outputs.iter().find(|o| o["id"] == id.as_str()).unwrap();
+                let want = read(o["path"].as_str().unwrap());
+                assert_eq!(want.len(), S2_T);
+                for k in 0..S2_T {
+                    for (g, w) in got[k * 3 + b].iter().zip(&want[k]) {
+                        assert!(
+                            (g.is_nan() && w.is_nan()) || (g - w).abs() <= 1e-5 * w.abs(),
+                            "{prefix} {role} date {k}: {g} vs {w}"
+                        );
+                        if g.is_finite() {
+                            worst = worst.max((g - w).abs() / w.abs().max(1e-12));
+                            values += 1;
+                        }
+                    }
+                }
+            }
+        }
+        println!(
+            "{values} values of the Sentinel-2 script compared with the run's, the largest relative difference {worst:e}"
+        );
+        assert!(values > 300);
     }
 }

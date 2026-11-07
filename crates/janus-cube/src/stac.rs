@@ -765,6 +765,25 @@ pub fn asset_path(href: &str, planetary: bool) -> String {
     crate::gdal_path(href)
 }
 
+/// The metadata item of a date's VRT that holds the hrefs of its items' Sentinel-2 granule metadata (MTD_TL.xml),
+/// space-separated, in the order of STAC_ITEMS (items without one left out). They are the items' own hrefs;
+/// `granule_path` makes them readable.
+pub const GRANULE_METADATA: &str = "STAC_GRANULE_METADATA";
+
+/// The assets that carry a Sentinel-2 tile's MTD_TL.xml: Earth Search's, Planetary Computer's.
+const GRANULE_ASSETS: [&str; 2] = ["granule_metadata", "granule-metadata"];
+
+/// The href of an item's granule metadata, if it has one.
+pub fn granule_href(item: &Item) -> Option<&str> {
+    GRANULE_ASSETS.iter().find_map(|k| item.assets.get(*k)).map(|a| a.href.as_str()).filter(|h| !h.is_empty())
+}
+
+/// What GDAL reads a granule metadata href with: Planetary Computer's blobs through /vsiaz/ (the container's SAS is
+/// set by `sign_planetary` or `sign_vrt_inputs`), other hrefs as `asset_path` opens them, local paths as they are.
+pub fn granule_path(href: &str) -> String {
+    asset_path(href, true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -904,6 +923,25 @@ mod tests {
             "/vsiaz/sentinel2-l2/20/B04.tif"
         );
         assert_eq!(asset_path("https://h/x/B04.tif", false), "/vsicurl/https://h/x/B04.tif");
+    }
+
+    /// The granule metadata of Earth Search and Planetary Computer items, and what GDAL reads their hrefs with.
+    #[test]
+    fn granule_metadata_hrefs() {
+        let mut f = feature();
+        f["assets"]["granule_metadata"] =
+            json!({"href": "https://h/x/metadata.xml", "type": "application/xml", "roles": ["metadata"]});
+        let it = parse_item(&f).unwrap();
+        assert_eq!(granule_href(&it), Some("https://h/x/metadata.xml"));
+        f["assets"].as_object_mut().unwrap().remove("granule_metadata");
+        f["assets"]["granule-metadata"] = json!({"href": "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/23/L/KC/MTD_TL.xml", "type": "application/xml"});
+        let it = parse_item(&f).unwrap();
+        assert_eq!(granule_path(granule_href(&it).unwrap()), "/vsiaz/sentinel2-l2/23/L/KC/MTD_TL.xml");
+        assert_eq!(granule_path("https://h/x/metadata.xml"), "/vsicurl/https://h/x/metadata.xml");
+        assert_eq!(granule_path("s3://b/k/metadata.xml"), "/vsis3/b/k/metadata.xml");
+        assert_eq!(granule_path("C:\\data\\MTD_TL.xml"), "C:\\data\\MTD_TL.xml");
+        f["assets"].as_object_mut().unwrap().remove("granule-metadata");
+        assert_eq!(granule_href(&parse_item(&f).unwrap()), None);
     }
 
     /// Sentinel-1 RTC: its passes read, the most frequent first; the polarizations named as such; shown in dB.

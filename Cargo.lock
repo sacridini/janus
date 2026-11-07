@@ -4761,6 +4761,7 @@ dependencies = [
  "gdal-sys",
  "geographiclib-rs",
  "janus-cube",
+ "quick-xml",
  "rayon",
  "serde",
  "serde_json",

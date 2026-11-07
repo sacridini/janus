@@ -16,7 +16,9 @@ use gdal::Metadata;
 use gdal::spatial_ref::{AxisMappingStrategy, CoordTransform, SpatialRef};
 
 use crate::QaRule;
-use crate::stac::{Asset, BandChoice, Item, SAS_METADATA, asset_path, azure_blob, group_by_day};
+use crate::stac::{
+    Asset, BandChoice, GRANULE_METADATA, Item, SAS_METADATA, asset_path, azure_blob, granule_href, group_by_day,
+};
 
 /// The grid of one asset: its CRS ("EPSG:n" or WKT), geotransform, size, data type, nodata.
 #[derive(Clone, Debug, PartialEq)]
@@ -394,10 +396,21 @@ pub fn build(spec: &BuildSpec, progress: &dyn Fn(f64, &str), cancel: &AtomicBool
             xml_escape(&spec.items[g.items[0]].collection),
             xml_escape(&ids.join(" "))
         );
+        // Sentinel-2's angles come from the granules' metadata: their hrefs, as the items give them
+        let granules: Vec<&str> = order.iter().filter_map(|&i| granule_href(&spec.items[i])).collect();
+        if !granules.is_empty() {
+            let _ = writeln!(x, "    <MDI key=\"{GRANULE_METADATA}\">{}</MDI>", xml_escape(&granules.join(" ")));
+        }
         if spec.planetary {
             let mut lines: Vec<String> = Vec::new();
             for &i in &order {
                 let it = &spec.items[i];
+                if let Some((acc, cont, _)) = granule_href(it).and_then(azure_blob) {
+                    let l = format!("{} {acc} {cont}", it.collection);
+                    if !lines.contains(&l) {
+                        lines.push(l);
+                    }
+                }
                 for b in &spec.bands {
                     if let Some((acc, cont, _)) = it.assets.get(&b.key).and_then(|a| azure_blob(&a.href)) {
                         let l = format!("{} {acc} {cont}", it.collection);
@@ -720,5 +733,71 @@ mod tests {
         let away = Geom { gt: [0.0, 10.0, 0.0, 0.0, 0.0, -10.0], ..b20 };
         assert!(source_window(&away, &g).is_none());
         assert!(grid_over([0.0, 0.0, 1e7, 1e7], "EPSG:32720", 10.0, &like).is_err());
+    }
+
+    /// An item of Sentinel-2 L2A on a 100 x 100 grid of 10 m (STAC says the grid, so no file is read).
+    fn s2_item(id: &str, day: i64, cloud: f64, meta: Option<(&str, &str)>) -> Item {
+        let asset = |href: &str| Asset {
+            href: href.into(),
+            media: "image/tiff; application=geotiff".into(),
+            data_type: Some("UInt16".into()),
+            ..Default::default()
+        };
+        let mut assets = std::collections::BTreeMap::from([("red".to_string(), asset("/data/red.tif"))]);
+        if let Some((key, href)) = meta {
+            assets
+                .insert(key.into(), Asset { href: href.into(), media: "application/xml".into(), ..Default::default() });
+        }
+        Item {
+            id: id.into(),
+            collection: "sentinel-2-l2a".into(),
+            time: day as f64 * 86400.0 + 50000.0,
+            cloud: Some(cloud),
+            tile: "23LKC".into(),
+            crs: Some("EPSG:32723".into()),
+            shape: Some([100, 100]),
+            gt: Some([200000.0, 10.0, 0.0, 8300000.0, 0.0, -10.0]),
+            assets,
+            ..Default::default()
+        }
+    }
+
+    /// A date's VRT records the hrefs of its items' granule metadata (Earth Search's `granule_metadata`, Planetary
+    /// Computer's `granule-metadata`) in the order of STAC_ITEMS, and only those items that have one.
+    #[test]
+    fn a_date_records_its_items_granule_metadata() {
+        let dir = std::env::temp_dir().join("janus-cube-test-granule-vrt");
+        let _ = std::fs::remove_dir_all(&dir);
+        let day = 19561;
+        let a = "https://roda.sentinel-hub.com/sentinel-s2-l2a/tiles/23/L/KC/2023/7/23/0/metadata.xml";
+        let b = "https://sentinel2l2a01.blob.core.windows.net/sentinel2-l2/23/L/KC/2023/07/23/MTD_TL.xml";
+        let items = vec![
+            s2_item("S2A_23LKC_20230723_0_L2A", day, 5.0, Some(("granule_metadata", a))),
+            s2_item("S2B_23LKC_20230723_0_L2A", day, 40.0, Some(("granule-metadata", b))),
+            s2_item("S2A_23LKC_20230728_0_L2A", day + 5, 1.0, None),
+        ];
+        let band =
+            BandChoice { key: "red".into(), label: "Red (B04)".into(), wavelength_nm: None, quality: QaRule::None };
+        let spec = BuildSpec {
+            items,
+            bands: vec![band],
+            bbox: [-46.4, -21.9, -46.3, -21.8],
+            res: None,
+            dir: dir.clone(),
+            planetary: false,
+        };
+        let built = build(&spec, &|_, _| {}, &AtomicBool::new(false)).unwrap();
+        assert_eq!(built.files.len(), 2);
+        let (first, second) =
+            (gdal::Dataset::open(&built.files[0]).unwrap(), gdal::Dataset::open(&built.files[1]).unwrap());
+        // the clearest item last, as the VRT draws them
+        assert_eq!(
+            first.metadata_item("STAC_ITEMS", "").as_deref(),
+            Some("S2B_23LKC_20230723_0_L2A S2A_23LKC_20230723_0_L2A")
+        );
+        assert_eq!(first.metadata_item(GRANULE_METADATA, "").as_deref(), Some(format!("{b} {a}").as_str()));
+        // a date whose item has no granule metadata records none
+        assert_eq!(second.metadata_item(GRANULE_METADATA, ""), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

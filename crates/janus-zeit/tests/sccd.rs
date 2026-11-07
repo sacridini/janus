@@ -101,6 +101,7 @@ fn pixel_input(px: usize) -> PixelInput {
         shown: Some(Shown { band: None, nd: Some(vec!["nir".into(), "red".into()]) }),
         map_year: None,
         sensors: vec![],
+        ..Default::default()
     }
 }
 

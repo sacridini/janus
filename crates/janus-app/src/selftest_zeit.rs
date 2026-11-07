@@ -90,6 +90,15 @@ pub fn selftest_zeit(inputs: &[String], threads: usize) -> i32 {
             why =
                 Some(format!("unmapped bands: {}", missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")));
         }
+        // its angle bands are optional (its angles can come from Sentinel-2's metadata): with the default parameters
+        // it needs them
+        if why.is_none() && tool.id == "nbar" {
+            let angles: Vec<&str> =
+                ["sza", "saa", "vza", "vaa"].into_iter().filter(|r| !roles.contains_key(*r)).collect();
+            if !angles.is_empty() {
+                why = Some(format!("unmapped bands: {}", angles.join(", ")));
+            }
+        }
         if let Some(w) = why {
             println!("\n[{}] skipped: {w}", tool.id);
             continue;

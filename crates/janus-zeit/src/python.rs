@@ -522,10 +522,30 @@ pub fn calls(tool: &str, p: &Params, input: &PixelInput) -> Option<(String, Vec<
                 .filter(|r| input.bands.contains_key(**r))
                 .map(|r| format!("{}: {}", py_str(r), py_str(r)))
                 .collect();
-            let scaled = if p.str("angle_scale") == "hundredths" {
-                "angles = angles_raw * 0.01  # the angle bands are hundredths of a degree\n"
+            let scaled = if crate::nbar::sentinel2(p) {
+                // one source per date (a list of them for a date of several tiles), as the dates of the cube
+                let sources: Vec<String> = input
+                    .granules
+                    .iter()
+                    .map(|g| match g.as_slice() {
+                        [] => "None".to_string(),
+                        [one] => py_str(one),
+                        many => py_list(many),
+                    })
+                    .collect();
+                format!(
+                    "# Sentinel-2's angles from each date's granule metadata (MTD_TL.xml, as the STAC items give their\n\
+                     # hrefs; Zeit signs Planetary Computer's if the planetary_computer package is installed).\n\
+                     # One source per date of the cube, in its order.\n\
+                     sources = [{}]\n\
+                     angles = zeit.sentinel2_angles(sources, like=nbar_cube, view_band={})\n",
+                    sources.join(", "),
+                    py_str(p.str("view_band"))
+                )
+            } else if p.str("angle_scale") == "hundredths" {
+                "angles = angles_raw * 0.01  # the angle bands are hundredths of a degree\n".to_string()
             } else {
-                "angles = angles_raw  # the angle bands are in degrees\n"
+                "angles = angles_raw  # the angle bands are in degrees\n".to_string()
             };
             let sza = if p.str("sza") == "fixed" { f("sza_fixed") } else { "'scene'".into() };
             let (targets, cfactor) =

@@ -275,7 +275,8 @@ fn tool_roles(tool: &Tool) -> (Vec<String>, Vec<String>) {
 
 /// Whether a tool reads bands of each date besides the shown series (multiband tools).
 fn reads_bands(tool: &Tool) -> bool {
-    tool.requires.all_bands == Some(true) || tool.requires.bands.as_ref().is_some_and(|b| !b.is_empty())
+    let some = |b: &Option<Vec<String>>| b.as_ref().is_some_and(|b| !b.is_empty());
+    tool.requires.all_bands == Some(true) || some(&tool.requires.bands) || some(&tool.requires.optional_bands)
 }
 
 /// The bands a multiband tool reads, (role, band of each date): every band (b001, b002...) for a tool on all of
@@ -321,6 +322,42 @@ pub(crate) fn sensors_for(tool: &str, info: &CubeInfo) -> Vec<String> {
         c.insert(info.id, found.clone());
     }
     found
+}
+
+/// Each date's Sentinel-2 granule metadata of a series (the hrefs its VRTs record, the files of the product its files
+/// are in), read once per series: its dates' files are opened to find them.
+pub(crate) fn granules_for(info: &CubeInfo) -> Vec<Vec<String>> {
+    use std::sync::{LazyLock, Mutex};
+    static CACHE: LazyLock<Mutex<HashMap<u64, Vec<Vec<String>>>>> = LazyLock::new(Default::default);
+    if let Some(g) = CACHE.lock().ok().and_then(|c| c.get(&info.id).filter(|g| g.len() == info.t()).cloned()) {
+        return g;
+    }
+    let found = janus_zeit::granules::of_series(info);
+    if let Ok(mut c) = CACHE.lock() {
+        c.insert(info.id, found.clone());
+    }
+    found
+}
+
+/// The granule metadata of a series for a tool that reads it with these parameters (NBAR with the angles from
+/// Sentinel-2's metadata), else none.
+pub(crate) fn granules_of(tool: &str, params: &Params, info: &CubeInfo) -> Vec<Vec<String>> {
+    if janus_zeit::granules::needs(tool, params) { granules_for(info) } else { vec![] }
+}
+
+/// A pixel's input that also says where the pixel is and each date's granule metadata, for the tools that need them
+/// (NBAR with the angles from Sentinel-2's metadata).
+fn placed(mut input: PixelInput, info: &CubeInfo, tool: &str, params: &Params, x: usize, y: usize) -> PixelInput {
+    if janus_zeit::granules::needs(tool, params) {
+        input.granules = granules_for(info);
+        input.site = info.geo_transform.map(|gt| janus_zeit::pixel::Site {
+            crs_wkt: info.crs_wkt.clone(),
+            geotransform: gt,
+            col: x,
+            row: y,
+        });
+    }
+    input
 }
 
 /// A series of a layer as a pixel run gets it.
@@ -570,7 +607,7 @@ impl State {
                     version,
                     tool: id.clone(),
                     params: params.clone(),
-                    input: pixel_input(cube, &id, &view.values, t, &roles),
+                    input: placed(pixel_input(cube, &id, &view.values, t, &roles), cube, &id, &params, view.x, view.y),
                     bands: b,
                 });
             }
@@ -817,7 +854,9 @@ impl State {
         let mut changed = false;
 
         // the bands of each role (multiband tools)
-        if let Some(info) = info.as_ref().filter(|i| !needed.is_empty() && i.bands_per_date > 1) {
+        if let Some(info) =
+            info.as_ref().filter(|i| !(needed.is_empty() && optional.is_empty()) && i.bands_per_date > 1)
+        {
             crate::panels::section(ui, "Bands");
             for role in needed.iter().chain(&optional) {
                 let is_optional = optional.contains(role);
@@ -2803,6 +2842,7 @@ pub(crate) fn series_inputs(
         }
     }
     spec.sensors = sensors_for(&tool.id, info);
+    spec.granules = granules_of(&tool.id, &Params::with_defaults(&tool.id, &spec.params).unwrap_or_default(), info);
     if tool.id == "snic" && spec.params.get("features").and_then(Value::as_str) == Some("bands") {
         // SNIC on every band of every date
         for b in 1..=info.bands_per_date.max(1) {

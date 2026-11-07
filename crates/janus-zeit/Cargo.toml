@@ -10,6 +10,8 @@ gdal.workspace = true
 gdal-sys.workspace = true
 geographiclib-rs = "0.2.7"
 janus-cube = { path = "../janus-cube" }
+# the XML of Sentinel-2 granule metadata (MIT; already in the lock file)
+quick-xml = "0.41"
 rayon = "1.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }

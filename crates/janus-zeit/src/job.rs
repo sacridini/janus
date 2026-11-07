@@ -64,6 +64,10 @@ pub struct JobSpec {
     /// spectral adjustment)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sensors: Vec<String>,
+    /// each date's Sentinel-2 granule metadata (MTD_TL.xml: hrefs or paths; several for a date of several tiles, none
+    /// where a date has no metadata), for NBAR with its angles from them (`granules::of_series`)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub granules: Vec<Vec<String>>,
     /// a categorical layer's classes: the names and colours of its class series outputs ("uint16")
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub classes: Vec<ClassDef>,
@@ -160,6 +164,7 @@ impl JobSpec {
             map_year: self.map_year,
             qa_rule: self.qa_rule.clone(),
             sensors: self.sensors.clone(),
+            granules: self.granules.clone(),
             ..Default::default()
         }
     }
@@ -253,6 +258,8 @@ pub(crate) struct Inputs {
     qa: Option<Source>,
     bands: Vec<(String, Source)>,
     mask: Option<Dataset>,
+    /// NBAR with Sentinel-2's angles: the metadata of each date, the angles made for any window
+    s2: Option<crate::granules::Angles>,
 }
 
 fn open(path: &str) -> Result<Dataset, String> {
@@ -381,7 +388,29 @@ impl Inputs {
             }
             None => None,
         };
-        Ok(Inputs { spec: spec.clone(), input, nd, qa, bands, mask })
+        // NBAR's angles from each date's granule metadata, on the input's grid
+        let mut s2 = None;
+        if spec.tool == "nbar" {
+            let p = Params::with_defaults("nbar", &spec.params).unwrap_or_default();
+            if crate::nbar::sentinel2(&p) {
+                let gt = input
+                    .ds()
+                    .geo_transform()
+                    .map_err(|e| format!("ValueError: NBAR: the input has no geotransform ({e})"))?;
+                s2 = Some(
+                    crate::granules::Angles::new(
+                        &spec.granules,
+                        spec.days.as_deref(),
+                        t,
+                        p.str("view_band"),
+                        &input.ds().projection(),
+                        gt,
+                    )
+                    .map_err(|e| format!("ValueError: NBAR: {e}"))?,
+                );
+            }
+        }
+        Ok(Inputs { spec: spec.clone(), input, nd, qa, bands, mask, s2 })
     }
 
     /// The shown series of a window (normalized difference, quality mask) and its bands and codes.
@@ -414,6 +443,9 @@ impl Inputs {
             .iter_mut()
             .map(|(r, d)| d.read(x0, y0, w, h, false).map(|a| (r.clone(), a)))
             .collect::<Result<_, _>>()?;
+        if let Some(s2) = &self.s2 {
+            bands.extend(s2.planes([x0, y0, w, h])?.into_iter().map(|(r, v)| (r.to_string(), v)));
+        }
         let mut masked: Vec<&mut Vec<f64>> = std::iter::once(&mut stack).chain(bands.values_mut()).collect();
         self.mask_out(x0, y0, w, h, &mut masked)?;
         Ok(Chunk { t: self.spec.years.len(), h, w, stack, bands, qa })
@@ -451,7 +483,13 @@ impl Inputs {
         h: usize,
     ) -> Result<BTreeMap<String, Vec<f64>>, String> {
         let mut bands: BTreeMap<String, Vec<f64>> = BTreeMap::new();
-        for role in roles {
+        // the angles made from Sentinel-2's metadata are not bands of the series
+        let made = self.s2.is_some();
+        if let Some(s2) = self.s2.as_ref().filter(|_| roles.iter().any(|r| crate::nbar::ANGLES.contains(r))) {
+            bands.extend(s2.planes([x0, y0, w, h])?.into_iter().map(|(r, v)| (r.to_string(), v)));
+            bands.retain(|r, _| roles.contains(&r.as_str()));
+        }
+        for role in roles.iter().filter(|r| !(made && crate::nbar::ANGLES.contains(r))) {
             let (_, d) = self
                 .bands
                 .iter_mut()

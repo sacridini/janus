@@ -2265,6 +2265,18 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   no Zeit dá os mesmos valores da execução (`janus-app`, `python::tests`). Os papéis opcionais do
   manifesto (`optional_bands`) servem para "qualquer subconjunto"; "ao menos uma" é erro em tempo de
   execução. Fora do `--selftest-zeit` (a série de teste não tem bandas de ângulo).
+- Ainda sem versão (NBAR-b, branch j4): os ângulos do Sentinel-2 vêm do MTD_TL.xml de cada data
+  (`angles = "sentinel2"`, `view_band` B06 como o HLS), pelo port do `zeit.sentinel2_angles`
+  (`s2angles.rs`: grades de 5 km, detectores fundidos, bilinear sobre os cantos válidos, azimutes por
+  seno e cosseno, outro CRS pelo OSR, vários tiles por data; quick-xml, sem GDAL no parsing). Iguais ao
+  Zeit a 4e-5 grau (zenites) e 6e-5 (azimutes) em 600 mil valores de 23LKC (`tests/s2angles.rs`,
+  `tools/s2angles_fixtures.py`), e o NBAR da série a 1,2e-7 (`tests/nbar_s2.rs`). Os hrefs dos itens
+  STAC (`granule_metadata` / `granule-metadata`) ficam no VRT de cada data (`STAC_GRANULE_METADATA`,
+  `stac_vrt`), os locais saem do .SAFE ou de um MTD_TL.xml ao lado (`granules::of_series`, no app
+  como `sensors_for`); os papéis de ângulo deixaram de ser obrigatórios (só o modo `bands` os exige,
+  em tempo de execução). Os ângulos são calculados por faixa (duas vezes, com SZA "scene": uma na
+  primeira passada). Falta: ler o Earth Search de verdade (o href do `granule_metadata` não foi
+  conferido na rede) e o `view_band="each"`.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 

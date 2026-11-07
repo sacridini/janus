@@ -64,6 +64,20 @@ pub struct PixelInput {
     /// each date's sensor in FORCE's names (LND04..LND09, MOD01, MOD02, SEN2; "" where none is known), for the tools
     /// that depend on it (Tasseled Cap, spectral adjustment); empty when the caller did not read them
     pub sensors: Vec<String>,
+    /// each date's Sentinel-2 granule metadata (MTD_TL.xml: hrefs or paths, several for a date made of several
+    /// tiles; empty where a date has none), for NBAR with its angles from them; empty when the caller did not look
+    pub granules: Vec<Vec<String>>,
+    /// where the pixel is on the series' grid, for the tools that need its place (the angles of Sentinel-2)
+    pub site: Option<Site>,
+}
+
+/// A pixel's place: the grid it is in (CRS as WKT, north-up geotransform) and its column and row.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Site {
+    pub crs_wkt: String,
+    pub geotransform: [f64; 6],
+    pub col: usize,
+    pub row: usize,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]

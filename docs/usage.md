@@ -517,7 +517,7 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 | Standardize (FORCE) | any | the series minus its mean, or also over its standard deviation (z-score), as a **new layer** on the run's dates (`zeit.standardize`) |
 | Tasseled Cap (FORCE) | any (real dates; bands blue, green, red, nir, swir1, swir2) | FORCE's Tasseled Cap, as `zeit.tasseled_cap`: brightness, greenness, wetness and FORCE's disturbance (brightness - greenness - wetness of the same matrix, not Healey's index) of each date, in reflectance x 10000; a raster run writes **one series per component** and opens each as a new layer. *Coefficients*: Crist 1985 for every sensor (FORCE's, the default), each date's sensor (TM Crist, ETM+ Huang 2002, OLI Baig 2014, MSI Crist; see below) or Huang 2002 or Baig 2014 for all dates; *Reflectance units* automatic by default |
 | Spectral adjustment to Sentinel-2A (FORCE) | any (real dates; bands blue, green, red, nir, swir1, swir2) | Landsat 4-9 or MODIS reflectance on the spectral response of Sentinel-2A (Scheffler et al. 2020, as `zeit.spectral_adjust`): all ten bands, red edge 1-3, broad NIR (B8) and NIR (B8A) included, **one series per band** opened as new layers. *Sensor*: each date's own (default; see below) or one fixed for all dates (LND04..LND09, MOD01 Terra, MOD02 Aqua); *FORCE's first cluster search* reproduces FORCE's integers exactly. Sentinel-2 dates are refused |
-| NBAR (c-factor) | any (real dates; bands sza, saa, vza, vaa and at least one of coastal, blue, green, red, rededge1-3, nir, nir08, swir1, swir2) | nadir BRDF-adjusted reflectance (Roy et al. 2016, 2017, as `zeit.nbar`): each mapped band times the c-factor of the MODIS Ross-Thick / Li-Sparse-Reciprocal model, taking the date's sun and view angles to nadir view and a normalized solar zenith; **one series per band** (and per c-factor with *Also write the c-factors*) opened as new layers, in the input's units. *Normalized solar zenith*: each date's scene mean (default) or a fixed angle; *Angle bands' unit*: degrees or hundredths of a degree (see below) |
+| NBAR (c-factor) | any (real dates; at least one of coastal, blue, green, red, rededge1-3, nir, nir08, swir1, swir2, and bands sza, saa, vza, vaa unless the angles come from Sentinel-2's metadata) | nadir BRDF-adjusted reflectance (Roy et al. 2016, 2017, as `zeit.nbar`): each mapped band times the c-factor of the MODIS Ross-Thick / Li-Sparse-Reciprocal model, taking the date's sun and view angles to nadir view and a normalized solar zenith; **one series per band** (and per c-factor with *Also write the c-factors*) opened as new layers, in the input's units. *Normalized solar zenith*: each date's scene mean (default) or a fixed angle; *Sun and view angles from*: four bands of each date or Sentinel-2 granule metadata; *Angle bands' unit*: degrees or hundredths of a degree (see below) |
 | Smoothing | any | chart only: the smoothed series (Whittaker or Savitzky-Golay) |
 
 **Mapping the bands of Tasseled Cap and the spectral adjustment.** Both need the six
@@ -553,6 +553,25 @@ angle without a value is missing. The bands must be reflectance (the factor is a
 any scale will do, but not Landsat Collection 2 digital numbers with their offset); the
 quality band is not applied. HLS is already NBAR. **Copy Python** gives `zeit.nbar` with the
 angles as a Dataset (scaled by the unit) and `bands=` mapping the roles.
+
+**NBAR of Sentinel-2 from the tiles' metadata.** Sentinel-2 L2A files carry no angle bands, but
+every tile's `MTD_TL.xml` has the sun's and the view angles on a 5 km grid. Set *Sun and view
+angles from* to **Sentinel-2 granule metadata (MTD_TL.xml)** and the angle roles need no band
+(map only the bands to normalize): the angles of every pixel are computed as Zeit's
+`zeit.sentinel2_angles` does, the view angles of the detectors of one band fused cell by cell
+(*Sentinel-2 view band*, B06 as HLS does, for every band) and everything interpolated bilinearly
+to the pixels (Roy et al. 2017), and *Angle bands' unit* is not used (they are in degrees). Where
+a date's metadata is found: in a series made from STAC items (Earth Search's `granule_metadata`
+asset, Planetary Computer's `granule-metadata`) the date's VRT records the items' hrefs
+(`STAC_GRANULE_METADATA`; Planetary Computer's are read with the same token as its bands); for
+local files, in the product the file is in (`X.SAFE/GRANULE/<granule>/MTD_TL.xml`) or an
+`MTD_TL.xml` beside the file. A date without metadata stops the run, naming it; so does a
+metadata of another date (sensed more than a day from it). A date of several tiles takes the
+angles of the first one that has a view angle at the pixel. Pixels outside the tile's grid, or
+that no detector sees, are missing. **Copy Python** then gives
+`zeit.sentinel2_angles(sources, like=nbar_cube, view_band=...)` (the hrefs or paths, one per date;
+Zeit signs Planetary Computer's if `planetary_computer` is installed) on the cube placed on the
+files' grid, before `zeit.nbar`.
 
 **TWDTW classes** come from the series itself: drop pins on places you know
 (forest, crop, pasture...) and give them a class in **Tools > Classification & pattern recognition**

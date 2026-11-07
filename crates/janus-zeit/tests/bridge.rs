@@ -183,6 +183,7 @@ fn compare_within(tool: &str, tol: impl Fn(&Case) -> Tol) {
             shown: c.shown.clone(),
             map_year: c.map_year,
             sensors: vec![],
+        ..Default::default()
         };
         let got = run_pixel(tool, &p, &input);
         let ok = match (&got, c.result.get("error")) {

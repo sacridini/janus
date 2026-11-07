@@ -1,0 +1,1 @@
+{"tool": "nbar", "params": {}, "input": "input.tif", "nodata": null, "years": [2023.5561643835617, 2023.558904109589, 2023.5643835616438], "days": [19561, 19562, 19564], "window": [0, 0, 20, 16], "threads": 1, "granules": [["s2_23LKC_20230723_MTD_TL.xml"], ["s2_23LKC_20230723_MTD_TL.xml"], ["s2_23LKC_20230726_partial_MTD_TL.xml"]]}
