@@ -721,6 +721,7 @@ impl State {
             });
         }
         ui.separator();
+        self.ard_menu(ui);
         self.tsa_menu(ui);
         ui.separator();
         if ui
@@ -2352,9 +2353,10 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             j.loaded = true;
             let Some(res) = st.result.take() else { continue };
             drop(st);
-            // the Time series analysis' outputs are named by their own step already (tsa.rs)
+            // the outputs of a chain (Time series analysis, Analysis-ready data) are named by their own step already
             let tool_name = manifest().tool(&j.tool).map_or(format!("{}: ", j.tool), |t| format!("{}: ", t.name));
-            let tool_name = if j.tool == crate::tsa::JOB_TOOL { String::new() } else { tool_name };
+            let tool_name =
+                if j.tool == crate::tsa::JOB_TOOL || j.tool == crate::ard::JOB_TOOL { String::new() } else { tool_name };
             let [x0, y0, x1, y1] = res.window;
             // the series' grid: its maps placed by it even once it is closed
             let (session, active) = (&self.session, self.active);
@@ -2374,8 +2376,11 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                     continue;
                 }
                 if o["series"].as_bool() == Some(true) {
-                    // e.g. the NDFI of every date: a new layer (hidden: the Gi* under the hot spots' patterns)
-                    self.zeit.series_to_open.push((path, o["hidden"].as_bool() == Some(true)));
+                    // e.g. the NDFI of every date: a new layer (hidden: the Gi* under the hot spots' patterns); one a
+                    // chain keeps from the layers (`no_layer`: NBAR's series of each band) is only a file
+                    if o["no_layer"].as_bool() != Some(true) {
+                        self.zeit.series_to_open.push((path, o["hidden"].as_bool() == Some(true)));
+                    }
                     continue;
                 }
                 let colormap = o["colormap"].as_str().unwrap_or("Viridis");

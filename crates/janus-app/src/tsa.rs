@@ -8,20 +8,28 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use egui::{ComboBox, RichText, Ui};
 use janus_cube::{BandSelection, CubeInfo, CubeReader, QaRule};
-use janus_zeit::job::{JobResult, run_job};
+use janus_zeit::job::JobResult;
 use janus_zeit::manifest::{Tool, manifest};
 use janus_zeit::pixel::{Params, PixelInput, PixelResult, run_pixel};
 use serde_json::{Value, json};
 
 use crate::app::State;
-use crate::provenance::{OutputRecord, Provenance, SCRIPT, SeriesRecord};
-use crate::zeit::{Job, JobLog, JobState, JobStatus, applicability, base_spec, read_pixel_input, series_inputs};
+use crate::chain::{Chain, ChainInput, ChainStep, JobStart, StepRun, cancelled, run_step, spawn_job};
+use crate::provenance::{Provenance, SCRIPT, SeriesRecord};
+use crate::zeit::{JobState, applicability, read_pixel_input};
+#[cfg(test)]
+use crate::{
+    chain::series_outputs,
+    zeit::{base_spec, series_inputs},
+};
+#[cfg(test)]
+use janus_zeit::job::run_job;
 
 /// The id of the chain's task in Tools > Tasks (not a tool of the manifest).
 pub(crate) const JOB_TOOL: &str = "tsa";
@@ -98,33 +106,6 @@ impl Default for TsaUi {
             copied: None,
         }
     }
-}
-
-/// A step of the chain: its tool and the parameters it runs with.
-pub(crate) struct ChainStep {
-    pub tool: &'static Tool,
-    pub params: BTreeMap<String, Value>,
-}
-
-/// What the chain starts from: the series, its band roles and the window it runs on.
-pub(crate) struct ChainInput {
-    pub info: Arc<CubeInfo>,
-    /// the layer's name and what it opened (for the provenance)
-    pub name: String,
-    pub inputs: Vec<String>,
-    pub roles: BTreeMap<String, i32>,
-    pub window: [usize; 4],
-    pub scope: String,
-    pub scope_index: usize,
-    /// the date a map tool takes its year from
-    pub map_t: usize,
-    pub threads: usize,
-}
-
-/// What a chain did: the outputs of every step that ran and the steps left out, with why.
-pub(crate) struct Chain {
-    pub result: JobResult,
-    pub skipped: Vec<(String, String)>,
 }
 
 /// Why the dates are not a regular series (a constant step of whole days, what the polar phenology reads), if so.
@@ -382,7 +363,7 @@ pub(crate) fn run_chain(
     let mut outputs: Vec<Value> = vec![];
     let mut skipped: Vec<(String, String)> = vec![];
     for (k, step) in steps.iter().enumerate() {
-        if cancel.load(Ordering::Relaxed) {
+        if cancelled(cancel) {
             return Err("cancelled".into());
         }
         let tool = step.tool;
@@ -395,93 +376,36 @@ pub(crate) fn run_chain(
             skipped.push((tool.id.clone(), why));
             continue;
         }
-        let dir = root.join(format!("{:02}_{}", k + 1, tool.id));
-        let work = dir.join("work");
-        std::fs::create_dir_all(&work).map_err(|e| format!("{}: {e}", work.display()))?;
         let map_t = if source.is_none() { input.map_t } else { info.t().saturating_sub(1) };
-        let mut spec = base_spec(&info, tool, &step.params, map_t, input.threads);
-        series_inputs(&info, tool, &roles, &work.join("series"), &mut spec)?;
-        spec.window = window;
-        spec.output_dir = dir.to_string_lossy().into_owned();
-        let win = window.unwrap_or([0, 0, info.width, info.height]);
-        let spec_path = dir.join("job.json");
-        let _ = std::fs::write(&spec_path, serde_json::to_string_pretty(&spec).unwrap_or_default());
-        // its provenance as it starts: the series the step read (for one on the analysis series, the file of the
-        // step that wrote it), its Python
-        let mut prov = Provenance::start("zeit", &tool.id, &tool.name);
-        prov.set_params(&step.params);
-        prov.scope = match &source {
-            Some(_) => format!("the analysis series ({} x {} px)", info.width, info.height),
-            None => input.scope.clone(),
+        let (scope, series) = match &source {
+            Some(file) => (
+                format!("the analysis series ({} x {} px)", info.width, info.height),
+                SeriesRecord::of(&info, "analysis series", std::slice::from_ref(file)),
+            ),
+            None => (input.scope.clone(), SeriesRecord::of(&info, &input.name, &input.inputs)),
         };
-        prov.scope_index = input.scope_index;
-        prov.window = Some(win);
-        prov.threads = spec.threads;
-        prov.series = Some(match &source {
-            Some(file) => SeriesRecord::of(&info, "analysis series", std::slice::from_ref(file)),
-            None => SeriesRecord::of(&info, &input.name, &input.inputs),
-        });
-        prov.extra.insert(
-            "chain".into(),
-            json!({"task": "Time series analysis", "step": k + 1, "of": n, "folder": root.to_string_lossy(),
-                   "reads": source.as_deref().unwrap_or("the series")}),
-        );
-        let to = dir.join("python").to_string_lossy().into_owned();
-        match crate::python::run_code(&info, tool, &step.params, &roles, None, win, spec.threads, &to) {
-            Ok(code) if std::fs::write(dir.join(SCRIPT), &code).is_ok() => prov.python = SCRIPT.into(),
-            Ok(_) => prov.python_note = format!("{SCRIPT} could not be written"),
-            Err(e) => prov.python_note = e,
-        }
-        prov.write(&dir);
-        let log = JobLog { path: dir.join("job.log"), t0: Instant::now() };
-        log.write(&format!(
-            "=== {} step {} of {n}: {}\ntool: {}\nreads: {}\nwindow: {win:?}\nspec: {}\noutput: {}\n",
-            crate::zeit::timestamp_text(),
-            k + 1,
-            tool.name,
-            tool.id,
-            source.as_deref().unwrap_or("the series"),
-            spec_path.display(),
-            dir.display()
-        ));
-        let logged = Mutex::new((-1.0, -1.0));
         let step_progress = |f: f64, m: &str| {
             progress((k as f64 + f) / n as f64, &format!("step {}/{n}: {}: {m}", k + 1, tool.name));
-            let now = log.t0.elapsed().as_secs_f64();
-            let mut l = logged.lock().unwrap();
-            if l.0 < 0.0 || f >= 1.0 || f - l.0 >= 0.1 || now - l.1 >= 5.0 {
-                log.line(&format!("{:3.0}%  {m}", f * 100.0));
-                *l = (f, now);
-            }
         };
-        let t0 = Instant::now();
-        let r = run_job(&spec, &step_progress, cancel);
-        prov.seconds = t0.elapsed().as_secs_f64();
-        let res = match r {
-            Ok(res) => res,
-            Err(e) => {
-                let cancelled = e == "cancelled";
-                log.line(if cancelled { "cancelled" } else { "failed" });
-                prov.state = if cancelled { "cancelled" } else { "failed" }.into();
-                prov.error = if cancelled { String::new() } else { e.clone() };
-                prov.write(&dir);
-                return Err(if cancelled { e } else { format!("{}: {e}", tool.name) });
-            }
+        let run = StepRun {
+            tool,
+            params: &step.params,
+            info: &info,
+            roles: &roles,
+            window,
+            map_t,
+            threads: input.threads,
+            other: None,
+            scope,
+            scope_index: input.scope_index,
+            series,
+            reads: source.clone().unwrap_or_else(|| "the series".into()),
+            task: "Time series analysis",
+            root,
+            k,
+            n,
         };
-        prov.outputs = res
-            .outputs
-            .iter()
-            .map(|o| OutputRecord {
-                name: o["name"].as_str().or(o["id"].as_str()).unwrap_or("").to_string(),
-                path: o["path"].as_str().unwrap_or("").to_string(),
-            })
-            .collect();
-        for o in &prov.outputs {
-            log.line(&format!("output: {} -> {}", o.name, o.path));
-        }
-        log.line("done");
-        prov.state = "done".into();
-        prov.write(&dir);
+        let res = run_step(&run, &step_progress, cancel)?;
         if ANALYSIS_STEPS.contains(&tool.id.as_str()) {
             let file = res
                 .outputs
@@ -512,20 +436,6 @@ pub(crate) fn run_chain(
         let _ = std::fs::write(root.join(SCRIPT), code);
     }
     Ok(Chain { result: JobResult { outputs, window: input.window }, skipped })
-}
-
-/// The series a chain wrote (its name and file): the analysis series and the series products, what the
-/// Classification can read the dates of.
-pub(crate) fn series_outputs(result: &JobResult) -> Vec<(String, String)> {
-    result
-        .outputs
-        .iter()
-        .filter(|o| o["series"].as_bool() == Some(true))
-        .filter_map(|o| {
-            let name = o["name"].as_str().or(o["id"].as_str())?.to_string();
-            Some((name, o["path"].as_str()?.to_string()))
-        })
-        .collect()
 }
 
 /// The steps the series cannot take (`problem`), with why: what `run_chain` leaves out, judged before it runs (the
@@ -1218,7 +1128,7 @@ impl State {
                         s.message
                     )));
                     if ui.button("Cancel").clicked() {
-                        j.cancel.store(true, Ordering::Relaxed);
+                        j.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
                 state => {
@@ -1410,97 +1320,28 @@ impl State {
         self.begin_provenance(&root, prov);
         let title =
             format!("Time series analysis - {scope} ({} x {} px)", window[2] - window[0], window[3] - window[1]);
-        let log = JobLog { path: root.join("job.log"), t0: Instant::now() };
-        log.write(&format!(
-            "=== {} job: {title}\nsteps: {}\nwindow: {window:?}\nthreads: {}\noutput: {}\n",
-            crate::zeit::timestamp_text(),
+        let log_head = format!(
+            "steps: {}
+window: {window:?}
+threads: {}
+",
             steps.iter().map(|s| s.tool.id.as_str()).collect::<Vec<_>>().join(", "),
-            input.threads,
-            root.display()
-        ));
-        let log_path = log.path.to_string_lossy().to_string();
-        let status = Arc::new(Mutex::new(JobStatus {
-            state: JobState::Running,
-            progress: 0.0,
-            message: "starting".into(),
-            error: String::new(),
-            result: None,
-            seconds: 0.0,
-        }));
-        let cancel = Arc::new(AtomicBool::new(false));
-        let (st, cn, dir, ctx) = (status.clone(), cancel.clone(), root.clone(), ctx.clone());
+            input.threads
+        );
         // the series it writes, for Use in Classification
         let written = Arc::new(Mutex::new(vec![]));
         self.tsa.series_out = written.clone();
         self.tsa.use_series = 0;
-        std::thread::Builder::new()
-            .name("zeit-tsa".into())
-            .spawn(move || {
-                let t0 = Instant::now();
-                // progress to the log every 5 s or 10%
-                let logged = Mutex::new((-1.0, -1.0));
-                let progress = |f: f64, m: &str| {
-                    let mut s = st.lock().unwrap();
-                    s.progress = f;
-                    s.message = m.to_string();
-                    drop(s);
-                    let now = t0.elapsed().as_secs_f64();
-                    let mut l = logged.lock().unwrap();
-                    if l.0 < 0.0 || f >= 1.0 || f - l.0 >= 0.1 || now - l.1 >= 5.0 {
-                        log.line(&format!("{:3.0}%  {m}", f * 100.0));
-                        *l = (f, now);
-                    }
-                    ctx.request_repaint();
-                };
-                let r = run_chain(&steps, &input, &dir, &progress, &cn);
-                let mut s = st.lock().unwrap();
-                s.seconds = t0.elapsed().as_secs_f64();
-                match r {
-                    Ok(chain) => {
-                        for (tool, why) in &chain.skipped {
-                            log.line(&format!("skipped {tool}: {why}"));
-                        }
-                        for o in &chain.result.outputs {
-                            let name = o["name"].as_str().or(o["id"].as_str()).unwrap_or("");
-                            log.line(&format!("output: {name} -> {}", o["path"].as_str().unwrap_or("")));
-                        }
-                        log.line("done");
-                        s.message = match chain.skipped.len() {
-                            0 => String::new(),
-                            _ => format!(
-                                "Left out: {}.",
-                                chain.skipped.iter().map(|(t, w)| format!("{t} ({w})")).collect::<Vec<_>>().join("; ")
-                            ),
-                        };
-                        *written.lock().unwrap() = series_outputs(&chain.result);
-                        s.state = JobState::Done;
-                        s.progress = 1.0;
-                        s.result = Some(chain.result);
-                    }
-                    Err(e) if e == "cancelled" => {
-                        log.line("cancelled");
-                        s.state = JobState::Cancelled;
-                    }
-                    Err(e) => {
-                        log.line(&format!("error: {e}"));
-                        log.line("failed");
-                        s.state = JobState::Failed;
-                        s.error = e;
-                    }
-                }
-                ctx.request_repaint();
-            })
-            .ok();
-        self.zeit.jobs.push(Job {
+        let start = JobStart {
             title,
-            tool: JOB_TOOL.into(),
+            tool: JOB_TOOL,
+            thread: "zeit-tsa",
             cube: info.id,
-            output_dir: root.to_string_lossy().to_string(),
-            log_path,
-            started: Instant::now(),
-            status,
-            cancel,
-            loaded: false,
+            root: root.clone(),
+            log_head,
+        };
+        spawn_job(&mut self.zeit.jobs, start, written, ctx, move |progress, cancel| {
+            run_chain(&steps, &input, &root, progress, cancel)
         });
         self.zeit.show_tasks = true;
     }

@@ -8,6 +8,7 @@ mod alerts_ui;
 mod analysis;
 mod animation;
 mod app;
+mod ard;
 mod areas_ui;
 mod atlas;
 mod atlas_math;
@@ -18,6 +19,7 @@ mod calc_live;
 mod calculator;
 mod canvas;
 mod canvas_layer;
+mod chain;
 mod chart;
 mod chips;
 mod classes;
@@ -241,7 +243,8 @@ Developer options:
                       whole image), fields-train (the model fine-tuned 2 epochs on the first vector layer's polygons in
                       the ROI), profiles (Profiles of every line of the first vector layer), roi-save (Save ROI
                       as vector), roi-edit (the ROI's vertices edited), tsa (Time series analysis: Interpolate,
-                      Temporal metrics and Fold on the whole image); NAME-run also runs it, the screenshot
+                      Temporal metrics and Fold on the whole image), ard (Analysis-ready data: NBAR and the
+                      spectral adjustment on the whole image); NAME-run also runs it, the screenshot
                       waiting for its result
   --validation-tab N  a validation project (a .gpkg input) on tab N of its panel (0 Design, 1 Accuracy,
                       2 Maps, 3 Interpreters, 4 Report)

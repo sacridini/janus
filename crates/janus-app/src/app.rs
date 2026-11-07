@@ -556,6 +556,8 @@ pub struct State {
     pub ml: crate::ml::MlUi,
     /// Tools > Time series analysis (FORCE)
     pub tsa: crate::tsa::TsaUi,
+    /// Tools > Analysis-ready data (FORCE)
+    pub ard: crate::ard::ArdUi,
     /// the Layers panel's filter and folded rows
     pub contents: crate::contents::ContentsUi,
     /// series to open as layers of their own, one after the other (one open at a time)
@@ -1008,6 +1010,7 @@ impl JanusApp {
                 val: Default::default(),
                 ml: Default::default(),
                 tsa: Default::default(),
+                ard: Default::default(),
                 contents: Default::default(),
                 pending_opens: Vec::new(),
                 layer_jobs: Default::default(),
@@ -1303,6 +1306,13 @@ impl State {
                     (self.tsa.open, self.tsa.scope, self.tsa.tab) = (true, 0, if run { 2 } else { 1 });
                     if run {
                         self.tsa_run(ctx);
+                    }
+                }
+                "ard" => {
+                    // the chain's defaults (NBAR and the spectral adjustment) on the whole image
+                    (self.ard.open, self.ard.scope, self.ard.tab) = (true, 0, if run { 2 } else { 1 });
+                    if run {
+                        self.ard_run(ctx);
                     }
                 }
                 "classification-twdtw" => {
@@ -2810,6 +2820,7 @@ impl eframe::App for JanusApp {
         self.state.tool_windows(&ctx);
         self.state.ml_window(&ctx);
         self.state.tsa_window(&ctx);
+        self.state.ard_window(&ctx);
         self.state.stac_window(&ctx);
         self.state.web_window(&ctx);
         self.state.calculator_window(&ctx);

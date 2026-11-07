@@ -66,6 +66,7 @@ pub(crate) enum Cmd {
     SaveSeries,
     DeepLearning,
     TimeSeriesAnalysis,
+    AnalysisReadyData,
     Tasks,
     Log,
     NewDesign,
@@ -316,6 +317,13 @@ impl State {
             "Tools",
             "Time series analysis (FORCE)...",
             "TSA chain interpolate standardize temporal metrics fold trend CAT polar phenology clear-sky",
+            None,
+        );
+        add(
+            Cmd::AnalysisReadyData,
+            "Tools",
+            "Analysis-ready data (FORCE)...",
+            "ARD level 2 chain NBAR BRDF spectral adjustment harmonize Sentinel-2A tasseled cap ImproPhe",
             None,
         );
         add(Cmd::Tasks, "Tools", "Tasks", "", None);
@@ -737,6 +745,7 @@ impl State {
             Cmd::SaveSeries => self.save.show = true,
             Cmd::DeepLearning => self.ml.open = true,
             Cmd::TimeSeriesAnalysis => self.tsa.open = true,
+            Cmd::AnalysisReadyData => self.ard.open = true,
             Cmd::Tasks => self.zeit.show_tasks = true,
             Cmd::History => self.history.show = true,
             Cmd::Log => self.zeit.log.show = true,
