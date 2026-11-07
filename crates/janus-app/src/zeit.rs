@@ -468,7 +468,7 @@ impl ZeitUi {
 
 impl State {
     /// The active layer's band roles, guessed again for another series.
-    fn active_roles(&mut self) -> BTreeMap<String, i32> {
+    pub(crate) fn active_roles(&mut self) -> BTreeMap<String, i32> {
         let Some(s) = &self.session else { return BTreeMap::new() };
         if self.zeit.roles_for != s.info.id {
             self.zeit.roles_for = s.info.id;
@@ -662,6 +662,8 @@ impl State {
                 }
             });
         }
+        ui.separator();
+        self.tsa_menu(ui);
         ui.separator();
         if ui
             .add(egui::Button::selectable(self.calc.show, "Raster calculator..."))
@@ -1812,7 +1814,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
         }
     }
 
-    fn output_folder_ui(&mut self, ui: &mut Ui) {
+    pub(crate) fn output_folder_ui(&mut self, ui: &mut Ui) {
         let dir = self.results_dir();
         ui.horizontal(|ui| {
             ui.weak(format!("Output: {}", dir.display()));
@@ -2152,7 +2154,9 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
             j.loaded = true;
             let Some(res) = st.result.take() else { continue };
             drop(st);
-            let tool_name = manifest().tool(&j.tool).map_or(j.tool.clone(), |t| t.name.clone());
+            // the Time series analysis' outputs are named by their own step already (tsa.rs)
+            let tool_name = manifest().tool(&j.tool).map_or(j.tool.clone(), |t| format!("{}: ", t.name));
+            let tool_name = if j.tool == crate::tsa::JOB_TOOL { String::new() } else { tool_name };
             let [x0, y0, x1, y1] = res.window;
             // the series' grid: its maps placed by it even once it is closed
             let (session, active) = (&self.session, self.active);
@@ -2202,7 +2206,7 @@ Reading the data adds to it: much more for files in strips or on spinning disks.
                     run: j.output_dir.clone(),
                     output,
                     name: format!(
-                        "{}{tool_name}: {}",
+                        "{}{tool_name}{}",
                         if preview { "Preview: " } else { "" },
                         o["name"].as_str().unwrap_or("")
                     ),

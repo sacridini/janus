@@ -554,6 +554,8 @@ pub struct State {
     pub val: crate::validation::ValidationUi,
     /// Tools > Deep learning
     pub ml: crate::ml::MlUi,
+    /// Tools > Time series analysis (FORCE)
+    pub tsa: crate::tsa::TsaUi,
     /// the Layers panel's filter and folded rows
     pub contents: crate::contents::ContentsUi,
     /// series to open as layers of their own, one after the other (one open at a time)
@@ -1005,6 +1007,7 @@ impl JanusApp {
                 nav: Default::default(),
                 val: Default::default(),
                 ml: Default::default(),
+                tsa: Default::default(),
                 contents: Default::default(),
                 pending_opens: Vec::new(),
                 layer_jobs: Default::default(),
@@ -1294,6 +1297,13 @@ impl State {
                 "classification" => {
                     // the Random Forest on the pins, its samples' tab
                     (self.ml.open, self.ml.source, self.ml.arch, self.ml.tab) = (true, 3, crate::ml::FOREST, 0);
+                }
+                "tsa" => {
+                    // the chain's defaults (Interpolate, Temporal metrics, Fold) on the whole image
+                    (self.tsa.open, self.tsa.scope, self.tsa.tab) = (true, 0, if run { 2 } else { 1 });
+                    if run {
+                        self.tsa_run(ctx);
+                    }
                 }
                 "classification-twdtw" => {
                     // TWDTW on the pins: its patterns, settings and estimate
@@ -2799,6 +2809,7 @@ impl eframe::App for JanusApp {
         self.state.popups(&ctx);
         self.state.tool_windows(&ctx);
         self.state.ml_window(&ctx);
+        self.state.tsa_window(&ctx);
         self.state.stac_window(&ctx);
         self.state.web_window(&ctx);
         self.state.calculator_window(&ctx);

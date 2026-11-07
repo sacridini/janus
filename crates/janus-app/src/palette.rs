@@ -65,6 +65,7 @@ pub(crate) enum Cmd {
     BuildSeries,
     SaveSeries,
     DeepLearning,
+    TimeSeriesAnalysis,
     Tasks,
     Log,
     NewDesign,
@@ -308,6 +309,13 @@ impl State {
             &format!("Tools > {}", janus_zeit::CLASSIFICATION),
             "Classification (Random Forest, TempCNN, L-TAE, Presto, U-TAE)...",
             "",
+            None,
+        );
+        add(
+            Cmd::TimeSeriesAnalysis,
+            "Tools",
+            "Time series analysis (FORCE)...",
+            "TSA chain interpolate standardize temporal metrics fold trend CAT polar phenology clear-sky",
             None,
         );
         add(Cmd::Tasks, "Tools", "Tasks", "", None);
@@ -728,6 +736,7 @@ impl State {
             Cmd::BuildSeries => self.build.show = true,
             Cmd::SaveSeries => self.save.show = true,
             Cmd::DeepLearning => self.ml.open = true,
+            Cmd::TimeSeriesAnalysis => self.tsa.open = true,
             Cmd::Tasks => self.zeit.show_tasks = true,
             Cmd::History => self.history.show = true,
             Cmd::Log => self.zeit.log.show = true,
