@@ -338,13 +338,11 @@ pub fn transitions_snippet(p: &Project, t: &TransitionSpec, tr: &Transitions, co
          # from the Janus validation project {file}\n",
         mf.rule.name, t.from_date, mt.rule.name, t.to_date
     );
-    s += "import sqlite3\n\nimport geopandas as gpd\nimport pandas as pd\nimport rioxarray\nimport zeit\n\n";
-    s += "# The sample points (a GeoPackage is SQLite), at their pixels' centres in the strata raster\n";
-    s += &format!("with sqlite3.connect({}) as db:\n", py_path(&p.path));
-    s += "    samples = pd.read_sql(\"SELECT sample_id, stratum, row, col FROM samples\", db)\n";
-    s += &format!("strata = rioxarray.open_rasterio({}).squeeze(drop=True)\n", py_path(&p.strata_path));
-    s += "x, y = strata.rio.transform() * (samples[\"col\"] + 0.5, samples[\"row\"] + 0.5)\n";
-    s += "samples = gpd.GeoDataFrame(samples, geometry=gpd.points_from_xy(x, y), crs=strata.rio.crs)\n";
+    s += "import geopandas as gpd\nimport zeit\n\n";
+    s += &format!(
+        "samples = gpd.read_file({}, layer=\"samples\")  # the points, at their pixels' centres\n",
+        py_path(&p.path)
+    );
     s += "# The reference class of each point at each date: its labels and their dated events, as Janus reads them\n";
     for (var, refs, rule) in [("ref_from", &tr.ref_from, &mf.rule), ("ref_to", &tr.ref_to, &mt.rule)] {
         s += &format!("{var} = {{");
@@ -364,17 +362,22 @@ pub fn transitions_snippet(p: &Project, t: &TransitionSpec, tr: &Transitions, co
     }
     s += "samples[\"ref_from\"] = samples[\"sample_id\"].map(ref_from)\n";
     s += "samples[\"ref_to\"] = samples[\"sample_id\"].map(ref_to)\n";
-    s += "samples = samples[samples[\"ref_from\"].notna() & samples[\"ref_to\"].notna()]\n\n";
+    s += "\n";
+    // (a map on band 1 is passed as its path: Zeit reads it)
+    let mut maps = Vec::new();
     for (var, r) in [("map_from", &mf.rule), ("map_to", &mt.rule)] {
-        s += &format!(
-            "{var} = rioxarray.open_rasterio({}, masked=True).sel(band={}, drop=True)\n",
-            py_path(&r.path),
-            r.band
-        );
+        if r.band == 1 {
+            maps.push(py_path(&r.path));
+        } else {
+            s += &format!("{var} = zeit.load_raster({}, band={})\n", py_path(&r.path), r.band);
+            maps.push(var.to_string());
+        }
     }
     // (the maps' areas inside the strata: Zeit counts them as Janus does when the maps are on the strata's grid)
     s += &format!(
-        "tr = zeit.transitions(map_from, map_to, samples, strata={}, estimator={}, confidence={})\n",
+        "tr = zeit.transitions({}, {}, samples, strata={}, estimator={}, confidence={})\n",
+        maps[0],
+        maps[1],
         py_path(&p.strata_path),
         py_str(p.estimator.name()),
         fmt_g(confidence, 6)
