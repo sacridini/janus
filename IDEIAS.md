@@ -2247,6 +2247,14 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   iguais às do Zeit a 1e-5. Saídas cujas bandas a ferramenta decide e o parâmetro
   de múltipla escolha. O teste dos alertas que falhava no Ubuntu (duas funções
   apagavam a mesma pasta) corrigido.
+- Ainda sem versão (271b45c): Tasseled Cap (FORCE) e Ajuste espectral (FORCE), pelo zeit-core
+  (Zeit 3.1.0), em pixel e raster. Iguais ao Zeit bit a bit em fixtures que misturam datas
+  Landsat 5/7/8/9, MODIS e Sentinel-2 (`tests/l2.rs`, `tools/l2_fixtures.py`). O sensor de cada
+  data vem do STAC ou do nome do arquivo (`janus_zeit::sensors`), e uma data sem sensor é um erro
+  que a nomeia. O Copy Python foi conferido no Zeit (88.036 valores, no máximo 5e-9); o bug do
+  WIP, o Copy Python chamar as bandas SWIR de swir1/swir2 onde o Zeit procura swir16/swir22,
+  está corrigido (passa `bands=`). São as primeiras peças da futura janela *Analysis-ready data
+  (Level 2)*, a fase depois da 56 (ver o primeiro parágrafo da seção da fase 56).
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 

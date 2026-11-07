@@ -515,7 +515,24 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 | Clear-sky observations (FORCE CSO) | dates (a series with real dates) | FORCE's clear-sky observations, as `zeit.clear_observations`: windows of *Window* months from the first day of the first date's month (the last window kept whole), and for each chosen statistic a **new layer** with a band per window, labelled with its first month (`2020-03`, so it opens as a monthly series): the number of valid observations (not missing after the quality masking) and statistics of the gaps in days between them (shortest, longest, mean, quantiles...), the window's edges counting as ends of gaps; a pixel run lists the windows |
 | Polar phenology (FORCE) | dates, a regular series (a constant step of whole days over at least 2 years: run **Interpolate** first and use its result) | FORCE's polar land surface phenology, as `zeit.polar_metrics` (Brooks et al. 2020): the 39 metrics of each year's season (dates of its start, middle, end, peak and minima, values, amplitudes, lengths, integrals, rates of rise and fall), one **new layer** per metric with a band per calendar year; the date metrics (`D*`) are days since 1 January of the band's year; the thresholds of the season's start, middle and end (0.2, 0.5, 0.8) and the adaptive start are parameters; a pixel run lists the metrics by year and marks the dates on the chart |
 | Standardize (FORCE) | any | the series minus its mean, or also over its standard deviation (z-score), as a **new layer** on the run's dates (`zeit.standardize`) |
+| Tasseled Cap (FORCE) | any (real dates; bands blue, green, red, nir, swir1, swir2) | FORCE's Tasseled Cap, as `zeit.tasseled_cap`: brightness, greenness, wetness and FORCE's disturbance (brightness - greenness - wetness of the same matrix, not Healey's index) of each date, in reflectance x 10000; a raster run writes **one series per component** and opens each as a new layer. *Coefficients*: Crist 1985 for every sensor (FORCE's, the default), each date's sensor (TM Crist, ETM+ Huang 2002, OLI Baig 2014, MSI Crist; see below) or Huang 2002 or Baig 2014 for all dates; *Reflectance units* automatic by default |
+| Spectral adjustment to Sentinel-2A (FORCE) | any (real dates; bands blue, green, red, nir, swir1, swir2) | Landsat 4-9 or MODIS reflectance on the spectral response of Sentinel-2A (Scheffler et al. 2020, as `zeit.spectral_adjust`): all ten bands, red edge 1-3, broad NIR (B8) and NIR (B8A) included, **one series per band** opened as new layers. *Sensor*: each date's own (default; see below) or one fixed for all dates (LND04..LND09, MOD01 Terra, MOD02 Aqua); *FORCE's first cluster search* reproduces FORCE's integers exactly. Sentinel-2 dates are refused |
 | Smoothing | any | chart only: the smoothed series (Whittaker or Savitzky-Golay) |
+
+**Mapping the bands of Tasseled Cap and the spectral adjustment.** Both need the six
+reflective bands mapped to blue, green, red, nir, swir1 and swir2. For Sentinel-2, map
+**B8A** to NIR (FORCE's choice, not B8); for MODIS, map SWIR1 and SWIR2 to bands 6 and 7.
+
+**The sensor of each date** (needed by *Each date's sensor* in Tasseled Cap and by the
+spectral adjustment's default) is read from the scene the date came from: the STAC
+platform or item its VRT records, else its file name (`LC08_...`, `LT05_...`, `S2B_...`,
+`MOD09...`), in FORCE's names (LND04..LND09, MOD01, MOD02, SEN2). A date whose sensor is
+not found is an error that names the dates (the same for a Sentinel-2 date in the
+spectral adjustment). In that case choose a **fixed** matrix (Crist 1985, Huang 2002 or
+Baig 2014 in Tasseled Cap) or a fixed *Sensor* (spectral adjustment), which do not read it.
+**Copy Python** gives the Zeit call with `bands=` mapping the six roles to the layer's
+bands (Zeit looks for `swir16` and `swir22` where Janus calls them `swir1` and `swir2`) and
+`sensor=` with the sensors found; only the observations the quality band keeps are passed.
 
 **TWDTW classes** come from the series itself: drop pins on places you know
 (forest, crop, pasture...) and give them a class in **Tools > Classification & pattern recognition**
