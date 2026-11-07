@@ -14,9 +14,8 @@
 <meta property="og:description" content="Six years of Landsat over Rondônia cut into 8277 segments, each a field, a pasture or a patch of forest.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/snic/04-polygons.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -27,17 +26,19 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / SNIC segmentation</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / SNIC segmentation</p>
     <p class="eyebrow">Objects · any series</p>
     <h1>SNIC segmentation, step by step.</h1>
     <p class="lede">A field, a pasture or a patch of forest is many pixels with one history. SNIC cuts the image into segments of pixels whose whole series are alike, so that the next steps work on objects instead of pixels: their mean series, their polygons, a sample per segment.</p>
@@ -80,13 +81,24 @@
     <section id="data">
       <h2><span class="n">02</span>The example</h2>
       <p>The Landsat 8/9 series of the <a href="ccdc.html">CCDC guide</a>: 125 dates from February 2020 to August 2026, 30 m, 1117 × 1079 pixels of Rondônia, where forest is cleared for pasture. The map shows SWIR1, NIR and red of the last date (forest green, pasture pink); the chart, the NDVI of the pin. The quality band (QA_PIXEL) removes clouds and shadows, so in the rainy season many dates have no value.</p>
+      <details class="howmade">
+        <summary>How these screenshots were made</summary>
+        <div class="howmade-body">
+        <p>The data is the author's own stack, not downloaded: the Landsat folder of the CCDC guide (Landsat 8/9 Collection 2 Level-2 of Rondônia, 2020–2026, a GeoTIFF per date, made from a Google Earth Engine stack and its CSV of dates). These commands remake the screenshots after the interface changes.</p>
+        <p class="what">A folder of the Landsat dates, cut to the area (west, south, east, north):</p>
+        <div class="cmd"><code>python tools/make_guide_data.py landsat STACK DATES folder -63.36 -10.37 -63.06 -10.08</code><button class="copy" type="button" data-copy="python tools/make_guide_data.py landsat STACK DATES folder -63.36 -10.37 -63.06 -10.08">Copy</button></div>
+        <p class="what">The screenshots, saved as PNGs in the folder <code>shots</code>:</p>
+        <div class="cmd"><code>janus --shots snic folder shots</code><button class="copy" type="button" data-copy="janus --shots snic folder shots">Copy</button></div>
+        <p>The tour drives the guide's steps in a window of 1680 × 1050 and saves the window and its panels as PNGs in <code>shots</code>; the full-window ones are then converted to JPEG.</p>
+        </div>
+      </details>
     </section>
 
     <section id="params">
       <h2><span class="n">03</span>The parameters</h2>
       <p><span class="ui">Tools → Spatial pattern analysis → SNIC segmentation</span>.</p>
       <figure class="fig">
-        <a href="assets/img/snic/01-tool.jpg"><img src="assets/img/snic/01-tool.jpg" alt="The SNIC window with its parameters next to the map of Rondônia in SWIR1, NIR and red; the pin's NDVI on the chart." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/snic/01-tool.jpg"><picture><source type="image/webp" srcset="assets/img/snic/01-tool.webp"><img src="assets/img/snic/01-tool.jpg" alt="The SNIC window with its parameters next to the map of Rondônia in SWIR1, NIR and red; the pin's NDVI on the chart." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>SNIC's window</b>: the seeds every 12 pixels, a pixel kept if it has a value on 10% of the dates.</figcaption>
       </figure>
       <div class="tbl-wrap">
@@ -121,12 +133,12 @@
     <section id="segments">
       <h2><span class="n">05</span>The segments</h2>
       <figure class="fig">
-        <a href="assets/img/snic/03-segments.jpg"><img src="assets/img/snic/03-segments.jpg" alt="The whole image divided into 8277 segments, a colour each; the Layers panel lists the polygons, the mean series and the segments." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/snic/03-segments.jpg"><picture><source type="image/webp" srcset="assets/img/snic/03-segments.webp"><img src="assets/img/snic/03-segments.jpg" alt="The whole image divided into 8277 segments, a colour each; the Layers panel lists the polygons, the mean series and the segments." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>8277 segments</b>, a colour each (the colours repeat: they only tell neighbours apart).</figcaption>
       </figure>
       <p>Zoomed in on the clearing of the pin, the polygons over the image: the segments follow the fields' edges and the forest's, and a clearing is a segment of its own.</p>
       <figure class="fig">
-        <a href="assets/img/snic/04-polygons.jpg"><img src="assets/img/snic/04-polygons.jpg" alt="The segments' polygons drawn over the Landsat image at 3 screen points per pixel: their outlines follow fields, pastures and the forest's edge." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/snic/04-polygons.jpg"><picture><source type="image/webp" srcset="assets/img/snic/04-polygons.webp"><img src="assets/img/snic/04-polygons.jpg" alt="The segments' polygons drawn over the Landsat image at 3 screen points per pixel: their outlines follow fields, pastures and the forest's edge." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>The polygons</b> over the image: one outline a segment.</figcaption>
       </figure>
       <p>Each polygon carries <code>n_pixels</code>, its centre and the mean of every value compared, so the GeoPackage opens in QGIS as it is. In Janus, hover a polygon with <kbd>Alt</kbd> held for its attributes, or <kbd>Alt</kbd> + click it to make it the ROI.</p>
@@ -136,7 +148,7 @@
       <h2><span class="n">06</span>Their mean series</h2>
       <p>The mean series is a layer like any other: each pixel has its segment's mean NDVI of every date, gaps filled. The map is the image as objects; the chart, the pin's segment: one smooth curve where the pixel had scattered values, with the clearing of 2022 plain.</p>
       <figure class="fig">
-        <a href="assets/img/snic/05-mean.jpg"><img src="assets/img/snic/05-mean.jpg" alt="The segments' mean NDVI of the last date with the polygons over it; the chart shows the mean series of the pin's segment." width="1680" height="1050" loading="lazy"></a>
+        <a href="assets/img/snic/05-mean.jpg"><picture><source type="image/webp" srcset="assets/img/snic/05-mean.webp"><img src="assets/img/snic/05-mean.jpg" alt="The segments' mean NDVI of the last date with the polygons over it; the chart shows the mean series of the pin's segment." width="1680" height="1050" loading="lazy"></picture></a>
         <figcaption><b>The segments' mean NDVI</b>, the last date: forest dark green, pasture brown.</figcaption>
       </figure>
       <figure class="fig narrow">
@@ -178,6 +190,12 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -185,6 +203,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>

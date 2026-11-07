@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Methods · Janus</title>
+<meta name="description" content="Every analysis method in Janus, from Zeit: abrupt change, trends, seasons, cover, classes and spatial patterns, and which one fits your data.">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="icon" href="favicon.svg?v=4" type="image/svg+xml">
+<link rel="icon" href="favicon.ico?v=4" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=4">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Methods · Janus">
+<meta property="og:description" content="Every analysis method in Janus, from Zeit: abrupt change, trends, seasons, cover, classes and spatial patterns, and which one fits your data.">
+<meta property="og:image" content="https://sacridini.github.io/janus/assets/img/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- build:header -->
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
+    <nav aria-label="Main" id="site-nav">
+      <ul>
+        <li><a href="./methods.html" aria-current="page">Methods</a></li>
+        <li><a href="./guides.html">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
+        <li><a href="./#install">Install</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
+      </ul>
+    </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
+    <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+  </div>
+</header>
+<!-- /build:header -->
+
+<main id="main">
+
+<section class="guide-hero">
+  <div class="wrap">
+    <p class="crumbs"><a href="./">Janus</a> / Methods</p>
+    <p class="eyebrow"><!-- n:method-count -->34<!-- /n:method-count --> methods · compiled from Zeit</p>
+    <h1>Every method, and which one to use.</h1>
+    <p class="lede">Every method is compiled into Janus from Zeit, run on the chart for one pixel and on the whole image, and each guide shows one on real data. Say what your data is and what you want to find, and the list narrows to what fits.</p>
+  </div>
+</section>
+
+<!-- build:method-catalog -->
+<div class="wrap">
+  <div class="m-chooser">
+    <div class="m-row" role="group" aria-labelledby="m-l-data">
+      <p class="m-label" id="m-l-data">My data</p>
+      <div class="m-chips">
+        <button type="button" class="chip" data-row="data" data-value="annual" aria-pressed="false">Annual series</button>
+        <button type="button" class="chip" data-row="data" data-value="subannual" aria-pressed="false">Several dates a year</button>
+        <button type="button" class="chip" data-row="data" data-value="everydate" aria-pressed="false">Every acquisition, multiband</button>
+        <button type="button" class="chip" data-row="data" data-value="classes" aria-pressed="false">A class map</button>
+      </div>
+    </div>
+    <div class="m-row" role="group" aria-labelledby="m-l-find">
+      <p class="m-label" id="m-l-find">I want to find</p>
+      <div class="m-chips">
+        <button type="button" class="chip" data-row="find" data-value="abrupt" aria-pressed="false">Abrupt change</button>
+        <button type="button" class="chip" data-row="find" data-value="degradation" aria-pressed="false">Degradation</button>
+        <button type="button" class="chip" data-row="find" data-value="trend" aria-pressed="false">Trends</button>
+        <button type="button" class="chip" data-row="find" data-value="recovery" aria-pressed="false">Recovery</button>
+        <button type="button" class="chip" data-row="find" data-value="seasons" aria-pressed="false">Seasons</button>
+        <button type="button" class="chip" data-row="find" data-value="classes" aria-pressed="false">Classes</button>
+        <button type="button" class="chip" data-row="find" data-value="clusters" aria-pressed="false">Clusters</button>
+        <button type="button" class="chip" data-row="find" data-value="spatial" aria-pressed="false">Spatial patterns</button>
+        <button type="button" class="chip" data-row="find" data-value="prepare" aria-pressed="false">Prepare the series</button>
+      </div>
+    </div>
+    <div class="m-bar">
+      <div class="m-search"><label class="m-label" for="m-q">Search</label><input id="m-q" type="search" placeholder="Name or word" autocomplete="off" spellcheck="false"></div>
+      <p class="m-count" id="m-count" aria-live="polite">34 of 34 methods</p>
+      <button type="button" class="chip m-clear" id="m-clear" hidden>Clear</button>
+    </div>
+  </div>
+  <p class="m-empty" id="m-empty" hidden>No method matches. Clear a chip, or the search.</p>
+  <section class="m-group" id="change" data-group>
+    <div class="m-head">
+      <h2>Abrupt change and disturbance</h2>
+      <p>When and where the land changed suddenly: a clearing, a fire, a harvest, a thinning.</p>
+    </div>
+    <ul class="m-cards">
+      <li class="m-card" id="landtrendr" data-cadence="annual" data-questions="abrupt trend" data-text="landtrendr year of detection, magnitude, duration and rate of the chosen loss or gain event. annual series"><h3>LandTrendr</h3><p>Year of detection, magnitude, duration and rate of the chosen loss or gain event.</p><span class="m-req">annual series</span><a class="m-guide" href="landtrendr.html">Guide &rarr;</a></li>
+      <li class="m-card" id="ewmacd" data-cadence="subannual everydate" data-questions="abrupt degradation recovery" data-text="ewmacd every observation against its training years through ewma control charts: when it was disturbed, how far, when it recovered or gained, its state now. any dates, ≥ 2 per year"><h3>EWMACD</h3><p>Every observation against its training years through EWMA control charts: when it was disturbed, how far, when it recovered or gained, its state now.</p><span class="m-req">any dates, ≥ 2 per year</span><a class="m-guide" href="ewmacd.html">Guide &rarr;</a></li>
+      <li class="m-card" id="bfast" data-cadence="subannual" data-questions="abrupt trend seasons" data-text="bfast trend and season break counts, date and magnitude of the largest break. ≥ 2 dates per year"><h3>BFAST</h3><p>Trend and season break counts, date and magnitude of the largest break.</p><span class="m-req">≥ 2 dates per year</span><a class="m-guide" href="bfast.html">Guide &rarr;</a></li>
+      <li class="m-card" id="bfast-lite" data-cadence="subannual" data-questions="abrupt" data-text="bfast lite break count, date and magnitude of the largest break, first break date. ≥ 2 dates per year"><h3>BFAST Lite</h3><p>Break count, date and magnitude of the largest break, first break date.</p><span class="m-req">≥ 2 dates per year</span><a class="m-guide" href="bfast.html">Guide &rarr;</a></li>
+      <li class="m-card" id="bfast-monitor" data-cadence="subannual" data-questions="abrupt" data-text="bfast monitor first break in the monitoring period, its magnitude, break yes or no. ≥ 2 dates per year"><h3>BFAST Monitor</h3><p>First break in the monitoring period, its magnitude, break yes or no.</p><span class="m-req">≥ 2 dates per year</span><a class="m-guide" href="bfast.html">Guide &rarr;</a></li>
+      <li class="m-card" id="beast" data-cadence="any" data-questions="abrupt trend" data-text="beast trend and season averaged over thousands of models: the probability of a changepoint at each date, the most probable one with its jump, the mean number of changepoints. any series, ≥ 12 dates"><h3>BEAST</h3><p>Trend and season averaged over thousands of models: the probability of a changepoint at each date, the most probable one with its jump, the mean number of changepoints.</p><span class="m-req">any series, ≥ 12 dates</span><a class="m-guide" href="beast.html">Guide &rarr;</a></li>
+      <li class="m-card" id="ccdc" data-cadence="everydate" data-questions="abrupt" data-text="ccdc break count, largest break, ndvi change and segments from every reflectance band. one file per date, multiband"><h3>CCDC</h3><p>Break count, largest break, NDVI change and segments from every reflectance band.</p><span class="m-req">one file per date, multiband</span><a class="m-guide" href="ccdc.html">Guide &rarr;</a></li>
+      <li class="m-card" id="s-ccd" data-cadence="everydate" data-questions="abrupt" data-text="s-ccd ccdc's models carried forward by a kalman filter: the breaks, and the state of every pixel at the last date (stable, change in progress and since when, waiting for a model). one file per date, multiband"><h3>S-CCD</h3><p>CCDC's models carried forward by a Kalman filter: the breaks, and the state of every pixel at the last date (stable, change in progress and since when, waiting for a model).</p><span class="m-req">one file per date, multiband</span><a class="m-guide" href="sccd.html">Guide &rarr;</a></li>
+      <li class="m-card" id="coded" data-cadence="everydate" data-questions="degradation abrupt" data-text="coded forest degradation and deforestation from the ndfi of every observation, as strata and change dates. one file per date, multiband"><h3>CODED</h3><p>Forest degradation and deforestation from the NDFI of every observation, as strata and change dates.</p><span class="m-req">one file per date, multiband</span><a class="m-guide" href="coded.html">Guide &rarr;</a></li>
+    </ul>
+  </section>
+  <section class="m-group" id="trend" data-group>
+    <div class="m-head">
+      <h2>Trends and recovery</h2>
+      <p>Slow change over the years, and how fast a place grew back.</p>
+    </div>
+    <ul class="m-cards">
+      <li class="m-card" id="recovery" data-cadence="annual" data-questions="recovery" data-text="recovery after landtrendr's loss: years to recovery (y2r), r80p, rri and the absolute and year-on-year recovery. annual series"><h3>Recovery</h3><p>After LandTrendr's loss: years to recovery (Y2R), R80P, RRI and the absolute and year-on-year recovery.</p><span class="m-req">annual series</span><a class="m-guide" href="landtrendr.html">Guide &rarr;</a></li>
+      <li class="m-card" id="mann-kendall" data-cadence="any" data-questions="trend" data-text="mann-kendall significant sen's slope, p-value and trend class, with hamed-rao, yue-wang and seasonal variants. any series"><h3>Mann-Kendall</h3><p>Significant Sen's slope, p-value and trend class, with Hamed-Rao, Yue-Wang and seasonal variants.</p><span class="m-req">any series</span><a class="m-guide" href="trend-test.html">Guide &rarr;</a></li>
+      <li class="m-card" id="ar-1-trend" data-cadence="any" data-questions="trend spatial" data-text="ar(1) trend the trend's t-test with autocorrelated errors (remoteparts), and the regional trend test by parts. any series"><h3>AR(1) trend</h3><p>The trend's t-test with autocorrelated errors (remotePARTS), and the regional Trend test by PARTS.</p><span class="m-req">any series</span><a class="m-guide" href="trend-test.html">Guide &rarr;</a></li>
+      <li class="m-card" id="linear-trend-of-a-fold" data-cadence="any" data-questions="trend" data-text="linear trend of a fold a least-squares line over a statistic taken by period: the slope per period, r² and the t-test of the slope, as maps (force's trend analysis). series with dates"><h3>Linear trend of a fold</h3><p>A least-squares line over a statistic taken by period: the slope per period, R² and the t-test of the slope, as maps (FORCE's trend analysis).</p><span class="m-req">series with dates</span></li>
+      <li class="m-card" id="cat" data-cadence="any" data-questions="abrupt trend" data-text="cat force's change, aftereffect and trend: the greatest loss between the periods of a fold, and the linear trends of the whole fold, before the change and from it. series with dates"><h3>CAT</h3><p>FORCE's change, aftereffect and trend: the greatest loss between the periods of a fold, and the linear trends of the whole fold, before the change and from it.</p><span class="m-req">series with dates</span></li>
+    </ul>
+  </section>
+  <section class="m-group" id="seasons" data-group>
+    <div class="m-head">
+      <h2>Seasons and phenology</h2>
+      <p>When the growing season starts, peaks and ends, year by year.</p>
+    </div>
+    <ul class="m-cards">
+      <li class="m-card" id="phenology" data-cadence="subannual everydate" data-questions="seasons" data-text="phenology start, peak and end of season, length, amplitude, for a typical year or a chosen one. ≥ 6 dates per year"><h3>Phenology</h3><p>Start, peak and end of season, length, amplitude, for a typical year or a chosen one.</p><span class="m-req">≥ 6 dates per year</span><a class="m-guide" href="phenology.html">Guide &rarr;</a></li>
+      <li class="m-card" id="polar-phenology" data-cadence="subannual" data-questions="seasons" data-text="polar phenology force's polar phenology: the start, middle and end of each season, the peak, the amplitudes, integrals and rates of rise and fall, 39 metrics by year. the series must be regular: run interpolate first. regular series, ≥ 2 years"><h3>Polar phenology</h3><p>FORCE's polar phenology: the start, middle and end of each season, the peak, the amplitudes, integrals and rates of rise and fall, 39 metrics by year. The series must be regular: run Interpolate first.</p><span class="m-req">regular series, ≥ 2 years</span></li>
+    </ul>
+  </section>
+  <section class="m-group" id="cover" data-group>
+    <div class="m-head">
+      <h2>Cover and spectra</h2>
+      <p>What a pixel is made of, from its spectrum, and the clouds that hide it.</p>
+    </div>
+    <ul class="m-cards">
+      <li class="m-card" id="ndfi" data-cadence="everydate" data-questions="degradation prepare" data-text="ndfi spectral unmixing of every date into a new layer of the ndfi, ready for the other tools. one file per date, multiband"><h3>NDFI</h3><p>Spectral unmixing of every date into a new layer of the NDFI, ready for the other tools.</p><span class="m-req">one file per date, multiband</span><a class="m-guide" href="coded.html">Guide &rarr;</a></li>
+      <li class="m-card" id="spectral-unmixing" data-cadence="everydate" data-questions="classes" data-text="spectral unmixing the fraction of each cover (vegetation, soil, water...) whose spectrum you take from pins, at every date or in a hyperspectral scene. multiband or spectrum"><h3>Spectral unmixing</h3><p>The fraction of each cover (vegetation, soil, water...) whose spectrum you take from pins, at every date or in a hyperspectral scene.</p><span class="m-req">multiband or spectrum</span><a class="m-guide" href="unmixing.html">Guide &rarr;</a></li>
+      <li class="m-card" id="tmask" data-cadence="everydate" data-questions="prepare" data-text="tmask the clouds and shadows the quality band missed, and the series without them as a new layer. green and swir1"><h3>Tmask</h3><p>The clouds and shadows the quality band missed, and the series without them as a new layer.</p><span class="m-req">green and SWIR1</span></li>
+    </ul>
+  </section>
+  <section class="m-group" id="classify" data-group>
+    <div class="m-head">
+      <h2>Classes, clusters and segments</h2>
+      <p>Maps of classes, from your samples or from the series alone, and the cleaning of them.</p>
+    </div>
+    <ul class="m-cards">
+      <li class="m-card" id="twdtw" data-cadence="any" data-questions="classes" data-text="twdtw a class map from patterns you take from pins on places you know. classification"><h3>TWDTW</h3><p>A class map from patterns you take from pins on places you know.</p><span class="m-req">classification</span></li>
+      <li class="m-card" id="post-processing" data-cadence="classes" data-questions="classes prepare" data-text="post-processing a classification cleaned: one-year flickers removed, a majority filter and a minimum mapping unit; models' probabilities smoothed by bayesian smoothing (camara et al. 2024). classes"><h3>Post-processing</h3><p>A classification cleaned: one-year flickers removed, a majority filter and a minimum mapping unit; models' probabilities smoothed by Bayesian smoothing (Camara et al. 2024).</p><span class="m-req">classes</span></li>
+      <li class="m-card" id="som" data-cadence="any" data-questions="clusters" data-text="som clusters of alike trajectories, with the typical series of the one under the cursor. clustering"><h3>SOM</h3><p>Clusters of alike trajectories, with the typical series of the one under the cursor.</p><span class="m-req">clustering</span></li>
+      <li class="m-card" id="k-means" data-cadence="any" data-questions="clusters classes" data-text="k-means compact clusters of the whole series, named by the classes of your samples in them. clustering"><h3>k-means</h3><p>Compact clusters of the whole series, named by the classes of your samples in them.</p><span class="m-req">clustering</span></li>
+      <li class="m-card" id="snic" data-cadence="any" data-questions="clusters spatial" data-text="snic segments of alike series, their mean series as a layer and their polygons as a vector layer. segmentation"><h3>SNIC</h3><p>Segments of alike series, their mean series as a layer and their polygons as a vector layer.</p><span class="m-req">segmentation</span><a class="m-guide" href="snic.html">Guide &rarr;</a></li>
+    </ul>
+  </section>
+  <section class="m-group" id="spatial" data-group>
+    <div class="m-head">
+      <h2>Spatial patterns</h2>
+      <p>Where values cluster, where maps agree and how rough the land is.</p>
+    </div>
+    <ul class="m-cards">
+      <li class="m-card" id="emerging-hot-spots" data-cadence="any" data-questions="spatial trend" data-text="emerging hot spots where values cluster high or low and how that changed: the getis-ord gi* of every date and its trend, as esri's patterns (new, intensifying, persistent, sporadic... hot and cold spots). ≥ 3 dates"><h3>Emerging hot spots</h3><p>Where values cluster high or low and how that changed: the Getis-Ord Gi* of every date and its trend, as ESRI's patterns (new, intensifying, persistent, sporadic... hot and cold spots).</p><span class="m-req">≥ 3 dates</span><a class="m-guide" href="hotspots.html">Guide &rarr;</a></li>
+      <li class="m-card" id="agreement" data-cadence="any" data-questions="spatial abrupt" data-text="agreement where and when several change maps agree: the consensus year and how many back it. on result maps"><h3>Agreement</h3><p>Where and when several change maps agree: the consensus year and how many back it.</p><span class="m-req">on result maps</span></li>
+      <li class="m-card" id="texture" data-cadence="any" data-questions="spatial classes" data-text="texture the grain of a landscape in a moving window: the glcm's properties and window statistics of a temporal summary of the series, one map per feature, as inputs for a classifier. any series, whole-image runs only"><h3>Texture</h3><p>The grain of a landscape in a moving window: the GLCM's properties and window statistics of a temporal summary of the series, one map per feature, as inputs for a classifier.</p><span class="m-req">any series, whole-image runs only</span></li>
+    </ul>
+  </section>
+  <section class="m-group" id="prepare" data-group>
+    <div class="m-head">
+      <h2>Prepare the series</h2>
+      <p>Smooth, fill, regularize and summarize a series before another method reads it.</p>
+    </div>
+    <ul class="m-cards">
+      <li class="m-card" id="smoothing" data-cadence="any" data-questions="prepare" data-text="smoothing whittaker and savitzky-golay, drawn over the series on the chart. chart only"><h3>Smoothing</h3><p>Whittaker and Savitzky-Golay, drawn over the series on the chart.</p><span class="m-req">chart only</span></li>
+      <li class="m-card" id="ccdc-synthetic-image" data-cadence="everydate" data-questions="prepare" data-text="ccdc synthetic image the image ccdc's models predict for one date: every band, free of clouds, gaps and noise. one file per date, multiband"><h3>CCDC synthetic image</h3><p>The image CCDC's models predict for one date: every band, free of clouds, gaps and noise.</p><span class="m-req">one file per date, multiband</span></li>
+      <li class="m-card" id="interpolate" data-cadence="any" data-questions="prepare" data-text="interpolate the series put on a regular grid of dates, every 16 days by default: an ensemble of radial basis functions, linear interpolation, a moving average or a robust harmonic model, as force does. series with dates"><h3>Interpolate</h3><p>The series put on a regular grid of dates, every 16 days by default: an ensemble of radial basis functions, linear interpolation, a moving average or a robust harmonic model, as FORCE does.</p><span class="m-req">series with dates</span></li>
+      <li class="m-card" id="temporal-metrics" data-cadence="any" data-questions="prepare" data-text="temporal metrics the 16 statistics of each pixel's whole series as maps: minimum, percentiles, median, maximum, range, mean, standard deviation, number of observations... (force's stm). any series"><h3>Temporal metrics</h3><p>The 16 statistics of each pixel's whole series as maps: minimum, percentiles, median, maximum, range, mean, standard deviation, number of observations... (FORCE's STM).</p><span class="m-req">any series</span></li>
+      <li class="m-card" id="fold-by-period" data-cadence="any" data-questions="prepare seasons" data-text="fold by period the same statistics by year, quarter, month, week or day of the year instead of over the whole series, one band per period. series with dates"><h3>Fold by period</h3><p>The same statistics by year, quarter, month, week or day of the year instead of over the whole series, one band per period.</p><span class="m-req">series with dates</span></li>
+      <li class="m-card" id="standardize" data-cadence="any" data-questions="prepare" data-text="standardize each pixel's series as z-scores or centred on its mean, missing observations left empty. any series"><h3>Standardize</h3><p>Each pixel's series as z-scores or centred on its mean, missing observations left empty.</p><span class="m-req">any series</span></li>
+      <li class="m-card" id="clear-sky-observations" data-cadence="any" data-questions="prepare" data-text="clear-sky observations how many valid observations each pixel has in windows of months, and the gaps in days between them (force's cso). series with dates"><h3>Clear-sky observations</h3><p>How many valid observations each pixel has in windows of months, and the gaps in days between them (FORCE's CSO).</p><span class="m-req">series with dates</span></li>
+    </ul>
+  </section>
+</div>
+<!-- /build:method-catalog -->
+
+</main>
+
+<!-- build:footer -->
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <img class="coin" src="assets/img/janus-icone.svg?v=4" alt="" width="96" height="96">
+    <div>
+      <p class="foot-name"><img src="assets/img/janus-nome.svg?v=4" alt="Janus" width="60" height="30"></p>
+      <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
+    </div>
+    <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
+      <li><a href="https://github.com/sacridini/janus">Source</a></li>
+      <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
+      <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
+      <li><a href="https://github.com/sacridini/zeit-cdts">Zeit</a></li>
+    </ul>
+  </div>
+</footer>
+<script src="assets/search.js" defer></script>
+<!-- /build:footer -->
+
+<script src="assets/main.js" defer></script>
+<script src="assets/methods.js" defer></script>
+</body>
+</html>

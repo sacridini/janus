@@ -1,146 +1,497 @@
 [
   {
+    "id": "landtrendr",
     "name": "LandTrendr",
     "summary": "Year of detection, magnitude, duration and rate of the chosen loss or gain event.",
     "requires": "annual series",
+    "group": "change",
+    "cadence": [
+      "annual"
+    ],
+    "questions": [
+      "abrupt",
+      "trend"
+    ],
     "guide": "landtrendr"
   },
   {
+    "id": "recovery",
     "name": "Recovery",
     "summary": "After LandTrendr's loss: years to recovery (Y2R), R80P, RRI and the absolute and year-on-year recovery.",
     "requires": "annual series",
+    "group": "trend",
+    "cadence": [
+      "annual"
+    ],
+    "questions": [
+      "recovery"
+    ],
     "guide": "landtrendr"
   },
   {
+    "id": "ewmacd",
     "name": "EWMACD",
     "summary": "Every observation against its training years through EWMA control charts: when it was disturbed, how far, when it recovered or gained, its state now.",
     "requires": "any dates, ≥ 2 per year",
+    "group": "change",
+    "cadence": [
+      "subannual",
+      "everydate"
+    ],
+    "questions": [
+      "abrupt",
+      "degradation",
+      "recovery"
+    ],
     "guide": "ewmacd"
   },
   {
+    "id": "emerging-hot-spots",
     "name": "Emerging hot spots",
     "summary": "Where values cluster high or low and how that changed: the Getis-Ord Gi* of every date and its trend, as ESRI's patterns (new, intensifying, persistent, sporadic... hot and cold spots).",
     "requires": "≥ 3 dates",
+    "group": "spatial",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "spatial",
+      "trend"
+    ],
     "guide": "hotspots"
   },
   {
+    "id": "mann-kendall",
     "name": "Mann-Kendall",
     "summary": "Significant Sen's slope, p-value and trend class, with Hamed-Rao, Yue-Wang and seasonal variants.",
     "requires": "any series",
+    "group": "trend",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "trend"
+    ],
     "guide": "trend-test"
   },
   {
+    "id": "ar-1-trend",
     "name": "AR(1) trend",
     "summary": "The trend's t-test with autocorrelated errors (remotePARTS), and the regional Trend test by PARTS.",
     "requires": "any series",
+    "group": "trend",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "trend",
+      "spatial"
+    ],
     "guide": "trend-test"
   },
   {
+    "id": "bfast",
     "name": "BFAST",
     "summary": "Trend and season break counts, date and magnitude of the largest break.",
     "requires": "≥ 2 dates per year",
+    "group": "change",
+    "cadence": [
+      "subannual"
+    ],
+    "questions": [
+      "abrupt",
+      "trend",
+      "seasons"
+    ],
     "guide": "bfast"
   },
   {
+    "id": "bfast-lite",
     "name": "BFAST Lite",
     "summary": "Break count, date and magnitude of the largest break, first break date.",
     "requires": "≥ 2 dates per year",
+    "group": "change",
+    "cadence": [
+      "subannual"
+    ],
+    "questions": [
+      "abrupt"
+    ],
     "guide": "bfast"
   },
   {
+    "id": "bfast-monitor",
     "name": "BFAST Monitor",
     "summary": "First break in the monitoring period, its magnitude, break yes or no.",
     "requires": "≥ 2 dates per year",
+    "group": "change",
+    "cadence": [
+      "subannual"
+    ],
+    "questions": [
+      "abrupt"
+    ],
     "guide": "bfast"
   },
   {
+    "id": "beast",
     "name": "BEAST",
     "summary": "Trend and season averaged over thousands of models: the probability of a changepoint at each date, the most probable one with its jump, the mean number of changepoints.",
     "requires": "any series, ≥ 12 dates",
+    "group": "change",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "abrupt",
+      "trend"
+    ],
     "guide": "beast"
   },
   {
+    "id": "phenology",
     "name": "Phenology",
     "summary": "Start, peak and end of season, length, amplitude, for a typical year or a chosen one.",
     "requires": "≥ 6 dates per year",
+    "group": "seasons",
+    "cadence": [
+      "subannual",
+      "everydate"
+    ],
+    "questions": [
+      "seasons"
+    ],
     "guide": "phenology"
   },
   {
+    "id": "ccdc",
     "name": "CCDC",
     "summary": "Break count, largest break, NDVI change and segments from every reflectance band.",
     "requires": "one file per date, multiband",
+    "group": "change",
+    "cadence": [
+      "everydate"
+    ],
+    "questions": [
+      "abrupt"
+    ],
     "guide": "ccdc"
   },
   {
+    "id": "s-ccd",
     "name": "S-CCD",
     "summary": "CCDC's models carried forward by a Kalman filter: the breaks, and the state of every pixel at the last date (stable, change in progress and since when, waiting for a model).",
     "requires": "one file per date, multiband",
+    "group": "change",
+    "cadence": [
+      "everydate"
+    ],
+    "questions": [
+      "abrupt"
+    ],
     "guide": "sccd"
   },
   {
+    "id": "coded",
     "name": "CODED",
     "summary": "Forest degradation and deforestation from the NDFI of every observation, as strata and change dates.",
     "requires": "one file per date, multiband",
+    "group": "change",
+    "cadence": [
+      "everydate"
+    ],
+    "questions": [
+      "degradation",
+      "abrupt"
+    ],
     "guide": "coded"
   },
   {
+    "id": "ndfi",
     "name": "NDFI",
     "summary": "Spectral unmixing of every date into a new layer of the NDFI, ready for the other tools.",
     "requires": "one file per date, multiband",
+    "group": "cover",
+    "cadence": [
+      "everydate"
+    ],
+    "questions": [
+      "degradation",
+      "prepare"
+    ],
     "guide": "coded"
   },
   {
+    "id": "spectral-unmixing",
     "name": "Spectral unmixing",
     "summary": "The fraction of each cover (vegetation, soil, water...) whose spectrum you take from pins, at every date or in a hyperspectral scene.",
     "requires": "multiband or spectrum",
+    "group": "cover",
+    "cadence": [
+      "everydate"
+    ],
+    "questions": [
+      "classes"
+    ],
     "guide": "unmixing"
   },
   {
+    "id": "tmask",
     "name": "Tmask",
     "summary": "The clouds and shadows the quality band missed, and the series without them as a new layer.",
     "requires": "green and SWIR1",
+    "group": "cover",
+    "cadence": [
+      "everydate"
+    ],
+    "questions": [
+      "prepare"
+    ],
     "guide": null
   },
   {
+    "id": "twdtw",
     "name": "TWDTW",
     "summary": "A class map from patterns you take from pins on places you know.",
     "requires": "classification",
+    "group": "classify",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "classes"
+    ],
     "guide": null
   },
   {
+    "id": "post-processing",
     "name": "Post-processing",
     "summary": "A classification cleaned: one-year flickers removed, a majority filter and a minimum mapping unit; models' probabilities smoothed by Bayesian smoothing (Camara et al. 2024).",
     "requires": "classes",
+    "group": "classify",
+    "cadence": [
+      "classes"
+    ],
+    "questions": [
+      "classes",
+      "prepare"
+    ],
     "guide": null
   },
   {
+    "id": "som",
     "name": "SOM",
     "summary": "Clusters of alike trajectories, with the typical series of the one under the cursor.",
     "requires": "clustering",
+    "group": "classify",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "clusters"
+    ],
     "guide": null
   },
   {
+    "id": "k-means",
     "name": "k-means",
     "summary": "Compact clusters of the whole series, named by the classes of your samples in them.",
     "requires": "clustering",
+    "group": "classify",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "clusters",
+      "classes"
+    ],
     "guide": null
   },
   {
+    "id": "agreement",
     "name": "Agreement",
     "summary": "Where and when several change maps agree: the consensus year and how many back it.",
     "requires": "on result maps",
+    "group": "spatial",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "spatial",
+      "abrupt"
+    ],
     "guide": null
   },
   {
+    "id": "smoothing",
     "name": "Smoothing",
     "summary": "Whittaker and Savitzky-Golay, drawn over the series on the chart.",
     "requires": "chart only",
+    "group": "prepare",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "prepare"
+    ],
     "guide": null
   },
   {
+    "id": "snic",
     "name": "SNIC",
     "summary": "Segments of alike series, their mean series as a layer and their polygons as a vector layer.",
     "requires": "segmentation",
+    "group": "classify",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "clusters",
+      "spatial"
+    ],
     "guide": "snic"
+  },
+  {
+    "id": "ccdc-synthetic-image",
+    "name": "CCDC synthetic image",
+    "summary": "The image CCDC's models predict for one date: every band, free of clouds, gaps and noise.",
+    "requires": "one file per date, multiband",
+    "group": "prepare",
+    "cadence": [
+      "everydate"
+    ],
+    "questions": [
+      "prepare"
+    ],
+    "guide": null
+  },
+  {
+    "id": "texture",
+    "name": "Texture",
+    "summary": "The grain of a landscape in a moving window: the GLCM's properties and window statistics of a temporal summary of the series, one map per feature, as inputs for a classifier.",
+    "requires": "any series, whole-image runs only",
+    "group": "spatial",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "spatial",
+      "classes"
+    ],
+    "guide": null
+  },
+  {
+    "id": "interpolate",
+    "name": "Interpolate",
+    "summary": "The series put on a regular grid of dates, every 16 days by default: an ensemble of radial basis functions, linear interpolation, a moving average or a robust harmonic model, as FORCE does.",
+    "requires": "series with dates",
+    "group": "prepare",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "prepare"
+    ],
+    "guide": null
+  },
+  {
+    "id": "temporal-metrics",
+    "name": "Temporal metrics",
+    "summary": "The 16 statistics of each pixel's whole series as maps: minimum, percentiles, median, maximum, range, mean, standard deviation, number of observations... (FORCE's STM).",
+    "requires": "any series",
+    "group": "prepare",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "prepare"
+    ],
+    "guide": null
+  },
+  {
+    "id": "fold-by-period",
+    "name": "Fold by period",
+    "summary": "The same statistics by year, quarter, month, week or day of the year instead of over the whole series, one band per period.",
+    "requires": "series with dates",
+    "group": "prepare",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "prepare",
+      "seasons"
+    ],
+    "guide": null
+  },
+  {
+    "id": "standardize",
+    "name": "Standardize",
+    "summary": "Each pixel's series as z-scores or centred on its mean, missing observations left empty.",
+    "requires": "any series",
+    "group": "prepare",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "prepare"
+    ],
+    "guide": null
+  },
+  {
+    "id": "linear-trend-of-a-fold",
+    "name": "Linear trend of a fold",
+    "summary": "A least-squares line over a statistic taken by period: the slope per period, R² and the t-test of the slope, as maps (FORCE's trend analysis).",
+    "requires": "series with dates",
+    "group": "trend",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "trend"
+    ],
+    "guide": null
+  },
+  {
+    "id": "cat",
+    "name": "CAT",
+    "summary": "FORCE's change, aftereffect and trend: the greatest loss between the periods of a fold, and the linear trends of the whole fold, before the change and from it.",
+    "requires": "series with dates",
+    "group": "trend",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "abrupt",
+      "trend"
+    ],
+    "guide": null
+  },
+  {
+    "id": "clear-sky-observations",
+    "name": "Clear-sky observations",
+    "summary": "How many valid observations each pixel has in windows of months, and the gaps in days between them (FORCE's CSO).",
+    "requires": "series with dates",
+    "group": "prepare",
+    "cadence": [
+      "any"
+    ],
+    "questions": [
+      "prepare"
+    ],
+    "guide": null
+  },
+  {
+    "id": "polar-phenology",
+    "name": "Polar phenology",
+    "summary": "FORCE's polar phenology: the start, middle and end of each season, the peak, the amplitudes, integrals and rates of rise and fall, 39 metrics by year. The series must be regular: run Interpolate first.",
+    "requires": "regular series, ≥ 2 years",
+    "group": "seasons",
+    "cadence": [
+      "subannual"
+    ],
+    "questions": [
+      "seasons"
+    ],
+    "guide": null
   }
 ]

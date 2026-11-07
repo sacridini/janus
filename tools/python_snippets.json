@@ -1,0 +1,225 @@
+[
+  {
+    "guide": "landtrendr",
+    "tool": "landtrendr",
+    "params": {},
+    "steps": [
+      "Open the annual stack with <span class=\"ui\">File → Open</span>: <code>LT_Stack_NDVI_Rondonia.tif</code>, a band per year, <code>yr1985</code> to <code>yr2024</code>.",
+      "Click the map on the cleared forest to drop a pin: the pixel the chart and the table follow.",
+      "Open <span class=\"ui\">Tools → Change detection → LandTrendr</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.",
+      "Read the vertices and segments on the chart and the mapped event in the <strong>Statistics</strong> table."
+    ],
+    "input": {
+      "open": [
+        "C:/Users/eduar/Downloads/LT_Stack_NDVI_Rondonia.tif"
+      ],
+      "show": "",
+      "lonlat": [
+        -63.083966,
+        -10.356003
+      ]
+    }
+  },
+  {
+    "guide": "beast",
+    "tool": "beast",
+    "params": {},
+    "steps": [
+      "Open the annual stack of the LandTrendr guide with <span class=\"ui\">File → Open</span>: <code>LT_Stack_NDVI_Rondonia.tif</code>.",
+      "Drop pin 1 on pixel 306, 913.",
+      "Open <span class=\"ui\">Tools → Change detection → BEAST (Bayesian changepoints)</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>; the parameters are the defaults.",
+      "The chart draws the model and the probability of a changepoint in each year."
+    ],
+    "input": {
+      "open": [
+        "C:/Users/eduar/Downloads/LT_Stack_NDVI_Rondonia.tif"
+      ],
+      "show": "",
+      "pixel": [
+        306,
+        913
+      ]
+    }
+  },
+  {
+    "guide": "ccdc",
+    "tool": "ccdc",
+    "params": {},
+    "steps": [
+      "Open the folder of the 125 Landsat dates with <span class=\"ui\">File → Open folder...</span>. In the Display panel choose NIR as the band and red for the normalized difference, so the chart shows the NDVI; the quality band is found by its name.",
+      "Drop a pin on the forest cleared in May–June 2022.",
+      "Open <span class=\"ui\">Tools → Change detection → CCDC</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.",
+      "The chart draws the segments, and the Statistics table their breaks and magnitudes."
+    ],
+    "input": {
+      "open": [
+        "{LANDSAT}"
+      ],
+      "show": "landsat/",
+      "band": 4,
+      "nd_band": 3,
+      "lonlat": [
+        -63.119001,
+        -10.130167
+      ],
+      "name": "landsat"
+    }
+  },
+  {
+    "guide": "coded",
+    "tool": "coded",
+    "params": {
+      "monitor_start": 2022.0,
+      "train_years": 2.0
+    },
+    "steps": [
+      "Open the same folder of Landsat dates (<span class=\"ui\">File → Open folder...</span>), NIR as the band and red for the normalized difference.",
+      "Drop a pin on the forest cleared in May–June 2022.",
+      "Open <span class=\"ui\">Tools → Change detection → CODED (degradation)</span>, set <span class=\"ui\">Monitoring starts</span> to 2022 and <span class=\"ui\">Training years</span> to 2, and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>.",
+      "The chart draws the NDFI and the changes CODED finds on it."
+    ],
+    "input": {
+      "open": [
+        "{LANDSAT}"
+      ],
+      "show": "landsat/",
+      "band": 4,
+      "nd_band": 3,
+      "lonlat": [
+        -63.119001,
+        -10.130167
+      ],
+      "name": "landsat"
+    }
+  },
+  {
+    "guide": "sccd",
+    "tool": "sccd",
+    "params": {},
+    "steps": [
+      "Open the folder of the 125 Landsat dates with <span class=\"ui\">File → Open folder...</span>: NIR as the band and red for the normalized difference. With the QA_PIXEL band in the files, choose it as the <span class=\"ui\">Quality band</span> (Janus finds it by its name).",
+      "Drop a pin on pixel 378, 778, the second pixel of the guide: about 11 km north-west of pin 1.",
+      "Open <span class=\"ui\">Tools → Change detection → S-CCD (stochastic CCDC)</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.",
+      "The chart draws the model that S-CCD updates with each image, and the Statistics table the state of the pixel at the last date."
+    ],
+    "input": {
+      "open": [
+        "{LANDSAT_FULL}"
+      ],
+      "show": "landsat/",
+      "band": 4,
+      "nd_band": 3,
+      "lonlat": [
+        -63.3251555,
+        -10.1842055
+      ],
+      "name": "landsat"
+    }
+  },
+  {
+    "guide": "bfast",
+    "tool": "bfast",
+    "params": {},
+    "steps": [
+      "Open the MODIS EVI stack with <span class=\"ui\">File → Open</span>: one GeoTIFF with a band per date, named <code>EVI_2001_01_01</code> and so on.",
+      "Drop a pin on pixel 435, 153, a field with EVI of about 0.42 a year until 2012 and about 0.3 since.",
+      "Open <span class=\"ui\">Tools → Change detection → BFAST</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.",
+      "The chart draws the trend and the season with their breaks; the Statistics table lists them."
+    ],
+    "input": {
+      "open": [
+        "C:/Users/eduar/Downloads/EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"
+      ],
+      "show": "",
+      "pixel": [
+        435,
+        153
+      ]
+    }
+  },
+  {
+    "guide": "bfast-lite",
+    "tool": "bfast_lite",
+    "params": {},
+    "steps": [
+      "With the EVI stack open and the pin on pixel 435, 153, open <span class=\"ui\">Tools → Change detection → BFAST Lite</span>.",
+      "Tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>; the parameters are the defaults.",
+      "The chart draws the trend and the breaks of the single model BFAST Lite fits."
+    ],
+    "input": {
+      "open": [
+        "C:/Users/eduar/Downloads/EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"
+      ],
+      "show": "",
+      "pixel": [
+        435,
+        153
+      ]
+    }
+  },
+  {
+    "guide": "bfast-monitor",
+    "tool": "bfast_monitor",
+    "params": {
+      "monitor_start": 2010.0
+    },
+    "steps": [
+      "With the EVI stack open and the pin on pixel 435, 153, open <span class=\"ui\">Tools → Change detection → BFAST Monitor</span>.",
+      "Set <span class=\"ui\">Monitoring starts</span> to 2010 and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>.",
+      "The chart draws the stable history before 2010 and the monitoring period after it, with the break BFAST Monitor finds."
+    ],
+    "input": {
+      "open": [
+        "C:/Users/eduar/Downloads/EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"
+      ],
+      "show": "",
+      "pixel": [
+        435,
+        153
+      ]
+    }
+  },
+  {
+    "guide": "phenology",
+    "tool": "phenology",
+    "params": {},
+    "steps": [
+      "Open the MODIS EVI stack of the BFAST guide with <span class=\"ui\">File → Open</span>.",
+      "Drop a pin on pixel 71, 319, a field with a strong season every year.",
+      "Open <span class=\"ui\">Tools → Temporal dynamics → Phenology</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>. The parameters are the defaults.",
+      "The chart draws the smoothed curve and the seasons; the Statistics table gives their start, peak and end."
+    ],
+    "input": {
+      "open": [
+        "C:/Users/eduar/Downloads/EVI_Series_ID_EU_150-X026-Y027_2001_2025.tif"
+      ],
+      "show": "",
+      "pixel": [
+        71,
+        319
+      ]
+    }
+  },
+  {
+    "guide": "trend-test",
+    "tool": "ar_trend",
+    "params": {},
+    "steps": [
+      "Open the 41 annual composites with <span class=\"ui\">File → Open folder...</span> (<code>landsat_medoid_1985</code> to <code>landsat_medoid_2025</code>, with 0 declared as no data).",
+      "Drop a pin near the river, on pixel 1426, 1199.",
+      "Open <span class=\"ui\">Tools → Temporal dynamics → AR(1) trend</span> and tick <span class=\"ui\">Fit the cursor, pins and ROI series</span>. The window stays at its defaults.",
+      "The chart draws the AR(1) line next to the OLS one, and the Statistics table gives the slope, its standard error and ρ."
+    ],
+    "input": {
+      "open": [
+        "{SERIES}"
+      ],
+      "show": "series/",
+      "pixel": [
+        1426,
+        1199
+      ],
+      "name": "series"
+    }
+  }
+]

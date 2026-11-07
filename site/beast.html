@@ -14,9 +14,8 @@
 <meta property="og:description" content="A Rondônia forest cleared in 1999, a rise BEAST gives 61%, a forest where it claims no change, and a French field whose trend and season both changed in 2013: on the chart, then over the image.">
 <meta property="og:image" content="https://sacridini.github.io/janus/assets/img/beast/08-prob.jpg">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&display=swap">
+<link rel="preload" href="assets/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/IBMPlexMono-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -27,17 +26,19 @@
 <header class="nav" id="top">
   <div class="nav-in">
     <a class="brand" href="./" aria-label="Janus, home"><img class="brand-mark" src="assets/img/janus-simbolo.svg?v=4" alt="" width="36" height="36"><img class="brand-name" src="assets/img/janus-nome.svg?v=4" alt="Janus" width="56" height="28"></a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" id="site-nav">
       <ul>
-        <li><a href="./#features">Features</a></li>
-        <li><a href="./#tools">Change detection</a></li>
-        <li><a href="./#guides" aria-current="page">Guides</a></li>
+        <li><a href="./methods.html">Methods</a></li>
+        <li><a href="./guides.html" aria-current="page">Guides</a></li>
+        <li><a href="./demo.html">Demo</a></li>
         <li><a href="./#install">Install</a></li>
-        <li><a href="./#cli">Command line</a></li>
-        <li><a href="https://github.com/sacridini/janus#readme">Docs</a></li>
+        <li><a href="./docs.html">Docs</a></li>
+        <li><a href="./news.html">News</a></li>
       </ul>
     </nav>
+    <button class="nav-search" type="button" data-search aria-label="Search the site" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K /"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 10l4.2 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="ns-text">Search</span><kbd>Ctrl K</kbd></button>
     <a class="btn btn-small" href="https://github.com/sacridini/janus">GitHub</a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   </div>
 </header>
 <!-- /build:header -->
@@ -46,7 +47,7 @@
 
 <section class="guide-hero">
   <div class="wrap">
-    <p class="crumbs"><a href="./">Janus</a> / <a href="./#guides">Guides</a> / BEAST</p>
+    <p class="crumbs"><a href="./">Janus</a> / <a href="guides.html">Guides</a> / BEAST</p>
     <p class="eyebrow">Change detection · with probabilities</p>
     <h1>BEAST, step by step.</h1>
     <p class="lede">Most change detection tools choose one model of a series: so many breaks, at these dates. BEAST does not choose. It samples thousands of models of the trend and the season, with every number and position of changepoints, and averages them. So it can say how sure it is: this clearing in 1999 is certain, this rise in 2012 has 61%, and this forest most likely never changed.</p>
@@ -92,7 +93,7 @@
       <h2><span class="n">02</span>The example</h2>
       <p>The series of the <a href="landtrendr.html">LandTrendr guide</a>: one Landsat NDVI value per year from 1985 to 2024 (× 10,000), over about 50 km of a forest frontier in Rondônia, Brazil. It opens as a VRT of 40 bands named <code>yr1985</code> to <code>yr2024</code>, with 0 as no data. Later, for a series with seasons, the 16-day MODIS EVI of the <a href="bfast.html">BFAST guide</a>.</p>
       <figure class="fig">
-        <a href="assets/img/beast/02-pixel.jpg"><img src="assets/img/beast/02-pixel.jpg" alt="The Janus window: the NDVI of 2024 over the circular Rondônia scene, one pin, its NDVI series on the chart with BEAST's trend in magenta, its 95% interval dashed and two vertical lines at the changepoints, and BEAST's numbers in the Statistics table." width="2000" height="1300" loading="lazy"></a>
+        <a href="assets/img/beast/02-pixel.jpg"><picture><source type="image/webp" srcset="assets/img/beast/02-pixel.webp"><img src="assets/img/beast/02-pixel.jpg" alt="The Janus window: the NDVI of 2024 over the circular Rondônia scene, one pin, its NDVI series on the chart with BEAST's trend in magenta, its 95% interval dashed and two vertical lines at the changepoints, and BEAST's numbers in the Statistics table." width="2000" height="1300" loading="lazy"></picture></a>
         <figcaption><b>The series</b> in 2024, and pin 1 (pixel 306, 913) with BEAST on its chart.</figcaption>
       </figure>
     </section>
@@ -123,6 +124,117 @@
       <p>In <strong>1999</strong> the NDVI fell from 0.85 to 0.61: a clearing. Every sampled model has a changepoint there (100%), and the trend drops by 1743 (0.17 NDVI). In <strong>2012</strong> the NDVI rose from 0.59 to 0.74 and stayed higher: 61% of the models put a changepoint there, the others explain the rise with a steeper slope. That is why the 95% interval is wide around 2012. 2018, 1991 and 2005 are each in a minority of the models (41% down to 13%), so the chart draws no line for them.</p>
       <p>The trend has <strong>2.66 changepoints on average</strong>. Two is the most likely number, three almost as likely. At the end, the trend rises by 37 a year, and 57% of the models have it rising: the regrowth is more likely than not still going on.</p>
       <p><a href="landtrendr.html">LandTrendr</a> on this pixel draws one model: the clearing, then a single line of regrowth from 1999 to 2024, across the step of 2012. BEAST shows the clearing as certain and the step as a fair possibility.</p>
+<!-- build:python-tabs -->
+<div class="pytabs" data-tabs>
+  <div class="term-tabs pytabs-bar" role="tablist" aria-label="BEAST (Bayesian changepoints): in Janus or in Python" hidden>
+    <button type="button" role="tab" id="pt-beast-janus" aria-controls="pp-beast-janus" aria-selected="true" data-tab="janus">In Janus</button>
+    <button type="button" role="tab" id="pt-beast-python" aria-controls="pp-beast-python" aria-selected="false" data-tab="python" tabindex="-1">In Python</button>
+  </div>
+  <div class="pytabs-body">
+    <div role="tabpanel" id="pp-beast-janus" aria-labelledby="pt-beast-janus" class="pytabs-panel">
+      <p class="pytabs-h">In Janus</p>
+      <ol>
+        <li>Open the annual stack of the LandTrendr guide with <span class="ui">File → Open</span>: <code>LT_Stack_NDVI_Rondonia.tif</code>.</li>
+        <li>Drop pin 1 on pixel 306, 913.</li>
+        <li>Open <span class="ui">Tools → Change detection → BEAST (Bayesian changepoints)</span> and tick <span class="ui">Fit the cursor, pins and ROI series</span>; the parameters are the defaults.</li>
+        <li>The chart draws the model and the probability of a changepoint in each year.</li>
+      </ol>
+    </div>
+    <div role="tabpanel" id="pp-beast-python" aria-labelledby="pt-beast-python" class="pytabs-panel">
+      <p class="pytabs-h">In Python</p>
+      <div class="pycode"><pre class="code py long" tabindex="0"><code><span class="s">"""Janus 1.16.0 (2026-11-07): pin 1 of LT_Stack_NDVI_Rondonia.tif,
+reproduced outside Janus. Needs: pip install numpy rasterio xarray zeit-cdts
+"""</span>
+<span class="k">import</span> numpy <span class="k">as</span> np
+<span class="k">import</span> rasterio
+<span class="k">from</span> rasterio.windows <span class="k">import</span> Window
+<span class="k">from</span> rasterio.enums <span class="k">import</span> Resampling
+
+<span class="c"># 1 file, 40 bands (1 band = 1 date), every band in each block (pixel-interleaved): read block by block</span>
+<span class="c"># Each date: (file, band, band B of a normalized difference (A - B) / (A + B), quality band).</span>
+layers = [
+    (<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, <span class="n">1</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, <span class="n">2</span>, <span class="k">None</span>, <span class="k">None</span>),
+    (<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, <span class="n">3</span>, <span class="k">None</span>, <span class="k">None</span>),
+    <span class="c"># … 36 more, in the full script</span>
+    (<span class="s">"LT_Stack_NDVI_Rondonia.tif"</span>, <span class="n">40</span>, <span class="k">None</span>, <span class="k">None</span>),
+]
+dates = np.array([
+    <span class="s">"1985"</span>, <span class="s">"1986"</span>, <span class="s">"1987"</span>,
+    <span class="c"># … 36 more, in the full script</span>
+    <span class="s">"2024"</span>], dtype=<span class="s">"datetime64[D]"</span>)
+<span class="c"># Time in years since the first date, as Janus fits trends (365.2425-day years).</span>
+years = np.array([
+    <span class="n">0</span>, <span class="n">0.9993360576</span>, <span class="n">1.998672115</span>,
+    <span class="c"># … 36 more, in the full script</span>
+    <span class="n">38.99874741</span>])
+qa_rule = <span class="s">"none"</span>
+
+<span class="k">def</span> usable(q, rule):
+    <span class="s">"""Observations Janus keeps, from the quality band's codes (nodata: none)."""</span>
+    ok = np.isfinite(q) &amp; (q &gt;= <span class="n">0</span>)
+    c = np.where(ok, q, <span class="n">0</span>).astype(np.int64)
+    <span class="k">if</span> rule == <span class="s">"fmask"</span>:          <span class="c"># 0 clear land, 1 water</span>
+        <span class="k">return</span> ok &amp; ((c == <span class="n">0</span>) | (c == <span class="n">1</span>))
+    <span class="k">if</span> rule == <span class="s">"landsat_c2"</span>:     <span class="c"># QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow, 5 snow</span>
+        <span class="k">return</span> ok &amp; ((c &amp; 0x3B) == <span class="n">0</span>)
+    <span class="k">if</span> rule == <span class="s">"scl"</span>:            <span class="c"># Sentinel-2 SCL: 4 vegetation, 5 bare soil, 6 water</span>
+        <span class="k">return</span> ok &amp; (c &gt;= <span class="n">4</span>) &amp; (c &lt;= <span class="n">6</span>)
+    <span class="k">if</span> rule == <span class="s">"hls_fmask"</span>:      <span class="c"># HLS Fmask bits 1 cloud, 2 adjacent, 3 shadow, 4 snow; 255 fill</span>
+        <span class="k">return</span> ok &amp; (c != <span class="n">255</span>) &amp; ((c &amp; 0x1E) == <span class="n">0</span>)
+    <span class="k">return</span> ok &amp; (c != <span class="n">0</span>)         <span class="c"># a 0/1 mask</span>
+
+
+<span class="k">def</span> read(path, band, window, out_shape=<span class="k">None</span>, raw=<span class="k">False</span>):
+    <span class="s">"""A band over a window: nodata -&gt; NaN, the band's scale and offset applied."""</span>
+    <span class="k">with</span> rasterio.open(path) <span class="k">as</span> src:
+        kw = {<span class="s">"out_shape"</span>: out_shape, <span class="s">"resampling"</span>: Resampling.nearest} <span class="k">if</span> out_shape <span class="k">else</span> {}
+        a = src.read(band, window=window, masked=<span class="k">True</span>, **kw).astype(<span class="s">"float64"</span>)
+        <span class="k">if</span> <span class="k">not</span> raw:
+            a = a * src.scales[band - <span class="n">1</span>] + src.offsets[band - <span class="n">1</span>]
+        <span class="k">return</span> np.ma.filled(a, np.nan)
+
+
+<span class="k">def</span> shown(layer, window, out_shape=<span class="k">None</span>):
+    <span class="s">"""What the series shows at a date: the band, or the normalized difference, masked by the quality band."""</span>
+    path, band, nd_band, qa_band = layer
+    v = read(path, band, window, out_shape)
+    <span class="k">if</span> nd_band:
+        b = read(path, nd_band, window, out_shape)
+        <span class="k">with</span> np.errstate(invalid=<span class="s">"ignore"</span>, divide=<span class="s">"ignore"</span>):
+            v = np.where(v + b != <span class="n">0</span>, (v - b) / (v + b), np.nan)
+    <span class="k">if</span> qa_band:
+        v = np.where(usable(read(path, qa_band, window, out_shape, raw=<span class="k">True</span>), qa_rule), v, np.nan)
+    <span class="k">return</span> v
+
+<span class="c"># The pixel (column, row of the files), its centre at x -63.34429802, y -10.22098639 (EPSG:4326).</span>
+col, row = <span class="n">306</span>, <span class="n">913</span>
+values = np.array([shown(layer, Window(col, row, <span class="n">1</span>, <span class="n">1</span>))[<span class="n">0</span>, <span class="n">0</span>] <span class="k">for</span> layer <span class="k">in</span> layers])
+
+ok = np.isfinite(values)
+y, t = values[ok], years[ok]
+print(<span class="s">"n"</span>, ok.sum(), <span class="s">"mean"</span>, y.mean(), <span class="s">"std"</span>, y.std(ddof=<span class="n">1</span>) <span class="k">if</span> y.size &gt; <span class="n">1</span> <span class="k">else</span> np.nan)
+<span class="k">if</span> y.size &gt;= <span class="n">2</span>:
+    slope, intercept = np.polyfit(t, y, <span class="n">1</span>)                  <span class="c"># OLS, per year</span>
+    i, j = np.triu_indices(y.size, <span class="n">1</span>)
+    keep = t[j] != t[i]
+    sen = np.median((y[j] - y[i])[keep] / (t[j] - t[i])[keep])  <span class="c"># Sen's slope, per year</span>
+    print(<span class="s">"OLS slope"</span>, slope, <span class="s">"Sen's slope"</span>, sen)
+
+<span class="c"># BEAST (Bayesian changepoints), fitted on the chart with these parameters: the same Zeit calls Janus makes</span>
+<span class="c"># (its model is drawn from their results).</span>
+<span class="k">import</span> xarray <span class="k">as</span> xr
+<span class="k">import</span> zeit
+
+series = xr.DataArray(values[:, <span class="k">None</span>, <span class="k">None</span>], dims=(<span class="s">"time"</span>, <span class="s">"y"</span>, <span class="s">"x"</span>), coords={<span class="s">"time"</span>: dates.astype(<span class="s">"datetime64[ns]"</span>)})
+result1 = zeit.beast(series, season=<span class="s">'none'</span>, deltat=<span class="k">None</span>, tcp_minmax=(<span class="n">0</span>, <span class="n">10</span>), scp_minmax=(<span class="n">0</span>, <span class="n">10</span>), torder_minmax=(<span class="n">0</span>, <span class="n">1</span>), samples=<span class="n">2000</span>, chains=<span class="n">2</span>, burnin=<span class="n">200</span>, thin=<span class="n">5</span>, seed=<span class="n">42</span>, nodata=<span class="k">None</span>, n_jobs=<span class="n">1</span>)
+print(result1)
+</code></pre><div class="pycode-btns"><button class="copy" type="button" data-copy="" data-src="assets/python/beast.py" aria-label="Copy the whole Python script">Copy</button><a class="copy" href="assets/python/beast.py" download="beast.py">Download .py</a></div></div>
+      <p class="pytabs-note">The code Janus&rsquo;s Copy Python button gives for this pixel and these parameters; it runs with Zeit (<code>pip install zeit-cdts</code>). The shown code shortens the long lists of files and dates; Copy and Download give the whole script.</p>
+    </div>
+  </div>
+</div>
+<!-- /build:python-tabs -->
     </section>
 
     <section id="forest">
@@ -213,22 +325,22 @@
       </div>
       <div class="fig-pair">
         <figure class="fig">
-          <a href="assets/img/beast/06-ncp.jpg"><img src="assets/img/beast/06-ncp.jpg" alt="The mean number of trend changepoints over the ROI: mostly dark blue and teal, from 1.4, with yellow patches of more than 3 changepoints along field edges and in small fields." width="1150" height="727" loading="lazy"></a>
+          <a href="assets/img/beast/06-ncp.jpg"><picture><source type="image/webp" srcset="assets/img/beast/06-ncp.webp"><img src="assets/img/beast/06-ncp.jpg" alt="The mean number of trend changepoints over the ROI: mostly dark blue and teal, from 1.4, with yellow patches of more than 3 changepoints along field edges and in small fields." width="1150" height="727" loading="lazy"></picture></a>
           <figcaption><b>Trend changepoints (mean)</b>, 1.4 (purple) to 3.9 (yellow).</figcaption>
         </figure>
         <figure class="fig">
-          <a href="assets/img/beast/08-prob.jpg"><img src="assets/img/beast/08-prob.jpg" alt="The probability of the most probable changepoint: large fields in yellow, near 1, and others in purple, near 0.3, with the pins on a yellow field and on a purple forest." width="1150" height="727" loading="lazy"></a>
+          <a href="assets/img/beast/08-prob.jpg"><picture><source type="image/webp" srcset="assets/img/beast/08-prob.webp"><img src="assets/img/beast/08-prob.jpg" alt="The probability of the most probable changepoint: large fields in yellow, near 1, and others in purple, near 0.3, with the pins on a yellow field and on a purple forest." width="1150" height="727" loading="lazy"></picture></a>
           <figcaption><b>Its probability</b>, 0.27 (purple) to 1 (yellow).</figcaption>
         </figure>
       </div>
       <p>Over the ROI the median pixel has <strong>2.0 changepoints</strong> on average. The probability map is the one to read first: 67% of the pixels have a changepoint more likely than not, and 39% one above 90%, whole fields at once. The purple ones, like pin 2's forest, have no change BEAST will vouch for.</p>
       <div class="fig-pair">
         <figure class="fig">
-          <a href="assets/img/beast/07-year.jpg"><img src="assets/img/beast/07-year.jpg" alt="The year of the most probable changepoint, from 1989 in purple to 2021 in yellow: whole fields in one colour, mostly teal for the early 2000s, with yellow fields of the 2010s." width="1150" height="727" loading="lazy"></a>
+          <a href="assets/img/beast/07-year.jpg"><picture><source type="image/webp" srcset="assets/img/beast/07-year.webp"><img src="assets/img/beast/07-year.jpg" alt="The year of the most probable changepoint, from 1989 in purple to 2021 in yellow: whole fields in one colour, mostly teal for the early 2000s, with yellow fields of the 2010s." width="1150" height="727" loading="lazy"></picture></a>
           <figcaption><b>Most probable trend changepoint</b>, 1989 (purple) to 2021 (yellow).</figcaption>
         </figure>
         <figure class="fig">
-          <a href="assets/img/beast/09-jump.jpg"><img src="assets/img/beast/09-jump.jpg" alt="The jump of the trend at the most probable changepoint, on a red-blue scale from −2785 to 2785, white at zero: red fields for drops, white for little or no change, a few blue specks for rises." width="1150" height="727" loading="lazy"></a>
+          <a href="assets/img/beast/09-jump.jpg"><picture><source type="image/webp" srcset="assets/img/beast/09-jump.webp"><img src="assets/img/beast/09-jump.jpg" alt="The jump of the trend at the most probable changepoint, on a red-blue scale from −2785 to 2785, white at zero: red fields for drops, white for little or no change, a few blue specks for rises." width="1150" height="727" loading="lazy"></picture></a>
           <figcaption><b>Its jump</b>, −2785 (red) to +2785 (blue), white at zero.</figcaption>
         </figure>
       </div>
@@ -238,7 +350,7 @@
         <li><strong>White is no change.</strong> The jump's colours are RdBu, and its automatic range is symmetric about zero: here from −2785 to 2785. To see the small jumps, narrow it in the layer's settings (its arrow in the Layers panel), to −1000 and 1000 for example; keep the two ends opposite so that white stays at zero.</li>
       </ul>
       <figure class="fig">
-        <a href="assets/img/beast/10-r2.jpg"><img src="assets/img/beast/10-r2.jpg" alt="The R² of the fit over the ROI, from 0.11 in purple to 0.88 in yellow: yellow over the cleared fields, purple and blue over the forests." width="1150" height="727" loading="lazy"></a>
+        <a href="assets/img/beast/10-r2.jpg"><picture><source type="image/webp" srcset="assets/img/beast/10-r2.webp"><img src="assets/img/beast/10-r2.jpg" alt="The R² of the fit over the ROI, from 0.11 in purple to 0.88 in yellow: yellow over the cleared fields, purple and blue over the forests." width="1150" height="727" loading="lazy"></picture></a>
         <figcaption><b>R² of the fit</b>, 0.11 (purple) to 0.88 (yellow).</figcaption>
       </figure>
       <p>The R² is high where something happened (a clearing leaves a lot for the trend to explain) and low over forest, where the NDVI only moves with noise. A low R² is not a bad fit there. Hover the map with any of these layers on top: the chart keeps the pixel's series with BEAST's trend, to check a colour against what the series did.</p>
@@ -288,6 +400,12 @@
       <p>Built in Rust with egui, wgpu and GDAL. Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.</p>
     </div>
     <ul>
+      <li><a href="./methods.html">Methods</a></li>
+      <li><a href="./guides.html">Guides</a></li>
+      <li><a href="./docs.html">Docs</a></li>
+      <li><a href="./news.html">News</a></li>
+      <li><a href="./#cite">Cite</a></li>
+      <li><a href="https://github.com/sacridini/janus/blob/main/LICENSE">License</a></li>
       <li><a href="https://github.com/sacridini/janus">Source</a></li>
       <li><a href="https://github.com/sacridini/janus/releases">Releases</a></li>
       <li><a href="https://github.com/sacridini/janus/issues">Issues</a></li>
@@ -295,6 +413,7 @@
     </ul>
   </div>
 </footer>
+<script src="assets/search.js" defer></script>
 <!-- /build:footer -->
 
 <script src="assets/main.js" defer></script>
