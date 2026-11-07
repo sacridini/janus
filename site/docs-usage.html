@@ -68,6 +68,7 @@
           <li><a href="#python-history">Python history</a></li>
         </ol>
       </li>
+      <li><a href="#time-series-analysis-force">Time series analysis (FORCE)</a></li>
       <li><a href="#classification-random-forest-twdtw-embeddings-som-k-means-networks">Classification (Random Forest, TWDTW, embeddings, SOM, k-means, networks)</a></li>
       <li><a href="#field-delineation-parcels">Field delineation (parcels)</a></li>
       <li><a href="#spectra-hyperspectral">Spectra (hyperspectral)</a></li>
@@ -538,7 +539,7 @@ answer. Long calls report their progress and stop when the client cancels them.
 <tr><td>Export progress</td><td>File → Exports (<code>Ctrl+J</code>; opens by itself with each export): progress, cancel, open the folder</td></tr>
 <tr><td>Shortcuts on a Mac</td><td><code>Command</code> instead of <code>Ctrl</code> (e.g. <code>Command+E</code>, <code>Command+Shift+S</code>)</td></tr>
 <tr><td>Series as text</td><td><strong>Copy CSV</strong> in the Time series and Transect panels</td></tr>
-<tr><td>Zeit tools</td><td><strong>Tools</strong> menu, grouped by the question asked in the order of a workflow (<em>Data preparation</em>: Tmask, Smoothing, Interpolate, Standardize, clear-sky observations, Regularize, Speckle filter, Harmonize sensors, Reproject; <em>Spectral analysis</em>: NDFI, spectral unmixing; <em>Temporal dynamics</em>: phenology, Mann-Kendall, AR(1) trend, temporal metrics, fold by period, linear trend of a fold, polar phenology; <em>Change detection</em>: CAT (change, aftereffect, trend) and the others; <em>Spatial pattern analysis</em>: emerging hot spots, SNIC, texture; <em>Classification &amp; pattern recognition</em>: TWDTW, SOM, k-means, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in <strong>Tools → Tasks</strong></td></tr>
+<tr><td>Zeit tools</td><td><strong>Tools</strong> menu, grouped by the question asked in the order of a workflow (<em>Data preparation</em>: Tmask, Smoothing, Interpolate, Standardize, clear-sky observations, ImproPhe, Regularize, Speckle filter, Harmonize sensors, Reproject; <em>Spectral analysis</em>: NDFI, spectral unmixing; <em>Temporal dynamics</em>: phenology, Mann-Kendall, AR(1) trend, temporal metrics, fold by period, linear trend of a fold, polar phenology; <em>Change detection</em>: CAT (change, aftereffect, trend) and the others; <em>Spatial pattern analysis</em>: emerging hot spots, SNIC, texture; <em>Classification &amp; pattern recognition</em>: TWDTW, SOM, k-means, post-processing, the Classification window, field delineation; then the raster calculator and Tasks) → tool window (parameters, chart fitting, raster runs); progress in <strong>Tools → Tasks</strong></td></tr>
 <tr><td>Zeit logs</td><td><strong>Tools → Log</strong> (or <strong>Log</strong> next to a task): the log of each raster run, followed live (what ran, its progress, outputs, the end or the error); Copy, open the file or its folder</td></tr>
 <tr><td>Tool results</td><td>layers of their own in the <strong>Layers</strong> panel (over the rasters): show/hide, order, groups, colormap, range, opacity, a class map's class names (edited in its legend); their values at the cursor and pins, histogram and statistics in <strong>Pixel values</strong> (in the chart's place while a map is shown over its series)</td></tr>
 <tr><td>Embeddings</td><td><strong>View → Embeddings</strong>: principal components as RGB (of every year, or <em>local</em> to the ROI), similarity to the cursor, a pin or the ROI, change between years; see <a href="#embeddings">Embeddings</a></td></tr>
@@ -593,9 +594,86 @@ that Janus exposes (step-by-step guides with screenshots on the website:
 <tr><td>Clear-sky observations (FORCE CSO)</td><td>dates (a series with real dates)</td><td>FORCE's clear-sky observations, as <code>zeit.clear_observations</code>: windows of <em>Window</em> months from the first day of the first date's month (the last window kept whole), and for each chosen statistic a <strong>new layer</strong> with a band per window, labelled with its first month (<code>2020-03</code>, so it opens as a monthly series): the number of valid observations (not missing after the quality masking) and statistics of the gaps in days between them (shortest, longest, mean, quantiles...), the window's edges counting as ends of gaps; a pixel run lists the windows</td></tr>
 <tr><td>Polar phenology (FORCE)</td><td>dates, a regular series (a constant step of whole days over at least 2 years: run <strong>Interpolate</strong> first and use its result)</td><td>FORCE's polar land surface phenology, as <code>zeit.polar_metrics</code> (Brooks et al. 2020): the 39 metrics of each year's season (dates of its start, middle, end, peak and minima, values, amplitudes, lengths, integrals, rates of rise and fall), one <strong>new layer</strong> per metric with a band per calendar year; the date metrics (<code>D*</code>) are days since 1 January of the band's year; the thresholds of the season's start, middle and end (0.2, 0.5, 0.8) and the adaptive start are parameters; a pixel run lists the metrics by year and marks the dates on the chart</td></tr>
 <tr><td>Standardize (FORCE)</td><td>any</td><td>the series minus its mean, or also over its standard deviation (z-score), as a <strong>new layer</strong> on the run's dates (<code>zeit.standardize</code>)</td></tr>
+<tr><td>Tasseled Cap (FORCE)</td><td>any (real dates; bands blue, green, red, nir, swir1, swir2)</td><td>FORCE's Tasseled Cap, as <code>zeit.tasseled_cap</code>: brightness, greenness, wetness and FORCE's disturbance (brightness - greenness - wetness of the same matrix, not Healey's index) of each date, in reflectance x 10000; a raster run writes <strong>one series per component</strong> and opens each as a new layer. <em>Coefficients</em>: Crist 1985 for every sensor (FORCE's, the default), each date's sensor (TM Crist, ETM+ Huang 2002, OLI Baig 2014, MSI Crist; see below) or Huang 2002 or Baig 2014 for all dates; <em>Reflectance units</em> automatic by default</td></tr>
+<tr><td>Spectral adjustment to Sentinel-2A (FORCE)</td><td>any (real dates; bands blue, green, red, nir, swir1, swir2)</td><td>Landsat 4-9 or MODIS reflectance on the spectral response of Sentinel-2A (Scheffler et al. 2020, as <code>zeit.spectral_adjust</code>): all ten bands, red edge 1-3, broad NIR (B8) and NIR (B8A) included, <strong>one series per band</strong> opened as new layers. <em>Sensor</em>: each date's own (default; see below) or one fixed for all dates (LND04..LND09, MOD01 Terra, MOD02 Aqua); <em>FORCE's first cluster search</em> reproduces FORCE's integers exactly. Sentinel-2 dates are refused</td></tr>
+<tr><td>NBAR (c-factor)</td><td>any (real dates; at least one of coastal, blue, green, red, rededge1-3, nir, nir08, swir1, swir2, and bands sza, saa, vza, vaa unless the angles come from Sentinel-2's metadata)</td><td>nadir BRDF-adjusted reflectance (Roy et al. 2016, 2017, as <code>zeit.nbar</code>): each mapped band times the c-factor of the MODIS Ross-Thick / Li-Sparse-Reciprocal model, taking the date's sun and view angles to nadir view and a normalized solar zenith; <strong>one series per band</strong> (and per c-factor with <em>Also write the c-factors</em>) opened as new layers, in the input's units. <em>Normalized solar zenith</em>: each date's scene mean (default) or a fixed angle; <em>Sun and view angles from</em>: four bands of each date or Sentinel-2 granule metadata; <em>Angle bands' unit</em>: degrees or hundredths of a degree (see below)</td></tr>
+<tr><td>ImproPhe (FORCE)</td><td>any (real dates; <strong>every band</strong> of each date, the quality band applied) and <strong>another open series</strong> in the same CRS to sharpen</td><td>sharpens a coarse series to the pixels of this finer one, as <code>zeit.improphe</code> (FORCE's CF- and L2-ImproPhe; Frantz et al. 2016): each pixel takes the weighted mean of the coarse values of the pixels of its neighbourhood that look like it in the fine data. Raster runs only; <strong>a band for each layer (and band) of the coarse series</strong>, on the grid and window of this series, opened as a new layer with the coarse series' dates. <em>Coarse series</em>, <em>The coarse series is</em> (a field with a layer a year, or scenes), <em>Seasonal windows</em>, <em>Kernel radius</em> and <em>Texture radius</em> (in map units), <em>Variance kept</em>, <em>FORCE's arithmetic</em>, <em>Components</em>; see below</td></tr>
 <tr><td>Smoothing</td><td>any</td><td>chart only: the smoothed series (Whittaker or Savitzky-Golay)</td></tr>
 </tbody>
 </table></div>
+<p><strong>Mapping the bands of Tasseled Cap and the spectral adjustment.</strong> Both need the six
+reflective bands mapped to blue, green, red, nir, swir1 and swir2. For Sentinel-2, map
+<strong>B8A</strong> to NIR (FORCE's choice, not B8); for MODIS, map SWIR1 and SWIR2 to bands 6 and 7.</p>
+<p><strong>The sensor of each date</strong> (needed by <em>Each date's sensor</em> in Tasseled Cap and by the
+spectral adjustment's default) is read from the scene the date came from: the STAC
+platform or item its VRT records, else its file name (<code>LC08_...</code>, <code>LT05_...</code>, <code>S2B_...</code>,
+<code>MOD09...</code>), in FORCE's names (LND04..LND09, MOD01, MOD02, SEN2). A date whose sensor is
+not found is an error that names the dates (the same for a Sentinel-2 date in the
+spectral adjustment). In that case choose a <strong>fixed</strong> matrix (Crist 1985, Huang 2002 or
+Baig 2014 in Tasseled Cap) or a fixed <em>Sensor</em> (spectral adjustment), which do not read it.
+<strong>Copy Python</strong> gives the Zeit call with <code>bands=</code> mapping the six roles to the layer's
+bands (Zeit looks for <code>swir16</code> and <code>swir22</code> where Janus calls them <code>swir1</code> and <code>swir2</code>) and
+<code>sensor=</code> with the sensors found; only the observations the quality band keeps are passed.</p>
+<p><strong>Mapping the bands of NBAR.</strong> The tool reads the <strong>four angle bands of each date</strong>, mapped
+to the roles <code>sza</code>, <code>saa</code>, <code>vza</code> and <code>vaa</code> (solar zenith and azimuth, view zenith and
+azimuth), which are bands of the same series as the reflectance: Landsat Collection 2's
+SZA, SAA, VZA and VAA bands (the Level-1 angle bands) or angle rasters stacked with the
+bands of each date. Map also <strong>every band to normalize</strong> (any of coastal, blue, green, red,
+rededge1, rededge2, rededge3, nir (Sentinel-2's B08), nir08 (B8A, OLI's band 5), swir1,
+swir2; at least one, or the run stops saying so). Set <em>Angle bands' unit</em> to <strong>hundredths
+of a degree</strong> for Landsat Collection 2 and HLS (they store <code>3025</code> for 30.25 degrees); angles
+from Sentinel-2's tile metadata are in degrees. Hundredths read as degrees give a map of
+missing values, but degrees read as hundredths give a wrong result without a warning. Each
+date's <strong>scene mean</strong> of the solar zenith is taken over the pixels of the run's window whose
+four angles are valid (the angles are read once over the whole window before the maps are
+computed), so it changes with the window; on the chart there is no scene, and each date is
+brought to nadir at the pixel's own sun. A pixel with a zenith outside 0-90 degrees or an
+angle without a value is missing. The bands must be reflectance (the factor is a ratio, so
+any scale will do, but not Landsat Collection 2 digital numbers with their offset); the
+quality band is not applied. HLS is already NBAR. <strong>Copy Python</strong> gives <code>zeit.nbar</code> with the
+angles as a Dataset (scaled by the unit) and <code>bands=</code> mapping the roles.</p>
+<p><strong>NBAR of Sentinel-2 from the tiles' metadata.</strong> Sentinel-2 L2A files carry no angle bands, but
+every tile's <code>MTD_TL.xml</code> has the sun's and the view angles on a 5 km grid. Set <em>Sun and view
+angles from</em> to <strong>Sentinel-2 granule metadata (MTD_TL.xml)</strong> and the angle roles need no band
+(map only the bands to normalize): the angles of every pixel are computed as Zeit's
+<code>zeit.sentinel2_angles</code> does, the view angles of the detectors of one band fused cell by cell
+(<em>Sentinel-2 view band</em>, B06 as HLS does, for every band) and everything interpolated bilinearly
+to the pixels (Roy et al. 2017), and <em>Angle bands' unit</em> is not used (they are in degrees). Where
+a date's metadata is found: in a series made from STAC items (Earth Search's <code>granule_metadata</code>
+asset, Planetary Computer's <code>granule-metadata</code>) the date's VRT records the items' hrefs
+(<code>STAC_GRANULE_METADATA</code>; Planetary Computer's are read with the same token as its bands); for
+local files, in the product the file is in (<code>X.SAFE/GRANULE/&lt;granule&gt;/MTD_TL.xml</code>) or an
+<code>MTD_TL.xml</code> beside the file. A date without metadata stops the run, naming it; so does a
+metadata of another date (sensed more than a day from it). A date of several tiles takes the
+angles of the first one that has a view angle at the pixel. Pixels outside the tile's grid, or
+that no detector sees, are missing. <strong>Copy Python</strong> then gives
+<code>zeit.sentinel2_angles(sources, like=nbar_cube, view_band=...)</code> (the hrefs or paths, one per date;
+Zeit signs Planetary Computer's if <code>planetary_computer</code> is installed) on the cube placed on the
+files' grid, before <code>zeit.nbar</code>.</p>
+<p><strong>ImproPhe: picking the coarse series, and its two modes.</strong> The series in the window (the active
+layer) is the <strong>fine</strong> one, whose pixels the output takes; the series to sharpen is <strong>another open
+layer</strong>, picked in <em>Coarse series</em> (a menu of the other open series with their dates and bands; one in
+another CRS is listed but cannot be picked: reproject it first, Tools &gt; Data preparation &gt; Reproject).
+The coarse series may be on any grid of the same CRS: each fine pixel takes the coarse pixel its centre
+falls in (nearest neighbour, as FORCE's read does), and where the coarse series has no pixel or no value the
+output is empty. Each band of a coarse date is a field of its own (the phenology metrics of a year, the
+bands of a Landsat scene) and is sharpened with the same neighbours; a quality band of the coarse series is
+not one of them, and a coarse series shown through an expression gives its files' bands. The fine series
+gives <strong>every band of each date</strong> but its quality band, which masks the dates it refuses (NaN) before the
+fine scenes are averaged in the seasonal windows. <em>The coarse series is</em>: <strong>a field with a layer a year</strong>
+(CF-ImproPhe: a 500 m phenology metric of each year; the years of its dates must differ) is sharpened year by
+year with the fine scenes of that year (a year with no fine scene keeps its coarse values), and <strong>the scenes
+of a sensor</strong> (L2-ImproPhe: Landsat at 30 m for Sentinel-2 at 10 m) are each sharpened with the seasonal means of
+all the fine dates. <em>Detected</em> takes several dates in a year for scenes, and asks about a series with one date
+a year. The output has a band for each layer (and band) of the coarse series, named by its dates. The radii are in
+the map's units and become pixels of this series by truncation (2500 m and 330 m are 250 and 33 pixels of 10 m,
+FORCE's defaults): the cost of a pixel grows with the area of the circle, so try 300 to 500 on the preview
+or a small ROI first. The window is held whole in memory (the components are of the whole window): a window
+needing more than 6 GB is refused with the memory it needs, and <em>the whole layer</em> is too large for most
+series: choose the ROI or the visible area. The estimate in the window is analytic (pixels, dates, bands, layers
+and the circle's area, fitted on runs of three radii). Over the MCP the fine series is <code>series</code> and the coarse one
+<code>coarse</code> of <code>run_tool</code>. <strong>Copy Python</strong> reads both series (the fine one over the window, the coarse one whole) into
+cubes and calls <code>zeit.improphe(coarse_cube, fine_cube, by=..., ...)</code>, checked to give the run's values.</p>
 <p><strong>TWDTW classes</strong> come from the series itself: drop pins on places you know
 (forest, crop, pasture...) and give them a class in <strong>Tools &gt; Classification &amp; pattern recognition</strong>
 (the window opens on TWDTW): each class's mean series of its samples is its
@@ -789,20 +867,28 @@ series and scope, the run's folder and files). Then it has one of two kinds of c
 <ul>
 <li><strong>A script</strong> (<code>rerun.py</code>, also written beside the run): a Zeit tool's run
 reads the series over the run's window and makes the same Zeit calls with
-the same parameters. Reproject, resample, clip calls <code>gdal.Warp</code> with the
-same gdalwarp options, file by file. Rasterize burns the same features with
-the same values on the same grid through <code>gdal.RasterizeLayer</code>. Polygonize
-traces the same polygons with <code>rasterio.features.shapes</code> (the same
-simplification, the minimum area through Zeit's sieve) and measures their
-geodesic areas and perimeters with pyproj, into a GeoPackage of the same
-columns. Zonal statistics burns each feature alone and writes the same long
-and wide tables (and the transitions), pixel areas as Janus measures them.
-Regularize reads the series as Janus does and makes the same composites
-(median, medoid; clearest date approximately) and fills (linear, Whittaker)
-in numpy. Build series calls <code>gdal.BuildVRT</code> (and <code>gdal.Translate</code> for COGs)
-with the same grid. The calculator's expressions without reductions over
-time or stages, on layers of the same grid, read the inputs as Janus' VRTs
-read them and compute the expression in numpy, date by date. Each script
+the same parameters. The other tools' scripts are short because they are
+written with Zeit (<code>zeit.load_raster</code> and <code>zeit.save_raster</code> read, warp and
+write the files), and carry only the branches their run took. Reproject,
+resample, clip is <code>load_raster(file, crs=, res=, resampling=)</code> and
+<code>save_raster</code> for each file (outside the footprint Zeit writes no data where
+gdalwarp writes 0); only what Zeit cannot do (pixels aligned to the size, a
+no data value or type of the output, a cutline, an extent together with
+another CRS) stays <code>gdal.Warp</code> with gdalwarp's options. Rasterize burns the
+same features with the same values on the same grid through rasterio's
+<code>rasterize</code> and <code>save_raster</code>. Polygonize traces the same polygons with
+<code>rasterio.features.shapes</code> (the same simplification, the minimum area through
+Zeit's <code>mmu_sieve</code>) and measures their geodesic areas and perimeters with
+pyproj, into a GeoPackage of the same columns. Zonal statistics burns each
+feature alone and writes the same long and wide tables (and the
+transitions), pixel areas as Janus measures them. Regularize is Zeit's
+<code>regularize_time_series</code> over the series read by <code>load_raster</code> (median or
+medoid; the clearest date by a few lines of xarray), its gaps filled (linear,
+Whittaker through <code>zeit.smooth</code>). Build series calls <code>gdal.BuildVRT</code> (and
+<code>gdal.Translate</code> for COGs) with the same grid, as Zeit writes no VRT. The
+calculator's expressions without reductions over time or stages, on layers of
+the same grid, read the inputs with <code>load_raster</code> as Janus' VRTs read them
+and compute the expression in numpy, date by date, written by <code>save_raster</code>. Each script
 writes its files in a <code>python</code> folder of the run, and the UI self-test checks
 that they equal Janus' own (rasters value for value, GeoPackages feature for
 feature, tables cell for cell; the calculator within 1e-5, as Janus computes
@@ -827,6 +913,77 @@ tool). A fit of the chart's series takes under a millisecond, so models follow
 the cursor; a raster run reads the series in bands of rows (from the
 full-resolution cache when it has the dates) and computes them on every
 processing thread. Nothing starts at startup and no Python runs.</p>
+    </section>
+
+    <section>
+<h2 id="time-series-analysis-force">Time series analysis (FORCE)<a class="anchor" href="#time-series-analysis-force" aria-label="Link to this section"></a></h2>
+<p><strong>Tools → Time series analysis (FORCE)...</strong> is FORCE's TSA as a chain rather than
+a list of tools. It runs the eight tools of the Tools menu that make it, with the
+parameters their own windows hold (change a parameter in either place, the other
+sees it), in this order:</p>
+<ol>
+<li><strong>Clear-sky observations</strong>, on the raw series (its quality band is read here);</li>
+<li><strong>Interpolate</strong>, on the raw series: the analysis series, on a regular grid of dates;</li>
+<li><strong>Standardize</strong>, on the analysis series;</li>
+<li><strong>Temporal metrics</strong>, <strong>Fold by period</strong>, <strong>Linear trend of a fold</strong>, <strong>Change,
+aftereffect, trend</strong> and <strong>Polar phenology</strong>, each on the analysis series.</li>
+</ol>
+<p>The default is Interpolate, Temporal metrics and Fold; a step is a checkbox. The
+steps after Interpolate or Standardize read the series they write (their GeoTIFF,
+opened again as a series), so the chain gives what FORCE's TSA gives, and the
+numbers are those of the tools run one after the other. A step the series cannot
+take (Polar phenology needs a regular series) is left out and said so.</p>
+<p>The window has three tabs:</p>
+<ul>
+<li><strong>Input</strong>: the series the chain runs on (the active layer): how many dates, from
+and to, whether they are regular or irregular (Interpolate puts irregular dates
+on a regular grid), the band shown and the quality band, or that there is none.</li>
+<li><strong>Steps</strong>: the eight steps with their parameters (the same fields as the tool's
+window), the reason when the series cannot take one, the <strong>pixel chart</strong> and
+<strong>To look at</strong>.</li>
+<li><strong>Output</strong>: the scope (the whole image, the visible area or the ROI), the output
+folder, <strong>Run</strong>, <strong>Copy Python</strong>, the task's progress and, once it is done,
+<strong>Use in Classification</strong>.</li>
+</ul>
+<p><strong>To look at</strong> reads the dates and the parameters of the steps that are on, before
+anything runs: a year inside the series with few dates, a first or last year only
+partly covered (for the steps that read years), an Interpolate grid denser or much
+coarser than the dates, a missing quality band (Clear-sky observations counts
+every date as clear), a trend over fewer than five years, a step the series cannot
+take and a chain with nothing on. Each is a coloured dot (information, something to
+look at, something that stops a step); the Steps tab shows how many need a look.</p>
+<p>The <strong>pixel chart</strong> (Steps tab) follows the pixel last hovered on the map and runs
+the chain on it: the observations (grey, and in the series' colour where the
+quality band keeps them), the analysis series as a line on Interpolate's grid, and
+the overlays of the steps that have them (the trend's line, the fold's values, the
+polar phenology's dates), each in its own colour under the step's name; the steps
+that gave no chart or failed are listed under it. Temporal metrics and Clear-sky
+observations give rows only, no overlay. It is computed off the interface's
+thread, and again when a parameter changes.</p>
+<p><strong>Run</strong> is <strong>one task</strong> (Tools → Tasks), in a folder of its own,
+<code>&lt;series&gt;_tsa_&lt;time&gt;</code>, with a subfolder per step (<code>01_interpolate</code>,
+<code>02_temporal_metrics</code>, <code>03_fold</code>...): each has its <code>job.json</code>, <code>job.log</code>,
+<code>provenance.json</code> and <code>rerun.py</code> and its outputs, as the tool's own run has. The
+folder itself has the chain's <code>provenance.json</code> (the steps with their parameters
+and folders, the series, the scope, the versions, how it ended; its result layers
+open it with <strong>Provenance...</strong>, and <strong>Run again with these parameters...</strong> turns
+the same steps and scope on in this window), <code>rerun.py</code> and <code>job.log</code>. The maps
+(Temporal metrics, Linear trend, CAT) arrive as result layers and the series
+(Interpolate, Standardize, Fold, Polar phenology, Clear-sky observations) as
+layers, all named by their step (<code>Temporal metrics: Mean</code>); the active layer does
+not change.</p>
+<p><strong>Copy Python</strong> copies one script that does in Zeit what the chain does on this
+series and scope, even before it runs: the series read once from its files, each
+step's call (those of the tools' own scripts; the steps after Interpolate and
+Standardize read the variable <code>analysis</code>) and every result written as a GeoTIFF.
+It is the same script the run keeps as the folder's <code>rerun.py</code>.</p>
+<p><strong>Use in Classification</strong> (a menu of the series the chain wrote: the interpolated,
+the standardized, the metrics by period, the phenology by year) makes the one
+chosen the active layer and opens the <a href="#classification-random-forest-twdtw-embeddings-som-k-means-networks">Classification</a>
+window: it reads the dates of the active series as its features, so the samples
+are classified on the chain's series instead of the observations.</p>
+<p><code>--window tsa</code> opens the window on the Steps tab (the defaults on the whole
+image); <code>--window tsa-run</code> also runs the chain.</p>
     </section>
 
     <section>
