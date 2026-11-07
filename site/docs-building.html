@@ -124,9 +124,9 @@ janus --selftest-validation                     # the estimators against Olofsso
 janus --selftest-embeddings                     # the embedding kernels and PCA
 cd td &amp;&amp; janus --selftest-ui A B C D E F G      # the interface, frame by frame (a window)</code></pre></div>
 <p>The UI self-test's Python stages run the code Janus gives with a Python that has Zeit and
-rasterio (<code>JANUS_PYTHON</code>, else <code>python</code>), and the warp and rasterize runs' <code>rerun.py</code> with a
-Python that has GDAL's bindings (<code>JANUS_GDAL_PYTHON</code>, else <code>JANUS_PYTHON</code>); without one they are
-skipped.</p>
+rasterio (<code>JANUS_PYTHON</code>, else <code>python</code>; the scripts of the other tools need <code>zeit-cdts&gt;=3.2</code>),
+and a warp run's <code>rerun.py</code> that stays <code>gdal.Warp</code> with a Python that has GDAL's bindings
+(<code>JANUS_GDAL_PYTHON</code>, else <code>JANUS_PYTHON</code>); without one they are skipped.</p>
 <p><code>janus --profile-tour &lt;series&gt;</code> times a fixed tour of a series (the overview, cursor series, every
 date, the display modes, zoom and pan at full resolution, an ROI) stage by stage;
 <code>--tour-json FILE</code> writes the timings as JSON (<code>bench/</code> keeps the baselines).</p>
