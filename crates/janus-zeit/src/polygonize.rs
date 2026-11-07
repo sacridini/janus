@@ -133,7 +133,7 @@ fn date_text(v: f64) -> String {
 }
 
 /// The area (m²) of one pixel at the window's centre: geodesic with a CRS, else the geotransform's.
-fn pixel_area(gt: &[f64; 6], wkt: &str, w: usize, h: usize) -> f64 {
+pub fn pixel_area(gt: &[f64; 6], wkt: &str, w: usize, h: usize) -> f64 {
     let planar = (gt[1] * gt[5] - gt[2] * gt[4]).abs();
     let Ok(srs) = gdal::spatial_ref::SpatialRef::from_wkt(wkt) else { return planar };
     let (cx, cy) = ((w / 2) as f64, (h / 2) as f64);
