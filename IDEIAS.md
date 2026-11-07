@@ -2292,7 +2292,7 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   iguais às do Zeit a 1e-5. Saídas cujas bandas a ferramenta decide e o parâmetro
   de múltipla escolha. O teste dos alertas que falhava no Ubuntu (duas funções
   apagavam a mesma pasta) corrigido.
-- Ainda sem versão (271b45c): Tasseled Cap (FORCE) e Ajuste espectral (FORCE), pelo zeit-core
+- 1.17.0 (271b45c): Tasseled Cap (FORCE) e Ajuste espectral (FORCE), pelo zeit-core
   (Zeit 3.1.0), em pixel e raster. Iguais ao Zeit bit a bit em fixtures que misturam datas
   Landsat 5/7/8/9, MODIS e Sentinel-2 (`tests/l2.rs`, `tools/l2_fixtures.py`). O sensor de cada
   data vem do STAC ou do nome do arquivo (`janus_zeit::sensors`), e uma data sem sensor é um erro
@@ -2300,7 +2300,7 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   WIP, o Copy Python chamar as bandas SWIR de swir1/swir2 onde o Zeit procura swir16/swir22,
   está corrigido (passa `bands=`). São as primeiras peças da futura janela *Analysis-ready data
   (Level 2)*, a fase depois da 56 (ver o primeiro parágrafo da seção da fase 56).
-- Ainda sem versão (NBAR-a, branch j4): NBAR (c-factor) (`nbar`, Data preparation), pelo `zeit.nbar`
+- 1.17.0 (NBAR-a): NBAR (c-factor) (`nbar`, Data preparation), pelo `zeit.nbar`
   (Roy et al. 2016, 2017): as bandas por papel (qualquer subconjunto dos 11 do Zeit) e as quatro
   bandas de ângulo da série (`sza`, `saa`, `vza`, `vaa`, em graus ou em centésimos de grau), uma série
   por banda e, se pedido, uma por c-factor. O SZA normalizado "scene" (a média do SZA observado de cada
@@ -2310,7 +2310,7 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   no Zeit dá os mesmos valores da execução (`janus-app`, `python::tests`). Os papéis opcionais do
   manifesto (`optional_bands`) servem para "qualquer subconjunto"; "ao menos uma" é erro em tempo de
   execução. Fora do `--selftest-zeit` (a série de teste não tem bandas de ângulo).
-- Ainda sem versão (NBAR-b, branch j4): os ângulos do Sentinel-2 vêm do MTD_TL.xml de cada data
+- 1.17.0 (NBAR-b): os ângulos do Sentinel-2 vêm do MTD_TL.xml de cada data
   (`angles = "sentinel2"`, `view_band` B06 como o HLS), pelo port do `zeit.sentinel2_angles`
   (`s2angles.rs`: grades de 5 km, detectores fundidos, bilinear sobre os cantos válidos, azimutes por
   seno e cosseno, outro CRS pelo OSR, vários tiles por data; quick-xml, sem GDAL no parsing). Iguais ao
@@ -2322,7 +2322,7 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   em tempo de execução). Os ângulos são calculados por faixa (duas vezes, com SZA "scene": uma na
   primeira passada). Falta: ler o Earth Search de verdade (o href do `granule_metadata` não foi
   conferido na rede) e o `view_band="each"`.
-- Ainda sem versão (J4, branch j4): ImproPhe (FORCE) (`improphe`, Data preparation, só raster), pelo
+- 1.17.0 (J4): ImproPhe (FORCE) (`improphe`, Data preparation, só raster), pelo
   `zeit.improphe` (zeit-core f20ff43): a série ativa é a fina (todas as bandas de cada data menos a de
   qualidade, que mascara as datas) e a grossa é **outra série aberta**, escolhida num parâmetro novo do
   manifesto, `"type": "series"` (valor `{name, inputs}`, o app resolve para o `CubeInfo` da camada e
@@ -2338,6 +2338,11 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   com 300 x 300 px e três raios, dentro de 25%). Falta: um tile a tempo (a janela inteira em memória limita
   a uns 1 500 x 1 500 px com 100 datas de 6 bandas), o `resmerge` do Sentinel-2 de 20 m para 10 m e a série grossa ser lida só
   na janela no Copy Python.
+- 1.17.0 também: a janela Time series analysis (fase 56, menos as capturas e a página do site); o site
+  novo (a história Explorar, Detectar, Provar, o demo no navegador, o catálogo de métodos, as trilhas de
+  guias, busca, vídeos curtos, docs e News); os scripts do histórico de Python com o Zeit (load_raster e
+  save_raster: warp 50 -> 18 linhas, zonal 320 -> 100, regularize 238 -> 32) e o Copy Python da
+  validação (69 -> 27 linhas).
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
