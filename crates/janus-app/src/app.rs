@@ -2575,7 +2575,7 @@ impl eframe::App for JanusApp {
                 }
             }
         }
-        self.shots_dock();
+        self.shots_dock(&ctx);
         let cmd = self.state.layout_cmd.take();
         if cmd == Some(LayoutCmd::Scramble)
             && let Some(p) = self.dock.find_tab(&Tab::Display)

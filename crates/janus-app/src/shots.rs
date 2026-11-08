@@ -90,6 +90,17 @@ pub struct Shots {
     pub(crate) printed: usize,
     /// the font sizes' tour (shots_layout.rs)
     pub(crate) audit: crate::shots_layout::LayoutTour,
+    /// the clip being recorded (shots_clips.rs): its frames, and the pointer the app draws and feeds as events
+    pub(crate) clip: Option<crate::shots_clips::Clip>,
+    pub(crate) pointer: Option<egui::Pos2>,
+    /// the press (2) and the release (1) of a click still to send, and the clip frame it was made in
+    pub(crate) press: u8,
+    pub(crate) click_at: Option<usize>,
+    /// the frame to save at the end of this one (a clip's: fast compression, nothing said)
+    clip_file: Option<PathBuf>,
+    /// the stretch of the validation tour held for the clip (clip-prove)
+    pub(crate) hold: Option<crate::shots_clips::Hold>,
+    fast: bool,
     /// the tour's end: its exit code
     done: Option<i32>,
 }
@@ -113,7 +124,17 @@ impl Shots {
 
     /// A screenshot of this frame: `name`.png (unless "-") and its crops, name-suffix.png (suffix.png with "-").
     pub(crate) fn shoot(&mut self, name: &str, crops: &[(&str, Target)]) {
+        if self.tour == "clip-prove" {
+            // a clip keeps no screenshots: the stretches it holds are recorded frame by frame
+            self.hold = crate::shots_clips::hold_of(name);
+            return;
+        }
         self.shoot = Some((name.into(), crops.iter().map(|(f, t)| (f.to_string(), *t)).collect()));
+    }
+
+    /// This frame saved as a frame of the clip.
+    pub(crate) fn save_frame(&mut self, file: PathBuf) {
+        self.clip_file = Some(file);
     }
 
     /// A tab's place in the dock; fitted to its content.
@@ -132,7 +153,7 @@ pub(crate) fn tool_tab(id: &str) -> Tab {
 }
 
 /// The rectangle `r` (pixels) of a screenshot as an RGB PNG (src/app_shots.cpp, writeShot).
-fn write_shot(path: &Path, img: &egui::ColorImage, crop: Crop) {
+fn write_shot(path: &Path, img: &egui::ColorImage, crop: Crop, fast: bool) {
     let [w, h] = img.size;
     let r = match crop {
         Crop::Whole => [0, 0, w as i64, h as i64],
@@ -159,12 +180,15 @@ fn write_shot(path: &Path, img: &egui::ColorImage, crop: Crop) {
         let f = std::io::BufWriter::new(std::fs::File::create(path)?);
         image::codecs::png::PngEncoder::new_with_quality(
             f,
-            image::codecs::png::CompressionType::Best,
-            image::codecs::png::FilterType::Adaptive,
+            if fast { image::codecs::png::CompressionType::Fast } else { image::codecs::png::CompressionType::Best },
+            if fast { image::codecs::png::FilterType::Sub } else { image::codecs::png::FilterType::Adaptive },
         )
         .write_image(&rgb, cw as u32, ch as u32, image::ExtendedColorType::Rgb8)
     })()
     .is_ok();
+    if fast && ok {
+        return;
+    }
     println!("    {} {} ({cw} x {ch})", if ok { "wrote" } else { "COULD NOT WRITE" }, path.display());
 }
 
@@ -183,6 +207,11 @@ impl State {
             Tab::DeepLearning => self.ml.open,
             _ => true,
         }
+    }
+
+    /// Whether a clip is being recorded (its pointer hovers the map as a user's does).
+    pub(crate) fn shots_clip_on(&self) -> bool {
+        self.shots.as_ref().is_some_and(|s| s.pointer.is_some())
     }
 
     /// Whether a panel is drawn in the dock (a tour's), not as a window.
@@ -242,16 +271,20 @@ impl State {
                 })
             })?;
             for (path, crop) in files {
-                write_shot(path, &img, *crop);
+                write_shot(path, &img, *crop, sh.fast);
             }
             sh.sent = None;
         }
-        if sh.shoot.is_some() {
+        if sh.shoot.is_some() || sh.clip_file.is_some() {
             return None; // taken at the end of this frame: nothing changes until it is
         }
         if sh.since.is_none() {
             sh.since = Some(Instant::now());
             let _ = std::fs::create_dir_all(&sh.out);
+        }
+        if sh.hold.is_some() {
+            self.shots_hold(sh, ctx);
+            return None;
         }
         sh.frames += 1;
         sh.done = match sh.tour.as_str() {
@@ -259,6 +292,10 @@ impl State {
             "alerts" => self.shots_alerts(sh, ctx),
             "snic" | "ml" | "presto" | "folds" => self.shots_ml(sh, ctx),
             "layout" => self.shots_layout(sh, ctx),
+            "clip-explore" | "clip-detect" => self.shots_clips(sh, ctx),
+            // the validation tour up to the accuracy, three of its stretches held
+            "clip-prove" if sh.stage >= 10 => Some(0),
+            "clip-prove" => self.shots_validation(sh, ctx),
             _ => self.shots_tool(sh, ctx),
         };
         sh.done
@@ -1223,7 +1260,7 @@ impl State {
 impl JanusApp {
     /// Before the dock is drawn: the tour's layout made, its panels in their places while shown, those asked for
     /// in front.
-    pub(crate) fn shots_dock(&mut self) {
+    pub(crate) fn shots_dock(&mut self, ctx: &Context) {
         let Some(mut sh) = self.state.shots.take() else { return };
         if let Some((right_tabs, under_tabs)) = sh.layout.take() {
             // src/app_shots.cpp, shotsDock: Layers and Files above Display on the left (0.25), the map above the
@@ -1278,6 +1315,7 @@ impl JanusApp {
             }
         }
         sh.docked = self.dock.iter_all_tabs().map(|(_, t)| *t).collect();
+        crate::shots_clips::draw_pointer(ctx, &sh);
         self.state.shots = Some(sh);
     }
 
@@ -1293,6 +1331,13 @@ impl JanusApp {
             }
         }
         sh.last_popup = sh.popup;
+        if let Some(file) = sh.clip_file.take() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            sh.sent = Some(vec![(file, Crop::Whole)]);
+            sh.fast = true;
+            sh.popup = None;
+            return;
+        }
         let Some((name, crops)) = sh.shoot.take() else {
             sh.popup = None;
             return;
@@ -1331,6 +1376,7 @@ impl JanusApp {
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         sh.sent = Some(files);
+        sh.fast = false;
         sh.popup = None;
     }
 
@@ -1347,7 +1393,21 @@ impl JanusApp {
                     | Event::MouseWheel { .. }
             )
         });
-        if sh.events.is_empty() {
+        if sh.events.is_empty()
+            && let Some(pos) = sh.pointer
+        {
+            // a clip's pointer: where it is, and its click
+            raw.events.push(Event::PointerMoved(pos));
+            if sh.press > 0 {
+                raw.events.push(Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed: sh.press == 2,
+                    modifiers: Default::default(),
+                });
+                sh.press -= 1;
+            }
+        } else if sh.events.is_empty() {
             raw.events.push(Event::PointerGone);
         } else {
             raw.events.append(&mut sh.events);

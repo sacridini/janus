@@ -150,7 +150,7 @@ fn read_series(nbr: &[f64], first: i32) -> (usize, i32, i32) {
 
 impl State {
     /// Nothing loading and nothing of the validation under way.
-    fn shots_val_quiet(&self) -> bool {
+    pub(crate) fn shots_val_quiet(&self) -> bool {
         let v = &self.val;
         self.shots_quiet() && !v.strata_job.busy() && !v.draw_job.busy() && v.to_open.is_empty() && v.idle()
     }
