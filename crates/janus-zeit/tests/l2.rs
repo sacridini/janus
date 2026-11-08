@@ -418,7 +418,7 @@ for name, code in snippets:
         y, x = sel
         cube = bands[:, :, y, x]
         bands_cube = xr.DataArray(cube, dims=("time", "band", "y", "x"), coords={{"time": time, "band": roles}})
-        fmask = fmask_all[:, y, x]
+        fmask = xr.DataArray(fmask_all[:, y, x], dims=("time", "y", "x"), coords={{"time": time}})
         scope = dict(np=np, xr=xr, zeit=zeit, bands_cube=bands_cube, fmask=fmask)
         exec(code, scope)
         r = scope["result1"]

@@ -318,10 +318,10 @@ fn copy_python_calls_zeit() {
         code
     };
     let c = code(&f.cases[0]);
-    assert!(c.starts_with("angles = angles_raw  # the angle bands are in degrees\nresult1 = zeit.nbar(nbar_cube, angles, sza='scene', bands={'coastal': 'coastal', 'blue': 'blue'"), "{c}");
+    assert!(c.starts_with("angles = xr.Dataset({a.upper(): nbar_angles.sel(band=a, drop=True) for a in nbar_angles.band.values})  # the angle bands, in degrees\nresult1 = zeit.nbar(nbar_cube, angles, sza='scene', bands={'coastal': 'coastal', 'blue': 'blue'"), "{c}");
     assert!(c.ends_with("nodata=None, n_jobs=1, return_cfactor=False)"), "{c}");
     let c = code(&f.cases[1]);
-    assert!(c.starts_with("angles = angles_raw * 0.01  # the angle bands are hundredths of a degree\nresult1, result2 = zeit.nbar(nbar_cube, angles, sza=32.5, bands={'blue': 'blue'"), "{c}");
+    assert!(c.starts_with("angles = xr.Dataset({a.upper(): nbar_angles.sel(band=a, drop=True) * 0.01 for a in nbar_angles.band.values})  # the angle bands, in degrees\nresult1, result2 = zeit.nbar(nbar_cube, angles, sza=32.5, bands={'blue': 'blue'"), "{c}");
     assert!(c.ends_with("return_cfactor=True)"), "{c}");
     // the bands in the core's order, the angle bands not among them
     let c = code(&f.cases[2]);
@@ -387,9 +387,10 @@ for case, (unit, roles, code, cfactor) in enumerate([{snippets}]):
             raw[a] = raw_all[a + "_" + unit][:, y, x]
         nbar_cube = xr.DataArray(np.stack([raw[r] for r in bands], axis=1), dims=("time", "band", "y", "x"),
                                  coords={{"time": time, "band": bands}})
-        angles_raw = xr.Dataset({{a.upper(): (("time", "y", "x"), raw[a]) for a in ("sza", "saa", "vza", "vaa")}},
-                                coords={{"time": time}})
-        scope = dict(np=np, xr=xr, zeit=zeit, nbar_cube=nbar_cube, angles_raw=angles_raw)
+        angle_names = ["sza", "saa", "vza", "vaa"]
+        nbar_angles = xr.DataArray(np.stack([raw[a] for a in angle_names], axis=1), dims=("time", "band", "y", "x"),
+                                   coords={{"time": time, "band": angle_names}})
+        scope = dict(np=np, xr=xr, zeit=zeit, nbar_cube=nbar_cube, nbar_angles=nbar_angles)
         exec(code, scope)
         results = [scope["result1"]] + ([scope["result2"]] if cfactor else [])
         out[f"{{case}} {{where}}"] = [[[[None if not np.isfinite(v) else float(v) for v in r.sel(band=b).isel(time=k).values.ravel()]
