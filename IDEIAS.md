@@ -2349,6 +2349,8 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   montagem de série sem osgeo; os exemplos Python do site gerados pelo pixel_script e rodados com os
   números dos guias. Corrigidos no caminho: uma pilha multibanda lia as bandas da primeira data em todas,
   NDFI/tmask/CODED sem máscara, o CCDC com NaN, a escala da calculadora com bandas de escalas diferentes.
+- 1.17.2: a 1.17.1 publicada (a tag dela falhou no teste do Linux, que dependia de onde o script quebra a
+  linha, e o release não saiu), com os clipes do site e o passo do macOS montando o .dmg num diretório fixo.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 

@@ -1140,7 +1140,9 @@ mod tests {
             grid: g.clone(),
         };
         let s = rasterize("v.gpkg", &o, &like, "v raster.tif", run).unwrap();
-        assert!(s.contains("burn=\"cls\", layer=\"l\", all_touched=True"), "{s}");
+        // the call wraps at 110 columns, and where depends on the length of the temporary folder's path
+        let flat = s.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(flat.contains("burn=\"cls\", layer=\"l\", all_touched=True"), "{s}");
         // a grid the file is not on has no script
         let other = Grid { w: 5, ..g };
         let o = RasterizeOptions { grid: other, ..o };
