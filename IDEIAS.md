@@ -2343,6 +2343,12 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   guias, busca, vídeos curtos, docs e News); os scripts do histórico de Python com o Zeit (load_raster e
   save_raster: warp 50 -> 18 linhas, zonal 320 -> 100, regularize 238 -> 32) e o Copy Python da
   validação (69 -> 27 linhas).
+- 1.17.1: o Copy Python, o rerun.py e os scripts do histórico com o Zeit 3.2 e 3.2.1 (zonal_stats,
+  rasterize, polygonize, build_vrt, load_raster com pixel=, window=, bands=, scale=, qa=, qa_to_fmask):
+  o pino de LandTrendr do guia em 4 linhas de código (eram 118), CCDC 30 -> 11, zonal 100 -> 17,
+  montagem de série sem osgeo; os exemplos Python do site gerados pelo pixel_script e rodados com os
+  números dos guias. Corrigidos no caminho: uma pilha multibanda lia as bandas da primeira data em todas,
+  NDFI/tmask/CODED sem máscara, o CCDC com NaN, a escala da calculadora com bandas de escalas diferentes.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
