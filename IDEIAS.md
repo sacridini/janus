@@ -1233,6 +1233,8 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 57b | O *To look at*, a prévia na ROI com a cortina de antes e depois, *Use in Time series analysis* |
 | 57c | O *Copy Python* da cadeia (conferido no Zeit), a proveniência da raiz, o autoteste (`--selftest-ui`), a documentação |
 
+**2026-11-14:** o pin do zeit-core foi para o Zeit 3.6.0 (b98da66), que traz os módulos do Level 2 (l2scene, s2l1c, fmask, cloud_dist, solpos, atmo, aod, gas, radtran, topo, qai, parallax, resmerge, coreg), as etapas 23e-23g que esta lista esperava.
+
 ### Multiplataforma: Windows, Linux e macOS (Apple Silicon)
 - Objetivo: o Janus deve rodar nos três. **Nenhum código de sistema operacional
   entra no código comum**: fica isolado (`src/platform.*`, `ZeitProcess`) e
