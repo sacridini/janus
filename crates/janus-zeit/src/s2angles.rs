@@ -453,8 +453,59 @@ fn corners(fz: &Fused, cols: usize, r: (usize, f32), c: (usize, f32)) -> [f32; 3
 
 /// Zenith and azimuth (degrees, 0-360) of an interpolated (zenith, sine, cosine) (`_angles_of`).
 fn zenith_azimuth(f: [f32; 3]) -> (f32, f32) {
-    let az = f[1].atan2(f[2]).to_degrees();
+    // numpy's `degrees` of a float32 multiplies by 180f / PIf in single (57.295776), not by the nearest float32 to the
+    // factor (57.29578, what `to_degrees` takes): one unit in the last place apart
+    const DEGREES: f32 = 180.0 / std::f32::consts::PI;
+    let az = f[1].atan2(f[2]) * DEGREES;
     (f[0], if az < 0.0 { az + 360.0 } else { az })
+}
+
+/// The angles of a grid in the tile's CRS, from the cell and weight of each of its rows and columns (`axis`; None outside the
+/// tile's grid): SZA, SAA, VZA, VAA, each rows x columns, row by row, NaN outside and where no detector covers. It is
+/// Zeit's `_interp_separable` in its order of float32 operations (along x, then along y, with no division by the weights
+/// when every corner of the grid is valid), which is not that of `corners` in the last bits.
+fn separable(p: &Prepared, rows: &[Option<(usize, f32)>], cols: &[Option<(usize, f32)>]) -> [Vec<f32>; 4] {
+    let (h, w) = (rows.len(), cols.len());
+    let mut out: [Vec<f32>; 4] = std::array::from_fn(|_| vec![f32::NAN; h * w]);
+    for (k, layer) in [&p.sun, &p.view].into_iter().enumerate() {
+        let whole = layer.v.iter().all(|&v| v > 0.0);
+        // along x: every row of the tile's grid at every output column
+        let mut fx = vec![[f32::NAN; 3]; p.rows * w];
+        let mut vx = vec![0f32; p.rows * w];
+        for r in 0..p.rows {
+            for (j, c) in cols.iter().enumerate() {
+                let Some((cell, wx)) = *c else { continue };
+                let (i0, i1) = (r * p.cols + cell, r * p.cols + cell + 1);
+                let a = 1.0 - wx;
+                for q in 0..3 {
+                    fx[r * w + j][q] = layer.f[i0][q] * a + layer.f[i1][q] * wx;
+                }
+                vx[r * w + j] = layer.v[i0] * a + layer.v[i1] * wx;
+            }
+        }
+        // then along y
+        for (i, r) in rows.iter().enumerate() {
+            let Some((cell, wy)) = *r else { continue };
+            for (j, c) in cols.iter().enumerate() {
+                if c.is_none() {
+                    continue;
+                }
+                let (a, b) = (cell * w + j, (cell + 1) * w + j);
+                let mut f = [0f32; 3];
+                for q in 0..3 {
+                    f[q] = fx[a][q] + wy * (fx[b][q] - fx[a][q]);
+                }
+                if !whole {
+                    let den = vx[a] + wy * (vx[b] - vx[a]);
+                    f = if den <= 0.0 { [f32::NAN; 3] } else { [f[0] / den, f[1] / den, f[2] / den] };
+                }
+                let (z, az) = zenith_azimuth(f);
+                out[2 * k][i * w + j] = z;
+                out[2 * k + 1][i * w + j] = az;
+            }
+        }
+    }
+    out
 }
 
 /// The angles of a window `[x0, y0, w, h]` (in pixels of `like`) from one tile: SZA, SAA, VZA, VAA, each w x h row
@@ -475,15 +526,8 @@ fn tile_block(p: &Prepared, like: &Like, window: [usize; 4]) -> Result<[Vec<f32>
     };
     if like.is_same(&p.crs)? {
         let cols: Vec<_> = (0..w).map(|c| axis((xs(c) - p.ulx) / dx, p.cols, false)).collect();
-        for row in 0..h {
-            let Some(r) = axis((p.uly - ys(row)) / dy, p.rows, false) else { continue };
-            for (col, c) in cols.iter().enumerate() {
-                if let Some(c) = c {
-                    put(row * w + col, r, *c);
-                }
-            }
-        }
-        return Ok(out);
+        let rows: Vec<_> = (0..h).map(|r| axis((p.uly - ys(r)) / dy, p.rows, false)).collect();
+        return Ok(separable(p, &rows, &cols));
     }
     // the pixel centres projected to the tile's CRS (traditional GIS axis order: x east or longitude)
     let (from, to) = (srs_of(&like.wkt)?, srs_of(&p.crs)?);

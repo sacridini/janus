@@ -28,6 +28,8 @@ pub use interpolate::grid_days as interpolate_days;
 pub mod job;
 mod kmeans;
 mod landtrendr;
+pub mod level2;
+pub mod level2_run;
 pub mod manifest;
 mod mann_kendall;
 mod nbar;
