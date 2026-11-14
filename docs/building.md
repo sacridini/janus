@@ -6,13 +6,13 @@ Janus is a Rust workspace (`crates/`, see [Architecture](architecture.md)). It n
 [Rust](https://rustup.rs) 1.90 or later and GDAL, e.g. from a conda-forge environment:
 
 ```
-conda create -n geo -c conda-forge gdal=3.11 libgdal-netcdf=3.11 libgdal-hdf5=3.11 numpy
+conda create -n geo -c conda-forge gdal=3.11 libgdal-netcdf=3.11 libgdal-hdf5=3.11 libgdal-jp2openjpeg=3.11 numpy
 ```
 
 GDAL 3.11 or older: the `gdal-sys` crate carries bindings up to 3.11 (a newer GDAL
 needs its `bindgen` feature, and libclang).
 
-(the two plugins read NetCDF and HDF5; numpy and GDAL's Python bindings are only for
+(the three plugins read NetCDF, HDF5 and JPEG 2000 (the Sentinel-2 L1C bands); numpy and GDAL's Python bindings are only for
 `tools/make_selftest_data.py`, which makes the self-tests' inputs). Everything else, from the
 interface (egui, wgpu) to Zeit's methods, comes from crates.io and the workspace. Zeit is part of
 the program: no Python runs at any time.
@@ -31,7 +31,7 @@ cargo build --release
 ```
 
 The build puts the GDAL of `GDAL_INCLUDE_DIR`'s environment beside `janus.exe` (`build.rs`): `gdal.dll` and every
-DLL it loads from there, the netCDF and HDF5 plugins (`gdalplugins\`), PROJ's database and GDAL's data (`share\`),
+DLL it loads from there, the netCDF, HDF5 and JPEG 2000 plugins (`gdalplugins\`), PROJ's database and GDAL's data (`share\`),
 as the installed program has them. So `target\release\janus.exe` runs with its own GDAL, with no GDAL on the
 machine and whatever GDAL comes first on `PATH` (an OSGeo4W or GISInternals one, QGIS's); one started with another
 GDAL (a copy of `janus.exe` alone) says so at start. The tests (`cargo test`) still need the environment's

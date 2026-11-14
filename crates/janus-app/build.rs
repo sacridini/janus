@@ -73,7 +73,7 @@ fn gdal_beside_exe() -> Result<(), String> {
     let env_root = library.parent().map(Path::to_path_buf);
     let find =
         |name: &str| std::iter::once(bin.clone()).chain(env_root.clone()).map(|d| d.join(name)).find(|p| p.exists());
-    let plugins: Vec<PathBuf> = ["gdal_netCDF.dll", "gdal_HDF5.dll"]
+    let plugins: Vec<PathBuf> = ["gdal_netCDF.dll", "gdal_HDF5.dll", "gdal_JP2OpenJPEG.dll"]
         .iter()
         .map(|n| library.join("lib").join("gdalplugins").join(n))
         .filter(|p| p.exists())
