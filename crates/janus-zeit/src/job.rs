@@ -944,6 +944,9 @@ pub fn run_job(
     if tool.input.as_deref() == Some("layers") {
         return run_layers(spec, tool, &p, progress, cancel);
     }
+    if spec.tool == "level2" {
+        return crate::level2_tool::run(spec, tool, &p, progress, cancel);
+    }
     if spec.tool == "snic" {
         return crate::snic::run(spec, tool, &p, progress, cancel);
     }
@@ -1086,6 +1089,9 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
         return Ok(Estimate { sec_per_px: 5e-8, sec_per_chunk: 0.0, chunk_cells: cells, sec_fixed: 0.0 });
     }
     let p = Params::with_defaults(&spec.tool, &spec.params).unwrap_or_default();
+    if spec.tool == "level2" {
+        return crate::level2_tool::estimate(spec, &p);
+    }
     if spec.tool == "snic" {
         return crate::snic::estimate(spec, &p, cells);
     }

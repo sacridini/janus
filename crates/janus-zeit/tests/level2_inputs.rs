@@ -226,3 +226,26 @@ fn scene_2023_baseline_05() {
 fn scene_2021_legacy_radiometry() {
     scene("S2B_MSIL1C_20210728T132239_N0301_R038_T23LKC_20210728T151918.SAFE");
 }
+
+/// The original JPEG 2000 product read through GDAL's JP2OpenJPEG plugin (`GDAL_DRIVER_PATH` naming `gdalplugins`, as the
+/// packaged Janus ships it) gives the digital numbers of the GeoTIFF copies the other tests read, in every pixel, and the
+/// numbers Python's `dn.npy` holds.
+#[test]
+#[ignore = "needs the real scene (JPEG 2000) and the JP2OpenJPEG plugin (see the doc)"]
+fn jpeg_2000_product_reads_as_the_tiff_copies() {
+    let name = "S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149.SAFE";
+    let root = data();
+    let (jp2, tif) = (Safe::open(&root.join(name)).unwrap(), Safe::open(&root.join("tif").join(name)).unwrap());
+    assert!(jp2.bands.iter().all(|b| b.extension().is_some_and(|e| e.eq_ignore_ascii_case("jp2"))), "{:?}", jp2.bands);
+    let desc = jp2.describe().unwrap();
+    let t0 = Instant::now();
+    let a = level2::read_bands(&jp2, &desc, 8).unwrap();
+    println!("read_bands of the JPEG 2000 bands: {:.1} s, {} values", t0.elapsed().as_secs_f64(), a.len());
+    let b = level2::read_bands(&tif, &tif.describe().unwrap(), 8).unwrap();
+    assert_eq!(a.len(), b.len());
+    let differ = a.iter().zip(&b).filter(|(x, y)| x != y).count();
+    println!("JPEG 2000 against the GeoTIFF copies: {differ} of {} values differ", a.len());
+    assert_eq!(differ, 0);
+    let want = load_u16(&root.join("janus_ref").join(name).join("dn.npy")).0;
+    assert!(a == want, "the JPEG 2000 values differ from Python's dn.npy");
+}

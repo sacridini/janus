@@ -10,11 +10,13 @@ use std::fmt::Write as _;
 use crate::pixel::{Params, PixelInput};
 use crate::temporal_metrics::unique_options;
 
+mod level2;
 mod script;
 mod zeit_defaults;
 
 pub use zeit_defaults::ZEIT_DEFAULTS;
 
+pub use level2::level2_script;
 pub use script::{Roi, Spec, Step, Target, pixel_script};
 
 /// A float as Python's repr.

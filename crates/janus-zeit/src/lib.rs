@@ -30,6 +30,7 @@ mod kmeans;
 mod landtrendr;
 pub mod level2;
 pub mod level2_run;
+pub mod level2_tool;
 pub mod manifest;
 mod mann_kendall;
 mod nbar;

@@ -1312,7 +1312,8 @@ impl State {
             return Err("reflectances are not classes");
         }
         // the tools on a series in time are not offered, those on a spectrum (unmixing) are
-        let on_series = janus_zeit::manifest().tools.iter().filter(|t| t.input.as_deref() != Some("layers"));
+        let on_series =
+            janus_zeit::manifest().tools.iter().filter(|t| !matches!(t.input.as_deref(), Some("layers" | "folder")));
         for t in on_series {
             if crate::zeit::applicability(t, info).is_none() != (t.requires.time == "spectrum") {
                 return Err("the Zeit tools work along time, not on a spectrum (but the spectrum's own)");

@@ -20,7 +20,8 @@ pub struct Tool {
     pub name: String,
     pub category: String,
     pub description: String,
-    /// "series" (the default) or "layers": maps Janus shows instead of the series
+    /// "series" (the default), "layers" (maps Janus shows instead of the series) or "folder" (no series at all: the
+    /// tool reads the folder its `input` parameter names, as Level 1C to surface reflectance does)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<String>,
     pub requires: Requires,
@@ -57,7 +58,8 @@ pub struct Param {
     pub id: String,
     pub label: String,
     /// int, float, bool, enum, text (a line of text), multi (an enum of which several can be chosen: the value is an
-    /// array of options), patterns, layers, series (another open series: the value is {"name", "inputs"}, or null)
+    /// array of options), patterns, layers, series (another open series: the value is {"name", "inputs"}, or null),
+    /// file (the path of a file, "" for none), folder (the path of a folder)
     #[serde(rename = "type")]
     pub kind: String,
     pub default: Value,

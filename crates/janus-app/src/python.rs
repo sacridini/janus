@@ -169,6 +169,21 @@ pub(crate) fn run_code(
     janus_zeit::python::pixel_script(&spec)
 }
 
+/// "Copy Python" of a run of a tool on a folder (Level 1C to surface reflectance): Zeit's call on each scene of the input
+/// folder and `save` under `out_dir`.
+pub(crate) fn folder_code(
+    tool: &janus_zeit::Tool,
+    params: &std::collections::BTreeMap<String, serde_json::Value>,
+    out_dir: &str,
+) -> Result<String, String> {
+    let p = janus_zeit::Params::with_defaults(&tool.id, params).ok_or("its parameters are not the tool's")?;
+    if tool.id != "level2" {
+        return Err(format!("{}: no Python of it", tool.name));
+    }
+    let path = |p: &str| crate::provenance::absolute(p);
+    janus_zeit::python::level2_script(env!("CARGO_PKG_VERSION"), &p, &path, out_dir)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -552,5 +567,83 @@ mod tests {
             "{values} values of the ImproPhe script compared with the run's, the largest relative difference {worst:e}"
         );
         assert!(values > 1000);
+    }
+
+    /// Level 1C to surface reflectance's Copy Python: Zeit's call on each scene of the folder, the options that are not
+    /// Zeit's defaults, and `save` under the output folder by product.
+    #[test]
+    fn the_level2_script_calls_zeit_level2_on_each_scene() {
+        let base = std::env::temp_dir().join(format!("janus-level2-script-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let name = "S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149";
+        std::fs::create_dir_all(base.join(format!("{name}.SAFE"))).unwrap();
+        let tool = manifest().tool("level2").unwrap();
+        let params: BTreeMap<String, Value> = serde_json::from_value(
+            json!({ "input": base.to_string_lossy(), "dem": "dem.tif", "merge": "improphe", "adjacency": false }),
+        )
+        .unwrap();
+        let code = super::folder_code(tool, &params, "out").unwrap();
+        let flat = code.replace("(\n    ", "(").replace(",\n    ", ", ").replace("\n)", ")");
+        assert!(code.contains("import zeit") && code.contains("zeit-cdts>=3.6.0"), "{code}");
+        assert!(flat.contains(".SAFE\", dem=\"dem.tif\", merge=\"improphe\", adjacency=False)"), "{code}");
+        assert!(code.contains(&format!("l2.zeit.save(\"out/{name}\")")), "{code}");
+        assert!(!code.contains("brdf") && !code.contains("topography") && !code.contains("del l2"), "{code}");
+        let e = super::folder_code(tool, &BTreeMap::new(), "out").unwrap_err();
+        assert!(e.contains("choose the folder"), "{e}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// The Copy Python of a run of Level 1C to surface reflectance on the real scene of tile 23LKC (the JPEG 2000 product,
+    /// no merge) run in Zeit (the Python of JANUS_PYTHON, with the Zeit repository in ZEIT_REPO: the 3.6 `zeit.level2`) gives
+    /// GeoTIFFs equal in every pixel to those the tool wrote. By hand: the two runs take 18 and 29 GiB, one after the other.
+    ///
+    /// ```text
+    /// JANUS_PYTHON=C:\Users\eduar\miniforge3\envs\zeit\python.exe ZEIT_REPO=C:\Users\eduar\Documents\dev\zeit \
+    ///   cargo test -j 8 --release -p janus-app level2_script_real -- --ignored --nocapture --test-threads=1
+    /// ```
+    #[test]
+    #[ignore]
+    fn the_level2_script_real_scene_equals_the_tool() {
+        let (Ok(python), Ok(zeit)) = (std::env::var("JANUS_PYTHON"), std::env::var("ZEIT_REPO")) else {
+            panic!("JANUS_PYTHON (a Python with zeit's dependencies) and ZEIT_REPO (the Zeit repository, 3.6) are needed");
+        };
+        let data = std::path::PathBuf::from(
+            std::env::var("JANUS_L2_DATA")
+                .unwrap_or_else(|_| r"C:\Users\eduar\Documents\dev\data_force_l2_real".into()),
+        );
+        let product = "S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149";
+        let base = data.join("janus_out").join("script_test");
+        let _ = std::fs::remove_dir_all(&base);
+        let tool = manifest().tool("level2").unwrap();
+        let params: BTreeMap<String, Value> = serde_json::from_value(json!({
+            "input": data.join(format!("{product}.SAFE")).to_string_lossy(),
+            "dem": data.join("cop_glo30_23LKC.tif").to_string_lossy(),
+        }))
+        .unwrap();
+        let spec = janus_zeit::job::JobSpec {
+            tool: "level2".into(),
+            params: params.clone(),
+            threads: Some(8),
+            output_dir: base.join("tool").to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        run_job(&spec, &|_, _| {}, &AtomicBool::new(false)).unwrap();
+        let code = super::folder_code(tool, &params, &base.join("python").to_string_lossy()).unwrap();
+        let script = base.join("level2.py");
+        let path_line = format!("import sys\nsys.path.insert(0, {})\n", super::py_str(&zeit));
+        std::fs::write(&script, format!("{path_line}{code}")).unwrap();
+        run_python(&python, &script);
+        let mut values = 0usize;
+        for name in ["boa", "qai", "dst", "vzn", "hot", "aod", "wvp"] {
+            let got = read(&base.join("python").join(product).join(format!("{name}.tif")).to_string_lossy());
+            let want = read(&base.join("tool").join(product).join(format!("{name}.tif")).to_string_lossy());
+            assert_eq!(got.len(), want.len(), "{name}");
+            for (g, w) in got.iter().zip(&want) {
+                assert_eq!(g.len(), w.len(), "{name}");
+                assert!(g.iter().zip(w).all(|(a, b)| a == b), "{name} differs");
+                values += g.len();
+            }
+        }
+        println!("{values} values of the Python script equal to the tool's");
     }
 }

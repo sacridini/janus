@@ -4768,6 +4768,131 @@
     }
    ],
    "chunk_cells": 20000
+  },
+  {
+   "id": "level2",
+   "name": "Level 1C to surface reflectance (FORCE)",
+   "category": "Data preparation",
+   "input": "folder",
+   "description": "Sentinel-2 Level 1C to surface reflectance, as zeit.level2: FORCE's force-l2ps (Frantz 2019, Remote Sensing 11:1124; FORCE by David Frantz), run in the Zeit core. The scene's top-of-atmosphere reflectance is corrected for the gases and the water vapour, the aerosols (the optical depth estimated from dark targets), the adjacency effect, the topography (with a digital elevation model) and the BRDF, and written on the scene's 10 m grid: the bottom-of-atmosphere reflectance (10 bands, blue to SWIR 2, times 10000, as int16, -9999 where there is no data), the quality information (QAI: clouds, shadows, snow, water, ...), and the distance to the clouds, the view zenith, the haze optimized transform, the aerosol optical depth and the water vapour. The cloud, shadow, snow and water flags are those of Zeit's Fmask 4.7 (Qiu, Zhu and Woodcock 2019, Remote Sensing of Environment 231:111205). Choose a .SAFE folder of a Level 1C product (JPEG 2000 or GeoTIFF bands), or a folder holding .SAFE folders: each is processed in turn, in the order of its name, never two at once. The results go to the output folder, a subfolder named after each product with boa.tif, qai.tif, dst.tif, vzn.tif, hot.tif, aod.tif and wvp.tif and attrs.json (the scene's date, sensor, aerosol, water vapour and Fmask summary); the surface reflectance and the quality information open as layers. Sentinel-2 L1C only. A scene needs about 13 GiB of memory (18 GiB with the merge of the 20 m bands), measured on a whole 110 km tile, and takes minutes: close what you can before a run, and it cannot be stopped within a scene, only between scenes.",
+   "requires": {
+    "time": "any",
+    "min_dates": 0
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "input",
+     "label": "Level 1C folder",
+     "type": "folder",
+     "default": "",
+     "help": "A .SAFE folder of a Sentinel-2 Level 1C product, or a folder that holds .SAFE folders (each is processed in turn, sorted by name, one at a time)."
+    },
+    {
+     "id": "dem",
+     "label": "Digital elevation model",
+     "type": "file",
+     "default": "",
+     "help": "A raster of elevations in metres, of any grid and CRS (the Copernicus GLO-30, SRTM...): put on the scene's 10 m grid by bilinear resampling. Needed by the topographic correction, and used by the Fmask."
+    },
+    {
+     "id": "merge",
+     "label": "Merge the 20 m bands",
+     "type": "enum",
+     "default": "none",
+     "options": [
+      "none",
+      "regression",
+      "improphe"
+     ],
+     "labels": [
+      "No (the 20 m bands as they are, on the 10 m grid)",
+      "Regression (FORCE's RESOLUTION_MERGE=REGRESSION)",
+      "ImproPhe (FORCE's RESOLUTION_MERGE=IMPROPHE)"
+     ],
+     "help": "Predict the six 20 m bands (red edge 1-3, NIR, SWIR 1 and 2) at 10 m from the 10 m bands, on the top-of-atmosphere reflectance and before the correction, as force-l2ps does. It needs about a third more memory."
+    },
+    {
+     "id": "brdf",
+     "label": "BRDF correction",
+     "type": "bool",
+     "default": true,
+     "help": "Normalize the reflectance to nadir view and the scene's own sun (FORCE's DO_BRDF)."
+    },
+    {
+     "id": "topography",
+     "label": "Topographic correction",
+     "type": "bool",
+     "default": true,
+     "help": "Correct the illumination of the relief (FORCE's DO_TOPO); it needs the digital elevation model."
+    },
+    {
+     "id": "aod",
+     "label": "Estimate the aerosols",
+     "type": "bool",
+     "default": true,
+     "help": "Estimate the aerosol optical depth from the dark targets of the scene (FORCE's DO_AOD). Off: a fixed fallback spectrum."
+    },
+    {
+     "id": "adjacency",
+     "label": "Adjacency effect",
+     "type": "bool",
+     "default": true,
+     "help": "Correct the light scattered from the neighbouring pixels (FORCE's DO_ENV)."
+    },
+    {
+     "id": "multiple_scattering",
+     "label": "Multiple scattering",
+     "type": "bool",
+     "default": true,
+     "help": "Include the multiple scattering of the atmosphere in the radiative transfer (FORCE's MULTI_SCATTERING)."
+    },
+    {
+     "id": "erase_cloud",
+     "label": "Erase the clouds",
+     "type": "bool",
+     "default": false,
+     "help": "Write no data where the Fmask finds opaque cloud (FORCE's ERASE_CLOUDS)."
+    },
+    {
+     "id": "fmask",
+     "label": "Fmask for the flags",
+     "type": "bool",
+     "default": true,
+     "help": "Run Zeit's Fmask 4.7 for the cloud, shadow, snow and water flags. Off: no cloud detection, the QAI has no such flags."
+    },
+    {
+     "id": "fmask_compat",
+     "label": "Fmask as FORCE's baseline",
+     "type": "bool",
+     "default": false,
+     "help": "Zeit's compatibility switch of the Fmask (as zeit.level2's fmask_compat)."
+    },
+    {
+     "id": "gswo",
+     "label": "Global Surface Water Occurrence (optional)",
+     "type": "file",
+     "default": "",
+     "help": "A raster of the water occurrence (JRC's GSWO, in percent), used by the Fmask for the water flags; none: the Fmask's own."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "boa",
+     "name": "surface reflectance",
+     "unit": "reflectance x 10000",
+     "series": true
+    },
+    {
+     "id": "qai",
+     "name": "quality (QAI)",
+     "series": true,
+     "hidden": true
+    }
+   ],
+   "chunk_cells": 4000000
   }
  ],
  "errors": []

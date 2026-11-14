@@ -386,7 +386,7 @@ fn catalogue() -> Vec<Value> {
         tool(
             "run_tool",
             "Run a Zeit tool on a series",
-            "Runs one of Zeit's tools on the series (or an area of it): its maps as GeoTIFFs. ImproPhe takes the series to sharpen as `coarse` (another series in the same CRS; `series` is the fine one, every band of each date). TWDTW takes `samples` (places with a class) instead of patterns: each class's mean series becomes its pattern. SOM and k-means (clusters without samples) name each cluster by the class of most of the `samples` (or a vector's) in it, when given.",
+            "Runs one of Zeit's tools on the series (or an area of it): its maps as GeoTIFFs. Level 1C to surface reflectance (`level2`, FORCE's force-l2ps) takes no series: `params.input` is a Sentinel-2 .SAFE folder (or a folder of them, run one at a time; a scene needs 13-18 GiB of memory) and `params.dem` the elevation raster; it writes boa.tif, qai.tif and the other products under `output_dir/<product>/`. ImproPhe takes the series to sharpen as `coarse` (another series in the same CRS; `series` is the fine one, every band of each date). TWDTW takes `samples` (places with a class) instead of patterns: each class's mean series becomes its pattern. SOM and k-means (clusters without samples) name each cluster by the class of most of the `samples` (or a vector's) in it, when given.",
             with(
                 json!({
                     "tool": { "type": "string" },
@@ -398,6 +398,7 @@ fn catalogue() -> Vec<Value> {
                     "field": { "type": "string", "description": "its class field" },
                     "maps": { "type": "array", "items": { "type": "string" }, "description": "tools on maps (agreement...): two or more rasters, the first's grid" },
                     "coarse": series_schema(),
+                    "input": { "type": "string", "description": "tools on a folder (level2): the Level 1C .SAFE folder, or a folder of them (same as params.input)" },
                     "output_dir": out_dir
                 }),
                 area_props(),
@@ -1081,7 +1082,11 @@ fn list_tools() -> Value {
                 "name": t.name,
                 "category": t.category,
                 "summary": t.description.split(". ").next().unwrap_or(""),
-                "on": if t.input.as_deref() == Some("layers") { "maps (run_tool's maps)" } else { "a series" },
+                "on": match t.input.as_deref() {
+                    Some("layers") => "maps (run_tool's maps)",
+                    Some("folder") => "a folder (run_tool's params.input)",
+                    _ => "a series",
+                },
                 "needs": { "time": t.requires.time, "min_dates": t.requires.min_dates, "bands": t.requires.bands },
             })
         })
@@ -1245,6 +1250,9 @@ impl Server {
         let tool = manifest().tool(id).ok_or_else(|| format!("no tool {id:?} (list_tools)"))?;
         if tool.input.as_deref() == Some("layers") {
             return self.run_on_maps(tool, a, c);
+        }
+        if tool.input.as_deref() == Some("folder") {
+            return self.run_on_folder(tool, a, c);
         }
         let info = self.series(&a["series"])?;
         if let Some(why) = crate::zeit::applicability(tool, &info) {
@@ -1819,6 +1827,38 @@ impl Server {
         }))
     }
 
+    /// A tool on a folder (Level 1C to surface reflectance): `params.input` is the folder (a .SAFE, or one of them), the
+    /// scenes go one at a time to `output_dir/<product>/`.
+    fn run_on_folder(&self, tool: &janus_zeit::Tool, a: &Value, c: &Call) -> R<Value> {
+        let t0 = Instant::now();
+        let mut params: BTreeMap<String, Value> = a["params"]
+            .as_object()
+            .map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default();
+        if let Some(bad) = params.keys().find(|k| !tool.params.iter().any(|p| &p.id == *k)) {
+            return Err(format!("{} has no parameter {bad:?} (describe_tool)", tool.name));
+        }
+        if let Some(input) = a["input"].as_str() {
+            params.entry("input".into()).or_insert_with(|| json!(input));
+        }
+        let dir = out_dir(a, &tool.id)?;
+        let spec = janus_zeit::job::JobSpec {
+            tool: tool.id.clone(),
+            params,
+            output_dir: dir.to_string_lossy().into_owned(),
+            threads: Some(self.threads as i64),
+            ..Default::default()
+        };
+        let _ = std::fs::write(dir.join("job.json"), serde_json::to_string_pretty(&spec).unwrap_or_default());
+        let r = janus_zeit::job::run_job(&spec, &|f, m| c.progress(f, m), &c.stop)?;
+        Ok(json!({
+            "tool": tool.name,
+            "outputs": r.outputs.iter().map(|o| json!({ "name": o["name"].as_str().or(o["id"].as_str()), "path": o["path"], "unit": o["unit"] })).collect::<Vec<_>>(),
+            "folder": dir,
+            "seconds": (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0,
+        }))
+    }
+
     fn polygonize(&self, a: &Value, c: &Call) -> R<Value> {
         let src = a["src"].as_str().ok_or("src: a raster")?;
         let stem = Path::new(src).file_stem().map_or("polygons".into(), |s| s.to_string_lossy().into_owned());
@@ -2225,6 +2265,100 @@ mod tests {
         assert_eq!((ds.raster_size(), ds.raster_count()), ((24, 24), 2));
         assert_eq!(gdal::Metadata::description(&ds.rasterband(2).unwrap()).unwrap(), "2020-09-01");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Level 1C to surface reflectance over MCP, the checks that need no scene: the folder, the DEM and the parameters.
+    #[test]
+    fn level2_checks_its_input_before_running() {
+        setup();
+        let dir = temp("level2");
+        let s = Server { threads: 2, ..Default::default() };
+        let run = |mut a: Value| {
+            a["output_dir"] = json!(dir.join("out"));
+            s.run_tool(&a, &quiet()).unwrap_err()
+        };
+        assert!(run(json!({ "tool": "level2" })).contains("choose the folder"));
+        assert!(run(json!({ "tool": "level2", "params": { "bogus": 1 } })).contains("no parameter"));
+        let e = run(json!({ "tool": "level2", "input": dir, "params": {} }));
+        assert!(e.contains("no .SAFE folder"), "{e}");
+        // a folder named .SAFE that is not a product: said before anything runs
+        let safe = dir.join("S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149.SAFE");
+        std::fs::create_dir_all(&safe).unwrap();
+        let e = run(json!({ "tool": "level2", "params": { "input": safe, "topography": false } }));
+        assert!(e.contains("not a Sentinel-2 L1C .SAFE"), "{e}");
+        // the topography needs a DEM
+        let e = run(json!({ "tool": "level2", "params": { "input": safe } }));
+        assert!(e.contains("digital elevation model"), "{e}");
+        let listed = list_tools();
+        let l2 = listed["tools"].as_array().unwrap().iter().find(|t| t["id"] == "level2").unwrap();
+        assert!(l2["on"].as_str().unwrap().contains("folder"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The tool on the real scene of tile 23LKC (the JPEG 2000 product), ImproPhe merge, through run_tool: every GeoTIFF equal
+    /// in every pixel to Zeit's own (`janus_ref/<scene>/level2_improphe`, made by tools/level2_run_fixtures.py). The data are
+    /// outside the repositories (`JANUS_L2_DATA`, default `C:\Users\eduar\Documents\dev\data_force_l2_real`) and the run takes
+    /// 18 GiB and minutes: by hand, with GDAL_DRIVER_PATH naming the JPEG 2000 plugin.
+    ///
+    /// ```text
+    /// cargo test -j 8 --release -p janus-app level2_real_scene -- --ignored --nocapture --test-threads=1
+    /// ```
+    #[test]
+    #[ignore]
+    fn level2_real_scene_equals_zeit() {
+        setup();
+        let data = PathBuf::from(
+            std::env::var("JANUS_L2_DATA")
+                .unwrap_or_else(|_| r"C:\Users\eduar\Documents\dev\data_force_l2_real".into()),
+        );
+        let product = "S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149";
+        let out = data.join("janus_out").join("tool");
+        let _ = std::fs::remove_dir_all(&out);
+        let s = Server { threads: 8, ..Default::default() };
+        let t0 = Instant::now();
+        let r = s
+            .run_tool(
+                &json!({
+                    "tool": "level2",
+                    "params": {
+                        "input": data.join(format!("{product}.SAFE")),
+                        "dem": data.join("cop_glo30_23LKC.tif"),
+                        "merge": "improphe",
+                    },
+                    "output_dir": out,
+                }),
+                &quiet(),
+            )
+            .unwrap();
+        println!("run_tool: {:.0} s: {}", t0.elapsed().as_secs_f64(), r["outputs"]);
+        assert_eq!(r["outputs"].as_array().unwrap().len(), 2, "the surface reflectance and the QAI of one scene");
+        let reference = data.join("janus_ref").join(format!("{product}.SAFE")).join("level2_improphe");
+        let mut total = 0usize;
+        for name in ["boa", "qai", "dst", "vzn", "hot", "aod", "wvp"] {
+            let (got, want) = (out.join(product).join(format!("{name}.tif")), reference.join(format!("{name}.tif")));
+            let (a, b) = (gdal::Dataset::open(&got).unwrap(), gdal::Dataset::open(&want).unwrap());
+            assert_eq!((a.raster_size(), a.raster_count()), (b.raster_size(), b.raster_count()), "{name}");
+            assert_eq!(a.geo_transform().unwrap(), b.geo_transform().unwrap(), "{name}");
+            assert_eq!(a.spatial_ref().unwrap().to_wkt().unwrap(), b.spatial_ref().unwrap().to_wkt().unwrap(), "{name}");
+            let (mut differ, mut n) = (0usize, 0usize);
+            for k in 1..=a.raster_count() {
+                let (x, y) = (a.rasterband(k).unwrap(), b.rasterband(k).unwrap());
+                assert_eq!(x.no_data_value(), y.no_data_value(), "{name} band {k}");
+                assert_eq!(gdal::Metadata::description(&x).unwrap(), gdal::Metadata::description(&y).unwrap());
+                let (p, q) = (x.read_band_as::<i16>().unwrap(), y.read_band_as::<i16>().unwrap());
+                differ += p.data().iter().zip(q.data()).filter(|(u, v)| u != v).count();
+                n += p.data().len();
+            }
+            println!("{name}: {n} values, {differ} differ");
+            assert_eq!(differ, 0, "{name}");
+            total += n;
+        }
+        println!("{total} values equal to Zeit's");
+        let attrs = std::fs::read_to_string(out.join(product).join("attrs.json")).unwrap();
+        let attrs: Value = serde_json::from_str(&attrs).unwrap();
+        assert_eq!(attrs["merge"], "improphe");
+        assert_eq!(attrs["sensor"], "SEN2B");
+        assert!(attrs["provenance"].as_str().unwrap().contains("force-l2ps"));
     }
 
     /// A search and a series of Earth Search's Sentinel-2 over a small area (needs the network).

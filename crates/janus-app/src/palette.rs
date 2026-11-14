@@ -275,8 +275,11 @@ impl State {
         // Tools
         let info = self.session.as_ref().map(|s| s.info.clone());
         for t in &janus_zeit::manifest().tools {
-            let why =
-                info.as_ref().map_or(Some("open a series first".to_string()), |i| crate::zeit::applicability(t, i));
+            let why = if t.input.as_deref() == Some("folder") {
+                None // runs on a folder, with no series open
+            } else {
+                info.as_ref().map_or(Some("open a series first".to_string()), |i| crate::zeit::applicability(t, i))
+            };
             let mut c = Command {
                 cmd: Cmd::Tool(t.id.clone()),
                 label: format!("{}...", t.name),
