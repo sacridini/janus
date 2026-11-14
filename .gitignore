@@ -33,3 +33,6 @@ __pycache__/
 target/
 .cargo/config.toml
 .cargo/gdal/
+
+# promotional videos (too large for git)
+branding/video/
