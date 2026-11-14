@@ -1397,6 +1397,16 @@ their band names (`A00`, `A01`...), and opens the **Embeddings** panel. Zeit's
 change detection tools are disabled on them (an embedding has no seasonal
 signal), as Zeit itself refuses them.
 
+**Compact copies.** Janus also reads the int8 copies Zeit writes with
+`zeit.save_raster(emb, path, compact=True)` (`--compact` in `zeit embeddings`),
+a GeoTIFF or COG a quarter of the size, tagged `ZEIT_EMBEDDING_ENCODING`
+(`aef-int8` for AlphaEarth, `scaled-int8` for TESSERA and the rest). They open
+as the float32 file of the same cube: the same dates and dimension bands (the
+`scaled-int8` file's per-date scale bands are not shown), and every read (the
+map, the tools, the Embeddings panel) gets Zeit's decoded float32 values, NaN
+where there is no embedding. A file with an encoding this Janus does not know
+is refused with a message to update Janus.
+
 **Adding them over any series.** In the **Layers** panel, *Embeddings*: pick the
 source, the years and the cell size (10 m native; coarser cells are the mean of
 the 10 m vectors), the visible area or the ROI, and **Add embeddings**. The size

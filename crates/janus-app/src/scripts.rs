@@ -657,6 +657,7 @@ pub fn regularize(
         || info.multidim
         || info.spectral
         || info.stack
+        || info.encoding.is_some()
         || info.layers.iter().any(|l| l.band_base != 0)
     {
         return None;

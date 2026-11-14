@@ -11,7 +11,7 @@ use gdal::raster::ResampleAlg;
 
 use crate::calc::eval::{CalcVrt, How, Part};
 use crate::raw_blocks::{RawBlocks, SysBuf};
-use crate::{BandMeta, CubeInfo, QaRule};
+use crate::{BandMeta, CubeInfo, Encoding, QaRule};
 
 pub struct CubeReader {
     info: Arc<CubeInfo>,
@@ -22,6 +22,8 @@ pub struct CubeReader {
     /// when opened so)
     whole: HashMap<String, Option<Dataset>>,
     tmp: Vec<f32>,
+    /// a compact file's scale band over the window read
+    scale: Vec<f32>,
     /// an expression's bands
     bands: Vec<Vec<f32>>,
     /// a pixel-interleaved file's blocks decompressed here (opened on the first use; None inside: not this file)
@@ -247,6 +249,7 @@ impl CubeReader {
             datasets: HashMap::new(),
             whole: HashMap::new(),
             tmp: Vec::new(),
+            scale: Vec::new(),
             bands: Vec::new(),
             raw: None,
             evals: HashMap::new(),
@@ -312,7 +315,15 @@ impl CubeReader {
             ds
         };
         let rb = ds.rasterband(band as usize).ok()?;
-        let meta = if b <= 0 { l.meta } else { crate::band_meta(&rb) };
+        // a compact file's codes are decoded below: NaN and floats, no nodata or scale of the file's own
+        let compact = self.info.encoding.map(|e| (e, l.scale_band));
+        let meta = if compact.is_some() {
+            BandMeta::default()
+        } else if b <= 0 {
+            l.meta
+        } else {
+            crate::band_meta(&rb)
+        };
         // a calculator's band is computed on the thread that reads it: a large window in stripes on several, the
         // first on this one; each other stripe through a handle opened on its thread for this read alone (GDAL pools
         // a VRT's sources by the thread that opened them: handles kept for later reads on other threads shared a
@@ -364,6 +375,28 @@ impl CubeReader {
             )
         })
         .ok()?;
+        match compact {
+            Some((Encoding::Aef, _)) => crate::compact::decode_aef_in_place(&mut buf[..bw * bh]),
+            Some((Encoding::Scaled, scale_band)) => {
+                // the date's scale band over the same window, resampled the same way
+                let sb = ds.rasterband(usize::try_from(scale_band).ok().filter(|&s| s > 0)?).ok()?;
+                self.scale.resize(bw * bh, 0.0);
+                sb.read_into_slice::<f32>(
+                    (x as isize, y as isize),
+                    (w, h),
+                    (bw, bh),
+                    &mut self.scale[..bw * bh],
+                    Some(ResampleAlg::NearestNeighbour),
+                )
+                .ok()?;
+                crate::compact::decode_scaled_in_place(&mut buf[..bw * bh], &self.scale[..bw * bh]);
+                // a large window's buffer is not kept by the thread
+                if bw * bh > 1 << 22 {
+                    self.scale = Vec::new();
+                }
+            }
+            None => {}
+        }
         Some(meta)
     }
 

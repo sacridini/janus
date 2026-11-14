@@ -174,6 +174,7 @@ impl State {
             w: info.width,
             h: info.height,
         };
+        info.require_float_bands("Zonal statistics")?;
         let name = self.layers.get(self.active).map_or(String::new(), |l| l.name.clone());
         let mut meta = ZonalMeta { title: name, ..Default::default() };
         for (v, n) in &info.class_names {

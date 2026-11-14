@@ -268,6 +268,7 @@ impl State {
         let i = (0..self.layers.len())
             .find(|&i| i != self.active && self.layer_session(i).is_some_and(|s| s.info.id == cube))?;
         let info = &self.layer_session(i)?.info;
+        info.require_float_bands("A mask").ok()?;
         let l = info.layers.get(self.layers[i].disp.t.min(info.t() - 1))?;
         let path =
             if l.band <= 1 { l.path.clone() } else { format!("vrt://{}?bands={}", l.path.replace('\\', "/"), l.band) };

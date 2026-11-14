@@ -639,6 +639,10 @@ fn key_layer(k: &Key) -> Option<usize> {
 /// Compiles a text over the layers.
 pub fn plan(text: &str, layers: &[CalcLayer], opts: &Options) -> Result<Plan, CalcError> {
     let ast = parse(text)?;
+    // the plan reads the files' bands through GDAL, not through CubeReader
+    for l in layers {
+        l.info.require_float_bands("The calculator").map_err(|m| CalcError::new(0..text.len(), m))?;
+    }
     let mut scope = CalcScope {
         layers,
         names: layers.iter().map(|l| member_names(&l.info)).collect(),

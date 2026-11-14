@@ -115,6 +115,7 @@ impl State {
         if info.multidim || info.remote {
             return Err("a series read over the network or from a NetCDF / Zarr variable: not counted".into());
         }
+        info.require_float_bands("Areas")?;
         let name = self.layers.get(self.active).map_or(String::new(), |l| l.name.clone());
         let mut meta = AreaMeta { title: name, ..Default::default() };
         for (v, n) in &info.class_names {

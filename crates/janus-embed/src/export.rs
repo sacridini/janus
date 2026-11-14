@@ -95,10 +95,10 @@ pub fn compute_embedding_export(
             return Err(format!("{}: not the layer's grid or bands", l.path));
         }
         let bi = band_info(&ds, d, l.band_base as usize, &e.skip)?;
-        dss.push((ds, bi, l.band_base as usize));
+        dss.push((ds, bi, l));
     }
     let mut rds: Vec<BlockReader> =
-        dss.iter().map(|(ds, bi, base)| BlockReader::new(ds, bi, *base)).collect::<Result<_, _>>()?;
+        dss.iter().map(|(ds, bi, l)| BlockReader::for_layer(ds, bi, l, info.encoding)).collect::<Result<_, _>>()?;
     // per output band: value = bias + sum_d W[d] v[d] (principal components: the centred projection; similarity:
     // the unit reference), then / |v| (similarity)
     let (mut wt, mut bias) = (vec![0f32; k * d], vec![0f32; k]);

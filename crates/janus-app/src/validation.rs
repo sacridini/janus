@@ -602,7 +602,7 @@ impl State {
                 l.session.as_ref().map(|s| &s.info)
             };
             let Some(info) = info else { continue };
-            if info.spectral || info.geo_transform.is_none() {
+            if info.spectral || info.geo_transform.is_none() || info.encoding.is_some() {
                 continue;
             }
             let t = self.date_of_layer(i);

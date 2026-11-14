@@ -204,6 +204,7 @@ struct Reads {
 /// The files of the series as `load_raster` takes them: the path of the one file, the folder when the series is
 /// all the rasters of it, else the list.
 fn reads(info: &CubeInfo, path: &dyn Fn(&str) -> String) -> Result<Reads, String> {
+    info.require_float_bands("Copy Python")?;
     let bpd = info.bands_per_date.max(1);
     let first = &info.layers[0].path;
     let stack = info.layers.iter().all(|l| &l.path == first);

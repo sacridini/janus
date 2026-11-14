@@ -5,6 +5,7 @@
 //! NetCDF / Zarr / HDF file, and the same over the network.
 
 pub mod calc;
+pub mod compact;
 pub mod dates;
 mod grouped;
 pub mod inputs;
@@ -26,6 +27,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use gdal::{Dataset, DatasetOptions, GdalOpenFlags, Metadata};
 
+pub use compact::Encoding;
 pub use dates::TimeGranularity;
 pub use reader::{CubeReader, drop_thread_reader, with_thread_reader};
 pub use remote::{dataset_file, display_name, gdal_path, is_remote_path};
@@ -161,6 +163,8 @@ pub struct Layer {
     /// the date's bands are band_base + 1 ..= band_base + bands_per_date of the file (0, except embeddings of
     /// several years in one file)
     pub band_base: i32,
+    /// a compact file's scale band of this date (absolute, 1-based; 0: none, see CubeInfo::encoding)
+    pub scale_band: i32,
     /// Unix seconds (time_is_date), nm (spectral) or the index
     pub time: f64,
     /// the date's text (or the band's or file's name)
@@ -207,6 +211,10 @@ pub struct CubeInfo {
     pub class_names: BTreeMap<i32, String>,
     /// Zeit's ZEIT_EMBEDDING tag of the first file: a layer of foundation-model embeddings
     pub embedding_tag: String,
+    /// Zeit's compact (int8) copy of embeddings: the file's codes, read as the float32 cube they stand for (the
+    /// reader and the embeddings' store decode them). A scaled one has a scale band after each date's dimensions
+    /// (Layer::scale_band): not a band of the cube, band_base counts it.
+    pub encoding: Option<Encoding>,
     /// a variable of a NetCDF / Zarr / HDF file, its bands placed by their coordinates; with more dimensions than
     /// time each combination of the others is a level, sel.band picks the one shown
     pub multidim: bool,
@@ -224,6 +232,19 @@ pub struct CubeInfo {
 impl CubeInfo {
     pub fn t(&self) -> usize {
         self.layers.len()
+    }
+
+    /// For what reads the layers' files itself, band by band (a VRT, a script, a zonal statistic), which would see
+    /// Zeit's compact embeddings as raw int8 codes: an error naming `tool` for those (CubeReader and the
+    /// embeddings' store decode them).
+    pub fn require_float_bands(&self, tool: &str) -> Result<(), String> {
+        match self.encoding {
+            None => Ok(()),
+            Some(e) => Err(format!(
+                "{tool} does not read Zeit's compact embeddings ({e}, int8); save them as float32 in Zeit \
+                 (save_raster without compact=True)"
+            )),
+        }
     }
 
     /// The axis is bands (a spectrum, a stack of variables) rather than dates: "bands", else "dates".
@@ -338,7 +359,8 @@ pub fn matchable_axis(a: &CubeInfo, b: &CubeInfo) -> bool {
 pub fn interleaved_blocks(info: &CubeInfo) -> Option<((usize, usize), u64)> {
     use gdal::Metadata;
     let path = &info.layers.first()?.path;
-    if info.network_sources || info.t() < 2 || info.layers.iter().any(|l| &l.path != path) {
+    // (a compact file's codes are decoded by the reader, not read raw)
+    if info.network_sources || info.encoding.is_some() || info.t() < 2 || info.layers.iter().any(|l| &l.path != path) {
         return None;
     }
     let ds = open_raster(path).ok()?;
@@ -536,11 +558,31 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
     // "<date>_<dimension>", date after date)
     let (mut packed_dates, mut packed_dims) = (0usize, 0usize);
     let (mut packed_prefix, mut packed_names) = (Vec::new(), Vec::new());
+    // Zeit's compact (int8) copy of embeddings: decoded when read (compact.rs)
+    let encoding = first
+        .metadata_item(compact::ENCODING_TAG, "")
+        .map(|t| Encoding::parse(&t))
+        .transpose()
+        .map_err(|e| format!("{}: {e}", files[0]))?;
+    if encoding.is_some() && files.len() > 1 {
+        return Err("compact embeddings (Zeit's int8 copies) open as one file holding every date".into());
+    }
+    let mut scale_at: Vec<usize> = Vec::new();
     if files.len() == 1 && n >= 16 {
         let tag = first.metadata_item("ZEIT_EMBEDDING", "");
-        let descs: Vec<String> = (1..=n)
+        let mut descs: Vec<String> = (1..=n)
             .map(|b| first.rasterband(b).ok().and_then(|rb| rb.description().ok()).unwrap_or_default())
             .collect();
+        // the scaled encoding's scale bands are not dimensions: set aside, the rest as a float32 file's bands
+        if encoding == Some(Encoding::Scaled) {
+            scale_at = (0..n).filter(|&b| compact::is_scale_label(&descs[b])).collect();
+            let mut b = 0;
+            descs.retain(|_| {
+                b += 1;
+                !scale_at.contains(&(b - 1))
+            });
+        }
+        let nd = descs.len();
         let split: Vec<(String, String)> = descs
             .iter()
             .map(|d| match d.rfind('_') {
@@ -553,12 +595,13 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         if prefixed {
             // dates in blocks of D bands with the same dimension names
             let mut d = 1;
-            while d < n && split[d].0 == split[0].0 {
+            while d < nd && split[d].0 == split[0].0 {
                 d += 1;
             }
-            let ok = n % d == 0 && (0..n).all(|b| split[b].0 == split[b / d * d].0 && split[b].1 == split[b % d].1);
+            let ok = nd.is_multiple_of(d)
+                && (0..nd).all(|b| split[b].0 == split[b / d * d].0 && split[b].1 == split[b % d].1);
             if ok && d >= 16 {
-                packed_dates = n / d;
+                packed_dates = nd / d;
                 packed_dims = d;
                 packed_prefix = (0..packed_dates).map(|g| split[g * d].0.clone()).collect();
                 packed_names = split[..d].iter().map(|s| s.1.clone()).collect();
@@ -566,7 +609,7 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         } else if dims || tag.is_some() {
             // one year
             packed_dates = 1;
-            packed_dims = n;
+            packed_dims = nd;
             packed_names = descs
                 .iter()
                 .enumerate()
@@ -579,6 +622,22 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         {
             info.embedding_tag = t;
         }
+    }
+
+    if let Some(e) = encoding {
+        let want = e.extra_bands();
+        // the file's bands: each date's dimensions, then (scaled) its scale band
+        let layout = packed_dates > 0
+            && n == packed_dates * (packed_dims + want)
+            && scale_at.iter().copied().eq((0..packed_dates * want).map(|g| (g + 1) * (packed_dims + 1) - 1));
+        if !layout {
+            return Err(format!(
+                "{}: not a compact embeddings file of Zeit ({e}: every date's bands A00... of 16 or more dimensions{})",
+                files[0],
+                if want > 0 { ", then its scale band" } else { "" }
+            ));
+        }
+        info.encoding = Some(e);
     }
 
     // several bands a date, date after date, dated by the bands' names, Zeit's tag or a file of dates next to it
@@ -627,8 +686,11 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
             info.sel.nd_band = 0;
             info.expr = Some(Arc::new(e));
         }
+        // a compact file's date has its scale band too; its codes are decoded to NaN and floats on reading, so no
+        // nodata (-128) or scale of the file's own applies
+        let per_date = packed_dims + info.encoding.map_or(0, Encoding::extra_bands);
         for (g, prefix) in packed_prefix.iter().enumerate() {
-            let base = (g * packed_dims) as i32;
+            let base = (g * per_date) as i32;
             let band = base + info.sel.band;
             let rb = first.rasterband(band as usize).map_err(|e| e.to_string())?;
             let nd_meta = if info.sel.nd_band > 0 {
@@ -636,13 +698,19 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
             } else {
                 BandMeta::default()
             };
+            let (meta, nd_meta) = if info.encoding.is_some() {
+                (BandMeta::default(), BandMeta::default())
+            } else {
+                (band_meta(&rb), nd_meta)
+            };
             time_texts.push(prefix.clone());
             info.layers.push(Layer {
                 path: files[0].clone(),
                 band,
                 band_base: base,
+                scale_band: if info.encoding == Some(Encoding::Scaled) { base + packed_dims as i32 + 1 } else { 0 },
                 label: prefix.clone(),
-                meta: band_meta(&rb),
+                meta,
                 nd_meta,
                 ..Default::default()
             });

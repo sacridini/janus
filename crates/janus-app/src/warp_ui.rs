@@ -387,6 +387,12 @@ impl State {
             }
         };
         let Some(info) = self.session.as_ref().map(|s| s.info.clone()) else { return };
+        if self.warp.source.is_none()
+            && let Err(e) = info.require_float_bands("Warp")
+        {
+            self.warp.status = e;
+            return;
+        }
         let series = self.layers.get(self.active).map_or(String::new(), |l| l.name.clone());
         let (files, what) = match self.warp.source.and_then(|id| self.zeit.results.iter().find(|r| r.id == id)) {
             Some(r) => (vec![r.path.clone()], r.name.clone()),

@@ -8,7 +8,8 @@ use std::time::Instant;
 
 use gdal::Dataset;
 use gdal::raster::GdalDataType;
-use janus_cube::CubeInfo;
+use janus_cube::compact::{self, Encoding};
+use janus_cube::{CubeInfo, Layer};
 
 /// A dimension's reading: nodata, scale and offset; `skip`: without data anywhere, read as 0.
 #[derive(Clone, Copy, Default)]
@@ -71,7 +72,9 @@ pub(crate) struct BlockReader<'a> {
     ds: &'a Dataset,
     bi: &'a [BandInfo],
     ty: Ty,
+    /// the file's bands read for each pixel: the D dimensions, then a compact file's scale band
     bands: Vec<i32>,
+    enc: Option<Encoding>,
     raw: Vec<u8>,
     x0: usize,
     y0: usize,
@@ -102,12 +105,33 @@ impl<'a> BlockReader<'a> {
             _ => Ty::F32,
         };
         let bands = (0..bi.len()).map(|b| (base + b + 1) as i32).collect();
-        Ok(BlockReader { ds, bi, ty, bands, raw: Vec::new(), x0: 0, y0: 0, w: 0, width, height, bw, bh })
+        Ok(BlockReader { ds, bi, ty, bands, enc: None, raw: Vec::new(), x0: 0, y0: 0, w: 0, width, height, bw, bh })
+    }
+
+    /// The reader of a layer's date: `enc` the cube's compact encoding (CubeInfo::encoding), whose codes are decoded
+    /// to the float32 values of the file Zeit writes without compact.
+    pub(crate) fn for_layer(
+        ds: &'a Dataset,
+        bi: &'a [BandInfo],
+        l: &Layer,
+        enc: Option<Encoding>,
+    ) -> Result<Self, String> {
+        let mut r = Self::new(ds, bi, l.band_base as usize)?;
+        if let Some(e) = enc {
+            if r.ty != Ty::I8 {
+                return Err(format!("{}: a compact file ({e}) of Int8 bands", l.path));
+            }
+            r.enc = Some(e);
+            if e == Encoding::Scaled {
+                r.bands.push(l.scale_band);
+            }
+        }
+        Ok(r)
     }
 
     /// The window (x0, y0, w, h) at full resolution.
     pub(crate) fn read(&mut self, x0: usize, y0: usize, w: usize, h: usize) -> Result<(), String> {
-        let (d, by) = (self.bi.len(), self.ty.bytes());
+        let (d, by) = (self.bands.len(), self.ty.bytes());
         (self.x0, self.y0, self.w) = (x0, y0, w);
         self.raw.resize(w * h * d * by, 0);
         let err = unsafe {
@@ -139,7 +163,7 @@ impl<'a> BlockReader<'a> {
 
     /// The window last read, to decode its vectors (on any thread).
     pub(crate) fn window(&self) -> Window<'_> {
-        Window { raw: &self.raw, bi: self.bi, ty: self.ty, x0: self.x0, y0: self.y0, w: self.w }
+        Window { raw: &self.raw, bi: self.bi, ty: self.ty, enc: self.enc, x0: self.x0, y0: self.y0, w: self.w }
     }
 
     /// Source pixel (x, y) of the window last read: its D values, nodata -> NaN, scaled.
@@ -154,6 +178,7 @@ pub(crate) struct Window<'a> {
     raw: &'a [u8],
     bi: &'a [BandInfo],
     ty: Ty,
+    enc: Option<Encoding>,
     x0: usize,
     y0: usize,
     w: usize,
@@ -163,11 +188,24 @@ impl Window<'_> {
     /// Source pixel (x, y): its D values, nodata -> NaN, scaled.
     pub(crate) fn vector(&self, x: usize, y: usize, out: &mut [f32]) {
         let (d, by) = (self.bi.len(), self.ty.bytes());
-        let p = &self.raw[((y - self.y0) * self.w + (x - self.x0)) * d * by..][..d * by];
+        // a compact file's pixel has its date's scale code after the D dimensions
+        let nb = d + self.enc.map_or(0, Encoding::extra_bands);
+        let p = &self.raw[((y - self.y0) * self.w + (x - self.x0)) * nb * by..][..nb * by];
         for (b, m) in self.bi.iter().enumerate() {
             if m.skip {
                 out[b] = 0.0;
                 continue;
+            }
+            match self.enc {
+                Some(Encoding::Aef) => {
+                    out[b] = compact::decode_aef(p[b] as i8);
+                    continue;
+                }
+                Some(Encoding::Scaled) => {
+                    out[b] = compact::decode_scaled(p[b] as i8, p[d] as i8);
+                    continue;
+                }
+                None => {}
             }
             let c = &p[b * by..(b + 1) * by];
             let x = match self.ty {
@@ -378,7 +416,7 @@ impl EmbeddingStore {
                 return Err(format!("{}: fewer bands than the first year", l.path));
             }
             let bi = band_info(&ds, d, l.band_base as usize, &[])?;
-            let mut rd = BlockReader::new(&ds, &bi, l.band_base as usize)?;
+            let mut rd = BlockReader::for_layer(&ds, &bi, l, info.encoding)?;
             let (nbx, nby) = (rd.width.div_ceil(rd.bw), rd.height.div_ceil(rd.bh));
             let mut seen: Vec<(usize, usize)> = Vec::new(); // blocks of this year already read (small images)
             for k in (t..cells).step_by(t_n) {
@@ -442,7 +480,7 @@ impl EmbeddingStore {
         q.resize(n * d, 0);
         let (mut valid, mut norm) = (vec![0u8; n], vec![0f32; n]);
         let bi = band_info(&ds, d, l.band_base as usize, &r.skip)?;
-        let mut rd = BlockReader::new(&ds, &bi, l.band_base as usize)?;
+        let mut rd = BlockReader::for_layer(&ds, &bi, l, info.encoding)?;
         // the source pixel nearest to each store pixel's centre
         let src_x: Vec<usize> =
             (0..self.w).map(|x| (((x as f64 + 0.5) * self.fx) as usize).min(rd.width - 1)).collect();
@@ -536,5 +574,85 @@ impl EmbeddingStore {
 impl Drop for EmbeddingStore {
     fn drop(&mut self) {
         self.cancel();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use janus_cube::{BandSelection, open_cube};
+
+    fn open(name: &str) -> Arc<CubeInfo> {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../janus-cube/tests/data/compact").join(name);
+        Arc::new(open_cube(&[p.to_string_lossy().into_owned()], &BandSelection::default()).unwrap())
+    }
+
+    fn same(a: &[f32], b: &[f32], what: &str) {
+        for (i, (x, y)) in a.iter().zip(b).enumerate() {
+            assert!((x.is_nan() && y.is_nan()) || x.to_bits() == y.to_bits(), "{what}: {i}: {x} vs {y}");
+        }
+    }
+
+    /// The vectors of a compact file are the float32 file's, pixel by pixel, and the store built from either is
+    /// the same.
+    fn compare(compact: &str, float: &str) {
+        let (c, f) = (open(compact), open(float));
+        assert!(c.encoding.is_some() && f.encoding.is_none());
+        let d = c.bands_per_date;
+        assert_eq!((c.t(), d), (f.t(), f.bands_per_date));
+        let mut nan = false;
+        for t in 0..c.t() {
+            let (lc, lf) = (&c.layers[t], &f.layers[t]);
+            let (dc, df) = (Dataset::open(&lc.path).unwrap(), Dataset::open(&lf.path).unwrap());
+            let (bic, bif) = (
+                band_info(&dc, d, lc.band_base as usize, &[]).unwrap(),
+                band_info(&df, d, lf.band_base as usize, &[]).unwrap(),
+            );
+            let (mut rc, mut rf) = (
+                BlockReader::for_layer(&dc, &bic, lc, c.encoding).unwrap(),
+                BlockReader::for_layer(&df, &bif, lf, None).unwrap(),
+            );
+            let (w, h) = (c.width, c.height);
+            rc.read(0, 0, w, h).unwrap();
+            rf.read(0, 0, w, h).unwrap();
+            let (mut a, mut b) = (vec![0f32; d], vec![0f32; d]);
+            for y in 0..h {
+                for x in 0..w {
+                    rc.vector(x, y, &mut a);
+                    rf.vector(x, y, &mut b);
+                    same(&a, &b, &format!("{compact} date {t} pixel {x},{y}"));
+                    nan |= a.iter().any(|v| v.is_nan());
+                }
+            }
+        }
+        assert!(nan, "{compact}: pixels without an embedding");
+        let run = |info: Arc<CubeInfo>| {
+            let s = EmbeddingStore::start(info, 1 << 30, 2, Arc::new(|| {}));
+            let t0 = Instant::now();
+            while !s.complete() && !s.failed() && t0.elapsed().as_secs() < 60 {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(s.complete(), "{compact}: {}", s.error());
+            s
+        };
+        let (sc, sf) = (run(c.clone()), run(f.clone()));
+        let (rc, rf) = (sc.ranges().unwrap(), sf.ranges().unwrap());
+        assert_eq!((&rc.scale, &rc.offset, &rc.skip), (&rf.scale, &rf.offset, &rf.skip));
+        for t in 0..c.t() {
+            let (yc, yf) = (sc.year(t).unwrap(), sf.year(t).unwrap());
+            assert_eq!(yc.q, yf.q);
+            assert_eq!(yc.valid, yf.valid);
+            assert_eq!(yc.norm, yf.norm);
+            assert!(yc.valid.contains(&0) && yc.valid.contains(&1));
+        }
+    }
+
+    #[test]
+    fn compact_files_give_the_same_vectors_and_store() {
+        compare("aef2_compact.tif", "aef2_float.tif");
+        compare("aef1_compact.tif", "aef1_float.tif");
+        compare("tess2_compact.tif", "tess2_float.tif");
+        compare("tess1_compact.tif", "tess1_float.tif");
+        compare("tess2_compact_cog.tif", "tess2_float.tif");
     }
 }

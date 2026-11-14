@@ -15,6 +15,7 @@ fn g17(v: f64) -> String {
 /// each date (> 0); with the files' scale, offset and NoData applied (NoData as NaN), unless `raw` (the quality
 /// band's codes as they are).
 pub fn write_cube_vrt(info: &CubeInfo, path: &str, source_band: i32, raw: bool) -> Result<(), String> {
+    info.require_float_bands("The series' VRT (what a Zeit run reads)")?;
     let srs = dataset_srs(info);
     if source_band <= 0
         && let Some(e) = &info.expr
