@@ -494,6 +494,33 @@ fn is_dim(s: &str) -> bool {
     s.len() >= 2 && s.starts_with('A') && s[1..].bytes().all(|c| c.is_ascii_digit())
 }
 
+/// A file of a series of one file a date: compact like the first (the same encoding, the same bands, the scale band
+/// of the scaled encoding last), or neither compact.
+fn check_compact_file(ds: &Dataset, f: &str, want: Option<Encoding>, n: usize) -> Result<(), String> {
+    let got = ds
+        .metadata_item(compact::ENCODING_TAG, "")
+        .map(|t| Encoding::parse(&t))
+        .transpose()
+        .map_err(|e| format!("{f}: {e}"))?;
+    let name = |e: Option<Encoding>| e.map_or("float", Encoding::name);
+    if got != want {
+        return Err(format!(
+            "{f}: a series of embeddings does not mix compact (int8) files with others or two encodings ({} here, {}              in the first file)",
+            name(got),
+            name(want)
+        ));
+    }
+    if let Some(e) = got {
+        let count = ds.raster_count();
+        let scale_last = count > 0
+            && ds.rasterband(count).ok().and_then(|b| b.description().ok()).is_some_and(|d| compact::is_scale_label(&d));
+        if count != n || scale_last != (e == Encoding::Scaled) || count <= e.extra_bands() {
+            return Err(format!("{f}: not a compact embeddings file of Zeit like the first ({e}, {n} bands)"));
+        }
+    }
+    Ok(())
+}
+
 /// Interprets the inputs: a folder, a wildcard pattern (*, ?), a list of files or a single file (multiband = 1
 /// band per date). `sel` chooses the band(s) used when each file is one date.
 pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, String> {
@@ -564,9 +591,6 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         .map(|t| Encoding::parse(&t))
         .transpose()
         .map_err(|e| format!("{}: {e}", files[0]))?;
-    if encoding.is_some() && files.len() > 1 {
-        return Err("compact embeddings (Zeit's int8 copies) open as one file holding every date".into());
-    }
     let mut scale_at: Vec<usize> = Vec::new();
     if files.len() == 1 && n >= 16 {
         let tag = first.metadata_item("ZEIT_EMBEDDING", "");
@@ -627,7 +651,8 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
     if let Some(e) = encoding {
         let want = e.extra_bands();
         // the file's bands: each date's dimensions, then (scaled) its scale band
-        let layout = packed_dates > 0
+        let layout = files.len() > 1 // (a file a date: each file's layout is checked as it is read)
+            || packed_dates > 0
             && n == packed_dates * (packed_dims + want)
             && scale_at.iter().copied().eq((0..packed_dates * want).map(|g| (g + 1) * (packed_dims + 1) - 1));
         if !layout {
@@ -825,9 +850,17 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
         }
         info.description = format!("1 file, {n} bands (1 band = 1 date){dates_from}{slow}");
     } else {
-        info.bands_per_date = n;
+        // a file a date of compact embeddings: the dimensions, and (scaled) the scale band last, not a band of the cube
+        let dims = n - encoding.map_or(0, Encoding::extra_bands);
+        check_compact_file(&first, &files[0], encoding, n)?;
+        info.encoding = encoding;
+        info.bands_per_date = dims;
         info.band_nm = spectral::series_band_wavelengths(&first, &files[0]);
         info.band_names = spectral::band_names_with_nm(&first, &info.band_nm);
+        if encoding.is_some() {
+            info.band_nm.truncate(dims);
+            info.band_names.truncate(dims);
+        }
         info.sel = *sel;
         // bands with wavelengths (e.g. a series of EnMAP scenes): NDVI rather than the first band (418 nm on
         // EnMAP), unless a band was asked for
@@ -877,6 +910,7 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
                 Some(d) => d,
                 None => open(f)?,
             };
+            check_compact_file(&ds, f, encoding, n)?;
             if ds.raster_size() != (width, height) {
                 let (w, h) = ds.raster_size();
                 return Err(format!(
@@ -899,11 +933,18 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
             };
             let label = display_name(f);
             time_texts.push(label.clone());
+            // a compact file's codes are decoded when read: no nodata or scale of the file's own
+            let (meta, nd_meta) = if encoding.is_some() {
+                (BandMeta::default(), BandMeta::default())
+            } else {
+                (band_meta(&rb), nd_meta)
+            };
             info.layers.push(Layer {
                 path: f.clone(),
                 band: s.band,
+                scale_band: if encoding == Some(Encoding::Scaled) { dims as i32 + 1 } else { 0 },
                 label,
-                meta: band_meta(&rb),
+                meta,
                 nd_meta,
                 ..Default::default()
             });

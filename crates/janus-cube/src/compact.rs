@@ -98,6 +98,71 @@ pub fn decode_scaled_in_place(values: &mut [f32], scale: &[f32]) {
     }
 }
 
+fn scale_limit() -> f64 {
+    (127.0f64 / 8.0).exp2()
+}
+
+/// AlphaEarth's own curve, as Zeit encodes it (zeit/_compact.py, encode_aef): `block` is [dimension][plane] floats,
+/// `out` the same shape as Int8: v = sign(x) * round(sqrt(|x|) * 127.5) clipped to [-127, 127], and -128 in all the
+/// dimensions of a pixel where one is NaN.
+pub fn encode_aef(block: &[f32], d: usize, plane: usize, out: &mut [i8]) {
+    for p in 0..plane {
+        let bad = (0..d).any(|b| block[b * plane + p].is_nan());
+        for b in 0..d {
+            let x = if bad { 0.0 } else { f64::from(block[b * plane + p]) };
+            let v = if bad {
+                NODATA
+            } else {
+                let r = (x.abs().sqrt() * 127.5).round_ties_even();
+                let sign = if x < 0.0 {
+                    -1.0
+                } else if x > 0.0 {
+                    1.0
+                } else {
+                    0.0
+                };
+                (sign * r).clamp(-127.0, 127.0) as i8
+            };
+            out[b * plane + p] = v;
+        }
+    }
+}
+
+/// The scaled encoding, as Zeit's encode_scaled: `block` is [dimension][plane] floats, `out` is [dimension + 1][plane]
+/// Int8, the last band the scale code c = ceil(8 * log2(m / 127)) of the pixel's largest |x| m (-127 when 0), and
+/// q = round(x / 2^(c / 8)) in [-127, 127]; -128 in every band of a pixel where one dimension is NaN. An error when
+/// a value is too large for the scale.
+pub fn encode_scaled(block: &[f32], d: usize, plane: usize, out: &mut [i8]) -> Result<(), String> {
+    let limit = scale_limit();
+    for p in 0..plane {
+        if (0..d).any(|b| block[b * plane + p].is_nan()) {
+            for b in 0..=d {
+                out[b * plane + p] = NODATA;
+            }
+            continue;
+        }
+        let m = (0..d).map(|b| f64::from(block[b * plane + p]).abs()).fold(0.0, f64::max);
+        if m / 127.0 > limit {
+            return Err(format!(
+                "the embeddings are too large for the compact encoding (a value of {m:.6e}; the largest that fits is {:.6e})",
+                127.0 * limit
+            ));
+        }
+        let mut c = if m > 0.0 { (8.0 * (m / 127.0).log2()).ceil().clamp(-127.0, 127.0) } else { -127.0 };
+        // float rounding at a power-of-two edge
+        if (m / (c / 8.0).exp2()).round_ties_even() > 127.0 {
+            c += 1.0;
+        }
+        let c = c.min(127.0);
+        let s = (c / 8.0).exp2();
+        for b in 0..d {
+            out[b * plane + p] = (f64::from(block[b * plane + p]) / s).round_ties_even().clamp(-127.0, 127.0) as i8;
+        }
+        out[d * plane + p] = c as i8;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +189,55 @@ mod tests {
         assert_eq!(Encoding::parse("scaled-int8"), Ok(Encoding::Scaled));
         let e = Encoding::parse("wavelet-int4").unwrap_err();
         assert!(e.contains("unknown embedding encoding") && e.contains("update Janus"), "{e}");
+    }
+
+    #[test]
+    fn aef_codes_round_trip_exactly() {
+        // every code of the curve, one pixel each, 3 dimensions
+        let codes: Vec<i8> = (-127..=127).collect();
+        let plane = codes.len();
+        let block: Vec<f32> = (0..3).flat_map(|_| codes.iter().map(|&c| decode_aef(c))).collect();
+        let mut out = vec![0i8; 3 * plane];
+        encode_aef(&block, 3, plane, &mut out);
+        for b in 0..3 {
+            assert_eq!(&out[b * plane..(b + 1) * plane], &codes[..]);
+        }
+        // a NaN dimension: the whole pixel is nodata
+        let mut nan = block.clone();
+        nan[plane + 5] = f32::NAN;
+        encode_aef(&nan, 3, plane, &mut out);
+        assert!((0..3).all(|b| out[b * plane + 5] == NODATA) && out[4] == codes[4]);
+    }
+
+    #[test]
+    fn scaled_round_trip_within_its_bound() {
+        let (d, plane) = (6, 40);
+        let mut block = vec![0f32; d * plane];
+        for p in 0..plane {
+            let mag = 10f32.powf(-2.0 + 5.0 * p as f32 / plane as f32); // (below ~3e-3 the finest step, 2^(-127/8), is coarser)
+            for b in 0..d {
+                block[b * plane + p] = (b as f32 - 2.3) * mag * 0.37;
+            }
+        }
+        // an all-zero pixel and a NaN one
+        for b in 0..d {
+            block[b * plane] = 0.0;
+            block[b * plane + 1] = f32::NAN;
+        }
+        let mut out = vec![0i8; (d + 1) * plane];
+        encode_scaled(&block, d, plane, &mut out).unwrap();
+        assert_eq!(out[d * plane], -127);
+        assert!((0..=d).all(|b| out[b * plane + 1] == NODATA));
+        for p in 2..plane {
+            let m = (0..d).map(|b| block[b * plane + p].abs()).fold(0.0, f32::max);
+            for b in 0..d {
+                let x = decode_scaled(out[b * plane + p], out[d * plane + p]);
+                assert!((x - block[b * plane + p]).abs() <= 0.0043 * m, "{p} {b}: {x} vs {}", block[b * plane + p]);
+            }
+        }
+        // too large
+        let big = vec![1e12f32; d];
+        let mut o = vec![0i8; d + 1];
+        assert!(encode_scaled(&big, d, 1, &mut o).unwrap_err().contains("too large"));
     }
 }

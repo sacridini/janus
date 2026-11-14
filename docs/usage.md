@@ -1402,21 +1402,27 @@ signal), as Zeit itself refuses them.
 a GeoTIFF or COG a quarter of the size, tagged `ZEIT_EMBEDDING_ENCODING`
 (`aef-int8` for AlphaEarth, `scaled-int8` for TESSERA and the rest). They open
 as the float32 file of the same cube: the same dates and dimension bands (the
-`scaled-int8` file's per-date scale bands are not shown), and every read (the
-map, the tools, the Embeddings panel) gets Zeit's decoded float32 values, NaN
-where there is no embedding. A file with an encoding this Janus does not know
-is refused with a message to update Janus.
+`scaled-int8` file's per-date scale bands are not shown), and the map and the
+Embeddings panel get Zeit's decoded float32 values, NaN where there is no
+embedding; a folder of single-date files (a file a year) opens as a series. What
+reads the files band by band (the calculator, Zeit's tools, Copy Python, zonal
+statistics, warp) refuses them with a message to save float32 in Zeit. A file
+with an encoding this Janus does not know is refused with a message to update
+Janus. Janus writes them too: tick **Compact (int8)** in the download (below).
 
 **Adding them over any series.** In the **Layers** panel, *Embeddings*: pick the
 source, the years and the cell size (10 m native; coarser cells are the mean of
 the 10 m vectors), the visible area or the ROI, and **Add embeddings**. The size
-is estimated first (Int16, D values per pixel and year) and very large areas are
+is estimated first (Int16, or Int8 when compact; D values per pixel and year) and very large areas are
 refused. Janus downloads them itself, no Python needed, in the background (a bar on the map tells the year and
 the time left; **Tools → Tasks** has its log) and writes one GeoTIFF per year
 under `%LOCALAPPDATA%\Janus\results\embeddings`; the layer is added on top,
 reprojected if the series is in another CRS, while the series you were studying
 stays active. The first AlphaEarth download fetches its file index (78 MB, once
 a month).
+**Compact (int8)**, off by default, writes Zeit's compact copy of each year instead of Int16
+(about half the size, the size shown is for it); the Embeddings views read it, the
+calculator and the Zeit tools do not.
 
 **Views** (Embeddings panel):
 

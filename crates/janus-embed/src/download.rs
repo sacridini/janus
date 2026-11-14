@@ -1,6 +1,8 @@
 //! Embeddings of an area downloaded as a layer (what Zeit's `load_embeddings` and the bridge's task_embeddings.py
 //! did for Janus): one GeoTIFF per year, Int16 with a scale per band and nodata -32768, pixel-interleaved, tiled
-//! 256 x 256, DEFLATE, the dimensions' names as band descriptions and Zeit's ZEIT_EMBEDDING tag.
+//! 256 x 256, DEFLATE, the dimensions' names as band descriptions and Zeit's ZEIT_EMBEDDING tag. With `compact`, Zeit's
+//! single-date compact copy instead (Int8, nodata -128, janus_cube::compact: the same layout, a scale band last for
+//! TESSERA, ZEIT_EMBEDDING_ENCODING).
 //!
 //! AlphaEarth is read natively (zeit/_alphaearth.py): the open copy on Source Cooperative holds, per year and UTM
 //! zone, COGs of 8192 x 8192 cells and 64 int8 bands, indexed by aef_index.parquet; the files are bottom-up (the
@@ -16,6 +18,7 @@ use std::time::Instant;
 
 use gdal::Dataset;
 use gdal::spatial_ref::{AxisMappingStrategy, CoordTransform, SpatialRef};
+use janus_cube::Encoding;
 
 /// The bucket's own endpoint rather than the data.source.coop gateway, which drops requests under the load of a
 /// region read.
@@ -64,6 +67,9 @@ pub struct DownloadSpec {
     pub out_dir: PathBuf,
     /// where the AlphaEarth index is kept
     pub cache_dir: PathBuf,
+    /// Zeit's compact (int8) copy of each year (janus_cube::compact: `aef-int8` for AlphaEarth, `scaled-int8` for
+    /// TESSERA, about half the size of Int16) instead of Int16 with a scale per band
+    pub compact: bool,
 }
 
 /// Runs a download: `progress(fraction, message)`; Err("cancelled") when `cancel` was set. Returns the files.
@@ -396,7 +402,17 @@ fn alphaearth(
             })
             .collect();
         let path = spec.out_dir.join(format!("alphaearth_{year}.tif"));
-        let mut out = GeoTiff::create(&path, ow, oh, 64, [x0, res, 0.0, y0, 0.0, -res], &crs, scale, &tag)?;
+        let mut out = GeoTiff::create(
+            &path,
+            ow,
+            oh,
+            64,
+            [x0, res, 0.0, y0, 0.0, -res],
+            &crs,
+            scale,
+            &tag,
+            spec.compact.then_some(Encoding::Aef),
+        )?;
         for &(r, h) in &strips {
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled".into());
@@ -566,6 +582,8 @@ pub(crate) struct GeoTiff {
     w: usize,
     d: usize,
     scale: f64,
+    /// Zeit's compact copy: Int8 codes, and for the scaled encoding a scale band after the d dimensions
+    compact: Option<Encoding>,
 }
 
 impl GeoTiff {
@@ -579,6 +597,7 @@ impl GeoTiff {
         crs: &str,
         scale: f64,
         tag: &str,
+        compact: Option<Encoding>,
     ) -> Result<GeoTiff, String> {
         use gdal::Metadata;
         use gdal::raster::RasterCreationOptions;
@@ -593,9 +612,13 @@ impl GeoTiff {
             "BIGTIFF=IF_SAFER",
         ]);
         let tmp = PathBuf::from(format!("{}.part", path.display()));
-        let mut ds = drv
-            .create_with_band_type_with_options::<i16, _>(&tmp, w, h, d, &opts)
-            .map_err(|e| format!("could not create {}: {e}", tmp.display()))?;
+        let nb = d + compact.map_or(0, Encoding::extra_bands);
+        let made = if compact.is_some() {
+            drv.create_with_band_type_with_options::<i8, _>(&tmp, w, h, nb, &opts)
+        } else {
+            drv.create_with_band_type_with_options::<i16, _>(&tmp, w, h, nb, &opts)
+        };
+        let mut ds = made.map_err(|e| format!("could not create {}: {e}", tmp.display()))?;
         ds.set_geo_transform(&gt).map_err(|e| e.to_string())?;
         if let Ok(s) = srs(crs)
             && let Ok(wkt) = s.to_wkt()
@@ -603,8 +626,16 @@ impl GeoTiff {
             let _ = ds.set_projection(&wkt);
         }
         let _ = ds.set_metadata_item("ZEIT_EMBEDDING", tag, "");
-        for b in 0..d {
+        if let Some(e) = compact {
+            let _ = ds.set_metadata_item(janus_cube::compact::ENCODING_TAG, e.name(), "");
+        }
+        for b in 0..nb {
             let mut band = ds.rasterband(b + 1).map_err(|e| e.to_string())?;
+            if compact.is_some() {
+                let _ = band.set_no_data_value(Some(f64::from(janus_cube::compact::NODATA)));
+                let _ = band.set_description(&if b < d { format!("A{b:02}") } else { "scale".to_string() });
+                continue;
+            }
             let _ = band.set_no_data_value(Some(f64::from(NODATA)));
             let _ = band.set_description(&format!("A{b:02}"));
             unsafe {
@@ -612,12 +643,21 @@ impl GeoTiff {
                 gdal_sys::GDALSetRasterOffset(band.c_rasterband(), 0.0);
             }
         }
-        Ok(GeoTiff { ds, path: path.to_path_buf(), tmp, w, d, scale })
+        Ok(GeoTiff { ds, path: path.to_path_buf(), tmp, w, d, scale, compact })
     }
 
-    /// Rows r .. r + h: [band][row][col] values quantised to Int16 (NaN -> nodata).
+    /// Rows r .. r + h: [band][row][col] values quantised to Int16 (NaN -> nodata), or encoded as Zeit's compact Int8.
     pub(crate) fn write_strip(&mut self, r: usize, h: usize, block: &[f32]) -> Result<(), String> {
         let plane = self.w * h;
+        if let Some(e) = self.compact {
+            let nb = self.d + e.extra_bands();
+            let mut q = vec![0i8; nb * plane];
+            match e {
+                Encoding::Aef => janus_cube::compact::encode_aef(block, self.d, plane, &mut q),
+                Encoding::Scaled => janus_cube::compact::encode_scaled(block, self.d, plane, &mut q)?,
+            }
+            return self.write_raw(r, h, q.as_mut_ptr().cast(), gdal_sys::GDALDataType::GDT_Int8, nb);
+        }
         let mut q = vec![0i16; self.d * plane];
         for (o, &v) in q.iter_mut().zip(block) {
             *o = if v.is_finite() {
@@ -626,7 +666,20 @@ impl GeoTiff {
                 NODATA
             };
         }
-        let mut bands: Vec<i32> = (1..=self.d as i32).collect();
+        self.write_raw(r, h, q.as_mut_ptr().cast(), gdal_sys::GDALDataType::GDT_Int16, self.d)
+    }
+
+    /// `nb` bands of rows r .. r + h from `data` ([band][row][col]) of type `ty`.
+    fn write_raw(
+        &mut self,
+        r: usize,
+        h: usize,
+        data: *mut std::ffi::c_void,
+        ty: gdal_sys::GDALDataType::Type,
+        nb: usize,
+    ) -> Result<(), String> {
+        let mut bands: Vec<i32> = (1..=nb as i32).collect();
+        // SAFETY: `data` holds nb * w * h values of type `ty`, alive for the call.
         let err = unsafe {
             gdal_sys::GDALDatasetRasterIO(
                 self.ds.c_dataset(),
@@ -635,11 +688,11 @@ impl GeoTiff {
                 r as i32,
                 self.w as i32,
                 h as i32,
-                q.as_mut_ptr().cast(),
+                data,
                 self.w as i32,
                 h as i32,
-                gdal_sys::GDALDataType::GDT_Int16,
-                self.d as i32,
+                ty,
+                nb as i32,
                 bands.as_mut_ptr(),
                 0,
                 0,
@@ -705,6 +758,7 @@ mod tests {
             res: None,
             out_dir: out.clone(),
             cache_dir: PathBuf::from(home).join(".cache/zeit/embeddings"),
+            compact: false,
         };
         let t = Instant::now();
         let files = download(&spec, &|f, m| println!("{:3.0}% {m}", f * 100.0), &AtomicBool::new(false)).unwrap();
@@ -742,12 +796,69 @@ mod tests {
                 res: None,
                 out_dir: out.clone(),
                 cache_dir: std::env::temp_dir().join("janus-embed-small-area-cache"),
+                compact: false,
             };
             let files = download(&spec, &|_, _| {}, &AtomicBool::new(false)).unwrap();
             let d = Dataset::open(&files[0]).unwrap();
             println!("{source:?}: {:?}, {} bands", d.raster_size(), d.raster_count());
             assert!(d.raster_count() >= 64);
             let _ = std::fs::remove_dir_all(&out);
+        }
+    }
+
+    /// The same small area downloaded as Int16 and as Zeit's compact copy (network): both read through janus_cube equal
+    /// within the two quantisations, every band and pixel. The files stay in the temp folder janus-embed-compact-e2e
+    /// for a check with Zeit: `cargo test -p janus-embed --release -- --ignored compact_download`.
+    #[test]
+    #[ignore]
+    fn compact_download() {
+        use janus_cube::{BandSelection, CubeReader, open_cube};
+        let root = std::env::temp_dir().join("janus-embed-compact-e2e");
+        let _ = std::fs::remove_dir_all(&root);
+        for source in [Source::AlphaEarth, Source::Tessera] {
+            let mut infos = Vec::new();
+            for compact in [false, true] {
+                let out = root.join(format!("{}_{}", source.id(), if compact { "compact" } else { "int16" }));
+                let spec = DownloadSpec {
+                    source,
+                    years: vec![2024],
+                    bounds: [-46.66, -23.57, -46.64, -23.55],
+                    res: None,
+                    out_dir: out.clone(),
+                    cache_dir: std::env::temp_dir().join("janus-embed-small-area-cache"),
+                    compact,
+                };
+                download(&spec, &|_, _| {}, &AtomicBool::new(false)).unwrap();
+                let info = open_cube(&[out.to_string_lossy().into_owned()], &BandSelection::default()).unwrap();
+                assert_eq!(info.encoding.is_some(), compact);
+                infos.push(info);
+            }
+            let (a, b) = (&infos[0], &infos[1]);
+            assert_eq!((a.width, a.height, a.t(), a.bands_per_date), (b.width, b.height, b.t(), b.bands_per_date));
+            assert_eq!(a.band_names, b.band_names);
+            let (w, h, d) = (a.width, a.height, a.bands_per_date);
+            let mut ra = CubeReader::new(std::sync::Arc::new(a.clone()));
+            let mut rb = CubeReader::new(std::sync::Arc::new(b.clone()));
+            let (mut va, mut vb) = (vec![vec![0f32; w * h]; d], vec![vec![0f32; w * h]; d]);
+            for band in 0..d {
+                assert!(ra.read_band_window(0, band as i32 + 1, (0, 0, w, h), &mut va[band], (w, h)));
+                assert!(rb.read_band_window(0, band as i32 + 1, (0, 0, w, h), &mut vb[band], (w, h)));
+            }
+            let (mut worst, mut nan) = (0f32, 0usize);
+            for p in 0..w * h {
+                let m = (0..d).map(|k| va[k][p].abs()).fold(0f32, f32::max);
+                for k in 0..d {
+                    let (x, y) = (va[k][p], vb[k][p]);
+                    if x.is_nan() || y.is_nan() {
+                        assert!(x.is_nan() && y.is_nan(), "{source:?} pixel {p} band {k}: {x} vs {y}");
+                        nan += 1;
+                    } else {
+                        worst = worst.max((x - y).abs() / m.max(1e-6));
+                    }
+                }
+            }
+            println!("{source:?}: {w} x {h} x {d}, NaN {nan}, largest difference {worst:.5} of the pixel's max");
+            assert!(worst < 0.006, "{source:?}: {worst}");
         }
     }
 
@@ -772,6 +883,7 @@ mod tests {
             res: p["res"].as_f64(),
             out_dir: out.clone(),
             cache_dir: std::env::temp_dir(),
+            compact: false,
         };
         let t = Instant::now();
         let files = download(&spec, &|f, m| println!("{:3.0}% {m}", f * 100.0), &AtomicBool::new(false)).unwrap();
@@ -809,5 +921,83 @@ mod tests {
         // 1 band, 4 x 4 cells to 2 x 2 (a NaN left out)
         let c = [1.0, 3.0, 5.0, 5.0, 1.0, f32::NAN, 5.0, 5.0, 0.0, 0.0, 2.0, 4.0, 0.0, 0.0, 6.0, 8.0];
         assert_eq!(average(&c, 1, 4, 4, 2), vec![5.0 / 3.0, 5.0, 0.0, 5.0]);
+    }
+
+    /// A year's compact file written as Janus downloads it, read back through the cube: AlphaEarth's codes exactly, the
+    /// scaled encoding within 0.43% of each pixel's largest value; NaN pixels stay NaN.
+    #[test]
+    fn compact_files_are_written_as_zeit_reads_them() {
+        use janus_cube::{BandSelection, CubeReader, open_cube};
+        let (w, h, d) = (12usize, 9usize, 16usize);
+        let dir = std::env::temp_dir().join("janus_embed_compact_writer");
+        std::fs::create_dir_all(&dir).unwrap();
+        for (source, enc) in [(Source::AlphaEarth, Encoding::Aef), (Source::Tessera, Encoding::Scaled)] {
+            let mut block = vec![0f32; d * w * h];
+            for p in 0..w * h {
+                let mag = 10f32.powf(-2.0 + 4.0 * (p % 7) as f32 / 7.0);
+                for b in 0..d {
+                    let code = (((p * 31 + b * 17) % 255) as i32 - 127) as i8;
+                    block[b * w * h + p] = match enc {
+                        Encoding::Aef => janus_cube::compact::decode_aef(code),
+                        Encoding::Scaled => f32::from(code) * mag * 0.011,
+                    };
+                }
+            }
+            for b in 0..d {
+                block[b * w * h + 3] = f32::NAN; // pixel 3 has a NaN dimension: no embedding
+            }
+            let path = dir.join(format!("{}_2024.tif", source.id()));
+            // the values, for checking the file against Zeit's encoder outside the tests
+            std::fs::write(
+                dir.join(format!("{}_block.f32", source.id())),
+                block.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>(),
+            )
+            .unwrap();
+            let tag = format!("{{\"embedding_source\": \"{}\"}}", source.id());
+            let mut out = GeoTiff::create(
+                &path,
+                w,
+                h,
+                d,
+                [500000.0, 10.0, 0.0, 8900000.0, 0.0, -10.0],
+                "EPSG:32720",
+                1.0,
+                &tag,
+                Some(enc),
+            )
+            .unwrap();
+            // in two strips
+            let (h1, h2) = (4, h - 4);
+            let strip = |r: usize, n: usize| -> Vec<f32> {
+                (0..d).flat_map(|b| block[b * w * h + r * w..b * w * h + (r + n) * w].to_vec()).collect()
+            };
+            out.write_strip(0, h1, &strip(0, h1)).unwrap();
+            out.write_strip(h1, h2, &strip(h1, h2)).unwrap();
+            out.finish().unwrap();
+            let info = open_cube(&[path.to_string_lossy().into_owned()], &BandSelection::default()).unwrap();
+            assert_eq!((info.encoding, info.t(), info.bands_per_date), (Some(enc), 1, d), "{enc}");
+            assert!(info.embedding_tag.contains(source.id()));
+            assert_eq!(info.band_names[0], "A00");
+            let mut rd = CubeReader::new(std::sync::Arc::new(info));
+            let mut got = vec![0f32; w * h];
+            let mut worst = 0f32;
+            for b in 0..d {
+                assert!(rd.read_band_window(0, b as i32 + 1, (0, 0, w, h), &mut got, (w, h)));
+                for p in 0..w * h {
+                    let want = block[b * w * h + p];
+                    if p == 3 {
+                        assert!(got[p].is_nan());
+                    } else if enc == Encoding::Aef {
+                        assert_eq!(got[p].to_bits(), want.to_bits(), "band {b} pixel {p}");
+                    } else {
+                        let m = (0..d).map(|k| block[k * w * h + p].abs()).fold(0.0, f32::max);
+                        worst = worst.max((got[p] - want).abs() / m);
+                    }
+                }
+            }
+            if enc == Encoding::Scaled {
+                assert!(worst <= 0.0043, "{worst}");
+            }
+        }
     }
 }

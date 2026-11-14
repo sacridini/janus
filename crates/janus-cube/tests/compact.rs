@@ -8,9 +8,6 @@ use std::sync::Arc;
 use gdal::{GdalOpenFlags, Metadata};
 use janus_cube::{BandSelection, CubeInfo, CubeReader, Encoding, open_cube};
 
-const W: usize = 10;
-const H: usize = 8;
-
 fn data(name: &str) -> String {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/compact").join(name).to_string_lossy().into_owned()
 }
@@ -34,9 +31,10 @@ fn compare(compact: &str, float: &str, encoding: Encoding, dates: usize, dims: u
     assert_eq!(f.encoding, None);
     assert_eq!((c.t(), c.bands_per_date), (dates, dims), "{compact}");
     assert_eq!((c.t(), c.bands_per_date), (f.t(), f.bands_per_date));
-    assert_eq!((c.width, c.height), (W, H));
+    assert_eq!((c.width, c.height), (f.width, f.height));
+    let (w, h) = (c.width, c.height);
     assert_eq!(c.band_names, f.band_names);
-    assert_eq!(c.band_names[0], "A00");
+    assert!(c.band_names[0].ends_with("A00"), "{:?}", c.band_names[0]);
     assert_eq!(c.band_names.len(), dims, "the scale bands are not bands of the cube");
     assert_eq!(c.embedding_tag, f.embedding_tag);
     assert!(c.embedding_tag.contains("embedding_source"), "{}", c.embedding_tag);
@@ -48,7 +46,7 @@ fn compare(compact: &str, float: &str, encoding: Encoding, dates: usize, dims: u
     let (mut rc, mut rf) = (CubeReader::new(Arc::new(c.clone())), CubeReader::new(Arc::new(f.clone())));
     let mut nan_seen = false;
     for t in 0..dates {
-        for (size, win) in [((W, H), (0, 0, W, H)), ((W / 2, H / 2), (0, 0, W, H)), ((3, 2), (2, 1, 6, 5))] {
+        for (size, win) in [((w, h), (0, 0, w, h)), ((w / 2, h / 2), (0, 0, w, h)), ((3, 2), (2, 1, 5, 4))] {
             let n = size.0 * size.1;
             let (mut a, mut b) = (vec![0f32; n], vec![0f32; n]);
             // the shown band
@@ -62,7 +60,7 @@ fn compare(compact: &str, float: &str, encoding: Encoding, dates: usize, dims: u
                 nan_seen |= a.iter().any(|v| v.is_nan());
             }
         }
-        for (x, y) in [(0, 0), (1, 1), (2, 3), (4, 4), (9, 7)] {
+        for (x, y) in [(0, 0), (1, 1), (2, 3), (4, 4), (w - 1, h - 1)] {
             for band in [1, dims as i32 / 2, dims as i32] {
                 let (a, b) = (rc.read_band_pixel(t, band, x, y, false), rf.read_band_pixel(t, band, x, y, false));
                 same(&[a.unwrap()], &[b.unwrap()], &format!("{compact} pixel {x},{y}"));
@@ -167,4 +165,38 @@ fn what_reads_the_files_itself_refuses_compact_embeddings() {
     assert!(f.require_float_bands("Tool").is_ok());
     let layers = vec![CalcLayer { name: "e".into(), alias: "e".into(), info: Arc::new(f) }];
     assert!(plan("e + 1", &layers, &Options::default()).is_ok());
+}
+
+/// What Janus downloads with the compact option: a file a year, in a folder.
+#[test]
+fn a_series_of_single_date_compact_files() {
+    compare("series_alphaearth_compact", "series_alphaearth_float", Encoding::Aef, 2, 16);
+    compare("series_tessera_compact", "series_tessera_float", Encoding::Scaled, 2, 16);
+    let c = open(&data("series_tessera_compact"));
+    assert!(c.layers.iter().all(|l| l.band_base == 0 && l.scale_band == 17), "{:?}", c.layers);
+    assert_eq!(c.band_names.len(), 16);
+    assert_eq!(c.layers.iter().map(|l| l.label.as_str()).collect::<Vec<_>>(), ["2023", "2024"]);
+}
+
+#[test]
+fn a_series_does_not_mix_compact_files_with_others() {
+    let d = std::env::temp_dir().join("janus_cube_compact_mix");
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    let from = |dir: &str, name: &str, to: &str| std::fs::copy(data(&format!("{dir}/{name}")), d.join(to)).unwrap();
+    // a compact file and a float file
+    from("series_tessera_compact", "tessera_2023.tif", "tessera_2023.tif");
+    from("series_tessera_float", "tessera_2024.tif", "tessera_2024.tif");
+    let e = open_cube(&[d.to_string_lossy().into_owned()], &BandSelection::default()).unwrap_err();
+    assert!(e.contains("does not mix compact"), "{e}");
+    // two encodings
+    from("series_alphaearth_compact", "alphaearth_2024.tif", "tessera_2024.tif");
+    let e = open_cube(&[d.to_string_lossy().into_owned()], &BandSelection::default()).unwrap_err();
+    assert!(e.contains("does not mix compact"), "{e}");
+    // the first float, a later compact
+    std::fs::remove_file(d.join("tessera_2023.tif")).unwrap();
+    from("series_tessera_float", "tessera_2023.tif", "tessera_2023.tif");
+    from("series_tessera_compact", "tessera_2024.tif", "tessera_2024.tif");
+    let e = open_cube(&[d.to_string_lossy().into_owned()], &BandSelection::default()).unwrap_err();
+    assert!(e.contains("does not mix compact"), "{e}");
 }

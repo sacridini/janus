@@ -309,7 +309,17 @@ pub(crate) fn download(
     for (yi, &year) in spec.years.iter().enumerate() {
         let ti = years.iter().position(|&y| y == year).unwrap();
         let path = spec.out_dir.join(format!("tessera_{year}.tif"));
-        let mut out = GeoTiff::create(&path, ow, oh, dims, [x0, res, 0.0, y0, 0.0, -res], &out_crs, scale, &tag)?;
+        let mut out = GeoTiff::create(
+            &path,
+            ow,
+            oh,
+            dims,
+            [x0, res, 0.0, y0, 0.0, -res],
+            &out_crs,
+            scale,
+            &tag,
+            spec.compact.then_some(janus_cube::Encoding::Scaled),
+        )?;
         for &(r, h) in &strips {
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled".into());

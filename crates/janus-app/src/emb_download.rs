@@ -49,11 +49,13 @@ pub struct DownloadUi {
     pub res: usize,
     /// 0 the visible area, 1 the ROI
     pub area: usize,
+    /// Zeit's compact (int8) files instead of Int16
+    pub compact: bool,
 }
 
 impl Default for DownloadUi {
     fn default() -> Self {
-        DownloadUi { source: 0, y0: 2023, y1: 2024, res: 0, area: 0 }
+        DownloadUi { source: 0, y0: 2023, y1: 2024, res: 0, area: 0, compact: false }
     }
 }
 
@@ -181,6 +183,7 @@ impl State {
             res: (res != 10).then_some(f64::from(res)),
             out_dir: out.clone(),
             cache_dir: cache_dir(),
+            compact: ui.compact,
         };
         let log = JobLog { path: out.join("job.log"), t0: Instant::now() };
         log.write(&format!(
@@ -408,13 +411,22 @@ impl State {
             ui.radio_value(&mut d.area, 0, "Visible area");
             ui.radio_value(&mut d.area, 1, "ROI");
         });
+        ui.checkbox(&mut d.compact, "Compact (int8)").on_hover_text(
+            "Zeit's compact copies: one byte a value instead of two, about half the size of the default download.
+             The Embeddings views and Zeit read them; the calculator and the Zeit tools do not
+             (leave this off, or save float32 in Zeit, for those).",
+        );
         let (area, res, years, dims) = (d.area, RESOLUTIONS[d.res], (d.y1 - d.y0 + 1) as f64, cur.source.dims() as f64);
+        // Int16, or Int8 (and TESSERA's scale band)
+        let compact = d.compact;
+        let per_value = if compact { 1.0 } else { 2.0 };
+        let extra = if compact && cur.source == Source::Tessera { 1.0 } else { 0.0 };
         let bounds = self.embedding_bounds(area);
         let mut block = None;
         match &bounds {
             Ok((ll, wm, hm)) => {
                 let (px, py) = ((wm / f64::from(res)).ceil(), (hm / f64::from(res)).ceil());
-                let bytes = px * py * dims * 2.0 * years; // Int16
+                let bytes = px * py * (dims * per_value + extra) * years;
                 ui.weak(format!(
                     "{:.1} x {:.1} km, {px:.0} x {py:.0} px, {years:.0} year{}: ~{:.0} MB",
                     wm / 1000.0,
@@ -423,9 +435,13 @@ impl State {
                     bytes / 1048576.0
                 ))
                 .on_hover_text(format!(
-                    "Int16 GeoTIFFs, one per year (compressed on disk; the download is about as large).\n\
+                    "{} GeoTIFFs, one per year (compressed on disk; the download is about as large).\n\
                      {:.4}, {:.4} to {:.4}, {:.4} (longitude, latitude)",
-                    ll[0], ll[1], ll[2], ll[3]
+                    if compact { "Int8 (compact)" } else { "Int16" },
+                    ll[0],
+                    ll[1],
+                    ll[2],
+                    ll[3]
                 ));
                 if bytes > MAX_BYTES {
                     block = Some("too large: zoom in, use an ROI or coarser cells".to_string());
