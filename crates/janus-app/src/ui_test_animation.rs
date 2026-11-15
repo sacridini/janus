@@ -512,7 +512,7 @@ impl State {
                     if st.jobs.iter().any(|j| j.state() == ExportState::Running) {
                         return None;
                     }
-                    for i in 0..2 {
+                    for (i, job) in st.jobs.iter().enumerate().take(2) {
                         let r = k - 1 + i;
                         let f = at.run.join("saved").join(self.result_file_name(r));
                         let size = |p: &std::path::Path| std::fs::metadata(p).ok().map(|m| m.len());
@@ -523,7 +523,7 @@ impl State {
                             f.file_name().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default(),
                             if same { "same size as the output" } else { "missing" }
                         );
-                        if st.jobs[i].state() != ExportState::Done || !same {
+                        if job.state() != ExportState::Done || !same {
                             return fail("Save all should copy every output of the run into the folder");
                         }
                     }

@@ -327,8 +327,8 @@ impl State {
             for &band in &g.bands {
                 text += &format!("\t{}", band_name(&info, band));
             }
-            for t in 0..g.dates {
-                text += &format!("\n{}", info.layers[t].label);
+            for (t, layer) in info.layers.iter().enumerate().take(g.dates) {
+                text += &format!("\n{}", layer.label);
                 for row in 0..g.bands.len() {
                     let v = g.at(row, t);
                     text += &format!("\t{}", if v.is_finite() { format_g(f64::from(v), 7) } else { String::new() });

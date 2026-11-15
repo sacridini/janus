@@ -1708,7 +1708,7 @@ impl State {
                 let mut reader = janus_cube::CubeReader::new(info.clone());
                 let mut buf = vec![0f32; w * h];
                 let (mut inside, mut worst) = (0, 0f32);
-                for t in 0..info.t() {
+                for (t, per) in r.per_t.iter().enumerate().take(info.t()) {
                     if !reader.read_window(t, (x0, y0, w, h), &mut buf, (w, h)) {
                         return fail("B cannot be read");
                     }
@@ -1720,7 +1720,7 @@ impl State {
                         .collect();
                     inside = v.len();
                     let e = janus_cube::stats::sample_stats(&mut v);
-                    let g = r.per_t[t].get()?;
+                    let g = per.get()?;
                     if e.n != g.n {
                         return fail("the ROI's pixel count on B differs from the pixels inside");
                     }

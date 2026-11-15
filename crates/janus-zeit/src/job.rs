@@ -162,8 +162,8 @@ fn describe_classes(band: &mut gdal::raster::RasterBand, classes: &[ClassDef], s
             let name = CString::new(c.name.clone()).unwrap_or_default();
             gdal_sys::GDALRATSetValueAsInt(rat, row, 0, c.value);
             gdal_sys::GDALRATSetValueAsString(rat, row, 1, name.as_ptr());
-            for k in 0..3 {
-                gdal_sys::GDALRATSetValueAsInt(rat, row, 2 + k as i32, i32::from(c.color[k]));
+            for (k, &v) in c.color.iter().enumerate() {
+                gdal_sys::GDALRATSetValueAsInt(rat, row, 2 + k as i32, i32::from(v));
             }
         }
         gdal_sys::GDALSetDefaultRAT(band.c_rasterband(), rat);

@@ -581,8 +581,8 @@ impl State {
                 .selected_text(id(z))
                 .width(crate::fit::scaled(ui, 180.0))
                 .show_ui(ui, |ui| {
-                    for k in 0..zones {
-                        ui.selectable_value(&mut pick, k, format!("{} ({} px)", id(k), t.pixels[k]));
+                    for (k, px) in t.pixels.iter().enumerate().take(zones) {
+                        ui.selectable_value(&mut pick, k, format!("{} ({} px)", id(k), px));
                     }
                 });
             self.zonal.zone = pick;
