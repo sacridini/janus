@@ -17,7 +17,9 @@ use std::time::Instant;
 use janus_zeit::level2::{self, FmaskDem, Safe};
 
 fn data() -> PathBuf {
-    PathBuf::from(std::env::var("JANUS_L2_DATA").unwrap_or_else(|_| r"C:\Users\eduar\Documents\dev\data_force_l2_real".into()))
+    PathBuf::from(
+        std::env::var("JANUS_L2_DATA").unwrap_or_else(|_| r"C:\Users\eduar\Documents\dev\data_force_l2_real".into()),
+    )
 }
 
 // --- .npy --------------------------------------------------------------------------------------------------------
@@ -32,7 +34,11 @@ struct Npy {
 fn npy(path: &Path) -> Npy {
     let raw = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     assert_eq!(&raw[..6], b"\x93NUMPY", "{}", path.display());
-    let (len, start) = if raw[6] == 1 { (u16::from_le_bytes([raw[8], raw[9]]) as usize, 10) } else { (u32::from_le_bytes(raw[8..12].try_into().unwrap()) as usize, 12) };
+    let (len, start) = if raw[6] == 1 {
+        (u16::from_le_bytes([raw[8], raw[9]]) as usize, 10)
+    } else {
+        (u32::from_le_bytes(raw[8..12].try_into().unwrap()) as usize, 12)
+    };
     let header = std::str::from_utf8(&raw[start..start + len]).unwrap();
     assert!(header.contains("'fortran_order': False"), "{header}");
     let descr = header.split("'descr': '").nth(1).unwrap().split('\'').next().unwrap().to_string();
@@ -44,7 +50,7 @@ fn npy(path: &Path) -> Npy {
 fn load<T, const N: usize>(path: &Path, descr: &str, from: fn([u8; N]) -> T) -> (Vec<T>, Vec<usize>) {
     let a = npy(path);
     assert_eq!(a.descr, descr, "{}", path.display());
-    (a.bytes.chunks_exact(N).map(|c| from(c.try_into().unwrap())).collect(), a.shape)
+    (a.bytes.as_chunks::<N>().0.iter().map(|&c| from(c)).collect(), a.shape)
 }
 
 fn load_u16(p: &Path) -> (Vec<u16>, Vec<usize>) {
@@ -131,7 +137,8 @@ fn scene(name: &str) {
     let t0 = Instant::now();
     let desc = safe.describe().unwrap();
     clock("describe", t0);
-    let want: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(refs.join("desc.json")).unwrap()).unwrap();
+    let want: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(refs.join("desc.json")).unwrap()).unwrap();
     let (nr, nc) = (desc.nrows, desc.ncols);
     assert_eq!((want["nrows"].as_u64().unwrap() as usize, want["ncols"].as_u64().unwrap() as usize), (nr, nc));
     assert_eq!(want["epsg"].as_u64().map(|e| e as u32), desc.l1.tile.epsg);
@@ -144,7 +151,13 @@ fn scene(name: &str) {
     }
     let g = &want["geo_grid"];
     assert_eq!(
-        (g[0].as_f64().unwrap(), g[1].as_f64().unwrap(), g[2].as_f64().unwrap(), g[3].as_u64().unwrap() as usize, g[4].as_u64().unwrap() as usize),
+        (
+            g[0].as_f64().unwrap(),
+            g[1].as_f64().unwrap(),
+            g[2].as_f64().unwrap(),
+            g[3].as_u64().unwrap() as usize,
+            g[4].as_u64().unwrap() as usize
+        ),
         (desc.geo_grid.ulx, desc.geo_grid.uly, desc.geo_grid.res, desc.geo_grid.nx, desc.geo_grid.ny)
     );
     for (k, w) in want["windows"].as_array().unwrap().iter().enumerate() {

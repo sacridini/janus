@@ -513,7 +513,11 @@ fn check_compact_file(ds: &Dataset, f: &str, want: Option<Encoding>, n: usize) -
     if let Some(e) = got {
         let count = ds.raster_count();
         let scale_last = count > 0
-            && ds.rasterband(count).ok().and_then(|b| b.description().ok()).is_some_and(|d| compact::is_scale_label(&d));
+            && ds
+                .rasterband(count)
+                .ok()
+                .and_then(|b| b.description().ok())
+                .is_some_and(|d| compact::is_scale_label(&d));
         if count != n || scale_last != (e == Encoding::Scaled) || count <= e.extra_bands() {
             return Err(format!("{f}: not a compact embeddings file of Zeit like the first ({e}, {n} bands)"));
         }
@@ -934,11 +938,8 @@ pub fn open_cube(inputs: &[String], sel: &BandSelection) -> Result<CubeInfo, Str
             let label = display_name(f);
             time_texts.push(label.clone());
             // a compact file's codes are decoded when read: no nodata or scale of the file's own
-            let (meta, nd_meta) = if encoding.is_some() {
-                (BandMeta::default(), BandMeta::default())
-            } else {
-                (band_meta(&rb), nd_meta)
-            };
+            let (meta, nd_meta) =
+                if encoding.is_some() { (BandMeta::default(), BandMeta::default()) } else { (band_meta(&rb), nd_meta) };
             info.layers.push(Layer {
                 path: f.clone(),
                 band: s.band,

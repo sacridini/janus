@@ -10,9 +10,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use gdal::{DriverManager, Metadata};
 use gdal::raster::{Buffer, RasterCreationOptions};
 use gdal::spatial_ref::SpatialRef;
+use gdal::{DriverManager, Metadata};
 use zeit_core::atmo::L2Params;
 use zeit_core::gas::Toa;
 use zeit_core::l2::L2Error;
@@ -24,7 +24,8 @@ use zeit_core::sunview::GeoTable;
 use crate::level2::{self, DEM_NODATA, FmaskDem, Safe};
 
 /// The bands of `boa` in the order of the product (`BOA_BANDS`).
-pub const BOA_BANDS: [&str; 10] = ["BLUE", "GREEN", "RED", "REDEDGE1", "REDEDGE2", "REDEDGE3", "BROADNIR", "NIR", "SWIR1", "SWIR2"];
+pub const BOA_BANDS: [&str; 10] =
+    ["BLUE", "GREEN", "RED", "REDEDGE1", "REDEDGE2", "REDEDGE3", "BROADNIR", "NIR", "SWIR1", "SWIR2"];
 /// The no-data value of `boa`.
 pub const BOA_NODATA: i16 = -9999;
 /// The no-data value of the TOA reflectance the merge writes.
@@ -34,7 +35,8 @@ pub const PROVENANCE: &str = "Sentinel-2 L1C to Level 2: the atmospheric correct
 
 /// The names of the domains of the nine bands of the merge: the ones that predict (green, red, broad NIR) and the six
 /// predicted (`_MERGE_ROLES`).
-const MERGE_DOMAINS: [&str; 3 + NT] = ["GREEN", "RED", "BROADNIR", "REDEDGE1", "REDEDGE2", "REDEDGE3", "NIR", "SWIR1", "SWIR2"];
+const MERGE_DOMAINS: [&str; 3 + NT] =
+    ["GREEN", "RED", "BROADNIR", "REDEDGE1", "REDEDGE2", "REDEDGE3", "NIR", "SWIR1", "SWIR2"];
 
 /// FORCE's resolution merge (`RES_MERGE`): the six 20 m bands predicted at 10 m.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -193,7 +195,9 @@ impl Level2Output {
     /// The 2-D products by name in the order of the Dataset (`qai`, `dst`, `vzn`, `hot`, `aod`, `wvp`).
     pub fn planes(&self) -> Vec<(&'static str, &[i16])> {
         let mut v: Vec<(&'static str, &[i16])> = vec![("qai", &self.qai)];
-        for (k, p) in [("dst", &self.dst), ("vzn", &self.vzn), ("hot", &self.hot), ("aod", &self.aod), ("wvp", &self.wvp)] {
+        for (k, p) in
+            [("dst", &self.dst), ("vzn", &self.vzn), ("hot", &self.hot), ("aod", &self.aod), ("wvp", &self.wvp)]
+        {
             if let Some(p) = p {
                 v.push((k, p));
             }
@@ -221,7 +225,13 @@ impl Level2Output {
         Ok(out)
     }
 
-    fn write_tif(&self, path: &Path, bands: &[&[i16]], names: Option<&[&str]>, nodata: Option<f64>) -> Result<(), String> {
+    fn write_tif(
+        &self,
+        path: &Path,
+        bands: &[&[i16]],
+        names: Option<&[&str]>,
+        nodata: Option<f64>,
+    ) -> Result<(), String> {
         let e = |e: gdal::errors::GdalError| format!("{}: {e}", path.display());
         let (w, h) = (self.ncols, self.nrows);
         let mut opts = vec!["COMPRESS=DEFLATE".to_string(), "PREDICTOR=2".into(), "BIGTIFF=IF_SAFER".into()];
@@ -286,13 +296,7 @@ pub fn toa_merge(toa: &mut Toa, qai: &[i16], method: Merge, n_jobs: i32) -> Resu
     drop((green, red, bnir, targets));
     for (k, &b) in idx[3..].iter().enumerate() {
         for ((o, &v), &is_off) in toa.bands[b].iter_mut().zip(&merged[k * n..(k + 1) * n]).zip(&off) {
-            *o = if is_off {
-                TOA_NODATA
-            } else if v.is_nan() {
-                TOA_NODATA
-            } else {
-                v.clamp(-32768.0, 32767.0) as i16
-            };
+            *o = if is_off || v.is_nan() { TOA_NODATA } else { v.clamp(-32768.0, 32767.0) as i16 };
         }
     }
     Ok(())
@@ -353,7 +357,9 @@ fn fmask_attrs(
 /// flags and the correction, and zeit-core's `level2_scene` with the sun and the BRDF factor of the core.
 pub fn level2(safe: &Safe, opts: &Level2Options) -> Result<Level2Output, String> {
     if opts.topography && opts.dem.is_none() {
-        return Err("level2: topography=true needs the DEM: pass a dem (a raster in metres) or switch topography off".into());
+        return Err(
+            "level2: topography=true needs the DEM: pass a dem (a raster in metres) or switch topography off".into()
+        );
     }
     let n_jobs = opts.n_jobs.clamp(1, 8);
     let desc = safe.describe()?;
@@ -361,7 +367,9 @@ pub fn level2(safe: &Safe, opts: &Level2Options) -> Result<Level2Output, String>
     let n = nr * nc;
     let dn = level2::read_bands(safe, &desc, n_jobs)?;
     let dem_array: Option<Vec<f32>> = match &opts.dem {
-        Some(d) => Some(level2::dem_on_grid_with(d, safe, None, Some(&desc), &gdal_method(&opts.dem_resampling), n_jobs)?),
+        Some(d) => {
+            Some(level2::dem_on_grid_with(d, safe, None, Some(&desc), &gdal_method(&opts.dem_resampling), n_jobs)?)
+        }
         None => None,
     };
     let mut fmask = None;
@@ -435,12 +443,22 @@ pub fn level2(safe: &Safe, opts: &Level2Options) -> Result<Level2Output, String>
         return Err(format!("the correction gave {} bands, expected {}", l2.boa.bands.len(), BOA_BANDS.len()));
     }
     let boa = l2.boa.bands.concat();
-    let (epsg, date, p) = (desc.l1.tile.epsg.ok_or("the metadata has no EPSG code")?, desc.l1.product.date, &desc.l1.product);
+    let (epsg, date, p) =
+        (desc.l1.tile.epsg.ok_or("the metadata has no EPSG code")?, desc.l1.product.date, &desc.l1.product);
 
     // the water vapour of the scene: the mean of the pixels with data (int16 sums are exact, as numpy's float64 ones)
-    let (sum, count) = l2.wvp.as_deref().unwrap_or(&[]).iter().filter(|&&v| v != BOA_NODATA).fold((0i64, 0usize), |(s, c), &v| (s + i64::from(v), c + 1));
+    let (sum, count) = l2
+        .wvp
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter(|&&v| v != BOA_NODATA)
+        .fold((0i64, 0usize), |(s, c), &v| (s + i64::from(v), c + 1));
     let attrs = Level2Attrs {
-        datetime: format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", date.year, date.month, date.day, date.hh, date.mm, date.ss),
+        datetime: format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+            date.year, date.month, date.day, date.hh, date.mm, date.ss
+        ),
         sensor: p.sensor.clone(),
         baseline: p.baseline.clone().unwrap_or_else(|| "None".into()),
         aod_green: atc.aod.get(2).map_or(f64::NAN, |&v| f64::from(v)),
@@ -451,7 +469,16 @@ pub fn level2(safe: &Safe, opts: &Level2Options) -> Result<Level2Output, String>
         merge: merge.map(Merge::name),
         fmask: fmask
             .as_ref()
-            .map(|i| fmask_attrs(i, &p.baseline, (nr / 2, nc / 2), opts.dem.is_some(), opts.gswo.is_some(), opts.fmask_compat))
+            .map(|i| {
+                fmask_attrs(
+                    i,
+                    &p.baseline,
+                    (nr / 2, nc / 2),
+                    opts.dem.is_some(),
+                    opts.gswo.is_some(),
+                    opts.fmask_compat,
+                )
+            })
             .unwrap_or_default(),
         provenance: PROVENANCE,
     };
@@ -501,11 +528,11 @@ mod tests {
             let mut t = toa.clone();
             toa_merge(&mut t, &qai, m, 2).unwrap();
             let predicted: Vec<usize> = MERGE_DOMAINS[3..].iter().map(|d| t.find_domain(d).unwrap()).collect();
-            for b in 0..NB {
+            for (b, want) in before.iter().enumerate() {
                 if predicted.contains(&b) {
                     assert_eq!(t.bands[b][5], TOA_NODATA, "{m:?} band {b}: the off pixel stays off");
                 } else {
-                    assert_eq!(t.bands[b], before[b], "{m:?} band {b} is not a merged one");
+                    assert_eq!(&t.bands[b], want, "{m:?} band {b} is not a merged one");
                 }
             }
         }
@@ -525,8 +552,11 @@ mod tests {
 
     #[test]
     fn topography_without_a_dem_is_an_error() {
-        let e = level2(&Safe { path: "x".into(), product: "x".into(), granule: "x".into(), tile: "x".into(), bands: vec![] }, &Level2Options::default())
-            .unwrap_err();
+        let e = level2(
+            &Safe { path: "x".into(), product: "x".into(), granule: "x".into(), tile: "x".into(), bands: vec![] },
+            &Level2Options::default(),
+        )
+        .unwrap_err();
         assert!(e.contains("needs the DEM"), "{e}");
     }
 
@@ -548,7 +578,19 @@ mod tests {
         let keys: Vec<String> = a.pairs().into_iter().map(|(k, _)| k).collect();
         assert_eq!(
             keys,
-            ["datetime", "sensor", "baseline", "aod_green", "aod_map", "water_vapor_cm", "n_targets", "core_seconds", "merge", "fmask_cloud", "provenance"]
+            [
+                "datetime",
+                "sensor",
+                "baseline",
+                "aod_green",
+                "aod_map",
+                "water_vapor_cm",
+                "n_targets",
+                "core_seconds",
+                "merge",
+                "fmask_cloud",
+                "provenance"
+            ]
         );
     }
 }

@@ -2339,7 +2339,11 @@ mod tests {
             let (a, b) = (gdal::Dataset::open(&got).unwrap(), gdal::Dataset::open(&want).unwrap());
             assert_eq!((a.raster_size(), a.raster_count()), (b.raster_size(), b.raster_count()), "{name}");
             assert_eq!(a.geo_transform().unwrap(), b.geo_transform().unwrap(), "{name}");
-            assert_eq!(a.spatial_ref().unwrap().to_wkt().unwrap(), b.spatial_ref().unwrap().to_wkt().unwrap(), "{name}");
+            assert_eq!(
+                a.spatial_ref().unwrap().to_wkt().unwrap(),
+                b.spatial_ref().unwrap().to_wkt().unwrap(),
+                "{name}"
+            );
             let (mut differ, mut n) = (0usize, 0usize);
             for k in 1..=a.raster_count() {
                 let (x, y) = (a.rasterband(k).unwrap(), b.rasterband(k).unwrap());

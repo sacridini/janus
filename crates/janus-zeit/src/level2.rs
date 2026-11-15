@@ -201,9 +201,8 @@ pub fn geo_tables(safe: &Safe, desc: &Desc) -> Result<(Vec<f64>, Vec<f64>), Stri
     let mut x: Vec<f64> = (0..g.nx * g.ny).map(|k| g.ulx + (k % g.nx) as f64 * g.res).collect();
     let mut y: Vec<f64> = (0..g.nx * g.ny).map(|k| g.uly + (k / g.nx) as f64 * -g.res).collect();
     // SAFETY: x and y are n long each and live through the call; `tr` owns the transformation; no z.
-    let ok = unsafe {
-        gdal_sys::OCTTransform(tr.to_c_hct(), x.len() as i32, x.as_mut_ptr(), y.as_mut_ptr(), null_mut())
-    };
+    let ok =
+        unsafe { gdal_sys::OCTTransform(tr.to_c_hct(), x.len() as i32, x.as_mut_ptr(), y.as_mut_ptr(), null_mut()) };
     if ok == 0 {
         return Err("the corners of the coarse grid could not be put in longitude and latitude".into());
     }
@@ -243,8 +242,8 @@ pub fn band_grid(safe: &Safe, resolution: Option<f64>, desc: Option<&Desc>) -> R
     if let Some(d) = desc {
         // the transform of the file times a translation by the window's origin (Affine's product)
         let (xoff, yoff, nx, ny) = d.window_for(res);
-        gt[0] = gt[1] * xoff as f64 + gt[2] * yoff as f64 + gt[0];
-        gt[3] = gt[4] * xoff as f64 + gt[5] * yoff as f64 + gt[3];
+        gt[0] += gt[1] * xoff as f64 + gt[2] * yoff as f64;
+        gt[3] += gt[4] * xoff as f64 + gt[5] * yoff as f64;
         (w, h) = (nx as usize, ny as usize);
     }
     Ok(Grid { wkt, gt, w, h })
@@ -370,7 +369,10 @@ pub fn mean_sun_angle(xml: &str) -> Result<(f64, f64), String> {
             }
             Event::Text(t) if inside && depth == 1 => {
                 let text = t.decode().map_err(|e| format!("MTD_TL.xml: not XML: {e}"))?;
-                let v = text.trim().parse::<f64>().map_err(|_| format!("MTD_TL.xml: {current} is not a number: {text:?}"))?;
+                let v = text
+                    .trim()
+                    .parse::<f64>()
+                    .map_err(|_| format!("MTD_TL.xml: {current} is not a number: {text:?}"))?;
                 match current.as_str() {
                     "ZENITH_ANGLE" => zenith = Some(v),
                     "AZIMUTH_ANGLE" => azimuth = Some(v),
@@ -584,7 +586,10 @@ pub fn fmask_flags(
             FmaskDem::Array(a) if a.len() == n => decimate_f32(a, nr, nc),
             FmaskDem::Array(a) if a.len() == n20 => a.to_vec(),
             FmaskDem::Array(a) => {
-                return Err(format!("dem has {} values, expected the 20 m grid ({n20}) or the 10 m one ({n})", a.len()));
+                return Err(format!(
+                    "dem has {} values, expected the 20 m grid ({n20}) or the 10 m one ({n})",
+                    a.len()
+                ));
             }
         };
         for x in v.iter_mut() {

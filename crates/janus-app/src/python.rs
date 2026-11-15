@@ -605,7 +605,9 @@ mod tests {
     #[ignore]
     fn the_level2_script_real_scene_equals_the_tool() {
         let (Ok(python), Ok(zeit)) = (std::env::var("JANUS_PYTHON"), std::env::var("ZEIT_REPO")) else {
-            panic!("JANUS_PYTHON (a Python with zeit's dependencies) and ZEIT_REPO (the Zeit repository, 3.6) are needed");
+            panic!(
+                "JANUS_PYTHON (a Python with zeit's dependencies) and ZEIT_REPO (the Zeit repository, 3.6) are needed"
+            );
         };
         let data = std::path::PathBuf::from(
             std::env::var("JANUS_L2_DATA")

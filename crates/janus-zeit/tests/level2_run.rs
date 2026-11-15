@@ -23,7 +23,9 @@ use janus_zeit::level2_run::{self, Attr, Level2Options, Level2Output, Merge};
 const SCENE: &str = "S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149.SAFE";
 
 fn data() -> PathBuf {
-    PathBuf::from(std::env::var("JANUS_L2_DATA").unwrap_or_else(|_| r"C:\Users\eduar\Documents\dev\data_force_l2_real".into()))
+    PathBuf::from(
+        std::env::var("JANUS_L2_DATA").unwrap_or_else(|_| r"C:\Users\eduar\Documents\dev\data_force_l2_real".into()),
+    )
 }
 
 fn jobs() -> usize {
@@ -123,19 +125,23 @@ fn attr_eq(a: &Attr, v: &serde_json::Value) -> bool {
         (Attr::Float(a), serde_json::Value::Number(n)) => n.as_f64().is_some_and(|b| a.to_bits() == b.to_bits()),
         (Attr::Float(a), serde_json::Value::String(s)) => a.is_nan() && s == "NaN",
         (Attr::Str(a), serde_json::Value::String(b)) => a == b,
-        (Attr::List(a), serde_json::Value::Array(b)) => a.len() == b.len() && a.iter().zip(b).all(|(x, y)| attr_eq(x, y)),
+        (Attr::List(a), serde_json::Value::Array(b)) => {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| attr_eq(x, y))
+        }
         _ => false,
     }
 }
 
 /// The attributes against Python's `attrs.json`: the same keys and equal values (`core_seconds` is a time).
 fn compare_attrs(out: &Level2Output, refs: &Path) -> Vec<String> {
-    let want: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(refs.join("attrs.json")).unwrap()).unwrap();
+    let want: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(refs.join("attrs.json")).unwrap()).unwrap();
     let want = want.as_object().unwrap();
     let got = out.attrs.pairs();
     let mut bad = vec![];
     // (the order is not compared: Python's attrs.json lists them alphabetically)
-    let (mut gk, mut wk): (Vec<&str>, Vec<&str>) = (got.iter().map(|(k, _)| k.as_str()).collect(), want.keys().map(String::as_str).collect());
+    let (mut gk, mut wk): (Vec<&str>, Vec<&str>) =
+        (got.iter().map(|(k, _)| k.as_str()).collect(), want.keys().map(String::as_str).collect());
     gk.sort_unstable();
     wk.sort_unstable();
     if gk != wk {
@@ -184,7 +190,8 @@ fn describe_tif(path: &Path) -> Vec<(String, String)> {
 fn run_merge(merge: Option<Merge>) {
     let label = merge.map_or("none", Merge::name);
     let root = data();
-    let (tif, refs) = (root.join("tif").join(SCENE), root.join("janus_ref").join(SCENE).join(format!("level2_{label}")));
+    let (tif, refs) =
+        (root.join("tif").join(SCENE), root.join("janus_ref").join(SCENE).join(format!("level2_{label}")));
     let dem = root.join("cop_glo30_23LKC.tif");
     let safe = Safe::open(&tif).unwrap();
     let opts = Level2Options { dem: Some(dem), n_jobs: jobs(), merge, ..Level2Options::default() };
@@ -235,10 +242,16 @@ fn run_merge(merge: Option<Merge>) {
             meta_bad.push(format!("{n}: written by Zeit's save, not by Rust"));
         }
     }
-    println!("file properties that differ: {}", if meta_bad.is_empty() { "none".to_string() } else { format!("\n  {}", meta_bad.join("\n  ")) });
+    println!(
+        "file properties that differ: {}",
+        if meta_bad.is_empty() { "none".to_string() } else { format!("\n  {}", meta_bad.join("\n  ")) }
+    );
 
     let bad: Vec<&str> = rows.iter().chain(&frows).filter(|r| r.differ > 0).map(|r| r.name.as_str()).collect();
-    assert!(bad.is_empty() && bad_attrs.is_empty() && meta_bad.is_empty(), "differs from Python: products {bad:?}, attributes {bad_attrs:?}, files {meta_bad:?}");
+    assert!(
+        bad.is_empty() && bad_attrs.is_empty() && meta_bad.is_empty(),
+        "differs from Python: products {bad:?}, attributes {bad_attrs:?}, files {meta_bad:?}"
+    );
 }
 
 #[test]

@@ -477,8 +477,8 @@ fn separable(p: &Prepared, rows: &[Option<(usize, f32)>], cols: &[Option<(usize,
                 let Some((cell, wx)) = *c else { continue };
                 let (i0, i1) = (r * p.cols + cell, r * p.cols + cell + 1);
                 let a = 1.0 - wx;
-                for q in 0..3 {
-                    fx[r * w + j][q] = layer.f[i0][q] * a + layer.f[i1][q] * wx;
+                for (q, f) in fx[r * w + j].iter_mut().enumerate() {
+                    *f = layer.f[i0][q] * a + layer.f[i1][q] * wx;
                 }
                 vx[r * w + j] = layer.v[i0] * a + layer.v[i1] * wx;
             }
