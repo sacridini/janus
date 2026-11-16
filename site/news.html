@@ -50,14 +50,29 @@
     <p class="crumbs"><a href="./">Janus</a> / News</p>
     <p class="eyebrow">News</p>
     <h1>What&rsquo;s new.</h1>
-    <p class="lede">What each version of Janus added, newest first, in the words of the commit that made the release. The latest is 1.17.0; the installers are on each release&rsquo;s page on GitHub.</p>
+    <p class="lede">What each version of Janus added, newest first, in the words of the commit that made the release. The latest is 1.18.0; the installers are on each release&rsquo;s page on GitHub.</p>
   </div>
 </section>
 
 <div class="wrap news-wrap">
   <div class="article news">
+    <section id="v1.18.0">
+      <h2><a href="#v1.18.0">1.18.0</a><time datetime="2026-11-16">2026-11-16</time> <span class="rel-new">Latest</span></h2>
+      <p>the validation's interpretation view after Dr. Matthias Baumann's Validation Viewer (HU Berlin): the panel in cards, its own layout, large image cards with the pixel, its subgrid and the exact point, RGB, CIR and SWIR combinations of the cube, Esri Wayback's high-resolution image of every year with a lightbox, reading ahead, a disk cache and offline work, one label per point or per year, and the fraction of each class; Level 1C to surface reflectance (FORCE) as a tool, GDAL's JPEG 2000 plugin in the packages, Zeit's compact (int8) embeddings, and a heap corruption when a Rust buffer was given to GDAL (mimalloc)</p>
+      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.18.0">Release page on GitHub</a></p>
+    </section>
+    <section id="v1.17.2">
+      <h2><a href="#v1.17.2">1.17.2</a><time datetime="2026-11-08">2026-11-08</time></h2>
+      <p>1.17.1 (Copy Python, rerun.py and the Python history scripts with Zeit 3.2 and 3.2.1) published, with the website's clips; its tag failed on a Linux test that depended on where the script's call wraps, which follows the length of the temporary folder's path. macOS's packaged-program check mounts the .dmg on a folder of its own instead of reading hdiutil's table</p>
+      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.17.2">Release page on GitHub</a></p>
+    </section>
+    <section id="v1.17.1">
+      <h2><a href="#v1.17.1">1.17.1</a><time datetime="2026-11-08">2026-11-08</time></h2>
+      <p>Copy Python, rerun.py and the Python history scripts with Zeit 3.2 and 3.2.1 (zonal_stats, rasterize, polygonize, build_vrt, load_raster's pixel=, window=, bands=, scale=, qa=, qa_to_fmask): the guide's LandTrendr pin in 4 lines of code (was 118), CCDC 30 -&gt; 11, zonal 100 -&gt; 17, build series without osgeo; the website's Python examples made by pixel_script and run with the guides' numbers. Fixed on the way: a multiband stack read the first date's bands for every date, NDFI/tmask/CODED unmasked, CCDC fed NaN, the calculator's scale with bands of different scales</p>
+      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.17.1">Release page on GitHub</a></p>
+    </section>
     <section id="v1.17.0">
-      <h2><a href="#v1.17.0">1.17.0</a><time datetime="2026-11-07">2026-11-07</time> <span class="rel-new">Latest</span></h2>
+      <h2><a href="#v1.17.0">1.17.0</a><time datetime="2026-11-07">2026-11-07</time></h2>
       <ul>
         <li>the Time series analysis window (FORCE, phase 56), Tasseled Cap and the spectral adjustment, NBAR (the bands' angles and Sentinel-2's granule metadata) and ImproPhe from zeit-core</li>
         <li>the new website (the home as a story, Explore, Detect, Prove; a demo in the browser; the methods catalogue and chooser; guide tracks; search; short clips; docs and News pages)</li>
@@ -176,39 +191,42 @@
       </ul>
       <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.9.0">Release page on GitHub</a></p>
     </section>
-    <section id="v1.8.0">
-      <h2><a href="#v1.8.0">1.8.0</a><time datetime="2026-11-02">2026-11-02</time></h2>
-      <ul>
-        <li>sensors harmonized (HLS v2.0's lines by Sentinel-2 unit, Roy et al. 2016's for Landsat 7 and 4-5; a series joined with another)</li>
-        <li>the networks cross-validated on the folds</li>
-        <li>validation by default for someone new to it: kNNDM folds, the networks cross-validated, the samples' check warning of bunched samples, the Model tab's What this means in plain words</li>
-      </ul>
-      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.8.0">Release page on GitHub</a></p>
-    </section>
-    <section id="v1.7.1">
-      <h2><a href="#v1.7.1">1.7.1</a><time datetime="2026-11-02">2026-11-02</time></h2>
-      <ul>
-        <li>Janus's DLLs no longer on PATH (only bin\, with jn.com alone in it), which broke conda environments' Python (rasterio, GDAL: "DLL load failed while importing _warp"), R and QGIS</li>
-        <li>the old entry removed on update</li>
-        <li>the best epoch's network kept as it was (the batch norms' statistics of its epoch)</li>
-        <li>each pin class with a colour of its own</li>
-      </ul>
-      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.7.1">Release page on GitHub</a></p>
-    </section>
-    <section id="v1.7.0">
-      <h2><a href="#v1.7.0">1.7.0</a><time datetime="2026-11-01">2026-11-01</time></h2>
-      <ul>
-        <li>Random Forest in one Classification window for every classifier (samples checked as they are gathered, pins by class), field delineation (Trazo), best-available-pixel composites of a STAC search, janus mcp (Janus as a Model Context Protocol server)</li>
-        <li>the networks validated by whole places, spatial cross-validation as blockCV's and CAST's kNNDM (blocks, buffer, clusters, kNNDM, shown on the map), the area of applicability as CAST's (error profile, expected accuracy, local point density, Mahalanobis, Validation &amp; uncertainty &gt; Area of applicability)</li>
-        <li>the Tools menu by the question asked</li>
-        <li>the interface at any font size (10 to 28 px)</li>
-        <li>downloads in a line in the background, N at once</li>
-        <li>pixel-interleaved stacks read block by block, a stack dated by a CSV beside it</li>
-      </ul>
-      <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.7.0">Release page on GitHub</a></p>
-    </section>
     <section id="older">
       <h2>Older releases</h2>
+      <details class="rel-old" id="v1.8.0"><summary><span class="rv">1.8.0</span><time datetime="2026-11-02">2026-11-02</time><span class="rs">sensors harmonized (HLS v2.0's lines by Sentinel-2 unit, Roy et al.</span></summary>
+        <div class="rel-body">
+          <ul>
+            <li>sensors harmonized (HLS v2.0's lines by Sentinel-2 unit, Roy et al. 2016's for Landsat 7 and 4-5; a series joined with another)</li>
+            <li>the networks cross-validated on the folds</li>
+            <li>validation by default for someone new to it: kNNDM folds, the networks cross-validated, the samples' check warning of bunched samples, the Model tab's What this means in plain words</li>
+          </ul>
+          <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.8.0">Release page on GitHub</a></p>
+        </div>
+      </details>
+      <details class="rel-old" id="v1.7.1"><summary><span class="rv">1.7.1</span><time datetime="2026-11-02">2026-11-02</time><span class="rs">Janus's DLLs no longer on PATH (only bin\, with jn.com alone in it), which broke conda environments' Python…</span></summary>
+        <div class="rel-body">
+          <ul>
+            <li>Janus's DLLs no longer on PATH (only bin\, with jn.com alone in it), which broke conda environments' Python (rasterio, GDAL: "DLL load failed while importing _warp"), R and QGIS</li>
+            <li>the old entry removed on update</li>
+            <li>the best epoch's network kept as it was (the batch norms' statistics of its epoch)</li>
+            <li>each pin class with a colour of its own</li>
+          </ul>
+          <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.7.1">Release page on GitHub</a></p>
+        </div>
+      </details>
+      <details class="rel-old" id="v1.7.0"><summary><span class="rv">1.7.0</span><time datetime="2026-11-01">2026-11-01</time><span class="rs">Random Forest in one Classification window for every classifier (samples checked as they are gathered, pins…</span></summary>
+        <div class="rel-body">
+          <ul>
+            <li>Random Forest in one Classification window for every classifier (samples checked as they are gathered, pins by class), field delineation (Trazo), best-available-pixel composites of a STAC search, janus mcp (Janus as a Model Context Protocol server)</li>
+            <li>the networks validated by whole places, spatial cross-validation as blockCV's and CAST's kNNDM (blocks, buffer, clusters, kNNDM, shown on the map), the area of applicability as CAST's (error profile, expected accuracy, local point density, Mahalanobis, Validation &amp; uncertainty &gt; Area of applicability)</li>
+            <li>the Tools menu by the question asked</li>
+            <li>the interface at any font size (10 to 28 px)</li>
+            <li>downloads in a line in the background, N at once</li>
+            <li>pixel-interleaved stacks read block by block, a stack dated by a CSV beside it</li>
+          </ul>
+          <p class="rel-link"><a href="https://github.com/sacridini/janus/releases/tag/v1.7.0">Release page on GitHub</a></p>
+        </div>
+      </details>
       <details class="rel-old" id="v1.6.7"><summary><span class="rv">1.6.7</span><time datetime="2026-10-31">2026-10-31</time><span class="rs">Similarity to a series, a map of how alike every pixel's series is to the cursor's, a pin's or the ROI's…</span></summary>
         <div class="rel-body">
           <ul>

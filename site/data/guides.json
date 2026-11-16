@@ -193,7 +193,7 @@
     "label": "Any map",
     "summary": "Strata, a sample, blind interpretation, accuracy and error-adjusted areas with confidence intervals.",
     "track": "validate",
-    "minutes": 25,
+    "minutes": 33,
     "data": null,
     "learn": [
       "The Validation menu",
@@ -201,7 +201,7 @@
       "The strata",
       "Sample size"
     ],
-    "figures": 23,
+    "figures": 25,
     "featured": true,
     "thumb": "assets/img/validation/01-series-and-map.jpg"
   },

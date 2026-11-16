@@ -1,5 +1,35 @@
 [
   {
+    "tag": "v1.18.0",
+    "version": "1.18.0",
+    "date": "2026-11-16",
+    "blocks": [
+      {
+        "p": "the validation's interpretation view after Dr. Matthias Baumann's Validation Viewer (HU Berlin): the panel in cards, its own layout, large image cards with the pixel, its subgrid and the exact point, RGB, CIR and SWIR combinations of the cube, Esri Wayback's high-resolution image of every year with a lightbox, reading ahead, a disk cache and offline work, one label per point or per year, and the fraction of each class; Level 1C to surface reflectance (FORCE) as a tool, GDAL's JPEG 2000 plugin in the packages, Zeit's compact (int8) embeddings, and a heap corruption when a Rust buffer was given to GDAL (mimalloc)"
+      }
+    ]
+  },
+  {
+    "tag": "v1.17.2",
+    "version": "1.17.2",
+    "date": "2026-11-08",
+    "blocks": [
+      {
+        "p": "1.17.1 (Copy Python, rerun.py and the Python history scripts with Zeit 3.2 and 3.2.1) published, with the website's clips; its tag failed on a Linux test that depended on where the script's call wraps, which follows the length of the temporary folder's path. macOS's packaged-program check mounts the .dmg on a folder of its own instead of reading hdiutil's table"
+      }
+    ]
+  },
+  {
+    "tag": "v1.17.1",
+    "version": "1.17.1",
+    "date": "2026-11-08",
+    "blocks": [
+      {
+        "p": "Copy Python, rerun.py and the Python history scripts with Zeit 3.2 and 3.2.1 (zonal_stats, rasterize, polygonize, build_vrt, load_raster's pixel=, window=, bands=, scale=, qa=, qa_to_fmask): the guide's LandTrendr pin in 4 lines of code (was 118), CCDC 30 -> 11, zonal 100 -> 17, build series without osgeo; the website's Python examples made by pixel_script and run with the guides' numbers. Fixed on the way: a multiband stack read the first date's bands for every date, NDFI/tmask/CODED unmasked, CCDC fed NaN, the calculator's scale with bands of different scales"
+      }
+    ]
+  },
+  {
     "tag": "v1.17.0",
     "version": "1.17.0",
     "date": "2026-11-07",
