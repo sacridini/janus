@@ -188,6 +188,15 @@ platform, the tests and the packages.
 Janus is free software under the GNU General Public License, version 3 or
 later ([LICENSE](LICENSE)), as is [Zeit](https://github.com/sacridini/zeit-cdts). The parts of Zeit that used to derive from GPL-2.0-only code (the CCDC lasso, the phenology, the Bayesian smoothing of probabilities and the QA weights) were rewritten from the papers, so the whole is GPL-3.0-or-later.
 
+## Credits
+
+The interpretation view of the validation (the image cards per year, the
+pixel and point overlay, the Esri Wayback imagery, the point and validation
+cards) is based on
+[Validation Viewer](https://scm.cms.hu-berlin.de/baumamat/validationviewer)
+by Dr. Matthias Baumann (Humboldt-Universität zu Berlin), GPL-2.0-or-later,
+used here under GPL-3.0-or-later; parts of its code are ported to Rust.
+
 ---
 
 Built with [egui](https://github.com/emilk/egui), [wgpu](https://wgpu.rs) and
