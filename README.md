@@ -23,7 +23,7 @@
   <a href="https://sacridini.github.io/janus/news.html">News</a>
 </p>
 
-[![Janus: hovering an annual Landsat NDVI cube of Rondônia shows each pixel's series; two pins compare a forest and a cleared pixel, with their statistics](docs/explore.gif)](https://sacridini.github.io/janus/)
+[![The Janus window: 40 annual NDVI composites of a Rondônia forest frontier (1985 to 2024) on the map, a pin on a cleared pixel, its series with the segments LandTrendr fitted, the Statistics table, and LandTrendr's parameters](docs/janus-window.jpg)](https://sacridini.github.io/janus/landtrendr.html)
 
 Janus is a desktop program to look at satellite imagery through time: find
 where, when and by how much the land changed, and measure how far your map can
