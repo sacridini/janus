@@ -23,7 +23,7 @@
   <a href="https://sacridini.github.io/janus/news.html">News</a>
 </p>
 
-![Janus: an annual Landsat NDVI cube of Rondônia, a pin's series with LandTrendr fitted on the chart, its statistics, and the tool's parameters](docs/screenshot.jpg)
+[![Janus: hovering an annual Landsat NDVI cube of Rondônia shows each pixel's series; two pins compare a forest and a cleared pixel, with their statistics](docs/explore.gif)](https://sacridini.github.io/janus/)
 
 Janus is a desktop program to look at satellite imagery through time: find
 where, when and by how much the land changed, and measure how far your map can
