@@ -123,7 +123,7 @@
   every feature (a point's pixel, a polygon's mean) of the active or every
   visible layer to a CSV table. See [Vector layers](#vector-layers).
 - **Interpretation** (TimeSync style): go through a vector layer's features
-  one by one (`N` / `Shift+N`), the map centred on each and its series on the
+  one by one (`←` / `→`), the map centred on each and its series on the
   chart, and label them with keys `1`–`9`, a date of change (`D`) and notes;
   saved as you go and exported as GeoPackage, GeoJSON, Shapefile or CSV.
 - **Basemap** (Layers panel → Basemap): satellite imagery or a map under the
@@ -411,7 +411,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Save ROI as vector | View → **Save ROI as vector...** (or the command palette): the ROI (a rectangle or a polygon, holes kept) as a GeoPackage (`.gpkg`), GeoJSON (`.geojson`) or shapefile (`.shp`, its text in UTF-8), by the name's extension, in the active layer's CRS (a GeoJSON in WGS 84 when the CRS has no EPSG code, as RFC 7946 asks), a feature with `name`, `layer` and `pixels`; *Open it as a vector layer* adds it to the map. **Alt + click** it later makes the same ROI again, the same pixels inside. A project (File → Save project) keeps the ROI too |
 | Vector layers | File → Add vector layer..., the **Layers** panel (*Add vector layer...*), a drop or the command line: GeoJSON, Shapefile, GeoPackage (each of its layers), KML, FlatGeobuf, GML, GPX or a CSV of points; listed in the **Layers** panel with the series (a new one on top): show/hide, colour, labels (a column's values on the map), move, remove; right click → Zoom to it, Attribute table, Extract series, Interpret. Hovering a point shows its attributes (lines and polygons: hold `Alt`); see [Vector layers](#vector-layers) |
 | Series at points or polygons | a vector layer → **Extract series...**: the active layer or every visible one, a row per feature (a column per date) or a row per feature and date; CSV |
-| Interpretation (labelling) | a vector layer → **Interpret...** (the **Interpretation** panel): `N` / `Shift+N` (or Page Down / Page Up) next / previous feature, `1`–`9` its label, `0` clears it, `D` the date of the change (the date on the map), `Shift+D` none; notes; *Export table...* |
+| Interpretation (labelling) | a vector layer → **Interpret...** (the **Interpretation** panel): `←` / `→` (or `N` / `Shift+N`, Page Down / Page Up) next / previous feature, `O` the next without a label, `1`–`9` its label, `0` clears it, `D` the date of the change (the date on the map), `Shift+D` none, `Q` / `W` / `E` the confidence, `Shift+E` another event, `[` / `]` the date on the map; notes; *Export table...* |
 | Animation | File → Export animation (`Ctrl+Shift+A`): dates (from, to, step), frame rate, resolution, GIF / MP4 / WebM, date stamp, legend, scale bar, pins, ROI and vector layers; see [Animation](#animation-gif-mp4-webm) |
 | Time | `←`/`→` previous/next date, `P` play/pause, click or drag on the chart; the time bar above the map (play, the date slider, the speed) shows with a series of two dates or more, not with a single image or vector layers alone. Under the slider, each date's **availability**: a bar as tall as the share of the visible area that is valid on that date (no cloud, no gap; of the overview), red under half; the pointer over it gives the share, a click goes to the date |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or typed, or dragged on the histogram) |
@@ -1595,16 +1595,19 @@ read as longitude and latitude).
   one by one, as TimeSync does with Landsat. The map goes to each one (zoomed
   in to at least the *zoom on each* setting; a polygon whole) and its series is
   on the chart: a point gets a pin, a polygon becomes the ROI.
-  - `N` / `Shift+N` (or Page Down / Page Up, or the arrows in the panel): next
-    / previous feature; *Skip labelled* goes to those without a label only;
-    *Next after a label* moves on by itself.
+  - `←` / `→` (or `N` / `Shift+N`, Page Down / Page Up): previous / next
+    feature; `O` (or *next open* in the panel) goes to the next one without a
+    label; *Skip labelled* goes to those without a label only; *Next after a
+    label* moves on by itself. The panel's cards, keys and navigation follow
+    Validation Viewer by Dr. Matthias Baumann (Humboldt-Universität zu Berlin).
   - `1`–`9`: a label of the label set (Stable forest, Deforestation,
     Degradation, Regeneration, Agriculture, Pasture, Water, Cloud / no data,
     Other by default; edit it under *Label set*); `0` clears it.
-  - `D`: the date of the change is the date on the map (go to it with `←`/`→`
-    or a click on the chart); `Shift+D` clears it. *Notes* for anything else.
-  - `Shift+1` / `Shift+2` / `Shift+3`: the label's *confidence* (low, medium,
-    high). `E` adds another *event* at the map's date (the label chosen under
+  - `D`: the date of the change is the date on the map (go to it with `[` / `]`
+    or a click on the chart; with no interpretation going, the arrows do it);
+    `Shift+D` clears it. *Notes* for anything else.
+  - `Q` / `W` / `E` (or `Shift+1` / `Shift+2` / `Shift+3`): the label's
+    *confidence* (low, medium, high). `Shift+E` adds another *event* at the map's date (the label chosen under
     *Other events*, else the feature's label): a point degraded, then cleared,
     keeps both.
   - **Chips** (Validation & uncertainty → Chips, or *Chips* in the panel): the feature at

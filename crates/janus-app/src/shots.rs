@@ -216,7 +216,7 @@ impl State {
 
     /// Whether a panel is drawn in the dock (a tour's), not as a window.
     pub(crate) fn docked(&self, t: Tab) -> bool {
-        self.shots.as_ref().is_some_and(|s| s.docked.contains(&t))
+        (t == Tab::Chips && self.chips_in_dock) || self.shots.as_ref().is_some_and(|s| s.docked.contains(&t))
     }
 
     /// The offset a tour scrolls a panel to, once.

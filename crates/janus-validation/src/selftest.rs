@@ -548,6 +548,7 @@ pub fn self_test(rep: &mut String, python: Option<&str>) -> Result<(), &'static 
         seed: 7,
         design: serde_json::json!({"alloc": "proportional"}),
         label_set: ["Stable", "Deforestation", "Can't tell"].map(String::from).to_vec(),
+        label_colors: ["#278c4a", "#d63a34", "#8c919b"].map(String::from).to_vec(),
         ..Default::default()
     };
     pr.strata.row_counts.clear();
@@ -640,6 +641,7 @@ pub fn self_test(rep: &mut String, python: Option<&str>) -> Result<(), &'static 
         || back.id != pr.id
         || back.seed != 7
         || back.label_set != pr.label_set
+        || back.label_colors != pr.label_colors
         || back.maps.len() != 1
         || back.maps[0].mapping != am.mapping
         || back.spec.limit != limit

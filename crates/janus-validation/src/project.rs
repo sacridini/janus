@@ -45,6 +45,8 @@ pub struct Project {
     /// alloc, target_se, min_per_stratum, confidence
     pub design: Value,
     pub label_set: Vec<String>,
+    /// the label set's colours as "#rrggbb", one per label (fewer or none: the default palette fills in)
+    pub label_colors: Vec<String>,
     pub points: Vec<Point>,
     /// interpreter -> per point
     pub labels: BTreeMap<String, Vec<Label>>,
@@ -66,6 +68,7 @@ impl Default for Project {
             seed: 42,
             design: json!({}),
             label_set: Vec::new(),
+            label_colors: Vec::new(),
             points: Vec::new(),
             labels: BTreeMap::new(),
             maps: Vec::new(),
@@ -269,6 +272,7 @@ fn write_project_table(ds: &Dataset, p: &Project) -> Result<(), String> {
         ("seed", p.seed.to_string()),
         ("design", p.design.to_string()),
         ("label_set", json!(p.label_set).to_string()),
+        ("label_colors", json!(p.label_colors).to_string()),
         ("maps", Value::Array(maps).to_string()),
         ("mapped", Value::Array(mapped).to_string()),
         ("analysis", analysis_json(p).to_string()),
@@ -547,6 +551,9 @@ pub fn load_project(path: &str) -> Result<Project, String> {
     };
     p.label_set =
         parse("label_set")?.as_array().into_iter().flatten().filter_map(|v| v.as_str().map(String::from)).collect();
+    // projects before the colours have none: the default palette is used
+    p.label_colors =
+        parse("label_colors")?.as_array().into_iter().flatten().map(|v| v.as_str().unwrap_or("").to_string()).collect();
     for m in parse("maps")?.as_array().into_iter().flatten() {
         p.maps.push(AssessedMap {
             rule: MapRule::from_json(m.get("rule").unwrap_or(&json!({}))),
