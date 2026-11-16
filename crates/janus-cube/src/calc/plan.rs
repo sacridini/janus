@@ -126,6 +126,8 @@ pub enum Key {
 pub struct Stage {
     pub f: RedFn,
     pub body: Program,
+    /// corr(x, y): y's program, over the same inputs as `body` (x's)
+    pub body2: Option<Program>,
     pub inputs: Vec<Key>,
     pub series: usize,
     /// at(): the one date of the series read (the others are not)
@@ -160,6 +162,17 @@ fn doy(time: f64) -> i64 {
     let days = (time / 86400.0).floor() as i64;
     let (y, _, _) = crate::dates::civil_from_days(days);
     days - crate::dates::days_from_civil(y, 1, 1) + 1
+}
+
+/// The same day `k` months before a day (days since 1970-01-01); the day of a month that is shorter is clamped to
+/// its last (March 31 a month before: February 28 or 29).
+pub fn months_before(day: i64, k: i32) -> i64 {
+    let (y, m, d) = crate::dates::civil_from_days(day);
+    let index = i64::from(y) * 12 + i64::from(m) - 1 - i64::from(k);
+    let (y, m) = (index.div_euclid(12) as i32, index.rem_euclid(12) as u32 + 1);
+    let last = crate::dates::days_from_civil(if m == 12 { y + 1 } else { y }, if m == 12 { 1 } else { m + 1 }, 1)
+        - crate::dates::days_from_civil(y, m, 1);
+    crate::dates::days_from_civil(y, m, d.min(last as u32))
 }
 
 /// How a date finds its slot, and each slot's key and the dates it reduces.
@@ -207,7 +220,7 @@ fn slots(st: &Stage, info: &CubeInfo) -> Slots {
                 })
                 .collect(),
         ),
-        Over::LagTime { days, years } => {
+        Over::LagTime { days, years, months } => {
             // within half the series' usual step, at least 8 days
             let mut steps: Vec<f64> = (1..n).map(|t| time(t) - time(t - 1)).collect();
             steps.sort_by(f64::total_cmp);
@@ -216,9 +229,9 @@ fn slots(st: &Stage, info: &CubeInfo) -> Slots {
                 SlotOf::Date,
                 (0..n)
                     .map(|t| {
-                        let target = if years > 0 {
-                            let (y, m, d) = ymd(t);
-                            crate::dates::days_from_civil(y - years, m, d) as f64 * 86400.0
+                        let target = if years > 0 || months > 0 {
+                            let day = (time(t) / 86400.0).floor() as i64;
+                            months_before(day, years * 12 + months) as f64 * 86400.0
                         } else {
                             time(t) - days * 86400.0
                         };
@@ -541,6 +554,7 @@ impl Scope for CalcScope<'_> {
         self.stages.push(Stage {
             f,
             body: body.program,
+            body2: body.program2,
             inputs: body.inputs,
             series: body.series,
             only,
@@ -1293,6 +1307,7 @@ impl Plan {
                 map[k] = j + 1;
             }
             let expr = canonical_mapped(&st.body, &|k| map[k as usize]);
+            let expr2 = st.body2.as_ref().map(|p| canonical_mapped(p, &|k| map[k as usize]));
             let mut captured = Vec::new();
             for &k in &caps {
                 captured.push(self.fixed_source(&mut w, &st.inputs[k], &outs)?);
@@ -1323,7 +1338,7 @@ impl Plan {
                     }
                     vars.push(vrt::vars_text(&date_vars(&sinfo, t)));
                 }
-                let args = vec![
+                let mut args = vec![
                     ("expr".to_string(), expr.clone()),
                     // at(): its date alone, as a mean over one date
                     ("reduce".to_string(), if st.only.is_some() { "mean".into() } else { st.f.name() }),
@@ -1332,6 +1347,9 @@ impl Plan {
                     ("captures".to_string(), caps.len().to_string()),
                     ("vars".to_string(), vars.join(";")),
                 ];
+                if let Some(e) = &expr2 {
+                    args.push(("expr2".to_string(), e.clone()));
+                }
                 let description = match (st.only, of) {
                     (Some(t), _) => format!("at {}", sinfo.layers[t].label),
                     (None, SlotOf::Fixed) => format!("{} over {} dates", st.f.name(), ts.len()),
@@ -1472,5 +1490,24 @@ mod tests {
         assert_eq!(alias_of("img", &["img".into()]), "img_2");
         assert_eq!(alias_of("max", &[]), "max_layer");
         assert_eq!(alias_of("year", &[]), "year_layer");
+    }
+
+    #[test]
+    fn months_before_the_same_day() {
+        let day = |y, m, d| crate::dates::days_from_civil(y, m, d);
+        // the same day a month earlier
+        assert_eq!(months_before(day(2019, 6, 15), 1), day(2019, 5, 15));
+        // across the year's end
+        assert_eq!(months_before(day(2019, 1, 10), 1), day(2018, 12, 10));
+        assert_eq!(months_before(day(2019, 2, 3), 3), day(2018, 11, 3));
+        assert_eq!(months_before(day(2019, 3, 31), 15), day(2017, 12, 31));
+        // the end of a shorter month: its last day
+        assert_eq!(months_before(day(2019, 3, 31), 1), day(2019, 2, 28));
+        assert_eq!(months_before(day(2020, 3, 31), 1), day(2020, 2, 29));
+        assert_eq!(months_before(day(2019, 5, 31), 1), day(2019, 4, 30));
+        assert_eq!(months_before(day(2019, 1, 31), 2), day(2018, 11, 30));
+        // a year is 12 months (a leap day goes to the 28th)
+        assert_eq!(months_before(day(2020, 2, 29), 12), day(2019, 2, 28));
+        assert_eq!(months_before(day(2019, 7, 4), 12), day(2018, 7, 4));
     }
 }

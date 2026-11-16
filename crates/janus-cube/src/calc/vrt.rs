@@ -219,8 +219,110 @@ pub(crate) fn evaluate(args: &Args, src: &[&[f32]], out: &mut [f32]) -> Result<(
     let p = super::cached_canonical(text, captures + stride).map_err(|e| e.message)?;
     let all = place(captures + dates * stride, &absent, src, &nan)?;
     let vars: Vec<DateVars> = args.get("vars").map_or(Vec::new(), |v| v.split(';').map(parse_vars).collect());
+    if let RedFn::Corr { spearman } = f {
+        // two programs over the same inputs: x's and y's
+        let text2 = args.get("expr2").ok_or("no expr2")?;
+        let p2 = super::cached_canonical(text2, captures + stride).map_err(|e| e.message)?;
+        corr_dates(spearman, [&p, &p2], &all, captures, stride, dates, &vars, out);
+        return Ok(());
+    }
     reduce_dates(f, &p, &all, captures, stride, dates, &vars, out);
     Ok(())
+}
+
+/// The correlation of two series over `dates` dates, per pixel: the two programs evaluated at each date (the same
+/// inputs, as `reduce_dates`), then Pearson's r of the dates where both have a value (two passes, in f64), or
+/// Spearman's (Pearson's of the average ranks, ties sharing theirs, of those dates). No data under 3 such dates,
+/// or where one of the two is constant.
+#[allow(clippy::too_many_arguments)]
+pub fn corr_dates(
+    spearman: bool,
+    programs: [&super::Program; 2],
+    all: &[&[f32]],
+    captures: usize,
+    stride: usize,
+    dates: usize,
+    vars: &[DateVars],
+    out: &mut [f32],
+) {
+    let n = out.len();
+    let no_vars = DateVars::default();
+    let mut values = [vec![0f32; BLOCK * dates], vec![0f32; BLOCK * dates]];
+    let mut ins: Vec<&[f32]> = Vec::with_capacity(captures + stride);
+    let (mut a, mut b) = (Vec::with_capacity(dates), Vec::with_capacity(dates));
+    for at in (0..n).step_by(BLOCK) {
+        let len = BLOCK.min(n - at);
+        let r = at..at + len;
+        for d in 0..dates {
+            let date = &all[captures + d * stride..captures + (d + 1) * stride];
+            ins.clear();
+            ins.extend(all[..captures].iter().chain(date).map(|s| &s[r.clone()]));
+            for (p, v) in programs.iter().zip(&mut values) {
+                p.eval(&ins, vars.get(d).unwrap_or(&no_vars), &mut v[d * BLOCK..d * BLOCK + len]);
+            }
+        }
+        for (i, o) in out[at..at + len].iter_mut().enumerate() {
+            a.clear();
+            b.clear();
+            for d in 0..dates {
+                let (x, y) = (values[0][d * BLOCK + i], values[1][d * BLOCK + i]);
+                if x.is_finite() && y.is_finite() {
+                    a.push(f64::from(x));
+                    b.push(f64::from(y));
+                }
+            }
+            *o = correlation(&a, &b, spearman) as f32;
+        }
+    }
+}
+
+/// Pearson's r of the pairs (a, b), or Spearman's (of their average ranks); NaN under 3 pairs or where one side is
+/// constant.
+pub fn correlation(a: &[f64], b: &[f64], spearman: bool) -> f64 {
+    if a.len() < 3 {
+        return f64::NAN;
+    }
+    if spearman {
+        return pearson(&average_ranks(a), &average_ranks(b));
+    }
+    pearson(a, b)
+}
+
+fn pearson(a: &[f64], b: &[f64]) -> f64 {
+    let n = a.len() as f64;
+    let (ma, mb) = (a.iter().sum::<f64>() / n, b.iter().sum::<f64>() / n);
+    let (mut sab, mut saa, mut sbb) = (0.0, 0.0, 0.0);
+    for (x, y) in a.iter().zip(b) {
+        let (dx, dy) = (x - ma, y - mb);
+        sab += dx * dy;
+        saa += dx * dx;
+        sbb += dy * dy;
+    }
+    if saa <= 0.0 || sbb <= 0.0 {
+        return f64::NAN;
+    }
+    (sab / (saa * sbb).sqrt()).clamp(-1.0, 1.0)
+}
+
+/// The ranks of the values from 1, tied values sharing the mean of theirs.
+fn average_ranks(v: &[f64]) -> Vec<f64> {
+    let mut order: Vec<usize> = (0..v.len()).collect();
+    order.sort_by(|&i, &j| v[i].total_cmp(&v[j]));
+    let mut ranks = vec![0.0; v.len()];
+    let mut start = 0;
+    while start < order.len() {
+        let mut end = start + 1;
+        while end < order.len() && v[order[end]] == v[order[start]] {
+            end += 1;
+        }
+        // positions start..end hold ranks start + 1 ..= end
+        let rank = (start + 1 + end) as f64 / 2.0;
+        for &i in &order[start..end] {
+            ranks[i] = rank;
+        }
+        start = end;
+    }
+    ranks
 }
 
 /// A reduction over `dates` dates: the program at each date, its no data skipped. Block by block (a block's
@@ -361,6 +463,8 @@ pub fn reduce_dates(
                         *c += u32::from(x.is_finite() && x != 0.0);
                     }
                 }
+                // two programs: corr_dates
+                RedFn::Corr { .. } => {}
                 RedFn::Std => {
                     // Welford
                     for (((a, q), c), &x) in acc[..len].iter_mut().zip(&mut m2[..len]).zip(&mut cnt[..len]).zip(v) {
@@ -435,6 +539,7 @@ pub fn reduce_dates(
                     *o = if c == 0 { f32::NAN } else { (a / f64::from(c)) as f32 };
                 }
             }
+            RedFn::Corr { .. } => dst.fill(f32::NAN),
             RedFn::Std => {
                 for ((o, &q), &c) in dst.iter_mut().zip(&m2[..len]).zip(&cnt[..len]) {
                     *o = if c == 0 { f32::NAN } else { (q / f64::from(c)).sqrt() as f32 };
@@ -705,5 +810,46 @@ mod tests {
         assert!(percentile(&mut [], 0.5).is_nan());
         assert_eq!(block_side(1), 512);
         assert_eq!(block_side(428), 128);
+    }
+
+    /// Pearson's r from the sums (another way than the two passes).
+    fn r_sums(a: &[f64], b: &[f64]) -> f64 {
+        let n = a.len() as f64;
+        let (sa, sb) = (a.iter().sum::<f64>(), b.iter().sum::<f64>());
+        let sab: f64 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+        let (saa, sbb): (f64, f64) = (a.iter().map(|x| x * x).sum(), b.iter().map(|y| y * y).sum());
+        (n * sab - sa * sb) / ((n * saa - sa * sa) * (n * sbb - sb * sb)).sqrt()
+    }
+
+    /// The average rank of each value by counting: the values below, plus half of those equal (itself included) and
+    /// a half.
+    fn rank_by_counting(v: &[f64]) -> Vec<f64> {
+        v.iter()
+            .map(|x| {
+                let below = v.iter().filter(|y| *y < x).count() as f64;
+                let equal = v.iter().filter(|y| *y == x).count() as f64;
+                below + (equal + 1.0) / 2.0
+            })
+            .collect()
+    }
+
+    #[test]
+    fn correlations() {
+        let a = [1.0, 2.0, 2.0, 3.0, 10.0, 4.0, 2.0];
+        let b = [5.0, 3.0, 4.0, 1.0, 0.0, 2.0, 3.0];
+        assert!((correlation(&a, &b, false) - r_sums(&a, &b)).abs() < 1e-12);
+        // ties share their rank: 2, 2 and 2 are ranks 2, 3, 4 of the sorted values
+        assert_eq!(average_ranks(&a), rank_by_counting(&a));
+        assert_eq!(average_ranks(&a)[1], 3.0);
+        assert_eq!(average_ranks(&b), rank_by_counting(&b));
+        let want = r_sums(&rank_by_counting(&a), &rank_by_counting(&b));
+        assert!((correlation(&a, &b, true) - want).abs() < 1e-12);
+        // a monotonic relation: Spearman's 1, Pearson's below
+        let c: Vec<f64> = a.iter().map(|x| x.exp()).collect();
+        assert!((correlation(&a, &c, true) - 1.0).abs() < 1e-12);
+        assert!(correlation(&a, &c, false) < 0.99);
+        // too few pairs, a constant side
+        assert!(correlation(&a[..2], &b[..2], false).is_nan());
+        assert!(correlation(&[1.0, 1.0, 1.0], &[1.0, 2.0, 3.0], true).is_nan());
     }
 }

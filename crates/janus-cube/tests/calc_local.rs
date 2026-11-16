@@ -693,3 +693,205 @@ fn time_ops() {
         assert!(e.message.contains(msg), "{text}: {}", e.message);
     }
 }
+
+#[test]
+fn a_lag_of_months() {
+    // the same day a month before, the nearest date within half the usual step (as a year's)
+    let dir = std::env::temp_dir().join("janus_calc_months");
+    let ts = irregular(&dir);
+    let (ls, days) = (&ts.layers, &ts.days);
+    let opts = Options::default();
+    let n = days.len();
+    let mut steps: Vec<i64> = (1..n).map(|d| days[d] - days[d - 1]).collect();
+    steps.sort();
+    let tol = (steps[steps.len() / 2] as f64 / 2.0).max(8.0);
+    for k in [1, 3] {
+        let text = format!("lag(ts, {k}m)");
+        let r = run(&text, ls, &opts, &dir.join("out").join(format!("lag{k}m")));
+        for (t, v) in r.iter().enumerate() {
+            let target = janus_cube::calc::plan::months_before(days[t], k);
+            let near = (0..n)
+                .filter(|&e| e != t && ((days[e] - target).abs() as f64) <= tol)
+                .min_by_key(|&e| (days[e] - target).abs());
+            for x in [0usize, 1, 4, 7] {
+                let want = near.map_or(f32::NAN, |e| ts_value(e, x));
+                assert!(same(v[x], want), "{text}: date {t}, column {x}: {} vs {want}", v[x]);
+            }
+        }
+    }
+    // a duration of months is also a window: 3m is 91.3 days
+    let r = run("mean(ts, 3m)", ls, &opts, &dir.join("out").join("window"));
+    assert_eq!(r.len(), n);
+    // a month is a unit of durations only
+    for text in ["ts * 2m", "mean(ts, 2m, 3)"] {
+        assert!(plan(text, ls, &opts).is_err(), "{text}");
+    }
+}
+
+/// The correlation of two series by counting (not as the calculator does): Pearson's from the sums, Spearman's of
+/// the average ranks.
+fn corr_by_sums(a: &[f64], b: &[f64], spearman: bool) -> f32 {
+    if a.len() < 3 {
+        return f32::NAN;
+    }
+    let rank = |v: &[f64]| -> Vec<f64> {
+        v.iter()
+            .map(|x| {
+                let below = v.iter().filter(|y| *y < x).count() as f64;
+                let equal = v.iter().filter(|y| *y == x).count() as f64;
+                below + (equal + 1.0) / 2.0
+            })
+            .collect()
+    };
+    let (a, b) = if spearman { (rank(a), rank(b)) } else { (a.to_vec(), b.to_vec()) };
+    let n = a.len() as f64;
+    let (sa, sb) = (a.iter().sum::<f64>(), b.iter().sum::<f64>());
+    let sab: f64 = a.iter().zip(&b).map(|(x, y)| x * y).sum();
+    let (saa, sbb): (f64, f64) = (a.iter().map(|x| x * x).sum(), b.iter().map(|y| y * y).sum());
+    ((n * sab - sa * sb) / ((n * saa - sa * sa) * (n * sbb - sb * sb)).sqrt()) as f32
+}
+
+/// x every 16 days from 2019-01-01 (46 dates), y every month (24): x's value at date i and column c, with no data
+/// at dates 3 and 10 of column 0; y's value in month m, with no data in month 5 of column 0 and many ties.
+fn corr_x(i: usize, c: usize) -> f32 {
+    if c == 0 && (i == 3 || i == 10) { f32::NAN } else { ((i * 5 + c * 7) % 13) as f32 / 10.0 + 0.02 * i as f32 }
+}
+
+fn corr_y(m: usize, c: usize) -> f32 {
+    if c == 0 && m == 5 { f32::NAN } else { ((m * 3 + c * 2) % 7) as f32 }
+}
+
+#[test]
+fn a_correlation_of_two_series() {
+    let dir = std::env::temp_dir().join("janus_calc_corr");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = |n: &str| dir.join(n).to_string_lossy().to_string();
+    let first = janus_cube::dates::days_from_civil(2019, 1, 1);
+    let mut xdays = Vec::new();
+    let mut xfiles = Vec::new();
+    for i in 0..46 {
+        let day = first + 16 * i as i64;
+        let (y, m, d) = janus_cube::dates::civil_from_days(day);
+        let f = p(&format!("x_{y:04}{m:02}{d:02}.tif"));
+        tif(Path::new(&f), 32720, GT, (W, H), &["X"], |_, c, _| {
+            let v = corr_x(i, c);
+            if v.is_nan() { ND as f32 } else { v }
+        });
+        xdays.push(day);
+        xfiles.push(f);
+    }
+    let mut yfiles = Vec::new();
+    for m in 0..24 {
+        let f = p(&format!("y_{:04}{:02}01.tif", 2019 + m / 12, m % 12 + 1));
+        tif(Path::new(&f), 32720, GT, (W, H), &["Y"], |_, c, _| {
+            let v = corr_y(m, c);
+            if v.is_nan() { ND as f32 } else { v }
+        });
+        yfiles.push(f);
+    }
+    let dem = p("dem.tif");
+    tif(Path::new(&dem), 32720, GT, (W, H), &["Elevation"], |_, _, y| y as f32);
+    let mut ls: Vec<CalcLayer> = Vec::new();
+    for (name, files) in [("xs", xfiles), ("ym", yfiles), ("dem", vec![dem])] {
+        let info = open_cube(&files, &BandSelection::default()).unwrap_or_else(|e| panic!("{name}: {e}"));
+        ls.push(CalcLayer { name: name.into(), alias: name.into(), info: Arc::new(info) });
+    }
+    // a monthly y against 16-day x: the same month
+    let same_month = Options { matching: DateMatch::SameMonth, ..Default::default() };
+    let month_of = |i: usize| {
+        let (y, m, _) = janus_cube::dates::civil_from_days(xdays[i]);
+        (y - 2019) as usize * 12 + m as usize - 1
+    };
+    // the expected value in column c: x at each date against the y of the month `lag` gives, where both have one
+    let expect = |c: usize, spearman: bool, lag: &dyn Fn(usize, usize) -> Option<usize>| {
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for i in 0..46 {
+            let (x, y) = (corr_x(i, c), lag(month_of(i), c).map_or(f32::NAN, |m| corr_y(m, c)));
+            if x.is_finite() && y.is_finite() {
+                a.push(f64::from(x));
+                b.push(f64::from(y));
+            }
+        }
+        corr_by_sums(&a, &b, spearman)
+    };
+    let cols = [0usize, 1, 4, 7, 12];
+    let check = |text: &str, opts: &Options, want: &dyn Fn(usize) -> f32| {
+        let dir = dir.join("out").join(text.replace([' ', ',', '(', ')', '=', '*', '-'], "_"));
+        let r = run(text, &ls, opts, &dir);
+        assert_eq!(r.len(), 1, "{text}: an image");
+        for &c in &cols {
+            let (got, w) = (r[0][c], want(c));
+            assert!(
+                got.is_nan() == w.is_nan() && (got.is_nan() || (got - w).abs() < 2e-5),
+                "{text}: column {c}: {got} vs {w}"
+            );
+        }
+    };
+    let m = &same_month;
+    check("corr(xs, ym)", m, &|c| expect(c, false, &|m, _| Some(m)));
+    check("corr(xs, ym, method=pearson)", m, &|c| expect(c, false, &|m, _| Some(m)));
+    check("corr(xs, ym, method=spearman)", m, &|c| expect(c, true, &|m, _| Some(m)));
+    check("corr(xs, ym, lag=0)", m, &|c| expect(c, false, &|m, _| Some(m)));
+    // y leads: x against y 1 or 2 months before
+    check("corr(xs, ym, lag=1m)", m, &|c| expect(c, false, &|m, _| m.checked_sub(1)));
+    check("corr(xs, ym, lag=2m, method=spearman)", m, &|c| expect(c, true, &|m, _| m.checked_sub(2)));
+    // observations of y: the k-th before with a value (column 0 has none in month 5)
+    let obs = |k: usize| move |m: usize, c: usize| (0..m).rev().filter(|&e| corr_y(e, c).is_finite()).nth(k - 1);
+    check("corr(xs, ym, lag=1)", m, &|c| expect(c, false, &obs(1)));
+    check("corr(xs, ym, lag=3, method=spearman)", m, &|c| expect(c, true, &obs(3)));
+    // an expression of each series
+    check("corr(xs * 2 - 1, -ym)", m, &|c| -expect(c, false, &|m, _| Some(m)));
+    // x against its own previous observation, by the default matching (the nearest date within 8 days)
+    let d = Options::default();
+    let own = |c: usize, spearman: bool| {
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for i in 0..46 {
+            let prev = (0..i).rev().map(|e| corr_x(e, c)).find(|v| v.is_finite());
+            if let (x, Some(y)) = (corr_x(i, c), prev)
+                && x.is_finite()
+            {
+                a.push(f64::from(x));
+                b.push(f64::from(y));
+            }
+        }
+        corr_by_sums(&a, &b, spearman)
+    };
+    check("corr(xs, xs, lag=1)", &d, &|c| own(c, false));
+    check("corr(xs, lag(xs, 1), method=spearman)", &d, &|c| own(c, true));
+    // a series with itself, and with its opposite
+    check("corr(xs, xs)", &d, &|_| 1.0);
+    check("corr(xs, 3 - xs)", &d, &|_| -1.0);
+    // a lag in days: y 61 days before, the nearest date (within half a month's step: none of the monthly dates is
+    // that far from a month-and-a-bit) still gives an image
+    let r = run("corr(xs, ym, lag=61d)", &ls, m, &dir.join("out").join("days"));
+    assert_eq!(r.len(), 1);
+
+    // the same pixel's values through the VRT, written, are the same read by the pixel's series
+    let p = plan("corr(xs, ym, lag=1m)", &ls, m).unwrap();
+    assert!(p.series.is_none());
+    assert_eq!(p.stages.len(), 2, "the lag of y, then the correlation");
+    assert!(p.stages[1].body2.is_some() && p.stages[0].body2.is_none());
+    assert_eq!(p.stages[1].f.name(), "corrp");
+
+    // errors
+    for (text, msg) in [
+        ("corr(dem, ym)", "same at every date"),
+        ("corr(xs, dem)", "same at every date"),
+        ("corr(xs)", "takes 2 to 4"),
+        ("corr(xs, ym, 1m)", "two series"),
+        ("corr(xs, ym, xs)", "two series"),
+        ("corr(xs, ym, foo=1)", "options are lag and method"),
+        ("corr(xs, ym, method=kendall)", "method=pearson or method=spearman"),
+        ("corr(xs, ym, method=1)", "method=pearson or method=spearman"),
+        ("corr(xs, ym, lag=-1)", "the lag is"),
+        ("corr(xs, ym, lag=0.5)", "the lag is"),
+        ("corr(xs, ym, lag=xs)", "the lag is"),
+        ("corr(xs, ym) by year", "no by"),
+        ("corr(xs, ym) by month", "no by"),
+        ("corr(xs, ym, lag=1m, lag=2m, method=spearman, method=pearson)", "takes 2 to 4"),
+    ] {
+        let e = plan(text, &ls, m).err().unwrap_or_else(|| panic!("{text} should fail"));
+        assert!(e.message.contains(msg), "{text}: {}", e.message);
+    }
+}
