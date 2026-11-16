@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use egui::{Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, pos2, vec2};
 use janus_cube::CubeInfo;
+use janus_cube::roles::{BandRoles, guess_band_roles};
 
 /// The yellow of the pixel that contains the point (#f2c94c).
 const PIXEL_YELLOW: Color32 = Color32::from_rgb(0xf2, 0xc9, 0x4c);
@@ -95,6 +96,116 @@ fn pixel_metres(info: &CubeInfo) -> Option<f64> {
         return None;
     }
     Some(gt[1].hypot(gt[4]) * srs.linear_units())
+}
+
+/// The band combination of the cube's cards, as Validation Viewer's #comboSel: the map's own colours, or three
+/// bands as red, green and blue.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum Combo {
+    /// what the map shows (its composite if it is on, else the quantity with its colormap)
+    #[default]
+    Map,
+    /// true colour: red, green, blue
+    Rgb,
+    /// colour infrared: NIR, red, green
+    Cir,
+    /// SWIR1 (else SWIR2), NIR, red
+    Swir,
+}
+
+impl Combo {
+    pub(crate) const ALL: [Combo; 4] = [Combo::Map, Combo::Rgb, Combo::Cir, Combo::Swir];
+
+    /// The name kept in the settings.
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Combo::Map => "map",
+            Combo::Rgb => "rgb",
+            Combo::Cir => "cir",
+            Combo::Swir => "swir",
+        }
+    }
+
+    /// The combination of a name kept in the settings (the map's if unknown).
+    pub(crate) fn parse(s: &str) -> Combo {
+        let s = s.trim().to_ascii_lowercase();
+        Combo::ALL.into_iter().find(|c| c.key() == s).unwrap_or_default()
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Combo::Map => "Map",
+            Combo::Rgb => "RGB",
+            Combo::Cir => "CIR",
+            Combo::Swir => "SWIR",
+        }
+    }
+
+    fn tooltip(self) -> &'static str {
+        match self {
+            Combo::Map => "As the map shows the layer (its band combination if on, else its colours)",
+            Combo::Rgb => "True colour: red, green, blue",
+            Combo::Cir => "Colour infrared: NIR, red, green",
+            Combo::Swir => "SWIR1 (else SWIR2), NIR, red",
+        }
+    }
+
+    /// For each channel the roles (see `guess_band_roles`) that can fill it, first choice first, and the wavelength
+    /// in nm of its band for a cube whose bands only have that.
+    fn channels(self) -> Option<([&'static [&'static str]; 3], [f64; 3])> {
+        match self {
+            Combo::Map => None,
+            Combo::Rgb => Some(([&["red"], &["green"], &["blue"]], [650.0, 560.0, 480.0])),
+            Combo::Cir => Some(([&["nir"], &["red"], &["green"]], [860.0, 650.0, 560.0])),
+            Combo::Swir => Some(([&["swir1", "swir2"], &["nir"], &["red"]], [1610.0, 860.0, 650.0])),
+        }
+    }
+}
+
+/// The bands (1-based, in the date's bands) of a combination, if the cube has them all: by the roles the band names
+/// give, else by wavelength (`band_nm`, the nearest within 60 nm). The map's combination has none.
+pub(crate) fn combo_bands_of(roles: &BandRoles, band_nm: &[f64], c: Combo) -> Option<[i32; 3]> {
+    let (want, nm) = c.channels()?;
+    let mut out = [0i32; 3];
+    for k in 0..3 {
+        out[k] = want[k].iter().find_map(|r| roles.get(r).copied()).unwrap_or(0);
+        if out[k] == 0 {
+            let mut d = 60.0;
+            for (b, &w) in band_nm.iter().enumerate() {
+                if (w - nm[k]).abs() < d {
+                    d = (w - nm[k]).abs();
+                    out[k] = b as i32 + 1;
+                }
+            }
+        }
+    }
+    out.iter().all(|&b| b > 0).then_some(out)
+}
+
+/// The 2nd and 98th percentiles of each of the 3 bands over all the dates of a chip set ([t][band][y][x], windows
+/// of `w` x `w`), the valid values together, so that dates compare. A band without values gets (0, 1).
+pub(crate) fn percentile_stretch(v: &[f32], t_n: usize, w: usize) -> ([f32; 3], [f32; 3]) {
+    let (mut lo, mut hi) = ([0.0f32; 3], [1.0f32; 3]);
+    for b in 0..3 {
+        let mut vals: Vec<f32> = Vec::new();
+        for t in 0..t_n {
+            let base = (t * 3 + b) * w * w;
+            if let Some(chunk) = v.get(base..base + w * w) {
+                vals.extend(chunk.iter().copied().filter(|x| x.is_finite()));
+            }
+        }
+        if vals.is_empty() {
+            continue;
+        }
+        vals.sort_unstable_by(f32::total_cmp);
+        let q = |p: f64| vals[(p * (vals.len() - 1) as f64) as usize];
+        let (a, mut z) = (q(0.02), q(0.98));
+        if z <= a {
+            z = a + 1e-6;
+        }
+        (lo[b], hi[b]) = (a, z);
+    }
+    (lo, hi)
 }
 
 /// The caption bar of a card.
@@ -276,7 +387,11 @@ pub(crate) struct ChipSet {
     cy: usize,
     w: usize,
     t_n: usize,
+    /// the bands read (1 or 3 bands a date): None, the shown quantity
+    bands: Option<[i32; 3]>,
     rgb: bool,
+    /// the stretch of the three bands over every date, if asked for (a combination of the Chips' own)
+    stretch: Option<([f32; 3], [f32; 3])>,
     v: Vec<f32>,
 }
 
@@ -308,6 +423,12 @@ pub(crate) struct Chips {
     pub dates: Vec<usize>,
     /// the high-resolution imagery section (highres.rs)
     pub(crate) hr: crate::highres::HighRes,
+    /// the band combination of the cube's cards
+    pub combo: Combo,
+    /// the bands of each combination (Rgb, Cir, Swir) of the cube with this id
+    combos: Option<(u64, [Option<[i32; 3]>; 3])>,
+    /// the options read from the settings (once)
+    loaded: bool,
 }
 
 impl Default for Chips {
@@ -328,6 +449,9 @@ impl Default for Chips {
             tex_h: 0,
             dates: Vec::new(),
             hr: Default::default(),
+            combo: Combo::Map,
+            combos: None,
+            loaded: false,
         }
     }
 }
@@ -336,10 +460,28 @@ impl Chips {
     pub fn has_texture(&self) -> bool {
         self.tex.is_some()
     }
+
+    /// The bands of a combination of the cube (None: the map's, or the cube lacks them).
+    fn bands_of(&self, c: Combo) -> Option<[i32; 3]> {
+        let i = Combo::ALL.iter().position(|&x| x == c)?.checked_sub(1)?;
+        self.combos.and_then(|(_, b)| b[i])
+    }
+
+    /// The combination drawn: the chosen one if the cube has its bands, else the map's.
+    pub(crate) fn active_combo(&self) -> Combo {
+        if self.bands_of(self.combo).is_some() { self.combo } else { Combo::Map }
+    }
 }
 
 /// The window of 2r + 1 pixels around (cx, cy) at every date: the shown quantity, or the composite's 3 bands.
-fn read_chips(info: Arc<CubeInfo>, cx: usize, cy: usize, r: i64, bands: Option<[i32; 3]>) -> Arc<ChipSet> {
+fn read_chips(
+    info: Arc<CubeInfo>,
+    cx: usize,
+    cy: usize,
+    r: i64,
+    bands: Option<[i32; 3]>,
+    stretch: bool,
+) -> Arc<ChipSet> {
     let w = (2 * r + 1) as usize;
     let nb = if bands.is_some() { 3 } else { 1 };
     let mut c = ChipSet {
@@ -348,7 +490,9 @@ fn read_chips(info: Arc<CubeInfo>, cx: usize, cy: usize, r: i64, bands: Option<[
         cy,
         w,
         t_n: info.t(),
+        bands,
         rgb: bands.is_some(),
+        stretch: None,
         v: vec![f32::NAN; info.t() * nb * w * w],
     };
     let (wx0, wy0) = (cx as i64 - r, cy as i64 - r);
@@ -381,30 +525,81 @@ fn read_chips(info: Arc<CubeInfo>, cx: usize, cy: usize, r: i64, bands: Option<[
             }
         }
     });
+    if stretch && bands.is_some() {
+        c.stretch = Some(percentile_stretch(&c.v, c.t_n, c.w));
+    }
     Arc::new(c)
 }
 
 impl State {
-    /// The bands of the active layer's composite, if it is drawn as one.
+    /// The bands the cards are read with: those of the chosen combination, else the active layer's composite if it
+    /// is drawn as one, else none (the layer's quantity).
     fn chip_bands(&self) -> Option<[i32; 3]> {
-        self.composite.as_ref().filter(|c| c.on).map(|c| c.bands)
+        let c = &self.val.chips;
+        c.bands_of(c.active_combo()).or_else(|| self.composite.as_ref().filter(|c| c.on).map(|c| c.bands))
+    }
+
+    /// The bands of the combinations of the cube open (found once for each cube).
+    fn refresh_combos(&mut self) {
+        let Some(s) = &self.session else { return };
+        let c = &mut self.val.chips;
+        if c.combos.is_none_or(|(id, _)| id != s.info.id) {
+            let roles = guess_band_roles(&s.info);
+            let of = |k: Combo| combo_bands_of(&roles, &s.info.band_nm, k);
+            c.combos = Some((s.info.id, [of(Combo::Rgb), of(Combo::Cir), of(Combo::Swir)]));
+        }
+    }
+
+    /// The Chips' and the high-resolution options between the settings and the panel: read once, written back
+    /// when they change.
+    fn sync_chip_settings(&mut self) {
+        let force_on = self.shots.is_some();
+        let no_net = self.opts.selftest_ui;
+        let c = &mut self.val.chips;
+        let s = &mut self.settings.s;
+        if !c.loaded {
+            c.loaded = true;
+            c.combo = Combo::parse(&s.chip_combo);
+            c.hr.load(s);
+            // the UI self-test has no network (CI), the tours of the guides do
+            if no_net {
+                c.hr.enabled = false;
+            } else if force_on {
+                c.hr.enabled = true;
+                c.hr.offline = false;
+            }
+            return;
+        }
+        let mut changed = false;
+        if s.chip_combo != c.combo.key() {
+            s.chip_combo = c.combo.key().to_string();
+            changed = true;
+        }
+        // what a run forced is not kept as the user's choice
+        changed |= c.hr.store(s, no_net || force_on, force_on);
+        if changed {
+            self.settings.changed();
+        }
     }
 
     /// The current feature and the next two read (kept: the six used last).
     pub(crate) fn pump_chips(&mut self, ctx: &egui::Context) {
+        self.sync_chip_settings();
         if !self.val.show_chips || self.session.is_none() {
             return;
         }
+        self.refresh_combos();
         let Some(li) = self.labels.vector.and_then(|id| self.vector_index(id)) else { return };
         if self.vectors[li].anchor.is_empty() {
             return;
         }
         let info = self.session.as_ref().unwrap().info.clone();
         let bands = self.chip_bands();
+        let stretch = self.val.chips.active_combo() != Combo::Map;
         let r = self.val.chips.radius;
         let key_of = |cx: usize, cy: usize| {
             let mut k = info.id.wrapping_mul(1000003) ^ (((cx as u64) << 32) | cy as u64);
-            k = k.wrapping_mul(31).wrapping_add(r as u64);
+            k = k.wrapping_mul(31).wrapping_add(r as u64 * 2 + u64::from(stretch));
             for b in bands.unwrap_or([0; 3]) {
                 k = k.wrapping_mul(131).wrapping_add(b as u64);
             }
@@ -443,7 +638,7 @@ impl State {
             let inf = info.clone();
             chips.jobs.push(ChipJob {
                 key,
-                job: Job::start(move || read_chips(inf, cx, cy, i64::from(r), bands), ctx),
+                job: Job::start(move || read_chips(inf, cx, cy, i64::from(r), bands, stretch), ctx),
                 set: None,
                 used: now - if Some(fi) == self.labels.current { 0.0 } else { 0.5 },
             });
@@ -459,18 +654,32 @@ impl State {
             let old = (0..chips.jobs.len()).min_by(|&a, &b| chips.jobs[a].used.total_cmp(&chips.jobs[b].used)).unwrap();
             chips.jobs.remove(old);
         }
-        // the high-resolution imagery of the current point (and the next one's listing)
-        let hr_m = chips.hr.chip_m;
-        let req = |fi: Option<&usize>| {
-            let [ax, ay] = *self.vectors[li].anchor.get(*fi?)?;
+        // the high-resolution imagery of the current point and of those around it (the window of the interpretation)
+        let (hr_m, win, want_all) = (chips.hr.chip_m, chips.hr.window, chips.hr.dl_wanted);
+        let (anchors, f) = (&self.vectors[li].anchor, &self.labels.filter);
+        let n = if f.is_empty() { anchors.len() } else { f.len() };
+        let req = |fi: usize, pos: usize| {
+            let [ax, ay] = *anchors.get(fi)?;
             if ax.is_nan() || ax < 0.0 || ay < 0.0 || ax >= info.width as f64 || ay >= info.height as f64 {
                 return None;
             }
             let key = crate::highres::PointKey::new(info.id, ax as usize, ay as usize, hr_m);
-            Some(crate::highres::Req { key, info: info.clone(), anchor: [ax, ay] })
+            Some(crate::highres::Req { key, info: info.clone(), anchor: [ax, ay], pos })
         };
-        let (cur, next) = (req(want.first()), req(want.get(1)));
-        self.val.chips.hr.pump(ctx, cur, next);
+        let feature = |p: usize| if f.is_empty() { Some(p) } else { f.get(p).copied() };
+        let cur_pos =
+            self.labels.current.and_then(|c| if f.is_empty() { Some(c) } else { f.iter().position(|&x| x == c) });
+        let cur = self.labels.current.and_then(|c| req(c, cur_pos.map_or(0, |p| p + 1)));
+        let near = match cur_pos {
+            Some(cp) => crate::highres::window_order(cp, n, win)
+                .into_iter()
+                .skip(1)
+                .filter_map(|p| req(feature(p)?, p + 1))
+                .collect(),
+            None => Vec::new(),
+        };
+        let all = want_all.then(|| (0..n).filter_map(|p| req(feature(p)?, p + 1)).collect());
+        self.val.chips.hr.pump(ctx, crate::highres::Plan { cur, near, all, total: n });
     }
 
     /// The Chips window.
@@ -544,14 +753,16 @@ impl State {
         }
         let info = s.info.clone();
         let (cx, cy) = (ax as usize, ay as usize);
+        self.refresh_combos();
         let rgb = self.chip_bands();
+        let combo = self.val.chips.active_combo();
         let c = &self.val.chips;
         let w = (2 * c.radius + 1) as usize;
         let set = c
             .jobs
             .iter()
             .filter_map(|j| j.set.clone())
-            .find(|s| s.cube == info.id && s.cx == cx && s.cy == cy && s.w == w && s.rgb == rgb.is_some());
+            .find(|s| s.cube == info.id && s.cx == cx && s.cy == cy && s.w == w && s.bands == rgb);
         let Some(set) = set else {
             // the imagery does not wait for the dates
             let (sz, mut grid) = (c.size, c.grid);
@@ -596,12 +807,18 @@ impl State {
         let (lo, hi) = (self.display.ranges[m].lo, self.display.ranges[m].hi);
         let cmap = self.display.cmap[m];
         let classes = (self.classes.state == crate::classes::ClassState::On).then(|| self.classes.list.clone());
-        let comp = self.composite.as_ref().map(|c| (c.lo, c.hi));
+        // the stretch: a combination's (its own, over every date) or the map's composite
+        let comp = match (set.stretch, combo) {
+            (Some(st), _) => Some(st),
+            (None, Combo::Map) => self.composite.as_ref().map(|c| (c.lo, c.hi)),
+            (None, _) => None,
+        };
         let mut key = (Arc::as_ptr(&set) as u64).wrapping_mul(1000003);
         for &t in &dates {
             key = key.wrapping_mul(31).wrapping_add(t as u64);
         }
         key = key.wrapping_mul(31).wrapping_add(cmap as u64 * 7 + scale as u64);
+        key = key.wrapping_mul(31).wrapping_add(combo as u64);
         key = key.wrapping_mul(131).wrapping_add(u64::from(lo.to_bits()));
         key = key.wrapping_mul(131).wrapping_add(u64::from(hi.to_bits()));
         if let (true, Some((clo, chi))) = (set.rgb, comp) {
@@ -703,9 +920,25 @@ impl State {
         egui::ScrollArea::both().id_salt("chips").auto_shrink(false).show(ui, |ui| {
             hr_legend = crate::highres::section(ui, &mut self.val.chips.hr, Some(hr_key), sz, &mut grid);
             ui.separator();
-            ui.horizontal(|ui| {
-                ui.strong(&layer_name);
-                ui.weak(format!("{} dates", dates.len()));
+            ui.horizontal_wrapped(|ui| {
+                ui.strong(format!("{layer_name} \u{b7} {} dates", dates.len()));
+                // the combinations the cube has (the map's always; nothing to choose from without the others)
+                let avail: Vec<Combo> = Combo::ALL
+                    .into_iter()
+                    .filter(|&k| k == Combo::Map || self.val.chips.bands_of(k).is_some())
+                    .collect();
+                if avail.len() > 1 {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    for k in avail {
+                        if ui
+                            .add(egui::Button::selectable(self.val.chips.combo == k, k.label()))
+                            .on_hover_text(k.tooltip())
+                            .clicked()
+                        {
+                            self.val.chips.combo = k;
+                        }
+                    }
+                }
             });
             // the cards that fit the panel's width (its clip: the Ui's own grows with wide content)
             let width = ui.available_width().min(ui.clip_rect().width());
@@ -829,5 +1062,63 @@ mod tests {
         assert_eq!(view_label(25, 5.0, Some(0.5)), "2.5 m");
         assert_eq!(view_label(25, 1.0, None), "25 px");
         assert_eq!(view_label(25, 25.0 / 3.0, None), "3.0 px");
+    }
+
+    fn roles(v: &[(&'static str, i32)]) -> BandRoles {
+        v.iter().copied().collect()
+    }
+
+    #[test]
+    fn combos_find_their_bands() {
+        let all = roles(&[("blue", 1), ("green", 2), ("red", 3), ("nir", 4), ("swir1", 5), ("swir2", 6)]);
+        assert_eq!(combo_bands_of(&all, &[], Combo::Map), None);
+        assert_eq!(combo_bands_of(&all, &[], Combo::Rgb), Some([3, 2, 1]));
+        assert_eq!(combo_bands_of(&all, &[], Combo::Cir), Some([4, 3, 2]));
+        assert_eq!(combo_bands_of(&all, &[], Combo::Swir), Some([5, 4, 3]));
+        // SWIR2 stands in for a missing SWIR1; without any SWIR the combination is not there
+        let no1 = roles(&[("green", 2), ("red", 3), ("nir", 4), ("swir2", 6)]);
+        assert_eq!(combo_bands_of(&no1, &[], Combo::Swir), Some([6, 4, 3]));
+        assert_eq!(combo_bands_of(&no1, &[], Combo::Rgb), None);
+        let rgb = roles(&[("blue", 1), ("green", 2), ("red", 3)]);
+        assert_eq!(combo_bands_of(&rgb, &[], Combo::Rgb), Some([3, 2, 1]));
+        assert_eq!(combo_bands_of(&rgb, &[], Combo::Cir), None);
+        assert_eq!(combo_bands_of(&rgb, &[], Combo::Swir), None);
+        // bands known by wavelength only: the nearest within 60 nm
+        let nm = [485.0, 560.0, 660.0, 835.0, 1650.0];
+        let none = BandRoles::new();
+        assert_eq!(combo_bands_of(&none, &nm, Combo::Rgb), Some([3, 2, 1]));
+        assert_eq!(combo_bands_of(&none, &nm, Combo::Cir), Some([4, 3, 2]));
+        assert_eq!(combo_bands_of(&none, &nm, Combo::Swir), Some([5, 4, 3]));
+        assert_eq!(combo_bands_of(&none, &[485.0, 560.0, 660.0], Combo::Cir), None);
+    }
+
+    #[test]
+    fn combo_names_are_kept_and_read() {
+        for c in Combo::ALL {
+            assert_eq!(Combo::parse(c.key()), c);
+        }
+        assert_eq!(Combo::parse(" RGB "), Combo::Rgb);
+        assert_eq!(Combo::parse("nonsense"), Combo::Map);
+    }
+
+    #[test]
+    fn the_stretch_pools_every_date() {
+        // 2 dates of 2 x 2 pixels, 3 bands: band 0 holds 0..=99 spread over the dates (with a NaN), band 1 one
+        // value, band 2 nothing valid
+        let (t_n, w) = (2usize, 10usize);
+        let mut v = vec![f32::NAN; t_n * 3 * w * w];
+        for t in 0..t_n {
+            for i in 0..50 {
+                v[(t * 3) * w * w + i] = (t * 50 + i) as f32;
+            }
+            v[(t * 3 + 1) * w * w] = 7.0;
+        }
+        let (lo, hi) = percentile_stretch(&v, t_n, w);
+        // 100 sorted values 0..=99: indices floor(0.02 * 99) = 1 and floor(0.98 * 99) = 97
+        assert_eq!((lo[0], hi[0]), (1.0, 97.0));
+        // all the same: a range that is not empty; nothing valid: 0 to 1
+        assert_eq!(lo[1], 7.0);
+        assert!(hi[1] > lo[1]);
+        assert_eq!((lo[2], hi[2]), (0.0, 1.0));
     }
 }

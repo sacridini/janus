@@ -44,6 +44,20 @@ const E: f64 = 20037508.342789244;
 const MAX_TILES: usize = 144;
 /// how long the list of releases is kept
 const CONFIG_MAX_AGE: Duration = Duration::from_secs(24 * 3600);
+/// how long the listing of a point is kept on disk
+pub const LIST_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
+/// What an error says when only the cache was asked and the cache has not the data (the offline mode's "not
+/// downloaded").
+pub const NOT_DOWNLOADED: &str = "not downloaded";
+/// The description of an image whose acquisition date could not be had (its release's date stands in).
+const NO_METADATA: &str = "release date (no metadata)";
+
+/// Whether a function may ask the network for what the cache folder does not have.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Net {
+    Allow,
+    CacheOnly,
+}
 
 /// A Wayback release: a dated copy of World Imagery.
 #[derive(Clone, Debug, PartialEq)]
@@ -166,13 +180,21 @@ pub fn parse_config(json: &str) -> Result<Vec<Release>, String> {
 /// The releases with distinct imagery at a tile: from the newest release, a tilemap answer says (`select`) which
 /// release last changed the tile; the walk goes on from the release after that one until there is no data.
 /// `tilemap(num)` is the answer's text of release `num` (None: the request failed, which ends the walk).
-pub fn select_chain(rel: &[Release], mut tilemap: impl FnMut(u32) -> Option<String>) -> Vec<Release> {
+pub fn select_chain(rel: &[Release], tilemap: impl FnMut(u32) -> Option<String>) -> Vec<Release> {
+    select_chain_checked(rel, tilemap).0
+}
+
+/// `select_chain`, and whether the newest release's tilemap answered that it has no data at the tile (what a
+/// zoom finer than Wayback has there does, as in the country side).
+pub fn select_chain_checked(rel: &[Release], mut tilemap: impl FnMut(u32) -> Option<String>) -> (Vec<Release>, bool) {
+    let mut no_data = false;
     let index = |num: u32| rel.iter().position(|r| r.num == num);
     let (mut found, mut i) = (Vec::new(), 0);
     while i < rel.len() {
         let Some(text) = tilemap(rel[i].num) else { break };
         let Ok(j) = serde_json::from_str::<Value>(&text) else { break };
         if j["data"].as_array().and_then(|d| d.first()).and_then(Value::as_i64) != Some(1) {
+            no_data = i == 0;
             break;
         }
         let num = j["select"].as_array().and_then(|s| s.first()).map_or(Some(rel[i].num), |s| {
@@ -183,7 +205,32 @@ pub fn select_chain(rel: &[Release], mut tilemap: impl FnMut(u32) -> Option<Stri
         found.push(rel[k].clone());
         i = k + 1;
     }
-    found
+    (found, no_data)
+}
+
+/// The finest zoom below which a listing does not look for imagery.
+pub const MIN_LIST_Z: u32 = 13;
+
+/// The zoom to list a point at: from `z` down to `min_z`, the first at which `chain(zoom)` finds releases; the
+/// walk goes finer to coarser only while the answer is "no data" (`chain` gives the releases and that flag). If
+/// none does, `z` with nothing.
+pub fn find_zoom(z: u32, min_z: u32, mut chain: impl FnMut(u32) -> (Vec<Release>, bool)) -> (u32, Vec<Release>) {
+    let mut zoom = z;
+    loop {
+        let (found, no_data) = chain(zoom);
+        if !found.is_empty() {
+            return (zoom, found);
+        }
+        if !no_data || zoom <= min_z {
+            return (z, found);
+        }
+        zoom -= 1;
+    }
+}
+
+/// The ground size of a pixel (m) of a tile at zoom `z` and latitude `lat`.
+pub fn ground_res(lat: f64, z: u32) -> f64 {
+    2.0 * std::f64::consts::PI * R_MERC * lat.to_radians().cos() / 256.0 / 2f64.powi(z as i32)
 }
 
 /// The metadata layers to ask, the one closest to 23 - z first (layer 0 is the finest scale).
@@ -242,7 +289,7 @@ pub fn describe(r: &Release, z: u32, mut query: impl FnMut(i32) -> Option<String
         release: r.num,
         release_date: r.date.clone(),
         res_m: None,
-        desc: "release date (no metadata)".into(),
+        desc: NO_METADATA.into(),
         zoom: z,
     }
 }
@@ -335,21 +382,127 @@ pub fn releases(cache_dir: &Path) -> Result<Vec<Release>, String> {
     Ok(r)
 }
 
+/// The releases as kept, whatever their age (the offline mode); an error if there is no file.
+pub fn releases_cached(cache_dir: &Path) -> Result<Vec<Release>, String> {
+    let text =
+        std::fs::read_to_string(cache_dir.join("_wayback_config.json")).map_err(|_| NOT_DOWNLOADED.to_string())?;
+    parse_config(&text)
+}
+
+/// The name (without extension) of a point's listing in the cache folder: the longitude and latitude in 1e-5
+/// degrees (about a metre) and the zoom.
+pub fn list_cache_key(lon: f64, lat: f64, z: u32) -> String {
+    let q = |v: f64| (v * 1e5).round() as i64;
+    format!("{}_{}_z{z}", q(lon), q(lat))
+}
+
+/// Whether a listing of this age is still used.
+pub fn list_cache_valid(age: Duration) -> bool {
+    age < LIST_MAX_AGE
+}
+
+/// Whether a listing is worth keeping: it has images, and every date came from the metadata (a failed request
+/// would otherwise be remembered for a month).
+pub fn list_cacheable(images: &[WaybackImage]) -> bool {
+    !images.is_empty() && images.iter().all(|i| i.desc != NO_METADATA)
+}
+
+fn list_path(cache_dir: &Path, lon: f64, lat: f64, z: u32) -> PathBuf {
+    cache_dir.join("lists").join(format!("{}.json", list_cache_key(lon, lat, z)))
+}
+
+/// A listing as the JSON kept on disk.
+pub fn list_to_json(images: &[WaybackImage], lon: f64, lat: f64, z: u32) -> String {
+    let items: Vec<Value> = images
+        .iter()
+        .map(|i| {
+            serde_json::json!({
+                "date": i.date, "release": i.release, "release_date": i.release_date,
+                "res_m": i.res_m, "desc": i.desc, "zoom": i.zoom,
+            })
+        })
+        .collect();
+    serde_json::json!({ "lon": lon, "lat": lat, "z": z, "images": items }).to_string()
+}
+
+/// The listing of a JSON written by `list_to_json` (None if it is not one).
+pub fn list_from_json(text: &str) -> Option<Vec<WaybackImage>> {
+    let v: Value = serde_json::from_str(text).ok()?;
+    v["images"]
+        .as_array()?
+        .iter()
+        .map(|i| {
+            Some(WaybackImage {
+                date: i["date"].as_str()?.to_string(),
+                release: u32::try_from(i["release"].as_u64()?).ok()?,
+                release_date: i["release_date"].as_str().unwrap_or("").to_string(),
+                res_m: i["res_m"].as_f64(),
+                desc: i["desc"].as_str().unwrap_or("").to_string(),
+                zoom: u32::try_from(i["zoom"].as_u64()?).ok()?,
+            })
+        })
+        .collect()
+}
+
+/// The listing kept for a point: `fresh_only`, only one younger than `LIST_MAX_AGE`.
+fn read_list_cache(cache_dir: &Path, lon: f64, lat: f64, z: u32, fresh_only: bool) -> Option<Vec<WaybackImage>> {
+    let path = list_path(cache_dir, lon, lat, z);
+    if fresh_only {
+        let age = std::fs::metadata(&path).and_then(|m| m.modified()).ok()?;
+        if !SystemTime::now().duration_since(age).is_ok_and(list_cache_valid) {
+            return None;
+        }
+    }
+    list_from_json(&std::fs::read_to_string(path).ok()?)
+}
+
+fn write_list_cache(cache_dir: &Path, lon: f64, lat: f64, z: u32, images: &[WaybackImage]) {
+    if !list_cacheable(images) {
+        return;
+    }
+    let path = list_path(cache_dir, lon, lat, z);
+    if let Some(d) = path.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let tmp = path.with_extension("part");
+    if std::fs::write(&tmp, list_to_json(images, lon, lat, z)).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+}
+
 /// The images of a point at zoom `z` (the zoom of the tilemap to follow: `zoom_for`), by acquisition date, one
-/// per date (the newest release that has it).
+/// per date (the newest release that has it). A listing kept on disk for less than `LIST_MAX_AGE` is used as it
+/// is; otherwise Wayback is asked (`list_fresh`).
 pub fn list(lon: f64, lat: f64, z: u32, cache_dir: &Path) -> Result<Vec<WaybackImage>, String> {
+    if let Some(v) = read_list_cache(cache_dir, lon, lat, z, true) {
+        return Ok(v);
+    }
+    list_fresh(lon, lat, z, cache_dir)
+}
+
+/// The listing kept on disk, of any age; "not downloaded" if there is none (no request is made).
+pub fn list_cached(lon: f64, lat: f64, z: u32, cache_dir: &Path) -> Result<Vec<WaybackImage>, String> {
+    read_list_cache(cache_dir, lon, lat, z, false).ok_or_else(|| NOT_DOWNLOADED.to_string())
+}
+
+/// `list` without reading the disk's copy (a Retry); the answer is kept for the next time.
+pub fn list_fresh(lon: f64, lat: f64, z: u32, cache_dir: &Path) -> Result<Vec<WaybackImage>, String> {
     let rel = releases(cache_dir)?;
-    let (x, y) = tile_xy(lon, lat, z);
-    let url = |num: u32| {
-        TILEMAP_URL
-            .replace("{rel}", &num.to_string())
-            .replace("{z}", &z.to_string())
-            .replace("{row}", &(y as i64).to_string())
-            .replace("{col}", &(x as i64).to_string())
-    };
-    let found = select_chain(&rel, |num| http_get(&url(num)).ok().map(|b| String::from_utf8_lossy(&b).into_owned()));
+    // where Wayback has no tile at the zoom asked (the country side), a coarser one is tried; the images say
+    // at which zoom they were found
+    let (zf, found) = find_zoom(z, MIN_LIST_Z.min(z), |zoom| {
+        let (x, y) = tile_xy(lon, lat, zoom);
+        let url = |num: u32| {
+            TILEMAP_URL
+                .replace("{rel}", &num.to_string())
+                .replace("{z}", &zoom.to_string())
+                .replace("{row}", &(y as i64).to_string())
+                .replace("{col}", &(x as i64).to_string())
+        };
+        select_chain_checked(&rel, |num| http_get(&url(num)).ok().map(|b| String::from_utf8_lossy(&b).into_owned()))
+    });
     let items = par_map(&found, |r| {
-        describe(r, z, |layer| {
+        describe(r, zf, |layer| {
             let q = format!(
                 "{}/{layer}/query?geometry={lon},{lat}&geometryType=esriGeometryPoint&inSR=4326\
                  &spatialRel=esriSpatialRelIntersects&outFields=SRC_DATE2,SRC_RES,SRC_DESC,NICE_NAME\
@@ -359,7 +512,9 @@ pub fn list(lon: f64, lat: f64, z: u32, cache_dir: &Path) -> Result<Vec<WaybackI
             http_get(&q).ok().map(|b| String::from_utf8_lossy(&b).into_owned())
         })
     });
-    Ok(dedup_by_date(items))
+    let images = dedup_by_date(items);
+    write_list_cache(cache_dir, lon, lat, z, &images);
+    Ok(images)
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -404,32 +559,123 @@ fn decode_tile(bytes: Vec<u8>) -> Option<Vec<u8>> {
     r
 }
 
-/// A tile of release `r`, from the cache folder or the server (and kept); None where Wayback has none.
-fn get_tile(r: &Release, cache_dir: &Path, z: u32, x: i64, y: i64) -> Option<Vec<u8>> {
+/// What asking for a tile gave.
+enum TileGet {
+    Have(Vec<u8>),
+    /// Wayback has no tile there (an empty answer or one that is not an image; remembered on disk)
+    Absent,
+    /// not on disk and not had (not asked, or the request failed)
+    Missing,
+}
+
+/// A tile of release `r`, from the cache folder or the server (and kept). A place where Wayback has no tile is
+/// remembered by an empty `.none` file, so that it is not asked again.
+fn get_tile(r: &Release, cache_dir: &Path, z: u32, x: i64, y: i64, net: Net) -> TileGet {
     let path = tile_path(cache_dir, r.num, z, x, y);
     if let Ok(b) = std::fs::read(&path)
         && let Some(t) = decode_tile(b)
     {
-        return Some(t);
+        return TileGet::Have(t);
+    }
+    let none = path.with_extension("none");
+    if none.exists() {
+        return TileGet::Absent;
+    }
+    if net == Net::CacheOnly {
+        return TileGet::Missing;
     }
     let url =
         r.tile_url.replace("{level}", &z.to_string()).replace("{row}", &y.to_string()).replace("{col}", &x.to_string());
-    let body = http_get(&url).ok().filter(|b| !b.is_empty())?;
-    let t = decode_tile(body.clone())?;
+    let Ok(body) = http_get(&url) else { return TileGet::Missing };
     if let Some(d) = path.parent() {
         let _ = std::fs::create_dir_all(d);
     }
+    let Some(t) = (!body.is_empty()).then(|| decode_tile(body.clone())).flatten() else {
+        let _ = std::fs::write(&none, b"");
+        return TileGet::Absent;
+    };
     let part = path.with_extension("part");
     if std::fs::write(&part, &body).is_ok() {
         let _ = std::fs::rename(&part, &path);
     }
-    Some(t)
+    TileGet::Have(t)
+}
+
+/// Gets a tile onto the disk without decoding the ones already there; whether it is there (or known absent)
+/// afterwards.
+fn keep_tile(r: &Release, cache_dir: &Path, z: u32, x: i64, y: i64, net: Net) -> bool {
+    let path = tile_path(cache_dir, r.num, z, x, y);
+    if path.exists() || path.with_extension("none").exists() {
+        return true;
+    }
+    !matches!(get_tile(r, cache_dir, z, x, y, net), TileGet::Missing)
 }
 
 fn srs_of(def: &str) -> Result<SpatialRef, String> {
     let mut s = SpatialRef::from_definition(def).map_err(|e| format!("the CRS is not understood ({e})"))?;
     s.set_axis_mapping_strategy(AxisMappingStrategy::TraditionalGisOrder);
     Ok(s)
+}
+
+/// The tiles that cover a chip.
+struct Cover {
+    merc: SpatialRef,
+    /// the chip's edges in its CRS
+    edges: (f64, f64, f64, f64),
+    /// the block of tiles, inclusive
+    tiles: (i64, i64, i64, i64),
+}
+
+impl Cover {
+    fn new(crs: &str, center: (f64, f64), size_m: f64, z: u32) -> Result<Cover, String> {
+        let (cx, cy) = center;
+        if size_m.is_nan() || size_m <= 0.0 || z > MAX_Z + 3 {
+            return Err("the chip's size or the zoom is not valid".into());
+        }
+        let dst = srs_of(crs)?;
+        let merc = srs_of("EPSG:3857")?;
+        let (x0, y0, x1, y1) = (cx - size_m / 2.0, cy - size_m / 2.0, cx + size_m / 2.0, cy + size_m / 2.0);
+        // the chip's edge in Web Mercator, to know which tiles cover it
+        let (mut xs, mut ys) = (Vec::new(), Vec::new());
+        for i in 0..=8 {
+            let f = f64::from(i) / 8.0;
+            for (px, py) in [(x0 + f * size_m, y0), (x0 + f * size_m, y1), (x0, y0 + f * size_m), (x1, y0 + f * size_m)]
+            {
+                xs.push(px);
+                ys.push(py);
+            }
+        }
+        let mut zs = vec![0.0; xs.len()];
+        {
+            let _q = Quiet::new();
+            CoordTransform::new(&dst, &merc)
+                .and_then(|ct| ct.transform_coords(&mut xs, &mut ys, &mut zs))
+                .map_err(|e| format!("the chip cannot be placed on Web Mercator: {e}"))?;
+        }
+        if xs.iter().chain(&ys).any(|v| !v.is_finite()) {
+            return Err("the chip is outside Web Mercator".into());
+        }
+        let s = 2.0 * E / 2f64.powi(z as i32);
+        let n = (1i64 << z) - 1;
+        let range = |lo: f64, hi: f64, flip: bool| {
+            let (a, b) = if flip { ((E - hi) / s, (E - lo) / s) } else { ((lo + E) / s, (hi + E) / s) };
+            ((a.floor() as i64).clamp(0, n), ((b - 1e-9).floor() as i64).clamp(0, n))
+        };
+        let fold = |v: &[f64]| v.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |a, &t| (a.0.min(t), a.1.max(t)));
+        let ((mx0, mx1), (my0, my1)) = (fold(&xs), fold(&ys));
+        let (tx0, tx1) = range(mx0, mx1, false);
+        let (ty0, ty1) = range(my0, my1, true);
+        let (nx, ny) = ((tx1 - tx0 + 1) as usize, (ty1 - ty0 + 1) as usize);
+        if nx * ny > MAX_TILES {
+            return Err(format!("the chip needs {} tiles at zoom {z}; the most is {MAX_TILES}", nx * ny));
+        }
+        Ok(Cover { merc, edges: (x0, y0, x1, y1), tiles: (tx0, ty0, tx1, ty1) })
+    }
+
+    fn wanted(&self) -> Vec<(i64, i64)> {
+        let (tx0, ty0, tx1, ty1) = self.tiles;
+        (ty0..=ty1).flat_map(|ty| (tx0..=tx1).map(move |tx| (tx, ty))).collect()
+    }
 }
 
 /// The chip of release `r` at zoom `z`: a square of side `size_m` centred on `center` (x, y) in `crs` (WKT
@@ -444,50 +690,74 @@ pub fn render(
     out_px: u32,
     cache_dir: &Path,
 ) -> Result<RgbImage, String> {
+    render_net(r, z, crs, center, size_m, out_px, cache_dir, Net::Allow)
+}
+
+/// `render` from the tiles on disk only (no request is made): "not downloaded" if one is missing.
+pub fn render_cached(
+    r: &Release,
+    z: u32,
+    crs: &str,
+    center: (f64, f64),
+    size_m: f64,
+    out_px: u32,
+    cache_dir: &Path,
+) -> Result<RgbImage, String> {
+    render_net(r, z, crs, center, size_m, out_px, cache_dir, Net::CacheOnly)
+}
+
+/// Gets the tiles of a chip onto the disk without drawing it. With `Net::CacheOnly` it only checks that they are
+/// there ("not downloaded" if not). Fails if a tile could not be had (a place with no tile is not a failure).
+pub fn prefetch(
+    r: &Release,
+    z: u32,
+    crs: &str,
+    center: (f64, f64),
+    size_m: f64,
+    cache_dir: &Path,
+    net: Net,
+) -> Result<(), String> {
     crate::vectors::register();
-    let (cx, cy) = center;
-    if size_m.is_nan() || size_m <= 0.0 || out_px == 0 || z > MAX_Z + 3 {
+    let wanted = Cover::new(crs, center, size_m, z)?.wanted();
+    let got = par_map(&wanted, |&(tx, ty)| keep_tile(r, cache_dir, z, tx, ty, net));
+    let missing = got.iter().filter(|&&g| !g).count();
+    if missing == 0 {
+        Ok(())
+    } else if net == Net::CacheOnly {
+        Err(NOT_DOWNLOADED.to_string())
+    } else {
+        Err(format!("{missing} of {} tiles of release {} could not be downloaded", got.len(), r.num))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_net(
+    r: &Release,
+    z: u32,
+    crs: &str,
+    center: (f64, f64),
+    size_m: f64,
+    out_px: u32,
+    cache_dir: &Path,
+    net: Net,
+) -> Result<RgbImage, String> {
+    crate::vectors::register();
+    if out_px == 0 {
         return Err("the chip's size or the zoom is not valid".into());
     }
-    let dst = srs_of(crs)?;
-    let merc = srs_of("EPSG:3857")?;
-    let (x0, y0, x1, y1) = (cx - size_m / 2.0, cy - size_m / 2.0, cx + size_m / 2.0, cy + size_m / 2.0);
-    // the chip's edge in Web Mercator, to know which tiles cover it
-    let (mut xs, mut ys) = (Vec::new(), Vec::new());
-    for i in 0..=8 {
-        let f = f64::from(i) / 8.0;
-        for (px, py) in [(x0 + f * size_m, y0), (x0 + f * size_m, y1), (x0, y0 + f * size_m), (x1, y0 + f * size_m)] {
-            xs.push(px);
-            ys.push(py);
-        }
-    }
-    let mut zs = vec![0.0; xs.len()];
-    {
-        let _q = Quiet::new();
-        CoordTransform::new(&dst, &merc)
-            .and_then(|ct| ct.transform_coords(&mut xs, &mut ys, &mut zs))
-            .map_err(|e| format!("the chip cannot be placed on Web Mercator: {e}"))?;
-    }
-    if xs.iter().chain(&ys).any(|v| !v.is_finite()) {
-        return Err("the chip is outside Web Mercator".into());
-    }
-    let s = 2.0 * E / 2f64.powi(z as i32);
-    let n = (1i64 << z) - 1;
-    let range = |lo: f64, hi: f64, flip: bool| {
-        let (a, b) = if flip { ((E - hi) / s, (E - lo) / s) } else { ((lo + E) / s, (hi + E) / s) };
-        ((a.floor() as i64).clamp(0, n), ((b - 1e-9).floor() as i64).clamp(0, n))
-    };
-    let fold = |v: &[f64]| v.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |a, &t| (a.0.min(t), a.1.max(t)));
-    let ((mx0, mx1), (my0, my1)) = (fold(&xs), fold(&ys));
-    let (tx0, tx1) = range(mx0, mx1, false);
-    let (ty0, ty1) = range(my0, my1, true);
+    let cover = Cover::new(crs, center, size_m, z)?;
+    let (x0, y0, x1, y1) = cover.edges;
+    let (tx0, ty0, tx1, ty1) = cover.tiles;
     let (nx, ny) = ((tx1 - tx0 + 1) as usize, (ty1 - ty0 + 1) as usize);
-    if nx * ny > MAX_TILES {
-        return Err(format!("the chip needs {} tiles at zoom {z}; the most is {MAX_TILES}", nx * ny));
-    }
+    let (merc, s) = (&cover.merc, 2.0 * E / 2f64.powi(z as i32));
 
-    let wanted: Vec<(i64, i64)> = (ty0..=ty1).flat_map(|ty| (tx0..=tx1).map(move |tx| (tx, ty))).collect();
-    let tiles = par_map(&wanted, |&(tx, ty)| get_tile(r, cache_dir, z, tx, ty));
+    let wanted = cover.wanted();
+    let got = par_map(&wanted, |&(tx, ty)| get_tile(r, cache_dir, z, tx, ty, net));
+    if net == Net::CacheOnly && got.iter().any(|t| matches!(t, TileGet::Missing)) {
+        return Err(NOT_DOWNLOADED.to_string());
+    }
+    let tiles: Vec<Option<Vec<u8>>> =
+        got.into_iter().map(|t| if let TileGet::Have(v) = t { Some(v) } else { None }).collect();
     if tiles.iter().all(Option::is_none) {
         return Err(format!("Wayback has no tile for release {} at this place", r.num));
     }
@@ -511,7 +781,7 @@ pub fn render(
     }
     let (bx0, _, _, by1) = merc_bounds(tx0, ty0, tx1, ty1, z);
     src.set_geo_transform(&[bx0, s / 256.0, 0.0, by1, 0.0, -s / 256.0]).map_err(|e| e.to_string())?;
-    src.set_spatial_ref(&merc).map_err(|e| e.to_string())?;
+    src.set_spatial_ref(merc).map_err(|e| e.to_string())?;
 
     // GDAL's warp, cubic, onto the chip's grid
     let args: Vec<CString> = [
@@ -631,6 +901,43 @@ mod tests {
     }
 
     #[test]
+    fn a_coarser_zoom_where_the_finer_has_no_data() {
+        let rel = parse_config(CONFIG).unwrap();
+        // the country side: no data above z17, the newest release's select below it
+        let tilemap_at = |zoom: u32| {
+            move |num: u32| -> Option<String> {
+                let text =
+                    if zoom <= 17 && num == 13161 { r#"{"data":[1],"select":["10"]}"# } else { r#"{"data":[0]}"# };
+                Some(text.into())
+            }
+        };
+        let mut asked = Vec::new();
+        let (z, found) = find_zoom(19, 13, |zoom| {
+            asked.push(zoom);
+            select_chain_checked(&rel, tilemap_at(zoom))
+        });
+        assert_eq!((z, found.iter().map(|r| r.num).collect::<Vec<_>>()), (17, vec![10]));
+        assert_eq!(asked, [19, 18, 17]);
+        // nothing anywhere: down to the minimum, then the zoom asked with no image
+        let mut n = 0;
+        let (z, found) = find_zoom(19, 16, |_| {
+            n += 1;
+            select_chain_checked(&rel, |_| Some(r#"{"data":[0]}"#.into()))
+        });
+        assert_eq!((z, found.len(), n), (19, 0, 4));
+        // a failed request is not "no data": no walk to coarser zooms
+        let mut n = 0;
+        let (_, found) = find_zoom(19, 13, |_| {
+            n += 1;
+            select_chain_checked(&rel, |_| None)
+        });
+        assert_eq!((found.len(), n), (0, 1));
+        // the data at the first zoom: kept as it is
+        assert_eq!(find_zoom(19, 13, |_| select_chain_checked(&rel, |_| Some(r#"{"data":[1]}"#.into()))).0, 19);
+        assert!((ground_res(0.0, 0) - 156543.03).abs() < 0.1);
+    }
+
+    #[test]
     fn meta_layer_order_and_parse() {
         assert_eq!(meta_layers(19), [4, 3, 5, 2, 6, 1, 7, 0]);
         assert_eq!(meta_layers(15), [7, 6, 5, 4, 3, 2, 1, 0]);
@@ -725,6 +1032,66 @@ mod tests {
         assert!(pick_per_year(&[], &[6]).is_empty());
     }
 
+    #[test]
+    fn render_cached_refuses_without_tiles() {
+        crate::vectors::register();
+        let dir = std::env::temp_dir().join("janus-geo-test-wayback-empty");
+        let _ = std::fs::remove_dir_all(&dir);
+        let rel = Release {
+            num: 8,
+            date: "2020-01-01".into(),
+            tile_url: "http://127.0.0.1:9/{level}/{row}/{col}".into(),
+            meta_url: String::new(),
+        };
+        let c = (500_000.0, 5_800_000.0);
+        assert_eq!(render_cached(&rel, 17, "EPSG:32633", c, 150.0, 100, &dir).unwrap_err(), NOT_DOWNLOADED);
+        assert_eq!(prefetch(&rel, 17, "EPSG:32633", c, 150.0, &dir, Net::CacheOnly).unwrap_err(), NOT_DOWNLOADED);
+        assert_eq!(list_cached(13.6, 52.4, 19, &dir).unwrap_err(), NOT_DOWNLOADED);
+        assert_eq!(releases_cached(&dir).unwrap_err(), NOT_DOWNLOADED);
+        assert!(!dir.exists(), "nothing is written by a cache-only call");
+    }
+
+    #[test]
+    fn the_listing_cache_key_and_age() {
+        // 1e-5 degrees: the same pixel's centre, a different float, the same file
+        assert_eq!(list_cache_key(13.645_250_000_1, 52.455_800_000_2, 19), "1364525_5245580_z19");
+        assert_eq!(list_cache_key(13.645_250_000_1, 52.455_800_000_2, 19), list_cache_key(13.645_25, 52.4558, 19));
+        assert_ne!(list_cache_key(13.645_25, 52.4558, 19), list_cache_key(13.645_26, 52.4558, 19));
+        assert_ne!(list_cache_key(13.645_25, 52.4558, 19), list_cache_key(13.645_25, 52.4558, 18));
+        assert_eq!(list_cache_key(-46.0, -0.000_001, 19), "-4600000_0_z19");
+        assert!(list_cache_valid(Duration::from_secs(29 * 24 * 3600)));
+        assert!(!list_cache_valid(LIST_MAX_AGE));
+        assert!(!list_cache_valid(Duration::from_secs(40 * 24 * 3600)));
+    }
+
+    #[test]
+    fn a_listing_is_kept_on_disk_and_read_again() {
+        let dir = std::env::temp_dir().join("janus-geo-test-wayback-lists");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut a = img("2018-09-02", 10);
+        a.res_m = Some(0.3);
+        a.desc = "Vexcel".into();
+        let b = img("2020-05-01", 30);
+        let both = vec![a, b];
+        let json = list_to_json(&both, 13.6, 52.4, 19);
+        assert_eq!(list_from_json(&json).unwrap(), both);
+        assert!(list_from_json("{}").is_none() && list_from_json("nope").is_none());
+        // kept under lists/, read fresh or of any age
+        write_list_cache(&dir, 13.6, 52.4, 19, &both);
+        assert!(dir.join("lists").join("1360000_5240000_z19.json").is_file());
+        assert_eq!(list(13.6, 52.4, 19, &dir).unwrap(), both);
+        assert_eq!(list_cached(13.6, 52.4, 19, &dir).unwrap(), both);
+        assert_eq!(read_list_cache(&dir, 13.6, 52.4, 19, true).unwrap(), both);
+        assert!(list_cached(13.7, 52.4, 19, &dir).is_err());
+        // a listing that is empty or has a failed date is not kept
+        let mut bad = img("2021-01-01", 40);
+        bad.desc = NO_METADATA.into();
+        assert!(!list_cacheable(&[]) && !list_cacheable(&[bad]) && list_cacheable(&both));
+        write_list_cache(&dir, 1.0, 2.0, 19, &[]);
+        assert!(list_cached(1.0, 2.0, 19, &dir).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A chip from tiles already in the cache folder (no network): each tile one colour by its place; the chip's
     /// centre lies in tile (x, y), which is where its centre pixel's colour comes from.
     #[test]
@@ -771,6 +1138,19 @@ mod tests {
             assert!(g.abs_diff(w) < 12, "centre {:?} vs {:?}", at(100, 100), want);
         }
         assert!(im.data.iter().any(|&v| v != 0));
+        // from the disk alone: the same chip, and no request (the tile server here is not there)
+        let cached = render_cached(&rel, z, "EPSG:32633", (xs[0], ys[0]), 150.0, 200, &dir).unwrap();
+        assert_eq!(cached, im);
+        prefetch(&rel, z, "EPSG:32633", (xs[0], ys[0]), 150.0, &dir, Net::CacheOnly).unwrap();
+        // a tile gone: "not downloaded", not a grey hole
+        std::fs::remove_file(tile_path(&dir, 7, z, cx, cy)).unwrap();
+        let err = render_cached(&rel, z, "EPSG:32633", (xs[0], ys[0]), 150.0, 200, &dir).unwrap_err();
+        assert_eq!(err, NOT_DOWNLOADED);
+        let err = prefetch(&rel, z, "EPSG:32633", (xs[0], ys[0]), 150.0, &dir, Net::CacheOnly).unwrap_err();
+        assert_eq!(err, NOT_DOWNLOADED);
+        // a place known to have no tile is not missing
+        std::fs::write(tile_path(&dir, 7, z, cx, cy).with_extension("none"), b"").unwrap();
+        assert!(prefetch(&rel, z, "EPSG:32633", (xs[0], ys[0]), 150.0, &dir, Net::CacheOnly).is_ok());
         // a chip written as PNG
         let png = dir.join("chip.png");
         im.write_png(&png).unwrap();
