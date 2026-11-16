@@ -18,119 +18,48 @@
 <p align="center">
   <a href="https://sacridini.github.io/janus/"><b>Website</b></a> ·
   <a href="https://github.com/sacridini/janus/releases/latest">Download</a> ·
-  <a href="docs/usage.md">Documentation</a> ·
-  <a href="IDEIAS.md">Roadmap</a>
+  <a href="https://sacridini.github.io/janus/guides.html">Guides</a> ·
+  <a href="https://sacridini.github.io/janus/docs.html">Docs</a> ·
+  <a href="https://sacridini.github.io/janus/news.html">News</a>
 </p>
 
-![Janus: map, time series and statistics of an annual NDVI cube](docs/screenshot.jpg)
+![Janus interpreting a validation point: image cards of every date and Esri Wayback's image of every year, the Sentinel-2 map, the point's NBR series and the label panel](docs/screenshot.jpg)
 
-With Janus you explore satellite imagery pixel by pixel, find where, when and
-by how much the land changed, and measure how accurate your maps are. The
-change detection comes from [Zeit](https://github.com/sacridini/zeit-cdts),
-which ships with Janus: there is nothing else to install. Its command line is `jn`.
+Janus is a desktop program to look at satellite imagery through time: find
+where, when and by how much the land changed, and measure how far your map can
+be trusted. The change detection comes from
+[Zeit](https://github.com/sacridini/zeit-cdts), which is part of Janus:
+nothing else to install. Its command line is `jn`.
 
-## Features
+## What it does
 
-- **Opens any stack of rasters**: a folder (one file per date), a multiband file
-  (one band per date), a list of files or a wildcard; dates come from file names
-  or band descriptions.
-- **Cloud-native**: cloud-optimized GeoTIFFs straight from `https://`, `s3://`,
-  `gs://` or `az://` (File → Open URL, or `jn https://...`), reading only the
-  blocks and overview levels on screen.
-- **STAC catalogs**: File → Search STAC catalog... finds the Sentinel-2,
-  Landsat or Brazil Data Cube scenes of an area between two dates (Earth
-  Search, Planetary Computer, BDC or any STAC API), below a cloud cover, and
-  opens them as a series read in place (a mosaic per date, on one grid, the
-  quality band masking clouds) or downloads them as GeoTIFFs. Step by step:
-  [Series from a STAC catalog](https://sacridini.github.io/janus/stac.html).
-- **Climate cubes**: NetCDF, Zarr and HDF variables with CF time (model
-  calendars included), levels and a variable picker.
-- **Raster calculator and spectral indices**: the 275 indices of the Awesome
-  Spectral Indices (EVI, SAVI, NDRE, MNDWI...) or any expression over a
-  series' bands, shown in place; Tools → Raster calculator combines the open
-  layers by short names (a series with an image, series matched by date,
-  layers of other grids and CRSs), reduces a series over time (`max(ndvi)`,
-  `count(ndvi < 0.3)`, `ndvi - mean(ndvi)`) and reclassifies with rules
-  (`ndvi < 0.2 = 0`); an editor that colours, completes and points at errors
-  as you type, `Ctrl+Enter` to run, the result a layer like any other. Step by
-  step: [Raster calculator](https://sacridini.github.io/janus/calculator.html).
-- **14 map modes on the GPU**: value, anomaly, difference to a reference date,
-  temporal statistics, trend, largest drop (date and magnitude), multitemporal
-  RGB, temporal composites (median, mean, max... of a year or a moving window);
-  a **season** (days of the year) for the statistics and composites; changing
-  date, colormap or stretch is instant.
-- **Pixel series as you hover**, pins to compare places, a region (a rectangle,
-  a polygon or a freehand outline) with its mean and p10–p90 band; OLS and Sen
-  trends.
-- **Vector layers** (GeoJSON, Shapefile, GeoPackage, KML, CSV of points) over
-  the map in any CRS: the series of every plot or parcel extracted to a CSV
-  table, and a TimeSync-style **interpretation** mode to label samples with
-  the keyboard.
-- **Map validation** (Olofsson et al. 2014): strata from any map (classes,
-  intervals, dates of change, the agreement of several maps, a buffer around
-  change), sample size and allocation, a stratified random sample in a
-  GeoPackage project, blind interpretation of its points with chips of every
-  date and a high-resolution image of every year (Esri Wayback, after
-  Validation Viewer; one label per point or per year, or the fraction of
-  each class), and the accuracy and **error-adjusted areas ± confidence intervals**
-  of every map assessed with it (LandTrendr × CCDC × BFAST × MapBiomas...),
-  live as labels come; several interpreters, kappa and adjudication; an HTML
-  report and the matching `zeit.accuracy` code. Step by step, with
-  screenshots: [Validating a map](https://sacridini.github.io/janus/validation.html).
-- **Compare**: several series as layers, in any CRS (reprojected on the GPU),
-  map panels side by side, a swipe divider, and space-time transects
-  (distance × date) along a line, a polyline or a vector line.
-- **Basemap** under the series: Esri World Imagery, Sentinel-2 cloudless,
-  OpenStreetMap or your own XYZ tiles; off until you pick one.
-- **Categorical series** (land cover, classifications) with class colours,
-  names and change summaries; **several bands per date** with normalized
-  differences, cloud masks and **RGB composites** (true colour, colour
-  infrared...) while the chart keeps the index.
-- **Change detection built in**: LandTrendr and the recovery after its
-  disturbances (Y2R, R80P, RRI), Mann-Kendall, AR(1) trends and
-  their regional test (PARTS, after remotePARTS), emerging hot spots (Getis-Ord Gi* of every date
-  and its trend: new, intensifying, persistent... hot and cold spots, as ESRI's), BFAST, CCDC, EWMACD
-  (monitoring every observation with control charts: disturbance, recovery, gain),
-  CODED (forest degradation, with the NDFI), spectral unmixing with endmembers
-  from pins (of every date's bands, or of a hyperspectral scene), phenology, TWDTW, SOM and k-means clustering (named by your samples),
-  the post-processing of classifications (one-year flickers, majority, minimum mapping unit),
-  SNIC segmentation, texture (the GLCM's properties, as scikit-image's), Tmask cloud screening and more from [Zeit](https://github.com/sacridini/zeit-cdts),
-  fitted live on the chart (BFAST and CCDC models drawn over the series) or
-  run on the image (also CCDC's cloud-free synthetic image of a date), plus
-  the agreement of several change maps; **deep learning** (TempCNN, L-TAE, Presto, U-TAE)
-  trained on your samples and applied on the GPU (optionally with Bayesian smoothing of the probabilities (Camara et al. 2024),
-  and the model's area of applicability: where the image is unlike its samples, as CAST's `aoa`),
-  and Presto's pretrained embeddings, without Python; **field delineation**: Sentinel-2 fields as
-  parcels by WRI's Trazo and Fields of The World's networks (their published accuracy), fine-tuned
-  on fields you draw. The **Python history** keeps every finished run as Python (a script
-  that reproduces it, to read, copy or save as a .py or a notebook), and the chart gives the code
-  that reproduces a series and the tool's Zeit calls. Zeit's methods are part of
-  Janus: no Python to install, and a fit takes under a millisecond.
-- **Spectra** (hyperspectral, e.g. EnMAP): a file whose bands have
-  wavelengths opens with the chart in nanometres, the spectrum of the cursor,
-  pins and region, and true-colour, colour-infrared and SWIR composites;
-  index maps (NDVI, red edge, PRI...), principal components and spectral
-  similarity, and series of scenes by wavelength.
-- **Embeddings** of foundation models (AlphaEarth, TESSERA): downloaded for the
-  visible area over any series, shown through their principal components (also
-  local to a region, refitted as you move it), the similarity to the cursor or
-  a pin, the change between years and its direction (a PCA of the changes, the
-  same colour for the same kind of change, or how like a pin's change each is),
-  and classes from a few pins or a region (a logistic regression or centroids
-  fitted in milliseconds, with their areas and the transitions between years);
-  computed with SIMD kernels.
-- **Export**: maps as PNG figures, timelapse **animations** (GIF, MP4, WebM)
-  with the date, legend and scale bar, values, views, Zeit results and
-  embedding views as georeferenced GeoTIFFs, series as CSV.
-- **Fast on any disk**: about 0.15 s to the first frame, a disk cache of the
-  cube, and a full-resolution cache that serves a pixel's series in about 1 ms
-  even when the data sit on a spinning hard disk.
+**Explore.** Open a folder, a multiband file, a wildcard, cloud-optimized
+GeoTIFFs over `https://` or `s3://`, a STAC search (Sentinel-2, Landsat, Brazil
+Data Cube) or a NetCDF/Zarr cube. Hover a pixel and its series is on the chart;
+pin places, draw regions, compare layers side by side or with a swipe. Map
+modes and composites run on the GPU; the 275 spectral indices, a raster
+calculator, embeddings (AlphaEarth, TESSERA) and hyperspectral spectra too.
+[Guide](https://sacridini.github.io/janus/visualize.html)
+
+**Detect.** 34 methods from Zeit: LandTrendr, CCDC, BFAST, CODED, EWMACD,
+trends and hot spots, phenology, unmixing, segmentation, and FORCE's Level 2,
+NBAR and time series analysis. Fit one on the chart, tune it, then run it on
+the image; or train deep learning models (TempCNN, L-TAE, Presto, U-TAE) on
+your samples and delineate fields. Every run is kept as a Python script that
+reproduces it. [Methods](https://sacridini.github.io/janus/methods.html)
+
+**Prove.** Stratify a map, draw a sample, and interpret its points blind,
+with image cards of every date and Esri Wayback's high-resolution image of
+every year; one label per point or per year, or the fraction of each class.
+Accuracy and error-adjusted areas with confidence intervals (Olofsson et al.
+2014) come live as you label; several interpreters, adjudication, an HTML
+report. [Guide](https://sacridini.github.io/janus/validation.html)
 
 ## Install
 
 Download the package for your system from the
 [latest release](https://github.com/sacridini/janus/releases/latest). Each one
-carries GDAL, and Zeit is part of the program: nothing else to install.
+carries GDAL and Zeit.
 
 | System | Package |
 |---|---|
@@ -138,7 +67,7 @@ carries GDAL, and Zeit is part of the program: nothing else to install.
 | macOS 15+ (Apple Silicon) | `janus-<version>-macos-arm64.dmg`: drag Janus to Applications; not notarized, so open it the first time with right click → Open |
 | Linux x86_64 | `janus-<version>-linux-x86_64.tar.xz`: portable, extract and run `jn` |
 
-Details for each system: [docs/install.md](docs/install.md).
+Details: [docs/install.md](docs/install.md).
 
 ## Quick start
 
@@ -148,63 +77,35 @@ jn landsat_stack.tif           # 1 multiband file, 1 band = 1 date
 jn "S2_*_NDVI.tif" --band 1    # a wildcard pattern
 ```
 
-Or open a folder from the **File** menu, the **Files** panel, or by dropping it
-on the window. Then:
-
-| | |
-|---|---|
-| Hover | the pixel's series (exact once the mouse rests) |
-| Click / `Shift` + drag / `R` | drop a pin / draw a region / draw a polygon |
-| `Alt` + click | a polygon of a vector layer becomes the region |
-| `←` `→` / `P` | previous or next date / play |
-| `Ctrl` + drag / `C` | space-time transect / swipe |
-| `S` / `Space` / `F` | satellite basemap / show or hide the active layer / fit the map |
-| `Ctrl+T` / `Ctrl+W` | open / close a map panel |
-
-Everything else is in [docs/usage.md](docs/usage.md) and under **Help →
-Shortcuts and usage**.
+Or drop a folder on the window. Hover for a pixel's series, click to pin it,
+`←` `→` to change the date, `S` for a satellite basemap. The rest is under
+**Help → Shortcuts and usage**, and the [guides](https://sacridini.github.io/janus/guides.html)
+go step by step on real data.
 
 ## Documentation
 
-- [Usage](docs/usage.md): command line, every interaction, the Zeit tools, performance notes
-- [Installation](docs/install.md): details for Windows, macOS and Linux
-- [Building from source](docs/building.md): Windows, Linux and macOS, the tests, packages
-- [Architecture](docs/architecture.md): how the cube flows from the files to the GPU, and the crates
-- [RUST_MIGRATION.md](RUST_MIGRATION.md) (Portuguese): how Janus moved from C++ to Rust for 1.0, with the measurements
-- [IDEIAS.md](IDEIAS.md) (Portuguese): roadmap, design decisions and the measurements behind them
+- [Usage](docs/usage.md): the command line, every interaction and tool
+- [Building from source](docs/building.md): Rust and GDAL on Windows, Linux and macOS; the tests and packages
+- [Architecture](docs/architecture.md): from the files to the GPU, and the crates
+- [IDEIAS.md](IDEIAS.md) (Portuguese): roadmap, decisions and the measurements behind them
 
-## Building
-
-Janus is written in Rust. It needs GDAL (e.g. from conda-forge); everything
-else comes from crates.io.
-
-```
-cargo build --release
-```
-
-See [docs/building.md](docs/building.md) for pointing the build at GDAL on each
-platform, the tests and the packages.
-
-## License
+## License and credits
 
 Janus is free software under the GNU General Public License, version 3 or
-later ([LICENSE](LICENSE)), as is [Zeit](https://github.com/sacridini/zeit-cdts). The parts of Zeit that used to derive from GPL-2.0-only code (the CCDC lasso, the phenology, the Bayesian smoothing of probabilities and the QA weights) were rewritten from the papers, so the whole is GPL-3.0-or-later.
+later ([LICENSE](LICENSE)), as is Zeit.
 
-## Credits
-
-The interpretation view of the validation (the image cards per year, the
-pixel and point overlay, the Esri Wayback imagery, the point and validation
-cards) is based on
+Some of it follows other people's work:
 [Validation Viewer](https://scm.cms.hu-berlin.de/baumamat/validationviewer)
-by Dr. Matthias Baumann (Humboldt-Universität zu Berlin), GPL-2.0-or-later,
-used here under GPL-3.0-or-later; parts of its code are ported to Rust. The
-Wayback images themselves are Esri's (Esri, Maxar, Earthstar Geographics, and
-the GIS User Community) and their terms of use apply.
+by Dr. Matthias Baumann (HU Berlin), the model of the interpretation view,
+parts of its code ported to Rust;
+[FORCE](https://github.com/davidfrantz/force) by David Frantz (Level 2, NBAR,
+ImproPhe and the time series analysis, through Zeit);
+[remotePARTS](https://github.com/morrowcj/remotePARTS) (the regional trend test);
+[Awesome Spectral Indices](https://github.com/awesome-spectral-indices/awesome-spectral-indices);
+WRI's Trazo and Fields of The World (field delineation). The Wayback images
+are Esri's (Esri, Maxar, Earthstar Geographics, and the GIS User Community)
+and their terms of use apply. If Janus helps your work, cite it with
+[CITATION.cff](CITATION.cff).
 
----
-
-Built with [egui](https://github.com/emilk/egui), [wgpu](https://wgpu.rs) and
-[GDAL](https://gdal.org); Direct3D 12 on Windows, Vulkan on Linux, Metal on
-macOS. Change detection by [Zeit](https://github.com/sacridini/zeit-cdts). Janus
-was written in C++ (Dear ImGui, ImPlot, GLFW) up to 0.39, and called *tsv* up
-to 0.16.
+Built in Rust with [egui](https://github.com/emilk/egui),
+[wgpu](https://wgpu.rs) and [GDAL](https://gdal.org).
