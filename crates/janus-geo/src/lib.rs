@@ -9,6 +9,7 @@ pub mod polygon_file;
 pub mod profiles;
 pub mod reproject;
 pub mod vectors;
+pub mod wayback;
 
 pub use basemap::{Basemap, BasemapSource, Placement};
 pub use reproject::Reprojection;
