@@ -74,6 +74,7 @@ pub(crate) enum Cmd {
     ValidationPanel,
     InterpretSample,
     Chips,
+    InterpretationLayout,
     Accuracy,
     Applicability,
     Help,
@@ -333,6 +334,7 @@ impl State {
         add(Cmd::ValidationPanel, VALIDATION, "Validation panel", "", None);
         add(Cmd::InterpretSample, VALIDATION, "Interpret the sample", "", no_project.clone());
         add(Cmd::Chips, VALIDATION, "Chips", "", None);
+        add(Cmd::InterpretationLayout, VALIDATION, "Interpretation layout", "", None);
         add(Cmd::Accuracy, VALIDATION, "Accuracy and areas", "", no_project);
         add(Cmd::Applicability, VALIDATION, "Area of applicability (AOA)...", "", None);
         // Help
@@ -759,6 +761,7 @@ impl State {
                 self.labels.show = true;
             }
             Cmd::Chips => self.val.show_chips = !self.val.show_chips,
+            Cmd::InterpretationLayout => self.want_interp_layout = true,
             Cmd::Accuracy => {
                 self.val.show = true;
                 self.val.select_tab = Some(1);

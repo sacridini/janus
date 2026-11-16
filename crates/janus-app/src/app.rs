@@ -536,6 +536,12 @@ pub struct State {
     /// files written in the background (Exports window)
     pub exports: Vec<std::sync::Arc<crate::exports::ExportJob>>,
     pub show_exports: bool,
+    /// the dock to be arranged for interpreting (Validation > Interpretation layout; once, on the first
+    /// interpretation of a run)
+    pub(crate) want_interp_layout: bool,
+    pub(crate) interp_layout_done: bool,
+    /// the Chips panel is a tab of the dock (that layout), not a window
+    pub(crate) chips_in_dock: bool,
     pub(crate) measure_vectors: crate::measure_vectors::MeasureVectors,
     /// the Analysis panel's state
     pub analysis: crate::analysis::AnalysisUi,
@@ -800,7 +806,7 @@ impl TabViewer for Tabs<'_> {
                 | Tab::Embeddings
                 | Tab::Validation
                 | Tab::Attributes
-        )
+        ) || (*tab == Tab::Chips && self.s.chips_in_dock)
     }
 
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
@@ -824,6 +830,9 @@ impl TabViewer for Tabs<'_> {
         }
         if *tab == Tab::Attributes {
             self.s.attr_table.show = false;
+        }
+        if *tab == Tab::Chips {
+            self.s.val.show_chips = false;
         }
         egui_dock::tab_viewer::OnCloseResponse::Close
     }
@@ -975,6 +984,9 @@ impl JanusApp {
                 labels: Default::default(),
                 exports: Vec::new(),
                 show_exports: false,
+                want_interp_layout: false,
+                interp_layout_done: false,
+                chips_in_dock: false,
                 measure_vectors: Default::default(),
                 // on from the start, a tab next to the time series
                 analysis: crate::analysis::AnalysisUi::shown(),
@@ -1170,6 +1182,34 @@ impl JanusApp {
                 _ => dock_near(&mut self.dock, Tab::Statistics, &near),
             }
         }
+    }
+
+    /// The dock arranged for interpreting: the Interpretation panel in a column on the right (about 340 points),
+    /// the Chips and the map side by side in the middle (60% and 40%), the time series under them, Layers, Files
+    /// and Display on the left as ever.
+    fn interpretation_layout(&mut self, ctx: &egui::Context) {
+        let st = &mut self.state;
+        st.labels.show = true;
+        st.val.show_chips = true;
+        st.chips_in_dock = true;
+        let left = 0.17;
+        let centre = (ctx.content_rect().width() * (1.0 - left)).max(700.0);
+        let column = (1.0 - 340.0 / centre).clamp(0.5, 0.9);
+        let mut right = vec![Tab::Interpretation];
+        if st.val.show {
+            right.push(Tab::Validation);
+        }
+        let mut d = DockState::new(vec![Tab::Map]);
+        let s = d.main_surface_mut();
+        let [mid, left_node] = s.split_left(NodeIndex::root(), left, vec![Tab::Layers, Tab::Files]);
+        let [_, _] = s.split_below(left_node, 0.42, vec![Tab::Display]);
+        let [mid, _] = s.split_right(mid, column, right);
+        let [top, bottom] = s.split_below(mid, 0.64, vec![Tab::TimeSeries]);
+        let [_, _] = s.split_right(bottom, 0.66, vec![Tab::Statistics]);
+        let [_, _] = s.split_left(top, 0.6, vec![Tab::Chips]);
+        self.dock = d;
+        self.series_layout = None;
+        self.homes.clear();
     }
 
     /// The layout to keep: with the series panels where they would come back.
@@ -1898,8 +1938,10 @@ impl State {
         let n = self.session.as_ref().map_or(0, |s| s.info.t());
         let (left, right, home, end, fit, play, satellite, space, esc) = ctx.input(|i| {
             (
-                i.key_pressed(Key::ArrowLeft),
-                i.key_pressed(Key::ArrowRight),
+                // [ and ] too: with an interpretation going, the arrows are its previous / next point
+                // (interp_shortcuts, which has taken them by now)
+                i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::OpenBracket),
+                i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::CloseBracket),
                 i.key_pressed(Key::Home),
                 i.key_pressed(Key::End),
                 i.key_pressed(Key::F) && i.modifiers.is_none(),
@@ -2593,6 +2635,7 @@ impl eframe::App for JanusApp {
         if act.reset_layout || keys.reset_layout || from_window || cmd == Some(LayoutCmd::Reset) {
             self.dock = default_layout();
             self.series_layout = None;
+            self.state.chips_in_dock = false;
             for w in self.windows.drain(..) {
                 drop(w);
             }
@@ -2600,6 +2643,9 @@ impl eframe::App for JanusApp {
             // the floating windows (Exports, Tasks, Log, Settings) back to their first place and size
             ctx.memory_mut(|m| m.reset_areas());
             ctx.data_mut(|d| d.clear());
+        }
+        if std::mem::take(&mut self.state.want_interp_layout) {
+            self.interpretation_layout(&ctx);
         }
         if self.state.opts.selftest_ui {
             let node = |t: Tab| self.dock.find_tab(&t).filter(|p| p.surface.is_main()).map(|p| format!("{:?}", p.node));
@@ -2624,7 +2670,7 @@ impl eframe::App for JanusApp {
         let s = &self.state;
         // Analysis with the series' panels (on from the start: there whenever a series is open)
         let series_open = s.layers.iter().any(|l| !l.canvas);
-        let shown = [
+        let mut shown = vec![
             (Tab::Embeddings, s.show_embeddings, &[Tab::Display][..]),
             (Tab::Analysis, s.analysis.show && series_open, &[Tab::TimeSeries][..]),
             (Tab::Validation, s.val.show, &[Tab::Statistics, Tab::Interpretation, Tab::Attributes][..]),
@@ -2636,6 +2682,10 @@ impl eframe::App for JanusApp {
                 &[Tab::TimeSeries, Tab::Analysis, Tab::Interpretation, Tab::Validation][..],
             ),
         ];
+        if s.chips_in_dock {
+            // the Chips panel as a tab, next to the map, while its layout is in use (else it is a window)
+            shown.push((Tab::Chips, s.val.show_chips, &[Tab::Map][..]));
+        }
         for (tab, on, near) in shown {
             // a panel in a window of its own is shown there: not docked again in the main window
             let window = self.windows.iter().position(|w| w.dock.find_tab(&tab).is_some());

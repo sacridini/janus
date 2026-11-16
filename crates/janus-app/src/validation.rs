@@ -334,6 +334,8 @@ pub struct ValidationUi {
     /// labels, translations or maps changed
     pub version: u64,
     pub blind: bool,
+    /// blind until labelled: the map's class of a point shown once the point has a label
+    pub reveal: bool,
     /// files of layers the blind mode hid (shown again after)
     pub(crate) hidden: Vec<String>,
     /// 0 state, 1 stratum, 2 the selected map right or wrong
@@ -416,6 +418,7 @@ impl Default for ValidationUi {
             selected: 0,
             version: 1,
             blind: true,
+            reveal: false,
             hidden: Vec::new(),
             color_by: 0,
             interpret_when_open: false,
@@ -858,6 +861,8 @@ impl State {
         } else {
             p.label_set.clone()
         };
+        // projects from before the colours have none: the defaults
+        self.labels.colors = crate::labels::colors_from_hex(&self.labels.classes, &p.label_colors);
         self.labels.entries = vec![Label::default(); p.points.len()];
         if let Some(mine) = p.labels.get(&self.labels.who) {
             for (e, l) in self.labels.entries.iter_mut().zip(mine) {
@@ -903,9 +908,11 @@ impl State {
     /// The label set changed: kept in the project, the new labels' translations guessed for every map.
     pub(crate) fn validation_label_set_changed(&mut self) {
         let classes = self.labels.classes.clone();
+        let colors: Vec<String> = self.labels.colors.iter().map(|&c| crate::labels::color_hex(c)).collect();
         let v = &mut self.val;
         let Some(p) = v.project.as_mut() else { return };
         p.label_set = classes;
+        p.label_colors = colors;
         for k in 0..p.maps.len() {
             let names: Vec<String> = v
                 .data
@@ -923,6 +930,26 @@ impl State {
         }
         v.meta_dirty = true;
         v.version += 1;
+    }
+
+    /// The selected map's class at point `i` and whether the label given to it agrees (None: the label has no
+    /// translation to the map's classes, or a map of events), as the Interpretation panel shows it once the point
+    /// is labelled. None without a map or a value.
+    pub(crate) fn validation_map_class(&self, i: usize, label: &str) -> Option<(String, Option<bool>)> {
+        let p = self.val.project.as_ref()?;
+        let m = p.maps.get(self.val.selected)?;
+        let d = self.val.data.get(self.val.selected).filter(|d| d.values_ready)?;
+        let class = m.rule.class_of(*d.values.get(i)?);
+        if class == val::NONE {
+            return None;
+        }
+        let name = m.rule.class_name(class);
+        let agrees = if m.rule.kind == MapKind::Events || label.is_empty() {
+            None
+        } else {
+            m.mapping.get(label).filter(|t| !t.is_empty()).map(|t| *t == name)
+        };
+        Some((name, agrees))
     }
 
     /// Blind: the maps assessed and the strata are not drawn while interpreting (hidden in the pump); off: shown
@@ -1348,6 +1375,16 @@ impl State {
             self.val.show_chips = !self.val.show_chips;
             ui.close();
         }
+        if ui
+            .button("Interpretation layout")
+            .on_hover_text(
+                "The panels arranged for interpreting: the Interpretation panel in a column on the right, the chips                  and the map side by side, the time series below",
+            )
+            .clicked()
+        {
+            self.want_interp_layout = true;
+            ui.close();
+        }
         ui.separator();
         if ui.add_enabled(open, egui::Button::new("Accuracy and areas")).clicked() {
             self.val.show = true;
@@ -1472,6 +1509,11 @@ impl State {
                 ui.weak(format!("Labelling as {}", self.labels.who));
             }
             ui.checkbox(&mut blind, "Blind");
+            if self.val.blind {
+                ui.checkbox(&mut self.val.reveal, "Reveal the map after labelling").on_hover_text(
+                    "While blind the map assessed stays hidden; once a point has your label, its panel gives the                      map's class there and whether it agrees",
+                );
+            }
             chips = ui
                 .small_button("Chips")
                 .on_hover_text("The point at every date, around it (Validation & uncertainty > Chips)")
