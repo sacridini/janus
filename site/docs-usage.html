@@ -69,6 +69,7 @@
         </ol>
       </li>
       <li><a href="#time-series-analysis-force">Time series analysis (FORCE)</a></li>
+      <li><a href="#analysis-ready-data-force">Analysis-ready data (FORCE)</a></li>
       <li><a href="#classification-random-forest-twdtw-embeddings-som-k-means-networks">Classification (Random Forest, TWDTW, embeddings, SOM, k-means, networks)</a></li>
       <li><a href="#field-delineation-parcels">Field delineation (parcels)</a></li>
       <li><a href="#spectra-hyperspectral">Spectra (hyperspectral)</a></li>
@@ -994,6 +995,96 @@ window: it reads the dates of the active series as its features, so the samples
 are classified on the chain's series instead of the observations.</p>
 <p><code>--window tsa</code> opens the window on the Steps tab (the defaults on the whole
 image); <code>--window tsa-run</code> also runs the chain.</p>
+    </section>
+
+    <section>
+<h2 id="analysis-ready-data-force">Analysis-ready data (FORCE)<a class="anchor" href="#analysis-ready-data-force" aria-label="Link to this section"></a></h2>
+<p><strong>Tools → Analysis-ready data (FORCE)...</strong> is FORCE's Level 2 as a chain: the
+reflectance of each date brought to nadir view, the sensors put on one spectral
+response, and from that harmonized series a product or a sharper series. It runs
+the four tools of the Tools menu that make it, with the parameters their own
+windows hold, in this order:</p>
+<ol>
+<li><strong>NBAR (c-factor)</strong>, on the series' bands by role and the four angle bands (or
+the angles of Sentinel-2's granule metadata): the series of every band;</li>
+<li><strong>Spectral adjustment to Sentinel-2A</strong>, on NBAR's bands (or the series' own when
+NBAR is off): ten bands, Sentinel-2A's;</li>
+<li><strong>Tasseled Cap</strong>, on the harmonized series' six reflective bands: a series per
+component;</li>
+<li><strong>ImproPhe</strong>, with the harmonized series as the fine one and another open series
+(picked in its form) as the coarse one.</li>
+</ol>
+<p>NBAR and the adjustment together are the <strong>harmonized series</strong>. The default is those
+two; a step is a checkbox, and a step the series cannot take (NBAR without angle
+bands or granule metadata, the adjustment or Tasseled Cap without the six
+reflective bands mapped, ImproPhe without a coarse series or in another CRS) is left
+out and said so: the rest of the chain still runs on what is left.</p>
+<p><strong>The series between the steps.</strong> NBAR and the adjustment write <strong>one series per
+band</strong>, and the step after them reads <strong>one series with several bands a date</strong>.
+Between the steps the per-band series are assembled into a multiband series (one VRT
+a date, a band from each file), which is also the chain's output called <em>Harmonized
+series</em> that you open and use in the other tools. What it carries from the series
+the chain started from: each band's role as its description (<code>blue</code>, <code>nir</code>... so
+the roles map by themselves; the adjustment's broad NIR is <code>nir broad</code>), the quality
+band and its rule as the raw series has them (the raw values, cut to the run's
+window), each date's file name and its STAC metadata (platform, items, collection,
+granule metadata, the signature of Planetary Computer's containers), so that each
+date's sensor and angles are found as in the raw series. The angle bands, which NBAR
+consumed, are not carried.</p>
+<p>The window has three tabs:</p>
+<ul>
+<li><strong>Input</strong>: the series (the active layer), its dates, the bands by role (the six
+reflective and the four angles; they are mapped in each tool's own window), the
+quality band, each date's sensor and how many dates have Sentinel-2 granule
+metadata.</li>
+<li><strong>Steps</strong>: the four steps with their parameters (the same fields as the tool's
+window), the reason when the series cannot take one, and <strong>To look at</strong>.</li>
+<li><strong>Output</strong>: the scope (the whole image, the visible area or the ROI), the output
+folder, <strong>Run</strong>, <strong>Copy Python</strong>, the preview, the task's progress and, once it is
+done, <strong>Use in Time series analysis</strong>.</li>
+</ul>
+<p><strong>To look at</strong> reads the dates' files and the parameters of the steps that are on,
+before anything runs: dates with no sensor where a step reads it (the file name or
+the STAC platform say none), Sentinel-2 dates in the spectral adjustment (it takes
+Landsat and MODIS to Sentinel-2A and stops at one), NBAR from granule metadata that
+some dates lack, HLS dates under NBAR (HLS v2 is already normalised), a band shown
+whose values do not fit the units a step is told (digital numbers?), the steps the
+series cannot take, a missing quality band and a chain with nothing on. Each is a
+coloured dot (information, something to look at, something that stops a step); the
+Steps tab shows how many need a look.</p>
+<p><strong>Run</strong> is <strong>one task</strong> (Tools → Tasks), in a folder of its own,
+<code>&lt;series&gt;_ard_&lt;time&gt;</code>, with a subfolder per step that ran (<code>01_nbar</code>,
+<code>02_spectral_adjust</code>, <code>03_tasseled_cap</code>...): each has its <code>job.json</code>, <code>job.log</code>,
+<code>provenance.json</code> and <code>rerun.py</code> and its outputs, and the harmonized series is the
+<code>series</code> folder of the step that made it (the last of NBAR and the adjustment). The
+folder itself has the chain's <code>provenance.json</code> (the steps with their parameters and
+folders, the steps left out and why, the series, the scope, the window, how it ended
+and its outputs; its result layers open it with <strong>Provenance...</strong>, and <strong>Run again
+with these parameters...</strong> turns the same steps and scope on in this window),
+<code>rerun.py</code> and <code>job.log</code>. The series of each band are files only; the harmonized
+series and the series of Tasseled Cap and ImproPhe open as layers, named by their
+step; the active layer does not change.</p>
+<p><strong>Preview on the ROI</strong> runs the chain on the ROI alone, into a folder of its own that
+is removed with the preview, and shows the series at the left of the map's swipe and
+the harmonized series at its right, on the date shown (the preview's window is the
+dashed outline). A preview writes no provenance, as the tools' previews do. <strong>Turn
+the preview off</strong> removes its layers, the swipe and its folder, and so does running
+the chain, another tool's preview or closing the series.</p>
+<p><strong>Copy Python</strong> copies one script that does in Zeit what the chain does on this
+series and scope, even before it runs: Zeit's <code>load_raster</code> reads the series, then NBAR's
+call, the adjustment's, Tasseled Cap's and ImproPhe's, each as the tools' own
+scripts write them, and every result written with <code>save_raster</code> under its step's name. Where the chain
+assembles the per-band series, the script has a DataArray <code>harmonized</code> (NBAR's
+result, or the adjustment's with its ten bands renamed by role): the steps after
+read their bands from it and the quality band and the dates from the raw series, as
+the chain's files carry them. ImproPhe reads the coarse series from its files. A step
+the series cannot take is a comment. It is the same script the run keeps as the
+folder's <code>rerun.py</code>.</p>
+<p><strong>Use in Time series analysis</strong> makes the harmonized series the active layer
+(opening it first if it is not) and opens the <a href="#time-series-analysis-force">Time series analysis</a>
+window on it.</p>
+<p><code>--window ard</code> opens the window on the Steps tab (the defaults on the whole image);
+<code>--window ard-run</code> also runs the chain.</p>
     </section>
 
     <section>

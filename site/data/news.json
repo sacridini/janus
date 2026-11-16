@@ -1,5 +1,19 @@
 [
   {
+    "tag": "v1.19.0",
+    "version": "1.19.0",
+    "date": "2026-11-16",
+    "blocks": [
+      {
+        "ul": [
+          "the Analysis-ready data window (FORCE Level 2, phase 57): NBAR, the spectral adjustment to Sentinel-2A, Tasseled Cap and ImproPhe in one chain, the harmonized multiband series between the steps, To look at, a preview of the chain on the ROI with the swipe against the input series, Use in Time series analysis, provenance and Run again",
+          "the chain's Copy Python through pixel_script (the steps after NBAR or the adjustment read the harmonized series), checked in Zeit",
+          "the steps' runner (chain.rs) shared with the Time series analysis window"
+        ]
+      }
+    ]
+  },
+  {
     "tag": "v1.18.0",
     "version": "1.18.0",
     "date": "2026-11-16",
