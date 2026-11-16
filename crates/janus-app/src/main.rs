@@ -27,6 +27,7 @@ mod cycles;
 mod display;
 mod downloads;
 mod emb_download;
+mod highres;
 mod embeddings;
 mod embeddings_test;
 mod export_map;

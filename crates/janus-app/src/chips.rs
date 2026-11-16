@@ -306,6 +306,8 @@ pub(crate) struct Chips {
     tex_h: usize,
     /// the dates drawn, in the texture's order
     pub dates: Vec<usize>,
+    /// the high-resolution imagery section (highres.rs)
+    pub(crate) hr: crate::highres::HighRes,
 }
 
 impl Default for Chips {
@@ -325,6 +327,7 @@ impl Default for Chips {
             tex_w: 0,
             tex_h: 0,
             dates: Vec::new(),
+            hr: Default::default(),
         }
     }
 }
@@ -425,7 +428,7 @@ impl State {
             }
         }
         let now = ctx.input(|i| i.time);
-        for fi in want {
+        for &fi in &want {
             let Some(&[ax, ay]) = self.vectors[li].anchor.get(fi) else { continue };
             if ax.is_nan() || ax < 0.0 || ay < 0.0 || ax >= info.width as f64 || ay >= info.height as f64 {
                 continue;
@@ -456,6 +459,18 @@ impl State {
             let old = (0..chips.jobs.len()).min_by(|&a, &b| chips.jobs[a].used.total_cmp(&chips.jobs[b].used)).unwrap();
             chips.jobs.remove(old);
         }
+        // the high-resolution imagery of the current point (and the next one's listing)
+        let hr_m = chips.hr.chip_m;
+        let req = |fi: Option<&usize>| {
+            let [ax, ay] = *self.vectors[li].anchor.get(*fi?)?;
+            if ax.is_nan() || ax < 0.0 || ay < 0.0 || ax >= info.width as f64 || ay >= info.height as f64 {
+                return None;
+            }
+            let key = crate::highres::PointKey::new(info.id, ax as usize, ay as usize, hr_m);
+            Some(crate::highres::Req { key, info: info.clone(), anchor: [ax, ay] })
+        };
+        let (cur, next) = (req(want.first()), req(want.get(1)));
+        self.val.chips.hr.pump(ctx, cur, next);
     }
 
     /// The Chips window.
@@ -538,7 +553,15 @@ impl State {
             .filter_map(|j| j.set.clone())
             .find(|s| s.cube == info.id && s.cx == cx && s.cy == cy && s.w == w && s.rgb == rgb.is_some());
         let Some(set) = set else {
-            ui.weak("Reading the dates around the point...");
+            // the imagery does not wait for the dates
+            let (sz, mut grid) = (c.size, c.grid);
+            let key = crate::highres::PointKey::new(info.id, cx, cy, self.val.chips.hr.chip_m);
+            egui::ScrollArea::both().id_salt("chips").auto_shrink(false).show(ui, |ui| {
+                crate::highres::section(ui, &mut self.val.chips.hr, Some(key), sz, &mut grid);
+                ui.weak("Reading the dates around the point...");
+            });
+            self.val.chips.grid = grid;
+            crate::highres::lightbox(ui.ctx(), &mut self.val.chips.hr, grid);
             return;
         };
         // the dates shown: all, or one per year (nearest the map's day of the year)
@@ -652,7 +675,12 @@ impl State {
         let dates = c.dates.clone();
         let (cols, cell, tw, th, r) = (c.cols, c.cell as f32, c.tex_w as f32, c.tex_h as f32, c.radius);
         let mut go: Option<(usize, bool)> = None;
-        let (grid, view) = (c.grid, c.view);
+        let (mut grid, view) = (c.grid, c.view);
+        let hr_key = crate::highres::PointKey::new(info.id, cx, cy, c.hr.chip_m);
+        let layer_name = std::path::Path::new(&info.layers[0].path)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let w_win = (2 * r + 1) as usize;
         // the point's place in the window read: the fraction of its pixel is the anchor's
         let frac = pos2(
@@ -671,7 +699,14 @@ impl State {
             }
         };
         let mut new_view = view;
+        let mut hr_legend = false;
         egui::ScrollArea::both().id_salt("chips").auto_shrink(false).show(ui, |ui| {
+            hr_legend = crate::highres::section(ui, &mut self.val.chips.hr, Some(hr_key), sz, &mut grid);
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.strong(&layer_name);
+                ui.weak(format!("{} dates", dates.len()));
+            });
             // the cards that fit the panel's width (its clip: the Ui's own grows with wide content)
             let width = ui.available_width().min(ui.clip_rect().width());
             let per_row = ((width / (sz + ui.spacing().item_spacing.x)) as usize).max(1);
@@ -716,9 +751,14 @@ impl State {
                     }
                 });
             }
-            ui.add_space(6.0);
-            legend(ui);
+            // the legend is under the imagery's cards when they are there
+            if !hr_legend {
+                ui.add_space(6.0);
+                legend(ui);
+            }
         });
+        self.val.chips.grid = grid;
+        crate::highres::lightbox(ui.ctx(), &mut self.val.chips.hr, grid);
         if new_view != view {
             self.val.chips.view = new_view;
             ui.ctx().request_repaint();
