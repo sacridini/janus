@@ -44,6 +44,7 @@ mod histogram;
 mod history;
 mod inbox;
 mod labels;
+mod labels_year;
 mod layers;
 mod layout_audit;
 mod map;

@@ -69,6 +69,72 @@ fn run_check(python: &str, dir: &Path, code: &str, rep: &mut String) -> Result<V
 /// cropped): their mapped areas against a pixel-by-pixel count; labels that give the class at each date (an event
 /// where it changed); every estimator, and with Python, zeit.transitions on the project's files (the code of the
 /// Copy Python) for each.
+/// The response "one label per year": the mode, the years and the labels by year written, read back, kept when only
+/// some points are saved again; and the plain project still reading by point.
+fn test_by_year(rep: &mut String, dir: &Path, base: &Project) -> Result<(), &'static str> {
+    let mut y = base.clone();
+    y.path = dir.join("yearly.gpkg").to_string_lossy().into_owned();
+    y.response = Response::PerYear;
+    y.years = vec![2018, 2019, 2020];
+    y.labels.clear();
+    let year = |l: &str, c: i32| YearLabel { label: l.into(), confidence: c, updated: now_iso() };
+    let mut ana = vec![Label::default(); y.points.len()];
+    ana[0].years = [(2018, year("Stable", 3)), (2019, year("Deforestation", 2)), (2020, year(YEAR_NA, 0))].into();
+    ana[0].notes = "burnt".into();
+    ana[1].years = [(2018, year("Stable", 1))].into();
+    let mapping = reference_mapping(&y.maps, &y.label_set);
+    for l in &mut ana {
+        l.rederive(&y.years, &mapping);
+    }
+    if ana[0].label != "Deforestation" || ana[0].date != "2019" || !ana[1].label.is_empty() {
+        return Err("the reference derived from the years");
+    }
+    y.labels.insert("ana".into(), ana.clone());
+    if create_project(&y).is_err() {
+        return Err("createProject (by year) failed");
+    }
+    let back = load_project(&y.path).map_err(|_| "loadProject (by year) failed")?;
+    if back.response != Response::PerYear || back.years != y.years || back.labels["ana"] != ana {
+        return Err("the labels by year read back differ");
+    }
+    // one point saved again leaves the others' years alone
+    let mut again = ana[1].clone();
+    again.years.insert(2019, year(YEAR_NA, 0));
+    save_labels(&y.path, "ana", &[(1, again.clone())], &[]).map_err(|_| "saveLabels (by year) failed")?;
+    let back = load_project(&y.path).map_err(|_| "loadProject (by year) failed")?;
+    if back.labels["ana"][1] != again || back.labels["ana"][0] != ana[0] {
+        return Err("a point saved again changed another's years");
+    }
+    // a project made by point has no years
+    if load_project(&base.path).map_err(|_| "loadProject failed")?.response != Response::PerPoint {
+        return Err("the response of a project without the key is by point");
+    }
+    // a project from before the design has no table for the years: it gets one when a year is first labelled
+    let old = dir.join("old.gpkg").to_string_lossy().into_owned();
+    std::fs::copy(&base.path, &old).map_err(|_| "copying the project")?;
+    {
+        let ds = Dataset::open_ex(
+            &old,
+            gdal::DatasetOptions { open_flags: gdal::GdalOpenFlags::GDAL_OF_UPDATE, ..Default::default() },
+        )
+        .map_err(|_| "opening the copy")?;
+        let _ = ds.execute_sql("DROP TABLE labels_by_year", None, gdal::vector::sql::Dialect::DEFAULT);
+        if ds.layer_by_name("labels_by_year").is_ok() {
+            return Err("the table of years was not dropped");
+        }
+    }
+    let older = load_project(&old).map_err(|_| "loadProject (old) failed")?;
+    if !older.labels["ana"][0].years.is_empty() {
+        return Err("an older project has years");
+    }
+    save_labels(&old, "ana", &[(0, ana[0].clone())], &[]).map_err(|_| "saveLabels (new table) failed")?;
+    if load_project(&old).map_err(|_| "loadProject (old) failed")?.labels["ana"][0].years.len() != 3 {
+        return Err("the years of an older project were not kept");
+    }
+    rep.push_str("  one label per year: written, read back, saved again, table added to an older project\n");
+    Ok(())
+}
+
 fn test_transitions(
     rep: &mut String,
     dir: &Path,
@@ -676,6 +742,7 @@ pub fn self_test(rep: &mut String, python: Option<&str>) -> Result<(), &'static 
         _ => return Err("readLabels (merge) failed"),
     }
     rep.push_str(&format!("  project: {} points, 2 interpreters, written and read back\n", back.points.len()));
+    test_by_year(rep, &dir, &back)?;
 
     // the estimates of the labelled project, then (with Python) zeit.accuracy on its files
     back.labels.remove(ADJUDICATED);

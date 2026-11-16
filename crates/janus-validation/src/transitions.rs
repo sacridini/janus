@@ -163,6 +163,8 @@ pub fn prepare_transitions(
     let (Some(mf), Some(mt)) = (p.maps.get(t.from), p.maps.get(t.to)) else { return o };
     let (rf, rt) = (&mf.rule, &mt.rule);
     let n = p.points.len();
+    // the points answered year by year read with the first map's translation
+    let labels = crate::labels::for_mapping(&p.labels, &p.years, &mf.mapping);
     // the maps' classes by name
     let names_of = |r: &MapRule, values: &[f64], keys: &mut Vec<i32>| {
         let mut s: std::collections::BTreeSet<i32> = keys.iter().copied().collect();
@@ -222,7 +224,7 @@ pub fn prepare_transitions(
         if a != NONE && b != NONE {
             o.prep.input.map[i] = idx_of_pair.get(&(a, b)).copied();
         }
-        let (l, conflict) = resolve(&p.labels, i);
+        let (l, conflict) = resolve(&labels, i);
         let Some(l) = l else {
             if conflict {
                 o.prep.conflicts += 1;

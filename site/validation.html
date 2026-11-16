@@ -253,10 +253,13 @@
             <tr><td><kbd>D</kbd></td><td>The date of the change is the date on the map (double click a chip does the same). <kbd>Shift</kbd>+<kbd>D</kbd> clears it.</td></tr>
             <tr><td><kbd>Q</kbd> / <kbd>W</kbd> / <kbd>E</kbd></td><td>Confidence: low, medium, high (also <kbd>Shift</kbd>+<kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd>).</td></tr>
             <tr><td><kbd>Shift</kbd>+<kbd>E</kbd></td><td>Another event at the map's date: a point degraded in 2019, then cleared in 2022, keeps both.</td></tr>
+            <tr><td><kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd></td><td>With <em>one label per year</em>: the next / previous year to label, and the map goes to that year's date (<kbd>D</kbd> and <kbd>Shift</kbd>+<kbd>E</kbd> give way to the years).</td></tr>
           </tbody>
         </table>
       </div>
       <p>Label what is on the ground, not what the map says: the class, and for a change the date it shows up. Labels are written to the GeoPackage a second after each change, so closing Janus loses nothing. If an image cannot tell (clouds, a pixel on an edge), say so with <em>Cloud / no data</em> or <em>Other</em> and a note: those points are left out of the estimates, and the report counts them.</p>
+            <h3>One label per point, or one per year</h3>
+      <p>The <span class="ui">Response</span> of a design is <em>one label per point</em> (a class and the date of the change) or <em>one label per year</em>, as in Validation Viewer: the Validation card shows a bar of years (by default the years of the cube's dates; type them as <code>2018-2023</code>, <code>2017, 2019, 2021-2024</code> or <code>2000-2020/5</code>), each with its class and its confidence, and <span class="ui">n/a</span> for a year that cannot be judged. <kbd>Tab</kbd> moves to the next year and the map to its date; a point is <em>validated</em> when every year has an answer, and the notes stay by point. The estimates read each point as before: if some year has a label that the map's translation calls change, the label of the first such year dated that year, else the last class; a point with a year left open has no reference yet. Export gives a row for each point and year (CSV) and <code>v_class_&lt;year&gt;</code> / <code>v_conf_&lt;year&gt;</code> columns (GeoPackage). Projects made before this open as one label per point.</p>
       <div class="note">
         <p class="h">Chips</p>
         <p>The chips use the active layer's colours, or its RGB composite. <em>One per year</em> keeps the date nearest the map's day of the year when the series has many dates. The next points' chips are read ahead, so moving on with <kbd>N</kbd> is immediate.</p>

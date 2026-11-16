@@ -336,6 +336,9 @@ pub struct ValidationUi {
     pub blind: bool,
     /// blind until labelled: the map's class of a point shown once the point has a label
     pub reveal: bool,
+    /// the response of a new design: one label per point, or per year (of `design_years`, empty: the cube's)
+    pub design_response: val::Response,
+    pub design_years: String,
     /// files of layers the blind mode hid (shown again after)
     pub(crate) hidden: Vec<String>,
     /// 0 state, 1 stratum, 2 the selected map right or wrong
@@ -419,6 +422,8 @@ impl Default for ValidationUi {
             version: 1,
             blind: true,
             reveal: false,
+            design_response: val::Response::PerPoint,
+            design_years: String::new(),
             hidden: Vec::new(),
             color_by: 0,
             interpret_when_open: false,
@@ -464,7 +469,7 @@ impl ValidationUi {
 
 /// The sample as a vector layer's data: a point per sample, its id the only field (the stratum stays out of sight:
 /// blind interpretation).
-fn samples_data(p: &Project) -> VectorData {
+pub(crate) fn samples_data(p: &Project) -> VectorData {
     VectorData {
         path: p.path.clone(),
         layer: "samples".into(),
@@ -869,6 +874,52 @@ impl State {
                 *e = l.clone();
             }
         }
+        // the response: by year, with the project's years (the cube's when it has none yet)
+        self.labels.response = p.response;
+        self.labels.years = p.years.clone();
+        self.interp_fill_years();
+    }
+
+    /// The response or the years of the interpretation changed: kept in the project, the references derived from
+    /// the years of every interpreter made again (and written).
+    pub(crate) fn validation_response_changed(&mut self) {
+        let (response, years) = (self.labels.response, self.labels.years.clone());
+        if self.val.project.is_none() {
+            return;
+        }
+        self.validation_save_labels();
+        let v = &mut self.val;
+        let p = v.project.as_mut().unwrap();
+        if p.response == response && p.years == years {
+            return;
+        }
+        (p.response, p.years) = (response, years);
+        let mapping = val::reference_mapping(&p.maps, &p.label_set);
+        let mut changed: Vec<(String, Vec<(usize, Label)>)> = Vec::new();
+        if p.response == val::Response::PerYear {
+            let py = p.years.clone();
+            for (who, ls) in p.labels.iter_mut() {
+                let mut rows = Vec::new();
+                for (i, l) in ls.iter_mut().enumerate().filter(|(_, l)| !l.years.is_empty()) {
+                    let before = (l.label.clone(), l.date.clone());
+                    l.rederive(&py, &mapping);
+                    if before != (l.label.clone(), l.date.clone()) {
+                        rows.push((i, l.clone()));
+                    }
+                }
+                if !rows.is_empty() {
+                    changed.push((who.clone(), rows));
+                }
+            }
+        }
+        for (who, rows) in changed {
+            let finals: Vec<val::FinalRef> = rows.iter().map(|(i, _)| final_ref(p, *i)).collect();
+            let path = p.path.clone();
+            v.tasks
+                .push_back(Box::new(move || val::save_labels(&path, &who, &rows, &finals).err().unwrap_or_default()));
+        }
+        v.meta_dirty = true;
+        v.version += 1;
     }
 
     /// A label given: into the project (saved a second later).
@@ -1008,19 +1059,20 @@ impl State {
             return (-1, "That file is not a copy of this project (another sample).".into());
         }
         let mut taken = 0;
+        let mapping = val::reference_mapping(&p.maps, &p.label_set);
         for (w, l) in other {
             let n = p.points.len();
             let mine = p.labels.entry(w.clone()).or_default();
             mine.resize(n, Label::default());
             let mut rows = Vec::new();
             for (i, x) in l.iter().enumerate() {
-                if x.is_empty() {
-                    continue;
+                // the newer of each point and, by year, of each year
+                let Some(mut m) = val::merge_label(&mine[i], x) else { continue };
+                if !m.years.is_empty() {
+                    m.rederive(&p.years, &mapping);
                 }
-                if mine[i].is_empty() || x.updated > mine[i].updated {
-                    mine[i] = x.clone();
-                    rows.push((i, x.clone()));
-                }
+                mine[i] = m.clone();
+                rows.push((i, m));
             }
             if rows.is_empty() {
                 continue;
@@ -1537,7 +1589,9 @@ impl State {
         });
         // others' labels of this point (all of them when adjudicating; after one's own label otherwise)
         if let Some(i) = self.labels.current.filter(|&i| i < p.points.len()) {
-            let mine_given = !self.labels.entries.get(i).is_none_or(|e| e.label.is_empty());
+            let mine_given = self.labels.entries.get(i).is_some_and(|e| self.labels.done(e));
+            let by_year = self.labels.by_year();
+            let years = self.labels.years.clone();
             let others: Vec<(&String, &Label)> = p
                 .labels
                 .iter()
@@ -1548,7 +1602,11 @@ impl State {
                 egui::Grid::new("others").striped(true).show(ui, |ui| {
                     for (w, l) in &others {
                         ui.weak(*w);
-                        ui.label(&l.label);
+                        if by_year {
+                            ui.label(crate::labels_year::summary(l, &years));
+                        } else {
+                            ui.label(&l.label);
+                        }
                         ui.label(&l.date);
                         ui.weak(&l.notes);
                         ui.end_row();
@@ -1566,7 +1624,7 @@ impl State {
         }
         if todo {
             let l = &mut self.labels;
-            l.filter = (0..l.entries.len()).filter(|&i| l.entries[i].label.is_empty()).collect();
+            l.filter = (0..l.entries.len()).filter(|&i| !l.done(&l.entries[i])).collect();
             l.filter_name = format!("{} not labelled by {}", l.filter.len(), l.who);
             if let Some(&f) = l.filter.first() {
                 self.interp_go(f);
