@@ -33,7 +33,14 @@ pub struct ValShots {
     report: Option<Arc<ExportJob>>,
     /// the stage's screenshot taken (what the stage changes next comes after it)
     shot: bool,
+    /// the interpretation stage's steps: 0 the screen, 1 its screenshot, 2 the lightbox, 3 its screenshot, 4 done
+    phase: u8,
+    /// the frame of the stage the phase began in
+    phase_at: usize,
 }
+
+/// The longest the interpretation stage waits for Wayback's imagery (a tour without a network goes on).
+const WAYBACK_WAIT: f64 = 120.0;
 
 /// The NBR, (NIR - SWIR2) / (NIR + SWIR2) (bands 4 and 6), of each composite at each point (x, y in the CRS
 /// `wkt`); NaN without a clear observation.
@@ -186,7 +193,9 @@ impl State {
             Some(1)
         };
         let t = sh.time();
-        if t > 120.0 {
+        // the interpretation stage waits for the imagery, and the lightbox's, on top of the usual
+        let limit = if sh.stage == 8 { WAYBACK_WAIT * 2.0 + 60.0 } else { 120.0 };
+        if t > limit {
             return fail(sh, "timeout");
         }
         let data = PathBuf::from(&sh.input);
@@ -431,14 +440,15 @@ impl State {
                     self.interp_go(ex);
                     sh.val.example_t = self.shots_year_index(sh.val.years[ex] / 10);
                     self.set_date(sh.val.example_t);
+                    // the interpretation's own arrangement (the automatic one is skipped in a tour)
+                    self.want_interp_layout = true;
+                    sh.val.phase = 0;
+                    sh.val.phase_at = 0;
                     return None;
                 }
                 let ex = sh.val.example?;
                 if sh.frames == 3 {
                     sh.focus.push(Tab::Interpretation);
-                }
-                if sh.frames == 4 {
-                    sh.focus.push(Tab::Chips);
                 }
                 if t < 3.0 {
                     return None;
@@ -449,22 +459,99 @@ impl State {
                     self.interp_set_confidence(3);
                     return None;
                 }
-                if !self.shots_val_quiet() || !self.val.chips.has_texture() || t < 5.0 {
-                    return None;
+                match sh.val.phase {
+                    0 => {
+                        // the cube's chips drawn, the quiet app and the imagery of the point (or the time's up)
+                        let wayback = self.val.chips.hr.shots_settled() == Some(true);
+                        if !self.shots_val_quiet() || !self.val.chips.has_texture() || t < 5.0 {
+                            return None;
+                        }
+                        if !wayback {
+                            if t < WAYBACK_WAIT {
+                                return None;
+                            }
+                            if sh.val.phase_at == 0 {
+                                println!("    Wayback not ready");
+                            }
+                        }
+                        // one more frame for the textures just made to be drawn
+                        if sh.val.phase_at == 0 {
+                            sh.val.phase_at = sh.frames;
+                            return None;
+                        }
+                        if sh.frames < sh.val.phase_at + 3 {
+                            return None;
+                        }
+                        sh.shoot(
+                            "06-interpretation",
+                            &[
+                                ("panel", Shots::tab(Tab::Interpretation)),
+                                ("chips", Shots::tab(Tab::Chips)),
+                                ("chart", Shots::tab(Tab::TimeSeries)),
+                            ],
+                        );
+                        sh.val.phase = 1;
+                        sh.val.phase_at = sh.frames;
+                    }
+                    1 => {
+                        // the lightbox at the year of the change (else the first year with an image)
+                        if sh.frames < sh.val.phase_at + 5 {
+                            return None;
+                        }
+                        let year = sh.val.years[ex] / 10;
+                        if self.val.chips.hr.shots_open_lightbox(ctx, year) {
+                            sh.val.phase = 2;
+                            sh.val.phase_at = sh.frames;
+                            sh.val.shot = false;
+                            ctx.request_repaint();
+                        } else {
+                            println!("    no Wayback image to open in the lightbox");
+                            sh.val.phase = 4;
+                        }
+                    }
+                    2 => {
+                        if !sh.val.shot {
+                            // the image at its finest drawn (or the time's up)
+                            if !self.val.chips.hr.shots_lightbox_ready() {
+                                if sh.time() < WAYBACK_WAIT * 2.0 {
+                                    return None;
+                                }
+                                println!("    Wayback not ready (the lightbox)");
+                            }
+                            sh.val.shot = true;
+                            sh.val.phase_at = sh.frames;
+                            return None;
+                        }
+                        if sh.frames < sh.val.phase_at + 4 {
+                            return None;
+                        }
+                        sh.shoot("06-interpretation-lightbox", &[]);
+                        sh.val.phase = 3;
+                        sh.val.phase_at = sh.frames;
+                    }
+                    3 => {
+                        if sh.frames < sh.val.phase_at + 5 {
+                            return None;
+                        }
+                        self.val.chips.hr.shots_close_lightbox();
+                        sh.val.phase = 4;
+                        sh.val.phase_at = sh.frames;
+                    }
+                    _ => {
+                        if sh.frames < sh.val.phase_at + 3 {
+                            return None;
+                        }
+                        // the dock the next stages use
+                        self.chips_in_dock = false;
+                        sh.layout = Some((vec![Tab::Validation, Tab::Interpretation], vec![Tab::Chips]));
+                        sh.focus.push(Tab::Validation);
+                        sh.next(&format!(
+                            "point {} interpreted: deforestation in {}",
+                            ex + 1,
+                            label_of(self, sh.val.example_t)
+                        ));
+                    }
                 }
-                sh.shoot(
-                    "06-interpretation",
-                    &[
-                        ("panel", Shots::tab(Tab::Interpretation)),
-                        ("chips", Shots::tab(Tab::Chips)),
-                        ("chart", Shots::tab(Tab::TimeSeries)),
-                    ],
-                );
-                sh.next(&format!(
-                    "point {} interpreted: deforestation in {}",
-                    ex + 1,
-                    label_of(self, sh.val.example_t)
-                ));
             }
             9 => {
                 // every point labelled (by the rule), then the accuracy
@@ -563,7 +650,11 @@ impl State {
                 sh.next("the points right or wrong over the map");
             }
             14 => {
-                // a second map, assessed with the same sample
+                // a second map, assessed with the same sample (MapBiomas' bucket answers 403 since 2026-11-04)
+                if !PathBuf::from(&mapbiomas).exists() {
+                    sh.next("MapBiomas missing: 12-maps left as it is");
+                    return None;
+                }
                 if sh.frames == 1 {
                     let mut rule = crate::validation::file_rule(&mapbiomas);
                     rule.kind = val::MapKind::Events;
