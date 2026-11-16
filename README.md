@@ -23,7 +23,7 @@
   <a href="https://sacridini.github.io/janus/news.html">News</a>
 </p>
 
-![Janus interpreting a validation point: image cards of every date and Esri Wayback's image of every year, the Sentinel-2 map, the point's NBR series and the label panel](docs/screenshot.jpg)
+![Janus: an annual Landsat NDVI cube of Rondônia, a pin's series with LandTrendr fitted on the chart, its statistics, and the tool's parameters](docs/screenshot.jpg)
 
 Janus is a desktop program to look at satellite imagery through time: find
 where, when and by how much the land changed, and measure how far your map can
