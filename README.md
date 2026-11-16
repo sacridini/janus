@@ -70,7 +70,9 @@ which ships with Janus: there is nothing else to install. Its command line is `j
   intervals, dates of change, the agreement of several maps, a buffer around
   change), sample size and allocation, a stratified random sample in a
   GeoPackage project, blind interpretation of its points with chips of every
-  date, and the accuracy and **error-adjusted areas ± confidence intervals**
+  date and a high-resolution image of every year (Esri Wayback, after
+  Validation Viewer; one label per point or per year, or the fraction of
+  each class), and the accuracy and **error-adjusted areas ± confidence intervals**
   of every map assessed with it (LandTrendr × CCDC × BFAST × MapBiomas...),
   live as labels come; several interpreters, kappa and adjudication; an HTML
   report and the matching `zeit.accuracy` code. Step by step, with

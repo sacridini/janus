@@ -2353,6 +2353,12 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   NDFI/tmask/CODED sem máscara, o CCDC com NaN, a escala da calculadora com bandas de escalas diferentes.
 - 1.17.2: a 1.17.1 publicada (a tag dela falhou no teste do Linux, que dependia de onde o script quebra a
   linha, e o release não saiu), com os clipes do site e o passo do macOS montando o .dmg num diretório fixo.
+- 1.18.0: a tela de interpretação da validação no estilo do Validation Viewer (Dr. Matthias Baumann, HU
+  Berlin): painel em cartões, arranjo próprio, cartões grandes com pixel, subgrade e ponto, combos
+  RGB/CIR/SWIR, imagens Esri Wayback por ano com lightbox, pré-busca, cache e modo offline, um rótulo por
+  ano e fração de cobertura (o Google Earth histórico ficou de fora pelos termos de uso). Também: Level 1C
+  para reflectância de superfície (FORCE) como ferramenta, o plugin JPEG 2000 do GDAL nos pacotes, os
+  embeddings compactos (int8) do Zeit, e o crash do mimalloc com memória entregue ao GDAL.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
