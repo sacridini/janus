@@ -32,6 +32,116 @@ pub struct YearLabel {
     pub updated: String,
 }
 
+/// The cover fractions painted over the pixel in one year (Validation Viewer's "Fraction cover"): an n x n grid
+/// of cells, each the index of a class of the label set or `NO_CELL`. Fraction cover follows Validation Viewer by
+/// Dr. Matthias Baumann (Humboldt-Universität zu Berlin), https://scm.cms.hu-berlin.de/baumamat/validationviewer,
+/// GPL-2.0-or-later, used under GPL-3.0-or-later.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Fractions {
+    pub n: usize,
+    /// n x n class indices, row by row from the top left; `NO_CELL` = not labelled
+    pub cells: Vec<i32>,
+    /// UTC, ISO 8601
+    pub updated: String,
+}
+
+/// A cell with no class.
+pub const NO_CELL: i32 = -1;
+
+impl Fractions {
+    pub fn new(n: usize) -> Fractions {
+        Fractions { n, cells: vec![NO_CELL; n * n], updated: String::new() }
+    }
+
+    /// Paints cell (col, row) with `class` (`NO_CELL` erases); false when outside the grid or already so.
+    pub fn set(&mut self, col: usize, row: usize, class: i32) -> bool {
+        if col >= self.n || row >= self.n || self.cells.len() != self.n * self.n {
+            return false;
+        }
+        let c = &mut self.cells[row * self.n + col];
+        if *c == class {
+            return false;
+        }
+        *c = class;
+        true
+    }
+
+    pub fn get(&self, col: usize, row: usize) -> i32 {
+        if col >= self.n || row >= self.n {
+            NO_CELL
+        } else {
+            self.cells.get(row * self.n + col).copied().unwrap_or(NO_CELL)
+        }
+    }
+
+    /// How many cells have a class.
+    pub fn labelled(&self) -> usize {
+        self.cells.iter().filter(|&&c| c >= 0).count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.labelled() == 0
+    }
+
+    /// Every cell has a class.
+    pub fn is_full(&self) -> bool {
+        self.n > 0 && self.labelled() == self.n * self.n
+    }
+
+    /// The cells of each of `classes` classes (cells of a class beyond them are not counted).
+    pub fn counts(&self, classes: usize) -> Vec<usize> {
+        let mut v = vec![0; classes];
+        for &c in &self.cells {
+            if c >= 0 && (c as usize) < classes {
+                v[c as usize] += 1;
+            }
+        }
+        v
+    }
+
+    /// The class with most cells (the lowest index on a tie); None when nothing is painted.
+    pub fn majority(&self, classes: usize) -> Option<usize> {
+        let v = self.counts(classes);
+        let max = *v.iter().max()?;
+        if max == 0 { None } else { v.iter().position(|&c| c == max) }
+    }
+
+    /// The same painting on a grid of `n` cells a side: each new cell takes the class of the old cell at its centre.
+    pub fn resampled(&self, n: usize) -> Fractions {
+        if n == self.n || self.n == 0 || self.cells.len() != self.n * self.n {
+            return if n == self.n {
+                self.clone()
+            } else {
+                Fractions { updated: self.updated.clone(), ..Fractions::new(n) }
+            };
+        }
+        let mut out = Fractions::new(n);
+        out.updated = self.updated.clone();
+        for r in 0..n {
+            for c in 0..n {
+                let (oc, or) = (c * self.n * 2 + self.n, r * self.n * 2 + self.n);
+                out.cells[r * n + c] = self.get(oc / (2 * n), or / (2 * n));
+            }
+        }
+        out
+    }
+
+    /// "0,1,-1,..." as stored.
+    pub fn cells_text(&self) -> String {
+        self.cells.iter().map(i32::to_string).collect::<Vec<_>>().join(",")
+    }
+
+    /// Reads `cells_text`; None unless there are n x n numbers.
+    pub fn from_text(n: usize, text: &str, updated: &str) -> Option<Fractions> {
+        let cells: Vec<i32> = text.split(',').map(|s| s.trim().parse().ok()).collect::<Option<_>>()?;
+        (n > 0 && cells.len() == n * n).then(|| Fractions {
+            n,
+            cells: cells.into_iter().map(|c| c.max(NO_CELL)).collect(),
+            updated: updated.to_string(),
+        })
+    }
+}
+
 /// How a point is answered: one label (and the date of the change), or one label for each year of a list.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Response {
@@ -70,11 +180,14 @@ pub struct Label {
     /// one label per year (the design "one label per year"); then `label` and `date` hold the reference derived
     /// from them (`derive`), so what reads the plain label (older versions, the samples layer) still works
     pub years: BTreeMap<i32, YearLabel>,
+    /// the cover fractions painted, by the year of the image painted over
+    pub fractions: BTreeMap<i32, Fractions>,
 }
 
 impl Label {
     pub fn is_empty(&self) -> bool {
         self.years.is_empty()
+            && self.fractions.is_empty()
             && self.label.is_empty()
             && self.date.is_empty()
             && self.notes.is_empty()
@@ -96,6 +209,11 @@ impl Label {
                 .map(|(y, l)| {
                     (y.to_string(), json!({"label": l.label, "confidence": l.confidence, "updated": l.updated}))
                 })
+                .collect::<serde_json::Map<String, Value>>(),
+            "fractions": self
+                .fractions
+                .iter()
+                .map(|(y, f)| (y.to_string(), json!({"n": f.n, "cells": f.cells_text(), "updated": f.updated})))
                 .collect::<serde_json::Map<String, Value>>(),
         })
     }
@@ -123,7 +241,35 @@ impl Label {
                     Some((y, l))
                 })
                 .collect(),
+            fractions: j
+                .get("fractions")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+                .filter_map(|(y, f)| {
+                    let n = f.get("n").and_then(Value::as_u64)? as usize;
+                    let cells = Fractions::from_text(n, &str_of(f, "cells"), &str_of(f, "updated"))?;
+                    Some((y.trim().parse::<i32>().ok()?, cells))
+                })
+                .collect(),
         }
+    }
+
+    /// The class of the label set that has most cells in the last year painted (None: nothing painted).
+    pub fn fraction_class<'a>(&self, label_set: &'a [String]) -> Option<&'a str> {
+        let (_, f) = self.fractions.iter().rev().find(|(_, f)| !f.is_empty())?;
+        f.majority(label_set.len()).map(|i| label_set[i].as_str())
+    }
+
+    /// The label the cells stand for once some year has every cell painted: the majority class of the last year
+    /// painted (the latest year with a cell). None until then.
+    pub fn fraction_reference<'a>(&self, label_set: &'a [String]) -> Option<&'a str> {
+        if self.fraction_done() { self.fraction_class(label_set) } else { None }
+    }
+
+    /// Some year has every cell painted.
+    pub fn fraction_done(&self) -> bool {
+        self.fractions.values().any(Fractions::is_full)
     }
 
     /// Every year of `years` has a label (or "n/a").
@@ -342,6 +488,12 @@ pub fn merge_label(mine: &Label, theirs: &Label) -> Option<Label> {
                 m.years.insert(*y, x.clone());
             }
         }
+        m.fractions = mine.fractions.clone();
+        for (y, x) in &theirs.fractions {
+            if mine.fractions.get(y).is_none_or(|v| x.updated > v.updated) {
+                m.fractions.insert(*y, x.clone());
+            }
+        }
         m
     };
     (merged != *mine).then_some(merged)
@@ -463,5 +615,71 @@ mod tests {
         // json round trip
         assert_eq!(Label::from_json(&l.to_json()), l);
         assert!(!l.is_empty());
+    }
+
+    #[test]
+    fn fraction_cover() {
+        let set: Vec<String> = ["Forest", "Water", "Soil"].map(String::from).into();
+        let mut f = Fractions::new(3);
+        assert!(f.is_empty() && !f.is_full() && f.majority(3).is_none());
+        assert!(f.set(0, 0, 1) && !f.set(0, 0, 1) && !f.set(3, 0, 1));
+        for c in 0..3 {
+            f.set(c, 2, 2);
+        }
+        f.set(1, 1, 0);
+        assert_eq!(f.counts(3), vec![1, 1, 3]);
+        assert_eq!(f.labelled(), 5);
+        assert_eq!(f.majority(3), Some(2));
+        assert!(f.set(0, 0, NO_CELL) && f.get(0, 0) == NO_CELL);
+        // a tie goes to the lowest index
+        let mut t = Fractions::new(2);
+        t.set(0, 0, 2);
+        t.set(1, 0, 1);
+        assert_eq!(t.majority(3), Some(1));
+        // text round trip, and a wrong size
+        let back = Fractions::from_text(3, &f.cells_text(), "u").unwrap();
+        assert_eq!(back.cells, f.cells);
+        assert!(Fractions::from_text(3, "0,1", "").is_none() && Fractions::from_text(2, "a,b,c,d", "").is_none());
+        // the reference of a point: the majority of the last year painted
+        let mut l = Label::default();
+        let mut older = Fractions::new(2);
+        older.set(0, 0, 0);
+        let mut newer = Fractions::new(2);
+        newer.set(0, 0, 1);
+        newer.set(1, 0, 1);
+        newer.set(0, 1, 0);
+        l.fractions.insert(2015, older);
+        l.fractions.insert(2020, newer);
+        l.fractions.insert(2022, Fractions::new(2));
+        assert_eq!(l.fraction_class(&set), Some("Water"));
+        assert!(!l.fraction_done() && !l.is_empty());
+        l.fractions.get_mut(&2020).unwrap().set(1, 1, 1);
+        assert!(l.fraction_done());
+        assert_eq!(l.fraction_reference(&set), Some("Water"));
+        assert_eq!(Label::default().fraction_reference(&set), None);
+        // another grid: each new cell takes the class at its centre
+        let mut g = Fractions::new(2);
+        g.set(0, 0, 1);
+        g.set(1, 1, 2);
+        let big = g.resampled(4);
+        assert_eq!(
+            (big.get(0, 0), big.get(1, 1), big.get(2, 0), big.get(3, 3), big.get(0, 3)),
+            (1, 1, NO_CELL, 2, NO_CELL)
+        );
+        assert_eq!(big.resampled(2).cells, g.cells);
+        assert_eq!(g.resampled(2), g);
+        assert_eq!(Label::from_json(&l.to_json()), l);
+        // merging: the newer painting of each year
+        let mut a = l.clone();
+        let mut b = Label::default();
+        let mut y = Fractions::new(2);
+        y.set(0, 0, 2);
+        y.updated = "2030".into();
+        b.fractions.insert(2020, y);
+        b.updated = "2030".into();
+        a.fractions.get_mut(&2020).unwrap().updated = "2026".into();
+        let m = merge_label(&a, &b).unwrap();
+        assert_eq!(m.fractions[&2020].get(0, 0), 2);
+        assert_eq!(m.fractions[&2015].get(0, 0), 0);
     }
 }

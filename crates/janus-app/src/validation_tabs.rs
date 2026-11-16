@@ -1907,6 +1907,41 @@ impl State {
                     },
                 )?;
             }
+            if p.fraction || crate::fraction::any_fractions(p.labels.values().flatten()) {
+                // fraction cover: a row for each point, year and interpreter, and the points as a GeoPackage with the
+                // fractions of the latest year painted
+                let data = crate::validation::samples_data(p);
+                let pl = Placer::lon_lat(&data);
+                let mut rows: Vec<(usize, crate::labels_year::YearPoint)> = Vec::new();
+                for (who, ls) in &p.labels {
+                    for (i, l) in ls.iter().enumerate().filter(|(_, l)| !l.fractions.is_empty()) {
+                        let lon_lat = p.points.get(i).and_then(|q| pl.to_lon_lat(q.x, q.y));
+                        let pid = p.points.get(i).map_or(i + 1, |q| q.id as usize).to_string();
+                        rows.push((i, crate::labels_year::YearPoint { pid, lon_lat, interpreter: who, label: l }));
+                    }
+                }
+                rows.sort_by_key(|r| r.0);
+                let rows: Vec<crate::labels_year::YearPoint> = rows.into_iter().map(|r| r.1).collect();
+                let stem = std::path::Path::new(&p.path)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                write(
+                    &format!("{stem}_fractions.csv"),
+                    &crate::fraction::fractions_csv(&rows, &p.label_set, &csv_field),
+                )?;
+                let names = crate::fraction::frac_columns(&p.label_set);
+                let gpkg = dir.join("labels_fractions.gpkg").to_string_lossy().into_owned();
+                // the adjudicated painting of the point, else the first interpreter's
+                let of = |i: usize| {
+                    let mut who: Vec<&String> = p.labels.keys().collect();
+                    who.sort_by_key(|w| w.as_str() != val::ADJUDICATED);
+                    who.into_iter().find_map(|w| p.labels[w].get(i).filter(|l| !l.fractions.is_empty()))
+                };
+                write_vector_table(&gpkg, &data, &names, &|i, k| {
+                    of(i).map_or(String::new(), |l| crate::fraction::frac_value(l, &p.label_set, k))
+                })?;
+            }
             let mut h = String::from(
                 "<!doctype html><html><head><meta charset=\"utf-8\"><title>Validation report</title><style>\
                  body{font-family:system-ui,sans-serif;max-width:980px;margin:24px auto;padding:0 16px;color:#222}\

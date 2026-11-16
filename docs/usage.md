@@ -411,7 +411,7 @@ Claude Desktop (`claude_desktop_config.json`):
 | Save ROI as vector | View → **Save ROI as vector...** (or the command palette): the ROI (a rectangle or a polygon, holes kept) as a GeoPackage (`.gpkg`), GeoJSON (`.geojson`) or shapefile (`.shp`, its text in UTF-8), by the name's extension, in the active layer's CRS (a GeoJSON in WGS 84 when the CRS has no EPSG code, as RFC 7946 asks), a feature with `name`, `layer` and `pixels`; *Open it as a vector layer* adds it to the map. **Alt + click** it later makes the same ROI again, the same pixels inside. A project (File → Save project) keeps the ROI too |
 | Vector layers | File → Add vector layer..., the **Layers** panel (*Add vector layer...*), a drop or the command line: GeoJSON, Shapefile, GeoPackage (each of its layers), KML, FlatGeobuf, GML, GPX or a CSV of points; listed in the **Layers** panel with the series (a new one on top): show/hide, colour, labels (a column's values on the map), move, remove; right click → Zoom to it, Attribute table, Extract series, Interpret. Hovering a point shows its attributes (lines and polygons: hold `Alt`); see [Vector layers](#vector-layers) |
 | Series at points or polygons | a vector layer → **Extract series...**: the active layer or every visible one, a row per feature (a column per date) or a row per feature and date; CSV |
-| Interpretation (labelling) | a vector layer → **Interpret...** (the **Interpretation** panel): `←` / `→` (or `N` / `Shift+N`, Page Down / Page Up) next / previous feature, `O` the next without a label, `1`–`9` its label, `0` clears it, `D` the date of the change (the date on the map), `Shift+D` none, `Q` / `W` / `E` the confidence, `Shift+E` another event, `[` / `]` the date on the map; notes; *Export table...*; with *Response: one label per year* (Validation design or the panel's *Response*): a bar of years (default: the cube's years; or `2018-2023`, `2017, 2019, 2021-2024`, `2000-2020/5`), class and confidence per year, *n/a*, `Tab` / `Shift+Tab` the next / previous year, validated when every year has one; a row per point and year on export |
+| Interpretation (labelling) | a vector layer → **Interpret...** (the **Interpretation** panel): `←` / `→` (or `N` / `Shift+N`, Page Down / Page Up) next / previous feature, `O` the next without a label, `1`–`9` its label, `0` clears it, `D` the date of the change (the date on the map), `Shift+D` none, `Q` / `W` / `E` the confidence, `Shift+E` another event, `[` / `]` the date on the map; with *Fraction cover* (Validation card): drag over the pixel's cells on an image to paint, right-drag or `X` erases; notes; *Export table...*; with *Response: one label per year* (Validation design or the panel's *Response*): a bar of years (default: the cube's years; or `2018-2023`, `2017, 2019, 2021-2024`, `2000-2020/5`), class and confidence per year, *n/a*, `Tab` / `Shift+Tab` the next / previous year, validated when every year has one; a row per point and year on export |
 | Animation | File → Export animation (`Ctrl+Shift+A`): dates (from, to, step), frame rate, resolution, GIF / MP4 / WebM, date stamp, legend, scale bar, pins, ROI and vector layers; see [Animation](#animation-gif-mp4-webm) |
 | Time | `←`/`→` previous/next date, `P` play/pause, click or drag on the chart; the time bar above the map (play, the date slider, the speed) shows with a series of two dates or more, not with a single image or vector layers alone. Under the slider, each date's **availability**: a bar as tall as the share of the visible area that is valid on that date (no cloud, no gap; of the overview), red under half; the pointer over it gives the share, a click goes to the date |
 | Map mode, colormap, range | **Display** panel, for the active layer (range is automatic 2–98%, or typed, or dragged on the histogram) |
@@ -1616,6 +1616,21 @@ read as longitude and latitude).
     year* keeps the date nearest the map's day of the year. Click a chip to
     show its date on the map, double click to make it the date of the change.
     The next features' chips are read ahead.
+  - **Fraction cover** (the Validation card's *Label mode*, as Validation
+    Viewer's): an n x n grid (2 to 10, 5 by default, kept in the project or the
+    labels file) in the pixel, drawn over the chips, the Wayback cards and the
+    lightbox, its painted cells filled in the class's colour. Pick the class
+    (`1`–`9` or a click) and drag over the cells to paint them; right-drag or
+    `X` (the cell under the cursor) erases; outside the pixel, or with `Shift`,
+    a drag pans. The fractions belong to the year of the image painted over.
+    The card shows the share and cells of each class of the year painted last,
+    "k of n² cells labelled" and *Clear year*. A point is validated when some
+    year has every cell painted (or a class label); with no class label its
+    reference is the majority class of the latest year painted. Export adds
+    `frac_<class>`, `frac_n`, `frac_labelled` and `frac_year` and a
+    `<name>_fractions.csv` with a row per point and year (the validation report
+    writes `<project>_fractions.csv` and `labels_fractions.gpkg`). Follows
+    Validation Viewer by Dr. Matthias Baumann (Humboldt-Universität zu Berlin).
   - The labels are saved a second after each change (in Janus' data folder,
     by file and layer): starting the interpretation of the same file again
     resumes it at the first feature without a label.

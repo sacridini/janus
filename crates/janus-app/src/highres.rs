@@ -403,8 +403,9 @@ pub(crate) fn initial_view(chip_m: f32) -> View {
     View { z, x: (1.0 - z) / 2.0, y: (1.0 - z) / 2.0 }
 }
 
-fn overlay(g: &Geom, v: View, grid: bool) -> Overlay {
+fn overlay(g: &Geom, v: View, grid: bool, cells: Option<crate::chips::Cells>) -> Overlay {
     Overlay {
+        cells,
         pixel: Rect::from_min_max(point_in_card(g.pixel.min, v), point_in_card(g.pixel.max, v)),
         point: point_in_card(g.point, v),
         grid,
@@ -1129,8 +1130,16 @@ impl HighRes {
 }
 
 /// The high-resolution section at the top of the Chips panel. `key` is the current point (None: no valid one);
-/// `sz` the card size; `grid` the overlay's subgrid. Returns whether it drew the overlay's legend.
-pub(crate) fn section(ui: &mut Ui, hr: &mut HighRes, key: Option<PointKey>, sz: f32, grid: &mut bool) -> bool {
+/// `sz` the card size; `grid` the overlay's subgrid; `fr` the label mode "Fraction cover" (the cells painted over
+/// each year's card, the strokes made). Returns whether it drew the overlay's legend.
+pub(crate) fn section(
+    ui: &mut Ui,
+    hr: &mut HighRes,
+    key: Option<PointKey>,
+    sz: f32,
+    grid: &mut bool,
+    fr: &mut crate::fraction::FracUi,
+) -> bool {
     let ctx = ui.ctx().clone();
     let weak = ui.visuals().weak_text_color();
     let snap = key.and_then(|k| hr.point(k)).map(|p| (p.geom.clone(), p.list.clone()));
@@ -1285,7 +1294,11 @@ pub(crate) fn section(ui: &mut Ui, hr: &mut HighRes, key: Option<PointKey>, sz: 
                             extra: (extra > 0).then_some(extra as u32),
                             border: None,
                         };
-                        let resp = card(ui, tex, view_uv(unit, view), sz, &caption, &overlay(&geom, view, *grid));
+                        let ov = overlay(&geom, view, *grid, fr.cells_for(g.year));
+                        let resp = card(ui, tex, view_uv(unit, view), sz, &caption, &ov);
+                        let paint =
+                            crate::fraction::paint_input(ui, &resp, crate::chips::card_image_rect(resp.rect, sz), &ov);
+                        fr.push(g.year, &paint);
                         if let Some(n) = &note {
                             let r = crate::chips::card_image_rect(resp.rect, sz);
                             let short = fit_text(n, ((sz - 12.0) / 6.0) as usize);
@@ -1307,13 +1320,23 @@ pub(crate) fn section(ui: &mut Ui, hr: &mut HighRes, key: Option<PointKey>, sz: 
                         if let Some(n) = &note {
                             tip = format!("{tip}\n{n}");
                         }
-                        let resp = resp.on_hover_text(format!("{tip}\nClick to see all the images of {}", g.year));
+                        let click = if fr.on {
+                            format!(
+                                "Drag over the pixel's cells to paint {} (right-drag erases, Shift+drag pans); a click \
+                                 outside the pixel opens the images of the year",
+                                g.year
+                            )
+                        } else {
+                            format!("Click to see all the images of {}", g.year)
+                        };
+                        let resp = resp.on_hover_text(format!("{tip}\n{click}"));
                         if resp.clicked()
+                            && !paint.active
                             && let Some(k) = groups.iter().position(|x| x.year == g.year)
                         {
                             open = Some(k);
                         }
-                        let nv = card_view_input(ui, &resp, sz, view, zmax);
+                        let nv = card_view_input(ui, &resp, sz, view, zmax, paint.active);
                         if nv != view {
                             new_view = nv;
                         }
@@ -1349,7 +1372,7 @@ enum Act {
 }
 
 /// The lightbox over the whole window: the image of the year at its largest, its caption, the year's thumbnails.
-pub(crate) fn lightbox(ctx: &egui::Context, hr: &mut HighRes, grid: bool) {
+pub(crate) fn lightbox(ctx: &egui::Context, hr: &mut HighRes, grid: bool, fr: &mut crate::fraction::FracUi) {
     let Some(key) = hr.lb.as_ref().map(|l| l.key) else { return };
     let (Some(images), Some(Ok(geom))) = (hr.images_of(key), hr.point(key).map(|p| p.geom.clone())) else {
         hr.lb = None;
@@ -1405,10 +1428,15 @@ pub(crate) fn lightbox(ctx: &egui::Context, hr: &mut HighRes, grid: bool) {
             }
             let (rect, resp) = ui.allocate_exact_size(vec2(side, side), Sense::click_and_drag());
             let painter = ui.painter_at(rect);
+            let ov = overlay(&geom, view, grid, fr.cells_for(g.year));
+            let mut painting = false;
             match big.get(&im.date) {
                 Some(Img::Ready(t)) => {
                     painter.image(t.id(), rect, view_uv(Rect::from_min_size(Pos2::ZERO, vec2(1.0, 1.0)), view), Color32::WHITE);
-                    draw_overlay(&painter, rect, &overlay(&geom, view, grid));
+                    draw_overlay(&painter, rect, &ov);
+                    let paint = crate::fraction::paint_input(ui, &resp, rect, &ov);
+                    painting = paint.active;
+                    fr.push(g.year, &paint);
                 }
                 Some(Img::Failed(e)) => {
                     painter.rect_filled(rect, 4.0, Color32::from_gray(30));
@@ -1431,7 +1459,7 @@ pub(crate) fn lightbox(ctx: &egui::Context, hr: &mut HighRes, grid: bool) {
                     );
                 }
             }
-            view = card_view_input(ui, &resp, side, view, zmax);
+            view = card_view_input(ui, &resp, side, view, zmax, painting);
             if ui.add_sized([40.0, side], egui::Button::new("\u{203a}")).on_hover_text("Next image (Right)").clicked() {
                 act = Some(Act::Step(Step::NextImage));
             }
@@ -1452,7 +1480,7 @@ pub(crate) fn lightbox(ctx: &egui::Context, hr: &mut HighRes, grid: bool) {
         ui.colored_label(
             weak,
             format!(
-                "Wayback release {} ({}) \u{b7} Left/Right: image of the year, Up/Down: year, Esc: close, Ctrl + wheel zooms, drag pans \u{b7} Imagery: Esri Wayback \u{2014} {}",
+                "Wayback release {} ({}) \u{b7} Left/Right: image of the year, Up/Down: year, Esc: close, Ctrl + wheel zooms, drag pans (fraction cover: drag over the cells paints, right-drag erases, X erases the cell, Shift+drag pans) \u{b7} Imagery: Esri Wayback \u{2014} {}",
                 im.release,
                 im.release_date,
                 wayback::ATTRIBUTION

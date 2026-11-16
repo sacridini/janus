@@ -4,6 +4,7 @@
 //!
 //! The cards and the pixel/point overlay follow Validation Viewer by Dr. Matthias Baumann (Humboldt-Universität zu
 //! Berlin), https://scm.cms.hu-berlin.de/baumamat/validationviewer, GPL-2.0-or-later, used under GPL-3.0-or-later.
+//! Fraction cover (the n x n cells painted over the pixel, fraction.rs) follows it too.
 
 use std::sync::Arc;
 
@@ -222,6 +223,14 @@ pub(crate) struct CardCaption {
     pub border: Option<Color32>,
 }
 
+/// The cells of the pixel's subgrid in the label mode "Fraction cover": the grid's side and the class colour of each
+/// cell, row by row from the top left (None: not painted).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Cells {
+    pub n: usize,
+    pub colors: Vec<Option<Color32>>,
+}
+
 /// The overlay of a card, in fractions of the card's image.
 pub(crate) struct Overlay {
     /// the footprint of the pixel that contains the point
@@ -230,6 +239,8 @@ pub(crate) struct Overlay {
     pub point: Pos2,
     /// the 3 x 3 subgrid in the pixel and the dashed neighbours
     pub grid: bool,
+    /// the n x n cells painted instead of the 3 x 3 subgrid (the label mode "Fraction cover")
+    pub cells: Option<Cells>,
 }
 
 impl Overlay {
@@ -241,7 +252,14 @@ impl Overlay {
             pixel: Rect::from_min_max(point_in_card(pos2(a, a), v), point_in_card(pos2(b, b), v)),
             point: point_in_card(frac, v),
             grid,
+            cells: None,
         }
+    }
+
+    /// The same overlay with the cells of the label mode "Fraction cover" (None: the 3 x 3 subgrid).
+    pub(crate) fn with_cells(mut self, cells: Option<Cells>) -> Overlay {
+        self.cells = cells;
+        self
     }
 }
 
@@ -257,9 +275,24 @@ pub(crate) fn draw_overlay(painter: &egui::Painter, img: Rect, o: &Overlay) {
     let painter = painter.with_clip_rect(img);
     let to = |p: Pos2| img.min + vec2(p.x * img.width(), p.y * img.height());
     let pix = Rect::from_min_max(to(o.pixel.min), to(o.pixel.max));
+    let (pw, ph) = (pix.width(), pix.height());
+    if let Some(c) = &o.cells {
+        // the cells painted in their class's colour, under the grid
+        for (k, col) in c.colors.iter().enumerate() {
+            if let Some(col) = col {
+                let (cx, cy) = ((k % c.n) as f32, (k / c.n) as f32);
+                let min = pos2(pix.left() + cx * pw / c.n as f32, pix.top() + cy * ph / c.n as f32);
+                let r = Rect::from_min_size(min, vec2(pw / c.n as f32, ph / c.n as f32));
+                painter.rect_filled(
+                    r,
+                    0.0,
+                    Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), crate::fraction::FILL_ALPHA),
+                );
+            }
+        }
+    }
     if o.grid {
         let white = Stroke::new(1.0, Color32::from_white_alpha(128));
-        let (pw, ph) = (pix.width(), pix.height());
         for dy in -1..=1 {
             for dx in -1..=1 {
                 if dx != 0 || dy != 0 {
@@ -267,9 +300,13 @@ pub(crate) fn draw_overlay(painter: &egui::Painter, img: Rect, o: &Overlay) {
                 }
             }
         }
+    }
+    // the subgrid in the pixel: 3 x 3, or the n x n cells of the fraction mode (always drawn there)
+    if o.grid || o.cells.is_some() {
         let thin = Stroke::new(1.0, PIXEL_YELLOW.gamma_multiply(0.5));
-        for i in 1..3 {
-            let f = i as f32 / 3.0;
+        let sub = o.cells.as_ref().map_or(3, |c| c.n.max(1));
+        for i in 1..sub {
+            let f = i as f32 / sub as f32;
             painter.line_segment([pos2(pix.left() + f * pw, pix.top()), pos2(pix.left() + f * pw, pix.bottom())], thin);
             painter.line_segment([pos2(pix.left(), pix.top() + f * ph), pos2(pix.right(), pix.top() + f * ph)], thin);
         }
@@ -355,8 +392,9 @@ pub(crate) fn card_image_rect(rect: Rect, size: f32) -> Rect {
     Rect::from_min_size(rect.min, vec2(size, size))
 }
 
-/// What a card does to the shared view: Ctrl + wheel zooms around the cursor, a drag pans.
-pub(crate) fn card_view_input(ui: &Ui, resp: &egui::Response, size: f32, v: View, zmax: f32) -> View {
+/// What a card does to the shared view: Ctrl + wheel zooms around the cursor, a drag pans (unless `painting`: the
+/// drag is a stroke of the label mode "Fraction cover").
+pub(crate) fn card_view_input(ui: &Ui, resp: &egui::Response, size: f32, v: View, zmax: f32, painting: bool) -> View {
     let mut out = v;
     if resp.hovered() {
         let zd = ui.input(|i| i.zoom_delta());
@@ -370,7 +408,7 @@ pub(crate) fn card_view_input(ui: &Ui, resp: &egui::Response, size: f32, v: View
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
         }
     }
-    if resp.dragged_by(egui::PointerButton::Primary) && v.z > 1.0 {
+    if resp.dragged_by(egui::PointerButton::Primary) && v.z > 1.0 && !painting {
         let d = resp.drag_delta();
         out = out.pan(d.x / size, d.y / size, zmax);
     }
@@ -767,12 +805,14 @@ impl State {
             // the imagery does not wait for the dates
             let (sz, mut grid) = (c.size, c.grid);
             let key = crate::highres::PointKey::new(info.id, cx, cy, self.val.chips.hr.chip_m);
+            let mut fr = self.frac_ui();
             egui::ScrollArea::both().id_salt("chips").auto_shrink(false).show(ui, |ui| {
-                crate::highres::section(ui, &mut self.val.chips.hr, Some(key), sz, &mut grid);
+                crate::highres::section(ui, &mut self.val.chips.hr, Some(key), sz, &mut grid, &mut fr);
                 ui.weak("Reading the dates around the point...");
             });
             self.val.chips.grid = grid;
-            crate::highres::lightbox(ui.ctx(), &mut self.val.chips.hr, grid);
+            crate::highres::lightbox(ui.ctx(), &mut self.val.chips.hr, grid, &mut fr);
+            self.paint_fraction(std::mem::take(&mut fr.ops));
             return;
         };
         // the dates shown: all, or one per year (nearest the map's day of the year)
@@ -917,8 +957,9 @@ impl State {
         };
         let mut new_view = view;
         let mut hr_legend = false;
+        let mut fr = self.frac_ui();
         egui::ScrollArea::both().id_salt("chips").auto_shrink(false).show(ui, |ui| {
-            hr_legend = crate::highres::section(ui, &mut self.val.chips.hr, Some(hr_key), sz, &mut grid);
+            hr_legend = crate::highres::section(ui, &mut self.val.chips.hr, Some(hr_key), sz, &mut grid, &mut fr);
             ui.separator();
             ui.horizontal_wrapped(|ui| {
                 ui.strong(format!("{layer_name} \u{b7} {} dates", dates.len()));
@@ -968,16 +1009,28 @@ impl State {
                         };
                         let caption =
                             CardCaption { year, badge: (source.clone(), BADGE_BLUE), right: md, extra: None, border };
-                        let overlay = Overlay::new(r, w_win, frac, view, grid);
+                        let img_year = janus_validation::year_of(label);
+                        let overlay = Overlay::new(r, w_win, frac, view, grid).with_cells(fr.cells_for(img_year));
                         let resp = card(ui, tex.id(), view_uv(base, view), sz, &caption, &overlay);
-                        let resp = resp
-                            .on_hover_text(format!("{label}: click to show it, double click: the date of the change"));
-                        if resp.double_clicked() {
+                        let paint = crate::fraction::paint_input(ui, &resp, card_image_rect(resp.rect, sz), &overlay);
+                        fr.push(img_year, &paint);
+                        let tip = if fr.on {
+                            format!(
+                                "{label}: drag over the pixel's cells to paint {img_year}, right-drag to erase; \
+                                 a click elsewhere shows the date"
+                            )
+                        } else {
+                            format!("{label}: click to show it, double click: the date of the change")
+                        };
+                        let resp = resp.on_hover_text(tip);
+                        if paint.active {
+                            // a stroke is not a click
+                        } else if resp.double_clicked() {
                             go = Some((t, true));
                         } else if resp.clicked() {
                             go = Some((t, false));
                         }
-                        let nv = card_view_input(ui, &resp, sz, view, zmax);
+                        let nv = card_view_input(ui, &resp, sz, view, zmax, paint.active);
                         if nv != view {
                             new_view = nv;
                         }
@@ -991,7 +1044,8 @@ impl State {
             }
         });
         self.val.chips.grid = grid;
-        crate::highres::lightbox(ui.ctx(), &mut self.val.chips.hr, grid);
+        crate::highres::lightbox(ui.ctx(), &mut self.val.chips.hr, grid, &mut fr);
+        self.paint_fraction(std::mem::take(&mut fr.ops));
         if new_view != view {
             self.val.chips.view = new_view;
             ui.ctx().request_repaint();

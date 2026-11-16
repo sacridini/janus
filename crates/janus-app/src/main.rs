@@ -36,6 +36,7 @@ mod fields_ui;
 mod files;
 mod fit;
 mod folds_ui;
+mod fraction;
 mod gif;
 mod golden;
 mod groups;

@@ -21,6 +21,7 @@ use serde_json::{Value, json};
 
 use crate::app::State;
 use crate::exports::{ExportJob, start_export_job};
+use crate::fraction as fc;
 use crate::labels_year as ly;
 
 const DEFAULT_CLASSES: [&str; 9] = [
@@ -143,6 +144,14 @@ pub struct Interpretation {
     /// `years` as the text being edited
     pub years_text: String,
     pub years_error: String,
+    /// the label mode "Fraction cover": cells painted over the pixel instead of one class
+    pub fraction: bool,
+    /// the cells along a side of the grid (2 to 10)
+    pub fraction_n: usize,
+    /// the class painted with: an index of `classes` (the last one clicked, or keys 1-9)
+    pub active: usize,
+    /// the year of the image painted last (the Validation card's table shows it)
+    pub frac_year: Option<i32>,
 }
 
 impl Default for Interpretation {
@@ -174,6 +183,10 @@ impl Default for Interpretation {
             year: None,
             years_text: String::new(),
             years_error: String::new(),
+            fraction: false,
+            fraction_n: janus_validation::DEFAULT_FRACTION_N,
+            active: 0,
+            frac_year: None,
         }
     }
 }
@@ -393,6 +406,17 @@ impl State {
         if k.is_some_and(|k| k >= self.labels.classes.len()) {
             return;
         }
+        if self.labels.fraction {
+            // fraction cover: a class is the one painted with; 0 clears the point's label
+            match k {
+                Some(k) => self.labels.active = k,
+                None => {
+                    self.labels.entries[c].label.clear();
+                    self.interp_touched();
+                }
+            }
+            return;
+        }
         if self.labels.by_year() {
             self.interp_year_label(k.map(|k| self.labels.classes[k].clone()));
             return;
@@ -607,6 +631,8 @@ impl State {
             "colors": self.labels.colors.iter().map(|&c| color_hex(c)).collect::<Vec<_>>(),
             "response": self.labels.response.key(),
             "years": self.labels.years,
+            "fraction": self.labels.fraction,
+            "fraction_n": self.labels.fraction_n,
             "entries": entries,
         });
         if let Some(dir) = path.parent() {
@@ -631,6 +657,12 @@ impl State {
         self.labels.response = Response::from_key(j["response"].as_str().unwrap_or(""));
         self.labels.years =
             j["years"].as_array().into_iter().flatten().filter_map(|v| v.as_i64().map(|y| y as i32)).collect();
+        self.labels.fraction = j["fraction"].as_bool().unwrap_or(false);
+        self.labels.fraction_n = j["fraction_n"]
+            .as_u64()
+            .map(|n| n as usize)
+            .filter(|n| fc::N_RANGE.contains(n))
+            .unwrap_or(janus_validation::DEFAULT_FRACTION_N);
         let d = &self.vectors[li].data;
         let by_fid: std::collections::HashMap<i64, usize> =
             d.features.iter().enumerate().map(|(i, f)| (f.fid, i)).collect();
@@ -650,6 +682,8 @@ impl State {
         let labelled = entries.iter().filter(|e| self.labels.done(e)).count();
         let years = self.labels.years.clone();
         let by_year = self.labels.by_year();
+        let classes = self.labels.classes.clone();
+        let fractions = self.labels.fraction || fc::any_fractions(entries.iter());
         let title = format!("Labels of {} ({labelled} of {} features)", v.name, entries.len());
         let job = start_export_job(title, path.clone(), ctx, move |j| {
             j.set_progress(0.5);
@@ -676,15 +710,41 @@ impl State {
                 // the reference derived from the years, then a class and a confidence for each year
                 names.extend(ly::year_columns(&years));
             }
+            if fractions {
+                // the fractions of the latest year painted: frac_<class>, frac_n, frac_labelled, frac_year
+                names.extend(fc::frac_columns(&classes));
+            }
+            let year_cols = if by_year { years.len() * 2 } else { 0 };
             write_vector_table(&path, &data, &names, &|i, k| {
                 let e = &entries[i];
                 match k {
                     0 => e.label.clone(),
                     1 => e.date.clone(),
                     2 => e.notes.clone(),
-                    _ => ly::year_value(e, &years, k - 3),
+                    k if k - 3 < year_cols => ly::year_value(e, &years, k - 3),
+                    k => fc::frac_value(e, &classes, k - 3 - year_cols),
                 }
-            })
+            })?;
+            if fractions && fc::any_fractions(entries.iter()) {
+                // and a row for each feature and year painted, beside it
+                let p = Placer::lon_lat(&data);
+                let rows: Vec<ly::YearPoint> = data
+                    .features
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, f)| f.kind != Kind::None && entries.get(*i).is_some_and(|e| !e.fractions.is_empty()))
+                    .map(|(i, f)| ly::YearPoint {
+                        pid: f.fid.to_string(),
+                        lon_lat: p.to_lon_lat(f.cx, f.cy),
+                        interpreter: "",
+                        label: &entries[i],
+                    })
+                    .collect();
+                let file = fc::fractions_path(&path);
+                let text = fc::fractions_csv(&rows, &classes, &csv_field);
+                std::fs::write(&file, text).map_err(|e| format!("cannot write {}: {e}", file.display()))?;
+            }
+            Ok(())
         });
         self.exports.push(job.clone());
         self.show_exports = true;
@@ -946,6 +1006,36 @@ impl State {
             let sp = ui.spacing().item_spacing.x;
             let half = ((ui.available_width() - sp) / 2.0).floor();
             let by_year = self.labels.by_year();
+            let fraction = self.labels.fraction;
+            let mut mode_changed = false;
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Label mode").small().color(look.muted));
+                for (on, name, tip) in [
+                    (false, "Classification", "One class for the pixel"),
+                    (
+                        true,
+                        "Fraction cover",
+                        "Paint the classes over an n x n grid in the pixel, on the high-resolution images (drag \
+                         over the cells; right-drag or X erases): the cover fractions of each year",
+                    ),
+                ] {
+                    if ui.selectable_label(fraction == on, name).on_hover_text(tip).clicked() && fraction != on {
+                        self.labels.fraction = on;
+                        mode_changed = true;
+                    }
+                }
+            });
+            if fraction {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Grid").small().color(look.muted));
+                    let n = &mut self.labels.fraction_n;
+                    let r = ui.add(egui::DragValue::new(n).range(fc::N_RANGE).suffix(" x n"));
+                    if r.on_hover_text("Cells along a side of the pixel (2 to 10)").changed() {
+                        mode_changed = true;
+                    }
+                });
+            }
+            ui.add_space(2.0);
             // one label per year: the bar of years above the classes
             let mut year_pick = None;
             if by_year {
@@ -965,11 +1055,12 @@ impl State {
                 ui.horizontal(|ui| {
                     for (j, class) in row.1.iter().enumerate() {
                         let k = row.0 * 2 + j;
-                        let on = current_label == *class;
+                        // fraction cover: the selected one is the class painted with
+                        let on = if fraction { self.labels.active == k } else { current_label == *class };
                         let key = if k < 9 { (k + 1).to_string() } else { String::new() };
                         let swatch = self.labels.color32(k);
                         if key_button(ui, look, half, on, Some(swatch), class, &key).clicked() {
-                            pick = Some(if on { None } else { Some(k) });
+                            pick = Some(if on && !fraction { None } else { Some(k) });
                         }
                     }
                 });
@@ -990,7 +1081,13 @@ impl State {
             if let Some(y) = year_pick {
                 self.interp_select_year(Some(y));
             }
+            if mode_changed {
+                self.interp_fraction_changed();
+            }
             let Some(c) = self.labels.current.filter(|&c| c < n) else { return };
+            if self.labels.fraction {
+                self.fraction_table_ui(ui, look, c);
+            }
             ui.add_space(4.0);
             ui.label(
                 RichText::new(if by_year { "Confidence of the year" } else { "Confidence" }).small().color(look.muted),
@@ -1030,6 +1127,118 @@ impl State {
                 self.interp_touched();
             }
         });
+    }
+
+    /// The mode "Fraction cover" or its grid changed: kept in the project, or in the file.
+    fn interp_fraction_changed(&mut self) {
+        self.labels.fraction_n = self.labels.fraction_n.clamp(*fc::N_RANGE.start(), *fc::N_RANGE.end());
+        if self.labels.project {
+            self.validation_fraction_changed();
+        } else {
+            self.labels.dirty = true;
+            self.labels.changed_at = Some(Instant::now());
+        }
+    }
+
+    /// What the image cards need of the mode: the paintings of the point being interpreted.
+    pub(crate) fn frac_ui(&self) -> fc::FracUi {
+        let l = &self.labels;
+        let Some(e) = l.current.and_then(|c| l.entries.get(c)).filter(|_| l.fraction && l.vector.is_some()) else {
+            return fc::FracUi::off();
+        };
+        fc::FracUi {
+            on: true,
+            n: l.fraction_n,
+            colors: (0..l.classes.len()).map(|k| l.color32(k)).collect(),
+            years: e.fractions.clone(),
+            ops: Vec::new(),
+        }
+    }
+
+    /// Strokes painted over the images: the cells get the active class (erased: none), per year of the image.
+    pub(crate) fn paint_fraction(&mut self, ops: Vec<fc::PaintOp>) {
+        let Some(c) = self.labels.current.filter(|&c| c < self.labels.entries.len()) else { return };
+        if ops.is_empty() || !self.labels.fraction {
+            return;
+        }
+        let (n, classes, now) = (self.labels.fraction_n, self.labels.classes.clone(), now_iso());
+        let mut changed = false;
+        for op in ops {
+            let class = if op.erase { fc::ERASE } else { self.labels.active as i32 };
+            let e = &mut self.labels.entries[c];
+            if fc::apply_paint(e, op.year, n, &op.cells, class, &classes, &now) {
+                self.labels.frac_year = Some(op.year);
+                changed = true;
+            }
+        }
+        if changed {
+            self.interp_touched();
+        }
+    }
+
+    /// The table of the painting of a year in the Validation card: each class with its colour, share and cells,
+    /// how many cells have a class, and the button that clears the year.
+    fn fraction_table_ui(&mut self, ui: &mut Ui, look: &Look, c: usize) {
+        let n = self.labels.fraction_n;
+        let year = fc::table_year(&self.labels.entries[c], self.labels.frac_year);
+        ui.add_space(4.0);
+        // the years painted, to pick the one the table shows
+        let years: Vec<i32> = self.labels.entries[c].fractions.keys().copied().collect();
+        if years.is_empty() {
+            ui.label(
+                RichText::new(
+                    "Pick a class, then drag over the pixel's cells on an image (Wayback, the lightbox or the \
+                     cube's cards): the cells take the class; right-drag or X erases.",
+                )
+                .small()
+                .color(look.muted),
+            );
+            return;
+        }
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Years painted").small().color(look.muted));
+            for &y in &years {
+                let on = year == Some(y);
+                let full = self.labels.entries[c].fractions[&y].is_full();
+                let text = if full { format!("{y} \u{2713}") } else { y.to_string() };
+                if ui
+                    .selectable_label(on, RichText::new(text).monospace())
+                    .on_hover_text(if full { "every cell has a class" } else { "some cells have none" })
+                    .clicked()
+                {
+                    self.labels.frac_year = Some(y);
+                }
+            }
+        });
+        let Some(y) = year else { return };
+        let f = self.labels.entries[c].fractions[&y].resampled(n);
+        let mut clear = false;
+        for row in fc::year_table(&f, self.labels.classes.len()).into_iter().filter(|r| r.cells > 0) {
+            ui.horizontal(|ui| {
+                let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
+                ui.painter().rect_filled(r, CornerRadius::same(3), self.labels.color32(row.class));
+                ui.label(&self.labels.classes[row.class]);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new(format!("{:.0}% \u{b7} {} cells", row.pct, row.cells)).monospace());
+                });
+            });
+        }
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!("{} of {} cells labelled ({y})", f.labelled(), n * n)).small().color(look.muted),
+            );
+            clear = ui.small_button("Clear year").on_hover_text("Erase every cell of this year").clicked();
+        });
+        if clear {
+            let classes = self.labels.classes.clone();
+            if fc::clear_year(&mut self.labels.entries[c], y, &classes) {
+                self.interp_touched();
+            }
+        }
+        let l = &self.labels.entries[c];
+        if !l.label.is_empty() {
+            value_row(ui, look, "Point's label", &l.label);
+        }
     }
 
     /// The bar of years of the Validation card ("Year to label · Tab next"): a button for each, a tick when labelled
@@ -1170,6 +1379,9 @@ impl State {
                     ui.colored_label(crate::theme::error(), &l.years_error);
                 }
                 ui.weak("e.g. 2018-2023, or 2017, 2019, 2021-2024, or 2000-2020/5 (every 5th). Empty and Apply: the cube's years.");
+            }
+            if l.fraction {
+                ui.weak("Fraction cover is on: the points are labelled as one (the years painted are those of the images).");
             }
             ui.weak(
                 "By year each year has its class (or n/a) and confidence, the notes stay by point; the point is \
@@ -1365,11 +1577,15 @@ impl State {
 impl Interpretation {
     /// One label for each year of `years`.
     pub fn by_year(&self) -> bool {
-        self.response == Response::PerYear
+        self.response == Response::PerYear && !self.fraction
     }
 
-    /// The feature is labelled: it has its label, or (one label per year) every year has one.
+    /// The feature is labelled: it has its label, or (one label per year) every year has one, or (fraction cover)
+    /// some year has every cell painted.
     pub fn done(&self, e: &Label) -> bool {
+        if self.fraction && e.fraction_done() {
+            return true;
+        }
         if self.by_year() { e.years_done(&self.years) } else { !e.label.is_empty() }
     }
 
@@ -1553,7 +1769,7 @@ fn key_button(
 /// The Keys card: each line a run of chips (keys) and words.
 fn keys_card(ui: &mut Ui, look: &Look) {
     // (true: a key chip, false: words)
-    let lines: [&[(bool, &str)]; 7] = [
+    let lines: [&[(bool, &str)]; 8] = [
         &[
             (true, "←"),
             (true, "→"),
@@ -1569,6 +1785,12 @@ fn keys_card(ui: &mut Ui, look: &Look) {
         &[(true, "Tab"), (true, "Shift+Tab"), (false, "next / previous year (one label per year)")],
         &[(true, "Shift+E"), (false, "other event at the map's date")],
         &[(true, "["), (true, "]"), (false, "the map's date (or click the chart)")],
+        &[
+            (true, "drag"),
+            (false, "fraction mode: drag over cells = paint, right-drag = erase,"),
+            (true, "X"),
+            (false, "erases the cell under the cursor, Shift+drag pans"),
+        ],
     ];
     for line in lines {
         ui.horizontal_wrapped(|ui| {

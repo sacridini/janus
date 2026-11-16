@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::NONE;
 use crate::design::{Point, Rng};
 use crate::estimate::AreaEstimator;
-use crate::labels::{Label, Response, YearLabel, events_from, events_text, resolve};
+use crate::labels::{Fractions, Label, Response, YearLabel, events_from, events_text, resolve};
 use crate::reader::last_error;
 use crate::rules::{Grid, MapRule, row_areas};
 use crate::strata::{Strata, StrataSpec, Stratum};
@@ -51,6 +51,10 @@ pub struct Project {
     pub response: Response,
     /// the years labelled one by one (response per year), sorted
     pub years: Vec<i32>,
+    /// the label mode "Fraction cover": cells painted over the pixel, instead of one class
+    pub fraction: bool,
+    /// the cells along a side of the pixel's grid (2 to 10)
+    pub fraction_n: usize,
     pub points: Vec<Point>,
     /// interpreter -> per point
     pub labels: BTreeMap<String, Vec<Label>>,
@@ -75,6 +79,8 @@ impl Default for Project {
             label_colors: Vec::new(),
             response: Response::PerPoint,
             years: Vec::new(),
+            fraction: false,
+            fraction_n: DEFAULT_FRACTION_N,
             points: Vec::new(),
             labels: BTreeMap::new(),
             maps: Vec::new(),
@@ -82,6 +88,22 @@ impl Default for Project {
             transition: None,
         }
     }
+}
+
+/// The default side of the fraction grid.
+pub const DEFAULT_FRACTION_N: usize = 5;
+
+/// The columns of the table of fractions.
+fn fraction_fields() -> Vec<(&'static str, OGRFieldType::Type)> {
+    use OGRFieldType::*;
+    vec![
+        ("sample_id", OFTInteger),
+        ("interpreter", OFTString),
+        ("year", OFTInteger),
+        ("n", OFTInteger),
+        ("cells", OFTString),
+        ("updated", OFTString),
+    ]
 }
 
 /// An interpreter's labels of some points (index, label) and the reference that follows for them on the samples
@@ -281,6 +303,8 @@ fn write_project_table(ds: &Dataset, p: &Project) -> Result<(), String> {
         ("label_colors", json!(p.label_colors).to_string()),
         ("response", p.response.key().to_string()),
         ("years", json!(p.years).to_string()),
+        ("label_mode", (if p.fraction { "fraction" } else { "class" }).to_string()),
+        ("fraction_n", p.fraction_n.to_string()),
         ("maps", Value::Array(maps).to_string()),
         ("mapped", Value::Array(mapped).to_string()),
         ("analysis", analysis_json(p).to_string()),
@@ -328,7 +352,7 @@ pub fn create_project(p: &Project) -> Result<(), String> {
         use OGRFieldType::*;
         // name, points (else no geometry), fields
         type Table<'a> = (&'a str, bool, Vec<(&'a str, OGRFieldType::Type)>);
-        let tables: [Table; 5] = [
+        let tables: [Table; 6] = [
             (
                 "samples",
                 true,
@@ -373,6 +397,7 @@ pub fn create_project(p: &Project) -> Result<(), String> {
                     ("updated", OFTString),
                 ],
             ),
+            ("fractions", false, fraction_fields()),
             (
                 "strata",
                 false,
@@ -409,6 +434,7 @@ pub fn create_project(p: &Project) -> Result<(), String> {
         t.commit(&format!("cannot write {}", p.path))?;
         sql(&ds, "CREATE INDEX labels_point ON labels(sample_id, interpreter)");
         sql(&ds, "CREATE INDEX labels_by_year_point ON labels_by_year(sample_id, interpreter)");
+        sql(&ds, "CREATE INDEX fractions_point ON fractions(sample_id, interpreter)");
         sql(&ds, "CREATE INDEX samples_id ON samples(sample_id)");
     }
     // labels already given (a project written again, e.g. merged)
@@ -482,7 +508,16 @@ pub fn save_labels(path: &str, interpreter: &str, rows: &[(usize, Label)], final
         ])
         .map_err(|_| last_error("cannot create the table of the labels by year"))?;
     }
+    // the same for the fractions
+    let any_fractions = rows.iter().any(|(_, l)| !l.fractions.is_empty());
+    if any_fractions && ds.layer_by_name("fractions").is_err() {
+        let l = ds
+            .create_layer(LayerOptions { name: "fractions", srs: None, ty: OGRwkbGeometryType::wkbNone, options: None })
+            .map_err(|_| last_error("cannot create the table of the fractions"))?;
+        l.create_defn_fields(&fraction_fields()).map_err(|_| last_error("cannot create the table of the fractions"))?;
+    }
     let layer = ds.layer_by_name("labels").map_err(|_| format!("{path}: no labels table"))?;
+    let fractions = ds.layer_by_name("fractions").ok();
     let by_year = ds.layer_by_name("labels_by_year").ok();
     let t = Txn::start(&ds);
     if !rows.is_empty() {
@@ -497,6 +532,9 @@ pub fn save_labels(path: &str, interpreter: &str, rows: &[(usize, Label)], final
         sql(&ds, &del("labels"));
         if by_year.is_some() {
             sql(&ds, &del("labels_by_year"));
+        }
+        if fractions.is_some() {
+            sql(&ds, &del("fractions"));
         }
     }
     for (i, l) in rows {
@@ -523,6 +561,18 @@ pub fn save_labels(path: &str, interpreter: &str, rows: &[(usize, Label)], final
                 set_int(&mut f, "confidence", x.confidence)?;
                 set_text(&mut f, "updated", &x.updated)?;
                 f.create(by_year).map_err(|_| last_error("cannot write the labels by year"))?;
+            }
+        }
+        if let Some(fr) = &fractions {
+            for (y, x) in &l.fractions {
+                let mut f = Feature::new(fr.defn()).map_err(|e| e.to_string())?;
+                set_int(&mut f, "sample_id", *i as i32 + 1)?;
+                set_text(&mut f, "interpreter", interpreter)?;
+                set_int(&mut f, "year", *y)?;
+                set_int(&mut f, "n", x.n as i32)?;
+                set_text(&mut f, "cells", &x.cells_text())?;
+                set_text(&mut f, "updated", &x.updated)?;
+                f.create(fr).map_err(|_| last_error("cannot write the fractions"))?;
             }
         }
     }
@@ -578,6 +628,7 @@ fn read_label_table(ds: &Dataset, points: usize, out: &mut BTreeMap<String, Vec<
                 events: events_from(&get_text(&f, "events")),
                 updated: get_text(&f, "updated"),
                 years: Default::default(),
+                fractions: Default::default(),
             };
         }
     }
@@ -595,6 +646,25 @@ fn read_label_table(ds: &Dataset, points: usize, out: &mut BTreeMap<String, Vec<
                     updated: get_text(&f, "updated"),
                 };
                 v[id as usize - 1].years.insert(get_int(&f, "year"), y);
+            }
+        }
+    }
+    // the fractions painted (older projects have no table)
+    if let Ok(mut l) = ds.layer_by_name("fractions") {
+        for f in l.features() {
+            let id = get_int(&f, "sample_id");
+            let who = get_text(&f, "interpreter");
+            if id >= 1 && id as usize <= points && !who.is_empty() {
+                let cells = Fractions::from_text(
+                    get_int(&f, "n").max(0) as usize,
+                    &get_text(&f, "cells"),
+                    &get_text(&f, "updated"),
+                );
+                if let Some(x) = cells {
+                    let v = out.entry(who).or_default();
+                    v.resize(points, Label::default());
+                    v[id as usize - 1].fractions.insert(get_int(&f, "year"), x);
+                }
             }
         }
     }
@@ -635,6 +705,8 @@ pub fn load_project(path: &str) -> Result<Project, String> {
     p.years = parse("years")?.as_array().into_iter().flatten().filter_map(|v| v.as_i64().map(|y| y as i32)).collect();
     p.years.sort_unstable();
     p.years.dedup();
+    p.fraction = get("label_mode").trim() == "fraction";
+    p.fraction_n = get("fraction_n").trim().parse().ok().filter(|n| (2..=10).contains(n)).unwrap_or(DEFAULT_FRACTION_N);
     for m in parse("maps")?.as_array().into_iter().flatten() {
         p.maps.push(AssessedMap {
             rule: MapRule::from_json(m.get("rule").unwrap_or(&json!({}))),

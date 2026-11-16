@@ -877,7 +877,22 @@ impl State {
         // the response: by year, with the project's years (the cube's when it has none yet)
         self.labels.response = p.response;
         self.labels.years = p.years.clone();
+        self.labels.fraction = p.fraction;
+        self.labels.fraction_n = p.fraction_n;
         self.interp_fill_years();
+    }
+
+    /// The label mode "Fraction cover" or its grid changed: kept in the project.
+    pub(crate) fn validation_fraction_changed(&mut self) {
+        let (fraction, n) = (self.labels.fraction, self.labels.fraction_n);
+        let v = &mut self.val;
+        let Some(p) = v.project.as_mut() else { return };
+        if p.fraction == fraction && p.fraction_n == n {
+            return;
+        }
+        (p.fraction, p.fraction_n) = (fraction, n);
+        v.meta_dirty = true;
+        v.version += 1;
     }
 
     /// The response or the years of the interpretation changed: kept in the project, the references derived from
