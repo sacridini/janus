@@ -64,6 +64,8 @@ pub struct Shots {
     pub(crate) results: usize,
     /// the layout asked for: the panels on the right, and those with the statistics
     pub(crate) layout: Option<(Vec<Tab>, Vec<Tab>)>,
+    /// the share of the map's column above the time series and the statistics (0: the default, 0.64)
+    pub(crate) under: f32,
     places: Option<Places>,
     /// panels brought to the front before the dock is drawn
     pub(crate) focus: Vec<Tab>,
@@ -1187,6 +1189,8 @@ impl State {
                         return None;
                     }
                     sh.layout = Some((vec![pheno], vec![Tab::Tasks]));
+                    // taller Statistics, to show the season rows of the Phenology section under the metrics
+                    sh.under = 0.52;
                     self.shots_colormap("NDVI");
                     self.set_date(self.shots_date_of("2024-06"));
                     self.add_pin(crop.0, crop.1);
@@ -1270,7 +1274,7 @@ impl JanusApp {
             let s = d.main_surface_mut();
             let [mid, left] = s.split_left(NodeIndex::root(), LEFT, vec![Tab::Layers, Tab::Files]);
             let [_, _] = s.split_below(left, 0.45, vec![Tab::Display]);
-            let [_, bottom] = s.split_below(mid, 0.64, vec![Tab::TimeSeries]);
+            let [_, bottom] = s.split_below(mid, if sh.under > 0.0 { sh.under } else { 0.64 }, vec![Tab::TimeSeries]);
             let [_, _] = s.split_right(bottom, 0.52, vec![Tab::Statistics]);
             self.dock = d;
             sh.places = Some(Places { mid, right_tabs, under_tabs });
