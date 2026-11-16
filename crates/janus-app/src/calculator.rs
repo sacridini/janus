@@ -509,7 +509,10 @@ fn stage_text(p: &Plan, s: &plan::Stage, layers: &[CalcLayer]) -> String {
         Over::By(Period::Year) => format!("{} by year", s.f.name()),
         Over::By(Period::Month) => format!("{} by month", s.f.name()),
         Over::Window(d) => format!("{} over the last {} days", s.f.name(), days(*d)),
-        Over::LagTime { years, .. } if *years > 0 => format!("the value {years} years before"),
+        Over::LagTime { years, months, .. } if *years > 0 && *months == 0 => format!("the value {years} years before"),
+        Over::LagTime { years, months, .. } if *years > 0 || *months > 0 => {
+            format!("the value {} months before", 12 * years + months)
+        }
         Over::LagTime { days: d, .. } => format!("the value {} days before", days(*d)),
         Over::LagObs(k) => format!("the value {k} observations before"),
         Over::Upto(k) => format!("{} over the last {k} observations", s.f.name()),
