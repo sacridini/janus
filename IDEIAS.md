@@ -1357,7 +1357,7 @@ harmonizada, *Copy Python*, *Use in Time series analysis*). Tools → *Analysis-
 | 54 | — | **Projeto** (`.janus`): salvar, abrir, recentes, reabrir a última sessão | concluída (sem versão) |
 | 55 | — | **Desfazer global** (`Ctrl+Z`: fechar camadas, estilo, ordem, pinos, ROI) | concluída (sem versão) |
 | 56 | — | **Janela Time series analysis (FORCE TSA)**: a cadeia das 8 ferramentas do TSA numa janela (Input, Steps, Output), *To look at*, gráfico do pixel, *Copy Python* da cadeia, *Use in Classification* | concluída (sem versão; capturas e página do site pendentes) |
-| 57 | — | **Janela Analysis-ready data (FORCE Level 2)**: NBAR, ajuste espectral, Tasseled Cap e ImproPhe numa cadeia, a série multibanda entre as etapas, prévia na ROI com a cortina de antes e depois | concluída (sem versão) |
+| 57 | 1.19.0 | **Janela Analysis-ready data (FORCE Level 2)**: NBAR, ajuste espectral, Tasseled Cap e ImproPhe numa cadeia, a série multibanda entre as etapas, prévia na ROI com a cortina de antes e depois | concluída |
 
 Ordem decidida em 2026-10-08: as fases 10–13 em paralelo (um sub-agente por
 fase, cada um num worktree; o merge, os testes e a versão são feitos fase a
@@ -2392,6 +2392,12 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   ano e fração de cobertura (o Google Earth histórico ficou de fora pelos termos de uso). Também: Level 1C
   para reflectância de superfície (FORCE) como ferramenta, o plugin JPEG 2000 do GDAL nos pacotes, os
   embeddings compactos (int8) do Zeit, e o crash do mimalloc com memória entregue ao GDAL.
+- 1.19.0: a janela Analysis-ready data (FORCE Level 2, fase 57): NBAR, ajuste espectral para o
+  Sentinel-2A, Tasseled Cap e ImproPhe numa cadeia, a série multibanda harmonizada entre as etapas,
+  To look at, prévia da cadeia na ROI com a cortina contra a série de entrada, Use in Time series
+  analysis, proveniência e Run again; o Copy Python da cadeia pelo pixel_script (os passos depois do
+  NBAR ou do ajuste leem a série harmonizada), conferido no Zeit (158 bandas, 8,4e-7); o executor
+  das etapas (chain.rs) compartilhado com a janela do TSA; autoteste 310-319.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
