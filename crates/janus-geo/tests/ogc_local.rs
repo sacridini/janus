@@ -260,13 +260,15 @@ fn wms_tiles_are_getmaps_of_their_boxes() {
         // the tile read is the image of a direct request
         let direct = ogc::get(&srv.url(target), false).unwrap();
         let name = format!("/vsimem/direct_{}.png", tiles.len());
-        gdal::vsi::create_mem_file(&name, direct).unwrap();
+        let mut direct = direct;
+        // GDAL must not free a Rust buffer (the program's allocator is mimalloc)
+        let file = gdal::vsi::create_mem_file_from_ref(&name, &mut direct).unwrap();
         let ds = gdal::Dataset::open(&name).unwrap();
         let px: Vec<u8> = (1..=4)
             .map(|b| ds.rasterband(b).unwrap().read_as::<u8>((0, 0), (1, 1), (1, 1), None).unwrap().data()[0])
             .collect();
         drop(ds);
-        let _ = gdal::vsi::unlink_mem_file(&name);
+        drop(file);
         let want = map_colour([bbox[0], bbox[1], bbox[2], bbox[3]], "2020-01-01");
         assert_eq!(px, want.to_vec());
         assert!(tiles.iter().any(|t| t[..4] == want), "a tile of {bbox:?}");

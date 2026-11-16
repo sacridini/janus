@@ -3,6 +3,27 @@
 
 use janus_geo::wayback;
 
+/// Novo Progresso (Para, Brazil): z 19 asked, where Wayback has no tile, so the zoom falls back (z 17 expected);
+/// the metadata service is slow there.
+#[test]
+#[ignore]
+fn novo_progresso_lists_with_zoom_fallback() {
+    let cache = std::env::temp_dir().join("janus-geo-wayback-cache-novo-progresso");
+    let _ = std::fs::remove_dir_all(&cache);
+    let (lon, lat) = (-55.62237, -7.30562);
+    let t = std::time::Instant::now();
+    let images = wayback::list_fresh(lon, lat, 19, &cache).expect("list");
+    let secs = t.elapsed().as_secs_f64();
+    let dates: std::collections::BTreeSet<&str> = images.iter().map(|i| i.date.as_str()).collect();
+    println!("{} images, {} dates, {secs:.1} s", images.len(), dates.len());
+    for i in &images {
+        println!("{} z{} release {} ({}) res {:?} {}", i.date, i.zoom, i.release, i.release_date, i.res_m, i.desc);
+    }
+    assert!(!images.is_empty());
+    assert!(images.iter().all(|i| i.zoom == 17), "zoom: {:?}", images.iter().map(|i| i.zoom).collect::<Vec<_>>());
+    assert!(secs < 120.0, "{secs} s");
+}
+
 #[test]
 #[ignore]
 fn berlin_lists_and_renders() {

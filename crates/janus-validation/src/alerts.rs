@@ -585,13 +585,14 @@ pub fn gfw_mosaic(spec: &str, out: &Path, progress: &dyn Fn(usize, usize)) -> Re
         for tx in 0..tw {
             progress(ty * tw + tx, tw * th);
             let url = format!("{GFW_TILES}/{ds}/latest/default/{z}/{}/{}.png", x0 + tx as u32, y0 + ty as u32);
-            let bytes = match janus_geo::ogc::get(&url, false) {
+            let mut bytes = match janus_geo::ogc::get(&url, false) {
                 Ok(b) => b,
                 Err(e) if e.contains("404") => continue,
                 Err(e) => return Err(e),
             };
             let name = format!("/vsimem/janus_gfw_{}_{tx}_{ty}.png", std::process::id());
-            gdal::vsi::create_mem_file(&name, bytes).map_err(|e| e.to_string())?;
+            // lent, not given: the program's allocator is mimalloc, GDAL must not free a Rust buffer
+            let mem = gdal::vsi::create_mem_file_from_ref(&name, &mut bytes).map_err(|e| e.to_string())?;
             let read = || -> Result<Vec<[u8; 4]>, String> {
                 let d = Dataset::open(&name).map_err(|e| format!("{url}: {e}"))?;
                 if d.raster_size() != (256, 256) {
@@ -608,7 +609,7 @@ pub fn gfw_mosaic(spec: &str, out: &Path, progress: &dyn Fn(usize, usize)) -> Re
                 Ok(px)
             };
             let r = read();
-            let _ = gdal::vsi::unlink_mem_file(&name);
+            drop(mem); // unlinks the file
             for (k, q) in r?.iter().enumerate() {
                 let (x, y) = (tx * 256 + k % 256, ty * 256 + k / 256);
                 v[y * w + x] = f32::from(gfw_pixel(*q, integrated));

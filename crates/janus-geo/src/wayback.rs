@@ -14,7 +14,7 @@ use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use gdal::raster::Buffer;
 use gdal::spatial_ref::{AxisMappingStrategy, CoordTransform, SpatialRef};
@@ -46,6 +46,11 @@ const MAX_TILES: usize = 144;
 const CONFIG_MAX_AGE: Duration = Duration::from_secs(24 * 3600);
 /// how long the listing of a point is kept on disk
 pub const LIST_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
+/// how long a listing with an image without metadata is kept on disk
+pub const LIST_INCOMPLETE_MAX_AGE: Duration = Duration::from_secs(24 * 3600);
+/// a metadata request's timeout and connection timeout (s)
+const META_TIMEOUT: u32 = 8;
+const META_CONNECT: u32 = 5;
 /// What an error says when only the cache was asked and the cache has not the data (the offline mode's "not
 /// downloaded").
 pub const NOT_DOWNLOADED: &str = "not downloaded";
@@ -294,6 +299,74 @@ pub fn describe(r: &Release, z: u32, mut query: impl FnMut(i32) -> Option<String
     }
 }
 
+/// The image of a release from the answers got so far, `(layer, answer)` in any order (None: the request failed or
+/// was not made): the answer with a feature of the layer that comes first in `meta_layers(z)`. None if no answer
+/// has a feature.
+pub fn describe_from(r: &Release, z: u32, answers: &[(i32, Option<String>)]) -> Option<WaybackImage> {
+    meta_layers(z).into_iter().find_map(|l| {
+        let (_, a) = answers.iter().find(|(k, _)| *k == l)?;
+        let (date, res_m, desc) = a.as_deref().and_then(parse_meta)?;
+        Some(WaybackImage { date, release: r.num, release_date: r.date.clone(), res_m, desc, zoom: z })
+    })
+}
+
+/// How many layers the first round of metadata requests asks of each release (the closest to 23 - z).
+pub const META_FIRST_ROUND: usize = 3;
+/// How long the metadata requests of a listing may start (the releases left take their release date).
+pub const META_BUDGET: Duration = Duration::from_secs(45);
+
+/// The images of `found` (the releases, newest first) at the point. The metadata requests are one queue of
+/// (release, layer) run on at most CONNECTIONS threads: first the `META_FIRST_ROUND` layers closest to 23 - z of
+/// every release, then, only for the releases without a feature yet, the other layers. A release's image comes
+/// from the answer with a feature of the layer that is first in `meta_layers`; without any, its own date
+/// (NO_METADATA). `elapsed` is the time since the listing began: no request starts after `budget`.
+/// `fetch(release, layer)` is the layer's answer (None: the request failed).
+pub fn describe_all<F>(
+    found: &[Release],
+    z: u32,
+    budget: Duration,
+    elapsed: impl Fn() -> Duration + Sync,
+    fetch: F,
+) -> Vec<WaybackImage>
+where
+    F: Fn(&Release, i32) -> Option<String> + Sync,
+{
+    let layers = meta_layers(z);
+    let n = found.len();
+    let mut answers: Vec<Vec<(i32, Option<String>)>> = vec![Vec::new(); n];
+    let mut best: Vec<Option<WaybackImage>> = vec![None; n];
+    for round in [&layers[..META_FIRST_ROUND], &layers[META_FIRST_ROUND..]] {
+        let todo: Vec<(usize, i32)> =
+            (0..n).filter(|&i| best[i].is_none()).flat_map(|i| round.iter().map(move |&l| (i, l))).collect();
+        if todo.is_empty() {
+            break;
+        }
+        let got = par_map(&todo, |&(i, l)| if elapsed() >= budget { None } else { fetch(&found[i], l) });
+        for (&(i, l), a) in todo.iter().zip(got) {
+            answers[i].push((l, a));
+        }
+        for i in 0..n {
+            if best[i].is_none() {
+                best[i] = describe_from(&found[i], z, &answers[i]);
+            }
+        }
+    }
+    found
+        .iter()
+        .zip(best)
+        .map(|(r, b)| {
+            b.unwrap_or_else(|| WaybackImage {
+                date: r.date.clone(),
+                release: r.num,
+                release_date: r.date.clone(),
+                res_m: None,
+                desc: NO_METADATA.into(),
+                zoom: z,
+            })
+        })
+        .collect()
+}
+
 /// One image per acquisition date, the newest release's (`items` newest release first), by date.
 pub fn dedup_by_date(items: Vec<WaybackImage>) -> Vec<WaybackImage> {
     let mut seen = std::collections::HashSet::new();
@@ -329,16 +402,18 @@ pub fn pick_per_year(images: &[WaybackImage], months: &[u32]) -> Vec<(i32, usize
 // ---------------------------------------------------------------------------------------------------------
 
 fn http_get(url: &str) -> Result<Vec<u8>, String> {
+    http_get_with(url, 30, 10, 3)
+}
+
+/// `http_get` with its own timeouts (s) and number of retries.
+fn http_get_with(url: &str, timeout: u32, connect: u32, retries: u32) -> Result<Vec<u8>, String> {
     // per thread: certificates for curl, a dead connection fails fast
     let ca = curl_ca_bundle();
     if !ca.is_empty() {
         let _ = gdal::config::set_thread_local_config_option("CURL_CA_BUNDLE", &ca);
     }
-    janus_gdal::http_fetch(
-        url,
-        None,
-        &["TIMEOUT=30", "CONNECTTIMEOUT=10", "MAX_RETRY=3", "RETRY_DELAY=1", "USERAGENT=Janus"],
-    )
+    let (t, c, r) = (format!("TIMEOUT={timeout}"), format!("CONNECTTIMEOUT={connect}"), format!("MAX_RETRY={retries}"));
+    janus_gdal::http_fetch(url, None, &[&t, &c, &r, "RETRY_DELAY=1", "USERAGENT=Janus"])
 }
 
 /// `f` over `items` on at most CONNECTIONS threads, results in order.
@@ -396,15 +471,21 @@ pub fn list_cache_key(lon: f64, lat: f64, z: u32) -> String {
     format!("{}_{}_z{z}", q(lon), q(lat))
 }
 
-/// Whether a listing of this age is still used.
-pub fn list_cache_valid(age: Duration) -> bool {
-    age < LIST_MAX_AGE
+/// Whether a listing of this age is still used: a complete one (every date from the metadata) for
+/// `LIST_MAX_AGE`, an incomplete one for `LIST_INCOMPLETE_MAX_AGE`.
+pub fn list_cache_valid(age: Duration, complete: bool) -> bool {
+    age < if complete { LIST_MAX_AGE } else { LIST_INCOMPLETE_MAX_AGE }
 }
 
-/// Whether a listing is worth keeping: it has images, and every date came from the metadata (a failed request
-/// would otherwise be remembered for a month).
+/// Whether a listing is worth keeping: it has images.
 pub fn list_cacheable(images: &[WaybackImage]) -> bool {
-    !images.is_empty() && images.iter().all(|i| i.desc != NO_METADATA)
+    !images.is_empty()
+}
+
+/// Whether every date of a listing came from the metadata (an incomplete one is kept for a day only, so that a
+/// failed request is not remembered for a month).
+pub fn list_complete(images: &[WaybackImage]) -> bool {
+    images.iter().all(|i| i.desc != NO_METADATA)
 }
 
 fn list_path(cache_dir: &Path, lon: f64, lat: f64, z: u32) -> PathBuf {
@@ -422,7 +503,13 @@ pub fn list_to_json(images: &[WaybackImage], lon: f64, lat: f64, z: u32) -> Stri
             })
         })
         .collect();
-    serde_json::json!({ "lon": lon, "lat": lat, "z": z, "images": items }).to_string()
+    serde_json::json!({ "lon": lon, "lat": lat, "z": z, "complete": list_complete(images), "images": items })
+        .to_string()
+}
+
+/// Whether a JSON written by `list_to_json` is of a complete listing (files without the field are).
+pub fn list_json_complete(text: &str) -> bool {
+    serde_json::from_str::<Value>(text).ok().and_then(|v| v["complete"].as_bool()).unwrap_or(true)
 }
 
 /// The listing of a JSON written by `list_to_json` (None if it is not one).
@@ -444,16 +531,19 @@ pub fn list_from_json(text: &str) -> Option<Vec<WaybackImage>> {
         .collect()
 }
 
-/// The listing kept for a point: `fresh_only`, only one younger than `LIST_MAX_AGE`.
+/// The listing kept for a point: `fresh_only`, only one younger than `LIST_MAX_AGE` (`LIST_INCOMPLETE_MAX_AGE`
+/// if it has an image without metadata).
 fn read_list_cache(cache_dir: &Path, lon: f64, lat: f64, z: u32, fresh_only: bool) -> Option<Vec<WaybackImage>> {
     let path = list_path(cache_dir, lon, lat, z);
+    let text = std::fs::read_to_string(&path).ok()?;
     if fresh_only {
         let age = std::fs::metadata(&path).and_then(|m| m.modified()).ok()?;
-        if !SystemTime::now().duration_since(age).is_ok_and(list_cache_valid) {
+        let complete = list_json_complete(&text);
+        if !SystemTime::now().duration_since(age).is_ok_and(|a| list_cache_valid(a, complete)) {
             return None;
         }
     }
-    list_from_json(&std::fs::read_to_string(path).ok()?)
+    list_from_json(&text)
 }
 
 fn write_list_cache(cache_dir: &Path, lon: f64, lat: f64, z: u32, images: &[WaybackImage]) {
@@ -501,17 +591,23 @@ pub fn list_fresh(lon: f64, lat: f64, z: u32, cache_dir: &Path) -> Result<Vec<Wa
         };
         select_chain_checked(&rel, |num| http_get(&url(num)).ok().map(|b| String::from_utf8_lossy(&b).into_owned()))
     });
-    let items = par_map(&found, |r| {
-        describe(r, zf, |layer| {
+    // the metadata service is erratic: short timeouts, no retry, one queue of (release, layer) requests
+    let start = Instant::now();
+    let items = describe_all(
+        &found,
+        zf,
+        META_BUDGET,
+        || start.elapsed(),
+        |r, layer| {
             let q = format!(
                 "{}/{layer}/query?geometry={lon},{lat}&geometryType=esriGeometryPoint&inSR=4326\
-                 &spatialRel=esriSpatialRelIntersects&outFields=SRC_DATE2,SRC_RES,SRC_DESC,NICE_NAME\
-                 &returnGeometry=false&f=json",
+             &spatialRel=esriSpatialRelIntersects&outFields=SRC_DATE2,SRC_RES,SRC_DESC,NICE_NAME\
+             &returnGeometry=false&f=json",
                 r.meta_url
             );
-            http_get(&q).ok().map(|b| String::from_utf8_lossy(&b).into_owned())
-        })
-    });
+            http_get_with(&q, META_TIMEOUT, META_CONNECT, 0).ok().map(|b| String::from_utf8_lossy(&b).into_owned())
+        },
+    );
     let images = dedup_by_date(items);
     write_list_cache(cache_dir, lon, lat, z, &images);
     Ok(images)
@@ -535,28 +631,25 @@ fn last_error(what: &str) -> String {
 }
 
 /// A tile's pixels (256 x 256 x 3, three planes) from its encoded bytes.
-fn decode_tile(bytes: Vec<u8>) -> Option<Vec<u8>> {
+fn decode_tile(mut bytes: Vec<u8>) -> Option<Vec<u8>> {
     static N: AtomicUsize = AtomicUsize::new(0);
     let name = format!("/vsimem/janus-wayback-{}.img", N.fetch_add(1, Ordering::Relaxed));
-    gdal::vsi::create_mem_file(&name, bytes).ok()?;
-    let r = (|| {
-        let _q = Quiet::new();
-        let ds = Dataset::open(&name).ok()?;
-        let (w, h) = ds.raster_size();
-        if (w, h) != (256, 256) || ds.raster_count() == 0 {
-            return None;
-        }
-        let nb = ds.raster_count();
-        let mut out = vec![0u8; 3 * 256 * 256];
-        for b in 0..3 {
-            let band = ds.rasterband(b.min(nb - 1) + 1).ok()?;
-            band.read_into_slice::<u8>((0, 0), (256, 256), (256, 256), &mut out[b * 65536..(b + 1) * 65536], None)
-                .ok()?;
-        }
-        Some(out)
-    })();
-    let _ = gdal::vsi::unlink_mem_file(&name);
-    r
+    // the program's allocator is mimalloc: GDAL must not free a Rust buffer (the guard unlinks the file on drop)
+    let _file = gdal::vsi::create_mem_file_from_ref(&name, &mut bytes).ok()?;
+    let _q = Quiet::new();
+    let ds = Dataset::open(&name).ok()?;
+    let (w, h) = ds.raster_size();
+    if (w, h) != (256, 256) || ds.raster_count() == 0 {
+        return None;
+    }
+    let nb = ds.raster_count();
+    let mut out = vec![0u8; 3 * 256 * 256];
+    for b in 0..3 {
+        let band = ds.rasterband(b.min(nb - 1) + 1).ok()?;
+        band.read_into_slice::<u8>((0, 0), (256, 256), (256, 256), &mut out[b * 65536..(b + 1) * 65536], None).ok()?;
+    }
+    // `ds` is dropped before `_file` (declared first), so the file is unlinked after the dataset closes
+    Some(out)
 }
 
 /// What asking for a tile gave.
@@ -1059,9 +1152,131 @@ mod tests {
         assert_ne!(list_cache_key(13.645_25, 52.4558, 19), list_cache_key(13.645_26, 52.4558, 19));
         assert_ne!(list_cache_key(13.645_25, 52.4558, 19), list_cache_key(13.645_25, 52.4558, 18));
         assert_eq!(list_cache_key(-46.0, -0.000_001, 19), "-4600000_0_z19");
-        assert!(list_cache_valid(Duration::from_secs(29 * 24 * 3600)));
-        assert!(!list_cache_valid(LIST_MAX_AGE));
-        assert!(!list_cache_valid(Duration::from_secs(40 * 24 * 3600)));
+        assert!(list_cache_valid(Duration::from_secs(29 * 24 * 3600), true));
+        assert!(!list_cache_valid(LIST_MAX_AGE, true));
+        assert!(!list_cache_valid(Duration::from_secs(40 * 24 * 3600), true));
+        // an incomplete listing is kept for a day only
+        assert!(list_cache_valid(Duration::from_secs(23 * 3600), false));
+        assert!(!list_cache_valid(LIST_INCOMPLETE_MAX_AGE, false));
+        assert!(!list_cache_valid(Duration::from_secs(2 * 24 * 3600), false));
+    }
+
+    #[test]
+    fn an_incomplete_listing_is_kept_flagged() {
+        let dir = std::env::temp_dir().join("janus-geo-test-wayback-incomplete");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut bad = img("2021-01-01", 40);
+        bad.desc = NO_METADATA.into();
+        let mut ok = img("2019-01-01", 30);
+        ok.desc = "Vivid".into();
+        let mixed = vec![ok.clone(), bad];
+        assert!(list_cacheable(&mixed) && !list_complete(&mixed) && list_complete(&[ok.clone()]));
+        assert!(!list_json_complete(&list_to_json(&mixed, 1.0, 2.0, 19)));
+        assert!(list_json_complete(&list_to_json(&[ok], 1.0, 2.0, 19)));
+        // an older file without the field is complete
+        assert!(list_json_complete(r#"{"images":[]}"#));
+        // kept, read while young; offline reads it at any age
+        write_list_cache(&dir, 1.0, 2.0, 19, &mixed);
+        assert_eq!(list(1.0, 2.0, 19, &dir).unwrap(), mixed);
+        assert_eq!(list_cached(1.0, 2.0, 19, &dir).unwrap(), mixed);
+        // a day old: `list` ignores it (read_list_cache with the age check), `list_cached` does not
+        let path = list_path(&dir, 1.0, 2.0, 19);
+        let old = SystemTime::now() - Duration::from_secs(2 * 24 * 3600);
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(old).unwrap();
+        assert!(read_list_cache(&dir, 1.0, 2.0, 19, true).is_none());
+        assert_eq!(list_cached(1.0, 2.0, 19, &dir).unwrap(), mixed);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn feature(ms: i64, name: &str) -> String {
+        format!(
+            r#"{{"features":[{{"attributes":{{"SRC_DATE2":{ms},"SRC_RES":0.3,"SRC_DESC":null,"NICE_NAME":"{name}"}}}}]}}"#
+        )
+    }
+
+    #[test]
+    fn describe_from_picks_the_best_layer_out_of_order() {
+        let rel = parse_config(CONFIG).unwrap();
+        // z 19: order 4, 3, 5, 2, ...; the answers come in any order and some are missing
+        let answers = vec![
+            (5, Some(feature(1_535_886_000_000, "five"))),
+            (3, Some(feature(1_685_750_400_000, "three"))),
+            (4, None),
+            (2, Some(r#"{"features":[]}"#.into())),
+        ];
+        let i = describe_from(&rel[1], 19, &answers).unwrap();
+        assert_eq!((i.date.as_str(), i.desc.as_str(), i.release), ("2023-06-03", "three", 10));
+        assert!(describe_from(&rel[1], 19, &[(4, None), (3, Some(r#"{"features":[]}"#.into()))]).is_none());
+        assert!(describe_from(&rel[1], 19, &[]).is_none());
+    }
+
+    #[test]
+    fn describe_all_asks_three_layers_then_the_rest() {
+        let rel = parse_config(CONFIG).unwrap();
+        let asked = Mutex::new(Vec::new());
+        // release 13161: layer 3 and 5 have a feature (3 is better); release 10: only layer 0 has one (second
+        // round); release 5: nothing anywhere
+        let out = describe_all(
+            &rel,
+            19,
+            Duration::from_secs(45),
+            || Duration::ZERO,
+            |r, l| {
+                asked.lock().unwrap().push((r.num, l));
+                match (r.num, l) {
+                    (13161, 3) => Some(feature(1_685_750_400_000, "three")),
+                    (13161, 5) => Some(feature(1_535_886_000_000, "five")),
+                    (10, 0) => Some(feature(1_535_886_000_000, "zero")),
+                    (13161, 4) => None,
+                    _ => Some(r#"{"features":[]}"#.into()),
+                }
+            },
+        );
+        assert_eq!(out.iter().map(|i| i.desc.as_str()).collect::<Vec<_>>(), ["three", "zero", NO_METADATA]);
+        assert_eq!(out[2].date, "0000");
+        let mut asked = asked.into_inner().unwrap();
+        asked.sort();
+        let first: Vec<(u32, i32)> = [13161, 10, 5].iter().flat_map(|&n| [3, 4, 5].map(|l| (n, l))).collect();
+        // the first round: 3 layers each; the second: the 5 others, only of the releases without a feature
+        let mut want = first;
+        want.extend([10, 5].iter().flat_map(|&n| [0, 1, 2, 6, 7].map(|l| (n, l))));
+        want.sort();
+        assert_eq!(asked, want);
+    }
+
+    #[test]
+    fn describe_all_stops_asking_after_the_budget() {
+        let rel = parse_config(CONFIG).unwrap();
+        let calls = AtomicUsize::new(0);
+        // the clock moves 10 s a request: the budget of 25 s lets 3 requests start, the rest are skipped
+        let clock = AtomicUsize::new(0);
+        let out = describe_all(
+            &rel,
+            19,
+            Duration::from_secs(25),
+            || Duration::from_secs(clock.load(Ordering::SeqCst) as u64 * 10),
+            |_, _| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                clock.fetch_add(1, Ordering::SeqCst);
+                None
+            },
+        );
+        assert!(calls.load(Ordering::SeqCst) < 9, "{} requests", calls.load(Ordering::SeqCst));
+        // all with the release's date
+        assert!(out.iter().all(|i| i.desc == NO_METADATA && i.date == i.release_date));
+        // an exhausted budget asks nothing
+        let n = AtomicUsize::new(0);
+        describe_all(
+            &rel,
+            19,
+            Duration::ZERO,
+            || Duration::ZERO,
+            |_, _| {
+                n.fetch_add(1, Ordering::SeqCst);
+                None
+            },
+        );
+        assert_eq!(n.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -1083,10 +1298,8 @@ mod tests {
         assert_eq!(list_cached(13.6, 52.4, 19, &dir).unwrap(), both);
         assert_eq!(read_list_cache(&dir, 13.6, 52.4, 19, true).unwrap(), both);
         assert!(list_cached(13.7, 52.4, 19, &dir).is_err());
-        // a listing that is empty or has a failed date is not kept
-        let mut bad = img("2021-01-01", 40);
-        bad.desc = NO_METADATA.into();
-        assert!(!list_cacheable(&[]) && !list_cacheable(&[bad]) && list_cacheable(&both));
+        // an empty listing is not kept
+        assert!(!list_cacheable(&[]) && list_cacheable(&both));
         write_list_cache(&dir, 1.0, 2.0, 19, &[]);
         assert!(list_cached(1.0, 2.0, 19, &dir).is_err());
         let _ = std::fs::remove_dir_all(&dir);
