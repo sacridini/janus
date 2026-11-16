@@ -35,7 +35,10 @@ pub use estimate::{
     Agreement, AreaEstimator, AssessInput, Assessment, ClassArea, DateAgreement, Est, Estimator, assess, cohen,
     date_agreement, z_of,
 };
-pub use labels::{ADJUDICATED, Event, Label, now_iso, resolve, year_of};
+pub use labels::{
+    ADJUDICATED, Event, Label, Response, YEAR_NA, YearLabel, derive, for_mapping, merge_label, now_iso, parse_years,
+    reference_mapping, resolve, resolve_year, year_of, years_text,
+};
 pub use project::{
     AssessedMap, FinalRef, Project, append_points, create_project, is_project, load_project, new_project_id,
     read_labels, save_labels, save_project_meta,

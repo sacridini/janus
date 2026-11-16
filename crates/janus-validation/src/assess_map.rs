@@ -128,6 +128,8 @@ pub fn prepare(
     let mut o = Prepared::default();
     let r = &m.rule;
     let n = p.points.len();
+    // the points answered year by year read with this map's translation
+    let labels = crate::labels::for_mapping(&p.labels, &p.years, &m.mapping);
     o.class_keys = map_classes(r, values, mapped);
     let mut idx: BTreeMap<String, usize> = BTreeMap::new();
     let mut idx_of_key: BTreeMap<i32, usize> = BTreeMap::new();
@@ -168,7 +170,7 @@ pub fn prepare(
         if r.kind == MapKind::Events && v.is_finite() && v > 0.0 {
             o.map_year[i] = v.floor() as i32;
         }
-        let (l, conflict) = resolve(&p.labels, i);
+        let (l, conflict) = resolve(&labels, i);
         let Some(l) = l else {
             if conflict {
                 o.conflicts += 1;
@@ -246,12 +248,13 @@ pub fn prepare(
 /// area whose first change in the period is in that year, with its interval.
 pub fn change_by_year(p: &Project, m: &AssessedMap, confidence: f64) -> Vec<(i32, ClassArea)> {
     let n = p.points.len();
+    let labels = crate::labels::for_mapping(&p.labels, &p.years, &m.mapping);
     let mut st: Vec<Option<usize>> = vec![None; n];
     let mut year = vec![0; n];
     let (mut y0, mut y1) = (i32::MAX, i32::MIN);
     let period = m.rule.kind == MapKind::Events && m.rule.bins.len() >= 2;
     for i in 0..n {
-        let (Some(l), _) = resolve(&p.labels, i) else { continue };
+        let (Some(l), _) = resolve(&labels, i) else { continue };
         let (ys, any) = change_years(l, &m.mapping);
         if any && ys.is_empty() {
             continue; // a change without a date: unknown year
@@ -380,8 +383,9 @@ pub fn python_snippet(p: &Project, m: &AssessedMap, confidence: f64) -> String {
         // rules above are given as they are
         let pr = prepare(p, m, &vec![f64::NAN; p.points.len()], &BTreeMap::new(), confidence, &[]);
         let mut fix = Vec::new();
+        let labels = crate::labels::for_mapping(&p.labels, &p.years, &m.mapping);
         for (i, pt) in p.points.iter().enumerate() {
-            let Some(l) = resolve(&p.labels, i).0 else { continue };
+            let Some(l) = resolve(&labels, i).0 else { continue };
             let simple = match m.mapping.get(&l.label).map(String::as_str) {
                 None | Some("") => None,
                 Some(CHANGE) if r.bins.is_empty() => Some(CHANGE.to_string()),

@@ -6,19 +6,22 @@
 //! file's own fields. A validation project's sample saves them in its GeoPackage instead (validation.rs), under
 //! the interpreter's name, and can be gone through by a filter (a cell of the error matrix, the disagreements).
 //!
-//! The interpretation panel's cards, keys and navigation follow Validation Viewer by Dr. Matthias Baumann
-//! (Humboldt-Universität zu Berlin), https://scm.cms.hu-berlin.de/baumamat/validationviewer, GPL-2.0-or-later, used
-//! under GPL-3.0-or-later.
+//! The interpretation panel's cards, keys and navigation (and its one label per year) follow Validation Viewer by
+//! Dr. Matthias Baumann (Humboldt-Universität zu Berlin), https://scm.cms.hu-berlin.de/baumamat/validationviewer,
+//! GPL-2.0-or-later, used under GPL-3.0-or-later. In the design "one label per year" (labels_year.rs) each year of
+//! a list has its class (or "n/a") and confidence, a bar of years above the classes, Tab for the next year; the
+//! date of the change and the other events give way to the years, the notes stay by point.
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use egui::{Color32, CornerRadius, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
-use janus_geo::vectors::{Kind, write_vector_table};
+use janus_geo::vectors::{Kind, Placer, csv_field, write_vector_table};
 use serde_json::{Value, json};
 
 use crate::app::State;
 use crate::exports::{ExportJob, start_export_job};
+use crate::labels_year as ly;
 
 const DEFAULT_CLASSES: [&str; 9] = [
     "Stable forest",
@@ -91,6 +94,7 @@ pub fn colors_from_hex(classes: &[String], hex: &[String]) -> Vec<[u8; 3]> {
 
 /// A feature's label and its events (the validation's: a project keeps the same).
 pub use janus_validation::{Event, Label, now_iso};
+use janus_validation::{Response, YEAR_NA, YearLabel};
 
 /// The interpretation going on.
 pub struct Interpretation {
@@ -130,6 +134,15 @@ pub struct Interpretation {
     /// only these features, in this order (empty: all), and what they are
     pub filter: Vec<usize>,
     pub filter_name: String,
+    /// one label per point, or one per year of `years`
+    pub response: Response,
+    /// the years to label (sorted), for the response per year
+    pub years: Vec<i32>,
+    /// the year being labelled
+    pub year: Option<i32>,
+    /// `years` as the text being edited
+    pub years_text: String,
+    pub years_error: String,
 }
 
 impl Default for Interpretation {
@@ -156,6 +169,11 @@ impl Default for Interpretation {
             who: String::new(),
             filter: Vec::new(),
             filter_name: String::new(),
+            response: Response::PerPoint,
+            years: Vec::new(),
+            year: None,
+            years_text: String::new(),
+            years_error: String::new(),
         }
     }
 }
@@ -186,11 +204,12 @@ impl State {
         } else {
             self.load_labels();
         }
+        self.interp_fill_years();
         // where the work stopped: the first feature without a label
         let d = &self.vectors[li].data;
         let has = |i: usize| d.features[i].kind != Kind::None;
         let first =
-            (0..n).find(|&i| has(i) && self.labels.entries[i].label.is_empty()).or_else(|| (0..n).find(|&i| has(i)));
+            (0..n).find(|&i| has(i) && !self.labels.done(&self.labels.entries[i])).or_else(|| (0..n).find(|&i| has(i)));
         if let Some(i) = first {
             self.interp_go(i);
         }
@@ -241,6 +260,91 @@ impl State {
             }
         }
         self.center_on_feature(li, i, f64::from(self.labels.zoom));
+        if self.labels.by_year() {
+            let y = ly::first_open_year(&self.labels.entries[i], &self.labels.years);
+            self.interp_select_year(y);
+        }
+    }
+
+    /// The years of the cube's dates (one each), when the response is per year and the list is empty; kept in the
+    /// project when there is one.
+    pub(crate) fn interp_fill_years(&mut self) {
+        if !self.labels.by_year() || !self.labels.years.is_empty() {
+            self.labels.years_text = janus_validation::years_text(&self.labels.years);
+            return;
+        }
+        let dates: Vec<String> =
+            self.session.as_ref().map(|s| s.info.layers.iter().map(|l| l.label.clone()).collect()).unwrap_or_default();
+        self.labels.years = ly::cube_years(&dates);
+        self.labels.years_text = janus_validation::years_text(&self.labels.years);
+        if self.labels.project {
+            self.validation_response_changed();
+        }
+    }
+
+    /// The year `y` to label (the map goes to the cube's date nearest to it).
+    pub(crate) fn interp_select_year(&mut self, y: Option<i32>) {
+        self.labels.year = y;
+        let (Some(y), Some(s)) = (y, &self.session) else { return };
+        let ys: Vec<i32> = s.info.layers.iter().map(|l| janus_validation::year_of(&l.label)).collect();
+        if let Some(t) = ly::nearest_date(&ys, y) {
+            self.set_date(t);
+        }
+    }
+
+    /// Tab / Shift+Tab: the next / previous year to label, round the ends.
+    pub(crate) fn interp_step_year(&mut self, dir: i32) {
+        if self.labels.by_year() {
+            let y = ly::step_year(&self.labels.years, self.labels.year, dir);
+            self.interp_select_year(y);
+        }
+    }
+
+    /// The translation of labels to change / no change that the reference derived from the years uses.
+    fn interp_mapping(&self) -> std::collections::BTreeMap<String, String> {
+        match &self.val.project {
+            Some(p) if self.labels.project => janus_validation::reference_mapping(&p.maps, &p.label_set),
+            _ => janus_validation::reference_mapping(&[], &self.labels.classes),
+        }
+    }
+
+    /// The label and date of feature c that follow from its years (what the estimators and older versions read).
+    fn interp_rederive(&mut self, c: usize) {
+        let m = self.interp_mapping();
+        let years = self.labels.years.clone();
+        self.labels.entries[c].rederive(&years, &m);
+    }
+
+    /// The year being labelled gets this label ("n/a" too); None clears it. With "Next after a label": the next open
+    /// year, the next point when every year has one.
+    fn interp_year_label(&mut self, label: Option<String>) {
+        let Some(c) = self.labels.current.filter(|&c| c < self.labels.entries.len()) else { return };
+        let Some(y) = self.labels.year else { return };
+        let e = &mut self.labels.entries[c];
+        match &label {
+            Some(l) => {
+                let confidence = e.years.get(&y).map_or(0, |x| x.confidence);
+                e.years.insert(y, YearLabel { label: l.clone(), confidence, updated: now_iso() });
+            }
+            None => {
+                e.years.remove(&y);
+            }
+        }
+        self.interp_rederive(c);
+        self.interp_touched();
+        if label.is_some() && self.labels.advance {
+            let open: Vec<i32> = self
+                .labels
+                .years
+                .iter()
+                .copied()
+                .filter(|y| self.labels.entries[c].years.get(y).is_none_or(|x| x.label.is_empty()))
+                .collect();
+            match open.iter().find(|&&o| o > y).or(open.first()) {
+                Some(&o) => self.interp_select_year(Some(o)),
+                None => self.interp_step(1),
+            }
+        }
     }
 
     /// The next (+1) or previous (-1) feature with a geometry (unlabelled ones only with "Skip labelled"; only
@@ -260,7 +364,7 @@ impl State {
                 let i = f[k as usize];
                 if i < self.labels.entries.len()
                     && d.features[i].kind != Kind::None
-                    && !(self.labels.skip_labelled && !self.labels.entries[i].label.is_empty())
+                    && !(self.labels.skip_labelled && self.labels.done(&self.labels.entries[i]))
                 {
                     self.interp_go(i);
                     return;
@@ -274,7 +378,7 @@ impl State {
         while (0..n).contains(&i) {
             let k = i as usize;
             if d.features[k].kind != Kind::None
-                && !(self.labels.skip_labelled && !self.labels.entries[k].label.is_empty())
+                && !(self.labels.skip_labelled && self.labels.done(&self.labels.entries[k]))
             {
                 self.interp_go(k);
                 return;
@@ -289,6 +393,10 @@ impl State {
         if k.is_some_and(|k| k >= self.labels.classes.len()) {
             return;
         }
+        if self.labels.by_year() {
+            self.interp_year_label(k.map(|k| self.labels.classes[k].clone()));
+            return;
+        }
         self.labels.entries[c].label = k.map_or(String::new(), |k| self.labels.classes[k].clone());
         self.interp_touched();
         if k.is_some() && self.labels.advance {
@@ -300,12 +408,24 @@ impl State {
     pub fn interp_set_date(&mut self, clear: bool) {
         let Some(s) = &self.session else { return };
         let Some(c) = self.labels.current.filter(|&c| c < self.labels.entries.len()) else { return };
+        if self.labels.by_year() {
+            return;
+        }
         self.labels.entries[c].date = if clear { String::new() } else { s.info.layers[self.display.t].label.clone() };
         self.interp_touched();
     }
 
     pub(crate) fn interp_set_confidence(&mut self, v: i32) {
         let Some(c) = self.labels.current.filter(|&c| c < self.labels.entries.len()) else { return };
+        if self.labels.by_year() {
+            // the confidence of the year being labelled
+            let Some(y) = self.labels.year else { return };
+            let x = self.labels.entries[c].years.entry(y).or_default();
+            x.confidence = v.clamp(0, 3);
+            x.updated = now_iso();
+            self.interp_touched();
+            return;
+        }
         self.labels.entries[c].confidence = v.clamp(0, 3);
         self.interp_touched();
     }
@@ -313,7 +433,7 @@ impl State {
     pub(crate) fn interp_add_event(&mut self, label: String) {
         let Some(s) = &self.session else { return };
         let Some(c) = self.labels.current.filter(|&c| c < self.labels.entries.len()) else { return };
-        if label.is_empty() {
+        if label.is_empty() || self.labels.by_year() {
             return;
         }
         let date = s.info.layers[self.display.t].label.clone();
@@ -341,7 +461,7 @@ impl State {
             if self.labels.filter.is_empty() { (0..d.features.len()).collect() } else { self.labels.filter.clone() };
         let start = self.labels.current.and_then(|c| order.iter().position(|&x| x == c)).map_or(0, |p| p + 1);
         let open = |i: usize| {
-            self.labels.entries.get(i).is_some_and(|e| e.label.is_empty()) && d.features[i].kind != Kind::None
+            self.labels.entries.get(i).is_some_and(|e| !self.labels.done(e)) && d.features[i].kind != Kind::None
         };
         let n = order.len();
         if let Some(i) = (0..n).map(|k| order[(start + k) % n]).find(|&i| open(i)) {
@@ -351,7 +471,8 @@ impl State {
 
     /// Left / Right the previous / next feature, N / Shift+N (Page Down / Up) too, O the next without a label,
     /// 1-9 a label, 0 clears it, D / Shift+D the date, Q W E (or Shift+1-3) the confidence, Shift+E an event at the
-    /// map's date. The date on the map goes by [ and ] (app.rs) meanwhile. Keys with Shift come first: egui
+    /// map's date; with one label per year Tab / Shift+Tab the next / previous year (D and Shift+E give way). The
+    /// date on the map goes by [ and ] (app.rs) meanwhile. Keys with Shift come first: egui
     /// matches a chord whatever Shift is held when the chord does not name it.
     pub(crate) fn interp_shortcuts(&mut self, ctx: &egui::Context) {
         use egui::{Key, Modifiers};
@@ -371,6 +492,12 @@ impl State {
             Key::Num8,
             Key::Num9,
         ];
+        if chord(Modifiers::SHIFT, Key::Tab) {
+            self.interp_step_year(-1);
+        }
+        if chord(Modifiers::NONE, Key::Tab) {
+            self.interp_step_year(1);
+        }
         for (c, &key) in DIGITS.iter().enumerate().take(4).skip(1) {
             // low, medium, high confidence
             if chord(Modifiers::SHIFT, key) {
@@ -378,6 +505,7 @@ impl State {
             }
         }
         if chord(Modifiers::SHIFT, Key::E)
+            && !self.labels.by_year()
             && let Some(c) = self.labels.current.filter(|&c| c < self.labels.entries.len())
         {
             // the label chosen for events, else the feature's
@@ -477,6 +605,8 @@ impl State {
             "layer": d.layer,
             "classes": self.labels.classes,
             "colors": self.labels.colors.iter().map(|&c| color_hex(c)).collect::<Vec<_>>(),
+            "response": self.labels.response.key(),
+            "years": self.labels.years,
             "entries": entries,
         });
         if let Some(dir) = path.parent() {
@@ -498,6 +628,9 @@ impl State {
                 j["colors"].as_array().into_iter().flatten().map(|v| v.as_str().unwrap_or("").to_string()).collect();
             self.labels.colors = colors_from_hex(&self.labels.classes, &hex);
         }
+        self.labels.response = Response::from_key(j["response"].as_str().unwrap_or(""));
+        self.labels.years =
+            j["years"].as_array().into_iter().flatten().filter_map(|v| v.as_i64().map(|y| y as i32)).collect();
         let d = &self.vectors[li].data;
         let by_fid: std::collections::HashMap<i64, usize> =
             d.features.iter().enumerate().map(|(i, f)| (f.fid, i)).collect();
@@ -514,17 +647,42 @@ impl State {
         let v = &self.vectors[li];
         let data = v.data.clone();
         let entries = Arc::new(self.labels.entries.clone());
-        let labelled = entries.iter().filter(|e| !e.label.is_empty()).count();
+        let labelled = entries.iter().filter(|e| self.labels.done(e)).count();
+        let years = self.labels.years.clone();
+        let by_year = self.labels.by_year();
         let title = format!("Labels of {} ({labelled} of {} features)", v.name, entries.len());
         let job = start_export_job(title, path.clone(), ctx, move |j| {
             j.set_progress(0.5);
-            let names = ["label", "change_date", "notes"].map(String::from);
+            if by_year && path.to_ascii_lowercase().ends_with(".csv") {
+                // one row for each feature and year
+                let p = Placer::lon_lat(&data);
+                let rows: Vec<ly::YearPoint> = data
+                    .features
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, f)| f.kind != Kind::None && entries.get(*i).is_some_and(|e| !e.is_empty()))
+                    .map(|(i, f)| ly::YearPoint {
+                        pid: f.fid.to_string(),
+                        lon_lat: p.to_lon_lat(f.cx, f.cy),
+                        interpreter: "",
+                        label: &entries[i],
+                    })
+                    .collect();
+                let text = ly::by_year_csv(&rows, &years, &csv_field);
+                return std::fs::write(&path, text).map_err(|e| format!("cannot write {path}: {e}"));
+            }
+            let mut names = ["label", "change_date", "notes"].map(String::from).to_vec();
+            if by_year {
+                // the reference derived from the years, then a class and a confidence for each year
+                names.extend(ly::year_columns(&years));
+            }
             write_vector_table(&path, &data, &names, &|i, k| {
                 let e = &entries[i];
                 match k {
                     0 => e.label.clone(),
                     1 => e.date.clone(),
-                    _ => e.notes.clone(),
+                    2 => e.notes.clone(),
+                    _ => ly::year_value(e, &years, k - 3),
                 }
             })
         });
@@ -590,7 +748,7 @@ impl State {
             (v.name.clone(), v.color, v.data.clone())
         };
         let n = d.features.len();
-        let labelled = self.labels.entries.iter().filter(|e| !e.label.is_empty()).count();
+        let labelled = self.labels.entries.iter().filter(|e| self.labels.done(e)).count();
         let mut stop = false;
         ui.horizontal(|ui| {
             ui.colored_label(color, &name);
@@ -617,7 +775,7 @@ impl State {
                     "{} / {n} · id {}{}",
                     c + 1,
                     d.features[c].fid,
-                    if self.labels.entries[c].label.is_empty() { "" } else { " ✓" }
+                    if self.labels.done(&self.labels.entries[c]) { " ✓" } else { "" }
                 ),
                 None => "-".to_string(),
             };
@@ -626,7 +784,7 @@ impl State {
                 let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
                 egui::ScrollArea::vertical().max_height(280.0).show_rows(ui, row_h, rows.len(), |ui, range| {
                     for &i in &rows[range] {
-                        let done = self.labels.entries.get(i).is_some_and(|e| !e.label.is_empty());
+                        let done = self.labels.entries.get(i).is_some_and(|e| self.labels.done(e));
                         let t = format!("{} · id {}{}", i + 1, d.features[i].fid, if done { " ✓" } else { "" });
                         if ui.selectable_label(current == Some(i), t).clicked() {
                             go = Some(i);
@@ -640,7 +798,7 @@ impl State {
             }
             open = ui
                 .button("next open »")
-                .on_hover_text("The next point without a label (O), round the end of the list")
+                .on_hover_text("The next point without a label (every year labelled, by year), O, round the end")
                 .clicked();
         });
         // the progress: thin and green, its words above
@@ -699,6 +857,7 @@ impl State {
                 });
             }
         }
+        self.response_ui(ui);
         self.label_set_ui(ui);
         ui.add_space(4.0);
         card(ui, &look, |ui| {
@@ -714,19 +873,20 @@ impl State {
     fn point_card(&mut self, ui: &mut Ui, look: &Look, li: usize, c: usize, n: usize) {
         let fid = self.vectors[li].data.features[c].fid;
         let label = self.labels.entries[c].label.clone();
+        let done = self.labels.done(&self.labels.entries[c]);
         let ll = self.interp_lon_lat(li, c);
         let grid = self.interp_grid_text();
         // blind until labelled: the map's class only once the point has its label (or the blind is off)
-        let seen = self.labels.project && (!self.val.blind || (self.val.reveal && !label.is_empty()));
+        let seen = self.labels.project && (!self.val.blind || (self.val.reveal && done));
         let reveal = if seen { self.validation_map_class(c, &label) } else { None };
         card(ui, look, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("Point {} of {n}", c + 1)).small().color(look.muted));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if label.is_empty() {
-                        badge(ui, "open", look.muted);
-                    } else {
+                    if done {
                         badge(ui, "validated", look.ok);
+                    } else {
+                        badge(ui, "open", look.muted);
                     }
                 });
             });
@@ -785,13 +945,27 @@ impl State {
             card_title(ui, look, "Validation", &saved);
             let sp = ui.spacing().item_spacing.x;
             let half = ((ui.available_width() - sp) / 2.0).floor();
+            let by_year = self.labels.by_year();
+            // one label per year: the bar of years above the classes
+            let mut year_pick = None;
+            if by_year {
+                year_pick = self.year_bar(ui, look, c);
+                ui.add_space(2.0);
+            }
+            let shown = |e: &Label, y: Option<i32>| -> String {
+                match y.filter(|_| by_year) {
+                    Some(y) => e.years.get(&y).map(|x| x.label.clone()).unwrap_or_default(),
+                    None => e.label.clone(),
+                }
+            };
+            let current_label = shown(&self.labels.entries[c], self.labels.year);
             let mut pick = None;
             let classes = self.labels.classes.clone();
             for row in classes.chunks(2).enumerate() {
                 ui.horizontal(|ui| {
                     for (j, class) in row.1.iter().enumerate() {
                         let k = row.0 * 2 + j;
-                        let on = self.labels.entries[c].label == *class;
+                        let on = current_label == *class;
                         let key = if k < 9 { (k + 1).to_string() } else { String::new() };
                         let swatch = self.labels.color32(k);
                         if key_button(ui, look, half, on, Some(swatch), class, &key).clicked() {
@@ -800,17 +974,35 @@ impl State {
                     }
                 });
             }
+            if by_year {
+                // a year that cannot be judged: a button of its own, without a colour
+                let on = current_label == YEAR_NA;
+                if key_button(ui, look, half, on, None, "n/a", "")
+                    .on_hover_text("This year cannot be judged (no usable image): it counts as labelled")
+                    .clicked()
+                {
+                    self.interp_year_label(if on { None } else { Some(YEAR_NA.to_string()) });
+                }
+            }
             if let Some(k) = pick {
                 self.interp_label(k);
             }
+            if let Some(y) = year_pick {
+                self.interp_select_year(Some(y));
+            }
             let Some(c) = self.labels.current.filter(|&c| c < n) else { return };
             ui.add_space(4.0);
-            ui.label(RichText::new("Confidence").small().color(look.muted));
+            ui.label(
+                RichText::new(if by_year { "Confidence of the year" } else { "Confidence" }).small().color(look.muted),
+            );
             let third = ((ui.available_width() - 2.0 * sp) / 3.0).floor();
             ui.horizontal(|ui| {
                 for (k, (name, key)) in [("low", "Q"), ("medium", "W"), ("high", "E")].iter().enumerate() {
                     let v = k as i32 + 1;
-                    let on = self.labels.entries[c].confidence == v;
+                    let on = match self.labels.year.filter(|_| by_year) {
+                        Some(y) => self.labels.entries[c].years.get(&y).is_some_and(|x| x.confidence == v),
+                        None => self.labels.entries[c].confidence == v,
+                    };
                     if key_button(ui, look, third, on, None, name, key)
                         .on_hover_text(format!("{key} or Shift+{v}"))
                         .clicked()
@@ -820,6 +1012,63 @@ impl State {
                 }
             });
             ui.add_space(4.0);
+            // the date of the change and the other events give way to the years
+            if !by_year {
+                self.date_and_events_ui(ui, look, c);
+            }
+            ui.label(RichText::new("Notes").small().color(look.muted));
+            let row = ui.text_style_height(&egui::TextStyle::Body);
+            if ui
+                .add(
+                    egui::TextEdit::multiline(&mut self.labels.notes)
+                        .desired_width(f32::INFINITY)
+                        .min_size(vec2(0.0, row * 3.0)),
+                )
+                .changed()
+            {
+                self.labels.entries[c].notes = self.labels.notes.clone();
+                self.interp_touched();
+            }
+        });
+    }
+
+    /// The bar of years of the Validation card ("Year to label · Tab next"): a button for each, a tick when labelled
+    /// ("n/a" shown as such), the one being labelled in green. The year clicked, if any.
+    fn year_bar(&mut self, ui: &mut Ui, look: &Look, c: usize) -> Option<i32> {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Year to label ·").small().color(look.muted));
+            kbd(ui, look, "Tab");
+            ui.label(RichText::new("next").small().color(look.muted));
+        });
+        if self.labels.years.is_empty() {
+            ui.colored_label(look.bad, "No years to label: set them under Response below.");
+            return None;
+        }
+        let mut pick = None;
+        ui.horizontal_wrapped(|ui| {
+            for &y in &self.labels.years {
+                let x = self.labels.entries[c].years.get(&y).filter(|x| !x.label.is_empty());
+                let text = match x {
+                    Some(x) if x.label == YEAR_NA => format!("{y} n/a"),
+                    Some(_) => format!("{y} ✓"),
+                    None => y.to_string(),
+                };
+                let on = self.labels.year == Some(y);
+                let mut b =
+                    egui::Button::new(RichText::new(text).monospace().color(if on { look.ok } else { look.text }));
+                b = b.fill(if on { look.ok.gamma_multiply(0.18) } else { look.chip_fill });
+                b = b.stroke(Stroke::new(if on { 1.5 } else { 1.0 }, if on { look.ok } else { look.border }));
+                if ui.add(b).on_hover_text(if x.is_some() { "labelled" } else { "open" }).clicked() {
+                    pick = Some(y);
+                }
+            }
+        });
+        pick
+    }
+
+    /// The date of the change and the other events of the Validation card (one label per point).
+    fn date_and_events_ui(&mut self, ui: &mut Ui, look: &Look, c: usize) {
+        {
             ui.label(RichText::new("Date of the change").small().color(look.muted));
             ui.horizontal(|ui| {
                 let date = &self.labels.entries[c].date;
@@ -877,20 +1126,83 @@ impl State {
                         }
                     });
                 });
-            ui.label(RichText::new("Notes").small().color(look.muted));
-            let row = ui.text_style_height(&egui::TextStyle::Body);
-            if ui
-                .add(
-                    egui::TextEdit::multiline(&mut self.labels.notes)
-                        .desired_width(f32::INFINITY)
-                        .min_size(vec2(0.0, row * 3.0)),
-                )
-                .changed()
-            {
-                self.labels.entries[c].notes = self.labels.notes.clone();
-                self.interp_touched();
+        }
+    }
+
+    /// The response: one label per point (with the date of the change) or one per year of a list (by default the
+    /// years of the cube's dates, editable as "2018-2023", "2017, 2019, 2021-2024", "2000-2020/5"). Kept in the project,
+    /// or in the labels' file.
+    fn response_ui(&mut self, ui: &mut Ui) {
+        let mut changed = false;
+        egui::CollapsingHeader::new("Response").id_salt("interp response").show(ui, |ui| {
+            let l = &mut self.labels;
+            ui.horizontal(|ui| {
+                for (r, name) in [(Response::PerPoint, "One label per point"), (Response::PerYear, "One label per year")] {
+                    if ui.selectable_label(l.response == r, name).clicked() && l.response != r {
+                        l.response = r;
+                        changed = true;
+                    }
+                }
+            });
+            if l.by_year() {
+                ui.horizontal(|ui| {
+                    ui.label("Years");
+                    let r = ui.add(egui::TextEdit::singleline(&mut l.years_text).desired_width(ui.available_width() - 70.0));
+                    let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if ui.button("Apply").clicked() || enter {
+                        match janus_validation::parse_years(&l.years_text) {
+                            Ok(ys) if !ys.is_empty() => {
+                                l.years = ys;
+                                l.years_error.clear();
+                                changed = true;
+                            }
+                            Ok(_) => {
+                                // empty: the cube's years
+                                l.years.clear();
+                                l.years_error.clear();
+                                changed = true;
+                            }
+                            Err(e) => l.years_error = e,
+                        }
+                    }
+                });
+                if !l.years_error.is_empty() {
+                    ui.colored_label(crate::theme::error(), &l.years_error);
+                }
+                ui.weak("e.g. 2018-2023, or 2017, 2019, 2021-2024, or 2000-2020/5 (every 5th). Empty and Apply: the cube's years.");
             }
+            ui.weak(
+                "By year each year has its class (or n/a) and confidence, the notes stay by point; the point is \
+                 validated when every year has one. The reference for the estimates follows from them: the first \
+                 year of a change, else the last class.",
+            );
         });
+        if changed {
+            if self.labels.by_year() && self.labels.years.is_empty() {
+                self.interp_fill_years();
+            }
+            self.interp_response_changed();
+        }
+    }
+
+    /// The response or the years changed: the references derived again, kept (in the project, or in the file).
+    fn interp_response_changed(&mut self) {
+        let years = self.labels.years.clone();
+        self.labels.years_text = janus_validation::years_text(&years);
+        if self.labels.by_year() {
+            let m = self.interp_mapping();
+            for e in self.labels.entries.iter_mut().filter(|e| !e.years.is_empty()) {
+                e.rederive(&years, &m);
+            }
+            let y = self.labels.year.filter(|y| years.contains(y)).or_else(|| years.first().copied());
+            self.labels.year = y;
+        }
+        if self.labels.project {
+            self.validation_response_changed();
+        } else {
+            self.labels.dirty = true;
+            self.labels.changed_at = Some(Instant::now());
+        }
     }
 
     /// The label set: names and colours, added to or removed from.
@@ -923,7 +1235,10 @@ impl State {
             ui.horizontal(|ui| {
                 let r = ui.add(egui::TextEdit::singleline(&mut l.new_class).desired_width(ui.available_width() - 60.0));
                 let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if (ui.button("Add").clicked() || enter) && !l.new_class.is_empty() && !l.classes.contains(&l.new_class)
+                if (ui.button("Add").clicked() || enter)
+                    && !l.new_class.is_empty()
+                    && l.new_class != YEAR_NA
+                    && !l.classes.contains(&l.new_class)
                 {
                     // the next colour of the categorical palette
                     let k = l.classes.len();
@@ -1016,7 +1331,9 @@ impl State {
                         if r.clicked() {
                             go = Some(i);
                         }
-                        let text = if e.events.is_empty() {
+                        let text = if self.labels.by_year() {
+                            ly::summary(e, &self.labels.years)
+                        } else if e.events.is_empty() {
                             e.label.clone()
                         } else {
                             format!("{} +{}", e.label, e.events.len())
@@ -1027,6 +1344,7 @@ impl State {
                         };
                         ui.label(&e.date);
                         ui.label(match e.confidence {
+                            _ if self.labels.by_year() => "",
                             1 => "low",
                             2 => "med.",
                             3 => "high",
@@ -1045,6 +1363,16 @@ impl State {
 }
 
 impl Interpretation {
+    /// One label for each year of `years`.
+    pub fn by_year(&self) -> bool {
+        self.response == Response::PerYear
+    }
+
+    /// The feature is labelled: it has its label, or (one label per year) every year has one.
+    pub fn done(&self, e: &Label) -> bool {
+        if self.by_year() { e.years_done(&self.years) } else { !e.label.is_empty() }
+    }
+
     /// One colour per class: those missing take the default of their name.
     fn sync_colors(&mut self) {
         self.colors.truncate(self.classes.len());
@@ -1225,7 +1553,7 @@ fn key_button(
 /// The Keys card: each line a run of chips (keys) and words.
 fn keys_card(ui: &mut Ui, look: &Look) {
     // (true: a key chip, false: words)
-    let lines: [&[(bool, &str)]; 6] = [
+    let lines: [&[(bool, &str)]; 7] = [
         &[
             (true, "←"),
             (true, "→"),
@@ -1238,6 +1566,7 @@ fn keys_card(ui: &mut Ui, look: &Look) {
         &[(true, "O"), (false, "next open"), (true, "1-9"), (false, "label"), (true, "0"), (false, "clears it")],
         &[(true, "Q"), (true, "W"), (true, "E"), (false, "confidence (or"), (true, "Shift+1-3"), (false, ")")],
         &[(true, "D"), (false, "date of the change"), (true, "Shift+D"), (false, "clears it")],
+        &[(true, "Tab"), (true, "Shift+Tab"), (false, "next / previous year (one label per year)")],
         &[(true, "Shift+E"), (false, "other event at the map's date")],
         &[(true, "["), (true, "]"), (false, "the map's date (or click the chart)")],
     ];
@@ -1251,6 +1580,16 @@ fn keys_card(ui: &mut Ui, look: &Look) {
                 }
             }
         });
+    }
+}
+
+/// "saved just now", "saved 12 s ago", "saved 3 min ago": how long ago the labels were written.
+fn saved_ago(s: u64) -> String {
+    match s {
+        0..=2 => "saved just now".into(),
+        3..=59 => format!("saved {s} s ago"),
+        60..=3599 => format!("saved {} min ago", s / 60),
+        _ => format!("saved {} h ago", s / 3600),
     }
 }
 
@@ -1274,15 +1613,5 @@ mod tests {
         assert_eq!(parse_color_hex("#0a0B0c"), Some([10, 11, 12]));
         assert_eq!(parse_color_hex("0a0b0c"), None);
         assert_eq!(parse_color_hex("#12"), None);
-    }
-}
-
-/// "saved just now", "saved 12 s ago", "saved 3 min ago": how long ago the labels were written.
-fn saved_ago(s: u64) -> String {
-    match s {
-        0..=2 => "saved just now".into(),
-        3..=59 => format!("saved {s} s ago"),
-        60..=3599 => format!("saved {} min ago", s / 60),
-        _ => format!("saved {} h ago", s / 3600),
     }
 }
