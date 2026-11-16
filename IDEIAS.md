@@ -2398,6 +2398,11 @@ arquivos (313 MB, ~7 s na primeira abertura) fica como ideia.
   analysis, proveniência e Run again; o Copy Python da cadeia pelo pixel_script (os passos depois do
   NBAR ou do ajuste leem a série harmonizada), conferido no Zeit (158 bandas, 8,4e-7); o executor
   das etapas (chain.rs) compartilhado com a janela do TSA; autoteste 310-319.
+- 1.19.1: a calculadora ganha corr(x, y, lag=, method=) (Pearson ou Spearman, y à frente) e a
+  unidade m (meses) nas durações (lag(x, 1m), mean(x, 3m)); a ferramenta de fenologia não diz mais
+  que é um port do phenofit (escrita a partir dos artigos), e o guia de fenologia refeito (27 estações).
+  As ferramentas EOF e correlação defasada (Zeit 3.8.0) estão no branch eof-tools, a parte do app em
+  andamento.
 
 ### O que falta, comparado ao ENVI (levantamento de 2026-11-05)
 
