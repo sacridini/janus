@@ -74,6 +74,10 @@ pub struct Param {
     pub help: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
+    /// a "series" parameter whose series may be in another CRS: the tool puts it on the run's grid itself (a lagged
+    /// correlation's driver), not required to be in the CRS of the run's series (as ImproPhe's coarse series must)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub any_crs: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -107,13 +111,16 @@ pub struct Output {
     pub classes_param: Option<String>,
     /// one output per entry of this list parameter (an endmember's fraction): the id `{id}_{k}` (from 1), the
     /// name with `{}` as the entry's name; for a "multi" parameter, the id `{id}_{option}` and the name with `{}`
-    /// as the option's label
+    /// as the option's label; for an int parameter, one output for each k from 1 to its value (an EOF's modes)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub each: Option<String>,
     /// the tool decides the output's bands once per job, with their labels (the band descriptions): not the
     /// run's dates (an interpolation's new grid, years, months); the chunk's [band][pixels] has that many bands
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bands: Option<bool>,
+    /// the colour scale's fixed limits (a correlation's -1 to 1), not the map's own range
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<[f64; 2]>,
 }
 
 /// The Tools menu's categories, by the question asked and in the order of a workflow: the data prepared, its

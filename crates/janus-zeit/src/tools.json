@@ -4893,6 +4893,477 @@
     }
    ],
    "chunk_cells": 4000000
+  },
+  {
+   "id": "eof",
+   "name": "EOF / principal components",
+   "category": "Temporal dynamics",
+   "description": "The temporal empirical orthogonal functions (EOF, principal components) of the window, as zeit.eof: the few maps (EOFs) and the time series (principal components, PCs) that explain most of its variability. The seasonal cycle is taken out of each pixel first (anomalies), the pixels are weighted by the area they cover, and the cube (dates by pixels) is decomposed from its small side, the dates: exactly (the Gram matrix of the dates) or by a randomized range finder with power iterations (Halko, Martinsson and Tropp 2011) in a few passes over the pixels, so a window that does not fit in memory works (its anomalies are kept as float32 in memory, or in a scratch file of the run's folder when they would take more than a quarter of the RAM). Each mode's map is in data units per standard deviation of its PC (or orthonormal), with its share of the variance and North's test (North et al. 1982) of whether it is separable from its neighbours; the PCs of the dates with too few valid pixels come from the gappy projection of Everson and Sirovich (1995). The first modes can be rotated by Kaiser's (1958) varimax to patterns that are more local. A raster run writes the maps of the first modes (each with its PC as the amplitude, shown with its variance), pcs.csv and eof.json in the run's folder. The decomposition needs the whole window: raster runs only.",
+   "requires": {
+    "time": "any",
+    "min_dates": 8
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "n_modes",
+     "label": "Modes computed",
+     "type": "int",
+     "default": 10,
+     "min": 1,
+     "max": 100,
+     "help": "How many modes are computed (at most the number of dates minus one). North's test and the rotation use them."
+    },
+    {
+     "id": "maps",
+     "label": "Maps written",
+     "type": "int",
+     "default": 4,
+     "min": 1,
+     "max": 20,
+     "help": "How many of the first modes are written as maps (each a layer with its PC)."
+    },
+    {
+     "id": "anomaly",
+     "label": "Anomalies",
+     "type": "enum",
+     "default": "month",
+     "options": [
+      "none",
+      "month",
+      "harmonic"
+     ],
+     "labels": [
+      "The pixel's mean",
+      "The monthly climatology",
+      "A harmonic fit"
+     ],
+     "help": "What is taken out of each pixel's series: the calendar months' means (the climatology; a month needs two values at least), a constant and sine and cosine pairs of the year fitted by least squares, or only the mean. The EOFs are of what is left."
+    },
+    {
+     "id": "harmonics",
+     "label": "Harmonics",
+     "type": "int",
+     "default": 2,
+     "min": 1,
+     "max": 6,
+     "help": "The sine and cosine pairs of the harmonic fit (the anomalies 'A harmonic fit')."
+    },
+    {
+     "id": "weights",
+     "label": "Pixel weights",
+     "type": "enum",
+     "default": "area",
+     "options": [
+      "area",
+      "coslat",
+      "none"
+     ],
+     "labels": [
+      "The pixel's area",
+      "Cosine of the latitude",
+      "None"
+     ],
+     "help": "Area: each pixel counts for what it covers (its geodesic area in the series' CRS), normalized to mean 1; cosine of the latitude is for a geographic CRS; none counts every pixel the same. Without a CRS the pixels count the same."
+    },
+    {
+     "id": "scaling",
+     "label": "Maps in",
+     "type": "enum",
+     "default": "units",
+     "options": [
+      "units",
+      "none"
+     ],
+     "labels": [
+      "Data units per standard deviation of the PC",
+      "Orthonormal EOFs"
+     ],
+     "help": "Units: each EOF in the data's units per standard deviation of its PC (the PCs have unit variance). Orthonormal: unit-length maps, the PCs carry the variance."
+    },
+    {
+     "id": "solver",
+     "label": "Solver",
+     "type": "enum",
+     "default": "auto",
+     "options": [
+      "auto",
+      "exact",
+      "randomized"
+     ],
+     "labels": [
+      "Automatic",
+      "Exact (Gram matrix)",
+      "Randomized (Halko et al.)"
+     ],
+     "help": "Automatic: exact with up to 256 dates (one pass over the pixels), else randomized. Randomized reads the pixels a few times (power iterations + 2) and is as good as exact for the first modes."
+    },
+    {
+     "id": "oversampling",
+     "label": "Oversampling",
+     "type": "int",
+     "default": 10,
+     "min": 0,
+     "max": 100,
+     "help": "The randomized solver's extra columns beyond the modes computed."
+    },
+    {
+     "id": "power_iterations",
+     "label": "Power iterations",
+     "type": "int",
+     "default": 2,
+     "min": 0,
+     "max": 10,
+     "help": "The randomized solver's passes that sharpen the range; more passes are exacter and read the pixels again."
+    },
+    {
+     "id": "rotate",
+     "label": "Rotate the first modes",
+     "type": "int",
+     "default": 0,
+     "min": 0,
+     "max": 20,
+     "help": "Rotate this many of the first modes by Kaiser's varimax (0 for none, otherwise at least 2). The rotated maps are written too, ordered by their variance."
+    },
+    {
+     "id": "kaiser",
+     "label": "Kaiser normalization",
+     "type": "bool",
+     "default": true,
+     "help": "Varimax with the rows divided by their communality (Kaiser's normalization)."
+    },
+    {
+     "id": "north_n",
+     "label": "North's test counts",
+     "type": "enum",
+     "default": "autocorrelation",
+     "options": [
+      "autocorrelation",
+      "dates"
+     ],
+     "labels": [
+      "The effective dates (lag-1 autocorrelation of each PC)",
+      "All the dates"
+     ],
+     "help": "The number of independent dates in the sampling error of each eigenvalue (North et al. 1982): all the dates, or T (1 - rho) / (1 + rho) with the lag-1 autocorrelation rho of each PC, fewer for a smooth series."
+    },
+    {
+     "id": "min_valid",
+     "label": "Valid fraction of a pixel",
+     "type": "float",
+     "default": 0.8,
+     "min": 0.0,
+     "max": 1.0,
+     "help": "A pixel is kept when this fraction of the dates (after the anomalies) is valid; the others have no value in the maps."
+    },
+    {
+     "id": "seed",
+     "label": "Random seed",
+     "type": "int",
+     "default": 42,
+     "min": 0,
+     "max": 2147483647,
+     "help": "The seed of the randomized solver's test matrix (the result does not depend on the threads)."
+    },
+    {
+     "id": "correlation_maps",
+     "label": "Correlation maps",
+     "type": "bool",
+     "default": false,
+     "help": "Also write, for each map, the correlation of every pixel's anomalies with the mode's PC."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "eof",
+     "name": "EOF {}",
+     "colormap": "RdBu",
+     "unit": "per sd of the PC",
+     "each": "maps"
+    },
+    {
+     "id": "corrmap",
+     "name": "Correlation with PC {}",
+     "colormap": "RdBu",
+     "unit": "r",
+     "each": "maps",
+     "when": "correlation_maps",
+     "range": [
+      -1.0,
+      1.0
+     ]
+    },
+    {
+     "id": "eof_rotated",
+     "name": "Rotated EOF {}",
+     "colormap": "RdBu",
+     "unit": "per sd of the PC",
+     "each": "rotate"
+    }
+   ],
+   "chunk_cells": 262144
+  },
+  {
+   "id": "lagged_correlation",
+   "name": "Lagged correlation",
+   "category": "Temporal dynamics",
+   "description": "The correlation of every pixel's series with a driver (a climate index, a regional mean, another map series) at several lags, as zeit.lagged_correlation. At lag k the pairs are the pixel's value at t and the driver's at t - k: the driver leads, so a driver that acts two months later shows its strongest correlation at lag 2. Both series are averaged to calendar months first (a monthly index against a 16-day series) or matched by date, the seasonal cycle is taken out, and the pairs are the dates where both are valid. The significance is a two-sided Student t test with the effective number of pairs n (1 - rx ry) / (1 + rx ry) (Bretherton et al. 1999), because the consecutive values of a series are not independent; the best lag's p-value is adjusted for having tried the lags (Sidak), and the best lags of all the pixels are tested together by the false discovery rate (Benjamini and Hochberg 1995; Wilks 2016), written as q and as the map of the significant pixels. The driver is another open series (of any grid and CRS, put on this one's grid), the mean of that series over the window, or a CSV file of dates and values. Raster runs only.",
+   "requires": {
+    "time": "any",
+    "min_dates": 12
+   },
+   "modes": [
+    "raster"
+   ],
+   "params": [
+    {
+     "id": "y",
+     "label": "Driver series",
+     "type": "series",
+     "default": null,
+     "any_crs": true,
+     "help": "The driver: another open series (File > Open), on any grid and in any CRS, put on this series' grid (nearest neighbour or bilinear). Its first band of each date is used. Needed when the driver is a series or its window mean."
+    },
+    {
+     "id": "y_mode",
+     "label": "The driver is",
+     "type": "enum",
+     "default": "pixel",
+     "options": [
+      "pixel",
+      "window_mean",
+      "file"
+     ],
+     "labels": [
+      "The series, pixel by pixel",
+      "The series' mean over the window",
+      "A CSV file"
+     ],
+     "help": "Pixel by pixel: each pixel against the driver's pixel at the same place. The mean over the window: one series (a regional index) for every pixel. A CSV file: one series of dates and values (a header line is skipped)."
+    },
+    {
+     "id": "y_file",
+     "label": "Driver CSV",
+     "type": "file",
+     "default": "",
+     "help": "The CSV of the driver: a date (2020-03-15, or 2020-03 for a month) and a value on each line, comma, semicolon or tab separated; empty or NA values are missing."
+    },
+    {
+     "id": "lags",
+     "label": "Lags",
+     "type": "int",
+     "default": 3,
+     "min": 0,
+     "max": 120,
+     "help": "The lags 0, 1, ..., K, in months or in dates (below). At lag k the driver is k steps before the pixel's value."
+    },
+    {
+     "id": "step",
+     "label": "The lags are in",
+     "type": "enum",
+     "default": "month",
+     "options": [
+      "month",
+      "dates"
+     ],
+     "labels": [
+      "Calendar months",
+      "Dates of the series"
+     ],
+     "help": "Months: both are averaged to calendar months first, so a monthly index and a 16-day series are compared and the lags are months. Dates: the driver is matched to the series' dates and the lags are observations of the series."
+    },
+    {
+     "id": "match",
+     "label": "Dates are matched",
+     "type": "enum",
+     "default": "nearest",
+     "options": [
+      "nearest",
+      "exact",
+      "month",
+      "year"
+     ],
+     "labels": [
+      "To the nearest date within the tolerance",
+      "Exactly",
+      "To a date of the same month",
+      "To a date of the same year"
+     ],
+     "help": "For lags in dates: how the driver's dates are paired with the series' dates."
+    },
+    {
+     "id": "tolerance",
+     "label": "Tolerance",
+     "type": "float",
+     "default": 8.0,
+     "min": 0.0,
+     "max": 3650.0,
+     "unit": "days",
+     "help": "For the nearest date: how far apart the two dates may be."
+    },
+    {
+     "id": "anomaly",
+     "label": "Anomalies",
+     "type": "enum",
+     "default": "month",
+     "options": [
+      "none",
+      "mean",
+      "month",
+      "harmonic"
+     ],
+     "labels": [
+      "None (the raw values)",
+      "The mean",
+      "The monthly climatology",
+      "A harmonic fit"
+     ],
+     "help": "Taken out of both series before correlating. The raw values correlate their trends and seasonal cycles too, which inflates r and makes the lags a matter of the season."
+    },
+    {
+     "id": "method",
+     "label": "Correlation",
+     "type": "enum",
+     "default": "pearson",
+     "options": [
+      "pearson",
+      "spearman"
+     ],
+     "labels": [
+      "Pearson",
+      "Spearman (ranks, ties averaged)"
+     ],
+     "help": "Pearson's r, or Spearman's on the ranks of the pairs of each lag."
+    },
+    {
+     "id": "best",
+     "label": "Best lag",
+     "type": "enum",
+     "default": "absolute",
+     "options": [
+      "absolute",
+      "positive",
+      "negative"
+     ],
+     "labels": [
+      "The largest |r|",
+      "The largest r",
+      "The smallest r"
+     ],
+     "help": "Which lag is the best of each pixel."
+    },
+    {
+     "id": "min_pairs",
+     "label": "Minimum pairs",
+     "type": "int",
+     "default": 10,
+     "min": 3,
+     "max": 10000,
+     "help": "A lag with fewer pairs of valid values has no correlation."
+    },
+    {
+     "id": "effective_n",
+     "label": "Effective number of pairs",
+     "type": "bool",
+     "default": true,
+     "help": "The p-values use n (1 - rx ry) / (1 + rx ry) pairs (Bretherton et al. 1999), accounting for the autocorrelation of both series. Off takes the pairs as independent, which makes the p-values too small for smooth series."
+    },
+    {
+     "id": "sidak",
+     "label": "Sidak adjustment of the best lag",
+     "type": "bool",
+     "default": true,
+     "help": "The best lag's p-value is adjusted for the number of lags tried: 1 - (1 - p)^(K + 1)."
+    },
+    {
+     "id": "alpha_fdr",
+     "label": "False discovery rate",
+     "type": "float",
+     "default": 0.1,
+     "min": 0.001,
+     "max": 0.5,
+     "help": "Of the pixels marked significant, about this fraction is expected to be false discoveries (Benjamini and Hochberg 1995). Wilks (2016) recommends twice the level a single test would have: 0.10 for 0.05."
+    },
+    {
+     "id": "resampling",
+     "label": "Driver resampling",
+     "type": "enum",
+     "default": "nearest",
+     "options": [
+      "nearest",
+      "bilinear"
+     ],
+     "labels": [
+      "Nearest neighbour",
+      "Bilinear"
+     ],
+     "help": "How the driver series is put on this series' grid when it is on another one."
+    }
+   ],
+   "outputs": [
+    {
+     "id": "best_r",
+     "name": "Correlation at the best lag",
+     "colormap": "RdBu",
+     "unit": "r",
+     "range": [
+      -1.0,
+      1.0
+     ]
+    },
+    {
+     "id": "best_lag",
+     "name": "Best lag",
+     "colormap": "Viridis",
+     "unit": "months",
+     "dtype": "int16",
+     "scale": 1.0
+    },
+    {
+     "id": "best_p",
+     "name": "p-value of the best lag",
+     "colormap": "Plasma",
+     "unit": "p"
+    },
+    {
+     "id": "q",
+     "name": "False discovery rate q",
+     "colormap": "Plasma",
+     "unit": "q"
+    },
+    {
+     "id": "significant",
+     "name": "Significant",
+     "colormap": "Paired",
+     "unit": "class",
+     "classes": [
+      "Not significant",
+      "Significant"
+     ]
+    },
+    {
+     "id": "n_eff",
+     "name": "Effective pairs at the best lag",
+     "colormap": "Viridis",
+     "unit": "pairs"
+    },
+    {
+     "id": "r_lags",
+     "name": "Correlation at each lag",
+     "colormap": "RdBu",
+     "unit": "r",
+     "series": true,
+     "hidden": true,
+     "bands": true,
+     "range": [
+      -1.0,
+      1.0
+     ]
+    }
+   ],
+   "chunk_cells": 20000
   }
  ],
  "errors": []

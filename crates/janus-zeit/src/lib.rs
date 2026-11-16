@@ -17,6 +17,8 @@ mod clear_observations;
 pub mod cluster;
 mod coded;
 pub mod composite;
+pub mod correlation;
+pub mod eof;
 pub mod ewmacd;
 mod fold_trend;
 pub mod granules;

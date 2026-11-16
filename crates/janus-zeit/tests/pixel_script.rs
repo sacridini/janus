@@ -544,3 +544,52 @@ fn nbar_of_a_pin_reads_the_bands_and_the_angle_bands_and_runs() {
     let check = "\nimport numpy as np\nassert nbar.sizes['band'] == 3 and np.isfinite(nbar.values).all(), nbar\nassert np.isfinite(cfactor.values).all()\n";
     run_script(&format!("{code}{check}"), "nbar-pin");
 }
+
+#[test]
+fn a_run_of_an_eof_or_a_lagged_correlation_calls_zeit_with_the_driver_series() {
+    let d = dir("eof-lagged");
+    let dates: Vec<String> = (0..30).map(|t| format!("2019-{:02}-{:02}", 1 + t / 3, 1 + 10 * (t % 3))).collect();
+    let make = |name: &str, base: u16| {
+        let bands: Vec<Vec<u16>> = (0..30).map(|t| (0..W * H).map(|i| base + (100 * t + i) as u16).collect()).collect();
+        let path = d.join(name);
+        write(&path, &bands, &dates, 1e-4, 0.0);
+        open(&[path], &BandSelection::default())
+    };
+    let (info, driver) = (make("series.tif", 5000), make("driver.tif", 4000));
+    let roles = roles(&info);
+    let path = |p: &str| p.replace('\\', "/");
+    let out = d.join("maps");
+    let make_script = |tools: &[(String, Params)], other: Option<&CubeInfo>| {
+        let spec = Spec {
+            info: &info,
+            version: "test",
+            name: "series",
+            target: run_target([0, 0, W, H], &out),
+            roles: &roles,
+            tools,
+            path: &path,
+            other,
+            chain: &[],
+        };
+        pixel_script(&spec)
+    };
+    let code = make_script(&[tool("eof")], None).unwrap();
+    println!("{code}");
+    assert!(code.contains("zeit.eof(series, north_n='autocorrelation')"), "{code}");
+    assert!(code.contains("zeit-cdts>=3.8"), "{code}");
+    // the driver series: its first band of each date, read by Zeit over its whole grid
+    let code = make_script(&[tool("lagged_correlation")], Some(&driver)).unwrap();
+    println!("{code}");
+    assert!(code.contains("other_cube = zeit.load_raster(coarse_src"), "{code}");
+    assert!(code.contains("zeit.lagged_correlation(series, other_cube)"), "{code}");
+    assert!(code.contains("zeit.save_raster(result, f\"{out_dir}/result\")"), "{code}");
+    // without the driver series chosen, the script says so
+    let err = make_script(&[tool("lagged_correlation")], None).unwrap_err();
+    assert!(err.contains("driver"), "{err}");
+    // a CSV driver needs no other series
+    let mut csv = Params::with_defaults("lagged_correlation", &BTreeMap::new()).unwrap();
+    csv.0.insert("y_mode".into(), serde_json::json!("file"));
+    csv.0.insert("y_file".into(), serde_json::json!("oni.csv"));
+    let code = make_script(&[("lagged_correlation".into(), csv)], None).unwrap();
+    assert!(code.contains("driver = pd.read_csv('oni.csv'") && code.contains("import pandas as pd"), "{code}");
+}

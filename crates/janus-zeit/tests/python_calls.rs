@@ -54,3 +54,53 @@ fn the_time_series_tools_have_python_calls() {
         "{c}"
     );
 }
+
+#[test]
+fn eof_and_lagged_correlation_have_python_calls() {
+    let c = code(
+        "eof",
+        &[("n_modes", json!(5)), ("rotate", json!(3)), ("north_n", json!("dates")), ("weights", json!("none"))],
+    );
+    assert!(c.contains("zeit.eof(series, n_modes=5, anomaly='month', harmonics=2, weights='none'"), "{c}");
+    assert!(c.contains("rotate=3, kaiser=True, north_n='dates', correlation_maps=False, seed=42"), "{c}");
+    // the compact call leaves out what Zeit's default is: of the defaults, only North's n differs
+    let input = PixelInput { years: vec![2020.0], days: Some(vec![18300]), values: vec![0.1], ..Default::default() };
+    let p = Params::with_defaults("eof", &BTreeMap::new()).unwrap();
+    let call = janus_zeit::python::tool_call("eof", &p, &input).unwrap();
+    assert_eq!(call.compact("").0, "result = zeit.eof(series, north_n='autocorrelation')");
+
+    // the driver: another series (its own cube), its mean over the window, or a CSV
+    let given = |v: &[(&str, Value)]| -> Params {
+        Params::with_defaults("lagged_correlation", &v.iter().map(|(k, x)| (k.to_string(), x.clone())).collect())
+            .unwrap()
+    };
+    let (c, inputs) =
+        calls("lagged_correlation", &given(&[("lags", json!(6)), ("method", json!("spearman"))]), &input).unwrap();
+    assert_eq!(inputs, vec!["series", "other_cube"]);
+    assert!(
+        c.contains("zeit.lagged_correlation(series, other_cube, lags=6, step='month', match='nearest', tolerance='8D'"),
+        "{c}"
+    );
+    assert!(
+        c.contains("method='spearman', best='absolute', min_pairs=10, effective_n=True, sidak=True, alpha_fdr=0.1"),
+        "{c}"
+    );
+    let (c, inputs) = calls("lagged_correlation", &given(&[("y_mode", json!("window_mean"))]), &input).unwrap();
+    assert_eq!(inputs, vec!["series", "other_cube"]);
+    assert!(c.contains("zeit.lagged_correlation(series, other_cube.mean(dim=('y', 'x')), lags=3"), "{c}");
+    let (c, inputs) = calls(
+        "lagged_correlation",
+        &given(&[("y_mode", json!("file")), ("y_file", json!("oni.csv")), ("tolerance", json!(12.5))]),
+        &input,
+    )
+    .unwrap();
+    assert_eq!(inputs, vec!["series"]);
+    assert!(c.starts_with("driver = pd.read_csv('oni.csv', index_col=0, parse_dates=True).iloc[:, 0]"), "{c}");
+    assert!(
+        c.contains("zeit.lagged_correlation(series, driver, lags=3, step='month', match='nearest', tolerance='12.5D'"),
+        "{c}"
+    );
+    // the defaults leave out of the compact call everything but the driver
+    let call = janus_zeit::python::tool_call("lagged_correlation", &given(&[]), &input).unwrap();
+    assert_eq!(call.compact("").0, "result = zeit.lagged_correlation(series, other_cube)");
+}

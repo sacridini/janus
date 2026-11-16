@@ -528,6 +528,39 @@ impl Inputs {
     }
 }
 
+/// The window read in strips of `rows` rows, the next strip read on a thread while `each(row, rows, chunk)` computes
+/// this one (the disk and the CPU at once, as a run does).
+pub(crate) fn for_strips(
+    inputs: &mut Inputs,
+    window: [usize; 4],
+    rows: usize,
+    cancel: &AtomicBool,
+    mut each: impl FnMut(usize, usize, Chunk) -> Result<(), String>,
+) -> Result<(), String> {
+    let [x0, y0, x1, y1] = window;
+    let (w, h) = (x1 - x0, y1 - y0);
+    let strips: Vec<(usize, usize)> = (0..h).step_by(rows.max(1)).map(|r| (r, rows.max(1).min(h - r))).collect();
+    std::thread::scope(|s| {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Chunk, String>>(1);
+        let list = &strips;
+        s.spawn(move || {
+            for &(r, hh) in list {
+                if tx.send(inputs.read(x0, y0 + r, w, hh)).is_err() {
+                    break;
+                }
+            }
+        });
+        for &(r, hh) in &strips {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("cancelled".into());
+            }
+            let chunk = rx.recv().map_err(|e| e.to_string())??;
+            each(r, hh, chunk)?;
+        }
+        Ok(())
+    })
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Outputs
 // ---------------------------------------------------------------------------------------------------------------
@@ -541,8 +574,20 @@ pub fn active_outputs(tool: &Tool, p: &Params) -> Vec<Output> {
             out.push(o.clone());
             continue;
         };
-        let entries = p.0.get(list).and_then(Value::as_array).cloned().unwrap_or_default();
         let param = tool.params.iter().find(|q| &q.id == list);
+        // an int parameter: one output per k = 1..n (the n first modes of an EOF)
+        if param.is_some_and(|q| q.kind == "int") {
+            for k in 1..=p.int(list).max(0) {
+                let name = if o.name.contains("{}") {
+                    o.name.replace("{}", &k.to_string())
+                } else {
+                    format!("{k} {}", o.name)
+                };
+                out.push(Output { id: format!("{}_{k}", o.id), name, each: None, ..o.clone() });
+            }
+            continue;
+        }
+        let entries = p.0.get(list).and_then(Value::as_array).cloned().unwrap_or_default();
         let named = |name: &str| {
             if o.name.contains("{}") { o.name.replace("{}", name) } else { format!("{name} {}", o.name) }
         };
@@ -571,6 +616,7 @@ pub(crate) fn output_bands(tool: &str, o: &Output, p: &Params, input: &PixelInpu
         "fold" => crate::temporal_metrics::fold_bands(o, p, input),
         "clear_observations" => crate::clear_observations::bands(o, p, input),
         "polar_metrics" => crate::polar_metrics::bands(o, p, input),
+        "lagged_correlation" => crate::correlation::bands(o, p, input),
         _ => Err(format!("{tool}: the output '{}' has no bands", o.id)),
     }
 }
@@ -962,6 +1008,12 @@ pub fn run_job(
     if spec.tool == "improphe" {
         return crate::improphe::run(spec, tool, &p, progress, cancel);
     }
+    if spec.tool == "eof" {
+        return crate::eof::run(spec, tool, &p, progress, cancel);
+    }
+    if spec.tool == "lagged_correlation" {
+        return crate::correlation::run(spec, tool, &p, progress, cancel);
+    }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();
     let window = spec.window.unwrap_or([0, 0, iw, ih]);
@@ -1117,6 +1169,12 @@ pub fn estimate(spec: &JobSpec) -> Result<Estimate, String> {
     }
     if spec.tool == "improphe" {
         return crate::improphe::estimate(spec, &p, cells);
+    }
+    if spec.tool == "eof" {
+        return crate::eof::estimate(spec, &p, cells);
+    }
+    if spec.tool == "lagged_correlation" {
+        return crate::correlation::estimate(spec, &p, cells);
     }
     let mut inputs = Inputs::new(spec)?;
     let (iw, ih) = inputs.input.ds().raster_size();

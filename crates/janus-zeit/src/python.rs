@@ -1029,6 +1029,68 @@ pub fn tool_call(tool: &str, p: &Params, input: &PixelInput) -> Option<ToolCall>
                 vec!["improphe_cubes"],
             )
         }
+        "eof" => one(call(
+            "result1",
+            "zeit.eof",
+            vec![
+                pos("series"),
+                kw("n_modes", i("n_modes")),
+                kw("anomaly", s("anomaly")),
+                kw("harmonics", i("harmonics")),
+                kw("weights", s("weights")),
+                kw("min_valid", f("min_valid")),
+                kw("scaling", s("scaling")),
+                kw("solver", s("solver")),
+                kw("oversampling", i("oversampling")),
+                kw("power_iterations", i("power_iterations")),
+                kw("rotate", i("rotate")),
+                kw("kaiser", py_bool(p.bool("kaiser"))),
+                kw("north_n", s("north_n")),
+                kw("correlation_maps", py_bool(p.bool("correlation_maps"))),
+                kw("seed", i("seed")),
+                plumbing("nodata", "None"),
+                plumbing("n_jobs", "1"),
+            ],
+        )),
+        "lagged_correlation" => {
+            // the driver: another series on the series' grid (`other_cube`), its mean over the window, or a CSV
+            let mut pieces = vec![];
+            let (driver, inputs) = match p.str("y_mode") {
+                "file" => {
+                    pieces.push(Piece::Raw(format!(
+                        "driver = pd.read_csv({}, index_col=0, parse_dates=True).iloc[:, 0]  # the driver's CSV: a date and a value",
+                        py_str(p.str("y_file"))
+                    )));
+                    ("driver", vec!["series"])
+                }
+                "window_mean" => ("other_cube.mean(dim=('y', 'x'))", vec!["series", "other_cube"]),
+                _ => ("other_cube", vec!["series", "other_cube"]),
+            };
+            // Zeit reads a tolerance as "8D" (days)
+            let tolerance = py_str(&format!("{}D", p.f64("tolerance")));
+            pieces.push(call(
+                "result1",
+                "zeit.lagged_correlation",
+                vec![
+                    pos("series"),
+                    pos(driver),
+                    kw("lags", i("lags")),
+                    kw("step", s("step")),
+                    kw("match", s("match")),
+                    kw("tolerance", tolerance),
+                    kw("anomaly", s("anomaly")),
+                    kw("method", s("method")),
+                    kw("best", s("best")),
+                    kw("min_pairs", i("min_pairs")),
+                    kw("effective_n", py_bool(p.bool("effective_n"))),
+                    kw("sidak", py_bool(p.bool("sidak"))),
+                    kw("alpha_fdr", f("alpha_fdr")),
+                    plumbing("nodata", "None"),
+                    plumbing("n_jobs", "1"),
+                ],
+            ));
+            ToolCall::new(tool, pieces, inputs)
+        }
         "clear_observations" => one(call(
             "result1",
             "zeit.clear_observations",

@@ -366,6 +366,10 @@ fn ints(v: &[i32]) -> String {
     format!("[{}]", v.iter().map(i32::to_string).collect::<Vec<_>>().join(", "))
 }
 
+/// What `pip install` needs for a script of Zeit's `eof` or `lagged_correlation` (the Zeit that has them: to be confirmed
+/// when it is released).
+const ZEIT_WITH_EOF: &str = "\"zeit-cdts>=3.8\"";
+
 /// The Python of a pin's or an ROI's series (and the tools fitted on it).
 pub fn pixel_script(spec: &Spec) -> Result<String, String> {
     let info = spec.info;
@@ -410,8 +414,8 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
             Some(c) if roi && c.inputs != ["series"] => {
                 format!("# {}: its bands are a pin's, not the ROI's mean", tool.name)
             }
-            // the two series ImproPhe reads are a run's
-            Some(c) if c.inputs.contains(&"improphe_cubes") && !run => {
+            // the two series ImproPhe reads, and the driver series of a lagged correlation, are a run's
+            Some(c) if (c.inputs.contains(&"improphe_cubes") || c.inputs.contains(&"other_cube")) && !run => {
                 format!("# {}: it needs the whole window of a raster run", tool.name)
             }
             Some(c) => {
@@ -440,6 +444,8 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
     let want_spectrum = has("spectrum");
     let want_nbar = has("nbar_cube");
     let want_improphe = has("improphe_cubes");
+    // another series the call reads (a lagged correlation's driver), over its whole grid
+    let want_other = has("other_cube");
     // whether each call reads the harmonized series (an Analysis-ready data chain's step after NBAR or the adjustment)
     let mut harm_call = vec![false; calls.len()];
     for (k, item) in sequence.iter().enumerate() {
@@ -785,16 +791,25 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
         }
         // ImproPhe: the fine series (every band of each date but the quality band, the dates it refuses missing) and the
         // coarse one over its whole grid
-        if want_improphe {
-            let other = spec.other.ok_or("choose the series to sharpen first: ImproPhe's script reads it")?;
+        if want_improphe || want_other {
+            // the other series' variable: ImproPhe's coarse series, or a call's `other_cube`
+            let cvar = if want_improphe { "coarse_cube" } else { "other_cube" };
+            let other = spec.other.ok_or(if want_improphe {
+                "choose the series to sharpen first: ImproPhe's script reads it"
+            } else {
+                "choose the driver series first: the script reads it"
+            })?;
             if !info.time_is_date {
-                return Err(
-                    "ImproPhe needs a series with real dates (the seasonal windows are days of the year)".into()
-                );
+                return Err(if want_improphe {
+                    "ImproPhe needs a series with real dates (the seasonal windows are days of the year)"
+                } else {
+                    "a lagged correlation needs a series with real dates"
+                }
+                .into());
             }
             let band_name =
                 |i: &CubeInfo, b: i32| i.band_names.get(b as usize - 1).cloned().unwrap_or(format!("band {b}"));
-            if want_improphe_files {
+            if want_improphe && want_improphe_files {
                 let bands: Vec<i32> = (1..=rd.bpd as i32).filter(|&b| !(qa_on && b == sel.qa_band)).collect();
                 let fine_names = unique(bands.iter().map(|&b| band_name(info, b)).collect());
                 body.line("# ImproPhe's fine series: every band of each date but the quality band");
@@ -817,6 +832,11 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
             let ofirst = &other.layers[0];
             let cbands: Vec<i32> =
                 (1..=crd.bpd as i32).filter(|&b| !(other.sel.qa_band > 0 && b == other.sel.qa_band)).collect();
+            // a driver is one series: its first band of each date
+            let cbands: Vec<i32> = if want_improphe { cbands } else { cbands.into_iter().take(1).collect() };
+            if want_other && !want_improphe && !other.time_is_date {
+                return Err("the driver series needs real dates: not in Copy Python for one without".into());
+            }
             let by = calls
                 .iter()
                 .find(|(_, _, c)| c.inputs.contains(&"improphe_cubes"))
@@ -831,7 +851,11 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
             };
             let scale_arg = if scale { ", scale=True" } else { "" };
             new_zeit.set(new_zeit.get() || scale);
-            body.line("# the coarse series: every band of each date but its quality band, over its whole grid");
+            body.line(if want_improphe {
+                "# the coarse series: every band of each date but its quality band, over its whole grid"
+            } else {
+                "# the driver series: its first band of each date, over its whole grid (Zeit puts it on the series' grid)"
+            });
             body.line(format!("coarse_src = {}", crd.src));
             let load = |extra: String| format!("zeit.load_raster(coarse_src{extra}{scale_arg}, masked=True{dates})");
             let cnames = unique(cbands.iter().map(|&b| band_name(other, b)).collect());
@@ -842,16 +866,16 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
                 } else {
                     format!(".isel(band={}).assign_coords(band={})", ints(&pos), names_list(&cnames))
                 };
-                body.line(format!("coarse_cube = {}{cut}", load(String::new())));
+                body.line(format!("{cvar} = {}{cut}", load(String::new())));
             } else if cbands.len() == 1 {
                 let band = if crd.bpd > 1 { format!(", band={}", cbands[0]) } else { String::new() };
-                body.line(format!("coarse_cube = {}", load(band)));
+                body.line(format!("{cvar} = {}", load(band)));
             } else {
                 new_zeit.set(true);
                 let dict: Vec<String> = cnames.iter().zip(&cbands).map(|(n, b)| format!("{}: {b}", dq(n))).collect();
-                body.line(format!("coarse_cube = {}", load(format!(", bands={{{}}}", dict.join(", ")))));
+                body.line(format!("{cvar} = {}", load(format!(", bands={{{}}}", dict.join(", ")))));
             }
-            if !other.time_is_date {
+            if want_improphe && !other.time_is_date {
                 if by == "scenes" {
                     body.line(format!(
                         "coarse_cube = coarse_cube.assign_coords(time=np.arange({}))  # scenes, not years",
@@ -1187,7 +1211,9 @@ pub fn pixel_script(spec: &Spec) -> Result<String, String> {
         spec.name,
         // what `load_raster` and the indices gained in Zeit 3.2: scale=, qa=, bands=, window=, pixel=, nd; and in 3.2.1
         // what the pin's code did by hand
-        if zeit_321.get() {
+        if calls.iter().any(|(_, _, c)| c.tool == "eof" || c.tool == "lagged_correlation") {
+            ZEIT_WITH_EOF
+        } else if zeit_321.get() {
             "\"zeit-cdts>=3.2.1\""
         } else if new_zeit.get() {
             "\"zeit-cdts>=3.2\""
