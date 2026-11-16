@@ -1127,6 +1127,50 @@ impl HighRes {
             });
         });
     }
+
+    /// For the guides' tours: nothing left to do for the current point (its listing done or failed, each card
+    /// drawn or failed, no job on it). `None` while there is no current point.
+    pub(crate) fn shots_settled(&self) -> Option<bool> {
+        let p = self.point(self.cur?)?;
+        let busy = self.list_job.is_some() || self.render_job.as_ref().is_some_and(|j| j.key == p.key);
+        let cards = match &p.list {
+            ListState::Done(images) => year_groups(images, &self.months_list())
+                .iter()
+                .all(|g| p.imgs.contains_key(&images[g.images[g.default]].date)),
+            ListState::Failed(_) => true,
+            _ => false,
+        };
+        Some(cards && !busy)
+    }
+
+    /// For the guides' tours: the lightbox of the current point opened on `year` (else the first year with an
+    /// image); whether it could be.
+    pub(crate) fn shots_open_lightbox(&mut self, ctx: &egui::Context, year: i32) -> bool {
+        let Some(key) = self.cur else { return false };
+        let Some(images) = self.images_of(key) else { return false };
+        let groups = year_groups(&images, &self.months_list());
+        let Some(k) = groups.iter().position(|g| g.year == year).or((!groups.is_empty()).then_some(0)) else {
+            return false;
+        };
+        self.open_lightbox(ctx, key, k, groups[k].default);
+        true
+    }
+
+    /// For the guides' tours: the lightbox is open and its image drawn (or failed).
+    pub(crate) fn shots_lightbox_ready(&self) -> bool {
+        let Some(lb) = &self.lb else { return false };
+        let Some(images) = self.images_of(lb.key) else { return false };
+        let groups = year_groups(&images, &self.months_list());
+        groups
+            .get(lb.year_i)
+            .and_then(|g| g.images.get(lb.img_i))
+            .is_some_and(|&i| lb.big.contains_key(&images[i].date))
+    }
+
+    /// For the guides' tours: the lightbox closed.
+    pub(crate) fn shots_close_lightbox(&mut self) {
+        self.lb = None;
+    }
 }
 
 /// The high-resolution section at the top of the Chips panel. `key` is the current point (None: no valid one);
