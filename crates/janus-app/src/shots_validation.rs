@@ -37,6 +37,8 @@ pub struct ValShots {
     phase: u8,
     /// the frame of the stage the phase began in
     phase_at: usize,
+    /// the stage's time the lightbox was ready (its modal fades in: the screenshot waits for it)
+    ready_t: f64,
 }
 
 /// The longest the interpretation stage waits for Wayback's imagery (a tour without a network goes on).
@@ -520,9 +522,11 @@ impl State {
                             }
                             sh.val.shot = true;
                             sh.val.phase_at = sh.frames;
+                            sh.val.ready_t = sh.time();
                             return None;
                         }
-                        if sh.frames < sh.val.phase_at + 4 {
+                        if sh.frames < sh.val.phase_at + 4 || sh.time() < sh.val.ready_t + 1.5 {
+                            ctx.request_repaint();
                             return None;
                         }
                         sh.shoot("06-interpretation-lightbox", &[]);

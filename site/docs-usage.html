@@ -208,7 +208,7 @@ becomes the ROI with Alt + click; <strong>Extract series</strong> writes the ser
 every feature (a point's pixel, a polygon's mean) of the active or every
 visible layer to a CSV table. See <a href="#vector-layers">Vector layers</a>.</li>
 <li><strong>Interpretation</strong> (TimeSync style): go through a vector layer's features
-one by one (<code>N</code> / <code>Shift+N</code>), the map centred on each and its series on the
+one by one (<code>←</code> / <code>→</code>), the map centred on each and its series on the
 chart, and label them with keys <code>1</code>–<code>9</code>, a date of change (<code>D</code>) and notes;
 saved as you go and exported as GeoPackage, GeoJSON, Shapefile or CSV.</li>
 <li><strong>Basemap</strong> (Layers panel → Basemap): satellite imagery or a map under the
@@ -488,7 +488,7 @@ answer. Long calls report their progress and stop when the client cancels them.
 <tr><td>Save ROI as vector</td><td>View → <strong>Save ROI as vector...</strong> (or the command palette): the ROI (a rectangle or a polygon, holes kept) as a GeoPackage (<code>.gpkg</code>), GeoJSON (<code>.geojson</code>) or shapefile (<code>.shp</code>, its text in UTF-8), by the name's extension, in the active layer's CRS (a GeoJSON in WGS 84 when the CRS has no EPSG code, as RFC 7946 asks), a feature with <code>name</code>, <code>layer</code> and <code>pixels</code>; <em>Open it as a vector layer</em> adds it to the map. <strong>Alt + click</strong> it later makes the same ROI again, the same pixels inside. A project (File → Save project) keeps the ROI too</td></tr>
 <tr><td>Vector layers</td><td>File → Add vector layer..., the <strong>Layers</strong> panel (<em>Add vector layer...</em>), a drop or the command line: GeoJSON, Shapefile, GeoPackage (each of its layers), KML, FlatGeobuf, GML, GPX or a CSV of points; listed in the <strong>Layers</strong> panel with the series (a new one on top): show/hide, colour, labels (a column's values on the map), move, remove; right click → Zoom to it, Attribute table, Extract series, Interpret. Hovering a point shows its attributes (lines and polygons: hold <code>Alt</code>); see <a href="#vector-layers">Vector layers</a></td></tr>
 <tr><td>Series at points or polygons</td><td>a vector layer → <strong>Extract series...</strong>: the active layer or every visible one, a row per feature (a column per date) or a row per feature and date; CSV</td></tr>
-<tr><td>Interpretation (labelling)</td><td>a vector layer → <strong>Interpret...</strong> (the <strong>Interpretation</strong> panel): <code>N</code> / <code>Shift+N</code> (or Page Down / Page Up) next / previous feature, <code>1</code>–<code>9</code> its label, <code>0</code> clears it, <code>D</code> the date of the change (the date on the map), <code>Shift+D</code> none; notes; <em>Export table...</em></td></tr>
+<tr><td>Interpretation (labelling)</td><td>a vector layer → <strong>Interpret...</strong> (the <strong>Interpretation</strong> panel): <code>←</code> / <code>→</code> (or <code>N</code> / <code>Shift+N</code>, Page Down / Page Up) next / previous feature, <code>O</code> the next without a label, <code>1</code>–<code>9</code> its label, <code>0</code> clears it, <code>D</code> the date of the change (the date on the map), <code>Shift+D</code> none, <code>Q</code> / <code>W</code> / <code>E</code> the confidence, <code>Shift+E</code> another event, <code>[</code> / <code>]</code> the date on the map; with <em>Fraction cover</em> (Validation card): drag over the pixel's cells on an image to paint, right-drag or <code>X</code> erases; notes; <em>Export table...</em>; with <em>Response: one label per year</em> (Validation design or the panel's <em>Response</em>): a bar of years (default: the cube's years; or <code>2018-2023</code>, <code>2017, 2019, 2021-2024</code>, <code>2000-2020/5</code>), class and confidence per year, <em>n/a</em>, <code>Tab</code> / <code>Shift+Tab</code> the next / previous year, validated when every year has one; a row per point and year on export</td></tr>
 <tr><td>Animation</td><td>File → Export animation (<code>Ctrl+Shift+A</code>): dates (from, to, step), frame rate, resolution, GIF / MP4 / WebM, date stamp, legend, scale bar, pins, ROI and vector layers; see <a href="#animation-gif-mp4-webm">Animation</a></td></tr>
 <tr><td>Time</td><td><code>←</code>/<code>→</code> previous/next date, <code>P</code> play/pause, click or drag on the chart; the time bar above the map (play, the date slider, the speed) shows with a series of two dates or more, not with a single image or vector layers alone. Under the slider, each date's <strong>availability</strong>: a bar as tall as the share of the visible area that is valid on that date (no cloud, no gap; of the overview), red under half; the pointer over it gives the share, a click goes to the date</td></tr>
 <tr><td>Map mode, colormap, range</td><td><strong>Display</strong> panel, for the active layer (range is automatic 2–98%, or typed, or dragged on the histogram)</td></tr>
@@ -1458,16 +1458,31 @@ with 16 or more bands, or <code>zeit.save_raster</code>'s file of every year (ba
 their band names (<code>A00</code>, <code>A01</code>...), and opens the <strong>Embeddings</strong> panel. Zeit's
 change detection tools are disabled on them (an embedding has no seasonal
 signal), as Zeit itself refuses them.</p>
+<p><strong>Compact copies.</strong> Janus also reads the int8 copies Zeit writes with
+<code>zeit.save_raster(emb, path, compact=True)</code> (<code>--compact</code> in <code>zeit embeddings</code>),
+a GeoTIFF or COG a quarter of the size, tagged <code>ZEIT_EMBEDDING_ENCODING</code>
+(<code>aef-int8</code> for AlphaEarth, <code>scaled-int8</code> for TESSERA and the rest). They open
+as the float32 file of the same cube: the same dates and dimension bands (the
+<code>scaled-int8</code> file's per-date scale bands are not shown), and the map and the
+Embeddings panel get Zeit's decoded float32 values, NaN where there is no
+embedding; a folder of single-date files (a file a year) opens as a series. What
+reads the files band by band (the calculator, Zeit's tools, Copy Python, zonal
+statistics, warp) refuses them with a message to save float32 in Zeit. A file
+with an encoding this Janus does not know is refused with a message to update
+Janus. Janus writes them too: tick <strong>Compact (int8)</strong> in the download (below).</p>
 <p><strong>Adding them over any series.</strong> In the <strong>Layers</strong> panel, <em>Embeddings</em>: pick the
 source, the years and the cell size (10 m native; coarser cells are the mean of
 the 10 m vectors), the visible area or the ROI, and <strong>Add embeddings</strong>. The size
-is estimated first (Int16, D values per pixel and year) and very large areas are
+is estimated first (Int16, or Int8 when compact; D values per pixel and year) and very large areas are
 refused. Janus downloads them itself, no Python needed, in the background (a bar on the map tells the year and
 the time left; <strong>Tools → Tasks</strong> has its log) and writes one GeoTIFF per year
 under <code>%LOCALAPPDATA%\Janus\results\embeddings</code>; the layer is added on top,
 reprojected if the series is in another CRS, while the series you were studying
 stays active. The first AlphaEarth download fetches its file index (78 MB, once
-a month).</p>
+a month).
+<strong>Compact (int8)</strong>, off by default, writes Zeit's compact copy of each year instead of Int16
+(about half the size, the size shown is for it); the Embeddings views read it, the
+calculator and the Zeit tools do not.</p>
 <p><strong>Views</strong> (Embeddings panel):</p>
 <ul>
 <li><em>Principal components (RGB)</em>: three components (PC1-3 by default; any of the
@@ -1640,16 +1655,23 @@ one by one, as TimeSync does with Landsat. The map goes to each one (zoomed
 in to at least the <em>zoom on each</em> setting; a polygon whole) and its series is
 on the chart: a point gets a pin, a polygon becomes the ROI.</p>
 <ul>
-<li><code>N</code> / <code>Shift+N</code> (or Page Down / Page Up, or the arrows in the panel): next
-/ previous feature; <em>Skip labelled</em> goes to those without a label only;
-<em>Next after a label</em> moves on by itself.</li>
+<li><code>←</code> / <code>→</code> (or <code>N</code> / <code>Shift+N</code>, Page Down / Page Up): previous / next
+feature; <code>O</code> (or <em>next open</em> in the panel) goes to the next one without a
+label; the <em>Skip labelled</em> checkbox makes the arrows pass the labelled
+features; <em>Next after a label</em> moves on by itself. In a validation project
+<em>Mine to do</em> narrows the list to the points you have not labelled. The
+panel's cards (Point, Validation, Keys), keys and navigation follow
+Validation Viewer by Dr. Matthias Baumann (Humboldt-Universität zu Berlin).
+<em>Validation &amp; uncertainty → Interpretation layout</em> arranges the window for
+it (done once by itself at the first interpretation of a run).</li>
 <li><code>1</code>–<code>9</code>: a label of the label set (Stable forest, Deforestation,
 Degradation, Regeneration, Agriculture, Pasture, Water, Cloud / no data,
 Other by default; edit it under <em>Label set</em>); <code>0</code> clears it.</li>
-<li><code>D</code>: the date of the change is the date on the map (go to it with <code>←</code>/<code>→</code>
-or a click on the chart); <code>Shift+D</code> clears it. <em>Notes</em> for anything else.</li>
-<li><code>Shift+1</code> / <code>Shift+2</code> / <code>Shift+3</code>: the label's <em>confidence</em> (low, medium,
-high). <code>E</code> adds another <em>event</em> at the map's date (the label chosen under
+<li><code>D</code>: the date of the change is the date on the map (go to it with <code>[</code> / <code>]</code>
+or a click on the chart; with no interpretation going, the arrows do it);
+<code>Shift+D</code> clears it. <em>Notes</em> for anything else.</li>
+<li><code>Q</code> / <code>W</code> / <code>E</code> (or <code>Shift+1</code> / <code>Shift+2</code> / <code>Shift+3</code>): the label's
+<em>confidence</em> (low, medium, high). <code>Shift+E</code> adds another <em>event</em> at the map's date (the label chosen under
 <em>Other events</em>, else the feature's label): a point degraded, then cleared,
 keeps both.</li>
 <li><strong>Chips</strong> (Validation &amp; uncertainty → Chips, or <em>Chips</em> in the panel): the feature at
@@ -1657,7 +1679,43 @@ every date of the active layer, a small window around it in the map's
 colours (or its RGB composite), the feature's pixel outlined; <em>one per
 year</em> keeps the date nearest the map's day of the year. Click a chip to
 show its date on the map, double click to make it the date of the change.
-The next features' chips are read ahead.</li>
+The next features' chips are read ahead. <code>G</code> shows and hides the grid.
+The cube's cards have a band combination (Map, RGB, CIR, SWIR).</li>
+<li><strong>High-resolution imagery</strong> (top of the Chips panel; <em>Imagery settings</em>
+turns it off): one card a year from the Esri World Imagery Wayback archive
+(the latest image inside the <em>phenology months</em>, 150 m wide by default),
+with the point's pixel (yellow), its 3 x 3 subgrid, the neighbouring
+pixels (dashed) and the exact point (red dot). The WAYBACK badge marks the
+source, <code>+n</code> more images of the year; where Wayback has no tiles at the
+finest zoom (often in rural areas) the card is from a coarser zoom and its
+caption says so. <code>Ctrl</code> + wheel zooms every card, a drag pans them all; a
+click opens the <strong>lightbox</strong> with every image of the year (<code>←</code> / <code>→</code> the
+image, <code>↑</code> / <code>↓</code> the year, <code>Esc</code> closes). The <em>Cache</em> card shows the points
+read ahead (<em>Prefetch ±n</em>), <em>Offline (cache only)</em> sends no request to Esri
+and <em>Download all points</em> fetches every point of the layer in the
+background, so that the sample can be interpreted offline. The images are
+Esri's (attribution: Esri, Maxar, Earthstar Geographics, and the GIS User
+Community); their terms of use apply.</li>
+<li><strong>One label per year</strong> (<em>Response</em> in the panel, as Validation Viewer's):
+the Validation card has a bar of years, each with its class, confidence
+and <em>n/a</em>; <code>Tab</code> / <code>Shift+Tab</code> go to the next / previous year and the map to
+its date. A point is validated when every year has an answer. Export adds
+a row per point and year (CSV) or <code>v_class_&lt;year&gt;</code> / <code>v_conf_&lt;year&gt;</code>.</li>
+<li><strong>Fraction cover</strong> (the Validation card's <em>Label mode</em>, as Validation
+Viewer's): an n x n grid (2 to 10, 5 by default, kept in the project or the
+labels file) in the pixel, drawn over the chips, the Wayback cards and the
+lightbox, its painted cells filled in the class's colour. Pick the class
+(<code>1</code>–<code>9</code> or a click) and drag over the cells to paint them; right-drag or
+<code>X</code> (the cell under the cursor) erases; outside the pixel, or with <code>Shift</code>,
+a drag pans. The fractions belong to the year of the image painted over.
+The card shows the share and cells of each class of the year painted last,
+"k of n² cells labelled" and <em>Clear year</em>. A point is validated when some
+year has every cell painted (or a class label); with no class label its
+reference is the majority class of the latest year painted. Export adds
+<code>frac_&lt;class&gt;</code>, <code>frac_n</code>, <code>frac_labelled</code> and <code>frac_year</code> and a
+<code>&lt;name&gt;_fractions.csv</code> with a row per point and year (the validation report
+writes <code>&lt;project&gt;_fractions.csv</code> and <code>labels_fractions.gpkg</code>). Follows
+Validation Viewer by Dr. Matthias Baumann (Humboldt-Universität zu Berlin).</li>
 <li>The labels are saved a second after each change (in Janus' data folder,
 by file and layer): starting the interpretation of the same file again
 resumes it at the first feature without a label.</li>
@@ -1720,7 +1778,8 @@ disagreement, adjudicated), so the reference is not swayed by the maps.
 Labels describe the ground, not the map: the class, the date of the change,
 the confidence, other events, notes. They are written to the GeoPackage a
 second after each change. <em>Mine to do</em> lists the points you have not
-labelled.</p>
+labelled; <em>Reveal the map after labelling</em> (while blind) lets the Point card
+show the map's class once the point has your label.</p>
 <p><strong>Accuracy</strong> (updated with every label):</p>
 <ul>
 <li><em>Reference labels → the map's classes</em>: how each label reads for this map

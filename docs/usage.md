@@ -1597,9 +1597,13 @@ read as longitude and latitude).
   on the chart: a point gets a pin, a polygon becomes the ROI.
   - `←` / `→` (or `N` / `Shift+N`, Page Down / Page Up): previous / next
     feature; `O` (or *next open* in the panel) goes to the next one without a
-    label; *Skip labelled* goes to those without a label only; *Next after a
-    label* moves on by itself. The panel's cards, keys and navigation follow
+    label; the *Skip labelled* checkbox makes the arrows pass the labelled
+    features; *Next after a label* moves on by itself. In a validation project
+    *Mine to do* narrows the list to the points you have not labelled. The
+    panel's cards (Point, Validation, Keys), keys and navigation follow
     Validation Viewer by Dr. Matthias Baumann (Humboldt-Universität zu Berlin).
+    *Validation & uncertainty → Interpretation layout* arranges the window for
+    it (done once by itself at the first interpretation of a run).
   - `1`–`9`: a label of the label set (Stable forest, Deforestation,
     Degradation, Regeneration, Agriculture, Pasture, Water, Cloud / no data,
     Other by default; edit it under *Label set*); `0` clears it.
@@ -1615,7 +1619,28 @@ read as longitude and latitude).
     colours (or its RGB composite), the feature's pixel outlined; *one per
     year* keeps the date nearest the map's day of the year. Click a chip to
     show its date on the map, double click to make it the date of the change.
-    The next features' chips are read ahead.
+    The next features' chips are read ahead. `G` shows and hides the grid.
+    The cube's cards have a band combination (Map, RGB, CIR, SWIR).
+  - **High-resolution imagery** (top of the Chips panel; *Imagery settings*
+    turns it off): one card a year from the Esri World Imagery Wayback archive
+    (the latest image inside the *phenology months*, 150 m wide by default),
+    with the point's pixel (yellow), its 3 x 3 subgrid, the neighbouring
+    pixels (dashed) and the exact point (red dot). The WAYBACK badge marks the
+    source, `+n` more images of the year; where Wayback has no tiles at the
+    finest zoom (often in rural areas) the card is from a coarser zoom and its
+    caption says so. `Ctrl` + wheel zooms every card, a drag pans them all; a
+    click opens the **lightbox** with every image of the year (`←` / `→` the
+    image, `↑` / `↓` the year, `Esc` closes). The *Cache* card shows the points
+    read ahead (*Prefetch ±n*), *Offline (cache only)* sends no request to Esri
+    and *Download all points* fetches every point of the layer in the
+    background, so that the sample can be interpreted offline. The images are
+    Esri's (attribution: Esri, Maxar, Earthstar Geographics, and the GIS User
+    Community); their terms of use apply.
+  - **One label per year** (*Response* in the panel, as Validation Viewer's):
+    the Validation card has a bar of years, each with its class, confidence
+    and *n/a*; `Tab` / `Shift+Tab` go to the next / previous year and the map to
+    its date. A point is validated when every year has an answer. Export adds
+    a row per point and year (CSV) or `v_class_<year>` / `v_conf_<year>`.
   - **Fraction cover** (the Validation card's *Label mode*, as Validation
     Viewer's): an n x n grid (2 to 10, 5 by default, kept in the project or the
     labels file) in the pixel, drawn over the chips, the Wayback cards and the
@@ -1692,7 +1717,8 @@ disagreement, adjudicated), so the reference is not swayed by the maps.
 Labels describe the ground, not the map: the class, the date of the change,
 the confidence, other events, notes. They are written to the GeoPackage a
 second after each change. *Mine to do* lists the points you have not
-labelled.
+labelled; *Reveal the map after labelling* (while blind) lets the Point card
+show the map's class once the point has your label.
 
 **Accuracy** (updated with every label):
 

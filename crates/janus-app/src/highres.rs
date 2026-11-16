@@ -5,7 +5,7 @@
 //!
 //! Around the current point the cards of the nearest ones are made ready too (the listing, then the tiles of one image
 //! a year, onto the disk; nothing but the current point's cards is kept as textures), the listings are kept on disk
-//! for a month, an Offline switch lets nothing out to the network, and "Download all points" does the same for every
+//! for a month (a day when some dates are missing), an Offline switch lets nothing out to the network, and "Download all points" does the same for every
 //! point of the layer being interpreted.
 //!
 //! The high-resolution cards and the lightbox, and the prefetch of the points around the current one, the cache on

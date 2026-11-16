@@ -195,7 +195,9 @@ pixel and point overlay, the Esri Wayback imagery, the point and validation
 cards) is based on
 [Validation Viewer](https://scm.cms.hu-berlin.de/baumamat/validationviewer)
 by Dr. Matthias Baumann (Humboldt-Universität zu Berlin), GPL-2.0-or-later,
-used here under GPL-3.0-or-later; parts of its code are ported to Rust.
+used here under GPL-3.0-or-later; parts of its code are ported to Rust. The
+Wayback images themselves are Esri's (Esri, Maxar, Earthstar Geographics, and
+the GIS User Community) and their terms of use apply.
 
 ---
 
