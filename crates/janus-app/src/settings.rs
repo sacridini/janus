@@ -53,6 +53,15 @@ pub struct Settings {
     /// the projects opened or saved last, newest first; the last session opened again at the start
     pub recent_projects: Vec<String>,
     pub reopen_last: bool,
+    /// the Chips panel: the high-resolution imagery on, the chip's side in metres, the months that choose a year's
+    /// image (bit 0: January), the points made ready on each side of the current one, no network at all
+    pub hr_enabled: bool,
+    pub hr_chip_m: u32,
+    pub hr_months: u16,
+    pub hr_window: usize,
+    pub hr_offline: bool,
+    /// the Chips panel's band combination (chips.rs's `Combo::key`)
+    pub chip_combo: String,
 }
 
 impl Settings {
@@ -101,6 +110,12 @@ impl Default for Settings {
             minimap: false,
             recent_projects: Vec::new(),
             reopen_last: false,
+            hr_enabled: true,
+            hr_chip_m: 150,
+            hr_months: 0,
+            hr_window: crate::highres::DEFAULT_WINDOW,
+            hr_offline: false,
+            chip_combo: "map".into(),
         }
     }
 }
@@ -186,6 +201,15 @@ pub fn parse(text: &str) -> (Settings, BasemapSetting) {
             // off unless the user turns it on (ReopenLastSession, on by default in 1.6.0-1.6.1 and written by every
             // run, is not read)
             ("janus", "ReopenLast") => s.reopen_last = int() == Some(1),
+            ("janus", "HighRes") => s.hr_enabled = int() != Some(0),
+            ("janus", "HighResChipM") => s.hr_chip_m = int().unwrap_or(150).clamp(60, 600) as u32,
+            ("janus", "HighResMonths") => s.hr_months = int().unwrap_or(0).clamp(0, 0xfff) as u16,
+            ("janus", "HighResWindow") => {
+                let max = crate::highres::MAX_WINDOW as i64;
+                s.hr_window = int().unwrap_or(crate::highres::DEFAULT_WINDOW as i64).clamp(0, max) as usize
+            }
+            ("janus", "HighResOffline") => s.hr_offline = int() == Some(1),
+            ("janus", "ChipCombo") => s.chip_combo = v.trim().to_string(),
             ("janus", "Style") => {
                 if let Some((name, style)) = v.split_once('\t') {
                     s.styles.push((name.to_string(), style.to_string()));
@@ -260,6 +284,15 @@ pub fn to_ini(s: &Settings, b: &crate::basemap::BasemapUi) -> String {
         out += &format!("RecentProject={p}\n");
     }
     out += &format!("ReopenLast={}\n", i32::from(s.reopen_last));
+    out += &format!(
+        "HighRes={}\nHighResChipM={}\nHighResMonths={}\nHighResWindow={}\nHighResOffline={}\nChipCombo={}\n",
+        i32::from(s.hr_enabled),
+        s.hr_chip_m,
+        s.hr_months,
+        s.hr_window,
+        i32::from(s.hr_offline),
+        s.chip_combo
+    );
     for (name, style) in &s.styles {
         out += &format!("Style={name}\t{style}\n");
     }
@@ -990,5 +1023,31 @@ mod tests {
         assert!(s.check_updates);
         let (s4, _) = parse(&to_ini(&Settings { check_updates: false, ..s3 }, &bm));
         assert!(!s4.check_updates);
+    }
+
+    /// The Chips' options: an old file without the keys has the defaults; written, they are read back.
+    #[test]
+    fn chips_options_round_trip() {
+        let (old, _) = parse("[Janus][Settings]\nThreads=2\n");
+        assert!(old.hr_enabled && !old.hr_offline);
+        assert_eq!((old.hr_chip_m, old.hr_months, old.hr_window, old.chip_combo.as_str()), (150, 0, 5, "map"));
+        let bm = crate::basemap::BasemapUi::default();
+        let set = Settings {
+            hr_enabled: false,
+            hr_chip_m: 300,
+            hr_months: 0b0000_0110_0000,
+            hr_window: 12,
+            hr_offline: true,
+            chip_combo: "cir".into(),
+            ..old
+        };
+        let text = to_ini(&set, &bm);
+        assert!(text.contains("HighResWindow=12\n") && text.contains("ChipCombo=cir\n"));
+        let (back, _) = parse(&text);
+        assert!(!back.hr_enabled && back.hr_offline);
+        assert_eq!((back.hr_chip_m, back.hr_months, back.hr_window, back.chip_combo.as_str()), (300, 96, 12, "cir"));
+        // out of range values are brought in
+        let (c, _) = parse("[Janus][Settings]\nHighResChipM=5\nHighResWindow=99\nHighResMonths=70000\n");
+        assert_eq!((c.hr_chip_m, c.hr_window, c.hr_months), (60, 20, 0xfff));
     }
 }
