@@ -382,7 +382,7 @@ impl<'a> Parser<'a> {
                 // a duration: the unit right after the number
                 let n = self.peek().clone();
                 let unit = self.text_of(&n);
-                if n.tok == Tok::Ident && n.span.start == span.end && matches!(unit, "d" | "w" | "y") {
+                if n.tok == Tok::Ident && n.span.start == span.end && matches!(unit, "d" | "w" | "m" | "y") {
                     self.bump(false);
                     let unit = unit.chars().next().unwrap();
                     return Ok(Expr { kind: ExprKind::Duration { n: *v, unit }, span: span.start..n.span.end });
@@ -530,6 +530,18 @@ mod tests {
         assert_eq!(one("ndvi[-1]"), "ndvi[(-1)]");
         // a name d apart is not a duration
         assert!(parse("2 d").is_err());
+        assert!(parse("2 m").is_err());
+    }
+
+    #[test]
+    fn months() {
+        assert_eq!(one("lag(ndvi, 1m)"), "lag(ndvi, 1m)");
+        assert_eq!(one("corr(a, b, lag=2m, method=spearman)"), "corr(a, b, lag=2m, method=spearman)");
+        // a variable named m is still one
+        assert_eq!(one("m * 2 + 3 * m"), "((m * 2) + (3 * m))");
+        assert_eq!(one("f(m, 2)"), "f(m, 2)");
+        let a = parse("m = 4\nm / 2").unwrap();
+        assert_eq!(a.stmts[0].target.as_ref().unwrap().0, "m");
     }
 
     #[test]

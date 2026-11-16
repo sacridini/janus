@@ -122,9 +122,9 @@ pub enum Over {
     By(Period),
     /// the dates of the last this many days up to each date (pandas' rolling("90D")): a series
     Window(f64),
-    /// the date this many days before each date (or the same day `years` years before), the nearest within a
-    /// tolerance: a series
-    LagTime { days: f64, years: i32 },
+    /// the date this many days before each date (or the same day `years` years or `months` months before, the day
+    /// of a shorter month clamped to its last), the nearest within a tolerance: a series
+    LagTime { days: f64, years: i32, months: i32 },
     /// the dates before each one, of which the k-th with a value is taken (`ndvi[-1]`): a series
     LagObs(usize),
     /// the dates up to each one (persist's last observations): a series
@@ -177,6 +177,11 @@ pub enum RedFn {
         month: u8,
         day: u8,
     },
+    /// the correlation over the dates of two series (the body and its second program), Pearson's or Spearman's, of
+    /// the dates where both have a value
+    Corr {
+        spearman: bool,
+    },
 }
 
 impl RedFn {
@@ -202,6 +207,8 @@ impl RedFn {
                 (m, 0) => format!("at{year}{m:02}"),
                 (m, d) => format!("at{year}{m:02}{d:02}"),
             },
+            RedFn::Corr { spearman: false } => "corrp".into(),
+            RedFn::Corr { spearman: true } => "corrs".into(),
         }
     }
 
@@ -219,6 +226,8 @@ impl RedFn {
             "first" => RedFn::First,
             "last" => RedFn::Last,
             "longest" => RedFn::Longest,
+            "corrp" => RedFn::Corr { spearman: false },
+            "corrs" => RedFn::Corr { spearman: true },
             _ if s.starts_with("persist") => RedFn::Persist(s["persist".len()..].parse().ok()?),
             _ if s.starts_with("back") => RedFn::Back(s["back".len()..].parse().ok()?),
             _ => RedFn::Percentile(s.strip_prefix('p')?.parse().ok()?),
@@ -231,6 +240,8 @@ impl RedFn {
 #[derive(Clone)]
 pub struct Body<K> {
     pub program: Program,
+    /// corr(x, y): the program of y, over the same inputs as `program` (x's)
+    pub program2: Option<Program>,
     pub inputs: Vec<K>,
     pub series: usize,
     pub over: Over,
@@ -310,10 +321,11 @@ fn is_nan_literal(e: &Expr) -> bool {
     matches!(&e.kind, ExprKind::Name(n) if n.eq_ignore_ascii_case("nan"))
 }
 
-/// Days of a duration (`90d`, `2w`, `1y`).
+/// Days of a duration (`90d`, `2w`, `3m`, `1y`).
 fn duration_days(n: f64, unit: char) -> f64 {
     match unit {
         'w' => n * 7.0,
+        'm' => n * 30.4375,
         'y' => n * 365.25,
         _ => n,
     }
@@ -626,6 +638,12 @@ impl<S: Scope> Compiler<'_, S> {
             }
             return self.anomaly(b, args, span, env);
         }
+        if name == "corr" {
+            if over != Over::All {
+                return Err(err(span, "corr gives one image (the correlation over all the dates): no by"));
+            }
+            return self.corr(b, args, span, env);
+        }
         if let Some(k) = args.iter().find(|a| matches!(a.kind, ExprKind::Keyword { .. })) {
             return Err(err(&k.span, format!("{name}() takes no option by name")));
         }
@@ -637,14 +655,17 @@ impl<S: Scope> Compiler<'_, S> {
         let own = match name {
             "lag" => Some(match &args[1].kind {
                 ExprKind::Duration { n, unit: 'y' } if n.fract() == 0.0 && *n >= 1.0 => {
-                    (RedFn::Back(1), Over::LagTime { days: *n * 365.25, years: *n as i32 })
+                    (RedFn::Back(1), Over::LagTime { days: *n * 365.25, years: *n as i32, months: 0 })
+                }
+                ExprKind::Duration { n, unit: 'm' } if n.fract() == 0.0 && *n >= 1.0 => {
+                    (RedFn::Back(1), Over::LagTime { days: *n * 30.4375, years: 0, months: *n as i32 })
                 }
                 ExprKind::Duration { n, unit } if *n > 0.0 => {
-                    (RedFn::Back(1), Over::LagTime { days: duration_days(*n, *unit), years: 0 })
+                    (RedFn::Back(1), Over::LagTime { days: duration_days(*n, *unit), years: 0, months: 0 })
                 }
                 _ => {
                     let k = int(&args[1]).ok_or_else(|| {
-                        err(&args[1].span, "a lag is a number of observations (1, 2...) or a duration (30d, 1y)")
+                        err(&args[1].span, "a lag is a number of observations (1, 2...) or a duration (30d, 3m, 1y)")
                     })?;
                     (RedFn::Back(k as u32), Over::LagObs(k))
                 }
@@ -868,6 +889,60 @@ impl<S: Scope> Compiler<'_, S> {
         Ok(self.bin(b, BinFn::Div, d, s))
     }
 
+    /// corr(x, y, lag=, method=): one image, the correlation over the dates of x between x_t and y_{t-lag} (y leads),
+    /// over the dates where both have a value. `lag` is a duration (1m, 30d, 1y) or a number of observations of y
+    /// (lag=2 is lag(y, 2)); `method` is pearson (the default) or spearman.
+    fn corr(
+        &mut self,
+        b: &mut Builder<S::K>,
+        args: &[Expr],
+        span: &Range<usize>,
+        env: usize,
+    ) -> Result<Value, CalcError> {
+        let usage = "corr(x, y, lag=1m, method=pearson)";
+        let (mut series, mut lag, mut spearman) = (Vec::new(), None, false);
+        for a in args {
+            match &a.kind {
+                ExprKind::Keyword { name, value } => match name.as_str() {
+                    "lag" => {
+                        match value.kind {
+                            ExprKind::Duration { n, .. } if n > 0.0 => {}
+                            ExprKind::Num(v) if v.fract() == 0.0 && v >= 0.0 => {}
+                            _ => {
+                                return Err(err(
+                                    &value.span,
+                                    "the lag is a duration (lag=1m, 30d, 1y) or a number of observations (lag=2, 0: none)",
+                                ));
+                            }
+                        }
+                        lag = Some(&**value);
+                    }
+                    "method" => {
+                        spearman = match &value.kind {
+                            ExprKind::Name(n) if n == "pearson" => false,
+                            ExprKind::Name(n) if n == "spearman" => true,
+                            _ => return Err(err(&value.span, "method=pearson or method=spearman")),
+                        }
+                    }
+                    _ => return Err(err(&a.span, format!("corr's options are lag and method: {usage}"))),
+                },
+                _ => series.push(a),
+            }
+        }
+        let [x, y] = series[..] else {
+            return Err(err(span, format!("two series, then options: {usage}")));
+        };
+        // y_{t-lag}: lag(y, ...), a reduction of its own that gives y's value at the date before
+        let y = match lag {
+            Some(l) if !matches!(l.kind, ExprKind::Num(v) if v == 0.0) => Expr {
+                kind: ExprKind::Call { name: "lag".into(), name_span: span.clone(), args: vec![y.clone(), l.clone()] },
+                span: y.span.clone(),
+            },
+            _ => y.clone(),
+        };
+        self.reduction_of(b, RedFn::Corr { spearman }, Over::All, x, Some(&y), span, env)
+    }
+
     /// A reduction over time: its argument compiled as a body at every date of its series (of its slice), reduced
     /// over the dates `over` says; of a value that is the same at every date, the value itself (its count: 1 where
     /// it has one).
@@ -880,13 +955,45 @@ impl<S: Scope> Compiler<'_, S> {
         span: &Range<usize>,
         env: usize,
     ) -> Result<Value, CalcError> {
+        self.reduction_of(b, f, over, arg, None, span, env)
+    }
+
+    /// A reduction of one or two values (`arg2`: corr's y), both compiled in the body's builder: the same inputs,
+    /// a program each.
+    #[allow(clippy::too_many_arguments)]
+    fn reduction_of(
+        &mut self,
+        b: &mut Builder<S::K>,
+        f: RedFn,
+        over: Over,
+        arg: &Expr,
+        arg2: Option<&Expr>,
+        span: &Range<usize>,
+        env: usize,
+    ) -> Result<Value, CalcError> {
         let mut sub: Builder<S::K> = Builder::default();
         self.memo.push(HashMap::new());
         self.slices.push(None);
         let body = self.expr(&mut sub, arg, env);
+        let body2 = match (&body, arg2) {
+            (Ok(_), Some(a)) => Some(self.expr(&mut sub, a, env)),
+            _ => None,
+        };
         self.memo.pop();
         let slice = self.slices.pop().flatten();
         let body = body?;
+        let body2 = body2.transpose()?;
+        if let Some(y) = body2 {
+            let usage = "corr(x, y) is the correlation of two series over their dates";
+            if body.series.is_none() {
+                return Err(err(&arg.span, format!("{usage}: this is the same at every date")));
+            }
+            if y.series.is_none() {
+                let at = arg2.map_or_else(|| span.clone(), |a| a.span.clone());
+                return Err(err(&at, format!("{usage}: this is the same at every date")));
+            }
+            Self::shapes(&[body, y], span)?;
+        }
         let Some(series) = body.series else {
             if matches!(f, RedFn::ArgMax | RedFn::ArgMin | RedFn::First | RedFn::Last | RedFn::Longest) {
                 return Err(err(&arg.span, "this is the same at every date: a series has dates to find"));
@@ -906,7 +1013,9 @@ impl<S: Scope> Compiler<'_, S> {
             return Err(err(span, "a series by year (month) is grouped already"));
         }
         let program = sub.finish(body.node);
-        let v = self.scope.reduce(b, f, Body { program, inputs: sub.inputs.clone(), series, over, slice }, span)?;
+        let program2 = body2.map(|y| sub.finish(y.node));
+        let body = Body { program, program2, inputs: sub.inputs.clone(), series, over, slice };
+        let v = self.scope.reduce(b, f, body, span)?;
         Ok(Value {
             node: v.node,
             series: match over {

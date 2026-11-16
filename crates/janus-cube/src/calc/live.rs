@@ -65,7 +65,8 @@ fn identity() -> Program {
 /// reductions, or periods).
 pub fn body_plan(p: &Plan, j: usize) -> Option<Plan> {
     let st = p.stages.get(j)?;
-    if is_periods(st.series) || st.inputs.iter().any(|k| matches!(k, Key::Stage(_))) {
+    // (a correlation has two programs: it is not read date by date)
+    if is_periods(st.series) || st.body2.is_some() || st.inputs.iter().any(|k| matches!(k, Key::Stage(_))) {
         return None;
     }
     let mut used: Vec<usize> = st

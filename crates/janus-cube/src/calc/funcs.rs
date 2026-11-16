@@ -249,10 +249,21 @@ pub const FUNCS: &[Func] = &[
         "lag",
         "series, k",
         "A series: the value k observations before each date (lag(ndvi, 1), also ndvi[-1]: the pixel's previous value), \
-         or a time before, the nearest date: lag(ndvi, 1y), lag(ndvi, 30d)",
+         or a time before, the nearest date: lag(ndvi, 1y), lag(ndvi, 3m), lag(ndvi, 30d) (m: months, the same day)",
         Group::Time,
         Kind::Reduce,
         (2, 2),
+    ),
+    f(
+        "corr",
+        "x, y, lag=, method=",
+        "The correlation over time between two series, as an image: of the dates where both have a value (at least 3). \
+         lag=1m (or 30d, or a number of observations: lag=2) correlates x with y that long before, y leading: \
+         corr(ndvi, sst, lag=2m); method=spearman for the rank correlation (default pearson). A y with other dates \
+         than x (monthly against 16-day) is matched to them by the date matching: use the same month",
+        Group::Time,
+        Kind::Reduce,
+        (2, 4),
     ),
     f(
         "anomaly",

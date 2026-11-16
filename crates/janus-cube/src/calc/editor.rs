@@ -123,7 +123,7 @@ pub fn classify(text: &str, layers: &[CalcLayer], primary: Option<usize>) -> Vec
                         Some(_) => Class::Unknown,
                         None => Class::Band,
                     }
-                } else if matches!(name, "d" | "w" | "y")
+                } else if matches!(name, "d" | "w" | "m" | "y")
                     && prev_tok(&toks, i).is_some_and(|p| matches!(p.tok, Tok::Num(_)) && p.span.end == t.span.start)
                 {
                     // a duration's unit (90d)
